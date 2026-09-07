@@ -269,6 +269,19 @@ changing what a dataset config or case config *is*:
   separate `[[dataset_sweeps]]`/`[[assignment_sweeps]]` blocks per job
   rather than folding it into one multi-axis block.
 
+  **When not to use a sweep file**: `45x15`, `45x15randomE`, `93x31`, and
+  `spheres-{1000x,50x,1x}` each have a plain `gaussian-{0cg,cg10,cg50}.toml`
+  triple with no list anywhere (`samples` fixed at 500, `cg_iters`
+  fixed/absent per file) — deliberately left as plain dataset configs, not
+  `*.sweep.toml`. There's no list to expand, so a sweep file would only add
+  indirection; more importantly, a dataset's `id` also names its processed-
+  data directory (`${NEURALLS_PROCESSED_DIR}/<id>`) and its MLflow
+  `dataset_id`, so renaming one to fit a sweep-file naming convention risks
+  orphaning already-generated data or MLflow runs on any machine that's
+  already run `generate`/`train` against these families. Only introduce a
+  sweep file when a real list of values is being introduced — never purely
+  for authoring-style consistency.
+
 ## Thin Job Example
 
 ```toml
