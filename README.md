@@ -1,22 +1,19 @@
 # neuralls
 
-`neuralls` is a research and experimentation toolkit for learning neural
-preconditioners for Conjugate Gradient on graph-structured linear systems.
-It supports three common workflows:
+`neuralls` is the experiment codebase behind an ongoing investigation into
+learned (neural-network) preconditioners for Conjugate Gradient on sparse
+linear systems, benchmarked against classical preconditioners (Jacobi,
+IC(0), AMG, POD-2G).
 
-- build processed datasets from raw matrices and archives
-- train one model or a full case-defined batch of assignments
-- compare neural and classical preconditioners under a shared benchmark setup
+Each research question is a **case**: one TOML config binding the datasets,
+training/search jobs, and solver comparisons that make up that experiment.
+Machine-specific data roots are kept out of the repo (`~/.config/neuralls/`)
+so the same case configs reproduce results on any machine.
 
-The project is organized around a **case config**: one top-level TOML file that
-declares the datasets, models, comparisons, and assignment registrations for a
-single assignment family. Machine-specific roots live outside the repo in the
-user config directory.
-
-This checkout is pinned to CUDA 13.0. To change backends later, edit
+This checkout is pinned to CUDA 13.0. To change backends, edit
 `pyproject.toml`, then re-run `uv lock` and `uv sync`.
 
-## What You Need
+## Setup
 
 - Python managed with [`uv`](https://docs.astral.sh/uv/)
 - Access to your own raw matrix data, processed dataset root, and output root
@@ -32,21 +29,30 @@ use the native uv backend instead of the legacy setuptools fallback.
 
 ## Quickstart
 
-The shortest useful path for a new user is:
-
-1. select or create one case config
+1. pick a case config
 2. configure machine-specific data roots once
-3. generate one case's datasets
-4. train one case batch
-5. run or compare a full case
+3. generate that case's datasets
+4. train that case's assignments
+5. run or compare the full case
+6. evaluate trained checkpoints
 
 ### 1. Choose a case config
 
-Checked-in examples currently live under names such as:
+Cases live under `configs/cases/<family>/<variant>.toml`, one directory per
+matrix family:
 
-- `configs/case-ffnn.toml`
-- `configs/case-linear.toml`
-- `configs/case-parametrized.toml`
+- `configs/cases/45x15/` — fixed 45x15 stiffness matrix
+- `configs/cases/45x15randomE/` — parametric family (~100 matrices, randomized
+  Young's moduli)
+- `configs/cases/93x31/`
+- `configs/cases/rectangular-high-condition/` — also has a `sample-sweep.toml`
+  varying 0-CG/CG-10/CG-50 training-set size (1000/2000/5000/10000 samples)
+- `configs/cases/spheres-1000x/`, `spheres-50x/`, `spheres-1x/` — sphere-RVE
+  matrices at decreasing sphere/matrix stiffness contrast
+
+Each family typically has a `default.toml` (classical + POD-2G comparisons)
+and `*-search.toml` variants for neural-network training/search jobs. See
+[Configuration Guide](configs/README.md) for how a case config is assembled.
 
 ### 2. Set machine-specific roots
 
@@ -154,9 +160,9 @@ Use the batch form for a full case, or `generate-single` when you want to
 inspect one dataset config directly.
 
 ```bash
-uv run neuralls generate configs/case-<name>.toml --env-file .env.windows
-uv run neuralls generate-single configs/datasets/<dataset>.toml \
-  --case-config configs/case-<name>.toml \
+uv run neuralls generate configs/cases/45x15/default.toml --env-file .env.windows
+uv run neuralls generate-single configs/datasets/train/45x15/gaussian-cg50.toml \
+  --case-config configs/cases/45x15/default.toml \
   --env-file .env.windows
 ```
 
@@ -167,7 +173,7 @@ when you want to validate one dataset config in isolation.
 ### 4. Train one case batch
 
 ```bash
-uv run neuralls train configs/case-<name>.toml --env-file .env.windows
+uv run neuralls train configs/cases/45x15/default-search.toml --env-file .env.windows
 ```
 
 This trains every assignment declared in the case config and writes aggregate
@@ -176,54 +182,46 @@ training outputs under the resolved output root.
 ### 5. Run or compare a full case
 
 ```bash
-uv run neuralls run configs/case-<name>.toml --env-file .env.windows
-uv run neuralls compare configs/case-<name>.toml --env-file .env.windows
+uv run neuralls run configs/cases/45x15/default.toml --env-file .env.windows
+uv run neuralls compare configs/cases/45x15/default.toml --env-file .env.windows
 ```
 
 `neuralls run` generates datasets as needed and trains the full assignment
 matrix. `neuralls compare` benchmarks the configured solver setups for the same
 case.
 
-## Case Configs
+### 6. Evaluate trained checkpoints
 
-A case config is the authoritative persisted config source for a run family.
-It can contain:
-
-- dataset registry entries under `[[datasets]]`
-- job registry entries under `[[jobs]]`
-- comparison registry entries under `[[comparisons]]`
-- assignment registrations under `[[assignments]]`
-- optional `[mlflow]` topology
-- optional display names under `[names]`
-
-Minimal example:
-
-```toml
-[[datasets]]
-id = "my-dataset"
-path = "datasets/my-dataset.toml"
-
-[[jobs]]
-id = "my-job"
-path = "jobs/<family>/my-job.toml"
-
-[[comparisons]]
-id = "my-solver"
-path = "comparison/my-solver.toml"
-
-[[assignments]]
-id = "my-dataset-my-job"
-dataset = "my-dataset"
-job = "my-job"
+```bash
+uv run neuralls eval configs/cases/45x15/default-search.toml --env-file .env.windows --metric mae
 ```
 
-Important behavior:
+Evaluates trained assignment checkpoints on their logged test splits and logs
+a batch metric plot to MLflow. Restrict to specific assignments with repeated
+`--assignment <id>` flags.
 
-- `[[assignments]]` is the table name for per-run registrations — pairing one job with one dataset
-- relative paths inside the case config resolve against the case file location
-- `${NEURALLS_*}` placeholders are expanded from resolved settings
-- if `[mlflow]` is omitted, local SQLite tracking and local artifact paths are
-  derived from the active settings `output_dir`
+## Case Configs
+
+A case config is the authoritative persisted source for one experiment. It
+binds:
+
+- `[[datasets]]` — processed-dataset generation configs
+- `[[jobs]]` — thin runnable entrypoints (`run.type = "train" | "search" | "fit"`)
+  referencing a model profile, data profile, and training profile
+- `[[comparisons]]` — inline solver-comparison scenarios (matrix, RHS source,
+  seed), evaluated against `[comparison_defaults]` preconditioners
+- `[[assignments]]` — pairs one dataset with one job
+- optional `[mlflow]` topology and `[names]` for training/comparison experiment
+  buckets
+
+Relative paths inside a case config resolve against the case file's own
+directory, and `${NEURALLS_*}` placeholders expand from resolved settings. If
+`[mlflow]` is omitted, local SQLite tracking and artifact paths derive from
+the active settings `output_dir`.
+
+See [Configuration Guide](configs/README.md) for the full schema (dataset,
+model-profile, training-profile, and job anatomy) and the reasoning behind
+each checked-in case.
 
 ## Command Reference
 
@@ -235,6 +233,7 @@ Important behavior:
 | Train all assignments in one case | `uv run neuralls train <case.toml>` |
 | Generate datasets and train the full case | `uv run neuralls run <case.toml>` |
 | Compare solver setups for one case | `uv run neuralls compare <case.toml>` |
+| Evaluate trained checkpoints in one case | `uv run neuralls eval <case.toml>` |
 
 Root-resolution rules are also explicit:
 
@@ -248,23 +247,27 @@ There are no other fallbacks.
 
 ## Configuration Layout
 
-The repo uses one case layer and three lower-level config families:
-
-- `configs/datasets/*.toml`: dataset generation and input-source definitions
-- `configs/models/*.toml`: DLKit model, trainer, loss, and optimizer settings
-- `configs/comparison/*.toml`: solver comparison inputs and preconditioners
-- `configs/case-*.toml`: case configs tying all of the above together
+- `configs/datasets/{train,test}/**/*.toml`: dataset generation and
+  input-source definitions
+- `configs/profiles/model/**/*.toml`: reusable DLKit model architecture
+  fragments
+- `configs/profiles/data/**/*.toml`: shared data-shape profiles referenced by
+  model profiles via `run.data`
+- `configs/profiles/training/**/*.toml`: shared optimization-policy profiles
+- `configs/jobs/**/*.toml`: thin runnable entrypoints binding one model,
+  data, and training profile
+- `configs/cases/**/*.toml`: case configs tying datasets, jobs, and
+  comparisons together into one experiment
 
 Use the narrowest config that matches the task:
 
 - debugging data generation: start with a dataset config
-- validating one architecture: add one model config
-- running repeatable assignment batches: move to a case config
+- validating one architecture: add one model profile and job
+- running a repeatable experiment batch: move to a case config
 
 Additional guidance:
 
 - [Configuration Guide](configs/README.md)
-- [Dataset Config Guide](configs/datasets/README.md)
 - [Architecture Docs](docs/README.md)
 
 ## Outputs

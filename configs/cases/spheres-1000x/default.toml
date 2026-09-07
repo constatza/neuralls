@@ -2,8 +2,8 @@
 tracking_uri = "http://localhost:5000"
 
 [names]
-training = "Train-RectangularHighCondition-POD-2G-CG"
-comparison = "Compare-RectangularHighCondition-POD-2G-CG"
+training = "Train-Spheres1000x-POD-2G-CG"
+comparison = "Compare-Spheres1000x-POD-2G-CG"
 
 [comparison_defaults]
 rtol = 1.0e-6
@@ -44,39 +44,39 @@ coarsening = { method = "target_dim", target_coarse_dim = 300 }
 # dataset), fitted once ahead of time and MLflow-tracked.
 
 [[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-0cg.toml"
-display_name = "Gaussian 0-CG rectangular-high-condition (POD-2G snapshots)"
+path = "../../datasets/train/spheres-1000x/gaussian-0cg.toml"
+display_name = "Gaussian 0-CG spheres-1000x (POD-2G snapshots)"
 
 [[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-cg10.toml"
-display_name = "Gaussian CG-10 rectangular-high-condition (POD-2G snapshots)"
+path = "../../datasets/train/spheres-1000x/gaussian-cg10.toml"
+display_name = "Gaussian CG-10 spheres-1000x (POD-2G snapshots)"
 
 [[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-cg50.toml"
-display_name = "Gaussian CG-50 rectangular-high-condition (POD-2G snapshots)"
+path = "../../datasets/train/spheres-1000x/gaussian-cg50.toml"
+display_name = "Gaussian CG-50 spheres-1000x (POD-2G snapshots)"
 
 [[jobs]]
 id = "pod-2g_0-cg"
-path = "../../jobs/rectangular-high-condition/pod2g-0cg.toml"
+path = "../../jobs/spheres-1000x/pod2g-0cg.toml"
 display_name = "POD-2G (0-CG)"
 
 [[jobs]]
 id = "pod-2g_cg-10"
-path = "../../jobs/rectangular-high-condition/pod2g-cg10.toml"
+path = "../../jobs/spheres-1000x/pod2g-cg10.toml"
 display_name = "POD-2G (CG-10)"
 
 [[jobs]]
 id = "pod-2g_cg-50"
-path = "../../jobs/rectangular-high-condition/pod2g-cg50.toml"
+path = "../../jobs/spheres-1000x/pod2g-cg50.toml"
 display_name = "POD-2G (CG-50)"
 
 [[comparisons]]
-matrix_dataset = "gaussian-cg50-rectangular-high-condition"
+matrix_dataset = "gaussian-cg50-spheres-1000x"
 rhs_source = { kind = "gaussian" }
 seed = 42
 
 [[comparisons]]
-matrix_dataset = "gaussian-cg50-rectangular-high-condition"
+matrix_dataset = "gaussian-cg50-spheres-1000x"
 rhs_source = { kind = "sparse", indices = [
     0,
     1,
@@ -88,14 +88,14 @@ rhs_source = { kind = "sparse", indices = [
 ] }
 
 [[assignments]]
-dataset = "gaussian-0cg-rectangular-high-condition"
+dataset = "gaussian-0cg-spheres-1000x"
 job = "pod-2g_0-cg"
 
 [[assignments]]
-dataset = "gaussian-cg10-rectangular-high-condition"
+dataset = "gaussian-cg10-spheres-1000x"
 job = "pod-2g_cg-10"
 
 [[assignments]]
-dataset = "gaussian-cg50-rectangular-high-condition"
+dataset = "gaussian-cg50-spheres-1000x"
 job = "pod-2g_cg-50"
 

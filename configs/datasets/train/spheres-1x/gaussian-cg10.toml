@@ -1,0 +1,17 @@
+id = "gaussian-cg10-spheres-1x"
+
+[source]
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/spheres-1x.txt"
+
+[generation]
+normalize = "matrix"
+shuffle = true
+seed = 42
+
+[[generation.strategy]]
+name = "gaussian_residuals"
+samples = 500
+cg_iters = 10
+
+[output]
+data_dir = "${NEURALLS_PROCESSED_DIR}"

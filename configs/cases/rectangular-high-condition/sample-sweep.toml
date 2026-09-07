@@ -1,0 +1,171 @@
+[mlflow]
+tracking_uri = "http://localhost:5000"
+
+[names]
+training = "Train-RectangularHighCondition-POD-2G-SampleSweep"
+comparison = "Compare-RectangularHighCondition-POD-2G-SampleSweep"
+
+[comparison_defaults]
+rtol = 1.0e-6
+atol = 1.0e-14
+max_iterations = 200
+stopping_criterion = "residual_norm"
+m_max = 20
+
+[[comparison_defaults.preconditioners]]
+name = "none"
+type = "identity"
+
+[[comparison_defaults.preconditioners]]
+name = "jacobi"
+type = "jacobi"
+
+[[comparison_defaults.preconditioners]]
+name = "ic0"
+type = "ic0"
+
+[[comparison_defaults.preconditioners]]
+name = "amg-dim100"
+type = "amg"
+coarsening = { method = "target_dim", target_coarse_dim = 100 }
+
+[[comparison_defaults.preconditioners]]
+name = "amg-dim200"
+type = "amg"
+coarsening = { method = "target_dim", target_coarse_dim = 200 }
+
+[[comparison_defaults.preconditioners]]
+name = "amg-dim300"
+type = "amg"
+coarsening = { method = "target_dim", target_coarse_dim = 300 }
+
+# pod-2g_0-cg/cg-10/cg-50 are fitted once per sample count via [[assignments]]
+# bound to the [[jobs]] below (a `run.type = "fit"` job per dataset).
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-0cg-1000.toml"
+display_name = "Gaussian 0-CG rectangular-high-condition, 1000 samples (POD-2G snapshots)"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-0cg-2000.toml"
+display_name = "Gaussian 0-CG rectangular-high-condition, 2000 samples (POD-2G snapshots)"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-0cg-5000.toml"
+display_name = "Gaussian 0-CG rectangular-high-condition, 5000 samples (POD-2G snapshots)"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-0cg-10000.toml"
+display_name = "Gaussian 0-CG rectangular-high-condition, 10000 samples (POD-2G snapshots)"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg10-1000.toml"
+display_name = "Gaussian CG-10 rectangular-high-condition, 1000 samples (POD-2G snapshots)"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg10-2000.toml"
+display_name = "Gaussian CG-10 rectangular-high-condition, 2000 samples (POD-2G snapshots)"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg10-5000.toml"
+display_name = "Gaussian CG-10 rectangular-high-condition, 5000 samples (POD-2G snapshots)"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg10-10000.toml"
+display_name = "Gaussian CG-10 rectangular-high-condition, 10000 samples (POD-2G snapshots)"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg50-1000.toml"
+display_name = "Gaussian CG-50 rectangular-high-condition, 1000 samples (POD-2G snapshots)"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg50-2000.toml"
+display_name = "Gaussian CG-50 rectangular-high-condition, 2000 samples (POD-2G snapshots)"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg50-5000.toml"
+display_name = "Gaussian CG-50 rectangular-high-condition, 5000 samples (POD-2G snapshots)"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg50-10000.toml"
+display_name = "Gaussian CG-50 rectangular-high-condition, 10000 samples (POD-2G snapshots)"
+
+[[jobs]]
+id = "pod-2g_0-cg"
+path = "../../jobs/rectangular-high-condition/pod2g-0cg.toml"
+display_name = "POD-2G (0-CG)"
+
+[[jobs]]
+id = "pod-2g_cg-10"
+path = "../../jobs/rectangular-high-condition/pod2g-cg10.toml"
+display_name = "POD-2G (CG-10)"
+
+[[jobs]]
+id = "pod-2g_cg-50"
+path = "../../jobs/rectangular-high-condition/pod2g-cg50.toml"
+display_name = "POD-2G (CG-50)"
+
+[[comparisons]]
+matrix_dataset = "gaussian-cg50-rectangular-high-condition-10000"
+rhs_source = { kind = "gaussian" }
+seed = 42
+
+[[comparisons]]
+matrix_dataset = "gaussian-cg50-rectangular-high-condition-10000"
+rhs_source = { kind = "sparse", indices = [
+    0,
+    1,
+    -1,
+], values = [
+    90.0,
+    100.0,
+    -100.0,
+] }
+
+[[assignments]]
+dataset = "gaussian-0cg-rectangular-high-condition-1000"
+job = "pod-2g_0-cg"
+
+[[assignments]]
+dataset = "gaussian-0cg-rectangular-high-condition-2000"
+job = "pod-2g_0-cg"
+
+[[assignments]]
+dataset = "gaussian-0cg-rectangular-high-condition-5000"
+job = "pod-2g_0-cg"
+
+[[assignments]]
+dataset = "gaussian-0cg-rectangular-high-condition-10000"
+job = "pod-2g_0-cg"
+
+[[assignments]]
+dataset = "gaussian-cg10-rectangular-high-condition-1000"
+job = "pod-2g_cg-10"
+
+[[assignments]]
+dataset = "gaussian-cg10-rectangular-high-condition-2000"
+job = "pod-2g_cg-10"
+
+[[assignments]]
+dataset = "gaussian-cg10-rectangular-high-condition-5000"
+job = "pod-2g_cg-10"
+
+[[assignments]]
+dataset = "gaussian-cg10-rectangular-high-condition-10000"
+job = "pod-2g_cg-10"
+
+[[assignments]]
+dataset = "gaussian-cg50-rectangular-high-condition-1000"
+job = "pod-2g_cg-50"
+
+[[assignments]]
+dataset = "gaussian-cg50-rectangular-high-condition-2000"
+job = "pod-2g_cg-50"
+
+[[assignments]]
+dataset = "gaussian-cg50-rectangular-high-condition-5000"
+job = "pod-2g_cg-50"
+
+[[assignments]]
+dataset = "gaussian-cg50-rectangular-high-condition-10000"
+job = "pod-2g_cg-50"

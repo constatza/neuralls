@@ -1,7 +1,7 @@
-id = "gaussian-cg10-93x31-2000"
+id = "gaussian-cg50-spheres-50x"
 
 [source]
-matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/93x31-displacements/stiffness/subdomain_1_Kaa.txt"
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/spheres-50x.txt"
 
 [generation]
 normalize = "matrix"
@@ -10,8 +10,8 @@ seed = 42
 
 [[generation.strategy]]
 name = "gaussian_residuals"
-samples = 2000
-cg_iters = 10
+samples = 500
+cg_iters = 50
 
 [output]
 data_dir = "${NEURALLS_PROCESSED_DIR}"

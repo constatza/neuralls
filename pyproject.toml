@@ -1,7 +1,7 @@
 [project]
 name = "neuralls"
 version = "0.1.0"
-description = "Add your description here"
+description = "Learned neural preconditioners for Conjugate Gradient on sparse linear systems, benchmarked against classical preconditioners"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [

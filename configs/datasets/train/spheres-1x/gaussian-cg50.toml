@@ -1,7 +1,7 @@
-id = "gaussian-cg50-45x15-2000"
+id = "gaussian-cg50-spheres-1x"
 
 [source]
-matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/45x15-displacements/stiffness/subdomain_1_Kaa.txt"
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/spheres-1x.txt"
 
 [generation]
 normalize = "matrix"
@@ -10,7 +10,7 @@ seed = 42
 
 [[generation.strategy]]
 name = "gaussian_residuals"
-samples = 2000
+samples = 500
 cg_iters = 50
 
 [output]

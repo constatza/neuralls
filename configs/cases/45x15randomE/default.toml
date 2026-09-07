@@ -56,10 +56,6 @@ path = "../../datasets/train/45x15randomE/gaussian-cg50.toml"
 display_name = "Gaussian CG-50 45x15randomE (POD-2G snapshots)"
 
 [[datasets]]
-path = "../../datasets/train/45x15randomE/gaussian-cg50-2000.toml"
-display_name = "Gaussian CG-50 45x15randomE, 2000 samples (POD-2G snapshots)"
-
-[[datasets]]
 path = "../../datasets/test/45x15randomE/gaussian-eval.toml"
 display_name = "Gaussian Eval 45x15randomE (held-out eval matrices)"
 
@@ -160,6 +156,3 @@ job = "pod-2g_cg-10"
 dataset = "gaussian-cg50-45x15randomE"
 job = "pod-2g_cg-50"
 
-[[assignments]]
-dataset = "gaussian-cg50-45x15randomE-2000"
-job = "pod-2g_cg-50"

@@ -1,7 +1,7 @@
-id = "gaussian-cg10-spheres-rve-high-condition-2000"
+id = "gaussian-cg10-rectangular-high-condition-5000"
 
 [source]
-matrix_path = "${NEURALLS_RAW_DIR}/matrices/spheres-rve-high-condition.txt"
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
 
 [generation]
 normalize = "matrix"
@@ -10,7 +10,7 @@ seed = 42
 
 [[generation.strategy]]
 name = "gaussian_residuals"
-samples = 2000
+samples = 5000
 cg_iters = 10
 
 [output]
