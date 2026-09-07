@@ -39,9 +39,12 @@ name = "amg-dim300"
 type = "amg"
 coarsening = { method = "target_dim", target_coarse_dim = 300 }
 
-# pod-2g_0-cg/cg10/cg50 are no longer declared here: they are now [[assignments]]
-# bound to [[jobs]] pod-2g_0-cg/cg10/cg50 below (a `run.type = "fit"` job per
-# dataset), fitted once ahead of time and MLflow-tracked.
+# pod-2g_rank100/200/300 are no longer declared here: they are now [[assignments]]
+# bound to [[jobs]] pod-2g_rank100/200/300 below (a `run.type = "fit"` job per
+# dataset), fitted once ahead of time and MLflow-tracked. Every job (rank) is
+# crossed with every dataset (cg-variant) below — rank is a fit-time
+# hyperparameter independent of which strategy/cg_iters produced the
+# snapshots, so it is deliberately tested against all of them.
 
 [[datasets]]
 path = "../../datasets/train/45x15randomE/gaussian-0cg.toml"
@@ -57,19 +60,19 @@ path = "../../datasets/test/45x15randomE/gaussian-eval.toml"
 display_name = "Gaussian Eval 45x15randomE (held-out eval matrices)"
 
 [[jobs]]
-id = "pod-2g_0-cg"
-path = "../../jobs/45x15randomE/pod2g-0cg.toml"
-display_name = "POD-2G (0-CG)"
+id = "pod-2g_rank100"
+path = "../../jobs/pod2g/pod2g-rank100.toml"
+display_name = "POD-2G (rank 100)"
 
 [[jobs]]
-id = "pod-2g_cg-10"
-path = "../../jobs/45x15randomE/pod2g-cg10.toml"
-display_name = "POD-2G (CG-10)"
+id = "pod-2g_rank200"
+path = "../../jobs/pod2g/pod2g-rank200.toml"
+display_name = "POD-2G (rank 200)"
 
 [[jobs]]
-id = "pod-2g_cg-50"
-path = "../../jobs/45x15randomE/pod2g-cg50.toml"
-display_name = "POD-2G (CG-50)"
+id = "pod-2g_rank300"
+path = "../../jobs/pod2g/pod2g-rank300.toml"
+display_name = "POD-2G (rank 300)"
 
 ## matrix_index below addresses rows of the gaussian-eval dataset (0..14, one row per
 ## excluded-from-training matrix — see configs/datasets/test/45x15randomE/gaussian-eval.toml),
@@ -143,12 +146,36 @@ rhs_source = { kind = "raw_lhs", path = "${NEURALLS_RAW_DIR}/SpectralData/45x15-
 
 [[assignments]]
 dataset = "gaussian-0cg-45x15randomE"
-job = "pod-2g_0-cg"
+job = "pod-2g_rank100"
+
+[[assignments]]
+dataset = "gaussian-0cg-45x15randomE"
+job = "pod-2g_rank200"
+
+[[assignments]]
+dataset = "gaussian-0cg-45x15randomE"
+job = "pod-2g_rank300"
 
 [[assignments]]
 dataset = "gaussian-cg10-45x15randomE"
-job = "pod-2g_cg-10"
+job = "pod-2g_rank100"
+
+[[assignments]]
+dataset = "gaussian-cg10-45x15randomE"
+job = "pod-2g_rank200"
+
+[[assignments]]
+dataset = "gaussian-cg10-45x15randomE"
+job = "pod-2g_rank300"
 
 [[assignments]]
 dataset = "gaussian-cg50-45x15randomE"
-job = "pod-2g_cg-50"
+job = "pod-2g_rank100"
+
+[[assignments]]
+dataset = "gaussian-cg50-45x15randomE"
+job = "pod-2g_rank200"
+
+[[assignments]]
+dataset = "gaussian-cg50-45x15randomE"
+job = "pod-2g_rank300"

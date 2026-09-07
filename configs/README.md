@@ -241,12 +241,17 @@ changing what a dataset config or case config *is*:
   [[dataset_sweeps]]
   label = "cg50-samples"
   path_template = "../../datasets/train/rectangular-high-condition/gaussian-cg50-{value}.toml"
-  values = [1000, 2000, 5000, 10000]
+  values = [1000, 5000, 10000]
 
   [[assignment_sweeps]]
   dataset_sweep = "cg50-samples"
-  job = "pod-2g_cg-50"
+  job = ["pod-2g_rank100", "pod-2g_rank200", "pod-2g_rank300"]
   ```
+
+  `job` may be a single job id (broadcast to every dataset the sweep
+  produces) or a list of job ids (crossed with every dataset — e.g. testing
+  every POD-2G rank against every sample count, since rank is a fit-time
+  hyperparameter independent of which dataset it's fit from).
 
   A `[[dataset_sweeps]]` entry may declare multiple named axes instead of a
   single `values` list — each axis value may be a scalar (fixed, broadcast to
@@ -367,6 +372,10 @@ artifacts are not evaluable until the training run is rerun or repaired.
   hand-type
 - keep shared training policy small and reusable
 - keep jobs thin
+- a job with no family-specific content (e.g. `configs/jobs/pod2g/pod2g-rank{100,200,300}.toml`
+  — a POD-2G fit job's `rank` is a hyperparameter independent of any matrix
+  family) lives once under its own shared directory, referenced by every
+  case that needs it, rather than duplicated per family
 - only special model families should define custom `data.features` / `data.targets`
 - keep case configs as registries and bindings, not payload containers
 

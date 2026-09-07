@@ -94,19 +94,19 @@ def test_expand_sweep_writes_one_file_per_value(
             "normalize": "matrix",
             "shuffle": True,
             "seed": 42,
-            "strategy": [{"name": "gaussian_residuals", "samples": [1000, 2000], "cg_iters": 50}],
+            "strategy": [{"name": "gaussian_residuals", "samples": [1000, 5000], "cg_iters": 50}],
         },
         "output": {"data_dir": "${NEURALLS_PROCESSED_DIR}"},
     }
     written = dataset_sweep_module.expand_sweep(
         spec, output_dir=tmp_path, filename_stem="gaussian-cg50"
     )
-    assert [p.name for p in written] == ["gaussian-cg50-1000.toml", "gaussian-cg50-2000.toml"]
+    assert [p.name for p in written] == ["gaussian-cg50-1000.toml", "gaussian-cg50-5000.toml"]
     assert (tmp_path / "gaussian-cg50-1000.toml").read_text() == (
         _FAMILY_DIR / "gaussian-cg50-1000.toml"
     ).read_text()
-    assert (tmp_path / "gaussian-cg50-2000.toml").read_text() == (
-        _FAMILY_DIR / "gaussian-cg50-2000.toml"
+    assert (tmp_path / "gaussian-cg50-5000.toml").read_text() == (
+        _FAMILY_DIR / "gaussian-cg50-5000.toml"
     ).read_text()
 
 

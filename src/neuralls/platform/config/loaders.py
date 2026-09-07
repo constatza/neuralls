@@ -246,6 +246,25 @@ def _expand_dataset_sweeps(
     return sweep_datasets
 
 
+def _require_assignment_sweep_jobs(sweep: dict[str, Any], dataset_sweep: str) -> list[str]:
+    """Extract and validate one [[assignment_sweeps]] entry's 'job' as a list of job ids.
+
+    'job' may be a single string (that one job, broadcast to every dataset in
+    the referenced dataset_sweep — today's original behavior) or a list of
+    strings (every job crossed with every dataset in the referenced
+    dataset_sweep, e.g. testing every POD-2G rank against every cg-variant
+    instead of pairing them 1:1 by name).
+    """
+    job = sweep.get("job")
+    jobs = job if isinstance(job, list) else [job] if isinstance(job, str) else None
+    if not jobs or any(not isinstance(j, str) or not j.strip() for j in jobs):
+        raise ValueError(
+            f"[[assignment_sweeps]] entry '{dataset_sweep}' has no non-blank 'job' "
+            "(a single job id string, or a non-empty list of job id strings)."
+        )
+    return jobs
+
+
 def _expand_assignment_sweeps(
     raw: dict[str, Any], sweep_datasets: dict[str, list[dict[str, Any]]]
 ) -> None:
@@ -265,25 +284,24 @@ def _expand_assignment_sweeps(
         if not isinstance(sweep, dict):
             continue
         dataset_sweep = sweep.get("dataset_sweep")
-        job_id = sweep.get("job")
         if not isinstance(dataset_sweep, str) or not dataset_sweep.strip():
             raise ValueError("[[assignment_sweeps]] entry is missing a non-blank 'dataset_sweep'.")
-        if not isinstance(job_id, str) or not job_id.strip():
-            raise ValueError(f"[[assignment_sweeps]] entry '{dataset_sweep}' is missing 'job'.")
+        job_ids = _require_assignment_sweep_jobs(sweep, dataset_sweep)
         entries = sweep_datasets.get(dataset_sweep)
         if entries is None:
             raise ValueError(
                 f"[[assignment_sweeps]] entry references unknown dataset_sweeps label "
                 f"'{dataset_sweep}'."
             )
-        for entry in entries:
-            dataset_id = entry.get("id")
-            if not isinstance(dataset_id, str) or not dataset_id.strip():
-                raise ValueError(
-                    f"Dataset sweep '{dataset_sweep}' entry has no resolved id (internal "
-                    "ordering bug: assignment sweeps must expand after dataset ids are filled)."
-                )
-            assignments.append({"dataset": dataset_id, "job": job_id})
+        for job_id in job_ids:
+            for entry in entries:
+                dataset_id = entry.get("id")
+                if not isinstance(dataset_id, str) or not dataset_id.strip():
+                    raise ValueError(
+                        f"Dataset sweep '{dataset_sweep}' entry has no resolved id (internal "
+                        "ordering bug: assignment sweeps must expand after dataset ids are filled)."
+                    )
+                assignments.append({"dataset": dataset_id, "job": job_id})
 
 
 def load_case_config(path: Path, settings: NeurallsSettings) -> CaseConfig:

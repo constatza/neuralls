@@ -39,18 +39,53 @@ name = "amg-dim300"
 type = "amg"
 coarsening = { method = "target_dim", target_coarse_dim = 300 }
 
+# Every rank is fit from every cg-variant's snapshots — rank is a fit-time
+# hyperparameter independent of which strategy/cg_iters produced the
+# snapshots, so it is deliberately tested against all of them, not just the
+# variant a rank historically happened to be paired with by name.
+
 [[comparison_defaults.preconditioners]]
-name = "pod-2g_0-cg"
+name = "pod-2g_rank100_0-cg"
 type = "amg"
 coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-0cg-93x31", n_snapshots = -1, rank = 100 }
 
 [[comparison_defaults.preconditioners]]
-name = "pod-2g_cg-10"
+name = "pod-2g_rank100_cg-10"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg10-93x31", n_snapshots = -1, rank = 100 }
+
+[[comparison_defaults.preconditioners]]
+name = "pod-2g_rank100_cg-50"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg50-93x31", n_snapshots = -1, rank = 100 }
+
+[[comparison_defaults.preconditioners]]
+name = "pod-2g_rank200_0-cg"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-0cg-93x31", n_snapshots = -1, rank = 200 }
+
+[[comparison_defaults.preconditioners]]
+name = "pod-2g_rank200_cg-10"
 type = "amg"
 coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg10-93x31", n_snapshots = -1, rank = 200 }
 
 [[comparison_defaults.preconditioners]]
-name = "pod-2g_cg-50"
+name = "pod-2g_rank200_cg-50"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg50-93x31", n_snapshots = -1, rank = 200 }
+
+[[comparison_defaults.preconditioners]]
+name = "pod-2g_rank300_0-cg"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-0cg-93x31", n_snapshots = -1, rank = 300 }
+
+[[comparison_defaults.preconditioners]]
+name = "pod-2g_rank300_cg-10"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg10-93x31", n_snapshots = -1, rank = 300 }
+
+[[comparison_defaults.preconditioners]]
+name = "pod-2g_rank300_cg-50"
 type = "amg"
 coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg50-93x31", n_snapshots = -1, rank = 300 }
 

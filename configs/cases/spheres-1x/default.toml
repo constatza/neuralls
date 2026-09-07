@@ -39,9 +39,12 @@ name = "amg-dim300"
 type = "amg"
 coarsening = { method = "target_dim", target_coarse_dim = 300 }
 
-# pod-2g_0-cg/cg10/cg50 are no longer declared here: they are now [[assignments]]
-# bound to [[jobs]] pod-2g_0-cg/cg10/cg50 below (a `run.type = "fit"` job per
-# dataset), fitted once ahead of time and MLflow-tracked.
+# pod-2g_rank100/200/300 are no longer declared here: they are now [[assignments]]
+# bound to [[jobs]] pod-2g_rank100/200/300 below (a `run.type = "fit"` job per
+# dataset), fitted once ahead of time and MLflow-tracked. Every job (rank) is
+# crossed with every dataset (cg-variant) below — rank is a fit-time
+# hyperparameter independent of which strategy/cg_iters produced the
+# snapshots, so it is deliberately tested against all of them.
 
 [[datasets]]
 path = "../../datasets/train/spheres-1x/gaussian-0cg.toml"
@@ -53,19 +56,19 @@ path = "../../datasets/train/spheres-1x/gaussian-cg10.toml"
 path = "../../datasets/train/spheres-1x/gaussian-cg50.toml"
 
 [[jobs]]
-id = "pod-2g_0-cg"
-path = "../../jobs/spheres-1x/pod2g-0cg.toml"
-display_name = "POD-2G (0-CG)"
+id = "pod-2g_rank100"
+path = "../../jobs/pod2g/pod2g-rank100.toml"
+display_name = "POD-2G (rank 100)"
 
 [[jobs]]
-id = "pod-2g_cg-10"
-path = "../../jobs/spheres-1x/pod2g-cg10.toml"
-display_name = "POD-2G (CG-10)"
+id = "pod-2g_rank200"
+path = "../../jobs/pod2g/pod2g-rank200.toml"
+display_name = "POD-2G (rank 200)"
 
 [[jobs]]
-id = "pod-2g_cg-50"
-path = "../../jobs/spheres-1x/pod2g-cg50.toml"
-display_name = "POD-2G (CG-50)"
+id = "pod-2g_rank300"
+path = "../../jobs/pod2g/pod2g-rank300.toml"
+display_name = "POD-2G (rank 300)"
 
 [[comparisons]]
 matrix_dataset = "gaussian-cg50-spheres-1x"
@@ -86,12 +89,36 @@ rhs_source = { kind = "sparse", indices = [
 
 [[assignments]]
 dataset = "gaussian-0cg-spheres-1x"
-job = "pod-2g_0-cg"
+job = "pod-2g_rank100"
+
+[[assignments]]
+dataset = "gaussian-0cg-spheres-1x"
+job = "pod-2g_rank200"
+
+[[assignments]]
+dataset = "gaussian-0cg-spheres-1x"
+job = "pod-2g_rank300"
 
 [[assignments]]
 dataset = "gaussian-cg10-spheres-1x"
-job = "pod-2g_cg-10"
+job = "pod-2g_rank100"
+
+[[assignments]]
+dataset = "gaussian-cg10-spheres-1x"
+job = "pod-2g_rank200"
+
+[[assignments]]
+dataset = "gaussian-cg10-spheres-1x"
+job = "pod-2g_rank300"
 
 [[assignments]]
 dataset = "gaussian-cg50-spheres-1x"
-job = "pod-2g_cg-50"
+job = "pod-2g_rank100"
+
+[[assignments]]
+dataset = "gaussian-cg50-spheres-1x"
+job = "pod-2g_rank200"
+
+[[assignments]]
+dataset = "gaussian-cg50-spheres-1x"
+job = "pod-2g_rank300"

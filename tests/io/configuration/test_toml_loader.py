@@ -236,6 +236,65 @@ job = "pod-2g_cg-50"
     assert all(a.job_id == "pod-2g_cg-50" for a in config.assignments)
 
 
+def test_load_case_config_assignment_sweep_job_list_crosses_every_job(
+    tmp_path: Path,
+    neuralls_settings: NeurallsSettings,
+) -> None:
+    """A list-valued 'job' crosses every job with every dataset in the sweep."""
+    _write_dataset_config(tmp_path / "gaussian-cg50-1000.toml", "cg50-1000-id")
+    _write_dataset_config(tmp_path / "gaussian-cg50-2000.toml", "cg50-2000-id")
+    config_file = tmp_path / "case.toml"
+    config_file.write_text(
+        """
+[[dataset_sweeps]]
+label = "cg50-samples"
+path_template = "gaussian-cg50-{value}.toml"
+values = [1000, 2000]
+
+[[jobs]]
+id = "rank100"
+path = "jobs/dummy-job.toml"
+
+[[jobs]]
+id = "rank200"
+path = "jobs/dummy-job.toml"
+
+[[assignment_sweeps]]
+dataset_sweep = "cg50-samples"
+job = ["rank100", "rank200"]
+"""
+    )
+    config = load_case_config(config_file, neuralls_settings)
+    assert [(a.dataset_id, a.job_id) for a in config.assignments] == [
+        ("cg50-1000-id", "rank100"),
+        ("cg50-2000-id", "rank100"),
+        ("cg50-1000-id", "rank200"),
+        ("cg50-2000-id", "rank200"),
+    ]
+
+
+def test_load_case_config_assignment_sweep_rejects_empty_job_list(
+    tmp_path: Path,
+    neuralls_settings: NeurallsSettings,
+) -> None:
+    _write_dataset_config(tmp_path / "gaussian-cg50-1000.toml", "cg50-1000-id")
+    config_file = tmp_path / "case.toml"
+    config_file.write_text(
+        """
+[[dataset_sweeps]]
+label = "cg50-samples"
+path_template = "gaussian-cg50-{value}.toml"
+values = [1000]
+
+[[assignment_sweeps]]
+dataset_sweep = "cg50-samples"
+job = []
+"""
+    )
+    with pytest.raises(ValueError, match="job"):
+        load_case_config(config_file, neuralls_settings)
+
+
 def test_load_case_config_rejects_unknown_dataset_sweep_label(
     tmp_path: Path,
     neuralls_settings: NeurallsSettings,
