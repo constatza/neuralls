@@ -203,7 +203,7 @@ def _display_name(name: str, precond: Preconditioner) -> str:
     """Render machine-style preconditioner names as plot-friendly labels."""
     if isinstance(precond, ScheduledPreconditioner):
         return _display_name(name, precond._primary)
-    return name.replace("_", " ").upper()
+    return name.replace("_", " ").title()
 
 
 def build_preconditioner_labels(

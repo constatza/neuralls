@@ -17,9 +17,9 @@ from neuralls.domain.solver.models.result import CGComparisonResult
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
 from neuralls.shared.types import PreconditionerFamily
 
-DEFAULT_LINE_MARKER_SIZE = 3.0
-DEFAULT_SCATTER_MARKER_AREA = 6.0
-DEFAULT_DIAGNOSTIC_SCATTER_MARKER_AREA = 3.0
+DEFAULT_LINE_MARKER_SIZE = 2.0
+DEFAULT_SCATTER_MARKER_AREA = 4.0
+DEFAULT_DIAGNOSTIC_SCATTER_MARKER_AREA = 2.0
 
 
 def plot_parity_and_residuals(

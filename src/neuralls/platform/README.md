@@ -48,6 +48,11 @@ Auto-generated comparison display names stay dataset-defined: they resolve to
 the matrix dataset label alone when matrix and RHS come from the same dataset,
 or to `{matrix_label} | {rhs_label}` when they differ. Explicitly configured
 comparison display names still override the generated label.
+Reporting labels render machine-style preconditioner names in title case for
+plot legends while preserving the underlying config identifiers and measured
+structural details.
+Plotting defaults keep markers compact so convergence and diagnostic figures
+stay readable when several methods or dense prediction samples are shown.
 
 The DLKit dataset bridge stays generic. Platform helpers construct and patch
 DLKit-native dataset entries with the names supplied by composition, but
