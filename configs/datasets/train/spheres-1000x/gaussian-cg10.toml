@@ -1,7 +1,7 @@
-id = "gaussian-cg10-spheres-rve-high-condition"
+id = "gaussian-cg10-spheres-1000x"
 
 [source]
-matrix_path = "${NEURALLS_RAW_DIR}/matrices/spheres-rve-high-condition.txt"
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/spheres-1000x.txt"
 
 [generation]
 normalize = "matrix"
