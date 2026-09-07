@@ -18,7 +18,7 @@ from neuralls.cli.eval import eval_case_batch
 from neuralls.cli.generate import generate_case
 from neuralls.cli.generate_single import generate_single
 from neuralls.cli.main import app
-from neuralls.cli.run import run_case_matrix
+from neuralls.cli.run import run_case_pipeline_command
 from neuralls.cli.train import train_case_batch
 from neuralls.composition.comparison.models import (
     ComparisonOutcome,
@@ -140,6 +140,7 @@ def test_generate_invokes_batch_workflow(
         cfg=cfg,
         configs_dir=config.resolve().parent,
         settings=settings,
+        force=False,
     )
 
 
@@ -235,7 +236,7 @@ def test_generate_single_invokes_single_dataset_workflow(
 
     assert result.exit_code == 0
     mock_load_settings.assert_called_once_with(case_config, None, profile=None)
-    mock_process_data.assert_called_once_with(dataset_config, settings)
+    mock_process_data.assert_called_once_with(dataset_config, settings, force=False)
 
 
 @patch("neuralls.cli.generate_single.process_data_from_config")
@@ -331,39 +332,32 @@ def test_eval_signature_uses_batch_case_argument() -> None:
 
 
 @patch("neuralls.cli.train.write_metric_report")
-@patch("neuralls.cli.train.train_batch")
-@patch("neuralls.cli.train.load_validated_case_config")
+@patch("neuralls.cli.train.run_assignment_sweep")
 @patch("neuralls.cli.train.load_case_settings")
 def test_train_invokes_batch_workflow(
     mock_load_settings: MagicMock,
-    mock_load_case_config: MagicMock,
-    mock_train_batch: MagicMock,
+    mock_run_assignment_sweep: MagicMock,
     mock_write_metric_report: MagicMock,
     tmp_path: Path,
 ) -> None:
     config = tmp_path / "case.toml"
     config.write_text("", encoding="utf-8")
     settings = MagicMock()
-    cfg = MagicMock()
-    batch = MagicMock()
+    sweep_result = MagicMock(results=[], parent_run_id="parent-run-1")
     mock_load_settings.return_value = settings
-    mock_load_case_config.return_value = (cfg, MagicMock())
-    mock_train_batch.return_value = batch
+    mock_run_assignment_sweep.return_value = sweep_result
     mock_write_metric_report.return_value = True
 
     result = runner.invoke(app, ["train", str(config)])
 
     assert result.exit_code == 0
     mock_load_settings.assert_called_once_with(config, None, profile=None)
-    mock_load_case_config.assert_called_once_with(config, settings)
-    mock_train_batch.assert_called_once_with(
-        cfg=cfg,
-        configs_dir=config.resolve().parent,
-        settings=settings,
-        output_root=None,
+    mock_run_assignment_sweep.assert_called_once_with(
         case_config_path=config.resolve(),
+        settings=settings,
+        force=False,
     )
-    mock_write_metric_report.assert_called_once_with(batch, metric="eval/mae")
+    mock_write_metric_report.assert_called_once_with(sweep_result, metric="eval/mae")
 
 
 @patch("neuralls.cli.eval.write_eval_metric_report")
@@ -407,36 +401,43 @@ def test_eval_invokes_batch_workflow(
 
 
 def test_run_signature_uses_batch_case_argument() -> None:
-    config = get_args(get_type_hints(run_case_matrix, include_extras=True)["config"])[1]
+    config = get_args(get_type_hints(run_case_pipeline_command, include_extras=True)["config"])[1]
 
     assert isinstance(config, ArgumentInfo)
     assert config.default is ...
 
 
-@patch("neuralls.cli.run.run_assignment_matrix")
+@patch("neuralls.cli.run.run_case_pipeline")
 @patch("neuralls.cli.run.load_case_settings")
 def test_run_invokes_batch_workflow(
     mock_load_settings: MagicMock,
-    mock_run_assignment_matrix: MagicMock,
+    mock_run_case_pipeline: MagicMock,
     tmp_path: Path,
 ) -> None:
     config = tmp_path / "case.toml"
     config.write_text("", encoding="utf-8")
     settings = MagicMock()
     mock_load_settings.return_value = settings
-    mock_run_assignment_matrix.return_value = [
-        AssignmentResult(assignment_id="exp-1", assignment_display_name="exp-1", status="Success"),
-    ]
+    mock_run_case_pipeline.return_value = (
+        [
+            AssignmentResult(
+                assignment_id="exp-1", assignment_display_name="exp-1", status="Success"
+            )
+        ],
+        [],
+    )
 
     result = runner.invoke(app, ["run", str(config)])
 
     assert result.exit_code == 0
     mock_load_settings.assert_called_once_with(config, None, profile=None)
-    mock_run_assignment_matrix.assert_called_once()
-    call_kwargs = mock_run_assignment_matrix.call_args.kwargs
+    mock_run_case_pipeline.assert_called_once()
+    call_kwargs = mock_run_case_pipeline.call_args.kwargs
     assert call_kwargs["case_config_path"] == config
     assert call_kwargs["settings"] == settings
-    assert call_kwargs["force"] is False
+    assert call_kwargs["force_train"] is False
+    assert call_kwargs["force_generate"] is False
+    assert call_kwargs["force_compare"] is False
     assert call_kwargs["max_epochs"] is None
 
 

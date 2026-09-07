@@ -1207,6 +1207,8 @@ def test_run_comparison_batch_preserves_declared_order(tmp_path: Path) -> None:
         topology: object,
         experiments_config_path: Path,
         settings: NeurallsSettings,
+        *,
+        force: bool = False,
     ) -> list[ComparisonOutcome]:
         return [
             ComparisonOutcome(

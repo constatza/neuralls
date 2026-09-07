@@ -39,10 +39,14 @@ def _log_outcomes(outcomes: list[ComparisonOutcome]) -> None:
         logger.info("=" * 80)
         for warning in outcome.warnings:
             logger.warning(warning)
-        if outcome.success and outcome.payload:
+        if not outcome.success:
+            logger.error(f"Comparison failed: {outcome.error}")
+        elif outcome.payload:
             _log_comparison_results(outcome.payload)
         else:
-            logger.error(f"Comparison failed: {outcome.error}")
+            # Success with no payload means the reuse-check found a matching
+            # comparison already run and skipped recomputing it.
+            logger.info("Using existing MLflow comparison result (skipped rerun).")
 
     logger.info("")
     logger.info("=" * 80)
@@ -66,11 +70,17 @@ def _log_outcomes(outcomes: list[ComparisonOutcome]) -> None:
 
 def compare_case(
     config: CaseConfigArgument,
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Rerun every comparison even if a matching one already exists.",
+    ),
     env_file: EnvFileOption = None,
     profile: ProfileOption = None,
 ) -> None:
     """Benchmark classical and neural preconditioners for one case config."""
-    params = ComparisonParams()
+    params = ComparisonParams(force=force)
 
     try:
         settings = load_case_settings(config, env_file, profile=profile)

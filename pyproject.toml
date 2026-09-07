@@ -10,7 +10,6 @@ dependencies = [
     "loguru>=0.7.3",
     "numba>=0.63.1",
     "platformdirs>=4.0",
-    "prefect-dask>=0.3.6",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.14.0",
     "scipy-stubs==1.16.2.0",

@@ -300,7 +300,7 @@ def test_eval_batch_continues_after_one_assignment_fails(
 ) -> None:
     """One failing assignment must not discard the rest of the batch's results.
 
-    Mirrors train_batch's resilience (multi_training.py): a per-assignment
+    Mirrors run_assignment_sweep's resilience (training_batch.py): a per-assignment
     failure is logged and skipped, not allowed to abort the whole batch and
     lose already-completed reporting.
     """

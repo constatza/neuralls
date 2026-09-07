@@ -1,11 +1,16 @@
 """Tests for find_successful_run's filter-string construction and result parsing,
-and for mark_run_failed's best-effort status update."""
+find_successful_comparison_run's equivalent for comparisons, and mark_run_failed's
+best-effort status update."""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from neuralls.platform.tracking.mlflow_client import find_successful_run, mark_run_failed
+from neuralls.platform.tracking.mlflow_client import (
+    find_successful_comparison_run,
+    find_successful_run,
+    mark_run_failed,
+)
 
 
 def _mock_client(experiment_id: str | None, runs: list[MagicMock]) -> MagicMock:
@@ -144,6 +149,101 @@ def test_two_different_assignment_ids_produce_different_filters() -> None:
     assert "train-job" in first_filter
     assert "search-job" in second_filter
     assert first_filter != second_filter
+
+
+def test_dataset_hash_is_included_in_filter_when_given() -> None:
+    """A dataset_hash argument adds a tag filter so a regenerated dataset (whose
+    hash no longer matches) doesn't read as an already-trained run."""
+    client = _mock_client(experiment_id="mlflow-exp-1", runs=[])
+    with patch("mlflow.tracking.MlflowClient", return_value=client):
+        find_successful_run(
+            tracking_uri="sqlite:///tracking.db",
+            mlflow_experiment_name="Train",
+            assignment_id="exp-1",
+            dataset_hash="abc123",
+        )
+    _, kwargs = client.search_runs.call_args
+    assert "tags.dataset_hash = 'abc123'" in kwargs["filter_string"]
+
+
+def test_dataset_hash_omitted_when_not_given() -> None:
+    """Omitting dataset_hash preserves the original assignment_id-only filter."""
+    client = _mock_client(experiment_id="mlflow-exp-1", runs=[])
+    with patch("mlflow.tracking.MlflowClient", return_value=client):
+        find_successful_run(
+            tracking_uri="sqlite:///tracking.db",
+            mlflow_experiment_name="Train",
+            assignment_id="exp-1",
+        )
+    _, kwargs = client.search_runs.call_args
+    assert "dataset_hash" not in kwargs["filter_string"]
+
+
+def _mock_comparison_client(experiment_id: str | None, runs: list[MagicMock]) -> MagicMock:
+    client = MagicMock()
+    if experiment_id is None:
+        client.get_experiment_by_name.return_value = None
+    else:
+        client.get_experiment_by_name.return_value = MagicMock(experiment_id=experiment_id)
+    client.search_runs.return_value = runs
+    return client
+
+
+def test_find_successful_comparison_run_returns_none_when_experiment_missing() -> None:
+    client = _mock_comparison_client(experiment_id=None, runs=[])
+    with patch("mlflow.tracking.MlflowClient", return_value=client):
+        result = find_successful_comparison_run(
+            tracking_uri="sqlite:///tracking.db",
+            mlflow_experiment_name="Compare",
+            comparison_id="cmp-1",
+            checkpoint_dependency_hash="sig-1",
+        )
+    assert result is None
+
+
+def test_find_successful_comparison_run_returns_none_when_no_match() -> None:
+    client = _mock_comparison_client(experiment_id="mlflow-exp-1", runs=[])
+    with patch("mlflow.tracking.MlflowClient", return_value=client):
+        result = find_successful_comparison_run(
+            tracking_uri="sqlite:///tracking.db",
+            mlflow_experiment_name="Compare",
+            comparison_id="cmp-1",
+            checkpoint_dependency_hash="sig-1",
+        )
+    assert result is None
+
+
+def test_find_successful_comparison_run_returns_matching_run_id() -> None:
+    run = MagicMock()
+    run.info.run_id = "comp-run-1"
+    client = _mock_comparison_client(experiment_id="mlflow-exp-1", runs=[run])
+    with patch("mlflow.tracking.MlflowClient", return_value=client):
+        result = find_successful_comparison_run(
+            tracking_uri="sqlite:///tracking.db",
+            mlflow_experiment_name="Compare",
+            comparison_id="cmp-1",
+            checkpoint_dependency_hash="sig-1",
+        )
+    assert result == "comp-run-1"
+    _, kwargs = client.search_runs.call_args
+    assert "tags.comparison_id = 'cmp-1'" in kwargs["filter_string"]
+    assert "tags.checkpoint_dependency_hash = 'sig-1'" in kwargs["filter_string"]
+    assert "attributes.status = 'FINISHED'" in kwargs["filter_string"]
+
+
+def test_find_successful_comparison_run_distinguishes_signatures() -> None:
+    """A changed checkpoint_dependency_hash (e.g. after retraining) must not match
+    a run logged under the old signature."""
+    client = _mock_comparison_client(experiment_id="mlflow-exp-1", runs=[])
+    with patch("mlflow.tracking.MlflowClient", return_value=client):
+        find_successful_comparison_run(
+            tracking_uri="sqlite:///tracking.db",
+            mlflow_experiment_name="Compare",
+            comparison_id="cmp-1",
+            checkpoint_dependency_hash="sig-new",
+        )
+    _, kwargs = client.search_runs.call_args
+    assert "sig-new" in kwargs["filter_string"]
 
 
 def test_mark_run_failed_calls_set_terminated_with_failed_status() -> None:

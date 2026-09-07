@@ -1,16 +1,21 @@
 """MLflow client utilities for training workflows.
 
 Pure side-effecting helpers that wrap mlflow / MlflowClient calls.
-No training logic — kept separate so training.py and multi_training.py
+No training logic — kept separate so training.py and training_batch.py
 stay free of low-level MLflow plumbing.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    from mlflow.entities import Run
+    from mlflow.tracking import MlflowClient
 
 _WORKSPACE_ARTIFACT_DIRS: tuple[str, ...] = (
     "config",
@@ -205,11 +210,43 @@ def find_mlflow_run(
     return None
 
 
+def _search_finished_runs(
+    *,
+    client: MlflowClient,
+    mlflow_experiment_name: str,
+    tag_filters: Mapping[str, str],
+    max_results: int,
+) -> list[Run]:
+    """Search FINISHED runs in one experiment matching every given tag, newest first.
+
+    Shared by every "has this already run" reuse check — each caller owns its
+    own tag set and its own policy for picking a match among the results;
+    this only owns the experiment lookup and filter-string mechanics.
+
+    Returns:
+        Matching runs, or an empty list when the experiment doesn't exist —
+        callers don't need a separate "experiment missing" branch.
+    """
+    experiment = client.get_experiment_by_name(mlflow_experiment_name)
+    if experiment is None:
+        return []
+    clauses = ["attributes.status = 'FINISHED'"] + [
+        f"tags.{key} = '{value}'" for key, value in tag_filters.items()
+    ]
+    return client.search_runs(
+        experiment_ids=[experiment.experiment_id],
+        filter_string=" and ".join(clauses),
+        max_results=max_results,
+        order_by=["attributes.start_time DESC"],
+    )
+
+
 def find_successful_run(
     *,
     tracking_uri: str,
     mlflow_experiment_name: str,
     assignment_id: str,
+    dataset_hash: str | None = None,
 ) -> str | None:
     """Return the run_id of the most recent FINISHED run with a checkpoint artifact.
 
@@ -228,6 +265,9 @@ def find_successful_run(
         tracking_uri: MLflow tracking URI.
         mlflow_experiment_name: MLflow experiment (bucket) to search in.
         assignment_id: The assignment's stable id (tagged on its training run).
+        dataset_hash: When given, also require the candidate run's tagged
+            ``dataset_hash`` to match — so a dataset regenerated since that run
+            no longer reads as "already trained" and a rerun picks it up.
 
     Returns:
         The matching run's run_id, or None if no FINISHED run with a checkpoint exists yet.
@@ -235,18 +275,15 @@ def find_successful_run(
     from dlkit.mlflow import has_checkpoint_artifact
     from mlflow.tracking import MlflowClient
 
-    client = MlflowClient(tracking_uri=tracking_uri)
-    experiment = client.get_experiment_by_name(mlflow_experiment_name)
-    if experiment is None:
-        return None
+    tag_filters = {"assignment_id": assignment_id}
+    if dataset_hash is not None:
+        tag_filters["dataset_hash"] = dataset_hash
 
-    runs = client.search_runs(
-        experiment_ids=[experiment.experiment_id],
-        filter_string=(
-            f"tags.assignment_id = '{assignment_id}' and attributes.status = 'FINISHED'"
-        ),
+    runs = _search_finished_runs(
+        client=MlflowClient(tracking_uri=tracking_uri),
+        mlflow_experiment_name=mlflow_experiment_name,
+        tag_filters=tag_filters,
         max_results=20,
-        order_by=["attributes.start_time DESC"],
     )
     for run in runs:
         if has_checkpoint_artifact(run.info.run_id, tracking_uri=tracking_uri):
@@ -258,6 +295,47 @@ def find_successful_run(
             assignment_id,
         )
     return None
+
+
+def find_successful_comparison_run(
+    *,
+    tracking_uri: str,
+    mlflow_experiment_name: str,
+    comparison_id: str,
+    checkpoint_dependency_hash: str,
+) -> str | None:
+    """Return the run_id of the most recent FINISHED comparison run with this dependency hash.
+
+    Used to decide whether a ``[[comparisons]]`` entry has already been run against
+    the exact same resolved preconditioner checkpoints, so a batch rerun can skip
+    recomputing it. Unlike `find_successful_run`, no separate artifact check is
+    needed: a comparison run only reaches FINISHED after its result artifacts are
+    staged and logged inside the same ``mlflow.start_run()`` block that created it
+    (no split closing step like dlkit's training runs have).
+
+    Args:
+        tracking_uri: MLflow tracking URI.
+        mlflow_experiment_name: MLflow experiment (bucket) to search in.
+        comparison_id: The comparison entry's stable id (tagged on its run).
+        checkpoint_dependency_hash: Hash of the resolved checkpoints this
+            comparison depends on — a fresh training run changes this and
+            invalidates the cached comparison.
+
+    Returns:
+        The matching run's run_id, or None if no matching FINISHED run exists yet.
+    """
+    from mlflow.tracking import MlflowClient
+
+    runs = _search_finished_runs(
+        client=MlflowClient(tracking_uri=tracking_uri),
+        mlflow_experiment_name=mlflow_experiment_name,
+        tag_filters={
+            "comparison_id": comparison_id,
+            "checkpoint_dependency_hash": checkpoint_dependency_hash,
+        },
+        max_results=1,
+    )
+    return runs[0].info.run_id if runs else None
 
 
 def log_diagnostics_to_mlflow(

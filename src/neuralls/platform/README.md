@@ -9,7 +9,7 @@ The platform package isolates external integrations and side-effecting helpers.
 - `tracking/`: MLflow run helpers, naming/query policy, workflow topology resolution, and client adapters
 - `reporting/`: plotting, artifact staging, and inference output adapters
 - `dlkit/`: DLKit-backed adapters for solver preconditioners and batch inference
-- `caching.py`: directory hashing for workflow cache invalidation
+- `caching.py`: directory hashing for source-tree cache invalidation, and dataset artifact fingerprinting (size+mtime) for training reuse-check invalidation
 
 ## Semantic Difference
 
@@ -123,6 +123,17 @@ filter escaping, workflow tracking-environment resolution, artifact path
 selection, lease-backed artifact access, and comparison-run metric logging all
 stay under `platform.tracking` so orchestration code does not reimplement
 third-party rules.
+Reuse-check filter construction lives here too: `find_successful_run` matches on
+`assignment_id` plus an optional `dataset_hash` tag (composition regenerates
+this from `caching.compute_dataset_fingerprint` after each dataset generation,
+so a regenerated dataset no longer matches its prior "already trained" run),
+and `find_successful_comparison_run` matches on `comparison_id` plus a
+`checkpoint_dependency_hash` tag composition derives from each resolved
+checkpoint's `resolved_run_id` (not a file hash — a checkpoint is re-leased to
+a fresh temp path on every run, so `resolved_run_id`, MLflow's own stable
+identity for "which training run produced this," is what's hashed) —
+composition owns computing and tagging these values; platform only owns the
+MLflow filter/search mechanics.
 MLflow artifact recovery follows the same boundary. Platform tracking helpers
 resolve and validate checkpoints, split JSON, and staged config artifacts
 through an `ArtifactLeaseManager` protocol with explicit abstract methods.

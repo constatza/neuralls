@@ -17,6 +17,8 @@ from neuralls.platform.storage.base import load_matrix
 def process_data_from_config(
     config_path: Path,
     settings: NeurallsSettings,
+    *,
+    force: bool = False,
 ) -> Path:
     """Unified entry point for data collection and generation.
 
@@ -26,6 +28,7 @@ def process_data_from_config(
     Args:
         config_path: Path to TOML data configuration file.
         settings: Resolved runtime settings.
+        force: Regenerate even if a matching dataset already exists.
 
     Returns:
         Path to output dataset directory.
@@ -49,6 +52,6 @@ def process_data_from_config(
         None if _is_glob_expression(matrix_path) else load_matrix(Path(matrix_path))
     )
     try:
-        return process_config(config, matrix)
+        return process_config(config, matrix, force=force)
     except ValidationError as exc:
         raise ValueError(str(exc)) from exc

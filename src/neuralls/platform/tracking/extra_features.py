@@ -57,8 +57,8 @@ def _lookup_run_id_for_model(entry_id: str, client: MlflowClient) -> str | None:
     Registration is no longer automatic, so there is generally no registered
     model to look up. Instead, this searches raw MLflow runs across all
     experiments for the most recent run tagged with ``assignment_id ==
-    entry_id`` — the same tag ``_annotate_mlflow_run`` (in
-    ``composition/assignments/multi_training.py``) sets on every training run.
+    entry_id`` — the same tag ``composition/tracking/run_specs.py``'s
+    ``build_training_run_spec`` sets on every training run.
 
     Args:
         entry_id: Assignment registry ID matched against the run's

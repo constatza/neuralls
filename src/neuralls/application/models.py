@@ -35,6 +35,10 @@ class AssignmentResult:
         status: "Success" or "Failed".
         tasks: Individual task outcomes.
         error: Top-level error message if failed.
+        mlflow_run_id: The MLflow run this assignment's checkpoint/metrics live
+            under — the reused run on a cache hit, or the freshly finalized run
+            otherwise. None only when the assignment failed before any run was
+            established.
     """
 
     assignment_id: str
@@ -42,8 +46,26 @@ class AssignmentResult:
     status: str
     tasks: list[TaskResult] = field(default_factory=list)
     error: str | None = None
+    mlflow_run_id: str | None = None
 
     @property
     def is_success(self) -> bool:
         """Whether the assignment succeeded."""
         return self.status == "Success"
+
+
+@dataclass(frozen=True)
+class AssignmentSweepResult:
+    """Outcome of running every assignment in one case config as a sweep.
+
+    Args:
+        results: Per-assignment outcomes, in case-config declaration order.
+        tracking_uri: MLflow tracking URI for the sweep's session parent run,
+            or None if no MLflow session was established.
+        parent_run_id: The sweep's session parent run id, or None if no
+            MLflow session was established.
+    """
+
+    results: list[AssignmentResult]
+    tracking_uri: str | None
+    parent_run_id: str | None

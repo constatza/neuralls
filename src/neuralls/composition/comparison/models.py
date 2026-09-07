@@ -143,7 +143,15 @@ class ResolvedComparisonInput:
 
 @dataclass(frozen=True)
 class ComparisonParams:
-    """Runtime parameters for comparison execution (reserved for future use)."""
+    """Runtime parameters for comparison execution.
+
+    Attributes:
+        force: Rerun every comparison even if a matching one (same
+            comparison_id and resolved preconditioner checkpoints) already
+            completed successfully.
+    """
+
+    force: bool = False
 
 
 @dataclass(frozen=True)

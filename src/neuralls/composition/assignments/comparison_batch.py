@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -83,7 +84,10 @@ from neuralls.platform.tracking.comparison_tracking import (
 )
 from neuralls.platform.tracking.extra_features import fetch_extra_input_names_for_model
 from neuralls.platform.tracking.mlflow import build_workflow_environment
-from neuralls.platform.tracking.mlflow_client import log_comparison_artifacts_to_mlflow
+from neuralls.platform.tracking.mlflow_client import (
+    find_successful_comparison_run,
+    log_comparison_artifacts_to_mlflow,
+)
 from neuralls.platform.tracking.model_registry import build_registered_model_name
 from neuralls.shared.types import ComparisonRhsSourceKind
 
@@ -371,6 +375,31 @@ def _resolve_specs(
     return resolution.specs, resolution.warnings
 
 
+def _compute_checkpoint_dependency_hash(specs: Sequence[PreconditionerConfig]) -> str:
+    """Hash identifying which trained checkpoints this comparison depends on.
+
+    Not a hash of any file or of the preconditioners' own config — it's built
+    from each dependency's resolved MLflow `run_id` (the training run that
+    produced its checkpoint), which is the only stable identity available: the
+    checkpoint file itself is re-leased to a fresh temp path on every
+    invocation (`MlflowArtifactLeaseManager`), so its local path/mtime can't
+    serve as one. Changes whenever any dependency's resolved training run
+    changes, so a prior comparison's reuse-check tag no longer matches once
+    training reruns it depends on (e.g. via a dataset regeneration cascading
+    through `run_assignment_sweep`'s reuse check).
+    """
+    parts: list[str] = []
+    for spec in specs:
+        if not isinstance(spec, CheckpointRefBearing):
+            continue
+        for label, ref in spec.checkpoint_refs():
+            identity = ref.resolved_run_id or str(ref.resolved_checkpoint_path)
+            parts.append(f"{spec.name}:{label}:{identity}")
+    hasher = hashlib.sha1()
+    hasher.update("|".join(sorted(parts)).encode())
+    return hasher.hexdigest()
+
+
 def _resolve_comparison_topology(
     case_config_path: Path,
     settings: NeurallsSettings,
@@ -397,50 +426,6 @@ def _require_rhs_source_kind(cfg: ComparisonConfig) -> ComparisonRhsSourceKind:
     if kind is None:
         raise ValueError("Comparison config must define rhs_source.")
     return kind
-
-
-def _run_comparison_body(
-    cfg: ComparisonConfig,
-    entry: ComparisonRegistryEntry,
-    work_root: Path,
-    topology: ComparisonTopology,
-    case_config_path: Path,
-    settings: NeurallsSettings,
-) -> tuple[ComparisonResult, tuple[str, ...]]:
-    """Resolve preconditioners, run comparison, and stage artifacts to disk.
-
-    Args:
-        cfg: Fully resolved comparison configuration.
-        entry: Registry entry for display name and method config path.
-        work_root: Temporary directory for staged outputs.
-        topology: Resolved MLflow topology for model-store lookups.
-        case_config_path: Case config path for model resolution context.
-        settings: Runtime settings.
-
-    Returns:
-        Tuple of (comparison result, resolution warning strings).
-
-    Raises:
-        ValueError: When all preconditioners fail to resolve.
-    """
-    model_client = MlflowClient(tracking_uri=topology.model_store_tracking_uri)
-    with MlflowArtifactLeaseManager(client=model_client) as artifact_leases:
-        resolved_specs, warnings = _resolve_specs(
-            cfg,
-            case_config_path,
-            topology.model_store_tracking_uri,
-            settings,
-            artifact_leases,
-        )
-        if not resolved_specs:
-            raise ValueError("No runnable preconditioners remain after model resolution.")
-        raw_result = _run_comparison_with_resolved_specs(
-            cfg=cfg,
-            entry=entry,
-            work_root=work_root,
-            resolved_specs=resolved_specs,
-        )
-    return raw_result, warnings
 
 
 def _run_comparison_with_resolved_specs(
@@ -499,8 +484,9 @@ def _execute_comparison_in_run(
     topology: ComparisonTopology,
     run_name: str,
     comp_tags: ComparisonRunTags,
-    case_config_path: Path,
-    settings: NeurallsSettings,
+    checkpoint_dependency_hash: str,
+    resolved_specs: list[PreconditionerConfig],
+    warnings: tuple[str, ...],
 ) -> list[ComparisonOutcome]:
     """Open an MLflow run, execute the comparison, upload artifacts, and return outcomes.
 
@@ -510,27 +496,32 @@ def _execute_comparison_in_run(
         topology: Resolved MLflow topology (tracking URI, artifact location).
         run_name: Display name for the MLflow run.
         comp_tags: Structured tags applied to the MLflow run.
-        case_config_path: Case config path forwarded to body execution.
-        settings: Runtime settings forwarded to body execution.
+        checkpoint_dependency_hash: Hash of the resolved checkpoints this
+            comparison depends on, tagged onto the run for reuse-checking.
+        resolved_specs: Already-resolved preconditioner checkpoint paths.
+        warnings: Resolution warnings to log alongside the run.
 
     Returns:
         Single-element list with a successful ComparisonOutcome.
     """
     with mlflow.start_run(
-        run_name=run_name, nested=True, tags=comp_tags.as_mlflow_tags()
+        run_name=run_name,
+        nested=True,
+        tags={
+            **comp_tags.as_mlflow_tags(),
+            "checkpoint_dependency_hash": checkpoint_dependency_hash,
+        },
     ) as comp_run:
         comp_run_id = comp_run.info.run_id
         log_comparison_artifact_uri()
 
         with tempfile.TemporaryDirectory() as _tmp:
             work_root = Path(_tmp)
-            raw_result, warnings = _run_comparison_body(
+            raw_result = _run_comparison_with_resolved_specs(
                 cfg=cfg,
                 entry=entry,
                 work_root=work_root,
-                topology=topology,
-                case_config_path=case_config_path,
-                settings=settings,
+                resolved_specs=resolved_specs,
             )
             log_skipped_preconditioners(warnings)
             log_comparison_artifacts_to_mlflow(
@@ -557,15 +548,70 @@ def _execute_comparison_in_run(
             comparison_config=entry.method.stem if entry.method is not None else entry.id,
         )
 
-    return [
-        ComparisonOutcome(
+    return [_comparison_outcome(entry, success=True, payload=raw_result, warnings=warnings)]
+
+
+def _comparison_outcome(
+    entry: ComparisonRegistryEntry,
+    *,
+    success: bool,
+    error: str | None = None,
+    payload: ComparisonResult | None = None,
+    warnings: tuple[str, ...] = (),
+) -> ComparisonOutcome:
+    """Build one comparison's outcome DTO — the one place its identity fields are set."""
+    return ComparisonOutcome(
+        comparison_id=entry.id,
+        comparison_display_name=entry.effective_display_name,
+        success=success,
+        error=error,
+        payload=payload,
+        warnings=warnings,
+    )
+
+
+def _resolve_comparison_specs(
+    cfg: ComparisonConfig,
+    case_config_path: Path,
+    topology: ComparisonTopology,
+    settings: NeurallsSettings,
+    artifact_leases: ArtifactLeaseManager,
+) -> tuple[list[PreconditionerConfig], tuple[str, ...], str]:
+    """Resolve preconditioner checkpoints and derive this comparison's checkpoint dependency hash.
+
+    Must run inside the same lease-manager scope as execution — leased
+    checkpoint files are released when that scope closes.
+
+    Raises:
+        ValueError: When all preconditioners fail to resolve.
+    """
+    resolved_specs, warnings = _resolve_specs(
+        cfg,
+        case_config_path,
+        topology.model_store_tracking_uri,
+        settings,
+        artifact_leases,
+    )
+    if not resolved_specs:
+        raise ValueError("No runnable preconditioners remain after model resolution.")
+    return resolved_specs, warnings, _compute_checkpoint_dependency_hash(resolved_specs)
+
+
+def _comparison_already_run(
+    topology: ComparisonTopology,
+    entry: ComparisonRegistryEntry,
+    checkpoint_dependency_hash: str,
+) -> bool:
+    """Whether a FINISHED comparison run already exists for this exact checkpoint dependency hash."""
+    return (
+        find_successful_comparison_run(
+            tracking_uri=topology.tracking_uri,
+            mlflow_experiment_name=topology.experiment_name,
             comparison_id=entry.id,
-            comparison_display_name=entry.effective_display_name,
-            success=True,
-            payload=raw_result,
-            warnings=warnings,
+            checkpoint_dependency_hash=checkpoint_dependency_hash,
         )
-    ]
+        is not None
+    )
 
 
 def _run_comparison_from_config(
@@ -574,19 +620,25 @@ def _run_comparison_from_config(
     topology: ComparisonTopology,
     case_config_path: Path,
     settings: NeurallsSettings,
+    *,
+    force: bool = False,
 ) -> list[ComparisonOutcome]:
-    """Execute one resolved comparison and log results to MLflow.
+    """Resolve, reuse-check, and execute one comparison, logging results to MLflow.
 
     Runs nested under the batch's session parent run (already active), so this
     becomes the "subrun" level between the case-wide parent and per-preconditioner
-    leaf runs.
+    leaf runs. Preconditioners are resolved before deciding whether to run at
+    all: if a FINISHED comparison run already exists tagged with this
+    comparison_id and the exact same checkpoint dependency hash, execution
+    is skipped and that success is reported directly (unless force=True).
 
     Args:
         cfg: Fully resolved ComparisonConfig with injected data paths and preconditioners.
         entry: Registry entry providing display name and method path for artifact logging.
         topology: Resolved MLflow topology for the whole batch (tracking/experiment).
-        case_config_path: Case config path forwarded to body execution.
+        case_config_path: Case config path for model resolution context.
         settings: Resolved runtime settings.
+        force: Rerun even if a matching comparison already completed successfully.
 
     Returns:
         Single-element list with the outcome of the comparison run.
@@ -594,39 +646,33 @@ def _run_comparison_from_config(
     try:
         _validate_comparison_sources(cfg)
     except (FileNotFoundError, ValueError) as exc:
-        return [
-            ComparisonOutcome(
-                comparison_id=entry.id,
-                comparison_display_name=entry.effective_display_name,
-                success=False,
-                error=str(exc),
-                warnings=(),
-            )
-        ]
+        return [_comparison_outcome(entry, success=False, error=str(exc))]
 
-    run_name, comp_tags = build_comparison_run_spec(entry=entry, include_timestamp=False)
-
+    model_client = MlflowClient(tracking_uri=topology.model_store_tracking_uri)
     try:
-        return _execute_comparison_in_run(
-            cfg=cfg,
-            entry=entry,
-            topology=topology,
-            run_name=run_name,
-            comp_tags=comp_tags,
-            case_config_path=case_config_path,
-            settings=settings,
-        )
+        with MlflowArtifactLeaseManager(client=model_client) as artifact_leases:
+            resolved_specs, warnings, checkpoint_dependency_hash = _resolve_comparison_specs(
+                cfg, case_config_path, topology, settings, artifact_leases
+            )
+
+            if not force and _comparison_already_run(topology, entry, checkpoint_dependency_hash):
+                logger.info(f"Using existing MLflow comparison run for '{entry.id}'")
+                return [_comparison_outcome(entry, success=True)]
+
+            run_name, comp_tags = build_comparison_run_spec(entry=entry, include_timestamp=False)
+            return _execute_comparison_in_run(
+                cfg=cfg,
+                entry=entry,
+                topology=topology,
+                run_name=run_name,
+                comp_tags=comp_tags,
+                checkpoint_dependency_hash=checkpoint_dependency_hash,
+                resolved_specs=resolved_specs,
+                warnings=warnings,
+            )
     except (ValueError, RuntimeError, KeyError) as exc:
         logger.error(f"Comparison failed: {exc}")
-        return [
-            ComparisonOutcome(
-                comparison_id=entry.id,
-                comparison_display_name=entry.effective_display_name,
-                success=False,
-                error=str(exc),
-                warnings=(),
-            )
-        ]
+        return [_comparison_outcome(entry, success=False, error=str(exc))]
 
 
 def _validate_comparison_sources(cfg: ComparisonConfig) -> None:
@@ -670,13 +716,12 @@ def run_comparison_batch(
 
     Args:
         case_config_path: Path to the case config TOML.
-        params: Comparison execution parameters (currently unused, reserved for future use).
+        params: Comparison execution parameters (currently just `force`).
         settings: Optional pre-loaded runtime settings.
 
     Returns:
         List of comparison outcomes, one per [[comparisons]] entry.
     """
-    _ = params
     settings = require_settings(settings, case_config_path=case_config_path)
     master_cfg, config_dir = _load_master_config(case_config_path, settings)
     if not master_cfg.comparisons:
@@ -717,6 +762,8 @@ def run_comparison_batch(
             if auto_specs:
                 cfg = replace(cfg, preconditioners=cfg.preconditioners + tuple(auto_specs))
             outcomes.extend(
-                _run_comparison_from_config(cfg, entry, topology, case_config_path, settings)
+                _run_comparison_from_config(
+                    cfg, entry, topology, case_config_path, settings, force=params.force
+                )
             )
     return outcomes

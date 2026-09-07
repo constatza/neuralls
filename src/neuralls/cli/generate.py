@@ -22,6 +22,12 @@ def _looks_like_dataset_config(raw_config: dict[str, Any]) -> bool:
 
 def generate_case(
     config: CaseConfigArgument,
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Regenerate every dataset even if a matching one already exists.",
+    ),
     env_file: EnvFileOption = None,
     profile: ProfileOption = None,
 ) -> None:
@@ -41,7 +47,9 @@ def generate_case(
             raise ValueError(
                 "Case config does not define any [[datasets]] entries for batch generation."
             )
-        results = generate_batch(cfg=cfg, configs_dir=config.resolve().parent, settings=settings)
+        results = generate_batch(
+            cfg=cfg, configs_dir=config.resolve().parent, settings=settings, force=force
+        )
     except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
         typer.echo(format_cli_error("Error during batch generation", exc), err=True)
         raise typer.Exit(code=EXIT_FAILURE) from exc

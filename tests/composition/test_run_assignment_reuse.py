@@ -25,15 +25,13 @@ def run_assignment_dependencies(tmp_path: Path) -> Iterator[dict[str, MagicMock]
     with (
         patch.object(training_batch, "load_data_config") as load_data_config,
         patch.object(training_batch, "resolve_dataset_identity") as resolve_dataset_identity,
-        patch.object(training_batch, "load_matrix"),
-        patch.object(training_batch, "process_config", return_value=data_dir),
         patch.object(training_batch, "resolve_dataset_artifacts") as resolve_dataset_artifacts,
         patch.object(training_batch, "find_successful_run") as find_successful_run,
         patch.object(training_batch, "prepare_training_settings") as prepare_training_settings,
     ):
         data_cfg = MagicMock()
-        data_cfg.source.matrix_path = tmp_path / "matrix.npy"
-        data_cfg.output.data_dir = data_dir
+        data_cfg.id = "assignment-dataset"
+        data_cfg.output.data_dir = tmp_path
         load_data_config.return_value = data_cfg
         resolve_dataset_identity.return_value.name = "dataset-id"
         resolve_dataset_artifacts.return_value = MagicMock(
@@ -61,7 +59,6 @@ def _run(
         data_config_path=tmp_path / "data.toml",
         output_root=tmp_path,
         force=force,
-        src_hash="hash",
         assignment_id=assignment_id,
         assignment_display_name="Assignment 1",
         mlflow_experiment_name="Train",
@@ -105,7 +102,7 @@ def test_run_assignment_returns_failed_result_on_unexpected_exception(
     run_assignment_dependencies: dict[str, MagicMock], tmp_path: Path
 ) -> None:
     """An unexpected exception (e.g. dlkit's leaked-MLflow-run error on a search job)
-    must be recorded as a Failed result, not raised — run_assignment_matrix's
+    must be recorded as a Failed result, not raised — run_assignment_sweep's
     "failed assignments don't stop the batch" guarantee depends on this.
     """
     run_assignment_dependencies["find_successful_run"].return_value = None
@@ -118,7 +115,6 @@ def test_run_assignment_returns_failed_result_on_unexpected_exception(
         data_config_path=tmp_path / "data.toml",
         output_root=tmp_path,
         force=False,
-        src_hash="hash",
         assignment_id="search-job-2",
         assignment_display_name="Assignment 2",
         mlflow_experiment_name="Train",
@@ -127,6 +123,43 @@ def test_run_assignment_returns_failed_result_on_unexpected_exception(
     assert isinstance(result, AssignmentResult)
     assert result.status == "Failed"
     assert "already active" in (result.error or "")
+
+
+def test_run_assignment_fails_cleanly_when_dataset_was_never_generated(
+    tmp_path: Path,
+) -> None:
+    """Training must never auto-generate a missing dataset — that's the generate
+    stage's exclusive job. If nobody ran `generate` first, run_assignment must
+    fail cleanly (not silently regenerate) with an error pointing at the missing
+    dataset, and must never reach training preparation.
+    """
+    with (
+        patch.object(training_batch, "load_data_config") as load_data_config,
+        patch.object(training_batch, "resolve_dataset_identity") as resolve_dataset_identity,
+        patch.object(training_batch, "prepare_training_settings") as prepare_training_settings,
+    ):
+        data_cfg = MagicMock()
+        data_cfg.id = "never-generated"
+        data_cfg.output.data_dir = tmp_path / "data"  # never created — dataset never ran
+        load_data_config.return_value = data_cfg
+        resolve_dataset_identity.return_value.name = "dataset-id"
+
+        result = training_batch.run_assignment(
+            settings=MagicMock(),
+            job_config_path=tmp_path / "job.toml",
+            data_config_path=tmp_path / "data.toml",
+            output_root=tmp_path,
+            force=False,
+            assignment_id="exp-1",
+            assignment_display_name="Assignment 1",
+            mlflow_experiment_name="Train",
+            tracking_uri="sqlite:///tracking.db",
+        )
+
+    assert isinstance(result, AssignmentResult)
+    assert result.status == "Failed"
+    assert "generat" in (result.error or "").lower()
+    prepare_training_settings.assert_not_called()
 
 
 def test_two_assignments_never_share_a_lookup_key(

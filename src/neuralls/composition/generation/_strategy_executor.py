@@ -24,6 +24,8 @@ def _execute_solution_archive(
     context: DataGenerationContext,
     strategy: StrategySpec,
     generation_cfg: Any,
+    *,
+    force: bool = False,
 ) -> Path:
     """Execute a solution-archive-only dataset build.
 
@@ -71,6 +73,7 @@ def _execute_solution_archive(
             }
         },
         dataset_format=context.dataset_format,
+        force=force,
     )
     return Path(dataset_path)
 
@@ -82,6 +85,8 @@ def _execute_synthetic_generation(
     solution_archive_strategy: StrategySpec | None,
     generation_cfg: Any,
     matrix: np.ndarray | None,
+    *,
+    force: bool = False,
 ) -> Path:
     """Execute a mixed synthetic + archive dataset build.
 
@@ -161,6 +166,7 @@ def _execute_synthetic_generation(
         seed=seed,
         strategy_overrides=strategy_overrides,
         dataset_format=context.dataset_format,
+        force=force,
     )
     return Path(dataset_path)
 
@@ -169,6 +175,8 @@ def _execute_rhs_archive_only(
     context: DataGenerationContext,
     strategy: StrategySpec,
     generation_cfg: Any,
+    *,
+    force: bool = False,
 ) -> Path:
     """Execute an RHS-archive-only dataset build.
 
@@ -207,6 +215,7 @@ def _execute_rhs_archive_only(
         seed=int(seed_value) if seed_value is not None else DEFAULT_RANDOM_SEED,
         strategy_overrides={"rhs_archive": {"rhs_glob": rhs_glob, **collection_kwargs}},
         dataset_format=context.dataset_format,
+        force=force,
     )
     return Path(dataset_path)
 
@@ -216,6 +225,8 @@ def _execute_plan(
     generation_cfg: Any,
     plan: GenerationPlan,
     matrix: np.ndarray | None,
+    *,
+    force: bool = False,
 ) -> Path:
     """Dispatch execution to the appropriate executor based on the generation plan.
 
@@ -224,6 +235,8 @@ def _execute_plan(
         generation_cfg: GenerationConfig providing global options.
         plan: Resolved generation plan (synthetic + archive strategies).
         matrix: Optional loaded system matrix.
+        force: Regenerate even if a matching dataset already exists at
+            `context.dataset_dir`.
 
     Returns:
         Path to the generated dataset directory.
@@ -240,7 +253,9 @@ def _execute_plan(
     has_synthetic_strategies = bool(synthetic_strategies)
 
     if solution_archive_strategy is not None and not (has_rhs_archive or has_synthetic_strategies):
-        return _execute_solution_archive(context, solution_archive_strategy, generation_cfg)
+        return _execute_solution_archive(
+            context, solution_archive_strategy, generation_cfg, force=force
+        )
 
     if has_synthetic_strategies or has_solution_archive:
         return _execute_synthetic_generation(
@@ -250,9 +265,10 @@ def _execute_plan(
             solution_archive_strategy=solution_archive_strategy,
             generation_cfg=generation_cfg,
             matrix=matrix,
+            force=force,
         )
 
     if rhs_archive_strategy is None:
         raise ValueError("No generation strategies configured")
 
-    return _execute_rhs_archive_only(context, rhs_archive_strategy, generation_cfg)
+    return _execute_rhs_archive_only(context, rhs_archive_strategy, generation_cfg, force=force)

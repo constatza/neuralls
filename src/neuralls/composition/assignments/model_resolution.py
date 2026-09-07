@@ -514,7 +514,11 @@ def _resolve_checkpoint_ref(
 
     checkpoint_path = resolution.checkpoint_path
     resolved_ref = ref.model_copy(
-        update={"checkpoint_path": checkpoint_path, "resolved_checkpoint_path": checkpoint_path}
+        update={
+            "checkpoint_path": checkpoint_path,
+            "resolved_checkpoint_path": checkpoint_path,
+            "resolved_run_id": resolution.run_id,
+        }
     )
     return resolved_ref, None
 

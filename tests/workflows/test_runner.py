@@ -1,6 +1,6 @@
 """Tests for the experiment runner workflow.
 
-This module tests the `run_assignment_matrix()` workflow function directly,
+This module tests the `run_assignment_sweep()` workflow function directly,
 without involving the CLI layer. These are integration tests that verify
 the full workflow logic.
 """
@@ -15,14 +15,15 @@ import tomli_w
 from dlkit.common import ChildSuccess
 
 from neuralls.composition.assignments.training import PreparedTraining
-from neuralls.composition.assignments.training_batch import run_assignment_matrix
+from neuralls.composition.assignments.training_batch import run_assignment_sweep
+from neuralls.composition.generation.process_data import process_data_from_config
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 
 
 def _fake_prepared_training(tmp_path: Path, assignment_id: str) -> PreparedTraining:
     """Minimal ``PreparedTraining`` stand-in for these integration tests.
 
-    A real ``PreparedTraining`` instance (needed so `run_assignment_matrix`'s
+    A real ``PreparedTraining`` instance (needed so `run_assignment_sweep`'s
     ``match``/``case`` dispatch on it works) with duck-typed ``SimpleNamespace``
     stand-ins for the nested fields ``to_run_spec()``/``_finalize_assignment_child``
     actually read — the real training pipeline is skipped by mocking
@@ -171,6 +172,10 @@ def test_run_assignments_full_flow(
     with open(data_config_path, "wb") as f:
         tomli_w.dump(data_config, f)
 
+    # Dataset generation is now a separate, earlier stage — run_assignment_sweep
+    # never generates a dataset itself, so generate it here first.
+    process_data_from_config(data_config_path, neuralls_settings)
+
     # 3. Create Solver Config in shared solvers directory (NEW FORMAT)
     solver_config_path = solvers_dir / "default.toml"
     solver_config = {
@@ -207,7 +212,7 @@ def test_run_assignments_full_flow(
         f.write('dataset = "test_data_gen"\n')
         f.write(f'job = "{exp_name}_job"\n')
 
-    # Set NEURALLS_OUTPUT_DIR to ensure no contamination (although we passed project_root)
+    # Set NEURALLS_OUTPUT_DIR to ensure no contamination
     os.environ["NEURALLS_OUTPUT_DIR"] = str(data_dir / "output")
 
     # Mock the dlkit sweep dispatch/finalization to avoid expensive training.
@@ -236,22 +241,21 @@ def test_run_assignments_full_flow(
         patch("neuralls.composition.assignments.training_batch.finalize_session_parent_run"),
     ):
         # 6. Run the flow
-        results = run_assignment_matrix(
+        sweep = run_assignment_sweep(
             case_config_path=master_config_path,
             settings=neuralls_settings,
             force=True,
-            project_root=tmp_path,
         )
 
     # Verify workflow behavior
-    assert len(results) == 1
-    assert results[0].assignment_id == exp_name
-    assert results[0].status == "Success"
+    assert len(sweep.results) == 1
+    assert sweep.results[0].assignment_id == exp_name
+    assert sweep.results[0].status == "Success"
     assert mock_prepare.called
     assert mock_sweep.called
 
 
-def test_run_assignment_matrix_with_mlflow(
+def test_run_assignment_sweep_with_mlflow(
     tmp_path: Path,
     neuralls_settings,
 ) -> None:
@@ -308,6 +312,10 @@ def test_run_assignment_matrix_with_mlflow(
     with open(data_config_path, "wb") as f:
         tomli_w.dump(data_config, f)
 
+    # Dataset generation is now a separate, earlier stage — run_assignment_sweep
+    # never generates a dataset itself, so generate it here first.
+    process_data_from_config(data_config_path, neuralls_settings)
+
     # 3. Create Job Config with tracking enabled
     exp_name = "mlflow_experiment"
     job_config_path = jobs_dir / f"{exp_name}_job.toml"
@@ -361,16 +369,15 @@ def test_run_assignment_matrix_with_mlflow(
         patch("neuralls.composition.assignments.training_batch.finalize_session_parent_run"),
     ):
         # 5. Run the flow with MLflow enabled
-        results = run_assignment_matrix(
+        sweep = run_assignment_sweep(
             case_config_path=master_config_path,
             settings=neuralls_settings,
             force=True,
-            project_root=tmp_path,
         )
 
     # Verify workflow behavior
-    assert len(results) == 1
-    assert results[0].assignment_id == exp_name
-    assert results[0].status == "Success"
+    assert len(sweep.results) == 1
+    assert sweep.results[0].assignment_id == exp_name
+    assert sweep.results[0].status == "Success"
     assert mock_prepare.called
     assert mock_sweep.called

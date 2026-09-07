@@ -13,7 +13,6 @@ from dlkit.infrastructure.config.job_config import TrainingJobConfig
 from dlkit.infrastructure.io import url_resolver
 from mlflow.tracking import MlflowClient
 
-from neuralls.composition.assignments.multi_training import TrainingRunResult
 from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     PreconditionerType,
@@ -100,55 +99,6 @@ def checkpoint_beta(tmp_path: Path) -> Path:
     ckpt.parent.mkdir(parents=True)
     ckpt.touch()
     return ckpt
-
-
-@pytest.fixture
-def result_alpha() -> TrainingRunResult:
-    """TrainingRunResult for the alpha assignment.
-
-    Returns:
-        Immutable TrainingRunResult.
-    """
-    return TrainingRunResult(
-        label="1",
-        assignment_id=EXP_ID_ALPHA,
-        assignment_display_name=EXP_ID_ALPHA,
-        mlflow_run_id="run-alpha-0001",
-        metrics={"eval/loss": 0.12},
-    )
-
-
-@pytest.fixture
-def result_beta() -> TrainingRunResult:
-    """TrainingRunResult for the beta assignment.
-
-    Returns:
-        Immutable TrainingRunResult.
-    """
-    return TrainingRunResult(
-        label="2",
-        assignment_id=EXP_ID_BETA,
-        assignment_display_name=EXP_ID_BETA,
-        mlflow_run_id="run-beta-0002",
-        metrics={"eval/loss": 0.08},
-    )
-
-
-@pytest.fixture
-def training_results(
-    result_alpha: TrainingRunResult,
-    result_beta: TrainingRunResult,
-) -> list[TrainingRunResult]:
-    """Two-element ordered list of training results.
-
-    Args:
-        result_alpha: Alpha experiment result.
-        result_beta: Beta experiment result.
-
-    Returns:
-        List of TrainingRunResult instances.
-    """
-    return [result_alpha, result_beta]
 
 
 @pytest.fixture

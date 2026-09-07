@@ -1,6 +1,6 @@
 """End-to-end integration test: a `run.type = "fit"` (POD-2G) assignment run for real.
 
-Exercises the real `run_assignment_matrix()` path (no mocked `run_multirun_spec`)
+Exercises the real `run_assignment_sweep()` path (no mocked `run_multirun_spec`)
 against a self-contained synthetic case config: a small SPD matrix, a "random"
 generation strategy (needs no pre-existing solution files), and a
 `pod2g`-style `FitJobConfig` job binding `PODCoarseningFittable`. Verifies the
@@ -19,16 +19,19 @@ import tomli_w
 from dlkit.interfaces.api.functions.model_registry import has_checkpoint_artifact
 from mlflow.tracking import MlflowClient
 
-from neuralls.composition.assignments.training_batch import run_assignment_matrix
+from neuralls.composition.assignments.training_batch import run_assignment_sweep
+from neuralls.composition.generation.process_data import process_data_from_config
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
 
 
 @pytest.fixture
-def pod_fit_case_config(tmp_path: Path) -> tuple[Path, str]:
+def pod_fit_case_config(tmp_path: Path) -> tuple[Path, Path, str]:
     """Write a self-contained case config with one `run.type = "fit"` assignment.
 
-    Returns the case config path and the MLflow tracking URI it declares.
+    Returns the case config path, its dataset config path (dataset generation
+    is a separate, earlier stage — the test generates it explicitly before
+    calling `run_assignment_sweep`), and the MLflow tracking URI it declares.
     """
     n = 6
     rng = np.random.default_rng(7)
@@ -88,31 +91,35 @@ def pod_fit_case_config(tmp_path: Path) -> tuple[Path, str]:
             },
             fh,
         )
-    return case_config_path, tracking_uri
+    return case_config_path, dataset_config_path, tracking_uri
 
 
-def test_run_assignment_matrix_fits_pod_job_and_uploads_checkpoint(
-    pod_fit_case_config: tuple[Path, str],
+def test_run_assignment_sweep_fits_pod_job_and_uploads_checkpoint(
+    pod_fit_case_config: tuple[Path, Path, str],
     tmp_path: Path,
 ) -> None:
-    """A real (unmocked) `run_assignment_matrix()` call succeeds for a fit-kind job.
+    """A real (unmocked) `run_assignment_sweep()` call succeeds for a fit-kind job.
 
     Confirms the assignment resolves to `AssignmentResult(status="Success")`,
     that an MLflow run tagged `assignment_id=pod2g_test` was created for it,
     and that run has a non-empty `checkpoints/` artifact directory.
     """
-    case_config_path, tracking_uri = pod_fit_case_config
+    case_config_path, dataset_config_path, tracking_uri = pod_fit_case_config
     settings = NeurallsSettings(
         _env_file=[],
         processed_dir=tmp_path / "processed",
         output_dir=tmp_path / "output",
     )
 
-    results = run_assignment_matrix(case_config_path, settings=settings, force=True)
+    # Dataset generation is now a separate, earlier stage — run_assignment_sweep
+    # never generates a dataset itself, so generate it here first.
+    process_data_from_config(dataset_config_path, settings)
 
-    assert len(results) == 1
-    assert results[0].status == "Success", results[0].error
-    assert results[0].assignment_id == "pod2g_test"
+    sweep = run_assignment_sweep(case_config_path, settings=settings, force=True)
+
+    assert len(sweep.results) == 1
+    assert sweep.results[0].status == "Success", sweep.results[0].error
+    assert sweep.results[0].assignment_id == "pod2g_test"
 
     client = MlflowClient(tracking_uri=tracking_uri)
     experiment = client.get_experiment_by_name("PodFitIntegration-Training")

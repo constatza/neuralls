@@ -22,6 +22,10 @@ def _resolve_case_config(case_config: Path | None) -> Path | None:
 def generate_single(
     config: Annotated[Path, typer.Argument(help="Path to a dataset config TOML.")],
     case_config: CaseConfigOption = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Regenerate even if a matching dataset already exists."),
+    ] = False,
     env_file: EnvFileOption = None,
     profile: ProfileOption = None,
 ) -> None:
@@ -36,7 +40,7 @@ def generate_single(
 
         settings = load_case_settings(resolved_case_config, env_file, profile=profile)
         typer.echo(f"Loading data config: {config}")
-        output_path = process_data_from_config(config, settings)
+        output_path = process_data_from_config(config, settings, force=force)
 
         typer.echo(f"\n{SYMBOL_SUCCESS} Data processing complete!")
         typer.echo(f"  Output: {output_path}")

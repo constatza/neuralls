@@ -36,6 +36,8 @@ def generate_batch(
     cfg: CaseConfig,
     configs_dir: Path,
     settings: NeurallsSettings,
+    *,
+    force: bool = False,
 ) -> list[GenerationResult]:
     """Generate all datasets listed in the case config.
 
@@ -46,6 +48,7 @@ def generate_batch(
         cfg: Validated case configuration.
         configs_dir: Parent directory of the case TOML (for resolving
             relative dataset config paths).
+        force: Regenerate every dataset even if a matching one already exists.
 
     Returns:
         List of ``GenerationResult`` in the same order as ``cfg.datasets``.
@@ -53,9 +56,9 @@ def generate_batch(
     results: list[GenerationResult] = []
     for entry in cfg.datasets:
         config_path = (configs_dir / entry.path).resolve()
-        output_dir = process_data_from_config(config_path, settings)
+        output_dir = process_data_from_config(config_path, settings, force=force)
         results.append(
             GenerationResult(dataset_id=entry.id, config_path=config_path, output_dir=output_dir)
         )
-        logger.info(f"[{entry.id}] generated → {output_dir}")
+        logger.info(f"[{entry.id}] ready → {output_dir}")
     return results

@@ -3,29 +3,27 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable
 from pathlib import Path
 
 
-def compute_directory_hash(directory: Path | str) -> str:
-    """Compute stable hash of all Python files in a directory.
+def compute_dataset_fingerprint(paths: Iterable[Path]) -> str:
+    """Compute a stable fingerprint of dataset artifact files from size + mtime.
 
-    This hash changes when any .py file content changes, enabling
-    automatic cache invalidation when source code is modified.
+    Cheap alternative to hashing file contents: changes whenever a dataset is
+    regenerated (its output files' size/mtime differ), without reading
+    potentially large array data. Used to invalidate a cached "training
+    already completed" result when the underlying dataset has been
+    regenerated since that training run.
 
     Args:
-        directory: Path to directory to hash.
+        paths: Dataset artifact file paths to fingerprint (order-independent).
 
     Returns:
-        SHA-1 hash of all Python files (sorted for stability).
+        SHA-1 hash of each path's size and modification time.
     """
-    directory = Path(directory)
-    if not directory.exists():
-        return "missing"
-
     hasher = hashlib.sha1()
-    for py_file in sorted(directory.rglob("*.py")):
-        hasher.update(str(py_file.relative_to(directory)).encode())
-        with open(py_file, "rb") as f:
-            hasher.update(f.read())
-
+    for path in sorted(paths):
+        stat = path.stat()
+        hasher.update(f"{path}:{stat.st_size}:{stat.st_mtime_ns}".encode())
     return hasher.hexdigest()

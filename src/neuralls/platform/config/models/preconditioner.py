@@ -184,6 +184,10 @@ class NeuralCheckpointRef(BaseModel):
     data_config_path: Path | None = None
     model_ref: ModelRefConfig | None = None
     resolved_checkpoint_path: Path | None = None
+    resolved_run_id: str | None = None
+    """MLflow run id the checkpoint was resolved from, when resolved via
+    `model_ref` (unset for an explicit `checkpoint_path`). Used to detect when
+    a comparison's dependency has been retrained since it last ran."""
 
     model_config = ConfigDict(extra="ignore", frozen=True)
 

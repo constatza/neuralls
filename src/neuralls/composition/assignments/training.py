@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+from collections.abc import Mapping
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -311,6 +312,7 @@ def prepare_training_settings(
     job_display_name: str | None = None,
     mlflow_experiment_name: str | None = None,
     batched: bool = False,
+    extra_tags: Mapping[str, str] | None = None,
 ) -> PreparedTraining:
     """Resolve one assignment's dataset, config, and dlkit settings for training.
 
@@ -332,6 +334,8 @@ def prepare_training_settings(
         batched: True when this assignment is one child of a batch/sweep —
             omits the run-name timestamp, since the sweep already
             disambiguates children without one.
+        extra_tags: Additional MLflow tags merged onto the run's tag set
+            (e.g. a dataset content fingerprint for reuse-check invalidation).
 
     Returns:
         PreparedTraining ready to pass to ``execute()`` and then
@@ -386,6 +390,8 @@ def prepare_training_settings(
             workspace_root=workspace.root_dir,
             include_timestamp=not batched,
         )
+        if extra_tags:
+            run_config = replace(run_config, tags={**run_config.tags, **extra_tags})
 
         # Step 4: Configure DLKit settings (dataset, paths, MLflow names)
         workflow_settings, workspace = _configure_training_pipeline(
