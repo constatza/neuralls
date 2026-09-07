@@ -216,6 +216,38 @@ job = "scale-equivariant-constant-width-factorized"
 `[names].training` controls the MLflow experiment bucket for training runs.
 `[names].comparison` controls the comparison bucket.
 
+### Sweeping one dataset config across several samples/cg_iters values
+
+A dataset family that only needs to vary in sample count or CG iterations
+(no new matrix, no new strategy) doesn't need N hand-typed `[[datasets]]` +
+`[[assignments]]` blocks. Two additive, optional tools cover this without
+changing what a dataset config or case config *is*:
+
+- `scripts/expand_dataset_sweep.py <name>.sweep.toml` — a `*.sweep.toml` is
+  an ordinary dataset config except one `[[generation.strategy]]` field is a
+  list (e.g. `samples = [1000, 2000, 5000, 10000]`); the script expands it
+  into real per-value dataset configs (still "one dataset config per real
+  dataset variant" — it just avoids retyping them).
+- `[[dataset_sweeps]]` / `[[assignment_sweeps]]` in a case config expand, at
+  load time, into ordinary `[[datasets]]` / `[[assignments]]` entries — see
+  `configs/cases/rectangular-high-condition/sample-sweep.toml` for a worked
+  example. `label` (on a `[[dataset_sweeps]]` entry) and `dataset_sweep` (on
+  the matching `[[assignment_sweeps]]` entry) are case-file-local
+  cross-reference keys only — never a dataset registry id; every dataset's
+  real id is still read from its own file, exactly as for a hand-written
+  `[[datasets]]` entry:
+
+  ```toml
+  [[dataset_sweeps]]
+  label = "cg50-samples"
+  path_template = "../../datasets/train/rectangular-high-condition/gaussian-cg50-{value}.toml"
+  values = [1000, 2000, 5000, 10000]
+
+  [[assignment_sweeps]]
+  dataset_sweep = "cg50-samples"
+  job = "pod-2g_cg-50"
+  ```
+
 ## Thin Job Example
 
 ```toml
@@ -293,7 +325,12 @@ artifacts are not evaluable until the training run is rerun or repaired.
 
 ## Practical Rules
 
-- create one dataset config per real dataset variant
+- create one dataset config per real dataset variant — a samples/cg_iters
+  sweep can be authored once and expanded with
+  `scripts/expand_dataset_sweep.py` / `[[dataset_sweeps]]`+`[[assignment_sweeps]]`
+  instead of hand-copied (see "Sweeping one dataset config..." above); both
+  still resolve to the same real files/entries a human would otherwise
+  hand-type
 - keep shared training policy small and reusable
 - keep jobs thin
 - only special model families should define custom `data.features` / `data.targets`

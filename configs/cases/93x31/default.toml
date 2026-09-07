@@ -56,15 +56,12 @@ coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian
 
 [[datasets]]
 path = "../../datasets/train/93x31/gaussian-0cg.toml"
-display_name = "Gaussian 0-CG 93x31 (POD-2G snapshots)"
 
 [[datasets]]
 path = "../../datasets/train/93x31/gaussian-cg10.toml"
-display_name = "Gaussian CG-10 93x31 (POD-2G snapshots)"
 
 [[datasets]]
 path = "../../datasets/train/93x31/gaussian-cg50.toml"
-display_name = "Gaussian CG-50 93x31 (POD-2G snapshots)"
 
 [[comparisons]]
 matrix_dataset = "gaussian-cg50-93x31"

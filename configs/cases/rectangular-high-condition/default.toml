@@ -45,15 +45,12 @@ coarsening = { method = "target_dim", target_coarse_dim = 300 }
 
 [[datasets]]
 path = "../../datasets/train/rectangular-high-condition/gaussian-0cg.toml"
-display_name = "Gaussian 0-CG rectangular-high-condition (POD-2G snapshots)"
 
 [[datasets]]
 path = "../../datasets/train/rectangular-high-condition/gaussian-cg10.toml"
-display_name = "Gaussian CG-10 rectangular-high-condition (POD-2G snapshots)"
 
 [[datasets]]
 path = "../../datasets/train/rectangular-high-condition/gaussian-cg50.toml"
-display_name = "Gaussian CG-50 rectangular-high-condition (POD-2G snapshots)"
 
 [[jobs]]
 id = "pod-2g_0-cg"
@@ -98,4 +95,3 @@ job = "pod-2g_cg-10"
 [[assignments]]
 dataset = "gaussian-cg50-rectangular-high-condition"
 job = "pod-2g_cg-50"
-

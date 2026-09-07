@@ -175,6 +175,179 @@ path = "{dataset_cfg.as_posix()}"
         load_case_config(config_file, neuralls_settings)
 
 
+def _write_dataset_config(path: Path, dataset_id: str) -> None:
+    path.write_text(
+        f'id = "{dataset_id}"\n[source]\nmatrix_path = "${{NEURALLS_PROCESSED_DIR}}/matrix.mtx"\n'
+    )
+
+
+def test_load_case_config_expands_dataset_sweeps(
+    tmp_path: Path,
+    neuralls_settings: NeurallsSettings,
+) -> None:
+    """[[dataset_sweeps]] expands into real [[datasets]] entries with ids read from disk."""
+    _write_dataset_config(tmp_path / "gaussian-cg50-1000.toml", "gaussian-cg50-family-1000")
+    _write_dataset_config(tmp_path / "gaussian-cg50-2000.toml", "gaussian-cg50-family-2000")
+    config_file = tmp_path / "case.toml"
+    config_file.write_text(
+        """
+[[dataset_sweeps]]
+label = "cg50-samples"
+path_template = "gaussian-cg50-{value}.toml"
+values = [1000, 2000]
+"""
+    )
+    config = load_case_config(config_file, neuralls_settings)
+    assert [d.id for d in config.datasets] == [
+        "gaussian-cg50-family-1000",
+        "gaussian-cg50-family-2000",
+    ]
+
+
+def test_load_case_config_expands_assignment_sweeps(
+    tmp_path: Path,
+    neuralls_settings: NeurallsSettings,
+) -> None:
+    """[[assignment_sweeps]] pairs every swept dataset id with the given job."""
+    _write_dataset_config(tmp_path / "gaussian-cg50-1000.toml", "gaussian-cg50-family-1000")
+    _write_dataset_config(tmp_path / "gaussian-cg50-2000.toml", "gaussian-cg50-family-2000")
+    config_file = tmp_path / "case.toml"
+    config_file.write_text(
+        """
+[[dataset_sweeps]]
+label = "cg50-samples"
+path_template = "gaussian-cg50-{value}.toml"
+values = [1000, 2000]
+
+[[jobs]]
+id = "pod-2g_cg-50"
+path = "jobs/dummy-job.toml"
+
+[[assignment_sweeps]]
+dataset_sweep = "cg50-samples"
+job = "pod-2g_cg-50"
+"""
+    )
+    config = load_case_config(config_file, neuralls_settings)
+    assert [a.dataset_id for a in config.assignments] == [
+        "gaussian-cg50-family-1000",
+        "gaussian-cg50-family-2000",
+    ]
+    assert all(a.job_id == "pod-2g_cg-50" for a in config.assignments)
+
+
+def test_load_case_config_rejects_unknown_dataset_sweep_label(
+    tmp_path: Path,
+    neuralls_settings: NeurallsSettings,
+) -> None:
+    config_file = tmp_path / "case.toml"
+    config_file.write_text(
+        """
+[[jobs]]
+id = "pod-2g_cg-50"
+path = "jobs/dummy-job.toml"
+
+[[assignment_sweeps]]
+dataset_sweep = "typo"
+job = "pod-2g_cg-50"
+"""
+    )
+    with pytest.raises(ValueError, match="typo"):
+        load_case_config(config_file, neuralls_settings)
+
+
+def test_load_case_config_rejects_dataset_sweep_missing_value_placeholder(
+    tmp_path: Path,
+    neuralls_settings: NeurallsSettings,
+) -> None:
+    config_file = tmp_path / "case.toml"
+    config_file.write_text(
+        """
+[[dataset_sweeps]]
+label = "cg50-samples"
+path_template = "gaussian-cg50-fixed.toml"
+values = [1000, 2000]
+"""
+    )
+    with pytest.raises(ValueError, match="path_template"):
+        load_case_config(config_file, neuralls_settings)
+
+
+def test_load_case_config_dataset_sweeps_duplicate_id_still_rejected(
+    tmp_path: Path,
+    neuralls_settings: NeurallsSettings,
+) -> None:
+    """A sweep whose values resolve to a shared id is still caught by the existing dedupe check."""
+    _write_dataset_config(tmp_path / "gaussian-cg50-1000.toml", "same-id")
+    _write_dataset_config(tmp_path / "gaussian-cg50-2000.toml", "same-id")
+    config_file = tmp_path / "case.toml"
+    config_file.write_text(
+        """
+[[dataset_sweeps]]
+label = "cg50-samples"
+path_template = "gaussian-cg50-{value}.toml"
+values = [1000, 2000]
+"""
+    )
+    with pytest.raises(ValidationError, match="Duplicate dataset registry ids"):
+        load_case_config(config_file, neuralls_settings)
+
+
+def test_load_case_config_sweep_expansion_matches_hand_written_equivalent(
+    tmp_path: Path,
+    neuralls_settings: NeurallsSettings,
+) -> None:
+    """A sweep-expressed case loads to the same datasets/assignments as the hand-written form."""
+    _write_dataset_config(tmp_path / "gaussian-cg50-1000.toml", "gaussian-cg50-family-1000")
+    _write_dataset_config(tmp_path / "gaussian-cg50-2000.toml", "gaussian-cg50-family-2000")
+
+    swept_config = tmp_path / "swept.toml"
+    swept_config.write_text(
+        """
+[[jobs]]
+id = "pod-2g_cg-50"
+path = "jobs/dummy-job.toml"
+
+[[dataset_sweeps]]
+label = "cg50-samples"
+path_template = "gaussian-cg50-{value}.toml"
+values = [1000, 2000]
+
+[[assignment_sweeps]]
+dataset_sweep = "cg50-samples"
+job = "pod-2g_cg-50"
+"""
+    )
+    hand_written_config = tmp_path / "hand_written.toml"
+    hand_written_config.write_text(
+        """
+[[jobs]]
+id = "pod-2g_cg-50"
+path = "jobs/dummy-job.toml"
+
+[[datasets]]
+path = "gaussian-cg50-1000.toml"
+
+[[datasets]]
+path = "gaussian-cg50-2000.toml"
+
+[[assignments]]
+dataset = "gaussian-cg50-family-1000"
+job = "pod-2g_cg-50"
+
+[[assignments]]
+dataset = "gaussian-cg50-family-2000"
+job = "pod-2g_cg-50"
+"""
+    )
+    swept = load_case_config(swept_config, neuralls_settings)
+    hand_written = load_case_config(hand_written_config, neuralls_settings)
+    assert [d.id for d in swept.datasets] == [d.id for d in hand_written.datasets]
+    assert [(a.dataset_id, a.job_id) for a in swept.assignments] == [
+        (a.dataset_id, a.job_id) for a in hand_written.assignments
+    ]
+
+
 def test_load_raw_toml_success(tmp_path: Path) -> None:
     """Raw TOML loading returns a plain dict."""
     config_file = tmp_path / "test.toml"

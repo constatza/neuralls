@@ -1,0 +1,23 @@
+id = "gaussian-0cg-rectangular-high-condition"
+strategy_comment = [
+    "\"0-CG\": cg_iters on the residuals/trace strategies has a hard",
+    "floor of 1 (and even cg_iters=1 emits 2 rows per system - iteration 0 AND",
+    "iteration 1, not just the untraced solution). gaussian_forward is the true",
+    "0-CG case - x ~ N(mu, sigma), b = A @ x, no CG solve at all.",
+    "POD-2G fitting never sees real archived solutions - those are comparison-only.",
+]
+
+[source]
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
+
+[generation]
+normalize = "matrix"
+shuffle = true
+seed = 42
+
+[[generation.strategy]]
+name = "gaussian_forward"
+samples = [1000, 2000, 5000, 10000]
+
+[output]
+data_dir = "${NEURALLS_PROCESSED_DIR}"

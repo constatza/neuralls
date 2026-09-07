@@ -39,56 +39,27 @@ name = "amg-dim300"
 type = "amg"
 coarsening = { method = "target_dim", target_coarse_dim = 300 }
 
-# pod-2g_0-cg/cg-10/cg-50 are fitted once per sample count via [[assignments]]
-# bound to the [[jobs]] below (a `run.type = "fit"` job per dataset).
+# pod-2g_0-cg/cg-10/cg-50 are fitted once per sample count via [[assignment_sweeps]]
+# bound to the [[jobs]] below (a `run.type = "fit"` job per dataset). Each
+# [[dataset_sweeps]] entry expands to one real [[datasets]] entry per value in
+# `values` (dataset ids are read from those real files, same as any hand-written
+# [[datasets]] entry — see scripts/expand_dataset_sweep.py and the sibling
+# gaussian-{0cg,cg10,cg50}.sweep.toml files that generate the underlying configs).
 
-[[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-0cg-1000.toml"
-display_name = "Gaussian 0-CG rectangular-high-condition, 1000 samples (POD-2G snapshots)"
+[[dataset_sweeps]]
+label = "0cg-samples"
+path_template = "../../datasets/train/rectangular-high-condition/gaussian-0cg-{value}.toml"
+values = [1000, 2000, 5000, 10000]
 
-[[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-0cg-2000.toml"
-display_name = "Gaussian 0-CG rectangular-high-condition, 2000 samples (POD-2G snapshots)"
+[[dataset_sweeps]]
+label = "cg10-samples"
+path_template = "../../datasets/train/rectangular-high-condition/gaussian-cg10-{value}.toml"
+values = [1000, 2000, 5000, 10000]
 
-[[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-0cg-5000.toml"
-display_name = "Gaussian 0-CG rectangular-high-condition, 5000 samples (POD-2G snapshots)"
-
-[[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-0cg-10000.toml"
-display_name = "Gaussian 0-CG rectangular-high-condition, 10000 samples (POD-2G snapshots)"
-
-[[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-cg10-1000.toml"
-display_name = "Gaussian CG-10 rectangular-high-condition, 1000 samples (POD-2G snapshots)"
-
-[[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-cg10-2000.toml"
-display_name = "Gaussian CG-10 rectangular-high-condition, 2000 samples (POD-2G snapshots)"
-
-[[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-cg10-5000.toml"
-display_name = "Gaussian CG-10 rectangular-high-condition, 5000 samples (POD-2G snapshots)"
-
-[[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-cg10-10000.toml"
-display_name = "Gaussian CG-10 rectangular-high-condition, 10000 samples (POD-2G snapshots)"
-
-[[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-cg50-1000.toml"
-display_name = "Gaussian CG-50 rectangular-high-condition, 1000 samples (POD-2G snapshots)"
-
-[[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-cg50-2000.toml"
-display_name = "Gaussian CG-50 rectangular-high-condition, 2000 samples (POD-2G snapshots)"
-
-[[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-cg50-5000.toml"
-display_name = "Gaussian CG-50 rectangular-high-condition, 5000 samples (POD-2G snapshots)"
-
-[[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-cg50-10000.toml"
-display_name = "Gaussian CG-50 rectangular-high-condition, 10000 samples (POD-2G snapshots)"
+[[dataset_sweeps]]
+label = "cg50-samples"
+path_template = "../../datasets/train/rectangular-high-condition/gaussian-cg50-{value}.toml"
+values = [1000, 2000, 5000, 10000]
 
 [[jobs]]
 id = "pod-2g_0-cg"
@@ -122,50 +93,14 @@ rhs_source = { kind = "sparse", indices = [
     -100.0,
 ] }
 
-[[assignments]]
-dataset = "gaussian-0cg-rectangular-high-condition-1000"
+[[assignment_sweeps]]
+dataset_sweep = "0cg-samples"
 job = "pod-2g_0-cg"
 
-[[assignments]]
-dataset = "gaussian-0cg-rectangular-high-condition-2000"
-job = "pod-2g_0-cg"
-
-[[assignments]]
-dataset = "gaussian-0cg-rectangular-high-condition-5000"
-job = "pod-2g_0-cg"
-
-[[assignments]]
-dataset = "gaussian-0cg-rectangular-high-condition-10000"
-job = "pod-2g_0-cg"
-
-[[assignments]]
-dataset = "gaussian-cg10-rectangular-high-condition-1000"
+[[assignment_sweeps]]
+dataset_sweep = "cg10-samples"
 job = "pod-2g_cg-10"
 
-[[assignments]]
-dataset = "gaussian-cg10-rectangular-high-condition-2000"
-job = "pod-2g_cg-10"
-
-[[assignments]]
-dataset = "gaussian-cg10-rectangular-high-condition-5000"
-job = "pod-2g_cg-10"
-
-[[assignments]]
-dataset = "gaussian-cg10-rectangular-high-condition-10000"
-job = "pod-2g_cg-10"
-
-[[assignments]]
-dataset = "gaussian-cg50-rectangular-high-condition-1000"
-job = "pod-2g_cg-50"
-
-[[assignments]]
-dataset = "gaussian-cg50-rectangular-high-condition-2000"
-job = "pod-2g_cg-50"
-
-[[assignments]]
-dataset = "gaussian-cg50-rectangular-high-condition-5000"
-job = "pod-2g_cg-50"
-
-[[assignments]]
-dataset = "gaussian-cg50-rectangular-high-condition-10000"
+[[assignment_sweeps]]
+dataset_sweep = "cg50-samples"
 job = "pod-2g_cg-50"
