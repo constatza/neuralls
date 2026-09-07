@@ -248,6 +248,27 @@ changing what a dataset config or case config *is*:
   job = "pod-2g_cg-50"
   ```
 
+  A `[[dataset_sweeps]]` entry may declare multiple named axes instead of a
+  single `values` list — each axis value may be a scalar (fixed, broadcast to
+  every generated path) or a list (varies). `cart_product` picks how 2+ list
+  axes combine: `false` (default) zips them position-wise (equal length
+  required); `true` takes the full cartesian product:
+
+  ```toml
+  [[dataset_sweeps]]
+  label = "cg-samples"
+  path_template = "../../datasets/train/<family>/gaussian-{cg}-{value}.toml"
+  axes = { cg = ["cg10", "cg50"], value = [1000, 2000, 5000, 10000] }
+  cart_product = true   # 2x4 = 8 paths, every {cg, value} combination
+  ```
+
+  **Caveat**: `[[assignment_sweeps]]` still binds one `job` to *every* entry
+  a `dataset_sweep` produces — if different axis values need different jobs
+  (e.g. each `cg` variant has its own POD-2G fit job, as in
+  `rectangular-high-condition/sample-sweep.toml`), keep that axis as
+  separate `[[dataset_sweeps]]`/`[[assignment_sweeps]]` blocks per job
+  rather than folding it into one multi-axis block.
+
 ## Thin Job Example
 
 ```toml

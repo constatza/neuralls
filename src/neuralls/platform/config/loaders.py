@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -72,6 +73,114 @@ def _fill_missing_dataset_ids(raw: dict[str, Any], ctx: ConfigContext) -> None:
         entry["id"] = dataset_id
 
 
+_AXIS_SCALAR_TYPES = (str, int, float, bool)
+
+
+def _combine_axes(axes: dict[str, Any], *, cart_product: bool) -> list[dict[str, Any]]:
+    """One row per axis combination; scalar axes broadcast, list axes combine.
+
+    List-valued axes combine via itertools.product (cart_product=True) or
+    zip(..., strict=True) (cart_product=False, default — equal length
+    required, matching this codebase's existing strict-zip convention, e.g.
+    domain/generation/rhs_generation.py's indices/values pairing). A scalar
+    axis has nothing to combine against, so it's merged into every resulting
+    row unchanged, regardless of mode — this is what makes "any axis may be
+    a scalar or a list" a single rule rather than a special case per axis.
+
+    Assumes axes has already been shape-validated (see _validate_axis_values)
+    — this function's only job is combining, not validating.
+    """
+    list_axes = {name: value for name, value in axes.items() if isinstance(value, list)}
+    scalar_axes = {name: value for name, value in axes.items() if not isinstance(value, list)}
+    if not list_axes:
+        raise ValueError("[[dataset_sweeps]] entry has no list-valued axis to sweep.")
+
+    names = list(list_axes.keys())
+    combos = (
+        itertools.product(*(list_axes[name] for name in names))
+        if cart_product
+        else zip(*(list_axes[name] for name in names), strict=True)
+    )
+    return [scalar_axes | dict(zip(names, combo, strict=True)) for combo in combos]
+
+
+def _substitute_template(template: str, row: dict[str, Any]) -> str:
+    """Replace every {axis_name} placeholder in template with its row value.
+
+    Uses str.replace per axis rather than str.format so an unrelated
+    ${...}-shaped substring elsewhere in the template (none exist in
+    practice, but path templates are free-form strings) can never be
+    misread as a format field.
+    """
+    result = template
+    for name, value in row.items():
+        result = result.replace(f"{{{name}}}", str(value))
+    return result
+
+
+def _require_dataset_sweep_label(sweep: dict[str, Any]) -> str:
+    """Extract and validate one [[dataset_sweeps]] entry's 'label'."""
+    label = sweep.get("label")
+    if not isinstance(label, str) or not label.strip():
+        raise ValueError("[[dataset_sweeps]] entry is missing a non-blank 'label'.")
+    return label
+
+
+def _require_dataset_sweep_path_template(sweep: dict[str, Any], label: str) -> str:
+    """Extract and validate one [[dataset_sweeps]] entry's 'path_template'."""
+    path_template = sweep.get("path_template")
+    if not isinstance(path_template, str) or not path_template:
+        raise ValueError(f"[[dataset_sweeps]] entry '{label}' has no 'path_template'.")
+    return path_template
+
+
+def _validate_axis_values(axes: dict[str, Any], label: str) -> None:
+    """Reject a nested table (or an empty list) as an axis value.
+
+    An axis must be a plain scalar (broadcast) or a non-empty list of plain
+    scalars (combined) — never a table, and never empty. Without this, a
+    stray nested table would silently stringify into a garbage path segment
+    instead of failing at the point of the mistake.
+    """
+    for name, value in axes.items():
+        candidates = value if isinstance(value, list) else [value]
+        if not candidates or any(not isinstance(item, _AXIS_SCALAR_TYPES) for item in candidates):
+            raise ValueError(
+                f"[[dataset_sweeps]] entry '{label}' axis '{name}' must be a scalar or a "
+                "non-empty list of scalars (no nested tables/lists)."
+            )
+
+
+def _resolve_dataset_sweep_axes(sweep: dict[str, Any], label: str) -> dict[str, Any]:
+    """Resolve one [[dataset_sweeps]] entry's axes, from either 'axes' or legacy 'values'."""
+    axes = sweep.get("axes")
+    values = sweep.get("values")
+    if axes is not None and values is not None:
+        raise ValueError(
+            f"[[dataset_sweeps]] entry '{label}' has both 'axes' and 'values' — use one."
+        )
+    if axes is not None:
+        if not isinstance(axes, dict) or not axes:
+            raise ValueError(f"[[dataset_sweeps]] entry '{label}' has an empty or invalid 'axes'.")
+        resolved = axes
+    else:
+        if not isinstance(values, list) or not values:
+            raise ValueError(f"[[dataset_sweeps]] entry '{label}' has no non-empty 'values' list.")
+        resolved = {"value": values}
+    _validate_axis_values(resolved, label)
+    return resolved
+
+
+def _validate_template_covers_axes(path_template: str, axes: dict[str, Any], label: str) -> None:
+    """Reject an axis nobody's path_template references — almost certainly a typo."""
+    for axis_name in axes:
+        if f"{{{axis_name}}}" not in path_template:
+            raise ValueError(
+                f"[[dataset_sweeps]] entry '{label}' declares axis '{axis_name}' but "
+                f"'path_template' has no '{{{axis_name}}}' placeholder for it."
+            )
+
+
 def _render_dataset_sweep_entries(sweep: dict[str, Any]) -> list[dict[str, Any]]:
     """Expand one [[dataset_sweeps]] entry into [[datasets]]-shaped dicts (id left unset).
 
@@ -80,25 +189,25 @@ def _render_dataset_sweep_entries(sweep: dict[str, Any]) -> list[dict[str, Any]]
     the caller's subsequent _fill_missing_dataset_ids pass resolves it from
     the real dataset config it points at, the same way a hand-written
     [[datasets]] entry without an id would be resolved.
+
+    Thin orchestrator: each validation/extraction step below is a single-
+    purpose helper (label, path_template, axes, template-coverage), and the
+    per-row work is delegated to _combine_axes (combining) and
+    _substitute_template (rendering) — this function's only job is wiring
+    them together in order.
     """
-    label = sweep.get("label")
-    if not isinstance(label, str) or not label.strip():
-        raise ValueError("[[dataset_sweeps]] entry is missing a non-blank 'label'.")
-    path_template = sweep.get("path_template")
-    if not isinstance(path_template, str) or "{value}" not in path_template:
-        raise ValueError(
-            f"[[dataset_sweeps]] entry '{label}' has no 'path_template' containing '{{value}}'."
-        )
-    values = sweep.get("values")
-    if not isinstance(values, list) or not values:
-        raise ValueError(f"[[dataset_sweeps]] entry '{label}' has no non-empty 'values' list.")
+    label = _require_dataset_sweep_label(sweep)
+    path_template = _require_dataset_sweep_path_template(sweep, label)
+    axes = _resolve_dataset_sweep_axes(sweep, label)
+    _validate_template_covers_axes(path_template, axes, label)
     display_name_template = sweep.get("display_name_template")
+    cart_product = bool(sweep.get("cart_product", False))
 
     entries: list[dict[str, Any]] = []
-    for value in values:
-        entry: dict[str, Any] = {"path": path_template.replace("{value}", str(value))}
+    for row in _combine_axes(axes, cart_product=cart_product):
+        entry: dict[str, Any] = {"path": _substitute_template(path_template, row)}
         if isinstance(display_name_template, str):
-            entry["display_name"] = display_name_template.replace("{value}", str(value))
+            entry["display_name"] = _substitute_template(display_name_template, row)
         entries.append(entry)
     return entries
 

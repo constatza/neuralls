@@ -45,6 +45,12 @@ coarsening = { method = "target_dim", target_coarse_dim = 300 }
 # `values` (dataset ids are read from those real files, same as any hand-written
 # [[datasets]] entry — see scripts/expand_dataset_sweep.py and the sibling
 # gaussian-{0cg,cg10,cg50}.sweep.toml files that generate the underlying configs).
+#
+# Kept as 3 separate blocks rather than 1 multi-axis block (cg x value):
+# [[assignment_sweeps]] binds one job to *all* of a dataset_sweep's entries,
+# and each cg-variant needs a different job (pod-2g_0-cg/cg-10/cg-50) — the
+# cg axis is entangled with job selection, which dataset_sweeps' axes/
+# cart_product (path-only templating) doesn't parameterize.
 
 [[dataset_sweeps]]
 label = "0cg-samples"
