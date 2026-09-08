@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from dlkit.infrastructure.config.job_config import FitJobConfig, SearchJobConfig, TrainingJobConfig
@@ -67,6 +67,46 @@ class MlflowTopology:
 
     env: dict[str, str]
     experiment_name: str | None = None
+
+
+@dataclass(frozen=True)
+class AssignmentIdentity:
+    """Who an assignment *is*, as declared by the case config that bound it.
+
+    The unresolved counterpart to `AssignmentSpec`: the same identity fields,
+    but every one of them still optional because nothing has been defaulted
+    yet. `load_assignment` turns one of these into the resolved
+    `AssignmentSpec` (filling `assignment_id` from the job's base name and
+    `assignment_display_name` from `resolve_display_name`); every layer above
+    it passes this object through instead of re-declaring the six fields.
+
+    Attributes:
+        assignment_id: Registry assignment key, or None for ad-hoc runs.
+        assignment_display_name: Human-facing assignment label, or None to derive one.
+        dataset_registry_id: `[[datasets]]` lookup key this run was bound to.
+        dataset_display_name: Human-facing dataset label.
+        job_registry_id: `[[jobs]]` lookup key this run was bound to.
+        job_display_name: Human-facing job label.
+    """
+
+    assignment_id: str | None = None
+    assignment_display_name: str | None = None
+    dataset_registry_id: str | None = None
+    dataset_display_name: str | None = None
+    job_registry_id: str | None = None
+    job_display_name: str | None = None
+
+    @classmethod
+    def from_spec(cls, spec: AssignmentSpec) -> AssignmentIdentity:
+        """Project an already-resolved `AssignmentSpec` back onto its identity fields."""
+        return cls(
+            assignment_id=spec.assignment_id,
+            assignment_display_name=spec.assignment_display_name,
+            dataset_registry_id=spec.dataset_id,
+            dataset_display_name=spec.dataset_display_name,
+            job_registry_id=spec.job_id,
+            job_display_name=spec.job_display_name,
+        )
 
 
 def load_validated_case_config(
@@ -149,14 +189,25 @@ def load_assignment(
     output_root: Path | None = None,
     mode: str = "training",
     case_config_path: Path | None = None,
-    assignment_id: str | None = None,
-    assignment_display_name: str | None = None,
-    dataset_registry_id: str | None = None,
-    dataset_display_name: str | None = None,
-    job_registry_id: str | None = None,
-    job_display_name: str | None = None,
+    identity: AssignmentIdentity | None = None,
 ) -> RunnableAssignment:
-    """Load a single assignment configuration."""
+    """Load a single assignment configuration.
+
+    Args:
+        job_config_path: Path to the job configuration TOML.
+        data_config_path: Path to the dataset configuration TOML.
+        neuralls_settings: Resolved project settings, or None to resolve them here.
+        output_root: Output root override for this assignment's workspace.
+        mode: Either "training" or "inference".
+        case_config_path: Case config that bound this assignment, if any.
+        identity: Registry identity declared for this assignment by its case
+            config. `dataset_registry_id` is required; everything else is
+            defaulted here when unset.
+
+    Returns:
+        The fully resolved `RunnableAssignment`.
+    """
+    identity = identity or AssignmentIdentity()
     if job_config_path is None:
         raise ValueError("job_config_path is required.")
     if data_config_path is None:
@@ -196,7 +247,7 @@ def load_assignment(
     with scoped_mlflow_environment(mlflow_topology.env):
         job_cfg = load_experiment_job(job_config_path, neuralls_settings)
 
-    if dataset_registry_id is None:
+    if identity.dataset_registry_id is None:
         raise ValueError(
             "dataset_registry_id is required. Pass it from the case config via load_assignment_batch()."
         )
@@ -206,16 +257,17 @@ def load_assignment(
     # for tracking which case-config entry produced this run.
     dataset_id = data_cfg.id
     base_name = _base_name_from_settings(job_cfg, job_config_path)
+    resolved_assignment_id = identity.assignment_id or base_name
     spec = AssignmentSpec(
-        assignment_id=assignment_id or base_name,
+        assignment_id=resolved_assignment_id,
         assignment_display_name=resolve_display_name(
-            assignment_id or base_name,
-            assignment_display_name,
+            resolved_assignment_id,
+            identity.assignment_display_name,
         ),
-        dataset_id=dataset_registry_id,
-        dataset_display_name=dataset_display_name,
-        job_id=job_registry_id,
-        job_display_name=job_display_name,
+        dataset_id=identity.dataset_registry_id,
+        dataset_display_name=identity.dataset_display_name,
+        job_id=identity.job_registry_id,
+        job_display_name=identity.job_display_name,
         job_config_path=job_config_path,
         data_config_path=data_config_path,
     )
@@ -282,12 +334,14 @@ def load_assignment_batch(
             neuralls_settings=neuralls_settings,
             output_root=output_root,
             case_config_path=case_config_path,
-            assignment_id=binding.assignment_id,
-            assignment_display_name=binding.assignment_display_name,
-            dataset_registry_id=binding.dataset_id,
-            dataset_display_name=binding.dataset_display_name,
-            job_registry_id=binding.job_id,
-            job_display_name=binding.job_display_name,
+            identity=AssignmentIdentity(
+                assignment_id=binding.assignment_id,
+                assignment_display_name=binding.assignment_display_name,
+                dataset_registry_id=binding.dataset_id,
+                dataset_display_name=binding.dataset_display_name,
+                job_registry_id=binding.job_id,
+                job_display_name=binding.job_display_name,
+            ),
         )
 
         if binding.checkpoint_path is not None:
@@ -297,21 +351,11 @@ def load_assignment_batch(
                     binding.assignment_id,
                     binding.checkpoint_path,
                 )
-            assignment = RunnableAssignment(
-                spec=AssignmentSpec(
-                    assignment_id=assignment.spec.assignment_id,
-                    assignment_display_name=assignment.spec.assignment_display_name,
-                    dataset_id=assignment.spec.dataset_id,
-                    dataset_display_name=assignment.spec.dataset_display_name,
-                    job_id=assignment.spec.job_id,
-                    job_display_name=assignment.spec.job_display_name,
-                    job_config_path=assignment.spec.job_config_path,
-                    data_config_path=assignment.spec.data_config_path,
-                    checkpoint_path=binding.checkpoint_path,
+            assignment = replace(
+                assignment,
+                spec=assignment.spec.model_copy(
+                    update={"checkpoint_path": binding.checkpoint_path}
                 ),
-                workspace=assignment.workspace,
-                settings=assignment.settings,
-                mlflow_env=assignment.mlflow_env,
             )
 
         resolved_assignments.append(assignment)

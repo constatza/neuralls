@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.assignments.assembler import load_assignment
+from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -132,7 +132,7 @@ name = "ArrayDataModule"
         config_path,
         data_config_path=data_path,
         output_root=tmp_path / "output",
-        dataset_registry_id=data_path.stem,
+        identity=AssignmentIdentity(dataset_registry_id=data_path.stem),
     )
     settings = experiment.settings
     training = settings.training

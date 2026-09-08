@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from dlkit.common import ChildFailure, ChildSuccess
@@ -37,6 +39,7 @@ from loguru import logger
 
 from neuralls.application.models import AssignmentResult, AssignmentSweepResult
 from neuralls.composition.assignments.assembler import (
+    AssignmentIdentity,
     load_assignment_batch,
     load_validated_case_config,
 )
@@ -51,6 +54,7 @@ from neuralls.composition.tracking.run_specs import build_session_run_spec
 from neuralls.platform.caching import compute_dataset_fingerprint
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
+from neuralls.platform.config.models.workspace import AssignmentSpec
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.platform.reporting.plots import plot_metric_comparison
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
@@ -69,17 +73,10 @@ from neuralls.platform.tracking.mlflow_client import (
 def run_assignment(
     *,
     settings: NeurallsSettings,
-    job_config_path: Path,
-    data_config_path: Path,
+    spec: AssignmentSpec,
     output_root: Path,
     force: bool,
     max_epochs: int | None = None,
-    assignment_id: str,
-    assignment_display_name: str,
-    dataset_registry_id: str | None = None,
-    dataset_display_name: str | None = None,
-    job_registry_id: str | None = None,
-    job_display_name: str | None = None,
     mlflow_experiment_name: str | None = None,
     tracking_uri: str | None = None,
 ) -> AssignmentResult | PreparedTraining:
@@ -102,8 +99,7 @@ def run_assignment(
     4. If training is needed, resolve dlkit settings via `prepare_training_settings()`
 
     Args:
-        job_config_path: Path to a job configuration TOML (e.g., /path/to/job.toml)
-        data_config_path: Path to a dataset configuration TOML (e.g., /path/to/dataset.toml)
+        spec: The assignment to run — its config paths and its registry identity.
         output_root: Root directory for all assignment outputs
         force: If True, retrain even if a completed run already exists. If False, reuse it.
         tracking_uri: MLflow tracking URI used to check for a prior completed run.
@@ -122,24 +118,22 @@ def run_assignment(
     Example:
         >>> outcome = run_assignment(
         ...     settings=settings,
-        ...     job_config_path=Path("/tmp/job.toml"),
-        ...     data_config_path=Path("/tmp/dataset.toml"),
+        ...     spec=assignment.spec,
         ...     output_root=Path("output"),
         ...     force=False,
-        ...     assignment_id="assignment-1",
-        ...     assignment_display_name="Assignment 1",
         ... )
         >>> isinstance(outcome, AssignmentResult) and outcome.status
         'Success'
     """
+    assignment_id = spec.assignment_id
     try:
         # Step 1: Load data configuration and resolve the already-generated
         # dataset's directory. Fails fast if the dataset config has no
         # resolvable identity — the resolved name itself isn't needed here
         # now that the checkpoint-dir computation that used it has moved to
         # MLflow (Step 2 below).
-        data_cfg = load_data_config(data_config_path, settings)
-        resolve_dataset_identity(data_cfg=data_cfg, config_path=data_config_path)
+        data_cfg = load_data_config(spec.data_config_path, settings)
+        resolve_dataset_identity(data_cfg=data_cfg, config_path=spec.data_config_path)
         if data_cfg.output.data_dir is None:
             data_cfg = data_cfg.model_copy(
                 update={"output": data_cfg.output.with_data_dir(settings.processed_dir)}
@@ -185,23 +179,18 @@ def run_assignment(
             logger.info(f"Using existing MLflow run for assignment '{assignment_id}'")
             return AssignmentResult(
                 assignment_id=assignment_id,
-                assignment_display_name=assignment_display_name,
+                assignment_display_name=spec.assignment_display_name,
                 status="Success",
                 mlflow_run_id=existing_run_id,
             )
 
         return prepare_training_settings(
-            config_path=job_config_path,
-            data_config_path=data_config_path,
+            config_path=spec.job_config_path,
+            data_config_path=spec.data_config_path,
             settings=settings,
             output_root=output_root,
             max_epochs=max_epochs,
-            assignment_id=assignment_id,
-            assignment_display_name=assignment_display_name,
-            dataset_registry_id=dataset_registry_id,
-            dataset_display_name=dataset_display_name,
-            job_registry_id=job_registry_id,
-            job_display_name=job_display_name,
+            identity=AssignmentIdentity.from_spec(spec),
             mlflow_experiment_name=mlflow_experiment_name,
             batched=True,
             extra_tags={"dataset_hash": dataset_hash},
@@ -213,7 +202,7 @@ def run_assignment(
         logger.error(f"Assignment {assignment_id} failed: {exc}")
         return AssignmentResult(
             assignment_id=assignment_id,
-            assignment_display_name=assignment_display_name,
+            assignment_display_name=spec.assignment_display_name,
             status="Failed",
             error=str(exc),
         )
@@ -239,7 +228,7 @@ def _finalize_assignment_child(
     """
     spec = prepared.assignment.spec
     try:
-        run_id, _ = finalize_prepared_training(prepared, execution_result)
+        coords = finalize_prepared_training(prepared, execution_result)
     except Exception as exc:  # noqa: BLE001
         logger.error(f"Assignment {spec.assignment_id} failed: {exc}")
         return AssignmentResult(
@@ -248,12 +237,12 @@ def _finalize_assignment_child(
             status="Failed",
             error=str(exc),
         )
-    logger.info(f"Training complete: run {run_id}")
+    logger.info(f"Training complete: run {coords.run_id}")
     return AssignmentResult(
         assignment_id=spec.assignment_id,
         assignment_display_name=spec.assignment_display_name,
         status="Success",
-        mlflow_run_id=run_id,
+        mlflow_run_id=coords.run_id,
     )
 
 
@@ -347,17 +336,10 @@ def run_assignment_sweep(
 
             outcome = run_assignment(
                 settings=settings,
-                job_config_path=spec.job_config_path,
-                data_config_path=spec.data_config_path,
+                spec=spec,
                 output_root=batch.output_root,
                 force=force,
                 max_epochs=max_epochs,
-                assignment_id=spec.assignment_id,
-                assignment_display_name=spec.assignment_display_name,
-                dataset_registry_id=spec.dataset_id,
-                dataset_display_name=spec.dataset_display_name,
-                job_registry_id=spec.job_id,
-                job_display_name=spec.job_display_name,
                 mlflow_experiment_name=mlflow_experiment_name,
                 tracking_uri=training_mlflow_env.tracking_uri,
             )
@@ -426,7 +408,7 @@ def run_assignment_sweep(
     )
 
 
-def _build_label_map(results: list[AssignmentResult]) -> dict[str, dict[str, str | None]]:
+def _build_label_map(results: Sequence[AssignmentResult]) -> dict[str, dict[str, str | None]]:
     """Build a mapping from assignment_id to its full identity, for the batch label map."""
     return {
         result.assignment_id: {
@@ -436,6 +418,112 @@ def _build_label_map(results: list[AssignmentResult]) -> dict[str, dict[str, str
         }
         for result in results
     }
+
+
+@dataclass(frozen=True)
+class _MetricReport:
+    """Everything the sweep's aggregate report renders, computed but not yet written.
+
+    Attributes:
+        labels: Assignment ids that reported the metric, in sweep order.
+        values: The reported metric values, aligned with `labels`.
+        legend: Plot legend entry per plotted assignment id.
+        missing: Human-readable descriptions of assignments lacking the metric.
+        label_map: Full identity of every assignment, plotted or not.
+    """
+
+    labels: tuple[str, ...]
+    values: tuple[float, ...]
+    legend: dict[str, str]
+    missing: tuple[str, ...]
+    label_map: dict[str, dict[str, str | None]]
+
+    @property
+    def has_plot(self) -> bool:
+        """Whether at least one assignment reported the metric."""
+        return bool(self.labels)
+
+
+def _fetch_assignment_metrics(
+    results: Sequence[AssignmentResult],
+    tracking_uri: str,
+) -> list[Mapping[str, float]]:
+    """Read each assignment's MLflow metrics, positionally aligned with *results*."""
+    return [
+        fetch_mlflow_metrics(result.mlflow_run_id, tracking_uri)
+        if result.mlflow_run_id is not None
+        else {}
+        for result in results
+    ]
+
+
+def _build_metric_report(
+    results: Sequence[AssignmentResult],
+    metrics_per_result: Sequence[Mapping[str, float]],
+    *,
+    metric: str,
+) -> _MetricReport:
+    """Compute the sweep's aggregate report from already-fetched metrics (pure)."""
+    labels: list[str] = []
+    values: list[float] = []
+    missing: list[str] = []
+
+    for result, metrics in zip(results, metrics_per_result, strict=True):
+        if metric in metrics:
+            labels.append(result.assignment_id)
+            values.append(metrics[metric])
+            continue
+        missing.append(f"{result.assignment_id} ({result.assignment_display_name})")
+
+    legend = {
+        result.assignment_id: (
+            f"{result.assignment_display_name} (run: {result.mlflow_run_id})"
+            if result.mlflow_run_id
+            else result.assignment_display_name
+        )
+        for result in results
+        if result.assignment_id in labels
+    }
+    return _MetricReport(
+        labels=tuple(labels),
+        values=tuple(values),
+        legend=legend,
+        missing=tuple(missing),
+        label_map=_build_label_map(results),
+    )
+
+
+def _upload_metric_report(
+    report: _MetricReport,
+    *,
+    metric: str,
+    tracking_uri: str,
+    parent_run_id: str,
+) -> None:
+    """Stage the report's plot and label map in a scratch dir and upload both to MLflow."""
+    plot_name = f"batch_metric_{metric.replace('/', '_')}.png"
+    with tempfile.TemporaryDirectory() as tmp:
+        work_root = Path(tmp)
+        if report.has_plot:
+            plot_metric_comparison(
+                labels=list(report.labels),
+                values=list(report.values),
+                metric_name=metric,
+                legend=report.legend,
+                save_path=work_root / plot_name,
+            )
+
+        (work_root / "batch_training_labels.json").write_text(
+            json.dumps(report.label_map, indent=2),
+            encoding="utf-8",
+        )
+
+        log_batch_artifacts_to_mlflow(
+            tracking_uri=tracking_uri,
+            run_id=parent_run_id,
+            work_root=work_root,
+            flat_files=(plot_name, "batch_training_labels.json"),
+        )
 
 
 def write_metric_report(sweep_result: AssignmentSweepResult, *, metric: str) -> bool:
@@ -459,58 +547,17 @@ def write_metric_report(sweep_result: AssignmentSweepResult, *, metric: str) -> 
         )
         return False
 
-    labels: list[str] = []
-    values: list[float] = []
-    missing: list[str] = []
-
-    for result in sweep_result.results:
-        metrics = (
-            fetch_mlflow_metrics(result.mlflow_run_id, sweep_result.tracking_uri)
-            if result.mlflow_run_id is not None
-            else {}
-        )
-        if metric in metrics:
-            labels.append(result.assignment_id)
-            values.append(metrics[metric])
-            continue
-        missing.append(f"{result.assignment_id} ({result.assignment_display_name})")
-
-    if missing:
-        logger.warning("Metric '{}' missing for assignments: {}", metric, ", ".join(missing))
-
-    legend = {
-        result.assignment_id: (
-            f"{result.assignment_display_name} (run: {result.mlflow_run_id})"
-            if result.mlflow_run_id
-            else result.assignment_display_name
-        )
-        for result in sweep_result.results
-        if result.assignment_id in labels
-    }
-
-    plot_name = f"batch_metric_{metric.replace('/', '_')}.png"
-    with tempfile.TemporaryDirectory() as tmp:
-        work_root = Path(tmp)
-        plotted = bool(labels)
-        if plotted:
-            plot_metric_comparison(
-                labels=labels,
-                values=values,
-                metric_name=metric,
-                legend=legend,
-                save_path=work_root / plot_name,
-            )
-
-        (work_root / "batch_training_labels.json").write_text(
-            json.dumps(_build_label_map(sweep_result.results), indent=2),
-            encoding="utf-8",
-        )
-
-        log_batch_artifacts_to_mlflow(
-            tracking_uri=sweep_result.tracking_uri,
-            run_id=sweep_result.parent_run_id,
-            work_root=work_root,
-            flat_files=(plot_name, "batch_training_labels.json"),
-        )
-
-    return plotted
+    report = _build_metric_report(
+        sweep_result.results,
+        _fetch_assignment_metrics(sweep_result.results, sweep_result.tracking_uri),
+        metric=metric,
+    )
+    if report.missing:
+        logger.warning("Metric '{}' missing for assignments: {}", metric, ", ".join(report.missing))
+    _upload_metric_report(
+        report,
+        metric=metric,
+        tracking_uri=sweep_result.tracking_uri,
+        parent_run_id=sweep_result.parent_run_id,
+    )
+    return report.has_plot

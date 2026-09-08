@@ -23,6 +23,8 @@ import torch
 from dlkit.common.results import TrainingResult
 from tensordict import TensorDict
 
+from neuralls.composition.assignments._training_artifacts import MlflowCoordinates
+from neuralls.composition.assignments.assembler import AssignmentIdentity
 from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
 )
@@ -525,12 +527,14 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(tmp_path: P
             config_path=str(config_path),
             data_config_path=str(data_config_path),
             output_root=tmp_path / "output",
-            assignment_id="exp-1",
-            assignment_display_name="Experiment One",
-            dataset_registry_id="dataset-1",
-            dataset_display_name="Dataset One",
-            job_registry_id="job-1",
-            job_display_name="Job One",
+            identity=AssignmentIdentity(
+                assignment_id="exp-1",
+                assignment_display_name="Experiment One",
+                dataset_registry_id="dataset-1",
+                dataset_display_name="Dataset One",
+                job_registry_id="job-1",
+                job_display_name="Job One",
+            ),
             mlflow_experiment_name="CustomTrain",
         )
     cleanup_prepared_training(prepared)
@@ -613,10 +617,12 @@ def test_prepare_training_settings_falls_back_to_dataset_display_name_without_st
             config_path=config_path,
             data_config_path=data_config_path,
             output_root=tmp_path / "output",
-            assignment_id="legacy-exp",
-            assignment_display_name="Legacy Experiment",
-            dataset_registry_id="dataset-legacy",
-            dataset_display_name="Dataset Display",
+            identity=AssignmentIdentity(
+                assignment_id="legacy-exp",
+                assignment_display_name="Legacy Experiment",
+                dataset_registry_id="dataset-legacy",
+                dataset_display_name="Dataset Display",
+            ),
         )
     cleanup_prepared_training(prepared)
 
@@ -712,10 +718,12 @@ def test_prepare_training_settings_max_epochs_override_keeps_original_settings_i
             config_path=config_path,
             data_config_path=data_config_path,
             output_root=tmp_path / "output",
-            assignment_id="exp-1",
-            assignment_display_name="Experiment One",
-            dataset_registry_id="dataset-1",
-            dataset_display_name="Dataset One",
+            identity=AssignmentIdentity(
+                assignment_id="exp-1",
+                assignment_display_name="Experiment One",
+                dataset_registry_id="dataset-1",
+                dataset_display_name="Dataset One",
+            ),
             max_epochs=9,
         )
     cleanup_prepared_training(prepared)
@@ -836,7 +844,7 @@ def test_finalize_training_run_happy_path_returns_run_coords(
     finalize_context: _TrainingFinalizationContext,
 ) -> None:
     """All Step 6-8 collaborators succeed: returns (run_id, tracking_uri); no failure marking."""
-    resolved_coords = ("sqlite:///resolved.db", "mlflow-exp-1", "run-123")
+    resolved_coords = MlflowCoordinates("sqlite:///resolved.db", "mlflow-exp-1", "run-123")
     checkpoint_path = finalize_context.workspace.checkpoint_dir / "model.ckpt"
 
     with (
@@ -858,7 +866,7 @@ def test_finalize_training_run_happy_path_returns_run_coords(
     ):
         result = _finalize_training_run(finalize_context)
 
-    assert result == ("run-123", "sqlite:///resolved.db")
+    assert result == MlflowCoordinates("sqlite:///resolved.db", "mlflow-exp-1", "run-123")
     mock_mark_failed.assert_not_called()
 
 
@@ -870,7 +878,7 @@ def test_finalize_training_run_marks_run_failed_and_reraises_on_durability_failu
     The exact same exception instance must propagate — mark_run_failed must not
     swallow or wrap it.
     """
-    resolved_coords = ("sqlite:///resolved.db", "mlflow-exp-1", "run-123")
+    resolved_coords = MlflowCoordinates("sqlite:///resolved.db", "mlflow-exp-1", "run-123")
     checkpoint_path = finalize_context.workspace.checkpoint_dir / "model.ckpt"
     original_exc = RuntimeError("checkpoint upload failed")
 

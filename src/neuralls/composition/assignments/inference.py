@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from neuralls.application.inference.models import InferenceConfig
-from neuralls.composition.assignments.assembler import load_assignment
+from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 
 PREDICTION_ARTIFACTS: tuple[str, ...] = ("figures", "predictions")
@@ -80,7 +80,7 @@ def _load_assignment_settings(
         case_config_path=case_config_path,
         output_root=config.output_root,
         mode="inference",
-        dataset_registry_id=dataset_registry_id,
+        identity=AssignmentIdentity(dataset_registry_id=dataset_registry_id),
     )
     settings = assignment.settings
     workspace = assignment.workspace

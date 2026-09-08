@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.assignments.assembler import load_assignment
+from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
 
 def _write_model_profile(
@@ -115,7 +115,7 @@ class TestRunNaming:
             sample_data_config,
             neuralls_settings,
             output_root=tmp_path / "output",
-            dataset_registry_id=sample_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=sample_data_config.stem),
         )
 
         assert experiment.workspace.run_id == "NormScaledLinearFFNN"
@@ -132,7 +132,7 @@ class TestRunNaming:
             sample_data_config,
             neuralls_settings,
             output_root=tmp_path / "output",
-            dataset_registry_id=sample_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=sample_data_config.stem),
         )
 
         assert experiment.workspace.run_id == "MyCustomExperiment"
@@ -149,14 +149,14 @@ class TestRunNaming:
             sample_data_config,
             neuralls_settings,
             output_root=tmp_path / "output1",
-            dataset_registry_id=sample_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=sample_data_config.stem),
         )
         exp2 = load_assignment(
             job_config_without_experiment_name,
             sample_data_config,
             neuralls_settings,
             output_root=tmp_path / "output2",
-            dataset_registry_id=sample_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=sample_data_config.stem),
         )
 
         assert exp1.workspace.run_id == exp2.workspace.run_id == "NormScaledLinearFFNN"
@@ -173,7 +173,7 @@ class TestRunNaming:
             sample_data_config,
             neuralls_settings,
             output_root=tmp_path / "output",
-            dataset_registry_id=sample_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=sample_data_config.stem),
         )
 
         assert experiment.spec.assignment_id == "NormScaledLinearFFNN"
@@ -192,7 +192,7 @@ class TestRunNaming:
             sample_data_config,
             neuralls_settings,
             output_root=output_root,
-            dataset_registry_id=sample_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=sample_data_config.stem),
         )
 
         run_id = experiment.workspace.run_id
@@ -234,7 +234,7 @@ name = "ArrayDataModule"
             sample_data_config,
             neuralls_settings,
             output_root=tmp_path / "output",
-            dataset_registry_id=sample_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=sample_data_config.stem),
         )
 
         assert experiment.workspace.run_id == "bad-model"
@@ -259,7 +259,7 @@ name = "ArrayDataModule"
             sample_data_config,
             neuralls_settings,
             output_root=tmp_path / "output",
-            dataset_registry_id=sample_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=sample_data_config.stem),
         )
 
         assert experiment.workspace.run_id == "Model_release-alpha"

@@ -121,7 +121,7 @@ class TestTrainingPipelineWithMLflow:
         neuralls_settings,
     ) -> None:
         """MLflow-enabled jobs load with runtime tracking and workspace roots."""
-        from neuralls.composition.assignments.assembler import load_assignment
+        from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
         data_dir = training_setup["data_dir"]
         datasets_dir = training_setup["datasets_dir"]
@@ -163,7 +163,7 @@ class TestTrainingPipelineWithMLflow:
             data_config_path=data_config_path,
             neuralls_settings=neuralls_settings,
             output_root=output_root,
-            dataset_registry_id=data_config_path.stem,
+            identity=AssignmentIdentity(dataset_registry_id=data_config_path.stem),
         )
 
         assert experiment.settings.tracking.backend == "mlflow"
@@ -181,7 +181,7 @@ class TestTrainingPipelineWithMLflow:
         neuralls_settings,
     ) -> None:
         """Case-config MLflow topology still controls derived output placement."""
-        from neuralls.composition.assignments.assembler import load_assignment
+        from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
         tmp_path = training_setup["tmp_path"]
         data_dir = training_setup["data_dir"]
@@ -242,7 +242,7 @@ class TestTrainingPipelineWithMLflow:
             data_config_path=data_config_path,
             neuralls_settings=neuralls_settings,
             case_config_path=experiments_config_path,
-            dataset_registry_id=data_config_path.stem,
+            identity=AssignmentIdentity(dataset_registry_id=data_config_path.stem),
         )
 
         assert experiment.settings.tracking.backend == "mlflow"
@@ -287,7 +287,7 @@ def test_load_assignment_accepts_fit_job_without_trainer_section(
     or `ValueError` (`patch_runtime_workspace`'s "Training jobs require
     [training].trainer" guard, unconditionally applied to every job kind).
     """
-    from neuralls.composition.assignments.assembler import load_assignment
+    from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
     data_dir = training_setup["data_dir"]
     datasets_dir = training_setup["datasets_dir"]
@@ -321,7 +321,7 @@ def test_load_assignment_accepts_fit_job_without_trainer_section(
         data_config_path=data_config_path,
         neuralls_settings=neuralls_settings,
         output_root=output_root,
-        dataset_registry_id=data_config_path.stem,
+        identity=AssignmentIdentity(dataset_registry_id=data_config_path.stem),
     )
 
     assert experiment.settings.training is None

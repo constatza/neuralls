@@ -14,6 +14,7 @@ import numpy as np
 import tomli_w
 from dlkit.common import ChildSuccess
 
+from neuralls.composition.assignments._training_artifacts import MlflowCoordinates
 from neuralls.composition.assignments.training import PreparedTraining
 from neuralls.composition.assignments.training_batch import run_assignment_sweep
 from neuralls.composition.generation.process_data import process_data_from_config
@@ -236,7 +237,7 @@ def test_run_assignments_full_flow(
         ) as mock_sweep,
         patch(
             "neuralls.composition.assignments.training_batch.finalize_prepared_training",
-            return_value=("test-run-id", tracking_uri),
+            return_value=MlflowCoordinates(tracking_uri, "0", "test-run-id"),
         ),
         patch("neuralls.composition.assignments.training_batch.finalize_session_parent_run"),
     ):
@@ -364,7 +365,7 @@ def test_run_assignment_sweep_with_mlflow(
         ) as mock_sweep,
         patch(
             "neuralls.composition.assignments.training_batch.finalize_prepared_training",
-            return_value=("mlflow-test-run-id", tracking_uri),
+            return_value=MlflowCoordinates(tracking_uri, "0", "mlflow-test-run-id"),
         ),
         patch("neuralls.composition.assignments.training_batch.finalize_session_parent_run"),
     ):

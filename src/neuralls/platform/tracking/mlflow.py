@@ -7,7 +7,9 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+type SessionRunStatus = Literal["FINISHED", "FAILED"]
 
 import mlflow
 from dlkit.infrastructure.io import url_resolver
@@ -353,7 +355,9 @@ def create_session_parent_run(
     return parent_run.info.run_id
 
 
-def finalize_session_parent_run(*, tracking_uri: str, run_id: str, status: str) -> None:
+def finalize_session_parent_run(
+    *, tracking_uri: str, run_id: str, status: SessionRunStatus
+) -> None:
     """Terminate a session parent run created via ``create_session_parent_run``."""
     MlflowClient(tracking_uri=tracking_uri).set_terminated(run_id, status=status)
 

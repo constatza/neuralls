@@ -8,7 +8,7 @@ import pytest
 from dlkit.common.errors import ConfigValidationError
 from dlkit.infrastructure.config.job_config import SearchJobConfig, TrainingJobConfig
 
-from neuralls.composition.assignments.assembler import load_assignment
+from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 from neuralls.platform.config.dlkit_bridge import load_job_config
 from neuralls.platform.config.models.workspace import (
     AssignmentSpec,
@@ -187,7 +187,7 @@ class TestLoadExperiment:
             data_config_path=sample_data_config,
             neuralls_settings=neuralls_settings,
             output_root=output_root,
-            dataset_registry_id=sample_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=sample_data_config.stem),
         )
 
         assert isinstance(experiment, RunnableAssignment)
@@ -207,7 +207,7 @@ class TestLoadExperiment:
             sample_data_config,
             neuralls_settings=neuralls_settings,
             output_root=tmp_path,
-            dataset_registry_id=sample_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=sample_data_config.stem),
         )
 
         assert experiment.spec.assignment_id == "test-model"
@@ -234,7 +234,7 @@ class TestLoadExperiment:
             sample_data_config,
             neuralls_settings=neuralls_settings,
             output_root=output_root,
-            dataset_registry_id=sample_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=sample_data_config.stem),
         )
 
         assert experiment.workspace.dataset_id == "test-data"
@@ -261,7 +261,7 @@ class TestLoadExperiment:
             sample_data_config,
             neuralls_settings=neuralls_settings,
             output_root=output_root,
-            dataset_registry_id=sample_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=sample_data_config.stem),
         )
 
         assert (
@@ -291,7 +291,7 @@ class TestLoadExperiment:
             sample_data_config,
             neuralls_settings=neuralls_settings,
             output_root=tmp_path,
-            dataset_registry_id=sample_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=sample_data_config.stem),
         )
 
         assert experiment.spec.assignment_id == "OnlyModelName"

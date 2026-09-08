@@ -23,6 +23,7 @@ from neuralls.composition.assignments._dataset_assembly import (
 from neuralls.composition.assignments._job_types import AnyJobConfig
 from neuralls.composition.assignments._settings_pipeline import _configure_training_pipeline
 from neuralls.composition.assignments._training_artifacts import (
+    MlflowCoordinates,
     _build_training_run_config,
     _get_normalized_training_numpy_payload,
     _log_training_context,
@@ -33,7 +34,7 @@ from neuralls.composition.assignments._training_artifacts import (
     _stage_training_artifacts,
     create_fallback_training_run,
 )
-from neuralls.composition.assignments.assembler import load_assignment
+from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 from neuralls.composition.assignments.runtime_dataset_contract import (
     RuntimeDatasetContract,
     default_training_dataset_contract,
@@ -118,11 +119,12 @@ def _resolve_finalization_checkpoint(
 def _finalize_existing_mlflow_run(
     *,
     context: _TrainingFinalizationContext,
-    mlflow_coords: tuple[str, str, str],
+    mlflow_coords: MlflowCoordinates,
     checkpoint_path: Path,
-) -> tuple[str, str, str]:
+) -> MlflowCoordinates:
     """Make an existing DLKit MLflow run durable."""
-    tracking_uri, _, run_id = mlflow_coords
+    tracking_uri = mlflow_coords.tracking_uri
+    run_id = mlflow_coords.run_id
     _log_training_context(
         tracking_uri=tracking_uri,
         run_id=run_id,
@@ -174,7 +176,7 @@ def _finalize_fallback_mlflow_run(
     *,
     context: _TrainingFinalizationContext,
     checkpoint_path: Path,
-) -> tuple[str, str, str] | None:
+) -> MlflowCoordinates | None:
     """Create a fallback MLflow run when DLKit left no run metadata."""
     logger.warning("Training completed without MLflow run metadata; creating fallback run.")
     try:
@@ -188,10 +190,10 @@ def _finalize_fallback_mlflow_run(
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not create fallback MLflow run: {}", exc)
         return None
-    return (
-        context.fallback_tracking_uri or "",
-        fallback_exp_id,
-        fallback_run_id,
+    return MlflowCoordinates(
+        tracking_uri=context.fallback_tracking_uri or "",
+        experiment_id=fallback_exp_id,
+        run_id=fallback_run_id,
     )
 
 
@@ -304,12 +306,7 @@ def prepare_training_settings(
     case_config_path: str | Path | None = None,
     output_root: Path | str | None = None,
     max_epochs: int | None = None,
-    assignment_id: str | None = None,
-    assignment_display_name: str | None = None,
-    dataset_registry_id: str | None = None,
-    dataset_display_name: str | None = None,
-    job_registry_id: str | None = None,
-    job_display_name: str | None = None,
+    identity: AssignmentIdentity,
     mlflow_experiment_name: str | None = None,
     batched: bool = False,
     extra_tags: Mapping[str, str] | None = None,
@@ -331,6 +328,8 @@ def prepare_training_settings(
     Args:
         config_path: Path to a job configuration TOML.
         data_config_path: Path to a dataset configuration TOML.
+        identity: Registry identity of the assignment being prepared, threaded
+            straight through to `load_assignment`.
         batched: True when this assignment is one child of a batch/sweep —
             omits the run-name timestamp, since the sweep already
             disambiguates children without one.
@@ -360,12 +359,7 @@ def prepare_training_settings(
             neuralls_settings=settings,
             case_config_path=resolved_case_config_path,
             output_root=tmp_path,
-            assignment_id=assignment_id,
-            assignment_display_name=assignment_display_name,
-            dataset_registry_id=dataset_registry_id,
-            dataset_display_name=dataset_display_name,
-            job_registry_id=job_registry_id,
-            job_display_name=job_display_name,
+            identity=identity,
         )
         workflow_settings = assignment.settings
         workspace = assignment.workspace
@@ -380,11 +374,7 @@ def prepare_training_settings(
 
         # Step 3: Build execute()-time MLflow naming and tags
         run_config = _build_training_run_config(
-            assignment_id=assignment.spec.assignment_id,
-            assignment_display_name=resolved_assignment_display_name,
-            dataset_registry_id=assignment.spec.dataset_id,
-            job_registry_id=assignment.spec.job_id,
-            dataset_display_name=resolved_dataset_display_name,
+            identity=AssignmentIdentity.from_spec(assignment.spec),
             mlflow_experiment_name=mlflow_experiment_name,
             runtime_mlflow_env=runtime_mlflow_env,
             workspace_root=workspace.root_dir,
@@ -468,7 +458,7 @@ def to_run_spec(prepared: PreparedTraining) -> RunSpec:
 def finalize_prepared_training(
     prepared: PreparedTraining,
     execution_result: object,
-) -> tuple[str, str]:
+) -> MlflowCoordinates:
     """Finalize one dlkit ``execute()`` result: make the checkpoint durable in MLflow.
 
     Must be called while ``prepared.tmp_path`` still exists on disk — call
@@ -480,8 +470,7 @@ def finalize_prepared_training(
             child's dispatch) returned for this assignment.
 
     Returns:
-        Tuple of (run_id, tracking_uri) for the MLflow run the checkpoint was
-        uploaded to.
+        Coordinates of the MLflow run the checkpoint was uploaded to.
     """
     training_result = _unwrap_execution_result(execution_result)
     fallback_tracking_uri, _ = resolve_runtime_tracking_config()
@@ -503,7 +492,7 @@ def finalize_prepared_training(
     return _finalize_training_run(context)
 
 
-def _finalize_training_run(context: _TrainingFinalizationContext) -> tuple[str, str]:
+def _finalize_training_run(context: _TrainingFinalizationContext) -> MlflowCoordinates:
     """Make a completed execution durable in MLflow, or mark the run FAILED and re-raise.
 
     Must be called from inside the same ``scoped_mlflow_environment`` the
@@ -520,8 +509,7 @@ def _finalize_training_run(context: _TrainingFinalizationContext) -> tuple[str, 
         context: Bundled state produced by ``train_model`` after ``execute()``.
 
     Returns:
-        Tuple of (run_id, tracking_uri) for the MLflow run the checkpoint was
-        uploaded to.
+        Coordinates of the MLflow run the checkpoint was uploaded to.
 
     Raises:
         RuntimeError: If no MLflow run could be established for the assignment.
@@ -537,7 +525,8 @@ def _finalize_training_run(context: _TrainingFinalizationContext) -> tuple[str, 
             run_name=context.run_config.run_name,
         )
         if mlflow_coords is not None:
-            resolved_tracking_uri, _, resolved_run_id = mlflow_coords
+            resolved_tracking_uri = mlflow_coords.tracking_uri
+            resolved_run_id = mlflow_coords.run_id
         else:
             resolved_run_id = getattr(context.training_result, "mlflow_run_id", None) or getattr(
                 context.training_result, "run_id", None
@@ -551,28 +540,24 @@ def _finalize_training_run(context: _TrainingFinalizationContext) -> tuple[str, 
                 run_id=resolved_run_id,
                 artifact_leases=artifact_leases,
             )
-            match mlflow_coords:
-                case (str(), str(), str()) as existing_coords:
-                    mlflow_coords = _finalize_existing_mlflow_run(
-                        context=context,
-                        mlflow_coords=existing_coords,
-                        checkpoint_path=local_checkpoint,
-                    )
-                case None:
-                    mlflow_coords = _finalize_fallback_mlflow_run(
-                        context=context,
-                        checkpoint_path=local_checkpoint,
-                    )
-                case _:
-                    raise RuntimeError(f"Invalid MLflow coordinates: {mlflow_coords!r}")
+            if mlflow_coords is None:
+                mlflow_coords = _finalize_fallback_mlflow_run(
+                    context=context,
+                    checkpoint_path=local_checkpoint,
+                )
+            else:
+                mlflow_coords = _finalize_existing_mlflow_run(
+                    context=context,
+                    mlflow_coords=mlflow_coords,
+                    checkpoint_path=local_checkpoint,
+                )
 
         if mlflow_coords is None:
             raise RuntimeError(
                 f"Training completed but no MLflow run could be established for "
                 f"assignment '{context.assignment_id}' — nothing to attach the checkpoint to."
             )
-        resolved_final_tracking_uri, _, resolved_final_run_id = mlflow_coords
-        return resolved_final_run_id, resolved_final_tracking_uri
+        return mlflow_coords
     except Exception:
         if resolved_run_id is not None and resolved_tracking_uri is not None:
             mark_run_failed(run_id=resolved_run_id, tracking_uri=resolved_tracking_uri)

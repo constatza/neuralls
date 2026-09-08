@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.assignments.assembler import load_assignment, load_validated_case_config
+from neuralls.composition.assignments.assembler import (
+    AssignmentIdentity,
+    load_assignment,
+    load_validated_case_config,
+)
 from neuralls.platform.config.dlkit_bridge import load_job_config
 from neuralls.platform.config.registry import list_assignment_bindings
 
@@ -254,7 +258,7 @@ def test_load_experiment_supports_structured_linear_job(tmp_path: Path) -> None:
         job_config_path=job_config_path,
         data_config_path=data_config_path,
         output_root=output_root,
-        dataset_registry_id="dummy-dataset",
+        identity=AssignmentIdentity(dataset_registry_id="dummy-dataset"),
     )
 
     assert experiment.spec.job_config_path.name == "symmetric.toml"

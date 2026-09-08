@@ -8,7 +8,7 @@ from pathlib import Path
 
 import tomli_w
 
-from neuralls.composition.assignments.assembler import load_assignment
+from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
 
 def _write_configs(root: Path) -> tuple[Path, Path]:
@@ -47,7 +47,7 @@ def main() -> None:
             model_config,
             data_config,
             output_root=root / "output",
-            dataset_registry_id="debug-data",
+            identity=AssignmentIdentity(dataset_registry_id="debug-data"),
         )
 
         dataset = experiment.settings.data

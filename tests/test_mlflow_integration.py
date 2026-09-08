@@ -102,13 +102,13 @@ class TestMLflowExperimentCreation:
         output_root: Path,
     ):
         """Verify MLflow is enabled for a loaded experiment."""
-        from neuralls.composition.assignments.assembler import load_assignment
+        from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
         experiment = load_assignment(
             minimal_model_config,
             minimal_data_config,
             output_root=output_root,
-            dataset_registry_id=minimal_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=minimal_data_config.stem),
         )
 
         assert experiment.settings.tracking is not None
@@ -120,13 +120,13 @@ class TestMLflowExperimentCreation:
         output_root: Path,
     ):
         """Verify load_assignment does not need to embed run naming in settings."""
-        from neuralls.composition.assignments.assembler import load_assignment
+        from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
         experiment = load_assignment(
             minimal_model_config,
             minimal_data_config,
             output_root=output_root,
-            dataset_registry_id=minimal_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=minimal_data_config.stem),
         )
 
         assert experiment.settings.tracking is not None
@@ -142,13 +142,13 @@ class TestMLflowArtifactStorage:
         output_root: Path,
     ):
         """Verify MLflow artifacts configured at mlartifacts/."""
-        from neuralls.composition.assignments.assembler import load_assignment
+        from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
         experiment = load_assignment(
             minimal_model_config,
             minimal_data_config,
             output_root=output_root,
-            dataset_registry_id=minimal_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=minimal_data_config.stem),
         )
 
         assert output_root in experiment.workspace.root_dir.parents
@@ -160,13 +160,13 @@ class TestMLflowArtifactStorage:
         output_root: Path,
     ):
         """Verify workspace directories are created under dataset/run hierarchy."""
-        from neuralls.composition.assignments.assembler import load_assignment
+        from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
         experiment = load_assignment(
             minimal_model_config,
             minimal_data_config,
             output_root=output_root,
-            dataset_registry_id=minimal_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=minimal_data_config.stem),
         )
 
         # Verify workspace structure: output_root/dataset_id/run_id/
@@ -188,13 +188,13 @@ class TestMLflowArtifactStorage:
         output_root: Path,
     ):
         """Verify MLflow tracking URI is configured correctly."""
-        from neuralls.composition.assignments.assembler import load_assignment
+        from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
         experiment = load_assignment(
             minimal_model_config,
             minimal_data_config,
             output_root=output_root,
-            dataset_registry_id=minimal_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=minimal_data_config.stem),
         )
 
         assert experiment.settings.tracking is not None
@@ -212,13 +212,13 @@ class TestCustomArtifacts:
         output_root: Path,
     ):
         """Verify workspace provides directories for custom artifacts."""
-        from neuralls.composition.assignments.assembler import load_assignment
+        from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
         experiment = load_assignment(
             minimal_model_config,
             minimal_data_config,
             output_root=output_root,
-            dataset_registry_id=minimal_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=minimal_data_config.stem),
         )
 
         workspace = experiment.workspace
@@ -238,13 +238,13 @@ class TestCustomArtifacts:
         output_root: Path,
     ):
         """Verify custom CSV artifacts can be saved to workspace."""
-        from neuralls.composition.assignments.assembler import load_assignment
+        from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
         experiment = load_assignment(
             minimal_model_config,
             minimal_data_config,
             output_root=output_root,
-            dataset_registry_id=minimal_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=minimal_data_config.stem),
         )
 
         # Save a custom CSV metric
@@ -266,13 +266,13 @@ class TestCustomArtifacts:
         output_root: Path,
     ):
         """Verify custom plot artifacts can be saved to figures_dir."""
-        from neuralls.composition.assignments.assembler import load_assignment
+        from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
         experiment = load_assignment(
             minimal_model_config,
             minimal_data_config,
             output_root=output_root,
-            dataset_registry_id=minimal_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=minimal_data_config.stem),
         )
 
         # Save a dummy plot file
@@ -292,13 +292,13 @@ class TestCustomArtifacts:
         """Verify custom prediction outputs can be saved to predictions_dir."""
         import numpy as np
 
-        from neuralls.composition.assignments.assembler import load_assignment
+        from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
         experiment = load_assignment(
             minimal_model_config,
             minimal_data_config,
             output_root=output_root,
-            dataset_registry_id=minimal_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=minimal_data_config.stem),
         )
 
         # Save custom prediction outputs
@@ -325,13 +325,13 @@ class TestMLflowPathResolution:
         output_root: Path,
     ):
         """Verify all MLflow paths are derived from output_root."""
-        from neuralls.composition.assignments.assembler import load_assignment
+        from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
         experiment = load_assignment(
             minimal_model_config,
             minimal_data_config,
             output_root=output_root,
-            dataset_registry_id=minimal_data_config.stem,
+            identity=AssignmentIdentity(dataset_registry_id=minimal_data_config.stem),
         )
 
         # All MLflow paths should contain output_root
@@ -344,7 +344,7 @@ class TestMLflowPathResolution:
         tmp_path: Path,
     ):
         """Verify different datasets create separate experiment hierarchies."""
-        from neuralls.composition.assignments.assembler import load_assignment
+        from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
         # Create two different data configs
         matrix_a = tmp_path / "dummy_A.txt"
@@ -376,14 +376,14 @@ normalize = "matrix"
             minimal_model_config,
             data_config_1,
             output_root=output_root,
-            dataset_registry_id=data_config_1.stem,
+            identity=AssignmentIdentity(dataset_registry_id=data_config_1.stem),
         )
 
         exp2 = load_assignment(
             minimal_model_config,
             data_config_2,
             output_root=output_root,
-            dataset_registry_id=data_config_2.stem,
+            identity=AssignmentIdentity(dataset_registry_id=data_config_2.stem),
         )
 
         # Verify workspace roots are isolated by dataset

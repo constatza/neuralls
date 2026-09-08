@@ -6,7 +6,7 @@ from pathlib import Path
 
 import tomli_w
 
-from neuralls.composition.assignments.assembler import load_assignment
+from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 
 
 def test_load_experiment_injects_mlflow_from_case_config(
@@ -76,7 +76,7 @@ def test_load_experiment_injects_mlflow_from_case_config(
         data_config_path=data_path,
         neuralls_settings=neuralls_settings,
         case_config_path=experiments_path,
-        dataset_registry_id=data_path.stem,
+        identity=AssignmentIdentity(dataset_registry_id=data_path.stem),
     )
 
     assert experiment.settings.tracking is not None

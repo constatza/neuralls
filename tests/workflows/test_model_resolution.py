@@ -426,6 +426,106 @@ def test_resolve_checkpoint_for_run_raises_on_ambiguous_distinct_artifacts(
         )
 
 
+# ---------------------------------------------------------------------------
+# _resolve_checkpoint_for_run — primary/fallback candidate ordering
+#
+# Characterizes which artifact location is consulted, in what order, and which
+# exception type survives each stage. The primary location is the canonical
+# `checkpoints/` dir; the fallback is the ref's own `artifact_path`.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_checkpoint_for_run_falls_back_when_primary_dir_holds_no_checkpoint(
+    tmp_path: Path,
+) -> None:
+    """An empty `checkpoints/` dir falls through to the ref's own artifact path."""
+    checkpoint_root = tmp_path / "checkpoints"
+    fallback_root = tmp_path / "fallback"
+    checkpoint_root.mkdir(parents=True)
+    fallback_root.mkdir(parents=True)
+    expected = fallback_root / "model.ckpt"
+    expected.write_bytes(b"fallback")
+
+    leases = _CheckpointLeaseManager(
+        checkpoint_root=checkpoint_root,
+        fallback_root=fallback_root,
+    )
+    resolved = _resolve_checkpoint_for_run(
+        artifact_leases=leases,
+        run_id="run-1",
+        fallback_artifact_path="model",
+    )
+
+    assert resolved == expected
+    assert ("run-1", "checkpoints") in leases.dir_calls
+    assert ("run-1", "model") in leases.dir_calls
+
+
+def test_resolve_checkpoint_for_run_downloads_a_ckpt_suffixed_fallback_as_a_file(
+    tmp_path: Path,
+) -> None:
+    """A fallback artifact path ending in .ckpt is leased as a file, not scanned as a dir."""
+    checkpoint_root = tmp_path / "checkpoints"
+    fallback_root = tmp_path / "fallback"
+    checkpoint_root.mkdir(parents=True)
+    fallback_root.mkdir(parents=True)
+
+    leases = _CheckpointLeaseManager(
+        checkpoint_root=checkpoint_root,
+        fallback_root=fallback_root,
+    )
+    resolved = _resolve_checkpoint_for_run(
+        artifact_leases=leases,
+        run_id="run-1",
+        fallback_artifact_path="model/best.ckpt",
+    )
+
+    assert resolved == fallback_root / "model/best.ckpt"
+    assert leases.file_calls == [("run-1", "model/best.ckpt")]
+
+
+def test_resolve_checkpoint_for_run_raises_file_not_found_when_neither_location_has_one(
+    tmp_path: Path,
+) -> None:
+    """Exhausting both locations reports both of them in one FileNotFoundError."""
+    checkpoint_root = tmp_path / "checkpoints"
+    fallback_root = tmp_path / "fallback"
+    checkpoint_root.mkdir(parents=True)
+    fallback_root.mkdir(parents=True)
+
+    with pytest.raises(FileNotFoundError, match="Could not resolve checkpoint artifacts"):
+        _resolve_checkpoint_for_run(
+            artifact_leases=_CheckpointLeaseManager(
+                checkpoint_root=checkpoint_root,
+                fallback_root=fallback_root,
+            ),
+            run_id="run-1",
+            fallback_artifact_path="model",
+        )
+
+
+def test_resolve_checkpoint_for_run_propagates_ambiguity_raised_by_the_fallback(
+    tmp_path: Path,
+) -> None:
+    """An ambiguous fallback dir raises ValueError — it is never masked as 'not found'."""
+    checkpoint_root = tmp_path / "checkpoints"
+    fallback_root = tmp_path / "fallback"
+    checkpoint_root.mkdir(parents=True)
+    fallback_root.mkdir(parents=True)
+    (fallback_root / "first.ckpt").write_bytes(b"first")
+    (fallback_root / "second.ckpt").write_bytes(b"second")
+
+    with pytest.raises(ValueError, match="Multiple distinct checkpoints found"):
+        _resolve_checkpoint_for_run(
+            artifact_leases=_CheckpointLeaseManager(
+                checkpoint_root=checkpoint_root,
+                fallback_root=fallback_root,
+            ),
+            run_id="run-1",
+            fallback_artifact_path="model",
+        )
+
+
 def test_resolve_registered_ref_latest_picks_highest_version(
     tmp_path: Path,
     mlflow_tracking_uri: str,

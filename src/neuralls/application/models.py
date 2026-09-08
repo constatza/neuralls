@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
+
+type AssignmentStatus = Literal["Success", "Failed"]
 
 
 @dataclass(frozen=True)
@@ -43,7 +46,7 @@ class AssignmentResult:
 
     assignment_id: str
     assignment_display_name: str
-    status: str
+    status: AssignmentStatus
     tasks: list[TaskResult] = field(default_factory=list)
     error: str | None = None
     mlflow_run_id: str | None = None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -16,6 +17,7 @@ from neuralls.platform.config.models.dataset_identity import normalize_registry_
 from neuralls.platform.config.models.preconditioner import (
     CheckpointRefBearing,
     LoggedModelRefConfig,
+    ModelRefConfig,
     NeuralCheckpointRef,
     PreconditionerConfig,
     RegisteredModelRefConfig,
@@ -192,13 +194,23 @@ def search_logged_models(
     ]
 
 
-def _resolve_checkpoint_for_run(
+def _resolve_primary_checkpoint(
     *,
-    run_id: str,
     artifact_leases: ArtifactLeaseManager,
-    fallback_artifact_path: str,
-) -> Path:
-    """Resolve run artifacts and return a concrete checkpoint path."""
+    run_id: str,
+) -> Path | None:
+    """Resolve the checkpoint under a run's canonical checkpoint artifact dir.
+
+    Args:
+        artifact_leases: Lease manager owning any temporary materialization.
+        run_id: MLflow run whose artifacts to consult.
+
+    Returns:
+        The single checkpoint found there, or None when the directory can't be
+        resolved or holds no checkpoint at all — both of which mean "try the
+        fallback location". Ambiguity between distinct checkpoints is *not* a
+        miss and propagates as `ValueError`.
+    """
     try:
         checkpoint_root = artifact_leases.resolve_dir(run_id, CHECKPOINT_ARTIFACT_DIR).path
     except Exception as exc:  # noqa: BLE001
@@ -208,27 +220,47 @@ def _resolve_checkpoint_for_run(
             run_id,
             exc,
         )
-        return _resolve_fallback_checkpoint_for_run(
-            artifact_leases=artifact_leases,
-            run_id=run_id,
-            fallback_artifact_path=fallback_artifact_path,
-        )
+        return None
     try:
         return find_single_checkpoint(checkpoint_root)
     except FileNotFoundError:
-        return _resolve_fallback_checkpoint_for_run(
-            artifact_leases=artifact_leases,
-            run_id=run_id,
-            fallback_artifact_path=fallback_artifact_path,
-        )
+        return None
 
 
-def _resolve_fallback_checkpoint_for_run(
+def _resolve_fallback_checkpoint(
     *,
     artifact_leases: ArtifactLeaseManager,
     run_id: str,
     fallback_artifact_path: str,
 ) -> Path:
+    """Resolve a checkpoint from a ref's own artifact path — a file, or a dir to scan."""
+    if PurePosixPath(fallback_artifact_path).suffix == CHECKPOINT_FILE_EXTENSION:
+        return artifact_leases.resolve_file(run_id, fallback_artifact_path).path
+    fallback_root = artifact_leases.resolve_dir(run_id, fallback_artifact_path).path
+    return find_single_checkpoint(fallback_root)
+
+
+def _resolve_checkpoint_for_run(
+    *,
+    run_id: str,
+    artifact_leases: ArtifactLeaseManager,
+    fallback_artifact_path: str,
+) -> Path:
+    """Resolve run artifacts and return a concrete checkpoint path.
+
+    Consults the canonical checkpoint dir first, then the ref's own artifact
+    path. Only a genuine miss advances to the fallback: an ambiguous set of
+    distinct checkpoints raises `ValueError` from whichever location produced
+    it, rather than being reported as "not found".
+
+    Raises:
+        FileNotFoundError: If neither location yields a checkpoint.
+        ValueError: If either location holds several distinct checkpoints.
+    """
+    primary = _resolve_primary_checkpoint(artifact_leases=artifact_leases, run_id=run_id)
+    if primary is not None:
+        return primary
+
     logger.debug(
         "No checkpoint under '{}' for run {}. Falling back to '{}'.",
         CHECKPOINT_ARTIFACT_DIR,
@@ -250,27 +282,47 @@ def _resolve_fallback_checkpoint_for_run(
         ) from exc
 
 
-def _resolve_fallback_checkpoint(
-    *,
-    artifact_leases: ArtifactLeaseManager,
-    run_id: str,
-    fallback_artifact_path: str,
-) -> Path:
-    if PurePosixPath(fallback_artifact_path).suffix == CHECKPOINT_FILE_EXTENSION:
-        return artifact_leases.resolve_file(run_id, fallback_artifact_path).path
-    fallback_root = artifact_leases.resolve_dir(run_id, fallback_artifact_path).path
-    return find_single_checkpoint(fallback_root)
+@dataclass(frozen=True)
+class _ModelRefRequest:
+    """One `model_ref` plus everything needed to resolve it against MLflow.
+
+    A single request shape shared by every resolver in `_MODEL_REF_RESOLVERS`,
+    so the caller dispatches by ref type without also having to know which
+    arguments that particular ref kind happens to need.
+
+    Attributes:
+        ref: The `model_ref` config being resolved.
+        tracking_uri: MLflow tracking URI to read metadata from.
+        client: MLflow client bound to `tracking_uri`.
+        artifact_leases: Lease manager owning artifact materialization.
+        dataset_alias: Alias substituted for the `@dataset` placeholder.
+        model_name: Registered model name supplied by an assignment binding.
+    """
+
+    ref: ModelRefConfig
+    tracking_uri: str
+    client: MlflowClient
+    artifact_leases: ArtifactLeaseManager
+    dataset_alias: str | None
+    model_name: str | None
 
 
-def _resolve_registered_ref(
+def _resolve_registered_version_number(
     *,
     ref: RegisteredModelRefConfig,
+    model_name: str,
     tracking_uri: str,
-    client: MlflowClient,
-    artifact_leases: ArtifactLeaseManager,
-    dataset_alias: str | None,
-    model_name: str | None,
-) -> ModelResolution:
+) -> int:
+    """Resolve which registered version to use: the pinned one, else the highest."""
+    if ref.version is not None:
+        return ref.version
+    versions = list_model_versions(model_name, tracking_uri=tracking_uri)
+    if not versions:
+        raise ValueError(f"Registered model '{model_name}' has no versions")
+    return max(versions)
+
+
+def _resolve_registered_ref(request: _ModelRefRequest) -> ModelResolution:
     """Resolve a registered model reference.
 
     Registered model versions must have been created by
@@ -289,56 +341,54 @@ def _resolve_registered_ref(
     ``ref.name`` must be unset (enforced by a model validator on
     ``NeuralPreconditionerConfig``).
     """
-    resolved_model_name = ref.name or model_name
-    if resolved_model_name is None:
+    ref = request.ref
+    if not isinstance(ref, RegisteredModelRefConfig):
+        raise TypeError(f"Expected a registered model_ref, got {type(ref)}")
+
+    model_name = ref.name or request.model_name
+    if model_name is None:
         raise ValueError(
             "Registered model_ref.name is required unless supplied by an assignment binding."
         )
-    matches = search_registered_models(model_name=resolved_model_name, tracking_uri=tracking_uri)
-    if not matches:
-        raise ValueError(f"Registered model '{resolved_model_name}' not found")
+    if not search_registered_models(model_name=model_name, tracking_uri=request.tracking_uri):
+        raise ValueError(f"Registered model '{model_name}' not found")
 
     if ref.alias is not None:
-        resolved_alias = _resolve_registered_alias(ref.alias, dataset_alias=dataset_alias)
-        model_uri = build_registered_model_uri(resolved_model_name, alias=resolved_alias)
-        version = client.get_model_version_by_alias(resolved_model_name, resolved_alias)
-        run_id = version.run_id
+        alias = _resolve_registered_alias(ref.alias, dataset_alias=request.dataset_alias)
+        model_uri = build_registered_model_uri(model_name, alias=alias)
+        version = request.client.get_model_version_by_alias(model_name, alias)
     else:
-        if ref.version is not None:
-            resolved_version = ref.version
-        else:
-            versions = list_model_versions(resolved_model_name, tracking_uri=tracking_uri)
-            if not versions:
-                raise ValueError(f"Registered model '{resolved_model_name}' has no versions")
-            resolved_version = max(versions)
+        version_number = _resolve_registered_version_number(
+            ref=ref,
+            model_name=model_name,
+            tracking_uri=request.tracking_uri,
+        )
         version = get_model_version(
-            model_name=resolved_model_name,
-            version=resolved_version,
-            tracking_uri=tracking_uri,
+            model_name=model_name,
+            version=version_number,
+            tracking_uri=request.tracking_uri,
         )
-        model_uri = build_registered_model_uri(resolved_model_name, version=resolved_version)
-        run_id = version.run_id
-        if run_id is None:
+        model_uri = build_registered_model_uri(model_name, version=version_number)
+        if version.run_id is None:
             raise ValueError(
-                f"Registered model '{resolved_model_name}' version {resolved_version} has no run_id."
+                f"Registered model '{model_name}' version {version_number} has no run_id."
             )
+
+    run_id = version.run_id
     if run_id is None:
-        raise ValueError(
-            f"Registered model '{resolved_model_name}' could not be resolved to an MLflow run."
-        )
+        raise ValueError(f"Registered model '{model_name}' could not be resolved to an MLflow run.")
 
     pinned_path = version.tags.get(CHECKPOINT_ARTIFACT_PATH_TAG)
     if pinned_path is None:
         raise ValueError(
-            f"Registered model '{resolved_model_name}' version {version.version} predates "
+            f"Registered model '{model_name}' version {version.version} predates "
             "checkpoint pinning and cannot be resolved — re-register it (register_logged_model) "
             "to pin an exact checkpoint before it can be used."
         )
-    checkpoint_path = artifact_leases.resolve_file(run_id, pinned_path).path
     return ModelResolution(
         model_uri=model_uri,
         run_id=run_id,
-        checkpoint_path=checkpoint_path,
+        checkpoint_path=request.artifact_leases.resolve_file(run_id, pinned_path).path,
     )
 
 
@@ -355,14 +405,12 @@ def _resolve_registered_alias(alias: str, dataset_alias: str | None) -> str:
     return normalize_registry_id(stripped)
 
 
-def _resolve_logged_ref(
-    *,
-    ref: LoggedModelRefConfig,
-    tracking_uri: str,
-    client: MlflowClient,
-    artifact_leases: ArtifactLeaseManager,
-) -> ModelResolution:
+def _resolve_logged_ref(request: _ModelRefRequest) -> ModelResolution:
     """Resolve a logged-model reference."""
+    ref = request.ref
+    if not isinstance(ref, LoggedModelRefConfig):
+        raise TypeError(f"Expected a logged model_ref, got {type(ref)}")
+
     if ref.run_id is not None:
         run_id = ref.run_id
         model_uri = build_logged_model_uri(run_id=run_id, artifact_path=ref.artifact_path)
@@ -372,7 +420,7 @@ def _resolve_logged_ref(
             experiment_name=ref.experiment_name,
             experiment_id=ref.experiment_id,
             run_name=ref.run_name,
-            tracking_uri=tracking_uri,
+            tracking_uri=request.tracking_uri,
             artifact_path=ref.artifact_path,
             tags=ref.tags,
             max_results=100,
@@ -386,16 +434,24 @@ def _resolve_logged_ref(
             artifact_path=ref.artifact_path,
         )
 
-    checkpoint_path = _resolve_checkpoint_for_run(
-        run_id=run_id,
-        artifact_leases=artifact_leases,
-        fallback_artifact_path=ref.artifact_path,
-    )
     return ModelResolution(
         model_uri=model_uri,
         run_id=run_id,
-        checkpoint_path=checkpoint_path,
+        checkpoint_path=_resolve_checkpoint_for_run(
+            run_id=run_id,
+            artifact_leases=request.artifact_leases,
+            fallback_artifact_path=ref.artifact_path,
+        ),
     )
+
+
+# One resolver per `model_ref` kind, keyed by its config class. Adding a new
+# ref kind means adding its config class and one resolver here — no caller
+# anywhere re-tests the ref's type.
+_MODEL_REF_RESOLVERS: Mapping[type, Callable[[_ModelRefRequest], ModelResolution]] = {
+    RegisteredModelRefConfig: _resolve_registered_ref,
+    LoggedModelRefConfig: _resolve_logged_ref,
+}
 
 
 def resolve_model_ref(
@@ -412,25 +468,20 @@ def resolve_model_ref(
         tracking_uri=tracking_uri,
         artifact_leases=artifact_leases,
     )
-    client = MlflowClient(tracking_uri=tracking_uri)
+    resolve = None if ref is None else _MODEL_REF_RESOLVERS.get(type(ref))
+    if ref is None or resolve is None:
+        raise TypeError(f"Unsupported model_ref type: {type(ref)}")
 
-    if isinstance(ref, RegisteredModelRefConfig):
-        return _resolve_registered_ref(
+    return resolve(
+        _ModelRefRequest(
             ref=ref,
             tracking_uri=tracking_uri,
-            client=client,
+            client=MlflowClient(tracking_uri=tracking_uri),
             artifact_leases=artifact_leases,
             dataset_alias=dataset_alias,
             model_name=model_name,
         )
-    if isinstance(ref, LoggedModelRefConfig):
-        return _resolve_logged_ref(
-            ref=ref,
-            tracking_uri=tracking_uri,
-            client=client,
-            artifact_leases=artifact_leases,
-        )
-    raise TypeError(f"Unsupported model_ref type: {type(ref)}")
+    )
 
 
 def _validate_artifact_lease_tracking_uri(

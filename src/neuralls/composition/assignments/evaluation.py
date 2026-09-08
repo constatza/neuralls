@@ -28,7 +28,7 @@ from neuralls.composition.assignments._registry_lookup import (
     _find_registry_entry,
     _resolve_config_paths,
 )
-from neuralls.composition.assignments.assembler import load_assignment
+from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 from neuralls.composition.assignments.job_loader import load_experiment_job
 from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
@@ -324,12 +324,14 @@ def _materialize_inference_settings(
         output_root=output_root,
         mode="inference",
         case_config_path=case_config_path,
-        assignment_id=assignment.id,
-        assignment_display_name=assignment.effective_display_name,
-        dataset_registry_id=assignment.dataset_id,
-        dataset_display_name=context.dataset_display_name,
-        job_registry_id=assignment.job_id,
-        job_display_name=context.job_display_name,
+        identity=AssignmentIdentity(
+            assignment_id=assignment.id,
+            assignment_display_name=assignment.effective_display_name,
+            dataset_registry_id=assignment.dataset_id,
+            dataset_display_name=context.dataset_display_name,
+            job_registry_id=assignment.job_id,
+            job_display_name=context.job_display_name,
+        ),
     )
     job_settings = load_experiment_job(context.config_paths.staged_job_config_path, settings)
     contract = default_training_dataset_contract()

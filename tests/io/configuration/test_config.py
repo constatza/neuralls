@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.assignments.assembler import load_assignment
+from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 from neuralls.platform.config.models.workspace import AssignmentWorkspace, RunnableAssignment
 
 pytestmark = pytest.mark.skipif(
@@ -58,7 +58,7 @@ def test_load_experiment_success(temp_config_structure: Path, monkeypatch: pytes
         job_config_path=model_path,
         data_config_path=data_path,
         output_root=temp_config_structure / "output",
-        dataset_registry_id=data_path.stem,
+        identity=AssignmentIdentity(dataset_registry_id=data_path.stem),
     )
 
     assert isinstance(experiment, RunnableAssignment)

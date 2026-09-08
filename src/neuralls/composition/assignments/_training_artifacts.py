@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+import shutil
+from collections.abc import Iterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,7 @@ import numpy as np
 from loguru import logger
 from mlflow.tracking import MlflowClient
 
+from neuralls.composition.assignments.assembler import AssignmentIdentity
 from neuralls.composition.assignments.runtime_dataset_contract import RuntimeDatasetContract
 from neuralls.composition.tracking.run_specs import build_training_run_spec, format_run_timestamp
 from neuralls.platform.config.models.experiments import AssignmentEntry, ExperimentNamesConfig
@@ -38,6 +41,21 @@ LAST_CHECKPOINT_ARTIFACT_KEY = "last_checkpoint"
 RETAINED_CHECKPOINTS_DIR_NAME = "retained-checkpoints"
 
 
+@dataclass(frozen=True)
+class MlflowCoordinates:
+    """The three values that together address one MLflow run.
+
+    Attributes:
+        tracking_uri: MLflow tracking URI the run lives under.
+        experiment_id: MLflow experiment id owning the run.
+        run_id: MLflow run id.
+    """
+
+    tracking_uri: str
+    experiment_id: str
+    run_id: str
+
+
 def _resolve_training_experiment_name(mlflow_experiment_name: str | None) -> str:
     """Resolve the training MLflow experiment name from caller input or config defaults.
 
@@ -54,11 +72,7 @@ def _resolve_training_experiment_name(mlflow_experiment_name: str | None) -> str
 
 def _build_training_run_config(
     *,
-    assignment_id: str | None,
-    assignment_display_name: str,
-    dataset_registry_id: str | None,
-    job_registry_id: str | None,
-    dataset_display_name: str,
+    identity: AssignmentIdentity,
     mlflow_experiment_name: str | None,
     runtime_mlflow_env: Mapping[str, str],
     workspace_root: Path,
@@ -67,11 +81,10 @@ def _build_training_run_config(
     """Build the execute()-time MLflow run config for training.
 
     Args:
-        assignment_id: Registry assignment ID, or None for ad-hoc runs.
-        assignment_display_name: Human-readable assignment name.
-        dataset_registry_id: Registry dataset ID, or None.
-        job_registry_id: Registry job ID, or None.
-        dataset_display_name: Human-readable dataset name (unused in run name).
+        identity: Resolved assignment identity. A run is tagged with the
+            structured training tags only when its assignment, dataset, and job
+            registry ids are all present; otherwise it falls back to a bare,
+            untagged run named after the assignment's display name.
         mlflow_experiment_name: Override for the MLflow experiment bucket name.
         runtime_mlflow_env: MLflow environment variable mapping.
         workspace_root: Root directory for the training workspace.
@@ -82,15 +95,15 @@ def _build_training_run_config(
     Returns:
         Fully configured MlflowRunConfig.
     """
-    _ = dataset_display_name
     experiment_name = _resolve_training_experiment_name(mlflow_experiment_name)
     paths = runtime_paths_from_env(runtime_mlflow_env)
-    if assignment_id and dataset_registry_id and job_registry_id:
+    display_name = identity.assignment_display_name
+    if identity.assignment_id and identity.dataset_registry_id and identity.job_registry_id:
         entry = AssignmentEntry(
-            id=assignment_id,
-            dataset=dataset_registry_id,
-            job=job_registry_id,
-            display_name=assignment_display_name,
+            id=identity.assignment_id,
+            dataset=identity.dataset_registry_id,
+            job=identity.job_registry_id,
+            display_name=display_name,
         )
         return build_training_run_spec(
             entry=entry,
@@ -102,7 +115,7 @@ def _build_training_run_config(
     ts = f" | {format_run_timestamp()}" if include_timestamp else ""
     return MlflowRunConfig(
         experiment_name=experiment_name,
-        run_name=f"{assignment_display_name}{ts}",
+        run_name=f"{display_name}{ts}",
         tags={},
         paths=paths,
         workspace_root=workspace_root,
@@ -115,7 +128,7 @@ def _resolve_mlflow_run_ids(
     fallback_tracking_uri: str | None,
     experiment_name: str,
     run_name: str,
-) -> tuple[str, str, str] | None:
+) -> MlflowCoordinates | None:
     """Resolve MLflow tracking URI, experiment ID, and run ID for a training run.
 
     Args:
@@ -125,14 +138,14 @@ def _resolve_mlflow_run_ids(
         run_name: MLflow run name for fallback lookup.
 
     Returns:
-        (tracking_uri, experiment_id, run_id) tuple, or None if unresolvable.
+        The run's `MlflowCoordinates`, or None if unresolvable.
     """
     metrics = getattr(training_result, "metrics", {}) or {}
     tracking_uri = metrics.get("mlflow_tracking_uri") or fallback_tracking_uri
     experiment_id = metrics.get("mlflow_experiment_id")
     run_id = metrics.get("mlflow_run_id")
     if isinstance(tracking_uri, str) and isinstance(experiment_id, str) and isinstance(run_id, str):
-        return tracking_uri, experiment_id, run_id
+        return MlflowCoordinates(tracking_uri, experiment_id, run_id)
 
     if not isinstance(tracking_uri, str):
         return None
@@ -146,7 +159,7 @@ def _resolve_mlflow_run_ids(
         except Exception:  # noqa: BLE001
             resolved_experiment_id = None
         if isinstance(resolved_experiment_id, str) and resolved_experiment_id:
-            return tracking_uri, resolved_experiment_id, direct_run_id
+            return MlflowCoordinates(tracking_uri, resolved_experiment_id, direct_run_id)
 
     found = find_mlflow_run(
         tracking_uri=tracking_uri,
@@ -157,7 +170,7 @@ def _resolve_mlflow_run_ids(
         return None
 
     fallback_experiment_id, fallback_run_id = found
-    return tracking_uri, fallback_experiment_id, fallback_run_id
+    return MlflowCoordinates(tracking_uri, fallback_experiment_id, fallback_run_id)
 
 
 def create_fallback_training_run(
@@ -385,8 +398,6 @@ def _stage_training_artifacts(
         job_config_path: Path to the job TOML config.
         data_config_path: Path to the dataset TOML config, or None.
     """
-    import shutil
-
     config_dir = workspace.root_dir / "config"
     metrics_dir = workspace.root_dir / "metrics"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -435,6 +446,32 @@ def _resolve_mlflow_training_checkpoint(
     return find_single_checkpoint(checkpoint_root)
 
 
+def _iter_local_checkpoint_candidates(
+    training_result: Any,
+    workspace: Any,
+) -> Iterator[Path | str | None]:
+    """Yield local checkpoint candidates in descending order of authority.
+
+    Lazily evaluated: the workspace directory scans only run once every
+    result-supplied candidate ahead of them has been rejected.
+
+    Args:
+        training_result: DLKit training result object.
+        workspace: Assignment workspace (provides checkpoint_dir, root_dir).
+
+    Yields:
+        Each candidate location, which may be unset or may not exist on disk.
+    """
+    yield getattr(training_result, "checkpoint_path", None)
+
+    artifacts = getattr(training_result, "artifacts", {}) or {}
+    for key in (BEST_CHECKPOINT_ARTIFACT_KEY, LAST_CHECKPOINT_ARTIFACT_KEY):
+        yield artifacts.get(key)
+
+    yield get_latest_checkpoint(workspace.checkpoint_dir)
+    yield get_latest_checkpoint(workspace.root_dir / RETAINED_CHECKPOINTS_DIR_NAME)
+
+
 def _resolve_local_training_checkpoint(
     *,
     training_result: Any,
@@ -442,39 +479,20 @@ def _resolve_local_training_checkpoint(
 ) -> Path | None:
     """Resolve the produced checkpoint from local artifacts only.
 
-    Tries in order: checkpoint_path attribute, artifacts dict, local checkpoint dir,
-    then retained checkpoint dir.
-
     Args:
         training_result: DLKit training result object.
         workspace: Assignment workspace (provides checkpoint_dir, root_dir).
 
     Returns:
-        Path to the resolved checkpoint file, or None when no local checkpoint exists.
+        The first candidate from `_iter_local_checkpoint_candidates` that
+        exists on disk, or None when no local checkpoint exists.
     """
-    checkpoint_path = getattr(training_result, "checkpoint_path", None)
-    if checkpoint_path is not None:
-        direct_checkpoint = Path(checkpoint_path)
-        if direct_checkpoint.exists():
-            return direct_checkpoint
-
-    artifacts = getattr(training_result, "artifacts", {}) or {}
-    for key in (BEST_CHECKPOINT_ARTIFACT_KEY, LAST_CHECKPOINT_ARTIFACT_KEY):
-        candidate = artifacts.get(key)
+    for candidate in _iter_local_checkpoint_candidates(training_result, workspace):
         if candidate is None:
             continue
-        artifact_checkpoint = Path(candidate)
-        if artifact_checkpoint.exists():
-            return artifact_checkpoint
-
-    local_checkpoint = get_latest_checkpoint(workspace.checkpoint_dir)
-    if local_checkpoint is not None and local_checkpoint.exists():
-        return local_checkpoint
-
-    retained_checkpoint = get_latest_checkpoint(workspace.root_dir / RETAINED_CHECKPOINTS_DIR_NAME)
-    if retained_checkpoint is not None and retained_checkpoint.exists():
-        return retained_checkpoint
-
+        checkpoint = Path(candidate)
+        if checkpoint.exists():
+            return checkpoint
     return None
 
 
