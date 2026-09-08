@@ -108,7 +108,6 @@ def _evaluate_preconditioner(
         atol=params.atol,
         maxiter=params.max_iterations,
         m_max=params.m_max,
-        breakdown_tol=params.breakdown_tol,
     )[cfg.name]
     return PreconditionerComparisonEntry(
         name=cfg.name,
@@ -292,7 +291,6 @@ def compare_preconditioners(
             atol=general_params.params.atol,
             maxiter=general_params.params.max_iterations,
             m_max=general_params.params.m_max,
-            breakdown_tol=general_params.params.breakdown_tol,
         )
         results["none"] = baseline["none"]
         families.setdefault("none", PreconditionerType.NONE)

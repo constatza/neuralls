@@ -7,9 +7,7 @@ maintainability and avoid duplication.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
-
-import numpy as np
+from typing import Literal
 
 from neuralls.shared.types import MatrixNormType
 
@@ -37,125 +35,12 @@ EXP_SOLVER_CONFIG_NAME = "solver.toml"
 # =============================================================================
 DEFAULT_RTOL = 1e-6  # Relative tolerance for CG solves
 DEFAULT_ATOL = 1e-14  # Absolute tolerance for convergence (in addition to relative tolerance)
-DEFAULT_CG_MAX_ITERATIONS = 1000
-DEFAULT_CG_STOPPING_CRITERION = "tolerance"
-
-# Breakdown tolerance for CG algorithms (used in comparison and solver internals)
-DEFAULT_BREAKDOWN_TOL = 1e-12  # Threshold for detecting numerical breakdown in denominators
 
 # Prediction diagnostic thresholds
 PREDICTION_NORM_EPSILON = 1e-12  # Epsilon for safe division in prediction norm ratio
 
-# Reorthogonalization numerical tolerances
-REORTHOG_ZERO_NORM_TOL = 1e-14  # Threshold for considering a norm as zero
-REORTHOG_MAX_COEFF = 1e10  # Maximum safe reorthogonalization coefficient
-REORTHOG_STRICT_THRESHOLD = 0.01  # Strict selective reorthogonalization threshold
-REORTHOG_DEFAULT_WINDOW = 10  # Default window size for partial reorthogonalization
-
-# CG Algorithm Safety Parameters
-# These parameters control restart/breakdown behavior for flexible PCG with non-SPD preconditioners
-DEFAULT_CURVATURE_EPSILON = 1e-14  # eps_curv: Restart if curvature d_k < eps_curv * ||p_k||^2
-DEFAULT_BETA_MAX = 1e10  # Maximum allowed beta before restart (prevents runaway in non-SPD cases)
-DEFAULT_RESIDUAL_REPLACEMENT_FREQ = 50  # m_replacement: Recompute true residual every N iterations
-DEFAULT_DIVERGENCE_FACTOR = 1e10  # gamma_div: Declare divergence if ||r|| > gamma_div * ||b||
-
 # FCG (Flexible Conjugate Gradient) Algorithm Parameters
-# These control the truncated orthogonalization history for FCG variants
 DEFAULT_M_MAX = 20  # Maximum history length for truncated orthogonalization in FCG
-DEFAULT_FCG_HISTORY_LIMIT = 200  # Max search directions to retain for orthog/reorthog stability
-FCG_ORTHOG_EPSILON = 1e-14  # Threshold for near-zero inner products in Gram-Schmidt
-
-# Numerical Stability Thresholds (following SciPy conventions)
-# These use np.finfo to get dtype-specific values, no magic numbers
-# SciPy reference: scipy/sparse/linalg/_isolve/iterative.py (BICG, BICGSTAB, CGS)
-
-
-def get_breakdown_tol(dtype: type[np.floating[Any]] = np.float64) -> float:
-    """Get breakdown tolerance following SciPy BICG/BICGSTAB convention.
-
-    SciPy uses eps**2 for vanishing denominators in iterative solvers like
-    BICG, BICGSTAB, and CGS. For float64, this is approximately 4.93e-32.
-
-    Why eps**2 (not eps):
-        Machine epsilon (eps ≈ 2.22e-16 for float64) is the smallest value
-        such that 1.0 + eps ≠ 1.0 in floating point. When dealing with:
-        - Squared norms: ||r||^2 = sum(r_i^2)
-        - Products of small quantities
-        - Results of divisions
-
-        The relevant precision is eps^2 because errors in squared quantities
-        accumulate quadratically. A value below eps^2 has lost all significance
-        in the mantissa when squared operations are involved.
-
-    Physical Interpretation (float64):
-        - eps ≈ 2.22e-16: Relative precision of single operations
-        - eps^2 ≈ 4.93e-32: Relative precision of squared operations
-        - For 3-element vector: each element must be > 1.28e-16 to avoid
-          ||r||^2 < eps^2 breakdown
-
-    Usage Context:
-        Used to detect when denominators in CG iterations have lost numerical
-        significance and division would amplify errors beyond machine precision:
-        - Curvature d_k = p^T A p (quadratic form, involves products)
-        - Residual norms ||r||^2 (already squared)
-        - Step length denominators (ratios of these quantities)
-
-    Note: Python's float is always 64-bit (double precision), so conversion
-    from numpy.float64 to float is safe and doesn't lose precision.
-
-    References:
-        scipy/sparse/linalg/_isolve/iterative.py:
-        rhotol = np.finfo(x.dtype.char).eps**2
-
-        Notay (2000): "Flexible Conjugate Gradients"
-        Section on numerical breakdown detection
-    """
-    # Cast to float for type checker; Python float is always 64-bit
-    return float(np.finfo(dtype).eps ** 2)
-
-
-def get_overflow_threshold(dtype: type[np.floating[Any]] = np.float64) -> float:
-    """Get overflow threshold as 0.1 * dtype max.
-
-    Uses a fraction of the maximum representable value to leave safety margin
-    for intermediate calculations. For float64, this is approximately 1.8e307.
-
-    Why 0.1 * max (not max):
-        Maximum representable float64 ≈ 1.8e308, but using this as threshold
-        would be too aggressive because:
-        1. Intermediate calculations need headroom (multiplications, squares)
-        2. Allows 10x safety margin for numerical operations
-        3. Prevents false triggers on legitimate large-scale problems
-
-    Physical Interpretation (float64):
-        - finfo.max ≈ 1.8e308: Absolute maximum before overflow to inf
-        - 0.1 * max ≈ 1.8e307: Practical threshold with safety margin
-        - sqrt(0.1 * max) ≈ 1.3e154: Threshold for _stable_dot_product scaling
-          (if max(|a|, |b|) > 1.3e154, products could overflow)
-
-    Usage Context:
-        Used in _stable_dot_product to decide when to apply preventive scaling.
-        The actual threshold used is sqrt(overflow_threshold) ≈ 1.3e154, which
-        ensures that individual products a_i * b_i won't overflow before we
-        can apply balanced scaling.
-
-    Why Fractional Max (SciPy Convention):
-        SciPy and LAPACK libraries commonly use fractional thresholds (0.1 or 0.5)
-        of maximum values to leave numerical headroom. This prevents edge cases
-        where:
-        - Overflow in (x * y) even though x, y < max individually
-        - Loss of precision near maximum exponent
-        - Underflow in rescaling operations
-
-    Note: Python's float is always 64-bit (double precision), so conversion
-    from numpy.float64 to float is safe and doesn't lose precision.
-
-    References:
-        LAPACK Working Note 176: "Design of Overflow and Underflow Detection"
-        Discusses use of fractional thresholds for numerical stability
-    """
-    # Cast to float for type checker; Python float is always 64-bit
-    return float(0.1 * np.finfo(dtype).max)
 
 
 # =============================================================================

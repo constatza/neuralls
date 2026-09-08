@@ -113,12 +113,18 @@ def test_coarsening_detail_reports_realized_coarse_dimension_for_aggregation(
     ``theta`` is a strength-of-connection threshold, not a chosen dimension —
     the only way to know how many aggregates it produced is to build the
     transfer operator and check its shape.
+
+    Expected value is 2 (one boundary pair {0,1} + one interior triple
+    {2,3,4}) under torchalg's field-standard three-pass
+    ``standard_aggregation`` (VMB96/PyAMG's ``amg_core::standard_aggregation``),
+    which replaced the single-pass ``greedy_aggregation`` this test
+    previously pinned to 3 aggregates against.
     """
     detail = coarsening_detail(
         aggregation_amg_preconditioner._coarsening, aggregation_amg_preconditioner._matrix
     )
 
-    assert detail == AggregationCoarseningDetail(theta=0.25, omega=0.67, coarse_dimension=3)
+    assert detail == AggregationCoarseningDetail(theta=0.25, omega=0.67, coarse_dimension=2)
 
 
 def test_coarsening_detail_reports_fitted_rank_for_pod(

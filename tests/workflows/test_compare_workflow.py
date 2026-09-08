@@ -223,7 +223,6 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
             max_iterations=2,
             stopping_criterion="residual_norm",
             m_max=2,
-            breakdown_tol=None,
         ),
         data=ComparisonData(
             matrix_path=Path("unused-matrix.npy"),

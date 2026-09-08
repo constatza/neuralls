@@ -31,7 +31,6 @@ def solver_params() -> SolverParams:
         max_iterations=10,
         stopping_criterion="residual_norm",
         m_max=20,
-        breakdown_tol=None,
     )
 
 

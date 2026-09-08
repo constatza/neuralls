@@ -189,7 +189,6 @@ class ComparisonDefaults(BaseModel):
         max_iterations: Maximum solver iterations.
         stopping_criterion: Convergence check strategy.
         m_max: FCG orthogonalization window.
-        breakdown_tol: Breakdown detection threshold.
         normalize_system: Normalization applied to the test system.
         preconditioners: Classical preconditioner list (neural preconditioners are
             auto-generated from case assignments at runtime).
@@ -200,7 +199,6 @@ class ComparisonDefaults(BaseModel):
     max_iterations: int = Field(default=100, ge=1)
     stopping_criterion: Literal["residual_norm", "fixed_iterations"] = "residual_norm"
     m_max: int = Field(default=DEFAULT_M_MAX, ge=-1)
-    breakdown_tol: float | None = Field(default=None, ge=0.0)
     normalize_system: Literal["none", "matrix", "rhs", "both"] = "matrix"
     preconditioners: list[PreconditionerConfig] = Field(default_factory=list)
     model_config = ConfigDict(extra="forbid", frozen=True)

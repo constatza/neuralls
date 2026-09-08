@@ -98,7 +98,6 @@ def resolve_comparison_config(
         "max_iterations": defaults.max_iterations,
         "stopping_criterion": defaults.stopping_criterion,
         "m_max": defaults.m_max,
-        "breakdown_tol": defaults.breakdown_tol,
     }
     if params_override:
         base_params.update(params_override)

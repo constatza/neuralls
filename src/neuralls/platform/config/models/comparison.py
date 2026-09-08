@@ -43,7 +43,6 @@ class _SolverParamsModel(BaseModel):
     max_iterations: int = Field(default=100, ge=1)
     stopping_criterion: Literal["residual_norm", "fixed_iterations"] = "residual_norm"
     m_max: int = Field(default=DEFAULT_M_MAX, ge=-1)
-    breakdown_tol: float | None = Field(default=None, ge=0.0)
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 

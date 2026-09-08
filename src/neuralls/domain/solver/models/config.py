@@ -55,7 +55,6 @@ class SolverParams:
         max_iterations: Maximum iterations allowed.
         stopping_criterion: When to stop iteration.
         m_max: FCG orthogonalization restart parameter.
-        breakdown_tol: Breakdown detection tolerance.
     """
 
     rtol: float
@@ -63,7 +62,6 @@ class SolverParams:
     max_iterations: int
     stopping_criterion: Literal["residual_norm", "fixed_iterations"]
     m_max: int
-    breakdown_tol: float | None
 
 
 @dataclass(frozen=True)

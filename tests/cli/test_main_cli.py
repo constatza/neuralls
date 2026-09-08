@@ -41,7 +41,6 @@ def _solver_params(tmp_path: Path) -> ComparisonGeneral:
             max_iterations=10,
             stopping_criterion="residual_norm",
             m_max=20,
-            breakdown_tol=None,
         ),
         data=ComparisonData(
             matrix_path=tmp_path / "matrix.npy",
