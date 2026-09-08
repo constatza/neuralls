@@ -13,6 +13,7 @@ from neuralls.domain.generation.orchestration import (
     _resolve_binding_strategy_counts,
 )
 from neuralls.domain.generation.source_streams import SystemBinding
+from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 
 
 @pytest.fixture
@@ -78,12 +79,14 @@ def test_resolve_binding_strategy_counts_rejects_unsupported_replacement(
     with pytest.raises(ValueError, match="does not support matrix replacement"):
         _resolve_binding_strategy_counts(
             bindings=three_bindings,
-            counts={"neutral_ones": 5},
-            mix=None,
-            total=None,
-            replacement=True,
-            seed=0,
-            strategy_overrides=None,
+            spec=DatasetSpec(
+                mixture=MixtureSpec(
+                    counts={"neutral_ones": 5},
+                    seed=0,
+                    strategy_overrides=None,
+                ),
+                replacement=True,
+            ),
             has_rhs_source=False,
             num_matrix_samples=3,
         )
@@ -95,12 +98,14 @@ def test_resolve_binding_strategy_counts_rejects_finite_trace_replacement(
     with pytest.raises(ValueError, match="finite external source"):
         _resolve_binding_strategy_counts(
             bindings=three_bindings,
-            counts={"residuals": 5},
-            mix=None,
-            total=None,
-            replacement=True,
-            seed=0,
-            strategy_overrides=None,
+            spec=DatasetSpec(
+                mixture=MixtureSpec(
+                    counts={"residuals": 5},
+                    seed=0,
+                    strategy_overrides=None,
+                ),
+                replacement=True,
+            ),
             has_rhs_source=True,
             num_matrix_samples=3,
         )
@@ -121,11 +126,13 @@ def test_generate_mixture_row_kind_codes_length_matches_trace_rows_after_shuffle
     # Bug: shuffle indexed row_kind_codes (len=8) with 2 base-system indices → truncated to len=2.
     result = _generate_mixture_with_metadata(
         spd_matrix,
-        counts={"gaussian_residuals": 8},
-        seed=0,
-        shuffle=True,
-        strategy_overrides={"gaussian_residuals": {"cg_iters": 3}},
-        solver_overrides=solver_overrides,
+        MixtureSpec(
+            counts={"gaussian_residuals": 8},
+            seed=0,
+            shuffle=True,
+            strategy_overrides={"gaussian_residuals": {"cg_iters": 3}},
+            solver_overrides=solver_overrides,
+        ),
     )
 
     assert result.row_kind_codes.shape[0] == result.rhs.shape[0]
@@ -144,11 +151,13 @@ def test_mixed_strategy_row_kind_codes_concatenated_correctly(
     #   each system: [iter0=STANDARD, iter1=CG_INTERNAL]
     result = _generate_mixture_with_metadata(
         spd_matrix,
-        counts={"gaussian_forward": 3, "gaussian_residuals": 4},
-        seed=0,
-        shuffle=False,
-        strategy_overrides={"gaussian_residuals": {"cg_iters": 1}},
-        solver_overrides=solver_overrides,
+        MixtureSpec(
+            counts={"gaussian_forward": 3, "gaussian_residuals": 4},
+            seed=0,
+            shuffle=False,
+            strategy_overrides={"gaussian_residuals": {"cg_iters": 1}},
+            solver_overrides=solver_overrides,
+        ),
     )
 
     assert result.rhs.shape[0] == 7
@@ -171,14 +180,16 @@ def test_gaussian_split_mix_preserves_requested_total_rows(
 
     result = _generate_mixture_with_metadata(
         spd_matrix,
-        counts={"gaussian_residuals": 5, "gaussian_forward": 5},
-        seed=0,
-        shuffle=False,
-        strategy_overrides={
-            "gaussian_residuals": {"cg_iters": 2, "seed": 42},
-            "gaussian_forward": {"seed": 43},
-        },
-        solver_overrides=solver_overrides,
+        MixtureSpec(
+            counts={"gaussian_residuals": 5, "gaussian_forward": 5},
+            seed=0,
+            shuffle=False,
+            strategy_overrides={
+                "gaussian_residuals": {"cg_iters": 2, "seed": 42},
+                "gaussian_forward": {"seed": 43},
+            },
+            solver_overrides=solver_overrides,
+        ),
     )
 
     assert result.rhs.shape[0] == 10
@@ -214,22 +225,24 @@ def test_archive_split_mix_uses_solution_archive_skip(
     glob_pattern = str(tmp_path / "solution_*.txt")
     result = _generate_mixture_with_metadata(
         spd_matrix,
-        counts={"residuals": 3, "solution_archive": 2},
-        seed=0,
-        shuffle=False,
-        strategy_overrides={
-            "residuals": {
-                "cg_iters": 2,
-                "solutions_glob": glob_pattern,
-                "shuffle": False,
+        MixtureSpec(
+            counts={"residuals": 3, "solution_archive": 2},
+            seed=0,
+            shuffle=False,
+            strategy_overrides={
+                "residuals": {
+                    "cg_iters": 2,
+                    "solutions_glob": glob_pattern,
+                    "shuffle": False,
+                },
+                "solution_archive": {
+                    "solutions_glob": glob_pattern,
+                    "shuffle": False,
+                    "skip": 1,
+                },
             },
-            "solution_archive": {
-                "solutions_glob": glob_pattern,
-                "shuffle": False,
-                "skip": 1,
-            },
-        },
-        solver_overrides=solver_overrides,
+            solver_overrides=solver_overrides,
+        ),
     )
 
     assert result.rhs.shape[0] == 5
@@ -243,12 +256,14 @@ def test_resolve_binding_strategy_counts_rejects_single_multi_matrix_mix(
     with pytest.raises(ValueError, match="Cannot mix single-matrix strategies"):
         _resolve_binding_strategy_counts(
             bindings=three_bindings,
-            counts={"gaussian_forward": 5, "solution_archive": 5},
-            mix=None,
-            total=None,
-            replacement=False,
-            seed=0,
-            strategy_overrides={"solution_archive": {"solutions_glob": "/fake/*.txt"}},
+            spec=DatasetSpec(
+                mixture=MixtureSpec(
+                    counts={"gaussian_forward": 5, "solution_archive": 5},
+                    seed=0,
+                    strategy_overrides={"solution_archive": {"solutions_glob": "/fake/*.txt"}},
+                ),
+                replacement=False,
+            ),
             has_rhs_source=False,
             num_matrix_samples=3,
         )
@@ -267,12 +282,14 @@ def test_resolve_binding_strategy_counts_rejects_all_samples_with_replacement(
     with pytest.raises(ValueError, match="does not support matrix replacement"):
         _resolve_binding_strategy_counts(
             bindings=three_bindings,
-            counts={"solution_archive": -1},
-            mix=None,
-            total=None,
-            replacement=True,
-            seed=0,
-            strategy_overrides={"solution_archive": {"solutions_glob": "/fake/*.txt"}},
+            spec=DatasetSpec(
+                mixture=MixtureSpec(
+                    counts={"solution_archive": -1},
+                    seed=0,
+                    strategy_overrides={"solution_archive": {"solutions_glob": "/fake/*.txt"}},
+                ),
+                replacement=True,
+            ),
             has_rhs_source=False,
             num_matrix_samples=3,
         )
@@ -294,25 +311,27 @@ def test_resolve_binding_strategy_counts_divides_all_samples_across_bindings(
         np.savetxt(tmp_path / f"solution_{idx:03d}.txt", np.full(4, float(idx)))
     glob_pattern = str(tmp_path / "solution_*.txt")
 
-    counts_by_binding, skips_by_binding = _resolve_binding_strategy_counts(
+    allocation = _resolve_binding_strategy_counts(
         bindings=three_bindings,
-        counts={"solution_archive": -1},
-        mix=None,
-        total=None,
-        replacement=False,
-        seed=0,
-        strategy_overrides={"solution_archive": {"solutions_glob": glob_pattern}},
+        spec=DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"solution_archive": -1},
+                seed=0,
+                strategy_overrides={"solution_archive": {"solutions_glob": glob_pattern}},
+            ),
+            replacement=False,
+        ),
         has_rhs_source=False,
         num_matrix_samples=3,
     )
 
-    allocated = [counts.get("solution_archive", 0) for counts in counts_by_binding]
+    allocated = [counts.get("solution_archive", 0) for counts in allocation.counts]
     assert allocated == [2, 2, 1]
     assert sum(allocated) == 5  # the real archive size, not -1 replicated per binding
 
     # Cumulative, disjoint offsets into one shared shuffle — binding 0 takes files
     # [0:2], binding 1 takes [2:4], binding 2 takes [4:5]; no binding reuses another's slice.
-    skips = [skip.get("solution_archive", 0) for skip in skips_by_binding]
+    skips = [skip.get("solution_archive", 0) for skip in allocation.skips]
     assert skips == [0, 2, 4]
 
 
@@ -323,12 +342,14 @@ def test_resolve_binding_strategy_counts_rejects_unresolvable_all_samples(
     with pytest.raises(ValueError, match="has no 'solutions_glob'"):
         _resolve_binding_strategy_counts(
             bindings=three_bindings,
-            counts={"gaussian_forward": -1},
-            mix=None,
-            total=None,
-            replacement=False,
-            seed=0,
-            strategy_overrides=None,
+            spec=DatasetSpec(
+                mixture=MixtureSpec(
+                    counts={"gaussian_forward": -1},
+                    seed=0,
+                    strategy_overrides=None,
+                ),
+                replacement=False,
+            ),
             has_rhs_source=False,
             num_matrix_samples=3,
         )

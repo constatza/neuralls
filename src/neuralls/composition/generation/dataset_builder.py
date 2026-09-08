@@ -2,22 +2,23 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
 from neuralls.composition.generation.default_services import make_solver
-from neuralls.domain.generation.data_types import NormalizeType
 from neuralls.domain.generation.orchestration import build_dataset_payload
 from neuralls.domain.generation.ports import DatasetAccumulatorPort
-from neuralls.domain.generation.source_streams import EnumerateBy
-from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
+from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
+from neuralls.platform.caching import compute_dataset_fingerprint
+from neuralls.platform.storage.dataset_readers import DatasetArtifacts, resolve_dataset_artifacts
 from neuralls.platform.storage.datasets import (
     GenerationDatasetStorage,
     make_generation_dataset_storage,
 )
-from neuralls.platform.storage.manifest_io import read_dataset_manifest
+from neuralls.platform.storage.manifest_io import read_dataset_manifest, save_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.types import DatasetFormat
 
@@ -46,39 +47,84 @@ def _guard_format_conflict(dataset_dir: Path, intended: DatasetFormat) -> None:
         )
 
 
+def _fingerprinted_artifact_paths(artifacts: DatasetArtifacts) -> tuple[Path, Path, Path]:
+    """Return the artifacts that identify a dataset, in the training-side order.
+
+    The training reuse-check fingerprints exactly these three artifacts, so
+    generation must fingerprint the same files resolved the same way for both
+    stages to agree on whether a dataset has changed.
+
+    Args:
+        artifacts: Manifest-resolved dataset artifacts.
+
+    Returns:
+        The matrix, RHS and solutions artifact paths.
+    """
+    return (artifacts.matrix.path, artifacts.rhs.path, artifacts.solutions.path)
+
+
+def _stamp_dataset_fingerprint(dataset_dir: Path) -> None:
+    """Record a fingerprint of the freshly written artifacts in the manifest.
+
+    Runs after the storage backend has written both the arrays and the
+    manifest, so the artifact paths can be resolved from the manifest exactly
+    as every reader resolves them.
+
+    Args:
+        dataset_dir: Directory holding the dataset just written.
+    """
+    artifacts = resolve_dataset_artifacts(dataset_dir)
+    fingerprint = compute_dataset_fingerprint(_fingerprinted_artifact_paths(artifacts))
+    manifest = read_dataset_manifest(dataset_dir)
+    save_dataset_manifest(dataset_dir, replace(manifest, dataset_fingerprint=fingerprint))
+
+
 def _dataset_already_generated(dataset_dir: Path) -> bool:
-    """Return True when dataset_dir already holds a complete, readable dataset."""
+    """Return True when dataset_dir already holds a complete, unchanged dataset.
+
+    Requires the manifest's declared artifacts to exist and, when the manifest
+    carries a fingerprint, for that fingerprint to still match the files on
+    disk. A manifest without one predates fingerprinting or came from outside
+    the generation pipeline: nothing is known about staleness there, so the
+    original existence-only answer stands rather than forcing a regeneration.
+
+    Args:
+        dataset_dir: Candidate dataset directory.
+
+    Returns:
+        True when regeneration can be skipped.
+    """
     try:
         artifacts = resolve_dataset_artifacts(dataset_dir)
+        manifest = read_dataset_manifest(dataset_dir)
     except FileNotFoundError:
         return False
-    return all(
-        path.exists()
-        for path in (artifacts.matrix.path, artifacts.rhs.path, artifacts.solutions.path)
+
+    paths = _fingerprinted_artifact_paths(artifacts)
+    if not all(path.exists() for path in paths):
+        return False
+    if manifest.dataset_fingerprint is None:
+        return True
+    return manifest.dataset_fingerprint == compute_dataset_fingerprint(paths)
+
+
+def _with_default_solvers(spec: DatasetSpec) -> DatasetSpec:
+    """Layer the composition-provided default tracing solvers under the caller's."""
+    mixture = spec.mixture
+    return replace(
+        spec,
+        mixture=replace(
+            mixture,
+            solver_overrides={**_DEFAULT_SOLVER_OVERRIDES, **(mixture.solver_overrides or {})},
+        ),
     )
 
 
 def build_dataset(
-    matrix_path: str,
+    source: SourceSpec,
+    spec: DatasetSpec,
     dataset_dir: str,
     *,
-    counts: dict[str, int] | None = None,
-    mix: dict[str, float] | None = None,
-    total: int | None = None,
-    rhs_path: str | None = None,
-    solution_path: str | None = None,
-    parameters_paths: tuple[str, ...] = (),
-    sample_id_regex: str | None = None,
-    enumerate_by: EnumerateBy | None = None,
-    include_indices: tuple[int, ...] | None = None,
-    exclude_indices: tuple[int, ...] = (),
-    replacement: bool = False,
-    normalize: NormalizeType = "matrix",
-    matrix_norm_type: str = "spectral",
-    shuffle: bool = True,
-    seed: int = 42,
-    strategy_overrides: dict[str, dict[str, Any]] | None = None,
-    solver_overrides: dict[str, Any] | None = None,
     dataset_format: DatasetFormat = "hdf5",
     storage: GenerationDatasetStorage | None = None,
     accumulator: DatasetAccumulatorPort | None = None,
@@ -87,7 +133,23 @@ def build_dataset(
     """Build a persisted dataset by composing domain payload generation with storage.
 
     Skips regeneration when `dataset_dir` already holds a complete dataset
-    matching the requested format, unless `force=True`.
+    matching the requested format whose artifacts still match the fingerprint
+    recorded when they were written, unless `force=True`. Each fresh write
+    stamps that fingerprint into the manifest, so a dataset whose files were
+    touched or replaced out-of-band regenerates instead of being reused.
+
+    Args:
+        source: Where the run reads its matrix/RHS/solution/parameter samples from.
+        spec: How the dataset is assembled — strategy budgets, RNG controls,
+            replacement policy and normalization.
+        dataset_dir: Target directory for the persisted dataset.
+        dataset_format: Storage format family for the persisted artifacts.
+        storage: Optional storage override; defaults to the format's storage.
+        accumulator: Optional accumulator override; defaults to the storage's.
+        force: Regenerate even when a complete dataset already exists.
+
+    Returns:
+        The `dataset_dir` that now holds the dataset.
     """
     dataset_path = Path(dataset_dir)
     dataset_path.mkdir(parents=True, exist_ok=True)
@@ -97,26 +159,7 @@ def build_dataset(
         return dataset_dir
     dataset_storage = storage or make_generation_dataset_storage(dataset_format)
     acc: DatasetAccumulatorPort = accumulator or dataset_storage.make_accumulator(dataset_path)
-    payload = build_dataset_payload(
-        matrix_path=matrix_path,
-        counts=counts,
-        mix=mix,
-        total=total,
-        rhs_path=rhs_path,
-        solution_path=solution_path,
-        parameters_paths=parameters_paths,
-        sample_id_regex=sample_id_regex,
-        enumerate_by=enumerate_by,
-        include_indices=include_indices,
-        exclude_indices=exclude_indices,
-        replacement=replacement,
-        normalize=normalize,
-        matrix_norm_type=matrix_norm_type,
-        shuffle=shuffle,
-        seed=seed,
-        strategy_overrides=strategy_overrides,
-        solver_overrides={**_DEFAULT_SOLVER_OVERRIDES, **(solver_overrides or {})},
-        accumulator=acc,
-    )
+    payload = build_dataset_payload(source, _with_default_solvers(spec), accumulator=acc)
     dataset_storage.write_dataset(dataset_path, payload)
+    _stamp_dataset_fingerprint(dataset_path)
     return dataset_dir

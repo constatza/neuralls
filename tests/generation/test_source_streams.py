@@ -17,6 +17,7 @@ from neuralls.domain.generation.source_streams import (
     open_matrix_stream,
     open_vector_stream,
 )
+from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.dataset_readers import (
     load_matrix_sample_index,
     load_parameter_arrays,
@@ -92,12 +93,18 @@ def test_build_dataset_streams_matrix_stack_without_dense_batch(tmp_path: Path) 
 
     out_dir = tmp_path / "dataset"
     build_dataset(
-        matrix_path=str(matrix_path),
-        dataset_dir=str(out_dir),
-        counts={"neutral_ones": 2},
-        normalize="none",
-        shuffle=False,
-        seed=42,
+        SourceSpec(
+            matrix_path=str(matrix_path),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"neutral_ones": 2},
+                seed=42,
+                shuffle=False,
+            ),
+            normalize="none",
+        ),
+        str(out_dir),
         dataset_format="zarr",
     )
 
@@ -120,12 +127,18 @@ def test_build_dataset_supports_npy_output_format(tmp_path: Path) -> None:
 
     out_dir = tmp_path / "dataset_npy"
     build_dataset(
-        matrix_path=str(matrix_path),
-        dataset_dir=str(out_dir),
-        counts={"neutral_ones": 2},
-        normalize="none",
-        shuffle=False,
-        seed=42,
+        SourceSpec(
+            matrix_path=str(matrix_path),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"neutral_ones": 2},
+                seed=42,
+                shuffle=False,
+            ),
+            normalize="none",
+        ),
+        str(out_dir),
         dataset_format="npy",
     )
 
@@ -165,13 +178,19 @@ def test_single_matrix_stored_once_in_zarr(tmp_path: Path) -> None:
 
     out_dir = tmp_path / "dataset_single_matrix"
     build_dataset(
-        matrix_path=str(matrix_path),
-        dataset_dir=str(out_dir),
-        counts={"neutral_ones": 1},
-        rhs_path=str(rhs_path),
-        normalize="none",
-        shuffle=False,
-        seed=7,
+        SourceSpec(
+            matrix_path=str(matrix_path),
+            rhs_path=str(rhs_path),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"neutral_ones": 1},
+                seed=7,
+                shuffle=False,
+            ),
+            normalize="none",
+        ),
+        str(out_dir),
         dataset_format="zarr",
     )
 
@@ -195,18 +214,24 @@ def test_build_dataset_persists_residuals_pairs(tmp_path: Path) -> None:
 
     out_dir = tmp_path / "residuals_dataset"
     build_dataset(
-        matrix_path=str(matrix_path),
-        dataset_dir=str(out_dir),
-        counts={"residuals": 4},
-        normalize="none",
-        shuffle=False,
-        seed=7,
-        strategy_overrides={
-            "residuals": {
-                "cg_iters": 1,
-                "solutions_glob": str(tmp_path / "sol_*.txt"),
-            }
-        },
+        SourceSpec(
+            matrix_path=str(matrix_path),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"residuals": 4},
+                seed=7,
+                shuffle=False,
+                strategy_overrides={
+                    "residuals": {
+                        "cg_iters": 1,
+                        "solutions_glob": str(tmp_path / "sol_*.txt"),
+                    }
+                },
+            ),
+            normalize="none",
+        ),
+        str(out_dir),
     )
 
     saved_rhs, saved_solutions = load_dense_training_arrays(out_dir)
@@ -222,13 +247,19 @@ def test_build_dataset_persists_gaussian_residual_pairs(tmp_path: Path) -> None:
 
     out_dir = tmp_path / "gaussian_residual_dataset"
     build_dataset(
-        matrix_path=str(matrix_path),
-        dataset_dir=str(out_dir),
-        counts={"gaussian_residuals": 4},
-        normalize="none",
-        shuffle=False,
-        seed=7,
-        strategy_overrides={"gaussian_residuals": {"cg_iters": 1}},
+        SourceSpec(
+            matrix_path=str(matrix_path),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"gaussian_residuals": 4},
+                seed=7,
+                shuffle=False,
+                strategy_overrides={"gaussian_residuals": {"cg_iters": 1}},
+            ),
+            normalize="none",
+        ),
+        str(out_dir),
     )
 
     saved_rhs, saved_solutions = load_dense_training_arrays(out_dir)
@@ -244,12 +275,18 @@ def test_build_dataset_persists_row_metadata_artifacts(tmp_path: Path) -> None:
 
     out_dir = tmp_path / "dataset_meta"
     build_dataset(
-        matrix_path=str(matrix_path),
-        dataset_dir=str(out_dir),
-        counts={"neutral_ones": 3},
-        normalize="none",
-        shuffle=False,
-        seed=42,
+        SourceSpec(
+            matrix_path=str(matrix_path),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"neutral_ones": 3},
+                seed=42,
+                shuffle=False,
+            ),
+            normalize="none",
+        ),
+        str(out_dir),
         dataset_format="npy",
     )
 
@@ -271,13 +308,19 @@ def test_build_dataset_marks_residual_error_rows_with_kind_codes(tmp_path: Path)
 
     out_dir = tmp_path / "dataset_residual_meta"
     build_dataset(
-        matrix_path=str(matrix_path),
-        dataset_dir=str(out_dir),
-        counts={"gaussian_residuals": 2},
-        normalize="none",
-        shuffle=False,
-        seed=7,
-        strategy_overrides={"gaussian_residuals": {"cg_iters": 1}},
+        SourceSpec(
+            matrix_path=str(matrix_path),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"gaussian_residuals": 2},
+                seed=7,
+                shuffle=False,
+                strategy_overrides={"gaussian_residuals": {"cg_iters": 1}},
+            ),
+            normalize="none",
+        ),
+        str(out_dir),
         dataset_format="npy",
     )
 
@@ -296,12 +339,18 @@ def test_glob_matrix_gaussian_uses_global_sample_budget(
     out_dir = tmp_path / "ds_gaussian"
 
     build_dataset(
-        matrix_path=str(mat_dir / "A_*.txt"),
-        dataset_dir=str(out_dir),
-        counts={"gaussian_forward": total_samples},
-        normalize="none",
-        shuffle=False,
-        seed=0,
+        SourceSpec(
+            matrix_path=str(mat_dir / "A_*.txt"),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"gaussian_forward": total_samples},
+                seed=0,
+                shuffle=False,
+            ),
+            normalize="none",
+        ),
+        str(out_dir),
         dataset_format="zarr",
     )
 
@@ -328,18 +377,24 @@ def test_glob_matrix_solution_archive_uses_global_sample_budget(
 
     out_dir = tmp_path / "ds_archive"
     build_dataset(
-        matrix_path=str(mat_dir / "A_*.txt"),
-        dataset_dir=str(out_dir),
-        counts={"solution_archive": n_solutions},
-        normalize="none",
-        shuffle=False,
-        seed=0,
-        strategy_overrides={
-            "solution_archive": {
-                "solutions_glob": str(sol_dir / "sol_*.txt"),
-                "samples": n_solutions,
-            }
-        },
+        SourceSpec(
+            matrix_path=str(mat_dir / "A_*.txt"),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"solution_archive": n_solutions},
+                seed=0,
+                shuffle=False,
+                strategy_overrides={
+                    "solution_archive": {
+                        "solutions_glob": str(sol_dir / "sol_*.txt"),
+                        "samples": n_solutions,
+                    }
+                },
+            ),
+            normalize="none",
+        ),
+        str(out_dir),
         dataset_format="zarr",
     )
 
@@ -486,13 +541,19 @@ def test_build_dataset_honors_enumerate_by_for_globbed_matrix_files(
     out_dir = tmp_path / "enumerated_dataset"
 
     build_dataset(
-        matrix_path=str(mat_dir / "*_subdomain_1_Kaa.txt"),
-        dataset_dir=str(out_dir),
-        counts={"neutral_ones": 3},
-        enumerate_by=EnumerateBy.NAME,
-        normalize="none",
-        shuffle=False,
-        seed=42,
+        SourceSpec(
+            matrix_path=str(mat_dir / "*_subdomain_1_Kaa.txt"),
+            enumerate_by=EnumerateBy.NAME,
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"neutral_ones": 3},
+                seed=42,
+                shuffle=False,
+            ),
+            normalize="none",
+        ),
+        str(out_dir),
         dataset_format="zarr",
     )
 
@@ -639,14 +700,20 @@ def test_build_dataset_exclude_indices_removes_matrix_from_generated_dataset(
     out_dir = tmp_path / "train_dataset"
 
     build_dataset(
-        matrix_path=str(mat_dir / "*_subdomain_1_Kaa.txt"),
-        dataset_dir=str(out_dir),
-        counts={"gaussian_forward": 9},
-        enumerate_by=EnumerateBy.NAME,
-        exclude_indices=(1,),
-        normalize="none",
-        shuffle=False,
-        seed=0,
+        SourceSpec(
+            matrix_path=str(mat_dir / "*_subdomain_1_Kaa.txt"),
+            enumerate_by=EnumerateBy.NAME,
+            exclude_indices=(1,),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"gaussian_forward": 9},
+                seed=0,
+                shuffle=False,
+            ),
+            normalize="none",
+        ),
+        str(out_dir),
         dataset_format="zarr",
     )
 
@@ -685,15 +752,21 @@ def test_build_dataset_exclude_indices_keeps_matrix_and_parameters_streams_consi
 
     out_dir = tmp_path / "ds_with_params"
     build_dataset(
-        matrix_path=str(mat_dir / "*_subdomain_1_Kaa.txt"),
-        dataset_dir=str(out_dir),
-        counts={"gaussian_forward": 3},
-        parameters_paths=(str(param_dir / "*_YoungModuli_E1_E2_E3_E4.txt"),),
-        enumerate_by=EnumerateBy.NAME,
-        exclude_indices=(1,),
-        normalize="none",
-        shuffle=False,
-        seed=0,
+        SourceSpec(
+            matrix_path=str(mat_dir / "*_subdomain_1_Kaa.txt"),
+            parameters_paths=(str(param_dir / "*_YoungModuli_E1_E2_E3_E4.txt"),),
+            enumerate_by=EnumerateBy.NAME,
+            exclude_indices=(1,),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"gaussian_forward": 3},
+                seed=0,
+                shuffle=False,
+            ),
+            normalize="none",
+        ),
+        str(out_dir),
         dataset_format="zarr",
     )
 
@@ -721,20 +794,26 @@ def test_build_dataset_include_indices_builds_holdout_dataset(
     out_dir = tmp_path / "holdout_dataset"
 
     build_dataset(
-        matrix_path=str(mat_dir / "*_subdomain_1_Kaa.txt"),
-        dataset_dir=str(out_dir),
-        counts={"solution_archive": 2},
-        enumerate_by=EnumerateBy.NAME,
-        include_indices=(0, 2),
-        strategy_overrides={
-            "solution_archive": {
-                "solutions_glob": str(sol_dir / "sol_*.txt"),
-                "samples": 2,
-            }
-        },
-        normalize="none",
-        shuffle=False,
-        seed=0,
+        SourceSpec(
+            matrix_path=str(mat_dir / "*_subdomain_1_Kaa.txt"),
+            enumerate_by=EnumerateBy.NAME,
+            include_indices=(0, 2),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"solution_archive": 2},
+                seed=0,
+                shuffle=False,
+                strategy_overrides={
+                    "solution_archive": {
+                        "solutions_glob": str(sol_dir / "sol_*.txt"),
+                        "samples": 2,
+                    }
+                },
+            ),
+            normalize="none",
+        ),
+        str(out_dir),
         dataset_format="zarr",
     )
 

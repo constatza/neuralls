@@ -8,6 +8,7 @@ import pytest
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.source_streams import EnumerateBy
+from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.shared.enum_codecs import encode_row_kind_array
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
@@ -19,12 +20,18 @@ def _build_safe_dataset(root: Path, *, residual: bool = False) -> Path:
     np.save(matrix_path, matrix)
     dataset_dir = root / ("residual_dataset" if residual else "safe_dataset")
     build_dataset(
-        matrix_path=str(matrix_path),
-        dataset_dir=str(dataset_dir),
-        counts={"neutral_ones": 2 if residual else 3},
-        normalize="none",
-        shuffle=False,
-        seed=7 if residual else 42,
+        SourceSpec(
+            matrix_path=str(matrix_path),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"neutral_ones": 2 if residual else 3},
+                seed=7 if residual else 42,
+                shuffle=False,
+            ),
+            normalize="none",
+        ),
+        str(dataset_dir),
         dataset_format="npy",
     )
     return dataset_dir
@@ -206,13 +213,19 @@ def test_resolve_comparison_input_matrix_index_selects_distinct_matrix_with_one_
     matrices = _write_distinct_spd_matrices(mat_dir, count=3)
     dataset_dir = tmp_path / "holdout_dataset"
     build_dataset(
-        matrix_path=str(mat_dir / "matrix_*.txt"),
-        dataset_dir=str(dataset_dir),
-        counts={"gaussian_forward": 3},  # == number of matrices -> exactly one row each
-        enumerate_by=EnumerateBy.NAME,
-        normalize="none",
-        shuffle=False,
-        seed=0,
+        SourceSpec(
+            matrix_path=str(mat_dir / "matrix_*.txt"),
+            enumerate_by=EnumerateBy.NAME,
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"gaussian_forward": 3},
+                seed=0,
+                shuffle=False,
+            ),
+            normalize="none",
+        ),
+        str(dataset_dir),
         dataset_format="npy",
     )
 
@@ -242,13 +255,19 @@ def test_resolve_comparison_input_matrix_index_can_collide_when_samples_are_pool
     matrices = _write_distinct_spd_matrices(mat_dir, count=3)
     dataset_dir = tmp_path / "pooled_dataset"
     build_dataset(
-        matrix_path=str(mat_dir / "matrix_*.txt"),
-        dataset_dir=str(dataset_dir),
-        counts={"gaussian_forward": 9},  # 3x the matrix count -> 3 rows per matrix, pooled
-        enumerate_by=EnumerateBy.NAME,
-        normalize="none",
-        shuffle=False,
-        seed=0,
+        SourceSpec(
+            matrix_path=str(mat_dir / "matrix_*.txt"),
+            enumerate_by=EnumerateBy.NAME,
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"gaussian_forward": 9},
+                seed=0,
+                shuffle=False,
+            ),
+            normalize="none",
+        ),
+        str(dataset_dir),
         dataset_format="npy",
     )
 

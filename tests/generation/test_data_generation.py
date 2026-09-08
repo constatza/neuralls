@@ -198,20 +198,22 @@ def test_shuffle_samples_reindexes_error_traces() -> None:
     inverse = np.empty_like(expected_order)
     inverse[expected_order] = np.arange(len(expected_order))
 
-    shuffled_X, shuffled_Y, _, shuffled_error_traces = _shuffle_samples(
+    shuffled = _shuffle_samples(
         X,
         Y,
-        residual_traces=None,
-        error_traces=error_traces,
-        rng=rng,
+        None,
+        error_traces,
+        np.zeros(len(X), dtype=np.uint8),
+        rng.permutation(len(X)),
     )
 
+    shuffled_error_traces = shuffled.error_traces
     assert shuffled_error_traces is not None
     expected_indices = inverse[error_traces.sample_indices]
     expected_true_solutions = Y[expected_order]
 
-    np.testing.assert_allclose(shuffled_X, X[expected_order])
-    np.testing.assert_allclose(shuffled_Y, expected_true_solutions)
+    np.testing.assert_allclose(shuffled.rhs, X[expected_order])
+    np.testing.assert_allclose(shuffled.solutions, expected_true_solutions)
     np.testing.assert_array_equal(shuffled_error_traces.sample_indices, expected_indices)
     np.testing.assert_allclose(
         shuffled_error_traces.true_solutions,

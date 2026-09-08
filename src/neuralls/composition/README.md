@@ -234,8 +234,16 @@ Three reuse checks compose into one cascade, so rerunning `run` after any
 change only redoes the affected work:
 
 1. Dataset generation (`generation/dataset_builder.py::build_dataset`) skips
-   regenerating a dataset whose manifest and artifact files already exist,
-   unless `force_generate=True`.
+   regenerating a dataset whose manifest and artifact files already exist
+   *and* still match the `dataset_fingerprint` stamped into the manifest when
+   they were written, unless `force_generate=True`. That stamp is computed by
+   `platform.caching.compute_dataset_fingerprint` over the same
+   manifest-resolved `(matrix, rhs, solutions)` artifacts stage 2 fingerprints
+   (`_fingerprinted_artifact_paths` is the single definition of that set), so
+   both stages answer "has this dataset changed?" the same way instead of
+   generation checking mere existence. A manifest carrying no fingerprint
+   (written before the field existed, or outside this pipeline) falls back to
+   the original existence-only answer rather than forcing a regeneration.
 2. Training's reuse check (`run_assignment`, inside `run_assignment_sweep`)
    fingerprints the dataset's on-disk artifact files as they are right now
    (`platform.caching.compute_dataset_fingerprint`, size+mtime — cheap, no

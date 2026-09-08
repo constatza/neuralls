@@ -14,6 +14,7 @@ from neuralls.domain.generation.plan import (
     plan_from_specs,
 )
 from neuralls.domain.generation.source_streams import EnumerateBy
+from neuralls.domain.generation.specs import SourceSpec
 from neuralls.platform.config.models.data_models import DataConfigFile, GenerationConfig
 from neuralls.shared.types import DatasetFormat
 
@@ -55,6 +56,34 @@ class DataGenerationContext:
     replacement: bool
     parameters_paths: tuple[str, ...] = ()
     dataset_format: DatasetFormat = "hdf5"
+
+    def source_spec(self, *, rhs_path: str | None = None) -> SourceSpec:
+        """Project the source-side fields into the domain's SourceSpec.
+
+        The domain layer cannot import this composition-layer context, so it
+        receives this projection instead of either side re-declaring the same
+        eight source fields at every call boundary.
+
+        ``self.rhs_path`` and ``self.solutions_path`` are deliberately *not*
+        projected: both are glob fallbacks consumed by archive resolution in
+        this layer, not stream paths. Only the synthetic executor opens an RHS
+        stream, and it passes the already-resolved path in as ``rhs_path``;
+        archive-only executors leave it unset because the archive itself
+        supplies the RHS.
+
+        Args:
+            rhs_path: Resolved RHS stream path, or None to open no RHS stream.
+        """
+        return SourceSpec(
+            matrix_path=self.matrix_path,
+            rhs_path=rhs_path,
+            solution_path=self.solution_path,
+            parameters_paths=self.parameters_paths,
+            sample_id_regex=self.sample_id_regex,
+            enumerate_by=self.enumerate_by,
+            include_indices=self.include_indices,
+            exclude_indices=self.exclude_indices,
+        )
 
 
 def _plan_from_generation_config(

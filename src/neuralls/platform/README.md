@@ -131,7 +131,10 @@ third-party rules.
 Reuse-check filter construction lives here too: `find_successful_run` matches on
 `assignment_id` plus an optional `dataset_hash` tag (composition regenerates
 this from `caching.compute_dataset_fingerprint` after each dataset generation,
-so a regenerated dataset no longer matches its prior "already trained" run),
+so a regenerated dataset no longer matches its prior "already trained" run;
+the generate stage stamps that same fingerprint into the dataset manifest as
+`dataset_fingerprint`, so its own skip-regeneration check and this reuse check
+share one definition of a changed dataset),
 and `find_successful_comparison_run` matches on `comparison_id` plus a
 `checkpoint_dependency_hash` tag composition derives from each resolved
 checkpoint's `resolved_run_id` (not a file hash — a checkpoint is re-leased to
@@ -166,7 +169,13 @@ cross-format rewrites remain blocked by the manifest guard before persistence.
 Dataset storage is split by responsibility:
 - `storage/manifest.py`: typed dataset manifest dataclasses and JSON serialization
 - `storage/generation_formats.py`: generation-time `zarr`, `npy`, and `hdf5`
-  writers/accumulators plus backend-neutral artifact replacement helpers
+  writers/accumulators plus backend-neutral artifact replacement helpers.
+  Manifest assembly is shared: each writer performs only its format-specific
+  array I/O, then calls the pure `_build_manifest(payload, locations, matrix_shape, params)`
+  helper. The per-format differences are carried by a `ManifestLocations` DTO
+  (one `ArtifactLocation(path, key)` per artifact) plus the physical matrix shape —
+  `zarr`/`hdf5` read that shape back from the written container, `npy` derives it
+  from the payload layout.
 - `storage/dataset_readers.py`: manifest-driven read helpers and explicit resolved dataset contracts
 
 `storage/manifest_io.py::load_dataset_manifest` and
@@ -175,9 +184,12 @@ Dataset storage is split by responsibility:
 manifest-driven reader (`resolve_dataset_artifacts`, `list_available_matrix_indices`,
 `load_dense_training_arrays`, etc.) routes through these two, so a batch of comparison
 entries that share one `matrix_dataset` reads its manifest and matrix samples once per
-process instead of once per entry. Caveat: because the cache is keyed only on the path,
-mutating a dataset's files on disk mid-process (rare — datasets are normally
-write-once/read-many) will not be picked up without a process restart.
+process instead of once per entry. `save_dataset_manifest` clears the manifest cache as
+it writes, so a read after a write in the same process sees the manifest just written —
+which is what lets the generate stage stamp `dataset_fingerprint` into the manifest it
+has only just saved. Caveat: because the cache is keyed only on the path, mutating a
+dataset's *array* files on disk mid-process (rare — datasets are normally
+write-once/read-many) is still not picked up without a process restart.
 
 Safe comparison selection relies on manifest-declared metadata artifacts stored
 in the dataset's native format. Mature datasets may expose:

@@ -40,7 +40,16 @@ class DatasetNormalization:
 
 @dataclass(frozen=True)
 class DatasetManifest:
-    """Typed view over the dataset manifest contract."""
+    """Typed view over the dataset manifest contract.
+
+    Attributes:
+        dataset_fingerprint: Fingerprint of the matrix/rhs/solutions artifacts as
+            they stood when the dataset was generated, in the same form the
+            training reuse-check computes (`platform.caching`). None means the
+            manifest predates fingerprinting or was written outside the
+            generation pipeline — callers fall back to existence checks alone
+            rather than treating the absence as a mismatch.
+    """
 
     schema: str
     matrix: DatasetArtifact
@@ -50,6 +59,7 @@ class DatasetManifest:
     params: tuple[DatasetArtifact, ...] = ()
     row_kind: DatasetArtifact | None = None
     matrix_sample_index: DatasetArtifact | None = None
+    dataset_fingerprint: str | None = None
 
 
 def manifest_path_for(dataset_dir: str | Path) -> Path:

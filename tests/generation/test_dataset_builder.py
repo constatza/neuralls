@@ -13,6 +13,7 @@ from neuralls.composition.generation.dataset_builder import (
     _guard_format_conflict,
     build_dataset,
 )
+from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
 
@@ -88,8 +89,11 @@ class TestBuildDatasetSkipByDefault:
             "neuralls.composition.generation.dataset_builder.build_dataset_payload"
         ) as mock_build_payload:
             result = build_dataset(
-                matrix_path="unused.npy",
-                dataset_dir=str(complete_npy_dataset_dir),
+                SourceSpec(
+                    matrix_path="unused.npy",
+                ),
+                DatasetSpec(),
+                str(complete_npy_dataset_dir),
                 dataset_format="npy",
             )
         mock_build_payload.assert_not_called()
@@ -110,8 +114,11 @@ class TestBuildDatasetSkipByDefault:
             ),
         ):
             build_dataset(
-                matrix_path="unused.npy",
-                dataset_dir=str(complete_npy_dataset_dir),
+                SourceSpec(
+                    matrix_path="unused.npy",
+                ),
+                DatasetSpec(),
+                str(complete_npy_dataset_dir),
                 dataset_format="npy",
                 force=True,
             )

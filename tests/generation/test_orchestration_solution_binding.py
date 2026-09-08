@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from neuralls.composition.generation.dataset_builder import build_dataset
+from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.datasets import load_dense_training_arrays
 
 
@@ -53,11 +54,17 @@ def test_solution_binding_loads_per_matrix_solution(
     dataset_dir = str(tmp_path / "dataset")
 
     build_dataset(
-        matrix_path=str(mat_dir / "A_*.txt"),
-        dataset_dir=dataset_dir,
-        counts={"solution_archive": -1},
-        solution_path=str(sol_dir / "x_*.txt"),
-        sample_id_regex=r"(\d+)(?!.*\d)",
+        SourceSpec(
+            matrix_path=str(mat_dir / "A_*.txt"),
+            solution_path=str(sol_dir / "x_*.txt"),
+            sample_id_regex=r"(\d+)(?!.*\d)",
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"solution_archive": -1},
+            ),
+        ),
+        dataset_dir,
     )
 
     rhs, solutions = load_dense_training_arrays(dataset_dir)

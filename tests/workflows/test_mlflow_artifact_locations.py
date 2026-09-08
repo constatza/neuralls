@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import mlflow
@@ -22,6 +21,14 @@ from neuralls.composition.assignments.runtime_dataset_contract import (
 )
 from neuralls.composition.comparison.models import ComparisonParams
 from neuralls.composition.generation.dataset_builder import build_dataset
+from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.domain.solver.models.config import ComparisonGeneral
+from neuralls.domain.solver.models.result import (
+    CGComparisonResult,
+    ComparisonRecommendations,
+    ComparisonResult,
+    RankedRecommendation,
+)
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.reporting.training_diagnostics import compute_diagnostics
 from neuralls.platform.tracking.mlflow_client import log_diagnostics_to_mlflow
@@ -225,12 +232,18 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
     matrix_path = tmp_path / "matrix.npy"
     np.save(matrix_path, np.eye(2, dtype=np.float64))
     build_dataset(
-        matrix_path=str(matrix_path),
-        dataset_dir=str(dataset_dir),
-        counts={"neutral_ones": 1},
-        normalize="none",
-        shuffle=False,
-        seed=42,
+        SourceSpec(
+            matrix_path=str(matrix_path),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"neutral_ones": 1},
+                seed=42,
+                shuffle=False,
+            ),
+            normalize="none",
+        ),
+        str(dataset_dir),
         dataset_format="npy",
     )
 
@@ -254,14 +267,42 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
         artifact_root=artifact_root,
     )
 
-    def _fake_compare_preconditioners(*, output_root: Path, **_: object) -> SimpleNamespace:
+    def _fake_compare_preconditioners(
+        *, general_params: ComparisonGeneral, output_root: Path, **_: object
+    ) -> ComparisonResult:
         figures_dir = output_root / "figures"
         figures_dir.mkdir(parents=True, exist_ok=True)
         (figures_dir / "comparison_plot.png").write_text("placeholder", encoding="utf-8")
-        return SimpleNamespace(
+        return ComparisonResult(
+            results={
+                "none": CGComparisonResult(
+                    x=np.zeros(2),
+                    converged=True,
+                    iterations=2,
+                    residual=1.0e-8,
+                    residual_abs=1.0e-8,
+                    residual_history_rel=[1.0, 1.0e-8],
+                    residual_history_abs=[1.0, 1.0e-8],
+                    preconditioner="none",
+                    initial_guess=np.zeros(2),
+                    exact_error=None,
+                    rhs_norm=1.0,
+                    breakdown=False,
+                )
+            },
+            summary="ok",
+            solver_params=general_params,
+            preconditioners=("none",),
             condition_numbers={"none": 1.0},
-            results={"none": SimpleNamespace(iterations=2, residual=1.0e-8)},
-            recommendations={"best_overall": {"iterations": 2, "residual": 1.0e-8}},
+            recommendations=ComparisonRecommendations(
+                overall_best=RankedRecommendation(
+                    label="none",
+                    iterations=2,
+                    residual=1.0e-8,
+                    residual_abs=1.0e-8,
+                    breakdown=False,
+                )
+            ),
         )
 
     with patch(
@@ -275,9 +316,11 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
 
     assert outcomes and outcomes[0].success is True
 
+    # Select the comparison run by phase tag: the real workflow also opens a
+    # session parent above it and one child run per preconditioner below it.
     runs = client.search_runs(
         experiment_ids=[experiment_id],
-        order_by=["attribute.start_time DESC"],
+        filter_string="tags.phase = 'comparison'",
         max_results=1,
     )
     assert runs

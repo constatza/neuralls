@@ -48,6 +48,9 @@ def manifest_to_dict(manifest: DatasetManifest) -> dict[str, Any]:
 def save_dataset_manifest(dataset_dir: str | Path, manifest: DatasetManifest) -> None:
     """Write a typed dataset manifest to disk.
 
+    Invalidates `load_dataset_manifest`'s cache so a read after this write sees
+    the manifest just written rather than the one it replaced.
+
     Args:
         dataset_dir: Directory in which to write the manifest file.
         manifest: The typed dataset manifest to persist.
@@ -57,6 +60,7 @@ def save_dataset_manifest(dataset_dir: str | Path, manifest: DatasetManifest) ->
         json.dumps(manifest_to_dict(manifest), indent=2, sort_keys=True),
         encoding="utf-8",
     )
+    load_dataset_manifest.cache_clear()
 
 
 @lru_cache(maxsize=128)
@@ -141,6 +145,9 @@ def read_dataset_manifest(dataset_dir: str | Path) -> DatasetManifest:
             if raw.get("matrix_sample_index") is not None
             else None
         ),
+        dataset_fingerprint=(
+            str(raw["dataset_fingerprint"]) if raw.get("dataset_fingerprint") is not None else None
+        ),
     )
 
 
@@ -153,6 +160,7 @@ def make_dataset_manifest(
     params: tuple[DatasetArtifact, ...] = (),
     row_kind: DatasetArtifact | None = None,
     matrix_sample_index: DatasetArtifact | None = None,
+    dataset_fingerprint: str | None = None,
 ) -> DatasetManifest:
     """Construct a typed dataset manifest with the repo schema marker.
 
@@ -162,6 +170,10 @@ def make_dataset_manifest(
         solutions: Solution vector artifact descriptor.
         normalization: Normalization metadata.
         params: Optional parameter artifact descriptors.
+        row_kind: Optional row-kind artifact descriptor.
+        matrix_sample_index: Optional per-row matrix binding artifact descriptor.
+        dataset_fingerprint: Optional artifact fingerprint stamped after the
+            artifacts are on disk; storage writers leave this unset.
 
     Returns:
         Immutable DatasetManifest.
@@ -175,4 +187,5 @@ def make_dataset_manifest(
         params=params,
         row_kind=row_kind,
         matrix_sample_index=matrix_sample_index,
+        dataset_fingerprint=dataset_fingerprint,
     )

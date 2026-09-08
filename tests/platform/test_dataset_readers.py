@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from neuralls.composition.generation.dataset_builder import build_dataset
+from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.dataset_readers import (
     load_matrix_dense_sample,
     resolve_canonical_training_triplet,
@@ -24,12 +25,18 @@ def _build_dataset(root: Path) -> Path:
     np.save(matrix_path, matrix)
     dataset_dir = root / "dataset"
     build_dataset(
-        matrix_path=str(matrix_path),
-        dataset_dir=str(dataset_dir),
-        counts={"neutral_ones": 3},
-        normalize="none",
-        shuffle=False,
-        seed=42,
+        SourceSpec(
+            matrix_path=str(matrix_path),
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"neutral_ones": 3},
+                seed=42,
+                shuffle=False,
+            ),
+            normalize="none",
+        ),
+        str(dataset_dir),
         dataset_format="npy",
     )
     return dataset_dir

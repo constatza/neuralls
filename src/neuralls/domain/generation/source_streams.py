@@ -10,6 +10,7 @@ generation strategy logic. It supports:
 from __future__ import annotations
 
 import re
+from abc import ABC, abstractmethod
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -198,76 +199,254 @@ class VectorSampleStream(Protocol):
         ...
 
 
-class NpyMatrixStream:
-    """Matrix stream backed by a single .npy file with mmap."""
+@dataclass(frozen=True)
+class _RawSample:
+    """One sample's array exactly as read from disk, plus the file it came from.
 
-    def __init__(self, path: Path) -> None:
+    Attributes:
+        sample_id: Sample id this array belongs to.
+        array: Raw array (possibly memory-mapped, possibly not yet float64).
+        origin: File the array was read from, used for error messages.
+    """
+
+    sample_id: int
+    array: np.ndarray
+    origin: Path
+
+
+class _RawSampleSource(Protocol):
+    """Protocol for locating sample files and reading their raw arrays.
+
+    A source owns *where* samples come from (one stacked .npy, one .txt, or a
+    glob of per-sample files); the stream wrapped around it owns *what* a sample
+    means (dense matrix vs 1D vector).
+    """
+
+    @property
+    def sample_ids(self) -> tuple[int, ...]:
+        """Available sample IDs."""
+        ...
+
+    def read(self, sample_id: int) -> _RawSample:
+        """Read one sample's raw array."""
+        ...
+
+
+def _index_by_sample_id_regex(
+    paths: Sequence[Path],
+    *,
+    noun: str,
+    sample_id_regex: str | None,
+) -> dict[int, Path]:
+    """Map filename-derived sample ids to *paths*, rejecting duplicate ids."""
+    regex = re.compile(sample_id_regex or _DEFAULT_SAMPLE_ID_REGEX)
+    mapping: dict[int, Path] = {}
+    for path in paths:
+        sample_id = _extract_sample_id(path, regex)
+        if sample_id in mapping:
+            raise ValueError(
+                f"Duplicate {noun} sample id {sample_id} for files {mapping[sample_id]} and {path}"
+            )
+        mapping[sample_id] = path
+    return mapping
+
+
+def _build_glob_index(
+    expr: str,
+    *,
+    noun: str,
+    sample_id_regex: str | None,
+    enumerate_by: EnumerateBy | None,
+    include_indices: tuple[int, ...] | None,
+    exclude_indices: tuple[int, ...],
+) -> dict[int, Path]:
+    """Resolve a glob expression to ``{sample_id: path}``.
+
+    Args:
+        expr: Glob expression whose parent directory must already exist.
+        noun: Source kind used in error messages ("matrix" or "vector").
+        sample_id_regex: Regex whose first group holds the id in the file stem.
+            Ignored when *enumerate_by* is given; defaults to the trailing
+            integer of the stem.
+        enumerate_by: Assign sequential ids by this criterion instead of parsing
+            them out of the filenames.
+        include_indices: Keep only these sample ids, if given.
+        exclude_indices: Drop these sample ids.
+
+    Returns:
+        Mapping of sample id to source file, without renumbering.
+    """
+    pattern_path = Path(expr)
+    parent = pattern_path.parent
+    if not parent.exists():
+        raise FileNotFoundError(f"{noun.capitalize()} glob parent directory not found: {parent}")
+    paths = sorted(parent.glob(pattern_path.name))
+    if not paths:
+        raise FileNotFoundError(f"No {noun} files match glob: {expr}")
+    mapping = (
+        _enumerate_files(paths, enumerate_by)
+        if enumerate_by is not None
+        else _index_by_sample_id_regex(paths, noun=noun, sample_id_regex=sample_id_regex)
+    )
+    mapping = _filter_mapping(
+        mapping, include_indices=include_indices, exclude_indices=exclude_indices
+    )
+    if not mapping:
+        raise ValueError(f"No {noun} samples remain after filtering glob: {expr}")
+    return mapping
+
+
+def _read_sample_file(path: Path, *, noun: str) -> np.ndarray:
+    """Read one per-sample .npy (memory-mapped) or .txt file."""
+    match path.suffix:
+        case ".npy":
+            return np.load(path, mmap_mode="r")
+        case ".txt":
+            return np.loadtxt(path, dtype=np.float64)
+        case _:
+            raise ValueError(f"Unsupported {noun} file extension in glob: {path.suffix}")
+
+
+class _NpyFileSource:
+    """Samples from one .npy file holding a single sample or a stack of them."""
+
+    def __init__(self, path: Path, *, noun: str, sample_ndim: int, shape_error: str) -> None:
+        """Open *path* and determine how many samples it holds.
+
+        Args:
+            path: Source .npy file, opened with mmap.
+            noun: Source kind used in error messages ("matrix" or "vector").
+            sample_ndim: Rank of a single sample; rank ``sample_ndim + 1`` is
+                read as a stack of samples along the leading axis.
+            shape_error: Message template, formatted with ``shape``, raised when
+                the file's rank is neither of the two accepted ones.
+        """
         self._path = path
+        self._noun = noun
+        self._sample_ndim = sample_ndim
         self._array = np.load(path, mmap_mode="r")
-        if self._array.ndim == 2:
+        if self._array.ndim == sample_ndim:
             self._sample_ids = (0,)
-        elif self._array.ndim == 3:
+        elif self._array.ndim == sample_ndim + 1:
             self._sample_ids = tuple(range(int(self._array.shape[0])))
         else:
-            raise ValueError(
-                f"Matrix npy file must have shape (n,n) or (N,n,n), got {self._array.shape}"
-            )
+            raise ValueError(shape_error.format(shape=self._array.shape))
 
     @property
     def sample_ids(self) -> tuple[int, ...]:
         return self._sample_ids
 
-    def load_dense_sample(self, sample_id: int) -> DenseMatrixSample:
+    def read(self, sample_id: int) -> _RawSample:
         if sample_id not in self._sample_ids:
-            raise KeyError(f"Unknown matrix sample id {sample_id} for {self._path}")
-        if self._array.ndim == 2:
-            matrix = np.asarray(self._array, dtype=np.float64)
-        else:
-            matrix = np.asarray(self._array[sample_id], dtype=np.float64)
-        if matrix.ndim != 2:
-            raise ValueError(f"Matrix sample must be 2D, got shape {matrix.shape}")
-        return DenseMatrixSample(sample_id=sample_id, matrix=matrix)
-
-    def load_sparse_sample(self, sample_id: int) -> SparseMatrixSample:
-        dense = self.load_dense_sample(sample_id)
-        indices, values, size = _dense_to_sparse_components(dense.matrix)
-        return SparseMatrixSample(
-            sample_id=sample_id,
-            indices=indices,
-            values=values,
-            size=size,
-        )
-
-    def iter_dense_samples(self) -> Iterator[DenseMatrixSample]:
-        for sample_id in self._sample_ids:
-            yield self.load_dense_sample(sample_id)
-
-    def iter_sparse_samples(self) -> Iterator[SparseMatrixSample]:
-        for sample_id in self._sample_ids:
-            yield self.load_sparse_sample(sample_id)
+            raise KeyError(f"Unknown {self._noun} sample id {sample_id} for {self._path}")
+        stacked = self._array.ndim > self._sample_ndim
+        array = self._array[sample_id] if stacked else self._array
+        return _RawSample(sample_id=sample_id, array=array, origin=self._path)
 
 
-class TxtMatrixStream:
-    """Matrix stream backed by a single .txt file."""
+class _TxtFileSource:
+    """The single sample held by one .txt file."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, noun: str) -> None:
         self._path = path
+        self._noun = noun
 
     @property
     def sample_ids(self) -> tuple[int, ...]:
         return (0,)
 
-    def load_dense_sample(self, sample_id: int) -> DenseMatrixSample:
+    def read(self, sample_id: int) -> _RawSample:
         if sample_id != 0:
-            raise KeyError(f"Unknown matrix sample id {sample_id} for {self._path}")
-        matrix = np.loadtxt(self._path, dtype=np.float64)
-        if matrix.ndim != 2:
+            raise KeyError(f"Unknown {self._noun} sample id {sample_id} for {self._path}")
+        array = np.loadtxt(self._path, dtype=np.float64)
+        return _RawSample(sample_id=0, array=array, origin=self._path)
+
+
+class _GlobFileSource:
+    """Samples from glob-matched .txt/.npy files, one sample per file."""
+
+    def __init__(
+        self,
+        expr: str,
+        *,
+        noun: str,
+        sample_id_regex: str | None,
+        enumerate_by: EnumerateBy | None,
+        include_indices: tuple[int, ...] | None,
+        exclude_indices: tuple[int, ...],
+    ) -> None:
+        self._noun = noun
+        self._mapping = _build_glob_index(
+            expr,
+            noun=noun,
+            sample_id_regex=sample_id_regex,
+            enumerate_by=enumerate_by,
+            include_indices=include_indices,
+            exclude_indices=exclude_indices,
+        )
+        self._sample_ids = tuple(sorted(self._mapping.keys()))
+
+    @property
+    def sample_ids(self) -> tuple[int, ...]:
+        return self._sample_ids
+
+    def read(self, sample_id: int) -> _RawSample:
+        path = self._mapping.get(sample_id)
+        if path is None:
+            raise KeyError(f"Unknown {self._noun} sample id {sample_id}")
+        array = _read_sample_file(path, noun=self._noun)
+        return _RawSample(sample_id=sample_id, array=array, origin=path)
+
+
+class _SampleStream[T](ABC):
+    """Typed sample stream over any raw source.
+
+    Subclasses turn a `_RawSample` into the sample type ``T`` they expose; every
+    source-specific concern (which files, which ids, how to read them) belongs to
+    the injected `_RawSampleSource`.
+    """
+
+    def __init__(self, source: _RawSampleSource) -> None:
+        self._source = source
+
+    @property
+    def sample_ids(self) -> tuple[int, ...]:
+        """Available sample IDs."""
+        return self._source.sample_ids
+
+    @abstractmethod
+    def _build(self, raw: _RawSample) -> T:
+        """Validate and convert one raw array into a typed sample."""
+
+    def _load(self, sample_id: int) -> T:
+        """Read and build one sample."""
+        return self._build(self._source.read(sample_id))
+
+    def _iter(self) -> Iterator[T]:
+        """Iterate every sample in sample-id order."""
+        for sample_id in self.sample_ids:
+            yield self._load(sample_id)
+
+
+class _MatrixStream(_SampleStream[DenseMatrixSample]):
+    """`MatrixSampleStream` implementation over any raw source."""
+
+    def _build(self, raw: _RawSample) -> DenseMatrixSample:
+        if raw.array.ndim != 2:
             raise ValueError(
-                f"Matrix txt source must contain a single 2D matrix, got shape {matrix.shape}"
+                f"Matrix sample from {raw.origin} must be a single 2D matrix, "
+                f"got shape {raw.array.shape}"
             )
-        return DenseMatrixSample(sample_id=0, matrix=matrix)
+        return DenseMatrixSample(
+            sample_id=raw.sample_id, matrix=np.asarray(raw.array, dtype=np.float64)
+        )
+
+    def load_dense_sample(self, sample_id: int) -> DenseMatrixSample:
+        """Load one matrix sample in dense float64 format."""
+        return self._load(sample_id)
 
     def load_sparse_sample(self, sample_id: int) -> SparseMatrixSample:
+        """Load one matrix sample as sparse COO components."""
         dense = self.load_dense_sample(sample_id)
         indices, values, size = _dense_to_sparse_components(dense.matrix)
         return SparseMatrixSample(
@@ -278,13 +457,54 @@ class TxtMatrixStream:
         )
 
     def iter_dense_samples(self) -> Iterator[DenseMatrixSample]:
-        yield self.load_dense_sample(0)
+        """Iterate all dense matrix samples."""
+        return self._iter()
 
     def iter_sparse_samples(self) -> Iterator[SparseMatrixSample]:
-        yield self.load_sparse_sample(0)
+        """Iterate all sparse matrix samples."""
+        for sample_id in self.sample_ids:
+            yield self.load_sparse_sample(sample_id)
 
 
-class GlobMatrixStream:
+class _VectorStream(_SampleStream[VectorSample]):
+    """`VectorSampleStream` implementation over any raw source."""
+
+    def _build(self, raw: _RawSample) -> VectorSample:
+        return VectorSample(
+            sample_id=raw.sample_id, vector=_normalize_vector(raw.array, raw.origin)
+        )
+
+    def load_sample(self, sample_id: int) -> VectorSample:
+        """Load one vector sample."""
+        return self._load(sample_id)
+
+    def iter_samples(self) -> Iterator[VectorSample]:
+        """Iterate all vector samples."""
+        return self._iter()
+
+
+class NpyMatrixStream(_MatrixStream):
+    """Matrix stream backed by a single .npy file with mmap."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(
+            _NpyFileSource(
+                path,
+                noun="matrix",
+                sample_ndim=2,
+                shape_error="Matrix npy file must have shape (n,n) or (N,n,n), got {shape}",
+            )
+        )
+
+
+class TxtMatrixStream(_MatrixStream):
+    """Matrix stream backed by a single .txt file."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(_TxtFileSource(path, noun="matrix"))
+
+
+class GlobMatrixStream(_MatrixStream):
     """Matrix stream backed by glob-matched .txt/.npy files."""
 
     def __init__(
@@ -295,131 +515,40 @@ class GlobMatrixStream:
         include_indices: tuple[int, ...] | None = None,
         exclude_indices: tuple[int, ...] = (),
     ) -> None:
-        pattern_path = Path(expr)
-        parent = pattern_path.parent
-        if not parent.exists():
-            raise FileNotFoundError(f"Matrix glob parent directory not found: {parent}")
-        paths = sorted(parent.glob(pattern_path.name))
-        if not paths:
-            raise FileNotFoundError(f"No matrix files match glob: {expr}")
-        if enumerate_by is not None:
-            mapping: dict[int, Path] = _enumerate_files(paths, enumerate_by)
-        else:
-            regex = re.compile(sample_id_regex or _DEFAULT_SAMPLE_ID_REGEX)
-            mapping = {}
-            for path in paths:
-                sample_id = _extract_sample_id(path, regex)
-                if sample_id in mapping:
-                    raise ValueError(
-                        f"Duplicate matrix sample id {sample_id} for files {mapping[sample_id]} and {path}"
-                    )
-                mapping[sample_id] = path
-        mapping = _filter_mapping(
-            mapping, include_indices=include_indices, exclude_indices=exclude_indices
-        )
-        if not mapping:
-            raise ValueError(f"No matrix samples remain after filtering glob: {expr}")
-        self._mapping = mapping
-        self._sample_ids = tuple(sorted(mapping.keys()))
-
-    @property
-    def sample_ids(self) -> tuple[int, ...]:
-        return self._sample_ids
-
-    def load_dense_sample(self, sample_id: int) -> DenseMatrixSample:
-        path = self._mapping.get(sample_id)
-        if path is None:
-            raise KeyError(f"Unknown matrix sample id {sample_id}")
-        if path.suffix == ".npy":
-            matrix = np.load(path, mmap_mode="r")
-            if matrix.ndim != 2:
-                raise ValueError(
-                    f"Glob matrix file {path} must contain exactly one 2D matrix, got shape {matrix.shape}"
-                )
-            dense = np.asarray(matrix, dtype=np.float64)
-        elif path.suffix == ".txt":
-            dense = np.loadtxt(path, dtype=np.float64)
-            if dense.ndim != 2:
-                raise ValueError(f"Glob matrix txt file {path} must be 2D, got {dense.shape}")
-        else:
-            raise ValueError(f"Unsupported matrix file extension in glob: {path.suffix}")
-        return DenseMatrixSample(sample_id=sample_id, matrix=dense)
-
-    def load_sparse_sample(self, sample_id: int) -> SparseMatrixSample:
-        dense = self.load_dense_sample(sample_id)
-        indices, values, size = _dense_to_sparse_components(dense.matrix)
-        return SparseMatrixSample(
-            sample_id=sample_id,
-            indices=indices,
-            values=values,
-            size=size,
+        super().__init__(
+            _GlobFileSource(
+                expr,
+                noun="matrix",
+                sample_id_regex=sample_id_regex,
+                enumerate_by=enumerate_by,
+                include_indices=include_indices,
+                exclude_indices=exclude_indices,
+            )
         )
 
-    def iter_dense_samples(self) -> Iterator[DenseMatrixSample]:
-        for sample_id in self._sample_ids:
-            yield self.load_dense_sample(sample_id)
 
-    def iter_sparse_samples(self) -> Iterator[SparseMatrixSample]:
-        for sample_id in self._sample_ids:
-            yield self.load_sparse_sample(sample_id)
-
-
-class NpyVectorStream:
+class NpyVectorStream(_VectorStream):
     """Vector stream backed by a .npy file with mmap."""
 
     def __init__(self, path: Path) -> None:
-        self._path = path
-        self._array = np.load(path, mmap_mode="r")
-        if self._array.ndim == 1:
-            self._sample_ids = (0,)
-        elif self._array.ndim == 2:
-            self._sample_ids = tuple(range(int(self._array.shape[0])))
-        else:
-            raise ValueError(
-                f"Vector npy source must have shape (n,) or (N,n), got {self._array.shape}"
+        super().__init__(
+            _NpyFileSource(
+                path,
+                noun="vector",
+                sample_ndim=1,
+                shape_error="Vector npy source must have shape (n,) or (N,n), got {shape}",
             )
-
-    @property
-    def sample_ids(self) -> tuple[int, ...]:
-        return self._sample_ids
-
-    def load_sample(self, sample_id: int) -> VectorSample:
-        if sample_id not in self._sample_ids:
-            raise KeyError(f"Unknown vector sample id {sample_id} for {self._path}")
-        if self._array.ndim == 1:
-            vector = _normalize_vector(np.asarray(self._array, dtype=np.float64), self._path)
-        else:
-            vector = _normalize_vector(
-                np.asarray(self._array[sample_id], dtype=np.float64), self._path
-            )
-        return VectorSample(sample_id=sample_id, vector=vector)
-
-    def iter_samples(self) -> Iterator[VectorSample]:
-        for sample_id in self._sample_ids:
-            yield self.load_sample(sample_id)
+        )
 
 
-class TxtVectorStream:
+class TxtVectorStream(_VectorStream):
     """Vector stream backed by one .txt file."""
 
     def __init__(self, path: Path) -> None:
-        self._path = path
-
-    @property
-    def sample_ids(self) -> tuple[int, ...]:
-        return (0,)
-
-    def load_sample(self, sample_id: int) -> VectorSample:
-        if sample_id != 0:
-            raise KeyError(f"Unknown vector sample id {sample_id} for {self._path}")
-        vector = _normalize_vector(np.loadtxt(self._path, dtype=np.float64), self._path)
-        return VectorSample(sample_id=0, vector=vector)
-
-    def iter_samples(self) -> Iterator[VectorSample]:
-        yield self.load_sample(0)
+        super().__init__(_TxtFileSource(path, noun="vector"))
 
 
-class GlobVectorStream:
+class GlobVectorStream(_VectorStream):
     """Vector stream backed by glob-matched .txt/.npy files."""
 
     def __init__(
@@ -430,53 +559,16 @@ class GlobVectorStream:
         include_indices: tuple[int, ...] | None = None,
         exclude_indices: tuple[int, ...] = (),
     ) -> None:
-        pattern_path = Path(expr)
-        parent = pattern_path.parent
-        if not parent.exists():
-            raise FileNotFoundError(f"Vector glob parent directory not found: {parent}")
-        paths = sorted(parent.glob(pattern_path.name))
-        if not paths:
-            raise FileNotFoundError(f"No vector files match glob: {expr}")
-        if enumerate_by is not None:
-            mapping: dict[int, Path] = _enumerate_files(paths, enumerate_by)
-        else:
-            regex = re.compile(sample_id_regex or _DEFAULT_SAMPLE_ID_REGEX)
-            mapping = {}
-            for path in paths:
-                sample_id = _extract_sample_id(path, regex)
-                if sample_id in mapping:
-                    raise ValueError(
-                        f"Duplicate vector sample id {sample_id} for files {mapping[sample_id]} and {path}"
-                    )
-                mapping[sample_id] = path
-        mapping = _filter_mapping(
-            mapping, include_indices=include_indices, exclude_indices=exclude_indices
+        super().__init__(
+            _GlobFileSource(
+                expr,
+                noun="vector",
+                sample_id_regex=sample_id_regex,
+                enumerate_by=enumerate_by,
+                include_indices=include_indices,
+                exclude_indices=exclude_indices,
+            )
         )
-        if not mapping:
-            raise ValueError(f"No vector samples remain after filtering glob: {expr}")
-        self._mapping = mapping
-        self._sample_ids = tuple(sorted(mapping.keys()))
-
-    @property
-    def sample_ids(self) -> tuple[int, ...]:
-        return self._sample_ids
-
-    def load_sample(self, sample_id: int) -> VectorSample:
-        path = self._mapping.get(sample_id)
-        if path is None:
-            raise KeyError(f"Unknown vector sample id {sample_id}")
-        if path.suffix == ".npy":
-            arr = np.load(path, mmap_mode="r")
-        elif path.suffix == ".txt":
-            arr = np.loadtxt(path, dtype=np.float64)
-        else:
-            raise ValueError(f"Unsupported vector file extension in glob: {path.suffix}")
-        vector = _normalize_vector(np.asarray(arr, dtype=np.float64), path)
-        return VectorSample(sample_id=sample_id, vector=vector)
-
-    def iter_samples(self) -> Iterator[VectorSample]:
-        for sample_id in self._sample_ids:
-            yield self.load_sample(sample_id)
 
 
 def open_matrix_stream(

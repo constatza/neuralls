@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from neuralls.composition.generation.dataset_builder import build_dataset
+from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.datasets import (
     load_dense_training_arrays,
     load_matrix_dense_sample,
@@ -89,18 +90,24 @@ def test_solution_archive_consistency(
 ) -> None:
     """Test that solution_archive strategy maintains A @ x = b."""
     dataset_dir = build_dataset(
-        matrix_path=matrix_path,
-        dataset_dir=str(tmp_path / "solution-archive"),
-        counts={"solution_archive": 10},
-        normalize="matrix",
-        shuffle=False,
-        seed=42,
-        strategy_overrides={
-            "solution_archive": {
-                "solutions_glob": solutions_glob,
-                "shuffle": False,
-            }
-        },
+        SourceSpec(
+            matrix_path=matrix_path,
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"solution_archive": 10},
+                seed=42,
+                shuffle=False,
+                strategy_overrides={
+                    "solution_archive": {
+                        "solutions_glob": solutions_glob,
+                        "shuffle": False,
+                    }
+                },
+            ),
+            normalize="matrix",
+        ),
+        str(tmp_path / "solution-archive"),
     )
 
     is_consistent, max_error = verify_dataset_consistency(Path(dataset_dir))
@@ -110,12 +117,18 @@ def test_solution_archive_consistency(
 def test_eigenvector_forward_consistency(tmp_path: Path, matrix_path: str) -> None:
     """Test that eigenvector_forward strategy maintains A @ x = b."""
     dataset_dir = build_dataset(
-        matrix_path=matrix_path,
-        dataset_dir=str(tmp_path / "eigenvector-forward"),
-        counts={"eigenvector_forward": 10},
-        normalize="matrix",
-        shuffle=False,
-        seed=42,
+        SourceSpec(
+            matrix_path=matrix_path,
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"eigenvector_forward": 10},
+                seed=42,
+                shuffle=False,
+            ),
+            normalize="matrix",
+        ),
+        str(tmp_path / "eigenvector-forward"),
     )
 
     is_consistent, max_error = verify_dataset_consistency(Path(dataset_dir))
@@ -125,12 +138,18 @@ def test_eigenvector_forward_consistency(tmp_path: Path, matrix_path: str) -> No
 def test_eigenvector_inverse_consistency(tmp_path: Path, matrix_path: str) -> None:
     """Test that eigenvector_inverse strategy maintains A @ x = b."""
     dataset_dir = build_dataset(
-        matrix_path=matrix_path,
-        dataset_dir=str(tmp_path / "eigenvector-inverse"),
-        counts={"eigenvector_inverse": 10},
-        normalize="matrix",
-        shuffle=False,
-        seed=42,
+        SourceSpec(
+            matrix_path=matrix_path,
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"eigenvector_inverse": 10},
+                seed=42,
+                shuffle=False,
+            ),
+            normalize="matrix",
+        ),
+        str(tmp_path / "eigenvector-inverse"),
     )
 
     is_consistent, max_error = verify_dataset_consistency(Path(dataset_dir))
@@ -142,18 +161,24 @@ def test_no_normalization_consistency(
 ) -> None:
     """Test that consistency holds with normalize='none'."""
     dataset_dir = build_dataset(
-        matrix_path=matrix_path,
-        dataset_dir=str(tmp_path / "no-normalization"),
-        counts={"solution_archive": 5},
-        normalize="none",
-        shuffle=False,
-        seed=42,
-        strategy_overrides={
-            "solution_archive": {
-                "solutions_glob": solutions_glob,
-                "shuffle": False,
-            }
-        },
+        SourceSpec(
+            matrix_path=matrix_path,
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"solution_archive": 5},
+                seed=42,
+                shuffle=False,
+                strategy_overrides={
+                    "solution_archive": {
+                        "solutions_glob": solutions_glob,
+                        "shuffle": False,
+                    }
+                },
+            ),
+            normalize="none",
+        ),
+        str(tmp_path / "no-normalization"),
     )
 
     is_consistent, max_error = verify_dataset_consistency(Path(dataset_dir))
@@ -169,22 +194,28 @@ def test_mixed_strategies_consistency(
     strategies without double-normalization or inconsistencies.
     """
     dataset_dir = build_dataset(
-        matrix_path=matrix_path,
-        dataset_dir=str(tmp_path / "mixed-strategies"),
-        counts={
-            "solution_archive": 5,
-            "eigenvector_forward": 5,
-            "eigenvector_inverse": 5,
-        },
-        normalize="matrix",
-        shuffle=True,
-        seed=42,
-        strategy_overrides={
-            "solution_archive": {
-                "solutions_glob": solutions_glob,
-                "shuffle": False,
-            }
-        },
+        SourceSpec(
+            matrix_path=matrix_path,
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={
+                    "solution_archive": 5,
+                    "eigenvector_forward": 5,
+                    "eigenvector_inverse": 5,
+                },
+                seed=42,
+                shuffle=True,
+                strategy_overrides={
+                    "solution_archive": {
+                        "solutions_glob": solutions_glob,
+                        "shuffle": False,
+                    }
+                },
+            ),
+            normalize="matrix",
+        ),
+        str(tmp_path / "mixed-strategies"),
     )
 
     is_consistent, max_error = verify_dataset_consistency(Path(dataset_dir))
@@ -204,21 +235,27 @@ def test_mixed_archive_and_synthetic_strategies(
     data generation strategies.
     """
     dataset_dir = build_dataset(
-        matrix_path=matrix_path,
-        dataset_dir=str(tmp_path / "archive-and-synthetic"),
-        counts={
-            "solution_archive": 10,
-            "eigenvector_forward": 10,
-        },
-        normalize="matrix",
-        shuffle=True,
-        seed=42,
-        strategy_overrides={
-            "solution_archive": {
-                "solutions_glob": solutions_glob,
-                "shuffle": False,
-            }
-        },
+        SourceSpec(
+            matrix_path=matrix_path,
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={
+                    "solution_archive": 10,
+                    "eigenvector_forward": 10,
+                },
+                seed=42,
+                shuffle=True,
+                strategy_overrides={
+                    "solution_archive": {
+                        "solutions_glob": solutions_glob,
+                        "shuffle": False,
+                    }
+                },
+            ),
+            normalize="matrix",
+        ),
+        str(tmp_path / "archive-and-synthetic"),
     )
 
     is_consistent, max_error = verify_dataset_consistency(Path(dataset_dir))
@@ -234,23 +271,29 @@ def test_large_mixed_dataset_consistency(
 ) -> None:
     """Test a larger mixed dataset to ensure consistency at scale."""
     dataset_dir = build_dataset(
-        matrix_path=matrix_path,
-        dataset_dir=str(tmp_path / "large-mixed"),
-        counts={
-            "solution_archive": 50,
-            "eigenvector_forward": 30,
-            "eigenvector_inverse": 20,
-        },
-        normalize="matrix",
-        shuffle=True,
-        seed=42,
-        strategy_overrides={
-            "solution_archive": {
-                "solutions_glob": solutions_glob,
-                "shuffle": True,
-                "seed": 42,
-            }
-        },
+        SourceSpec(
+            matrix_path=matrix_path,
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={
+                    "solution_archive": 50,
+                    "eigenvector_forward": 30,
+                    "eigenvector_inverse": 20,
+                },
+                seed=42,
+                shuffle=True,
+                strategy_overrides={
+                    "solution_archive": {
+                        "solutions_glob": solutions_glob,
+                        "shuffle": True,
+                        "seed": 42,
+                    }
+                },
+            ),
+            normalize="matrix",
+        ),
+        str(tmp_path / "large-mixed"),
     )
 
     is_consistent, max_error = verify_dataset_consistency(Path(dataset_dir))
@@ -269,22 +312,28 @@ def test_mixed_strategies_with_shuffling(
     Shuffling should preserve A @ x = b for each individual sample.
     """
     dataset_dir = build_dataset(
-        matrix_path=matrix_path,
-        dataset_dir=str(tmp_path / "shuffled-mixed"),
-        counts={
-            "solution_archive": 8,
-            "eigenvector_forward": 7,
-        },
-        normalize="matrix",
-        shuffle=True,
-        seed=123,
-        strategy_overrides={
-            "solution_archive": {
-                "solutions_glob": solutions_glob,
-                "shuffle": True,
-                "seed": 456,
-            }
-        },
+        SourceSpec(
+            matrix_path=matrix_path,
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={
+                    "solution_archive": 8,
+                    "eigenvector_forward": 7,
+                },
+                seed=123,
+                shuffle=True,
+                strategy_overrides={
+                    "solution_archive": {
+                        "solutions_glob": solutions_glob,
+                        "shuffle": True,
+                        "seed": 456,
+                    }
+                },
+            ),
+            normalize="matrix",
+        ),
+        str(tmp_path / "shuffled-mixed"),
     )
 
     is_consistent, max_error = verify_dataset_consistency(Path(dataset_dir))

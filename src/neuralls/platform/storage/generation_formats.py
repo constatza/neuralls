@@ -14,7 +14,11 @@ from numpy.typing import NDArray
 
 from neuralls.domain.generation.payloads import GeneratedDatasetPayload
 from neuralls.domain.generation.ports import DatasetAccumulatorPort
-from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
+from neuralls.platform.storage.manifest import (
+    DatasetArtifact,
+    DatasetManifest,
+    DatasetNormalization,
+)
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
 from neuralls.shared.constants import PARAMETERS_ZARR_PREFIX
 from neuralls.shared.types import DatasetFormat, LayoutType
@@ -32,12 +36,148 @@ class DatasetArtifactPaths:
     parameter_paths: tuple[Path, ...]
 
 
+@dataclass(frozen=True)
+class ArtifactLocation:
+    """Manifest-visible address of one persisted dataset artifact.
+
+    Attributes:
+        path: Artifact path recorded in the manifest, relative to the dataset directory.
+        key: Optional in-container key, used by container formats such as HDF5.
+    """
+
+    path: str
+    key: str | None = None
+
+
+@dataclass(frozen=True)
+class ManifestLocations:
+    """Per-format manifest addresses for the artifacts every dataset declares."""
+
+    format_name: str
+    matrix: ArtifactLocation
+    rhs: ArtifactLocation
+    solutions: ArtifactLocation
+    row_kind: ArtifactLocation
+    matrix_sample_index: ArtifactLocation
+
+
 class GenerationDatasetStorage(Protocol):
     """Small composition-facing write seam for generated datasets."""
 
     def make_accumulator(self, dataset_dir: Path) -> DatasetAccumulatorPort: ...
 
     def write_dataset(self, dataset_dir: Path, payload: GeneratedDatasetPayload) -> None: ...
+
+
+def _array_artifact(
+    array: NDArray,
+    location: ArtifactLocation,
+    *,
+    format_name: str,
+    dtype: str = "float64",
+    index: int | None = None,
+) -> DatasetArtifact:
+    """Describe one persisted array as a manifest artifact entry.
+
+    Args:
+        array: The persisted array whose shape is recorded.
+        location: Manifest address of the artifact.
+        format_name: Storage format name recorded in the manifest.
+        dtype: On-disk dtype name recorded in the manifest.
+        index: Positional index for parameter artifacts, otherwise None.
+
+    Returns:
+        Manifest artifact descriptor for the array.
+    """
+    return DatasetArtifact(
+        path=location.path,
+        format=format_name,
+        dtype=dtype,
+        shape=tuple(int(dim) for dim in array.shape),
+        index=index,
+        key=location.key,
+    )
+
+
+def _optional_array_artifact(
+    array: NDArray | None,
+    location: ArtifactLocation,
+    *,
+    format_name: str,
+    dtype: str,
+) -> DatasetArtifact | None:
+    """Describe an optional array artifact, or None when the payload omits it.
+
+    Args:
+        array: The persisted array, or None when the payload carries no such artifact.
+        location: Manifest address of the artifact.
+        format_name: Storage format name recorded in the manifest.
+        dtype: On-disk dtype name recorded in the manifest.
+
+    Returns:
+        Manifest artifact descriptor, or None when ``array`` is None.
+    """
+    if array is None:
+        return None
+    return _array_artifact(array, location, format_name=format_name, dtype=dtype)
+
+
+def _build_manifest(
+    payload: GeneratedDatasetPayload,
+    *,
+    locations: ManifestLocations,
+    matrix_shape: tuple[int, ...],
+    params: tuple[DatasetArtifact, ...],
+) -> DatasetManifest:
+    """Assemble the dataset manifest shared by every storage format.
+
+    Only the artifact addresses, the physical matrix shape, and the parameter
+    descriptors differ between formats; everything else is derived from the payload.
+
+    Args:
+        payload: Generated dataset payload being persisted.
+        locations: Format-specific manifest addresses for each artifact.
+        matrix_shape: Physical shape of the persisted matrix artifact.
+        params: Parameter artifact descriptors, in manifest order.
+
+    Returns:
+        Typed dataset manifest ready to be written to disk.
+    """
+    format_name = locations.format_name
+    return make_dataset_manifest(
+        matrix=DatasetArtifact(
+            path=locations.matrix.path,
+            format=format_name,
+            dtype="float64",
+            shape=matrix_shape,
+            n_matrix_samples=int(matrix_shape[0]),
+            broadcast=payload.layout == LayoutType.BROADCAST_SINGLE,
+            layout=payload.layout,
+            logical_sample_count=int(payload.rhs.shape[0]),
+            key=locations.matrix.key,
+        ),
+        rhs=_array_artifact(payload.rhs, locations.rhs, format_name=format_name),
+        solutions=_array_artifact(payload.solutions, locations.solutions, format_name=format_name),
+        normalization=DatasetNormalization(
+            type=payload.normalization_type,
+            matrix_norm=float(payload.matrix_norm),
+            matrix_norm_type=payload.matrix_norm_type,
+            scale=dict(payload.scale_metadata or {}),
+        ),
+        params=params,
+        row_kind=_optional_array_artifact(
+            payload.row_kind_codes,
+            locations.row_kind,
+            format_name=format_name,
+            dtype="uint8",
+        ),
+        matrix_sample_index=_optional_array_artifact(
+            payload.matrix_sample_index,
+            locations.matrix_sample_index,
+            format_name=format_name,
+            dtype="int64",
+        ),
+    )
 
 
 def _raise_storage_error(operation: str, path: Path, exc: OSError) -> Never:
@@ -230,6 +370,21 @@ def _parameter_paths(dataset_dir: Path, suffix: str, count: int) -> tuple[Path, 
     return tuple(dataset_dir / f"{PARAMETERS_ZARR_PREFIX}{index}{suffix}" for index in range(count))
 
 
+def _zarr_member_location(name: str) -> ArtifactLocation:
+    return ArtifactLocation(f"{_ZARR_GROUP_NAME}/{name}")
+
+
+def _zarr_manifest_locations(format_name: str) -> ManifestLocations:
+    return ManifestLocations(
+        format_name=format_name,
+        matrix=_zarr_member_location("matrix"),
+        rhs=_zarr_member_location("rhs"),
+        solutions=_zarr_member_location("solutions"),
+        row_kind=_zarr_member_location("row_kind"),
+        matrix_sample_index=_zarr_member_location("matrix_sample_index"),
+    )
+
+
 def _zarr_group_member_paths(group_dir: Path, parameter_count: int) -> DatasetArtifactPaths:
     return DatasetArtifactPaths(
         matrix_path=group_dir / "matrix",
@@ -320,11 +475,10 @@ class ZarrGenerationStorage:
                 _raise_storage_error(f"Writing {params_path.name} into group", params_path, exc)
             # ponytail: path relative to dataset_dir so manifest resolves from root
             params_manifest.append(
-                DatasetArtifact(
-                    path=f"{_ZARR_GROUP_NAME}/{params_path.name}",
-                    format=self.format_name,
-                    dtype="float64",
-                    shape=tuple(int(dim) for dim in params_arr.shape),
+                _array_artifact(
+                    params_arr,
+                    _zarr_member_location(params_path.name),
+                    format_name=self.format_name,
                     index=index,
                 )
             )
@@ -352,54 +506,24 @@ class ZarrGenerationStorage:
 
         save_dataset_manifest(
             dataset_dir,
-            make_dataset_manifest(
-                matrix=DatasetArtifact(
-                    path=f"{_ZARR_GROUP_NAME}/matrix",
-                    format=self.format_name,
-                    dtype="float64",
-                    shape=tuple(int(dim) for dim in mat_arr.shape),
-                    n_matrix_samples=int(mat_arr.shape[0]),
-                    broadcast=payload.layout == LayoutType.BROADCAST_SINGLE,
-                    layout=payload.layout,
-                    logical_sample_count=int(payload.rhs.shape[0]),
-                ),
-                rhs=DatasetArtifact(
-                    path=f"{_ZARR_GROUP_NAME}/rhs",
-                    format=self.format_name,
-                    dtype="float64",
-                    shape=tuple(int(dim) for dim in payload.rhs.shape),
-                ),
-                solutions=DatasetArtifact(
-                    path=f"{_ZARR_GROUP_NAME}/solutions",
-                    format=self.format_name,
-                    dtype="float64",
-                    shape=tuple(int(dim) for dim in payload.solutions.shape),
-                ),
-                normalization=DatasetNormalization(
-                    type=payload.normalization_type,
-                    matrix_norm=float(payload.matrix_norm),
-                    matrix_norm_type=payload.matrix_norm_type,
-                    scale=dict(payload.scale_metadata or {}),
-                ),
+            _build_manifest(
+                payload,
+                locations=_zarr_manifest_locations(self.format_name),
+                matrix_shape=tuple(int(dim) for dim in mat_arr.shape),
                 params=tuple(params_manifest),
-                row_kind=DatasetArtifact(
-                    path=f"{_ZARR_GROUP_NAME}/row_kind",
-                    format=self.format_name,
-                    dtype="uint8",
-                    shape=tuple(int(dim) for dim in payload.row_kind_codes.shape),
-                )
-                if payload.row_kind_codes is not None
-                else None,
-                matrix_sample_index=DatasetArtifact(
-                    path=f"{_ZARR_GROUP_NAME}/matrix_sample_index",
-                    format=self.format_name,
-                    dtype="int64",
-                    shape=tuple(int(dim) for dim in payload.matrix_sample_index.shape),
-                )
-                if payload.matrix_sample_index is not None
-                else None,
             ),
         )
+
+
+def _npy_manifest_locations(format_name: str, paths: DatasetArtifactPaths) -> ManifestLocations:
+    return ManifestLocations(
+        format_name=format_name,
+        matrix=ArtifactLocation(paths.matrix_path.name),
+        rhs=ArtifactLocation(paths.rhs_path.name),
+        solutions=ArtifactLocation(paths.solutions_path.name),
+        row_kind=ArtifactLocation("row_kind.npy"),
+        matrix_sample_index=ArtifactLocation("matrix_sample_index.npy"),
+    )
 
 
 class NpyGenerationStorage:
@@ -454,70 +578,24 @@ class NpyGenerationStorage:
             except OSError as exc:
                 _raise_storage_error(f"Writing {params_path.name}", params_path, exc)
             params_manifest.append(
-                DatasetArtifact(
-                    path=params_path.name,
-                    format=self.format_name,
-                    dtype="float64",
-                    shape=tuple(int(dim) for dim in params_arr.shape),
+                _array_artifact(
+                    params_arr,
+                    ArtifactLocation(params_path.name),
+                    format_name=self.format_name,
                     index=index,
                 )
             )
 
+        physical_matrix_rows = (
+            1 if payload.layout == LayoutType.BROADCAST_SINGLE else int(payload.rhs.shape[0])
+        )
         save_dataset_manifest(
             dataset_dir,
-            make_dataset_manifest(
-                matrix=DatasetArtifact(
-                    path=paths.matrix_path.name,
-                    format=self.format_name,
-                    dtype="float64",
-                    shape=(
-                        1
-                        if payload.layout == LayoutType.BROADCAST_SINGLE
-                        else int(payload.rhs.shape[0]),
-                        *payload.matrix_size,
-                    ),
-                    n_matrix_samples=1
-                    if payload.layout == LayoutType.BROADCAST_SINGLE
-                    else int(payload.rhs.shape[0]),
-                    broadcast=payload.layout == LayoutType.BROADCAST_SINGLE,
-                    layout=payload.layout,
-                    logical_sample_count=int(payload.rhs.shape[0]),
-                ),
-                rhs=DatasetArtifact(
-                    path=paths.rhs_path.name,
-                    format=self.format_name,
-                    dtype="float64",
-                    shape=tuple(int(dim) for dim in payload.rhs.shape),
-                ),
-                solutions=DatasetArtifact(
-                    path=paths.solutions_path.name,
-                    format=self.format_name,
-                    dtype="float64",
-                    shape=tuple(int(dim) for dim in payload.solutions.shape),
-                ),
-                normalization=DatasetNormalization(
-                    type=payload.normalization_type,
-                    matrix_norm=float(payload.matrix_norm),
-                    matrix_norm_type=payload.matrix_norm_type,
-                    scale=dict(payload.scale_metadata or {}),
-                ),
+            _build_manifest(
+                payload,
+                locations=_npy_manifest_locations(self.format_name, paths),
+                matrix_shape=(physical_matrix_rows, *payload.matrix_size),
                 params=tuple(params_manifest),
-                row_kind=DatasetArtifact(
-                    path="row_kind.npy",
-                    format=self.format_name,
-                    dtype="uint8",
-                    shape=tuple(int(dim) for dim in payload.row_kind_codes.shape),
-                )
-                if payload.row_kind_codes is not None
-                else None,
-                matrix_sample_index=DatasetArtifact(
-                    path="matrix_sample_index.npy",
-                    format=self.format_name,
-                    dtype="int64",
-                    shape=tuple(int(dim) for dim in payload.matrix_sample_index.shape),
-                )
-                if payload.matrix_sample_index is not None
-                else None,
             ),
         )
 
@@ -609,6 +687,21 @@ class DenseHdf5Accumulator:
         return self._n_samples
 
 
+def _hdf5_member_location(key: str) -> ArtifactLocation:
+    return ArtifactLocation(HDF5_FILENAME, key=key)
+
+
+def _hdf5_manifest_locations(format_name: str) -> ManifestLocations:
+    return ManifestLocations(
+        format_name=format_name,
+        matrix=_hdf5_member_location("matrix"),
+        rhs=_hdf5_member_location("rhs"),
+        solutions=_hdf5_member_location("solutions"),
+        row_kind=_hdf5_member_location("row_kind"),
+        matrix_sample_index=_hdf5_member_location("matrix_sample_index"),
+    )
+
+
 class Hdf5GenerationStorage:
     """Write generated datasets into a single HDF5 file (dataset.h5)."""
 
@@ -657,13 +750,11 @@ class Hdf5GenerationStorage:
                     key = f"{PARAMETERS_ZARR_PREFIX}{index}"
                     out.create_dataset(key, data=params_arr.astype(np.float64))
                     params_manifest.append(
-                        DatasetArtifact(
-                            path=HDF5_FILENAME,
-                            format=self.format_name,
-                            dtype="float64",
-                            shape=tuple(int(d) for d in params_arr.shape),
+                        _array_artifact(
+                            params_arr,
+                            _hdf5_member_location(key),
+                            format_name=self.format_name,
                             index=index,
-                            key=key,
                         )
                     )
         except OSError as exc:
@@ -677,57 +768,11 @@ class Hdf5GenerationStorage:
 
         save_dataset_manifest(
             dataset_dir,
-            make_dataset_manifest(
-                matrix=DatasetArtifact(
-                    path=HDF5_FILENAME,
-                    format=self.format_name,
-                    dtype="float64",
-                    shape=mat_shape,
-                    n_matrix_samples=int(mat_shape[0]),
-                    broadcast=payload.layout == LayoutType.BROADCAST_SINGLE,
-                    layout=payload.layout,
-                    logical_sample_count=int(payload.rhs.shape[0]),
-                    key="matrix",
-                ),
-                rhs=DatasetArtifact(
-                    path=HDF5_FILENAME,
-                    format=self.format_name,
-                    dtype="float64",
-                    shape=tuple(int(d) for d in payload.rhs.shape),
-                    key="rhs",
-                ),
-                solutions=DatasetArtifact(
-                    path=HDF5_FILENAME,
-                    format=self.format_name,
-                    dtype="float64",
-                    shape=tuple(int(d) for d in payload.solutions.shape),
-                    key="solutions",
-                ),
-                normalization=DatasetNormalization(
-                    type=payload.normalization_type,
-                    matrix_norm=float(payload.matrix_norm),
-                    matrix_norm_type=payload.matrix_norm_type,
-                    scale=dict(payload.scale_metadata or {}),
-                ),
+            _build_manifest(
+                payload,
+                locations=_hdf5_manifest_locations(self.format_name),
+                matrix_shape=mat_shape,
                 params=tuple(params_manifest),
-                row_kind=DatasetArtifact(
-                    path=HDF5_FILENAME,
-                    format=self.format_name,
-                    dtype="uint8",
-                    shape=tuple(int(d) for d in payload.row_kind_codes.shape),
-                    key="row_kind",
-                )
-                if payload.row_kind_codes is not None
-                else None,
-                matrix_sample_index=DatasetArtifact(
-                    path=HDF5_FILENAME,
-                    format=self.format_name,
-                    dtype="int64",
-                    shape=tuple(int(d) for d in payload.matrix_sample_index.shape),
-                    key="matrix_sample_index",
-                )
-                if payload.matrix_sample_index is not None
-                else None,
             ),
         )
 

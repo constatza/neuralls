@@ -17,6 +17,7 @@ from neuralls.composition.generation._archive_resolution import (
 from neuralls.composition.generation._context_builder import DataGenerationContext
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.plan import GenerationPlan, StrategySpec
+from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.shared.constants import DEFAULT_RANDOM_SEED
 
 
@@ -52,26 +53,24 @@ def _execute_solution_archive(
     seed_value = strategy.options.get("seed", generation_cfg.seed)
 
     dataset_path = build_dataset(
-        matrix_path=context.matrix_path,
-        dataset_dir=str(context.dataset_dir),
-        counts={"solution_archive": strategy.samples},
-        solution_path=context.solution_path,
-        parameters_paths=context.parameters_paths,
-        sample_id_regex=context.sample_id_regex,
-        enumerate_by=context.enumerate_by,
-        include_indices=context.include_indices,
-        exclude_indices=context.exclude_indices,
-        replacement=context.replacement,
-        normalize=context.normalize,
-        shuffle=bool(shuffle_value),
-        seed=int(seed_value) if seed_value is not None else DEFAULT_RANDOM_SEED,
-        strategy_overrides={
-            "solution_archive": {
-                "solutions_glob": resolved_solutions_path,
-                "shuffle": bool(shuffle_value),
-                "seed": seed_value,
-            }
-        },
+        context.source_spec(),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"solution_archive": strategy.samples},
+                shuffle=bool(shuffle_value),
+                seed=int(seed_value) if seed_value is not None else DEFAULT_RANDOM_SEED,
+                strategy_overrides={
+                    "solution_archive": {
+                        "solutions_glob": resolved_solutions_path,
+                        "shuffle": bool(shuffle_value),
+                        "seed": seed_value,
+                    }
+                },
+            ),
+            replacement=context.replacement,
+            normalize=context.normalize,
+        ),
+        str(context.dataset_dir),
         dataset_format=context.dataset_format,
         force=force,
     )
@@ -150,21 +149,18 @@ def _execute_synthetic_generation(
     )
 
     dataset_path = build_dataset(
-        matrix_path=context.matrix_path,
-        dataset_dir=str(context.dataset_dir),
-        counts=counts,
-        rhs_path=rhs_source_path,
-        solution_path=context.solution_path,
-        parameters_paths=context.parameters_paths,
-        sample_id_regex=context.sample_id_regex,
-        enumerate_by=context.enumerate_by,
-        include_indices=context.include_indices,
-        exclude_indices=context.exclude_indices,
-        replacement=context.replacement,
-        normalize=context.normalize,
-        shuffle=bool(shuffle_value),
-        seed=seed,
-        strategy_overrides=strategy_overrides,
+        context.source_spec(rhs_path=rhs_source_path),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts=counts,
+                shuffle=bool(shuffle_value),
+                seed=seed,
+                strategy_overrides=strategy_overrides,
+            ),
+            replacement=context.replacement,
+            normalize=context.normalize,
+        ),
+        str(context.dataset_dir),
         dataset_format=context.dataset_format,
         force=force,
     )
@@ -201,19 +197,17 @@ def _execute_rhs_archive_only(
     seed_value = generation_cfg.seed
 
     dataset_path = build_dataset(
-        matrix_path=context.matrix_path,
-        dataset_dir=str(context.dataset_dir),
-        counts={"rhs_archive": strategy.samples},
-        solution_path=context.solution_path,
-        parameters_paths=context.parameters_paths,
-        sample_id_regex=context.sample_id_regex,
-        enumerate_by=context.enumerate_by,
-        include_indices=context.include_indices,
-        exclude_indices=context.exclude_indices,
-        replacement=context.replacement,
-        normalize=context.normalize,
-        seed=int(seed_value) if seed_value is not None else DEFAULT_RANDOM_SEED,
-        strategy_overrides={"rhs_archive": {"rhs_glob": rhs_glob, **collection_kwargs}},
+        context.source_spec(),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"rhs_archive": strategy.samples},
+                seed=int(seed_value) if seed_value is not None else DEFAULT_RANDOM_SEED,
+                strategy_overrides={"rhs_archive": {"rhs_glob": rhs_glob, **collection_kwargs}},
+            ),
+            replacement=context.replacement,
+            normalize=context.normalize,
+        ),
+        str(context.dataset_dir),
         dataset_format=context.dataset_format,
         force=force,
     )

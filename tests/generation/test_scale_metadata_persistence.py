@@ -7,6 +7,7 @@ import pytest
 
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.orchestration import _resolve_final_scale
+from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.normalization import MatrixScale, load_scale_from_metadata
 from neuralls.platform.storage.datasets import (
     load_dataset_manifest,
@@ -39,14 +40,20 @@ def test_scale_metadata_saved_with_matrix_normalization(temp_matrix_file: Path, 
 
     # Build dataset with matrix normalization
     build_dataset(
-        matrix_path=str(temp_matrix_file),
-        dataset_dir=str(output_dir),
-        rhs_path=None,
-        counts={"neutral_ones": 1},
-        seed=42,
-        shuffle=False,
-        normalize="matrix",
-        strategy_overrides={"neutral_ones": {"samples": 1}},
+        SourceSpec(
+            matrix_path=str(temp_matrix_file),
+            rhs_path=None,
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"neutral_ones": 1},
+                seed=42,
+                shuffle=False,
+                strategy_overrides={"neutral_ones": {"samples": 1}},
+            ),
+            normalize="matrix",
+        ),
+        str(output_dir),
     )
 
     # Load manifest and dense arrays
@@ -91,14 +98,20 @@ def test_scale_metadata_not_saved_with_none_normalization(temp_matrix_file: Path
 
     # Build dataset without normalization
     build_dataset(
-        matrix_path=str(temp_matrix_file),
-        dataset_dir=str(output_dir),
-        rhs_path=None,
-        counts={"neutral_ones": 1},
-        seed=42,
-        shuffle=False,
-        normalize="none",
-        strategy_overrides={"neutral_ones": {"samples": 1}},
+        SourceSpec(
+            matrix_path=str(temp_matrix_file),
+            rhs_path=None,
+        ),
+        DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"neutral_ones": 1},
+                seed=42,
+                shuffle=False,
+                strategy_overrides={"neutral_ones": {"samples": 1}},
+            ),
+            normalize="none",
+        ),
+        str(output_dir),
     )
 
     manifest = load_dataset_manifest(output_dir)

@@ -37,14 +37,18 @@ from .orchestration import build_dataset_payload, generate_mixture
 from .payloads import GeneratedDatasetPayload
 from .plan import GenerationPlan, StrategySpec, parse_generation_plan
 from .runner import run_generation
+from .specs import DatasetSpec, MixtureSpec, SourceSpec
 from .types import ArchiveData, GeneratedSamples, StrategyOutput
 
 __all__ = [
     "ArchiveData",
+    "DatasetSpec",
     "GeneratedDatasetPayload",
     "GeneratedSamples",
     "GenerationPlan",
+    "MixtureSpec",
     "NormalizeType",
+    "SourceSpec",
     # Data types
     "StrategyOutput",
     "StrategySpec",

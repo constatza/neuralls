@@ -172,11 +172,27 @@ disk once per distinct selection, not once per binding or per dataset file. `Arc
 ## Package Map
 
 - `orchestration.py`: mixed-strategy payload assembly; `build_dataset_payload()` requires an
-  injected `DatasetAccumulatorPort` — the domain never creates storage objects directly
+  injected `DatasetAccumulatorPort` — the domain never creates storage objects directly.
+  Internal stream/binding/accumulation state (opened streams, per-binding strategy
+  allocation, accumulated blocks, the run's resolved context) are each a frozen dataclass
+  (`OpenedStreams`, `BindingAllocation`, `AccumulatedBindings`, `_GenerationRunContext`)
+  threaded through the pipeline instead of positional tuples, so a step's output can't be
+  silently misread by position at its call site
+- `specs.py`: frozen input DTOs mirroring the config's own `[source]`/`[generation]`
+  sections — `SourceSpec` (where samples come from), `MixtureSpec` (strategy mixing + RNG),
+  `DatasetSpec` (assembly: mixture + replacement/normalize/norm-type). `generate_mixture()`
+  and `build_dataset()` accept these instead of the same ~15-20 fields re-declared as loose
+  kwargs at every call-chain layer
 - `payloads.py`: pure DTO — `GeneratedDatasetPayload` only; no accumulation helpers
 - `ports.py`: `DatasetAccumulatorPort`, `DatasetWriterPort`, and `TracingSolverPort` protocol
   definitions consumed by the composition layer
 - `runner.py`: strategy registry and dispatch
+- `source_streams.py`: sample discovery and loading. One `_RawSampleSource` per source
+  shape (single stacked `.npy`, single `.txt`, glob of per-sample files) is composed into
+  a generic `_SampleStream[T]` wrapper that decides what a sample *means* — `_MatrixStream`
+  (dense/sparse matrix API) or `_VectorStream` (1D vector API). The six public
+  `{Npy,Txt,Glob}{Matrix,Vector}Stream` classes are thin subclasses that only pick a source;
+  `open_matrix_stream()`/`open_vector_stream()` are the entrypoints
 - `providers.py`: archive or synthetic sample providers
 - `transforms.py`: pure transforms such as `A @ x`
 - `trace_utils.py`: trace trimming, offsets, and indexing helpers

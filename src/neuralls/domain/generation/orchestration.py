@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -16,7 +15,6 @@ from neuralls.domain.normalization import ErrorTraceSamples, IScale, ResidualTra
 from neuralls.shared.enum_codecs import encode_row_kind_array
 from neuralls.shared.types import GenerationStrategyKind, LayoutType, RowKind, ScaleMetadata
 
-from .data_types import NormalizeType
 from .helpers import (
     _merge_strategy_outputs,
     _resolve_strategy_counts,
@@ -30,7 +28,6 @@ from .ports import DenseAccumulatorPort
 from .runner import strategy_supports_matrix_replacement
 from .semantics import classify_strategy_row_kind
 from .source_streams import (
-    EnumerateBy,
     MatrixSampleStream,
     SystemBinding,
     VectorSampleStream,
@@ -38,6 +35,7 @@ from .source_streams import (
     open_matrix_stream,
     open_vector_stream,
 )
+from .specs import DatasetSpec, MixtureSpec, SourceSpec
 
 
 @dataclass(frozen=True)
@@ -76,99 +74,98 @@ class _GeneratedMixtureWithMetadata:
     row_kind_codes: np.ndarray
 
 
+def _reindex_residual_traces(
+    traces: ResidualTraceSamples, inverse: np.ndarray
+) -> ResidualTraceSamples:
+    """Repoint residual traces at their base samples' new positions.
+
+    Args:
+        traces: Residual traces whose ``sample_indices`` address pre-shuffle rows.
+        inverse: Inverse permutation mapping old row position to new.
+
+    Returns:
+        Traces with remapped ``sample_indices``; per-iteration arrays are shared as-is.
+    """
+    return ResidualTraceSamples(
+        residuals=traces.residuals,
+        solutions=traces.solutions,
+        sample_indices=inverse[traces.sample_indices],
+        iteration_indices=traces.iteration_indices,
+        search_directions=traces.search_directions,
+        search_direction_products=traces.search_direction_products,
+    )
+
+
+def _reindex_error_traces(
+    traces: ErrorTraceSamples, indices: np.ndarray, inverse: np.ndarray
+) -> ErrorTraceSamples:
+    """Repoint error traces at their base samples' new positions.
+
+    Args:
+        traces: Error traces whose ``sample_indices`` address pre-shuffle rows.
+        indices: Forward permutation, applied to the per-sample ``true_solutions``.
+        inverse: Inverse permutation mapping old row position to new.
+
+    Returns:
+        Traces with permuted ``true_solutions`` and remapped ``sample_indices``.
+    """
+    return ErrorTraceSamples(
+        residuals=traces.residuals,
+        solutions_current=traces.solutions_current,
+        errors=traces.errors,
+        true_solutions=traces.true_solutions[indices],
+        sample_indices=inverse[traces.sample_indices],
+        iteration_indices=traces.iteration_indices,
+    )
+
+
 def _shuffle_samples(
     X: np.ndarray,
     Y: np.ndarray,
     residual_traces: ResidualTraceSamples | None,
     error_traces: ErrorTraceSamples | None,
-    rng: np.random.Generator,
-) -> tuple[np.ndarray, np.ndarray, ResidualTraceSamples | None, ErrorTraceSamples | None]:
-    """Shuffle samples while maintaining trace consistency.
+    row_kind_codes: np.ndarray,
+    indices: np.ndarray,
+) -> _GeneratedMixtureWithMetadata:
+    """Apply a permutation to samples and every array aligned with them.
+
+    Pure: the caller draws the permutation, so the shuffle itself carries no
+    RNG dependency. Per-sample arrays (features, targets, row kinds, trace
+    ``true_solutions``) are permuted directly; trace rows are per-iteration
+    rather than per-sample, so they are left in place and only their
+    ``sample_indices`` are remapped through the inverse permutation.
 
     Args:
-        X: Feature array, shape (N, n)
-        Y: Target array, shape (N, n)
-        residual_traces: Optional residual trace samples
-        error_traces: Optional error trace samples
-        rng: Random number generator
+        X: Feature array, shape (N, n).
+        Y: Target array, shape (N, n).
+        residual_traces: Optional residual trace samples.
+        error_traces: Optional error trace samples.
+        row_kind_codes: Per-sample row-kind codes, shape (N,).
+        indices: Permutation of ``range(N)`` to apply.
 
     Returns:
-        Tuple of (shuffled_X, shuffled_Y, shuffled_residual_traces, error_traces)
+        The permuted samples, traces and row kinds as one metadata-rich result.
     """
-    indices = rng.permutation(len(X))
-    return _shuffle_samples_by_indices(X, Y, residual_traces, error_traces, indices)
-
-
-def _shuffle_samples_by_indices(
-    X: np.ndarray,
-    Y: np.ndarray,
-    residual_traces: ResidualTraceSamples | None,
-    error_traces: ErrorTraceSamples | None,
-    indices: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, ResidualTraceSamples | None, ErrorTraceSamples | None]:
-    """Apply a precomputed permutation while preserving trace references."""
-    X_shuffled = X[indices]
-    Y_shuffled = Y[indices]
-
     inverse = np.empty_like(indices)
     inverse[indices] = np.arange(len(indices))
 
-    if residual_traces is not None:
-        residual_traces = ResidualTraceSamples(
-            residuals=residual_traces.residuals,
-            solutions=residual_traces.solutions,
-            sample_indices=inverse[residual_traces.sample_indices],
-            iteration_indices=residual_traces.iteration_indices,
-            search_directions=residual_traces.search_directions,
-            search_direction_products=residual_traces.search_direction_products,
-        )
-
-    if error_traces is not None:
-        error_traces = ErrorTraceSamples(
-            residuals=error_traces.residuals,
-            solutions_current=error_traces.solutions_current,
-            errors=error_traces.errors,
-            true_solutions=error_traces.true_solutions[indices],
-            sample_indices=inverse[error_traces.sample_indices],
-            iteration_indices=error_traces.iteration_indices,
-        )
-
-    return X_shuffled, Y_shuffled, residual_traces, error_traces
-
-
-def _shuffle_samples_with_metadata(
-    X: np.ndarray,
-    Y: np.ndarray,
-    residual_traces: ResidualTraceSamples | None,
-    error_traces: ErrorTraceSamples | None,
-    row_kind_codes: np.ndarray,
-    rng: np.random.Generator,
-) -> _GeneratedMixtureWithMetadata:
-    """Shuffle samples and aligned metadata while preserving trace references."""
-    indices = rng.permutation(len(X))
-    X_shuffled, Y_shuffled, residual_traces, error_traces = _shuffle_samples_by_indices(
-        X, Y, residual_traces, error_traces, indices
-    )
     return _GeneratedMixtureWithMetadata(
-        rhs=X_shuffled,
-        solutions=Y_shuffled,
-        residual_traces=residual_traces,
-        error_traces=error_traces,
+        rhs=X[indices],
+        solutions=Y[indices],
+        residual_traces=(
+            None if residual_traces is None else _reindex_residual_traces(residual_traces, inverse)
+        ),
+        error_traces=(
+            None if error_traces is None else _reindex_error_traces(error_traces, indices, inverse)
+        ),
         row_kind_codes=row_kind_codes[indices],
     )
 
 
 def _generate_mixture_with_metadata(
     A: np.ndarray,
-    counts: Mapping[str, int] | None = None,
+    mixture: MixtureSpec,
     *,
-    mix: Mapping[str, float] | None = None,
-    total: int | None = None,
-    counts_represent_final_pairs: bool = False,
-    seed: int = 42,
-    shuffle: bool = True,
-    strategy_overrides: Mapping[str, Mapping[str, Any]] | None = None,
-    solver_overrides: dict[str, TracingSolverCallable] | None = None,
     archive_solutions: np.ndarray | None = None,
     archive_rhs: np.ndarray | None = None,
     single_rhs: np.ndarray | None = None,
@@ -178,15 +175,7 @@ def _generate_mixture_with_metadata(
 
     Args:
         A: System matrix, shape (n, n)
-        counts: Optional explicit strategy counts
-        mix: Optional strategy proportions (used with total)
-        total: Total samples (required if mix provided)
-        counts_represent_final_pairs: Deprecated compatibility flag. Trace strategies
-            now interpret counts as final output rows directly.
-        seed: Random seed for reproducibility
-        shuffle: Whether to shuffle final samples
-        strategy_overrides: Per-strategy configuration overrides. Use this to configure
-            strategy-specific parameters like krylov_iters and cg_iters.
+        mixture: Strategy counts/proportions and RNG controls for this call.
         archive_solutions: Pre-computed solutions for archive-based generation
         archive_rhs: Pre-computed RHS vectors for archive-based generation
         single_rhs: Optional single RHS vector, shape (n,). If provided to single-RHS strategies
@@ -240,10 +229,12 @@ def _generate_mixture_with_metadata(
     from . import strategies  # noqa: F401
     from .runner import run_generation
 
+    seed = mixture.seed
+    solver_overrides = mixture.solver_overrides
     rng = rng_from_seed(seed)
-    strategy_counts = _resolve_strategy_counts(counts, mix, total)
+    strategy_counts = _resolve_strategy_counts(mixture.counts, mixture.mix, mixture.total)
     overrides: dict[str, dict[str, Any]] = {
-        name: dict(options) for name, options in (strategy_overrides or {}).items()
+        name: dict(options) for name, options in (mixture.strategy_overrides or {}).items()
     }
 
     all_features: list[np.ndarray] = []
@@ -336,14 +327,14 @@ def _generate_mixture_with_metadata(
         np.concatenate(row_kind_blocks) if row_kind_blocks else np.empty((0,), dtype=np.uint8)
     )
 
-    if shuffle and X.shape[0] > 0:
-        return _shuffle_samples_with_metadata(
+    if mixture.shuffle and X.shape[0] > 0:
+        return _shuffle_samples(
             X,
             Y,
             None,
             None,
             row_kind_codes,
-            rng,
+            rng.permutation(X.shape[0]),
         )
 
     return _GeneratedMixtureWithMetadata(
@@ -371,17 +362,24 @@ def generate_mixture(
     single_rhs: np.ndarray | None = None,
     single_solution: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, ResidualTraceSamples | None, ErrorTraceSamples | None]:
-    """Generate mixed training data with the stable public 4-tuple API."""
+    """Generate mixed training data with the stable public 4-tuple API.
+
+    Keeps the historical flat keyword signature; internally it assembles a
+    :class:`MixtureSpec` and delegates. ``counts_represent_final_pairs`` is a
+    no-op kept for call-site compatibility — trace strategies have interpreted
+    counts as final output rows directly for some time.
+    """
     result = _generate_mixture_with_metadata(
         A,
-        counts=counts,
-        mix=mix,
-        total=total,
-        counts_represent_final_pairs=counts_represent_final_pairs,
-        seed=seed,
-        shuffle=shuffle,
-        strategy_overrides=strategy_overrides,
-        solver_overrides=solver_overrides,
+        MixtureSpec(
+            counts=counts,
+            mix=mix,
+            total=total,
+            seed=seed,
+            shuffle=shuffle,
+            strategy_overrides=strategy_overrides,
+            solver_overrides=solver_overrides,
+        ),
         archive_solutions=archive_solutions,
         archive_rhs=archive_rhs,
         single_rhs=single_rhs,
@@ -412,83 +410,74 @@ class _CachedMatrix:
     scale_params: ScaleMetadata | None
 
 
-def _open_streams(
-    matrix_path: str,
-    rhs_path: str | None,
-    sample_id_regex: str | None,
-    enumerate_by: EnumerateBy | None,
-    parameters_paths: tuple[str, ...] = (),
-    solution_path: str | None = None,
-    include_indices: tuple[int, ...] | None = None,
-    exclude_indices: tuple[int, ...] = (),
-) -> tuple[
-    MatrixSampleStream,
-    VectorSampleStream | None,
-    VectorSampleStream | None,
-    list[VectorSampleStream],
-    list[SystemBinding],
-]:
+@dataclass(frozen=True)
+class OpenedStreams:
+    """Every source stream opened for one generation run, plus their bindings.
+
+    Attributes:
+        matrix: Opened matrix sample stream.
+        rhs: Optional opened RHS vector stream.
+        solution: Optional opened pre-computed solution vector stream.
+        parameters: Opened parameter vector streams, in configured order.
+        bindings: Resolved matrix/RHS/solution/parameter sample bindings.
+    """
+
+    matrix: MatrixSampleStream
+    rhs: VectorSampleStream | None
+    solution: VectorSampleStream | None
+    parameters: tuple[VectorSampleStream, ...]
+    bindings: tuple[SystemBinding, ...]
+
+    @property
+    def single_matrix_mode(self) -> bool:
+        """Whether the matrix source holds exactly one matrix sample."""
+        return len(self.matrix.sample_ids) == 1
+
+
+def _open_streams(source: SourceSpec) -> OpenedStreams:
     """Open matrix, optional RHS, optional solution, and optional parameter streams and bind them.
 
     Args:
-        matrix_path: Path expression for matrix stream
-        rhs_path: Optional path expression for RHS stream
-        sample_id_regex: Optional regex for sample ID extraction
-        enumerate_by: Optional sequential ID assignment strategy for glob sources
-        parameters_paths: Tuple of path expressions for parameter vector streams
-        solution_path: Optional path expression for pre-computed solution stream
-        include_indices: Restrict every glob-based stream to exactly these sample ids
-        exclude_indices: Drop these sample ids from every glob-based stream
+        source: Resolved source paths and per-stream sample filters.
 
     Returns:
-        Tuple of (matrix_stream, rhs_stream, solution_stream, param_streams, bindings)
+        OpenedStreams holding every opened stream and the resolved bindings.
     """
+
+    def _vector_stream(path_expr: str) -> VectorSampleStream:
+        return open_vector_stream(
+            path_expr,
+            sample_id_regex=source.sample_id_regex,
+            enumerate_by=source.enumerate_by,
+            include_indices=source.include_indices,
+            exclude_indices=source.exclude_indices,
+        )
+
     matrix_stream = open_matrix_stream(
-        matrix_path_expr=matrix_path,
-        sample_id_regex=sample_id_regex,
-        enumerate_by=enumerate_by,
-        include_indices=include_indices,
-        exclude_indices=exclude_indices,
+        matrix_path_expr=source.matrix_path,
+        sample_id_regex=source.sample_id_regex,
+        enumerate_by=source.enumerate_by,
+        include_indices=source.include_indices,
+        exclude_indices=source.exclude_indices,
     )
-    rhs_stream = (
-        open_vector_stream(
-            rhs_path,
-            sample_id_regex=sample_id_regex,
-            enumerate_by=enumerate_by,
-            include_indices=include_indices,
-            exclude_indices=exclude_indices,
-        )
-        if rhs_path is not None
-        else None
-    )
+    rhs_stream = _vector_stream(source.rhs_path) if source.rhs_path is not None else None
     solution_stream = (
-        open_vector_stream(
-            solution_path,
-            sample_id_regex=sample_id_regex,
-            enumerate_by=enumerate_by,
-            include_indices=include_indices,
-            exclude_indices=exclude_indices,
-        )
-        if solution_path is not None
-        else None
+        _vector_stream(source.solution_path) if source.solution_path is not None else None
     )
-    param_streams = [
-        open_vector_stream(
-            p,
-            sample_id_regex=sample_id_regex,
-            enumerate_by=enumerate_by,
-            include_indices=include_indices,
-            exclude_indices=exclude_indices,
-        )
-        for p in parameters_paths
-    ]
+    param_streams = tuple(_vector_stream(p) for p in source.parameters_paths)
     bindings = bind_sources(
         matrix_ids=matrix_stream.sample_ids,
         rhs_ids=rhs_stream.sample_ids if rhs_stream is not None else None,
         solution_ids=solution_stream.sample_ids if solution_stream is not None else None,
         parameters_ids_list=tuple(s.sample_ids for s in param_streams),
     )
-    return matrix_stream, rhs_stream, solution_stream, param_streams, bindings
+    return OpenedStreams(
+        matrix=matrix_stream,
+        rhs=rhs_stream,
+        solution=solution_stream,
+        parameters=param_streams,
+        bindings=tuple(bindings),
+    )
 
 
 def _strategy_uses_finite_source(
@@ -620,22 +609,39 @@ def _allocate_strategy_counts_across_bindings(
     return allocations
 
 
+@dataclass(frozen=True)
+class BindingAllocation:
+    """Per-binding strategy budgets resolved from one global count map.
+
+    Attributes:
+        counts: Per-binding strategy count maps, parallel to the bindings.
+        skips: Per-binding archive-file skip offsets, parallel to the bindings.
+            Only carries entries for archive-glob-backed strategies (those with
+            a ``solutions_glob`` override) — a cumulative offset into one shared
+            shuffled file ordering, so each binding draws a distinct,
+            non-overlapping slice of the archive instead of every binding
+            reusing the same first-N files.
+    """
+
+    counts: tuple[dict[str, int], ...]
+    skips: tuple[dict[str, int], ...]
+
+
 def _resolve_binding_strategy_counts(
     *,
     bindings: Sequence[SystemBinding],
-    counts: Mapping[str, int] | None,
-    mix: Mapping[str, float] | None,
-    total: int | None,
-    replacement: bool,
-    seed: int,
-    strategy_overrides: Mapping[str, Mapping[str, Any]] | None,
+    spec: DatasetSpec,
     has_rhs_source: bool,
     num_matrix_samples: int,
     has_solution_source: bool = False,
-) -> tuple[list[dict[str, int]], list[dict[str, int]]]:
+) -> BindingAllocation:
     """Resolve global strategy counts into per-binding count and archive-skip maps.
 
     Args:
+        bindings: Bindings the global budget is divided across.
+        spec: Dataset assembly settings supplying the counts and replacement policy.
+        has_rhs_source: Whether an RHS stream is configured.
+        num_matrix_samples: Number of distinct matrix samples in the source.
         has_solution_source: Whether a per-binding ``solution_path`` stream is
             configured. When it is, archive-backed strategies receive their
             solution pre-loaded per binding (one vector, no glob read at all —
@@ -644,14 +650,12 @@ def _resolve_binding_strategy_counts(
             is left as-is instead of being resolved against a glob.
 
     Returns:
-        Tuple of ``(counts_by_binding, skips_by_binding)``. ``skips_by_binding``
-        only carries entries for archive-glob-backed strategies (those with a
-        ``solutions_glob`` override) — a per-binding cumulative offset into one
-        shared shuffled file ordering, so each binding draws a distinct,
-        non-overlapping slice of the archive instead of every binding reusing
-        the same first-N files.
+        BindingAllocation holding the per-binding count and skip maps.
     """
-    strategy_counts = _resolve_strategy_counts(counts, mix, total)
+    mixture = spec.mixture
+    strategy_overrides = mixture.strategy_overrides
+    replacement = spec.replacement
+    strategy_counts = _resolve_strategy_counts(mixture.counts, mixture.mix, mixture.total)
     _validate_replacement_support(
         strategy_counts,
         replacement=replacement,
@@ -661,9 +665,12 @@ def _resolve_binding_strategy_counts(
     )
 
     if num_matrix_samples <= 1:
-        return [dict(strategy_counts) for _ in bindings], [{} for _ in bindings]
+        return BindingAllocation(
+            counts=tuple(dict(strategy_counts) for _ in bindings),
+            skips=tuple({} for _ in bindings),
+        )
 
-    rng = rng_from_seed(seed)
+    rng = rng_from_seed(mixture.seed)
     counts_by_binding: list[dict[str, int]] = [{} for _ in bindings]
     skips_by_binding: list[dict[str, int]] = [{} for _ in bindings]
     for strategy_name, count in strategy_counts.items():
@@ -692,7 +699,7 @@ def _resolve_binding_strategy_counts(
             if glob_pattern is not None and allocated_count > 0:
                 skips_by_binding[binding_idx][strategy_name] = cumulative_skip
             cumulative_skip += allocated_count
-    return counts_by_binding, skips_by_binding
+    return BindingAllocation(counts=tuple(counts_by_binding), skips=tuple(skips_by_binding))
 
 
 @dataclass(frozen=True)
@@ -737,37 +744,23 @@ def _merge_binding_skip_overrides(
 
 def _process_binding(
     binding: SystemBinding,
-    rhs_stream: VectorSampleStream | None,
+    streams: OpenedStreams,
     get_matrix: Callable[[int], _CachedMatrix],
-    counts: dict[str, int] | None,
-    mix: dict[str, float] | None,
-    total: int | None,
-    seed: int,
-    shuffle: bool,
-    strategy_overrides: dict[str, dict[str, Any]] | None,
-    solver_overrides: dict[str, TracingSolverCallable] | None = None,
-    solution_stream: VectorSampleStream | None = None,
-    strategy_skips: dict[str, int] | None = None,
+    mixture: MixtureSpec,
 ) -> _BindingResult:
     """Process one matrix-RHS binding and generate samples.
 
     Args:
-        binding: Single binding to process
-        rhs_stream: Optional opened RHS stream
-        get_matrix: Callable ``(sample_id: int) -> _CachedMatrix``; caches internally
-        counts: Sample counts per strategy
-        mix: Mixing proportions
-        total: Total samples
-        seed: Random seed
-        shuffle: Whether to shuffle samples
-        strategy_overrides: Strategy-specific overrides
-        solver_overrides: Optional per-strategy solver overrides
-        solution_stream: Optional opened solution stream for per-binding pre-computed solutions
-        strategy_skips: Optional per-strategy archive-file skip offset for this binding
+        binding: Single binding to process.
+        streams: Opened source streams the binding draws its RHS/solution from.
+        get_matrix: Callable ``(sample_id: int) -> _CachedMatrix``; caches internally.
+        mixture: Strategy budgets and RNG controls already narrowed to this binding.
 
     Returns:
         BindingResult with generated data blocks
     """
+    rhs_stream = streams.rhs
+    solution_stream = streams.solution
     cached = get_matrix(binding.matrix_sample_id)
 
     # Load optional RHS
@@ -796,13 +789,7 @@ def _process_binding(
     )
     generated = _generate_mixture_with_metadata(
         cached.matrix_norm,
-        counts=counts,
-        mix=mix,
-        total=total,
-        seed=seed,
-        shuffle=shuffle,
-        strategy_overrides=_merge_binding_skip_overrides(strategy_overrides, strategy_skips),
-        solver_overrides=solver_overrides,
+        mixture,
         single_rhs=single_rhs,
         single_solution=single_solution,
     )
@@ -892,169 +879,95 @@ def _resolve_final_scale(
     return matrix_norm_value, matrix_value_scale, scale_metadata
 
 
-def _build_dataset_payload(
-    rhs_all: np.ndarray,
-    solutions_all: np.ndarray,
-    matrix_artifact_path: Path,
-    matrix_size: tuple[int, int],
-    normalize: NormalizeType,
-    matrix_norm_type: str,
-    matrix_norm: float,
-    matrix_value_scale: float,
-    scale_metadata: ScaleMetadata | None,
-    num_bindings: int,
-    parameters_arrays: tuple[np.ndarray, ...] = (),
-    layout: LayoutType = LayoutType.MANY_MATRICES,
-    row_kind_codes: np.ndarray | None = None,
-    matrix_sample_index: np.ndarray | None = None,
-) -> GeneratedDatasetPayload:
-    """Build the final immutable dataset payload for the composition layer."""
-    return GeneratedDatasetPayload(
-        rhs=rhs_all,
-        solutions=solutions_all,
-        matrix_artifact_path=matrix_artifact_path,
-        matrix_size=matrix_size,
-        normalization_type=str(normalize),
-        matrix_norm=matrix_norm,
-        matrix_norm_type=matrix_norm_type,
-        matrix_value_scale=matrix_value_scale,
-        scale_metadata=scale_metadata,
-        num_bindings=num_bindings,
-        parameters_arrays=parameters_arrays,
-        layout=layout,
-        row_kind_codes=row_kind_codes,
-        matrix_sample_index=matrix_sample_index,
-    )
+@dataclass(frozen=True)
+class _GenerationRunContext:
+    """Opened streams plus the per-binding budgets resolved against them.
+
+    Attributes:
+        streams: Every opened source stream and the resolved bindings.
+        allocation: Per-binding strategy count and archive-skip maps.
+    """
+
+    streams: OpenedStreams
+    allocation: BindingAllocation
 
 
 def _prepare_generation_context(
-    *,
-    matrix_path: str,
-    rhs_path: str | None,
-    solution_path: str | None,
-    parameters_paths: tuple[str, ...],
-    sample_id_regex: str | None,
-    enumerate_by: EnumerateBy | None,
-    counts: dict[str, int] | None,
-    mix: dict[str, float] | None,
-    total: int | None,
-    replacement: bool,
-    seed: int,
-    strategy_overrides: dict[str, dict[str, Any]] | None,
-    include_indices: tuple[int, ...] | None = None,
-    exclude_indices: tuple[int, ...] = (),
-) -> tuple[
-    MatrixSampleStream,
-    VectorSampleStream | None,
-    VectorSampleStream | None,
-    list[VectorSampleStream],
-    list[SystemBinding],
-    list[dict[str, int]],
-    list[dict[str, int]],
-]:
+    source: SourceSpec,
+    spec: DatasetSpec,
+) -> _GenerationRunContext:
     """Open all source streams, bind them, and resolve per-binding strategy counts.
 
     Args:
-        matrix_path: Path expression for matrix stream
-        rhs_path: Optional path expression for RHS stream
-        solution_path: Optional path expression for per-binding solution stream
-        parameters_paths: Tuple of path expressions for parameter streams
-        sample_id_regex: Optional regex for sample ID extraction
-        enumerate_by: Optional sequential ID assignment strategy
-        counts: Sample counts per strategy
-        mix: Mixing proportions
-        total: Total sample count
-        replacement: Whether to allow matrix replacement allocation
-        seed: Random seed for reproducibility
-        strategy_overrides: Per-strategy configuration overrides
-        include_indices: Restrict every glob-based stream to exactly these sample ids
-        exclude_indices: Drop these sample ids from every glob-based stream
+        source: Resolved source paths and per-stream sample filters.
+        spec: Dataset assembly settings supplying the strategy budgets.
 
     Returns:
-        Tuple of (matrix_stream, rhs_stream, solution_stream, param_streams, bindings,
-        binding_counts, binding_skips)
+        _GenerationRunContext pairing the opened streams with their allocation.
     """
-    matrix_stream, rhs_stream, solution_stream, param_streams, bindings = _open_streams(
-        matrix_path,
-        rhs_path,
-        sample_id_regex,
-        enumerate_by,
-        parameters_paths,
-        solution_path,
-        include_indices=include_indices,
-        exclude_indices=exclude_indices,
+    streams = _open_streams(source)
+    allocation = _resolve_binding_strategy_counts(
+        bindings=streams.bindings,
+        spec=spec,
+        has_rhs_source=streams.rhs is not None,
+        num_matrix_samples=len(streams.matrix.sample_ids),
+        has_solution_source=streams.solution is not None,
     )
-    binding_counts, binding_skips = _resolve_binding_strategy_counts(
-        bindings=bindings,
-        counts=counts,
-        mix=mix,
-        total=total,
-        replacement=replacement,
-        seed=seed,
-        strategy_overrides=strategy_overrides,
-        has_rhs_source=rhs_stream is not None,
-        num_matrix_samples=len(matrix_stream.sample_ids),
-        has_solution_source=solution_stream is not None,
-    )
-    return (
-        matrix_stream,
-        rhs_stream,
-        solution_stream,
-        param_streams,
-        bindings,
-        binding_counts,
-        binding_skips,
-    )
+    return _GenerationRunContext(streams=streams, allocation=allocation)
+
+
+@dataclass(frozen=True)
+class AccumulatedBindings:
+    """Everything collected while processing every binding of one generation run.
+
+    Each list is parallel to the bindings that actually emitted samples, in
+    processing order; ``param_blocks`` is indexed by parameter stream first.
+
+    Attributes:
+        rhs_blocks: Generated RHS block per emitting binding.
+        solution_blocks: Generated solution block per emitting binding.
+        row_kind_blocks: Row-kind code block per emitting binding.
+        matrix_sample_index_blocks: Matrix-sample-id block per emitting binding.
+        param_blocks: Per parameter stream, the tiled block per emitting binding.
+        matrix_norm_values: Normalized matrix norm per emitting binding.
+        matrix_value_scale_values: Matrix value scale factor per emitting binding.
+        scale_metadata_values: Scale metadata payload per emitting binding.
+        emitted_binding_count: Number of bindings that emitted at least one sample.
+    """
+
+    rhs_blocks: list[np.ndarray]
+    solution_blocks: list[np.ndarray]
+    row_kind_blocks: list[np.ndarray]
+    matrix_sample_index_blocks: list[np.ndarray]
+    param_blocks: list[list[np.ndarray]]
+    matrix_norm_values: list[float]
+    matrix_value_scale_values: list[float]
+    scale_metadata_values: list[ScaleMetadata | None]
+    emitted_binding_count: int
 
 
 def _accumulate_bindings(
     *,
-    bindings: list[SystemBinding],
-    binding_counts: list[dict[str, int]],
-    binding_skips: list[dict[str, int]],
-    rhs_stream: VectorSampleStream | None,
-    solution_stream: VectorSampleStream | None,
-    param_streams: list[VectorSampleStream],
+    context: _GenerationRunContext,
     get_matrix: Callable[[int], _CachedMatrix],
     accumulator: DenseAccumulatorPort,
-    seed: int,
-    shuffle: bool,
-    strategy_overrides: dict[str, dict[str, Any]] | None,
-    solver_overrides: dict[str, TracingSolverCallable] | None,
-    single_matrix_mode: bool,
-) -> tuple[
-    list[np.ndarray],
-    list[np.ndarray],
-    list[np.ndarray],
-    list[np.ndarray],
-    list[list[np.ndarray]],
-    list[float],
-    list[float],
-    list[ScaleMetadata | None],
-    int,
-]:
+    mixture: MixtureSpec,
+) -> AccumulatedBindings:
     """Process all bindings and accumulate rhs/solution blocks, param blocks, and scale metadata.
 
     Args:
-        bindings: Ordered list of system bindings to process
-        binding_counts: Per-binding strategy count maps (parallel to bindings)
-        binding_skips: Per-binding archive-skip maps (parallel to bindings)
-        rhs_stream: Optional opened RHS stream
-        solution_stream: Optional opened solution stream
-        param_streams: Opened parameter vector streams
-        matrix_stream: Opened matrix stream (used to detect single-matrix mode)
-        get_matrix: Callable that loads and caches a normalized matrix by sample ID
-        accumulator: Dataset accumulator for writing matrix samples
-        seed: Random seed
-        shuffle: Whether to shuffle samples within each binding
-        strategy_overrides: Per-strategy configuration overrides
-        solver_overrides: Optional per-strategy solver overrides
+        context: Opened streams paired with their per-binding allocation.
+        get_matrix: Callable that loads and caches a normalized matrix by sample ID.
+        accumulator: Dataset accumulator for writing matrix samples.
+        mixture: Global mixture settings; each binding runs with its own counts
+            and archive-skip offsets layered on top.
 
     Returns:
-        Tuple of (rhs_blocks, solution_blocks, param_blocks,
-                  matrix_norm_values, matrix_value_scale_values, scale_metadata_values,
-                  emitted_binding_count)
+        AccumulatedBindings holding every per-binding block and scale value.
     """
+    streams = context.streams
+    param_streams = streams.parameters
+    single_matrix_mode = streams.single_matrix_mode
     single_matrix_written = False
     rhs_blocks: list[np.ndarray] = []
     solution_blocks: list[np.ndarray] = []
@@ -1067,24 +980,20 @@ def _accumulate_bindings(
     emitted_binding_count = 0
 
     for binding, binding_strategy_counts, binding_strategy_skips in zip(
-        bindings, binding_counts, binding_skips, strict=True
+        streams.bindings, context.allocation.counts, context.allocation.skips, strict=True
     ):
         if not binding_strategy_counts:
             continue
-        result = _process_binding(
-            binding,
-            rhs_stream,
-            get_matrix,
-            binding_strategy_counts,
-            None,
-            None,
-            seed,
-            shuffle,
-            strategy_overrides,
-            solver_overrides=solver_overrides,
-            solution_stream=solution_stream,
-            strategy_skips=binding_strategy_skips,
+        binding_mixture = replace(
+            mixture,
+            counts=binding_strategy_counts,
+            mix=None,
+            total=None,
+            strategy_overrides=_merge_binding_skip_overrides(
+                mixture.strategy_overrides, binding_strategy_skips
+            ),
         )
+        result = _process_binding(binding, streams, get_matrix, binding_mixture)
 
         n_samples = result.rhs_block.shape[0]
         if n_samples == 0:
@@ -1113,48 +1022,33 @@ def _accumulate_bindings(
         matrix_value_scale_values.append(result.matrix_value_scale)
         scale_metadata_values.append(result.scale_params)
 
-    return (
-        rhs_blocks,
-        solution_blocks,
-        row_kind_blocks,
-        matrix_sample_index_blocks,
-        param_blocks,
-        matrix_norm_values,
-        matrix_value_scale_values,
-        scale_metadata_values,
-        emitted_binding_count,
+    return AccumulatedBindings(
+        rhs_blocks=rhs_blocks,
+        solution_blocks=solution_blocks,
+        row_kind_blocks=row_kind_blocks,
+        matrix_sample_index_blocks=matrix_sample_index_blocks,
+        param_blocks=param_blocks,
+        matrix_norm_values=matrix_norm_values,
+        matrix_value_scale_values=matrix_value_scale_values,
+        scale_metadata_values=scale_metadata_values,
+        emitted_binding_count=emitted_binding_count,
     )
 
 
 def _finalize_payload(
     *,
-    rhs_blocks: list[np.ndarray],
-    solution_blocks: list[np.ndarray],
-    row_kind_blocks: list[np.ndarray],
-    matrix_sample_index_blocks: list[np.ndarray],
-    param_blocks: list[list[np.ndarray]],
-    matrix_norm_values: list[float],
-    matrix_value_scale_values: list[float],
-    scale_metadata_values: list[ScaleMetadata | None],
+    accumulated: AccumulatedBindings,
     accumulator: DenseAccumulatorPort,
-    normalize: NormalizeType,
-    matrix_norm_type: str,
-    emitted_binding_count: int,
+    spec: DatasetSpec,
     layout: LayoutType = LayoutType.MANY_MATRICES,
 ) -> GeneratedDatasetPayload:
     """Stack arrays, resolve scale, finalize accumulator, and build the payload.
 
     Args:
-        rhs_blocks: RHS array blocks from each binding
-        solution_blocks: Solution array blocks from each binding
-        param_blocks: Parameter array blocks per stream per binding
-        matrix_norm_values: Matrix norm values from each binding
-        matrix_value_scale_values: Matrix value scale factors from each binding
-        scale_metadata_values: Scale metadata from each binding
-        accumulator: Dataset accumulator to finalize
-        normalize: Normalization type applied
-        matrix_norm_type: Type of norm used
-        emitted_binding_count: Number of bindings that emitted samples
+        accumulated: Per-binding blocks and scale values gathered while processing.
+        accumulator: Dataset accumulator to finalize.
+        spec: Dataset assembly settings supplying the normalization metadata.
+        layout: Matrix storage layout recorded in the payload.
 
     Returns:
         Immutable GeneratedDatasetPayload ready for persistence.
@@ -1162,20 +1056,22 @@ def _finalize_payload(
     Raises:
         ValueError: If no samples were generated or accumulator is empty.
     """
-    if not rhs_blocks or not solution_blocks:
+    if not accumulated.rhs_blocks or not accumulated.solution_blocks:
         raise ValueError("No samples were generated for dataset persistence.")
 
     parameters_arrays: tuple[np.ndarray, ...] = tuple(
-        np.vstack(blocks) for blocks in param_blocks if blocks
+        np.vstack(blocks) for blocks in accumulated.param_blocks if blocks
     )
-    rhs_all = np.vstack(rhs_blocks)
-    solutions_all = np.vstack(solution_blocks)
+    rhs_all = np.vstack(accumulated.rhs_blocks)
+    solutions_all = np.vstack(accumulated.solution_blocks)
     row_kind_codes = (
-        np.concatenate(row_kind_blocks) if row_kind_blocks else np.empty((0,), dtype=np.uint8)
+        np.concatenate(accumulated.row_kind_blocks)
+        if accumulated.row_kind_blocks
+        else np.empty((0,), dtype=np.uint8)
     )
     matrix_sample_index = (
-        np.concatenate(matrix_sample_index_blocks)
-        if matrix_sample_index_blocks
+        np.concatenate(accumulated.matrix_sample_index_blocks)
+        if accumulated.matrix_sample_index_blocks
         else np.empty((0,), dtype=np.int64)
     )
     if row_kind_codes.shape[0] != rhs_all.shape[0]:
@@ -1199,117 +1095,64 @@ def _finalize_payload(
         raise ValueError("Accumulator is empty — no matrix samples were written.")
 
     matrix_norm_value, matrix_value_scale, scale_metadata = _resolve_final_scale(
-        matrix_norm_values, matrix_value_scale_values, scale_metadata_values
+        accumulated.matrix_norm_values,
+        accumulated.matrix_value_scale_values,
+        accumulated.scale_metadata_values,
     )
-    return _build_dataset_payload(
-        rhs_all,
-        solutions_all,
-        matrix_artifact_path,
-        matrix_size,
-        normalize,
-        matrix_norm_type,
-        matrix_norm_value,
-        matrix_value_scale,
-        scale_metadata,
-        emitted_binding_count,
-        parameters_arrays,
-        layout,
-        row_kind_codes,
-        matrix_sample_index,
+    return GeneratedDatasetPayload(
+        rhs=rhs_all,
+        solutions=solutions_all,
+        matrix_artifact_path=matrix_artifact_path,
+        matrix_size=matrix_size,
+        normalization_type=str(spec.normalize),
+        matrix_norm=matrix_norm_value,
+        matrix_norm_type=spec.matrix_norm_type,
+        matrix_value_scale=matrix_value_scale,
+        scale_metadata=scale_metadata,
+        num_bindings=accumulated.emitted_binding_count,
+        parameters_arrays=parameters_arrays,
+        layout=layout,
+        row_kind_codes=row_kind_codes,
+        matrix_sample_index=matrix_sample_index,
     )
 
 
 def build_dataset_payload(
-    matrix_path: str,
+    source: SourceSpec,
+    spec: DatasetSpec,
     *,
-    counts: dict[str, int] | None = None,
-    mix: dict[str, float] | None = None,
-    total: int | None = None,
-    rhs_path: str | None = None,
-    solution_path: str | None = None,
-    parameters_paths: tuple[str, ...] = (),
-    sample_id_regex: str | None = None,
-    enumerate_by: EnumerateBy | None = None,
-    replacement: bool = False,
-    normalize: NormalizeType = "matrix",
-    matrix_norm_type: str = "spectral",
-    shuffle: bool = True,
-    seed: int = 42,
-    strategy_overrides: dict[str, dict[str, Any]] | None = None,
-    solver_overrides: dict[str, TracingSolverCallable] | None = None,
     accumulator: DenseAccumulatorPort,
-    include_indices: tuple[int, ...] | None = None,
-    exclude_indices: tuple[int, ...] = (),
 ) -> GeneratedDatasetPayload:
     """Build an in-memory dataset payload from streamed matrix sources.
 
-    Orchestrates dataset generation pipeline by coordinating stream opening,
-    matrix normalization, sample generation, and sparse payload assembly.
+    Orchestrates the generation pipeline by coordinating stream opening, matrix
+    normalization, per-binding sample generation, and payload assembly.
 
     Args:
-        matrix_path: Path expression for matrix stream
-        counts: Sample counts per strategy
-        mix: Mixing proportions
-        total: Total sample count
-        rhs_path: Optional path expression for RHS stream
-        solution_path: Optional path expression for pre-computed solution stream; when
-            provided, each binding loads the corresponding solution vector and passes it
-            into generate_mixture as an archive seed.
-        parameters_paths: Tuple of path expressions for parameter vector streams
-        sample_id_regex: Optional regex for sample ID extraction
-        enumerate_by: Optional sequential ID assignment strategy for glob sources
-        replacement: Whether multi-matrix allocation may reuse matrix bindings for supported
-            random strategies.
-        normalize: Normalization type to apply
-        matrix_norm_type: Type of norm to compute
-        shuffle: Whether to shuffle samples
-        seed: Random seed for reproducibility
-        strategy_overrides: Strategy-specific configuration overrides
-        solver_overrides: Optional per-strategy solver overrides
-        accumulator: Dataset accumulator for writing matrix samples
-        include_indices: Restrict every glob-based stream to exactly these sample ids
-        exclude_indices: Drop these sample ids from every glob-based stream
+        source: Where the run reads its matrix/RHS/solution/parameter samples from.
+        spec: How the dataset is assembled — strategy budgets, RNG controls,
+            replacement policy and normalization.
+        accumulator: Dataset accumulator for writing matrix samples.
 
     Returns:
         Immutable generated dataset payload ready for persistence.
     """
     logger.info("Building dataset...")
-    logger.info(f"  Matrix: {matrix_path}")
-    if rhs_path is not None:
-        logger.info(f"  RHS source: {rhs_path}")
-    if solution_path is not None:
-        logger.info(f"  Solution stream: {solution_path}")
-    for i, pp in enumerate(parameters_paths):
+    logger.info(f"  Matrix: {source.matrix_path}")
+    if source.rhs_path is not None:
+        logger.info(f"  RHS source: {source.rhs_path}")
+    if source.solution_path is not None:
+        logger.info(f"  Solution stream: {source.solution_path}")
+    for i, pp in enumerate(source.parameters_paths):
         logger.info(f"  Parameters stream [{i}]: {pp}")
 
-    (
-        matrix_stream,
-        rhs_stream,
-        solution_stream,
-        param_streams,
-        bindings,
-        binding_counts,
-        binding_skips,
-    ) = _prepare_generation_context(
-        matrix_path=matrix_path,
-        rhs_path=rhs_path,
-        solution_path=solution_path,
-        parameters_paths=parameters_paths,
-        sample_id_regex=sample_id_regex,
-        enumerate_by=enumerate_by,
-        counts=counts,
-        mix=mix,
-        total=total,
-        replacement=replacement,
-        seed=seed,
-        strategy_overrides=strategy_overrides,
-        include_indices=include_indices,
-        exclude_indices=exclude_indices,
-    )
+    context = _prepare_generation_context(source, spec)
+    matrix_stream = context.streams.matrix
     logger.info(
-        f"  Matrix samples: {len(matrix_stream.sample_ids)} | System bindings: {len(bindings)}"
+        f"  Matrix samples: {len(matrix_stream.sample_ids)} | "
+        f"System bindings: {len(context.streams.bindings)}"
     )
-    logger.info(f"  Normalization: {normalize}")
+    logger.info(f"  Normalization: {spec.normalize}")
 
     @cache
     def _get_matrix(sample_id: int) -> _CachedMatrix:
@@ -1323,10 +1166,10 @@ def build_dataset_payload(
             raise ValueError(f"Matrix sample {sample_id} must be square, got {dense_matrix.shape}")
         matrix_norm, scale, matrix_value_scale = _normalize_matrix_for_generation(
             dense_matrix,
-            normalize,
+            spec.normalize,
             spectral_radius_bound=None,
         )
-        matrix_norm_value = calculate_matrix_norm(matrix_norm, norm_type=matrix_norm_type)
+        matrix_norm_value = calculate_matrix_norm(matrix_norm, norm_type=spec.matrix_norm_type)
         scale_params = serialize_scale_metadata(scale)
         return _CachedMatrix(
             matrix_norm=matrix_norm,
@@ -1336,51 +1179,27 @@ def build_dataset_payload(
             scale_params=scale_params,
         )
 
-    single_matrix_mode = len(matrix_stream.sample_ids) == 1
-    layout = LayoutType.BROADCAST_SINGLE if single_matrix_mode else LayoutType.MANY_MATRICES
-    (
-        rhs_blocks,
-        solution_blocks,
-        row_kind_blocks,
-        matrix_sample_index_blocks,
-        param_blocks,
-        norm_vals,
-        scale_vals,
-        meta_vals,
-        n_bindings,
-    ) = _accumulate_bindings(
-        bindings=bindings,
-        binding_counts=binding_counts,
-        binding_skips=binding_skips,
-        rhs_stream=rhs_stream,
-        solution_stream=solution_stream,
-        param_streams=param_streams,
+    layout = (
+        LayoutType.BROADCAST_SINGLE
+        if context.streams.single_matrix_mode
+        else LayoutType.MANY_MATRICES
+    )
+    accumulated = _accumulate_bindings(
+        context=context,
         get_matrix=_get_matrix,
         accumulator=accumulator,
-        seed=seed,
-        shuffle=shuffle,
-        strategy_overrides=strategy_overrides,
-        solver_overrides=solver_overrides,
-        single_matrix_mode=single_matrix_mode,
+        mixture=spec.mixture,
     )
     payload = _finalize_payload(
-        rhs_blocks=rhs_blocks,
-        solution_blocks=solution_blocks,
-        row_kind_blocks=row_kind_blocks,
-        matrix_sample_index_blocks=matrix_sample_index_blocks,
-        param_blocks=param_blocks,
-        matrix_norm_values=norm_vals,
-        matrix_value_scale_values=scale_vals,
-        scale_metadata_values=meta_vals,
+        accumulated=accumulated,
         accumulator=accumulator,
-        normalize=normalize,
-        matrix_norm_type=matrix_norm_type,
-        emitted_binding_count=n_bindings,
+        spec=spec,
         layout=layout,
     )
     logger.info(
         "Dataset payload built successfully: "
-        f"samples={payload.rhs.shape[0]}, matrix_samples={n_bindings}, "
+        f"samples={payload.rhs.shape[0]}, "
+        f"matrix_samples={accumulated.emitted_binding_count}, "
         f"parameter_streams={len(payload.parameters_arrays)}"
     )
     return payload

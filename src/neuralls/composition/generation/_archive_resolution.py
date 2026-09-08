@@ -92,23 +92,24 @@ def _resolve_solution_archive_path(
     return None
 
 
-def _derive_rhs_from_solution_archive(
+def compute_rhs_from_solution(
     *,
     matrix: np.ndarray,
     solutions_glob: str,
-    dataset_dir: Path,
-) -> Path:
-    """Create a fallback RHS vector by applying A @ x to a stored solution.
+) -> np.ndarray:
+    """Derive a fallback RHS vector by applying A @ x to a stored solution.
+
+    Read-only: reads the lexicographically first solution matching the glob and
+    returns the computed vector. Writing it is :func:`persist_derived_rhs`'s job.
 
     Used when ``provide_rhs=True`` and no explicit rhs_path is configured.
 
     Args:
         matrix: System matrix A used to compute A @ x.
         solutions_glob: Glob pattern pointing to solution files.
-        dataset_dir: Directory where the derived RHS file is written.
 
     Returns:
-        Path to the written ``mother-rhs.txt`` file.
+        The derived RHS vector.
 
     Raises:
         FileNotFoundError: If the solutions directory or files don't exist.
@@ -139,7 +140,20 @@ def _derive_rhs_from_solution_archive(
     if samples.rhs is None or len(samples.rhs) == 0:
         raise ValueError(f"Failed to load solution from {representative}")
 
-    rhs_vector = samples.rhs[0]
+    return samples.rhs[0]
+
+
+def persist_derived_rhs(rhs_vector: np.ndarray, *, dataset_dir: Path) -> Path:
+    """Write a derived RHS vector into the dataset directory.
+
+    Args:
+        rhs_vector: The RHS vector to persist.
+        dataset_dir: Directory where the derived RHS file is written; created
+            along with any missing parents.
+
+    Returns:
+        Path to the written ``mother-rhs.txt`` file.
+    """
     dataset_dir.mkdir(parents=True, exist_ok=True)
     output_path = dataset_dir / "mother-rhs.txt"
     np.savetxt(output_path, rhs_vector, fmt="%.18e")
@@ -196,11 +210,7 @@ def _resolve_rhs_source(
             raise ValueError(
                 "provide_rhs=True requires 'solutions_glob' for the solution_archive strategy."
             )
-        generated_path = _derive_rhs_from_solution_archive(
-            matrix=matrix,
-            solutions_glob=solutions_glob,
-            dataset_dir=context.dataset_dir,
-        )
-        return str(generated_path)
+        rhs_vector = compute_rhs_from_solution(matrix=matrix, solutions_glob=solutions_glob)
+        return str(persist_derived_rhs(rhs_vector, dataset_dir=context.dataset_dir))
 
     return None
