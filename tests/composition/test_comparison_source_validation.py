@@ -7,6 +7,7 @@ identical once it is routed through the comparison source-handler registry.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -119,7 +120,7 @@ def test_generated_sources_reject_a_missing_matrix(
         else {"indices": [0], "values": [1.0]}
     )
     config = make_config(matrix_path=missing_file, rhs_source_kind=kind, rhs_source_params=params)
-    with pytest.raises(FileNotFoundError, match=str(missing_file)):
+    with pytest.raises(FileNotFoundError, match=re.escape(str(missing_file))):
         _validate_comparison_sources(config)
 
 
@@ -148,7 +149,7 @@ def test_raw_lhs_rejects_a_missing_source_path(
         rhs_source_kind=ComparisonRhsSourceKind.RAW_LHS,
         rhs_source_params={"path": missing_file},
     )
-    with pytest.raises(FileNotFoundError, match=str(missing_file)):
+    with pytest.raises(FileNotFoundError, match=re.escape(str(missing_file))):
         _validate_comparison_sources(config)
 
 
@@ -172,7 +173,7 @@ def test_raw_rhs_rejects_a_missing_matrix(
         rhs_source_kind=ComparisonRhsSourceKind.RAW_RHS,
         rhs_source_params={"path": vector_file},
     )
-    with pytest.raises(FileNotFoundError, match=str(missing_file)):
+    with pytest.raises(FileNotFoundError, match=re.escape(str(missing_file))):
         _validate_comparison_sources(config)
 
 
@@ -197,7 +198,7 @@ def test_dataset_source_rejects_a_missing_source_path(
         rhs_source_kind=ComparisonRhsSourceKind.DATASET,
         rhs_source_params={"path": missing_file},
     )
-    with pytest.raises(FileNotFoundError, match=str(missing_file)):
+    with pytest.raises(FileNotFoundError, match=re.escape(str(missing_file))):
         _validate_comparison_sources(config)
 
 
