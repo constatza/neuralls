@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
-from dataclasses import asdict, dataclass, field, is_dataclass, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -18,8 +18,8 @@ from neuralls.domain.solver.models.result import (
     ComparisonRecommendations,
     ComparisonResult,
     PlotPaths,
-    RankedRecommendation,
 )
+from neuralls.platform.reporting.serialization import to_json_primitive
 
 
 @dataclass(frozen=True)
@@ -56,47 +56,6 @@ class ComparisonArtifactManifest:
     summary_txt: Path
     config_copy: Path | None
     arrays: tuple[ArrayArtifact, ...] = ()
-
-
-@dataclass(frozen=True)
-class FallbackComparisonResultEntry:
-    """Minimal typed fallback for artifact writing in tests.
-
-    Args:
-        iterations: Iteration count.
-        residual: Final relative residual.
-        residual_abs: Final absolute residual.
-        error: Error message if failed.
-    """
-
-    iterations: int
-    residual: float
-    residual_abs: float | None = None
-    error: str | None = None
-
-
-@dataclass(frozen=True)
-class ComparisonArtifactFallback:
-    """Typed fallback source for artifact writing when tests patch the workflow.
-
-    Args:
-        summary: Text summary of results.
-        preconditioners: Preconditioner names.
-        condition_numbers: Condition numbers by preconditioner.
-        plot_paths: Paths to generated plots.
-        recommendations: Ranked recommendations.
-        results: Per-preconditioner fallback result entries.
-    """
-
-    summary: str = ""
-    preconditioners: tuple[str, ...] = ()
-    condition_numbers: dict[str, float] = field(default_factory=dict)
-    plot_paths: PlotPaths = field(default_factory=PlotPaths)
-    recommendations: ComparisonRecommendations = field(default_factory=ComparisonRecommendations)
-    results: dict[str, FallbackComparisonResultEntry] = field(default_factory=dict)
-
-
-type ComparisonArtifactSource = ComparisonResult | ComparisonArtifactFallback
 
 
 @dataclass(frozen=True)
@@ -187,32 +146,18 @@ def _serialize_solver_result(
     return payload, (solution_artifact, guess_artifact)
 
 
-def _serialize_fallback_result(
-    result: FallbackComparisonResultEntry,
-) -> SerializedSolverResult:
-    """Build a typed serialized solver payload for fallback sources."""
-    return SerializedSolverResult(
-        iterations=result.iterations,
-        residual=result.residual,
-        residual_abs=result.residual_abs,
-        error=result.error,
-    )
-
-
 def extract_array_artifacts(
-    result: ComparisonArtifactSource,
+    result: ComparisonResult,
 ) -> tuple[SerializedComparisonPayload, tuple[PendingArrayArtifact, ...]]:
     """Detach numpy arrays from a typed comparison result."""
     serialized_results: dict[str, SerializedSolverResult] = {}
     pending_arrays: list[PendingArrayArtifact] = []
     for label, entry in result.results.items():
-        match entry:
-            case CGComparisonResult():
-                serialized_entry, arrays = _serialize_solver_result(label, entry)
-                serialized_results[label] = serialized_entry
-                pending_arrays.extend(arrays)
-            case FallbackComparisonResultEntry():
-                serialized_results[label] = _serialize_fallback_result(entry)
+        if not isinstance(entry, CGComparisonResult):
+            continue
+        serialized_entry, arrays = _serialize_solver_result(label, entry)
+        serialized_results[label] = serialized_entry
+        pending_arrays.extend(arrays)
 
     payload = SerializedComparisonPayload(
         summary=result.summary,
@@ -225,26 +170,9 @@ def extract_array_artifacts(
     return payload, tuple(pending_arrays)
 
 
-def _serialize_value(value: Any) -> Any:
-    """Serialize typed payload values to JSON-compatible primitives."""
-    match value:
-        case None | bool() | int() | float() | str():
-            return value
-        case Path() as path:
-            return path.as_posix()
-        case dict() as mapping:
-            return {str(key): _serialize_value(item) for key, item in mapping.items()}
-        case list() | tuple():
-            return [_serialize_value(item) for item in value]
-        case _ if is_dataclass(value) and not isinstance(value, type):
-            return _serialize_value(asdict(value))
-        case _:
-            raise TypeError(f"Unsupported comparison artifact value: {type(value).__name__}")
-
-
 def serialize_comparison_payload(payload: SerializedComparisonPayload) -> dict[str, Any]:
     """Convert a typed comparison payload to a JSON-ready dict."""
-    serialized = _serialize_value(payload)
+    serialized = to_json_primitive(payload)
     if not isinstance(serialized, dict):
         raise TypeError("Serialized comparison payload must be a mapping.")
     return serialized
@@ -282,16 +210,16 @@ def _stage_plot_paths(plot_paths: PlotPaths, work_root: Path) -> PlotPaths:
 
 
 def _stage_result_plots(
-    result: ComparisonArtifactSource,
+    result: ComparisonResult,
     work_root: Path,
-) -> ComparisonArtifactSource:
+) -> ComparisonResult:
     """Rewrite result plot paths to staged artifact-relative paths."""
     staged_paths = _stage_plot_paths(result.plot_paths, work_root)
     return replace(result, plot_paths=staged_paths)
 
 
 def _save_comparison_toml(
-    result: ComparisonArtifactSource,
+    result: ComparisonResult,
     output_path: Path,
 ) -> None:
     """Save scalar comparison diagnostics to a TOML file."""
@@ -308,7 +236,7 @@ def _save_comparison_toml(
 
 def write_comparison_artifacts(
     *,
-    result: ComparisonArtifactSource,
+    result: ComparisonResult,
     work_root: Path,
     comparison_config: Path | None = None,
 ) -> ComparisonArtifactManifest:
@@ -335,152 +263,7 @@ def write_comparison_artifacts(
     )
     manifest.summary_txt.write_text(payload.summary, encoding="utf-8")
     manifest.recommendations_json.write_text(
-        json.dumps(_serialize_value(payload.recommendations), indent=2, sort_keys=True),
+        json.dumps(to_json_primitive(payload.recommendations), indent=2, sort_keys=True),
         encoding="utf-8",
     )
     return manifest
-
-
-def _coerce_ranked_recommendation(value: object) -> RankedRecommendation | None:
-    """Convert a loose object into a typed ranked recommendation."""
-    match value:
-        case RankedRecommendation():
-            return value
-        case dict() as mapping:
-            label = mapping.get("label")
-            iterations = mapping.get("iterations")
-            residual = mapping.get("residual")
-            residual_abs = mapping.get("residual_abs", residual)
-            breakdown = mapping.get("breakdown", False)
-            if not isinstance(iterations, int):
-                return None
-            if not isinstance(residual, int | float):
-                return None
-            if not isinstance(residual_abs, int | float):
-                return None
-            if not isinstance(breakdown, bool):
-                return None
-            return RankedRecommendation(
-                label=label if isinstance(label, str) else "",
-                iterations=iterations,
-                residual=float(residual),
-                residual_abs=float(residual_abs),
-                breakdown=breakdown,
-            )
-        case _:
-            return None
-
-
-def _coerce_recommendations(value: object) -> ComparisonRecommendations:
-    """Convert a loose recommendations payload into the typed model."""
-    match value:
-        case ComparisonRecommendations():
-            return value
-        case dict() as mapping:
-            ranked_value = mapping.get("ranked", ())
-            ranked = (
-                tuple(
-                    recommendation
-                    for item in ranked_value
-                    if (recommendation := _coerce_ranked_recommendation(item)) is not None
-                )
-                if isinstance(ranked_value, list | tuple)
-                else ()
-            )
-            overall_best = _coerce_ranked_recommendation(
-                mapping.get("overall_best") or mapping.get("best_overall")
-            )
-            return ComparisonRecommendations(ranked=ranked, overall_best=overall_best)
-        case _:
-            return ComparisonRecommendations()
-
-
-def _coerce_plot_paths(value: object) -> PlotPaths:
-    """Convert a loose plot-path payload into the typed model."""
-    match value:
-        case PlotPaths():
-            return value
-        case dict() as mapping:
-            path_mapping = {
-                str(key): Path(path)
-                for key, path in mapping.items()
-                if isinstance(path, str | Path)
-            }
-            return PlotPaths.from_mapping(path_mapping)
-        case _:
-            return PlotPaths()
-
-
-def _coerce_fallback_result_entry(value: object) -> FallbackComparisonResultEntry | None:
-    """Convert a loose result entry into the minimal typed fallback model."""
-    match value:
-        case FallbackComparisonResultEntry():
-            return value
-        case dict() as mapping:
-            iterations = mapping.get("iterations")
-            residual = mapping.get("residual")
-            residual_abs = mapping.get("residual_abs")
-            error = mapping.get("error")
-        case _:
-            iterations = getattr(value, "iterations", None)
-            residual = getattr(value, "residual", None)
-            residual_abs = getattr(value, "residual_abs", None)
-            error = getattr(value, "error", None)
-
-    if not isinstance(iterations, int):
-        return None
-    if not isinstance(residual, int | float):
-        return None
-    if residual_abs is not None and not isinstance(residual_abs, int | float):
-        residual_abs = None
-    if error is not None and not isinstance(error, str):
-        error = None
-    return FallbackComparisonResultEntry(
-        iterations=iterations,
-        residual=float(residual),
-        residual_abs=float(residual_abs) if residual_abs is not None else None,
-        error=error,
-    )
-
-
-def _coerce_fallback_results(value: object) -> dict[str, FallbackComparisonResultEntry]:
-    """Convert loose result mappings into typed fallback entries."""
-    match value:
-        case dict() as mapping:
-            converted: dict[str, FallbackComparisonResultEntry] = {}
-            for key, entry in mapping.items():
-                coerced = _coerce_fallback_result_entry(entry)
-                if coerced is not None:
-                    converted[str(key)] = coerced
-            return converted
-        case _:
-            return {}
-
-
-def coerce_comparison_result_payload(value: object) -> ComparisonArtifactSource:
-    """Normalize loose comparison payloads at the workflow boundary."""
-    if isinstance(value, ComparisonResult):
-        return value
-    summary = getattr(value, "summary", "")
-    preconditioners = getattr(value, "preconditioners", ())
-    condition_numbers = getattr(value, "condition_numbers", {})
-    plot_paths = getattr(value, "plot_paths", {})
-    recommendations = getattr(value, "recommendations", {})
-    results = getattr(value, "results", {})
-
-    return ComparisonArtifactFallback(
-        summary=summary if isinstance(summary, str) else "",
-        preconditioners=tuple(item for item in preconditioners if isinstance(item, str))
-        if isinstance(preconditioners, list | tuple)
-        else (),
-        condition_numbers={
-            str(key): float(score)
-            for key, score in condition_numbers.items()
-            if isinstance(score, int | float)
-        }
-        if isinstance(condition_numbers, dict)
-        else {},
-        plot_paths=_coerce_plot_paths(plot_paths),
-        recommendations=_coerce_recommendations(recommendations),
-        results=_coerce_fallback_results(results),
-    )

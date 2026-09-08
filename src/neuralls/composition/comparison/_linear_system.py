@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -92,6 +94,87 @@ def _apply_persisted_matrix_scale(
     return matrix, rhs
 
 
+@dataclass(frozen=True)
+class _NormalizationRequest:
+    """One matrix/RHS pair plus everything a normalization mode may consult."""
+
+    matrix: np.ndarray
+    rhs: np.ndarray
+    rhs_source_kind: ComparisonRhsSourceKind | None
+    matrix_normalization: DatasetNormalization | None
+
+
+type NormalizationMode = Callable[[_NormalizationRequest], tuple[np.ndarray, np.ndarray]]
+
+
+def _normalize_none(request: _NormalizationRequest) -> tuple[np.ndarray, np.ndarray]:
+    """Leave both sides exactly as loaded."""
+    return request.matrix, request.rhs
+
+
+def _normalize_matrix(request: _NormalizationRequest) -> tuple[np.ndarray, np.ndarray]:
+    """Bring the system into the matrix's units with one matrix-derived scale."""
+    persisted = request.matrix_normalization
+    if persisted is not None and persisted.type == "matrix":
+        return _apply_persisted_matrix_scale(
+            request.matrix,
+            request.rhs,
+            rhs_source_kind=request.rhs_source_kind,
+            matrix_normalization=persisted,
+        )
+    return _apply_fresh_matrix_scale(
+        request.matrix, request.rhs, rhs_source_kind=request.rhs_source_kind
+    )
+
+
+def _normalize_rhs(request: _NormalizationRequest) -> tuple[np.ndarray, np.ndarray]:
+    """Scale the RHS by its own norm, leaving the matrix untouched."""
+    return request.matrix, _self_normalize_rhs(request.rhs)
+
+
+def _normalize_both(request: _NormalizationRequest) -> tuple[np.ndarray, np.ndarray]:
+    """Apply the matrix mode, then self-normalize the RHS it produced."""
+    matrix, rhs = _normalize_matrix(request)
+    return matrix, _self_normalize_rhs(rhs)
+
+
+# Registry mapping config-level normalize_system names to their mode functions.
+_NORMALIZATION_REGISTRY: dict[str, NormalizationMode] = {
+    "none": _normalize_none,
+    "matrix": _normalize_matrix,
+    "rhs": _normalize_rhs,
+    "both": _normalize_both,
+}
+
+
+def register_normalization_mode(name: str, mode: NormalizationMode) -> None:
+    """Register a comparison-time normalization mode.
+
+    Args:
+        name: Config-level ``normalize_system`` value.
+        mode: Callable turning a request into the scaled ``(matrix, rhs)`` pair.
+    """
+    _NORMALIZATION_REGISTRY[name] = mode
+
+
+def _require_supported_persisted_normalization(
+    matrix_normalization: DatasetNormalization | None,
+) -> None:
+    """Reject a matrix whose on-disk normalization scheme is no longer supported.
+
+    Raises:
+        ValueError: If the persisted normalization type is neither
+            ``"none"`` nor ``"matrix"``.
+    """
+    if matrix_normalization is None or matrix_normalization.type in ("none", "matrix"):
+        return
+    raise ValueError(
+        f"Dataset's persisted normalization type {matrix_normalization.type!r} is no "
+        "longer supported (only 'none'/'matrix' are) — regenerate the dataset with "
+        "normalize_type='matrix'."
+    )
+
+
 def _normalize_linear_system(
     matrix: np.ndarray,
     rhs: np.ndarray,
@@ -104,7 +187,7 @@ def _normalize_linear_system(
 
     Never independently recomputes a scale for data that is already known to
     be normalized — see ``_apply_persisted_matrix_scale``. A single scale is
-    used for both sides of ``Ax = b`` in every branch; RHS is scaled at most
+    used for both sides of ``Ax = b`` in every mode; RHS is scaled at most
     once, never zero-or-two times ambiguously.
 
     Args:
@@ -122,43 +205,25 @@ def _normalize_linear_system(
         Scaled (matrix, rhs) pair.
 
     Raises:
-        ValueError: If normalize_system is not a recognised value, or if the
+        ValueError: If normalize_system is not a registered mode, or if the
             matrix's persisted normalization type is no longer supported.
         TypeError: If create_scale_from_config returns an unexpected type.
     """
-    if matrix_normalization is not None and matrix_normalization.type not in ("none", "matrix"):
+    _require_supported_persisted_normalization(matrix_normalization)
+    mode = _NORMALIZATION_REGISTRY.get(normalize_system)
+    if mode is None:
         raise ValueError(
-            f"Dataset's persisted normalization type {matrix_normalization.type!r} is no "
-            "longer supported (only 'none'/'matrix' are) — regenerate the dataset with "
-            "normalize_type='matrix'."
+            f"Unsupported normalize_system value: {normalize_system!r}. "
+            f"Expected one of {', '.join(_NORMALIZATION_REGISTRY)}."
         )
-    already_normalized = matrix_normalization is not None and matrix_normalization.type == "matrix"
-
-    if normalize_system == "none":
-        return matrix, rhs
-    if normalize_system == "rhs":
-        return matrix, _self_normalize_rhs(rhs)
-    if normalize_system == "both":
-        matrix, rhs = _normalize_linear_system(
-            matrix,
-            rhs,
-            "matrix",
+    return mode(
+        _NormalizationRequest(
+            matrix=matrix,
+            rhs=rhs,
             rhs_source_kind=rhs_source_kind,
             matrix_normalization=matrix_normalization,
         )
-        return matrix, _self_normalize_rhs(rhs)
-    if normalize_system != "matrix":
-        raise ValueError(
-            f"Unsupported normalize_system value: {normalize_system!r}. "
-            "Expected one of none, matrix, rhs, both."
-        )
-
-    if already_normalized:
-        assert matrix_normalization is not None
-        return _apply_persisted_matrix_scale(
-            matrix, rhs, rhs_source_kind=rhs_source_kind, matrix_normalization=matrix_normalization
-        )
-    return _apply_fresh_matrix_scale(matrix, rhs, rhs_source_kind=rhs_source_kind)
+    )
 
 
 def _load_linear_system(

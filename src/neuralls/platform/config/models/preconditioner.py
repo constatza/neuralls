@@ -366,6 +366,10 @@ class AggregationCoarseningConfig(BaseModel):
     omega: float = Field(default=0.67, gt=0.0, description="Prolongation Jacobi-smoothing damping.")
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    def exposed_checkpoint_ref(self) -> NeuralCheckpointRef | None:
+        """Purely algebraic coarsening — never checkpoint-backed."""
+        return None
+
 
 class TargetDimCoarseningConfig(BaseModel):
     """AMG-aggregation coarsening parameterized by target coarse dimension, not theta.
@@ -391,6 +395,10 @@ class TargetDimCoarseningConfig(BaseModel):
     step: float = Field(default=0.01, gt=0.0, description="Theta search grid spacing.")
     omega: float = Field(default=0.67, gt=0.0, description="Prolongation Jacobi-smoothing damping.")
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    def exposed_checkpoint_ref(self) -> NeuralCheckpointRef | None:
+        """Purely algebraic coarsening — never checkpoint-backed."""
+        return None
 
 
 class PODCoarseningConfig(NeuralCheckpointRef):
@@ -469,6 +477,22 @@ class PODCoarseningConfig(NeuralCheckpointRef):
         elif v < 1:
             raise ValueError(f"rank as a mode count must be >= 1, got {v}")
         return v
+
+    def exposed_checkpoint_ref(self) -> NeuralCheckpointRef | None:
+        """Opt into checkpoint resolution only when a resolvable identity is set.
+
+        Unlike a neural preconditioner (always checkpoint-backed), POD
+        coarsening is equally valid unfitted-from-scratch (``dataset_dir`` +
+        ``rank`` only, no checkpoint fields at all) — that case must stay
+        invisible to `CheckpointRefBearing` resolution so it keeps falling
+        through to today's inline fit unchanged.
+        """
+        has_identity = (
+            self.assignment is not None
+            or self.model_ref is not None
+            or self.checkpoint_path is not None
+        )
+        return self if has_identity else None
 
 
 class NeuralPODCoarseningConfig(NeuralCheckpointRef):
@@ -565,6 +589,10 @@ class NeuralPODCoarseningConfig(NeuralCheckpointRef):
             raise ValueError(f"rank as a mode count must be >= 1, got {v}")
         return v
 
+    def exposed_checkpoint_ref(self) -> NeuralCheckpointRef:
+        """Always checkpoint-backed — its snapshot ensemble only exists via a checkpoint."""
+        return self
+
 
 CoarseningConfig = Annotated[
     AggregationCoarseningConfig
@@ -573,21 +601,6 @@ CoarseningConfig = Annotated[
     | TargetDimCoarseningConfig,
     Field(discriminator="method"),
 ]
-
-
-def _has_checkpoint_identity(ref: NeuralCheckpointRef) -> bool:
-    """Return True when a checkpoint ref carries any resolvable identity.
-
-    Used to decide whether a ``PODCoarseningConfig`` opts into the generic
-    checkpoint-resolution pipeline: unlike a neural preconditioner (always
-    checkpoint-backed), POD coarsening is equally valid unfitted-from-scratch
-    (``dataset_dir`` + ``rank`` only, no checkpoint fields set at all) — that
-    case must stay invisible to `CheckpointRefBearing` resolution so it keeps
-    falling through to today's inline fit unchanged.
-    """
-    return (
-        ref.assignment is not None or ref.model_ref is not None or ref.checkpoint_path is not None
-    )
 
 
 class AMGPreconditionerConfig(BasePreconditionerConfig):
@@ -614,19 +627,12 @@ class AMGPreconditionerConfig(BasePreconditionerConfig):
     def checkpoint_refs(self) -> tuple[tuple[str, NeuralCheckpointRef], ...]:
         """Expose the coarsening's checkpoint ref, when it carries one.
 
-        ``NeuralPODCoarseningConfig`` is always checkpoint-backed (its
-        snapshot ensemble only exists via a checkpoint). ``PODCoarseningConfig``
-        opts in only when checkpoint identity is actually set
-        (``_has_checkpoint_identity``) — a plain ``dataset_dir``+``rank`` POD
-        config (no assignment/model_ref/checkpoint_path) must stay invisible
-        to resolution so it keeps falling through to the inline fit.
+        Each coarsening class answers for itself via ``exposed_checkpoint_ref``
+        — a new coarsening strategy declares its own answer rather than adding
+        a branch here.
         """
-        coarsening = self.coarsening
-        if isinstance(coarsening, NeuralPODCoarseningConfig):
-            return (("coarsening", coarsening),)
-        if isinstance(coarsening, PODCoarseningConfig) and _has_checkpoint_identity(coarsening):
-            return (("coarsening", coarsening),)
-        return ()
+        ref = self.coarsening.exposed_checkpoint_ref()
+        return (("coarsening", ref),) if ref is not None else ()
 
     def with_resolved_refs(
         self, resolved: tuple[tuple[str, NeuralCheckpointRef], ...]

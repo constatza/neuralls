@@ -26,7 +26,26 @@ from neuralls.platform.storage.dataset_readers import (
     resolve_canonical_training_triplet,
     try_read_dataset_normalization,
 )
+from neuralls.platform.storage.validation import (
+    validate_comparison_inputs,
+    validate_comparison_matrix_input,
+    validate_comparison_rhs_input,
+)
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
+
+
+@dataclass(frozen=True)
+class ComparisonSourceSpec:
+    """A comparison's declared inputs, before any of them are read.
+
+    The subset of `ComparisonSourceContext` that preflight validation needs:
+    which files a source kind *says* it will read, with none of the sample
+    selection that only matters once they are actually loaded.
+    """
+
+    matrix_path: Path
+    rhs_source_kind: ComparisonRhsSourceKind
+    rhs_source_params: dict[str, object] | None
 
 
 @dataclass(frozen=True)
@@ -43,7 +62,17 @@ class ComparisonSourceContext:
 
 
 class ComparisonSourceHandler(Protocol):
-    """Resolve one concrete comparison RHS source kind."""
+    """Resolve one concrete comparison RHS source kind.
+
+    ``validate`` is the cheap preflight half of ``resolve``: it checks only
+    the concrete input artifacts this kind will actually read, without loading
+    any of them, so a missing input fails before any MLflow run is opened. The
+    two halves live on the same handler so a new source kind cannot be added
+    to resolution while a second, parallel validation dispatch silently keeps
+    rejecting it.
+    """
+
+    def validate(self, spec: ComparisonSourceSpec) -> None: ...
 
     def resolve(self, ctx: ComparisonSourceContext) -> ResolvedComparisonInput: ...
 
@@ -102,6 +131,10 @@ def _validate_raw_row_kind(
 class GeneratedSourceHandler:
     """Resolve generated Gaussian or sparse RHS sources."""
 
+    def validate(self, spec: ComparisonSourceSpec) -> None:
+        """Only the matrix is read from disk — the RHS is synthesized."""
+        validate_comparison_matrix_input(spec.matrix_path)
+
     def resolve(self, ctx: ComparisonSourceContext) -> ResolvedComparisonInput:
         matrix_index = resolve_source_matrix_index(ctx.matrix_path, ctx.matrix_index, ctx.seed)
         matrix = _load_matrix(ctx.matrix_path, matrix_index)
@@ -134,6 +167,13 @@ class GeneratedSourceHandler:
 @dataclass(frozen=True)
 class RawLhsSourceHandler:
     """Resolve raw LHS vectors by computing `b = scale * A @ x`."""
+
+    def validate(self, spec: ComparisonSourceSpec) -> None:
+        """Both the matrix and the external LHS vector are read from disk."""
+        source = RawLhsSourceModel.model_validate(
+            {"kind": spec.rhs_source_kind, **(spec.rhs_source_params or {})}
+        )
+        validate_comparison_inputs(matrix_path=spec.matrix_path, rhs_path=source.path)
 
     def resolve(self, ctx: ComparisonSourceContext) -> ResolvedComparisonInput:
         matrix_index = resolve_source_matrix_index(ctx.matrix_path, ctx.matrix_index, ctx.seed)
@@ -171,6 +211,13 @@ class RawLhsSourceHandler:
 class RawRhsSourceHandler:
     """Resolve raw RHS vectors directly as `b`."""
 
+    def validate(self, spec: ComparisonSourceSpec) -> None:
+        """Both the matrix and the external RHS vector are read from disk."""
+        source = RawRhsSourceModel.model_validate(
+            {"kind": spec.rhs_source_kind, **(spec.rhs_source_params or {})}
+        )
+        validate_comparison_inputs(matrix_path=spec.matrix_path, rhs_path=source.path)
+
     def resolve(self, ctx: ComparisonSourceContext) -> ResolvedComparisonInput:
         matrix_index = resolve_source_matrix_index(ctx.matrix_path, ctx.matrix_index, ctx.seed)
         cfg = RawRhsSourceModel.model_validate(
@@ -205,6 +252,13 @@ class RawRhsSourceHandler:
 @dataclass(frozen=True)
 class DatasetSourceHandler:
     """Resolve canonical manifest-backed dataset triplets."""
+
+    def validate(self, spec: ComparisonSourceSpec) -> None:
+        """The dataset supplies matrix and RHS together, so only its own path is checked."""
+        source = DatasetRhsSourceModel.model_validate(
+            {"kind": spec.rhs_source_kind, **(spec.rhs_source_params or {})}
+        )
+        validate_comparison_rhs_input(source.path)
 
     def resolve(self, ctx: ComparisonSourceContext) -> ResolvedComparisonInput:
         cfg = DatasetRhsSourceModel.model_validate(
@@ -242,6 +296,23 @@ _SOURCE_HANDLERS: dict[ComparisonRhsSourceKind, ComparisonSourceHandler] = {
 }
 
 
+def _require_handler(kind: ComparisonRhsSourceKind) -> ComparisonSourceHandler:
+    """Look up the handler for one RHS source kind.
+
+    Raises:
+        ValueError: If no handler is registered for the kind.
+    """
+    handler = _SOURCE_HANDLERS.get(kind)
+    if handler is None:
+        raise ValueError(f"Unsupported comparison RHS source: {kind!r}.")
+    return handler
+
+
+def validate_comparison_source(spec: ComparisonSourceSpec) -> None:
+    """Prevalidate one source's concrete inputs without workflow-level branching."""
+    _require_handler(spec.rhs_source_kind).validate(spec)
+
+
 def resolve_comparison_source(ctx: ComparisonSourceContext) -> ResolvedComparisonInput:
     """Dispatch source resolution without workflow-level branching."""
-    return _SOURCE_HANDLERS[ctx.rhs_source_kind].resolve(ctx)
+    return _require_handler(ctx.rhs_source_kind).resolve(ctx)

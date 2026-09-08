@@ -49,7 +49,6 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.artifacts import (
-    coerce_comparison_result_payload,
     extract_array_artifacts,
     serialize_comparison_payload,
 )
@@ -339,6 +338,23 @@ def _typed_comparison_result(plot_path: Path) -> ComparisonResult:
                 breakdown=False,
             ),
         ),
+    )
+
+
+@pytest.fixture
+def stub_comparison_result(tmp_path: Path) -> ComparisonResult:
+    """An empty-but-real result standing in for a patched `compare_preconditioners`.
+
+    The artifact writer consumes typed `ComparisonResult`s only — a MagicMock
+    would not be a valid substitute for the real workflow's return value.
+    """
+    return ComparisonResult(
+        results={},
+        summary="",
+        solver_params=_solver_params(tmp_path),
+        preconditioners=(),
+        condition_numbers={},
+        recommendations=ComparisonRecommendations(),
     )
 
 
@@ -670,17 +686,9 @@ def test_extract_array_artifacts_detaches_numpy_data(tmp_path: Path) -> None:
     assert Path("arrays/results/none/x.npy") in artifact_paths
 
 
-def test_coerce_comparison_result_payload_uses_safe_defaults_for_magicmock() -> None:
-    payload = coerce_comparison_result_payload(MagicMock())
-    assert payload.summary == ""
-    assert payload.preconditioners == ()
-    assert payload.condition_numbers == {}
-    assert payload.plot_paths == PlotPaths()
-    assert payload.recommendations == ComparisonRecommendations()
-    assert payload.results == {}
-
-
-def test_run_comparison_injects_master_topology(tmp_path: Path) -> None:
+def test_run_comparison_injects_master_topology(
+    tmp_path: Path, stub_comparison_result: ComparisonResult
+) -> None:
     experiments_config = tmp_path / "experiments.toml"
     _write_experiments_config(experiments_config, comparison_name="CustomComparison")
     matrix_path, rhs_path = _write_system_inputs(tmp_path)
@@ -691,12 +699,11 @@ def test_run_comparison_injects_master_topology(tmp_path: Path) -> None:
             StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY)
         ],
     )
-    payload = MagicMock()
     entry = _make_entry()
     settings = _make_settings(tmp_path)
 
     with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=payload),
+        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result),
         patch(_MLFLOW_MODULE) as mock_mlflow,
         patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
         patch(_LOG_COMPARISON_ARTIFACTS),
@@ -709,7 +716,9 @@ def test_run_comparison_injects_master_topology(tmp_path: Path) -> None:
     assert topology.experiment_name == "CustomComparison"
 
 
-def test_run_comparison_uses_explicit_entry_indices(tmp_path: Path) -> None:
+def test_run_comparison_uses_explicit_entry_indices(
+    tmp_path: Path, stub_comparison_result: ComparisonResult
+) -> None:
     """Case-driven comparison forwards the entry's explicit sample indices unchanged."""
     experiments_config = tmp_path / "experiments.toml"
     _write_experiments_config(experiments_config)
@@ -724,12 +733,11 @@ def test_run_comparison_uses_explicit_entry_indices(tmp_path: Path) -> None:
     cfg.general.data.matrix_index = 4
     cfg.general.data.rhs_source_params["sample_index"] = 9
     np.save(rhs_path, np.eye(10, 2, dtype=np.float64))
-    payload = MagicMock()
     entry = _make_entry()
     settings = _make_settings(tmp_path)
 
     with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=payload) as mock_compare,
+        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result) as mock_compare,
         patch(_MLFLOW_MODULE) as mock_mlflow,
         patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
         patch(_SETUP_TRACKING),
@@ -745,7 +753,9 @@ def test_run_comparison_uses_explicit_entry_indices(tmp_path: Path) -> None:
     )
 
 
-def test_run_comparison_generated_rhs_accepts_matrix_only_input(tmp_path: Path) -> None:
+def test_run_comparison_generated_rhs_accepts_matrix_only_input(
+    tmp_path: Path, stub_comparison_result: ComparisonResult
+) -> None:
     """Generated-RHS comparisons should prevalidate only the matrix source."""
     experiments_config = tmp_path / "experiments.toml"
     _write_experiments_config(experiments_config)
@@ -760,12 +770,11 @@ def test_run_comparison_generated_rhs_accepts_matrix_only_input(tmp_path: Path) 
     cfg.general.data.rhs_source_kind = ComparisonRhsSourceKind.GAUSSIAN
     cfg.general.data.rhs_source_params = {"mean": 0.0, "std": 1.0}
     cfg.general.data.selection_seed = 5
-    payload = MagicMock()
     entry = _make_entry()
     settings = _make_settings(tmp_path)
 
     with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=payload),
+        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result),
         patch(_MLFLOW_MODULE) as mock_mlflow,
         patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
         patch(_SETUP_TRACKING),
@@ -823,7 +832,9 @@ def test_resolved_generated_rhs_uses_matrix_source_without_rhs_dataset(tmp_path:
     np.testing.assert_allclose(resolved.rhs, np.array([3.0, -2.0], dtype=np.float64))
 
 
-def test_run_comparison_does_not_require_split_artifacts(tmp_path: Path) -> None:
+def test_run_comparison_does_not_require_split_artifacts(
+    tmp_path: Path, stub_comparison_result: ComparisonResult
+) -> None:
     """Case-driven comparison should not inspect DLKit split artifacts."""
     experiments_config = tmp_path / "experiments.toml"
     _write_experiments_config(experiments_config)
@@ -835,12 +846,11 @@ def test_run_comparison_does_not_require_split_artifacts(tmp_path: Path) -> None
             StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY)
         ],
     )
-    payload = MagicMock()
     entry = _make_entry()
     settings = _make_settings(tmp_path)
 
     with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=payload),
+        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result),
         patch(_MLFLOW_MODULE) as mock_mlflow,
         patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
         patch(_SETUP_TRACKING),
@@ -930,7 +940,7 @@ def test_run_comparison_stages_plot_paths_before_logging(tmp_path: Path) -> None
             StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY)
         ],
     )
-    payload = ComparisonResult(
+    staged_plots_result = ComparisonResult(
         results={},
         summary="ok",
         solver_params=_solver_params(tmp_path),
@@ -956,7 +966,7 @@ def test_run_comparison_stages_plot_paths_before_logging(tmp_path: Path) -> None
         comparison_json = json.loads((work_root / "comparison.json").read_text(encoding="utf-8"))
 
     with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=payload),
+        patch(_COMPARE_PRECONDITIONERS, return_value=staged_plots_result),
         patch(_MLFLOW_MODULE) as mock_mlflow,
         patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
         patch(_SETUP_TRACKING),
@@ -976,7 +986,7 @@ def test_run_comparison_stages_plot_paths_before_logging(tmp_path: Path) -> None
 
 
 def test_run_comparison_warns_and_continues_when_neural_resolution_fails(
-    tmp_path: Path,
+    tmp_path: Path, stub_comparison_result: ComparisonResult
 ) -> None:
     experiments_config = tmp_path / "experiments.toml"
     _write_experiments_config(experiments_config)
@@ -993,12 +1003,11 @@ def test_run_comparison_warns_and_continues_when_neural_resolution_fails(
             ),
         ],
     )
-    payload = MagicMock()
     entry = _make_entry()
     settings = _make_settings(tmp_path)
 
     with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=payload),
+        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result),
         patch(_MLFLOW_MODULE) as mock_mlflow,
         patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
         patch(_SETUP_TRACKING),
@@ -1065,7 +1074,7 @@ def test_run_comparison_fails_if_all_preconditioners_are_skipped(
 
 
 def test_run_comparison_ignores_unrelated_broken_experiments(
-    tmp_path: Path,
+    tmp_path: Path, stub_comparison_result: ComparisonResult
 ) -> None:
     (tmp_path / "datasets").mkdir()
     (tmp_path / "models").mkdir()
@@ -1118,12 +1127,11 @@ job = "valid-job"
             ),
         ],
     )
-    payload = MagicMock()
     entry = _make_entry()
     settings = _make_settings(tmp_path)
 
     with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=payload),
+        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result),
         patch(_MLFLOW_MODULE) as mock_mlflow,
         patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
         patch(_SETUP_TRACKING),
@@ -1198,40 +1206,44 @@ def test_run_comparison_missing_known_dataset_raises_file_not_found(
 
 
 def test_run_comparison_batch_preserves_declared_order(tmp_path: Path) -> None:
+    """Cache-hit outcomes come back in declared config order.
+
+    Also proves no MLflow run is needed for this: run_comparison_batch never
+    calls mlflow.start_run when _prepare_comparison_entry reports every entry
+    as a cache hit.
+    """
     experiments_config = tmp_path / "experiments.toml"
     _write_experiments_config(experiments_config, with_comparisons=True)
 
-    def _fake_run_from_config(
+    def _fake_prepare_entry(
         cfg: object,
         entry: ComparisonRegistryEntry,
-        topology: object,
-        experiments_config_path: Path,
-        settings: NeurallsSettings,
+        context: object,
         *,
         force: bool = False,
-    ) -> list[ComparisonOutcome]:
-        return [
-            ComparisonOutcome(
-                comparison_id=entry.id,
-                comparison_display_name=entry.effective_display_name,
-                success=True,
-            )
-        ]
+    ) -> ComparisonOutcome:
+        return ComparisonOutcome(
+            comparison_id=entry.id,
+            comparison_display_name=entry.effective_display_name,
+            success=True,
+        )
 
     with (
         patch(
-            "neuralls.composition.assignments.comparison_batch._run_comparison_from_config",
-            side_effect=_fake_run_from_config,
-        ) as mock_run,
+            "neuralls.composition.assignments.comparison_batch._prepare_comparison_entry",
+            side_effect=_fake_prepare_entry,
+        ) as mock_prepare,
         patch(
             "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
             return_value=_mock_cfg(),
         ),
+        patch(_MLFLOW_MODULE) as mock_mlflow,
     ):
         outcomes = run_comparison_batch(experiments_config, ComparisonParams())
 
     assert [outcome.comparison_id for outcome in outcomes] == ["a", "b"]
-    assert [call.args[1].id for call in mock_run.call_args_list] == ["a", "b"]
+    assert [call.args[1].id for call in mock_prepare.call_args_list] == ["a", "b"]
+    mock_mlflow.start_run.assert_not_called()
 
 
 def test_log_comparison_metrics_logs_scalar_metrics_per_preconditioner(
@@ -1286,12 +1298,12 @@ def test_run_comparison_logs_scalar_metrics_to_mlflow(tmp_path: Path) -> None:
     )
     plot_path = tmp_path / "conv.png"
     plot_path.write_text("x", encoding="utf-8")
-    payload = _typed_comparison_result(plot_path)
+    metrics_result = _typed_comparison_result(plot_path)
     entry = _make_entry()
     settings = _make_settings(tmp_path)
 
     with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=payload),
+        patch(_COMPARE_PRECONDITIONERS, return_value=metrics_result),
         patch(_MLFLOW_MODULE) as mock_mlflow,
         patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
         patch(_SETUP_TRACKING),

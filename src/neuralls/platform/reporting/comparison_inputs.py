@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 
 import numpy as np
 
+from neuralls.platform.reporting.serialization import to_json_primitive
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
 
@@ -27,21 +27,6 @@ class ComparisonInputArtifacts:
     rhs_kind: RowKind | None = None
     rhs_source_kind: ComparisonRhsSourceKind | None = None
     rhs_source_params: dict[str, object] | None = None
-
-
-def _jsonable(value: object) -> object:
-    """Convert provenance leaf values into JSON-compatible primitives."""
-    match value:
-        case Path():
-            return str(value)
-        case Enum():
-            return str(value)
-        case dict():
-            return {str(key): _jsonable(item) for key, item in value.items()}
-        case list() | tuple():
-            return [_jsonable(item) for item in value]
-        case _:
-            return value
 
 
 def stage_comparison_inputs(root: Path, resolved: ComparisonInputArtifacts) -> Path:
@@ -63,7 +48,7 @@ def stage_comparison_inputs(root: Path, resolved: ComparisonInputArtifacts) -> P
         "rhs_source_kind": (
             str(resolved.rhs_source_kind) if resolved.rhs_source_kind is not None else None
         ),
-        "rhs_source_params": _jsonable(resolved.rhs_source_params),
+        "rhs_source_params": to_json_primitive(resolved.rhs_source_params),
         "lhs_available": resolved.lhs is not None,
         "matrix_shape": list(resolved.matrix.shape),
         "rhs_shape": list(resolved.rhs.shape),
