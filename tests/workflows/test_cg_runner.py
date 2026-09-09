@@ -14,6 +14,7 @@ Follows project testing principles:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -264,12 +265,12 @@ def test_run_cg_comparison_routes_to_flexible_cg(spd_matrix: Tensor, rhs_vector:
     assert len(result.residual_history_rel) > 1
 
 
-def test_run_cg_comparison_routes_nonlinear_preconditioner_to_flexible_cg(
+def test_run_cg_comparison_dispatches_by_preconditioner_compatibility(
     monkeypatch: pytest.MonkeyPatch,
     spd_matrix: Tensor,
     rhs_vector: Tensor,
 ) -> None:
-    """Test that all preconditioners use flexible_cg uniformly."""
+    """Non-linear preconditioners route to flexible_cg; SPD ones route to pcg."""
 
     class DummyNonLinearPreconditioner(NonLinearPreconditioner):
         def apply(
@@ -279,24 +280,32 @@ def test_run_cg_comparison_routes_nonlinear_preconditioner_to_flexible_cg(
         ) -> torch.Tensor:
             return residual
 
-    flexible_calls: list[str] = []
+    calls: list[str] = []
 
-    def fake_flexible_cg(*args: object, **kwargs: object) -> tuple[torch.Tensor, SolverResult]:
-        flexible_calls.append("flexible")
-        return torch.zeros_like(rhs_vector), SolverResult(
-            converged=True,
-            iterations=3,
-            residual=1e-8,
-            residual_abs=1e-8,
-            rhs_norm=float(torch.linalg.vector_norm(rhs_vector)),
-            breakdown=False,
-            residual_history_rel=(1.0, 1e-8),
-            residual_history_abs=(1.0, 1e-8),
-            tol=1e-8,
-            atol=1e-10,
-        )
+    def make_fake_solver(
+        label: str,
+    ) -> Callable[..., tuple[torch.Tensor, SolverResult]]:
+        def fake_solver(*args: object, **kwargs: object) -> tuple[torch.Tensor, SolverResult]:
+            calls.append(label)
+            return torch.zeros_like(rhs_vector), SolverResult(
+                converged=True,
+                iterations=3,
+                residual=1e-8,
+                residual_abs=1e-8,
+                rhs_norm=float(torch.linalg.vector_norm(rhs_vector)),
+                breakdown=False,
+                residual_history_rel=(1.0, 1e-8),
+                residual_history_abs=(1.0, 1e-8),
+                tol=1e-8,
+                atol=1e-10,
+            )
 
-    monkeypatch.setattr("neuralls.domain.solver.comparison.flexible_cg", fake_flexible_cg)
+        return fake_solver
+
+    monkeypatch.setattr(
+        "neuralls.domain.solver.comparison.flexible_cg", make_fake_solver("flexible")
+    )
+    monkeypatch.setattr("neuralls.domain.solver.comparison.pcg", make_fake_solver("pcg"))
 
     results = run_cg_comparison(
         spd_matrix,
@@ -310,12 +319,13 @@ def test_run_cg_comparison_routes_nonlinear_preconditioner_to_flexible_cg(
         maxiter=100,
     )
 
-    assert flexible_calls == ["flexible", "flexible"]
+    assert calls == ["flexible", "pcg"]
     assert results["nonlinear"].converged
+    assert results["none"].converged
 
 
 def test_run_cg_comparison_routes_to_pcg(spd_matrix: Tensor, rhs_vector: Tensor) -> None:
-    """Test that non-contextual preconditioner routes to pcg."""
+    """Identity preconditioner converges via the real, non-mocked pcg() path."""
     preconditioners = {"identity": Identity()}
 
     results = run_cg_comparison(
@@ -327,7 +337,6 @@ def test_run_cg_comparison_routes_to_pcg(spd_matrix: Tensor, rhs_vector: Tensor)
         maxiter=100,
     )
 
-    # Verify PCG was used
     result = results["identity"]
     assert isinstance(result, CGComparisonResult)
     assert result.converged
@@ -445,7 +454,7 @@ def test_format_results_summary(mock_comparison_results: dict[str, CGComparisonR
     summary = format_results_summary(mock_comparison_results)
 
     # Verify header present
-    assert "Flexible CG results:" in summary
+    assert "CG comparison results:" in summary
 
     # Verify all preconditioners listed
     assert "jacobi" in summary

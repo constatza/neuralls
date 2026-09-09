@@ -1,16 +1,20 @@
 """CG solver comparison runner.
 
-This module provides pure domain logic for running CG comparisons with multiple
-preconditioners using Flexible CG (FCG) uniformly, result formatting, and analysis.
+This module provides pure domain logic for running CG comparisons across multiple
+preconditioners — dispatching each to the cheapest CG variant it is mathematically
+compatible with (standard PCG for deterministic SPD preconditioners, Flexible CG
+for iteration-varying or non-SPD ones) — plus result formatting and analysis.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from enum import StrEnum
 
 import numpy as np
 import torch
-from torchalg import flexible_cg
+from torchalg import flexible_cg, pcg
+from torchalg.models.result import SolverResult
 from torchalg.preconditioners.base import Preconditioner
 from torchalg.preconditioners.implementations import Identity
 from torchalg.utils.device import resolve_device
@@ -21,6 +25,13 @@ from neuralls.domain.solver.models.result import (
     RankedRecommendation,
 )
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
+
+
+class CGAlgorithm(StrEnum):
+    """CG variant a preconditioner is mathematically compatible with."""
+
+    PCG = "pcg"
+    FCG = "fcg"
 
 
 def run_cg_comparison(
@@ -36,10 +47,16 @@ def run_cg_comparison(
 ) -> dict[str, CGComparisonResult]:
     """Run CG with multiple preconditioners for comparison.
 
-    All preconditioners use flexible_cg (FCG with Gram-Schmidt orthogonalization)
-    to ensure identical mathematical treatment regardless of preconditioner type.
-    This is the only fair basis for comparison: every preconditioner sees the same
-    algorithm, the same initial guess, and the same system.
+    Each preconditioner is routed to the CG variant it is mathematically
+    compatible with: standard PCG's two-term recurrence for preconditioners
+    that are deterministic and exactly SPD for the whole solve
+    (``Preconditioner.requires_flexible_cg`` is ``False``), or Flexible CG's
+    explicit Gram-Schmidt orthogonalization for preconditioners that vary per
+    iteration or are not exactly SPD (neural preconditioners, non-linear AMG,
+    ``ScheduledPreconditioner``). This keeps the comparison fair by giving
+    every preconditioner the correct — and cheapest — algorithm for its own
+    mathematical properties, rather than forcing a single algorithm on all of
+    them; every preconditioner still sees the same initial guess and system.
 
     Args:
         A: System matrix tensor.
@@ -49,7 +66,9 @@ def run_cg_comparison(
         rtol: Relative tolerance.
         atol: Absolute tolerance.
         maxiter: Maximum iterations.
-        m_max: FCG orthogonalization restart parameter.
+        m_max: FCG orthogonalization window, used only for preconditioners
+            routed to ``flexible_cg``; ignored for preconditioners routed to
+            ``pcg``.
 
     Returns:
         Dict mapping preconditioner names to CGComparisonResult.
@@ -78,15 +97,8 @@ def run_cg_comparison(
 
     for precond_name, precond in preconditioners.items():
         try:
-            x_sol, info = flexible_cg(
-                A,
-                b,
-                x0,
-                rtol=rtol,
-                atol=atol,
-                maxiter=maxiter,
-                preconditioner=precond,
-                m_max=m_max,
+            x_sol, info = _solve_one(
+                A, b, x0, precond, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max
             )
         except (ValueError, RuntimeError) as solver_exc:
             result = CGComparisonResult(
@@ -153,20 +165,66 @@ def _relative_exact_error(x_sol: torch.Tensor, x_exact: torch.Tensor) -> float:
     return diff_norm / exact_norm
 
 
-def _requires_flexible_cg(preconditioner: Preconditioner) -> bool:
-    """Check if preconditioner requires flexible CG.
+def _cg_algorithm_for(preconditioner: Preconditioner) -> CGAlgorithm:
+    """Classify which CG variant a preconditioner is compatible with.
 
     Delegates to the preconditioner's own knowledge of solver compatibility,
     following OCP: adding a new preconditioner type never requires updating
     this function.
 
     Args:
-        preconditioner: Preconditioner instance to check.
+        preconditioner: Preconditioner instance to classify.
 
     Returns:
-        True if flexible CG is required.
+        ``CGAlgorithm.FCG`` if flexible CG is required, else ``CGAlgorithm.PCG``.
     """
-    return preconditioner.requires_flexible_cg
+    return CGAlgorithm.FCG if preconditioner.requires_flexible_cg else CGAlgorithm.PCG
+
+
+def _solve_one(
+    A: torch.Tensor,
+    b: torch.Tensor,
+    x0: torch.Tensor,
+    preconditioner: Preconditioner,
+    *,
+    rtol: float,
+    atol: float,
+    maxiter: int,
+    m_max: int,
+) -> tuple[torch.Tensor, SolverResult]:
+    """Solve with the CG variant this preconditioner's category requires.
+
+    Args:
+        A: System matrix tensor.
+        b: Right-hand side vector tensor.
+        x0: Initial guess tensor.
+        preconditioner: Preconditioner instance to solve with.
+        rtol: Relative tolerance.
+        atol: Absolute tolerance.
+        maxiter: Maximum iterations.
+        m_max: FCG orthogonalization window; unused on the PCG branch — PCG's
+            own (unrelated, off-by-default) periodic-reorthogonalization
+            ``m_max`` is intentionally left disabled here.
+
+    Returns:
+        Tuple of the solved vector and solver diagnostics.
+    """
+    match _cg_algorithm_for(preconditioner):
+        case CGAlgorithm.PCG:
+            return pcg(
+                A, b, x0, rtol=rtol, atol=atol, maxiter=maxiter, preconditioner=preconditioner
+            )
+        case CGAlgorithm.FCG:
+            return flexible_cg(
+                A,
+                b,
+                x0,
+                rtol=rtol,
+                atol=atol,
+                maxiter=maxiter,
+                preconditioner=preconditioner,
+                m_max=m_max,
+            )
 
 
 def format_results_summary(results: dict[str, CGComparisonResult]) -> str:
@@ -182,7 +240,7 @@ def format_results_summary(results: dict[str, CGComparisonResult]) -> str:
     Returns:
         Formatted summary string.
     """
-    lines = ["Flexible CG results:"]
+    lines = ["CG comparison results:"]
     for name, result in results.items():
         status = "ok" if result.converged else "fail"
         iters = result.iterations
