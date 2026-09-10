@@ -35,10 +35,19 @@ from neuralls.platform.storage.datasets import (
     load_matrix_dense_sample,
 )
 
+_FLOAT_DIGEST_DECIMALS = 12
+"""Rounding applied before hashing floating arrays, so BLAS/LAPACK builds that
+round the last bit or two differently across platforms don't flip the digest.
+Absolute noise from that source is ~1e-15; rounding to 1e-12 stays three
+orders of magnitude above it while still catching real precision regressions.
+"""
+
 
 def _digest(array: np.ndarray) -> str:
-    """Stable content digest of an array's dtype, shape and exact bytes."""
+    """Stable content digest of an array's dtype, shape and (rounded) bytes."""
     contiguous = np.ascontiguousarray(array)
+    if np.issubdtype(contiguous.dtype, np.floating):
+        contiguous = np.round(contiguous, decimals=_FLOAT_DIGEST_DECIMALS)
     hasher = hashlib.sha256()
     hasher.update(str(contiguous.dtype).encode())
     hasher.update(str(contiguous.shape).encode())
@@ -87,10 +96,11 @@ def parameter_files(tmp_path: Path) -> tuple[str, ...]:
     return (str(params_dir / "p_*.txt"),)
 
 
-def test_multi_matrix_synthetic_mixture_output_is_stable(
+@pytest.fixture
+def multi_matrix_mixture_dataset(
     spd_matrix_dir: Path, tmp_path: Path, solver_overrides: dict[str, Any]
-) -> None:
-    """Multi-matrix synthetic mixture: allocation, row kinds and matrix index are pinned.
+) -> Path:
+    """Multi-matrix synthetic mixture dataset, built once for the assertions below.
 
     Exercises _resolve_binding_strategy_counts (multi-binding allocation),
     _accumulate_bindings (MANY_MATRICES accumulator path), _process_binding and
@@ -114,31 +124,52 @@ def test_multi_matrix_synthetic_mixture_output_is_stable(
         str(out_dir),
         dataset_format="npy",
     )
+    return out_dir
 
-    rhs, solutions = load_dense_training_arrays(out_dir)
-    manifest = load_dataset_manifest(out_dir)
 
+def test_multi_matrix_mixture_shapes_are_stable(multi_matrix_mixture_dataset: Path) -> None:
+    rhs, solutions = load_dense_training_arrays(multi_matrix_mixture_dataset)
     assert (rhs.shape, solutions.shape) == ((12, 5), (12, 5))
-    assert _digest(rhs) == "8b7d7df504b2b5cb"
-    assert _digest(solutions) == "890c1438c4ab7872"
-    assert _digest(load_row_kind_codes(out_dir)) == "c79d2a9c87907f68"
-    assert _digest(load_matrix_sample_index(out_dir)) == "ef34a7ad43e00545"
-    assert _digest(load_matrix_dense_sample(out_dir, 0)) == "fc1a0250f33915bc"
+
+
+def test_multi_matrix_mixture_rhs_is_stable(multi_matrix_mixture_dataset: Path) -> None:
+    rhs, _ = load_dense_training_arrays(multi_matrix_mixture_dataset)
+    assert _digest(rhs) == "5fe5e15adc768393"
+
+
+def test_multi_matrix_mixture_solutions_are_stable(multi_matrix_mixture_dataset: Path) -> None:
+    _, solutions = load_dense_training_arrays(multi_matrix_mixture_dataset)
+    assert _digest(solutions) == "dfafde773de9641e"
+
+
+def test_multi_matrix_mixture_row_kinds_are_stable(multi_matrix_mixture_dataset: Path) -> None:
+    assert _digest(load_row_kind_codes(multi_matrix_mixture_dataset)) == "c79d2a9c87907f68"
+
+
+def test_multi_matrix_mixture_matrix_index_is_stable(multi_matrix_mixture_dataset: Path) -> None:
+    assert _digest(load_matrix_sample_index(multi_matrix_mixture_dataset)) == "ef34a7ad43e00545"
+
+
+def test_multi_matrix_mixture_matrix_sample_is_stable(multi_matrix_mixture_dataset: Path) -> None:
+    assert _digest(load_matrix_dense_sample(multi_matrix_mixture_dataset, 0)) == "7be3815c7c6a4fb5"
+
+
+def test_multi_matrix_mixture_manifest_is_stable(multi_matrix_mixture_dataset: Path) -> None:
+    manifest = load_dataset_manifest(multi_matrix_mixture_dataset)
     assert manifest["matrix"]["shape"] == [12, 5, 5]
     assert manifest["normalization"]["type"] == "matrix"
     assert manifest["normalization"]["matrix_norm"] == pytest.approx(0.36070429238817936)
     assert manifest["normalization"]["scale"] == {}
 
 
-def test_multi_matrix_solution_archive_all_samples_output_is_stable(
+@pytest.fixture
+def multi_matrix_archive_dataset(
     spd_matrix_dir: Path, solution_archive_dir: Path, tmp_path: Path
-) -> None:
-    """samples=-1 across bindings: archive-size resolution and disjoint skips are pinned.
+) -> Path:
+    """samples=-1 solution-archive dataset, built once for the assertions below.
 
     Exercises _resolve_all_samples_total, the per-binding cumulative skip offsets
-    and _merge_binding_skip_overrides. The matrix_sample_index [0,0,1,1,2] is the
-    load-bearing assertion: it proves each binding drew its own disjoint slice of
-    the 5-file archive (2/2/1) instead of every binding reloading all five.
+    and _merge_binding_skip_overrides.
     """
     out_dir = tmp_path / "dataset"
     build_dataset(
@@ -162,24 +193,48 @@ def test_multi_matrix_solution_archive_all_samples_output_is_stable(
         str(out_dir),
         dataset_format="npy",
     )
+    return out_dir
 
-    rhs, solutions = load_dense_training_arrays(out_dir)
 
+def test_multi_matrix_archive_shapes_are_stable(multi_matrix_archive_dataset: Path) -> None:
+    rhs, solutions = load_dense_training_arrays(multi_matrix_archive_dataset)
     assert (rhs.shape, solutions.shape) == ((5, 5), (5, 5))
-    assert _digest(rhs) == "54e08358e2284a45"
+
+
+def test_multi_matrix_archive_rhs_is_stable(multi_matrix_archive_dataset: Path) -> None:
+    rhs, _ = load_dense_training_arrays(multi_matrix_archive_dataset)
+    assert _digest(rhs) == "713ddaaab2f77adb"
+
+
+def test_multi_matrix_archive_solutions_are_stable(multi_matrix_archive_dataset: Path) -> None:
+    _, solutions = load_dense_training_arrays(multi_matrix_archive_dataset)
     assert _digest(solutions) == "e9b5432441f9d566"
-    assert load_matrix_sample_index(out_dir).tolist() == [0, 0, 1, 1, 2]
-    # Each archive vector is the constant vector of its 1-based file index; the
-    # whole archive is consumed exactly once, in order, across the three bindings.
+
+
+def test_multi_matrix_archive_matrix_index_is_stable(multi_matrix_archive_dataset: Path) -> None:
+    """The [0,0,1,1,2] index proves each binding drew its own disjoint slice of
+    the 5-file archive (2/2/1) instead of every binding reloading all five.
+    """
+    assert load_matrix_sample_index(multi_matrix_archive_dataset).tolist() == [0, 0, 1, 1, 2]
+
+
+def test_multi_matrix_archive_solutions_match_expected_vectors(
+    multi_matrix_archive_dataset: Path,
+) -> None:
+    """Each archive vector is the constant vector of its 1-based file index; the
+    whole archive is consumed exactly once, in order, across the three bindings.
+    """
+    _, solutions = load_dense_training_arrays(multi_matrix_archive_dataset)
     np.testing.assert_array_equal(
         solutions, np.vstack([np.full(5, float(i + 1)) for i in range(5)])
     )
 
 
-def test_single_matrix_with_parameter_streams_output_is_stable(
+@pytest.fixture
+def single_matrix_parameter_stream_dataset(
     single_spd_matrix: Path, parameter_files: tuple[str, ...], tmp_path: Path
-) -> None:
-    """Single-matrix broadcast layout with parameter streams is pinned.
+) -> Path:
+    """Single-matrix broadcast layout with parameter streams, built once below.
 
     Exercises _open_streams' parameter-stream binding, the BROADCAST_SINGLE
     accumulator branch in _accumulate_bindings (one matrix written, not one per
@@ -202,17 +257,44 @@ def test_single_matrix_with_parameter_streams_output_is_stable(
         str(out_dir),
         dataset_format="npy",
     )
+    return out_dir
 
-    rhs, solutions = load_dense_training_arrays(out_dir)
-    parameters = load_parameter_arrays(out_dir)
 
+def test_single_matrix_parameter_stream_shapes_are_stable(
+    single_matrix_parameter_stream_dataset: Path,
+) -> None:
+    rhs, solutions = load_dense_training_arrays(single_matrix_parameter_stream_dataset)
     assert (rhs.shape, solutions.shape) == ((4, 4), (4, 4))
-    assert _digest(rhs) == "3db211f8b2da4370"
-    assert _digest(solutions) == "075009b30984eba4"
+
+
+def test_single_matrix_parameter_stream_rhs_is_stable(
+    single_matrix_parameter_stream_dataset: Path,
+) -> None:
+    rhs, _ = load_dense_training_arrays(single_matrix_parameter_stream_dataset)
+    assert _digest(rhs) == "57d3f67600ec0a54"
+
+
+def test_single_matrix_parameter_stream_solutions_are_stable(
+    single_matrix_parameter_stream_dataset: Path,
+) -> None:
+    _, solutions = load_dense_training_arrays(single_matrix_parameter_stream_dataset)
+    assert _digest(solutions) == "dfe2a715580137c3"
+
+
+def test_single_matrix_parameter_stream_parameters_are_stable(
+    single_matrix_parameter_stream_dataset: Path,
+) -> None:
+    parameters = load_parameter_arrays(single_matrix_parameter_stream_dataset)
     assert len(parameters) == 1
     assert parameters[0].shape == (4, 3)
     assert _digest(parameters[0]) == "d035f298199f613c"
-    assert load_dataset_manifest(out_dir)["matrix"]["shape"] == [1, 4, 4]
+
+
+def test_single_matrix_parameter_stream_manifest_is_stable(
+    single_matrix_parameter_stream_dataset: Path,
+) -> None:
+    manifest = load_dataset_manifest(single_matrix_parameter_stream_dataset)
+    assert manifest["matrix"]["shape"] == [1, 4, 4]
 
 
 def _write_config(tmp_path: Path, dataset_id: str, body: str) -> Path:
