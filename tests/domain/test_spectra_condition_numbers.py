@@ -25,13 +25,16 @@ spectra.py's own removed helpers):
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import numpy as np
 import pytest
 import torch
+from scipy.sparse.linalg import ArpackNoConvergence
 from torchalg.preconditioners.base import Preconditioner
 from torchalg.preconditioners.implementations import Identity, JacobiPreconditioner
 
+import neuralls.domain.analysis.spectra as spectra_module
 from neuralls.domain.analysis.spectra import compute_condition_numbers
 
 
@@ -170,11 +173,13 @@ def test_arnoldi_matches_exact_condition_number_on_heterogeneous_stiffness(
 def test_arnoldi_is_faster_than_exact_dense_svd() -> None:
     """The whole point of the matrix-free estimate is to beat the O(n^3) exact method.
 
-    A wide-spectrum, diagonally-dominant SPD matrix at a size (n=600) large
-    enough that the dense-build-plus-SVD approach's cost is measurable, but
-    small enough to keep the test itself fast.
+    A wide-spectrum, diagonally-dominant SPD matrix at a size large enough to
+    clear ``_DENSE_FALLBACK_MAX_DIMENSION`` (so ``compute_condition_numbers``
+    actually takes the matrix-free ARPACK path, not the exact dense
+    fallback) and for the dense-build-plus-SVD approach's cost to be
+    measurable, but small enough to keep the test itself fast.
     """
-    n = 600
+    n = spectra_module._DENSE_FALLBACK_MAX_DIMENSION + 500
     diag_values = torch.linspace(1.0, 1.0e4, n, dtype=torch.float64)
     off_diag = 0.1 * torch.ones(n - 1, dtype=torch.float64)
     matrix = torch.diag(diag_values) + torch.diag(off_diag, 1) + torch.diag(off_diag, -1)
@@ -192,3 +197,81 @@ def test_arnoldi_is_faster_than_exact_dense_svd() -> None:
         f"ARPACK Arnoldi estimate ({fast_elapsed:.3f}s) should be markedly faster than "
         f"the exact dense-SVD method it outperforms ({exact_elapsed:.3f}s)"
     )
+
+
+def test_dense_fallback_used_within_cost_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Matrices within the measured-cheap dense budget never touch ARPACK at all.
+
+    ARPACK's matrix-free Arnoldi only pays for itself once a full dense
+    eigendecomposition is expensive; below that, the exact method is both
+    correct and fast enough that iterative convergence risk (this ticket's
+    original complaint) isn't worth taking on at all.
+    """
+
+    def fail_if_called(*args: object, **kwargs: object) -> None:
+        raise AssertionError("eigs should not be called within the dense fallback budget")
+
+    monkeypatch.setattr(spectra_module, "eigs", fail_if_called)
+
+    n = spectra_module._DENSE_FALLBACK_MAX_DIMENSION
+    matrix = torch.diag(torch.linspace(1.0, 100.0, n, dtype=torch.float64))
+
+    cond_numbers = compute_condition_numbers(matrix.numpy(), {"none": Identity()})
+
+    assert cond_numbers["none"] == pytest.approx(100.0, rel=1e-2)
+
+
+def test_arpack_used_above_dense_fallback_threshold_with_generous_ncv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Above the dense budget, ARPACK runs with a wider Krylov subspace than scipy's default.
+
+    scipy's default ``ncv`` for ``k=1`` is ``min(n, 20)`` — too small to
+    reliably resolve an extreme eigenvalue on a wide/clustered spectrum
+    (ARPACK Users' Guide's standard remedy for poor convergence is a larger
+    ``ncv``, not a different algorithm).
+    """
+    calls: list[dict[str, Any]] = []
+    original_eigs = spectra_module.eigs
+
+    def spy_eigs(*args: Any, **kwargs: Any) -> Any:
+        calls.append(kwargs)
+        return original_eigs(*args, **kwargs)
+
+    monkeypatch.setattr(spectra_module, "eigs", spy_eigs)
+
+    n = spectra_module._DENSE_FALLBACK_MAX_DIMENSION + 1
+    matrix = torch.diag(torch.linspace(1.0, 100.0, n, dtype=torch.float64))
+
+    compute_condition_numbers(matrix.numpy(), {"none": Identity()})
+
+    assert len(calls) == 2, "expected one eigs() call each for lambda_max (LM) and lambda_min (SM)"
+    for call_kwargs in calls:
+        assert call_kwargs["ncv"] > 20
+
+
+def test_arpack_non_convergence_falls_back_to_dense_instead_of_nan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A matrix ARPACK can't converge on must still yield a real number, never NaN.
+
+    This is the reported failure mode: ARPACK's Arnoldi genuinely can fail
+    to converge on an ill-conditioned operator above the dense-fallback
+    size. Silently returning NaN (the old behavior) makes the diagnostic
+    useless for exactly the matrices it's needed most for; falling back to
+    the exact dense method (already proven correct elsewhere in this suite)
+    keeps the diagnostic honest at the cost of speed only in this rare case.
+    """
+
+    def raising_eigs(*args: object, **kwargs: object) -> object:
+        raise ArpackNoConvergence("forced failure for testing", np.array([]), np.array([]))
+
+    monkeypatch.setattr(spectra_module, "eigs", raising_eigs)
+
+    n = spectra_module._DENSE_FALLBACK_MAX_DIMENSION + 1
+    matrix = torch.diag(torch.linspace(1.0, 100.0, n, dtype=torch.float64))
+
+    cond_numbers = compute_condition_numbers(matrix.numpy(), {"none": Identity()})
+
+    assert not np.isnan(cond_numbers["none"])
+    assert cond_numbers["none"] == pytest.approx(100.0, rel=1e-2)
