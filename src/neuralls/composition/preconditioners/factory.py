@@ -157,17 +157,16 @@ def _build_amg_coarsening(
     )
 
     if isinstance(config.coarsening, TargetDimCoarseningConfig):
-        from neuralls.composition.preconditioners.target_dimension_coarsening import (
-            CachedTargetDimensionCoarsening,
-        )
+        from torchalg.preconditioners.implementations.amg import TargetDimensionCoarsening
 
         td_cfg = config.coarsening
-        return CachedTargetDimensionCoarsening(
+        return TargetDimensionCoarsening(
             target_coarse_dim=td_cfg.target_coarse_dim,
             theta_min=td_cfg.theta_min,
             theta_max=td_cfg.theta_max,
             step=td_cfg.step,
             omega=td_cfg.omega,
+            cache_candidates=True,
         )
 
     if isinstance(config.coarsening, PODCoarseningConfig):

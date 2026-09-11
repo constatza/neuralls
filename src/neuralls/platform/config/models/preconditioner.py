@@ -379,13 +379,13 @@ class TargetDimCoarseningConfig(BaseModel):
     matrices, see `docs/plan.md`) a step function of `theta` rather than a
     smooth or monotonic one. This gives AMG-aggregation the same "set the
     coarse dimension directly" ergonomics `PODCoarseningConfig.rank` already
-    has, by exhaustively searching `theta` for the closest realized match
+    has, via an adaptive `theta` search for the closest realized match
     (`torchalg.preconditioners.implementations.amg.TargetDimensionCoarsening`
     — a wrapper external to `AggregationCoarsening`/`AMGPreconditioner`,
-    never modifying either; `composition/preconditioners/
-    target_dimension_coarsening.py::CachedTargetDimensionCoarsening` subclasses
-    it to share theta-candidate builds across sibling `target_dim` configs
-    against the same matrix within one comparison run).
+    never modifying either; `composition/preconditioners/factory.py`
+    constructs it with `cache_candidates=True` to share the winning
+    theta's full build across sibling `target_dim` configs against the
+    same matrix within one comparison run).
     """
 
     method: Literal["target_dim"] = "target_dim"
