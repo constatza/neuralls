@@ -1,0 +1,34 @@
+id = "smoother-filtered-probes-rectangular-high-condition"
+
+[source]
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
+
+[generation]
+normalize = "matrix"
+shuffle = true
+seed = 42
+
+# Random probe vectors damped by weighted-Jacobi sweeps — the natural
+# baseline to compare against is gaussian-0cg.toml (x ~ N(mu, sigma), no CG
+# solve at all), not a cg10/cg50 dataset: both start from the same raw random
+# vectors, and the only difference is whether smoothing is applied
+# afterward. cg_iters has no comparable meaning here — CG is Krylov-optimal
+# and converges regardless of condition number, while weighted-Jacobi's
+# convergence depends on rho(I - omega D^-1 A) being < 1, which is not
+# guaranteed for a matrix specifically chosen for being high-condition —
+# tying `steps` to an unrelated algorithm's iteration count would not make
+# this a fair comparison. See domain/generation/README.md's
+# "Smoother-Filtered Probes" section. `omega` matches
+# torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother's
+# default so "smooth" means the same thing here as it does in POD-2G's own
+# smoother_persistence weighting (see the pod2g-rank*-smoother-persistence.toml
+# jobs) and its actual AMG smoother.
+[[generation.strategy]]
+name = "smoother_filtered_probes"
+samples = 2000
+steps = 15
+omega = 0.67
+probe_distribution = "gaussian"
+
+[output]
+data_dir = "${NEURALLS_PROCESSED_DIR}"

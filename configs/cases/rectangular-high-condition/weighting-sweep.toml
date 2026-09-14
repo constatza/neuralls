@@ -1,0 +1,132 @@
+[mlflow]
+tracking_uri = "http://localhost:5000"
+
+[names]
+training = "Train-RectangularHighCondition-POD-2G-WeightingSweep"
+comparison = "Compare-RectangularHighCondition-POD-2G-WeightingSweep"
+
+[comparison_defaults]
+rtol = 1.0e-6
+atol = 1.0e-14
+max_iterations = 200
+stopping_criterion = "residual_norm"
+m_max = 20
+
+[[comparison_defaults.preconditioners]]
+name = "none"
+type = "identity"
+
+[[comparison_defaults.preconditioners]]
+name = "jacobi"
+type = "jacobi"
+
+[[comparison_defaults.preconditioners]]
+name = "ic0"
+type = "ic0"
+
+[[comparison_defaults.preconditioners]]
+name = "amg-dim300"
+type = "amg"
+coarsening = { method = "target_dim", target_coarse_dim = 300 }
+
+# POD-2G, fixed at rank 300, declared inline (no [[jobs]]/[[assignments]]):
+# `power_norm` metric="a" and `smoother_persistence` need the system matrix
+# at fit time (see composition/preconditioners/_weighting.py), which a
+# checkpoint-backed run.type="fit" job structurally never has (its whole
+# premise is a dataset-only, reusable fit) — PODCoarseningFittable rejects
+# them for exactly this reason. Only `PODCoarseningConfig` used directly in
+# a comparison has the matrix naturally available, so every weighting
+# variant here is inline, fit fresh each comparison run.
+#
+# Full 3 datasets x 4 weightings grid, minus one deliberately excluded cell:
+# smoother_filtered_probes x smoother_persistence is skipped as redundant —
+# generation-time Jacobi damping already rotates every surviving probe
+# toward the smoother's near-null eigenspace (power iteration), so a further
+# persistence-weighting pass on top mostly measures noise in each probe's
+# initial alignment, not a meaningful additional signal. smoother_persistence
+# does real, non-redundant work on gaussian-0cg/gaussian-cg50 instead, since
+# those snapshots never went through any Jacobi filtering at all.
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-0cg.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg50.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/smoother-filtered-probes.toml"
+
+# gaussian-0cg
+[[comparison_defaults.preconditioners]]
+name = "pod2g-0cg-raw"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-0cg-rectangular-high-condition", rank = 300 }
+
+[[comparison_defaults.preconditioners]]
+name = "pod2g-0cg-power-norm-l2"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-0cg-rectangular-high-condition", rank = 300, weighting = { method = "power_norm", metric = "l2", beta = 1.0 } }
+
+[[comparison_defaults.preconditioners]]
+name = "pod2g-0cg-power-norm-a"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-0cg-rectangular-high-condition", rank = 300, weighting = { method = "power_norm", metric = "a", beta = 1.0 } }
+
+[[comparison_defaults.preconditioners]]
+name = "pod2g-0cg-smoother-persistence"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-0cg-rectangular-high-condition", rank = 300, weighting = { method = "smoother_persistence", omega = 0.67, steps = 5 } }
+
+# gaussian-cg50
+[[comparison_defaults.preconditioners]]
+name = "pod2g-cg50-raw"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg50-rectangular-high-condition", rank = 300 }
+
+[[comparison_defaults.preconditioners]]
+name = "pod2g-cg50-power-norm-l2"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg50-rectangular-high-condition", rank = 300, weighting = { method = "power_norm", metric = "l2", beta = 1.0 } }
+
+[[comparison_defaults.preconditioners]]
+name = "pod2g-cg50-power-norm-a"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg50-rectangular-high-condition", rank = 300, weighting = { method = "power_norm", metric = "a", beta = 1.0 } }
+
+[[comparison_defaults.preconditioners]]
+name = "pod2g-cg50-smoother-persistence"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg50-rectangular-high-condition", rank = 300, weighting = { method = "smoother_persistence", omega = 0.67, steps = 5 } }
+
+# smoother_filtered_probes (no smoother_persistence — see comment above)
+[[comparison_defaults.preconditioners]]
+name = "pod2g-smoother-probes-raw"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/smoother-filtered-probes-rectangular-high-condition", rank = 300 }
+
+[[comparison_defaults.preconditioners]]
+name = "pod2g-smoother-probes-power-norm-l2"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/smoother-filtered-probes-rectangular-high-condition", rank = 300, weighting = { method = "power_norm", metric = "l2", beta = 1.0 } }
+
+[[comparison_defaults.preconditioners]]
+name = "pod2g-smoother-probes-power-norm-a"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/smoother-filtered-probes-rectangular-high-condition", rank = 300, weighting = { method = "power_norm", metric = "a", beta = 1.0 } }
+
+[[comparisons]]
+matrix_dataset = "gaussian-0cg-rectangular-high-condition"
+rhs_source = { kind = "gaussian" }
+seed = 42
+
+[[comparisons]]
+matrix_dataset = "gaussian-0cg-rectangular-high-condition"
+rhs_source = { kind = "sparse", indices = [
+    0,
+    1,
+    -1,
+], values = [
+    90.0,
+    100.0,
+    -100.0,
+] }
