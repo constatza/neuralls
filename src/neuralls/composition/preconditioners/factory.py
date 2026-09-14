@@ -183,13 +183,16 @@ def _build_amg_coarsening(
         # snapshot files, exactly as before (backward compatible).
         from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
+        from neuralls.composition.preconditioners._weighting import resolve_row_scales
         from neuralls.platform.storage.dataset_readers import load_dense_training_arrays
 
         _, solutions = load_dense_training_arrays(pod_cfg.dataset_dir)
         if pod_cfg.n_snapshots != -1:
             solutions = solutions[: pod_cfg.n_snapshots]
+        snapshots = torch.as_tensor(solutions, dtype=matrix.dtype, device=matrix.device)
+        row_scales = resolve_row_scales(pod_cfg.weighting, snapshots, matrix)
         coarsening = PODCoarseningStrategy(rank=pod_cfg.rank)
-        coarsening.fit(torch.as_tensor(solutions, dtype=matrix.dtype, device=matrix.device))
+        coarsening.fit(snapshots, row_scales=row_scales)
         return coarsening
 
     if isinstance(config.coarsening, NeuralPODCoarseningConfig):

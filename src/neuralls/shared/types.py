@@ -97,6 +97,7 @@ class GenerationStrategyKind(StrEnum):
     CONSTANT_FORWARD = "constant_forward"
     CONSTANT_INVERSE = "constant_inverse"
     NEUTRAL_ONES = "neutral_ones"
+    SMOOTHER_FILTERED_PROBES = "smoother_filtered_probes"
 
 
 class ScaleMetadata(TypedDict, total=False):

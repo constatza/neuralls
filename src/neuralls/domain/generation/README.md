@@ -134,6 +134,25 @@ Start with the simplest family that matches the model target.
 | Advanced | `residuals` | `(r_k, x_true - x_k)` |
 | Advanced | `gaussian_residuals` | `(r_k, x_true - x_k)` |
 | Advanced | `search_directions` | trace pairs for direction learning |
+| Advanced | `smoother_filtered_probes` | `(b, x)`, `x` = random probes damped by weighted-Jacobi sweeps |
+
+## Smoother-Filtered Probes
+
+`smoother_filtered_probes` (`strategies/smoother_probes.py`) synthesizes
+"algebraically smooth" error snapshots directly, instead of deriving them
+incidentally from a CG trajectory: `samples` random probe vectors (Gaussian
+or Rademacher, via `probe_distribution`) are passed through `steps` sweeps of
+the weighted-Jacobi error-propagation map `v <- v - omega * D^-1 A v`
+(`omega` defaults to 0.67, matching
+`torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother`).
+Directions the smoother handles well are quickly attenuated, so what
+survives after `steps` sweeps is, by construction, smoother-resistant — the
+directions a POD-2G coarse space needs to cover. Reuses torchalg's
+`apply_jacobi_damping` for the damping sweep itself (a brief numpy/torch
+round-trip, the one exception to this package's otherwise numpy-only
+strategies) so "smooth" means the exact same thing here as it does in
+`composition/preconditioners/_weighting.py`'s `smoother_persistence`
+snapshot weighting, which targets the same operator.
 
 ## Residual Families
 

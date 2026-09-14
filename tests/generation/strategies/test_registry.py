@@ -29,6 +29,7 @@ EXPECTED_STRATEGIES = {
     "validated_archive",
     "scaled_solutions",
     "sparse_rhs",
+    "smoother_filtered_probes",
 }
 
 

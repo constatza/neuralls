@@ -148,6 +148,34 @@ class KrylovConfig(BaseStrategyConfig):
     )
 
 
+class SmootherFilteredProbesConfig(BaseStrategyConfig):
+    """Configuration for SmootherFilteredProbesStrategy.
+
+    Random probe vectors are damped by `steps` weighted-Jacobi sweeps before
+    being used as error snapshots — the directions that survive are, by
+    construction, the ones a Jacobi smoother handles poorly (what a
+    multigrid coarse-grid correction needs to cover).
+    """
+
+    omega: float = Field(
+        0.67,
+        description=(
+            "Weighted-Jacobi damping factor, matching "
+            "torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother's default."
+        ),
+        gt=0.0,
+    )
+    steps: int = Field(
+        ...,
+        description="Number of Jacobi damping sweeps applied to each random probe.",
+        ge=1,
+    )
+    probe_distribution: Literal["gaussian", "rademacher"] = Field(
+        "gaussian",
+        description="Distribution the initial, unfiltered probe vectors are drawn from.",
+    )
+
+
 class RandomNormalConfig(BaseStrategyConfig):
     target_rhs_scale: float = Field(
         1.0,

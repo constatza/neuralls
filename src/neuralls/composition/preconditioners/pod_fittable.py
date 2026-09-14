@@ -25,6 +25,19 @@ This adapter bridges that gap the same way dlkit's own
 .fit(dataloader)` to each wrapped `Transform.fit(data: Tensor)`
 (`dlkit.domain.transforms.chain`) — materialize the target array across the
 dataloader's batches, then delegate to the tensor-based `fit()`.
+
+**Weighting is intentionally restricted to matrix-free schemes** (`raw`,
+`power_norm` with `metric="l2"`). A `run.type = "fit"` job's entire premise
+(`FitJobConfig`'s own docstring: "model and data are required... training
+stays unset") is a one-shot, deterministic, checkpoint-reusable fit from a
+*dataset alone* — the system matrix is a property of whichever comparison
+later reconstructs and uses the checkpoint, not of the fit itself. Weighting
+schemes that need the matrix (`power_norm` with `metric="a"`,
+`smoother_persistence`) are only meaningful where the matrix is already a
+natural, always-available input — `factory.py`'s inline
+`PODCoarseningConfig` fit, used directly in a comparison, not threaded
+through a reusable, matrix-agnostic fit-job artifact. See
+`composition/preconditioners/_weighting.py::weighting_needs_matrix`.
 """
 
 from __future__ import annotations
@@ -37,6 +50,15 @@ from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
 from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
+)
+from neuralls.composition.preconditioners._weighting import (
+    resolve_row_scales,
+    weighting_needs_matrix,
+)
+from neuralls.platform.config.models.preconditioner import (
+    RawWeightingConfig,
+    SnapshotWeightingConfig,
+    parse_snapshot_weighting_config,
 )
 
 _DEFAULT_TARGET_NAME = default_training_dataset_contract().target_name
@@ -56,7 +78,12 @@ class PODCoarseningFittable(PODCoarseningStrategy):
     inheritance, and the checkpoint format is identical either way.
     """
 
-    def __init__(self, rank: float, target_name: str = _DEFAULT_TARGET_NAME) -> None:
+    def __init__(
+        self,
+        rank: float,
+        target_name: str = _DEFAULT_TARGET_NAME,
+        weighting: SnapshotWeightingConfig | dict[str, Any] | None = None,
+    ) -> None:
         """Store the target rank and dataloader batch key; unfitted until `fit()`.
 
         Args:
@@ -69,9 +96,35 @@ class PODCoarseningFittable(PODCoarseningStrategy):
                 (`composition/assignments/runtime_dataset_contract.py`) —
                 the same target key every other assignment in this repo binds
                 its supervised target array to.
+            weighting: Per-snapshot row scaling to apply before the SVD —
+                see `SnapshotWeightingConfig`. Accepts a raw dict, since
+                dlkit's `[model]` table (`extra="allow"`) passes unrecognized
+                TOML keys through as plain kwargs, not validated model
+                instances — coerced via `parse_snapshot_weighting_config`.
+                `None` (default) is `RawWeightingConfig`, reproducing the
+                original unweighted fit. Must not require the system matrix
+                (see module docstring) — this is a fit *job*, not an inline
+                comparison-time fit; use `PODCoarseningConfig.weighting`
+                directly in a comparison for matrix-dependent schemes.
+
+        Raises:
+            ValueError: If `weighting` requires the system matrix.
         """
         super().__init__(rank=rank)
         self._target_name = target_name
+        self._weighting = (
+            parse_snapshot_weighting_config(weighting)
+            if weighting is not None
+            else RawWeightingConfig()
+        )
+        if weighting_needs_matrix(self._weighting):
+            raise ValueError(
+                f"{type(self._weighting).__name__} requires the system matrix, which a "
+                "run.type='fit' job does not have — PODCoarseningFittable only supports "
+                "matrix-free weighting (raw, power_norm with metric='l2'). Use "
+                "PODCoarseningConfig.weighting directly in a comparison's preconditioner "
+                "config instead, where the matrix is already available."
+            )
 
     @property
     def hparams(self) -> dict[str, Any]:
@@ -87,19 +140,23 @@ class PODCoarseningFittable(PODCoarseningStrategy):
         POD-specific, but a gap in any `Fittable` model used through
         `FitJobConfig` today.
         """
-        return {"rank": self._rank}
+        return {"rank": self._rank, "weighting": self._weighting.method}
 
-    def fit(self, snapshots: torch.Tensor | Iterable[Any]) -> None:
+    def fit(
+        self, snapshots: torch.Tensor | Iterable[Any], row_scales: torch.Tensor | None = None
+    ) -> None:
         """Fit from a raw tensor, or by materializing a dataloader's batches first.
 
-        A strict widening of `PODCoarseningStrategy.fit(snapshots: torch.Tensor)`
-        (LSP-compatible override — a bare tensor still fits exactly like the
-        parent class): a `torch.Tensor` is forwarded unchanged, so this class
-        is substitutable everywhere a plain `PODCoarseningStrategy` is
-        (`factory.py`'s inline-fit call site). Anything else is treated as a
-        dlkit training dataloader — each batch's `["targets"][target_name]`
-        entry is concatenated into one snapshot ensemble before delegating to
-        the tensor path, satisfying
+        An LSP-compatible override of `PODCoarseningStrategy.fit` — same
+        parameters, same defaults, so this class stays substitutable
+        wherever a plain `PODCoarseningStrategy` is expected (e.g.
+        `factory.py`'s inline-fit call site, tensor + explicit `row_scales`
+        forwarded unchanged). Anything other than a `torch.Tensor` is
+        treated as a dlkit training dataloader — each batch's
+        `["targets"][target_name]` entry is concatenated into one snapshot
+        ensemble, then (when `row_scales` wasn't already given explicitly)
+        weighted per `self._weighting` — always matrix-free, per `__init__`'s
+        validation — before delegating to the tensor path, satisfying
         `dlkit.engine.training.fittable.Fittable.fit(dataloader)`.
 
         Args:
@@ -107,15 +164,24 @@ class PODCoarseningFittable(PODCoarseningStrategy):
                 `(n_samples, n_dofs)`), or a dataloader yielding batches
                 whose `["targets"][target_name]` entry is this run's
                 snapshot array (e.g. a `solutions-cgN` dataset's `y`).
+            row_scales: Explicit per-snapshot row scale, forwarded straight
+                to `PODCoarseningStrategy.fit`. When `snapshots` is a
+                dataloader and this is left `None` (the normal case for a
+                `run.type = "fit"` job), it is instead computed from
+                `self._weighting`.
 
         Raises:
             ValueError: If `snapshots` is a dataloader that yields no batches.
         """
         if isinstance(snapshots, torch.Tensor):
-            super().fit(snapshots)
+            super().fit(snapshots, row_scales=row_scales)
             return
-        snapshot_batches = [batch["targets"][self._target_name] for batch in snapshots]
-        if not snapshot_batches:
+        batches = list(snapshots)
+        if not batches:
             raise ValueError("PODCoarseningFittable.fit() received an empty dataloader.")
-        concatenated = torch.cat([torch.as_tensor(batch) for batch in snapshot_batches], dim=0)
-        super().fit(concatenated)
+        concatenated = torch.cat(
+            [torch.as_tensor(batch["targets"][self._target_name]) for batch in batches], dim=0
+        )
+        if row_scales is None:
+            row_scales = resolve_row_scales(self._weighting, concatenated, matrix=None)
+        super().fit(concatenated, row_scales=row_scales)

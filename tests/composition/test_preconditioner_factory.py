@@ -45,7 +45,9 @@ from neuralls.platform.config.models.preconditioner import (
     NeuralPODCoarseningConfig,
     NeuralPreconditionerConfig,
     PODCoarseningConfig,
+    PowerNormWeightingConfig,
     PreconditionerType,
+    SmootherPersistenceWeightingConfig,
     StandardPreconditionerConfig,
     TargetDimCoarseningConfig,
 )
@@ -520,6 +522,79 @@ def test_factory_creates_amg_preconditioner_with_pod_coarsening(
     `load_dense_training_arrays`), not a raw glob — the gap this task closes.
     """
     coarsening = PODCoarseningConfig(dataset_dir=pod_snapshot_dataset_dir, rank=2)
+    config = AMGPreconditionerConfig(name="pod2g", coarsening=coarsening)
+
+    precond = create_preconditioner(well_conditioned_matrix, config)
+
+    assert isinstance(precond, AMGPreconditioner)
+    result = precond.apply(residual_vector)
+    assert result.shape == residual_vector.shape
+
+
+def test_factory_pod_coarsening_default_weighting_matches_unweighted_fit(
+    well_conditioned_matrix: torch.Tensor,
+    pod_snapshot_dataset_dir: Path,
+) -> None:
+    """No `weighting` configured must fit the exact same basis as before this feature existed."""
+    from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
+
+    from neuralls.platform.storage.dataset_readers import load_dense_training_arrays
+
+    config = AMGPreconditionerConfig(
+        name="pod2g", coarsening=PODCoarseningConfig(dataset_dir=pod_snapshot_dataset_dir, rank=2)
+    )
+
+    precond = create_preconditioner(well_conditioned_matrix, config)
+
+    assert isinstance(precond, AMGPreconditioner)
+    assert isinstance(precond._coarsening, PODCoarseningStrategy)
+    _, solutions = load_dense_training_arrays(pod_snapshot_dataset_dir)
+    expected = PODCoarseningStrategy(rank=2)
+    expected.fit(torch.as_tensor(solutions, dtype=well_conditioned_matrix.dtype))
+    torch.testing.assert_close(precond._coarsening._basis, expected._basis)
+
+
+def test_factory_pod_coarsening_power_norm_weighting_changes_the_basis(
+    well_conditioned_matrix: torch.Tensor,
+    pod_snapshot_dataset_dir: Path,
+) -> None:
+    """`weighting=power_norm` must produce a basis different from the unweighted fit.
+
+    Confirms the config actually reaches the SVD, not just that it parses.
+    """
+    from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
+
+    coarsening = PODCoarseningConfig(
+        dataset_dir=pod_snapshot_dataset_dir,
+        rank=2,
+        weighting=PowerNormWeightingConfig(metric="l2", beta=1.0),
+    )
+    config = AMGPreconditionerConfig(name="pod2g", coarsening=coarsening)
+
+    precond = create_preconditioner(well_conditioned_matrix, config)
+
+    default_config = AMGPreconditionerConfig(
+        name="pod2g", coarsening=PODCoarseningConfig(dataset_dir=pod_snapshot_dataset_dir, rank=2)
+    )
+    default_precond = create_preconditioner(well_conditioned_matrix, default_config)
+    assert isinstance(precond, AMGPreconditioner)
+    assert isinstance(default_precond, AMGPreconditioner)
+    assert isinstance(precond._coarsening, PODCoarseningStrategy)
+    assert isinstance(default_precond._coarsening, PODCoarseningStrategy)
+    assert not torch.allclose(precond._coarsening._basis, default_precond._coarsening._basis)
+
+
+def test_factory_pod_coarsening_smoother_persistence_weighting_runs_end_to_end(
+    well_conditioned_matrix: torch.Tensor,
+    residual_vector: torch.Tensor,
+    pod_snapshot_dataset_dir: Path,
+) -> None:
+    """`weighting=smoother_persistence` (the scheme needing the system matrix) must work end-to-end."""
+    coarsening = PODCoarseningConfig(
+        dataset_dir=pod_snapshot_dataset_dir,
+        rank=2,
+        weighting=SmootherPersistenceWeightingConfig(omega=0.67, steps=3),
+    )
     config = AMGPreconditionerConfig(name="pod2g", coarsening=coarsening)
 
     precond = create_preconditioner(well_conditioned_matrix, config)

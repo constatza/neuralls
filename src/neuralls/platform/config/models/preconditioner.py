@@ -401,6 +401,66 @@ class TargetDimCoarseningConfig(BaseModel):
         return None
 
 
+class RawWeightingConfig(BaseModel):
+    """No snapshot weighting — every snapshot votes equally in the POD SVD.
+
+    The default `PODCoarseningConfig.weighting`, reproducing the exact
+    behavior POD-2G had before per-snapshot weighting existed.
+    """
+
+    method: Literal["raw"] = "raw"
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class PowerNormWeightingConfig(BaseModel):
+    """Row scale `||e_k||^(-beta)`, interpolating between raw and normalized snapshots.
+
+    `beta=0` is `RawWeightingConfig` in disguise (every snapshot keeps its
+    own magnitude); `beta=1` fully normalizes each snapshot by `metric`
+    before the SVD — `"l2"` for `e_k / ||e_k||_2`, `"a"` for the A-inner-product
+    `e_k / ||e_k||_A`. Values in between interpolate. See
+    `torchalg.preconditioners.implementations.pod.weighting.power_norm_scales`,
+    which this config resolves to.
+    """
+
+    method: Literal["power_norm"] = "power_norm"
+    metric: Literal["l2", "a"] = "l2"
+    beta: float = Field(default=1.0, ge=0.0, description="Normalization exponent.")
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class SmootherPersistenceWeightingConfig(BaseModel):
+    """Row scale by how well each snapshot survives weighted-Jacobi damping.
+
+    Weights each snapshot by `||G^steps e_k|| / ||e_k||`, `G = I - omega D^-1 A`
+    — the smoother's own error-propagation operator — so snapshots the
+    smoother already removes efficiently contribute little to the fitted
+    basis, and smoother-resistant ("algebraically smooth") snapshots
+    contribute most. `omega` defaults to match
+    `torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother`'s
+    default, so this targets the same smoother POD-2G actually runs
+    alongside. See
+    `torchalg.preconditioners.implementations.pod.weighting.smoother_persistence_scales`,
+    which this config resolves to.
+    """
+
+    method: Literal["smoother_persistence"] = "smoother_persistence"
+    omega: float = Field(default=0.67, gt=0.0, description="Weighted-Jacobi damping factor.")
+    steps: int = Field(default=5, gt=0, description="Number of damping sweeps.")
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+SnapshotWeightingConfig = Annotated[
+    RawWeightingConfig | PowerNormWeightingConfig | SmootherPersistenceWeightingConfig,
+    Field(discriminator="method"),
+]
+
+parse_snapshot_weighting_config = TypeAdapter(SnapshotWeightingConfig).validate_python
+"""Coerce a raw dict (as a TOML `[model]` table's `extra="allow"` passthrough
+yields — see `composition/preconditioners/pod_fittable.py`) or an already-typed
+instance into a validated `SnapshotWeightingConfig` member."""
+
+
 class PODCoarseningConfig(NeuralCheckpointRef):
     """POD-2G coarsening (Nikolopoulos et al. 2022, §3.3-3.5).
 
@@ -436,6 +496,14 @@ class PODCoarseningConfig(NeuralCheckpointRef):
         description=(
             "Fixed number of POD modes to retain (int), or minimum cumulative "
             "captured energy to retain (float in (0, 1] — e.g. 0.9999)."
+        ),
+    )
+    weighting: SnapshotWeightingConfig = Field(
+        default_factory=RawWeightingConfig,
+        description=(
+            "Per-snapshot row scaling applied before the POD SVD — "
+            "`RawWeightingConfig` (default) reproduces the original unweighted "
+            "fit exactly; see `SnapshotWeightingConfig`'s member configs."
         ),
     )
     model_config = ConfigDict(extra="forbid", frozen=True)
