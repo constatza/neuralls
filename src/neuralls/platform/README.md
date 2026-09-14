@@ -53,6 +53,22 @@ plot legends while preserving the underlying config identifiers and measured
 structural details.
 Plotting defaults keep markers compact so convergence and diagnostic figures
 stay readable when several methods or dense prediction samples are shown.
+Comparison-plot styling (`reporting/plots.py`) resolves three independent
+visual axes instead of deriving everything from one attribute: linestyle
+always follows preconditioner family (lowest-cardinality attribute, matching
+matplotlib's own default solid/dashed/dashdot/dotted order), while marker and
+color follow explicit per-entry keys when the composition layer supplies them
+— e.g. POD-2G comparisons key color on fit dataset and marker on snapshot
+weighting scheme (`comparison_run.py::_pod2g_style_keys`) — falling back to
+family when a caller doesn't supply one. Colors come from the Okabe-Ito
+colorblind-safe palette for up to 8 distinct keys, extended with
+procedurally generated evenly-spaced hues beyond that so the color axis
+never depletes into repeats. Markers are two-tiered (solid shapes first,
+line-drawn ones as overflow) with a per-shape size multiplier so the pool
+renders at a visually balanced weight. Any residual group of entries sharing
+an identical (linestyle, marker, color) triple — the case when no override
+keys are given at all — still gets spread across a lightness ramp so it
+stays distinguishable.
 
 The DLKit dataset bridge stays generic. Platform helpers construct and patch
 DLKit-native dataset entries with the names supplied by composition, but

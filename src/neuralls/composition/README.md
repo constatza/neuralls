@@ -157,6 +157,19 @@ value (e.g. a POD energy-threshold `rank`) differs from the resolved runtime
 value — without composition or platform maintaining a second, config-derived
 description that could drift out of sync with the live object.
 
+Plot *styling* (marker/color, as opposed to the label text above) is a
+further separate concern, driven by `PreconditionerComparisonEntry.color_key`/
+`.marker_key` alongside `.family`. `comparison_run.py::_evaluate_preconditioner`
+populates them via `_pod2g_style_keys`, which reads the raw (unresolved)
+`PreconditionerConfig` — POD-2G's fit dataset (`coarsening.dataset_dir`)
+becomes the color key and its snapshot weighting scheme
+(`coarsening.weighting.method`) becomes the marker key, so a dense POD-2G
+sweep (many dataset x weighting combinations in one plot) separates into
+distinct color/marker combinations instead of collapsing onto one
+family-wide marker with only color-shade differences. Non-POD-2G configs
+yield `(None, None)` and fall back to family-based styling in
+`platform.reporting.plots._resolve_styles`.
+
 Case-driven comparison selection is intentionally simple: one comparison entry
 loads one system from its required `rhs_source`. Generated and raw sources use
 the configured matrix dataset plus `matrix_index`, while dataset sources

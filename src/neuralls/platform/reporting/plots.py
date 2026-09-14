@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import colorsys
+import itertools
+from collections.abc import Hashable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +17,6 @@ from loguru import logger
 
 from neuralls.domain.solver.models.result import CGComparisonResult
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
-from neuralls.shared.types import PreconditionerFamily
 
 DEFAULT_LINE_MARKER_SIZE = 2.0
 DEFAULT_SCATTER_MARKER_AREA = 4.0
@@ -213,76 +214,171 @@ def _build_convergence_label(method_name: str, meta: Any | None) -> str:
     return f"{method_name} ({', '.join(details)})"
 
 
-_FAMILY_STYLES: dict[PreconditionerFamilyKey, tuple[str, str, str]] = {
-    PreconditionerFamily.AMG: ("o", "-", "Blues"),
-    PreconditionerFamily.POD2G: ("s", "--", "Blues"),
-    PreconditionerFamily.NEURAL: ("^", "-.", "Oranges"),
-}
-"""Known family -> (marker, linestyle, colormap). AMG/POD-2G deliberately share a
-colormap: they're routinely compared side by side, so matched hues let a reader
-scan for "what compares to what" while marker+linestyle still tell the two
-methods apart. Any family not listed here falls back to `_FALLBACK_STYLES`."""
-
-_FALLBACK_STYLES: tuple[tuple[str, str, str], ...] = (
-    ("D", ":", "Greens"),
-    ("v", "-", "Purples"),
-    ("P", "--", "Greys"),
-    ("X", "-.", "Reds"),
-    ("*", ":", "PuBuGn"),
-    ("h", "-", "YlOrBr"),
+_LINESTYLE_POOL: tuple[str | tuple[float, tuple[float, ...]], ...] = (
+    "-",
+    "--",
+    "-.",
+    ":",
+    (0, (5, 1)),
+    (0, (3, 1, 1, 1)),
 )
-"""Cycled, one entry per unlisted family (every `PreconditionerType` other than
-AMG/NEURAL/NEURAL_AMG) in first-seen order, so a new preconditioner type added
-later gets a distinct look for free."""
+"""Assigned per family, most-conventional-first (matches matplotlib's own default
+linestyle cycle): solid/dashed/dashdot/dotted, then two dense variants for overflow."""
+
+_MARKER_POOL: dict[str, float] = {
+    "o": 1.0,
+    ".": 1.6,
+    "s": 1.0,
+    "^": 1.1,
+    "D": 1.1,
+    "v": 1.1,
+    "<": 1.1,
+    ">": 1.1,
+    "p": 1.0,
+    "*": 1.3,
+    "h": 1.0,
+    "X": 0.9,
+    "P": 0.9,
+    "+": 1.4,
+    "x": 1.4,
+    "1": 1.5,
+    "2": 1.5,
+    "3": 1.5,
+    "4": 1.5,
+    "|": 1.3,
+    "_": 1.3,
+    "d": 1.2,
+    "H": 1.0,
+}
+"""Marker shape -> `marker_size` multiplier, in assignment order. First 13 keys
+are solid shapes (dot included — it reads fine on its own, unlike the
+overlapping thin glyphs below); the remaining 10 line-drawn markers (+, x,
+1-4, |, _) are deprioritized only because they're easy to confuse with each
+other in a dense legend, used as an overflow tier once more than 13 distinct
+values need a marker. The multiplier balances visual weight: matplotlib draws
+every marker glyph in the same bounding box, but thin glyphs read much
+smaller than solid ones at an identical `markersize`, while bulky filled ones
+(X, P) read larger — 1.0 means no correction needed."""
+
+_OKABE_ITO_HEX: tuple[str, ...] = (
+    "#E69F00",
+    "#56B4E9",
+    "#009E73",
+    "#F0E442",
+    "#0072B2",
+    "#D55E00",
+    "#CC79A7",
+    "#000000",
+)
+"""Okabe-Ito colorblind-safe categorical palette (Wong, Nature Methods 2011) —
+the standard qualitative palette for scientific figures. Used for the first 8
+distinct color keys in a plot; see `_generate_hues` for overflow beyond that."""
 
 
-def _family_style(
-    family: PreconditionerFamilyKey, fallback_order: dict[PreconditionerFamilyKey, int]
-) -> tuple[str, str, str]:
-    """Resolve (marker, linestyle, colormap) for a family, assigning fallbacks as needed.
+def _generate_hues(count: int) -> list[tuple[float, float, float]]:
+    """Generate `count` evenly spaced, fixed-lightness/saturation hues.
+
+    Used only once a plot needs more distinct colors than the standard
+    Okabe-Ito palette provides (8). Separation between hues is `360/count`
+    degrees regardless of how large `count` gets, so this pool never
+    "depletes" the way a fixed named palette does.
 
     Args:
-        family: Family key (see ``preconditioner_family.preconditioner_family``).
-        fallback_order: Mutable map tracking which unlisted families have
-            already claimed a fallback slot, keyed by family and filled in
-            first-seen order.
+        count: Number of distinct hues to generate.
 
     Returns:
-        tuple[str, str, str]: Marker, linestyle, and colormap name for the family.
+        list[tuple[float, float, float]]: RGB triples in [0, 1].
     """
-    if family in _FAMILY_STYLES:
-        return _FAMILY_STYLES[family]
-    slot = fallback_order.setdefault(family, len(fallback_order))
-    return _FALLBACK_STYLES[slot % len(_FALLBACK_STYLES)]
+    return [colorsys.hls_to_rgb(i / count, 0.5, 0.65) for i in range(count)]
 
 
-def _line_styles_by_family(
+def _color_pool(count: int) -> list[Any]:
+    """Resolve `count` distinct colors: Okabe-Ito first, generated hues beyond 8.
+
+    Args:
+        count: Number of distinct colors needed.
+
+    Returns:
+        list[Any]: Matplotlib-compatible colors, length `count`.
+    """
+    if count <= len(_OKABE_ITO_HEX):
+        return list(_OKABE_ITO_HEX[:count])
+    return list(_OKABE_ITO_HEX) + _generate_hues(count - len(_OKABE_ITO_HEX))
+
+
+def _assign_axis(keys: Mapping[str, Hashable], palette: Sequence[Any]) -> dict[str, Any]:
+    """Assign each distinct key a palette slot, in first-seen order, cycling on overflow.
+
+    Args:
+        keys: Axis key per method name (plot label).
+        palette: Ordered pool of visual codes (linestyles, markers, or colors)
+            to draw from.
+
+    Returns:
+        dict[str, Any]: Method name -> palette value.
+    """
+    unique_keys = dict.fromkeys(keys.values())
+    palette_by_key = dict(zip(unique_keys, itertools.cycle(palette)))
+    return {name: palette_by_key[key] for name, key in keys.items()}
+
+
+def _resolve_styles(
     families: Mapping[str, PreconditionerFamilyKey],
+    color_keys: Mapping[str, Hashable] | None,
+    marker_keys: Mapping[str, Hashable] | None,
 ) -> dict[str, dict[str, Any]]:
-    """Build a per-method matplotlib style dict, grouped and colored by family.
+    """Build a per-method matplotlib style dict from three independent axes.
 
-    Every method in the same family shares a marker and linestyle; within a
-    family, methods are shaded across that family's colormap so individual
-    lines stay distinguishable.
+    Linestyle always follows `family` (lowest-cardinality attribute, fewest
+    legible linestyles). Marker and color follow `marker_keys`/`color_keys`
+    when given (falling back to `family` per method when a method has no
+    entry), so callers can make e.g. same-dataset lines share a color and
+    same-weighting-scheme lines share a marker within one family, instead of
+    every same-family line collapsing onto one marker/linestyle pair.
+
+    Any group of methods left sharing an identical (linestyle, marker, color)
+    triple — the case when no override keys are given at all — gets its color
+    spread across a lightness ramp so it still stays visually distinguishable.
 
     Args:
         families: Family key per method name (plot label).
+        color_keys: Optional color-axis key per method name.
+        marker_keys: Optional marker-axis key per method name.
 
     Returns:
         dict[str, dict[str, Any]]: Method name -> ``{"marker", "linestyle", "color"}``.
     """
-    members_by_family: dict[PreconditionerFamilyKey, list[str]] = {}
-    for name, family in families.items():
-        members_by_family.setdefault(family, []).append(name)
+    color_keys = color_keys or {}
+    marker_keys = marker_keys or {}
+    effective_color_keys = {name: color_keys.get(name, family) for name, family in families.items()}
+    effective_marker_keys = {
+        name: marker_keys.get(name, family) for name, family in families.items()
+    }
 
-    fallback_order: dict[PreconditionerFamilyKey, int] = {}
-    styles: dict[str, dict[str, Any]] = {}
-    for family, members in members_by_family.items():
-        marker, linestyle, cmap_name = _family_style(family, fallback_order)
-        cmap = matplotlib.colormaps[cmap_name]
-        shades = np.linspace(0.85, 0.4, len(members)) if len(members) > 1 else [0.6]
-        for member, shade in zip(members, shades):
-            styles[member] = {"marker": marker, "linestyle": linestyle, "color": cmap(shade)}
+    linestyles = _assign_axis(families, _LINESTYLE_POOL)
+    markers = _assign_axis(effective_marker_keys, list(_MARKER_POOL))
+    n_colors = len(dict.fromkeys(effective_color_keys.values()))
+    colors = _assign_axis(effective_color_keys, _color_pool(max(n_colors, 1)))
+
+    styles: dict[str, dict[str, Any]] = {
+        name: {"marker": markers[name], "linestyle": linestyles[name], "color": colors[name]}
+        for name in families
+    }
+
+    collision_groups: dict[tuple[Any, Any, Any], list[str]] = {}
+    for name, style in styles.items():
+        triple = (style["linestyle"], style["marker"], tuple(np.asarray(style["color"]).flat))
+        collision_groups.setdefault(triple, []).append(name)
+    for members in collision_groups.values():
+        if len(members) <= 1:
+            continue
+        rgb: Any = matplotlib.colors.to_rgb(styles[members[0]]["color"])
+        hue, _, saturation = colorsys.rgb_to_hls(*rgb)
+        for member, lightness in zip(members, np.linspace(0.7, 0.35, len(members))):
+            styles[member]["color"] = colorsys.hls_to_rgb(hue, lightness, saturation)
+
+    for name, style in styles.items():
+        style["markersize_scale"] = _MARKER_POOL.get(style["marker"], 1.0)
     return styles
 
 
@@ -296,6 +392,8 @@ def plot_convergence_comparison(
     atol: float | None = None,
     max_iterations: int | None = None,
     families: Mapping[str, PreconditionerFamilyKey] | None = None,
+    color_keys: Mapping[str, Hashable] | None = None,
+    marker_keys: Mapping[str, Hashable] | None = None,
     marker_size: float = DEFAULT_LINE_MARKER_SIZE,
 ) -> None:
     """Plot convergence comparison between preconditioners.
@@ -310,15 +408,20 @@ def plot_convergence_comparison(
         atol: Optional absolute tolerance parameter to display
         max_iterations: Optional max iterations parameter to display
         families: Optional plot-style family per method name (see
-            ``preconditioner_family.preconditioner_family``). When given,
-            same-family lines share a marker/linestyle and a matched
-            colormap (e.g. ``amg``/``pod2g``); omitted methods fall back to
-            the default style.
+            ``preconditioner_family.preconditioner_family``). Drives linestyle:
+            same-family lines always share a linestyle.
+        color_keys: Optional color-axis key per method name (e.g. a POD-2G
+            fit dataset). Methods sharing a key share a color; methods
+            omitted here fall back to their family. Colors come from the
+            Okabe-Ito palette, extended with generated hues beyond 8 keys.
+        marker_keys: Optional marker-axis key per method name (e.g. a POD-2G
+            weighting scheme). Methods sharing a key share a marker; methods
+            omitted here fall back to their family.
         marker_size: Marker diameter for convergence-history points.
     """
     fig, ax = plt.subplots(figsize=(10, 6))
     metadata = dict(metadata or {})
-    line_styles = _line_styles_by_family(families) if families else {}
+    line_styles = _resolve_styles(families, color_keys, marker_keys) if families else {}
 
     for method_name, result in results.items():
         # Handle both dict and dataclass results
@@ -333,9 +436,12 @@ def plot_convergence_comparison(
             iterations = range(len(residuals))
 
             label = _build_convergence_label(method_name, metadata.get(method_name))
-            style = line_styles.get(method_name, {"marker": "o", "linestyle": "-"})
+            style = dict(line_styles.get(method_name, {"marker": "o", "linestyle": "-"}))
+            size_scale = style.pop("markersize_scale", 1.0)
 
-            ax.semilogy(iterations, residuals, label=label, markersize=marker_size, **style)
+            ax.semilogy(
+                iterations, residuals, label=label, markersize=marker_size * size_scale, **style
+            )
         else:
             # Log warning for methods with no history
             logger.warning(f"Method '{method_name}' has no residual history to plot")

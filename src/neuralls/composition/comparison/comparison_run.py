@@ -38,7 +38,13 @@ from neuralls.domain.solver.models.result import (
     ComparisonResult,
 )
 from neuralls.platform.config.models.comparison import ComparisonGeneral
-from neuralls.platform.config.models.preconditioner import PreconditionerConfig, PreconditionerType
+from neuralls.platform.config.models.preconditioner import (
+    AMGPreconditionerConfig,
+    NeuralPODCoarseningConfig,
+    PODCoarseningConfig,
+    PreconditionerConfig,
+    PreconditionerType,
+)
 from neuralls.platform.config.models.preconditioner_family import (
     PreconditionerFamilyKey,
     preconditioner_family,
@@ -54,6 +60,35 @@ type PreconditionerEvaluationMapper = Callable[
     ],
     Iterable[PreconditionerComparisonEntry],
 ]
+
+
+def _pod2g_style_keys(cfg: PreconditionerConfig) -> tuple[str | None, str | None]:
+    """Extract (color_key, marker_key) for a POD-2G config, else (None, None).
+
+    POD-2G comparisons routinely sweep many (fit dataset, snapshot weighting)
+    combinations in one plot; the fit dataset drives color, the weighting
+    scheme drives marker, so a dense sweep separates into distinct
+    color/marker combinations instead of collapsing onto one family-wide
+    marker+linestyle with only color-shade differences.
+
+    Args:
+        cfg: Preconditioner configuration to inspect.
+
+    Returns:
+        tuple[str | None, str | None]: ``(color_key, marker_key)``, both
+        ``None`` for non-POD-2G configs (falls back to family-based styling).
+    """
+    if not isinstance(cfg, AMGPreconditionerConfig) or not isinstance(
+        cfg.coarsening, PODCoarseningConfig | NeuralPODCoarseningConfig
+    ):
+        return None, None
+    color_key = str(cfg.coarsening.dataset_dir)
+    # Only PODCoarseningConfig carries a snapshot weighting scheme;
+    # NeuralPODCoarseningConfig predicts snapshots from a checkpoint instead.
+    marker_key = (
+        cfg.coarsening.weighting.method if isinstance(cfg.coarsening, PODCoarseningConfig) else None
+    )
+    return color_key, marker_key
 
 
 def _evaluate_preconditioner(
@@ -109,12 +144,15 @@ def _evaluate_preconditioner(
         maxiter=params.max_iterations,
         m_max=params.m_max,
     )[cfg.name]
+    color_key, marker_key = _pod2g_style_keys(cfg)
     return PreconditionerComparisonEntry(
         name=cfg.name,
         result=result,
         condition_number=condition_number,
         label=label,
         family=preconditioner_family(cfg),
+        color_key=color_key,
+        marker_key=marker_key,
     )
 
 
@@ -276,11 +314,17 @@ def compare_preconditioners(
     cond_numbers: dict[str, float] = {}
     labels: dict[str, str] = {}
     families: dict[str, PreconditionerFamilyKey] = {}
+    color_keys: dict[str, str] = {}
+    marker_keys: dict[str, str] = {}
     for entry in evaluation_mapper(evaluate_one, preconditioner_configs):
         results[entry.name] = entry.result
         cond_numbers[entry.name] = entry.condition_number
         labels[entry.name] = entry.label
         families[entry.name] = entry.family
+        if entry.color_key is not None:
+            color_keys[entry.name] = entry.color_key
+        if entry.marker_key is not None:
+            marker_keys[entry.name] = entry.marker_key
 
     if "none" not in results:
         baseline = run_cg_comparison(
@@ -303,6 +347,8 @@ def compare_preconditioners(
         paths,
         labels,
         families,
+        color_keys=color_keys,
+        marker_keys=marker_keys,
         display_name=display_name,
         rtol=general_params.params.rtol,
         atol=general_params.params.atol,

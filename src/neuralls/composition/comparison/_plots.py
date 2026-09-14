@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Hashable, Mapping
 
 from neuralls.composition.comparison.models import ComparisonPaths
 from neuralls.domain.analysis.spectra import plot_condition_numbers
@@ -17,6 +17,8 @@ def _generate_comparison_plots(
     paths: ComparisonPaths,
     labels: Mapping[str, str],
     families: Mapping[str, PreconditionerFamilyKey] | None = None,
+    color_keys: Mapping[str, Hashable] | None = None,
+    marker_keys: Mapping[str, Hashable] | None = None,
     display_name: str | None = None,
     rtol: float | None = None,
     atol: float | None = None,
@@ -34,7 +36,11 @@ def _generate_comparison_plots(
             constructed.
         families: Plot-style family per preconditioner name (see
             ``preconditioner_family.preconditioner_family``), used to give
-            same-family convergence lines a shared marker/linestyle/colormap.
+            same-family convergence lines a shared linestyle.
+        color_keys: Optional color-axis key per preconditioner name (e.g. a
+            POD-2G fit dataset); entries missing here fall back to family.
+        marker_keys: Optional marker-axis key per preconditioner name (e.g. a
+            POD-2G weighting scheme); entries missing here fall back to family.
         display_name: Optional title shown on all plots.
         rtol: Relative tolerance displayed as a reference line.
         atol: Absolute tolerance displayed as a reference line.
@@ -45,6 +51,8 @@ def _generate_comparison_plots(
     """
     suffix = paths.matrix.stem or "comparison"
     families = families or {}
+    color_keys = color_keys or {}
+    marker_keys = marker_keys or {}
 
     cond_path = plot_condition_numbers(
         {labels.get(name, name): value for name, value in cond_numbers.items()},
@@ -65,6 +73,8 @@ def _generate_comparison_plots(
         atol=atol,
         max_iterations=max_iterations,
         families={labels.get(name, name): family for name, family in families.items()},
+        color_keys={labels.get(name, name): key for name, key in color_keys.items()},
+        marker_keys={labels.get(name, name): key for name, key in marker_keys.items()},
     )
 
     iter_path = paths.figures / f"preconditioner_iterations_{suffix}.png"

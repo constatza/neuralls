@@ -100,7 +100,12 @@ class PreconditionerComparisonEntry:
         condition_number: Effective condition number of the preconditioned system.
         label: Descriptive plot label built from the constructed preconditioner instance.
         family: Plot-style family key (see ``preconditioner_family.preconditioner_family``),
-            grouping same-family preconditioners under a shared marker/linestyle/colormap.
+            driving shared linestyle across same-family preconditioners.
+        color_key: Optional plot color-axis key (e.g. a POD-2G fit dataset).
+            Entries sharing a key share a color; ``None`` falls back to ``family``.
+        marker_key: Optional plot marker-axis key (e.g. a POD-2G weighting
+            scheme). Entries sharing a key share a marker; ``None`` falls back
+            to ``family``.
     """
 
     name: str
@@ -108,6 +113,8 @@ class PreconditionerComparisonEntry:
     condition_number: float
     label: str
     family: PreconditionerFamilyKey
+    color_key: str | None = None
+    marker_key: str | None = None
 
 
 @dataclass(frozen=True)
