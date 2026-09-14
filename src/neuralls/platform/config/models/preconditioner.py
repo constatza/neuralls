@@ -243,7 +243,11 @@ class BasePreconditionerConfig(BaseModel):
     Includes scheduling fields shared by all preconditioner variants.
     """
 
-    name: str
+    name: str = Field(
+        default="",
+        description="Config identity, used as the results/plot key. Defaults to "
+        "the concrete subclass's `type` when omitted.",
+    )
     start_iter: int = Field(
         default=0,
         ge=0,
@@ -259,6 +263,17 @@ class BasePreconditionerConfig(BaseModel):
         extra="ignore",  # Allow extra fields from conversion
         frozen=True,
     )
+
+    @model_validator(mode="after")
+    def _default_name_to_type(self) -> Self:
+        """Fall back `name` to the concrete subclass's `type` value when omitted.
+
+        Returns:
+            The validated config instance.
+        """
+        if not self.name:
+            object.__setattr__(self, "name", str(getattr(self, "type", "")))
+        return self
 
 
 class StandardPreconditionerConfig(BasePreconditionerConfig):
