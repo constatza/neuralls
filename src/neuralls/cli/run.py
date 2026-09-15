@@ -16,12 +16,18 @@ def run_case_pipeline_command(
         False,
         "--force",
         "-f",
-        help="Force retraining even if a completed MLflow run already exists.",
+        help="Force every stage — generate, train, and compare — even if a "
+        "matching result already exists.",
     ),
     force_generate: bool = typer.Option(
         False,
         "--force-generate",
         help="Regenerate every dataset even if a matching one already exists.",
+    ),
+    force_train: bool = typer.Option(
+        False,
+        "--force-train",
+        help="Retrain every assignment even if a completed MLflow run already exists.",
     ),
     force_compare: bool = typer.Option(
         False,
@@ -43,13 +49,16 @@ def run_case_pipeline_command(
     try:
         settings = load_case_settings(config, env_file, profile=profile)
         typer.echo(f"Running case pipeline from: {config}")
+        force_generate = force or force_generate
+        force_train = force or force_train
+        force_compare = force or force_compare
         if force:
-            typer.echo("Force mode enabled: existing MLflow training runs will be ignored.")
+            typer.echo("Force mode enabled: generation, training, and comparison will all rerun.")
 
         results, comparison_outcomes = run_case_pipeline(
             case_config_path=config,
             settings=settings,
-            force_train=force,
+            force_train=force_train,
             force_generate=force_generate,
             force_compare=force_compare,
             max_epochs=max_epochs,

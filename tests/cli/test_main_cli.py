@@ -440,6 +440,50 @@ def test_run_invokes_batch_workflow(
     assert call_kwargs["max_epochs"] is None
 
 
+@patch("neuralls.cli.run.run_case_pipeline")
+@patch("neuralls.cli.run.load_case_settings")
+def test_run_global_force_cascades_to_every_stage(
+    mock_load_settings: MagicMock,
+    mock_run_case_pipeline: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """Regression test: bare `--force` must force generate/train/compare alike,
+    not just training — the bug this cascade was added to fix."""
+    config = tmp_path / "case.toml"
+    config.write_text("", encoding="utf-8")
+    mock_load_settings.return_value = MagicMock()
+    mock_run_case_pipeline.return_value = ([], [])
+
+    result = runner.invoke(app, ["run", str(config), "--force"])
+
+    assert result.exit_code == 0
+    call_kwargs = mock_run_case_pipeline.call_args.kwargs
+    assert call_kwargs["force_train"] is True
+    assert call_kwargs["force_generate"] is True
+    assert call_kwargs["force_compare"] is True
+
+
+@patch("neuralls.cli.run.run_case_pipeline")
+@patch("neuralls.cli.run.load_case_settings")
+def test_run_per_stage_force_flags_stay_independent(
+    mock_load_settings: MagicMock,
+    mock_run_case_pipeline: MagicMock,
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "case.toml"
+    config.write_text("", encoding="utf-8")
+    mock_load_settings.return_value = MagicMock()
+    mock_run_case_pipeline.return_value = ([], [])
+
+    result = runner.invoke(app, ["run", str(config), "--force-generate"])
+
+    assert result.exit_code == 0
+    call_kwargs = mock_run_case_pipeline.call_args.kwargs
+    assert call_kwargs["force_generate"] is True
+    assert call_kwargs["force_train"] is False
+    assert call_kwargs["force_compare"] is False
+
+
 def test_compare_signature_uses_batch_case_argument() -> None:
     config = get_args(get_type_hints(compare_case, include_extras=True)["config"])[1]
 

@@ -344,14 +344,15 @@ def neural_specs_from_assignments(
         context = _resolve_assignment_job_context(
             entry, cfg=cfg, config_dir=config_dir, settings=settings
         )
-        if isinstance(context.job, FitJobConfig):
-            specs.append(
-                _pod_fit_spec_from_assignment(
-                    entry, job=context.job, dataset_dir=context.dataset_dir
+        match context.job:
+            case FitJobConfig():
+                specs.append(
+                    _pod_fit_spec_from_assignment(
+                        entry, job=context.job, dataset_dir=context.dataset_dir
+                    )
                 )
-            )
-        else:
-            specs.append(_neural_spec_from_assignment(entry, client=client))
+            case _:
+                specs.append(_neural_spec_from_assignment(entry, client=client))
     return specs
 
 
