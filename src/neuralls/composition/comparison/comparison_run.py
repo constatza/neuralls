@@ -91,6 +91,40 @@ def _pod2g_style_keys(cfg: PreconditionerConfig) -> tuple[str | None, str | None
     return color_key, marker_key
 
 
+def _breakdown_result(name: str, *, rhs: torch.Tensor, error: str) -> CGComparisonResult:
+    """Stand-in result for a preconditioner that failed to build (e.g. IC(0) breakdown).
+
+    Mirrors the shape ``run_cg_comparison`` already produces for a solver
+    failure (``domain/solver/comparison.py``), so downstream reporting and
+    MLflow logging — which already branch on ``result.error``/``.breakdown``
+    — handle this the same way, with no new special case.
+
+    Args:
+        name: Preconditioner config name.
+        rhs: Right-hand side vector, for ``rhs_norm`` and placeholder shape.
+        error: The construction failure message.
+
+    Returns:
+        CGComparisonResult: ``converged=False``, ``breakdown=True``, zero iterations.
+    """
+    zeros = _to_numpy(torch.zeros_like(rhs))
+    return CGComparisonResult(
+        x=zeros,
+        converged=False,
+        iterations=0,
+        residual=float("inf"),
+        residual_abs=float("inf"),
+        residual_history_rel=[],
+        residual_history_abs=[],
+        preconditioner=name,
+        initial_guess=zeros,
+        exact_error=None,
+        rhs_norm=float(torch.linalg.vector_norm(rhs)),
+        breakdown=True,
+        error=f"Preconditioner construction failed: {error}",
+    )
+
+
 def _evaluate_preconditioner(
     cfg: PreconditionerConfig,
     *,
@@ -122,15 +156,33 @@ def _evaluate_preconditioner(
         Named result: solve outcome, condition number, and plot label for ``cfg``.
     """
     logger.info(f"Preconditioner: {cfg.name} (comparison={display_name or 'unnamed'})")
-    base_preconditioners = {cfg.name: service.create_preconditioner(matrix, cfg)}
-    scheduled = _create_scheduled_preconditioners(
-        preconditioner_configs=[cfg],
-        matrix=matrix,
-        base_preconditioners=base_preconditioners,
-    )
-    _load_and_bind_extra_inputs(
-        scheduled, matrix=matrix, matrix_path=matrix_path, matrix_index=matrix_index
-    )
+    try:
+        base_preconditioners = {cfg.name: service.create_preconditioner(matrix, cfg)}
+        scheduled = _create_scheduled_preconditioners(
+            preconditioner_configs=[cfg],
+            matrix=matrix,
+            base_preconditioners=base_preconditioners,
+        )
+        _load_and_bind_extra_inputs(
+            scheduled, matrix=matrix, matrix_path=matrix_path, matrix_index=matrix_index
+        )
+    except (ValueError, RuntimeError) as exc:
+        logger.warning(
+            "Preconditioner '{}' failed to build (comparison={}): {}",
+            cfg.name,
+            display_name or "unnamed",
+            exc,
+        )
+        color_key, marker_key = _pod2g_style_keys(cfg)
+        return PreconditionerComparisonEntry(
+            name=cfg.name,
+            result=_breakdown_result(cfg.name, rhs=rhs, error=str(exc)),
+            condition_number=float("nan"),
+            label=cfg.name,
+            family=preconditioner_family(cfg),
+            color_key=color_key,
+            marker_key=marker_key,
+        )
 
     cond_callables: dict[str, PreconditionerCallable] = {name: p for name, p in scheduled.items()}
     condition_number = compute_condition_numbers(_to_numpy(matrix), cond_callables)[cfg.name]

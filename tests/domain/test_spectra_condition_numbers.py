@@ -250,6 +250,30 @@ def test_arpack_used_above_dense_fallback_threshold_with_generous_ncv(
         assert call_kwargs["ncv"] > 20
 
 
+def test_non_finite_preconditioner_output_degrades_to_nan_instead_of_crashing(
+    diagonal_matrix: torch.Tensor,
+) -> None:
+    """A preconditioner that breaks down (e.g. IC(0) on a non-existent factorization)
+
+    emits nan/inf from its own ``apply()`` rather than raising — this is
+    documented upstream ``torchalg`` behavior, not something this function
+    can prevent at the source. Feeding that straight into
+    ``torch.linalg.eigvals`` previously reached MKL's LAPACK balancing step
+    with non-finite input, which aborts the whole process instead of raising
+    a catchable Python exception - the reported crash. This must degrade to
+    NaN via the normal per-preconditioner error path instead.
+    """
+
+    def broken_preconditioner(vector: torch.Tensor) -> torch.Tensor:
+        return vector * float("nan")
+
+    cond_numbers = compute_condition_numbers(
+        diagonal_matrix.numpy(), {"broken": broken_preconditioner}
+    )
+
+    assert np.isnan(cond_numbers["broken"])
+
+
 def test_arpack_non_convergence_falls_back_to_dense_instead_of_nan(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

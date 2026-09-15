@@ -155,6 +155,13 @@ def compute_condition_numbers(
     cond_numbers: dict[str, float] = {}
     for name, preconditioner in preconditioners.items():
         try:
+            probe = preconditioner(torch.ones(n, dtype=torch.float64))
+            if not torch.isfinite(probe).all():
+                # A preconditioner (e.g. IC(0)) can silently emit nan/inf on
+                # breakdown instead of raising - MKL's LAPACK error handler
+                # aborts the whole process on non-finite input to eigvals,
+                # bypassing this try/except entirely. Fail fast here instead.
+                raise ValueError(f"preconditioner '{name}' produced non-finite output")
             if n <= _DENSE_FALLBACK_MAX_DIMENSION:
                 cond_numbers[name] = preconditioned_condition_number(matrix_tensor, preconditioner)
             else:
