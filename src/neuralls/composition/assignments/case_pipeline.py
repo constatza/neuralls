@@ -31,8 +31,11 @@ def run_case_pipeline(
     automatically cascades into retraining (stage 2, via its dataset-hash
     reuse check) and recomparing (stage 3, via its checkpoint-dependency reuse
     check) exactly the affected assignments/comparisons, without invoking
-    three separate commands by hand. Comparisons are skipped entirely when the
-    case config declares none.
+    three separate commands by hand. Training and comparisons are each
+    skipped entirely when the case config declares none — a case config may
+    legitimately declare only `[[comparisons]]` with preconditioners inline
+    in `comparison_defaults` (e.g. POD-2G weighting variants that need the
+    matrix at fit time, which a checkpoint-backed `fit` job can't provide).
 
     Args:
         case_config_path: Path to a case config defining datasets, assignments,
@@ -44,27 +47,31 @@ def run_case_pipeline(
         max_epochs: Override max training epochs for every assignment.
 
     Returns:
-        Tuple of (assignment results, comparison outcomes). The comparison
-        list is empty when the case config declares no `[[comparisons]]`.
+        Tuple of (assignment results, comparison outcomes). Each list is
+        empty when the case config declares no `[[assignments]]` /
+        `[[comparisons]]` respectively.
     """
     settings = require_settings(settings, case_config_path=case_config_path)
     cfg, config_dir = load_validated_case_config(case_config_path, settings)
 
     generate_batch(cfg, config_dir, settings, force=force_generate)
 
-    sweep_result = run_assignment_sweep(
-        case_config_path,
-        settings=settings,
-        force=force_train,
-        max_epochs=max_epochs,
-    )
+    assignment_results: list[AssignmentResult] = []
+    if cfg.assignments:
+        sweep_result = run_assignment_sweep(
+            case_config_path,
+            settings=settings,
+            force=force_train,
+            max_epochs=max_epochs,
+        )
+        assignment_results = sweep_result.results
 
     if not cfg.comparisons:
-        return sweep_result.results, []
+        return assignment_results, []
 
     comparison_outcomes = run_comparison_batch(
         case_config_path,
         ComparisonParams(force=force_compare),
         settings=settings,
     )
-    return sweep_result.results, comparison_outcomes
+    return assignment_results, comparison_outcomes

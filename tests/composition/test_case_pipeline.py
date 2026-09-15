@@ -20,8 +20,13 @@ class _PipelineMocks:
     compare: MagicMock
 
 
-def _patch_pipeline(stack: ExitStack, *, has_comparisons: bool) -> _PipelineMocks:
-    cfg = MagicMock(comparisons=(MagicMock(),) if has_comparisons else ())
+def _patch_pipeline(
+    stack: ExitStack, *, has_comparisons: bool, has_assignments: bool = True
+) -> _PipelineMocks:
+    cfg = MagicMock(
+        comparisons=(MagicMock(),) if has_comparisons else (),
+        assignments=(MagicMock(),) if has_assignments else (),
+    )
     stack.enter_context(
         patch(
             "neuralls.composition.assignments.case_pipeline.require_settings",
@@ -67,6 +72,24 @@ def test_skips_comparison_batch_when_case_config_declares_none(tmp_path: Path) -
     mocks.compare.assert_not_called()
     assert assignment_results == ["assignment-result"]
     assert comparison_outcomes == []
+
+
+def test_skips_assignment_sweep_when_case_config_declares_none(tmp_path: Path) -> None:
+    """A comparison-only case config (preconditioners declared inline in
+    comparison_defaults, e.g. POD-2G weighting variants) must not hit
+    load_assignment_batch's "no assignments" error.
+    """
+    case_config_path = tmp_path / "case.toml"
+    settings = MagicMock()
+    with ExitStack() as stack:
+        mocks = _patch_pipeline(stack, has_comparisons=True, has_assignments=False)
+        assignment_results, comparison_outcomes = run_case_pipeline(case_config_path, settings)
+
+    mocks.generate.assert_called_once()
+    mocks.sweep.assert_not_called()
+    mocks.compare.assert_called_once()
+    assert assignment_results == []
+    assert comparison_outcomes == ["comparison-outcome"]
 
 
 def test_runs_comparison_batch_when_case_config_declares_comparisons(tmp_path: Path) -> None:
