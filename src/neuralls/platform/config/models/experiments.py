@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal, cast
@@ -267,8 +268,8 @@ class ComparisonRegistryEntry(BaseModel):
 
 def _dedupe_ids(kind: str, entries: Sequence[RegistryEntry | ComparisonRegistryEntry]) -> None:
     """Reject duplicate registry ids with a focused error."""
-    seen: set[str] = set()
-    duplicates = sorted({entry.id for entry in entries if entry.id in seen or seen.add(entry.id)})
+    counts = Counter(entry.id for entry in entries)
+    duplicates = sorted(id_ for id_, count in counts.items() if count > 1)
     if duplicates:
         joined = ", ".join(duplicates)
         raise ValueError(f"Duplicate {kind} ids in case config: {joined}.")
@@ -276,8 +277,8 @@ def _dedupe_ids(kind: str, entries: Sequence[RegistryEntry | ComparisonRegistryE
 
 def _dedupe_assignment_ids(entries: list[AssignmentEntry]) -> None:
     """Reject duplicate assignment ids with a focused error."""
-    seen: set[str] = set()
-    duplicates = sorted({entry.id for entry in entries if entry.id in seen or seen.add(entry.id)})
+    counts = Counter(entry.id for entry in entries)
+    duplicates = sorted(id_ for id_, count in counts.items() if count > 1)
     if duplicates:
         joined = ", ".join(duplicates)
         raise ValueError(f"Duplicate assignment ids in case config: {joined}.")

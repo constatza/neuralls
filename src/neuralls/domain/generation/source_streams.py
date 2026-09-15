@@ -42,7 +42,7 @@ def _sort_key_for(path: Path, by: EnumerateBy) -> float | str:
         case EnumerateBy.NAME:
             return path.name
         case EnumerateBy.CTIME:
-            return path.stat().st_ctime
+            return path.stat().st_birthtime
         case EnumerateBy.MTIME:
             return path.stat().st_mtime
 

@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [
     #    "bokeh>=3.8.0",
-    "dlkit[cu130]",
+    "dlkit[cuda]",
     "loguru>=0.7.3",
     "numba>=0.63.1",
     "platformdirs>=4.0",
@@ -19,7 +19,7 @@ dependencies = [
     "torchalg",
     "h5py>=3.0",
     "zarr>=3.2.0",
-    "torch>=2.8.0,<2.10.0",
+    "torch>=2.8.0,<3.0",
     "typer>=0.19.2",
 ]
 
@@ -122,9 +122,9 @@ package = true
 [tool.uv.sources]
 dlkit = { git = "https://github.com/constatza/dlkit.git", branch = "develop" }
 torchalg = { git = "https://github.com/constatza/torchalg.git" }
-torch = { index = "pytorch-cu130" }
+torch = { index = "pytorch-cuda" }
 
 [[tool.uv.index]]
-name = "pytorch-cu130"
-url = "https://download.pytorch.org/whl/cu130"
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu132"
 explicit = true
