@@ -1,4 +1,4 @@
-id = "gaussian-0cg-rectangular-high-condition"
+id = "gaussian-cg0-rectangular-high-condition"
 strategy_comment = [
     "\"0-CG\": the `stop` field on the residuals/trace strategies has a hard",
     "floor of 1 (and even stop=1 emits 2 rows per system - iteration 0 AND",

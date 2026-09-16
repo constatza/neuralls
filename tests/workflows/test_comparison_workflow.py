@@ -647,9 +647,9 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
         job_writer=lambda path: _write_fit_job_config(path, rank=0.9999),
         assignment_id="pod2g_cg1",
         dataset_id="solutions-cg1",
-        job_id="pod-2g_0-cg",
+        job_id="pod-2g_cg-0",
     )
-    entry = AssignmentEntry(id="pod2g_cg1", dataset="solutions-cg1", job="pod-2g_0-cg")
+    entry = AssignmentEntry(id="pod2g_cg1", dataset="solutions-cg1", job="pod-2g_cg-0")
     client = MagicMock()
 
     specs = neural_specs_from_assignments(

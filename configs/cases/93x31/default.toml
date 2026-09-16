@@ -45,9 +45,9 @@ coarsening = { method = "target_dim", target_coarse_dim = 300 }
 # variant a rank historically happened to be paired with by name.
 
 [[comparison_defaults.preconditioners]]
-name = "pod-2g_rank100_0-cg"
+name = "pod-2g_rank100_cg-0"
 type = "amg"
-coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-0cg-93x31", n_snapshots = -1, rank = 100 }
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg0-93x31", n_snapshots = -1, rank = 100 }
 
 [[comparison_defaults.preconditioners]]
 name = "pod-2g_rank100_cg-10"
@@ -60,9 +60,9 @@ type = "amg"
 coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg50-93x31", n_snapshots = -1, rank = 100 }
 
 [[comparison_defaults.preconditioners]]
-name = "pod-2g_rank200_0-cg"
+name = "pod-2g_rank200_cg-0"
 type = "amg"
-coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-0cg-93x31", n_snapshots = -1, rank = 200 }
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg0-93x31", n_snapshots = -1, rank = 200 }
 
 [[comparison_defaults.preconditioners]]
 name = "pod-2g_rank200_cg-10"
@@ -75,9 +75,9 @@ type = "amg"
 coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg50-93x31", n_snapshots = -1, rank = 200 }
 
 [[comparison_defaults.preconditioners]]
-name = "pod-2g_rank300_0-cg"
+name = "pod-2g_rank300_cg-0"
 type = "amg"
-coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-0cg-93x31", n_snapshots = -1, rank = 300 }
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg0-93x31", n_snapshots = -1, rank = 300 }
 
 [[comparison_defaults.preconditioners]]
 name = "pod-2g_rank300_cg-10"
@@ -89,14 +89,32 @@ name = "pod-2g_rank300_cg-50"
 type = "amg"
 coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/gaussian-cg50-93x31", n_snapshots = -1, rank = 300 }
 
-[[datasets]]
-path = "../../datasets/train/93x31/gaussian-0cg.toml"
+[[comparison_defaults.preconditioners]]
+name = "pod-2g_rank100_smoother-probes"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/smoother-filtered-probes-93x31", n_snapshots = -1, rank = 100 }
+
+[[comparison_defaults.preconditioners]]
+name = "pod-2g_rank200_smoother-probes"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/smoother-filtered-probes-93x31", n_snapshots = -1, rank = 200 }
+
+[[comparison_defaults.preconditioners]]
+name = "pod-2g_rank300_smoother-probes"
+type = "amg"
+coarsening = { method = "pod", dataset_dir = "${NEURALLS_PROCESSED_DIR}/smoother-filtered-probes-93x31", n_snapshots = -1, rank = 300 }
 
 [[datasets]]
-path = "../../datasets/train/93x31/gaussian-cg10.toml"
+path = "../../datasets/train/93x31/gaussian-cg0.toml"
 
 [[datasets]]
-path = "../../datasets/train/93x31/gaussian-cg50.toml"
+path = "../../datasets/train/93x31/_generated/gaussian-cg10.toml"
+
+[[datasets]]
+path = "../../datasets/train/93x31/_generated/gaussian-cg50.toml"
+
+[[datasets]]
+path = "../../datasets/train/93x31/smoother-filtered-probes.toml"
 
 [[comparisons]]
 matrix_dataset = "gaussian-cg50-93x31"

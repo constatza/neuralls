@@ -1,7 +1,7 @@
-id = "gaussian-0cg-rectangular-high-condition-5000"
+id = "gaussian-cg0-spheres-50x"
 
 [source]
-matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/spheres-50x.txt"
 
 [generation]
 normalize = "matrix"

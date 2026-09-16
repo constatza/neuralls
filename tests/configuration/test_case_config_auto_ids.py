@@ -23,7 +23,7 @@ from neuralls.platform.config.models.experiments import CaseConfig
 def dataset_entry_gaussian() -> dict[str, object]:
     """Registry entry for Gaussian CG-1 45x15 dataset."""
     return {
-        "id": "gaussian-0cg-45x15",
+        "id": "gaussian-cg0-45x15",
         "path": Path("/fake/gaussian.toml"),
         "display_name": "Gaussian CG-1 45x15",
     }
@@ -79,13 +79,13 @@ def test_assignment_auto_id_is_job_first(
     raw = dict(minimal_case_raw)
     raw["assignments"] = [
         {
-            "dataset": "gaussian-0cg-45x15",
+            "dataset": "gaussian-cg0-45x15",
             "job": "ffnn-standard",
             # no id, no display_name
         }
     ]
     config = CaseConfig.model_validate(raw)
-    assert config.assignments[0].id == "ffnn-standard-gaussian-0cg-45x15"
+    assert config.assignments[0].id == "ffnn-standard-gaussian-cg0-45x15"
     assert config.assignments[0].display_name == "FFNN Standard | Gaussian CG-1 45x15"
 
 
@@ -96,7 +96,7 @@ def test_assignment_id_derived_from_display_name(
     raw = dict(minimal_case_raw)
     raw["assignments"] = [
         {
-            "dataset": "gaussian-0cg-45x15",
+            "dataset": "gaussian-cg0-45x15",
             "job": "ffnn-standard",
             "display_name": "My Run",
             # no id
@@ -115,7 +115,7 @@ def test_assignment_display_name_auto_filled_when_only_id_given(
     raw["assignments"] = [
         {
             "id": "my-id",
-            "dataset": "gaussian-0cg-45x15",
+            "dataset": "gaussian-cg0-45x15",
             "job": "ffnn-standard",
             # no display_name
         }
@@ -133,7 +133,7 @@ def test_assignment_explicit_id_and_display_name_unchanged(
     raw["assignments"] = [
         {
             "id": "my-id",
-            "dataset": "gaussian-0cg-45x15",
+            "dataset": "gaussian-cg0-45x15",
             "job": "ffnn-standard",
             "display_name": "My Label",
         }
@@ -155,15 +155,15 @@ def test_comparison_auto_id_when_same_datasets(
     raw = dict(minimal_case_raw)
     raw["comparisons"] = [
         {
-            "matrix_dataset": "gaussian-0cg-45x15",
+            "matrix_dataset": "gaussian-cg0-45x15",
             "rhs_source": {"kind": "gaussian"},
-            "assignments": ["ffnn-standard-gaussian-0cg-45x15"],
+            "assignments": ["ffnn-standard-gaussian-cg0-45x15"],
             # no id, no display_name
         }
     ]
-    raw["assignments"] = [{"dataset": "gaussian-0cg-45x15", "job": "ffnn-standard"}]
+    raw["assignments"] = [{"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard"}]
     config = CaseConfig.model_validate(raw)
-    assert config.comparisons[0].id == "gaussian-0cg-45x15-gaussian"
+    assert config.comparisons[0].id == "gaussian-cg0-45x15-gaussian"
     assert config.comparisons[0].display_name == "Gaussian CG-1 45x15 | gaussian"
     assert config.comparisons[0].matrix_index == 0
 
@@ -175,15 +175,15 @@ def test_comparison_auto_id_when_different_datasets(
     raw = dict(minimal_case_raw)
     raw["comparisons"] = [
         {
-            "matrix_dataset": "gaussian-0cg-45x15",
+            "matrix_dataset": "gaussian-cg0-45x15",
             "rhs_source": {"kind": "dataset", "path": "/fake/solutions"},
-            "assignments": ["ffnn-standard-gaussian-0cg-45x15"],
+            "assignments": ["ffnn-standard-gaussian-cg0-45x15"],
             # no id, no display_name
         }
     ]
-    raw["assignments"] = [{"dataset": "gaussian-0cg-45x15", "job": "ffnn-standard"}]
+    raw["assignments"] = [{"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard"}]
     config = CaseConfig.model_validate(raw)
-    assert config.comparisons[0].id == "gaussian-0cg-45x15-dataset"
+    assert config.comparisons[0].id == "gaussian-cg0-45x15-dataset"
     assert config.comparisons[0].display_name == "Gaussian CG-1 45x15 | dataset"
 
 
@@ -200,7 +200,7 @@ def test_explicit_id_and_display_name_preserved(
     raw["assignments"] = [
         {
             "id": "my-exp",
-            "dataset": "gaussian-0cg-45x15",
+            "dataset": "gaussian-cg0-45x15",
             "job": "ffnn-standard",
             "display_name": "My Assignment",
         }
@@ -208,7 +208,7 @@ def test_explicit_id_and_display_name_preserved(
     raw["comparisons"] = [
         {
             "id": "my-comp",
-            "matrix_dataset": "gaussian-0cg-45x15",
+            "matrix_dataset": "gaussian-cg0-45x15",
             "rhs_source": {"kind": "gaussian"},
             "display_name": "My Comparison",
         }
@@ -229,14 +229,14 @@ def test_comparison_explicit_indices_are_preserved(
     from neuralls.platform.config.models.comparison import DatasetRhsSourceModel
 
     raw = dict(minimal_case_raw)
-    raw["assignments"] = [{"dataset": "gaussian-0cg-45x15", "job": "ffnn-standard"}]
+    raw["assignments"] = [{"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard"}]
     raw["comparisons"] = [
         {
-            "matrix_dataset": "gaussian-0cg-45x15",
+            "matrix_dataset": "gaussian-cg0-45x15",
             "matrix_index": 3,
             "rhs_source": {
                 "kind": "dataset",
-                "path": "/fake/gaussian-0cg-45x15",
+                "path": "/fake/gaussian-cg0-45x15",
                 "sample_index": 7,
             },
         }
@@ -252,10 +252,10 @@ def test_comparison_rejects_removed_train_run_id(
 ) -> None:
     """Case comparisons no longer accept split-driven train_run_id metadata."""
     raw = dict(minimal_case_raw)
-    raw["assignments"] = [{"dataset": "gaussian-0cg-45x15", "job": "ffnn-standard"}]
+    raw["assignments"] = [{"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard"}]
     raw["comparisons"] = [
         {
-            "matrix_dataset": "gaussian-0cg-45x15",
+            "matrix_dataset": "gaussian-cg0-45x15",
             "rhs_source": {"kind": "gaussian"},
             "train_run_id": "run-123",
         }
@@ -277,7 +277,7 @@ def test_invalid_id_chars_raise_validation_error(
     raw["assignments"] = [
         {
             "id": "bad id!",
-            "dataset": "gaussian-0cg-45x15",
+            "dataset": "gaussian-cg0-45x15",
             "job": "ffnn-standard",
         }
     ]
@@ -297,12 +297,12 @@ def test_multi_assignment_auto_ids_all_job_first(
     raw = dict(minimal_case_raw)
     raw["datasets"] = [*list(raw["datasets"]), dataset_entry_solutions]  # type: ignore[arg-type]
     raw["assignments"] = [
-        {"dataset": "gaussian-0cg-45x15", "job": "ffnn-standard"},
+        {"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard"},
         {"dataset": "solutions-45x15", "job": "ffnn-standard"},
     ]
     config = CaseConfig.model_validate(raw)
     assert [e.id for e in config.assignments] == [
-        "ffnn-standard-gaussian-0cg-45x15",
+        "ffnn-standard-gaussian-cg0-45x15",
         "ffnn-standard-solutions-45x15",
     ]
     assert [e.display_name for e in config.assignments] == [
@@ -327,14 +327,14 @@ def test_comparison_display_name_ignores_assignment_filter_for_parent_name(
         },
     ]
     raw["assignments"] = [
-        {"dataset": "gaussian-0cg-45x15", "job": "ffnn-standard"},
+        {"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard"},
         {"dataset": "solutions-45x15", "job": "ffnn-large"},
     ]
     raw["comparisons"] = [
         {
-            "matrix_dataset": "gaussian-0cg-45x15",
+            "matrix_dataset": "gaussian-cg0-45x15",
             "rhs_source": {"kind": "dataset", "path": "/fake/solutions"},
-            "assignments": ["ffnn-standard-gaussian-0cg-45x15"],
+            "assignments": ["ffnn-standard-gaussian-cg0-45x15"],
         }
     ]
 
@@ -354,14 +354,14 @@ def test_duplicate_auto_ids_raise_validation_error(
     raw = dict(minimal_case_raw)
     raw["assignments"] = [
         {
-            "dataset": "gaussian-0cg-45x15",
+            "dataset": "gaussian-cg0-45x15",
             "job": "ffnn-standard",
-            # auto-generates "ffnn-standard-gaussian-0cg-45x15"
+            # auto-generates "ffnn-standard-gaussian-cg0-45x15"
         },
         {
-            "dataset": "gaussian-0cg-45x15",
+            "dataset": "gaussian-cg0-45x15",
             "job": "ffnn-standard",
-            # also auto-generates "ffnn-standard-gaussian-0cg-45x15" -> duplicate!
+            # also auto-generates "ffnn-standard-gaussian-cg0-45x15" -> duplicate!
         },
     ]
     with pytest.raises(ValidationError, match="[Dd]uplicate"):

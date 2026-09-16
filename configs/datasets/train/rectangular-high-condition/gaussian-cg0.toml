@@ -1,4 +1,4 @@
-id = "gaussian-0cg-rectangular-high-condition-1000"
+id = "gaussian-cg0-rectangular-high-condition"
 
 [source]
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
@@ -15,7 +15,7 @@ seed = 42
 # POD-2G fitting never sees real archived solutions - those are comparison-only.
 [[generation.strategy]]
 name = "gaussian_forward"
-samples = 1000
+samples = 5000
 
 [output]
 data_dir = "${NEURALLS_PROCESSED_DIR}"

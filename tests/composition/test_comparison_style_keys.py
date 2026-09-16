@@ -27,7 +27,7 @@ from neuralls.platform.config.models.preconditioner import (
 @pytest.fixture
 def pod2g_dataset_dir(tmp_path: Path) -> Path:
     """A stand-in POD-2G fit-dataset directory (no validator requires it exist yet)."""
-    return tmp_path / "gaussian-0cg-rectangular-high-condition"
+    return tmp_path / "gaussian-cg0-rectangular-high-condition"
 
 
 @pytest.fixture

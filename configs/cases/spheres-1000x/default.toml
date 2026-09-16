@@ -47,13 +47,16 @@ coarsening = { method = "target_dim", target_coarse_dim = 300 }
 # snapshots, so it is deliberately tested against all of them.
 
 [[datasets]]
-path = "../../datasets/train/spheres-1000x/gaussian-0cg.toml"
+path = "../../datasets/train/spheres-1000x/gaussian-cg0.toml"
 
 [[datasets]]
-path = "../../datasets/train/spheres-1000x/gaussian-cg10.toml"
+path = "../../datasets/train/spheres-1000x/_generated/gaussian-cg10.toml"
 
 [[datasets]]
-path = "../../datasets/train/spheres-1000x/gaussian-cg50.toml"
+path = "../../datasets/train/spheres-1000x/_generated/gaussian-cg50.toml"
+
+[[datasets]]
+path = "../../datasets/train/spheres-1000x/smoother-filtered-probes.toml"
 
 [[jobs]]
 id = "pod-2g_rank100"
@@ -88,15 +91,15 @@ rhs_source = { kind = "sparse", indices = [
 ] }
 
 [[assignments]]
-dataset = "gaussian-0cg-spheres-1000x"
+dataset = "gaussian-cg0-spheres-1000x"
 job = "pod-2g_rank100"
 
 [[assignments]]
-dataset = "gaussian-0cg-spheres-1000x"
+dataset = "gaussian-cg0-spheres-1000x"
 job = "pod-2g_rank200"
 
 [[assignments]]
-dataset = "gaussian-0cg-spheres-1000x"
+dataset = "gaussian-cg0-spheres-1000x"
 job = "pod-2g_rank300"
 
 [[assignments]]
@@ -121,4 +124,16 @@ job = "pod-2g_rank200"
 
 [[assignments]]
 dataset = "gaussian-cg50-spheres-1000x"
+job = "pod-2g_rank300"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-spheres-1000x"
+job = "pod-2g_rank100"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-spheres-1000x"
+job = "pod-2g_rank200"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-spheres-1000x"
 job = "pod-2g_rank300"

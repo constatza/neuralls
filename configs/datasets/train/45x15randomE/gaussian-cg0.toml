@@ -1,4 +1,4 @@
-id = "gaussian-cg10-45x15randomE"
+id = "gaussian-cg0-45x15randomE"
 
 [source]
 matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/45x15randomE/stiffness/*_subdomain_1_Kaa.txt"
@@ -15,11 +15,12 @@ normalize = "matrix"
 shuffle = true
 seed = 42
 
+# "0-CG": the true 0-CG case, x ~ N(mu, sigma) with
+# b = A @ x and no CG solve at all. POD-2G fitting never sees the real
+# archived displacement solutions — solution archives are comparison-only.
 [[generation.strategy]]
-name = "gaussian_residuals"
-samples = 500
-stop = 10
-start = 0
+name = "gaussian_forward"
+samples = 5000
 
 [output]
 data_dir = "${NEURALLS_PROCESSED_DIR}"

@@ -1,7 +1,7 @@
-id = "smoother-filtered-probes-rectangular-high-condition"
+id = "smoother-filtered-probes-spheres-1x"
 
 [source]
-matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/spheres-1x.txt"
 
 [generation]
 normalize = "matrix"
@@ -14,17 +14,15 @@ seed = 42
 # vectors, and the only difference is whether smoothing is applied
 # afterward. `stop` (CG's equivalent field) has no comparable meaning here —
 # CG is Krylov-optimal and converges regardless of condition number, while
-# weighted-Jacobi's convergence depends on rho(I - omega D^-1 A) being < 1,
-# which is not guaranteed for a matrix specifically chosen for being
-# high-condition — tying this `stop` to an unrelated algorithm's iteration
-# count would not make this a fair comparison. See
-# domain/generation/README.md's "Smoother-Filtered Probes" section. `omega`
-# matches torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother's
+# weighted-Jacobi's convergence depends on rho(I - omega D^-1 A) being < 1.
+# See domain/generation/README.md's "Smoother-Filtered Probes" section.
+# `omega` matches
+# torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother's
 # default, so "smooth" means the same thing here as it does in POD-2G's
 # actual AMG V-cycle smoother. `start` is left unset (default: keep only
-# the final, fully-damped sweep — the original behavior). No snapshot
-# weighting is applied when fitting POD-2G from this dataset (raw,
-# matching every other pod-2g_rank* job).
+# the final, fully-damped sweep). No snapshot weighting is applied when
+# fitting POD-2G from this dataset (raw, matching every other
+# pod-2g_rank* job).
 [[generation.strategy]]
 name = "smoother_filtered_probes"
 samples = 5000

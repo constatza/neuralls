@@ -151,7 +151,7 @@ identity/Jacobi/IC0, AMG, and dataset-backed POD-2G preconditioners. Neural
 network jobs are kept in explicit training/search variants, not the default
 cases. The 45x15randomE `default.toml` case is parametric — the underlying
 problem is a family of ~100 stiffness matrices with randomized Young's moduli
-(E1-E4), not one fixed matrix. These CG cases use `gaussian-0cg`,
+(E1-E4), not one fixed matrix. These CG cases use `gaussian-cg0`,
 `gaussian-cg10`, and `gaussian-cg50` datasets as POD-2G snapshot inputs, with
 `gaussian-cg50` also serving as the default matrix dataset where a train dataset
 backs comparisons. Every randomE dataset uses the matrix glob
@@ -240,7 +240,7 @@ changing what a dataset config or case config *is*:
   ```toml
   [[dataset_sweeps]]
   label = "cg50-samples"
-  path_template = "../../datasets/train/rectangular-high-condition/gaussian-cg50-{value}.toml"
+  path_template = "../../datasets/train/rectangular-high-condition/_generated/gaussian-cg50-{value}.toml"
   values = [1000, 5000, 10000]
 
   [[assignment_sweeps]]
@@ -262,10 +262,22 @@ changing what a dataset config or case config *is*:
   ```toml
   [[dataset_sweeps]]
   label = "cg-samples"
-  path_template = "../../datasets/train/<family>/gaussian-{cg}-{value}.toml"
+  path_template = "../../datasets/train/<family>/_generated/gaussian-{cg}-{value}.toml"
   axes = { cg = ["cg10", "cg50"], value = [1000, 2000, 5000, 10000] }
   cart_product = true   # 2x4 = 8 paths, every {cg, value} combination
   ```
+
+  **Generated files are gitignored, never committed**: everything
+  `expand_dataset_sweep.py` writes lands in a `_generated/` subdirectory
+  sibling to its `*.sweep.toml` source (`configs/datasets/train/<family>/_generated/`)
+  — see `_GENERATED_SUBDIR_NAME` in the script. These files are 100%
+  mechanically derivable from their tracked `*.sweep.toml`, so committing
+  them would just be duplicate file content under a different name; only the
+  sweep template itself is tracked. Run
+  `uv run python scripts/expand_dataset_sweep.py --all` (expands every
+  `*.sweep.toml` under `configs/` in one pass) after a fresh checkout, and
+  again whenever a sweep source changes, before running `neuralls generate` /
+  `generate-single` against a case that uses swept datasets.
 
   **Caveat**: `[[assignment_sweeps]]` still binds one `job` to *every* entry
   a `dataset_sweep` produces — if different axis values need different jobs
@@ -275,17 +287,22 @@ changing what a dataset config or case config *is*:
   rather than folding it into one multi-axis block.
 
   **When not to use a sweep file**: `45x15`, `45x15randomE`, `93x31`, and
-  `spheres-{1000x,50x,1x}` each have a plain `gaussian-{0cg,cg10,cg50}.toml`
-  triple with no list anywhere (`samples` fixed at 500, `cg_iters`
-  fixed/absent per file) — deliberately left as plain dataset configs, not
-  `*.sweep.toml`. There's no list to expand, so a sweep file would only add
-  indirection; more importantly, a dataset's `id` also names its processed-
-  data directory (`${NEURALLS_PROCESSED_DIR}/<id>`) and its MLflow
-  `dataset_id`, so renaming one to fit a sweep-file naming convention risks
-  orphaning already-generated data or MLflow runs on any machine that's
-  already run `generate`/`train` against these families. Only introduce a
-  sweep file when a real list of values is being introduced — never purely
-  for authoring-style consistency.
+  `spheres-{1000x,50x,1x}` each have `gaussian-cg10.toml`/`gaussian-cg50.toml`
+  generated from one `gaussian-cg.sweep.toml` (`stop = [10, 50]` — a real
+  swept axis, `id_template`/`filename_template` place the value mid-id:
+  `gaussian-cg{value}-<family>`, not the default trailing-value shape). But
+  `gaussian-cg0.toml` stays a separate, plain, hand-written dataset config
+  in every family — it uses `gaussian_forward`, not `gaussian_residuals`,
+  so it has no `stop` field to sweep at all; folding it into the same sweep
+  file isn't possible (one strategy per `*.sweep.toml`), and inventing a
+  one-value sweep just for naming symmetry would only add indirection.
+  More generally: a dataset's `id` also names its processed-data directory
+  (`${NEURALLS_PROCESSED_DIR}/<id>`) and its MLflow `dataset_id`, so
+  renaming one to fit a sweep-file naming convention risks orphaning
+  already-generated data or MLflow runs on any machine that's already run
+  `generate`/`train` against these families. Only introduce a sweep file
+  when a real list of values is being introduced — never purely for
+  authoring-style consistency.
 
 ## Thin Job Example
 

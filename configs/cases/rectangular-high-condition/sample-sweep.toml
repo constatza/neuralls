@@ -47,26 +47,26 @@ coarsening = { method = "target_dim", target_coarse_dim = 300 }
 # entry expands to one real [[datasets]] entry per value in `values` (dataset
 # ids are read from those real files, same as any hand-written [[datasets]]
 # entry — see scripts/expand_dataset_sweep.py and the sibling
-# gaussian-{0cg,cg10,cg50}.sweep.toml files that generate the underlying
+# gaussian-{cg0,cg10,cg50}.sweep.toml files that generate the underlying
 # configs). Kept as 3 separate dataset_sweeps blocks (one per cg-variant)
 # because each variant uses a different generation strategy (gaussian_forward
-# for 0-cg vs gaussian_residuals for cg-10/cg-50), which cannot be expressed
+# for cg-0 vs gaussian_residuals for cg-10/cg-50), which cannot be expressed
 # as a single *.sweep.toml file (one strategy per dataset config) — see
 # "Sweeping one dataset config..." in configs/README.md.
 
 [[dataset_sweeps]]
-label = "0cg-samples"
-path_template = "../../datasets/train/rectangular-high-condition/gaussian-0cg-{value}.toml"
+label = "cg0-samples"
+path_template = "../../datasets/train/rectangular-high-condition/_generated/gaussian-cg0-{value}.toml"
 values = [1000, 5000, 10000]
 
 [[dataset_sweeps]]
 label = "cg10-samples"
-path_template = "../../datasets/train/rectangular-high-condition/gaussian-cg10-{value}.toml"
+path_template = "../../datasets/train/rectangular-high-condition/_generated/gaussian-cg10-{value}.toml"
 values = [1000, 5000, 10000]
 
 [[dataset_sweeps]]
 label = "cg50-samples"
-path_template = "../../datasets/train/rectangular-high-condition/gaussian-cg50-{value}.toml"
+path_template = "../../datasets/train/rectangular-high-condition/_generated/gaussian-cg50-{value}.toml"
 values = [1000, 5000, 10000]
 
 [[jobs]]
@@ -103,7 +103,7 @@ rhs_source = { kind = "sparse", indices = [
 
 # Every job crossed with every dataset_sweep — see the comment above [[dataset_sweeps]].
 [[assignment_sweeps]]
-dataset_sweep = "0cg-samples"
+dataset_sweep = "cg0-samples"
 job = ["pod-2g_rank100", "pod-2g_rank200", "pod-2g_rank300"]
 
 [[assignment_sweeps]]

@@ -1,7 +1,7 @@
-id = "gaussian-0cg-spheres-1000x"
+id = "gaussian-cg0-spheres-1x"
 
 [source]
-matrix_path = "${NEURALLS_RAW_DIR}/matrices/spheres-1000x.txt"
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/spheres-1x.txt"
 
 [generation]
 normalize = "matrix"
@@ -15,7 +15,7 @@ seed = 42
 # POD-2G fitting never sees real archived solutions - those are comparison-only.
 [[generation.strategy]]
 name = "gaussian_forward"
-samples = 500
+samples = 5000
 
 [output]
 data_dir = "${NEURALLS_PROCESSED_DIR}"

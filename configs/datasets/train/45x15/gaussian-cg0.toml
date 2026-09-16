@@ -1,4 +1,4 @@
-id = "gaussian-0cg-45x15"
+id = "gaussian-cg0-45x15"
 
 [source]
 matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/45x15-displacements/stiffness/subdomain_1_Kaa.txt"
@@ -15,7 +15,7 @@ seed = 42
 # POD-2G fitting never sees real archived solutions - those are comparison-only.
 [[generation.strategy]]
 name = "gaussian_forward"
-samples = 500
+samples = 5000
 
 [output]
 data_dir = "${NEURALLS_PROCESSED_DIR}"

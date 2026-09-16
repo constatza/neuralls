@@ -47,13 +47,16 @@ coarsening = { method = "target_dim", target_coarse_dim = 300 }
 # snapshots, so it is deliberately tested against all of them.
 
 [[datasets]]
-path = "../../datasets/train/45x15/gaussian-0cg.toml"
+path = "../../datasets/train/45x15/gaussian-cg0.toml"
 
 [[datasets]]
-path = "../../datasets/train/45x15/gaussian-cg10.toml"
+path = "../../datasets/train/45x15/_generated/gaussian-cg10.toml"
 
 [[datasets]]
-path = "../../datasets/train/45x15/gaussian-cg50.toml"
+path = "../../datasets/train/45x15/_generated/gaussian-cg50.toml"
+
+[[datasets]]
+path = "../../datasets/train/45x15/smoother-filtered-probes.toml"
 
 [[jobs]]
 id = "pod-2g_rank100"
@@ -92,15 +95,15 @@ matrix_dataset = "gaussian-cg50-45x15"
 rhs_source = { kind = "raw_lhs", path = "${NEURALLS_RAW_DIR}/SpectralData/45x15-displacements/UaVectorsFromSpectral/ua_vector from_spectral_no_realization_0.txt", row_kind = "standard", scale = 1.0 }
 
 [[assignments]]
-dataset = "gaussian-0cg-45x15"
+dataset = "gaussian-cg0-45x15"
 job = "pod-2g_rank100"
 
 [[assignments]]
-dataset = "gaussian-0cg-45x15"
+dataset = "gaussian-cg0-45x15"
 job = "pod-2g_rank200"
 
 [[assignments]]
-dataset = "gaussian-0cg-45x15"
+dataset = "gaussian-cg0-45x15"
 job = "pod-2g_rank300"
 
 [[assignments]]
@@ -125,4 +128,16 @@ job = "pod-2g_rank200"
 
 [[assignments]]
 dataset = "gaussian-cg50-45x15"
+job = "pod-2g_rank300"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-45x15"
+job = "pod-2g_rank100"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-45x15"
+job = "pod-2g_rank200"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-45x15"
 job = "pod-2g_rank300"

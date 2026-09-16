@@ -303,7 +303,7 @@ def test_preconditioner_label_stays_within_length_budget_for_pod(
 @pytest.mark.parametrize(
     ("name", "prefix"),
     [
-        ("pod-2g_0-cg", "Pod-2G 0-Cg "),
+        ("pod-2g_cg-0", "Pod-2G Cg-0 "),
         ("pod-2g_cg-50", "Pod-2G Cg-50 "),
     ],
 )

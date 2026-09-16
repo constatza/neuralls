@@ -214,3 +214,9 @@ GEMINI.md
 *.jpg
 *.jpeg
 *.svg
+
+# Dataset configs mechanically expanded from a *.sweep.toml template by
+# scripts/expand_dataset_sweep.py (100% derivable from their tracked
+# source; never hand-edited). Subdirectory name must match
+# _GENERATED_SUBDIR_NAME in scripts/expand_dataset_sweep.py.
+configs/datasets/*/*/_generated/
