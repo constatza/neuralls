@@ -11,6 +11,14 @@ from neuralls.platform.config.models.preconditioner_family import Preconditioner
 from neuralls.platform.reporting.plots import plot_convergence_comparison, plot_metric_comparison
 
 
+def _comparison_plot_title(display_name: str | None, system_size: int | None) -> str | None:
+    """Build the shared title for comparison-run diagnostic plots."""
+    if system_size is None:
+        return display_name
+    prefix = display_name or "Comparison"
+    return f"{prefix} (N={system_size})"
+
+
 def _generate_comparison_plots(
     results: dict[str, CGComparisonResult],
     cond_numbers: dict[str, float],
@@ -20,6 +28,7 @@ def _generate_comparison_plots(
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
     display_name: str | None = None,
+    system_size: int | None = None,
     rtol: float | None = None,
     atol: float | None = None,
     max_iterations: int | None = None,
@@ -42,6 +51,7 @@ def _generate_comparison_plots(
         marker_keys: Optional marker-axis key per preconditioner name (e.g. a
             POD-2G weighting scheme); entries missing here fall back to family.
         display_name: Optional title shown on all plots.
+        system_size: Optional linear system size ``N`` appended to plot titles.
         rtol: Relative tolerance displayed as a reference line.
         atol: Absolute tolerance displayed as a reference line.
         max_iterations: Maximum iterations displayed as a reference line.
@@ -53,12 +63,13 @@ def _generate_comparison_plots(
     families = families or {}
     color_keys = color_keys or {}
     marker_keys = marker_keys or {}
+    title = _comparison_plot_title(display_name, system_size)
 
     cond_path = plot_condition_numbers(
         {labels.get(name, name): value for name, value in cond_numbers.items()},
         save_dir=paths.figures,
         suffix=suffix,
-        title=display_name,
+        title=title,
         rtol=rtol,
         atol=atol,
     )
@@ -68,7 +79,7 @@ def _generate_comparison_plots(
         {labels.get(name, name): result for name, result in results.items()},
         metadata=None,
         save_path=convergence_path,
-        title=display_name,
+        title=title,
         rtol=rtol,
         atol=atol,
         max_iterations=max_iterations,
@@ -82,7 +93,7 @@ def _generate_comparison_plots(
         [labels.get(name, name) for name in results],
         [r.iterations for r in results.values()],
         metric_name="CG Iterations",
-        title=display_name,
+        title=title,
         horizontal=True,
         save_path=iter_path,
     )

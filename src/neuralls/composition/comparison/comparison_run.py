@@ -402,6 +402,7 @@ def compare_preconditioners(
         color_keys=color_keys,
         marker_keys=marker_keys,
         display_name=display_name,
+        system_size=int(system.matrix.shape[0]),
         rtol=general_params.params.rtol,
         atol=general_params.params.atol,
         max_iterations=general_params.params.max_iterations,

@@ -340,18 +340,25 @@ def test_generate_comparison_plots_includes_iterations_barplot(
     )
 
     with (
-        patch("neuralls.composition.comparison._plots.plot_convergence_comparison"),
+        patch(
+            "neuralls.composition.comparison._plots.plot_convergence_comparison"
+        ) as convergence_plot,
         patch(
             "neuralls.composition.comparison._plots.plot_condition_numbers",
             return_value=figures_dir / "conditions.png",
-        ),
-        patch("neuralls.composition.comparison._plots.plot_metric_comparison"),
+        ) as condition_plot,
+        patch("neuralls.composition.comparison._plots.plot_metric_comparison") as metric_plot,
     ):
         result = _generate_comparison_plots(
             two_result_entries,
             simple_cond_numbers,
             paths,
             build_preconditioner_labels(two_preconditioners),
+            display_name="Demo",
+            system_size=1000,
         )
 
     assert result.iterations_barplot is not None
+    assert condition_plot.call_args.kwargs["title"] == "Demo (N=1000)"
+    assert convergence_plot.call_args.kwargs["title"] == "Demo (N=1000)"
+    assert metric_plot.call_args.kwargs["title"] == "Demo (N=1000)"
