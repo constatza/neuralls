@@ -501,14 +501,14 @@ class TestPydanticValidation:
             SolutionArchiveConfig.model_validate({"samples": 10})
 
     def test_pydantic_validates_type_residual_iters(self) -> None:
-        """Test that cg_iters must be int."""
+        """Test that stop must be int."""
         from pydantic import ValidationError
 
         from neuralls.domain.generation.strategy_configs import ResidualErrorConfig
 
-        # Try to pass a string for cg_iters
+        # Try to pass a string for stop
         with pytest.raises(ValidationError, match="Input should be a valid integer"):
-            ResidualErrorConfig.model_validate({"samples": 10, "cg_iters": "many"})
+            ResidualErrorConfig.model_validate({"samples": 10, "stop": "many"})
 
     def test_pydantic_validates_type_krylov_iters(self) -> None:
         """Test that krylov_iters must be int."""
@@ -550,14 +550,15 @@ class TestPydanticValidation:
             samples=50,
             seed=42,
             shuffle=True,
-            cg_iters=10,
+            stop=10,
+            start=0,
             solutions_glob=None,
             archive_solutions=False,
             archive_rhs=False,
-            every_n=1,
+            step=1,
         )
         assert residual.samples == 50
-        assert residual.cg_iters == 10
+        assert residual.stop == 10
 
         eigenvector = EigenvectorForwardConfig(
             samples=30,

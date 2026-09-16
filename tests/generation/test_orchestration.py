@@ -122,7 +122,7 @@ def test_generate_mixture_row_kind_codes_length_matches_trace_rows_after_shuffle
     with base-system-level indices (referenced_samples entries), silently truncating it.
     _finalize_payload then caught the mismatch: row_kind_codes.shape[0] != rhs_all.shape[0].
     """
-    # cg_iters=3 → rows_per_system=4; samples=8 → 2 base systems, 8 trace pairs.
+    # stop=3, start=0 → rows_per_system=4; samples=8 → 2 base systems, 8 trace pairs.
     # Bug: shuffle indexed row_kind_codes (len=8) with 2 base-system indices → truncated to len=2.
     result = _generate_mixture_with_metadata(
         spd_matrix,
@@ -130,7 +130,7 @@ def test_generate_mixture_row_kind_codes_length_matches_trace_rows_after_shuffle
             counts={"gaussian_residuals": 8},
             seed=0,
             shuffle=True,
-            strategy_overrides={"gaussian_residuals": {"cg_iters": 3}},
+            strategy_overrides={"gaussian_residuals": {"stop": 3, "start": 0}},
             solver_overrides=solver_overrides,
         ),
     )
@@ -147,7 +147,7 @@ def test_mixed_strategy_row_kind_codes_concatenated_correctly(
     from neuralls.shared.types import RowKind
 
     # gaussian_forward:3 → 3 STANDARD rows
-    # gaussian_residuals:4 with cg_iters=1 → 2 base systems × 2 rows = 4 trace rows
+    # gaussian_residuals:4 with stop=1, start=0 → 2 base systems × 2 rows = 4 trace rows
     #   each system: [iter0=STANDARD, iter1=CG_INTERNAL]
     result = _generate_mixture_with_metadata(
         spd_matrix,
@@ -155,7 +155,7 @@ def test_mixed_strategy_row_kind_codes_concatenated_correctly(
             counts={"gaussian_forward": 3, "gaussian_residuals": 4},
             seed=0,
             shuffle=False,
-            strategy_overrides={"gaussian_residuals": {"cg_iters": 1}},
+            strategy_overrides={"gaussian_residuals": {"stop": 1, "start": 0}},
             solver_overrides=solver_overrides,
         ),
     )
@@ -185,7 +185,7 @@ def test_gaussian_split_mix_preserves_requested_total_rows(
             seed=0,
             shuffle=False,
             strategy_overrides={
-                "gaussian_residuals": {"cg_iters": 2, "seed": 42},
+                "gaussian_residuals": {"stop": 2, "start": 0, "seed": 42},
                 "gaussian_forward": {"seed": 43},
             },
             solver_overrides=solver_overrides,
@@ -231,7 +231,8 @@ def test_archive_split_mix_uses_solution_archive_skip(
             shuffle=False,
             strategy_overrides={
                 "residuals": {
-                    "cg_iters": 2,
+                    "stop": 2,
+                    "start": 0,
                     "solutions_glob": glob_pattern,
                     "shuffle": False,
                 },

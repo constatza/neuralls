@@ -116,7 +116,7 @@ def multi_matrix_mixture_dataset(
                 counts={"gaussian_forward": 6, "gaussian_residuals": 6},
                 seed=1234,
                 shuffle=False,
-                strategy_overrides={"gaussian_residuals": {"cg_iters": 2}},
+                strategy_overrides={"gaussian_residuals": {"stop": 2, "start": 0}},
                 solver_overrides=solver_overrides,
             ),
             normalize="matrix",

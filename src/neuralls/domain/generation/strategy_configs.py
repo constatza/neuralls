@@ -9,13 +9,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from neuralls.shared.constants import (
     DEFAULT_KRYLOV_ITERATIONS,
     DEFAULT_RANDOM_SEED,
-    DEFAULT_RESIDUAL_TRACE_ITERS,
     DEFAULT_SHUFFLE,
     EIGENVECTOR_SELECT_SMALLEST,
     MAX_ITERATIONS_UPPER_LIMIT,
     MIN_TOLERANCE,
     EigenvectorSelectionMode,
 )
+
+from .step_window import StepWindow
 
 
 class SolveConfig(BaseModel):
@@ -113,6 +114,97 @@ class BaseStrategyConfig(BaseModel):
     )
 
 
+class _StepWindowFields(BaseModel):
+    """start/stop/step fields for any strategy harvesting a bounded trajectory.
+
+    Mixed into a strategy config alongside `BaseStrategyConfig` (multiple
+    inheritance) rather than folded into it directly, since not every
+    strategy harvests a trajectory — see `StepWindow` for the semantics.
+    """
+
+    stop: int = Field(
+        ...,
+        description="Iteration/sweep cap — the solver/smoother runs exactly this many steps, never more.",
+        ge=1,
+    )
+    start: int | None = Field(
+        None,
+        description=(
+            "First step kept (inclusive). Unset or negative is relative to the "
+            "trajectory's true end (unset keeps only the final step); non-negative "
+            "is an absolute index from the beginning."
+        ),
+    )
+    step: int = Field(
+        1,
+        description="Keep every Nth step within [start, stop].",
+        ge=1,
+    )
+
+    @property
+    def window(self) -> StepWindow:
+        """The `StepWindow` these fields describe."""
+        return StepWindow(start=self.start, stop=self.stop, step=self.step)
+
+    @model_validator(mode="after")
+    def _validate_window(self) -> _StepWindowFields:
+        _ = self.window  # raises ValueError via StepWindow.__post_init__ if inconsistent
+        return self
+
+
+_UNREACHABLE_TOLERANCE = 1e-20
+"""Below float64 machine epsilon (~2.2e-16) — the solver can never satisfy
+this, so it always runs exactly `stop` iterations. The default for
+`_CgTraceFields.rtol`/`atol`: forces a fixed-length trajectory (every
+trajectory has exactly `stop + 1` rows) unless a real, reachable tolerance
+is given, in which case the solver may stop earlier (see `StepWindow`'s
+docstring on variable-length trajectories)."""
+
+
+class _CgTraceFields(_StepWindowFields):
+    """`_StepWindowFields` plus the CG solver's own early-stop tolerances.
+
+    Only for strategies that actually run a CG solver (`residuals.py`,
+    `search_directions.py`) — kept separate from `_StepWindowFields` itself
+    since `smoother_filtered_probes` has no tolerance/convergence concept.
+    """
+
+    rtol: float = Field(
+        _UNREACHABLE_TOLERANCE,
+        description="CG relative convergence tolerance — the solver may stop before `stop` once satisfied.",
+        gt=0.0,
+    )
+    atol: float = Field(
+        _UNREACHABLE_TOLERANCE,
+        description="CG absolute convergence tolerance — same early-stop semantics as `rtol`.",
+        gt=0.0,
+    )
+
+    @model_validator(mode="after")
+    def _validate_tolerance_start_combination(self) -> _CgTraceFields:
+        """Reject a real tolerance combined with an absolute forward `start`.
+
+        A non-negative `start` presumes the trajectory reaches that index;
+        a real (reachable) tolerance means CG may stop before it does,
+        which would silently select zero rows for that system. Rejecting
+        the combination outright — rather than letting it fail
+        unpredictably depending on runtime convergence — means real-
+        tolerance mode is only ever combined with end-relative selection
+        (`start` unset or negative), for which "however far it actually
+        got" is always well-defined and never empty.
+        """
+        uses_real_tolerance = (
+            self.rtol != _UNREACHABLE_TOLERANCE or self.atol != _UNREACHABLE_TOLERANCE
+        )
+        if uses_real_tolerance and self.start is not None and self.start >= 0:
+            raise ValueError(
+                "a real rtol/atol (early convergence) can only be combined with "
+                "start=None or a negative (end-relative) start — an absolute "
+                "forward start can silently select zero rows if CG converges early"
+            )
+        return self
+
+
 class BaseEigenvectorConfig(BaseStrategyConfig):
     which: EigenvectorSelectionMode = Field(
         EIGENVECTOR_SELECT_SMALLEST, description="Which eigenvalues to compute."
@@ -148,15 +240,25 @@ class KrylovConfig(BaseStrategyConfig):
     )
 
 
-class SmootherFilteredProbesConfig(BaseStrategyConfig):
+class SmootherFilteredProbesConfig(BaseStrategyConfig, _StepWindowFields):
     """Configuration for SmootherFilteredProbesStrategy.
 
-    Random probe vectors are damped by `steps` weighted-Jacobi sweeps before
-    being used as error snapshots — the directions that survive are, by
-    construction, the ones a Jacobi smoother handles poorly (what a
-    multigrid coarse-grid correction needs to cover).
+    Random probe vectors are damped by `stop` weighted-Jacobi sweeps before
+    being kept (per `window`) as error snapshots — the directions that
+    survive are, by construction, the ones a Jacobi smoother handles poorly
+    (what a multigrid coarse-grid correction needs to cover). By default
+    (`start` unset) only the fully-damped final sweep is kept, matching a
+    single Jacobi-damping call; pass `start` to harvest multiple sweep
+    depths per probe instead.
     """
 
+    samples: int = Field(
+        ...,
+        description="Number of probes to generate. (>0=exact count)",
+        ge=1,  # narrower than BaseStrategyConfig's ge=-1: no archive/finite
+        # source exists for this strategy, so samples=-1 ("all") is never
+        # meaningful — reject it at construction, not deep inside generate().
+    )
     omega: float = Field(
         0.67,
         description=(
@@ -164,11 +266,6 @@ class SmootherFilteredProbesConfig(BaseStrategyConfig):
             "torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother's default."
         ),
         gt=0.0,
-    )
-    steps: int = Field(
-        ...,
-        description="Number of Jacobi damping sweeps applied to each random probe.",
-        ge=1,
     )
     probe_distribution: Literal["gaussian", "rademacher"] = Field(
         "gaussian",
@@ -235,14 +332,13 @@ class ConstantInverseConfig(ConstantForwardConfig):
     )
 
 
-class BaseTraceConfig(BaseStrategyConfig):
-    """Shared configuration for CG trace-collection strategies."""
+class BaseTraceConfig(BaseStrategyConfig, _CgTraceFields):
+    """Shared configuration for archive-backed CG trace-collection strategies.
 
-    cg_iters: int = Field(
-        DEFAULT_RESIDUAL_TRACE_ITERS,
-        description="Number of CG iterations to trace.",
-        ge=1,
-    )
+    By default (`start` unset) only the final CG iterate is kept; pass
+    `start=0` (with `step=1`) to reproduce a full 0..stop trace.
+    """
+
     solutions_glob: str | None = Field(
         None,
         description="Glob pattern for archive solution files to seed generation.",
@@ -255,34 +351,22 @@ class BaseTraceConfig(BaseStrategyConfig):
         False,
         description="Whether to archive intermediate RHS vectors for each iteration step.",
     )
-    every_n: int = Field(
-        1,
-        description="Keep one trace vector every N CG iterations.",
-        ge=1,
-    )
 
 
 class ResidualErrorConfig(BaseTraceConfig):
     """Configuration for residual-error trace strategies."""
 
 
-class SearchDirectionsConfig(BaseStrategyConfig):
+class SearchDirectionsConfig(BaseStrategyConfig, _CgTraceFields):
     """Configuration for SearchDirectionsStrategy.
 
     Collects (A @ p_k, p_k) pairs from CG iterations for training neural preconditioners.
     Training mapping: NN(A @ p_k) ≈ p_k, so NN ≈ A^{-1}
-    """
 
-    cg_iters: int = Field(
-        DEFAULT_RESIDUAL_TRACE_ITERS,
-        description="Number of CG iterations to collect search direction pairs.",
-        ge=1,
-    )
-    every_n: int = Field(
-        1,
-        description="Keep one trace vector every N CG iterations.",
-        ge=1,
-    )
+    Sibling of `BaseTraceConfig`, not a subclass — this strategy has no
+    archive-backed solution/RHS source, so it deliberately does not inherit
+    `solutions_glob`/`archive_solutions`/`archive_rhs`.
+    """
 
 
 class RhsArchiveConfig(BaseStrategyConfig):

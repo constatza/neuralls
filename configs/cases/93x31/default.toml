@@ -40,7 +40,7 @@ type = "amg"
 coarsening = { method = "target_dim", target_coarse_dim = 300 }
 
 # Every rank is fit from every cg-variant's snapshots — rank is a fit-time
-# hyperparameter independent of which strategy/cg_iters produced the
+# hyperparameter independent of which strategy/stop produced the
 # snapshots, so it is deliberately tested against all of them, not just the
 # variant a rank historically happened to be paired with by name.
 

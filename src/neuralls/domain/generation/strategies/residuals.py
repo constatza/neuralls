@@ -106,7 +106,7 @@ class _BaseResidualsStrategy:
         # Validate and convert to typed config
         config = ResidualErrorConfig(**cfg)
 
-        cg_iters = config.cg_iters
+        window = config.window
         rng = np.random.default_rng(config.seed)
         available_systems: int | None = None
 
@@ -115,8 +115,7 @@ class _BaseResidualsStrategy:
 
         num_base_systems, final_rows = resolve_trace_generation_counts(
             config.samples,
-            cg_iters=cg_iters,
-            every_n=config.every_n,
+            window=window,
             available_systems=available_systems,
             strategy_name=self.name,
         )
@@ -168,25 +167,27 @@ class _BaseResidualsStrategy:
                 matrix,
                 rhs_vec,
                 np.zeros(n, dtype=np.float64),
-                maxiter=cg_iters,
-                rtol=1e-20,
-                atol=1e-20,
+                maxiter=window.stop,
+                rtol=config.rtol,
+                atol=config.atol,
             )
 
-            residual_seq = _tensor_trace_to_numpy(info.residual_vectors)
-            solution_seq = _tensor_trace_to_numpy(info.solution_vectors)
+            residual_seq_full = _tensor_trace_to_numpy(info.residual_vectors)
+            solution_seq_full = _tensor_trace_to_numpy(info.solution_vectors)
 
-            residual_seq = residual_seq[:: config.every_n]
-            if solution_seq.size > 0:
-                solution_seq = solution_seq[:: config.every_n]
-            num_pairs = residual_seq.shape[0]
+            residual_seq, indices = window.select_with_indices(residual_seq_full)
+            solution_seq = (
+                window.select(solution_seq_full)
+                if solution_seq_full.size > 0
+                else solution_seq_full
+            )
 
             error_seq = np.array([true_sol - x_k for x_k in solution_seq], dtype=np.float64)
 
             residual_blocks.append(residual_seq)
             solution_current_blocks.append(solution_seq)
             error_blocks.append(error_seq)
-            sidx, iidx = _build_trace_indices(num_pairs, sample_idx, every_n=config.every_n)
+            sidx, iidx = _build_trace_indices(sample_idx, indices)
             sample_indices.append(sidx)
             iteration_indices.append(iidx)
 

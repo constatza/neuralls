@@ -36,12 +36,12 @@ def test_error_strategy_with_random(
         test_seed: Random seed fixture
         solver_overrides: Default tracing solvers for single-RHS strategies
     """
-    cg_iters = 3
+    stop = 3
     rhs, solutions, residuals, error_traces = generate_mixture(
         A=small_spd_matrix,
         mix={"residuals": 1.0},
         total=2,
-        strategy_overrides={"residuals": {"cg_iters": cg_iters}},
+        strategy_overrides={"residuals": {"stop": stop, "start": 0}},
         solver_overrides=solver_overrides,
         seed=test_seed,
         shuffle=False,
@@ -69,12 +69,12 @@ def test_error_strategy_with_archive(
     solver_overrides: dict,
 ) -> None:
     """Residuals strategy with archive produces trace rows satisfying A @ sol = rhs."""
-    cg_iters = 3
+    stop = 3
     rhs, solutions, _residuals, error_traces = generate_mixture(
         A=small_spd_matrix,
         mix={"residuals": 1.0},
         total=2,
-        strategy_overrides={"residuals": {"cg_iters": cg_iters}},
+        strategy_overrides={"residuals": {"stop": stop, "start": 0}},
         solver_overrides=solver_overrides,
         seed=test_seed,
         shuffle=False,
@@ -101,12 +101,12 @@ def test_error_vectors_satisfy_equation(
     solver_overrides: dict,
 ) -> None:
     """A @ e_k = r_k holds for all trace rows (A e_k = r_k by construction)."""
-    cg_iters = 5
+    stop = 5
     rhs, solutions, _, error_traces = generate_mixture(
         A=small_spd_matrix,
         mix={"residuals": 1.0},
         total=3,
-        strategy_overrides={"residuals": {"cg_iters": cg_iters}},
+        strategy_overrides={"residuals": {"stop": stop, "start": 0}},
         solver_overrides=solver_overrides,
         seed=test_seed,
         shuffle=False,
@@ -134,7 +134,7 @@ def test_residuals_match_current_solutions(
         A=small_spd_matrix,
         mix={"residuals": 1.0},
         total=2,
-        strategy_overrides={"residuals": {"cg_iters": 4}},
+        strategy_overrides={"residuals": {"stop": 4, "start": 0}},
         solver_overrides=solver_overrides,
         seed=test_seed,
         shuffle=False,
@@ -158,11 +158,11 @@ def test_error_strategy_mixed_with_forward_strategy(
     solver_overrides: dict,
 ) -> None:
     """Mixing neutral_ones + residuals concatenates rows; A @ sol = rhs for all."""
-    cg_iters = 2
+    stop = 2
     rhs, solutions, _residuals, error_traces = generate_mixture(
         A=small_spd_matrix,
         counts={"neutral_ones": 1, "residuals": 6},
-        strategy_overrides={"residuals": {"cg_iters": cg_iters}},
+        strategy_overrides={"residuals": {"stop": stop, "start": 0}},
         solver_overrides=solver_overrides,
         seed=test_seed,
         shuffle=False,
@@ -246,7 +246,7 @@ def test_error_strategy_validation(
             A=small_spd_matrix,
             mix={"residuals": 1.0},
             total=8,
-            strategy_overrides={"residuals": {"cg_iters": 3}},
+            strategy_overrides={"residuals": {"stop": 3, "start": 0}},
             solver_overrides=solver_overrides,
             seed=test_seed,
             shuffle=False,
@@ -267,12 +267,12 @@ def test_error_strategy_in_generate_mixture(
     solver_overrides: dict,
 ) -> None:
     """Mixing normal + residuals produces concatenated rows satisfying A @ sol = rhs."""
-    cg_iters = 3
+    stop = 3
     rhs, solutions, residuals, error_traces = generate_mixture(
         A=small_spd_matrix,
         mix={"normal": 0.5, "residuals": 0.5},
         total=4,
-        strategy_overrides={"residuals": {"cg_iters": cg_iters}},
+        strategy_overrides={"residuals": {"stop": stop, "start": 0}},
         solver_overrides=solver_overrides,
         seed=test_seed,
         shuffle=False,
@@ -300,13 +300,13 @@ def test_error_strategy_traces_structure(
     test_seed: int,
     solver_overrides: dict,
 ) -> None:
-    """Residuals strategy produces base_systems * (cg_iters+1) rows total."""
-    cg_iters = 4
+    """Residuals strategy produces base_systems * (stop+1) rows total."""
+    stop = 4
     rhs, solutions, _, error_traces = generate_mixture(
         A=small_spd_matrix,
         mix={"residuals": 1.0},
         total=3,
-        strategy_overrides={"residuals": {"cg_iters": cg_iters}},
+        strategy_overrides={"residuals": {"stop": stop, "start": 0}},
         solver_overrides=solver_overrides,
         seed=test_seed,
         shuffle=False,
@@ -333,7 +333,7 @@ def test_error_strategy_with_zero_iterations(
 ) -> None:
     """Test error strategy rejects zero CG iterations.
 
-    Verifies that Pydantic validation rejects cg_iters=0.
+    Verifies that Pydantic validation rejects stop=0.
 
     Args:
         small_spd_matrix: Test SPD matrix fixture
@@ -341,12 +341,12 @@ def test_error_strategy_with_zero_iterations(
         test_seed: Random seed fixture
         solver_overrides: Default tracing solvers for single-RHS strategies
     """
-    with pytest.raises(ValueError, match="(greater than or equal to 1|cg_iters)"):
+    with pytest.raises(ValueError, match="(greater than or equal to 1|stop)"):
         _rhs, _solutions, _residuals, _error_traces = generate_mixture(
             A=small_spd_matrix,
             mix={"residuals": 1.0},
             total=2,
-            strategy_overrides={"residuals": {"cg_iters": 0}},  # Zero iterations
+            strategy_overrides={"residuals": {"stop": 0}},  # Zero iterations
             solver_overrides=solver_overrides,
             seed=test_seed,
             shuffle=False,
@@ -770,17 +770,17 @@ def test_pydantic_requires_solutions_glob_for_solution_archive() -> None:
 
 
 def test_pydantic_validates_residual_iters_type(solver_overrides: dict) -> None:
-    """Test that Pydantic validates parameter types (cg_iters must be int)."""
+    """Test that Pydantic validates parameter types (stop must be int)."""
     A = np.array([[4.0, 1.0], [1.0, 3.0]], dtype=np.float64)
     np.array([1.0, 0.0], dtype=np.float64)
 
-    # Try to pass a string for cg_iters (should be int)
+    # Try to pass a string for stop (should be int)
     with pytest.raises(ValueError, match="Input should be a valid integer"):
         generate_mixture(
             A=A,
             mix={"residuals": 1.0},
             total=2,
-            strategy_overrides={"residuals": {"cg_iters": "many"}},
+            strategy_overrides={"residuals": {"stop": "many"}},
             solver_overrides=solver_overrides,
         )
 

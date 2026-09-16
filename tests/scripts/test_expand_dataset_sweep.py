@@ -28,7 +28,7 @@ def test_render_dataset_toml_matches_committed_gaussian_residuals_file(
         id_="gaussian-cg50-rectangular-high-condition-1000",
         source={"matrix_path": "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"},
         generation_header={"normalize": "matrix", "shuffle": True, "seed": 42},
-        strategy={"name": "gaussian_residuals", "samples": 1000, "cg_iters": 50},
+        strategy={"name": "gaussian_residuals", "samples": 1000, "stop": 50, "start": 0},
         strategy_comment=None,
         output={"data_dir": "${NEURALLS_PROCESSED_DIR}"},
     )
@@ -40,8 +40,8 @@ def test_render_dataset_toml_matches_committed_gaussian_forward_file(
 ) -> None:
     """A gaussian_forward-shaped render with strategy_comment matches gaussian-0cg-1000.toml exactly."""
     comment = [
-        '"0-CG": cg_iters on the residuals/trace strategies has a hard',
-        "floor of 1 (and even cg_iters=1 emits 2 rows per system - iteration 0 AND",
+        '"0-CG": the `stop` field on the residuals/trace strategies has a hard',
+        "floor of 1 (and even stop=1 emits 2 rows per system - iteration 0 AND",
         "iteration 1, not just the untraced solution). gaussian_forward is the true",
         "0-CG case - x ~ N(mu, sigma), b = A @ x, no CG solve at all.",
         "POD-2G fitting never sees real archived solutions - those are comparison-only.",
@@ -67,7 +67,7 @@ def test_find_swept_field_rejects_multiple_list_valued_fields(
 ) -> None:
     with pytest.raises(ValueError, match="only one field may be swept"):
         dataset_sweep_module._find_swept_field(
-            {"name": "gaussian_residuals", "samples": [1, 2], "cg_iters": [10, 20]}
+            {"name": "gaussian_residuals", "samples": [1, 2], "stop": [10, 20]}
         )
 
 
@@ -94,7 +94,9 @@ def test_expand_sweep_writes_one_file_per_value(
             "normalize": "matrix",
             "shuffle": True,
             "seed": 42,
-            "strategy": [{"name": "gaussian_residuals", "samples": [1000, 5000], "cg_iters": 50}],
+            "strategy": [
+                {"name": "gaussian_residuals", "samples": [1000, 5000], "stop": 50, "start": 0}
+            ],
         },
         "output": {"data_dir": "${NEURALLS_PROCESSED_DIR}"},
     }

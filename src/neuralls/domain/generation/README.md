@@ -134,25 +134,100 @@ Start with the simplest family that matches the model target.
 | Advanced | `residuals` | `(r_k, x_true - x_k)` |
 | Advanced | `gaussian_residuals` | `(r_k, x_true - x_k)` |
 | Advanced | `search_directions` | trace pairs for direction learning |
-| Advanced | `smoother_filtered_probes` | `(b, x)`, `x` = random probes damped by weighted-Jacobi sweeps |
+| Advanced | `smoother_filtered_probes` | trace pairs, `x` = random probes damped by weighted-Jacobi sweeps |
 
 ## Smoother-Filtered Probes
 
 `smoother_filtered_probes` (`strategies/smoother_probes.py`) synthesizes
 "algebraically smooth" error snapshots directly, instead of deriving them
 incidentally from a CG trajectory: `samples` random probe vectors (Gaussian
-or Rademacher, via `probe_distribution`) are passed through `steps` sweeps of
-the weighted-Jacobi error-propagation map `v <- v - omega * D^-1 A v`
-(`omega` defaults to 0.67, matching
+or Rademacher, via `probe_distribution`) are passed through `window.stop`
+sweeps of the weighted-Jacobi error-propagation map
+`v <- v - omega * D^-1 A v` (`omega` defaults to 0.67, matching
 `torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother`).
 Directions the smoother handles well are quickly attenuated, so what
-survives after `steps` sweeps is, by construction, smoother-resistant — the
-directions a POD-2G coarse space needs to cover. Reuses torchalg's
-`apply_jacobi_damping` for the damping sweep itself (a brief numpy/torch
-round-trip, the one exception to this package's otherwise numpy-only
-strategies) so "smooth" means the exact same thing here as it does in
-`composition/preconditioners/_weighting.py`'s `smoother_persistence`
-snapshot weighting, which targets the same operator.
+survives after `window.stop` sweeps is, by construction, smoother-resistant
+— the directions a POD-2G coarse space needs to cover. Reuses torchalg's
+`apply_jacobi_damping_trajectory` for the damping sweep itself (a brief
+numpy/torch round-trip, the one exception to this package's otherwise
+numpy-only strategies) so "smooth" means the exact same thing here as it
+does in `composition/preconditioners/_weighting.py`'s
+`smoother_persistence` snapshot weighting, which targets the same operator
+— that function returns every intermediate sweep (not just the final one),
+so `window` (see "Step Selection" below) can pick any sweep depth or range
+of depths, not only the fully-damped result. Output is a `ResidualTraceSamples`
+(the same container `search_directions.py` populates) — one `(A @ x, x)`
+row per kept sweep per probe, always 2D regardless of how many sweeps are
+kept.
+
+## Step Selection
+
+`StepWindow` (`step_window.py`) is the one shared abstraction for "which
+steps of a trajectory to run and keep," used by `residuals.py`,
+`search_directions.py`, and `smoother_probes.py` — every strategy that
+harvests snapshots from a bounded iterative trajectory of a single system
+(`krylov.py` is not a consumer: its samples are random basis combinations,
+not sequential iterates). It replaced the `cg_iters`/`every_n`/`steps`
+fields those strategies used to express this independently.
+
+Mirrors Python's own `slice`/`range` vocabulary — `stop`/`start`/`step`:
+
+- **`stop`** (required, no default) is the hard iteration/sweep cap handed
+  to the solver/smoother — exactly `stop` steps are ever attempted, never
+  more. This is what guarantees a strategy never "solves to convergence and
+  then discards most of the trajectory": the cap *is* the selection
+  parameter, not something decided independently of it.
+- **`start`** (optional) is the first step kept. Left unset (the default
+  everywhere), only the final step is kept — the cheapest, most common
+  case, and the same behavior every one of these strategies had before this
+  abstraction existed. A non-negative `start` is an absolute index from the
+  beginning (`start=0` for a full trace, `start=m` for a `[m, stop]` range);
+  a negative `start` is relative to the trajectory's true end (`start=-n`
+  for the last `n` steps), exactly like Python's own negative indexing.
+- **`step`** (default 1) keeps every `step`-th row within the selected
+  range.
+
+**Why `start` can be end-relative**: the solver/smoother may stop before
+`stop` on its own — CG accepts a real, reachable `rtol`/`atol` (see below)
+and stops once satisfied, so the actual trajectory can be shorter than
+`stop + 1` rows, and can vary per system. End-relative selection (`start`
+unset or negative) always resolves against whatever length the trajectory
+*actually* turns out to have, correctly picking the true last step(s)
+regardless of when the run stopped. An absolute, non-negative `start`
+presumes the trajectory reaches that far, which a real tolerance doesn't
+guarantee — combining the two is rejected at config construction (see
+below), not left to fail unpredictably depending on convergence.
+
+Call sites use `window.select_with_indices(trajectory)` to get the kept
+rows and their original step indices from one call over one array — this
+is what guarantees the two can never be computed from mismatched arrays by
+mistake.
+
+### Real CG convergence tolerances
+
+`residuals.py`/`search_directions.py`'s `ResidualErrorConfig`/
+`SearchDirectionsConfig` (via the `_CgTraceFields` mixin) expose `rtol`/
+`atol` directly — previously hardcoded to `1e-20` in both strategies. That
+value (`_UNREACHABLE_TOLERANCE` in `strategy_configs.py`) is below float64
+machine epsilon, so CG can never actually satisfy it and always runs the
+full `stop` iterations; it's still the default, so existing behavior is
+unchanged unless a real tolerance is given. Passing a real `rtol`/`atol`
+lets CG stop early at its true convergence point — combined with an
+end-relative `start` (unset or negative), this gives "keep the last
+iterate once the residual drops below `tol`" directly, with no new
+abstraction beyond `StepWindow` + these two fields.
+
+Because the row-budget machinery (`resolve_trace_generation_counts`) must
+decide how many base systems to run *before* any of them run, it budgets
+for the worst case — as if every system used the full `stop` — which is
+exact under the default (unreachable-tolerance) mode and a safe
+over-estimate under a real tolerance (a system that converges early simply
+contributes fewer rows than budgeted). With a real tolerance, the final row
+count may therefore land under the requested `samples` rather than hitting
+it exactly; `_trim_error_traces`/`_trim_residual_traces` still cap it at
+`samples`, never over. `smoother_filtered_probes` has no tolerance/
+convergence concept (`apply_jacobi_damping_trajectory` always runs exactly
+`window.stop` sweeps), so this caveat doesn't apply there.
 
 ## Residual Families
 
@@ -166,10 +241,11 @@ These names are the supported user-facing identifiers in dataset configs and
 tests.
 
 Residual and trace strategies interpret positive `samples` as the exact final
-flattened row budget. Internally they generate enough complete CG traces to
-cover that budget, then trim the final trace block so downstream arrays and
-row-kind metadata have exactly `samples` rows. `samples = -1` still means all
-available base systems for finite archive-backed trace sources.
+flattened row budget (see the real-tolerance caveat above). Internally they
+generate enough complete CG traces to cover that budget, then trim the final
+trace block so downstream arrays and row-kind metadata have exactly
+`samples` rows. `samples = -1` still means all available base systems for
+finite archive-backed trace sources.
 
 Archive-backed pure-pair strategies can skip an initial slice of the deterministic
 archive order with `skip`. When `shuffle = true`, files are shuffled once with
@@ -215,6 +291,8 @@ disk once per distinct selection, not once per binding or per dataset file. `Arc
 - `providers.py`: archive or synthetic sample providers
 - `transforms.py`: pure transforms such as `A @ x`
 - `trace_utils.py`: trace trimming, offsets, and indexing helpers
+- `step_window.py`: `StepWindow` — which steps of a bounded trajectory to
+  run and keep (see "Step Selection" above)
 - `strategies/`: concrete generation implementations
 
 Config-driven generation entrypoints now live in

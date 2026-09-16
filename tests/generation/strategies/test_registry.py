@@ -65,7 +65,7 @@ def test_removed_legacy_trace_names_fail(spd_matrix: np.ndarray) -> None:
         "residual_error",
     ):
         try:
-            run_generation(legacy_name, spd_matrix, cfg={"samples": 1, "cg_iters": 1})
+            run_generation(legacy_name, spd_matrix, cfg={"samples": 1, "stop": 1})
             assert False, f"{legacy_name} should be removed"
         except KeyError:
             pass

@@ -79,7 +79,7 @@ class SearchDirectionsStrategy:
         # Validate and convert to typed config
         config = SearchDirectionsConfig(**cfg)
 
-        cg_iters = config.cg_iters
+        window = config.window
         rng = np.random.default_rng(config.seed)
         available_systems: int | None = None
 
@@ -91,8 +91,7 @@ class SearchDirectionsStrategy:
 
         num_base_systems, final_rows = resolve_trace_generation_counts(
             config.samples,
-            cg_iters=cg_iters,
-            every_n=config.every_n,
+            window=window,
             available_systems=available_systems,
             strategy_name="search_directions",
         )
@@ -140,24 +139,22 @@ class SearchDirectionsStrategy:
                 matrix,
                 rhs_vec,
                 np.zeros(n, dtype=np.float64),
-                maxiter=cg_iters,
-                rtol=1e-20,
-                atol=1e-20,
+                maxiter=window.stop,
+                rtol=config.rtol,
+                atol=config.atol,
             )
 
-            direction_seq = _direction_trace_to_numpy(info)
-            if direction_seq.size == 0:
+            direction_seq_full = _direction_trace_to_numpy(info)
+            if direction_seq_full.size == 0:
                 raise RuntimeError(f"Search directions array is empty for sample {sample_idx + 1}.")
 
-            direction_seq = direction_seq[:: config.every_n]
+            direction_seq, indices = window.select_with_indices(direction_seq_full)
 
             product_seq = np.array([matrix @ p for p in direction_seq], dtype=np.float64)
 
-            num_pairs = direction_seq.shape[0]
-
             direction_blocks.append(direction_seq)
             product_blocks.append(product_seq)
-            sidx, iidx = _build_trace_indices(num_pairs, sample_idx, every_n=config.every_n)
+            sidx, iidx = _build_trace_indices(sample_idx, indices)
             sample_indices.append(sidx)
             iteration_indices.append(iidx)
 

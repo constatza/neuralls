@@ -43,7 +43,7 @@ coarsening = { method = "target_dim", target_coarse_dim = 300 }
 # bound to [[jobs]] pod-2g_rank100/200/300 below (a `run.type = "fit"` job per
 # dataset), fitted once ahead of time and MLflow-tracked. Every job (rank) is
 # crossed with every dataset (cg-variant) below — rank is a fit-time
-# hyperparameter independent of which strategy/cg_iters produced the
+# hyperparameter independent of which strategy/stop produced the
 # snapshots, so it is deliberately tested against all of them.
 
 [[datasets]]

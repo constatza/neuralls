@@ -41,7 +41,7 @@ coarsening = { method = "target_dim", target_coarse_dim = 300 }
 
 # Every POD-2G rank (pod-2g_rank100/200/300, see [[jobs]] below) is fitted
 # against every cg-variant's snapshots at every sample count — rank is a
-# fit-time hyperparameter independent of which strategy/cg_iters produced
+# fit-time hyperparameter independent of which strategy/stop produced
 # the snapshot data, so it is deliberately tested against all of them, not
 # just the variant its job happens to be named after. Each [[dataset_sweeps]]
 # entry expands to one real [[datasets]] entry per value in `values` (dataset

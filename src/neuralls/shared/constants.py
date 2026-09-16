@@ -59,9 +59,7 @@ PARAMETERS_ZARR_PREFIX = "parameters_"
 # Strategy-specific iteration parameters
 # These are now configured at the strategy level (not generation level):
 # - DEFAULT_KRYLOV_ITERATIONS: Used by krylov strategy for Krylov subspace dimension
-# - DEFAULT_RESIDUAL_TRACE_ITERS: Used by residual_traces, residuals, and gaussian_residuals strategies
 DEFAULT_KRYLOV_ITERATIONS = 15
-DEFAULT_RESIDUAL_TRACE_ITERS = 8
 
 DEFAULT_RANDOM_SEED = 42
 DEFAULT_SHUFFLE = True

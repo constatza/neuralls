@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
+import numpy as np
 import pytest
 
 from neuralls.domain.generation.interfaces import TracingSolverCallable
@@ -35,3 +37,17 @@ def solver_overrides(
         "gaussian_residuals": residual_solver,
         "search_directions": direction_solver,
     }
+
+
+@pytest.fixture
+def labeled_trajectory() -> Callable[[int], np.ndarray]:
+    """Factory building a `(length, 1)` array whose row `i` holds the value `i`.
+
+    Used by `StepWindow` tests to verify selection against arbitrary
+    trajectory lengths without needing a real solver/smoother run.
+    """
+
+    def _make(length: int) -> np.ndarray:
+        return np.arange(length, dtype=np.int64).reshape(length, 1)
+
+    return _make

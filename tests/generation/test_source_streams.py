@@ -224,7 +224,8 @@ def test_build_dataset_persists_residuals_pairs(tmp_path: Path) -> None:
                 shuffle=False,
                 strategy_overrides={
                     "residuals": {
-                        "cg_iters": 1,
+                        "stop": 1,
+                        "start": 0,
                         "solutions_glob": str(tmp_path / "sol_*.txt"),
                     }
                 },
@@ -255,7 +256,7 @@ def test_build_dataset_persists_gaussian_residual_pairs(tmp_path: Path) -> None:
                 counts={"gaussian_residuals": 4},
                 seed=7,
                 shuffle=False,
-                strategy_overrides={"gaussian_residuals": {"cg_iters": 1}},
+                strategy_overrides={"gaussian_residuals": {"stop": 1, "start": 0}},
             ),
             normalize="none",
         ),
@@ -316,7 +317,7 @@ def test_build_dataset_marks_residual_error_rows_with_kind_codes(tmp_path: Path)
                 counts={"gaussian_residuals": 2},
                 seed=7,
                 shuffle=False,
-                strategy_overrides={"gaussian_residuals": {"cg_iters": 1}},
+                strategy_overrides={"gaussian_residuals": {"stop": 1, "start": 0}},
             ),
             normalize="none",
         ),

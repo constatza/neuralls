@@ -20,6 +20,8 @@ from neuralls.shared.constants import (
 )
 from neuralls.shared.types import ScaleMetadata
 
+from .step_window import StepWindow
+
 
 def rng_from_seed(seed: int | None) -> np.random.Generator:
     """Create random number generator from seed.
@@ -306,58 +308,59 @@ def _solve_linear_systems(
 
 
 def _build_trace_indices(
-    num_pairs: int,
     sample_idx: int,
-    *,
-    every_n: int = 1,
+    indices: range,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Build sample and iteration index arrays for trace data.
 
-    Pure function.
+    Pure function. `indices` is an already-resolved set of trajectory step
+    indices (e.g. from `StepWindow.select_with_indices`), not a `StepWindow`
+    — this keeps the "which rows were selected" and "what are their
+    original indices" pairing structurally impossible to compute from two
+    different arrays by mistake (see `step_window.py`'s
+    `select_with_indices` docstring).
 
     Args:
-        num_pairs: Number of (residual, solution) pairs
-        sample_idx: Sample index for this trace
-        every_n: Step size between CG iterations (iteration indices are 0, every_n, 2*every_n, ...)
+        sample_idx: Sample index for this trace.
+        indices: The trajectory step indices that were kept.
 
     Returns:
-        Tuple of (sample_indices, iteration_indices)
+        Tuple of (sample_indices, iteration_indices).
     """
+    iteration_indices = np.fromiter(indices, dtype=np.int64)
     return (
-        np.full(num_pairs, sample_idx, dtype=np.int64),
-        np.arange(0, num_pairs * every_n, every_n, dtype=np.int64),
+        np.full(iteration_indices.shape[0], sample_idx, dtype=np.int64),
+        iteration_indices,
     )
 
 
-def trace_rows_per_system(
-    cg_iters: int,
-    *,
-    every_n: int = 1,
-) -> int:
-    """Return the number of kept trace rows produced by one base system."""
-    return (cg_iters // every_n) + 1
+def trace_rows_per_system(window: StepWindow) -> int:
+    """Return the worst-case number of kept trace rows for one base system.
+
+    Computed against `window.stop + 1` — the trajectory length when the
+    safety cap is fully used (always exact when `rtol`/`atol` are
+    unreachable; a safe over-estimate under a real, reachable tolerance,
+    where a system that converges early contributes fewer rows than this).
+    Used only to budget how many base systems to run up front — see
+    `resolve_trace_generation_counts`.
+    """
+    return len(window.resolve_indices(window.stop + 1))
 
 
-def required_trace_systems(
-    samples: int,
-    *,
-    cg_iters: int,
-    every_n: int = 1,
-) -> int:
+def required_trace_systems(samples: int, *, window: StepWindow) -> int:
     """Return the base-system count for a desired trace-row budget."""
-    rows_per_system = trace_rows_per_system(cg_iters, every_n=every_n)
+    rows_per_system = trace_rows_per_system(window)
     return max(1, math.ceil(samples / rows_per_system))
 
 
 def resolve_trace_generation_counts(
     samples: int,
     *,
-    cg_iters: int,
-    every_n: int,
+    window: StepWindow,
     available_systems: int | None,
     strategy_name: str,
 ) -> tuple[int, int | None]:
-    """Resolve base-system count for trace strategies."""
+    """Resolve base-system count for trajectory-harvesting strategies."""
     if samples == -1:
         if available_systems is None:
             raise ValueError(
@@ -365,14 +368,7 @@ def resolve_trace_generation_counts(
                 "a finite archive-backed source."
             )
         return available_systems, None
-    return (
-        required_trace_systems(
-            samples,
-            cg_iters=cg_iters,
-            every_n=every_n,
-        ),
-        samples,
-    )
+    return required_trace_systems(samples, window=window), samples
 
 
 def _merge_strategy_outputs(
