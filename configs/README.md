@@ -279,6 +279,17 @@ changing what a dataset config or case config *is*:
   again whenever a sweep source changes, before running `neuralls generate` /
   `generate-single` against a case that uses swept datasets.
 
+  **Why a real file, not an in-memory config**: a dataset config — swept or
+  hand-written — isn't only read once at load time. `composition/assignments/
+  _training_artifacts.py` copies the file verbatim into a training run's
+  staged reproducibility artifacts (later uploaded to MLflow), and
+  `composition/assignments/evaluation.py` re-locates that staged copy *by
+  filename* at eval time to reproduce the exact run. Both depend on the
+  dataset config existing as a real, stably-named file on disk; an
+  in-memory-only alternative would still need to materialize one somewhere
+  for these two steps, so `_generated/` isn't incidental indirection — it's
+  the same requirement every hand-written `[[datasets]]` entry already has.
+
   **Caveat**: `[[assignment_sweeps]]` still binds one `job` to *every* entry
   a `dataset_sweep` produces — if different axis values need different jobs
   (e.g. each `cg` variant has its own POD-2G fit job, as in

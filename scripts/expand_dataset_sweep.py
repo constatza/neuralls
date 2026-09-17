@@ -60,6 +60,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from neuralls.shared.constants import SWEEP_GENERATED_SUBDIR_NAME
+
 _SWEEP_SUFFIX = ".sweep.toml"
 
 # Name of the gitignored subdirectory expanded dataset configs are written
@@ -67,7 +69,8 @@ _SWEEP_SUFFIX = ".sweep.toml"
 # are build artifacts (100% mechanically derivable from their sweep spec),
 # never tracked in git. Kept in sync with the `configs/datasets/*/*/_generated/`
 # pattern in .gitignore — if this default changes, update that pattern too.
-_GENERATED_SUBDIR_NAME = "_generated"
+# Also shared with error-message hints in loaders.py/assembler.py.
+_GENERATED_SUBDIR_NAME = SWEEP_GENERATED_SUBDIR_NAME
 
 TomlValue = bool | int | float | str | list[Any]
 

@@ -15,7 +15,11 @@ from neuralls.composition.assignments.runtime_tracking_patcher import patch_trai
 from neuralls.composition.assignments.runtime_workspace_patcher import (
     patch_runtime_workspace_for_job,
 )
-from neuralls.platform.config.loaders import load_case_config, load_data_config
+from neuralls.platform.config.loaders import (
+    load_case_config,
+    load_data_config,
+    missing_dataset_config_hint,
+)
 from neuralls.platform.config.models.experiments import CaseConfig, resolve_display_name
 from neuralls.platform.config.models.workspace import (
     AssignmentBatch,
@@ -321,7 +325,9 @@ def load_assignment_batch(
     for binding in bindings:
         if not binding.data_config_path.exists():
             raise FileNotFoundError(
-                f"Assignment '{binding.assignment_id}': Dataset config not found: {binding.data_config_path}"
+                f"Assignment '{binding.assignment_id}': Dataset config not found: "
+                f"{binding.data_config_path}."
+                f"{missing_dataset_config_hint(binding.data_config_path)}"
             )
         if not binding.job_config_path.exists():
             raise FileNotFoundError(

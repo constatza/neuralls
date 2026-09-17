@@ -196,6 +196,55 @@ def test_load_assignments_missing_registry_id(
         )
 
 
+def test_load_assignments_missing_generated_dataset_hints_at_expansion_script(
+    temp_config_structure: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A registered dataset path under `_generated/` that's missing hints at re-expanding it."""
+    monkeypatch.chdir(temp_config_structure)
+
+    with open(temp_config_structure / "configs" / "experiments.toml", "w") as f:
+        f.write("[[datasets]]\n")
+        f.write('id = "exp1_data"\n')
+        f.write('path = "datasets/_generated/gaussian-cg50-5000.toml"\n\n')
+        f.write("[[jobs]]\n")
+        f.write('id = "exp1_job"\n')
+        f.write('path = "jobs/exp1_job.toml"\n\n')
+        f.write("[[assignments]]\n")
+        f.write('id = "exp1"\n')
+        f.write('dataset = "exp1_data"\n')
+        f.write('job = "exp1_job"\n')
+
+    with pytest.raises(FileNotFoundError, match="expand_dataset_sweep.py --all"):
+        load_assignment_batch(
+            case_config_path=temp_config_structure / "configs" / "experiments.toml",
+        )
+
+
+def test_load_assignments_missing_dataset_without_generated_segment_has_no_sweep_hint(
+    temp_config_structure: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A missing dataset path outside `_generated/` skips the sweep-expansion hint."""
+    monkeypatch.chdir(temp_config_structure)
+
+    with open(temp_config_structure / "configs" / "experiments.toml", "w") as f:
+        f.write("[[datasets]]\n")
+        f.write('id = "exp1_data"\n')
+        f.write('path = "datasets/typo-dataset.toml"\n\n')
+        f.write("[[jobs]]\n")
+        f.write('id = "exp1_job"\n')
+        f.write('path = "jobs/exp1_job.toml"\n\n')
+        f.write("[[assignments]]\n")
+        f.write('id = "exp1"\n')
+        f.write('dataset = "exp1_data"\n')
+        f.write('job = "exp1_job"\n')
+
+    with pytest.raises(FileNotFoundError) as exc_info:
+        load_assignment_batch(
+            case_config_path=temp_config_structure / "configs" / "experiments.toml",
+        )
+    assert "expand_dataset_sweep.py" not in str(exc_info.value)
+
+
 def test_load_assignments_rejects_unknown_comparison_assignment_filter(
     temp_config_structure: Path,
     monkeypatch: pytest.MonkeyPatch,

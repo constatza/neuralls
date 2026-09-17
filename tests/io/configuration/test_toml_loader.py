@@ -175,6 +175,41 @@ path = "{dataset_cfg.as_posix()}"
         load_case_config(config_file, neuralls_settings)
 
 
+def test_load_case_config_missing_generated_dataset_hints_at_expansion_script(
+    tmp_path: Path,
+    neuralls_settings: NeurallsSettings,
+) -> None:
+    """A missing dataset path under `_generated/` hints at the expansion script."""
+    missing_path = tmp_path / "_generated" / "gaussian-cg50-5000.toml"
+    config_file = tmp_path / "experiments.toml"
+    config_file.write_text(
+        f"""
+[[datasets]]
+path = "{missing_path.as_posix()}"
+"""
+    )
+    with pytest.raises(FileNotFoundError, match="expand_dataset_sweep.py --all"):
+        load_case_config(config_file, neuralls_settings)
+
+
+def test_load_case_config_missing_dataset_without_generated_segment_has_no_sweep_hint(
+    tmp_path: Path,
+    neuralls_settings: NeurallsSettings,
+) -> None:
+    """A missing dataset path outside `_generated/` skips the sweep-expansion hint."""
+    missing_path = tmp_path / "typo-dataset.toml"
+    config_file = tmp_path / "experiments.toml"
+    config_file.write_text(
+        f"""
+[[datasets]]
+path = "{missing_path.as_posix()}"
+"""
+    )
+    with pytest.raises(FileNotFoundError) as exc_info:
+        load_case_config(config_file, neuralls_settings)
+    assert "expand_dataset_sweep.py" not in str(exc_info.value)
+
+
 def _write_dataset_config(path: Path, dataset_id: str) -> None:
     path.write_text(
         f'id = "{dataset_id}"\n[source]\nmatrix_path = "${{NEURALLS_PROCESSED_DIR}}/matrix.mtx"\n'

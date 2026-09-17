@@ -15,7 +15,7 @@ from neuralls.platform.config.models.comparison import (
 from neuralls.platform.config.models.data_models import DataConfigFile
 from neuralls.platform.config.models.experiments import CaseConfig, SharedTrackingSettings
 from neuralls.platform.config.settings import NeurallsSettings, load_case_settings
-from neuralls.shared.constants import DEFAULT_PROJECT_ROOT
+from neuralls.shared.constants import DEFAULT_PROJECT_ROOT, SWEEP_GENERATED_SUBDIR_NAME
 
 _DEFAULT_TRACKING_TOML = DEFAULT_PROJECT_ROOT / "configs" / "tracking.toml"
 
@@ -24,6 +24,28 @@ def load_raw_toml(path: Path) -> dict[str, Any]:
     """Load TOML file as raw dict without validation."""
     with open(path, "rb") as f:
         return tomllib.load(f)
+
+
+def missing_dataset_config_hint(path: Path) -> str:
+    """Return a trailing hint sentence if `path` looks like an unexpanded sweep output.
+
+    A path under a `_generated/` directory (see `scripts/expand_dataset_sweep.py`)
+    that doesn't exist is almost always a forgotten expansion step rather than a
+    genuine typo, so callers append this to their "not found" error message.
+
+    Args:
+        path: The dataset config path that failed to load.
+
+    Returns:
+        A hint sentence (leading space included) if `path` is under a
+        `_generated/`-named segment, else an empty string.
+    """
+    if SWEEP_GENERATED_SUBDIR_NAME not in path.parts:
+        return ""
+    return (
+        " This looks like a sweep-generated path — have you run "
+        "'uv run python scripts/expand_dataset_sweep.py --all'?"
+    )
 
 
 def load_data_config(path: Path, settings: NeurallsSettings) -> DataConfigFile:
@@ -63,7 +85,12 @@ def _fill_missing_dataset_ids(raw: dict[str, Any], ctx: ConfigContext) -> None:
         if not isinstance(raw_path, str):
             continue
         dataset_path = Path(expand_config_path(raw_path, ctx))
-        dataset_raw = load_raw_toml(dataset_path)
+        try:
+            dataset_raw = load_raw_toml(dataset_path)
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(
+                f"Dataset config not found: {dataset_path}.{missing_dataset_config_hint(dataset_path)}"
+            ) from exc
         dataset_id = dataset_raw.get("id")
         if not isinstance(dataset_id, str) or not dataset_id.strip():
             raise ValueError(

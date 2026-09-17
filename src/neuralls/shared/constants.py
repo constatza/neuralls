@@ -48,6 +48,13 @@ DEFAULT_M_MAX = 20  # Maximum history length for truncated orthogonalization in 
 # =============================================================================
 DEFAULT_NUM_SAMPLES = 6000
 
+# Name of the gitignored subdirectory `scripts/expand_dataset_sweep.py` writes
+# expanded per-variant dataset configs into, sibling to their `*.sweep.toml`
+# source. Shared with dataset-config error messages so a missing path under
+# this segment can point at the fix (re-run the expansion script) instead of
+# a bare "file not found".
+SWEEP_GENERATED_SUBDIR_NAME = "_generated"
+
 # Dataset artifacts (zarr dense format)
 DATASET_MANIFEST_FILENAME = "manifest.json"
 MATRIX_ZARR_DIRNAME = "matrix.zarr"

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from neuralls.platform.config.loaders import missing_dataset_config_hint
 from neuralls.platform.config.models.experiments import AssignmentEntry, CaseConfig, RegistryEntry
 from neuralls.platform.config.registry import resolve_dataset_config_path, resolve_job_config_path
 
@@ -53,5 +54,7 @@ def _resolve_config_paths(
     if not job_path.exists():
         raise FileNotFoundError(f"Job config not found: {job_path}")
     if not dataset_path.exists():
-        raise FileNotFoundError(f"Dataset config not found: {dataset_path}")
+        raise FileNotFoundError(
+            f"Dataset config not found: {dataset_path}.{missing_dataset_config_hint(dataset_path)}"
+        )
     return job_path, dataset_path
