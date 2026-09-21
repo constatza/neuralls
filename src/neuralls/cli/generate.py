@@ -26,7 +26,8 @@ def generate_case(
         False,
         "--force",
         "-f",
-        help="Regenerate every dataset even if a matching one already exists.",
+        help="Regenerate every dataset (and recreate sweep-generated dataset configs) "
+        "even if a matching one already exists.",
     ),
     env_file: EnvFileOption = None,
     profile: ProfileOption = None,
@@ -42,7 +43,7 @@ def generate_case(
             )
 
         settings = load_case_settings(config, env_file, profile=profile)
-        cfg, _ = load_validated_case_config(config, settings)
+        cfg, _ = load_validated_case_config(config, settings, force_expand=force)
         if not cfg.datasets:
             raise ValueError(
                 "Case config does not define any [[datasets]] entries for batch generation."

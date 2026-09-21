@@ -188,7 +188,7 @@ def test_load_case_config_missing_generated_dataset_hints_at_expansion_script(
 path = "{missing_path.as_posix()}"
 """
     )
-    with pytest.raises(FileNotFoundError, match="expand_dataset_sweep.py --all"):
+    with pytest.raises(FileNotFoundError, match="sweep-generated path"):
         load_case_config(config_file, neuralls_settings)
 
 
@@ -207,7 +207,7 @@ path = "{missing_path.as_posix()}"
     )
     with pytest.raises(FileNotFoundError) as exc_info:
         load_case_config(config_file, neuralls_settings)
-    assert "expand_dataset_sweep.py" not in str(exc_info.value)
+    assert "sweep-generated" not in str(exc_info.value)
 
 
 def _write_dataset_config(path: Path, dataset_id: str) -> None:

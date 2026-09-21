@@ -214,7 +214,7 @@ def test_load_assignments_missing_generated_dataset_hints_at_expansion_script(
         f.write('dataset = "exp1_data"\n')
         f.write('job = "exp1_job"\n')
 
-    with pytest.raises(FileNotFoundError, match="expand_dataset_sweep.py --all"):
+    with pytest.raises(FileNotFoundError, match="sweep-generated path"):
         load_assignment_batch(
             case_config_path=temp_config_structure / "configs" / "experiments.toml",
         )
@@ -242,7 +242,7 @@ def test_load_assignments_missing_dataset_without_generated_segment_has_no_sweep
         load_assignment_batch(
             case_config_path=temp_config_structure / "configs" / "experiments.toml",
         )
-    assert "expand_dataset_sweep.py" not in str(exc_info.value)
+    assert "sweep-generated" not in str(exc_info.value)
 
 
 def test_load_assignments_rejects_unknown_comparison_assignment_filter(

@@ -116,13 +116,18 @@ class AssignmentIdentity:
 def load_validated_case_config(
     config_path: Path,
     neuralls_settings: NeurallsSettings | None = None,
+    *,
+    force_expand: bool = False,
 ) -> tuple[CaseConfig, Path]:
-    """Load one case config and validate all registry-backed references."""
+    """Load one case config and validate all registry-backed references.
+
+    `force_expand` recreates sweep-generated dataset configs even if present.
+    """
     neuralls_settings = require_settings(
         neuralls_settings,
         case_config_path=config_path,
     )
-    cfg = load_case_config(config_path, neuralls_settings)
+    cfg = load_case_config(config_path, neuralls_settings, force_expand=force_expand)
     config_dir = config_path.resolve().parent
     return cfg, config_dir
 

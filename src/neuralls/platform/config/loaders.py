@@ -15,6 +15,7 @@ from neuralls.platform.config.models.comparison import (
 from neuralls.platform.config.models.data_models import DataConfigFile
 from neuralls.platform.config.models.experiments import CaseConfig, SharedTrackingSettings
 from neuralls.platform.config.settings import NeurallsSettings, load_case_settings
+from neuralls.platform.config.sweep_expansion import ensure_generated_dataset_config
 from neuralls.shared.constants import DEFAULT_PROJECT_ROOT, SWEEP_GENERATED_SUBDIR_NAME
 
 _DEFAULT_TRACKING_TOML = DEFAULT_PROJECT_ROOT / "configs" / "tracking.toml"
@@ -27,11 +28,11 @@ def load_raw_toml(path: Path) -> dict[str, Any]:
 
 
 def missing_dataset_config_hint(path: Path) -> str:
-    """Return a trailing hint sentence if `path` looks like an unexpanded sweep output.
+    """Return a trailing hint sentence if `path` is a `_generated/` path no sweep produces.
 
-    A path under a `_generated/` directory (see `scripts/expand_dataset_sweep.py`)
-    that doesn't exist is almost always a forgotten expansion step rather than a
-    genuine typo, so callers append this to their "not found" error message.
+    Missing `_generated/` paths are expanded automatically at case-load time
+    (see `ensure_generated_dataset_config`), so one that is still missing means
+    no `*.sweep.toml` beside the `_generated/` directory yields that filename.
 
     Args:
         path: The dataset config path that failed to load.
@@ -43,8 +44,8 @@ def missing_dataset_config_hint(path: Path) -> str:
     if SWEEP_GENERATED_SUBDIR_NAME not in path.parts:
         return ""
     return (
-        " This looks like a sweep-generated path — have you run "
-        "'uv run python scripts/expand_dataset_sweep.py --all'?"
+        " It is a sweep-generated path, but no '*.sweep.toml' next to its "
+        f"'{SWEEP_GENERATED_SUBDIR_NAME}' directory produces that filename."
     )
 
 
@@ -60,6 +61,16 @@ def load_comparison_config(path: Path, settings: NeurallsSettings) -> Comparison
     raw = load_raw_toml(path)
     ctx = ConfigContext(config_path=path.resolve(), settings=settings)
     return parse_comparison_config(raw, context=ctx)
+
+
+def _ensure_generated_dataset_configs(
+    raw: dict[str, Any], ctx: ConfigContext, *, force: bool = False
+) -> None:
+    """Expand sweep sources for every [[datasets]] path under `_generated/` (missing, or all if `force`)."""
+    for entry in raw.get("datasets") or []:
+        raw_path = entry.get("path") if isinstance(entry, dict) else None
+        if isinstance(raw_path, str):
+            ensure_generated_dataset_config(Path(expand_config_path(raw_path, ctx)), force=force)
 
 
 def _fill_missing_dataset_ids(raw: dict[str, Any], ctx: ConfigContext) -> None:
@@ -331,11 +342,18 @@ def _expand_assignment_sweeps(
                 assignments.append({"dataset": dataset_id, "job": job_id})
 
 
-def load_case_config(path: Path, settings: NeurallsSettings) -> CaseConfig:
-    """Load and validate the top-level case TOML."""
+def load_case_config(
+    path: Path, settings: NeurallsSettings, *, force_expand: bool = False
+) -> CaseConfig:
+    """Load and validate the top-level case TOML.
+
+    Sweep-generated dataset configs the case references are created when missing;
+    `force_expand` recreates them even when present.
+    """
     raw = load_raw_toml(path)
     ctx = ConfigContext(config_path=path.resolve(), settings=settings)
     sweep_datasets = _expand_dataset_sweeps(raw, ctx)
+    _ensure_generated_dataset_configs(raw, ctx, force=force_expand)
     _fill_missing_dataset_ids(raw, ctx)
     _expand_assignment_sweeps(raw, sweep_datasets)
     return CaseConfig.model_validate(raw, context=ctx.as_pydantic_context())

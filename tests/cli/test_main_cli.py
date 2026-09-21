@@ -134,7 +134,7 @@ def test_generate_invokes_batch_workflow(
 
     assert result.exit_code == 0
     mock_load_settings.assert_called_once_with(config, None, profile=None)
-    mock_load_case_config.assert_called_once_with(config, settings)
+    mock_load_case_config.assert_called_once_with(config, settings, force_expand=False)
     mock_generate_batch.assert_called_once_with(
         cfg=cfg,
         configs_dir=config.resolve().parent,
@@ -163,7 +163,7 @@ def test_generate_fails_for_case_config_without_datasets(
 
     assert result.exit_code == EXIT_FAILURE
     mock_load_settings.assert_called_once_with(config, None, profile=None)
-    mock_load_case_config.assert_called_once_with(config, settings)
+    mock_load_case_config.assert_called_once_with(config, settings, force_expand=False)
     mock_generate_batch.assert_not_called()
     assert "Error during batch generation [ValueError]:" in result.stderr
 

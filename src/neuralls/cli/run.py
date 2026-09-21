@@ -34,6 +34,11 @@ def run_case_pipeline_command(
         "--force-compare",
         help="Rerun every comparison even if a matching one already exists.",
     ),
+    force_expand: bool = typer.Option(
+        False,
+        "--force-expand",
+        help="Recreate sweep-generated dataset configs even if they already exist.",
+    ),
     max_epochs: int | None = typer.Option(
         None,
         help="Override max training epochs for every assignment.",
@@ -52,6 +57,7 @@ def run_case_pipeline_command(
         force_generate = force or force_generate
         force_train = force or force_train
         force_compare = force or force_compare
+        force_expand = force or force_expand
         if force:
             typer.echo("Force mode enabled: generation, training, and comparison will all rerun.")
 
@@ -61,6 +67,7 @@ def run_case_pipeline_command(
             force_train=force_train,
             force_generate=force_generate,
             force_compare=force_compare,
+            force_expand=force_expand,
             max_epochs=max_epochs,
         )
     except (FileNotFoundError, ValueError, OSError, RuntimeError) as exc:

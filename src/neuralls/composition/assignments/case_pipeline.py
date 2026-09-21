@@ -20,6 +20,7 @@ def run_case_pipeline(
     force_generate: bool = False,
     force_train: bool = False,
     force_compare: bool = False,
+    force_expand: bool = False,
     max_epochs: int | None = None,
 ) -> tuple[list[AssignmentResult], list[ComparisonOutcome]]:
     """Run the full pipeline for one case config: generate, train, then compare.
@@ -44,6 +45,7 @@ def run_case_pipeline(
         force_generate: Regenerate every dataset even if a matching one exists.
         force_train: Retrain every assignment even if a completed run exists.
         force_compare: Rerun every comparison even if a matching one exists.
+        force_expand: Recreate sweep-generated dataset configs even if present.
         max_epochs: Override max training epochs for every assignment.
 
     Returns:
@@ -52,7 +54,9 @@ def run_case_pipeline(
         `[[comparisons]]` respectively.
     """
     settings = require_settings(settings, case_config_path=case_config_path)
-    cfg, config_dir = load_validated_case_config(case_config_path, settings)
+    cfg, config_dir = load_validated_case_config(
+        case_config_path, settings, force_expand=force_expand
+    )
 
     generate_batch(cfg, config_dir, settings, force=force_generate)
 

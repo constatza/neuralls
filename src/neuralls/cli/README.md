@@ -5,11 +5,11 @@ The CLI package defines one public executable: `neuralls`.
 ## Public Surface
 
 - `neuralls config ...`: manage machine-specific profiles
-- `neuralls generate <case.toml> [--force]`: build every dataset declared in one case (skips a dataset that already exists unless `--force`)
+- `neuralls generate <case.toml> [--force]`: build every dataset declared in one case (skips a dataset that already exists unless `--force`; `--force` also recreates sweep-generated dataset configs, which are otherwise created only when missing)
 - `neuralls generate-single <dataset.toml> --case-config <case.toml> [--force]`: build one dataset config
 - `neuralls train <case.toml> [--force]`: train every assignment declared in one case (assumes datasets were already generated — run `generate` first; skips an assignment whose dataset/checkpoint already matches unless `--force`), and log the aggregate metric plot/label map
 - `neuralls eval <case.toml>`: evaluate completed assignment checkpoints on their logged test splits
-- `neuralls run <case.toml> [--force] [--force-generate] [--force-compare]`: the full per-case pipeline — generate every dataset, train every assignment, then run every comparison, each stage independently skippable/forceable
+- `neuralls run <case.toml> [--force] [--force-expand] [--force-generate] [--force-compare]`: the full per-case pipeline — generate every dataset, train every assignment, then run every comparison, each stage independently skippable/forceable
 - `neuralls compare <case.toml> [--force]`: run every comparison profile declared in one case after their benchmark datasets exist (skips a comparison whose resolved checkpoints already produced a result unless `--force`)
 
 ## Package Map
