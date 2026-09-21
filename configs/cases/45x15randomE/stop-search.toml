@@ -2,8 +2,8 @@
 tracking_uri = "http://localhost:5000"
 
 [names]
-training = "Train-45x15randomE-POD-2G-CG"
-comparison = "Compare-45x15randomE-POD-2G-CG"
+training = "Train-45x15randomE-POD-2G-StopSearch"
+comparison = "Compare-45x15randomE-POD-2G-StopSearch"
 
 [comparison_defaults]
 rtol = 1.0e-6
@@ -25,25 +25,18 @@ name = "ic0"
 type = "ic0"
 
 [[comparison_defaults.preconditioners]]
-name = "amg-dim10"
-type = "amg"
-coarsening = { method = "target_dim", target_coarse_dim = 10 }
-
-[[comparison_defaults.preconditioners]]
 name = "amg-dim100"
 type = "amg"
 coarsening = { method = "target_dim", target_coarse_dim = 100 }
 
 [[datasets]]
-path = "../../datasets/train/45x15randomE/_generated/gaussian-cg50.toml"
+path = "../../datasets/train/45x15randomE/gaussian-cg0.toml"
 
 [[datasets]]
-path = "../../datasets/train/45x15randomE/smoother-filtered-probes.toml"
+path = "../../datasets/train/45x15randomE/_generated/gaussian-cg10.toml"
 
-[[jobs]]
-id = "pod-2g_rank10"
-path = "../../jobs/pod2g/pod2g-rank10.toml"
-display_name = "POD-2G (rank 10)"
+[[datasets]]
+path = "../../datasets/train/45x15randomE/_generated/gaussian-cg50.toml"
 
 [[jobs]]
 id = "pod-2g_rank100"
@@ -120,17 +113,13 @@ matrix_index = 14
 rhs_source = { kind = "raw_lhs", path = "${NEURALLS_RAW_DIR}/SpectralData/45x15-displacements/UaVectorsFromSpectral/ua_vector from_spectral_no_realization_0.txt", row_kind = "standard", scale = 1.0 }
 
 [[assignments]]
-dataset = "gaussian-cg50-45x15randomE"
-job = "pod-2g_rank10"
-
-[[assignments]]
-dataset = "gaussian-cg50-45x15randomE"
+dataset = "gaussian-cg0-45x15randomE"
 job = "pod-2g_rank100"
 
 [[assignments]]
-dataset = "smoother-filtered-probes-45x15randomE"
-job = "pod-2g_rank10"
+dataset = "gaussian-cg10-45x15randomE"
+job = "pod-2g_rank100"
 
 [[assignments]]
-dataset = "smoother-filtered-probes-45x15randomE"
+dataset = "gaussian-cg50-45x15randomE"
 job = "pod-2g_rank100"

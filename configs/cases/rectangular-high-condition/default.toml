@@ -25,33 +25,14 @@ name = "ic0"
 type = "ic0"
 
 [[comparison_defaults.preconditioners]]
+name = "amg-dim10"
+type = "amg"
+coarsening = { method = "target_dim", target_coarse_dim = 10 }
+
+[[comparison_defaults.preconditioners]]
 name = "amg-dim100"
 type = "amg"
 coarsening = { method = "target_dim", target_coarse_dim = 100 }
-
-[[comparison_defaults.preconditioners]]
-name = "amg-dim200"
-type = "amg"
-coarsening = { method = "target_dim", target_coarse_dim = 200 }
-
-[[comparison_defaults.preconditioners]]
-name = "amg-dim300"
-type = "amg"
-coarsening = { method = "target_dim", target_coarse_dim = 300 }
-
-# pod-2g_rank100/200/300 are no longer declared here: they are now [[assignments]]
-# bound to [[jobs]] pod-2g_rank100/200/300 below (a `run.type = "fit"` job per
-# dataset), fitted once ahead of time and MLflow-tracked. Every job (rank) is
-# crossed with every dataset below (the three cg-variants and
-# smoother-filtered-probes) — rank is a fit-time hyperparameter independent
-# of which strategy produced the snapshots, so it is deliberately tested
-# against all of them.
-
-[[datasets]]
-path = "../../datasets/train/rectangular-high-condition/gaussian-cg0.toml"
-
-[[datasets]]
-path = "../../datasets/train/rectangular-high-condition/_generated/gaussian-cg10.toml"
 
 [[datasets]]
 path = "../../datasets/train/rectangular-high-condition/_generated/gaussian-cg50.toml"
@@ -60,19 +41,14 @@ path = "../../datasets/train/rectangular-high-condition/_generated/gaussian-cg50
 path = "../../datasets/train/rectangular-high-condition/smoother-filtered-probes.toml"
 
 [[jobs]]
+id = "pod-2g_rank10"
+path = "../../jobs/pod2g/pod2g-rank10.toml"
+display_name = "POD-2G (rank 10)"
+
+[[jobs]]
 id = "pod-2g_rank100"
 path = "../../jobs/pod2g/pod2g-rank100.toml"
 display_name = "POD-2G (rank 100)"
-
-[[jobs]]
-id = "pod-2g_rank200"
-path = "../../jobs/pod2g/pod2g-rank200.toml"
-display_name = "POD-2G (rank 200)"
-
-[[jobs]]
-id = "pod-2g_rank300"
-path = "../../jobs/pod2g/pod2g-rank300.toml"
-display_name = "POD-2G (rank 300)"
 
 [[comparisons]]
 matrix_dataset = "gaussian-cg50-rectangular-high-condition"
@@ -92,49 +68,17 @@ rhs_source = { kind = "sparse", indices = [
 ] }
 
 [[assignments]]
-dataset = "gaussian-cg0-rectangular-high-condition"
-job = "pod-2g_rank100"
-
-[[assignments]]
-dataset = "gaussian-cg0-rectangular-high-condition"
-job = "pod-2g_rank200"
-
-[[assignments]]
-dataset = "gaussian-cg0-rectangular-high-condition"
-job = "pod-2g_rank300"
-
-[[assignments]]
-dataset = "gaussian-cg10-rectangular-high-condition"
-job = "pod-2g_rank100"
-
-[[assignments]]
-dataset = "gaussian-cg10-rectangular-high-condition"
-job = "pod-2g_rank200"
-
-[[assignments]]
-dataset = "gaussian-cg10-rectangular-high-condition"
-job = "pod-2g_rank300"
+dataset = "gaussian-cg50-rectangular-high-condition"
+job = "pod-2g_rank10"
 
 [[assignments]]
 dataset = "gaussian-cg50-rectangular-high-condition"
 job = "pod-2g_rank100"
 
 [[assignments]]
-dataset = "gaussian-cg50-rectangular-high-condition"
-job = "pod-2g_rank200"
-
-[[assignments]]
-dataset = "gaussian-cg50-rectangular-high-condition"
-job = "pod-2g_rank300"
+dataset = "smoother-filtered-probes-rectangular-high-condition"
+job = "pod-2g_rank10"
 
 [[assignments]]
 dataset = "smoother-filtered-probes-rectangular-high-condition"
 job = "pod-2g_rank100"
-
-[[assignments]]
-dataset = "smoother-filtered-probes-rectangular-high-condition"
-job = "pod-2g_rank200"
-
-[[assignments]]
-dataset = "smoother-filtered-probes-rectangular-high-condition"
-job = "pod-2g_rank300"

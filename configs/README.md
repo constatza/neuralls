@@ -146,13 +146,18 @@ Case configs bind:
 - comparison ids, inferred when omitted
 - case-level MLflow topology
 
-The 45x15, 93x31, and 45x15randomE `default.toml` cases compare classical
-identity/Jacobi/IC0, AMG, and dataset-backed POD-2G preconditioners. Neural
-network jobs are kept in explicit training/search variants, not the default
-cases. The 45x15randomE `default.toml` case is parametric — the underlying
+Every family's `default.toml` is a short showcase of each algorithm, not a
+search: identity/Jacobi/IC0, AMG at coarse dim 10 and 100, and POD-2G at rank 10
+and 100, fitted from `gaussian-cg50` and `smoother-filtered-probes` snapshots.
+Neural network jobs are kept in explicit training/search variants. Parametric
+searches live in sibling case files, one searched axis per file:
+`coarse-dim-search.toml` (AMG dim / POD-2G rank in 10, 100, 200, 300, on
+`gaussian-cg50`) and `stop-search.toml` (`gaussian-cg0`/`cg10`/`cg50` snapshots
+at POD-2G rank 100). The rectangular-high-condition family adds
+`sample-sweep.toml` (training-set size). The 45x15randomE cases are parametric — the underlying
 problem is a family of ~100 stiffness matrices with randomized Young's moduli
-(E1-E4), not one fixed matrix. These CG cases use `gaussian-cg0`,
-`gaussian-cg10`, and `gaussian-cg50` datasets as POD-2G snapshot inputs, with
+(E1-E4), not one fixed matrix. These CG cases use the `gaussian-cg*` datasets as
+POD-2G snapshot inputs, with
 `gaussian-cg50` also serving as the default matrix dataset where a train dataset
 backs comparisons. Every randomE dataset uses the matrix glob
 `45x15randomE/stiffness/*_subdomain_1_Kaa.txt`, `enumerate_by = "name"`, and

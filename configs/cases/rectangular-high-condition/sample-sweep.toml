@@ -29,40 +29,12 @@ name = "amg-dim100"
 type = "amg"
 coarsening = { method = "target_dim", target_coarse_dim = 100 }
 
-[[comparison_defaults.preconditioners]]
-name = "amg-dim200"
-type = "amg"
-coarsening = { method = "target_dim", target_coarse_dim = 200 }
-
-[[comparison_defaults.preconditioners]]
-name = "amg-dim300"
-type = "amg"
-coarsening = { method = "target_dim", target_coarse_dim = 300 }
-
-# Every POD-2G rank (pod-2g_rank100/200/300, see [[jobs]] below) is fitted
-# against every cg-variant's snapshots at every sample count — rank is a
-# fit-time hyperparameter independent of which strategy/stop produced
-# the snapshot data, so it is deliberately tested against all of them, not
-# just the variant its job happens to be named after. Each [[dataset_sweeps]]
-# entry expands to one real [[datasets]] entry per value in `values` (dataset
-# ids are read from those real files, same as any hand-written [[datasets]]
-# entry — see scripts/expand_dataset_sweep.py and the sibling
-# gaussian-{cg0,cg10,cg50}.sweep.toml files that generate the underlying
-# configs). Kept as 3 separate dataset_sweeps blocks (one per cg-variant)
-# because each variant uses a different generation strategy (gaussian_forward
-# for cg-0 vs gaussian_residuals for cg-10/cg-50), which cannot be expressed
-# as a single *.sweep.toml file (one strategy per dataset config) — see
-# "Sweeping one dataset config..." in configs/README.md.
-
-[[dataset_sweeps]]
-label = "cg0-samples"
-path_template = "../../datasets/train/rectangular-high-condition/_generated/gaussian-cg0-{value}.toml"
-values = [1000, 5000, 10000]
-
-[[dataset_sweeps]]
-label = "cg10-samples"
-path_template = "../../datasets/train/rectangular-high-condition/_generated/gaussian-cg10-{value}.toml"
-values = [1000, 5000, 10000]
+# The only searched axis is the training-set size: POD-2G (rank 100, see
+# [[jobs]] below) is fitted against gaussian-cg50 snapshots at every sample
+# count. Each [[dataset_sweeps]] entry expands to one real [[datasets]] entry
+# per value in `values` (dataset ids are read from those real files — see
+# scripts/expand_dataset_sweep.py and gaussian-cg50.sweep.toml, which
+# generates the underlying configs).
 
 [[dataset_sweeps]]
 label = "cg50-samples"
@@ -73,16 +45,6 @@ values = [1000, 5000, 10000]
 id = "pod-2g_rank100"
 path = "../../jobs/pod2g/pod2g-rank100.toml"
 display_name = "POD-2G (rank 100)"
-
-[[jobs]]
-id = "pod-2g_rank200"
-path = "../../jobs/pod2g/pod2g-rank200.toml"
-display_name = "POD-2G (rank 200)"
-
-[[jobs]]
-id = "pod-2g_rank300"
-path = "../../jobs/pod2g/pod2g-rank300.toml"
-display_name = "POD-2G (rank 300)"
 
 [[comparisons]]
 matrix_dataset = "gaussian-cg50-rectangular-high-condition-10000"
@@ -101,15 +63,6 @@ rhs_source = { kind = "sparse", indices = [
     -100.0,
 ] }
 
-# Every job crossed with every dataset_sweep — see the comment above [[dataset_sweeps]].
-[[assignment_sweeps]]
-dataset_sweep = "cg0-samples"
-job = ["pod-2g_rank100", "pod-2g_rank200", "pod-2g_rank300"]
-
-[[assignment_sweeps]]
-dataset_sweep = "cg10-samples"
-job = ["pod-2g_rank100", "pod-2g_rank200", "pod-2g_rank300"]
-
 [[assignment_sweeps]]
 dataset_sweep = "cg50-samples"
-job = ["pod-2g_rank100", "pod-2g_rank200", "pod-2g_rank300"]
+job = "pod-2g_rank100"

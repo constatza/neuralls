@@ -2,8 +2,8 @@
 tracking_uri = "http://localhost:5000"
 
 [names]
-training = "Train-Spheres1x-POD-2G-CG"
-comparison = "Compare-Spheres1x-POD-2G-CG"
+training = "Train-Spheres1x-POD-2G-StopSearch"
+comparison = "Compare-Spheres1x-POD-2G-StopSearch"
 
 [comparison_defaults]
 rtol = 1.0e-6
@@ -25,25 +25,18 @@ name = "ic0"
 type = "ic0"
 
 [[comparison_defaults.preconditioners]]
-name = "amg-dim10"
-type = "amg"
-coarsening = { method = "target_dim", target_coarse_dim = 10 }
-
-[[comparison_defaults.preconditioners]]
 name = "amg-dim100"
 type = "amg"
 coarsening = { method = "target_dim", target_coarse_dim = 100 }
 
 [[datasets]]
-path = "../../datasets/train/spheres-1x/_generated/gaussian-cg50.toml"
+path = "../../datasets/train/spheres-1x/gaussian-cg0.toml"
 
 [[datasets]]
-path = "../../datasets/train/spheres-1x/smoother-filtered-probes.toml"
+path = "../../datasets/train/spheres-1x/_generated/gaussian-cg10.toml"
 
-[[jobs]]
-id = "pod-2g_rank10"
-path = "../../jobs/pod2g/pod2g-rank10.toml"
-display_name = "POD-2G (rank 10)"
+[[datasets]]
+path = "../../datasets/train/spheres-1x/_generated/gaussian-cg50.toml"
 
 [[jobs]]
 id = "pod-2g_rank100"
@@ -68,17 +61,13 @@ rhs_source = { kind = "sparse", indices = [
 ] }
 
 [[assignments]]
-dataset = "gaussian-cg50-spheres-1x"
-job = "pod-2g_rank10"
-
-[[assignments]]
-dataset = "gaussian-cg50-spheres-1x"
+dataset = "gaussian-cg0-spheres-1x"
 job = "pod-2g_rank100"
 
 [[assignments]]
-dataset = "smoother-filtered-probes-spheres-1x"
-job = "pod-2g_rank10"
+dataset = "gaussian-cg10-spheres-1x"
+job = "pod-2g_rank100"
 
 [[assignments]]
-dataset = "smoother-filtered-probes-spheres-1x"
+dataset = "gaussian-cg50-spheres-1x"
 job = "pod-2g_rank100"

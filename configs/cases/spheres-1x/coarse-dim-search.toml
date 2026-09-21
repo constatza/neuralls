@@ -2,8 +2,8 @@
 tracking_uri = "http://localhost:5000"
 
 [names]
-training = "Train-Spheres1x-POD-2G-CG"
-comparison = "Compare-Spheres1x-POD-2G-CG"
+training = "Train-Spheres1x-POD-2G-CoarseDimSearch"
+comparison = "Compare-Spheres1x-POD-2G-CoarseDimSearch"
 
 [comparison_defaults]
 rtol = 1.0e-6
@@ -34,11 +34,18 @@ name = "amg-dim100"
 type = "amg"
 coarsening = { method = "target_dim", target_coarse_dim = 100 }
 
-[[datasets]]
-path = "../../datasets/train/spheres-1x/_generated/gaussian-cg50.toml"
+[[comparison_defaults.preconditioners]]
+name = "amg-dim200"
+type = "amg"
+coarsening = { method = "target_dim", target_coarse_dim = 200 }
+
+[[comparison_defaults.preconditioners]]
+name = "amg-dim300"
+type = "amg"
+coarsening = { method = "target_dim", target_coarse_dim = 300 }
 
 [[datasets]]
-path = "../../datasets/train/spheres-1x/smoother-filtered-probes.toml"
+path = "../../datasets/train/spheres-1x/_generated/gaussian-cg50.toml"
 
 [[jobs]]
 id = "pod-2g_rank10"
@@ -49,6 +56,16 @@ display_name = "POD-2G (rank 10)"
 id = "pod-2g_rank100"
 path = "../../jobs/pod2g/pod2g-rank100.toml"
 display_name = "POD-2G (rank 100)"
+
+[[jobs]]
+id = "pod-2g_rank200"
+path = "../../jobs/pod2g/pod2g-rank200.toml"
+display_name = "POD-2G (rank 200)"
+
+[[jobs]]
+id = "pod-2g_rank300"
+path = "../../jobs/pod2g/pod2g-rank300.toml"
+display_name = "POD-2G (rank 300)"
 
 [[comparisons]]
 matrix_dataset = "gaussian-cg50-spheres-1x"
@@ -76,9 +93,9 @@ dataset = "gaussian-cg50-spheres-1x"
 job = "pod-2g_rank100"
 
 [[assignments]]
-dataset = "smoother-filtered-probes-spheres-1x"
-job = "pod-2g_rank10"
+dataset = "gaussian-cg50-spheres-1x"
+job = "pod-2g_rank200"
 
 [[assignments]]
-dataset = "smoother-filtered-probes-spheres-1x"
-job = "pod-2g_rank100"
+dataset = "gaussian-cg50-spheres-1x"
+job = "pod-2g_rank300"
