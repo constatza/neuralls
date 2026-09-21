@@ -395,6 +395,8 @@ def plot_convergence_comparison(
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
     marker_size: float = DEFAULT_LINE_MARKER_SIZE,
+    history_attr: str = "residual_history_rel",
+    ylabel: str = "Relative Residual $\\|r\\| / \\|b\\|$",
 ) -> None:
     """Plot convergence comparison between preconditioners.
 
@@ -418,6 +420,8 @@ def plot_convergence_comparison(
             weighting scheme). Methods sharing a key share a marker; methods
             omitted here fall back to their family.
         marker_size: Marker diameter for convergence-history points.
+        history_attr: Per-iteration history field to plot, read from each result.
+        ylabel: Y-axis label matching ``history_attr``.
     """
     fig, ax = plt.subplots(figsize=(10, 6))
     metadata = dict(metadata or {})
@@ -426,9 +430,11 @@ def plot_convergence_comparison(
     for method_name, result in results.items():
         # Handle both dict and dataclass results
         if isinstance(result, CGComparisonResult):
-            residuals = result.residual_history_rel
+            residuals = getattr(result, history_attr)
         elif isinstance(result, Mapping):
-            residuals = result.get("residual_history_rel") or result.get("residuals")
+            residuals = result.get(history_attr)
+            if history_attr == "residual_history_rel":
+                residuals = residuals or result.get("residuals")
         else:
             residuals = None
 
@@ -447,7 +453,7 @@ def plot_convergence_comparison(
             logger.warning(f"Method '{method_name}' has no residual history to plot")
 
     ax.set_xlabel("Iteration")
-    ax.set_ylabel("Relative Residual $\\|r\\| / \\|b\\|$")
+    ax.set_ylabel(ylabel)
 
     # Build subtitle from non-None parameters
     subtitle_parts = []
@@ -477,6 +483,27 @@ def plot_convergence_comparison(
         plt.show()
     else:
         plt.close(fig)
+
+
+def plot_error_convergence_comparison(
+    results: Mapping[str, CGComparisonResult | Mapping[str, Any]],
+    **kwargs: Any,
+) -> None:
+    """Plot relative energy-norm error ``||e_k||_A / ||e_0||_A`` per preconditioner.
+
+    Thin wrapper over ``plot_convergence_comparison`` reading
+    ``error_history_a_rel``; accepts the same keyword arguments.
+
+    Args:
+        results (Mapping[str, CGComparisonResult | Mapping[str, Any]]): Results by method name.
+        **kwargs (Any): Forwarded to ``plot_convergence_comparison``.
+    """
+    plot_convergence_comparison(
+        results,
+        history_attr="error_history_a_rel",
+        ylabel="Relative energy error $\\|e_k\\|_A / \\|e_0\\|_A$",
+        **kwargs,
+    )
 
 
 def plot_noise_robustness(

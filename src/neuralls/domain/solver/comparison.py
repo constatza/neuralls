@@ -15,10 +15,12 @@ import numpy as np
 import torch
 from torchalg import flexible_cg, pcg
 from torchalg.models.result import SolverResult
+from torchalg.monitoring import TraceMode
 from torchalg.preconditioners.base import Preconditioner
 from torchalg.preconditioners.implementations import Identity
 from torchalg.utils.device import resolve_device
 
+from neuralls.domain.solver.error_metrics import energy_error_history, reference_solution
 from neuralls.domain.solver.models.result import (
     CGComparisonResult,
     ComparisonRecommendations,
@@ -91,7 +93,7 @@ def run_cg_comparison(
         preconditioners = dict(preconditioners)
         preconditioners["none"] = Identity()
 
-    x_exact = torch.linalg.solve(A, b)
+    x_exact = reference_solution(A, b, rtol=rtol)
 
     results: dict[str, CGComparisonResult] = {}
 
@@ -118,6 +120,7 @@ def run_cg_comparison(
             )
         else:
             exact_error = _relative_exact_error(x_sol, x_exact)
+            error_history = energy_error_history(A, x_exact, info.solution_vectors)
 
             rhs_norm = info.rhs_norm
             residual: list[float] = list(info.residual_history_abs or (info.residual_abs,))
@@ -138,6 +141,7 @@ def run_cg_comparison(
                 exact_error=exact_error,
                 rhs_norm=info.rhs_norm,
                 breakdown=info.breakdown,
+                error_history_a_rel=error_history,
             )
 
         results[precond_name] = result
@@ -212,7 +216,14 @@ def _solve_one(
     match _cg_algorithm_for(preconditioner):
         case CGAlgorithm.PCG:
             return pcg(
-                A, b, x0, rtol=rtol, atol=atol, maxiter=maxiter, preconditioner=preconditioner
+                A,
+                b,
+                x0,
+                rtol=rtol,
+                atol=atol,
+                maxiter=maxiter,
+                preconditioner=preconditioner,
+                trace_mode=TraceMode.FULL,
             )
         case CGAlgorithm.FCG:
             return flexible_cg(
@@ -224,6 +235,7 @@ def _solve_one(
                 maxiter=maxiter,
                 preconditioner=preconditioner,
                 m_max=m_max,
+                trace_mode=TraceMode.FULL,
             )
 
 

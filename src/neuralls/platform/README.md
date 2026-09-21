@@ -51,6 +51,10 @@ comparison display names still override the generated label.
 Reporting labels render machine-style preconditioner names in title case for
 plot legends while preserving the underlying config identifiers and measured
 structural details.
+Every comparison run writes two convergence figures with identical styling:
+relative residual `||r||/||b||` (`plot_convergence_comparison`) and relative
+energy-norm error `||e_k||_A/||e_0||_A` (`plot_error_convergence_comparison`,
+reading `CGComparisonResult.error_history_a_rel`).
 Plotting defaults keep markers compact so convergence and diagnostic figures
 stay readable when several methods or dense prediction samples are shown.
 Comparison-plot styling (`reporting/plots.py`) resolves three independent

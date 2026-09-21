@@ -17,7 +17,12 @@ implementations are delegated to `torchalg`.
   - `PlotPaths`
   - recommendation records
 - Comparison orchestration helpers that package `torchalg` solver output for
-  neuralls reporting workflows.
+  neuralls reporting workflows. `run_cg_comparison` traces every iterate and
+  reduces it to `CGComparisonResult.error_history_a_rel` — the energy-norm
+  error `||e_k||_A / ||e_0||_A` (the norm CG minimizes; every curve starts at
+  1). The reference `x*` is a float64 direct solve with iterative refinement
+  until its relative residual is at most `rtol * 1e-4`
+  (`_reference_solution`), so it is far more precise than the solvers compared.
 - Validation and artifact export helpers used by platform/composition layers.
 
 ## What Lives In Torchalg

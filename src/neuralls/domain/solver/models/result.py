@@ -145,6 +145,7 @@ class CGComparisonResult:
         exact_error: Error ||x - x_exact|| if exact solution known.
         rhs_norm: Right-hand side norm ||b||.
         breakdown: Whether numerical breakdown occurred.
+        error_history_a_rel: Relative energy-norm errors across iterations.
         helper_iterations: Iterations where step helper was invoked.
         helper_norms: Residual norms after step helper application.
         error: Error message if solver failed.
@@ -206,6 +207,9 @@ class CGComparisonResult:
 
     error: str | None = None
     """Error message if solver failed."""
+
+    error_history_a_rel: list[float] | None = None
+    """Energy-norm errors ||e_k||_A / ||e_0||_A across iterations (None if unavailable)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,6 +276,7 @@ class PlotPaths:
         parity: Parity plot (predicted vs true).
         residuals: Residual history plot.
         iterations_barplot: Horizontal bar chart of iteration counts.
+        error_convergence: Relative energy-norm error convergence plot.
     """
 
     convergence: Path | None = None
@@ -279,6 +284,7 @@ class PlotPaths:
     parity: Path | None = None
     residuals: Path | None = None
     iterations_barplot: Path | None = None
+    error_convergence: Path | None = None
 
     @classmethod
     def from_mapping(cls, mapping: dict[str, Path] | None) -> PlotPaths:
@@ -298,6 +304,7 @@ class PlotPaths:
             parity=mapping.get("parity"),
             residuals=mapping.get("residuals"),
             iterations_barplot=mapping.get("iterations_barplot"),
+            error_convergence=mapping.get("error_convergence"),
         )
 
     def to_mapping(self) -> dict[str, Path]:
@@ -312,6 +319,7 @@ class PlotPaths:
             "parity": self.parity,
             "residuals": self.residuals,
             "iterations_barplot": self.iterations_barplot,
+            "error_convergence": self.error_convergence,
         }
         return {key: path for key, path in values.items() if path is not None}
 

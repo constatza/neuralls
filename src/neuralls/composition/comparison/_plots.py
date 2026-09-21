@@ -8,7 +8,11 @@ from neuralls.composition.comparison.models import ComparisonPaths
 from neuralls.domain.analysis.spectra import plot_condition_numbers
 from neuralls.domain.solver.models.result import CGComparisonResult, PlotPaths
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
-from neuralls.platform.reporting.plots import plot_convergence_comparison, plot_metric_comparison
+from neuralls.platform.reporting.plots import (
+    plot_convergence_comparison,
+    plot_error_convergence_comparison,
+    plot_metric_comparison,
+)
 
 
 def _comparison_plot_title(display_name: str | None, system_size: int | None) -> str | None:
@@ -74,18 +78,34 @@ def _generate_comparison_plots(
         atol=atol,
     )
 
+    by_label = {labels.get(name, name): result for name, result in results.items()}
+    family_by_label = {labels.get(name, name): value for name, value in families.items()}
+    color_by_label = {labels.get(name, name): value for name, value in color_keys.items()}
+    marker_by_label = {labels.get(name, name): value for name, value in marker_keys.items()}
+
     convergence_path = paths.figures / f"preconditioner_convergence_{suffix}.png"
     plot_convergence_comparison(
-        {labels.get(name, name): result for name, result in results.items()},
+        by_label,
         metadata=None,
         save_path=convergence_path,
         title=title,
         rtol=rtol,
         atol=atol,
         max_iterations=max_iterations,
-        families={labels.get(name, name): family for name, family in families.items()},
-        color_keys={labels.get(name, name): key for name, key in color_keys.items()},
-        marker_keys={labels.get(name, name): key for name, key in marker_keys.items()},
+        families=family_by_label,
+        color_keys=color_by_label,
+        marker_keys=marker_by_label,
+    )
+
+    error_path = paths.figures / f"preconditioner_error_convergence_{suffix}.png"
+    plot_error_convergence_comparison(
+        by_label,
+        metadata=None,
+        save_path=error_path,
+        title=title,
+        families=family_by_label,
+        color_keys=color_by_label,
+        marker_keys=marker_by_label,
     )
 
     iter_path = paths.figures / f"preconditioner_iterations_{suffix}.png"
@@ -102,4 +122,5 @@ def _generate_comparison_plots(
         convergence=convergence_path,
         condition_numbers=cond_path,
         iterations_barplot=iter_path,
+        error_convergence=error_path,
     )
