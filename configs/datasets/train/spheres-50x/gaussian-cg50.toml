@@ -1,0 +1,17 @@
+id = "gaussian-cg50-spheres-50x"
+
+[source]
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/spheres-50x.txt"
+
+[generation]
+normalize = "matrix"
+shuffle = true
+seed = 42
+
+[[generation.strategy]]
+name = "gaussian_residuals"
+samples = 5000
+stop = 50
+
+[output]
+data_dir = "${NEURALLS_PROCESSED_DIR}"

@@ -32,9 +32,9 @@ coarsening = { method = "target_dim", target_coarse_dim = 100 }
 # The only searched axis is the training-set size: POD-2G (rank 100, see
 # [[jobs]] below) is fitted against gaussian-cg50 snapshots at every sample
 # count. Each [[dataset_sweeps]] entry expands to one real [[datasets]] entry
-# per value in `values` (dataset ids are read from those real files — see
-# scripts/expand_dataset_sweep.py and gaussian-cg50.sweep.toml, which
-# generates the underlying configs).
+# per value in `values` (dataset ids are read from those real files, which
+# are created from gaussian-cg50.sweep.toml when missing; --force-expand
+# recreates them).
 
 [[dataset_sweeps]]
 label = "cg50-samples"

@@ -148,7 +148,8 @@ Case configs bind:
 
 Every family's `default.toml` is a short showcase of each algorithm, not a
 search: identity/Jacobi/IC0, AMG at coarse dim 10 and 100, and POD-2G at rank 10
-and 100, fitted from `gaussian-cg50` and `smoother-filtered-probes` snapshots.
+and 100, fitted from `gaussian-cg10` and `smoother-filtered-probes` snapshots.
+Default cases reference only plain, tracked dataset configs — never sweep output.
 Neural network jobs are kept in explicit training/search variants. Parametric
 searches live in sibling case files, one searched axis per file:
 `coarse-dim-search.toml` (AMG dim / POD-2G rank in 10, 100, 200, 300, on
@@ -272,17 +273,21 @@ changing what a dataset config or case config *is*:
   cart_product = true   # 2x4 = 8 paths, every {cg, value} combination
   ```
 
+  Sweeps are for genuinely parametric axes only (e.g. training-set size);
+  discrete named datasets such as `gaussian-cg10`/`cg50` are plain tracked files.
+
   **Generated files are gitignored, never committed**: everything
-  `expand_dataset_sweep.py` writes lands in a `_generated/` subdirectory
+  sweep expansion writes lands in a `_generated/` subdirectory
   sibling to its `*.sweep.toml` source (`configs/datasets/train/<family>/_generated/`)
   — see `_GENERATED_SUBDIR_NAME` in the script. These files are 100%
   mechanically derivable from their tracked `*.sweep.toml`, so committing
   them would just be duplicate file content under a different name; only the
-  sweep template itself is tracked. Run
-  `uv run python scripts/expand_dataset_sweep.py --all` (expands every
-  `*.sweep.toml` under `configs/` in one pass) after a fresh checkout, and
-  again whenever a sweep source changes, before running `neuralls generate` /
-  `generate-single` against a case that uses swept datasets.
+  sweep template itself is tracked. Loading a case config
+  (`platform/config/loaders.py::load_case_config`) creates any missing
+  `_generated/` file its `[[datasets]]` reference from the sibling
+  `*.sweep.toml` automatically; `neuralls run --force`/`--force-expand` and
+  `neuralls generate --force` recreate them even when present.
+  `scripts/expand_dataset_sweep.py --all` remains as a manual bulk expander.
 
   **Why a real file, not an in-memory config**: a dataset config — swept or
   hand-written — isn't only read once at load time. `composition/assignments/

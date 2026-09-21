@@ -33,10 +33,10 @@ coarsening = { method = "target_dim", target_coarse_dim = 100 }
 path = "../../datasets/train/45x15/gaussian-cg0.toml"
 
 [[datasets]]
-path = "../../datasets/train/45x15/_generated/gaussian-cg10.toml"
+path = "../../datasets/train/45x15/gaussian-cg10.toml"
 
 [[datasets]]
-path = "../../datasets/train/45x15/_generated/gaussian-cg50.toml"
+path = "../../datasets/train/45x15/gaussian-cg50.toml"
 
 [[jobs]]
 id = "pod-2g_rank100"

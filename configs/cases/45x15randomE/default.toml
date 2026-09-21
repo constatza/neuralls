@@ -35,7 +35,7 @@ type = "amg"
 coarsening = { method = "target_dim", target_coarse_dim = 100 }
 
 [[datasets]]
-path = "../../datasets/train/45x15randomE/_generated/gaussian-cg50.toml"
+path = "../../datasets/train/45x15randomE/gaussian-cg10.toml"
 
 [[datasets]]
 path = "../../datasets/train/45x15randomE/smoother-filtered-probes.toml"
@@ -120,11 +120,11 @@ matrix_index = 14
 rhs_source = { kind = "raw_lhs", path = "${NEURALLS_RAW_DIR}/SpectralData/45x15-displacements/UaVectorsFromSpectral/ua_vector from_spectral_no_realization_0.txt", row_kind = "standard", scale = 1.0 }
 
 [[assignments]]
-dataset = "gaussian-cg50-45x15randomE"
+dataset = "gaussian-cg10-45x15randomE"
 job = "pod-2g_rank10"
 
 [[assignments]]
-dataset = "gaussian-cg50-45x15randomE"
+dataset = "gaussian-cg10-45x15randomE"
 job = "pod-2g_rank100"
 
 [[assignments]]

@@ -45,7 +45,7 @@ type = "amg"
 coarsening = { method = "target_dim", target_coarse_dim = 300 }
 
 [[datasets]]
-path = "../../datasets/train/rectangular-high-condition/_generated/gaussian-cg50.toml"
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg50.toml"
 
 [[jobs]]
 id = "pod-2g_rank10"

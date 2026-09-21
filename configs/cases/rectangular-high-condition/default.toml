@@ -35,7 +35,7 @@ type = "amg"
 coarsening = { method = "target_dim", target_coarse_dim = 100 }
 
 [[datasets]]
-path = "../../datasets/train/rectangular-high-condition/_generated/gaussian-cg50.toml"
+path = "../../datasets/train/rectangular-high-condition/gaussian-cg10.toml"
 
 [[datasets]]
 path = "../../datasets/train/rectangular-high-condition/smoother-filtered-probes.toml"
@@ -51,12 +51,12 @@ path = "../../jobs/pod2g/pod2g-rank100.toml"
 display_name = "POD-2G (rank 100)"
 
 [[comparisons]]
-matrix_dataset = "gaussian-cg50-rectangular-high-condition"
+matrix_dataset = "gaussian-cg10-rectangular-high-condition"
 rhs_source = { kind = "gaussian" }
 seed = 42
 
 [[comparisons]]
-matrix_dataset = "gaussian-cg50-rectangular-high-condition"
+matrix_dataset = "gaussian-cg10-rectangular-high-condition"
 rhs_source = { kind = "sparse", indices = [
     0,
     1,
@@ -68,11 +68,11 @@ rhs_source = { kind = "sparse", indices = [
 ] }
 
 [[assignments]]
-dataset = "gaussian-cg50-rectangular-high-condition"
+dataset = "gaussian-cg10-rectangular-high-condition"
 job = "pod-2g_rank10"
 
 [[assignments]]
-dataset = "gaussian-cg50-rectangular-high-condition"
+dataset = "gaussian-cg10-rectangular-high-condition"
 job = "pod-2g_rank100"
 
 [[assignments]]
