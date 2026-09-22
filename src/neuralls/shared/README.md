@@ -7,6 +7,7 @@ The shared package holds cross-layer primitives only.
 - `constants.py`: package-wide constants and config keys
 - `types.py`: shared numerical/config metadata types (`ScaleMetadata`, `MatrixNormType`, `PreconditionerFamily`, comparison RHS enums) used by ≥2 layers
 - `enum_codecs.py`: pure semantic enum encoders/decoders shared by domain, composition, and platform
+- `digest.py`: deterministic SHA-256 identity primitives — `canonical_digest` (fail-fast canonical JSON of configs; unknown types and unmarked `Path` fields raise), `content_digest` (file/directory bytes), `toml_digest` (parsed TOML meaning, comments ignored), `array_digest` (logical array content, storage-format independent) — plus the `Cosmetic`/`InputData`/`InputConfig` field markers that say how a config field contributes to identity
 
 ## Semantic Difference
 

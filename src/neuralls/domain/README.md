@@ -12,6 +12,8 @@ The domain package contains the pure computational core of `neuralls`.
 - `inference.py`: cross-boundary inference DTOs (`InferencePredictions`, `InferenceOutputs`)
 - `inference_ports.py`: framework-agnostic batch inference predictor port used by application and platform
 
+- `identity.py` / `identity_ports.py`: `StageIdentity` (derived key + per-input components), the `IdentityTag` names, and the `IdentityStore` port that composition's `gate_reuse` uses to decide reuse (implemented in `platform`)
+
 ## Semantic Difference
 
 Domain code explains the mathematics and workflow invariants of the project.

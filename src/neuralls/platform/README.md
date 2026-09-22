@@ -9,7 +9,6 @@ The platform package isolates external integrations and side-effecting helpers.
 - `tracking/`: MLflow run helpers, naming/query policy, workflow topology resolution, and client adapters
 - `reporting/`: plotting, artifact staging, and inference output adapters
 - `dlkit/`: DLKit-backed adapters for solver preconditioners and batch inference
-- `caching.py`: directory hashing for source-tree cache invalidation, and dataset artifact fingerprinting (size+mtime) for training reuse-check invalidation
 
 ## Semantic Difference
 
@@ -148,20 +147,15 @@ filter escaping, workflow tracking-environment resolution, artifact path
 selection, lease-backed artifact access, and comparison-run metric logging all
 stay under `platform.tracking` so orchestration code does not reimplement
 third-party rules.
-Reuse-check filter construction lives here too: `find_successful_run` matches on
-`assignment_id` plus an optional `dataset_hash` tag (composition regenerates
-this from `caching.compute_dataset_fingerprint` after each dataset generation,
-so a regenerated dataset no longer matches its prior "already trained" run;
-the generate stage stamps that same fingerprint into the dataset manifest as
-`dataset_fingerprint`, so its own skip-regeneration check and this reuse check
-share one definition of a changed dataset),
-and `find_successful_comparison_run` matches on `comparison_id` plus a
-`checkpoint_dependency_hash` tag composition derives from each resolved
-checkpoint's `resolved_run_id` (not a file hash — a checkpoint is re-leased to
-a fresh temp path on every run, so `resolved_run_id`, MLflow's own stable
-identity for "which training run produced this," is what's hashed) —
-composition owns computing and tagging these values; platform only owns the
-MLflow filter/search mechanics.
+Reuse lookup lives here too: `mlflow_store.py::MlflowIdentityStore` (the
+`domain/identity_ports.py::IdentityStore` implementation) finds the newest
+FINISHED run in one experiment carrying a `StageIdentity`'s stage and key tags
+(escaped filters, deterministic newest-first order, paginated, optional
+real-checkpoint check via dlkit). Composition derives the identities and tags
+the runs (`StageIdentity.tags()`); platform only owns the MLflow filter/search
+mechanics. Dataset identity lives in `storage/dataset_digest.py`
+(`current_dataset_digest`: O(1) from the manifest while the stat snapshot is
+unchanged, otherwise a recompute of the logical array content).
 MLflow artifact recovery follows the same boundary. Platform tracking helpers
 resolve and validate checkpoints, split JSON, and staged config artifacts
 through an `ArtifactLeaseManager` protocol with explicit abstract methods.
@@ -196,7 +190,16 @@ Dataset storage is split by responsibility:
   (one `ArtifactLocation(path, key)` per artifact) plus the physical matrix shape —
   `zarr`/`hdf5` read that shape back from the written container, `npy` derives it
   from the payload layout.
-- `storage/dataset_readers.py`: manifest-driven read helpers and explicit resolved dataset contracts
+- `storage/dataset_readers.py`: manifest-driven read helpers and explicit resolved dataset contracts;
+  `open_resolved_array` opens any artifact lazily (memmap/zarr/h5py) as an axis-0 sliceable
+- `storage/dataset_digest.py`: `dataset_content_digest` (logical-content sha256 over every
+  manifest artifact, identical across npy/hdf5/zarr and independent of location),
+  `stat_digest` (relative path + size + mtime_ns of every reachable file) and
+  `current_dataset_digest` (returns the manifest's stamped `content_digest` in O(1) when the
+  stored `stat_digest` still matches, otherwise recomputes; never writes). Documented blind
+  spot: a same-size edit with a restored mtime passes the fast path (`--force` covers it).
+  The manifest carries `content_digest`, `stat_digest`, `identity_key`, `identity_components`
+  (all optional; legacy manifests load them as None).
 
 `storage/manifest_io.py::load_dataset_manifest` and
 `storage/dataset_readers.py::load_matrix_dense_sample` are `functools.lru_cache`-memoized
@@ -206,7 +209,7 @@ manifest-driven reader (`resolve_dataset_artifacts`, `list_available_matrix_indi
 entries that share one `matrix_dataset` reads its manifest and matrix samples once per
 process instead of once per entry. `save_dataset_manifest` clears the manifest cache as
 it writes, so a read after a write in the same process sees the manifest just written —
-which is what lets the generate stage stamp `dataset_fingerprint` into the manifest it
+which is what lets the generate stage stamp its identity and digests into the manifest it
 has only just saved. Caveat: because the cache is keyed only on the path, mutating a
 dataset's *array* files on disk mid-process (rare — datasets are normally
 write-once/read-many) is still not picked up without a process restart.
