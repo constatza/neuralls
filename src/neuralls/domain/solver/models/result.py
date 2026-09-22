@@ -146,6 +146,8 @@ class CGComparisonResult:
         rhs_norm: Right-hand side norm ||b||.
         breakdown: Whether numerical breakdown occurred.
         error_history_a_rel: Relative energy-norm errors across iterations.
+        error_bound_a_rel: Golub-Meurant lower bound on the relative energy-norm
+            error, used when the exact value is unavailable.
         helper_iterations: Iterations where step helper was invoked.
         helper_norms: Residual norms after step helper application.
         error: Error message if solver failed.
@@ -210,6 +212,10 @@ class CGComparisonResult:
 
     error_history_a_rel: list[float] | None = None
     """Energy-norm errors ||e_k||_A / ||e_0||_A across iterations (None if unavailable)."""
+
+    error_bound_a_rel: list[float] | None = None
+    """Golub-Meurant lower bound on ||e_k||_A / ||e_0||_A, used when the exact
+    energy error is unavailable (no reference solution). None if neither is available."""
 
 
 @dataclass(frozen=True, slots=True)

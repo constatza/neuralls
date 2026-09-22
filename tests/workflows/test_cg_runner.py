@@ -30,11 +30,11 @@ from torchalg.preconditioners.implementations import (
 )
 
 from neuralls.domain.solver.comparison import (
-    _relative_exact_error,
     format_results_summary,
     run_cg_comparison,
     summarize_best_combinations,
 )
+from neuralls.domain.solver.error_metrics import relative_exact_error
 from neuralls.domain.solver.models.result import CGComparisonResult
 
 if TYPE_CHECKING:
@@ -424,10 +424,10 @@ def test_run_cg_comparison_preserves_input_dtype(
 def test_relative_exact_error_preserves_dtype_and_computes_correctly(
     close_solution_pair: tuple[Tensor, Tensor],
 ) -> None:
-    """_relative_exact_error computes the correct ratio at both float32 and float64."""
+    """relative_exact_error computes the correct ratio at both float32 and float64."""
     x_sol, x_exact = close_solution_pair
 
-    error = _relative_exact_error(x_sol, x_exact)
+    error = relative_exact_error(x_sol, x_exact)
 
     expected = float(torch.linalg.vector_norm(x_sol - x_exact) / torch.linalg.vector_norm(x_exact))
     assert error == pytest.approx(expected, rel=1e-5)
@@ -439,7 +439,7 @@ def test_relative_exact_error_zero_exact_norm_returns_absolute_diff(
     """The guard clause returns the absolute diff norm when x_exact is the zero vector."""
     x_sol, x_exact = zero_exact_solution_pair
 
-    error = _relative_exact_error(x_sol, x_exact)
+    error = relative_exact_error(x_sol, x_exact)
 
     assert error == pytest.approx(1.0)
 

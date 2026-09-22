@@ -79,7 +79,8 @@ def resolve_row_scales(
         case RawWeightingConfig():
             return None
         case PowerNormWeightingConfig(metric=metric, beta=beta):
-            return power_norm_scales(snapshots, matrix=matrix, metric=metric, beta=beta)
+            torchalg_metric = "energy" if metric == "a" else metric
+            return power_norm_scales(snapshots, matrix=matrix, metric=torchalg_metric, beta=beta)
         case SmootherPersistenceWeightingConfig(omega=omega, steps=steps):
             return smoother_persistence_scales(
                 snapshots, cast("torch.Tensor", matrix), omega=omega, steps=steps

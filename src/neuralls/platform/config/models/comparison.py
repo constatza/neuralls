@@ -8,6 +8,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
+from neuralls.domain.solver.error_metrics import REFERENCE_PRECISION_MARGIN
 from neuralls.domain.solver.models.config import (
     ComparisonData,
     ComparisonGeneral,
@@ -44,6 +45,7 @@ class _SolverParamsModel(BaseModel):
     max_iterations: int = Field(default=100, ge=1)
     stopping_criterion: Literal["residual_norm", "fixed_iterations"] = "residual_norm"
     m_max: int = Field(default=DEFAULT_M_MAX, ge=-1)
+    reference_precision_margin: float = Field(default=REFERENCE_PRECISION_MARGIN, gt=0.0, lt=1.0)
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 

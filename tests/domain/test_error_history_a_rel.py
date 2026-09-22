@@ -1,4 +1,4 @@
-"""Tests for the per-iteration energy-norm error history of CG comparisons."""
+"""Tests for ``CGComparisonResult.error_history_a_rel`` produced by a real comparison run."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from neuralls.domain.solver.comparison import run_cg_comparison
-from neuralls.domain.solver.error_metrics import energy_error_history, reference_solution
+from neuralls.domain.solver.error_metrics import reference_solution
 
 
 def test_history_starts_at_one_and_is_monotone_for_pcg(
@@ -34,16 +34,3 @@ def test_reference_solution_beats_rtol_by_margin(
     )
     assert float(relative_residual) <= 1e-6 * 1e-4
     torch.testing.assert_close(x, known_solution)
-
-
-def test_zero_initial_error_returns_none(
-    spd_matrix: torch.Tensor, known_solution: torch.Tensor
-) -> None:
-    iterates = known_solution.unsqueeze(0).repeat(3, 1)
-    assert energy_error_history(spd_matrix, known_solution, iterates) is None
-
-
-def test_untraced_iterates_return_none(
-    spd_matrix: torch.Tensor, known_solution: torch.Tensor
-) -> None:
-    assert energy_error_history(spd_matrix, known_solution, None) is None

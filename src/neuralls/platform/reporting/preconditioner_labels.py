@@ -65,15 +65,17 @@ class AggregationCoarseningDetail:
 
     Attributes:
         theta (float): Configured strength-of-connection threshold.
-        omega (float): Configured Jacobi-smoothing damping for the
-            prolongation smoother.
+        omega (float | None): Configured Jacobi-smoothing damping for the
+            prolongation smoother, or ``None`` when left to torchalg's own
+            per-matrix spectral-radius rule (``(4/3) / rho(D^-1 A)``) rather
+            than a fixed value.
         coarse_dimension (int): Realized coarse dimension, read back by
             building the transfer operator — ``theta`` is a threshold, not a
             chosen dimension, so this is the only way to know it.
     """
 
     theta: float
-    omega: float
+    omega: float | None
     coarse_dimension: int
 
 
@@ -270,10 +272,11 @@ def _describe_coarsening(coarsening: object, matrix: torch.Tensor) -> str:
 
     Returns:
         str: ``"c={n}"`` for POD-2G or target-dimension coarsening,
-            ``"θ={theta}, ω={omega}, c={n}"`` for aggregation coarsening
-            (``c`` being the realized coarse dimension in every case), or
-            the class name as a fallback for unrecognized
-            ``CoarseningStrategy`` implementations.
+            ``"θ={theta}, ω={omega}, c={n}"`` for aggregation coarsening with
+            a fixed ``omega`` (``"ω=auto"`` when it was left to torchalg's
+            per-matrix rule instead), ``c`` being the realized coarse
+            dimension in every case, or the class name as a fallback for
+            unrecognized ``CoarseningStrategy`` implementations.
     """
     match coarsening_detail(coarsening, matrix):
         case PODCoarseningDetail(rank=rank):
@@ -281,6 +284,7 @@ def _describe_coarsening(coarsening: object, matrix: torch.Tensor) -> str:
         case TargetDimensionCoarseningDetail(realized_coarse_dim=c):
             return f"c={c}"
         case AggregationCoarseningDetail(theta=theta, omega=omega, coarse_dimension=c):
-            return f"θ={theta:.2g}, ω={omega:.2g}, c={c}"
+            omega_text = "auto" if omega is None else f"{omega:.2g}"
+            return f"θ={theta:.2g}, ω={omega_text}, c={c}"
         case None:
             return type(coarsening).__name__

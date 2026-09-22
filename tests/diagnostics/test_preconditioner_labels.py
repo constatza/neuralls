@@ -78,6 +78,17 @@ def aggregation_amg_preconditioner(tridiag_spd_matrix: torch.Tensor) -> AMGPreco
 
 
 @pytest.fixture
+def auto_omega_aggregation_amg_preconditioner(
+    tridiag_spd_matrix: torch.Tensor,
+) -> AMGPreconditioner:
+    """Constructed AMG preconditioner with omega left unset (torchalg's auto per-matrix rule)."""
+    coarsening = AggregationCoarsening()
+    smoother = JacobiSmoother(omega=0.67)
+    cycle = VCycle(smoother=smoother, n_pre=2, n_post=2)
+    return AMGPreconditioner(tridiag_spd_matrix, coarsening=coarsening, cycle=cycle, n_levels=2)
+
+
+@pytest.fixture
 def pod_amg_preconditioner(
     tridiag_spd_matrix: torch.Tensor, rank2_snapshot_ensemble: torch.Tensor
 ) -> AMGPreconditioner:
@@ -127,6 +138,24 @@ def test_coarsening_detail_reports_realized_coarse_dimension_for_aggregation(
     assert detail == AggregationCoarseningDetail(theta=0.25, omega=0.67, coarse_dimension=2)
 
 
+def test_coarsening_detail_reports_none_omega_when_left_to_auto_rule(
+    auto_omega_aggregation_amg_preconditioner: AMGPreconditioner,
+) -> None:
+    """An unset omega is read back as None, not a guessed or defaulted float.
+
+    torchalg resolves the actual damping per-matrix at solve time via its own
+    spectral-radius rule; the label layer must not fabricate a value it never
+    configured.
+    """
+    detail = coarsening_detail(
+        auto_omega_aggregation_amg_preconditioner._coarsening,
+        auto_omega_aggregation_amg_preconditioner._matrix,
+    )
+
+    assert isinstance(detail, AggregationCoarseningDetail)
+    assert detail.omega is None
+
+
 def test_coarsening_detail_reports_fitted_rank_for_pod(
     pod_amg_preconditioner: AMGPreconditioner,
 ) -> None:
@@ -165,6 +194,15 @@ def test_describe_preconditioner_amg_aggregation_coarsening_has_detail(
     structurally by ``test_coarsening_detail_reports_realized_coarse_dimension_for_aggregation``.
     """
     assert describe_preconditioner(aggregation_amg_preconditioner) != ""
+
+
+def test_describe_preconditioner_amg_aggregation_renders_auto_omega(
+    auto_omega_aggregation_amg_preconditioner: AMGPreconditioner,
+) -> None:
+    """An unset omega renders as 'auto' in the label instead of crashing on None."""
+    detail = describe_preconditioner(auto_omega_aggregation_amg_preconditioner)
+
+    assert "ω=auto" in detail
 
 
 # ==============================================================================

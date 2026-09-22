@@ -17,17 +17,27 @@ implementations are delegated to `torchalg`.
   - `PlotPaths`
   - recommendation records
 - Comparison orchestration helpers that package `torchalg` solver output for
-  neuralls reporting workflows. `run_cg_comparison` traces every iterate and
-  reduces it — on the host, after the solve — to `CGComparisonResult.error_history_a_rel` — the energy-norm
-  error `||e_k||_A / ||e_0||_A` (the norm CG minimizes; every curve starts at
-  1). The reference `x*` is a float64 direct solve with iterative refinement
-  until its relative residual is at most `rtol * 1e-4`
-  (`reference_solution`, computed on the host so it never competes for GPU
-  memory), so it is far more precise than the solvers compared. If tracing runs
-  out of GPU memory the solve is retried untraced (no error history, result
-  kept); a failing reference solve or error history leaves those metrics unset
-  instead of failing the preconditioner. `release_device_memory` returns cached
-  CUDA blocks between preconditioners.
+  neuralls reporting workflows. The reference `x*` is a float64 direct solve
+  with iterative refinement until its relative residual is at most
+  `rtol * reference_precision_margin` (`reference_solution`, computed on the
+  host so it never competes for GPU memory), clamped so the target never asks
+  below float64 machine precision; `reference_precision_margin` defaults to
+  `1e-4` and is configurable via `SolverParams.reference_precision_margin`. The
+  resulting `x*` is passed into `pcg`/`flexible_cg` as `x_exact=`, so `torchalg`
+  tracks the exact energy-norm error `||e_k||_A / ||e_0||_A` (the norm CG
+  minimizes; every curve starts at 1) every iteration from a single dot
+  product — no per-iterate vector tracing needed for this metric, so the solve
+  always runs at `TraceMode.MINIMAL`. `extract_energy_error`
+  (`error_metrics.py`) reads this off the returned `SolverResult` into
+  `CGComparisonResult.error_history_a_rel`. When the reference solve fails (or
+  `x_exact` otherwise isn't available), `error_history_a_rel` stays unset and
+  `error_bound_a_rel` is populated instead from a Golub-Meurant lower bound on
+  the same quantity (`golub_meurant_error_bound`, driven by `energy_decrements`
+  — always available, no reference solution needed) — the two fields are
+  mutually exclusive, an approximate bound never masquerades as the exact
+  error. A failing reference solve or energy-error extraction leaves those
+  metrics unset instead of failing the preconditioner. `release_device_memory`
+  returns cached CUDA blocks between preconditioners.
 - Validation and artifact export helpers used by platform/composition layers.
 
 ## What Lives In Torchalg
@@ -36,6 +46,7 @@ implementations are delegated to `torchalg`.
 - `torchalg.flexible_cg`
 - `torchalg.monitoring.TraceMode`
 - `torchalg.monitoring.IterationHistory`
+- `torchalg.monitoring.analysis.golub_meurant_error_bound`
 - `torchalg.models.result.SolverResult`
 - `torchalg.preconditioners.*`
 

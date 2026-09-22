@@ -6,6 +6,7 @@ from typing import Annotated, Any, Literal
 
 from torchalg.monitoring import TraceMode
 
+from neuralls.domain.solver.error_metrics import REFERENCE_PRECISION_MARGIN
 from neuralls.shared.digest import Cosmetic
 from neuralls.shared.types import ComparisonRhsSourceKind
 
@@ -56,6 +57,9 @@ class SolverParams:
         max_iterations: Maximum iterations allowed.
         stopping_criterion: When to stop iteration.
         m_max: FCG orthogonalization restart parameter.
+        reference_precision_margin: How many orders of magnitude tighter than
+            ``rtol`` the host reference solution must be (see
+            ``error_metrics.reference_solution``).
     """
 
     rtol: float
@@ -63,6 +67,7 @@ class SolverParams:
     max_iterations: int
     stopping_criterion: Literal["residual_norm", "fixed_iterations"]
     m_max: int
+    reference_precision_margin: float = REFERENCE_PRECISION_MARGIN
 
 
 @dataclass(frozen=True)

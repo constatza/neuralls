@@ -506,6 +506,29 @@ def plot_error_convergence_comparison(
     )
 
 
+def plot_error_bound_comparison(
+    results: Mapping[str, CGComparisonResult | Mapping[str, Any]],
+    **kwargs: Any,
+) -> None:
+    """Plot the Golub-Meurant lower bound on ``||e_k||_A / ||e_0||_A`` per preconditioner.
+
+    Thin wrapper over ``plot_convergence_comparison`` reading
+    ``error_bound_a_rel`` — the fallback energy-error signal used when the exact
+    value (``error_history_a_rel``) is unavailable (no reference solution);
+    accepts the same keyword arguments.
+
+    Args:
+        results (Mapping[str, CGComparisonResult | Mapping[str, Any]]): Results by method name.
+        **kwargs (Any): Forwarded to ``plot_convergence_comparison``.
+    """
+    plot_convergence_comparison(
+        results,
+        history_attr="error_bound_a_rel",
+        ylabel="Energy-error lower bound $\\|e_k\\|_A / \\|e_0\\|_A$ (Golub–Meurant)",
+        **kwargs,
+    )
+
+
 def plot_noise_robustness(
     noise_results: dict[str, dict[str, dict]],
     save_path: str | Path | None = None,

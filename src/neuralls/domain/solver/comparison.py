@@ -21,7 +21,12 @@ from torchalg.preconditioners.base import Preconditioner
 from torchalg.preconditioners.implementations import Identity
 from torchalg.utils.device import resolve_device
 
-from neuralls.domain.solver.error_metrics import energy_error_history, reference_solution
+from neuralls.domain.solver.error_metrics import (
+    REFERENCE_PRECISION_MARGIN,
+    extract_energy_error,
+    reference_solution,
+    relative_exact_error,
+)
 from neuralls.domain.solver.models.result import (
     CGComparisonResult,
     ComparisonRecommendations,
@@ -47,6 +52,7 @@ def run_cg_comparison(
     atol: float = DEFAULT_ATOL,
     maxiter: int = 100,
     m_max: int = DEFAULT_M_MAX,
+    reference_precision_margin: float = REFERENCE_PRECISION_MARGIN,
 ) -> dict[str, CGComparisonResult]:
     """Run CG with multiple preconditioners for comparison.
 
@@ -72,6 +78,8 @@ def run_cg_comparison(
         m_max: FCG orthogonalization window, used only for preconditioners
             routed to ``flexible_cg``; ignored for preconditioners routed to
             ``pcg``.
+        reference_precision_margin: How many orders of magnitude tighter than
+            ``rtol`` the host reference solution must be.
 
     Returns:
         Dict mapping preconditioner names to CGComparisonResult.
@@ -94,16 +102,19 @@ def run_cg_comparison(
         preconditioners = dict(preconditioners)
         preconditioners["none"] = Identity()
 
-    A_host = A.detach().cpu()
-    x_exact = _host_reference_solution(A_host, b.detach().cpu(), rtol=rtol)
+    x_exact_host = _host_reference_solution(
+        A.detach().cpu(), b.detach().cpu(), rtol=rtol, margin=reference_precision_margin
+    )
+    x_exact = x_exact_host.to(device=A.device, dtype=A.dtype) if x_exact_host is not None else None
 
     results: dict[str, CGComparisonResult] = {}
 
     for precond_name, precond in preconditioners.items():
         try:
-            x_sol, info = _solve_with_trace_fallback(
-                A, b, x0, precond, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max
-            )
+            x_sol, info = _solve_one(
+                A, b, x0, precond, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
+                x_exact=x_exact,
+            )  # fmt: skip
         except (ValueError, RuntimeError) as solver_exc:
             result = CGComparisonResult(
                 x=_to_numpy(x0_base),
@@ -121,8 +132,8 @@ def run_cg_comparison(
                 error=f"CG solver failed: {solver_exc}",
             )
         else:
-            exact_error = _relative_exact_error(x_sol, x_exact) if x_exact is not None else None
-            error_history = _host_energy_error_history(A_host, x_exact, info.solution_vectors)
+            exact_error = relative_exact_error(x_sol, x_exact) if x_exact is not None else None
+            error_history, error_bound = _safe_extract_energy_error(info)
 
             rhs_norm = info.rhs_norm
             residual: list[float] = list(info.residual_history_abs or (info.residual_abs,))
@@ -144,6 +155,7 @@ def run_cg_comparison(
                 rhs_norm=info.rhs_norm,
                 breakdown=info.breakdown,
                 error_history_a_rel=error_history,
+                error_bound_a_rel=error_bound,
             )
 
         results[precond_name] = result
@@ -153,7 +165,7 @@ def run_cg_comparison(
 
 
 def _host_reference_solution(
-    A_host: torch.Tensor, b_host: torch.Tensor, *, rtol: float
+    A_host: torch.Tensor, b_host: torch.Tensor, *, rtol: float, margin: float
 ) -> torch.Tensor | None:
     """Reference solution computed on the host so it never competes for GPU memory.
 
@@ -162,28 +174,27 @@ def _host_reference_solution(
         the comparison then runs without exact-error metrics instead of failing.
     """
     try:
-        return reference_solution(A_host, b_host, rtol=rtol)
+        return reference_solution(A_host, b_host, rtol=rtol, margin=margin)
     except (RuntimeError, ValueError) as exc:
         logger.warning("Reference solution unavailable; exact-error metrics skipped: {}", exc)
         return None
 
 
-def _host_energy_error_history(
-    A_host: torch.Tensor, x_exact: torch.Tensor | None, solution_vectors: torch.Tensor | None
-) -> list[float] | None:
-    """Energy-norm error history evaluated on the host, after the solve has finished.
+def _safe_extract_energy_error(
+    info: SolverResult,
+) -> tuple[list[float] | None, list[float] | None]:
+    """Resilience wrapper around ``extract_energy_error``.
 
     Returns:
-        The history, or ``None`` if it is unavailable or its computation fails;
-        a failure here must never discard an otherwise valid solve.
+        ``(error_history_a_rel, error_bound_a_rel)``, or ``(None, None)`` if
+        extraction fails — a metrics failure must never discard an otherwise
+        valid solve.
     """
-    if x_exact is None or solution_vectors is None:
-        return None
     try:
-        return energy_error_history(A_host, x_exact, solution_vectors.detach().cpu())
+        return extract_energy_error(info)
     except (RuntimeError, ValueError) as exc:
-        logger.warning("Energy-norm error history skipped: {}", exc)
-        return None
+        logger.warning("Energy-norm error metrics skipped: {}", exc)
+        return None, None
 
 
 def release_device_memory() -> None:
@@ -195,21 +206,6 @@ def release_device_memory() -> None:
 def _to_numpy(value: torch.Tensor) -> np.ndarray:
     """Convert solver tensors at the reporting DTO boundary."""
     return value.detach().cpu().numpy()
-
-
-def _relative_exact_error(x_sol: torch.Tensor, x_exact: torch.Tensor) -> float:
-    """Relative error ``||x_sol - x_exact|| / ||x_exact||``, or absolute if ``x_exact`` is ~0.
-
-    Aligns ``x_exact`` to ``x_sol``'s device before combining them — device
-    only, never dtype, so a real precision mismatch stays visible instead of
-    being silently downcast.
-    """
-    x_exact_matched = x_exact.to(device=x_sol.device)
-    exact_norm = float(torch.linalg.vector_norm(x_exact_matched))
-    diff_norm = float(torch.linalg.vector_norm(x_sol - x_exact_matched))
-    if exact_norm == 0:
-        return diff_norm
-    return diff_norm / exact_norm
 
 
 def _cg_algorithm_for(preconditioner: Preconditioner) -> CGAlgorithm:
@@ -228,37 +224,6 @@ def _cg_algorithm_for(preconditioner: Preconditioner) -> CGAlgorithm:
     return CGAlgorithm.FCG if preconditioner.requires_flexible_cg else CGAlgorithm.PCG
 
 
-def _solve_with_trace_fallback(
-    A: torch.Tensor,
-    b: torch.Tensor,
-    x0: torch.Tensor,
-    preconditioner: Preconditioner,
-    *,
-    rtol: float,
-    atol: float,
-    maxiter: int,
-    m_max: int,
-) -> tuple[torch.Tensor, SolverResult]:
-    """Solve with iterate tracing, retrying untraced if tracing exhausts GPU memory.
-
-    Full tracing keeps every iterate on the solve device; on large systems that
-    can be what runs out of memory. The retry drops the (optional) error-history
-    data rather than losing the preconditioner's result entirely.
-    """
-    try:
-        return _solve_one(
-            A, b, x0, preconditioner, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
-            trace_mode=TraceMode.FULL,
-        )  # fmt: skip
-    except torch.cuda.OutOfMemoryError:
-        logger.warning("Out of GPU memory while tracing iterates; retrying without tracing.")
-        release_device_memory()
-        return _solve_one(
-            A, b, x0, preconditioner, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
-            trace_mode=TraceMode.DISABLED,
-        )  # fmt: skip
-
-
 def _solve_one(
     A: torch.Tensor,
     b: torch.Tensor,
@@ -269,9 +234,14 @@ def _solve_one(
     atol: float,
     maxiter: int,
     m_max: int,
-    trace_mode: TraceMode,
+    x_exact: torch.Tensor | None,
 ) -> tuple[torch.Tensor, SolverResult]:
     """Solve with the CG variant this preconditioner's category requires.
+
+    Always traces at ``TraceMode.MINIMAL`` (scalar residual history only, no
+    per-iterate vectors). When ``x_exact`` is supplied, ``torchalg`` tracks the
+    exact energy-norm error every iteration from it directly — no vector storage,
+    no separate FULL-trace pass needed for that metric.
 
     Args:
         A: System matrix tensor.
@@ -284,7 +254,8 @@ def _solve_one(
         m_max: FCG orthogonalization window; unused on the PCG branch — PCG's
             own (unrelated, off-by-default) periodic-reorthogonalization
             ``m_max`` is intentionally left disabled here.
-        trace_mode: Iterate-recording mode forwarded to the solver.
+        x_exact: Reference solution (already on ``A``'s device/dtype), or
+            ``None`` if unavailable.
 
     Returns:
         Tuple of the solved vector and solver diagnostics.
@@ -299,7 +270,8 @@ def _solve_one(
                 atol=atol,
                 maxiter=maxiter,
                 preconditioner=preconditioner,
-                trace_mode=trace_mode,
+                trace_mode=TraceMode.MINIMAL,
+                x_exact=x_exact,
             )
         case CGAlgorithm.FCG:
             return flexible_cg(
@@ -311,7 +283,8 @@ def _solve_one(
                 maxiter=maxiter,
                 preconditioner=preconditioner,
                 m_max=m_max,
-                trace_mode=trace_mode,
+                trace_mode=TraceMode.MINIMAL,
+                x_exact=x_exact,
             )
 
 

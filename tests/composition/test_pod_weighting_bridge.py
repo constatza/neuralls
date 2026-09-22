@@ -68,7 +68,7 @@ class TestResolveRowScales:
     ) -> None:
         cfg = PowerNormWeightingConfig(metric="a", beta=1.0)
         scales = resolve_row_scales(cfg, snapshots, matrix=matrix)
-        expected = power_norm_scales(snapshots, matrix=matrix, metric="a", beta=1.0)
+        expected = power_norm_scales(snapshots, matrix=matrix, metric="energy", beta=1.0)
         torch.testing.assert_close(scales, expected)
 
     def test_smoother_persistence_dispatches_to_torchalg_function(
