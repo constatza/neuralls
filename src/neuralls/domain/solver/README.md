@@ -36,8 +36,10 @@ implementations are delegated to `torchalg`.
   — always available, no reference solution needed) — the two fields are
   mutually exclusive, an approximate bound never masquerades as the exact
   error. A failing reference solve or energy-error extraction leaves those
-  metrics unset instead of failing the preconditioner. `release_device_memory`
-  returns cached CUDA blocks between preconditioners.
+  metrics unset instead of failing the preconditioner. Between preconditioners
+  it calls `shared.device.release_device_memory()` — cross-layer since
+  `composition/assignments` also calls it between sweep children and pipeline
+  stages, not solver-comparison-specific, so it lives in `shared/`, not here.
 - Validation and artifact export helpers used by platform/composition layers.
 
 ## What Lives In Torchalg

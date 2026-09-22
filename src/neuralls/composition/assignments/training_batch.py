@@ -32,7 +32,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from dlkit.common import ChildFailure, ChildSuccess
+from dlkit.common import ChildFailure, ChildSuccess, LifecycleHooks
 from dlkit.engine.workflows.multi_run import MultiRunSpec, RunSpec
 from dlkit.interfaces.api import run_multirun_spec
 from loguru import logger
@@ -70,6 +70,7 @@ from neuralls.platform.tracking.mlflow_client import (
     mark_run_failed,
 )
 from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
+from neuralls.shared.device import release_device_memory
 
 
 def run_assignment(
@@ -257,6 +258,20 @@ def _finalize_assignment_child(
     )
 
 
+def _release_device_memory_on_child_outcome(_outcome: object) -> None:
+    """`LifecycleHooks` callback: free cached CUDA blocks after one sweep child.
+
+    dlkit's `MultiRunOrchestrator` runs every sweep child sequentially in one
+    process, with no allocator reset between them — a CUDA-heavy fit-job
+    child that OOMs (or merely peaks high) otherwise leaves the caching
+    allocator holding those blocks for every child that follows, turning one
+    real failure into a cascade of identical-looking ones. Registered for
+    both `on_child_completed` and `on_child_failed` since either outcome can
+    leave memory allocated; the outcome itself carries nothing relevant here.
+    """
+    release_device_memory()
+
+
 def run_assignment_sweep(
     case_config_path: Path,
     settings: NeurallsSettings | None = None,
@@ -371,7 +386,11 @@ def run_assignment_sweep(
                     parent_tags=dict(session_tags.as_mlflow_tags()),
                     failure_policy="continue",
                     children=tuple(run_specs),
-                )
+                ),
+                hooks=LifecycleHooks(
+                    on_child_completed=_release_device_memory_on_child_outcome,
+                    on_child_failed=_release_device_memory_on_child_outcome,
+                ),
             )
             for child_outcome in sweep_result.children:
                 prepared = prepared_by_child_id[child_outcome.child_id]

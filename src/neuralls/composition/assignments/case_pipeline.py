@@ -11,6 +11,7 @@ from neuralls.composition.assignments.training_batch import run_assignment_sweep
 from neuralls.composition.comparison.models import ComparisonOutcome, ComparisonParams
 from neuralls.composition.generation.multi_generation import generate_batch
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.shared.device import release_device_memory
 
 
 def run_case_pipeline(
@@ -69,6 +70,12 @@ def run_case_pipeline(
 
     if not cfg.comparisons:
         return assignment_results, []
+
+    # Training and comparison run in this same process with no allocator
+    # reset between them — a CUDA-heavy training sweep otherwise leaves the
+    # caching allocator holding blocks that starve even the cheapest
+    # comparison (e.g. the unpreconditioned baseline).
+    release_device_memory()
 
     comparison_outcomes = run_comparison_batch(
         case_config_path,

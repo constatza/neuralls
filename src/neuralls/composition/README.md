@@ -247,6 +247,16 @@ orchestrator itself:
    also called directly by `neuralls compare`, only when the case config
    declares `[[comparisons]]`.
 
+All three stages, and every fit-job child within the training sweep, run
+sequentially in one process with no CUDA context reset between them —
+`run_case_pipeline` calls `shared.device.release_device_memory()` between
+the training and comparison stages, and `run_assignment_sweep` registers it
+as a dlkit `LifecycleHooks.on_child_completed`/`on_child_failed` callback so
+it fires after every sweep child, success or failure. Without this, a
+CUDA-heavy fit-job OOM (or even just a high memory peak) leaves the caching
+allocator holding those blocks for every child and stage that follows,
+turning one real failure into a cascade of identical-looking ones.
+
 Training assumes generation already ran and never generates a dataset
 itself — it only resolves the already-generated dataset's directory
 (`data_cfg.output.data_dir / data_cfg.id`, the same path

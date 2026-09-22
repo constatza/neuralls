@@ -29,7 +29,6 @@ from neuralls.domain.analysis.spectra import PreconditionerCallable, compute_con
 from neuralls.domain.solver.comparison import (
     _to_numpy,
     format_results_summary,
-    release_device_memory,
     run_cg_comparison,
 )
 from neuralls.domain.solver.models.config import SolverParams
@@ -53,6 +52,7 @@ from neuralls.platform.config.models.preconditioner_family import (
 from neuralls.platform.config.resolution import resolve_user_path
 from neuralls.platform.reporting.preconditioner_labels import build_preconditioner_labels
 from neuralls.platform.storage.filesystem import ensure_dir
+from neuralls.shared.device import release_device_memory
 
 type PreconditionerEvaluationMapper = Callable[
     [

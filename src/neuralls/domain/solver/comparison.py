@@ -33,6 +33,7 @@ from neuralls.domain.solver.models.result import (
     RankedRecommendation,
 )
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
+from neuralls.shared.device import release_device_memory
 
 
 class CGAlgorithm(StrEnum):
@@ -195,12 +196,6 @@ def _safe_extract_energy_error(
     except (RuntimeError, ValueError) as exc:
         logger.warning("Energy-norm error metrics skipped: {}", exc)
         return None, None
-
-
-def release_device_memory() -> None:
-    """Return cached CUDA blocks between preconditioners (no-op without CUDA)."""
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
 
 
 def _to_numpy(value: torch.Tensor) -> np.ndarray:

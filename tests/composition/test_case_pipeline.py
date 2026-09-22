@@ -197,3 +197,42 @@ def test_sweep_runs_before_comparison_batch(tmp_path: Path) -> None:
         run_case_pipeline(case_config_path, settings)
 
     assert call_order == ["sweep", "compare"]
+
+
+def test_releases_device_memory_between_sweep_and_comparison(tmp_path: Path) -> None:
+    """Training and comparison run in one process with no allocator reset of
+    their own — a CUDA-heavy sweep otherwise leaves the caching allocator
+    holding blocks that starve the comparison stage that runs right after it.
+    """
+    case_config_path = tmp_path / "case.toml"
+    settings = MagicMock()
+    call_order: list[str] = []
+    with (
+        patch(
+            "neuralls.composition.assignments.case_pipeline.require_settings",
+            side_effect=lambda settings, **_: settings,
+        ),
+        patch("neuralls.composition.assignments.case_pipeline.generate_batch"),
+        patch(
+            "neuralls.composition.assignments.case_pipeline.run_assignment_sweep",
+            side_effect=lambda *a, **k: (
+                call_order.append("sweep")
+                or AssignmentSweepResult(results=[], tracking_uri=None, parent_run_id=None)
+            ),
+        ),
+        patch(
+            "neuralls.composition.assignments.case_pipeline.load_validated_case_config",
+            return_value=(MagicMock(comparisons=(MagicMock(),)), MagicMock()),
+        ),
+        patch(
+            "neuralls.composition.assignments.case_pipeline.release_device_memory",
+            side_effect=lambda: call_order.append("release"),
+        ),
+        patch(
+            "neuralls.composition.assignments.case_pipeline.run_comparison_batch",
+            side_effect=lambda *a, **k: call_order.append("compare") or [],
+        ),
+    ):
+        run_case_pipeline(case_config_path, settings)
+
+    assert call_order == ["sweep", "release", "compare"]
