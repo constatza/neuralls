@@ -305,7 +305,6 @@ def prepare_training_settings(
     settings: NeurallsSettings | None = None,
     case_config_path: str | Path | None = None,
     output_root: Path | str | None = None,
-    max_epochs: int | None = None,
     identity: AssignmentIdentity,
     mlflow_experiment_name: str | None = None,
     batched: bool = False,
@@ -393,11 +392,6 @@ def prepare_training_settings(
             dataset_format,
         )
 
-        if max_epochs is not None:
-            workflow_settings = patch_model(
-                workflow_settings,
-                {"training": {"trainer": {"max_epochs": max_epochs}}},
-            )
         tracking_backend = _resolve_tracking_backend(runtime_environment)
         workflow_settings = patch_model(
             workflow_settings,

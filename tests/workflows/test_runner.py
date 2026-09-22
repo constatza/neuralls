@@ -30,7 +30,11 @@ def _fake_prepared_training(tmp_path: Path, assignment_id: str) -> PreparedTrain
     actually read — the real training pipeline is skipped by mocking
     ``prepare_training_settings``/``run_multirun_spec``/``finalize_prepared_training``.
     """
-    spec = SimpleNamespace(assignment_id=assignment_id, assignment_display_name=assignment_id)
+    spec = SimpleNamespace(
+        assignment_id=assignment_id,
+        assignment_display_name=assignment_id,
+        data_config_path=tmp_path / f"{assignment_id}-dataset.toml",
+    )
     return PreparedTraining(
         workflow_settings=MagicMock(),
         run_config=SimpleNamespace(run_name=assignment_id, tags={}),
@@ -240,6 +244,10 @@ def test_run_assignments_full_flow(
             return_value=MlflowCoordinates(tracking_uri, "0", "test-run-id"),
         ),
         patch("neuralls.composition.assignments.training_batch.finalize_session_parent_run"),
+        patch(
+            "neuralls.composition.assignments.training_batch.dataset_unchanged_since",
+            return_value=True,
+        ),
     ):
         # 6. Run the flow
         sweep = run_assignment_sweep(
@@ -368,6 +376,10 @@ def test_run_assignment_sweep_with_mlflow(
             return_value=MlflowCoordinates(tracking_uri, "0", "mlflow-test-run-id"),
         ),
         patch("neuralls.composition.assignments.training_batch.finalize_session_parent_run"),
+        patch(
+            "neuralls.composition.assignments.training_batch.dataset_unchanged_since",
+            return_value=True,
+        ),
     ):
         # 5. Run the flow with MLflow enabled
         sweep = run_assignment_sweep(

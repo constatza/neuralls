@@ -50,8 +50,9 @@ from neuralls.composition.assignments.training import (
     prepare_training_settings,
     to_run_spec,
 )
+from neuralls.composition.identity.gate import gate_reuse
+from neuralls.composition.identity.training import dataset_unchanged_since, training_identity
 from neuralls.composition.tracking.run_specs import build_session_run_spec
-from neuralls.platform.caching import compute_dataset_fingerprint
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
 from neuralls.platform.config.models.workspace import AssignmentSpec
@@ -65,9 +66,10 @@ from neuralls.platform.tracking.mlflow import (
 )
 from neuralls.platform.tracking.mlflow_client import (
     fetch_mlflow_metrics,
-    find_successful_run,
     log_batch_artifacts_to_mlflow,
+    mark_run_failed,
 )
+from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
 
 
 def run_assignment(
@@ -76,7 +78,6 @@ def run_assignment(
     spec: AssignmentSpec,
     output_root: Path,
     force: bool,
-    max_epochs: int | None = None,
     mlflow_experiment_name: str | None = None,
     tracking_uri: str | None = None,
 ) -> AssignmentResult | PreparedTraining:
@@ -151,37 +152,40 @@ def run_assignment(
             raise FileNotFoundError(
                 f"Required data files not found in {data_dir}:\n  - " + "\n  - ".join(missing)
             )
-        dataset_hash = compute_dataset_fingerprint(
-            (artifacts.matrix.path, artifacts.rhs.path, artifacts.solutions.path)
+        identity = training_identity(
+            job_config_path=spec.job_config_path,
+            data_config_path=spec.data_config_path,
+            settings=settings,
         )
 
-        # Step 2: Check MLflow for a completed run of this exact assignment against
-        # this exact dataset. A FINISHED run tagged with this assignment_id and a
-        # matching dataset_hash is trusted as equivalent to training again — nothing
-        # is reused locally, whatever needs the checkpoint later (comparison,
-        # inference) resolves it independently through MLflow. A dataset regenerated
-        # since that run changes dataset_hash, so it no longer matches and training
-        # reruns automatically.
-        existing_run_id = (
+        # Step 2: Check MLflow for a completed run with this exact identity — the
+        # same dataset content and effective job settings. Nothing is reused
+        # locally; whatever needs the checkpoint later (comparison, inference)
+        # resolves it independently through the same identity. Any change to
+        # those inputs changes the key, so training reruns automatically.
+        existing = (
             None
-            if force or mlflow_experiment_name is None or tracking_uri is None
-            else find_successful_run(
-                tracking_uri=tracking_uri,
-                mlflow_experiment_name=mlflow_experiment_name,
-                assignment_id=assignment_id,
-                dataset_hash=dataset_hash,
+            if mlflow_experiment_name is None or tracking_uri is None
+            else gate_reuse(
+                MlflowIdentityStore(
+                    tracking_uri=tracking_uri,
+                    experiment=mlflow_experiment_name,
+                    require_checkpoint=True,
+                ),
+                identity,
+                force=force,
+                label=assignment_id,
             )
         )
 
         # Step 3: Skip training if a completed run already exists; otherwise resolve
         # this assignment's dlkit settings so the caller can add it to the sweep.
-        if existing_run_id is not None:
-            logger.info(f"Using existing MLflow run for assignment '{assignment_id}'")
+        if existing is not None:
             return AssignmentResult(
                 assignment_id=assignment_id,
                 assignment_display_name=spec.assignment_display_name,
                 status="Success",
-                mlflow_run_id=existing_run_id,
+                mlflow_run_id=existing.run_id,
             )
 
         return prepare_training_settings(
@@ -189,11 +193,10 @@ def run_assignment(
             data_config_path=spec.data_config_path,
             settings=settings,
             output_root=output_root,
-            max_epochs=max_epochs,
             identity=AssignmentIdentity.from_spec(spec),
             mlflow_experiment_name=mlflow_experiment_name,
             batched=True,
-            extra_tags={"dataset_hash": dataset_hash},
+            extra_tags=identity.tags(),
         )
     except Exception as exc:  # noqa: BLE001
         # Broad by design: one assignment's failure (including dlkit-internal
@@ -212,6 +215,7 @@ def _finalize_assignment_child(
     *,
     prepared: PreparedTraining,
     execution_result: object,
+    settings: NeurallsSettings,
 ) -> AssignmentResult:
     """Finalize one successful multirun child: make its checkpoint durable in MLflow.
 
@@ -222,6 +226,7 @@ def _finalize_assignment_child(
     Args:
         prepared: This assignment's prepared training inputs.
         execution_result: The multirun child's dispatch result.
+        settings: Runtime settings, used to re-verify the dataset is unchanged.
 
     Returns:
         `AssignmentResult` with status='Success' or 'Failed'.
@@ -229,6 +234,12 @@ def _finalize_assignment_child(
     spec = prepared.assignment.spec
     try:
         coords = finalize_prepared_training(prepared, execution_result)
+        if not dataset_unchanged_since(prepared.run_config.tags, spec.data_config_path, settings):
+            mark_run_failed(run_id=coords.run_id, tracking_uri=coords.tracking_uri)
+            raise RuntimeError(
+                f"Dataset for assignment '{spec.assignment_id}' changed while it was training; "
+                "the run was marked FAILED. Re-run training."
+            )
     except Exception as exc:  # noqa: BLE001
         logger.error(f"Assignment {spec.assignment_id} failed: {exc}")
         return AssignmentResult(
@@ -251,7 +262,6 @@ def run_assignment_sweep(
     settings: NeurallsSettings | None = None,
     *,
     force: bool = False,
-    max_epochs: int | None = None,
 ) -> AssignmentSweepResult:
     """Run training for every assignment defined in one case config.
 
@@ -339,7 +349,6 @@ def run_assignment_sweep(
                 spec=spec,
                 output_root=batch.output_root,
                 force=force,
-                max_epochs=max_epochs,
                 mlflow_experiment_name=mlflow_experiment_name,
                 tracking_uri=training_mlflow_env.tracking_uri,
             )
@@ -372,6 +381,7 @@ def run_assignment_sweep(
                             result = _finalize_assignment_child(
                                 prepared=prepared,
                                 execution_result=child_outcome.result,
+                                settings=settings,
                             )
                             results_by_id[child_outcome.child_id] = result
                             if not result.is_success:

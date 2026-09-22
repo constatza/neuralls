@@ -39,10 +39,6 @@ def run_case_pipeline_command(
         "--force-expand",
         help="Recreate sweep-generated dataset configs even if they already exist.",
     ),
-    max_epochs: int | None = typer.Option(
-        None,
-        help="Override max training epochs for every assignment.",
-    ),
     env_file: EnvFileOption = None,
     profile: ProfileOption = None,
 ) -> None:
@@ -68,7 +64,6 @@ def run_case_pipeline_command(
             force_generate=force_generate,
             force_compare=force_compare,
             force_expand=force_expand,
-            max_epochs=max_epochs,
         )
     except (FileNotFoundError, ValueError, OSError, RuntimeError) as exc:
         typer.echo(f"Error: {exc}", err=True)

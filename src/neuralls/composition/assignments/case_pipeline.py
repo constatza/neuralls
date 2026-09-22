@@ -21,7 +21,6 @@ def run_case_pipeline(
     force_train: bool = False,
     force_compare: bool = False,
     force_expand: bool = False,
-    max_epochs: int | None = None,
 ) -> tuple[list[AssignmentResult], list[ComparisonOutcome]]:
     """Run the full pipeline for one case config: generate, train, then compare.
 
@@ -46,7 +45,6 @@ def run_case_pipeline(
         force_train: Retrain every assignment even if a completed run exists.
         force_compare: Rerun every comparison even if a matching one exists.
         force_expand: Recreate sweep-generated dataset configs even if present.
-        max_epochs: Override max training epochs for every assignment.
 
     Returns:
         Tuple of (assignment results, comparison outcomes). Each list is
@@ -66,7 +64,6 @@ def run_case_pipeline(
             case_config_path,
             settings=settings,
             force=force_train,
-            max_epochs=max_epochs,
         )
         assignment_results = sweep_result.results
 

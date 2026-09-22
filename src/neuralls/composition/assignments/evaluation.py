@@ -35,10 +35,12 @@ from neuralls.composition.assignments.runtime_dataset_contract import (
 )
 from neuralls.composition.assignments.runtime_dataset_patcher import patch_runtime_dataset
 from neuralls.composition.assignments.runtime_workspace_patcher import patch_dataloader_runtime
+from neuralls.composition.identity.training import training_identity
 from neuralls.composition.tracking.run_specs import (
     build_evaluation_tags,
     build_session_run_spec,
 )
+from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.models.experiments import (
     AssignmentEntry,
     CaseConfig,
@@ -64,9 +66,9 @@ from neuralls.platform.tracking.mlflow import (
     finalize_session_parent_run,
 )
 from neuralls.platform.tracking.mlflow_client import (
-    find_successful_run,
     log_batch_artifacts_to_mlflow,
 )
+from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
 
 type MlflowClientFactory = Callable[..., MlflowClient]
 
@@ -224,18 +226,32 @@ def _resolve_training_run_id(
     tracking_uri: str,
     experiment_name: str,
     assignment_id: str,
+    identity: StageIdentity,
 ) -> str:
-    training_run_id = find_successful_run(
-        tracking_uri=tracking_uri,
-        mlflow_experiment_name=experiment_name,
-        assignment_id=assignment_id,
-    )
-    if training_run_id is None:
+    """Find the training run carrying this assignment's derived identity.
+
+    Args:
+        tracking_uri: MLflow tracking URI.
+        experiment_name: Training experiment.
+        assignment_id: Assignment label, for the error message only.
+        identity: The assignment's training identity (dataset content,
+            effective job settings).
+
+    Returns:
+        The producing run's id.
+
+    Raises:
+        RuntimeError: If no FINISHED run with a checkpoint carries the identity.
+    """
+    reused = MlflowIdentityStore(
+        tracking_uri=tracking_uri, experiment=experiment_name, require_checkpoint=True
+    ).find(identity)
+    if reused is None or reused.run_id is None:
         raise RuntimeError(
-            f"No FINISHED training run found for assignment '{assignment_id}' "
-            f"in MLflow experiment '{experiment_name}'."
+            f"No FINISHED training run matching the current dataset and job settings found for "
+            f"assignment '{assignment_id}' in MLflow experiment '{experiment_name}'."
         )
-    return training_run_id
+    return reused.run_id
 
 
 def _resolve_eval_config_paths(
@@ -277,11 +293,18 @@ def _build_eval_context(
     tracking_uri: str,
     mlflow_client_factory: MlflowClientFactory,
     artifact_leases: ArtifactLeaseManager,
+    settings: NeurallsSettings,
 ) -> EvaluationAssignmentContext:
+    job_config_path, data_config_path = _resolve_config_paths(assignment, configs_dir, cfg)
     training_run_id = _resolve_training_run_id(
         tracking_uri=tracking_uri,
         experiment_name=cfg.names.training,
         assignment_id=assignment.id,
+        identity=training_identity(
+            job_config_path=job_config_path,
+            data_config_path=data_config_path,
+            settings=settings,
+        ),
     )
     client = mlflow_client_factory(tracking_uri=tracking_uri)
     artifacts = resolve_training_evaluation_artifacts(
@@ -431,6 +454,7 @@ def prepare_evaluation_settings(
         tracking_uri=tracking_uri,
         mlflow_client_factory=mlflow_client_factory,
         artifact_leases=artifact_leases,
+        settings=settings,
     )
     inference_settings = _materialize_inference_settings(
         cfg=cfg,

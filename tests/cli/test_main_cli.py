@@ -437,7 +437,6 @@ def test_run_invokes_batch_workflow(
     assert call_kwargs["force_train"] is False
     assert call_kwargs["force_generate"] is False
     assert call_kwargs["force_compare"] is False
-    assert call_kwargs["max_epochs"] is None
 
 
 @patch("neuralls.cli.run.run_case_pipeline")

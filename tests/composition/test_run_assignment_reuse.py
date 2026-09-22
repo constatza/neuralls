@@ -1,12 +1,11 @@
-"""MLflow-backed reuse: an assignment only skips retraining if find_successful_run
-
-reports a FINISHED run tagged with its own assignment_id — never based on a local
-checkpoint or another assignment's run.
+"""MLflow-backed reuse: an assignment only skips retraining if the identity store
+finds a FINISHED run with a checkpoint carrying the assignment's derived training
+identity (dataset content, effective job settings, epoch override) — never based on
+a local checkpoint, an assignment label, or another assignment's run.
 """
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -17,8 +16,9 @@ from mlflow.tracking import MlflowClient
 from neuralls.application.models import AssignmentResult
 from neuralls.composition.assignments import training_batch
 from neuralls.composition.assignments.training import PreparedTraining
-from neuralls.platform.caching import compute_dataset_fingerprint
+from neuralls.domain.identity import Reused, StageIdentity
 from neuralls.platform.config.models.workspace import AssignmentSpec
+from neuralls.shared.digest import canonical_digest
 
 
 def _spec(
@@ -37,7 +37,21 @@ def _spec(
 
 
 @pytest.fixture
-def run_assignment_dependencies(tmp_path: Path) -> Iterator[dict[str, MagicMock]]:
+def identity() -> StageIdentity:
+    """Training identity the patched derivation returns."""
+    return StageIdentity.build("training", {"dataset": canonical_digest("d")})
+
+
+@pytest.fixture
+def other_identity() -> StageIdentity:
+    """Identity of an assignment trained on different inputs."""
+    return StageIdentity.build("training", {"dataset": canonical_digest("other")})
+
+
+@pytest.fixture
+def run_assignment_dependencies(
+    tmp_path: Path, identity: StageIdentity
+) -> Iterator[dict[str, MagicMock]]:
     """Patch every I/O dependency of ``run_assignment`` except the reuse decision."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
@@ -45,7 +59,8 @@ def run_assignment_dependencies(tmp_path: Path) -> Iterator[dict[str, MagicMock]
         patch.object(training_batch, "load_data_config") as load_data_config,
         patch.object(training_batch, "resolve_dataset_identity") as resolve_dataset_identity,
         patch.object(training_batch, "resolve_dataset_artifacts") as resolve_dataset_artifacts,
-        patch.object(training_batch, "find_successful_run") as find_successful_run,
+        patch.object(training_batch, "training_identity", return_value=identity) as derive,
+        patch.object(training_batch, "MlflowIdentityStore") as store_cls,
         patch.object(training_batch, "prepare_training_settings") as prepare_training_settings,
     ):
         data_cfg = MagicMock()
@@ -59,18 +74,21 @@ def run_assignment_dependencies(tmp_path: Path) -> Iterator[dict[str, MagicMock]
             matrix=MagicMock(path=data_dir),
         )
         prepare_training_settings.return_value = MagicMock(name="prepared-training")
+        store_cls.return_value.find.return_value = None
         yield {
-            "find_successful_run": find_successful_run,
+            "find": store_cls.return_value.find,
+            "store_cls": store_cls,
+            "derive": derive,
             "prepare_training_settings": prepare_training_settings,
         }
 
 
 def _run(
-    deps: dict[str, MagicMock],
     tmp_path: Path,
     *,
     assignment_id: str = "exp-1",
     force: bool = False,
+    tracking_uri: str = "sqlite:///tracking.db",
 ) -> AssignmentResult | PreparedTraining:
     return training_batch.run_assignment(
         settings=MagicMock(),
@@ -78,39 +96,52 @@ def _run(
         output_root=tmp_path,
         force=force,
         mlflow_experiment_name="Train",
-        tracking_uri="sqlite:///tracking.db",
+        tracking_uri=tracking_uri,
     )
 
 
-def test_train_skips_when_a_finished_run_already_exists(
-    run_assignment_dependencies: dict[str, MagicMock], tmp_path: Path
+def test_train_skips_when_an_identical_run_already_exists(
+    run_assignment_dependencies: dict[str, MagicMock], tmp_path: Path, identity: StageIdentity
 ) -> None:
-    """A FINISHED run tagged with this exact assignment_id short-circuits training."""
-    run_assignment_dependencies["find_successful_run"].return_value = "existing-run-id"
-    result = _run(run_assignment_dependencies, tmp_path)
+    """A FINISHED run carrying this exact identity short-circuits training."""
+    run_assignment_dependencies["find"].return_value = Reused(run_id="existing-run-id")
+    result = _run(tmp_path)
     run_assignment_dependencies["prepare_training_settings"].assert_not_called()
+    run_assignment_dependencies["find"].assert_called_once_with(identity)
     assert isinstance(result, AssignmentResult)
     assert result.status == "Success"
+    assert result.mlflow_run_id == "existing-run-id"
 
 
-def test_train_runs_when_no_finished_run_exists(
+def test_lookup_is_scoped_to_the_training_experiment_and_requires_a_checkpoint(
     run_assignment_dependencies: dict[str, MagicMock], tmp_path: Path
 ) -> None:
-    """No matching FINISHED run means the assignment is prepared for the training sweep."""
-    run_assignment_dependencies["find_successful_run"].return_value = None
-    result = _run(run_assignment_dependencies, tmp_path)
-    run_assignment_dependencies["prepare_training_settings"].assert_called_once()
-    assert result is run_assignment_dependencies["prepare_training_settings"].return_value
+    """Reuse only considers the case's training experiment and real checkpoints."""
+    _run(tmp_path)
+    run_assignment_dependencies["store_cls"].assert_called_once_with(
+        tracking_uri="sqlite:///tracking.db", experiment="Train", require_checkpoint=True
+    )
 
 
-def test_force_always_retrains_even_with_a_finished_run(
+def test_train_runs_and_tags_the_identity_when_no_matching_run_exists(
+    run_assignment_dependencies: dict[str, MagicMock], tmp_path: Path, identity: StageIdentity
+) -> None:
+    """A miss prepares training and stamps the derived identity on the new run."""
+    result = _run(tmp_path)
+    prepare = run_assignment_dependencies["prepare_training_settings"]
+    prepare.assert_called_once()
+    assert prepare.call_args.kwargs["extra_tags"] == identity.tags()
+    assert result is prepare.return_value
+
+
+def test_force_always_retrains_even_with_a_matching_run(
     run_assignment_dependencies: dict[str, MagicMock], tmp_path: Path
 ) -> None:
-    """force=True bypasses the MLflow reuse check entirely."""
-    run_assignment_dependencies["find_successful_run"].return_value = "existing-run-id"
-    result = _run(run_assignment_dependencies, tmp_path, force=True)
+    """force=True bypasses the reuse check entirely."""
+    run_assignment_dependencies["find"].return_value = Reused(run_id="existing-run-id")
+    result = _run(tmp_path, force=True)
     run_assignment_dependencies["prepare_training_settings"].assert_called_once()
-    run_assignment_dependencies["find_successful_run"].assert_not_called()
+    run_assignment_dependencies["find"].assert_not_called()
     assert result is run_assignment_dependencies["prepare_training_settings"].return_value
 
 
@@ -121,22 +152,10 @@ def test_run_assignment_returns_failed_result_on_unexpected_exception(
     must be recorded as a Failed result, not raised — run_assignment_sweep's
     "failed assignments don't stop the batch" guarantee depends on this.
     """
-    run_assignment_dependencies["find_successful_run"].return_value = None
     run_assignment_dependencies["prepare_training_settings"].side_effect = Exception(
         "Run with UUID abc123 is already active."
     )
-    result = training_batch.run_assignment(
-        settings=MagicMock(),
-        spec=_spec(
-            tmp_path,
-            assignment_id="search-job-2",
-            assignment_display_name="Assignment 2",
-        ),
-        output_root=tmp_path,
-        force=False,
-        mlflow_experiment_name="Train",
-        tracking_uri="sqlite:///tracking.db",
-    )
+    result = _run(tmp_path, assignment_id="search-job-2")
     assert isinstance(result, AssignmentResult)
     assert result.status == "Failed"
     assert "already active" in (result.error or "")
@@ -180,52 +199,36 @@ def test_run_assignment_fails_cleanly_when_dataset_was_never_generated(
     prepare_training_settings.assert_not_called()
 
 
-def test_two_assignments_never_share_a_lookup_key(
-    run_assignment_dependencies: dict[str, MagicMock], tmp_path: Path
+def test_each_assignment_is_looked_up_under_its_own_derived_identity(
+    run_assignment_dependencies: dict[str, MagicMock],
+    tmp_path: Path,
+    identity: StageIdentity,
+    other_identity: StageIdentity,
 ) -> None:
-    """A FINISHED run for one assignment_id must not skip a different assignment_id.
+    """Two assignments derive and query their own identities, so a run for one
+    can never satisfy the other."""
+    run_assignment_dependencies["derive"].side_effect = [identity, other_identity]
+    _run(tmp_path, assignment_id="train-job")
+    _run(tmp_path, assignment_id="search-job")
 
-    find_successful_run is the sole reuse signal; querying it per-assignment_id
-    (asserted below) is what keeps two assignments sharing an architecture+dataset
-    from colliding on the same checkpoint slot.
-    """
-    run_assignment_dependencies["find_successful_run"].return_value = None
-    _run(run_assignment_dependencies, tmp_path, assignment_id="train-job")
-    _run(run_assignment_dependencies, tmp_path, assignment_id="search-job")
-
-    queried_ids = [
-        call.kwargs["assignment_id"]
-        for call in run_assignment_dependencies["find_successful_run"].call_args_list
-    ]
-    assert queried_ids == ["train-job", "search-job"]
+    queried = [c.args[0] for c in run_assignment_dependencies["find"].call_args_list]
+    assert queried == [identity, other_identity]
     assert run_assignment_dependencies["prepare_training_settings"].call_count == 2
 
 
 @pytest.fixture
-def run_assignment_dependencies_real_mlflow(
-    tmp_path: Path,
-) -> Iterator[tuple[dict[str, MagicMock], str]]:
-    """Like run_assignment_dependencies, but find_successful_run hits a real
-    sqlite-backed MLflow store instead of being mocked — exercises the real
-    tag round-trip end-to-end through run_assignment(). resolve_dataset_artifacts
-    points at real on-disk files since compute_dataset_fingerprint must run
-    for real for these tests to mean anything.
-    """
+def real_mlflow(tmp_path: Path) -> Iterator[tuple[dict[str, MagicMock], str]]:
+    """Like run_assignment_dependencies, but the identity store hits a real
+    sqlite-backed MLflow store — exercises the real tag round-trip end-to-end."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    matrix = data_dir / "matrix.npy"
-    rhs = data_dir / "rhs.npy"
-    solutions = data_dir / "solutions.npy"
-    for path in (matrix, rhs, solutions):
-        path.write_bytes(b"x")
-
     tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
     MlflowClient(tracking_uri=tracking_uri).create_experiment("Train")
-
     with (
         patch.object(training_batch, "load_data_config") as load_data_config,
         patch.object(training_batch, "resolve_dataset_identity") as resolve_dataset_identity,
         patch.object(training_batch, "resolve_dataset_artifacts") as resolve_dataset_artifacts,
+        patch.object(training_batch, "training_identity") as derive,
         patch.object(training_batch, "prepare_training_settings") as prepare_training_settings,
     ):
         data_cfg = MagicMock()
@@ -234,94 +237,55 @@ def run_assignment_dependencies_real_mlflow(
         load_data_config.return_value = data_cfg
         resolve_dataset_identity.return_value.name = "dataset-id"
         resolve_dataset_artifacts.return_value = MagicMock(
-            rhs=MagicMock(path=rhs),
-            solutions=MagicMock(path=solutions),
-            matrix=MagicMock(path=matrix),
+            rhs=MagicMock(path=data_dir),
+            solutions=MagicMock(path=data_dir),
+            matrix=MagicMock(path=data_dir),
         )
         prepare_training_settings.return_value = MagicMock(name="prepared-training")
-        yield {"prepare_training_settings": prepare_training_settings}, tracking_uri
+        yield (
+            {"derive": derive, "prepare_training_settings": prepare_training_settings},
+            tracking_uri,
+        )
 
 
-def test_run_assignment_reuses_seeded_run_without_mocking_find_successful_run(
-    run_assignment_dependencies_real_mlflow: tuple[dict[str, MagicMock], str],
-    tmp_path: Path,
-) -> None:
-    """The full real reuse-check path: a genuinely FINISHED, tagged, checkpointed
-    run in a real MLflow store is found and reused — find_successful_run itself
-    is not mocked here, unlike every other test in this module."""
-    deps, tracking_uri = run_assignment_dependencies_real_mlflow
-    client = MlflowClient(tracking_uri=tracking_uri)
+def _seed_finished_run(client: MlflowClient, tmp_path: Path, identity: StageIdentity) -> str:
     experiment = client.get_experiment_by_name("Train")
     assert experiment is not None
-    dataset_hash = compute_dataset_fingerprint(
-        (
-            tmp_path / "data" / "matrix.npy",
-            tmp_path / "data" / "rhs.npy",
-            tmp_path / "data" / "solutions.npy",
-        )
-    )
-    run = client.create_run(experiment.experiment_id)
-    client.set_tag(run.info.run_id, "assignment_id", "exp-1")
-    client.set_tag(run.info.run_id, "dataset_hash", dataset_hash)
+    run = client.create_run(experiment.experiment_id, tags=identity.tags())
     checkpoint = tmp_path / "ckpt.ckpt"
     checkpoint.write_bytes(b"x")
     client.log_artifact(run.info.run_id, str(checkpoint), artifact_path="checkpoints")
     client.set_terminated(run.info.run_id, "FINISHED")
+    return run.info.run_id
 
-    result = training_batch.run_assignment(
-        settings=MagicMock(),
-        spec=_spec(
-            tmp_path,
-            assignment_id="exp-1",
-            assignment_display_name="Assignment 1",
-        ),
-        output_root=tmp_path,
-        force=False,
-        mlflow_experiment_name="Train",
-        tracking_uri=tracking_uri,
-    )
+
+def test_real_store_reuses_run_with_the_same_identity(
+    real_mlflow: tuple[dict[str, MagicMock], str], tmp_path: Path, identity: StageIdentity
+) -> None:
+    """A genuinely FINISHED, tagged, checkpointed run in a real MLflow store is reused."""
+    deps, tracking_uri = real_mlflow
+    deps["derive"].return_value = identity
+    run_id = _seed_finished_run(MlflowClient(tracking_uri=tracking_uri), tmp_path, identity)
+
+    result = _run(tmp_path, tracking_uri=tracking_uri)
 
     assert isinstance(result, AssignmentResult)
-    assert result.status == "Success"
-    assert result.mlflow_run_id == run.info.run_id
+    assert result.mlflow_run_id == run_id
     deps["prepare_training_settings"].assert_not_called()
 
 
-def test_run_assignment_retrains_after_dataset_file_mtime_bump(
-    run_assignment_dependencies_real_mlflow: tuple[dict[str, MagicMock], str],
+def test_real_store_retrains_when_the_identity_changed(
+    real_mlflow: tuple[dict[str, MagicMock], str],
     tmp_path: Path,
+    identity: StageIdentity,
+    other_identity: StageIdentity,
 ) -> None:
-    """A real dataset regeneration (mtime bump on one artifact file, mirroring
-    test_caching.py's _bump_mtime) must change dataset_hash enough that the
-    seeded run no longer matches, so the reuse check correctly misses."""
-    deps, tracking_uri = run_assignment_dependencies_real_mlflow
-    client = MlflowClient(tracking_uri=tracking_uri)
-    experiment = client.get_experiment_by_name("Train")
-    assert experiment is not None
-    matrix = tmp_path / "data" / "matrix.npy"
-    rhs = tmp_path / "data" / "rhs.npy"
-    solutions = tmp_path / "data" / "solutions.npy"
-    stale_hash = compute_dataset_fingerprint((matrix, rhs, solutions))
-    run = client.create_run(experiment.experiment_id)
-    client.set_tag(run.info.run_id, "assignment_id", "exp-1")
-    client.set_tag(run.info.run_id, "dataset_hash", stale_hash)
-    client.set_terminated(run.info.run_id, "FINISHED")
+    """A run keyed on other inputs (e.g. a since-regenerated dataset) is not reused."""
+    deps, tracking_uri = real_mlflow
+    _seed_finished_run(MlflowClient(tracking_uri=tracking_uri), tmp_path, identity)
+    deps["derive"].return_value = other_identity
 
-    stat = rhs.stat()
-    os.utime(rhs, (stat.st_mtime + 1.0, stat.st_mtime + 1.0))
-
-    result = training_batch.run_assignment(
-        settings=MagicMock(),
-        spec=_spec(
-            tmp_path,
-            assignment_id="exp-1",
-            assignment_display_name="Assignment 1",
-        ),
-        output_root=tmp_path,
-        force=False,
-        mlflow_experiment_name="Train",
-        tracking_uri=tracking_uri,
-    )
+    result = _run(tmp_path, tracking_uri=tracking_uri)
 
     deps["prepare_training_settings"].assert_called_once()
     assert result is deps["prepare_training_settings"].return_value
