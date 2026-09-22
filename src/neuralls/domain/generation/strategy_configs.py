@@ -259,10 +259,11 @@ class SmootherFilteredProbesConfig(BaseStrategyConfig, _StepWindowFields):
         # source exists for this strategy, so samples=-1 ("all") is never
         # meaningful — reject it at construction, not deep inside generate().
     )
-    omega: float = Field(
-        0.67,
+    omega: float | None = Field(
+        None,
         description=(
-            "Weighted-Jacobi damping factor, matching "
+            "Weighted-Jacobi damping factor; auto per-matrix via torchalg's "
+            "spectral-radius rule when unset, matching "
             "torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother's default."
         ),
         gt=0.0,

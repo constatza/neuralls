@@ -409,7 +409,12 @@ class AggregationCoarseningConfig(BaseModel):
         lt=1.0,
         description="Strength-of-connection threshold controlling AMG aggregate/coarse-grid size.",
     )
-    omega: float = Field(default=0.67, gt=0.0, description="Prolongation Jacobi-smoothing damping.")
+    omega: float | None = Field(
+        default=None,
+        gt=0.0,
+        description="Prolongation Jacobi-smoothing damping; auto per-matrix via "
+        "torchalg's spectral-radius rule when unset.",
+    )
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     def exposed_checkpoint_ref(self) -> NeuralCheckpointRef | None:
@@ -439,7 +444,12 @@ class TargetDimCoarseningConfig(BaseModel):
     theta_min: float = Field(default=0.01, gt=0.0, lt=1.0, description="Lower theta search bound.")
     theta_max: float = Field(default=0.99, gt=0.0, lt=1.0, description="Upper theta search bound.")
     step: float = Field(default=0.01, gt=0.0, description="Theta search grid spacing.")
-    omega: float = Field(default=0.67, gt=0.0, description="Prolongation Jacobi-smoothing damping.")
+    omega: float | None = Field(
+        default=None,
+        gt=0.0,
+        description="Prolongation Jacobi-smoothing damping; auto per-matrix via "
+        "torchalg's spectral-radius rule when unset.",
+    )
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     def exposed_checkpoint_ref(self) -> NeuralCheckpointRef | None:
@@ -482,16 +492,22 @@ class SmootherPersistenceWeightingConfig(BaseModel):
     — the smoother's own error-propagation operator — so snapshots the
     smoother already removes efficiently contribute little to the fitted
     basis, and smoother-resistant ("algebraically smooth") snapshots
-    contribute most. `omega` defaults to match
+    contribute most. `omega` defaults to unset, matching
     `torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother`'s
-    default, so this targets the same smoother POD-2G actually runs
-    alongside. See
+    own default of auto-computing the damping per-matrix via its
+    spectral-radius rule, so this targets the same smoother POD-2G actually
+    runs alongside. See
     `torchalg.preconditioners.implementations.pod.weighting.smoother_persistence_scales`,
     which this config resolves to.
     """
 
     method: Literal["smoother_persistence"] = "smoother_persistence"
-    omega: float = Field(default=0.67, gt=0.0, description="Weighted-Jacobi damping factor.")
+    omega: float | None = Field(
+        default=None,
+        gt=0.0,
+        description="Weighted-Jacobi damping factor; auto per-matrix via "
+        "torchalg's spectral-radius rule when unset.",
+    )
     steps: int = Field(default=5, gt=0, description="Number of damping sweeps.")
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -735,7 +751,12 @@ class AMGPreconditionerConfig(BasePreconditionerConfig):
     n_levels: int = Field(default=2, ge=2, description="Total number of grid levels.")
     pre_smoothing_steps: int = Field(default=2, ge=0, description="Pre-smoothing iterations.")
     post_smoothing_steps: int = Field(default=2, ge=0, description="Post-smoothing iterations.")
-    smoother_omega: float = Field(default=0.67, gt=0.0, description="Weighted Jacobi damping.")
+    smoother_omega: float | None = Field(
+        default=None,
+        gt=0.0,
+        description="Weighted Jacobi damping; auto per-matrix via torchalg's "
+        "spectral-radius rule when unset.",
+    )
     coarsening: CoarseningConfig
 
     def checkpoint_refs(self) -> tuple[tuple[str, NeuralCheckpointRef], ...]:
@@ -778,8 +799,8 @@ class NeuralAMGPreconditionerConfig(BasePreconditionerConfig):
     n_levels: int = Field(default=2, ge=2, description="Total number of grid levels.")
     pre_smoothing_steps: int = Field(default=2, ge=0)
     post_smoothing_steps: int = Field(default=2, ge=0)
-    smoother_omega: float = Field(default=0.67, gt=0.0)
-    aggregation_omega: float = Field(default=0.67, gt=0.0)
+    smoother_omega: float | None = Field(default=None, gt=0.0)
+    aggregation_omega: float | None = Field(default=None, gt=0.0)
     prolongation: NeuralTransferConfig
     restriction: NeuralTransferConfig | None = None
 

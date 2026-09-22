@@ -16,10 +16,11 @@ seed = 42
 # CG is Krylov-optimal and converges regardless of condition number, while
 # weighted-Jacobi's convergence depends on rho(I - omega D^-1 A) being < 1.
 # See domain/generation/README.md's "Smoother-Filtered Probes" section.
-# `omega` matches
-# torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother's
-# default, so "smooth" means the same thing here as it does in POD-2G's
-# actual AMG V-cycle smoother. `start` is left unset (default: keep only
+# `omega` is left unset, matching
+# torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother's own
+# default of auto-computing the damping per-matrix via its spectral-radius
+# rule, so "smooth" means the same thing here as it does in POD-2G's actual
+# AMG V-cycle smoother. `start` is left unset (default: keep only
 # the final, fully-damped sweep). No snapshot weighting is applied when
 # fitting POD-2G from this dataset (raw, matching every other
 # pod-2g_rank* job).
@@ -27,7 +28,6 @@ seed = 42
 name = "smoother_filtered_probes"
 samples = 5000
 stop = 15
-omega = 0.67
 probe_distribution = "gaussian"
 
 [output]

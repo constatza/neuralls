@@ -143,8 +143,9 @@ Start with the simplest family that matches the model target.
 incidentally from a CG trajectory: `samples` random probe vectors (Gaussian
 or Rademacher, via `probe_distribution`) are passed through `window.stop`
 sweeps of the weighted-Jacobi error-propagation map
-`v <- v - omega * D^-1 A v` (`omega` defaults to 0.67, matching
-`torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother`).
+`v <- v - omega * D^-1 A v` (`omega` defaults to unset, matching
+`torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother`'s own
+default of auto-computing the damping per-matrix via its spectral-radius rule).
 Directions the smoother handles well are quickly attenuated, so what
 survives after `window.stop` sweeps is, by construction, smoother-resistant
 — the directions a POD-2G coarse space needs to cover. Reuses torchalg's
