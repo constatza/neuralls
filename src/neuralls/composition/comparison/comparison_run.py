@@ -173,8 +173,8 @@ def _evaluate_preconditioner(
     except Exception as exc:  # noqa: BLE001
         # Broad by design: one preconditioner's failure (build, condition number,
         # solve, CUDA OOM, ...) must never abort the rest of the comparison.
-        logger.warning(
-            "Preconditioner '{}' failed (comparison={}): {}: {}",
+        logger.opt(exception=True).warning(
+            "DIAGNOSTIC Preconditioner '{}' failed (comparison={}): {}: {}",
             cfg.name,
             display_name or "unnamed",
             type(exc).__name__,

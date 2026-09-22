@@ -46,6 +46,7 @@ from collections.abc import Iterable
 from typing import Any
 
 import torch
+from loguru import logger
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
 from neuralls.composition.assignments.runtime_dataset_contract import (
@@ -184,4 +185,14 @@ class PODCoarseningFittable(PODCoarseningStrategy):
         )
         if row_scales is None:
             row_scales = resolve_row_scales(self._weighting, concatenated, matrix=None)
-        super().fit(concatenated, row_scales=row_scales)
+        logger.warning(
+            "DIAGNOSTIC pre-SVD snapshot tensor: shape={} dtype={} device={}",
+            tuple(concatenated.shape),
+            concatenated.dtype,
+            concatenated.device,
+        )
+        try:
+            super().fit(concatenated, row_scales=row_scales)
+        except Exception:
+            logger.opt(exception=True).error("DIAGNOSTIC traceback for PODCoarseningFittable.fit()")
+            raise
