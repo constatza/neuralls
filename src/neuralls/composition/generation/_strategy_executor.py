@@ -73,6 +73,7 @@ def _execute_solution_archive(
         str(context.dataset_dir),
         dataset_format=context.dataset_format,
         force=force,
+        identity=context.identity,
     )
     return Path(dataset_path)
 
@@ -163,6 +164,7 @@ def _execute_synthetic_generation(
         str(context.dataset_dir),
         dataset_format=context.dataset_format,
         force=force,
+        identity=context.identity,
     )
     return Path(dataset_path)
 
@@ -210,6 +212,7 @@ def _execute_rhs_archive_only(
         str(context.dataset_dir),
         dataset_format=context.dataset_format,
         force=force,
+        identity=context.identity,
     )
     return Path(dataset_path)
 

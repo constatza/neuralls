@@ -9,13 +9,16 @@ import numpy as np
 import pytest
 
 from neuralls.composition.generation.dataset_builder import (
-    _dataset_already_generated,
     _guard_format_conflict,
+    _stamp_dataset_identity,
     build_dataset,
+    is_dataset_reusable,
 )
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
+from neuralls.domain.identity import StageIdentity
 from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
+from neuralls.shared.digest import canonical_digest
 
 
 def _artifact(fmt: str, path: str = "x") -> DatasetArtifact:
@@ -67,23 +70,47 @@ def complete_npy_dataset_dir(tmp_path: Path) -> Path:
     return tmp_path
 
 
-class TestDatasetAlreadyGenerated:
-    def test_no_manifest_returns_false(self, tmp_path: Path) -> None:
-        assert _dataset_already_generated(tmp_path) is False
+@pytest.fixture
+def identity() -> StageIdentity:
+    """A generation identity with one component."""
+    return StageIdentity.build("generation", {"config": canonical_digest("a")})
 
-    def test_manifest_with_missing_files_returns_false(self, zarr_manifest_dir: Path) -> None:
-        """The manifest references files ('x') that were never written to disk."""
-        assert _dataset_already_generated(zarr_manifest_dir) is False
 
-    def test_manifest_with_all_files_present_returns_true(
-        self, complete_npy_dataset_dir: Path
+@pytest.fixture
+def stamped_npy_dataset_dir(complete_npy_dataset_dir: Path, identity: StageIdentity) -> Path:
+    """Complete dataset whose manifest is stamped with `identity`."""
+    _stamp_dataset_identity(complete_npy_dataset_dir, identity)
+    return complete_npy_dataset_dir
+
+
+class TestIsDatasetReusable:
+    def test_no_manifest_returns_false(self, tmp_path: Path, identity: StageIdentity) -> None:
+        assert is_dataset_reusable(tmp_path, identity) is False
+
+    def test_manifest_with_missing_files_returns_false(
+        self, zarr_manifest_dir: Path, identity: StageIdentity
     ) -> None:
-        assert _dataset_already_generated(complete_npy_dataset_dir) is True
+        """The manifest references files ('x') that were never written to disk."""
+        assert is_dataset_reusable(zarr_manifest_dir, identity) is False
+
+    def test_unstamped_manifest_is_never_trusted_by_existence(
+        self, complete_npy_dataset_dir: Path, identity: StageIdentity
+    ) -> None:
+        assert is_dataset_reusable(complete_npy_dataset_dir, identity) is False
+
+    def test_stamped_manifest_with_same_identity_is_reusable(
+        self, stamped_npy_dataset_dir: Path, identity: StageIdentity
+    ) -> None:
+        assert is_dataset_reusable(stamped_npy_dataset_dir, identity) is True
+
+    def test_different_identity_is_not_reusable(self, stamped_npy_dataset_dir: Path) -> None:
+        other = StageIdentity.build("generation", {"config": canonical_digest("b")})
+        assert is_dataset_reusable(stamped_npy_dataset_dir, other) is False
 
 
 class TestBuildDatasetSkipByDefault:
     def test_skips_regeneration_when_dataset_already_complete(
-        self, complete_npy_dataset_dir: Path
+        self, stamped_npy_dataset_dir: Path, identity: StageIdentity
     ) -> None:
         with patch(
             "neuralls.composition.generation.dataset_builder.build_dataset_payload"
@@ -93,11 +120,12 @@ class TestBuildDatasetSkipByDefault:
                     matrix_path="unused.npy",
                 ),
                 DatasetSpec(),
-                str(complete_npy_dataset_dir),
+                str(stamped_npy_dataset_dir),
                 dataset_format="npy",
+                identity=identity,
             )
         mock_build_payload.assert_not_called()
-        assert result == str(complete_npy_dataset_dir)
+        assert result == str(stamped_npy_dataset_dir)
 
     def test_force_regenerates_even_when_dataset_already_complete(
         self, complete_npy_dataset_dir: Path

@@ -15,7 +15,13 @@ from neuralls.platform.storage.manifest import (
     DatasetNormalization,
     manifest_path_for,
 )
+from neuralls.shared.digest import Digest
 from neuralls.shared.types import LayoutType
+
+
+def _optional_str(raw: dict[str, Any], key: str) -> str | None:
+    value = raw.get(key)
+    return str(value) if value is not None else None
 
 
 def manifest_to_dict(manifest: DatasetManifest) -> dict[str, Any]:
@@ -145,8 +151,13 @@ def read_dataset_manifest(dataset_dir: str | Path) -> DatasetManifest:
             if raw.get("matrix_sample_index") is not None
             else None
         ),
-        dataset_fingerprint=(
-            str(raw["dataset_fingerprint"]) if raw.get("dataset_fingerprint") is not None else None
+        content_digest=_optional_str(raw, "content_digest"),
+        stat_digest=_optional_str(raw, "stat_digest"),
+        identity_key=_optional_str(raw, "identity_key"),
+        identity_components=(
+            {str(k): str(v) for k, v in raw["identity_components"].items()}
+            if raw.get("identity_components") is not None
+            else None
         ),
     )
 
@@ -160,7 +171,10 @@ def make_dataset_manifest(
     params: tuple[DatasetArtifact, ...] = (),
     row_kind: DatasetArtifact | None = None,
     matrix_sample_index: DatasetArtifact | None = None,
-    dataset_fingerprint: str | None = None,
+    content_digest: Digest | None = None,
+    stat_digest: str | None = None,
+    identity_key: Digest | None = None,
+    identity_components: dict[str, str] | None = None,
 ) -> DatasetManifest:
     """Construct a typed dataset manifest with the repo schema marker.
 
@@ -172,8 +186,11 @@ def make_dataset_manifest(
         params: Optional parameter artifact descriptors.
         row_kind: Optional row-kind artifact descriptor.
         matrix_sample_index: Optional per-row matrix binding artifact descriptor.
-        dataset_fingerprint: Optional artifact fingerprint stamped after the
+        content_digest: Optional logical-content digest stamped after the
             artifacts are on disk; storage writers leave this unset.
+        stat_digest: Optional file-stat snapshot stamped with `content_digest`.
+        identity_key: Optional generation identity key stamped after writing.
+        identity_components: Optional short per-input digests behind the key.
 
     Returns:
         Immutable DatasetManifest.
@@ -187,5 +204,8 @@ def make_dataset_manifest(
         params=params,
         row_kind=row_kind,
         matrix_sample_index=matrix_sample_index,
-        dataset_fingerprint=dataset_fingerprint,
+        content_digest=content_digest,
+        stat_digest=stat_digest,
+        identity_key=identity_key,
+        identity_components=identity_components,
     )

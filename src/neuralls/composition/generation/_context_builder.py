@@ -15,6 +15,7 @@ from neuralls.domain.generation.plan import (
 )
 from neuralls.domain.generation.source_streams import EnumerateBy
 from neuralls.domain.generation.specs import SourceSpec
+from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.models.data_models import DataConfigFile, GenerationConfig
 from neuralls.shared.types import DatasetFormat
 
@@ -39,6 +40,7 @@ class DataGenerationContext:
         replacement: Whether to sample with replacement.
         parameters_paths: Tuple of additional parameter file paths.
         dataset_format: Storage format family for persisted dataset artifacts.
+        identity: Generation identity used for reuse and stamped into the manifest.
     """
 
     matrix_path: str
@@ -56,6 +58,7 @@ class DataGenerationContext:
     replacement: bool
     parameters_paths: tuple[str, ...] = ()
     dataset_format: DatasetFormat = "hdf5"
+    identity: StageIdentity | None = None
 
     def source_spec(self, *, rhs_path: str | None = None) -> SourceSpec:
         """Project the source-side fields into the domain's SourceSpec.

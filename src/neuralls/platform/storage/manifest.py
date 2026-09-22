@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
+from neuralls.shared.digest import Digest
 from neuralls.shared.types import LayoutType
 
 _DATASET_SCHEMA = "neuralls.dataset.v2"
@@ -43,12 +44,16 @@ class DatasetManifest:
     """Typed view over the dataset manifest contract.
 
     Attributes:
-        dataset_fingerprint: Fingerprint of the matrix/rhs/solutions artifacts as
-            they stood when the dataset was generated, in the same form the
-            training reuse-check computes (`platform.caching`). None means the
-            manifest predates fingerprinting or was written outside the
-            generation pipeline — callers fall back to existence checks alone
-            rather than treating the absence as a mismatch.
+        content_digest: Logical-content digest of every persisted artifact
+            (`platform.storage.dataset_digest`), independent of format and
+            location. None on legacy manifests.
+        stat_digest: Cheap (relative path, size, mtime) snapshot of the
+            artifact files taken when `content_digest` was computed; equal
+            snapshot means `content_digest` is still valid without re-hashing.
+        identity_key: Generation identity key the dataset was produced under.
+            A manifest without it is never trusted for reuse.
+        identity_components: Short per-input digests behind `identity_key`,
+            used to explain why a lookup missed.
     """
 
     schema: str
@@ -59,7 +64,10 @@ class DatasetManifest:
     params: tuple[DatasetArtifact, ...] = ()
     row_kind: DatasetArtifact | None = None
     matrix_sample_index: DatasetArtifact | None = None
-    dataset_fingerprint: str | None = None
+    content_digest: Digest | None = None
+    stat_digest: str | None = None
+    identity_key: Digest | None = None
+    identity_components: dict[str, str] | None = None
 
 
 def manifest_path_for(dataset_dir: str | Path) -> Path:

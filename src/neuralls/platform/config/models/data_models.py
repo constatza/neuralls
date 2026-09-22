@@ -7,12 +7,13 @@ These models validate the structure of data generation/collection configuration 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from neuralls.domain.generation.source_streams import EnumerateBy
 from neuralls.platform.config.context import ConfigContext, expand_config_glob, expand_config_path
+from neuralls.shared.digest import Cosmetic
 from neuralls.shared.types import DatasetFormat
 
 
@@ -26,7 +27,7 @@ class SourceConfig(BaseModel):
         default=None,
         description="Source data type",
     )
-    case_path: str | None = Field(
+    case_path: Annotated[str | None, Cosmetic()] = Field(
         default=None,
         description="Path to case directory",
     )
@@ -34,11 +35,11 @@ class SourceConfig(BaseModel):
         default=None,
         description="Matrix filename (relative to case_path)",
     )
-    matrix_path: str | None = Field(
+    matrix_path: Annotated[str | None, Cosmetic()] = Field(
         default=None,
         description="Full path to matrix file",
     )
-    rhs_path: str | None = Field(
+    rhs_path: Annotated[str | None, Cosmetic()] = Field(
         default=None,
         description="Path to RHS vector files",
     )
@@ -46,11 +47,11 @@ class SourceConfig(BaseModel):
         default=None,
         description="Glob pattern for RHS files",
     )
-    solutions_path: str | None = Field(
+    solutions_path: Annotated[str | None, Cosmetic()] = Field(
         default=None,
         description="Path or glob pattern for solution vectors",
     )
-    solution_path: str | None = Field(
+    solution_path: Annotated[str | None, Cosmetic()] = Field(
         default=None,
         description=(
             "Path or glob pattern for per-matrix solution vectors used for solution binding. "
@@ -70,7 +71,7 @@ class SourceConfig(BaseModel):
             "Mutually exclusive with sample_id_regex."
         ),
     )
-    parameters_paths: tuple[str, ...] = Field(
+    parameters_paths: Annotated[tuple[str, ...], Cosmetic()] = Field(
         default=(),
         max_length=2,
         description=(
@@ -198,11 +199,11 @@ class StrategyConfig(BaseModel):
         description="Number of residual iterations for residual-based strategies",
         ge=1,
     )
-    solutions_glob: str | None = Field(
+    solutions_glob: Annotated[str | None, Cosmetic()] = Field(
         default=None,
         description="Glob pattern for solution vector files",
     )
-    rhs_glob: str | None = Field(
+    rhs_glob: Annotated[str | None, Cosmetic()] = Field(
         default=None,
         description="Glob pattern for RHS vector files",
     )
@@ -270,7 +271,7 @@ class GenerationConfig(BaseModel):
         description="Total number of samples (legacy, use strategy.samples)",
         ge=1,
     )
-    rhs_archive_glob: str | None = Field(
+    rhs_archive_glob: Annotated[str | None, Cosmetic()] = Field(
         default=None,
         description="Optional generation-level RHS archive glob",
     )
@@ -305,7 +306,7 @@ class OutputConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    data_dir: Path | None = Field(
+    data_dir: Annotated[Path | None, Cosmetic()] = Field(
         default=None,
         description="Output directory for generated data",
     )
@@ -397,7 +398,9 @@ class DataConfigFile(BaseModel):
     used for data generation and collection workflows.
     """
 
-    id: str = Field(..., min_length=1, description="Stable dataset identifier")
+    id: Annotated[str, Cosmetic()] = Field(
+        ..., min_length=1, description="Stable dataset identifier (label, not identity)"
+    )
     source: SourceConfig = Field(
         default_factory=SourceConfig,
         description="Source data locations",

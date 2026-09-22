@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -14,6 +16,7 @@ from neuralls.domain.solver.utils.validation import validate_ax_equals_b
 from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
+from neuralls.shared.digest import RowSliceable
 from neuralls.shared.enum_codecs import decode_row_kind_array
 from neuralls.shared.types import LayoutType, RowKind
 
@@ -292,6 +295,38 @@ def _load_resolved(artifact: ResolvedDatasetArtifact) -> np.ndarray:
                 raise ValueError(f"HDF5 artifact at {artifact.path} is missing a required key")
             with h5py.File(str(artifact.path), "r") as f:
                 return np.asarray(f[artifact.key], dtype=np.float64)
+        case _:
+            raise ValueError(
+                f"Unsupported dataset artifact format {artifact.format!r} at {artifact.path}"
+            )
+
+
+@contextmanager
+def open_resolved_array(artifact: ResolvedDatasetArtifact) -> Iterator[RowSliceable]:
+    """Open one dataset artifact lazily, without coercing dtype or loading it.
+
+    The yielded object supports axis-0 slicing, so callers can stream it in
+    chunks. It is only valid inside the ``with`` block (HDF5 closes its file).
+
+    Args:
+        artifact (ResolvedDatasetArtifact): Artifact to open.
+
+    Yields:
+        RowSliceable: Lazy (memmap / zarr / h5py) view of the stored array.
+
+    Raises:
+        ValueError: If the format is unsupported or an HDF5 key is missing.
+    """
+    match artifact.format:
+        case "zarr":
+            yield zarr.open_array(str(artifact.path), mode="r")  # ty: ignore[invalid-yield]
+        case "npy":
+            yield np.load(artifact.path, mmap_mode="r")
+        case "hdf5":
+            if artifact.key is None:
+                raise ValueError(f"HDF5 artifact at {artifact.path} is missing a required key")
+            with h5py.File(str(artifact.path), "r") as f:
+                yield f[artifact.key]
         case _:
             raise ValueError(
                 f"Unsupported dataset artifact format {artifact.format!r} at {artifact.path}"

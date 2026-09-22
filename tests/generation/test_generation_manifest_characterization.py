@@ -226,7 +226,10 @@ def _expected_full_manifest(dataset_format: DatasetFormat) -> dict[str, Any]:
                 "matrix_sample_index": _expected_optional(
                     f"{prefix}matrix_sample_index", "zarr", None, "int64", [3]
                 ),
-                "dataset_fingerprint": None,
+                "content_digest": None,
+                "identity_components": None,
+                "identity_key": None,
+                "stat_digest": None,
             }
         case "npy":
             return {
@@ -250,7 +253,10 @@ def _expected_full_manifest(dataset_format: DatasetFormat) -> dict[str, Any]:
                 "matrix_sample_index": _expected_optional(
                     "matrix_sample_index.npy", "npy", None, "int64", [3]
                 ),
-                "dataset_fingerprint": None,
+                "content_digest": None,
+                "identity_components": None,
+                "identity_key": None,
+                "stat_digest": None,
             }
         case "hdf5":
             name = "dataset.h5"
@@ -275,7 +281,10 @@ def _expected_full_manifest(dataset_format: DatasetFormat) -> dict[str, Any]:
                 "matrix_sample_index": _expected_optional(
                     name, "hdf5", "matrix_sample_index", "int64", [3]
                 ),
-                "dataset_fingerprint": None,
+                "content_digest": None,
+                "identity_components": None,
+                "identity_key": None,
+                "stat_digest": None,
             }
         case _:  # pragma: no cover - guards fixture drift
             raise AssertionError(f"unhandled format {dataset_format!r}")
@@ -328,7 +337,10 @@ def _expected_minimal_manifest(dataset_format: DatasetFormat) -> dict[str, Any]:
         "params": None,
         "row_kind": None,
         "matrix_sample_index": None,
-        "dataset_fingerprint": None,
+        "content_digest": None,
+        "identity_components": None,
+        "identity_key": None,
+        "stat_digest": None,
     }
 
 
