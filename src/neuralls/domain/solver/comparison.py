@@ -13,6 +13,7 @@ from enum import StrEnum
 
 import numpy as np
 import torch
+from loguru import logger
 from torchalg import flexible_cg, pcg
 from torchalg.models.result import SolverResult
 from torchalg.monitoring import TraceMode
@@ -93,13 +94,14 @@ def run_cg_comparison(
         preconditioners = dict(preconditioners)
         preconditioners["none"] = Identity()
 
-    x_exact = reference_solution(A, b, rtol=rtol)
+    A_host = A.detach().cpu()
+    x_exact = _host_reference_solution(A_host, b.detach().cpu(), rtol=rtol)
 
     results: dict[str, CGComparisonResult] = {}
 
     for precond_name, precond in preconditioners.items():
         try:
-            x_sol, info = _solve_one(
+            x_sol, info = _solve_with_trace_fallback(
                 A, b, x0, precond, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max
             )
         except (ValueError, RuntimeError) as solver_exc:
@@ -119,8 +121,8 @@ def run_cg_comparison(
                 error=f"CG solver failed: {solver_exc}",
             )
         else:
-            exact_error = _relative_exact_error(x_sol, x_exact)
-            error_history = energy_error_history(A, x_exact, info.solution_vectors)
+            exact_error = _relative_exact_error(x_sol, x_exact) if x_exact is not None else None
+            error_history = _host_energy_error_history(A_host, x_exact, info.solution_vectors)
 
             rhs_norm = info.rhs_norm
             residual: list[float] = list(info.residual_history_abs or (info.residual_abs,))
@@ -145,8 +147,49 @@ def run_cg_comparison(
             )
 
         results[precond_name] = result
+        release_device_memory()
 
     return results
+
+
+def _host_reference_solution(
+    A_host: torch.Tensor, b_host: torch.Tensor, *, rtol: float
+) -> torch.Tensor | None:
+    """Reference solution computed on the host so it never competes for GPU memory.
+
+    Returns:
+        The reference solution, or ``None`` (logged) if it cannot be computed —
+        the comparison then runs without exact-error metrics instead of failing.
+    """
+    try:
+        return reference_solution(A_host, b_host, rtol=rtol)
+    except (RuntimeError, ValueError) as exc:
+        logger.warning("Reference solution unavailable; exact-error metrics skipped: {}", exc)
+        return None
+
+
+def _host_energy_error_history(
+    A_host: torch.Tensor, x_exact: torch.Tensor | None, solution_vectors: torch.Tensor | None
+) -> list[float] | None:
+    """Energy-norm error history evaluated on the host, after the solve has finished.
+
+    Returns:
+        The history, or ``None`` if it is unavailable or its computation fails;
+        a failure here must never discard an otherwise valid solve.
+    """
+    if x_exact is None or solution_vectors is None:
+        return None
+    try:
+        return energy_error_history(A_host, x_exact, solution_vectors.detach().cpu())
+    except (RuntimeError, ValueError) as exc:
+        logger.warning("Energy-norm error history skipped: {}", exc)
+        return None
+
+
+def release_device_memory() -> None:
+    """Return cached CUDA blocks between preconditioners (no-op without CUDA)."""
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def _to_numpy(value: torch.Tensor) -> np.ndarray:
@@ -185,6 +228,37 @@ def _cg_algorithm_for(preconditioner: Preconditioner) -> CGAlgorithm:
     return CGAlgorithm.FCG if preconditioner.requires_flexible_cg else CGAlgorithm.PCG
 
 
+def _solve_with_trace_fallback(
+    A: torch.Tensor,
+    b: torch.Tensor,
+    x0: torch.Tensor,
+    preconditioner: Preconditioner,
+    *,
+    rtol: float,
+    atol: float,
+    maxiter: int,
+    m_max: int,
+) -> tuple[torch.Tensor, SolverResult]:
+    """Solve with iterate tracing, retrying untraced if tracing exhausts GPU memory.
+
+    Full tracing keeps every iterate on the solve device; on large systems that
+    can be what runs out of memory. The retry drops the (optional) error-history
+    data rather than losing the preconditioner's result entirely.
+    """
+    try:
+        return _solve_one(
+            A, b, x0, preconditioner, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
+            trace_mode=TraceMode.FULL,
+        )  # fmt: skip
+    except torch.cuda.OutOfMemoryError:
+        logger.warning("Out of GPU memory while tracing iterates; retrying without tracing.")
+        release_device_memory()
+        return _solve_one(
+            A, b, x0, preconditioner, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
+            trace_mode=TraceMode.DISABLED,
+        )  # fmt: skip
+
+
 def _solve_one(
     A: torch.Tensor,
     b: torch.Tensor,
@@ -195,6 +269,7 @@ def _solve_one(
     atol: float,
     maxiter: int,
     m_max: int,
+    trace_mode: TraceMode,
 ) -> tuple[torch.Tensor, SolverResult]:
     """Solve with the CG variant this preconditioner's category requires.
 
@@ -209,6 +284,7 @@ def _solve_one(
         m_max: FCG orthogonalization window; unused on the PCG branch — PCG's
             own (unrelated, off-by-default) periodic-reorthogonalization
             ``m_max`` is intentionally left disabled here.
+        trace_mode: Iterate-recording mode forwarded to the solver.
 
     Returns:
         Tuple of the solved vector and solver diagnostics.
@@ -223,7 +299,7 @@ def _solve_one(
                 atol=atol,
                 maxiter=maxiter,
                 preconditioner=preconditioner,
-                trace_mode=TraceMode.FULL,
+                trace_mode=trace_mode,
             )
         case CGAlgorithm.FCG:
             return flexible_cg(
@@ -235,7 +311,7 @@ def _solve_one(
                 maxiter=maxiter,
                 preconditioner=preconditioner,
                 m_max=m_max,
-                trace_mode=TraceMode.FULL,
+                trace_mode=trace_mode,
             )
 
 

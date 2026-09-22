@@ -29,6 +29,7 @@ from neuralls.domain.analysis.spectra import PreconditionerCallable, compute_con
 from neuralls.domain.solver.comparison import (
     _to_numpy,
     format_results_summary,
+    release_device_memory,
     run_cg_comparison,
 )
 from neuralls.domain.solver.models.config import SolverParams
@@ -121,7 +122,7 @@ def _breakdown_result(name: str, *, rhs: torch.Tensor, error: str) -> CGComparis
         exact_error=None,
         rhs_norm=float(torch.linalg.vector_norm(rhs)),
         breakdown=True,
-        error=f"Preconditioner construction failed: {error}",
+        error=f"Preconditioner failed: {error}",
     )
 
 
@@ -156,27 +157,33 @@ def _evaluate_preconditioner(
         Named result: solve outcome, condition number, and plot label for ``cfg``.
     """
     logger.info(f"Preconditioner: {cfg.name} (comparison={display_name or 'unnamed'})")
+    color_key, marker_key = _pod2g_style_keys(cfg)
     try:
-        base_preconditioners = {cfg.name: service.create_preconditioner(matrix, cfg)}
-        scheduled = _create_scheduled_preconditioners(
-            preconditioner_configs=[cfg],
+        return _run_preconditioner(
+            cfg,
+            service=service,
             matrix=matrix,
-            base_preconditioners=base_preconditioners,
+            rhs=rhs,
+            matrix_path=matrix_path,
+            matrix_index=matrix_index,
+            params=params,
+            color_key=color_key,
+            marker_key=marker_key,
         )
-        _load_and_bind_extra_inputs(
-            scheduled, matrix=matrix, matrix_path=matrix_path, matrix_index=matrix_index
-        )
-    except (ValueError, RuntimeError) as exc:
+    except Exception as exc:  # noqa: BLE001
+        # Broad by design: one preconditioner's failure (build, condition number,
+        # solve, CUDA OOM, ...) must never abort the rest of the comparison.
         logger.warning(
-            "Preconditioner '{}' failed to build (comparison={}): {}",
+            "Preconditioner '{}' failed (comparison={}): {}: {}",
             cfg.name,
             display_name or "unnamed",
+            type(exc).__name__,
             exc,
         )
-        color_key, marker_key = _pod2g_style_keys(cfg)
+        release_device_memory()
         return PreconditionerComparisonEntry(
             name=cfg.name,
-            result=_breakdown_result(cfg.name, rhs=rhs, error=str(exc)),
+            result=_breakdown_result(cfg.name, rhs=rhs, error=f"{type(exc).__name__}: {exc}"),
             condition_number=float("nan"),
             label=cfg.name,
             family=preconditioner_family(cfg),
@@ -184,6 +191,29 @@ def _evaluate_preconditioner(
             marker_key=marker_key,
         )
 
+
+def _run_preconditioner(
+    cfg: PreconditionerConfig,
+    *,
+    service: PreconditionerService,
+    matrix: torch.Tensor,
+    rhs: torch.Tensor,
+    matrix_path: Path,
+    matrix_index: int,
+    params: SolverParams,
+    color_key: str | None,
+    marker_key: str | None,
+) -> PreconditionerComparisonEntry:
+    """Build, condition-number, and solve one preconditioner; raises on any failure."""
+    base_preconditioners = {cfg.name: service.create_preconditioner(matrix, cfg)}
+    scheduled = _create_scheduled_preconditioners(
+        preconditioner_configs=[cfg],
+        matrix=matrix,
+        base_preconditioners=base_preconditioners,
+    )
+    _load_and_bind_extra_inputs(
+        scheduled, matrix=matrix, matrix_path=matrix_path, matrix_index=matrix_index
+    )
     cond_callables: dict[str, PreconditionerCallable] = {name: p for name, p in scheduled.items()}
     condition_number = compute_condition_numbers(_to_numpy(matrix), cond_callables)[cfg.name]
     label = build_preconditioner_labels(scheduled)[cfg.name]
@@ -196,7 +226,6 @@ def _evaluate_preconditioner(
         maxiter=params.max_iterations,
         m_max=params.m_max,
     )[cfg.name]
-    color_key, marker_key = _pod2g_style_keys(cfg)
     return PreconditionerComparisonEntry(
         name=cfg.name,
         result=result,

@@ -18,11 +18,16 @@ implementations are delegated to `torchalg`.
   - recommendation records
 - Comparison orchestration helpers that package `torchalg` solver output for
   neuralls reporting workflows. `run_cg_comparison` traces every iterate and
-  reduces it to `CGComparisonResult.error_history_a_rel` — the energy-norm
+  reduces it — on the host, after the solve — to `CGComparisonResult.error_history_a_rel` — the energy-norm
   error `||e_k||_A / ||e_0||_A` (the norm CG minimizes; every curve starts at
   1). The reference `x*` is a float64 direct solve with iterative refinement
   until its relative residual is at most `rtol * 1e-4`
-  (`_reference_solution`), so it is far more precise than the solvers compared.
+  (`reference_solution`, computed on the host so it never competes for GPU
+  memory), so it is far more precise than the solvers compared. If tracing runs
+  out of GPU memory the solve is retried untraced (no error history, result
+  kept); a failing reference solve or error history leaves those metrics unset
+  instead of failing the preconditioner. `release_device_memory` returns cached
+  CUDA blocks between preconditioners.
 - Validation and artifact export helpers used by platform/composition layers.
 
 ## What Lives In Torchalg
