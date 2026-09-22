@@ -29,6 +29,11 @@ name = "amg"
 type = "amg"
 coarsening = { method = "aggregation" }
 
+[[comparison_defaults.preconditioners]]
+name = "asa"
+type = "adaptive_sa_amg"
+num_candidates = 3
+
 [[datasets]]
 path = "../../datasets/train/45x15/gaussian-cg50.toml"
 display_name = "Gaussian CG-50 45x15"

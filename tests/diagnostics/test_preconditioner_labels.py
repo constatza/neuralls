@@ -16,6 +16,7 @@ from torchalg.preconditioners.implementations import (
     ScheduledPreconditioner,
 )
 from torchalg.preconditioners.implementations.amg import (
+    AdaptiveSAPreconditioner,
     AggregationCoarsening,
     AMGPreconditioner,
     JacobiSmoother,
@@ -109,6 +110,12 @@ def target_dim_amg_preconditioner(tridiag_spd_matrix: torch.Tensor) -> AMGPrecon
     smoother = JacobiSmoother(omega=0.67)
     cycle = VCycle(smoother=smoother, n_pre=2, n_post=2)
     return AMGPreconditioner(tridiag_spd_matrix, coarsening=coarsening, cycle=cycle, n_levels=2)
+
+
+@pytest.fixture
+def adaptive_sa_preconditioner(tridiag_spd_matrix: torch.Tensor) -> AdaptiveSAPreconditioner:
+    """Constructed adaptive SA-AMG (alpha-SA) preconditioner, forced to 2 levels."""
+    return AdaptiveSAPreconditioner(tridiag_spd_matrix, max_levels=2, max_coarse=1, theta=0.0)
 
 
 # ==============================================================================
@@ -242,6 +249,40 @@ def test_describe_preconditioner_target_dim_keeps_level_count(
 
     assert "L=" in detail
     assert "c=" in detail
+
+
+# ==============================================================================
+# describe_preconditioner — adaptive SA-AMG (alpha-SA)
+# ==============================================================================
+
+
+def test_describe_preconditioner_adaptive_sa_has_detail(
+    adaptive_sa_preconditioner: AdaptiveSAPreconditioner,
+) -> None:
+    """Adaptive SA-AMG reports non-empty structural detail instead of the prebuilt placeholder.
+
+    ``AdaptiveSAPreconditioner`` stores ``_PrebuiltCoarsening()`` as its
+    ``_coarsening`` (torchalg's placeholder, never a real strategy) — this
+    guards against the generic ``AMGPreconditioner`` branch matching first
+    and rendering that placeholder's class name instead of real detail.
+    """
+    detail = describe_preconditioner(adaptive_sa_preconditioner)
+
+    assert detail != ""
+    assert "_PrebuiltCoarsening" not in detail
+    assert "L=" in detail
+    assert "k=" in detail
+    assert "c=" in detail
+
+
+def test_describe_preconditioner_adaptive_sa_reports_realized_coarse_dimension(
+    adaptive_sa_preconditioner: AdaptiveSAPreconditioner,
+) -> None:
+    """The rendered `c=` matches the hierarchy's actual coarsest-level dimension."""
+    detail = describe_preconditioner(adaptive_sa_preconditioner)
+
+    realized = adaptive_sa_preconditioner._result.matrices[-1].shape[0]
+    assert f"c={realized}" in detail
 
 
 # ==============================================================================

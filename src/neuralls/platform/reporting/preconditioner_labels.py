@@ -29,6 +29,7 @@ import torch
 from torchalg.preconditioners.base import Preconditioner
 from torchalg.preconditioners.implementations import IC0Preconditioner, ScheduledPreconditioner
 from torchalg.preconditioners.implementations.amg import (
+    AdaptiveSAPreconditioner,
     AggregationCoarsening,
     AMGPreconditioner,
     TargetDimensionCoarsening,
@@ -37,6 +38,7 @@ from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
 __all__ = [
     "MAX_LABEL_LENGTH",
+    "AdaptiveSADetail",
     "AggregationCoarseningDetail",
     "PODCoarseningDetail",
     "TargetDimensionCoarseningDetail",
@@ -105,6 +107,24 @@ class TargetDimensionCoarseningDetail:
 
     target_coarse_dim: int
     realized_coarse_dim: int
+
+
+@dataclass(frozen=True)
+class AdaptiveSADetail:
+    """Structured facts about a built adaptive smoothed-aggregation (alpha-SA) hierarchy.
+
+    Attributes:
+        n_levels (int): Realized number of grid levels.
+        num_candidates (int): Configured near-null-space candidate count.
+        coarse_dimension (int): Realized coarsest-level dimension. alpha-SA
+            has no direct rank knob (unlike POD-2G) and no ``theta`` left on
+            the built object to report (unlike ``AggregationCoarsening``) —
+            this is the only structural fact torchalg's object exposes.
+    """
+
+    n_levels: int
+    num_candidates: int
+    coarse_dimension: int
 
 
 type CoarseningDetail = (
@@ -176,6 +196,8 @@ def describe_preconditioner(precond: Preconditioner) -> str:
     """
     if isinstance(precond, ScheduledPreconditioner):
         return describe_preconditioner(precond._primary)
+    if isinstance(precond, AdaptiveSAPreconditioner):
+        return _describe_adaptive_sa(precond)
     if isinstance(precond, AMGPreconditioner):
         return _describe_amg(precond)
     if isinstance(precond, IC0Preconditioner):
@@ -248,6 +270,23 @@ def _describe_amg(precond: AMGPreconditioner) -> str:
     if isinstance(precond._coarsening, PODCoarseningStrategy):
         return detail
     return f"L={precond._n_levels}, {detail}"
+
+
+def _describe_adaptive_sa(precond: AdaptiveSAPreconditioner) -> str:
+    """Describe an adaptive SA-AMG (alpha-SA) preconditioner's realized hierarchy.
+
+    Args:
+        precond (AdaptiveSAPreconditioner): Constructed alpha-SA preconditioner.
+
+    Returns:
+        str: ``"L={n}, k={num_candidates}, c={coarse_dim}"``.
+    """
+    detail = AdaptiveSADetail(
+        n_levels=len(precond._result.matrices),
+        num_candidates=precond._result.candidates.shape[1],
+        coarse_dimension=int(precond._result.matrices[-1].shape[0]),
+    )
+    return f"L={detail.n_levels}, k={detail.num_candidates}, c={detail.coarse_dimension}"
 
 
 def _describe_coarsening(coarsening: object, matrix: torch.Tensor) -> str:

@@ -36,6 +36,7 @@ class PreconditionerType(StrEnum):
     NEURAL = "neural"
     AMG = "amg"
     NEURAL_AMG = "neural_amg"
+    ADAPTIVE_SA_AMG = "adaptive_sa_amg"
 
 
 def _normalize_null(data: dict) -> Any:
@@ -777,6 +778,86 @@ class AMGPreconditionerConfig(BasePreconditionerConfig):
         return self.model_copy(update={"coarsening": cast(CoarseningConfig, ref)})
 
 
+class AdaptiveSAPreconditionerConfig(BasePreconditionerConfig):
+    """Adaptive smoothed-aggregation AMG preconditioner (alpha-SA, PyAMG-faithful).
+
+    Unlike ``AMGPreconditionerConfig``, this is not a pluggable-coarsening
+    variant of the shared ``AMGPreconditioner(cycle=VCycle(JacobiSmoother))``
+    path: ``torchalg.preconditioners.implementations.amg.AdaptiveSAPreconditioner``
+    builds its whole multilevel hierarchy eagerly at construction (learned
+    near-null-space candidates, symmetric Gauss-Seidel V(1,1) cycle, a
+    pseudo-inverse coarse solve) and cannot be composed with
+    ``AggregationCoarsening``/``TargetDimensionCoarsening`` the way POD-2G or
+    classical SA-AMG can — hence its own ``PreconditionerType`` rather than
+    another ``CoarseningConfig`` union member.
+
+    ``theta`` should stay small for aSA — it is not the tuning knob for
+    coarse-space size here, ``num_candidates`` is (see below). PyAMG's own
+    default, independently confirmed against PyAMG's real source
+    (``pyamg/aggregation/adaptive.py``'s ``adaptive_sa_solver`` ->
+    ``pyamg/strength.py``'s ``symmetric_strength_of_connection(A, theta=0)``),
+    is ``theta=0.0`` — "every non-zero coupling is strong", i.e. *maximal*
+    aggregation/smallest coarse space, not "big": raising ``theta`` prunes
+    the strength graph and makes the coarse space *larger*. There is no
+    target-coarse-dimension search here (unlike classical SA-AMG's
+    ``TargetDimCoarseningConfig``) — a real end-to-end run showed the
+    search picking a *worse* theta than just naming one directly (its
+    classical-AMG target-dim=10 search landed on a fully degenerate
+    ``c=0``, while fixed ``theta=0.05`` alone gives ``c=23`` on the same
+    504x504 matrix, see ``docs/plan.md``) — so pick ``theta`` directly
+    instead, and keep it close to ``0`` (this repo's default is ``0.05``,
+    the same value used at every tier; do not raise it to grow the coarse
+    space — see ``num_candidates`` below).
+
+    ``num_candidates`` is the actual coarse-space-size knob for aSA, not
+    ``theta``: it defaults to ``3``, not PyAMG's own default of ``1``
+    (PyAMG ships the cheapest, least-adaptive starting point and expects
+    callers to raise it; its own examples typically use 2-4). Each
+    additional candidate adds a DOF to every aggregate, so realized coarse
+    dimension scales as ``(aggregate count at theta) x num_candidates`` —
+    measured on a real 504x504 stiffness matrix from this repo
+    (``SpectralData/45x15/stiffness/subdomain_1_Kaa.txt``) at a fixed
+    ``theta=0.05``: ``c`` goes 69 (``k=3``) -> 115 (``k=5``) -> 161
+    (``k=7``), so raising ``num_candidates`` alone reaches the same coarse
+    dimension this repo's classical SA-AMG reaches by raising ``theta`` to
+    ``0.25`` (also ``c=160``) — without ever leaving aSA's small-``theta``,
+    maximal-aggregation regime, and while adding real multi-candidate
+    adaptivity (more independent near-null-space directions) instead of
+    just cruder aggregation.
+    """
+
+    type: Literal[PreconditionerType.ADAPTIVE_SA_AMG] = PreconditionerType.ADAPTIVE_SA_AMG
+    n_levels: int = Field(
+        default=2, ge=2, description="Cap on hierarchy depth (torchalg's `max_levels`)."
+    )
+    num_candidates: int = Field(
+        default=3,
+        ge=1,
+        description="Total near-null-space candidates (including the initial one); "
+        "PyAMG's own default is 1, but each extra candidate adds real adaptivity "
+        "at the cost of one more DOF per aggregate in the realized coarse dimension.",
+    )
+    candidate_iters: int = Field(
+        default=5, ge=1, description="Relaxation sweeps/cycles per candidate step."
+    )
+    max_coarse: int = Field(
+        default=10, ge=1, description="Stop coarsening once a level has this many nodes or fewer."
+    )
+    theta: float = Field(
+        default=0.0,
+        ge=0.0,
+        lt=1.0,
+        description="Strength-of-connection threshold — pick directly, no search; "
+        "close to 0 for a small coarse space, ~0.25 for a larger one.",
+    )
+    omega: float = Field(
+        default=4.0 / 3.0, gt=0.0, description="Nominal Jacobi prolongator-smoothing damping."
+    )
+    seed: int = Field(
+        default=0, description="Seed for the candidate/spectral-radius random source."
+    )
+
+
 class NeuralTransferConfig(NeuralCheckpointRef):
     """Config for one neural transfer operator (prolongation or restriction).
 
@@ -827,6 +908,7 @@ ConcretePreconditionerConfig = (
     | NeuralPreconditionerConfig
     | AMGPreconditionerConfig
     | NeuralAMGPreconditionerConfig
+    | AdaptiveSAPreconditionerConfig
 )
 
 _StrictPreconditionerConfig = Annotated[

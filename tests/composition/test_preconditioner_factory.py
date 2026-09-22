@@ -27,6 +27,7 @@ from torchalg.preconditioners.implementations import (
     ScheduledPreconditioner,
 )
 from torchalg.preconditioners.implementations.amg import (
+    AdaptiveSAPreconditioner,
     AggregationCoarsening,
     AMGPreconditioner,
     TargetDimensionCoarsening,
@@ -40,6 +41,7 @@ from neuralls.composition.preconditioners.factory import (
 )
 from neuralls.domain.inference_ports import InferencePredictorPort
 from neuralls.platform.config.models.preconditioner import (
+    AdaptiveSAPreconditionerConfig,
     AggregationCoarseningConfig,
     AMGPreconditionerConfig,
     NeuralPODCoarseningConfig,
@@ -788,6 +790,62 @@ def test_factory_amg_requires_amg_config(well_conditioned_matrix: torch.Tensor) 
     config = config.model_copy(update={"type": PreconditionerType.AMG})
 
     with pytest.raises(TypeError, match="AMG type requires AMGPreconditionerConfig"):
+        create_preconditioner(well_conditioned_matrix, config)
+
+
+# ==============================================================================
+# Factory Tests - Adaptive SA-AMG (alpha-SA)
+# ==============================================================================
+
+
+def test_factory_creates_adaptive_sa_preconditioner_with_fixed_theta(
+    dense_spd_matrix: torch.Tensor,
+) -> None:
+    """Factory creates AdaptiveSAPreconditioner directly when no target dimension is set."""
+    config = AdaptiveSAPreconditionerConfig(name="asa", max_coarse=1, theta=0.0)
+
+    precond = create_preconditioner(dense_spd_matrix, config)
+
+    assert isinstance(precond, AdaptiveSAPreconditioner)
+    assert len(precond._result.matrices) == 2
+
+    residual = torch.ones(5, dtype=torch.float64)
+    result = precond.apply(residual)
+    assert result.shape == (5,)
+
+
+def test_factory_creates_adaptive_sa_preconditioner_with_explicit_num_candidates(
+    dense_spd_matrix: torch.Tensor,
+) -> None:
+    """Factory forwards `num_candidates`/`theta` unchanged to `AdaptiveSAPreconditioner`.
+
+    No target-dimension search (removed — an end-to-end run showed the
+    search picking a worse theta than just naming one directly, see
+    `docs/plan.md`); this just confirms config fields reach the built
+    object unchanged.
+    """
+    config = AdaptiveSAPreconditionerConfig(name="asa", max_coarse=1, num_candidates=3, theta=0.1)
+
+    precond = create_preconditioner(dense_spd_matrix, config)
+
+    assert isinstance(precond, AdaptiveSAPreconditioner)
+    assert precond._result.candidates.shape[1] == 3
+    expected = AdaptiveSAPreconditioner(
+        dense_spd_matrix, num_candidates=3, max_levels=2, max_coarse=1, theta=0.1
+    )
+    assert precond._result.matrices[-1].shape[0] == expected._result.matrices[-1].shape[0]
+
+
+def test_factory_adaptive_sa_requires_adaptive_sa_config(
+    well_conditioned_matrix: torch.Tensor,
+) -> None:
+    """Factory requires AdaptiveSAPreconditionerConfig for ADAPTIVE_SA_AMG type."""
+    config = StandardPreconditionerConfig(name="asa", type=PreconditionerType.IDENTITY)
+    config = config.model_copy(update={"type": PreconditionerType.ADAPTIVE_SA_AMG})
+
+    with pytest.raises(
+        TypeError, match="ADAPTIVE_SA_AMG type requires AdaptiveSAPreconditionerConfig"
+    ):
         create_preconditioner(well_conditioned_matrix, config)
 
 

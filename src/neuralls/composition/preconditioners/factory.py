@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 
     from neuralls.domain.inference_ports import InferencePredictorPort
     from neuralls.platform.config.models.preconditioner import (
+        AdaptiveSAPreconditionerConfig,
         AMGPreconditionerConfig,
         ConcretePreconditionerConfig,
     )
@@ -271,6 +272,40 @@ def _build_amg(
     return AMGBuild(preconditioner=preconditioner, coarsening=coarsening)
 
 
+def _build_adaptive_sa(
+    matrix: torch.Tensor,
+    config: AdaptiveSAPreconditionerConfig,
+) -> Preconditioner:
+    """Assemble an `AdaptiveSAPreconditioner` (alpha-SA) at a fixed `theta`.
+
+    No target-dimension search: `AdaptiveSAPreconditioner` builds its whole
+    hierarchy eagerly from `theta` and has no pluggable `CoarseningStrategy`
+    to hand a target to the way `TargetDimensionCoarsening` does for
+    classical SA-AMG, and an end-to-end run showed a from-scratch search
+    wrapper isn't worth it anyway — pick `theta` directly instead (see the
+    class docstring's measured `theta -> c` table).
+
+    Args:
+        matrix: System matrix A.
+        config: Adaptive-SA preconditioner configuration.
+
+    Returns:
+        The assembled `AdaptiveSAPreconditioner`.
+    """
+    from torchalg.preconditioners.implementations.amg import AdaptiveSAPreconditioner
+
+    return AdaptiveSAPreconditioner(
+        matrix,
+        num_candidates=config.num_candidates,
+        candidate_iters=config.candidate_iters,
+        max_levels=config.n_levels,
+        max_coarse=config.max_coarse,
+        theta=config.theta,
+        omega=config.omega,
+        seed=config.seed,
+    )
+
+
 def create_preconditioner(
     matrix: torch.Tensor,
     config: ConcretePreconditionerConfig,
@@ -305,6 +340,7 @@ def create_preconditioner(
         ValueError: If preconditioner type is not supported
     """
     from neuralls.platform.config.models.preconditioner import (
+        AdaptiveSAPreconditionerConfig,
         AMGPreconditionerConfig,
         IC0PreconditionerConfig,
         NeuralAMGPreconditionerConfig,
@@ -318,6 +354,15 @@ def create_preconditioner(
         if not isinstance(config, AMGPreconditionerConfig):
             raise TypeError(f"AMG type requires AMGPreconditionerConfig, got {type(config)}")
         return _build_amg(matrix, config, inference_predictor_factory).preconditioner
+
+    # Adaptive SA-AMG (alpha-SA): its own eagerly-built hierarchy, not a
+    # pluggable coarsening strategy — see `_build_adaptive_sa`.
+    if config.type == PreconditionerType.ADAPTIVE_SA_AMG:
+        if not isinstance(config, AdaptiveSAPreconditionerConfig):
+            raise TypeError(
+                f"ADAPTIVE_SA_AMG type requires AdaptiveSAPreconditionerConfig, got {type(config)}"
+            )
+        return _build_adaptive_sa(matrix, config)
 
     # Neural AMG (neural prolongation/restriction, stub)
     if config.type == PreconditionerType.NEURAL_AMG:
