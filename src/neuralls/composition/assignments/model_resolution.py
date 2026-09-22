@@ -13,6 +13,7 @@ from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import RESOURCE_DOES_NOT_EXIST, ErrorCode
 from mlflow.tracking import MlflowClient
 
+from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.models.dataset_identity import normalize_registry_id
 from neuralls.platform.config.models.preconditioner import (
     CheckpointRefBearing,
@@ -21,6 +22,7 @@ from neuralls.platform.config.models.preconditioner import (
     NeuralCheckpointRef,
     PreconditionerConfig,
     RegisteredModelRefConfig,
+    TrainedAssignmentRefConfig,
 )
 from neuralls.platform.tracking.artifact_access import ArtifactLeaseManager
 from neuralls.platform.tracking.artifact_selection import (
@@ -29,17 +31,42 @@ from neuralls.platform.tracking.artifact_selection import (
 )
 from neuralls.platform.tracking.checkpoint_selection import find_single_checkpoint
 from neuralls.platform.tracking.mlflow import quote_filter_value
+from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
 from neuralls.platform.tracking.model_registry import CHECKPOINT_ARTIFACT_PATH_TAG
 
 _DATASET_ALIAS_PLACEHOLDER = "@dataset"
 
 
 @dataclass(frozen=True)
+class TrainingLookup:
+    """Where and against what data an assignment's training run must be found.
+
+    Attributes:
+        experiment: MLflow experiment the assignment's training runs live in;
+            strict resolution never looks outside it.
+        identity: The assignment's derived training identity (dataset content,
+            effective job settings); only a run carrying exactly this key is
+            accepted. ``None`` means the dataset is not generated, so strict
+            resolution fails.
+    """
+
+    experiment: str
+    identity: StageIdentity | None
+
+
+@dataclass(frozen=True)
 class AssignmentModelContext:
-    """Per-assignment lookup context for comparison model resolution."""
+    """Per-assignment lookup context for comparison model resolution.
+
+    Attributes:
+        dataset_alias: Alias substituted for the ``@dataset`` placeholder.
+        model_name: Registered model name derived from the assignment.
+        training: Strict training-run lookup parameters (see `TrainingLookup`).
+    """
 
     dataset_alias: str | None = None
     model_name: str | None = None
+    training: TrainingLookup | None = None
 
 
 @dataclass(frozen=True)
@@ -297,6 +324,7 @@ class _ModelRefRequest:
         artifact_leases: Lease manager owning artifact materialization.
         dataset_alias: Alias substituted for the `@dataset` placeholder.
         model_name: Registered model name supplied by an assignment binding.
+        training: Strict training-run lookup parameters, for assignment refs.
     """
 
     ref: ModelRefConfig
@@ -305,6 +333,7 @@ class _ModelRefRequest:
     artifact_leases: ArtifactLeaseManager
     dataset_alias: str | None
     model_name: str | None
+    training: TrainingLookup | None = None
 
 
 def _resolve_registered_version_number(
@@ -445,12 +474,63 @@ def _resolve_logged_ref(request: _ModelRefRequest) -> ModelResolution:
     )
 
 
+def _resolve_trained_assignment_ref(request: _ModelRefRequest) -> ModelResolution:
+    """Resolve an assignment's training run strictly, or raise.
+
+    Selects the newest run that is in the training experiment, tagged with the
+    assignment id, FINISHED, holds a real checkpoint, *and* was trained on the
+    dataset as it exists now. There is deliberately no fallback to an older or
+    differently-trained run: a mismatch is an error, never a silent substitute.
+
+    Raises:
+        TypeError: If the ref is not a `TrainedAssignmentRefConfig`.
+        ValueError: If the context lacks the experiment or dataset hash, or no
+            run satisfies every condition.
+    """
+    ref = request.ref
+    if not isinstance(ref, TrainedAssignmentRefConfig):
+        raise TypeError(f"Expected an assignment model_ref, got {type(ref)}")
+    training = request.training
+    if training is None:
+        raise ValueError(
+            f"Assignment '{ref.assignment_id}' has no training lookup in the resolution context."
+        )
+    if training.identity is None:
+        raise ValueError(
+            f"Assignment '{ref.assignment_id}': its dataset is not generated, so no training run "
+            "can be verified against it. Run the generation stage first."
+        )
+    reused = MlflowIdentityStore(
+        tracking_uri=request.tracking_uri,
+        experiment=training.experiment,
+        require_checkpoint=True,
+    ).find(training.identity)
+    if reused is None or reused.run_id is None:
+        raise ValueError(
+            f"No FINISHED training run with a checkpoint for assignment '{ref.assignment_id}' "
+            f"in experiment '{training.experiment}' matches the current dataset and job "
+            f"settings (identity {training.identity.key[:19]}). Runs from any other input "
+            "state are deliberately ignored — train this assignment first."
+        )
+    run_id = reused.run_id
+    return ModelResolution(
+        model_uri=build_logged_model_uri(run_id=run_id, artifact_path=CHECKPOINT_ARTIFACT_DIR),
+        run_id=run_id,
+        checkpoint_path=_resolve_checkpoint_for_run(
+            run_id=run_id,
+            artifact_leases=request.artifact_leases,
+            fallback_artifact_path="model",
+        ),
+    )
+
+
 # One resolver per `model_ref` kind, keyed by its config class. Adding a new
 # ref kind means adding its config class and one resolver here — no caller
 # anywhere re-tests the ref's type.
 _MODEL_REF_RESOLVERS: Mapping[type, Callable[[_ModelRefRequest], ModelResolution]] = {
     RegisteredModelRefConfig: _resolve_registered_ref,
     LoggedModelRefConfig: _resolve_logged_ref,
+    TrainedAssignmentRefConfig: _resolve_trained_assignment_ref,
 }
 
 
@@ -461,6 +541,7 @@ def resolve_model_ref(
     artifact_leases: ArtifactLeaseManager,
     dataset_alias: str | None = None,
     model_name: str | None = None,
+    training: TrainingLookup | None = None,
 ) -> ModelResolution:
     """Resolve one checkpoint ref's `model_ref` to a concrete checkpoint."""
     ref = spec.model_ref
@@ -480,6 +561,7 @@ def resolve_model_ref(
             artifact_leases=artifact_leases,
             dataset_alias=dataset_alias,
             model_name=model_name,
+            training=training,
         )
     )
 
@@ -555,8 +637,9 @@ def _resolve_checkpoint_ref(
             artifact_leases=artifact_leases,
             dataset_alias=context.dataset_alias if context is not None else dataset_alias,
             model_name=context.model_name if context is not None else None,
+            training=context.training if context is not None else None,
         )
-    except (ValueError, FileNotFoundError, RuntimeError, OSError, KeyError) as exc:
+    except (ValueError, FileNotFoundError, RuntimeError, OSError, KeyError, MlflowException) as exc:
         if not skip_unresolved:
             raise
         warning = f"Skipping {display_name}: {exc}"

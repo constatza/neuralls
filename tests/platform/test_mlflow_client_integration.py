@@ -1,13 +1,10 @@
-"""Integration coverage for find_successful_run against a real sqlite-backed
+"""Integration coverage for MlflowIdentityStore against a real sqlite-backed
 MLflow tracking store.
 
-test_mlflow_client.py pins find_successful_run's filter-string construction
-against a MagicMock client — it can't catch a break in the real tag
-round-trip (MLflow's own search_runs filter evaluation, or dlkit's
-has_checkpoint_artifact confirming a real checkpoint artifact). These tests
-seed genuine FINISHED runs in a real tracking store and call
-find_successful_run for real, exercising the exact mechanism the
-training/comparison reuse-check cascade depends on.
+test_mlflow_store.py pins lookup ordering/scoping with a stubbed checkpoint
+check. These tests seed genuine FINISHED runs and call the store for real,
+including dlkit's has_checkpoint_artifact confirming a real checkpoint
+artifact — the exact mechanism the training/comparison reuse cascade depends on.
 """
 
 from __future__ import annotations
@@ -17,11 +14,13 @@ from pathlib import Path
 import pytest
 from mlflow.tracking import MlflowClient
 
+from neuralls.domain.identity import Reused, StageIdentity
 from neuralls.platform.tracking.artifact_selection import (
     CHECKPOINT_ARTIFACT_DIR,
     CHECKPOINT_FILE_EXTENSION,
 )
-from neuralls.platform.tracking.mlflow_client import find_successful_run
+from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
+from neuralls.shared.digest import canonical_digest
 
 
 @pytest.fixture
@@ -30,21 +29,30 @@ def sqlite_tracking_uri(tmp_path: Path) -> str:
     return f"sqlite:///{tmp_path / 'mlflow.db'}"
 
 
+@pytest.fixture
+def identity() -> StageIdentity:
+    """Training identity of the seeded run."""
+    return StageIdentity.build("training", {"dataset": canonical_digest("old")})
+
+
+@pytest.fixture
+def changed_identity() -> StageIdentity:
+    """Identity after the dataset changed."""
+    return StageIdentity.build("training", {"dataset": canonical_digest("new")})
+
+
 def _seed_finished_run(
     client: MlflowClient,
     *,
     experiment_id: str,
     tmp_path: Path,
-    assignment_id: str,
-    dataset_hash: str,
+    identity: StageIdentity,
     with_checkpoint: bool = True,
 ) -> str:
     """Create a real FINISHED run tagged and (optionally) checkpointed like a
-    completed training run — the exact shape find_successful_run searches for."""
-    run = client.create_run(experiment_id=experiment_id)
+    completed training run — the exact shape the identity store searches for."""
+    run = client.create_run(experiment_id=experiment_id, tags=identity.tags())
     run_id = run.info.run_id
-    client.set_tag(run_id, "assignment_id", assignment_id)
-    client.set_tag(run_id, "dataset_hash", dataset_hash)
     if with_checkpoint:
         checkpoint = tmp_path / f"{run_id}{CHECKPOINT_FILE_EXTENSION}"
         checkpoint.write_bytes(b"fake-checkpoint")
@@ -53,76 +61,57 @@ def _seed_finished_run(
     return run_id
 
 
-def test_find_successful_run_returns_seeded_run_with_matching_dataset_hash(
-    sqlite_tracking_uri: str, tmp_path: Path
+@pytest.fixture
+def store(sqlite_tracking_uri: str) -> MlflowIdentityStore:
+    """Store requiring a real checkpoint artifact, as training reuse does."""
+    return MlflowIdentityStore(
+        tracking_uri=sqlite_tracking_uri, experiment="Train", require_checkpoint=True
+    )
+
+
+@pytest.fixture
+def client(sqlite_tracking_uri: str) -> MlflowClient:
+    """Client bound to the real store."""
+    return MlflowClient(tracking_uri=sqlite_tracking_uri)
+
+
+def test_finds_seeded_run_with_matching_identity(
+    store: MlflowIdentityStore, client: MlflowClient, identity: StageIdentity, tmp_path: Path
 ) -> None:
-    client = MlflowClient(tracking_uri=sqlite_tracking_uri)
     experiment_id = client.create_experiment("Train")
     run_id = _seed_finished_run(
-        client,
-        experiment_id=experiment_id,
-        tmp_path=tmp_path,
-        assignment_id="asn-1",
-        dataset_hash="hash-abc",
+        client, experiment_id=experiment_id, tmp_path=tmp_path, identity=identity
     )
 
-    result = find_successful_run(
-        tracking_uri=sqlite_tracking_uri,
-        mlflow_experiment_name="Train",
-        assignment_id="asn-1",
-        dataset_hash="hash-abc",
-    )
-
-    assert result == run_id
+    assert store.find(identity) == Reused(run_id=run_id)
 
 
-def test_find_successful_run_returns_none_when_dataset_hash_changed(
-    sqlite_tracking_uri: str, tmp_path: Path
+def test_misses_when_the_identity_changed(
+    store: MlflowIdentityStore,
+    client: MlflowClient,
+    identity: StageIdentity,
+    changed_identity: StageIdentity,
+    tmp_path: Path,
 ) -> None:
-    """Simulates a regenerated dataset: the prior run's dataset_hash tag no
-    longer matches, so the reuse check must miss and report None."""
-    client = MlflowClient(tracking_uri=sqlite_tracking_uri)
+    """Simulates a regenerated dataset: the prior run's key no longer matches."""
+    experiment_id = client.create_experiment("Train")
+    _seed_finished_run(client, experiment_id=experiment_id, tmp_path=tmp_path, identity=identity)
+
+    assert store.find(changed_identity) is None
+
+
+def test_skips_finished_run_without_checkpoint(
+    store: MlflowIdentityStore, client: MlflowClient, identity: StageIdentity, tmp_path: Path
+) -> None:
+    """A FINISHED run keyed correctly but missing its checkpoint artifact (the
+    durability-step race) must not be trusted as reusable."""
     experiment_id = client.create_experiment("Train")
     _seed_finished_run(
         client,
         experiment_id=experiment_id,
         tmp_path=tmp_path,
-        assignment_id="asn-1",
-        dataset_hash="hash-old",
-    )
-
-    result = find_successful_run(
-        tracking_uri=sqlite_tracking_uri,
-        mlflow_experiment_name="Train",
-        assignment_id="asn-1",
-        dataset_hash="hash-new",
-    )
-
-    assert result is None
-
-
-def test_find_successful_run_skips_finished_run_without_checkpoint(
-    sqlite_tracking_uri: str, tmp_path: Path
-) -> None:
-    """A FINISHED run tagged correctly but missing its checkpoint artifact
-    (the durability-step race find_successful_run's docstring documents)
-    must not be trusted as reusable."""
-    client = MlflowClient(tracking_uri=sqlite_tracking_uri)
-    experiment_id = client.create_experiment("Train")
-    _seed_finished_run(
-        client,
-        experiment_id=experiment_id,
-        tmp_path=tmp_path,
-        assignment_id="asn-1",
-        dataset_hash="hash-abc",
+        identity=identity,
         with_checkpoint=False,
     )
 
-    result = find_successful_run(
-        tracking_uri=sqlite_tracking_uri,
-        mlflow_experiment_name="Train",
-        assignment_id="asn-1",
-        dataset_hash="hash-abc",
-    )
-
-    assert result is None
+    assert store.find(identity) is None

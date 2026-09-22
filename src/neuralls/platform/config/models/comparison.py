@@ -24,6 +24,7 @@ from neuralls.shared.constants import (
     DEFAULT_M_MAX,
     DEFAULT_RTOL,
 )
+from neuralls.shared.digest import Cosmetic, InputData
 from neuralls.shared.types import RowKind
 
 type NormalizeSystem = Literal["none", "matrix", "rhs", "both"]
@@ -53,8 +54,8 @@ class ComparisonDataModel(BaseModel):
     ``resolve_comparison_config`` from the case ``[[comparisons]]`` entry.
     """
 
-    matrix_path: Path | None = None
-    rhs_path: Path | None = None
+    matrix_path: Annotated[Path | None, Cosmetic()] = None
+    rhs_path: Annotated[Path | None, Cosmetic()] = None
     matrix_index: int = 0
     dataset_alias: str | None = None
     normalize_system: NormalizeSystem = "matrix"
@@ -122,7 +123,7 @@ def _parse_row_kind(value: object) -> RowKind | None:
 class _RawVectorSourceBase(BaseModel):
     """Shared fields for concrete raw vector comparison sources."""
 
-    path: Path
+    path: Annotated[Path, InputData()]
     sample_index: int = Field(default=0, ge=0)
     row_kind: RowKind | None = None
     scale: float = 1.0
@@ -160,7 +161,7 @@ class DatasetRhsSourceModel(BaseModel):
     """Load a comparison RHS from a manifest-backed neuralls dataset directory."""
 
     kind: Literal["dataset"] = "dataset"
-    path: Path
+    path: Annotated[Path, InputData()]
     sample_index: int | None = Field(default=None, ge=0)
 
     model_config = ConfigDict(extra="forbid", frozen=True)

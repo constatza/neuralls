@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import tempfile
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -20,6 +19,7 @@ from neuralls.composition.assignments.assembler import load_validated_case_confi
 from neuralls.composition.assignments.job_loader import load_experiment_job
 from neuralls.composition.assignments.model_resolution import (
     AssignmentModelContext,
+    TrainingLookup,
     resolve_preconditioner_models_with_warnings,
 )
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
@@ -30,12 +30,16 @@ from neuralls.composition.comparison.source_handlers import (
     ComparisonSourceSpec,
     validate_comparison_source,
 )
+from neuralls.composition.identity.comparison import comparison_identity
+from neuralls.composition.identity.gate import gate_reuse
+from neuralls.composition.identity.training import training_identity
 from neuralls.composition.tracking.run_specs import (
     ComparisonRunTags,
     build_child_comparison_tags,
     build_comparison_run_spec,
     build_session_run_spec,
 )
+from neuralls.domain.identity import StageIdentity
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.comparison import ComparisonConfig
@@ -48,12 +52,12 @@ from neuralls.platform.config.models.experiments import (
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     CheckpointRefBearing,
-    LoggedModelRefConfig,
     NeuralCheckpointRef,
     NeuralPreconditionerConfig,
     PODCoarseningConfig,
     PreconditionerConfig,
     PreconditionerType,
+    TrainedAssignmentRefConfig,
 )
 from neuralls.platform.config.registry import get_assignment_binding, resolve_assignment_binding
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
@@ -75,13 +79,12 @@ from neuralls.platform.tracking.comparison_tracking import (
     log_skipped_preconditioners,
     setup_comparison_tracking,
 )
-from neuralls.platform.tracking.extra_features import fetch_extra_input_names_for_model
+from neuralls.platform.tracking.extra_features import fetch_extra_feature_names
 from neuralls.platform.tracking.mlflow import build_workflow_environment
-from neuralls.platform.tracking.mlflow_client import (
-    find_successful_comparison_run,
-    log_comparison_artifacts_to_mlflow,
-)
+from neuralls.platform.tracking.mlflow_client import log_comparison_artifacts_to_mlflow
+from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
 from neuralls.platform.tracking.model_registry import build_registered_model_name
+from neuralls.shared.digest import Digest, content_digest
 from neuralls.shared.types import ComparisonRhsSourceKind
 
 
@@ -170,6 +173,27 @@ def _referenced_assignment_ids(
     )
 
 
+def _assignment_training_identity(
+    *,
+    job_config_path: Path,
+    data_config_path: Path,
+    settings: NeurallsSettings,
+) -> StageIdentity | None:
+    """Derive an assignment's training identity, or ``None`` if its dataset is not generated.
+
+    ``None`` makes strict model resolution fail for that assignment with a
+    clear message (never a silent match against an unverifiable dataset).
+    """
+    try:
+        return training_identity(
+            job_config_path=job_config_path,
+            data_config_path=data_config_path,
+            settings=settings,
+        )
+    except FileNotFoundError:
+        return None
+
+
 def _build_master_assignment_contexts(
     assignment_ids: tuple[str, ...],
     settings: NeurallsSettings,
@@ -195,6 +219,14 @@ def _build_master_assignment_contexts(
         contexts[assignment_id] = AssignmentModelContext(
             dataset_alias=dataset_id,
             model_name=build_registered_model_name(assignment_id),
+            training=TrainingLookup(
+                experiment=master_cfg.names.training,
+                identity=_assignment_training_identity(
+                    job_config_path=binding.job_config_path,
+                    data_config_path=binding.data_config_path,
+                    settings=settings,
+                ),
+            ),
         )
     return contexts
 
@@ -218,6 +250,7 @@ class _AssignmentJobContext:
 
     job: AnyJobConfig
     dataset_dir: Path
+    training: StageIdentity | None
 
 
 def _resolve_assignment_job_context(
@@ -241,20 +274,46 @@ def _resolve_assignment_job_context(
         data_cfg=data_cfg,
         config_path=binding.data_config_path,
     ).name
-    return _AssignmentJobContext(job=job, dataset_dir=settings.processed_dir / dataset_id)
+    return _AssignmentJobContext(
+        job=job,
+        dataset_dir=settings.processed_dir / dataset_id,
+        training=_assignment_training_identity(
+            job_config_path=binding.job_config_path,
+            data_config_path=binding.data_config_path,
+            settings=settings,
+        ),
+    )
+
+
+def _extra_input_names_of_training_run(
+    context: _AssignmentJobContext, *, experiment: str, client: MlflowClient
+) -> tuple[str, ...]:
+    """Read extra input names from the very run strict resolution will select.
+
+    Uses the same identity lookup as model resolution, so the names can never
+    come from a different run than the checkpoint that gets loaded.
+    """
+    if context.training is None:
+        return ()
+    reused = MlflowIdentityStore(
+        tracking_uri=client.tracking_uri, experiment=experiment, require_checkpoint=True
+    ).find(context.training)
+    if reused is None or reused.run_id is None:
+        return ()
+    return fetch_extra_feature_names(reused.run_id, client=client)
 
 
 def _neural_spec_from_assignment(
     entry: AssignmentEntry,
     *,
-    client: MlflowClient,
+    extra_input_names: tuple[str, ...],
 ) -> NeuralPreconditionerConfig:
     """Build an unresolved neural preconditioner stub for a train/search-kind assignment.
 
-    References the most recent unregistered training run tagged with the
-    assignment's id, rather than a registry entry — automatic model
-    consumption reads raw MLflow runs, since the registry is reserved for
-    deliberate/manual promotion. Also fetches the
+    References the assignment's training run through a strict
+    `TrainedAssignmentRefConfig` (same experiment, FINISHED, checkpoint present,
+    current dataset), rather than a registry entry or a tag search — the
+    registry is reserved for deliberate/manual promotion. Also fetches the
     ``neuralls.extra_feature_names`` tag from the training run so that FiLM
     models receive their condition tensor during comparison.
     """
@@ -262,8 +321,8 @@ def _neural_spec_from_assignment(
         name=entry.effective_display_name,
         type=PreconditionerType.NEURAL,
         assignment=entry.id,
-        model_ref=LoggedModelRefConfig(latest=True, tags={"assignment_id": entry.id}),
-        extra_input_names=fetch_extra_input_names_for_model(entry.id, client),
+        model_ref=TrainedAssignmentRefConfig(assignment_id=entry.id),
+        extra_input_names=extra_input_names,
     )
 
 
@@ -276,7 +335,7 @@ def _pod_fit_spec_from_assignment(
     """Build an unresolved AMG/POD stub for a `fit`-kind (POD-2G) assignment.
 
     Mirrors `_neural_spec_from_assignment`'s "unresolved stub referencing the
-    most recent tagged run" shape, but for `AMGPreconditionerConfig(coarsening
+    assignment's training run" shape, but for `AMGPreconditionerConfig(coarsening
     =PODCoarseningConfig(...))` instead of `NeuralPreconditionerConfig` — the
     checkpoint-shaped side of the kind dispatch in
     `neural_specs_from_assignments`. `dataset_dir`/`rank` are populated from
@@ -298,7 +357,7 @@ def _pod_fit_spec_from_assignment(
             dataset_dir=dataset_dir,
             rank=rank,
             assignment=entry.id,
-            model_ref=LoggedModelRefConfig(latest=True, tags={"assignment_id": entry.id}),
+            model_ref=TrainedAssignmentRefConfig(assignment_id=entry.id),
         ),
     )
 
@@ -352,7 +411,14 @@ def neural_specs_from_assignments(
                     )
                 )
             case _:
-                specs.append(_neural_spec_from_assignment(entry, client=client))
+                specs.append(
+                    _neural_spec_from_assignment(
+                        entry,
+                        extra_input_names=_extra_input_names_of_training_run(
+                            context, experiment=cfg.names.training, client=client
+                        ),
+                    )
+                )
     return specs
 
 
@@ -386,32 +452,28 @@ class _ComparisonResolutionContext:
 class ResolvedComparisonSpecs:
     """One comparison's preconditioners after checkpoint resolution.
 
-    The `checkpoint_dependency_hash` is always derived from `specs` at
-    construction (see `from_resolution`), so the specs and the identity the
-    reuse-check tags a run with can never drift apart.
+    The `checkpoint_digests` are always derived from `specs` at construction
+    (see `from_resolution`), so the specs and the checkpoint content the
+    comparison's identity covers can never drift apart.
 
     Attributes:
         specs: Preconditioner configs with concrete checkpoint paths baked in.
         warnings: Human-readable notes about specs that failed to resolve and
             were skipped.
-        checkpoint_dependency_hash: Identity of the trained checkpoints these
-            specs resolved to — see `_compute_checkpoint_dependency_hash`.
+        checkpoint_digests: Content digest of every resolved checkpoint the
+            specs depend on, keyed by spec position and ref label.
     """
 
     specs: list[PreconditionerConfig]
     warnings: tuple[str, ...]
-    checkpoint_dependency_hash: str
+    checkpoint_digests: Mapping[str, Digest]
 
     @classmethod
     def from_resolution(
         cls, specs: list[PreconditionerConfig], warnings: tuple[str, ...]
     ) -> ResolvedComparisonSpecs:
-        """Bundle a resolution result with the dependency hash it implies."""
-        return cls(
-            specs=specs,
-            warnings=warnings,
-            checkpoint_dependency_hash=_compute_checkpoint_dependency_hash(specs),
-        )
+        """Bundle a resolution result with the checkpoint digests it implies."""
+        return cls(specs=specs, warnings=warnings, checkpoint_digests=_checkpoint_digests(specs))
 
 
 def _resolve_specs(
@@ -449,26 +511,21 @@ def _resolve_specs(
     return ResolvedComparisonSpecs.from_resolution(resolution.specs, resolution.warnings)
 
 
-def _compute_checkpoint_dependency_hash(specs: Sequence[PreconditionerConfig]) -> str:
-    """Hash identifying which trained checkpoints this comparison depends on.
+def _checkpoint_digests(specs: Sequence[PreconditionerConfig]) -> dict[str, Digest]:
+    """Content digest of every resolved checkpoint the specs depend on.
 
-    Not a hash of any file or of the preconditioners' own config — it's built
-    from each dependency's resolved MLflow `run_id` (the training run that
-    produced its checkpoint), which is the only stable identity available: the
-    checkpoint file itself is re-leased to a fresh temp path on every
-    invocation (`MlflowArtifactLeaseManager`), so its local path/mtime can't
-    serve as one. Changes whenever any dependency's resolved training run
-    changes, so a prior comparison's reuse-check tag no longer matches once
-    training reruns it depends on (e.g. via a dataset regeneration cascading
-    through `run_assignment_sweep`'s reuse check).
+    The comparison depends on the checkpoint *bytes* it actually loads, not on
+    which run they came from, so a retrained model with a different result
+    changes the identity and an identical one does not. Refs without a
+    resolved checkpoint (an unfitted inline POD coarsening) contribute nothing;
+    their fit data is covered by the spec's own identity fields.
     """
-    parts = [
-        f"{spec.name}:{label}:{ref.resolved_run_id or ref.resolved_checkpoint_path}"
-        for spec, label, ref in _iter_checkpoint_refs(specs)
-    ]
-    hasher = hashlib.sha1()
-    hasher.update("|".join(sorted(parts)).encode())
-    return hasher.hexdigest()
+    return {
+        f"{index}:{label}": content_digest(ref.resolved_checkpoint_path)
+        for index, spec in enumerate(specs)
+        for _, label, ref in _iter_checkpoint_refs([spec])
+        if ref.resolved_checkpoint_path is not None
+    }
 
 
 def _resolve_comparison_topology(
@@ -631,10 +688,7 @@ def _execute_comparison_in_run(
     with mlflow.start_run(
         run_name=run_name,
         nested=True,
-        tags={
-            **comp_tags.as_mlflow_tags(),
-            "checkpoint_dependency_hash": prepared.resolved.checkpoint_dependency_hash,
-        },
+        tags={**comp_tags.as_mlflow_tags(), **prepared.identity.tags()},
     ) as comp_run:
         comp_run_id = comp_run.info.run_id
         log_comparison_artifact_uri()
@@ -689,23 +743,6 @@ def _resolve_comparison_specs(
     return resolved
 
 
-def _comparison_already_run(
-    topology: ComparisonTopology,
-    entry: ComparisonRegistryEntry,
-    checkpoint_dependency_hash: str,
-) -> bool:
-    """Whether a FINISHED comparison run already exists for this exact checkpoint dependency hash."""
-    return (
-        find_successful_comparison_run(
-            tracking_uri=topology.tracking_uri,
-            mlflow_experiment_name=topology.experiment_name,
-            comparison_id=entry.id,
-            checkpoint_dependency_hash=checkpoint_dependency_hash,
-        )
-        is not None
-    )
-
-
 def _comparison_failure_outcome(
     entry: ComparisonRegistryEntry, exc: Exception
 ) -> ComparisonOutcome:
@@ -728,6 +765,7 @@ class _PreparedComparisonExecution:
     topology: ComparisonTopology
     cleanup: contextlib.ExitStack
     resolved: ResolvedComparisonSpecs
+    identity: StageIdentity
 
 
 def _prepare_comparison_entry(
@@ -740,8 +778,8 @@ def _prepare_comparison_entry(
     """Validate, resolve, and reuse-check one entry. Opens no MLflow run.
 
     Preconditioners are resolved before deciding whether to run at all: if a
-    FINISHED comparison run already exists tagged with this comparison_id and
-    the exact same checkpoint dependency hash, execution is skipped and that
+    FINISHED comparison run already exists carrying this comparison's derived
+    identity (config, data, preconditioners and checkpoint content), execution is skipped and that
     success is reported directly (unless force=True) — no MLflow run is ever
     opened for a cache hit.
 
@@ -774,10 +812,17 @@ def _prepare_comparison_entry(
         except (ValueError, RuntimeError, KeyError) as exc:
             return _comparison_failure_outcome(entry, exc)
 
-        if not force and _comparison_already_run(
-            context.topology, entry, resolved.checkpoint_dependency_hash
-        ):
-            logger.info(f"Using existing MLflow comparison run for '{entry.id}'")
+        identity = comparison_identity(cfg, resolved.specs, resolved.checkpoint_digests)
+        reused = gate_reuse(
+            MlflowIdentityStore(
+                tracking_uri=context.topology.tracking_uri,
+                experiment=context.topology.experiment_name,
+            ),
+            identity,
+            force=force,
+            label=entry.id,
+        )
+        if reused is not None:
             return _comparison_outcome(entry, success=True)
 
         # Needs real execution: detach the lease manager's cleanup from this
@@ -788,6 +833,7 @@ def _prepare_comparison_entry(
             topology=context.topology,
             cleanup=local_stack.pop_all(),
             resolved=resolved,
+            identity=identity,
         )
 
 
@@ -928,7 +974,7 @@ def run_comparison_batch(
 
     Args:
         case_config_path: Path to the case config TOML.
-        params: Comparison execution parameters (currently just `force`).
+        params: Comparison execution parameters (`force`).
         settings: Optional pre-loaded runtime settings.
 
     Returns:

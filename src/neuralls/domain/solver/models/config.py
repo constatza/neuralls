@@ -2,10 +2,11 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from torchalg.monitoring import TraceMode
 
+from neuralls.shared.digest import Cosmetic
 from neuralls.shared.types import ComparisonRhsSourceKind
 
 
@@ -75,8 +76,8 @@ class ComparisonData:
         normalize_system: Normalization strategy to apply.
     """
 
-    matrix_path: Path
-    rhs_path: Path | None
+    matrix_path: Annotated[Path, Cosmetic()]
+    rhs_path: Annotated[Path | None, Cosmetic()]
     matrix_index: int | None = 0
     dataset_alias: str | None = None
     normalize_system: NormalizeSystem = "matrix"

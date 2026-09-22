@@ -20,7 +20,9 @@ from neuralls.composition.assignments.comparison_batch import (
     run_comparison_batch,
 )
 from neuralls.composition.comparison.models import ComparisonOutcome, ComparisonParams
+from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
+from neuralls.shared.digest import canonical_digest
 from tests.workflows.test_comparison_workflow import _mock_cfg, _write_experiments_config
 
 _MLFLOW_MODULE = "neuralls.composition.assignments.comparison_batch.mlflow"
@@ -86,9 +88,8 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
             entry=entry,
             topology=context.topology,
             cleanup=contextlib.ExitStack(),
-            resolved=ResolvedComparisonSpecs(
-                specs=[], warnings=(), checkpoint_dependency_hash="hash-b"
-            ),
+            resolved=ResolvedComparisonSpecs(specs=[], warnings=(), checkpoint_digests={}),
+            identity=StageIdentity.build("comparison", {"entry": canonical_digest(entry.id)}),
         )
 
     with (

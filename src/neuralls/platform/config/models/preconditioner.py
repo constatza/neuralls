@@ -21,6 +21,8 @@ from pydantic import (
     model_validator,
 )
 
+from neuralls.shared.digest import Cosmetic, InputConfig, InputData
+
 
 class PreconditionerType(StrEnum):
     """Preconditioner types."""
@@ -161,8 +163,30 @@ class LoggedModelRefConfig(BaseModel):
         return self
 
 
+class TrainedAssignmentRefConfig(BaseModel):
+    """Reference to the training run that produced an assignment's current model.
+
+    Unlike ``LoggedModelRefConfig(latest=True, ...)`` this is not a tag search:
+    it resolves to exactly one run that is (a) in the case's training
+    experiment, (b) tagged with this assignment id, (c) FINISHED with a real
+    checkpoint, and (d) trained on the dataset as it exists on disk right now
+    (matching ``dataset_hash``). A run from another experiment, a failed or
+    incomplete run, or a run trained on a since-regenerated dataset is never
+    selected. The experiment and dataset hash come from the resolution
+    context, not from this config.
+
+    Attributes:
+        source: Discriminator field, always "assignment".
+        assignment_id: Stable assignment id the training run was tagged with.
+    """
+
+    source: Literal["assignment"] = "assignment"
+    assignment_id: str = Field(min_length=1)
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
 ModelRefConfig = Annotated[
-    RegisteredModelRefConfig | LoggedModelRefConfig,
+    RegisteredModelRefConfig | LoggedModelRefConfig | TrainedAssignmentRefConfig,
     Field(discriminator="source"),
 ]
 
@@ -178,13 +202,13 @@ class NeuralCheckpointRef(BaseModel):
     directly rather than against a concrete leaf class.
     """
 
-    checkpoint_path: Path | None = None
+    checkpoint_path: Annotated[Path | None, InputData()] = None
     assignment: str | None = None
-    config_path: Path | None = None
-    data_config_path: Path | None = None
+    config_path: Annotated[Path | None, InputConfig()] = None
+    data_config_path: Annotated[Path | None, InputConfig()] = None
     model_ref: ModelRefConfig | None = None
-    resolved_checkpoint_path: Path | None = None
-    resolved_run_id: str | None = None
+    resolved_checkpoint_path: Annotated[Path | None, Cosmetic()] = None
+    resolved_run_id: Annotated[str | None, Cosmetic()] = None
     """MLflow run id the checkpoint was resolved from, when resolved via
     `model_ref` (unset for an explicit `checkpoint_path`). Used to detect when
     a comparison's dependency has been retrained since it last ran."""
@@ -243,7 +267,7 @@ class BasePreconditionerConfig(BaseModel):
     Includes scheduling fields shared by all preconditioner variants.
     """
 
-    name: str = Field(
+    name: Annotated[str, Cosmetic()] = Field(
         default="",
         description="Config identity, used as the results/plot key. Defaults to "
         "the concrete subclass's `type` when omitted.",
@@ -506,7 +530,7 @@ class PODCoarseningConfig(NeuralCheckpointRef):
     """
 
     method: Literal["pod"] = "pod"
-    dataset_dir: Path = Field(
+    dataset_dir: Annotated[Path, InputData()] = Field(
         ...,
         description="Generated dataset directory whose `solutions` array supplies POD-2G snapshots.",
     )
@@ -598,7 +622,7 @@ class NeuralPODCoarseningConfig(NeuralCheckpointRef):
     """
 
     method: Literal["neural_pod"] = "neural_pod"
-    dataset_dir: Path = Field(
+    dataset_dir: Annotated[Path, InputData()] = Field(
         ...,
         description="Generated dataset directory whose `params` arrays feed the checkpoint.",
     )

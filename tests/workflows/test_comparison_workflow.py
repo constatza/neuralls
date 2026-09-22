@@ -23,6 +23,7 @@ from neuralls.composition.assignments.comparison_batch import (
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
 from neuralls.composition.comparison.config_assembler import resolve_comparison_config
 from neuralls.composition.comparison.models import ComparisonOutcome, ComparisonParams
+from neuralls.domain.identity import StageIdentity
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
 from neuralls.domain.solver.models.result import (
     CGComparisonResult,
@@ -45,6 +46,7 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     RegisteredModelRefConfig,
     StandardPreconditionerConfig,
+    TrainedAssignmentRefConfig,
 )
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
@@ -57,6 +59,7 @@ from neuralls.platform.tracking.comparison_tracking import (
     log_linear_system_params,
 )
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
+from neuralls.shared.digest import canonical_digest
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
 
@@ -340,6 +343,17 @@ def _typed_comparison_result(plot_path: Path) -> ComparisonResult:
     )
 
 
+@pytest.fixture(autouse=True)
+def stub_comparison_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests drive the workflow with mocked configs; identity derivation has its own tests."""
+    monkeypatch.setattr(
+        "neuralls.composition.assignments.comparison_batch.comparison_identity",
+        lambda *_args, **_kwargs: StageIdentity.build(
+            "comparison", {"stub": canonical_digest("stub")}
+        ),
+    )
+
+
 @pytest.fixture
 def stub_comparison_result(tmp_path: Path) -> ComparisonResult:
     """An empty-but-real result standing in for a patched `compare_preconditioners`.
@@ -594,7 +608,7 @@ def test_resolve_neural_preconditioners_validates_all() -> None:
     assert len(resolved) == 2
 
 
-def test_neural_specs_from_assignments_uses_logged_ref_with_assignment_tag(
+def test_neural_specs_from_assignments_uses_strict_assignment_ref(
     tmp_path: Path,
 ) -> None:
     """A train-kind assignment yields an unresolved neural preconditioner stub."""
@@ -613,9 +627,7 @@ def test_neural_specs_from_assignments_uses_logged_ref_with_assignment_tag(
     spec = specs[0]
     assert isinstance(spec, NeuralPreconditionerConfig)
     assert spec.assignment == "ffnn_solutions"
-    assert spec.model_ref == LoggedModelRefConfig(
-        latest=True, tags={"assignment_id": "ffnn_solutions"}
-    )
+    assert spec.model_ref == TrainedAssignmentRefConfig(assignment_id="ffnn_solutions")
 
 
 def test_neural_specs_from_assignments_skips_claimed_ids(tmp_path: Path) -> None:
@@ -663,9 +675,7 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
     assert spec.coarsening.assignment == "pod2g_cg1"
     assert spec.coarsening.rank == 0.9999
     assert spec.coarsening.dataset_dir == settings.processed_dir / "solutions-cg1"
-    assert spec.coarsening.model_ref == LoggedModelRefConfig(
-        latest=True, tags={"assignment_id": "pod2g_cg1"}
-    )
+    assert spec.coarsening.model_ref == TrainedAssignmentRefConfig(assignment_id="pod2g_cg1")
     client.search_experiments.assert_not_called()
 
 

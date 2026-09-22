@@ -16,9 +16,7 @@ import pytest
 
 from neuralls.platform.tracking.extra_features import (
     EXTRA_FEATURE_NAMES_TAG,
-    _lookup_run_id_for_model,
     fetch_extra_feature_names,
-    fetch_extra_input_names_for_model,
     log_extra_feature_names_tag,
 )
 
@@ -272,86 +270,6 @@ def test_round_trip_preserves_non_alphabetical_declaration_order() -> None:
         f"Expected {_NON_ALPHA_NAMES!r} but got {result!r}. "
         "The old sorted() call would have produced ('apple', 'zebra')."
     )
-
-
-# ---------------------------------------------------------------------------
-# Tests for _lookup_run_id_for_model / fetch_extra_input_names_for_model
-#
-# Registration is no longer automatic (registry reserved for manual
-# promotion), so lookup now searches raw MLflow runs tagged with
-# assignment_id instead of registered model versions.
-# ---------------------------------------------------------------------------
-
-
-def test_lookup_run_id_for_model_returns_most_recent_matching_run(
-    mock_mlflow_client: MagicMock,
-    experiment_stub: SimpleNamespace,
-) -> None:
-    """The most recently started run tagged with assignment_id is returned."""
-    mock_mlflow_client.search_experiments.return_value = [experiment_stub]
-    mock_mlflow_client.search_runs.return_value = [_make_run_id_stub(_RUN_ID)]
-
-    result = _lookup_run_id_for_model("spectral-energy", mock_mlflow_client)
-
-    assert result == _RUN_ID
-    mock_mlflow_client.search_runs.assert_called_once_with(
-        experiment_ids=["0"],
-        filter_string="tags.`assignment_id` = 'spectral-energy'",
-        order_by=["attributes.start_time DESC"],
-        max_results=1,
-    )
-
-
-def test_lookup_run_id_for_model_returns_none_without_experiments(
-    mock_mlflow_client: MagicMock,
-) -> None:
-    """No visible experiments means no run can be found, and no search is issued."""
-    mock_mlflow_client.search_experiments.return_value = []
-
-    result = _lookup_run_id_for_model("spectral-energy", mock_mlflow_client)
-
-    assert result is None
-    mock_mlflow_client.search_runs.assert_not_called()
-
-
-def test_lookup_run_id_for_model_returns_none_without_matching_runs(
-    mock_mlflow_client: MagicMock,
-    experiment_stub: SimpleNamespace,
-) -> None:
-    """No run tagged with the assignment id yields None."""
-    mock_mlflow_client.search_experiments.return_value = [experiment_stub]
-    mock_mlflow_client.search_runs.return_value = []
-
-    result = _lookup_run_id_for_model("spectral-energy", mock_mlflow_client)
-
-    assert result is None
-
-
-def test_fetch_extra_input_names_for_model_returns_empty_without_matching_run(
-    mock_mlflow_client: MagicMock,
-) -> None:
-    """No tagged training run means no extra input names are available."""
-    mock_mlflow_client.search_experiments.return_value = []
-
-    result = fetch_extra_input_names_for_model("spectral-energy", mock_mlflow_client)
-
-    assert result == ()
-    mock_mlflow_client.get_run.assert_not_called()
-
-
-def test_fetch_extra_input_names_for_model_reads_tag_from_looked_up_run(
-    mock_mlflow_client: MagicMock,
-    experiment_stub: SimpleNamespace,
-    run_stub_single: SimpleNamespace,
-) -> None:
-    """Extra input names are read from the tag on the tag-filtered run."""
-    mock_mlflow_client.search_experiments.return_value = [experiment_stub]
-    mock_mlflow_client.search_runs.return_value = [_make_run_id_stub(_RUN_ID)]
-    mock_mlflow_client.get_run.return_value = run_stub_single
-
-    result = fetch_extra_input_names_for_model("spectral-energy", mock_mlflow_client)
-
-    assert result == _SINGLE_NAME
 
 
 def test_round_trip_sorted_names_would_be_different_from_declaration_order() -> None:

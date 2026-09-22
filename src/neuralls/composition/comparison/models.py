@@ -153,9 +153,9 @@ class ComparisonParams:
     """Runtime parameters for comparison execution.
 
     Attributes:
-        force: Rerun every comparison even if a matching one (same
-            comparison_id and resolved preconditioner checkpoints) already
-            completed successfully.
+        force: Rerun every comparison even if a matching one (same derived
+            identity: config, data, preconditioners and checkpoint content)
+            already completed successfully.
     """
 
     force: bool = False
