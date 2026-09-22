@@ -174,24 +174,31 @@ class PODCoarseningFittable(PODCoarseningStrategy):
         Raises:
             ValueError: If `snapshots` is a dataloader that yields no batches.
         """
-        if isinstance(snapshots, torch.Tensor):
-            super().fit(snapshots, row_scales=row_scales)
-            return
-        batches = list(snapshots)
-        if not batches:
-            raise ValueError("PODCoarseningFittable.fit() received an empty dataloader.")
-        concatenated = torch.cat(
-            [torch.as_tensor(batch["targets"][self._target_name]) for batch in batches], dim=0
-        )
-        if row_scales is None:
-            row_scales = resolve_row_scales(self._weighting, concatenated, matrix=None)
         logger.warning(
-            "DIAGNOSTIC pre-SVD snapshot tensor: shape={} dtype={} device={}",
-            tuple(concatenated.shape),
-            concatenated.dtype,
-            concatenated.device,
+            "DIAGNOSTIC entered PODCoarseningFittable.fit(), tensor input={}",
+            isinstance(snapshots, torch.Tensor),
         )
         try:
+            if isinstance(snapshots, torch.Tensor):
+                super().fit(snapshots, row_scales=row_scales)
+                return
+            logger.warning("DIAGNOSTIC materializing dataloader batches")
+            batches = list(snapshots)
+            if not batches:
+                raise ValueError("PODCoarseningFittable.fit() received an empty dataloader.")
+            logger.warning("DIAGNOSTIC materialized {} batches, concatenating", len(batches))
+            concatenated = torch.cat(
+                [torch.as_tensor(batch["targets"][self._target_name]) for batch in batches], dim=0
+            )
+            logger.warning(
+                "DIAGNOSTIC pre-SVD snapshot tensor: shape={} dtype={} device={}",
+                tuple(concatenated.shape),
+                concatenated.dtype,
+                concatenated.device,
+            )
+            if row_scales is None:
+                row_scales = resolve_row_scales(self._weighting, concatenated, matrix=None)
+            logger.warning("DIAGNOSTIC calling PODCoarseningStrategy.fit() (the SVD)")
             super().fit(concatenated, row_scales=row_scales)
         except Exception:
             logger.opt(exception=True).error("DIAGNOSTIC traceback for PODCoarseningFittable.fit()")
