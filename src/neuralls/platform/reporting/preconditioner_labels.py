@@ -194,15 +194,22 @@ def describe_preconditioner(precond: Preconditioner) -> str:
             types with no meaningful structural variants (e.g. ``Identity``,
             ``JacobiPreconditioner``, ``NeuralPreconditioner``).
     """
-    if isinstance(precond, ScheduledPreconditioner):
-        return describe_preconditioner(precond._primary)
-    if isinstance(precond, AdaptiveSAPreconditioner):
-        return _describe_adaptive_sa(precond)
-    if isinstance(precond, AMGPreconditioner):
-        return _describe_amg(precond)
-    if isinstance(precond, IC0Preconditioner):
-        return f"threshold={precond._threshold:.0e}"
-    return ""
+    match precond:
+        case ScheduledPreconditioner():
+            return describe_preconditioner(precond._primary)
+        # AdaptiveSAPreconditioner subclasses AMGPreconditioner, so this case
+        # must come first (most-derived-first dispatch) or aSA instances would
+        # silently match the generic AMGPreconditioner case below and leak
+        # torchalg's internal `_PrebuiltCoarsening` placeholder name instead
+        # of real detail.
+        case AdaptiveSAPreconditioner():
+            return _describe_adaptive_sa(precond)
+        case AMGPreconditioner():
+            return _describe_amg(precond)
+        case IC0Preconditioner():
+            return f"threshold={precond._threshold:.0e}"
+        case _:
+            return ""
 
 
 def preconditioner_label(name: str, precond: Preconditioner) -> str:
