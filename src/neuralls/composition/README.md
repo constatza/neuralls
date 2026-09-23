@@ -156,9 +156,12 @@ This keeps labels truthful to what was actually built — including cases where 
 value (e.g. a POD energy-threshold `rank`) differs from the resolved runtime
 value — without composition or platform maintaining a second, config-derived
 description that could drift out of sync with the live object.
-The same composition wrapper appends the loaded linear system size as `N=...`
-to every comparison diagnostic plot title so cached artifacts remain readable
-without inspecting the matrix path or source dataset metadata.
+The same composition wrapper derives one canonical scientific context per
+comparison (`matrix=... | rhs=...`). It logs that context once at comparison
+start alongside the execution-only `device=...` field, and reuses only the
+matrix/RHS context as the title of every diagnostic plot, with the loaded
+linear-system size on a second `N=...` line. Per-preconditioner progress logs
+stay concise because those values cannot change within a comparison run.
 
 Plot *styling* (marker/color, as opposed to the label text above) is a
 further separate concern, driven by `PreconditionerComparisonEntry.color_key`/

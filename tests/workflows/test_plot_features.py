@@ -371,11 +371,12 @@ def test_generate_comparison_plots_includes_iterations_barplot(
             simple_cond_numbers,
             paths,
             build_preconditioner_labels(two_preconditioners, two_preconditioner_families),
-            display_name="Demo",
+            comparison_context="matrix=demo-matrix | rhs=gaussian",
             system_size=1000,
         )
 
     assert result.iterations_barplot is not None
-    assert condition_plot.call_args.kwargs["title"] == "Demo (N=1000)"
-    assert convergence_plot.call_args.kwargs["title"] == "Demo (N=1000)"
-    assert metric_plot.call_args.kwargs["title"] == "Demo (N=1000)"
+    expected_title = "matrix=demo-matrix | rhs=gaussian\nN=1000"
+    assert condition_plot.call_args.kwargs["title"] == expected_title
+    assert convergence_plot.call_args.kwargs["title"] == expected_title
+    assert metric_plot.call_args.kwargs["title"] == expected_title

@@ -20,6 +20,7 @@ from neuralls.composition.comparison._preconditioner_setup import (
     _create_scheduled_preconditioners,
     _load_and_bind_extra_inputs,
 )
+from neuralls.composition.comparison._presentation import build_comparison_source_context
 from neuralls.composition.comparison.models import (
     ComparisonPaths,
     PreconditionerComparisonEntry,
@@ -160,7 +161,7 @@ def _evaluate_preconditioner(
     Returns:
         Named result: solve outcome, condition number, and plot label for ``cfg``.
     """
-    logger.info(f"Preconditioner: {cfg.name} (comparison={display_name or 'unnamed'})")
+    logger.info("Evaluating preconditioner: {}", cfg.name)
     color_key, marker_key = _pod2g_style_keys(cfg)
     try:
         return _run_preconditioner(
@@ -244,16 +245,6 @@ def _run_preconditioner(
         color_key=color_key,
         marker_key=marker_key,
     )
-
-
-def _log_solver_device(display_name: str | None) -> None:
-    """Log which torch device the CG solver used for this comparison run.
-
-    Args:
-        display_name: Optional human-readable comparison label.
-    """
-    device = resolve_device()
-    logger.info(f"CG solver device: comparison={display_name or 'unnamed'} device={device}")
 
 
 def _resolve_comparison_paths(
@@ -343,7 +334,7 @@ def compare_preconditioners(
         preconditioner_configs: Sequence of preconditioner configurations.
         output_root: Optional override for output root directory.
         figures_root: Optional override for figures directory.
-        display_name: Optional display name for plots.
+        display_name: Optional human-readable label included in failure logs.
         evaluation_mapper: Strategy for running the per-config evaluations in
             ``preconditioner_configs``. Defaults to the builtin ``map``, i.e.
             sequential execution with exactly one preconditioner resident at a
@@ -369,7 +360,9 @@ def compare_preconditioners(
         figures_root=figures_root,
     )
     _ensure_comparison_directories(paths)
-    _log_solver_device(display_name)
+    solver_device = resolve_device()
+    comparison_context = build_comparison_source_context(paths, resolved_input)
+    logger.info("Comparison: {} | device={}", comparison_context, solver_device)
 
     resolved_matrix_index = (
         general_params.data.matrix_index if general_params.data.matrix_index is not None else 0
@@ -384,14 +377,11 @@ def compare_preconditioners(
     )
     condition_number_raw = _log_matrix_condition_number(
         _to_numpy(system.matrix),
-        matrix_path=paths.matrix,
-        display_name=display_name,
     )
 
     # One A/b pair has one true solution: compute it once on the selected
     # solver device and share it across every preconditioner below instead of
     # each one redoing this Jacobi-PCG solve from scratch.
-    solver_device = resolve_device()
     x_exact = compute_reference_solution(
         system.matrix.to(solver_device),
         system.rhs.to(solver_device),
@@ -450,10 +440,10 @@ def compare_preconditioners(
         cond_numbers,
         paths,
         labels,
-        families,
+        comparison_context=comparison_context,
+        families=families,
         color_keys=color_keys,
         marker_keys=marker_keys,
-        display_name=display_name,
         system_size=int(system.matrix.shape[0]),
         rtol=general_params.params.rtol,
         atol=general_params.params.atol,
