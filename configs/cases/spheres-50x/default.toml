@@ -34,21 +34,21 @@ name = "amg-medium-theta"
 type = "amg"
 coarsening = { method = "aggregation", theta = 0.25 }
 
-[[comparison_defaults.preconditioners]]
-name = "asa-few-candidates"
-type = "adaptive_sa_amg"
-num_candidates = 3
-theta = 0.05
+# [[comparison_defaults.preconditioners]]
+# name = "asa-few-candidates"
+# type = "adaptive_sa_amg"
+# num_candidates = 3
+# theta = 0.05
 
-[[comparison_defaults.preconditioners]]
-name = "asa-more-candidates"
-type = "adaptive_sa_amg"
-num_candidates = 7
-theta = 0.05
+# [[comparison_defaults.preconditioners]]
+# name = "asa-more-candidates"
+# type = "adaptive_sa_amg"
+# num_candidates = 7
+# theta = 0.05
 
-[[comparison_defaults.preconditioners]]
-name = "bamg"
-type = "bootstrap_amg"
+# [[comparison_defaults.preconditioners]]
+# name = "bamg"
+# type = "bootstrap_amg"
 
 [[datasets]]
 path = "../../datasets/train/spheres-50x/gaussian-cg10.toml"
