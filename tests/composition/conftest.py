@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 type JobWriter = Callable[..., Path]
@@ -60,3 +61,12 @@ def write_job(tmp_path: Path) -> JobWriter:
         return job
 
     return _write
+
+
+@pytest.fixture
+def spd_system() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """A tiny symmetric positive-definite system: ``(A, b, x0)`` as NumPy arrays."""
+    matrix = np.array([[4.0, 1.0], [1.0, 3.0]])
+    rhs = np.array([1.0, 2.0])
+    initial_guess = np.zeros(2)
+    return matrix, rhs, initial_guess

@@ -12,8 +12,11 @@ targets dx_k = x_true - x_k at each iteration.
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import torch
+from loguru import logger
 
 from neuralls.domain.normalization import ErrorTraceSamples
 
@@ -162,7 +165,15 @@ class _BaseResidualsStrategy:
         sample_indices: list[np.ndarray] = []
         iteration_indices: list[np.ndarray] = []
 
+        log_every = max(1, num_base_systems // 10)
+        loop_start = time.monotonic()
         for sample_idx, (rhs_vec, true_sol) in enumerate(zip(rhs_samples, sols)):
+            if sample_idx > 0 and sample_idx % log_every == 0:
+                elapsed = time.monotonic() - loop_start
+                logger.info(
+                    f"{self.name}: {sample_idx}/{num_base_systems} samples "
+                    f"({sample_idx / elapsed:.1f} samples/s, {elapsed:.1f}s elapsed)"
+                )
             _, info = solver(
                 matrix,
                 rhs_vec,
