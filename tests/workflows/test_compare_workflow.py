@@ -207,7 +207,7 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
     monkeypatch.setattr(
         comparison_run,
         "build_preconditioner_labels",
-        lambda preconditioners: {name: name for name in preconditioners},
+        lambda preconditioners, families: {name: name for name in preconditioners},
     )
     monkeypatch.setattr(comparison_run, "run_cg_comparison", fake_run_cg_comparison)
     monkeypatch.setattr(

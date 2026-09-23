@@ -39,6 +39,43 @@ class PreconditionerType(StrEnum):
     ADAPTIVE_SA_AMG = "adaptive_sa_amg"
     BOOTSTRAP_AMG = "bootstrap_amg"
 
+    def abbreviation(self) -> str:
+        """Compact plot-legend base name for this type.
+
+        Exhaustive ``match`` (no wildcard) so a future member forces a
+        visible update here rather than silently falling through.
+        ``AMG``/``NEURAL``/``NEURAL_AMG`` are unreachable via
+        ``preconditioner_family()`` today (it collapses them to
+        ``PreconditionerFamily`` members first), but are mapped here too for
+        exhaustiveness/consistency if this enum is ever consumed directly.
+
+        Returns:
+            str: e.g. ``"aSA"``, ``"BAMG"``.
+        """
+        match self:
+            case PreconditionerType.NONE:
+                return "None"
+            case PreconditionerType.IDENTITY:
+                return "Identity"
+            case PreconditionerType.JACOBI:
+                return "Jacobi"
+            case PreconditionerType.ILU:
+                return "ILU"
+            case PreconditionerType.IC0:
+                return "IC0"
+            case PreconditionerType.ICHOLESKY:
+                return "IChol"
+            case PreconditionerType.NEURAL:
+                return "Neural"
+            case PreconditionerType.AMG:
+                return "AMG"
+            case PreconditionerType.NEURAL_AMG:
+                return "Neural"
+            case PreconditionerType.ADAPTIVE_SA_AMG:
+                return "aSA"
+            case PreconditionerType.BOOTSTRAP_AMG:
+                return "BAMG"
+
 
 def _normalize_null(data: dict) -> Any:
     """Normalize deprecated null-like aliases to the explicit none baseline."""

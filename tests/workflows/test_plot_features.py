@@ -19,6 +19,7 @@ from neuralls.composition.comparison._plots import _generate_comparison_plots
 from neuralls.composition.comparison.models import ComparisonPaths
 from neuralls.domain.analysis.spectra import plot_condition_numbers
 from neuralls.domain.solver.models.result import CGComparisonResult, PlotPaths
+from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.platform.reporting.plots import plot_convergence_comparison, plot_metric_comparison
 from neuralls.platform.reporting.preconditioner_labels import build_preconditioner_labels
 
@@ -94,6 +95,20 @@ def two_preconditioners() -> dict[str, Preconditioner]:
     return {
         "identity": Identity(),
         "jacobi": JacobiPreconditioner(matrix),
+    }
+
+
+@pytest.fixture
+def two_preconditioner_families() -> dict[str, PreconditionerType]:
+    """Family key per name, matching ``two_preconditioners``' keys.
+
+    Returns:
+        A dict with two entries: "identity" and "jacobi", each mapped to its
+        ``PreconditionerType``.
+    """
+    return {
+        "identity": PreconditionerType.IDENTITY,
+        "jacobi": PreconditionerType.JACOBI,
     }
 
 
@@ -317,6 +332,7 @@ def test_generate_comparison_plots_includes_iterations_barplot(
     two_result_entries: dict[str, CGComparisonResult],
     simple_cond_numbers: dict[str, float],
     two_preconditioners: dict[str, Preconditioner],
+    two_preconditioner_families: dict[str, PreconditionerType],
 ) -> None:
     """_generate_comparison_plots returns PlotPaths with iterations_barplot set.
 
@@ -328,6 +344,7 @@ def test_generate_comparison_plots_includes_iterations_barplot(
         two_result_entries: Two-entry result dict from fixture.
         simple_cond_numbers: Simple condition number mapping from fixture.
         two_preconditioners: Constructed preconditioner instances from fixture.
+        two_preconditioner_families: Family key per name, from fixture.
     """
     figures_dir = tmp_path / "figures"
     figures_dir.mkdir(parents=True)
@@ -353,7 +370,7 @@ def test_generate_comparison_plots_includes_iterations_barplot(
             two_result_entries,
             simple_cond_numbers,
             paths,
-            build_preconditioner_labels(two_preconditioners),
+            build_preconditioner_labels(two_preconditioners, two_preconditioner_families),
             display_name="Demo",
             system_size=1000,
         )

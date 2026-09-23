@@ -205,6 +205,7 @@ def _run_preconditioner(
     marker_key: str | None,
 ) -> PreconditionerComparisonEntry:
     """Build, condition-number, and solve one preconditioner; raises on any failure."""
+    family = preconditioner_family(cfg)
     base_preconditioners = {cfg.name: service.create_preconditioner(matrix, cfg)}
     scheduled = _create_scheduled_preconditioners(
         preconditioner_configs=[cfg],
@@ -216,7 +217,7 @@ def _run_preconditioner(
     )
     cond_callables: dict[str, PreconditionerCallable] = {name: p for name, p in scheduled.items()}
     condition_number = compute_condition_numbers(_to_numpy(matrix), cond_callables)[cfg.name]
-    label = build_preconditioner_labels(scheduled)[cfg.name]
+    label = build_preconditioner_labels(scheduled, {cfg.name: family})[cfg.name]
     result = run_cg_comparison(
         matrix,
         rhs,
@@ -232,7 +233,7 @@ def _run_preconditioner(
         result=result,
         condition_number=condition_number,
         label=label,
-        family=preconditioner_family(cfg),
+        family=family,
         color_key=color_key,
         marker_key=marker_key,
     )

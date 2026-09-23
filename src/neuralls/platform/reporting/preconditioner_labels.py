@@ -15,10 +15,18 @@ level count (``L=``) is shown for every strategy except POD-2G, which is
 architecturally single-basis two-grid (a level count there would be
 constant noise, not signal).
 
-Detail is read from the constructed object's own attributes, never from the
-TOML config that produced it: the object is the ground truth for what was
-actually built (e.g. the POD basis's real fitted rank, which may differ from
-a configured energy-threshold ``rank``).
+Detail is read from the constructed object's own public properties, never
+from the TOML config that produced it: the object is the ground truth for
+what was actually built (e.g. the POD basis's real fitted rank, which may
+differ from a configured energy-threshold ``rank``).
+
+The base display name (e.g. ``"POD-2G"``, ``"aSA"``, ``"BAMG"``) comes from
+the preconditioner's ``PreconditionerFamilyKey``
+(``platform.config.models.preconditioner_family.preconditioner_family``),
+not from the config's ``name`` field — that field is a wiring identifier
+(used as a dict key throughout the comparison pipeline), populated
+inconsistently across callers, and must not be parsed or guessed at for
+display purposes.
 """
 
 from __future__ import annotations
@@ -37,6 +45,8 @@ from torchalg.preconditioners.implementations.amg import (
 )
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
+from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
+
 __all__ = [
     "MAX_LABEL_LENGTH",
     "AdaptiveSADetail",
@@ -51,11 +61,11 @@ __all__ = [
 ]
 
 MAX_LABEL_LENGTH = 45
-"""Legend-text budget per preconditioner, name included.
+"""Legend-text budget per preconditioner, abbreviation included.
 
 Sized to the actual longest current entry (an AMG variant with ``L``, ``θ``,
-``ω``, and ``c`` all shown: ``"amg-medium-theta (L=2, θ=0.25, ω=0.67,
-c=15)"`` is 44 characters) plus a little headroom, not picked arbitrarily.
+``ω``, and ``c`` all shown: ``"AMG (L=2, θ=0.25, ω=0.67, c=15)"`` is 32
+characters) plus generous headroom, not picked arbitrarily.
 
 A comparison run typically legends several variants of the same type side by
 side (e.g. three AMG theta values) — this keeps each entry to roughly one
@@ -167,28 +177,19 @@ def coarsening_detail(coarsening: object, matrix: torch.Tensor) -> CoarseningDet
             unrecognized strategies.
     """
     if isinstance(coarsening, PODCoarseningStrategy):
-        return PODCoarseningDetail(rank=coarsening._basis.shape[1])
+        return PODCoarseningDetail(rank=coarsening.rank)
     if isinstance(coarsening, AggregationCoarsening):
         coarse_matrix, _ = coarsening.build_transfer(matrix)
-        omega = coarsening._omega
+        omega = coarsening.omega
         return AggregationCoarseningDetail(
-            theta=coarsening._theta,
+            theta=coarsening.theta,
             omega=omega.item() if isinstance(omega, torch.Tensor) else omega,
             coarse_dimension=coarse_matrix.shape[0],
         )
     if isinstance(coarsening, TargetDimensionCoarsening):
-        if coarsening._realized_coarse_dim is None:
-            # Not yet built (no CG solve has triggered the hierarchy's
-            # lazy build yet) — build once now rather than leave the
-            # label with nothing to report; the search result is cached
-            # afterward, so this never repeats the search.
-            coarse_matrix, _ = coarsening.build_transfer(matrix)
-            realized_coarse_dim = coarse_matrix.shape[0]
-        else:
-            realized_coarse_dim = coarsening._realized_coarse_dim
         return TargetDimensionCoarseningDetail(
-            target_coarse_dim=coarsening._target_coarse_dim,
-            realized_coarse_dim=realized_coarse_dim,
+            target_coarse_dim=coarsening.target_coarse_dim,
+            realized_coarse_dim=coarsening.realized_coarse_dim(matrix),
         )
     return None
 
@@ -214,7 +215,7 @@ def describe_preconditioner(precond: Preconditioner) -> str:
     """
     match precond:
         case ScheduledPreconditioner():
-            return describe_preconditioner(precond._primary)
+            return describe_preconditioner(precond.primary)
         # AdaptiveSAPreconditioner subclasses AMGPreconditioner, so this case
         # must come first (most-derived-first dispatch) or aSA instances would
         # silently match the generic AMGPreconditioner case below and leak
@@ -229,38 +230,34 @@ def describe_preconditioner(precond: Preconditioner) -> str:
         case AMGPreconditioner():
             return _describe_amg(precond)
         case IC0Preconditioner():
-            return f"threshold={precond._threshold:.0e}"
+            return f"threshold={precond.threshold:.0e}"
         case _:
             return ""
 
 
-def preconditioner_label(name: str, precond: Preconditioner) -> str:
-    """Combine a preconditioner's config name with its live structural detail.
+def preconditioner_label(family: PreconditionerFamilyKey, precond: Preconditioner) -> str:
+    """Combine a preconditioner's family abbreviation with its live structural detail.
 
     Args:
-        name (str): Config-level preconditioner name (the dict key used
-            throughout the comparison pipeline).
+        family (PreconditionerFamilyKey): The preconditioner's family (see
+            ``platform.config.models.preconditioner_family.preconditioner_family``),
+            driving the base display name via ``.abbreviation()``.
         precond (Preconditioner): The corresponding constructed
             preconditioner object.
 
     Returns:
-        str: ``"{name} ({detail})"`` when structural detail is available
-            (see :func:`describe_preconditioner`), else just ``name``.
+        str: ``"{abbreviation} ({detail})"`` when structural detail is
+            available (see :func:`describe_preconditioner`), else just the
+            abbreviation.
     """
     detail = describe_preconditioner(precond)
-    display_name = _display_name(name, precond)
+    display_name = family.abbreviation()
     return f"{display_name} ({detail})" if detail else display_name
-
-
-def _display_name(name: str, precond: Preconditioner) -> str:
-    """Render machine-style preconditioner names as plot-friendly labels."""
-    if isinstance(precond, ScheduledPreconditioner):
-        return _display_name(name, precond._primary)
-    return name.replace("_", " ").title()
 
 
 def build_preconditioner_labels(
     preconditioners: dict[str, Preconditioner],
+    families: dict[str, PreconditionerFamilyKey],
 ) -> dict[str, str]:
     """Build a name -> descriptive-label mapping for a set of preconditioners.
 
@@ -268,12 +265,18 @@ def build_preconditioner_labels(
         preconditioners (dict[str, Preconditioner]): Constructed
             preconditioner instances keyed by config name, e.g. as produced
             by ``PreconditionerService.create_preconditioner_set``.
+        families (dict[str, PreconditionerFamilyKey]): Family key per name
+            (see ``platform.config.models.preconditioner_family.preconditioner_family``),
+            same keys as ``preconditioners``.
 
     Returns:
         dict[str, str]: Mapping from each name to its
             :func:`preconditioner_label` string.
     """
-    return {name: preconditioner_label(name, precond) for name, precond in preconditioners.items()}
+    return {
+        name: preconditioner_label(families[name], precond)
+        for name, precond in preconditioners.items()
+    }
 
 
 def _describe_amg(precond: AMGPreconditioner) -> str:
@@ -295,10 +298,10 @@ def _describe_amg(precond: AMGPreconditioner) -> str:
         str: ``"L={n}, {coarsening detail}"`` for aggregation coarsening, or
             just the coarsening detail for POD-2G.
     """
-    detail = _describe_coarsening(precond._coarsening, precond._matrix)
-    if isinstance(precond._coarsening, PODCoarseningStrategy):
+    detail = _describe_coarsening(precond.coarsening, precond.matrix)
+    if isinstance(precond.coarsening, PODCoarseningStrategy):
         return detail
-    return f"L={precond._n_levels}, {detail}"
+    return f"L={precond.n_levels}, {detail}"
 
 
 def _describe_adaptive_sa(precond: AdaptiveSAPreconditioner) -> str:
@@ -311,9 +314,9 @@ def _describe_adaptive_sa(precond: AdaptiveSAPreconditioner) -> str:
         str: ``"L={n}, k={num_candidates}, c={coarse_dim}"``.
     """
     detail = AdaptiveSADetail(
-        n_levels=len(precond._result.matrices),
-        num_candidates=precond._result.candidates.shape[1],
-        coarse_dimension=int(precond._result.matrices[-1].shape[0]),
+        n_levels=len(precond.result.matrices),
+        num_candidates=precond.result.candidates.shape[1],
+        coarse_dimension=int(precond.result.matrices[-1].shape[0]),
     )
     return f"L={detail.n_levels}, k={detail.num_candidates}, c={detail.coarse_dimension}"
 
@@ -328,9 +331,9 @@ def _describe_bootstrap_amg(precond: BootstrapAMGPreconditioner) -> str:
         str: ``"L={n}, k_r={k_r}, c={coarse_dim}"``.
     """
     detail = BootstrapAMGDetail(
-        n_levels=len(precond._result.matrices),
-        k_r=precond._result.candidates.shape[1],
-        coarse_dimension=int(precond._result.matrices[-1].shape[0]),
+        n_levels=len(precond.result.matrices),
+        k_r=precond.result.candidates.shape[1],
+        coarse_dimension=int(precond.result.matrices[-1].shape[0]),
     )
     return f"L={detail.n_levels}, k_r={detail.k_r}, c={detail.coarse_dimension}"
 

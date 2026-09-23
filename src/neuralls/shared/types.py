@@ -73,6 +73,23 @@ class PreconditionerFamily(StrEnum):
     POD2G = "pod2g"
     NEURAL = "neural"
 
+    def abbreviation(self) -> str:
+        """Compact plot-legend base name for this family.
+
+        Exhaustive ``match`` (no wildcard) so a future member forces a
+        visible update here rather than silently falling through.
+
+        Returns:
+            str: e.g. ``"POD-2G"``.
+        """
+        match self:
+            case PreconditionerFamily.AMG:
+                return "AMG"
+            case PreconditionerFamily.POD2G:
+                return "POD-2G"
+            case PreconditionerFamily.NEURAL:
+                return "Neural"
+
 
 class GenerationStrategyKind(StrEnum):
     """Canonical generation strategy identifiers used after config validation."""

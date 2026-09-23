@@ -26,6 +26,7 @@ from torchalg.preconditioners.implementations.amg import (
 )
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
+from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.platform.reporting.preconditioner_labels import (
     MAX_LABEL_LENGTH,
     AggregationCoarseningDetail,
@@ -36,6 +37,7 @@ from neuralls.platform.reporting.preconditioner_labels import (
     describe_preconditioner,
     preconditioner_label,
 )
+from neuralls.shared.types import PreconditionerFamily
 
 # ==============================================================================
 # Fixtures
@@ -165,7 +167,7 @@ def test_coarsening_detail_reports_realized_coarse_dimension_for_aggregation(
     previously pinned to 3 aggregates against.
     """
     detail = coarsening_detail(
-        aggregation_amg_preconditioner._coarsening, aggregation_amg_preconditioner._matrix
+        aggregation_amg_preconditioner.coarsening, aggregation_amg_preconditioner.matrix
     )
 
     assert detail == AggregationCoarseningDetail(theta=0.25, omega=0.67, coarse_dimension=2)
@@ -181,8 +183,8 @@ def test_coarsening_detail_reports_none_omega_when_left_to_auto_rule(
     configured.
     """
     detail = coarsening_detail(
-        auto_omega_aggregation_amg_preconditioner._coarsening,
-        auto_omega_aggregation_amg_preconditioner._matrix,
+        auto_omega_aggregation_amg_preconditioner.coarsening,
+        auto_omega_aggregation_amg_preconditioner.matrix,
     )
 
     assert isinstance(detail, AggregationCoarseningDetail)
@@ -193,7 +195,7 @@ def test_coarsening_detail_reports_fitted_rank_for_pod(
     pod_amg_preconditioner: AMGPreconditioner,
 ) -> None:
     """POD-2G's detail is its actual fitted basis width, not the configured threshold."""
-    detail = coarsening_detail(pod_amg_preconditioner._coarsening, pod_amg_preconditioner._matrix)
+    detail = coarsening_detail(pod_amg_preconditioner.coarsening, pod_amg_preconditioner.matrix)
 
     assert detail == PODCoarseningDetail(rank=2)
 
@@ -203,14 +205,16 @@ def test_coarsening_detail_reports_realized_dimension_for_target_dim(
 ) -> None:
     """Target-dimension coarsening's detail carries both the target and what was realized."""
     detail = coarsening_detail(
-        target_dim_amg_preconditioner._coarsening, target_dim_amg_preconditioner._matrix
+        target_dim_amg_preconditioner.coarsening, target_dim_amg_preconditioner.matrix
     )
 
-    coarsening = target_dim_amg_preconditioner._coarsening
+    coarsening = target_dim_amg_preconditioner.coarsening
     assert isinstance(coarsening, TargetDimensionCoarsening)
     assert isinstance(detail, TargetDimensionCoarseningDetail)
     assert detail.target_coarse_dim == 3
-    assert detail.realized_coarse_dim == coarsening._realized_coarse_dim
+    assert detail.realized_coarse_dim == coarsening.realized_coarse_dim(
+        target_dim_amg_preconditioner.matrix
+    )
 
 
 # ==============================================================================
@@ -307,7 +311,7 @@ def test_describe_preconditioner_adaptive_sa_reports_realized_coarse_dimension(
     """The rendered `c=` matches the hierarchy's actual coarsest-level dimension."""
     detail = describe_preconditioner(adaptive_sa_preconditioner)
 
-    realized = adaptive_sa_preconditioner._result.matrices[-1].shape[0]
+    realized = adaptive_sa_preconditioner.result.matrices[-1].shape[0]
     assert f"c={realized}" in detail
 
 
@@ -340,7 +344,7 @@ def test_describe_preconditioner_bootstrap_amg_reports_realized_coarse_dimension
     """The rendered `c=` matches the hierarchy's actual coarsest-level dimension."""
     detail = describe_preconditioner(bootstrap_amg_preconditioner)
 
-    realized = bootstrap_amg_preconditioner._result.matrices[-1].shape[0]
+    realized = bootstrap_amg_preconditioner.result.matrices[-1].shape[0]
     assert f"c={realized}" in detail
 
 
@@ -398,25 +402,28 @@ def test_describe_preconditioner_unwraps_scheduled_preconditioner(
 def test_preconditioner_label_includes_amg_detail(
     aggregation_amg_preconditioner: AMGPreconditioner,
 ) -> None:
-    """A label combines the config name with whatever describe_preconditioner reports."""
+    """A label combines the family abbreviation with whatever describe_preconditioner reports."""
     detail = describe_preconditioner(aggregation_amg_preconditioner)
 
-    assert preconditioner_label("amg", aggregation_amg_preconditioner) == f"Amg ({detail})"
+    assert (
+        preconditioner_label(PreconditionerFamily.AMG, aggregation_amg_preconditioner)
+        == f"AMG ({detail})"
+    )
 
 
-def test_preconditioner_label_falls_back_to_bare_name_without_detail() -> None:
-    """Labels fall back to the bare name when there is no structural detail."""
-    label = preconditioner_label("identity", Identity())
+def test_preconditioner_label_falls_back_to_bare_abbreviation_without_detail() -> None:
+    """Labels fall back to the bare abbreviation when there is no structural detail."""
+    label = preconditioner_label(PreconditionerType.IDENTITY, Identity())
 
     assert label == "Identity"
 
 
 @pytest.mark.parametrize(
-    "name",
-    ["amg-small-theta", "amg-medium-theta", "amg-large-theta"],
+    "family",
+    [PreconditionerFamily.AMG],
 )
 def test_preconditioner_label_stays_within_length_budget_for_amg(
-    name: str, aggregation_amg_preconditioner: AMGPreconditioner
+    family: PreconditionerFamily, aggregation_amg_preconditioner: AMGPreconditioner
 ) -> None:
     """AMG legend entries stay short even with multiple theta variants compared side by side.
 
@@ -424,7 +431,7 @@ def test_preconditioner_label_stays_within_length_budget_for_amg(
     levels/cycle/smoother detail from ``describe_preconditioner`` — this is
     the regression check for that: a length property, not a wording check.
     """
-    label = preconditioner_label(name, aggregation_amg_preconditioner)
+    label = preconditioner_label(family, aggregation_amg_preconditioner)
 
     assert len(label) <= MAX_LABEL_LENGTH
 
@@ -433,36 +440,74 @@ def test_preconditioner_label_stays_within_length_budget_for_pod(
     pod_amg_preconditioner: AMGPreconditioner,
 ) -> None:
     """POD-2G legend entries stay within the same length budget as AMG's."""
-    label = preconditioner_label("pod-2g_cg-50", pod_amg_preconditioner)
+    label = preconditioner_label(PreconditionerFamily.POD2G, pod_amg_preconditioner)
 
     assert len(label) <= MAX_LABEL_LENGTH
 
 
-@pytest.mark.parametrize(
-    ("name", "prefix"),
-    [
-        ("pod-2g_cg-0", "Pod-2G Cg-0 "),
-        ("pod-2g_cg-50", "Pod-2G Cg-50 "),
-    ],
-)
-def test_preconditioner_label_formats_display_ready_ids(
-    name: str,
-    prefix: str,
+def test_preconditioner_label_uses_pod2g_abbreviation(
     pod_amg_preconditioner: AMGPreconditioner,
 ) -> None:
-    """Display-ready config ids render without source-level special cases."""
-    label = preconditioner_label(name, pod_amg_preconditioner)
+    """POD-2G always renders as the fixed abbreviation "POD-2G", from the family alone.
 
-    assert label.startswith(prefix)
+    Unlike the previous config-name-based approach, the base name no longer
+    depends on any string a caller happened to put in ``cfg.name`` (e.g. an
+    assignment display name carrying the fitted dataset's id) — the dataset
+    is already conveyed by the legend's color/marker key, and the rank by
+    the ``c=`` detail this label is combined with.
+    """
+    label = preconditioner_label(PreconditionerFamily.POD2G, pod_amg_preconditioner)
+
+    assert label.startswith("POD-2G ")
 
 
 def test_preconditioner_label_stays_within_length_budget_for_target_dim(
     target_dim_amg_preconditioner: AMGPreconditioner,
 ) -> None:
     """Target-dimension-coarsening legend entries stay within the same length budget."""
-    label = preconditioner_label("amg-target-dim", target_dim_amg_preconditioner)
+    label = preconditioner_label(PreconditionerFamily.AMG, target_dim_amg_preconditioner)
 
     assert len(label) <= MAX_LABEL_LENGTH
+
+
+def test_preconditioner_label_for_adaptive_sa_uses_asa_abbreviation(
+    adaptive_sa_preconditioner: AdaptiveSAPreconditioner,
+) -> None:
+    """Adaptive SA-AMG renders with the "aSA" abbreviation from its type."""
+    label = preconditioner_label(PreconditionerType.ADAPTIVE_SA_AMG, adaptive_sa_preconditioner)
+
+    assert label.startswith("aSA ")
+
+
+def test_preconditioner_label_for_bootstrap_amg_uses_bamg_abbreviation(
+    bootstrap_amg_preconditioner: BootstrapAMGPreconditioner,
+) -> None:
+    """Bootstrap AMG renders with the "BAMG" abbreviation from its type."""
+    label = preconditioner_label(PreconditionerType.BOOTSTRAP_AMG, bootstrap_amg_preconditioner)
+
+    assert label.startswith("BAMG ")
+
+
+@pytest.mark.parametrize("member", list(PreconditionerFamily))
+def test_preconditioner_family_abbreviation_is_exhaustive(member: PreconditionerFamily) -> None:
+    """Every `PreconditionerFamily` member has a non-empty abbreviation.
+
+    A future member without a matching `abbreviation()` arm fails loudly here
+    (and via `ty`'s exhaustiveness check on the `match`) rather than raising
+    at label-rendering time.
+    """
+    assert member.abbreviation()
+
+
+@pytest.mark.parametrize("member", list(PreconditionerType))
+def test_preconditioner_type_abbreviation_is_exhaustive(member: PreconditionerType) -> None:
+    """Every `PreconditionerType` member has a non-empty abbreviation.
+
+    Same exhaustiveness guarantee as
+    ``test_preconditioner_family_abbreviation_is_exhaustive``, for the finer
+    ``PreconditionerType`` enum.
+    """
+    assert member.abbreviation()
 
 
 def test_describe_preconditioner_pod_uses_c_not_rank_or_level_count(
@@ -499,9 +544,14 @@ def test_build_preconditioner_labels_maps_each_name(
         "amg": aggregation_amg_preconditioner,
         "identity": Identity(),
     }
+    families: dict[str, PreconditionerFamily | PreconditionerType] = {
+        "amg": PreconditionerFamily.AMG,
+        "identity": PreconditionerType.IDENTITY,
+    }
 
-    labels = build_preconditioner_labels(preconditioners)
+    labels = build_preconditioner_labels(preconditioners, families)
 
     assert labels == {
-        name: preconditioner_label(name, precond) for name, precond in preconditioners.items()
+        name: preconditioner_label(families[name], precond)
+        for name, precond in preconditioners.items()
     }
