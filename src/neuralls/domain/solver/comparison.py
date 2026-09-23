@@ -49,6 +49,7 @@ def run_cg_comparison(
     *,
     preconditioners: Mapping[str, Preconditioner],
     x0: torch.Tensor | None = None,
+    x_exact: torch.Tensor | None = None,
     rtol: float = DEFAULT_RTOL,
     atol: float = DEFAULT_ATOL,
     maxiter: int = 100,
@@ -73,6 +74,11 @@ def run_cg_comparison(
         b: Right-hand side vector tensor.
         preconditioners: Dict mapping names to Preconditioner instances.
         x0: Initial guess (defaults to zero).
+        x_exact: Precomputed reference solution (any device/dtype; matched to
+            ``A``'s before use), from a prior ``compute_reference_solution()``
+            call — pass this when comparing multiple preconditioners against
+            the same ``A``/``b`` so the dense reference solve runs once
+            instead of once per call. ``None`` (default) computes it here.
         rtol: Relative tolerance.
         atol: Absolute tolerance.
         maxiter: Maximum iterations.
@@ -80,7 +86,8 @@ def run_cg_comparison(
             routed to ``flexible_cg``; ignored for preconditioners routed to
             ``pcg``.
         reference_precision_margin: How many orders of magnitude tighter than
-            ``rtol`` the host reference solution must be.
+            ``rtol`` the host reference solution must be. Ignored when
+            ``x_exact`` is given.
 
     Returns:
         Dict mapping preconditioner names to CGComparisonResult.
@@ -103,10 +110,12 @@ def run_cg_comparison(
         preconditioners = dict(preconditioners)
         preconditioners["none"] = Identity()
 
-    x_exact_host = _host_reference_solution(
-        A.detach().cpu(), b.detach().cpu(), rtol=rtol, margin=reference_precision_margin
-    )
-    x_exact = x_exact_host.to(device=A.device, dtype=A.dtype) if x_exact_host is not None else None
+    if x_exact is None:
+        x_exact = compute_reference_solution(
+            A.detach(), b.detach(), rtol=rtol, margin=reference_precision_margin
+        )
+    if x_exact is not None:
+        x_exact = x_exact.to(device=A.device, dtype=A.dtype)
 
     results: dict[str, CGComparisonResult] = {}
 
@@ -165,17 +174,22 @@ def run_cg_comparison(
     return results
 
 
-def _host_reference_solution(
-    A_host: torch.Tensor, b_host: torch.Tensor, *, rtol: float, margin: float
+def compute_reference_solution(
+    A: torch.Tensor, b: torch.Tensor, *, rtol: float, margin: float
 ) -> torch.Tensor | None:
-    """Reference solution computed on the host so it never competes for GPU memory.
+    """Jacobi-PCG reference solution, on whichever device ``A``/``b`` are on.
+
+    A single ``A``/``b`` pair has one true solution, so callers comparing
+    multiple preconditioners against the same system should call this once
+    and pass the result to every ``run_cg_comparison(..., x_exact=...)`` call
+    instead of letting each one recompute this Jacobi-PCG solve from scratch.
 
     Returns:
         The reference solution, or ``None`` (logged) if it cannot be computed —
         the comparison then runs without exact-error metrics instead of failing.
     """
     try:
-        return reference_solution(A_host, b_host, rtol=rtol, margin=margin)
+        return reference_solution(A, b, rtol=rtol, margin=margin)
     except (RuntimeError, ValueError) as exc:
         logger.warning("Reference solution unavailable; exact-error metrics skipped: {}", exc)
         return None

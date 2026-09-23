@@ -14,20 +14,26 @@ from typing import TYPE_CHECKING
 
 import torch
 from loguru import logger
+from torchalg import pcg
+from torchalg.monitoring import TraceMode
 from torchalg.monitoring.analysis import golub_meurant_error_bound
+from torchalg.preconditioners.implementations import JacobiPreconditioner
 
 if TYPE_CHECKING:
     from torchalg.models.result import SolverResult
 
-REFERENCE_PRECISION_MARGIN = 1e-4
-MAX_REFINEMENT_STEPS = 5
+REFERENCE_PRECISION_MARGIN = 1e-2
+REFERENCE_MAX_ITER_PER_DIM = 50
+"""Jacobi-PCG iteration budget for the reference solve, as a multiple of system size.
+Generous since each iteration is O(n) (matvec-dominated) rather than the O(n^3) a dense
+direct solve would cost, and the reference target is far tighter than a normal rtol."""
 
 FLOAT64_EPS = torch.finfo(torch.float64).eps
 """Machine epsilon for float64 (~2.22e-16)."""
 
 MIN_SAFE_RELATIVE_RESIDUAL = 10 * FLOAT64_EPS
 """Floor for the reference solve's target relative residual, with headroom above the
-float64 noise floor so refinement converges to a real value rather than noise."""
+float64 noise floor so the solve converges to a real value rather than noise."""
 
 GOLUB_MEURANT_DELAY = 10
 
@@ -35,29 +41,35 @@ GOLUB_MEURANT_DELAY = 10
 def reference_solution(
     A: torch.Tensor, b: torch.Tensor, *, rtol: float, margin: float = REFERENCE_PRECISION_MARGIN
 ) -> torch.Tensor:
-    """Direct solve of ``A x = b`` accurate well beyond the comparison tolerance.
+    """Jacobi-PCG solve of ``A x = b``, accurate well beyond the comparison tolerance.
 
-    A direct solve is refined iteratively (residual correction) until
+    Uses the same ``torchalg.pcg`` engine the comparisons themselves run,
+    Jacobi-preconditioned and driven to a far tighter tolerance, rather than a
+    dense direct solve: a direct solve is ``O(n^3)`` per factorization, which
+    stops scaling long before the systems this module is comparing
+    preconditioners on do; Jacobi-PCG stays ``O(n)`` per iteration regardless
+    of system size. Runs until
     ``||b - A x|| / ||b|| <= max(rtol * margin, MIN_SAFE_RELATIVE_RESIDUAL)``, so the
     reference error is orders of magnitude below what the solvers under comparison
     are asked to reach, without ever asking for a target below float64 machine
-    precision (which refinement could never reach, or would reach only as noise).
+    precision (which no solver could reach, or would reach only as noise).
 
     Args:
         A (torch.Tensor): System matrix, shape ``(n, n)``.
         b (torch.Tensor): Right-hand side, shape ``(n,)``.
         rtol (float): Relative tolerance requested from the compared solvers.
         margin (float): How many orders of magnitude tighter than ``rtol`` the
-            reference must be (default ``1e-4``). Must be ``< 1`` — a reference no
+            reference must be (default ``1e-2``). Must be ``< 1`` — a reference no
             more precise than the solvers being compared is useless.
 
     Returns:
-        torch.Tensor: Reference solution ``x*`` in float64 (refinement to the
+        torch.Tensor: Reference solution ``x*`` in float64 (reaching the
         target precision is impossible in lower precision).
 
     Raises:
         ValueError: If ``margin >= 1``.
-        RuntimeError: If refinement cannot reach the target precision.
+        RuntimeError: If Jacobi-PCG cannot reach the target precision within
+            its iteration budget.
     """
     if margin >= 1:
         raise ValueError(
@@ -75,17 +87,21 @@ def reference_solution(
             rtol,
             target_rel,
         )
-    target = target_rel * float(torch.linalg.vector_norm(b))
-    x = torch.linalg.solve(A, b)
-    for _ in range(MAX_REFINEMENT_STEPS):
-        r = b - A @ x
-        if float(torch.linalg.vector_norm(r)) <= target:
-            return x
-        x = x + torch.linalg.solve(A, r)
-    if float(torch.linalg.vector_norm(b - A @ x)) > target:
+    maxiter = REFERENCE_MAX_ITER_PER_DIM * b.numel()
+    x, info = pcg(
+        A,
+        b,
+        torch.zeros_like(b),
+        preconditioner=JacobiPreconditioner(A),
+        rtol=target_rel,
+        atol=0.0,
+        maxiter=maxiter,
+        trace_mode=TraceMode.DISABLED,
+    )
+    if not info.converged:
         raise RuntimeError(
-            f"Reference solution could not reach relative residual {target_rel:.1e}; "
-            "the system is too ill-conditioned for a float64 direct solve at this rtol."
+            f"Reference solution could not reach relative residual {target_rel:.1e} within "
+            f"{maxiter} Jacobi-PCG iterations; the system is too ill-conditioned at this rtol."
         )
     return x
 

@@ -28,6 +28,7 @@ from neuralls.composition.comparison.models import (
 from neuralls.domain.analysis.spectra import PreconditionerCallable, compute_condition_numbers
 from neuralls.domain.solver.comparison import (
     _to_numpy,
+    compute_reference_solution,
     format_results_summary,
     run_cg_comparison,
 )
@@ -136,6 +137,7 @@ def _evaluate_preconditioner(
     matrix_index: int,
     params: SolverParams,
     display_name: str | None = None,
+    x_exact: torch.Tensor | None = None,
 ) -> PreconditionerComparisonEntry:
     """Build one preconditioner, run it, and package its evaluation outcome.
 
@@ -152,6 +154,8 @@ def _evaluate_preconditioner(
         matrix_index: Sample index for extra-input extraction.
         params: Solver tolerances and iteration limits.
         display_name: Optional human-readable comparison label, for logging.
+        x_exact: Reference solution shared across every preconditioner in this
+            comparison (see ``compare_preconditioners``), or ``None``.
 
     Returns:
         Named result: solve outcome, condition number, and plot label for ``cfg``.
@@ -169,6 +173,7 @@ def _evaluate_preconditioner(
             params=params,
             color_key=color_key,
             marker_key=marker_key,
+            x_exact=x_exact,
         )
     except Exception as exc:  # noqa: BLE001
         # Broad by design: one preconditioner's failure (build, condition number,
@@ -203,6 +208,7 @@ def _run_preconditioner(
     params: SolverParams,
     color_key: str | None,
     marker_key: str | None,
+    x_exact: torch.Tensor | None = None,
 ) -> PreconditionerComparisonEntry:
     """Build, condition-number, and solve one preconditioner; raises on any failure."""
     family = preconditioner_family(cfg)
@@ -222,6 +228,7 @@ def _run_preconditioner(
         matrix,
         rhs,
         preconditioners=scheduled,
+        x_exact=x_exact,
         rtol=params.rtol,
         atol=params.atol,
         maxiter=params.max_iterations,
@@ -381,6 +388,17 @@ def compare_preconditioners(
         display_name=display_name,
     )
 
+    # One A/b pair has one true solution: compute it once on the selected
+    # solver device and share it across every preconditioner below instead of
+    # each one redoing this Jacobi-PCG solve from scratch.
+    solver_device = resolve_device()
+    x_exact = compute_reference_solution(
+        system.matrix.to(solver_device),
+        system.rhs.to(solver_device),
+        rtol=general_params.params.rtol,
+        margin=general_params.params.reference_precision_margin,
+    )
+
     service = PreconditionerService()
     evaluate_one = partial(
         _evaluate_preconditioner,
@@ -391,6 +409,7 @@ def compare_preconditioners(
         matrix_index=resolved_matrix_index,
         params=general_params.params,
         display_name=display_name,
+        x_exact=x_exact,
     )
 
     results: dict[str, CGComparisonResult] = {}
@@ -414,6 +433,7 @@ def compare_preconditioners(
             system.matrix,
             system.rhs,
             preconditioners={},
+            x_exact=x_exact,
             rtol=general_params.params.rtol,
             atol=general_params.params.atol,
             maxiter=general_params.params.max_iterations,

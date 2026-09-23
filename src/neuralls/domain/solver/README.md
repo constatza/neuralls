@@ -17,13 +17,21 @@ implementations are delegated to `torchalg`.
   - `PlotPaths`
   - recommendation records
 - Comparison orchestration helpers that package `torchalg` solver output for
-  neuralls reporting workflows. The reference `x*` is a float64 direct solve
-  with iterative refinement until its relative residual is at most
-  `rtol * reference_precision_margin` (`reference_solution`, computed on the
-  host so it never competes for GPU memory), clamped so the target never asks
-  below float64 machine precision; `reference_precision_margin` defaults to
-  `1e-4` and is configurable via `SolverParams.reference_precision_margin`. The
-  resulting `x*` is passed into `pcg`/`flexible_cg` as `x_exact=`, so `torchalg`
+  neuralls reporting workflows. The reference `x*` is a Jacobi-preconditioned
+  `torchalg.pcg` solve (`reference_solution`) driven until its relative
+  residual is at most `rtol * reference_precision_margin`, clamped so the
+  target never asks below float64 machine precision; `reference_precision_margin`
+  defaults to `1e-2` and is configurable via `SolverParams.reference_precision_margin`.
+  A dense direct solve (`O(n^3)` per factorization) doesn't scale to the
+  systems this module compares preconditioners on; Jacobi-PCG stays `O(n)`
+  per iteration regardless of system size, at the cost of no longer being a
+  ground truth from a structurally independent algorithm. `compute_reference_solution`
+  runs on whichever device its `A`/`b` are already on — `compare_preconditioners`
+  computes it once per comparison, on GPU, before the preconditioner loop, and
+  passes it as `run_cg_comparison(..., x_exact=...)` to every preconditioner
+  (including the `"none"` baseline) instead of each one re-deriving it from
+  scratch. The resulting `x*` is passed into `pcg`/`flexible_cg` as
+  `x_exact=`, so `torchalg`
   tracks the exact energy-norm error `||e_k||_A / ||e_0||_A` (the norm CG
   minimizes; every curve starts at 1) every iteration from a single dot
   product — no per-iterate vector tracing needed for this metric, so the solve

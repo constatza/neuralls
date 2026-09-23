@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from neuralls.domain.solver.comparison import run_cg_comparison
-from neuralls.domain.solver.error_metrics import reference_solution
+from neuralls.domain.solver.error_metrics import REFERENCE_PRECISION_MARGIN, reference_solution
 
 
 def test_history_starts_at_one_and_is_monotone_for_pcg(
@@ -32,5 +32,5 @@ def test_reference_solution_beats_rtol_by_margin(
     relative_residual = torch.linalg.vector_norm(rhs - spd_matrix @ x) / torch.linalg.vector_norm(
         rhs
     )
-    assert float(relative_residual) <= 1e-6 * 1e-4
+    assert float(relative_residual) <= 1e-6 * REFERENCE_PRECISION_MARGIN
     torch.testing.assert_close(x, known_solution)
