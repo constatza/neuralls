@@ -48,7 +48,10 @@ from neuralls.platform.config.models.preconditioner_family import (
     preconditioner_family,
 )
 from neuralls.platform.config.resolution import resolve_user_path
-from neuralls.platform.reporting.preconditioner_labels import build_preconditioner_labels
+from neuralls.platform.reporting.preconditioner_labels import (
+    build_preconditioner_labels,
+    contextualize_preconditioner_label,
+)
 from neuralls.platform.storage.filesystem import ensure_dir
 from neuralls.shared.device import release_device_memory
 
@@ -217,7 +220,9 @@ def _run_preconditioner(
     _load_and_bind_extra_inputs(
         scheduled, matrix=matrix, matrix_path=matrix_path, matrix_index=matrix_index
     )
-    label = build_preconditioner_labels(scheduled, {cfg.name: family})[cfg.name]
+    base_label = build_preconditioner_labels(scheduled, {cfg.name: family})[cfg.name]
+    dataset_label = Path(color_key).name if color_key is not None else None
+    label = contextualize_preconditioner_label(base_label, dataset_label)
     result = run_cg_comparison(
         matrix,
         rhs,

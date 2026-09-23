@@ -397,6 +397,7 @@ def plot_convergence_comparison(
     marker_size: float = DEFAULT_LINE_MARKER_SIZE,
     history_attr: str = "residual_history_rel",
     ylabel: str = "Relative Residual $\\|r\\| / \\|b\\|$",
+    labels: Mapping[str, str] | None = None,
 ) -> None:
     """Plot convergence comparison between preconditioners.
 
@@ -422,9 +423,13 @@ def plot_convergence_comparison(
         marker_size: Marker diameter for convergence-history points.
         history_attr: Per-iteration history field to plot, read from each result.
         ylabel: Y-axis label matching ``history_attr``.
+        labels: Optional display label per result key. Result identity and style
+            lookup always remain keyed by ``results``; labels are presentation
+            values only and therefore need not be unique.
     """
     fig, ax = plt.subplots(figsize=(10, 6))
     metadata = dict(metadata or {})
+    labels = labels or {}
     line_styles = _resolve_styles(families, color_keys, marker_keys) if families else {}
 
     for method_name, result in results.items():
@@ -441,7 +446,8 @@ def plot_convergence_comparison(
         if residuals and len(residuals) > 0:
             iterations = range(len(residuals))
 
-            label = _build_convergence_label(method_name, metadata.get(method_name))
+            display_name = labels.get(method_name, method_name)
+            label = _build_convergence_label(display_name, metadata.get(method_name))
             style = dict(line_styles.get(method_name, {"marker": "o", "linestyle": "-"}))
             size_scale = style.pop("markersize_scale", 1.0)
 

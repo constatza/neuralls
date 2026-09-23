@@ -146,16 +146,17 @@ nested child-run writes to `platform.tracking`, while only assembling child tag
 payloads and deciding when the logging happens.
 
 Comparison plot legends are a separate concern from that MLflow metric-key
-policy. `composition.comparison._plots` builds display labels for convergence
-and iteration-count plots by combining each config name
-with `platform.reporting.preconditioner_labels.describe_preconditioner`, which
-inspects the *constructed* `torchalg` preconditioner object's own attributes
-(AMG grid levels, cycle type, aggregation theta, smoother/coarsening omega,
-POD-2G's actual fitted basis rank) rather than re-reading the TOML config.
-This keeps labels truthful to what was actually built — including cases where a configured
-value (e.g. a POD energy-threshold `rank`) differs from the resolved runtime
-value — without composition or platform maintaining a second, config-derived
-description that could drift out of sync with the live object.
+policy. `platform.reporting.preconditioner_labels` derives method abbreviations
+and structural detail from the *constructed* `torchalg` preconditioner object's
+own attributes (AMG grid levels, aggregation theta, smoother/coarsening omega,
+and POD-2G's actual fitted basis rank) rather than re-reading the TOML config.
+Composition supplies only workflow provenance: for POD-2G it appends the fit
+dataset id, producing labels such as ``POD-2G (c=10) | gaussian-cg10-...``.
+`composition.comparison._plots` keeps solver results and style metadata keyed by
+their original preconditioner key and passes display labels in a separate
+mapping; it never re-keys results by presentation text. This keeps labels
+truthful to what was built, distinguishes equal-rank bases fitted on different
+datasets, and prevents duplicate display labels from dropping curves.
 The same composition wrapper derives one canonical scientific context per
 comparison (`matrix=... | rhs=...`). It logs that context once at comparison
 start alongside the execution-only `device=...` field, and reuses only the

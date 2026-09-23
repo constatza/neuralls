@@ -47,9 +47,12 @@ Auto-generated comparison display names stay dataset-defined: they resolve to
 the matrix dataset label alone when matrix and RHS come from the same dataset,
 or to `{matrix_label} | {rhs_label}` when they differ. Explicitly configured
 comparison display names still override the generated label.
-Reporting labels render machine-style preconditioner names in title case for
-plot legends while preserving the underlying config identifiers and measured
-structural details.
+Reporting labels derive the method abbreviation and measured structural detail
+from the constructed preconditioner. Workflow provenance is added separately:
+POD-2G labels append the fit-dataset id after ``|`` so equal-rank bases fitted
+on different datasets remain explicit, while the plotting API keeps result
+keys and display labels as separate mappings. Human-readable labels are never
+used as result identity, so duplicate display text cannot overwrite curves.
 Every comparison run writes two convergence figures with identical styling:
 relative residual `||r||/||b||` (`plot_convergence_comparison`) and relative
 energy-norm error `||e_k||_A/||e_0||_A` (`plot_error_convergence_comparison`,

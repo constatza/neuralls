@@ -20,6 +20,7 @@ from neuralls.composition.comparison.models import ComparisonPaths
 from neuralls.domain.analysis.spectra import plot_condition_numbers
 from neuralls.domain.solver.models.result import CGComparisonResult, PlotPaths
 from neuralls.platform.config.models.preconditioner import PreconditionerType
+from neuralls.platform.reporting import plots as reporting_plots
 from neuralls.platform.reporting.plots import plot_convergence_comparison, plot_metric_comparison
 from neuralls.platform.reporting.preconditioner_labels import build_preconditioner_labels
 
@@ -110,6 +111,19 @@ def two_preconditioner_families() -> dict[str, PreconditionerType]:
         "identity": PreconditionerType.IDENTITY,
         "jacobi": PreconditionerType.JACOBI,
     }
+
+
+@pytest.fixture
+def comparison_paths(tmp_path: Path) -> ComparisonPaths:
+    """Comparison paths rooted in pytest-managed temporary storage."""
+    figures_dir = tmp_path / "figures"
+    figures_dir.mkdir(parents=True)
+    return ComparisonPaths(
+        matrix=tmp_path / "matrix.npy",
+        rhs=tmp_path / "rhs.npy",
+        output=tmp_path,
+        figures=figures_dir,
+    )
 
 
 @pytest.fixture
@@ -281,6 +295,24 @@ def test_plot_convergence_comparison_default_title_no_params(
     assert save_path.exists()
 
 
+def test_plot_convergence_comparison_draws_every_result_when_labels_collide(
+    two_result_entries: dict[str, CGComparisonResult],
+) -> None:
+    """Equal display text must not collapse independently keyed result curves."""
+    labels = dict.fromkeys(two_result_entries, "POD-2G (c=10)")
+
+    with patch("neuralls.platform.reporting.plots.plt.close"):
+        plot_convergence_comparison(two_result_entries, labels=labels)
+        figure = reporting_plots.plt.gcf()
+
+    axes = figure.axes[0]
+    assert len(axes.lines) == len(two_result_entries)
+    legend = axes.get_legend()
+    assert legend is not None
+    assert [text.get_text() for text in legend.get_texts()] == list(labels.values())
+    reporting_plots.plt.close(figure)
+
+
 # ---------------------------------------------------------------------------
 # plot_condition_numbers — horizontal bars, title, tolerances
 # ---------------------------------------------------------------------------
@@ -328,7 +360,7 @@ def test_plot_condition_numbers_with_title_and_subtitle(
 
 
 def test_generate_comparison_plots_includes_iterations_barplot(
-    tmp_path: Path,
+    comparison_paths: ComparisonPaths,
     two_result_entries: dict[str, CGComparisonResult],
     two_preconditioners: dict[str, Preconditioner],
     two_preconditioner_families: dict[str, PreconditionerType],
@@ -339,31 +371,26 @@ def test_generate_comparison_plots_includes_iterations_barplot(
     orchestration logic that populates PlotPaths.
 
     Args:
-        tmp_path: Pytest temporary directory used for ComparisonPaths.
+        comparison_paths: Pytest-managed comparison output paths.
         two_result_entries: Two-entry result dict from fixture.
         two_preconditioners: Constructed preconditioner instances from fixture.
         two_preconditioner_families: Family key per name, from fixture.
     """
-    figures_dir = tmp_path / "figures"
-    figures_dir.mkdir(parents=True)
-
-    paths = ComparisonPaths(
-        matrix=tmp_path / "matrix.npy",
-        rhs=tmp_path / "rhs.npy",
-        output=tmp_path,
-        figures=figures_dir,
-    )
+    labels = build_preconditioner_labels(two_preconditioners, two_preconditioner_families)
 
     with (
         patch(
             "neuralls.composition.comparison._plots.plot_convergence_comparison"
         ) as convergence_plot,
+        patch(
+            "neuralls.composition.comparison._plots.plot_error_convergence_comparison"
+        ) as error_plot,
         patch("neuralls.composition.comparison._plots.plot_metric_comparison") as metric_plot,
     ):
         result = _generate_comparison_plots(
             two_result_entries,
-            paths,
-            build_preconditioner_labels(two_preconditioners, two_preconditioner_families),
+            comparison_paths,
+            labels,
             comparison_context="matrix=demo-matrix | rhs=gaussian",
             system_size=1000,
         )
@@ -372,4 +399,39 @@ def test_generate_comparison_plots_includes_iterations_barplot(
     assert "condition_numbers" not in result.to_mapping()
     expected_title = "matrix=demo-matrix | rhs=gaussian\nN=1000"
     assert convergence_plot.call_args.kwargs["title"] == expected_title
+    assert convergence_plot.call_args.args[0] is two_result_entries
+    assert convergence_plot.call_args.kwargs["labels"] == labels
+    assert error_plot.call_args.args[0] is two_result_entries
+    assert error_plot.call_args.kwargs["labels"] == labels
     assert metric_plot.call_args.kwargs["title"] == expected_title
+
+
+def test_generate_comparison_plots_preserves_results_when_labels_collide(
+    comparison_paths: ComparisonPaths,
+    two_result_entries: dict[str, CGComparisonResult],
+    two_preconditioner_families: dict[str, PreconditionerType],
+) -> None:
+    """Presentation-label collisions must not overwrite distinct solver results."""
+    labels = dict.fromkeys(two_result_entries, "POD-2G (c=10)")
+
+    with (
+        patch(
+            "neuralls.composition.comparison._plots.plot_convergence_comparison"
+        ) as convergence_plot,
+        patch(
+            "neuralls.composition.comparison._plots.plot_error_convergence_comparison"
+        ) as error_plot,
+        patch("neuralls.composition.comparison._plots.plot_metric_comparison"),
+    ):
+        _generate_comparison_plots(
+            two_result_entries,
+            comparison_paths,
+            labels,
+            comparison_context="matrix=demo-matrix | rhs=gaussian",
+            families=two_preconditioner_families,
+        )
+
+    assert convergence_plot.call_args.args[0] is two_result_entries
+    assert convergence_plot.call_args.kwargs["labels"] == labels
+    assert error_plot.call_args.args[0] is two_result_entries
+    assert error_plot.call_args.kwargs["labels"] == labels

@@ -26,7 +26,10 @@ the preconditioner's ``PreconditionerFamilyKey``
 not from the config's ``name`` field — that field is a wiring identifier
 (used as a dict key throughout the comparison pipeline), populated
 inconsistently across callers, and must not be parsed or guessed at for
-display purposes.
+display purposes. Workflow provenance remains a separate input: callers can
+append an already-resolved context such as a POD-2G fit-dataset id through
+``contextualize_preconditioner_label`` without coupling this module to
+assignment or config parsing.
 """
 
 from __future__ import annotations
@@ -56,6 +59,7 @@ __all__ = [
     "TargetDimensionCoarseningDetail",
     "build_preconditioner_labels",
     "coarsening_detail",
+    "contextualize_preconditioner_label",
     "describe_preconditioner",
     "preconditioner_label",
 ]
@@ -253,6 +257,25 @@ def preconditioner_label(family: PreconditionerFamilyKey, precond: Preconditione
     detail = describe_preconditioner(precond)
     display_name = family.abbreviation()
     return f"{display_name} ({detail})" if detail else display_name
+
+
+def contextualize_preconditioner_label(label: str, context: str | None) -> str:
+    """Append provenance context to an already-built preconditioner label.
+
+    Keeps live preconditioner description separate from workflow provenance:
+    :func:`preconditioner_label` owns the former, while composition supplies
+    context such as the POD-2G fit dataset.
+
+    Args:
+        label: Base label derived from the constructed preconditioner.
+        context: Optional concise provenance text.
+
+    Returns:
+        The base label followed by ``" | {context}"`` when context is present.
+    """
+    if context is None:
+        return label
+    return f"{label} | {context}"
 
 
 def build_preconditioner_labels(

@@ -33,10 +33,10 @@ def _generate_comparison_plots(
     Args:
         results: CG comparison results keyed by preconditioner name.
         paths: Resolved comparison paths (figures directory used for output).
-        labels: Descriptive plot label per preconditioner name (e.g. AMG grid
-            levels/cycle/coarsening, POD-2G fitted rank), typically built via
-            ``build_preconditioner_labels`` while the preconditioner is still
-            constructed.
+        labels: Descriptive display label per preconditioner key (e.g. AMG
+            grid/coarsening detail or POD-2G fitted rank and fit dataset).
+            Labels are passed to reporting separately and are never used as
+            result identity, so they need not be unique.
         comparison_context: Canonical matrix/RHS context shown on all plots.
         families: Plot-style family per preconditioner name (see
             ``preconditioner_family.preconditioner_family``), used to give
@@ -59,34 +59,31 @@ def _generate_comparison_plots(
     marker_keys = marker_keys or {}
     title = build_comparison_plot_title(comparison_context, system_size)
 
-    by_label = {labels.get(name, name): result for name, result in results.items()}
-    family_by_label = {labels.get(name, name): value for name, value in families.items()}
-    color_by_label = {labels.get(name, name): value for name, value in color_keys.items()}
-    marker_by_label = {labels.get(name, name): value for name, value in marker_keys.items()}
-
     convergence_path = paths.figures / f"preconditioner_convergence_{suffix}.png"
     plot_convergence_comparison(
-        by_label,
+        results,
         metadata=None,
+        labels=labels,
         save_path=convergence_path,
         title=title,
         rtol=rtol,
         atol=atol,
         max_iterations=max_iterations,
-        families=family_by_label,
-        color_keys=color_by_label,
-        marker_keys=marker_by_label,
+        families=families,
+        color_keys=color_keys,
+        marker_keys=marker_keys,
     )
 
     error_path = paths.figures / f"preconditioner_error_convergence_{suffix}.png"
     plot_error_convergence_comparison(
-        by_label,
+        results,
         metadata=None,
+        labels=labels,
         save_path=error_path,
         title=title,
-        families=family_by_label,
-        color_keys=color_by_label,
-        marker_keys=marker_by_label,
+        families=families,
+        color_keys=color_keys,
+        marker_keys=marker_keys,
     )
 
     iter_path = paths.figures / f"preconditioner_iterations_{suffix}.png"

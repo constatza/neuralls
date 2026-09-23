@@ -34,6 +34,7 @@ from neuralls.platform.reporting.preconditioner_labels import (
     TargetDimensionCoarseningDetail,
     build_preconditioner_labels,
     coarsening_detail,
+    contextualize_preconditioner_label,
     describe_preconditioner,
     preconditioner_label,
 )
@@ -416,6 +417,20 @@ def test_preconditioner_label_falls_back_to_bare_abbreviation_without_detail() -
     label = preconditioner_label(PreconditionerType.IDENTITY, Identity())
 
     assert label == "Identity"
+
+
+def test_contextualize_preconditioner_label_appends_fit_dataset() -> None:
+    """POD-2G provenance stays explicit without changing structural label generation."""
+    label = contextualize_preconditioner_label(
+        "POD-2G (c=10)", "smoother-filtered-probes-spheres-1000x"
+    )
+
+    assert label == "POD-2G (c=10) | smoother-filtered-probes-spheres-1000x"
+
+
+def test_contextualize_preconditioner_label_preserves_unqualified_label() -> None:
+    """Preconditioners without dataset provenance keep their base label."""
+    assert contextualize_preconditioner_label("Jacobi", None) == "Jacobi"
 
 
 @pytest.mark.parametrize(
