@@ -12,6 +12,7 @@ from neuralls.composition.comparison.comparison_run import (
     compare_preconditioners,
 )
 from neuralls.composition.comparison.models import LinearSystem
+from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
 from neuralls.domain.generation.payloads import GeneratedDatasetPayload
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
 from neuralls.domain.solver.models.result import CGComparisonResult, PlotPaths
@@ -138,6 +139,17 @@ def _cg_result(name: str) -> CGComparisonResult:
         rhs_norm=1.0,
         breakdown=False,
     )
+
+
+def test_preconditioner_result_keys_reject_duplicate_identities() -> None:
+    """Duplicate wiring keys cannot silently collapse two solver cases."""
+    specs = (
+        StandardPreconditionerConfig(name="same", type=PreconditionerType.IDENTITY),
+        StandardPreconditionerConfig(name="same", type=PreconditionerType.JACOBI),
+    )
+
+    with pytest.raises(ValueError, match="duplicate keys: 'same'"):
+        validate_unique_preconditioner_keys(specs)
 
 
 def test_compare_preconditioners_evaluates_configs_one_at_a_time(

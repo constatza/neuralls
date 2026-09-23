@@ -23,6 +23,7 @@ from neuralls.composition.comparison.models import (
     PreconditionerComparisonEntry,
     ResolvedComparisonInput,
 )
+from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
 from neuralls.domain.solver.comparison import (
     _to_numpy,
     compute_reference_solution,
@@ -350,6 +351,7 @@ def compare_preconditioners(
     """
     if not preconditioner_configs:
         raise ValueError("At least one preconditioner config must be provided.")
+    expected_keys = validate_unique_preconditioner_keys(preconditioner_configs)
 
     paths = _resolve_comparison_paths(
         general_params=general_params,
@@ -403,6 +405,20 @@ def compare_preconditioners(
     color_keys: dict[str, str] = {}
     marker_keys: dict[str, str] = {}
     for entry in evaluation_mapper(evaluate_one, preconditioner_configs):
+        if entry.name not in expected_keys:
+            raise RuntimeError(
+                f"Evaluation returned unexpected preconditioner key {entry.name!r}; "
+                f"expected one of {expected_keys!r}."
+            )
+        if entry.name in results:
+            raise RuntimeError(
+                f"Evaluation returned preconditioner key {entry.name!r} more than once."
+            )
+        if entry.result.preconditioner != entry.name:
+            raise RuntimeError(
+                f"Evaluation result for {entry.name!r} identifies itself as "
+                f"{entry.result.preconditioner!r}."
+            )
         results[entry.name] = entry.result
         labels[entry.name] = entry.label
         families[entry.name] = entry.family
@@ -410,6 +426,12 @@ def compare_preconditioners(
             color_keys[entry.name] = entry.color_key
         if entry.marker_key is not None:
             marker_keys[entry.name] = entry.marker_key
+
+    missing_keys = tuple(key for key in expected_keys if key not in results)
+    if missing_keys:
+        raise RuntimeError(
+            f"Evaluation returned no result for preconditioner keys {missing_keys!r}."
+        )
 
     if "none" not in results:
         baseline = run_cg_comparison(

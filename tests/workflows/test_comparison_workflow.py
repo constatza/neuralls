@@ -613,7 +613,12 @@ def test_neural_specs_from_assignments_uses_strict_assignment_ref(
     cfg, config_dir, settings = _case_config_with_assignment(
         tmp_path, job_writer=_write_train_job_config
     )
-    entry = AssignmentEntry(id="ffnn_solutions", dataset="solutions", job="ffnn")
+    entry = AssignmentEntry(
+        id="ffnn_solutions",
+        dataset="solutions",
+        job="ffnn",
+        display_name="Shared model label",
+    )
     client = MagicMock()
     client.search_experiments.return_value = []
 
@@ -624,6 +629,7 @@ def test_neural_specs_from_assignments_uses_strict_assignment_ref(
     assert len(specs) == 1
     spec = specs[0]
     assert isinstance(spec, NeuralPreconditionerConfig)
+    assert spec.name == "ffnn_solutions"
     assert spec.assignment == "ffnn_solutions"
     assert spec.model_ref == TrainedAssignmentRefConfig(assignment_id="ffnn_solutions")
 
@@ -659,7 +665,12 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
         dataset_id="solutions-cg1",
         job_id="pod-2g_cg-0",
     )
-    entry = AssignmentEntry(id="pod2g_cg1", dataset="solutions-cg1", job="pod-2g_cg-0")
+    entry = AssignmentEntry(
+        id="pod2g_cg1",
+        dataset="solutions-cg1",
+        job="pod-2g_cg-0",
+        display_name="Shared model label",
+    )
     client = MagicMock()
 
     specs = neural_specs_from_assignments(
@@ -669,6 +680,7 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
     assert len(specs) == 1
     spec = specs[0]
     assert isinstance(spec, AMGPreconditionerConfig)
+    assert spec.name == "pod2g_cg1"
     assert isinstance(spec.coarsening, PODCoarseningConfig)
     assert spec.coarsening.assignment == "pod2g_cg1"
     assert spec.coarsening.rank == 0.9999

@@ -431,7 +431,11 @@ def test_generate_comparison_plots_preserves_results_when_labels_collide(
             families=two_preconditioner_families,
         )
 
+    expected_labels = {
+        "identity": "POD-2G (c=10) [identity]",
+        "jacobi": "POD-2G (c=10) [jacobi]",
+    }
     assert convergence_plot.call_args.args[0] is two_result_entries
-    assert convergence_plot.call_args.kwargs["labels"] == labels
+    assert convergence_plot.call_args.kwargs["labels"] == expected_labels
     assert error_plot.call_args.args[0] is two_result_entries
-    assert error_plot.call_args.kwargs["labels"] == labels
+    assert error_plot.call_args.kwargs["labels"] == expected_labels

@@ -26,6 +26,7 @@ from neuralls.composition.comparison._input_resolution import resolve_comparison
 from neuralls.composition.comparison.comparison_run import compare_preconditioners
 from neuralls.composition.comparison.config_assembler import resolve_comparison_config
 from neuralls.composition.comparison.models import ComparisonOutcome, ComparisonParams
+from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
 from neuralls.composition.comparison.source_handlers import (
     ComparisonSourceSpec,
     validate_comparison_source,
@@ -310,7 +311,9 @@ def _neural_spec_from_assignment(
 ) -> NeuralPreconditionerConfig:
     """Build an unresolved neural preconditioner stub for a train/search-kind assignment.
 
-    References the assignment's training run through a strict
+    Uses the assignment id as the result key; the display name remains purely
+    presentational and can therefore collide without merging results. References
+    the assignment's training run through a strict
     `TrainedAssignmentRefConfig` (same experiment, FINISHED, checkpoint present,
     current dataset), rather than a registry entry or a tag search — the
     registry is reserved for deliberate/manual promotion. Also fetches the
@@ -318,7 +321,7 @@ def _neural_spec_from_assignment(
     models receive their condition tensor during comparison.
     """
     return NeuralPreconditionerConfig(
-        name=entry.effective_display_name,
+        name=entry.id,
         type=PreconditionerType.NEURAL,
         assignment=entry.id,
         model_ref=TrainedAssignmentRefConfig(assignment_id=entry.id),
@@ -334,7 +337,8 @@ def _pod_fit_spec_from_assignment(
 ) -> AMGPreconditionerConfig:
     """Build an unresolved AMG/POD stub for a `fit`-kind (POD-2G) assignment.
 
-    Mirrors `_neural_spec_from_assignment`'s "unresolved stub referencing the
+    Mirrors `_neural_spec_from_assignment`'s stable assignment-id key and
+    "unresolved stub referencing the
     assignment's training run" shape, but for `AMGPreconditionerConfig(coarsening
     =PODCoarseningConfig(...))` instead of `NeuralPreconditionerConfig` — the
     checkpoint-shaped side of the kind dispatch in
@@ -351,7 +355,7 @@ def _pod_fit_spec_from_assignment(
             "'rank' hyperparameter — expected a PODCoarseningStrategy-shaped model."
         )
     return AMGPreconditionerConfig(
-        name=entry.effective_display_name,
+        name=entry.id,
         type=PreconditionerType.AMG,
         coarsening=PODCoarseningConfig(
             dataset_dir=dataset_dir,
@@ -949,6 +953,7 @@ def _prepare_all_comparisons(
         )
         if auto_specs:
             cfg = replace(cfg, preconditioners=cfg.preconditioners + tuple(auto_specs))
+        validate_unique_preconditioner_keys(cfg.preconditioners)
 
         prepared = _prepare_comparison_entry(cfg, entry, context, force=force)
         if isinstance(prepared, _PreparedComparisonExecution):

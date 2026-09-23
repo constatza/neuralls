@@ -154,9 +154,16 @@ Composition supplies only workflow provenance: for POD-2G it appends the fit
 dataset id, producing labels such as ``POD-2G (c=10) | gaussian-cg10-...``.
 `composition.comparison._plots` keeps solver results and style metadata keyed by
 their original preconditioner key and passes display labels in a separate
-mapping; it never re-keys results by presentation text. This keeps labels
+mapping; it never re-keys results by presentation text. Assignment-generated
+preconditioners use the unique assignment id as that key, never the optional
+display name. The batch boundary rejects duplicate keys before checkpoint
+resolution, and execution rejects missing, duplicate, or unexpected evaluation
+entries as well as a solver result carrying the wrong key. If two constructed
+methods still produce identical legend text, only
+their presentation labels are suffixed with the stable keys. This keeps labels
 truthful to what was built, distinguishes equal-rank bases fitted on different
-datasets, and prevents duplicate display labels from dropping curves.
+datasets, and preserves a one-to-one mapping even when generation/training is
+skipped or one model cannot be resolved.
 The same composition wrapper derives one canonical scientific context per
 comparison (`matrix=... | rhs=...`). It logs that context once at comparison
 start alongside the execution-only `device=...` field, and reuses only the

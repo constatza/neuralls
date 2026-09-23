@@ -1056,6 +1056,7 @@ def plot_metric_comparison(
         ax.barh(x_pos, values, color=colors, alpha=0.85, edgecolor="black", linewidth=0.7)
         ax.set_yticks(x_pos)
         ax.set_yticklabels(labels, fontsize=11)
+        ax.invert_yaxis()
         ax.set_ylabel("Experiment", fontsize=12)
         ax.set_xlabel(metric_name, fontsize=12)
         ax.set_xscale("log")

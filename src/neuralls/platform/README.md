@@ -52,7 +52,10 @@ from the constructed preconditioner. Workflow provenance is added separately:
 POD-2G labels append the fit-dataset id after ``|`` so equal-rank bases fitted
 on different datasets remain explicit, while the plotting API keeps result
 keys and display labels as separate mappings. Human-readable labels are never
-used as result identity, so duplicate display text cannot overwrite curves.
+used as result identity, so duplicate display text cannot overwrite curves;
+composition disambiguates such text with the stable result key. Horizontal
+metric plots place the first result at the top, matching convergence-legend and
+configuration order while keeping each value paired with the same result key.
 Every comparison run writes two convergence figures with identical styling:
 relative residual `||r||/||b||` (`plot_convergence_comparison`) and relative
 energy-norm error `||e_k||_A/||e_0||_A` (`plot_error_convergence_comparison`,

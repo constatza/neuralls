@@ -22,9 +22,11 @@ from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     LoggedModelRefConfig,
     NeuralAMGPreconditionerConfig,
+    NeuralCheckpointRef,
     NeuralPODCoarseningConfig,
     NeuralPreconditionerConfig,
     NeuralTransferConfig,
+    PODCoarseningConfig,
     PreconditionerType,
     RegisteredModelRefConfig,
     StandardPreconditionerConfig,
@@ -60,6 +62,29 @@ def artifact_leases(mlflow_tracking_uri: str) -> Iterator[ArtifactLeaseManager]:
     client = MlflowClient(tracking_uri=mlflow_tracking_uri)
     with MlflowArtifactLeaseManager(client=client) as leases:
         yield leases
+
+
+@pytest.fixture
+def pod_specs_across_datasets(tmp_path: Path) -> list[AMGPreconditionerConfig]:
+    """Four uniquely keyed POD-2G cases spanning two datasets and two ranks."""
+    cases = (
+        ("pod-cg-r10", "cg", 10),
+        ("pod-cg-r100", "cg", 100),
+        ("pod-smoother-r10", "smoother", 10),
+        ("pod-smoother-r100", "smoother", 100),
+    )
+    return [
+        AMGPreconditionerConfig(
+            name=name,
+            coarsening=PODCoarseningConfig(
+                dataset_dir=tmp_path / dataset,
+                rank=rank,
+                assignment=name,
+                model_ref=LoggedModelRefConfig(run_id=name),
+            ),
+        )
+        for name, dataset, rank in cases
+    ]
 
 
 class _CheckpointLeaseManager:
@@ -648,6 +673,54 @@ def test_resolve_preconditioner_models_with_warnings_skips_unresolved_and_contin
             tracking_uri=mlflow_tracking_uri,
             artifact_leases=artifact_leases,
         )
+
+
+@patch("neuralls.composition.assignments.model_resolution.resolve_model_ref")
+def test_skipping_one_pod_case_preserves_each_survivors_dataset_rank_and_checkpoint(
+    mock_resolve_model_ref,
+    pod_specs_across_datasets: list[AMGPreconditionerConfig],
+    tmp_path: Path,
+    noop_artifact_leases: ArtifactLeaseManager,
+) -> None:
+    """Resolution gaps never shift a same-family checkpoint onto a neighboring case."""
+
+    def resolve_by_assignment(*, spec: NeuralCheckpointRef, **_kwargs: object) -> ModelResolution:
+        assignment = spec.assignment
+        if assignment == "pod-smoother-r10":
+            raise ValueError("intentionally missing")
+        checkpoint = tmp_path / f"{assignment}.ckpt"
+        return ModelResolution(
+            model_uri=f"runs:/{assignment}/model",
+            run_id=str(assignment),
+            checkpoint_path=checkpoint,
+        )
+
+    mock_resolve_model_ref.side_effect = resolve_by_assignment
+
+    result = resolve_preconditioner_models_with_warnings(
+        specs=list(pod_specs_across_datasets),
+        tracking_uri=_tracking_uri(tmp_path),
+        artifact_leases=noop_artifact_leases,
+        skip_unresolved=True,
+    )
+
+    actual = []
+    for spec in result.specs:
+        assert isinstance(spec, AMGPreconditionerConfig)
+        assert isinstance(spec.coarsening, PODCoarseningConfig)
+        checkpoint = spec.coarsening.resolved_checkpoint_path
+        assert checkpoint is not None
+        actual.append(
+            (spec.name, spec.coarsening.dataset_dir.name, spec.coarsening.rank, checkpoint.name)
+        )
+
+    assert actual == [
+        ("pod-cg-r10", "cg", 10, "pod-cg-r10.ckpt"),
+        ("pod-cg-r100", "cg", 100, "pod-cg-r100.ckpt"),
+        ("pod-smoother-r100", "smoother", 100, "pod-smoother-r100.ckpt"),
+    ]
+    assert len(result.warnings) == 1
+    assert "pod-smoother-r10" in result.warnings[0]
 
 
 def test_resolve_registered_ref_uses_pinned_checkpoint_without_rescanning(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Hashable, Mapping
 
 from neuralls.composition.comparison._presentation import build_comparison_plot_title
@@ -13,6 +14,17 @@ from neuralls.platform.reporting.plots import (
     plot_error_convergence_comparison,
     plot_metric_comparison,
 )
+
+
+def _unique_display_labels(
+    result_keys: Mapping[str, object], labels: Mapping[str, str]
+) -> dict[str, str]:
+    """Keep friendly labels, suffixing only collisions with their stable result key."""
+    resolved = {key: labels.get(key, key) for key in result_keys}
+    counts = Counter(resolved.values())
+    return {
+        key: label if counts[label] == 1 else f"{label} [{key}]" for key, label in resolved.items()
+    }
 
 
 def _generate_comparison_plots(
@@ -54,6 +66,7 @@ def _generate_comparison_plots(
         Typed PlotPaths with paths to all generated figures.
     """
     suffix = paths.matrix.stem or "comparison"
+    labels = _unique_display_labels(results, labels)
     families = families or {}
     color_keys = color_keys or {}
     marker_keys = marker_keys or {}
@@ -89,7 +102,7 @@ def _generate_comparison_plots(
     iter_path = paths.figures / f"preconditioner_iterations_{suffix}.png"
     plot_metric_comparison(
         [labels.get(name, name) for name in results],
-        [r.iterations for r in results.values()],
+        [results[name].iterations for name in results],
         metric_name="CG Iterations",
         title=title,
         horizontal=True,
