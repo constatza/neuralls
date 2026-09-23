@@ -37,6 +37,7 @@ class PreconditionerType(StrEnum):
     AMG = "amg"
     NEURAL_AMG = "neural_amg"
     ADAPTIVE_SA_AMG = "adaptive_sa_amg"
+    BOOTSTRAP_AMG = "bootstrap_amg"
 
 
 def _normalize_null(data: dict) -> Any:
@@ -858,6 +859,62 @@ class AdaptiveSAPreconditionerConfig(BasePreconditionerConfig):
     )
 
 
+class BootstrapAMGPreconditionerConfig(BasePreconditionerConfig):
+    """Bootstrap AMG preconditioner (BAMG), ``torchalg``'s ``BootstrapAMGPreconditioner``.
+
+    Like ``AdaptiveSAPreconditionerConfig``, this builds its whole multilevel
+    hierarchy eagerly at construction (compatible-relaxation coarsening,
+    algebraic-distance interpolation, a bootstrap-cycle-fitted test-vector
+    set) and is not a pluggable ``CoarseningStrategy`` the way classical
+    SA-AMG or POD-2G are — hence its own ``PreconditionerType`` rather than
+    another ``CoarseningConfig`` union member. Field defaults mirror
+    ``torchalg.preconditioners.implementations.amg.bootstrap
+    .BootstrapAMGPreconditioner``'s own constructor defaults, including
+    ``n_levels`` (torchalg's ``max_levels=10``).
+
+    Unlike ``AMGPreconditionerConfig``'s ``n_levels=2``, this is not
+    truncated to two-grid: that default exists to match POD-2G, which is
+    architecturally single-basis two-grid and can't be anything else
+    (``ADAPTIVE_SA_AMG``/``NEURAL_AMG`` inherited the same default, but
+    nothing ties it to a general rule that every AMG-family method must
+    default to two-grid). ``n_levels`` here is only a *ceiling* on
+    ``BootstrapSetup``'s coarsening loop
+    (``while len(levels) < max_levels and levels[-1].shape[0] >
+    max_coarse``) — the loop actually stops once a level's dimension drops
+    to ``max_coarse`` or below, whichever comes first, so realized depth on
+    this repo's matrices (a few hundred DOF) is typically well under 10 and
+    the cap rarely binds. Truncating it to 2 would defeat the point of
+    BAMG's setup cost (several multiples of a classical-AMG setup, see the
+    torchalg docstring) for no deeper a hierarchy than cheap classical AMG
+    already gives.
+    """
+
+    type: Literal[PreconditionerType.BOOTSTRAP_AMG] = PreconditionerType.BOOTSTRAP_AMG
+    n_levels: int = Field(
+        default=10,
+        ge=2,
+        description="Ceiling on hierarchy depth (torchalg's `max_levels`); the coarsening "
+        "loop actually stops at `max_coarse`, whichever comes first, so this rarely binds.",
+    )
+    k_r: int = Field(default=8, ge=1, description="Number of relaxation-derived test vectors.")
+    eta: int = Field(default=4, ge=1, description="Relaxation sweeps per test vector per level.")
+    n_bootstrap_cycles: int = Field(
+        default=2, ge=1, description="Number of bootstrap-cycle passes."
+    )
+    nu: int = Field(default=5, ge=1, description="CR sweeps per stage.")
+    delta: float = Field(default=0.7, gt=0.0, description="CR stopping tolerance.")
+    theta_ad: float = Field(
+        default=0.5, ge=0.0, description="Algebraic-distance strength threshold."
+    )
+    caliber: int = Field(default=4, ge=1, description="Maximum interpolatory-set size.")
+    gamma: float = Field(default=1.5, gt=0.0, description="Caliber-growth penalization exponent.")
+    use_lsr: bool = Field(
+        default=True, description="Apply the LSR residual correction before fitting."
+    )
+    max_coarse: int = Field(default=10, ge=1, description="Stop coarsening at this many nodes.")
+    seed: int = Field(default=0, description="Seed of the random test-vector source.")
+
+
 class NeuralTransferConfig(NeuralCheckpointRef):
     """Config for one neural transfer operator (prolongation or restriction).
 
@@ -909,6 +966,7 @@ ConcretePreconditionerConfig = (
     | AMGPreconditionerConfig
     | NeuralAMGPreconditionerConfig
     | AdaptiveSAPreconditionerConfig
+    | BootstrapAMGPreconditionerConfig
 )
 
 _StrictPreconditionerConfig = Annotated[

@@ -34,6 +34,10 @@ name = "asa"
 type = "adaptive_sa_amg"
 num_candidates = 3
 
+[[comparison_defaults.preconditioners]]
+name = "bamg"
+type = "bootstrap_amg"
+
 [[datasets]]
 path = "../../datasets/train/45x15/gaussian-cg50.toml"
 display_name = "Gaussian CG-50 45x15"

@@ -19,6 +19,7 @@ from torchalg.preconditioners.implementations.amg import (
     AdaptiveSAPreconditioner,
     AggregationCoarsening,
     AMGPreconditioner,
+    BootstrapAMGPreconditioner,
     JacobiSmoother,
     TargetDimensionCoarsening,
     VCycle,
@@ -116,6 +117,31 @@ def target_dim_amg_preconditioner(tridiag_spd_matrix: torch.Tensor) -> AMGPrecon
 def adaptive_sa_preconditioner(tridiag_spd_matrix: torch.Tensor) -> AdaptiveSAPreconditioner:
     """Constructed adaptive SA-AMG (alpha-SA) preconditioner, forced to 2 levels."""
     return AdaptiveSAPreconditioner(tridiag_spd_matrix, max_levels=2, max_coarse=1, theta=0.0)
+
+
+@pytest.fixture
+def tridiag_spd_matrix_20() -> torch.Tensor:
+    """Dense 20x20 SPD tridiagonal matrix, large enough for Bootstrap AMG to coarsen."""
+    n = 20
+    return (
+        2 * torch.eye(n, dtype=torch.float64)
+        + torch.diag(-torch.ones(n - 1, dtype=torch.float64), 1)
+        + torch.diag(-torch.ones(n - 1, dtype=torch.float64), -1)
+    )
+
+
+@pytest.fixture
+def bootstrap_amg_preconditioner(
+    tridiag_spd_matrix_20: torch.Tensor,
+) -> BootstrapAMGPreconditioner:
+    """Constructed Bootstrap AMG (BAMG) preconditioner, forced to coarsen into 3 levels.
+
+    ``tridiag_spd_matrix`` (5x5) is too small to coarsen at all under BAMG's
+    compatible-relaxation criterion (a real end-to-end check showed it always
+    settles on a single level, unlike aggregation/alpha-SA on the same
+    matrix) — hence the larger dedicated fixture.
+    """
+    return BootstrapAMGPreconditioner(tridiag_spd_matrix_20, max_coarse=5, seed=0)
 
 
 # ==============================================================================
@@ -282,6 +308,39 @@ def test_describe_preconditioner_adaptive_sa_reports_realized_coarse_dimension(
     detail = describe_preconditioner(adaptive_sa_preconditioner)
 
     realized = adaptive_sa_preconditioner._result.matrices[-1].shape[0]
+    assert f"c={realized}" in detail
+
+
+# ==============================================================================
+# describe_preconditioner — Bootstrap AMG (BAMG)
+# ==============================================================================
+
+
+def test_describe_preconditioner_bootstrap_amg_has_detail(
+    bootstrap_amg_preconditioner: BootstrapAMGPreconditioner,
+) -> None:
+    """Bootstrap AMG reports non-empty structural detail instead of the prebuilt placeholder.
+
+    Same most-derived-first reasoning as the alpha-SA case above:
+    ``BootstrapAMGPreconditioner`` also subclasses ``AMGPreconditioner`` and
+    stores a prebuilt placeholder as its ``_coarsening``.
+    """
+    detail = describe_preconditioner(bootstrap_amg_preconditioner)
+
+    assert detail != ""
+    assert "PrebuiltCoarsening" not in detail
+    assert "L=" in detail
+    assert "k_r=" in detail
+    assert "c=" in detail
+
+
+def test_describe_preconditioner_bootstrap_amg_reports_realized_coarse_dimension(
+    bootstrap_amg_preconditioner: BootstrapAMGPreconditioner,
+) -> None:
+    """The rendered `c=` matches the hierarchy's actual coarsest-level dimension."""
+    detail = describe_preconditioner(bootstrap_amg_preconditioner)
+
+    realized = bootstrap_amg_preconditioner._result.matrices[-1].shape[0]
     assert f"c={realized}" in detail
 
 

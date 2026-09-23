@@ -30,6 +30,7 @@ from torchalg.preconditioners.implementations.amg import (
     AdaptiveSAPreconditioner,
     AggregationCoarsening,
     AMGPreconditioner,
+    BootstrapAMGPreconditioner,
     TargetDimensionCoarsening,
 )
 from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAdapter
@@ -44,6 +45,7 @@ from neuralls.platform.config.models.preconditioner import (
     AdaptiveSAPreconditionerConfig,
     AggregationCoarseningConfig,
     AMGPreconditionerConfig,
+    BootstrapAMGPreconditionerConfig,
     NeuralPODCoarseningConfig,
     NeuralPreconditionerConfig,
     PODCoarseningConfig,
@@ -155,6 +157,17 @@ def well_conditioned_matrix() -> torch.Tensor:
 def dense_spd_matrix() -> torch.Tensor:
     """Dense 5x5 SPD tridiagonal matrix for ILU testing."""
     n = 5
+    return (
+        2 * torch.eye(n, dtype=torch.float64)
+        + torch.diag(-torch.ones(n - 1, dtype=torch.float64), 1)
+        + torch.diag(-torch.ones(n - 1, dtype=torch.float64), -1)
+    )
+
+
+@pytest.fixture
+def dense_spd_matrix_20() -> torch.Tensor:
+    """Dense 20x20 SPD tridiagonal matrix, large enough for Bootstrap AMG to coarsen."""
+    n = 20
     return (
         2 * torch.eye(n, dtype=torch.float64)
         + torch.diag(-torch.ones(n - 1, dtype=torch.float64), 1)
@@ -845,6 +858,51 @@ def test_factory_adaptive_sa_requires_adaptive_sa_config(
 
     with pytest.raises(
         TypeError, match="ADAPTIVE_SA_AMG type requires AdaptiveSAPreconditionerConfig"
+    ):
+        create_preconditioner(well_conditioned_matrix, config)
+
+
+# ==============================================================================
+# Factory Tests - Bootstrap AMG (BAMG)
+# ==============================================================================
+
+
+def test_factory_creates_bootstrap_amg_preconditioner(
+    dense_spd_matrix_20: torch.Tensor,
+) -> None:
+    """Factory creates BootstrapAMGPreconditioner and forwards config fields unchanged.
+
+    `dense_spd_matrix` (5x5, used elsewhere in this file) is too small for
+    BAMG's compatible-relaxation coarsening to produce more than one level
+    (matching the same finding behind `tridiag_spd_matrix_20` in
+    `test_preconditioner_labels.py`) — hence the larger dedicated fixture.
+    """
+    config = BootstrapAMGPreconditionerConfig(name="bamg", max_coarse=5, seed=0)
+
+    precond = create_preconditioner(dense_spd_matrix_20, config)
+
+    assert isinstance(precond, BootstrapAMGPreconditioner)
+    expected = BootstrapAMGPreconditioner(dense_spd_matrix_20, max_coarse=5, seed=0)
+    assert precond._result.matrices[-1].shape[0] == expected._result.matrices[-1].shape[0]
+    # n_levels=10 default is a ceiling on torchalg's coarsening loop, not an
+    # exact count — real depth here is governed by max_coarse and settles
+    # well under the ceiling (see BootstrapAMGPreconditionerConfig's docstring).
+    assert len(precond._result.matrices) == len(expected._result.matrices) < config.n_levels
+
+    residual = torch.ones(20, dtype=torch.float64)
+    result = precond.apply(residual)
+    assert result.shape == (20,)
+
+
+def test_factory_bootstrap_amg_requires_bootstrap_amg_config(
+    well_conditioned_matrix: torch.Tensor,
+) -> None:
+    """Factory requires BootstrapAMGPreconditionerConfig for BOOTSTRAP_AMG type."""
+    config = StandardPreconditionerConfig(name="bamg", type=PreconditionerType.IDENTITY)
+    config = config.model_copy(update={"type": PreconditionerType.BOOTSTRAP_AMG})
+
+    with pytest.raises(
+        TypeError, match="BOOTSTRAP_AMG type requires BootstrapAMGPreconditionerConfig"
     ):
         create_preconditioner(well_conditioned_matrix, config)
 

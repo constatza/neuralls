@@ -46,6 +46,10 @@ type = "adaptive_sa_amg"
 num_candidates = 7
 theta = 0.05
 
+[[comparison_defaults.preconditioners]]
+name = "bamg"
+type = "bootstrap_amg"
+
 [[datasets]]
 path = "../../datasets/train/spheres-1x/gaussian-cg10.toml"
 

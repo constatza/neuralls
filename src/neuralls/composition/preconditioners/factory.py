@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from neuralls.platform.config.models.preconditioner import (
         AdaptiveSAPreconditionerConfig,
         AMGPreconditionerConfig,
+        BootstrapAMGPreconditionerConfig,
         ConcretePreconditionerConfig,
     )
 
@@ -306,6 +307,41 @@ def _build_adaptive_sa(
     )
 
 
+def _build_bootstrap_amg(
+    matrix: torch.Tensor,
+    config: BootstrapAMGPreconditionerConfig,
+) -> Preconditioner:
+    """Assemble a `BootstrapAMGPreconditioner` (BAMG).
+
+    Like `_build_adaptive_sa`, its whole hierarchy is built eagerly from the
+    config's fields — no pluggable `CoarseningStrategy` to hand a target to.
+
+    Args:
+        matrix: System matrix A.
+        config: Bootstrap-AMG preconditioner configuration.
+
+    Returns:
+        The assembled `BootstrapAMGPreconditioner`.
+    """
+    from torchalg.preconditioners.implementations.amg import BootstrapAMGPreconditioner
+
+    return BootstrapAMGPreconditioner(
+        matrix,
+        k_r=config.k_r,
+        eta=config.eta,
+        n_bootstrap_cycles=config.n_bootstrap_cycles,
+        nu=config.nu,
+        delta=config.delta,
+        theta_ad=config.theta_ad,
+        caliber=config.caliber,
+        gamma=config.gamma,
+        use_lsr=config.use_lsr,
+        max_levels=config.n_levels,
+        max_coarse=config.max_coarse,
+        seed=config.seed,
+    )
+
+
 def create_preconditioner(
     matrix: torch.Tensor,
     config: ConcretePreconditionerConfig,
@@ -342,6 +378,7 @@ def create_preconditioner(
     from neuralls.platform.config.models.preconditioner import (
         AdaptiveSAPreconditionerConfig,
         AMGPreconditionerConfig,
+        BootstrapAMGPreconditionerConfig,
         IC0PreconditionerConfig,
         NeuralAMGPreconditionerConfig,
         NeuralPreconditionerConfig,
@@ -363,6 +400,15 @@ def create_preconditioner(
                 f"ADAPTIVE_SA_AMG type requires AdaptiveSAPreconditionerConfig, got {type(config)}"
             )
         return _build_adaptive_sa(matrix, config)
+
+    # Bootstrap AMG (BAMG): its own eagerly-built hierarchy, not a
+    # pluggable coarsening strategy — see `_build_bootstrap_amg`.
+    if config.type == PreconditionerType.BOOTSTRAP_AMG:
+        if not isinstance(config, BootstrapAMGPreconditionerConfig):
+            raise TypeError(
+                f"BOOTSTRAP_AMG type requires BootstrapAMGPreconditionerConfig, got {type(config)}"
+            )
+        return _build_bootstrap_amg(matrix, config)
 
     # Neural AMG (neural prolongation/restriction, stub)
     if config.type == PreconditionerType.NEURAL_AMG:

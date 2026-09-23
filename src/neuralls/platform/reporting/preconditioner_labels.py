@@ -32,6 +32,7 @@ from torchalg.preconditioners.implementations.amg import (
     AdaptiveSAPreconditioner,
     AggregationCoarsening,
     AMGPreconditioner,
+    BootstrapAMGPreconditioner,
     TargetDimensionCoarsening,
 )
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
@@ -40,6 +41,7 @@ __all__ = [
     "MAX_LABEL_LENGTH",
     "AdaptiveSADetail",
     "AggregationCoarseningDetail",
+    "BootstrapAMGDetail",
     "PODCoarseningDetail",
     "TargetDimensionCoarseningDetail",
     "build_preconditioner_labels",
@@ -127,6 +129,21 @@ class AdaptiveSADetail:
     coarse_dimension: int
 
 
+@dataclass(frozen=True)
+class BootstrapAMGDetail:
+    """Structured facts about a built Bootstrap AMG (BAMG) hierarchy.
+
+    Attributes:
+        n_levels (int): Realized number of grid levels.
+        k_r (int): Configured relaxation-derived test-vector count.
+        coarse_dimension (int): Realized coarsest-level dimension.
+    """
+
+    n_levels: int
+    k_r: int
+    coarse_dimension: int
+
+
 type CoarseningDetail = (
     AggregationCoarseningDetail | PODCoarseningDetail | TargetDimensionCoarseningDetail | None
 )
@@ -153,9 +170,10 @@ def coarsening_detail(coarsening: object, matrix: torch.Tensor) -> CoarseningDet
         return PODCoarseningDetail(rank=coarsening._basis.shape[1])
     if isinstance(coarsening, AggregationCoarsening):
         coarse_matrix, _ = coarsening.build_transfer(matrix)
+        omega = coarsening._omega
         return AggregationCoarseningDetail(
             theta=coarsening._theta,
-            omega=coarsening._omega,
+            omega=omega.item() if isinstance(omega, torch.Tensor) else omega,
             coarse_dimension=coarse_matrix.shape[0],
         )
     if isinstance(coarsening, TargetDimensionCoarsening):
@@ -204,6 +222,10 @@ def describe_preconditioner(precond: Preconditioner) -> str:
         # of real detail.
         case AdaptiveSAPreconditioner():
             return _describe_adaptive_sa(precond)
+        # BootstrapAMGPreconditioner subclasses AMGPreconditioner too, same
+        # most-derived-first reasoning as the AdaptiveSAPreconditioner case.
+        case BootstrapAMGPreconditioner():
+            return _describe_bootstrap_amg(precond)
         case AMGPreconditioner():
             return _describe_amg(precond)
         case IC0Preconditioner():
@@ -294,6 +316,23 @@ def _describe_adaptive_sa(precond: AdaptiveSAPreconditioner) -> str:
         coarse_dimension=int(precond._result.matrices[-1].shape[0]),
     )
     return f"L={detail.n_levels}, k={detail.num_candidates}, c={detail.coarse_dimension}"
+
+
+def _describe_bootstrap_amg(precond: BootstrapAMGPreconditioner) -> str:
+    """Describe a Bootstrap AMG (BAMG) preconditioner's realized hierarchy.
+
+    Args:
+        precond (BootstrapAMGPreconditioner): Constructed BAMG preconditioner.
+
+    Returns:
+        str: ``"L={n}, k_r={k_r}, c={coarse_dim}"``.
+    """
+    detail = BootstrapAMGDetail(
+        n_levels=len(precond._result.matrices),
+        k_r=precond._result.candidates.shape[1],
+        coarse_dimension=int(precond._result.matrices[-1].shape[0]),
+    )
+    return f"L={detail.n_levels}, k_r={detail.k_r}, c={detail.coarse_dimension}"
 
 
 def _describe_coarsening(coarsening: object, matrix: torch.Tensor) -> str:
