@@ -6,7 +6,7 @@ Arnoldi Method (Lehoucq, Sorensen & Yang, "ARPACK Users' Guide", SIAM,
 1998 - ``scipy.sparse.linalg.eigs``), matrix-free (never materializes the
 dense preconditioned operator).
 
-This replaces two prior implementations, in order:
+This replaces three prior implementations, in order:
 
 1. A hand-rolled (shifted) power-iteration estimator, found to
    catastrophically fail on ill-conditioned matrices with a clustered
@@ -101,6 +101,21 @@ case, as expected since ``M^-1 A`` is similar to the symmetric
 ARPACK's ``eigs`` requires ``k < n - 1`` (its own documented constraint);
 for ``k=1`` that means ``n >= 3`` - trivially covered by
 ``_DENSE_FALLBACK_MAX_DIMENSION`` being far larger than 3.
+
+4. (This chapter) (b) and (c) above bounded ``ncv`` but not ``maxiter``,
+   which scipy defaults to ``10 * n`` - effectively unbounded for this
+   module's matrix sizes. Observed in practice: an AMG-family preconditioner
+   on ``spheres-1000x`` (n=3016, above ``_DENSE_FALLBACK_MAX_DIMENSION=2000``)
+   took ~30 minutes in ``which="SM"``, each of thousands of Arnoldi matvecs
+   paying for a full preconditioner ``apply()`` - not a hang, just unbounded
+   legitimate work, and precisely the case a good preconditioner's clustered
+   spectrum makes slow for unshifted Arnoldi (see chapter 3). Fix, no new
+   algorithm: an explicit ``_ARPACK_MAXITER`` cap on both ``eigs`` calls, so
+   a slow-to-converge case fails fast into the existing
+   ``ArpackNoConvergence`` -> dense fallback instead of silently grinding
+   for tens of minutes. ``_DENSE_FALLBACK_MAX_DIMENSION`` itself is
+   deliberately left at 2000, not raised to dodge ARPACK for this project's
+   current matrix sizes - see that constant's own docstring for why.
 """
 
 from __future__ import annotations
@@ -123,7 +138,14 @@ _DENSE_FALLBACK_MAX_DIMENSION = 2000
 Measured ~1.1s for a dense ``torch.linalg.eigvals`` at n=2000 on this
 project's hardware - cheap enough, for a once-per-comparison diagnostic, to
 prefer an algorithm that cannot fail to converge over ARPACK's matrix-free
-estimate. Also subsumes ARPACK's own ``k < n - 1`` API constraint.
+estimate. Also subsumes ARPACK's own ``k < n - 1`` API constraint. Left
+unchanged by chapter 4 below (which fixed the actual ~30-minute hang via
+``_ARPACK_MAXITER`` instead): raising this bound moves the cost off ARPACK's
+convergence risk and onto guaranteed O(n^3) dense work, which is a real
+tradeoff, not a free win, and this module's own test suite ties matrix sizes
+to this exact constant to exercise the boundary - bumping it enlarges those
+tests' matrices for no correctness reason. ``_ARPACK_MAXITER`` fixes the
+hang without moving this tradeoff at all.
 """
 
 _ARPACK_NCV = 100
@@ -132,6 +154,19 @@ _ARPACK_NCV = 100
 scipy's default for ``k=1`` is ``min(n, 20)`` - too small to reliably
 resolve an extreme eigenvalue on a wide or clustered spectrum (ARPACK
 Users' Guide's standard remedy for poor convergence is a larger ``ncv``).
+"""
+
+_ARPACK_MAXITER = 500
+"""Explicit cap on ``eigs``' outer Arnoldi restart iterations.
+
+scipy's default (``10 * n``) is effectively unbounded for this module's
+matrix sizes and was the other half of the ~30-minute ``spheres-1000x``
+hang alongside ``which="SM"``'s slow convergence: without this cap, a
+slow-to-converge case burns through thousands of real matvecs (each a full
+preconditioner ``apply()``) before ARPACK either converges or raises
+``ArpackNoConvergence``. Capping ``maxiter`` makes a non-converging case
+fail fast into the existing dense fallback instead, at the cost of that
+fallback firing somewhat more often for slow-converging spectra.
 """
 
 
@@ -214,8 +249,26 @@ def _arnoldi_condition_number(
     operator = LinearOperator(matrix.shape, matvec=matvec, dtype=np.float64)
     ncv = min(matrix.shape[0] - 1, _ARPACK_NCV)
     try:
-        lambda_max = complex(eigs(operator, k=1, which="LM", ncv=ncv, return_eigenvectors=False)[0])
-        lambda_min = complex(eigs(operator, k=1, which="SM", ncv=ncv, return_eigenvectors=False)[0])
+        lambda_max = complex(
+            eigs(
+                operator,
+                k=1,
+                which="LM",
+                ncv=ncv,
+                maxiter=_ARPACK_MAXITER,
+                return_eigenvectors=False,
+            )[0]
+        )
+        lambda_min = complex(
+            eigs(
+                operator,
+                k=1,
+                which="SM",
+                ncv=ncv,
+                maxiter=_ARPACK_MAXITER,
+                return_eigenvectors=False,
+            )[0]
+        )
     except ArpackNoConvergence as exc:
         logger.warning(
             "ARPACK failed to converge with ncv={} on a {}x{} operator; "
