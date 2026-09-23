@@ -321,7 +321,6 @@ def _typed_comparison_result(plot_path: Path) -> ComparisonResult:
         solver_params=_solver_params(plot_path.parent),
         plot_paths=PlotPaths(convergence=plot_path),
         preconditioners=("none",),
-        condition_numbers={"none": 1.0},
         recommendations=ComparisonRecommendations(
             ranked=(
                 RankedRecommendation(
@@ -366,7 +365,6 @@ def stub_comparison_result(tmp_path: Path) -> ComparisonResult:
         summary="",
         solver_params=_solver_params(tmp_path),
         preconditioners=(),
-        condition_numbers={},
         recommendations=ComparisonRecommendations(),
     )
 
@@ -908,9 +906,6 @@ def test_log_comparison_metrics_uses_mlflow_safe_metric_names(tmp_path: Path) ->
         summary="ok",
         solver_params=_solver_params(tmp_path),
         preconditioners=("neural",),
-        condition_numbers={
-            "Residual-Error 50 Gaussian 93x31 | Scale-Equivariant Constant-Width 3000": 1.0
-        },
         recommendations=ComparisonRecommendations(),
     )
 
@@ -922,9 +917,8 @@ def test_log_comparison_metrics_uses_mlflow_safe_metric_names(tmp_path: Path) ->
             },
         )
 
-    logged_names = [call.args[0] for call in mock_mlflow.log_metric.call_args_list[:4]]
+    logged_names = [call.args[0] for call in mock_mlflow.log_metric.call_args_list[:3]]
     assert logged_names == [
-        "condition_number/Residual-Error_50_Gaussian_93x31_Scale-Equivariant_Constant-Width_3000",
         "iterations/Residual-Error_50_Gaussian_93x31_Scale-Equivariant_Constant-Width_3000",
         "final_residual/Residual-Error_50_Gaussian_93x31_Scale-Equivariant_Constant-Width_3000",
         "converged/Residual-Error_50_Gaussian_93x31_Scale-Equivariant_Constant-Width_3000",
@@ -938,9 +932,7 @@ def test_run_comparison_stages_plot_paths_before_logging(tmp_path: Path) -> None
     experiments_config = tmp_path / "experiments.toml"
     _write_experiments_config(experiments_config)
     convergence = external_plots / "convergence.png"
-    condition_numbers = external_plots / "condition_numbers.png"
     convergence.write_text("convergence", encoding="utf-8")
-    condition_numbers.write_text("condition", encoding="utf-8")
     matrix_path, rhs_path = _write_system_inputs(tmp_path)
     cfg = _mock_cfg(
         matrix_path=matrix_path,
@@ -954,10 +946,7 @@ def test_run_comparison_stages_plot_paths_before_logging(tmp_path: Path) -> None
         summary="ok",
         solver_params=_solver_params(tmp_path),
         preconditioners=("none",),
-        plot_paths=PlotPaths(
-            convergence=convergence,
-            condition_numbers=condition_numbers,
-        ),
+        plot_paths=PlotPaths(convergence=convergence),
         recommendations=ComparisonRecommendations(),
     )
     logged_files: set[str] = set()
@@ -987,11 +976,9 @@ def test_run_comparison_stages_plot_paths_before_logging(tmp_path: Path) -> None
 
     assert outcomes[0].success is True
     assert "figures/convergence.png" in logged_files
-    assert "figures/condition_numbers.png" in logged_files
     plot_paths = comparison_json["plot_paths"]
     assert isinstance(plot_paths, dict)
     assert plot_paths["convergence"] == "figures/convergence.png"
-    assert plot_paths["condition_numbers"] == "figures/condition_numbers.png"
 
 
 def test_run_comparison_warns_and_continues_when_neural_resolution_fails(
@@ -1265,7 +1252,6 @@ def test_log_comparison_metrics_logs_scalar_metrics_per_preconditioner(
         log_comparison_result_metrics(result, child_run_tags={"none": {}})
 
     metric_calls = {call.args[0]: call.args[1] for call in mock_mlflow.log_metric.call_args_list}
-    assert metric_calls["condition_number/none"] == 1.0
     assert metric_calls["iterations/none"] == 2
     assert metric_calls["final_residual/none"] == pytest.approx(1.0e-8)
     assert metric_calls["converged/none"] == 1
@@ -1273,12 +1259,11 @@ def test_log_comparison_metrics_logs_scalar_metrics_per_preconditioner(
 
 
 def test_log_linear_system_params_logs_matrix_and_rhs_shape(tmp_path: Path) -> None:
-    """log_linear_system_params must log matrix/rhs shape, RHS kind, and raw condition number."""
+    """log_linear_system_params must log matrix/rhs shape and RHS kind."""
     result = replace(
         _typed_comparison_result(tmp_path / "conv.png"),
         matrix_shape=(10, 10),
         rhs_shape=(10,),
-        condition_number_raw=42.0,
         rhs_source_kind=ComparisonRhsSourceKind.SPARSE,
     )
 
@@ -1290,7 +1275,7 @@ def test_log_linear_system_params_logs_matrix_and_rhs_shape(tmp_path: Path) -> N
     assert param_calls["matrix_cols"] == 10
     assert param_calls["rhs_dim"] == 10
     assert param_calls["rhs_source_kind"] == "sparse"
-    mock_mlflow.log_metric.assert_called_once_with("condition_number_raw", 42.0)
+    mock_mlflow.log_metric.assert_not_called()
 
 
 def test_run_comparison_logs_scalar_metrics_to_mlflow(tmp_path: Path) -> None:
@@ -1324,7 +1309,6 @@ def test_run_comparison_logs_scalar_metrics_to_mlflow(tmp_path: Path) -> None:
 
     assert outcomes[0].success is True
     logged_metric_names = {call.args[0] for call in mock_mlflow.log_metric.call_args_list}
-    assert "condition_number/none" in logged_metric_names
     assert "iterations/none" in logged_metric_names
     assert "final_residual/none" in logged_metric_names
     assert "converged/none" in logged_metric_names
@@ -1347,7 +1331,6 @@ def test_log_comparison_result_metrics_logs_child_scalar_metrics(tmp_path: Path)
         log_comparison_result_metrics(result, child_run_tags={"none": {}})
 
     metric_map = {k: v for k, v in captured_metrics}
-    assert metric_map["condition_number"] == 1.0
     assert metric_map["iterations"] == 2
     assert metric_map["final_residual"] == pytest.approx(1.0e-8)
     assert metric_map["converged"] == 1

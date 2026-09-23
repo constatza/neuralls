@@ -50,6 +50,11 @@ implementations are delegated to `torchalg`.
   stages, not solver-comparison-specific, so it lives in `shared/`, not here.
 - Validation and artifact export helpers used by platform/composition layers.
 
+Comparison results intentionally contain solver behavior only. Raw and
+preconditioned condition numbers are not computed, plotted, tracked, or
+serialized by the comparison workflow; optional spectral investigations use
+`neuralls.domain.analysis.spectra` explicitly outside the CG hot path.
+
 ## What Lives In Torchalg
 
 - `torchalg.pcg`

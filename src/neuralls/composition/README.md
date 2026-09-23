@@ -146,8 +146,8 @@ nested child-run writes to `platform.tracking`, while only assembling child tag
 payloads and deciding when the logging happens.
 
 Comparison plot legends are a separate concern from that MLflow metric-key
-policy. `composition.comparison._plots` builds display labels for condition
-number, convergence, and iteration-count plots by combining each config name
+policy. `composition.comparison._plots` builds display labels for convergence
+and iteration-count plots by combining each config name
 with `platform.reporting.preconditioner_labels.describe_preconditioner`, which
 inspects the *constructed* `torchalg` preconditioner object's own attributes
 (AMG grid levels, cycle type, aggregation theta, smoother/coarsening omega,
@@ -162,6 +162,15 @@ start alongside the execution-only `device=...` field, and reuses only the
 matrix/RHS context as the title of every diagnostic plot, with the loaded
 linear-system size on a second `N=...` line. Per-preconditioner progress logs
 stay concise because those values cannot change within a comparison run.
+
+Comparison execution deliberately excludes raw and preconditioned condition-number
+estimation. Spectral estimation is an optional standalone analysis concern, not a
+prerequisite for CG: iterative eigensolvers may require thousands of expensive
+preconditioner applications on large or clustered systems and must not block the
+solver-comparison workflow.
+The loaded matrix and right-hand side are moved to the selected solver device once,
+before any preconditioner is constructed, so stateful preconditioners and CG vectors
+share a device without repeated host-to-device transfers.
 
 Plot *styling* (marker/color, as opposed to the label text above) is a
 further separate concern, driven by `PreconditionerComparisonEntry.color_key`/

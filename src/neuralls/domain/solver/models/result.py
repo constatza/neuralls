@@ -278,7 +278,6 @@ class PlotPaths:
 
     Args:
         convergence: Convergence curve plot.
-        condition_numbers: Condition number bar chart.
         parity: Parity plot (predicted vs true).
         residuals: Residual history plot.
         iterations_barplot: Horizontal bar chart of iteration counts.
@@ -286,7 +285,6 @@ class PlotPaths:
     """
 
     convergence: Path | None = None
-    condition_numbers: Path | None = None
     parity: Path | None = None
     residuals: Path | None = None
     iterations_barplot: Path | None = None
@@ -306,7 +304,6 @@ class PlotPaths:
             return cls()
         return cls(
             convergence=mapping.get("convergence"),
-            condition_numbers=mapping.get("condition_numbers"),
             parity=mapping.get("parity"),
             residuals=mapping.get("residuals"),
             iterations_barplot=mapping.get("iterations_barplot"),
@@ -321,7 +318,6 @@ class PlotPaths:
         """
         values = {
             "convergence": self.convergence,
-            "condition_numbers": self.condition_numbers,
             "parity": self.parity,
             "residuals": self.residuals,
             "iterations_barplot": self.iterations_barplot,
@@ -372,12 +368,10 @@ class ComparisonResult:
         solver_params: Solver parameters and data context used.
         plot_paths: Paths to generated diagnostic plots.
         preconditioners: Preconditioner names tested.
-        condition_numbers: Condition numbers keyed by preconditioner name.
         recommendations: Ranked recommendations.
         output_dir: Root output directory for comparison artifacts.
         matrix_shape: Shape of the system matrix A, e.g. ``(n, n)``.
         rhs_shape: Shape of the right-hand side vector b, e.g. ``(n,)``.
-        condition_number_raw: Condition number of the raw (unpreconditioned) matrix.
         rhs_source_kind: Provenance of the RHS (e.g. gaussian, sparse, raw_lhs,
             raw_rhs, dataset) — a matrix may be paired with several different
             RHS sources across sibling ``[[comparisons]]`` entries, each its
@@ -389,10 +383,8 @@ class ComparisonResult:
     solver_params: ComparisonGeneral
     plot_paths: PlotPaths = field(default_factory=PlotPaths)
     preconditioners: tuple[str, ...] = ()
-    condition_numbers: dict[str, float] = field(default_factory=dict)
     recommendations: ComparisonRecommendations = field(default_factory=ComparisonRecommendations)
     output_dir: Path | None = None
     matrix_shape: tuple[int, int] | None = None
     rhs_shape: tuple[int, ...] | None = None
-    condition_number_raw: float | None = None
     rhs_source_kind: ComparisonRhsSourceKind | None = None

@@ -143,9 +143,10 @@ def _cg_result(name: str) -> CGComparisonResult:
 def test_compare_preconditioners_evaluates_configs_one_at_a_time(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Comparison orchestration must not construct all live preconditioners up front."""
+    """Comparison evaluates one preconditioner at a time on the solver device."""
     events: list[str] = []
     active: set[str] = set()
+    expected_device = torch.device("meta")
 
     class TrackedPreconditioner:
         def __init__(self, name: str) -> None:
@@ -165,16 +166,8 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
             matrix: torch.Tensor,
             config: StandardPreconditionerConfig,
         ) -> TrackedPreconditioner:
-            del matrix
+            assert matrix.device == expected_device
             return TrackedPreconditioner(config.name)
-
-    def fake_condition_numbers(
-        matrix: np.ndarray,
-        preconditioners: dict[str, TrackedPreconditioner],
-    ) -> dict[str, float]:
-        del matrix
-        assert set(preconditioners) == set(active)
-        return {name: 1.0 for name in preconditioners}
 
     def fake_run_cg_comparison(
         matrix: torch.Tensor,
@@ -183,7 +176,9 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
         preconditioners: dict[str, TrackedPreconditioner],
         **kwargs: Any,
     ) -> dict[str, CGComparisonResult]:
-        del matrix, rhs, kwargs
+        del kwargs
+        assert matrix.device == expected_device
+        assert rhs.device == expected_device
         assert set(preconditioners) == set(active)
         name = next(iter(preconditioners))
         result = {name: _cg_result(name)}
@@ -199,11 +194,9 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
         ),
     )
     monkeypatch.setattr(comparison_run, "_ensure_comparison_directories", lambda paths: None)
-    monkeypatch.setattr(
-        comparison_run, "_log_matrix_condition_number", lambda *args, **kwargs: None
-    )
+    monkeypatch.setattr(comparison_run, "resolve_device", lambda: expected_device)
+    monkeypatch.setattr(comparison_run, "compute_reference_solution", lambda *args, **kwargs: None)
     monkeypatch.setattr(comparison_run, "PreconditionerService", TrackedService)
-    monkeypatch.setattr(comparison_run, "compute_condition_numbers", fake_condition_numbers)
     monkeypatch.setattr(
         comparison_run,
         "build_preconditioner_labels",

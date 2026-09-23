@@ -1,4 +1,4 @@
-"""Linear system loading, normalization, and diagnostics for the comparison workflow."""
+"""Linear system loading and normalization for the comparison workflow."""
 
 from __future__ import annotations
 
@@ -7,14 +7,12 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
-from loguru import logger
 
 from neuralls.composition.comparison.models import (
     ComparisonPaths,
     LinearSystem,
     ResolvedComparisonInput,
 )
-from neuralls.domain.linalg import compute_condition_number
 from neuralls.domain.normalization import IScale, create_scale_from_config, load_scale_from_metadata
 from neuralls.domain.solver.utils.validation import (
     validate_ax_equals_b,
@@ -272,23 +270,3 @@ def _load_linear_system(
         matrix=torch.tensor(A, dtype=torch.float64),
         rhs=torch.tensor(b, dtype=torch.float64),
     )
-
-
-def _log_matrix_condition_number(
-    matrix: np.ndarray,
-) -> float:
-    """Log the matrix condition number once per comparison.
-
-    Args:
-        matrix: System matrix to evaluate.
-
-    Returns:
-        The computed condition number, or NaN if it could not be computed.
-    """
-    try:
-        value = float(compute_condition_number(matrix))
-    except np.linalg.LinAlgError as exc:
-        logger.warning("Matrix condition number unavailable: error={}", exc)
-        return float("nan")
-    logger.info("Matrix condition number: value={:.4e}", value)
-    return value

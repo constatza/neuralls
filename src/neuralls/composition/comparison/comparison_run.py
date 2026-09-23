@@ -10,10 +10,7 @@ import torch
 from loguru import logger
 from torchalg.utils.device import resolve_device
 
-from neuralls.composition.comparison._linear_system import (
-    _load_linear_system,
-    _log_matrix_condition_number,
-)
+from neuralls.composition.comparison._linear_system import _load_linear_system
 from neuralls.composition.comparison._plots import _generate_comparison_plots
 from neuralls.composition.comparison._preconditioner_setup import (
     PreconditionerService,
@@ -26,7 +23,6 @@ from neuralls.composition.comparison.models import (
     PreconditionerComparisonEntry,
     ResolvedComparisonInput,
 )
-from neuralls.domain.analysis.spectra import PreconditionerCallable, compute_condition_numbers
 from neuralls.domain.solver.comparison import (
     _to_numpy,
     compute_reference_solution,
@@ -159,7 +155,7 @@ def _evaluate_preconditioner(
             comparison (see ``compare_preconditioners``), or ``None``.
 
     Returns:
-        Named result: solve outcome, condition number, and plot label for ``cfg``.
+        Named result containing the solve outcome and plot metadata for ``cfg``.
     """
     logger.info("Evaluating preconditioner: {}", cfg.name)
     color_key, marker_key = _pod2g_style_keys(cfg)
@@ -177,8 +173,8 @@ def _evaluate_preconditioner(
             x_exact=x_exact,
         )
     except Exception as exc:  # noqa: BLE001
-        # Broad by design: one preconditioner's failure (build, condition number,
-        # solve, CUDA OOM, ...) must never abort the rest of the comparison.
+        # Broad by design: one preconditioner's failure (build, solve, CUDA OOM,
+        # ...) must never abort the rest of the comparison.
         logger.opt(exception=True).warning(
             "Preconditioner '{}' failed (comparison={}): {}: {}",
             cfg.name,
@@ -190,7 +186,6 @@ def _evaluate_preconditioner(
         return PreconditionerComparisonEntry(
             name=cfg.name,
             result=_breakdown_result(cfg.name, rhs=rhs, error=f"{type(exc).__name__}: {exc}"),
-            condition_number=float("nan"),
             label=cfg.name,
             family=preconditioner_family(cfg),
             color_key=color_key,
@@ -211,7 +206,7 @@ def _run_preconditioner(
     marker_key: str | None,
     x_exact: torch.Tensor | None = None,
 ) -> PreconditionerComparisonEntry:
-    """Build, condition-number, and solve one preconditioner; raises on any failure."""
+    """Build and solve one preconditioner; raises on any failure."""
     family = preconditioner_family(cfg)
     base_preconditioners = {cfg.name: service.create_preconditioner(matrix, cfg)}
     scheduled = _create_scheduled_preconditioners(
@@ -222,8 +217,6 @@ def _run_preconditioner(
     _load_and_bind_extra_inputs(
         scheduled, matrix=matrix, matrix_path=matrix_path, matrix_index=matrix_index
     )
-    cond_callables: dict[str, PreconditionerCallable] = {name: p for name, p in scheduled.items()}
-    condition_number = compute_condition_numbers(_to_numpy(matrix), cond_callables)[cfg.name]
     label = build_preconditioner_labels(scheduled, {cfg.name: family})[cfg.name]
     result = run_cg_comparison(
         matrix,
@@ -239,7 +232,6 @@ def _run_preconditioner(
     return PreconditionerComparisonEntry(
         name=cfg.name,
         result=result,
-        condition_number=condition_number,
         label=label,
         family=family,
         color_key=color_key,
@@ -317,8 +309,8 @@ def compare_preconditioners(
     Orchestrates a 7-step workflow:
     1. Validate inputs
     2. Resolve paths (matrix, rhs, output, figures)
-    3. Load and validate linear system
-    4. Evaluate each preconditioner config: build, bind, compute condition number, solve
+    3. Load, validate, and place the linear system on the solver device
+    4. Evaluate each preconditioner config: build, bind, and solve
        (one preconditioner resident at a time — see ``evaluation_mapper``)
     5. Add the "none" (identity) baseline if no config produced one
     6. Generate diagnostic plots
@@ -375,16 +367,14 @@ def compare_preconditioners(
         normalize_system=general_params.data.normalize_system,
         resolved_input=resolved_input,
     )
-    condition_number_raw = _log_matrix_condition_number(
-        _to_numpy(system.matrix),
-    )
-
+    matrix = system.matrix.to(solver_device)
+    rhs = system.rhs.to(solver_device)
     # One A/b pair has one true solution: compute it once on the selected
     # solver device and share it across every preconditioner below instead of
     # each one redoing this Jacobi-PCG solve from scratch.
     x_exact = compute_reference_solution(
-        system.matrix.to(solver_device),
-        system.rhs.to(solver_device),
+        matrix,
+        rhs,
         rtol=general_params.params.rtol,
         margin=general_params.params.reference_precision_margin,
     )
@@ -393,8 +383,8 @@ def compare_preconditioners(
     evaluate_one = partial(
         _evaluate_preconditioner,
         service=service,
-        matrix=system.matrix,
-        rhs=system.rhs,
+        matrix=matrix,
+        rhs=rhs,
         matrix_path=paths.matrix,
         matrix_index=resolved_matrix_index,
         params=general_params.params,
@@ -403,14 +393,12 @@ def compare_preconditioners(
     )
 
     results: dict[str, CGComparisonResult] = {}
-    cond_numbers: dict[str, float] = {}
     labels: dict[str, str] = {}
     families: dict[str, PreconditionerFamilyKey] = {}
     color_keys: dict[str, str] = {}
     marker_keys: dict[str, str] = {}
     for entry in evaluation_mapper(evaluate_one, preconditioner_configs):
         results[entry.name] = entry.result
-        cond_numbers[entry.name] = entry.condition_number
         labels[entry.name] = entry.label
         families[entry.name] = entry.family
         if entry.color_key is not None:
@@ -420,8 +408,8 @@ def compare_preconditioners(
 
     if "none" not in results:
         baseline = run_cg_comparison(
-            system.matrix,
-            system.rhs,
+            matrix,
+            rhs,
             preconditioners={},
             x_exact=x_exact,
             rtol=general_params.params.rtol,
@@ -437,14 +425,13 @@ def compare_preconditioners(
 
     plot_paths = _generate_comparison_plots(
         results,
-        cond_numbers,
         paths,
         labels,
         comparison_context=comparison_context,
         families=families,
         color_keys=color_keys,
         marker_keys=marker_keys,
-        system_size=int(system.matrix.shape[0]),
+        system_size=int(matrix.shape[0]),
         rtol=general_params.params.rtol,
         atol=general_params.params.atol,
         max_iterations=general_params.params.max_iterations,
@@ -455,12 +442,10 @@ def compare_preconditioners(
         summary=format_results_summary(results),
         plot_paths=plot_paths,
         preconditioners=tuple(cfg.name for cfg in preconditioner_configs),
-        condition_numbers=cond_numbers,
         solver_params=general_params,
         recommendations=recommendations,
         output_dir=paths.output,
-        matrix_shape=(system.matrix.shape[0], system.matrix.shape[1]),
-        rhs_shape=tuple(system.rhs.shape),
-        condition_number_raw=condition_number_raw,
+        matrix_shape=(matrix.shape[0], matrix.shape[1]),
+        rhs_shape=tuple(rhs.shape),
         rhs_source_kind=resolved_input.rhs_source_kind if resolved_input is not None else None,
     )

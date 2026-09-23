@@ -54,6 +54,10 @@ Every comparison run writes two convergence figures with identical styling:
 relative residual `||r||/||b||` (`plot_convergence_comparison`) and relative
 energy-norm error `||e_k||_A/||e_0||_A` (`plot_error_convergence_comparison`,
 reading `CGComparisonResult.error_history_a_rel`).
+Condition-number figures and MLflow metrics are deliberately absent from the
+comparison workflow because iterative spectral estimation can dominate or
+stall otherwise healthy solver runs; that analysis remains available only as
+an explicit standalone operation.
 Plotting defaults keep markers compact so convergence and diagnostic figures
 stay readable when several methods or dense prediction samples are shown.
 Comparison-plot styling (`reporting/plots.py`) resolves three independent

@@ -92,12 +92,11 @@ class LinearSystem:
 
 @dataclass(frozen=True)
 class PreconditionerComparisonEntry:
-    """Outcome of comparing one preconditioner: solve result, condition number, plot label.
+    """Outcome of comparing one preconditioner: solve result and plot metadata.
 
     Attributes:
         name: Preconditioner config name.
         result: CG solver outcome for this preconditioner.
-        condition_number: Effective condition number of the preconditioned system.
         label: Descriptive plot label built from the constructed preconditioner instance.
         family: Plot-style family key (see ``preconditioner_family.preconditioner_family``),
             driving shared linestyle across same-family preconditioners.
@@ -110,7 +109,6 @@ class PreconditionerComparisonEntry:
 
     name: str
     result: CGComparisonResult
-    condition_number: float
     label: str
     family: PreconditionerFamilyKey
     color_key: str | None = None

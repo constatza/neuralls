@@ -6,7 +6,6 @@ from collections.abc import Hashable, Mapping
 
 from neuralls.composition.comparison._presentation import build_comparison_plot_title
 from neuralls.composition.comparison.models import ComparisonPaths
-from neuralls.domain.analysis.spectra import plot_condition_numbers
 from neuralls.domain.solver.models.result import CGComparisonResult, PlotPaths
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
 from neuralls.platform.reporting.plots import (
@@ -18,7 +17,6 @@ from neuralls.platform.reporting.plots import (
 
 def _generate_comparison_plots(
     results: dict[str, CGComparisonResult],
-    cond_numbers: dict[str, float],
     paths: ComparisonPaths,
     labels: Mapping[str, str],
     comparison_context: str,
@@ -34,7 +32,6 @@ def _generate_comparison_plots(
 
     Args:
         results: CG comparison results keyed by preconditioner name.
-        cond_numbers: Effective condition numbers keyed by preconditioner name.
         paths: Resolved comparison paths (figures directory used for output).
         labels: Descriptive plot label per preconditioner name (e.g. AMG grid
             levels/cycle/coarsening, POD-2G fitted rank), typically built via
@@ -61,15 +58,6 @@ def _generate_comparison_plots(
     color_keys = color_keys or {}
     marker_keys = marker_keys or {}
     title = build_comparison_plot_title(comparison_context, system_size)
-
-    cond_path = plot_condition_numbers(
-        {labels.get(name, name): value for name, value in cond_numbers.items()},
-        save_dir=paths.figures,
-        suffix=suffix,
-        title=title,
-        rtol=rtol,
-        atol=atol,
-    )
 
     by_label = {labels.get(name, name): result for name, result in results.items()}
     family_by_label = {labels.get(name, name): value for name, value in families.items()}
@@ -113,7 +101,6 @@ def _generate_comparison_plots(
 
     return PlotPaths(
         convergence=convergence_path,
-        condition_numbers=cond_path,
         iterations_barplot=iter_path,
         error_convergence=error_path,
     )

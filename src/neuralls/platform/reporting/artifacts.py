@@ -91,7 +91,6 @@ class SerializedComparisonPayload:
 
     summary: str
     preconditioners: tuple[str, ...]
-    condition_numbers: dict[str, float]
     plot_paths: PlotPaths
     recommendations: ComparisonRecommendations
     results: dict[str, SerializedSolverResult]
@@ -162,7 +161,6 @@ def extract_array_artifacts(
     payload = SerializedComparisonPayload(
         summary=result.summary,
         preconditioners=tuple(result.preconditioners),
-        condition_numbers=dict(result.condition_numbers),
         plot_paths=result.plot_paths,
         recommendations=result.recommendations,
         results=serialized_results,
@@ -225,11 +223,7 @@ def _save_comparison_toml(
     """Save scalar comparison diagnostics to a TOML file."""
     iterations = {name: entry.iterations for name, entry in result.results.items()}
     residuals = {name: entry.residual for name, entry in result.results.items()}
-    payload = {
-        "condition_number": dict(result.condition_numbers),
-        "iterations": iterations,
-        "final_residual": residuals,
-    }
+    payload = {"iterations": iterations, "final_residual": residuals}
     with open(output_path, "wb") as fh:
         tomli_w.dump(payload, fh)
 

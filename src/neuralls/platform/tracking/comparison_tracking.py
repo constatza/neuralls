@@ -53,9 +53,6 @@ def log_comparison_result_metrics(
     """Log parent-run metrics and nested child-run metrics for a comparison result."""
     for name, cg in result.results.items():
         safe = sanitize_metric_key_segment(name)
-        mlflow.log_metric(
-            f"condition_number/{safe}", result.condition_numbers.get(name, float("nan"))
-        )
         mlflow.log_metric(f"iterations/{safe}", cg.iterations)
         mlflow.log_metric(f"final_residual/{safe}", cg.residual)
         mlflow.log_metric(f"converged/{safe}", int(cg.converged))
@@ -63,7 +60,6 @@ def log_comparison_result_metrics(
         with mlflow.start_run(run_name=name, nested=True, tags=dict(child_run_tags[name])):
             for step, residual in enumerate(cg.residual_history_rel):
                 mlflow.log_metric("residual", residual, step=step)
-            mlflow.log_metric("condition_number", result.condition_numbers.get(name, float("nan")))
             mlflow.log_metric("iterations", cg.iterations)
             mlflow.log_metric("final_residual", cg.residual)
             mlflow.log_metric("converged", int(cg.converged))
@@ -73,7 +69,7 @@ def log_comparison_result_metrics(
 
 
 def log_linear_system_params(result: ComparisonResult) -> None:
-    """Log matrix/rhs shape, RHS provenance, and the raw condition number.
+    """Log matrix/rhs shape and RHS provenance.
 
     A matrix may be paired with several different RHS sources (gaussian,
     sparse, raw, dataset, ...) across sibling ``[[comparisons]]`` entries,
@@ -87,8 +83,6 @@ def log_linear_system_params(result: ComparisonResult) -> None:
         mlflow.log_param("rhs_dim", result.rhs_shape[0])
     if result.rhs_source_kind is not None:
         mlflow.log_param("rhs_source_kind", str(result.rhs_source_kind))
-    if result.condition_number_raw is not None:
-        mlflow.log_metric("condition_number_raw", result.condition_number_raw)
 
 
 def log_comparison_run_params(

@@ -293,7 +293,6 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
             summary="ok",
             solver_params=general_params,
             preconditioners=("none",),
-            condition_numbers={"none": 1.0},
             recommendations=ComparisonRecommendations(
                 overall_best=RankedRecommendation(
                     label="none",

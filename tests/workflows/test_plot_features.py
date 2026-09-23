@@ -330,7 +330,6 @@ def test_plot_condition_numbers_with_title_and_subtitle(
 def test_generate_comparison_plots_includes_iterations_barplot(
     tmp_path: Path,
     two_result_entries: dict[str, CGComparisonResult],
-    simple_cond_numbers: dict[str, float],
     two_preconditioners: dict[str, Preconditioner],
     two_preconditioner_families: dict[str, PreconditionerType],
 ) -> None:
@@ -342,7 +341,6 @@ def test_generate_comparison_plots_includes_iterations_barplot(
     Args:
         tmp_path: Pytest temporary directory used for ComparisonPaths.
         two_result_entries: Two-entry result dict from fixture.
-        simple_cond_numbers: Simple condition number mapping from fixture.
         two_preconditioners: Constructed preconditioner instances from fixture.
         two_preconditioner_families: Family key per name, from fixture.
     """
@@ -360,15 +358,10 @@ def test_generate_comparison_plots_includes_iterations_barplot(
         patch(
             "neuralls.composition.comparison._plots.plot_convergence_comparison"
         ) as convergence_plot,
-        patch(
-            "neuralls.composition.comparison._plots.plot_condition_numbers",
-            return_value=figures_dir / "conditions.png",
-        ) as condition_plot,
         patch("neuralls.composition.comparison._plots.plot_metric_comparison") as metric_plot,
     ):
         result = _generate_comparison_plots(
             two_result_entries,
-            simple_cond_numbers,
             paths,
             build_preconditioner_labels(two_preconditioners, two_preconditioner_families),
             comparison_context="matrix=demo-matrix | rhs=gaussian",
@@ -376,7 +369,7 @@ def test_generate_comparison_plots_includes_iterations_barplot(
         )
 
     assert result.iterations_barplot is not None
+    assert "condition_numbers" not in result.to_mapping()
     expected_title = "matrix=demo-matrix | rhs=gaussian\nN=1000"
-    assert condition_plot.call_args.kwargs["title"] == expected_title
     assert convergence_plot.call_args.kwargs["title"] == expected_title
     assert metric_plot.call_args.kwargs["title"] == expected_title
