@@ -174,7 +174,7 @@ def _evaluate_preconditioner(
         # Broad by design: one preconditioner's failure (build, condition number,
         # solve, CUDA OOM, ...) must never abort the rest of the comparison.
         logger.opt(exception=True).warning(
-            "DIAGNOSTIC Preconditioner '{}' failed (comparison={}): {}: {}",
+            "Preconditioner '{}' failed (comparison={}): {}: {}",
             cfg.name,
             display_name or "unnamed",
             type(exc).__name__,

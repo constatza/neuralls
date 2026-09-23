@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import numpy as np
 import pytest
 import torch
@@ -70,6 +72,39 @@ def test_fit_respects_custom_target_name(
     model = PODCoarseningFittable(rank=2, target_name="solutions")
 
     model.fit(renamed_batches)
+
+    assert model.is_fitted()
+
+
+class _OneShotBatchIterable:
+    """Iterable that raises if consumed more than once.
+
+    Catches a regression back to `list(snapshots)`, which would force
+    `fit()` to drain the whole iterable up front instead of streaming it —
+    the actual defect behind a `cuMemHostAlloc` OOM against a real
+    `pin_memory=True` dataloader (this fixture doesn't reproduce the OOM
+    itself, no GPU needed for that; it only pins down the single-pass
+    consumption contract that avoids it).
+    """
+
+    def __init__(self, batches: list[dict[str, dict[str, torch.Tensor]]]) -> None:
+        self._batches = batches
+        self._consumed = False
+
+    def __iter__(self) -> Iterator[dict[str, dict[str, torch.Tensor]]]:
+        if self._consumed:
+            raise RuntimeError("dataloader iterated more than once")
+        self._consumed = True
+        return iter(self._batches)
+
+
+def test_fit_iterates_dataloader_without_eager_listing(
+    snapshot_batches: list[dict[str, dict[str, torch.Tensor]]],
+) -> None:
+    """fit() must consume the dataloader in a single pass, never `list(snapshots)`."""
+    model = PODCoarseningFittable(rank=2)
+
+    model.fit(_OneShotBatchIterable(snapshot_batches))
 
     assert model.is_fitted()
 

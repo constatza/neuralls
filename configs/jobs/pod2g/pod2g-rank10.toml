@@ -2,7 +2,7 @@
 type = "fit"
 seed = 42
 precision = "64"
-data = "../../profiles/data/array-default.toml"
+data = "../../profiles/data/array-fit.toml"
 
 [model]
 name = "PODCoarseningFittable"

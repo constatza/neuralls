@@ -46,8 +46,8 @@ from collections.abc import Iterable
 from typing import Any
 
 import torch
-from loguru import logger
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
+from torchalg.utils.device import resolve_device
 
 from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
@@ -174,32 +174,27 @@ class PODCoarseningFittable(PODCoarseningStrategy):
         Raises:
             ValueError: If `snapshots` is a dataloader that yields no batches.
         """
-        logger.warning(
-            "DIAGNOSTIC entered PODCoarseningFittable.fit(), tensor input={}",
-            isinstance(snapshots, torch.Tensor),
-        )
-        try:
-            if isinstance(snapshots, torch.Tensor):
-                super().fit(snapshots, row_scales=row_scales)
-                return
-            logger.warning("DIAGNOSTIC materializing dataloader batches")
-            batches = list(snapshots)
-            if not batches:
-                raise ValueError("PODCoarseningFittable.fit() received an empty dataloader.")
-            logger.warning("DIAGNOSTIC materialized {} batches, concatenating", len(batches))
-            concatenated = torch.cat(
-                [torch.as_tensor(batch["targets"][self._target_name]) for batch in batches], dim=0
-            )
-            logger.warning(
-                "DIAGNOSTIC pre-SVD snapshot tensor: shape={} dtype={} device={}",
-                tuple(concatenated.shape),
-                concatenated.dtype,
-                concatenated.device,
-            )
-            if row_scales is None:
-                row_scales = resolve_row_scales(self._weighting, concatenated, matrix=None)
-            logger.warning("DIAGNOSTIC calling PODCoarseningStrategy.fit() (the SVD)")
-            super().fit(concatenated, row_scales=row_scales)
-        except Exception:
-            logger.opt(exception=True).error("DIAGNOSTIC traceback for PODCoarseningFittable.fit()")
-            raise
+        if isinstance(snapshots, torch.Tensor):
+            super().fit(snapshots, row_scales=row_scales)
+            return
+        # Single pass over the dataloader — never list(snapshots). Each batch is a
+        # pin_memory'd TensorDict; materializing the whole dataloader up front would
+        # hold every batch's pinned buffers alive simultaneously (the entire dataset,
+        # doubled for the unused "inputs" field) instead of releasing each one as its
+        # target tensor is extracted and copied off. `.detach().clone()` (not `.cpu()`,
+        # which is a no-op view for an already-CPU tensor) forces a fresh, unpinned
+        # allocation so the source batch's pinned storage can actually be freed.
+        chunks = [
+            torch.as_tensor(batch["targets"][self._target_name]).detach().clone()
+            for batch in snapshots
+        ]
+        if not chunks:
+            raise ValueError("PODCoarseningFittable.fit() received an empty dataloader.")
+        # Moved to the resolved compute device (not left on CPU, where the dataloader
+        # put it): the SVD (torch.linalg.svd, in compute_pod_basis) runs wherever
+        # `concatenated` lives, and resolve_device() is the same GPU-if-available
+        # convention comparison_run.py/domain/solver/comparison.py already use.
+        concatenated = torch.cat(chunks, dim=0).to(resolve_device())
+        if row_scales is None:
+            row_scales = resolve_row_scales(self._weighting, concatenated, matrix=None)
+        super().fit(concatenated, row_scales=row_scales)
