@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from torchalg.utils.device import resolve_device
 
 from neuralls.composition.generation.default_services import make_solver
 from neuralls.domain.generation.orchestration import build_dataset_payload
@@ -24,6 +25,7 @@ from neuralls.platform.storage.datasets import (
 )
 from neuralls.platform.storage.manifest_io import read_dataset_manifest, save_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
+from neuralls.shared.device import ResourceUsage, track_resource_usage
 from neuralls.shared.types import DatasetFormat
 
 _DEFAULT_SOLVER = make_solver()
@@ -51,7 +53,9 @@ def _guard_format_conflict(dataset_dir: Path, intended: DatasetFormat) -> None:
         )
 
 
-def _stamp_dataset_identity(dataset_dir: Path, identity: StageIdentity | None) -> None:
+def _stamp_dataset_identity(
+    dataset_dir: Path, identity: StageIdentity | None, *, generation_usage: ResourceUsage | None
+) -> None:
     """Record digests (and identity, when known) of the freshly written dataset.
 
     Runs after the storage backend has written both the arrays and the
@@ -61,6 +65,10 @@ def _stamp_dataset_identity(dataset_dir: Path, identity: StageIdentity | None) -
     Args:
         dataset_dir: Directory holding the dataset just written.
         identity: Generation identity to persist, or None for identity-less builds.
+        generation_usage: Wall time/peak memory of the generation that just
+            produced this dataset — stamped so a later consumer that skips
+            regeneration can still charge this cost (see
+            ``DatasetManifest.generation_duration_seconds``).
     """
     manifest = read_dataset_manifest(dataset_dir)
     stamped = replace(
@@ -69,6 +77,12 @@ def _stamp_dataset_identity(dataset_dir: Path, identity: StageIdentity | None) -
         stat_digest=stat_digest(dataset_dir),
         identity_key=identity.key if identity is not None else None,
         identity_components=dict(identity.components) if identity is not None else None,
+        generation_duration_seconds=(
+            generation_usage.wall_time_seconds if generation_usage is not None else None
+        ),
+        generation_peak_memory_bytes=(
+            generation_usage.peak_memory_bytes if generation_usage is not None else None
+        ),
     )
     save_dataset_manifest(dataset_dir, stamped)
 
@@ -149,7 +163,8 @@ def build_dataset(
         return dataset_dir
     dataset_storage = storage or make_generation_dataset_storage(dataset_format)
     acc: DatasetAccumulatorPort = accumulator or dataset_storage.make_accumulator(dataset_path)
-    payload = build_dataset_payload(source, _with_default_solvers(spec), accumulator=acc)
-    dataset_storage.write_dataset(dataset_path, payload)
-    _stamp_dataset_identity(dataset_path, identity)
+    with track_resource_usage(resolve_device()) as usage:
+        payload = build_dataset_payload(source, _with_default_solvers(spec), accumulator=acc)
+        dataset_storage.write_dataset(dataset_path, payload)
+    _stamp_dataset_identity(dataset_path, identity, generation_usage=usage())
     return dataset_dir

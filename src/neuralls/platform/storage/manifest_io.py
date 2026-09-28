@@ -159,6 +159,16 @@ def read_dataset_manifest(dataset_dir: str | Path) -> DatasetManifest:
             if raw.get("identity_components") is not None
             else None
         ),
+        generation_duration_seconds=(
+            float(raw["generation_duration_seconds"])
+            if raw.get("generation_duration_seconds") is not None
+            else None
+        ),
+        generation_peak_memory_bytes=(
+            int(raw["generation_peak_memory_bytes"])
+            if raw.get("generation_peak_memory_bytes") is not None
+            else None
+        ),
     )
 
 
@@ -175,6 +185,8 @@ def make_dataset_manifest(
     stat_digest: str | None = None,
     identity_key: Digest | None = None,
     identity_components: dict[str, str] | None = None,
+    generation_duration_seconds: float | None = None,
+    generation_peak_memory_bytes: int | None = None,
 ) -> DatasetManifest:
     """Construct a typed dataset manifest with the repo schema marker.
 
@@ -191,6 +203,9 @@ def make_dataset_manifest(
         stat_digest: Optional file-stat snapshot stamped with `content_digest`.
         identity_key: Optional generation identity key stamped after writing.
         identity_components: Optional short per-input digests behind the key.
+        generation_duration_seconds: Optional wall time of the generation
+            that produced this dataset, stamped after writing.
+        generation_peak_memory_bytes: Optional peak memory of that generation.
 
     Returns:
         Immutable DatasetManifest.
@@ -208,4 +223,6 @@ def make_dataset_manifest(
         stat_digest=stat_digest,
         identity_key=identity_key,
         identity_components=identity_components,
+        generation_duration_seconds=generation_duration_seconds,
+        generation_peak_memory_bytes=generation_peak_memory_bytes,
     )

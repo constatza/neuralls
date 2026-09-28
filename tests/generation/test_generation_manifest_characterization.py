@@ -230,6 +230,8 @@ def _expected_full_manifest(dataset_format: DatasetFormat) -> dict[str, Any]:
                 "identity_components": None,
                 "identity_key": None,
                 "stat_digest": None,
+                "generation_duration_seconds": None,
+                "generation_peak_memory_bytes": None,
             }
         case "npy":
             return {
@@ -257,6 +259,8 @@ def _expected_full_manifest(dataset_format: DatasetFormat) -> dict[str, Any]:
                 "identity_components": None,
                 "identity_key": None,
                 "stat_digest": None,
+                "generation_duration_seconds": None,
+                "generation_peak_memory_bytes": None,
             }
         case "hdf5":
             name = "dataset.h5"
@@ -285,6 +289,8 @@ def _expected_full_manifest(dataset_format: DatasetFormat) -> dict[str, Any]:
                 "identity_components": None,
                 "identity_key": None,
                 "stat_digest": None,
+                "generation_duration_seconds": None,
+                "generation_peak_memory_bytes": None,
             }
         case _:  # pragma: no cover - guards fixture drift
             raise AssertionError(f"unhandled format {dataset_format!r}")
@@ -341,6 +347,8 @@ def _expected_minimal_manifest(dataset_format: DatasetFormat) -> dict[str, Any]:
         "identity_components": None,
         "identity_key": None,
         "stat_digest": None,
+        "generation_duration_seconds": None,
+        "generation_peak_memory_bytes": None,
     }
 
 

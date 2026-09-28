@@ -54,6 +54,15 @@ class DatasetManifest:
             A manifest without it is never trusted for reuse.
         identity_components: Short per-input digests behind `identity_key`,
             used to explain why a lookup missed.
+        generation_duration_seconds: Wall time the generation that produced
+            this dataset took, stamped once alongside the content/stat
+            digests. `None` on manifests predating this field, or when
+            generation was skipped (reused an already-valid dataset) before
+            this field existed — a skipped generation after this field
+            exists instead leaves whatever was already stamped untouched,
+            since the skip path never rewrites the manifest.
+        generation_peak_memory_bytes: Peak memory during that generation,
+            alongside `generation_duration_seconds`.
     """
 
     schema: str
@@ -68,6 +77,8 @@ class DatasetManifest:
     stat_digest: str | None = None
     identity_key: Digest | None = None
     identity_components: dict[str, str] | None = None
+    generation_duration_seconds: float | None = None
+    generation_peak_memory_bytes: int | None = None
 
 
 def manifest_path_for(dataset_dir: str | Path) -> Path:

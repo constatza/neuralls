@@ -79,7 +79,7 @@ def identity() -> StageIdentity:
 @pytest.fixture
 def stamped_npy_dataset_dir(complete_npy_dataset_dir: Path, identity: StageIdentity) -> Path:
     """Complete dataset whose manifest is stamped with `identity`."""
-    _stamp_dataset_identity(complete_npy_dataset_dir, identity)
+    _stamp_dataset_identity(complete_npy_dataset_dir, identity, generation_usage=None)
     return complete_npy_dataset_dir
 
 
