@@ -76,6 +76,24 @@ DEFAULT_SHUFFLE = True
 # =============================================================================
 DEFAULT_TEST_SAMPLE_INDEX = 0  # Which sample to extract for single-sample comparison tasks
 
+# MLflow metric keys logged on every training/fit multirun sweep child (any
+# job kind — dlkit hardcodes `duration_seconds=0.0` for every executor, so
+# these are measured from outside dlkit at the sweep-orchestration boundary
+# instead; see `composition/assignments/training_batch.py`).
+#
+# Only TRAINING_CHILD_DURATION_METRIC_KEY is read back at comparison time, as
+# a checkpoint-backed preconditioner's real setup cost, in place of the
+# negligible checkpoint-load overhead measured that run — see
+# `composition/comparison/comparison_run.py::_resolve_setup_usage`. Wall time
+# is a real cost paid once, transferable to any later run that reuses the
+# checkpoint. TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY is *not* charged back the
+# same way: peak memory is a property of the process that trained it (own
+# device, own concurrent load), not a cost the comparison run itself pays —
+# `setup_peak_memory_bytes` always reflects this run's own (checkpoint-load)
+# footprint, even when `setup_time_seconds` comes from history.
+TRAINING_CHILD_DURATION_METRIC_KEY = "training_child_duration_seconds"
+TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY = "training_child_peak_memory_bytes"
+
 
 # =============================================================================
 # Eigenvector Selection

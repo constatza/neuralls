@@ -23,6 +23,11 @@ from neuralls.composition.assignments.training_batch import run_assignment_sweep
 from neuralls.composition.generation.process_data import process_data_from_config
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.platform.tracking.mlflow_client import fetch_mlflow_metrics
+from neuralls.shared.constants import (
+    TRAINING_CHILD_DURATION_METRIC_KEY,
+    TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY,
+)
 
 
 @pytest.fixture
@@ -131,3 +136,11 @@ def test_run_assignment_sweep_fits_pod_job_and_uploads_checkpoint(
     assert len(runs) == 1
     run_id = runs[0].info.run_id
     assert has_checkpoint_artifact(run_id, tracking_uri=tracking_uri)
+
+    # dlkit's OneShotFitExecutor hardcodes duration_seconds=0.0 and never logs
+    # it — the sweep's own `_ChildTimingTracker` (training_batch.py) measures
+    # this child from the outside instead, so this must be the real thing,
+    # not dlkit's.
+    metrics = fetch_mlflow_metrics(run_id, tracking_uri)
+    assert metrics[TRAINING_CHILD_DURATION_METRIC_KEY] >= 0
+    assert metrics[TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY] >= 0

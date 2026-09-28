@@ -10,6 +10,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from dlkit.common.results import OptimizationResult
+from dlkit.common.results import TrainingResult as DlkitTrainingResult
 from dlkit.engine.workflows.multi_run import RunSpec
 from dlkit.infrastructure.config.core.patching import patch_model
 from loguru import logger
@@ -76,9 +78,29 @@ class TrainingResult:
     data_dir: Path
 
 
-def _unwrap_execution_result(result: object) -> object:
-    """Normalize DLKit execute() results to the underlying training result."""
-    return getattr(result, "training_result", result)
+def _unwrap_execution_result(
+    result: DlkitTrainingResult | OptimizationResult,
+) -> DlkitTrainingResult:
+    """Normalize dlkit's execute() results to the underlying training result.
+
+    A `train`/`fit` job's `execute()` returns a `TrainingResult` directly; a
+    `search` job's returns an `OptimizationResult` wrapping the best trial's
+    `TrainingResult` in `.training_result` — delegated to
+    `OptimizationResult.as_training_result()`, which raises `WorkflowError`
+    (caught by `_finalize_assignment_child`'s broad handler, surfaced as a
+    clear `Failed` `AssignmentResult`) if every trial failed or was pruned,
+    rather than silently returning the wrong (wrapper) object.
+
+    Args:
+        result: Whatever dlkit's `execute()` (or a multirun child's dispatch)
+            returned for this assignment.
+
+    Returns:
+        The underlying `TrainingResult`.
+    """
+    if isinstance(result, OptimizationResult):
+        return result.as_training_result()
+    return result
 
 
 def _training_artifact_lease_scope(
@@ -451,7 +473,7 @@ def to_run_spec(prepared: PreparedTraining) -> RunSpec:
 
 def finalize_prepared_training(
     prepared: PreparedTraining,
-    execution_result: object,
+    execution_result: DlkitTrainingResult | OptimizationResult,
 ) -> MlflowCoordinates:
     """Finalize one dlkit ``execute()`` result: make the checkpoint durable in MLflow.
 
@@ -461,7 +483,9 @@ def finalize_prepared_training(
     Args:
         prepared: The assignment's prepared training inputs.
         execution_result: Whatever dlkit's ``execute()`` (or a multirun
-            child's dispatch) returned for this assignment.
+            child's dispatch) returned for this assignment — a ``TrainingResult``
+            directly for a ``train``/``fit`` job, or an ``OptimizationResult``
+            for a ``search`` job.
 
     Returns:
         Coordinates of the MLflow run the checkpoint was uploaded to.

@@ -1,12 +1,18 @@
-"""Regression test for run_assignment_sweep's dlkit LifecycleHooks wiring.
+"""Regression tests for run_assignment_sweep's dlkit LifecycleHooks wiring.
 
-Doesn't (and can't, without a GPU) prove memory is actually reclaimed —
-`release_device_memory()` is a one-line `torch.cuda.empty_cache()` guard,
-not worth testing itself. What regresses silently is the *wiring*: dlkit
-runs every sweep child sequentially in-process with no allocator reset of
-its own (see composition/README.md), so `run_assignment_sweep` must hand it
-a `LifecycleHooks` that releases device memory after every child, success or
-failure. This locks that wiring down without touching CUDA.
+Covers two things the sweep must get right for every multirun child,
+regardless of job kind (`train`/`search`/`fit` alike — dlkit hardcodes
+`duration_seconds=0.0` for every executor, so nothing here can rely on dlkit
+having measured its own duration):
+
+1. Device memory is released after every child, success or failure — dlkit
+   runs every sweep child sequentially in-process with no allocator reset of
+   its own (see composition/README.md), so a failed or CUDA-heavy child
+   otherwise starves every child that runs after it.
+2. Each child's wall time/peak memory is measured from the outside (bridging
+   `on_child_planned` at dispatch to `on_child_completed`/`on_child_failed`
+   at the end) and logged onto that child's own MLflow run, since dlkit never
+   logs a real duration itself.
 """
 
 from __future__ import annotations
@@ -15,13 +21,18 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from dlkit.common import ChildFailure, LifecycleHooks
+from dlkit.common import ChildFailure, ChildPlannedEvent, ChildSuccess, LifecycleHooks
 
 from neuralls.composition.assignments.training import PreparedTraining
 from neuralls.composition.assignments.training_batch import (
-    _release_device_memory_on_child_outcome,
+    _ChildTimingTracker,
     run_assignment_sweep,
 )
+from neuralls.shared.constants import (
+    TRAINING_CHILD_DURATION_METRIC_KEY,
+    TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY,
+)
+from neuralls.shared.device import ResourceUsage, ResourceUsageToken
 
 
 def _patch_sweep_collaborators(stack: ExitStack, *, child_outcome: MagicMock) -> MagicMock:
@@ -97,12 +108,10 @@ def _patch_sweep_collaborators(stack: ExitStack, *, child_outcome: MagicMock) ->
     return run_multirun_spec
 
 
-def test_sweep_registers_device_memory_release_as_child_lifecycle_hooks(
-    tmp_path: Path,
-) -> None:
-    """`run_multirun_spec` must receive hooks that release CUDA memory after
-    every child — otherwise a failed fit-job child's allocated-but-orphaned
-    CUDA blocks starve every child that runs after it in the same process.
+def test_sweep_registers_child_timing_tracker_as_lifecycle_hooks(tmp_path: Path) -> None:
+    """`run_multirun_spec` must receive planned/completed/failed hooks bound to
+    one `_ChildTimingTracker` instance — otherwise device memory is never
+    released after a child, and no child's duration ever reaches MLflow.
     """
     child_failure = MagicMock(spec=ChildFailure)
     child_failure.message = "boom"
@@ -112,13 +121,118 @@ def test_sweep_registers_device_memory_release_as_child_lifecycle_hooks(
 
     hooks = run_multirun_spec.call_args.kwargs["hooks"]
     assert isinstance(hooks, LifecycleHooks)
-    assert hooks.on_child_completed is _release_device_memory_on_child_outcome
-    assert hooks.on_child_failed is _release_device_memory_on_child_outcome
+    tracker = hooks.on_child_completed.__self__  # type: ignore[attr-defined]
+    assert isinstance(tracker, _ChildTimingTracker)
+    assert hooks.on_child_planned == tracker.on_planned
+    assert hooks.on_child_completed == tracker.on_finished
+    assert hooks.on_child_failed == tracker.on_finished
 
 
-def test_child_lifecycle_hook_releases_device_memory() -> None:
-    """The registered callback itself must actually call `release_device_memory`."""
-    with patch("neuralls.composition.assignments.training_batch.release_device_memory") as release:
-        _release_device_memory_on_child_outcome(MagicMock())
+class TestChildTimingTracker:
+    """Unit tests for `_ChildTimingTracker`, independent of the sweep wiring."""
 
-    release.assert_called_once()
+    def _tracker(self) -> _ChildTimingTracker:
+        return _ChildTimingTracker(tracking_uri="tracking-uri")
+
+    def _patched(self, stack: ExitStack, *, usage: ResourceUsage) -> dict[str, MagicMock]:
+        mocks = {
+            "resolve_device": stack.enter_context(
+                patch("neuralls.composition.assignments.training_batch.resolve_device")
+            ),
+            "begin": stack.enter_context(
+                patch(
+                    "neuralls.composition.assignments.training_batch.begin_resource_usage",
+                    return_value=ResourceUsageToken(device=MagicMock(), start=0.0, rss_before=0),
+                )
+            ),
+            "end": stack.enter_context(
+                patch(
+                    "neuralls.composition.assignments.training_batch.end_resource_usage",
+                    return_value=usage,
+                )
+            ),
+            "log_metric": stack.enter_context(
+                patch("neuralls.composition.assignments.training_batch.log_metric_to_run")
+            ),
+            "release": stack.enter_context(
+                patch("neuralls.composition.assignments.training_batch.release_device_memory")
+            ),
+        }
+        return mocks
+
+    def test_on_finished_logs_duration_and_memory_for_a_planned_success(self) -> None:
+        """Fit-kind and train-kind children are handled identically — the tracker
+        only ever looks at `child_id`/`run_id`, never a job-kind label.
+        """
+        usage = ResourceUsage(wall_time_seconds=1.5, peak_memory_bytes=2048)
+        for kind in ("fit", "train"):
+            tracker = self._tracker()
+            with ExitStack() as stack:
+                mocks = self._patched(stack, usage=usage)
+                tracker.on_planned(ChildPlannedEvent(
+                    child_id=f"{kind}-child", label=kind, run_name="r", tags={}, params={}, metadata={},
+                ))  # fmt: skip
+                outcome = MagicMock(spec=ChildSuccess)
+                outcome.child_id = f"{kind}-child"
+                outcome.run_id = "run-123"
+                tracker.on_finished(outcome)
+
+            mocks["end"].assert_called_once()
+            mocks["log_metric"].assert_any_call(
+                "run-123", TRAINING_CHILD_DURATION_METRIC_KEY, 1.5, "tracking-uri"
+            )
+            mocks["log_metric"].assert_any_call(
+                "run-123", TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY, 2048, "tracking-uri"
+            )
+            mocks["release"].assert_called_once()
+
+    def test_on_finished_skips_logging_without_a_matching_planned_entry(self) -> None:
+        """No `on_child_planned` was ever seen for this child_id — logging is a
+        no-op, not an error, but memory release still always happens.
+        """
+        tracker = self._tracker()
+        with ExitStack() as stack:
+            mocks = self._patched(stack, usage=ResourceUsage(0.0, 0))
+            outcome = MagicMock(spec=ChildFailure)
+            outcome.child_id = "never-planned"
+            outcome.run_id = "run-123"
+            tracker.on_finished(outcome)
+
+        mocks["end"].assert_not_called()
+        mocks["log_metric"].assert_not_called()
+        mocks["release"].assert_called_once()
+
+    def test_on_finished_skips_logging_when_run_id_is_none(self) -> None:
+        """A child outcome with no MLflow run at all has nothing to log onto."""
+        tracker = self._tracker()
+        with ExitStack() as stack:
+            mocks = self._patched(stack, usage=ResourceUsage(1.0, 1))
+            tracker.on_planned(ChildPlannedEvent(
+                child_id="c", label="c", run_name="r", tags={}, params={}, metadata={},
+            ))  # fmt: skip
+            outcome = MagicMock(spec=ChildFailure)
+            outcome.child_id = "c"
+            outcome.run_id = None
+            tracker.on_finished(outcome)
+
+        mocks["log_metric"].assert_not_called()
+        mocks["release"].assert_called_once()
+
+    def test_on_finished_warns_and_continues_when_logging_fails(self) -> None:
+        """A metrics-logging failure (no tracking server, etc.) must never
+        propagate — it would turn a real training success/failure into a
+        worse, unrelated crash.
+        """
+        tracker = self._tracker()
+        with ExitStack() as stack:
+            mocks = self._patched(stack, usage=ResourceUsage(1.0, 1))
+            mocks["log_metric"].side_effect = RuntimeError("no tracking server")
+            tracker.on_planned(ChildPlannedEvent(
+                child_id="c", label="c", run_name="r", tags={}, params={}, metadata={},
+            ))  # fmt: skip
+            outcome = MagicMock(spec=ChildSuccess)
+            outcome.child_id = "c"
+            outcome.run_id = "run-123"
+            tracker.on_finished(outcome)  # must not raise
+
+        mocks["release"].assert_called_once()

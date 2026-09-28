@@ -37,6 +37,24 @@ def fetch_mlflow_metrics(run_id: str, tracking_uri: str) -> dict[str, float]:
     return dict(run.data.metrics)
 
 
+def log_metric_to_run(run_id: str, key: str, value: float, tracking_uri: str) -> None:
+    """Log a single metric onto an existing (possibly already-closed) MLflow run.
+
+    For callers outside an active ``mlflow.start_run()`` context — e.g. a
+    multirun sweep's lifecycle hooks, fired after a child's own run has
+    already closed — that only have the child's ``run_id`` on hand.
+
+    Args:
+        run_id: MLflow run UUID to log onto.
+        key: Metric name.
+        value: Metric value.
+        tracking_uri: SQLite or HTTP tracking URI.
+    """
+    from mlflow.tracking import MlflowClient
+
+    MlflowClient(tracking_uri=tracking_uri).log_metric(run_id, key, float(value))
+
+
 def _log_artifact_paths(
     *,
     tracking_uri: str,

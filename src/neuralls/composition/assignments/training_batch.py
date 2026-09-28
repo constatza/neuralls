@@ -32,10 +32,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from dlkit.common import ChildFailure, ChildSuccess, LifecycleHooks
+from dlkit.common import ChildFailure, ChildPlannedEvent, ChildSuccess, LifecycleHooks
+from dlkit.common.results import OptimizationResult
+from dlkit.common.results import TrainingResult as DlkitTrainingResult
 from dlkit.engine.workflows.multi_run import MultiRunSpec, RunSpec
 from dlkit.interfaces.api import run_multirun_spec
 from loguru import logger
+from torchalg.utils.device import resolve_device
 
 from neuralls.application.models import AssignmentResult, AssignmentSweepResult
 from neuralls.composition.assignments.assembler import (
@@ -67,10 +70,20 @@ from neuralls.platform.tracking.mlflow import (
 from neuralls.platform.tracking.mlflow_client import (
     fetch_mlflow_metrics,
     log_batch_artifacts_to_mlflow,
+    log_metric_to_run,
     mark_run_failed,
 )
 from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
-from neuralls.shared.device import release_device_memory
+from neuralls.shared.constants import (
+    TRAINING_CHILD_DURATION_METRIC_KEY,
+    TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY,
+)
+from neuralls.shared.device import (
+    ResourceUsageToken,
+    begin_resource_usage,
+    end_resource_usage,
+    release_device_memory,
+)
 
 
 def run_assignment(
@@ -215,7 +228,7 @@ def run_assignment(
 def _finalize_assignment_child(
     *,
     prepared: PreparedTraining,
-    execution_result: object,
+    execution_result: DlkitTrainingResult | OptimizationResult,
     settings: NeurallsSettings,
 ) -> AssignmentResult:
     """Finalize one successful multirun child: make its checkpoint durable in MLflow.
@@ -223,10 +236,15 @@ def _finalize_assignment_child(
     Converts a durability failure into a Failed `AssignmentResult` rather than
     raising — mirrors `run_assignment()`'s original per-assignment failure
     isolation, which used to cover the full train+finalize path via `train_model()`.
+    This also catches `finalize_prepared_training`'s `WorkflowError` when a
+    `search` job's every trial failed or was pruned (no training result to
+    retrain) — surfaced as a clear `Failed` status, not a downstream crash.
 
     Args:
         prepared: This assignment's prepared training inputs.
-        execution_result: The multirun child's dispatch result.
+        execution_result: The multirun child's dispatch result — a
+            `TrainingResult` directly for a `train`/`fit` job, or an
+            `OptimizationResult` for a `search` job.
         settings: Runtime settings, used to re-verify the dataset is unchanged.
 
     Returns:
@@ -258,18 +276,68 @@ def _finalize_assignment_child(
     )
 
 
-def _release_device_memory_on_child_outcome(_outcome: object) -> None:
-    """`LifecycleHooks` callback: free cached CUDA blocks after one sweep child.
+class _ChildTimingTracker:
+    """Times each multirun sweep child from dispatch to completion/failure.
 
+    dlkit hardcodes ``duration_seconds=0.0`` for every training executor
+    (one-shot ``Fittable.fit()`` and ordinary Lightning-``Trainer`` training
+    alike — confirmed by reading both `OneShotFitExecutor` and
+    `VanillaExecutor`), so no job kind's real duration ever reaches MLflow on
+    its own. This measures it from the outside instead, bridging
+    `LifecycleHooks`' two separate callback invocations
+    (`on_child_planned` at dispatch, `on_child_completed`/`on_child_failed`
+    at the end) via `shared.device.begin_resource_usage`/`end_resource_usage`,
+    then logs the result onto the child's own MLflow run — see
+    `shared.constants.TRAINING_CHILD_DURATION_METRIC_KEY`. Only ever sees
+    `child_id`/`run_id`, generic over `train`/`search`/`fit` alike; a future
+    job kind is covered automatically.
+
+    Also takes over `_release_device_memory_on_child_outcome`'s old job:
     dlkit's `MultiRunOrchestrator` runs every sweep child sequentially in one
-    process, with no allocator reset between them — a CUDA-heavy fit-job
-    child that OOMs (or merely peaks high) otherwise leaves the caching
-    allocator holding those blocks for every child that follows, turning one
-    real failure into a cascade of identical-looking ones. Registered for
-    both `on_child_completed` and `on_child_failed` since either outcome can
-    leave memory allocated; the outcome itself carries nothing relevant here.
+    process, with no allocator reset between them — a CUDA-heavy child that
+    OOMs (or merely peaks high) otherwise leaves the caching allocator
+    holding those blocks for every child that follows, turning one real
+    failure into a cascade of identical-looking ones.
     """
-    release_device_memory()
+
+    def __init__(self, tracking_uri: str) -> None:
+        self._tracking_uri = tracking_uri
+        self._tokens: dict[str, ResourceUsageToken] = {}
+
+    def on_planned(self, event: ChildPlannedEvent) -> None:
+        """`LifecycleHooks.on_child_planned`: start timing this child."""
+        self._tokens[event.child_id] = begin_resource_usage(resolve_device())
+
+    def on_finished(self, outcome: ChildSuccess | ChildFailure) -> None:
+        """`LifecycleHooks.on_child_completed`/`on_child_failed`: log duration, release memory."""
+        self._log_duration_if_available(outcome)
+        release_device_memory()
+
+    def _log_duration_if_available(self, outcome: ChildSuccess | ChildFailure) -> None:
+        """Log this child's measured duration/memory, if it was timed and has a run."""
+        token = self._tokens.pop(outcome.child_id, None)
+        if token is None or outcome.run_id is None:
+            return
+        usage = end_resource_usage(token)
+        try:
+            log_metric_to_run(
+                outcome.run_id,
+                TRAINING_CHILD_DURATION_METRIC_KEY,
+                usage.wall_time_seconds,
+                self._tracking_uri,
+            )
+            log_metric_to_run(
+                outcome.run_id,
+                TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY,
+                usage.peak_memory_bytes,
+                self._tracking_uri,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # A metrics failure must never turn a real training success/failure
+            # into something worse — warn and move on.
+            logger.warning(
+                "Failed to log child duration/memory for run {}: {}", outcome.run_id, exc
+            )
 
 
 def run_assignment_sweep(
@@ -379,6 +447,7 @@ def run_assignment_sweep(
         # Phase 2: Dispatch every assignment that needs training as one sweep.
         sweep_result = None
         if run_specs:
+            child_timing = _ChildTimingTracker(training_mlflow_env.tracking_uri)
             sweep_result = run_multirun_spec(
                 MultiRunSpec(
                     experiment_name=mlflow_experiment_name,
@@ -388,8 +457,9 @@ def run_assignment_sweep(
                     children=tuple(run_specs),
                 ),
                 hooks=LifecycleHooks(
-                    on_child_completed=_release_device_memory_on_child_outcome,
-                    on_child_failed=_release_device_memory_on_child_outcome,
+                    on_child_planned=child_timing.on_planned,
+                    on_child_completed=child_timing.on_finished,
+                    on_child_failed=child_timing.on_finished,
                 ),
             )
             for child_outcome in sweep_result.children:
