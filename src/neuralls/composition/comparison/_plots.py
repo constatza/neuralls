@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Hashable, Mapping
+from pathlib import Path
 
 from neuralls.composition.comparison._presentation import build_comparison_plot_title
 from neuralls.composition.comparison.models import ComparisonPaths
@@ -13,6 +14,7 @@ from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
     plot_error_convergence_comparison,
     plot_metric_comparison,
+    plot_work_precision,
 )
 
 
@@ -63,7 +65,10 @@ def _generate_comparison_plots(
         max_iterations: Maximum iterations displayed as a reference line.
 
     Returns:
-        Typed PlotPaths with paths to all generated figures.
+        Typed PlotPaths with paths to all generated figures — cost bar charts
+        (``setup_time_barplot``/``solve_time_barplot``/``peak_memory_barplot``)
+        are omitted (left ``None``) if no result in this comparison has that
+        metric measured.
     """
     suffix = paths.matrix.stem or "comparison"
     labels = _unique_display_labels(results, labels)
@@ -109,8 +114,64 @@ def _generate_comparison_plots(
         save_path=iter_path,
     )
 
+    setup_time_path = _plot_cost_barplot(
+        results, labels, paths.figures / f"preconditioner_setup_time_{suffix}.png",
+        attr="setup_time_seconds", metric_name="Setup Time (s)", title=title,
+    )  # fmt: skip
+    solve_time_path = _plot_cost_barplot(
+        results, labels, paths.figures / f"preconditioner_solve_time_{suffix}.png",
+        attr="solve_time_seconds", metric_name="Solve Time (s)", title=title,
+    )  # fmt: skip
+    memory_path = _plot_cost_barplot(
+        results, labels, paths.figures / f"preconditioner_peak_memory_{suffix}.png",
+        attr="peak_memory_bytes", metric_name="Peak Memory (bytes)", title=title,
+    )  # fmt: skip
+
+    work_precision_path = paths.figures / f"preconditioner_work_precision_{suffix}.png"
+    plot_work_precision(
+        results,
+        labels=labels,
+        families=families,
+        color_keys=color_keys,
+        marker_keys=marker_keys,
+        save_path=work_precision_path,
+        title=title,
+    )
+
     return PlotPaths(
         convergence=convergence_path,
         iterations_barplot=iter_path,
         error_convergence=error_path,
+        setup_time_barplot=setup_time_path,
+        solve_time_barplot=solve_time_path,
+        peak_memory_barplot=memory_path,
+        work_precision=work_precision_path,
     )
+
+
+def _plot_cost_barplot(
+    results: Mapping[str, CGComparisonResult],
+    labels: Mapping[str, str],
+    save_path: Path,
+    *,
+    attr: str,
+    metric_name: str,
+    title: str,
+) -> Path | None:
+    """Bar chart of one cost attribute, skipping entries where it was never measured.
+
+    Returns ``None`` (no file written) when no result in this comparison has
+    the attribute measured — e.g. every preconditioner failed to build.
+    """
+    present = [name for name in results if getattr(results[name], attr) is not None]
+    if not present:
+        return None
+    plot_metric_comparison(
+        [labels.get(name, name) for name in present],
+        [getattr(results[name], attr) for name in present],
+        metric_name=metric_name,
+        title=title,
+        horizontal=True,
+        save_path=save_path,
+    )
+    return save_path

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 
@@ -39,6 +40,7 @@ from neuralls.domain.solver.models.result import (
 from neuralls.platform.config.models.comparison import ComparisonGeneral
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
+    CheckpointRefBearing,
     NeuralPODCoarseningConfig,
     PODCoarseningConfig,
     PreconditionerConfig,
@@ -54,7 +56,9 @@ from neuralls.platform.reporting.preconditioner_labels import (
     contextualize_preconditioner_label,
 )
 from neuralls.platform.storage.filesystem import ensure_dir
-from neuralls.shared.device import release_device_memory
+from neuralls.platform.tracking.mlflow_client import fetch_mlflow_metrics
+from neuralls.shared.constants import TRAINING_CHILD_DURATION_METRIC_KEY
+from neuralls.shared.device import ResourceUsage, release_device_memory, track_resource_usage
 
 type PreconditionerEvaluationMapper = Callable[
     [
@@ -139,6 +143,7 @@ def _evaluate_preconditioner(
     params: SolverParams,
     display_name: str | None = None,
     x_exact: torch.Tensor | None = None,
+    tracking_uri: str | None = None,
 ) -> PreconditionerComparisonEntry:
     """Build one preconditioner, run it, and package its evaluation outcome.
 
@@ -157,6 +162,9 @@ def _evaluate_preconditioner(
         display_name: Optional human-readable comparison label, for logging.
         x_exact: Reference solution shared across every preconditioner in this
             comparison (see ``compare_preconditioners``), or ``None``.
+        tracking_uri: MLflow tracking URI to charge a checkpoint-backed
+            preconditioner's real (historical) setup cost against, or
+            ``None`` to skip that lookup entirely.
 
     Returns:
         Named result containing the solve outcome and plot metadata for ``cfg``.
@@ -175,6 +183,7 @@ def _evaluate_preconditioner(
             color_key=color_key,
             marker_key=marker_key,
             x_exact=x_exact,
+            tracking_uri=tracking_uri,
         )
     except Exception as exc:  # noqa: BLE001
         # Broad by design: one preconditioner's failure (build, solve, CUDA OOM,
@@ -197,6 +206,82 @@ def _evaluate_preconditioner(
         )
 
 
+def _resolve_setup_usage(
+    cfg: PreconditionerConfig, *, measured: ResourceUsage, tracking_uri: str | None
+) -> ResourceUsage:
+    """Prefer a checkpoint-backed preconditioner's real (historical) build cost.
+
+    When ``cfg`` reuses a checkpoint, the work that actually made it
+    expensive — a POD-2G SVD fit, a neural preconditioner's training — was
+    already paid for in a separate, earlier MLflow run; what got measured
+    just now around ``create_preconditioner()`` is only the checkpoint load
+    plus this run's coarse-matrix assembly, negligible overhead by
+    comparison. So: if the build was skipped and its real cost is on record,
+    use that record as ``setup_time_seconds`` instead of the freshly
+    measured overhead. If it wasn't skipped (no checkpoint, or no history to
+    find), the fresh measurement already *is* the real cost — use it as-is.
+
+    Looks up each checkpoint ref's ``resolved_run_id`` (populated only when
+    resolved via ``assignment``/``model_ref``, not a literal
+    ``checkpoint_path`` — see ``NeuralCheckpointRef``) and reads back that
+    run's own ``TRAINING_CHILD_DURATION_METRIC_KEY`` metric, logged by
+    ``composition/assignments/training_batch.py``'s sweep-child timing hook.
+    Sums across multiple refs (e.g. both a prolongation and restriction
+    checkpoint) since each was paid for independently.
+
+    Never raises: a metrics-lookup failure (no tracking server, run not
+    found, metric predates this feature) must never abort a comparison —
+    same resilience shape as
+    ``domain/solver/comparison.py::compute_reference_solution`` — it just
+    falls back to the fresh measurement.
+
+    Only wall time is charged back from history — peak memory is left as the
+    fresh measurement even when the duration is historical. Wall time is a
+    real cost paid once, transferable to any later run that reuses the
+    checkpoint; peak memory is a property of the process that trained it
+    (own device, own concurrent load at the time), not a cost this
+    comparison run itself pays, so ``setup_peak_memory_bytes`` should always
+    reflect what *this* run's checkpoint load actually used.
+
+    Args:
+        cfg: Preconditioner config to check for checkpoint refs.
+        measured: The wall time/peak memory actually measured this run
+            around ``create_preconditioner()``.
+        tracking_uri: MLflow tracking URI to query, or ``None`` to skip the
+            lookup entirely (e.g. no active MLflow session).
+
+    Returns:
+        ``measured`` with ``wall_time_seconds`` replaced by the historical
+        duration when found; ``measured`` unchanged otherwise.
+    """
+    if tracking_uri is None or not isinstance(cfg, CheckpointRefBearing):
+        return measured
+    total_duration = 0.0
+    found_any = False
+    for _, ref in cfg.checkpoint_refs():
+        if ref.resolved_run_id is None:
+            continue
+        try:
+            metrics = fetch_mlflow_metrics(ref.resolved_run_id, tracking_uri)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Could not fetch historical setup cost for run {}: {}: {}",
+                ref.resolved_run_id,
+                type(exc).__name__,
+                exc,
+            )
+            continue
+        duration = metrics.get(TRAINING_CHILD_DURATION_METRIC_KEY)
+        if duration is not None:
+            total_duration += duration
+            found_any = True
+    if not found_any:
+        return measured
+    return ResourceUsage(
+        wall_time_seconds=total_duration, peak_memory_bytes=measured.peak_memory_bytes
+    )
+
+
 def _run_preconditioner(
     cfg: PreconditionerConfig,
     *,
@@ -209,10 +294,12 @@ def _run_preconditioner(
     color_key: str | None,
     marker_key: str | None,
     x_exact: torch.Tensor | None = None,
+    tracking_uri: str | None = None,
 ) -> PreconditionerComparisonEntry:
     """Build and solve one preconditioner; raises on any failure."""
     family = preconditioner_family(cfg)
-    base_preconditioners = {cfg.name: service.create_preconditioner(matrix, cfg)}
+    with track_resource_usage(matrix.device) as setup_usage:
+        base_preconditioners = {cfg.name: service.create_preconditioner(matrix, cfg)}
     scheduled = _create_scheduled_preconditioners(
         preconditioner_configs=[cfg],
         matrix=matrix,
@@ -235,6 +322,14 @@ def _run_preconditioner(
         m_max=params.m_max,
         reference_precision_margin=params.reference_precision_margin,
     )[cfg.name]
+    resolved_setup_usage = _resolve_setup_usage(
+        cfg, measured=setup_usage(), tracking_uri=tracking_uri
+    )
+    result = replace(
+        result,
+        setup_time_seconds=resolved_setup_usage.wall_time_seconds,
+        setup_peak_memory_bytes=resolved_setup_usage.peak_memory_bytes,
+    )
     return PreconditionerComparisonEntry(
         name=cfg.name,
         result=result,
@@ -309,6 +404,7 @@ def compare_preconditioners(
     display_name: str | None = None,
     resolved_input: ResolvedComparisonInput | None = None,
     evaluation_mapper: PreconditionerEvaluationMapper = map,
+    tracking_uri: str | None = None,
 ) -> ComparisonResult:
     """Run CG comparisons and generate diagnostics.
 
@@ -318,7 +414,7 @@ def compare_preconditioners(
     3. Load, validate, and place the linear system on the solver device
     4. Evaluate each preconditioner config: build, bind, and solve
        (one preconditioner resident at a time — see ``evaluation_mapper``)
-    5. Add the "none" (identity) baseline if no config produced one
+    5. Add the "identity" (no-op) baseline if no config produced one
     6. Generate diagnostic plots
     7. Package and return result
 
@@ -341,6 +437,10 @@ def compare_preconditioners(
             ``n`` models concurrently without any other change here — an opt-in
             left to the caller, who is best placed to judge whether ``n`` models'
             worth of GPU memory fit at once.
+        tracking_uri: MLflow tracking URI used to charge a checkpoint-backed
+            preconditioner's real (historical) setup cost — see
+            ``_resolve_setup_usage``. ``None`` (default) skips that lookup
+            entirely; every existing caller keeps working unchanged.
 
     Returns:
         ComparisonResult with results, summary, plot paths, and solver metadata.
@@ -396,6 +496,7 @@ def compare_preconditioners(
         matrix_index=resolved_matrix_index,
         params=general_params.params,
         display_name=display_name,
+        tracking_uri=tracking_uri,
         x_exact=x_exact,
     )
 
@@ -433,7 +534,7 @@ def compare_preconditioners(
             f"Evaluation returned no result for preconditioner keys {missing_keys!r}."
         )
 
-    if "none" not in results:
+    if "identity" not in results:
         baseline = run_cg_comparison(
             matrix,
             rhs,
@@ -445,8 +546,8 @@ def compare_preconditioners(
             m_max=general_params.params.m_max,
             reference_precision_margin=general_params.params.reference_precision_margin,
         )
-        results["none"] = baseline["none"]
-        families.setdefault("none", PreconditionerType.NONE)
+        results["identity"] = baseline["identity"]
+        families.setdefault("identity", PreconditionerType.IDENTITY)
 
     recommendations = ComparisonRecommendations()
 

@@ -1270,6 +1270,48 @@ def test_log_comparison_metrics_logs_scalar_metrics_per_preconditioner(
     mock_mlflow.log_param.assert_called_once_with("best_preconditioner", "none")
 
 
+def test_log_comparison_metrics_logs_cost_metrics_when_measured(tmp_path: Path) -> None:
+    """Setup/solve time and size-normalized cost metrics appear once measured."""
+    result = replace(
+        _typed_comparison_result(tmp_path / "conv.png"),
+        results={
+            "none": replace(
+                _typed_comparison_result(tmp_path / "conv.png").results["none"],
+                setup_time_seconds=2.0,
+                setup_peak_memory_bytes=1000,
+                solve_time_seconds=1.0,
+                solve_peak_memory_bytes=2000,
+            )
+        },
+        matrix_shape=(100, 100),
+    )
+
+    with patch(_COMPARISON_TRACKING_MLFLOW_MODULE) as mock_mlflow:
+        log_comparison_result_metrics(result, child_run_tags={"none": {}})
+
+    metric_calls = {call.args[0]: call.args[1] for call in mock_mlflow.log_metric.call_args_list}
+    assert metric_calls["setup_time_s/none"] == 2.0
+    assert metric_calls["solve_time_s/none"] == 1.0
+    assert metric_calls["avg_iteration_time_s/none"] == pytest.approx(0.5)
+    assert metric_calls["peak_memory_bytes/none"] == 2000.0
+    assert metric_calls["time_per_dof_per_iteration/none"] == pytest.approx(0.5 / 100)
+    assert metric_calls["setup_time_per_dof/none"] == pytest.approx(2.0 / 100)
+    assert metric_calls["peak_memory_per_dof/none"] == pytest.approx(2000 / 100)
+
+
+def test_log_comparison_metrics_omits_cost_metrics_when_unmeasured(tmp_path: Path) -> None:
+    """No cost-metric keys are logged when a result never measured them (e.g. failed build)."""
+    result = _typed_comparison_result(tmp_path / "conv.png")
+
+    with patch(_COMPARISON_TRACKING_MLFLOW_MODULE) as mock_mlflow:
+        log_comparison_result_metrics(result, child_run_tags={"none": {}})
+
+    logged_names = {call.args[0] for call in mock_mlflow.log_metric.call_args_list}
+    assert not any(name.startswith("setup_time_s") for name in logged_names)
+    assert not any(name.startswith("solve_time_s") for name in logged_names)
+    assert not any(name.startswith("peak_memory_bytes") for name in logged_names)
+
+
 def test_log_linear_system_params_logs_matrix_and_rhs_shape(tmp_path: Path) -> None:
     """log_linear_system_params must log matrix/rhs shape and RHS kind."""
     result = replace(

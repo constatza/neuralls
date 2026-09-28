@@ -535,8 +535,102 @@ def plot_error_bound_comparison(
     )
 
 
+def plot_work_precision(
+    results: Mapping[str, CGComparisonResult],
+    *,
+    labels: Mapping[str, str] | None = None,
+    families: Mapping[str, PreconditionerFamilyKey] | None = None,
+    color_keys: Mapping[str, Hashable] | None = None,
+    marker_keys: Mapping[str, Hashable] | None = None,
+    save_path: str | Path | None = None,
+    show: bool = False,
+    title: str | None = None,
+    marker_size: float = DEFAULT_SCATTER_MARKER_AREA,
+) -> None:
+    """Work-precision diagram: final achieved precision vs. total wall time.
+
+    The standard cost/accuracy tradeoff plot from the iterative-solver
+    benchmarking literature (log-log, one point per method) — distinct from
+    ``plot_convergence_comparison``, which plots precision against iteration
+    *index* rather than actual cost. A preconditioner with fewer iterations
+    can still lose here if each iteration (or its setup) is expensive enough.
+
+    Args:
+        results: Dictionary of method results.
+        labels: Optional display label per result key.
+        families: Optional plot-style family per method name — see
+            ``plot_convergence_comparison``.
+        color_keys: Optional color-axis key per method name.
+        marker_keys: Optional marker-axis key per method name.
+        save_path: Path to save plot.
+        show: Whether to call ``plt.show()``.
+        title: Optional title for the plot.
+        marker_size: Scatter marker area.
+    """
+    fig, ax = plt.subplots(figsize=(8, 6))
+    labels = labels or {}
+    line_styles = _resolve_styles(families, color_keys, marker_keys) if families else {}
+
+    for method_name, result in results.items():
+        total_time = result.total_time_seconds
+        if total_time is None or total_time <= 0 or result.residual <= 0:
+            logger.warning(f"Method '{method_name}' has no cost data to plot on work-precision.")
+            continue
+
+        display_name = labels.get(method_name, method_name)
+        style = dict(
+            line_styles.get(method_name, {"marker": "o", "linestyle": "None", "color": None})
+        )
+        style["linestyle"] = "None"
+        size_scale = style.pop("markersize_scale", 1.0)
+
+        ax.scatter(
+            [total_time],
+            [result.residual],
+            label=display_name,
+            s=marker_size * 20 * size_scale,
+            marker=style.get("marker", "o"),
+            color=style.get("color"),
+            edgecolors="black",
+            linewidths=0.5,
+        )
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("Total wall time (setup + solve) [s]")
+    ax.set_ylabel("Final Relative Residual $\\|r\\| / \\|b\\|$")
+    fig.suptitle(title or "Work-Precision Diagram", fontsize=13, fontweight="bold")
+    ax.grid(True, which="both", alpha=0.3)
+    ax.legend(loc="upper right", fontsize=8)
+
+    plt.tight_layout()
+
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=200)
+        logger.info(f"Saved work-precision plot to: {save_path}")
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+def _extract_iterations(result: Mapping[str, int]) -> int:
+    """Read `iterations` off one noise-robustness result entry.
+
+    Args:
+        result: One method's result at one noise level.
+
+    Returns:
+        The result's iteration count, or 0 if absent.
+    """
+    return result.get("iterations", 0)
+
+
 def plot_noise_robustness(
-    noise_results: dict[str, dict[str, dict]],
+    noise_results: Mapping[str, Mapping[str, Mapping[str, int]]],
     save_path: str | Path | None = None,
     show: bool = False,
     marker_size: float = DEFAULT_LINE_MARKER_SIZE,
@@ -544,7 +638,8 @@ def plot_noise_robustness(
     """Plot noise robustness analysis results.
 
     Args:
-        noise_results: Nested dict: noise_level -> method -> results
+        noise_results: Nested mapping: noise_level -> method -> result, each
+            result at minimum carrying an ``"iterations"`` count.
         save_path: Optional path to save the plot
         show: Whether to show plot
         marker_size: Marker diameter for noise-series points
@@ -567,20 +662,10 @@ def plot_noise_robustness(
         levels_numeric = []
 
         for level, level_results in sorted_levels:
-            if method in level_results:
-                result = level_results[method]
-                # Handle both dict and dataclass results
-                iters = 0
-                if hasattr(result, "iterations"):
-                    # getattr, not direct access: same hasattr-narrowing
-                    # issue as plot_residual_history above.
-                    iters = getattr(result, "iterations")  # noqa: B009
-                elif isinstance(result, dict):
-                    iters = result.get("iterations", 0)
-                else:
-                    iters = 0
-                iterations.append(iters)
-                levels_numeric.append(float(level))
+            if method not in level_results:
+                continue
+            iterations.append(_extract_iterations(level_results[method]))
+            levels_numeric.append(float(level))
 
         if iterations:
             plt.plot(

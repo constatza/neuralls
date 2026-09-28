@@ -65,7 +65,7 @@ def _write_comparison_config(path: Path, system_path: Path) -> None:
                 'normalize_system = "matrix"',
                 "",
                 "[[preconditioners]]",
-                'name = "none"',
+                'name = "identity"',
                 'type = "identity"',
                 "",
                 "[[preconditioners]]",
@@ -235,7 +235,7 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
         ),
     )
     specs = (
-        StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY),
+        StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY),
         StandardPreconditionerConfig(name="second", type=PreconditionerType.JACOBI),
     )
 
@@ -245,7 +245,7 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
         output_root=Path("unused-output"),
     )
 
-    assert events == ["create:none", "cleanup:none", "create:second", "cleanup:second"]
+    assert events == ["create:identity", "cleanup:identity", "create:second", "cleanup:second"]
     assert not active
 
 
@@ -278,9 +278,15 @@ def test_compare_preconditioners_workflow(tmp_path: Path, neuralls_settings) -> 
 
     # Access typed solver results from ComparisonResult
     comparison_results = results.results
-    assert set(comparison_results.keys()) == {"none", "jacobi"}
+    assert set(comparison_results.keys()) == {"identity", "jacobi"}
     for name, info in comparison_results.items():
         assert info.iterations > 0, f"{name} did not run"
+        assert info.setup_time_seconds is not None
+        assert info.setup_time_seconds >= 0
+        assert info.solve_time_seconds is not None
+        assert info.solve_time_seconds >= 0
+        assert info.peak_memory_bytes is not None
+        assert info.peak_memory_bytes >= 0
     _assert_under(results.output_dir, tmp_path)
     for plot_path in results.plot_paths.to_mapping().values():
         assert plot_path.is_file()

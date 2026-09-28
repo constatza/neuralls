@@ -77,6 +77,13 @@ class PODCoarseningFittable(PODCoarseningStrategy):
     (`isinstance(model, PODCoarseningStrategy)`, `state_dict` shape) exactly
     like a bare `PODCoarseningStrategy` would — `isinstance` follows
     inheritance, and the checkpoint format is identical either way.
+
+    Complexity: on top of the inherited SVD-fit cost (see
+    `PODCoarseningConfig`'s complexity note — `O(min(m, n) * m * n)` for `m`
+    snapshots, `n` DOFs), this class's `fit()` pays one extra O(dataset size)
+    pass to materialize the dataloader's batches into a single snapshot
+    tensor before delegating — the single-pass, never-`list()`-the-whole-
+    dataloader concatenation described in `fit()`'s own docstring.
     """
 
     def __init__(
