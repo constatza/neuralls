@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 import torch
 from torchalg.models.result import SolverResult
 from torchalg.preconditioners.implementations import Identity, JacobiPreconditioner
+
+from neuralls.domain.solver.models.result import CGComparisonResult
 
 
 @pytest.fixture
@@ -31,8 +34,13 @@ def rhs(spd_matrix: torch.Tensor, known_solution: torch.Tensor) -> torch.Tensor:
 
 @pytest.fixture
 def preconditioners(spd_matrix: torch.Tensor) -> dict[str, object]:
-    """Identity and Jacobi preconditioners for the SPD fixture."""
-    return {"none": Identity(), "jacobi": JacobiPreconditioner(spd_matrix)}
+    """Identity and Jacobi preconditioners for the SPD fixture.
+
+    Keyed "identity", matching `run_cg_comparison`'s own auto-injected
+    baseline key — providing it explicitly here means no second, redundant
+    baseline solve gets silently added on top of these two.
+    """
+    return {"identity": Identity(), "jacobi": JacobiPreconditioner(spd_matrix)}
 
 
 @pytest.fixture
@@ -86,6 +94,69 @@ def solver_result_with_decrements_only() -> SolverResult:
         breakdown=False,
         error_history_a_norm=None,
         energy_decrements=(1.0, 0.5, 0.25),
+    )
+
+
+@pytest.fixture
+def comparison_result_with_cost_data() -> CGComparisonResult:
+    """A converged CGComparisonResult with setup/solve time and memory measured."""
+    return CGComparisonResult(
+        x=np.zeros(10),
+        converged=True,
+        iterations=5,
+        residual=1e-8,
+        residual_abs=1e-8,
+        residual_history_rel=[1.0, 0.1, 0.01, 0.001, 1e-8],
+        residual_history_abs=[1.0, 0.1, 0.01, 0.001, 1e-8],
+        preconditioner="jacobi",
+        initial_guess=np.zeros(10),
+        exact_error=None,
+        rhs_norm=1.0,
+        breakdown=False,
+        setup_time_seconds=2.0,
+        setup_peak_memory_bytes=1000,
+        solve_time_seconds=1.0,
+        solve_peak_memory_bytes=2000,
+    )
+
+
+@pytest.fixture
+def comparison_result_without_cost_data() -> CGComparisonResult:
+    """A converged CGComparisonResult with no cost measurements attached."""
+    return CGComparisonResult(
+        x=np.zeros(10),
+        converged=True,
+        iterations=5,
+        residual=1e-8,
+        residual_abs=1e-8,
+        residual_history_rel=[1.0, 0.1, 0.01, 0.001, 1e-8],
+        residual_history_abs=[1.0, 0.1, 0.01, 0.001, 1e-8],
+        preconditioner="jacobi",
+        initial_guess=np.zeros(10),
+        exact_error=None,
+        rhs_norm=1.0,
+        breakdown=False,
+    )
+
+
+@pytest.fixture
+def comparison_result_with_zero_iterations() -> CGComparisonResult:
+    """A CGComparisonResult where the "identity" baseline converged immediately (0 iterations)."""
+    return CGComparisonResult(
+        x=np.zeros(10),
+        converged=True,
+        iterations=0,
+        residual=1e-8,
+        residual_abs=1e-8,
+        residual_history_rel=[1e-8],
+        residual_history_abs=[1e-8],
+        preconditioner="identity",
+        initial_guess=np.zeros(10),
+        exact_error=None,
+        rhs_norm=1.0,
+        breakdown=False,
+        solve_time_seconds=0.0,
+        solve_peak_memory_bytes=0,
     )
 
 

@@ -228,10 +228,12 @@ def test_run_cg_comparison_with_preconditioner_instances(
         maxiter=100,
     )
 
-    # Verify all keys present (including auto-added "none")
+    # Verify all keys present. The auto-added baseline is also "identity" (see
+    # run_cg_comparison), so providing one explicitly means no second,
+    # redundant baseline entry gets added.
     assert "identity" in results
     assert "jacobi" in results
-    assert "none" in results  # Auto-added baseline
+    assert len(results) == 2
 
     # Verify result types
     for name, result in results.items():
@@ -312,7 +314,7 @@ def test_run_cg_comparison_dispatches_by_preconditioner_compatibility(
         rhs_vector,
         preconditioners={
             "nonlinear": DummyNonLinearPreconditioner(),
-            "none": Identity(),
+            "identity": Identity(),
         },
         rtol=1e-8,
         atol=1e-10,
@@ -321,7 +323,7 @@ def test_run_cg_comparison_dispatches_by_preconditioner_compatibility(
 
     assert calls == ["flexible", "pcg"]
     assert results["nonlinear"].converged
-    assert results["none"].converged
+    assert results["identity"].converged
 
 
 def test_run_cg_comparison_routes_to_pcg(spd_matrix: Tensor, rhs_vector: Tensor) -> None:
@@ -342,8 +344,8 @@ def test_run_cg_comparison_routes_to_pcg(spd_matrix: Tensor, rhs_vector: Tensor)
     assert result.converged
 
 
-def test_run_cg_comparison_adds_none_baseline(spd_matrix: Tensor, rhs_vector: Tensor) -> None:
-    """Test that 'none' baseline is automatically added if missing."""
+def test_run_cg_comparison_adds_identity_baseline(spd_matrix: Tensor, rhs_vector: Tensor) -> None:
+    """Test that the 'identity' baseline is automatically added if missing."""
     preconditioners = {"jacobi": JacobiPreconditioner(spd_matrix)}
 
     results = run_cg_comparison(
@@ -355,14 +357,14 @@ def test_run_cg_comparison_adds_none_baseline(spd_matrix: Tensor, rhs_vector: Te
         maxiter=100,
     )
 
-    # Verify "none" was added
-    assert "none" in results
+    # Verify "identity" was added
+    assert "identity" in results
     assert "jacobi" in results
 
-    # Verify "none" result is valid
-    none_result = results["none"]
-    assert isinstance(none_result, CGComparisonResult)
-    assert none_result.preconditioner == "none"
+    # Verify "identity" result is valid
+    identity_result = results["identity"]
+    assert isinstance(identity_result, CGComparisonResult)
+    assert identity_result.preconditioner == "identity"
 
 
 def test_run_cg_comparison_computes_exact_error(spd_matrix: Tensor, rhs_vector: Tensor) -> None:

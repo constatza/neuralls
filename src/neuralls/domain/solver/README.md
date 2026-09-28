@@ -12,10 +12,28 @@ implementations are delegated to `torchalg`.
   - `ComparisonData`
   - `ComparisonGeneral`
 - Workflow/reporting DTOs:
-  - `CGComparisonResult`
+  - `CGComparisonResult` — including measured cost fields (`setup_time_seconds`,
+    `setup_peak_memory_bytes`, `solve_time_seconds`, `solve_peak_memory_bytes`,
+    all `None` until measured) and derived properties (`total_time_seconds`,
+    `avg_iteration_time_seconds`, `peak_memory_bytes`). For a checkpoint-backed
+    preconditioner (a POD-2G basis fit ahead of time, a trained neural
+    preconditioner), `setup_time_seconds` is not the freshly-measured
+    checkpoint-load/coarse-assembly overhead — it's that checkpoint's real,
+    historical fit/train duration, charged back from the origin job's own
+    MLflow run (`resolved_run_id` on the config's `NeuralCheckpointRef`) by
+    `composition/comparison/comparison_run.py::_resolve_setup_usage`, since the
+    overhead measured this run is negligible next to the training it skipped.
+    Falls back to the fresh measurement when there's no checkpoint, or no
+    history to find. One field either way — never a separate "amortized" one.
   - `ComparisonResult`
-  - `PlotPaths`
+  - `PlotPaths` — including cost bar-chart paths and `work_precision`
   - recommendation records
+- `cost_metrics.py`: pure size-normalized/throughput functions
+  (`iterations_per_second`, `time_per_dof_per_iteration`, `setup_time_per_dof`,
+  `peak_memory_per_dof`) — take a `CGComparisonResult` plus the comparison's
+  `system_size` (from `ComparisonResult.matrix_shape[0]`, since every
+  preconditioner in one comparison shares the same matrix) so cost is
+  comparable across comparisons run on different-sized matrices
 - Comparison orchestration helpers that package `torchalg` solver output for
   neuralls reporting workflows. The reference `x*` is a Jacobi-preconditioned
   `torchalg.pcg` solve (`reference_solution`) driven until its relative
@@ -48,6 +66,18 @@ implementations are delegated to `torchalg`.
   it calls `shared.device.release_device_memory()` — cross-layer since
   `composition/assignments` also calls it between sweep children and pipeline
   stages, not solver-comparison-specific, so it lives in `shared/`, not here.
+  `run_cg_comparison` wraps each `_solve_one` call in
+  `shared.device.track_resource_usage`, attaching `solve_time_seconds`/
+  `solve_peak_memory_bytes` to the resulting `CGComparisonResult` — cost is
+  measured as an averaged/aggregate value per preconditioner (this module
+  makes no attempt at a true per-iteration cost curve, since `torchalg`
+  exposes no per-iteration timing/memory hook). Preconditioner *construction*
+  time/memory (checkpoint load or inline fit, e.g. POD-2G's SVD) is measured
+  the same way one layer up, in
+  `composition/comparison/comparison_run.py::_run_preconditioner` around
+  `create_preconditioner()` — this module never measures its own
+  preconditioner's setup cost, since it only ever receives already-built
+  `Preconditioner` instances.
 - Validation and artifact export helpers used by platform/composition layers.
 
 Comparison results intentionally contain solver behavior only. Raw and

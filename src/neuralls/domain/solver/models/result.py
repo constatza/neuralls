@@ -151,6 +151,21 @@ class CGComparisonResult:
         helper_iterations: Iterations where step helper was invoked.
         helper_norms: Residual norms after step helper application.
         error: Error message if solver failed.
+        setup_time_seconds: Wall time to build this preconditioner. For a
+            fresh (non-checkpoint) build this is measured directly around
+            `create_preconditioner()`; for a checkpoint-backed build it is
+            the historical fit/train duration charged back from that
+            checkpoint's own MLflow run instead, since the checkpoint load
+            itself is negligible overhead next to the training it skipped —
+            see `composition/comparison/comparison_run.py::_resolve_setup_usage`.
+            `None` if neither a measurement nor history was available.
+        setup_peak_memory_bytes: Peak memory during construction — see
+            `shared.device.track_resource_usage` for the CPU/GPU measurement
+            split. `None` if never measured.
+        solve_time_seconds: Wall time for the CG/PCG/FCG solve itself.
+            `None` if never measured.
+        solve_peak_memory_bytes: Peak memory during the solve. `None` if
+            never measured.
 
     Example:
         >>> result = CGComparisonResult(
@@ -217,6 +232,45 @@ class CGComparisonResult:
     """Golub-Meurant lower bound on ||e_k||_A / ||e_0||_A, used when the exact
     energy error is unavailable (no reference solution). None if neither is available."""
 
+    setup_time_seconds: float | None = None
+    """Wall time to build this preconditioner. For a checkpoint-backed build
+    (e.g. a reused POD-2G basis), this is the *historical* fit/train
+    duration charged back from its own MLflow run when available, not the
+    (comparatively negligible) checkpoint-load/coarse-assembly time measured
+    this run -- see `composition/comparison/comparison_run.py::_resolve_setup_usage`.
+    None if not measured and no history was found."""
+
+    setup_peak_memory_bytes: int | None = None
+    """Peak memory during construction. None if not measured."""
+
+    solve_time_seconds: float | None = None
+    """Wall time for the CG/PCG/FCG solve. None if not measured."""
+
+    solve_peak_memory_bytes: int | None = None
+    """Peak memory during the solve. None if not measured."""
+
+    @property
+    def total_time_seconds(self) -> float | None:
+        """Setup + solve wall time, or None if neither was measured."""
+        if self.setup_time_seconds is None and self.solve_time_seconds is None:
+            return None
+        return (self.setup_time_seconds or 0.0) + (self.solve_time_seconds or 0.0)
+
+    @property
+    def avg_iteration_time_seconds(self) -> float | None:
+        """Solve time divided by iteration count — the averaged per-iteration cost."""
+        if self.solve_time_seconds is None or self.iterations <= 0:
+            return None
+        return self.solve_time_seconds / self.iterations
+
+    @property
+    def peak_memory_bytes(self) -> int | None:
+        """Max of setup and solve peak memory, or None if neither was measured."""
+        values = [
+            v for v in (self.setup_peak_memory_bytes, self.solve_peak_memory_bytes) if v is not None
+        ]
+        return max(values) if values else None
+
 
 @dataclass(frozen=True, slots=True)
 class IterationContext:
@@ -282,6 +336,10 @@ class PlotPaths:
         residuals: Residual history plot.
         iterations_barplot: Horizontal bar chart of iteration counts.
         error_convergence: Relative energy-norm error convergence plot.
+        setup_time_barplot: Horizontal bar chart of preconditioner setup times.
+        solve_time_barplot: Horizontal bar chart of CG solve times.
+        peak_memory_barplot: Horizontal bar chart of peak memory usage.
+        work_precision: Work-precision diagram (final precision vs. total cost).
     """
 
     convergence: Path | None = None
@@ -289,6 +347,10 @@ class PlotPaths:
     residuals: Path | None = None
     iterations_barplot: Path | None = None
     error_convergence: Path | None = None
+    setup_time_barplot: Path | None = None
+    solve_time_barplot: Path | None = None
+    peak_memory_barplot: Path | None = None
+    work_precision: Path | None = None
 
     @classmethod
     def from_mapping(cls, mapping: dict[str, Path] | None) -> PlotPaths:
@@ -308,6 +370,10 @@ class PlotPaths:
             residuals=mapping.get("residuals"),
             iterations_barplot=mapping.get("iterations_barplot"),
             error_convergence=mapping.get("error_convergence"),
+            setup_time_barplot=mapping.get("setup_time_barplot"),
+            solve_time_barplot=mapping.get("solve_time_barplot"),
+            peak_memory_barplot=mapping.get("peak_memory_barplot"),
+            work_precision=mapping.get("work_precision"),
         )
 
     def to_mapping(self) -> dict[str, Path]:
@@ -322,6 +388,10 @@ class PlotPaths:
             "residuals": self.residuals,
             "iterations_barplot": self.iterations_barplot,
             "error_convergence": self.error_convergence,
+            "setup_time_barplot": self.setup_time_barplot,
+            "solve_time_barplot": self.solve_time_barplot,
+            "peak_memory_barplot": self.peak_memory_barplot,
+            "work_precision": self.work_precision,
         }
         return {key: path for key, path in values.items() if path is not None}
 

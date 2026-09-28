@@ -33,7 +33,7 @@ from neuralls.domain.solver.models.result import (
     RankedRecommendation,
 )
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
-from neuralls.shared.device import release_device_memory
+from neuralls.shared.device import release_device_memory, track_resource_usage
 
 
 class CGAlgorithm(StrEnum):
@@ -95,7 +95,7 @@ def run_cg_comparison(
     Example:
         >>> from torchalg.preconditioners.implementations import Identity, JacobiPreconditioner
         >>> preconditioners = {
-        ...     "none": Identity(),
+        ...     "identity": Identity(),
         ...     "jacobi": JacobiPreconditioner(A),
         ... }
         >>> results = run_cg_comparison(A, b, preconditioners=preconditioners)
@@ -106,9 +106,9 @@ def run_cg_comparison(
     x0 = torch.zeros_like(b, dtype=A.dtype, device=A.device) if x0 is None else x0.to(device)
     x0_base = x0.detach().clone()
 
-    if "none" not in preconditioners:
+    if "identity" not in preconditioners:
         preconditioners = dict(preconditioners)
-        preconditioners["none"] = Identity()
+        preconditioners["identity"] = Identity()
 
     if x_exact is None:
         x_exact = compute_reference_solution(
@@ -121,10 +121,11 @@ def run_cg_comparison(
 
     for precond_name, precond in preconditioners.items():
         try:
-            x_sol, info = _solve_one(
-                A, b, x0, precond, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
-                x_exact=x_exact,
-            )  # fmt: skip
+            with track_resource_usage(A.device) as usage:
+                x_sol, info = _solve_one(
+                    A, b, x0, precond, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
+                    x_exact=x_exact,
+                )  # fmt: skip
         except (ValueError, RuntimeError) as solver_exc:
             result = CGComparisonResult(
                 x=_to_numpy(x0_base),
@@ -166,6 +167,8 @@ def run_cg_comparison(
                 breakdown=info.breakdown,
                 error_history_a_rel=error_history,
                 error_bound_a_rel=error_bound,
+                solve_time_seconds=usage().wall_time_seconds,
+                solve_peak_memory_bytes=usage().peak_memory_bytes,
             )
 
         results[precond_name] = result
@@ -310,35 +313,36 @@ def format_results_summary(results: dict[str, CGComparisonResult]) -> str:
     Returns:
         Formatted summary string.
     """
-    lines = ["CG comparison results:"]
-    for name, result in results.items():
-        status = "ok" if result.converged else "fail"
-        iters = result.iterations
-        res = result.residual
-        exact_err = result.exact_error
-        res_abs = result.residual_abs
+    return "\n".join(
+        ["CG comparison results:"]
+        + [_format_result_line(name, result) for name, result in results.items()]
+    )
 
-        if exact_err is not None:
-            line = f"- {name:<18} status={status:<4} iters={iters:>3}  rel_res={res:.3e}"
-            if res_abs is not None:
-                line += f" (abs={res_abs:.3e})"
-            line += f"  exact_err={exact_err:.3e}"
-        else:
-            line = f"- {name:<18} status={status:<4} iters={iters:>3}  rel_res={res:.3e}"
-            if res_abs is not None:
-                line += f" (abs={res_abs:.3e})"
 
-        if result.error:
-            line += f"  note={result.error}"
+def _format_result_line(name: str, result: CGComparisonResult) -> str:
+    """Format one preconditioner's result as a single summary line.
 
-        if result.breakdown and not result.converged:
-            line += "  note=breakdown"
-        elif result.breakdown and result.converged:
-            line += "  note=breakdown_post_convergence"
+    Args:
+        name: Preconditioner name.
+        result: Its CG comparison result.
 
-        lines.append(line)
-
-    return "\n".join(lines)
+    Returns:
+        One formatted line, e.g. ``"- jacobi  status=ok  iters=5  rel_res=1.0e-08"``.
+    """
+    status = "ok" if result.converged else "fail"
+    line = (
+        f"- {name:<18} status={status:<4} iters={result.iterations:>3}"
+        f"  rel_res={result.residual:.3e}"
+    )
+    if result.residual_abs is not None:
+        line += f" (abs={result.residual_abs:.3e})"
+    if result.exact_error is not None:
+        line += f"  exact_err={result.exact_error:.3e}"
+    if result.error:
+        line += f"  note={result.error}"
+    if result.breakdown:
+        line += "  note=breakdown_post_convergence" if result.converged else "  note=breakdown"
+    return line
 
 
 def summarize_best_combinations(
