@@ -54,7 +54,7 @@ def _comparison_payload(tmp_path: Path) -> ComparisonResult:
         results={},
         summary="ok",
         solver_params=_solver_params(tmp_path),
-        preconditioners=("none",),
+        preconditioners=("identity",),
         recommendations=ComparisonRecommendations(),
     )
 

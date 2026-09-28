@@ -193,7 +193,7 @@ def _write_experiments_config(
             "stopping_criterion": "residual_norm",
             "m_max": 5,
             "normalize_system": "matrix",
-            "preconditioners": [{"name": "none", "type": "identity"}],
+            "preconditioners": [{"name": "identity", "type": "identity"}],
         },
     }
     if dataset_dir is not None:
@@ -217,7 +217,7 @@ def _write_experiments_config(
 def _write_method_config(path: Path) -> None:
     """Write a minimal comparison method override config."""
     path.write_text(
-        '[general]\n\n[general.params]\nrtol = 1e-6\natol = 1e-14\nmax_iterations = 20\nstopping_criterion = "residual_norm"\nm_max = 5\n\n[[preconditioners]]\nname = "none"\ntype = "identity"\n',
+        '[general]\n\n[general.params]\nrtol = 1e-6\natol = 1e-14\nmax_iterations = 20\nstopping_criterion = "residual_norm"\nm_max = 5\n\n[[preconditioners]]\nname = "identity"\ntype = "identity"\n',
         encoding="utf-8",
     )
 
@@ -275,7 +275,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
         (figures_dir / "comparison_plot.png").write_text("placeholder", encoding="utf-8")
         return ComparisonResult(
             results={
-                "none": CGComparisonResult(
+                "identity": CGComparisonResult(
                     x=np.zeros(2),
                     converged=True,
                     iterations=2,
@@ -283,7 +283,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
                     residual_abs=1.0e-8,
                     residual_history_rel=[1.0, 1.0e-8],
                     residual_history_abs=[1.0, 1.0e-8],
-                    preconditioner="none",
+                    preconditioner="identity",
                     initial_guess=np.zeros(2),
                     exact_error=None,
                     rhs_norm=1.0,
@@ -292,10 +292,10 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
             },
             summary="ok",
             solver_params=general_params,
-            preconditioners=("none",),
+            preconditioners=("identity",),
             recommendations=ComparisonRecommendations(
                 overall_best=RankedRecommendation(
-                    label="none",
+                    label="identity",
                     iterations=2,
                     residual=1.0e-8,
                     residual_abs=1.0e-8,

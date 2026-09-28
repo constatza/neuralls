@@ -25,9 +25,14 @@ from neuralls.shared.digest import Cosmetic, InputConfig, InputData
 
 
 class PreconditionerType(StrEnum):
-    """Preconditioner types."""
+    """Preconditioner types.
 
-    NONE = "none"
+    ``IDENTITY`` is the sole no-op/no-preconditioner spelling — a former
+    duplicate ``NONE`` member was removed (deprecated ``type = "none"``/
+    ``"null"`` TOML values still normalize to ``IDENTITY``, see
+    ``_normalize_identity_aliases``).
+    """
+
     IDENTITY = "identity"
     JACOBI = "jacobi"
     ILU = "ilu"
@@ -53,8 +58,6 @@ class PreconditionerType(StrEnum):
             str: e.g. ``"aSA"``, ``"BAMG"``.
         """
         match self:
-            case PreconditionerType.NONE:
-                return "None"
             case PreconditionerType.IDENTITY:
                 return "Identity"
             case PreconditionerType.JACOBI:
@@ -77,13 +80,48 @@ class PreconditionerType(StrEnum):
                 return "BAMG"
 
 
-def _normalize_null(data: dict) -> Any:
-    """Normalize deprecated null-like aliases to the explicit none baseline."""
-    if isinstance(data, dict):
-        data = data.copy()
-        if data.get("type") == "null":
-            data["type"] = PreconditionerType.NONE
+def _validate_pod_rank(v: float) -> int | float:
+    """Enforce the per-mode constraint matching whichever branch of ``rank`` was given.
+
+    Shared by ``PODCoarseningConfig._validate_rank`` and
+    ``NeuralPODCoarseningConfig._validate_rank`` — same POD-2G rank
+    contract, only the surrounding config differs.
+
+    Args:
+        v: The parsed ``rank`` value — an int (mode count) or float
+            (energy threshold).
+
+    Returns:
+        The validated value, unchanged.
+
+    Raises:
+        ValueError: If an int rank is < 1, or a float rank is outside (0, 1].
+    """
+    if isinstance(v, float) and not (0.0 < v <= 1.0):
+        raise ValueError(f"rank as an energy threshold must be in (0, 1], got {v}")
+    if not isinstance(v, float) and v < 1:
+        raise ValueError(f"rank as a mode count must be >= 1, got {v}")
+    return v
+
+
+_DEPRECATED_IDENTITY_ALIASES = frozenset({"null", "none"})
+"""Old spellings for the no-op preconditioner, both normalized to ``IDENTITY``.
+
+``"null"`` predates this codebase's ``IDENTITY``/``NONE`` split; ``"none"``
+was itself a real ``PreconditionerType`` member (removed as a pure duplicate
+of ``IDENTITY`` — both built an ``Identity()`` preconditioner, see
+``composition/preconditioners/factory.py``). Kept accepted here so existing
+checked-in or user-authored TOML configs written before either change still
+parse."""
+
+
+def _normalize_identity_aliases(data: dict) -> Any:
+    """Normalize deprecated no-op-preconditioner aliases to ``IDENTITY``."""
+    if not isinstance(data, dict):
         return data
+    data = data.copy()
+    if data.get("type") in _DEPRECATED_IDENTITY_ALIASES:
+        data["type"] = PreconditionerType.IDENTITY
     return data
 
 
@@ -340,10 +378,17 @@ class BasePreconditionerConfig(BaseModel):
 
 
 class StandardPreconditionerConfig(BasePreconditionerConfig):
-    """Non-parametric, static preconditioners (identity, jacobi, ilu, icholesky)."""
+    """Non-parametric, static preconditioners (identity, jacobi, ilu, icholesky).
+
+    Complexity: no setup beyond one factorization/diagonal extraction, no
+    hyperparameters that change asymptotic cost. See the constructed
+    ``torchalg`` class's own docstring for the exact storage/application
+    Big-O (e.g. ``JacobiPreconditioner``: O(n) both; ``ILUPreconditioner``:
+    O(nnz) both — derived from each class's actual tensor operations, not
+    counted at runtime).
+    """
 
     type: Literal[
-        PreconditionerType.NONE,
         PreconditionerType.IDENTITY,
         PreconditionerType.JACOBI,
         PreconditionerType.ILU,
@@ -352,7 +397,16 @@ class StandardPreconditionerConfig(BasePreconditionerConfig):
 
 
 class IC0PreconditionerConfig(BasePreconditionerConfig):
-    """IC(0) preconditioner configuration with threshold parameter."""
+    """IC(0) preconditioner configuration with threshold parameter.
+
+    Complexity: ``torchalg``'s ``IC0Preconditioner`` is a *dense masked* port
+    (see its module docstring) — it stores and factorizes a dense ``n x n``
+    buffer with the IC(0) sparsity mask applied, not a true sparse structure.
+    Real cost is therefore O(n^2) storage and O(n^2) setup/application, not
+    the sparse-textbook O(nnz) the IC(0) *algorithm* would suggest on a real
+    sparse implementation — see ``torchalg.preconditioners.implementations
+    .ic0.IC0Preconditioner`` for the derivation.
+    """
 
     type: Literal[PreconditionerType.IC0] = PreconditionerType.IC0
     threshold: float = Field(
@@ -369,7 +423,15 @@ class IC0PreconditionerConfig(BasePreconditionerConfig):
 
 
 class NeuralPreconditionerConfig(BasePreconditionerConfig, NeuralCheckpointRef):
-    """Neural preconditioner configuration."""
+    """Neural preconditioner configuration.
+
+    Complexity: unlike every other preconditioner type in this file, cost is
+    not derivable from this config alone — it is whatever the referenced
+    checkpoint's network architecture costs per forward pass (setup: model
+    load; application: one forward pass per CG iteration). No Big-O is stated
+    here for that reason; measure it (``setup_time_seconds``/
+    ``solve_time_seconds`` on the comparison result) rather than assume it.
+    """
 
     type: Literal[PreconditionerType.NEURAL] = PreconditionerType.NEURAL
     extra_input_names: tuple[str, ...] = Field(
@@ -439,7 +501,14 @@ class NeuralPreconditionerConfig(BasePreconditionerConfig, NeuralCheckpointRef):
 
 
 class AggregationCoarseningConfig(BaseModel):
-    """Classical smoothed-aggregation coarsening (SA-AMG)."""
+    """Classical smoothed-aggregation coarsening (SA-AMG).
+
+    Complexity: setup is one strength-of-connection pass plus greedy
+    aggregation, O(nnz(A)) on a truly sparse matrix — this pipeline's dense
+    tensor storage (see ``IC0PreconditionerConfig``'s complexity note for
+    the same caveat) makes the practical cost closer to O(n^2) since forming
+    and scanning the dense strength graph touches every entry.
+    """
 
     method: Literal["aggregation"] = "aggregation"
     theta: float = Field(
@@ -476,6 +545,13 @@ class TargetDimCoarseningConfig(BaseModel):
     constructs it with `cache_candidates=True` to share the winning
     theta's full build across sibling `target_dim` configs against the
     same matrix within one comparison run).
+
+    Complexity: `AggregationCoarseningConfig`'s setup cost (see its own
+    complexity note), multiplied by however many `theta` values the grid
+    search in `(theta_min, theta_max, step)` tries before landing on the
+    closest match — `cache_candidates=True` (this repo's factory always sets
+    it) means repeated `target_dim` configs against the same matrix reuse
+    already-built candidates rather than re-paying this multiplier each time.
     """
 
     method: Literal["target_dim"] = "target_dim"
@@ -582,6 +658,24 @@ class PODCoarseningConfig(NeuralCheckpointRef):
     ``composition/preconditioners/factory.py``'s AMG branch. None of these
     fields are required: a `PODCoarseningConfig` with no checkpoint identity
     set behaves exactly as before (inline `dataset_dir` fit only).
+
+    Complexity: fit cost has two parts — the thin SVD over the snapshot
+    matrix (`m` snapshots x `n` DOFs), `O(min(m, n) * m * n)` for
+    `torch.linalg.svd`'s default full-matrices=False mode (cheap when
+    `m << n`, the usual case), and the one-time Galerkin coarse-matrix
+    triple product `Phi_r^T @ A @ Phi_r` in `build_transfer`, `O(rank * n^2)`
+    (dense `n x n` matrix, dominates the SVD when `rank` isn't tiny relative
+    to `m`). No fit cost at all when checkpoint-backed (see the class
+    docstring above) — just a checkpoint load, though `build_transfer`'s
+    triple product still runs once per comparison since it depends on the
+    matrix, not the basis. Per-iteration application cost is `O(rank * n)`
+    for the basis projection itself, but every CG iteration through
+    `AMGPreconditioner`'s V-cycle also pays the surrounding cycle's O(n^2)
+    dense fine-level smoothing/residual cost — see
+    `AMGPreconditionerConfig`'s complexity note; POD-2G's basis projection
+    is cheap next to that, not instead of it. See
+    `torchalg.preconditioners.implementations.pod.coarsening` /
+    `.basis` for the derivation.
     """
 
     method: Literal["pod"] = "pod"
@@ -640,12 +734,7 @@ class PODCoarseningConfig(NeuralCheckpointRef):
         Raises:
             ValueError: If an int rank is < 1, or a float rank is outside (0, 1].
         """
-        if isinstance(v, float):
-            if not (0.0 < v <= 1.0):
-                raise ValueError(f"rank as an energy threshold must be in (0, 1], got {v}")
-        elif v < 1:
-            raise ValueError(f"rank as a mode count must be >= 1, got {v}")
-        return v
+        return _validate_pod_rank(v)
 
     def exposed_checkpoint_ref(self) -> NeuralCheckpointRef | None:
         """Opt into checkpoint resolution only when a resolvable identity is set.
@@ -674,6 +763,15 @@ class NeuralPODCoarseningConfig(NeuralCheckpointRef):
     themselves), and the checkpoint identity fields inherited from
     ``NeuralCheckpointRef`` locate the model that turns those parameters into
     snapshots.
+
+    Complexity: application cost is the same `O(rank * n)` basis projection
+    as `PODCoarseningConfig` (also dominated in practice by the surrounding
+    V-cycle's O(n^2) cost — same caveat as `PODCoarseningConfig`'s complexity
+    note). Fit cost, unlike `PODCoarseningConfig`, is not
+    a fixed SVD formula — the snapshot ensemble itself comes from a network
+    forward pass (see `NeuralPreconditionerConfig`'s complexity note: model
+    architecture-dependent, not stated here), *followed by* the same
+    `O(min(m, n) * m * n)` SVD over the predicted snapshots.
     """
 
     method: Literal["neural_pod"] = "neural_pod"
@@ -751,12 +849,7 @@ class NeuralPODCoarseningConfig(NeuralCheckpointRef):
         Raises:
             ValueError: If an int rank is < 1, or a float rank is outside (0, 1].
         """
-        if isinstance(v, float):
-            if not (0.0 < v <= 1.0):
-                raise ValueError(f"rank as an energy threshold must be in (0, 1], got {v}")
-        elif v < 1:
-            raise ValueError(f"rank as a mode count must be >= 1, got {v}")
-        return v
+        return _validate_pod_rank(v)
 
     def exposed_checkpoint_ref(self) -> NeuralCheckpointRef:
         """Always checkpoint-backed — its snapshot ensemble only exists via a checkpoint."""
@@ -784,6 +877,21 @@ class AMGPreconditionerConfig(BasePreconditionerConfig):
     ``CoarseningConfig`` union, not a new ``PreconditionerType`` and not new
     fields on this class — the underlying ``AMGPreconditioner`` is already
     generic over any ``CoarseningStrategy``.
+
+    Complexity: application (one V-cycle) is **not** the textbook O(n) —
+    that bound assumes sparse matvecs with a bounded coarsening ratio, but
+    ``torchalg``'s AMG hierarchy is dense-only throughout: every level,
+    transfer operator, and the coarsest-level solve via
+    `torch.linalg.solve`/`pinv` all operate on dense `torch.Tensor` storage,
+    never a sparse structure, regardless of the fine matrix's true sparsity.
+    The finest level's residual matvec (`rhs - matrix @ x`,
+    once per pre-smooth and post-smooth pass) is O(n^2), and dominates the
+    cycle: coarser levels contribute smaller but still-dense O(level_size^2)
+    terms, and the coarsest-level direct solve is O(coarsest_size^3) — see
+    ``torchalg.preconditioners.implementations.amg.cycle``'s `VCycle._vcycle`
+    for the actual recursion this is derived from. Setup cost is whichever
+    coarsening strategy's own complexity note applies (``AggregationCoarseningConfig``
+    / ``TargetDimCoarseningConfig`` / ``PODCoarseningConfig`` / ``NeuralPODCoarseningConfig``).
     """
 
     type: Literal[PreconditionerType.AMG] = PreconditionerType.AMG
@@ -862,6 +970,14 @@ class AdaptiveSAPreconditionerConfig(BasePreconditionerConfig):
     maximal-aggregation regime, and while adding real multi-candidate
     adaptivity (more independent near-null-space directions) instead of
     just cruder aggregation.
+
+    Complexity: setup repeats hierarchy construction once per candidate
+    (`num_candidates` full aggregation + relaxation passes, `candidate_iters`
+    relaxation sweeps each), so setup cost scales roughly linearly in
+    `num_candidates` on top of one classical-SA-AMG-sized build — a real
+    multiple, not free adaptivity. Application (V-cycle) is O(n^2)
+    (dense-matrix-dominated, not the textbook sparse O(n)) once built —
+    see `AMGPreconditionerConfig`'s complexity note.
     """
 
     type: Literal[PreconditionerType.ADAPTIVE_SA_AMG] = PreconditionerType.ADAPTIVE_SA_AMG
@@ -924,6 +1040,14 @@ class BootstrapAMGPreconditionerConfig(BasePreconditionerConfig):
     BAMG's setup cost (several multiples of a classical-AMG setup, see the
     torchalg docstring) for no deeper a hierarchy than cheap classical AMG
     already gives.
+
+    Complexity: setup is `n_bootstrap_cycles` full bootstrap passes, each
+    building a test-vector set (`k_r` vectors x `eta` relaxation sweeps) plus
+    a compatible-relaxation coarsening and algebraic-distance interpolation
+    per level — several multiples of classical AMG's single-pass setup, as
+    the class docstring above already states. Application (V-cycle) is
+    O(n^2) (dense-matrix-dominated, not the textbook sparse O(n)) once
+    built — see `AMGPreconditionerConfig`'s complexity note.
     """
 
     type: Literal[PreconditionerType.BOOTSTRAP_AMG] = PreconditionerType.BOOTSTRAP_AMG
@@ -968,6 +1092,13 @@ class NeuralAMGPreconditionerConfig(BasePreconditionerConfig):
     The ``extra_input_names`` required by each network are NOT declared here —
     they are read at runtime from ``ExtraInputPredictorPort.required_inputs`` so
     that the DLKit model config remains the single source of truth.
+
+    Complexity: like ``NeuralPreconditionerConfig``, transfer-operator cost
+    (setup: model load; application: one forward pass per level per V-cycle)
+    is architecture-dependent and not stated here. The surrounding cycle's
+    own linear-algebra work is O(n^2) per V-cycle (dense-matrix-dominated —
+    see ``AMGPreconditionerConfig``'s complexity note), on top of whatever
+    the neural transfer operators' own forward passes cost.
     """
 
     type: Literal[PreconditionerType.NEURAL_AMG] = PreconditionerType.NEURAL_AMG
@@ -1013,7 +1144,7 @@ _StrictPreconditionerConfig = Annotated[
 
 PreconditionerConfig = Annotated[
     _StrictPreconditionerConfig,
-    BeforeValidator(_normalize_null),
+    BeforeValidator(_normalize_identity_aliases),
 ]
 
 parse_preconditioner_config = TypeAdapter(PreconditionerConfig).validate_python

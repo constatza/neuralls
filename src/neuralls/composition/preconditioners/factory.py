@@ -478,7 +478,7 @@ def create_preconditioner(
         return IC0Preconditioner(matrix, threshold=config.threshold)
 
     # Standard cases with explicit dispatch for type safety
-    if config.type in (PreconditionerType.IDENTITY, PreconditionerType.NONE):
+    if config.type == PreconditionerType.IDENTITY:
         return Identity()
     if config.type == PreconditionerType.JACOBI:
         return JacobiPreconditioner(matrix)

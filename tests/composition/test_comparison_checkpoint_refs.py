@@ -38,7 +38,7 @@ type AmgSpecFactory = Callable[..., AMGPreconditionerConfig]
 @pytest.fixture
 def identity_spec() -> StandardPreconditionerConfig:
     """A preconditioner that bears no checkpoint ref at all."""
-    return StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY)
+    return StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
 
 
 @pytest.fixture

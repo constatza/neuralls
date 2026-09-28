@@ -41,7 +41,7 @@ def system_rhs(system_matrix: torch.Tensor) -> torch.Tensor:
 @pytest.fixture
 def identity_cfg() -> StandardPreconditionerConfig:
     """Config for the identity preconditioner."""
-    return StandardPreconditionerConfig(type=PreconditionerType.IDENTITY, name="none")
+    return StandardPreconditionerConfig(type=PreconditionerType.IDENTITY, name="identity")
 
 
 @pytest.fixture

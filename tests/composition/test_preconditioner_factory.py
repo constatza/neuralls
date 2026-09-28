@@ -54,6 +54,7 @@ from neuralls.platform.config.models.preconditioner import (
     SmootherPersistenceWeightingConfig,
     StandardPreconditionerConfig,
     TargetDimCoarseningConfig,
+    parse_preconditioner_config,
 )
 
 # ==============================================================================
@@ -292,12 +293,18 @@ def test_factory_creates_identity_preconditioner(well_conditioned_matrix: torch.
     assert isinstance(precond, Identity)
 
 
-def test_factory_creates_identity_for_none_type(well_conditioned_matrix: torch.Tensor) -> None:
-    """Factory creates Identity for 'none' type alias."""
-    config = StandardPreconditionerConfig(name="none", type=PreconditionerType.NONE)
+@pytest.mark.parametrize("deprecated_alias", ["none", "null"])
+def test_factory_creates_identity_for_deprecated_type_aliases(
+    well_conditioned_matrix: torch.Tensor, deprecated_alias: str
+) -> None:
+    """`PreconditionerType.NONE` was removed as a pure duplicate of `IDENTITY`
+    (both built an `Identity()` preconditioner) -- 'none' and the older 'null'
+    alias must still parse as `IDENTITY` so existing TOML configs keep working.
+    """
+    config = parse_preconditioner_config({"name": deprecated_alias, "type": deprecated_alias})
 
+    assert config.type == PreconditionerType.IDENTITY
     precond = create_preconditioner(well_conditioned_matrix, config)
-
     assert isinstance(precond, Identity)
 
 
