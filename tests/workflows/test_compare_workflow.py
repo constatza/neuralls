@@ -141,7 +141,7 @@ def _cg_result(name: str) -> CGComparisonResult:
     )
 
 
-def test_preconditioner_result_keys_reject_duplicate_identities() -> None:
+def test_preconditioner_result_keys_reject_duplicate_keys() -> None:
     """Duplicate wiring keys cannot silently collapse two solver cases."""
     specs = (
         StandardPreconditionerConfig(name="same", type=PreconditionerType.IDENTITY),
@@ -150,6 +150,16 @@ def test_preconditioner_result_keys_reject_duplicate_identities() -> None:
 
     with pytest.raises(ValueError, match="duplicate keys: 'same'"):
         validate_unique_preconditioner_keys(specs)
+
+
+def test_preconditioner_result_keys_do_not_filter_by_preconditioner_type(
+    same_type_distinct_key_specs: tuple[StandardPreconditionerConfig, ...],
+) -> None:
+    """Distinct result ids remain valid even when their typed implementations match."""
+    assert validate_unique_preconditioner_keys(same_type_distinct_key_specs) == (
+        "pcg-identity",
+        "future-solver-identity",
+    )
 
 
 def test_compare_preconditioners_evaluates_configs_one_at_a_time(
@@ -235,8 +245,8 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
         ),
     )
     specs = (
-        StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY),
-        StandardPreconditionerConfig(name="second", type=PreconditionerType.JACOBI),
+        StandardPreconditionerConfig(name="first", type=PreconditionerType.JACOBI),
+        StandardPreconditionerConfig(name="second", type=PreconditionerType.ICHOLESKY),
     )
 
     compare_preconditioners(
@@ -245,7 +255,7 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
         output_root=Path("unused-output"),
     )
 
-    assert events == ["create:identity", "cleanup:identity", "create:second", "cleanup:second"]
+    assert events == ["create:first", "cleanup:first", "create:second", "cleanup:second"]
     assert not active
 
 

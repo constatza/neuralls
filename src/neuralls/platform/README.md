@@ -23,6 +23,12 @@ job loader adapter, and MLflow client operations. DLKit itself owns job
 composition and schema validation; platform does not reconstruct DLKit sections
 locally.
 
+Preconditioner configuration uses the `PreconditionerType` discriminator
+strictly. Removed spellings such as `none` and `null` are invalid at Pydantic
+validation time; there is no alias normalization or deprecation path. Config
+`name` values remain opaque result identifiers and never determine
+preconditioner behavior.
+
 AMG-family preconditioner config keeps coarsening controls explicit at the TOML
 boundary. Classical smoothed aggregation exposes both the strength-of-connection
 threshold `theta`, which controls aggregate and coarse-grid size, and the

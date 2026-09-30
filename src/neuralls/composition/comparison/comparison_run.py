@@ -44,7 +44,6 @@ from neuralls.platform.config.models.preconditioner import (
     NeuralPODCoarseningConfig,
     PODCoarseningConfig,
     PreconditionerConfig,
-    PreconditionerType,
 )
 from neuralls.platform.config.models.preconditioner_family import (
     PreconditionerFamilyKey,
@@ -408,15 +407,14 @@ def compare_preconditioners(
 ) -> ComparisonResult:
     """Run CG comparisons and generate diagnostics.
 
-    Orchestrates a 7-step workflow:
+    Orchestrates a 6-step workflow:
     1. Validate inputs
     2. Resolve paths (matrix, rhs, output, figures)
     3. Load, validate, and place the linear system on the solver device
     4. Evaluate each preconditioner config: build, bind, and solve
        (one preconditioner resident at a time — see ``evaluation_mapper``)
-    5. Add the "identity" (no-op) baseline if no config produced one
-    6. Generate diagnostic plots
-    7. Package and return result
+    5. Generate diagnostic plots
+    6. Package and return result
 
     Step 4 evaluates preconditioners one at a time rather than building every
     config's preconditioner up front: each config's model (including any
@@ -533,21 +531,6 @@ def compare_preconditioners(
         raise RuntimeError(
             f"Evaluation returned no result for preconditioner keys {missing_keys!r}."
         )
-
-    if "identity" not in results:
-        baseline = run_cg_comparison(
-            matrix,
-            rhs,
-            preconditioners={},
-            x_exact=x_exact,
-            rtol=general_params.params.rtol,
-            atol=general_params.params.atol,
-            maxiter=general_params.params.max_iterations,
-            m_max=general_params.params.m_max,
-            reference_precision_margin=general_params.params.reference_precision_margin,
-        )
-        results["identity"] = baseline["identity"]
-        families.setdefault("identity", PreconditionerType.IDENTITY)
 
     recommendations = ComparisonRecommendations()
 

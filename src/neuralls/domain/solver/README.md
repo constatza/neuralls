@@ -46,9 +46,11 @@ implementations are delegated to `torchalg`.
   ground truth from a structurally independent algorithm. `compute_reference_solution`
   runs on whichever device its `A`/`b` are already on — `compare_preconditioners`
   computes it once per comparison, on GPU, before the preconditioner loop, and
-  passes it as `run_cg_comparison(..., x_exact=...)` to every preconditioner
-  (including the `"none"` baseline) instead of each one re-deriving it from
-  scratch. The resulting `x*` is passed into `pcg`/`flexible_cg` as
+  passes it as `run_cg_comparison(..., x_exact=...)` to every configured
+  preconditioner instead of each one re-deriving it from scratch. The runner
+  executes exactly the mapping supplied by composition; it never injects or
+  infers a baseline from a result-key string. The resulting `x*` is passed into
+  `pcg`/`flexible_cg` as
   `x_exact=`, so `torchalg`
   tracks the exact energy-norm error `||e_k||_A / ||e_0||_A` (the norm CG
   minimizes; every curve starts at 1) every iteration from a single dot

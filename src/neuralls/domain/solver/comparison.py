@@ -18,7 +18,6 @@ from torchalg import flexible_cg, pcg
 from torchalg.models.result import SolverResult
 from torchalg.monitoring import TraceMode
 from torchalg.preconditioners.base import Preconditioner
-from torchalg.preconditioners.implementations import Identity
 from torchalg.utils.device import resolve_device
 
 from neuralls.domain.solver.error_metrics import (
@@ -68,11 +67,15 @@ def run_cg_comparison(
     every preconditioner the correct — and cheapest — algorithm for its own
     mathematical properties, rather than forcing a single algorithm on all of
     them; every preconditioner still sees the same initial guess and system.
+    The function executes exactly the supplied mapping. Selection of baselines
+    or other comparison participants belongs to the caller's typed
+    configuration, not to solver execution.
 
     Args:
         A: System matrix tensor.
         b: Right-hand side vector tensor.
-        preconditioners: Dict mapping names to Preconditioner instances.
+        preconditioners: Exact mapping of result identifiers to preconditioner
+            instances to execute; no entries are injected or removed.
         x0: Initial guess (defaults to zero).
         x_exact: Precomputed reference solution (any device/dtype; matched to
             ``A``'s before use), from a prior ``compute_reference_solution()``
@@ -105,10 +108,6 @@ def run_cg_comparison(
     b = b.to(device)
     x0 = torch.zeros_like(b, dtype=A.dtype, device=A.device) if x0 is None else x0.to(device)
     x0_base = x0.detach().clone()
-
-    if "identity" not in preconditioners:
-        preconditioners = dict(preconditioners)
-        preconditioners["identity"] = Identity()
 
     if x_exact is None:
         x_exact = compute_reference_solution(

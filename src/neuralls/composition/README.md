@@ -164,6 +164,12 @@ their presentation labels are suffixed with the stable keys. This keeps labels
 truthful to what was built, distinguishes equal-rank bases fitted on different
 datasets, and preserves a one-to-one mapping even when generation/training is
 skipped or one model cannot be resolved.
+Comparison participants are exactly those declared by the resolved typed
+configuration. Neither composition nor the domain solver injects a baseline or
+infers preconditioner semantics from a config `name`; names are opaque result
+identifiers, while `PreconditionerType` is the sole semantic discriminator.
+This leaves baseline selection open to future solver-specific configuration
+without adding type-specific filters to shared execution code.
 The same composition wrapper derives one canonical scientific context per
 comparison (`matrix=... | rhs=...`). It logs that context once at comparison
 start alongside the execution-only `device=...` field, and reuses only the

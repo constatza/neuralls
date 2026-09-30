@@ -8,11 +8,10 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, Literal, Protocol, Self, cast, runtime_checkable
+from typing import Annotated, Literal, Protocol, Self, cast, runtime_checkable
 
 from pydantic import (
     BaseModel,
-    BeforeValidator,
     ConfigDict,
     Field,
     TypeAdapter,
@@ -25,13 +24,7 @@ from neuralls.shared.digest import Cosmetic, InputConfig, InputData
 
 
 class PreconditionerType(StrEnum):
-    """Preconditioner types.
-
-    ``IDENTITY`` is the sole no-op/no-preconditioner spelling — a former
-    duplicate ``NONE`` member was removed (deprecated ``type = "none"``/
-    ``"null"`` TOML values still normalize to ``IDENTITY``, see
-    ``_normalize_identity_aliases``).
-    """
+    """Canonical preconditioner types accepted at the configuration boundary."""
 
     IDENTITY = "identity"
     JACOBI = "jacobi"
@@ -102,27 +95,6 @@ def _validate_pod_rank(v: float) -> int | float:
     if not isinstance(v, float) and v < 1:
         raise ValueError(f"rank as a mode count must be >= 1, got {v}")
     return v
-
-
-_DEPRECATED_IDENTITY_ALIASES = frozenset({"null", "none"})
-"""Old spellings for the no-op preconditioner, both normalized to ``IDENTITY``.
-
-``"null"`` predates this codebase's ``IDENTITY``/``NONE`` split; ``"none"``
-was itself a real ``PreconditionerType`` member (removed as a pure duplicate
-of ``IDENTITY`` — both built an ``Identity()`` preconditioner, see
-``composition/preconditioners/factory.py``). Kept accepted here so existing
-checked-in or user-authored TOML configs written before either change still
-parse."""
-
-
-def _normalize_identity_aliases(data: dict) -> Any:
-    """Normalize deprecated no-op-preconditioner aliases to ``IDENTITY``."""
-    if not isinstance(data, dict):
-        return data
-    data = data.copy()
-    if data.get("type") in _DEPRECATED_IDENTITY_ALIASES:
-        data["type"] = PreconditionerType.IDENTITY
-    return data
 
 
 class RegisteredModelRefConfig(BaseModel):
@@ -1142,9 +1114,6 @@ _StrictPreconditionerConfig = Annotated[
     Field(discriminator="type"),
 ]
 
-PreconditionerConfig = Annotated[
-    _StrictPreconditionerConfig,
-    BeforeValidator(_normalize_identity_aliases),
-]
+PreconditionerConfig = _StrictPreconditionerConfig
 
 parse_preconditioner_config = TypeAdapter(PreconditionerConfig).validate_python

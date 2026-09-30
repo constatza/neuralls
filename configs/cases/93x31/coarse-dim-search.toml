@@ -13,7 +13,7 @@ stopping_criterion = "residual_norm"
 m_max = 20
 
 [[comparison_defaults.preconditioners]]
-name = "none"
+name = "identity"
 type = "identity"
 
 [[comparison_defaults.preconditioners]]

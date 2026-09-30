@@ -17,6 +17,7 @@ from typing import Self
 import numpy as np
 import pytest
 import torch
+from pydantic import ValidationError
 from torch.testing import assert_close
 from torchalg.preconditioners.base import PreconditionerContext
 from torchalg.preconditioners.implementations import (
@@ -293,19 +294,11 @@ def test_factory_creates_identity_preconditioner(well_conditioned_matrix: torch.
     assert isinstance(precond, Identity)
 
 
-@pytest.mark.parametrize("deprecated_alias", ["none", "null"])
-def test_factory_creates_identity_for_deprecated_type_aliases(
-    well_conditioned_matrix: torch.Tensor, deprecated_alias: str
-) -> None:
-    """`PreconditionerType.NONE` was removed as a pure duplicate of `IDENTITY`
-    (both built an `Identity()` preconditioner) -- 'none' and the older 'null'
-    alias must still parse as `IDENTITY` so existing TOML configs keep working.
-    """
-    config = parse_preconditioner_config({"name": deprecated_alias, "type": deprecated_alias})
-
-    assert config.type == PreconditionerType.IDENTITY
-    precond = create_preconditioner(well_conditioned_matrix, config)
-    assert isinstance(precond, Identity)
+@pytest.mark.parametrize("invalid_type", ["none", "null"])
+def test_preconditioner_config_rejects_removed_identity_aliases(invalid_type: str) -> None:
+    """Removed no-op aliases fail at the typed Pydantic configuration boundary."""
+    with pytest.raises(ValidationError):
+        parse_preconditioner_config({"name": "identity", "type": invalid_type})
 
 
 def test_identity_preconditioner_returns_copy(

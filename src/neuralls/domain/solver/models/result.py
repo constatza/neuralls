@@ -208,7 +208,7 @@ class CGComparisonResult:
     """Absolute residual norms ||r_k|| across iterations."""
 
     preconditioner: str
-    """Preconditioner strategy name (e.g., 'none', 'jacobi', 'neural')."""
+    """Preconditioner result identifier (e.g., 'identity', 'jacobi', 'neural')."""
 
     initial_guess: np.ndarray
     """Initial guess vector x_0."""

@@ -228,9 +228,7 @@ def test_run_cg_comparison_with_preconditioner_instances(
         maxiter=100,
     )
 
-    # Verify all keys present. The auto-added baseline is also "identity" (see
-    # run_cg_comparison), so providing one explicitly means no second,
-    # redundant baseline entry gets added.
+    # The runner preserves the caller's exact key set.
     assert "identity" in results
     assert "jacobi" in results
     assert len(results) == 2
@@ -344,8 +342,10 @@ def test_run_cg_comparison_routes_to_pcg(spd_matrix: Tensor, rhs_vector: Tensor)
     assert result.converged
 
 
-def test_run_cg_comparison_adds_identity_baseline(spd_matrix: Tensor, rhs_vector: Tensor) -> None:
-    """Test that the 'identity' baseline is automatically added if missing."""
+def test_run_cg_comparison_executes_only_requested_preconditioners(
+    spd_matrix: Tensor, rhs_vector: Tensor
+) -> None:
+    """Domain execution does not inject a baseline omitted by configuration."""
     preconditioners = {"jacobi": JacobiPreconditioner(spd_matrix)}
 
     results = run_cg_comparison(
@@ -357,14 +357,8 @@ def test_run_cg_comparison_adds_identity_baseline(spd_matrix: Tensor, rhs_vector
         maxiter=100,
     )
 
-    # Verify "identity" was added
-    assert "identity" in results
-    assert "jacobi" in results
-
-    # Verify "identity" result is valid
-    identity_result = results["identity"]
-    assert isinstance(identity_result, CGComparisonResult)
-    assert identity_result.preconditioner == "identity"
+    assert tuple(results) == ("jacobi",)
+    assert results["jacobi"].preconditioner == "jacobi"
 
 
 def test_run_cg_comparison_computes_exact_error(spd_matrix: Tensor, rhs_vector: Tensor) -> None:

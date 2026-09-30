@@ -104,7 +104,7 @@ def _write_comparison_config(path: Path) -> None:
                 f'rhs_path = "{rhs_path.as_posix()}"',
                 "",
                 "[[preconditioners]]",
-                'name = "none"',
+                'name = "identity"',
                 'type = "identity"',
             ]
         ),
@@ -130,7 +130,7 @@ def _write_experiments_config(
             "max_iterations": 10,
             "stopping_criterion": "residual_norm",
             "m_max": 20,
-            "preconditioners": [{"name": "none", "type": "identity"}],
+            "preconditioners": [{"name": "identity", "type": "identity"}],
         },
     }
     if with_comparisons:
@@ -302,7 +302,7 @@ def _registered_ref(name: str, alias: str) -> RegisteredModelRefConfig:
 def _typed_comparison_result(plot_path: Path) -> ComparisonResult:
     return ComparisonResult(
         results={
-            "none": CGComparisonResult(
+            "identity": CGComparisonResult(
                 x=np.array([1.0, 2.0]),
                 converged=True,
                 iterations=2,
@@ -310,7 +310,7 @@ def _typed_comparison_result(plot_path: Path) -> ComparisonResult:
                 residual_abs=1.0e-9,
                 residual_history_rel=[1.0, 1.0e-8],
                 residual_history_abs=[1.0, 1.0e-9],
-                preconditioner="none",
+                preconditioner="identity",
                 initial_guess=np.zeros(2),
                 exact_error=None,
                 rhs_norm=1.0,
@@ -320,11 +320,11 @@ def _typed_comparison_result(plot_path: Path) -> ComparisonResult:
         summary="ok",
         solver_params=_solver_params(plot_path.parent),
         plot_paths=PlotPaths(convergence=plot_path),
-        preconditioners=("none",),
+        preconditioners=("identity",),
         recommendations=ComparisonRecommendations(
             ranked=(
                 RankedRecommendation(
-                    label="none",
+                    label="identity",
                     iterations=2,
                     residual=1.0e-8,
                     residual_abs=1.0e-9,
@@ -332,7 +332,7 @@ def _typed_comparison_result(plot_path: Path) -> ComparisonResult:
                 ),
             ),
             overall_best=RankedRecommendation(
-                label="none",
+                label="identity",
                 iterations=2,
                 residual=1.0e-8,
                 residual_abs=1.0e-9,
@@ -405,7 +405,7 @@ def test_resolve_comparison_config_recovers_omitted_index_semantics(tmp_path: Pa
                 "max_iterations": 10,
                 "stopping_criterion": "residual_norm",
                 "m_max": 20,
-                "preconditioners": [{"name": "none", "type": "identity"}],
+                "preconditioners": [{"name": "identity", "type": "identity"}],
             },
         }
     )
@@ -453,7 +453,7 @@ def test_resolve_comparison_config_carries_generated_rhs_without_rhs_path(
                 "max_iterations": 10,
                 "stopping_criterion": "residual_norm",
                 "m_max": 20,
-                "preconditioners": [{"name": "none", "type": "identity"}],
+                "preconditioners": [{"name": "identity", "type": "identity"}],
             },
         }
     )
@@ -489,7 +489,7 @@ def test_resolve_comparison_config_carries_raw_rhs_source(
                 "max_iterations": 10,
                 "stopping_criterion": "residual_norm",
                 "m_max": 20,
-                "preconditioners": [{"name": "none", "type": "identity"}],
+                "preconditioners": [{"name": "identity", "type": "identity"}],
             },
         }
     )
@@ -533,7 +533,7 @@ def test_resolve_comparison_config_carries_dataset_rhs_source(
                 "max_iterations": 10,
                 "stopping_criterion": "residual_norm",
                 "m_max": 20,
-                "preconditioners": [{"name": "none", "type": "identity"}],
+                "preconditioners": [{"name": "identity", "type": "identity"}],
             },
         }
     )
@@ -595,7 +595,7 @@ def test_validate_neural_preconditioner_rejects_checkpoint_path(tmp_path: Path) 
 
 def test_resolve_neural_preconditioners_validates_all() -> None:
     specs = [
-        StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY),
+        StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY),
         NeuralPreconditionerConfig(
             name="neural",
             type=PreconditionerType.NEURAL,
@@ -694,15 +694,15 @@ def test_extract_array_artifacts_detaches_numpy_data(tmp_path: Path) -> None:
         _typed_comparison_result(tmp_path / "convergence.png")
     )
     serialized = serialize_comparison_payload(payload)
-    assert serialized["results"]["none"]["iterations"] == 2
-    assert serialized["results"]["none"]["residual"] == 1.0e-8
-    assert serialized["results"]["none"]["x"] == {
-        "path": "arrays/results/none/x.npy",
+    assert serialized["results"]["identity"]["iterations"] == 2
+    assert serialized["results"]["identity"]["residual"] == 1.0e-8
+    assert serialized["results"]["identity"]["x"] == {
+        "path": "arrays/results/identity/x.npy",
         "shape": [2],
         "dtype": "float64",
     }
     artifact_paths = {artifact.reference.path for artifact in array_artifacts}
-    assert Path("arrays/results/none/x.npy") in artifact_paths
+    assert Path("arrays/results/identity/x.npy") in artifact_paths
 
 
 def test_run_comparison_injects_master_topology(
@@ -715,7 +715,7 @@ def test_run_comparison_injects_master_topology(
         matrix_path=matrix_path,
         rhs_path=rhs_path,
         preconditioners=[
-            StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY)
+            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
         ],
     )
     entry = _make_entry()
@@ -746,7 +746,7 @@ def test_run_comparison_uses_explicit_entry_indices(
         matrix_path=matrix_path,
         rhs_path=rhs_path,
         preconditioners=[
-            StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY)
+            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
         ],
     )
     cfg.general.data.matrix_index = 4
@@ -783,7 +783,7 @@ def test_run_comparison_generated_rhs_accepts_matrix_only_input(
         matrix_path=matrix_path,
         rhs_path=None,
         preconditioners=[
-            StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY)
+            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
         ],
     )
     cfg.general.data.rhs_source_kind = ComparisonRhsSourceKind.GAUSSIAN
@@ -812,7 +812,7 @@ def test_resolved_generated_rhs_uses_matrix_source_without_rhs_dataset(tmp_path:
         matrix_path=matrix_path,
         rhs_path=None,
         preconditioners=[
-            StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY)
+            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
         ],
     )
     cfg.general.data.matrix_index = 0
@@ -862,7 +862,7 @@ def test_run_comparison_does_not_require_split_artifacts(
         matrix_path=matrix_path,
         rhs_path=rhs_path,
         preconditioners=[
-            StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY)
+            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
         ],
     )
     entry = _make_entry()
@@ -950,14 +950,14 @@ def test_run_comparison_stages_plot_paths_before_logging(tmp_path: Path) -> None
         matrix_path=matrix_path,
         rhs_path=rhs_path,
         preconditioners=[
-            StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY)
+            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
         ],
     )
     staged_plots_result = ComparisonResult(
         results={},
         summary="ok",
         solver_params=_solver_params(tmp_path),
-        preconditioners=("none",),
+        preconditioners=("identity",),
         plot_paths=PlotPaths(convergence=convergence),
         recommendations=ComparisonRecommendations(),
     )
@@ -1003,7 +1003,7 @@ def test_run_comparison_warns_and_continues_when_neural_resolution_fails(
         matrix_path=matrix_path,
         rhs_path=rhs_path,
         preconditioners=[
-            StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY),
+            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY),
             NeuralPreconditionerConfig(
                 name="missing-neural",
                 type=PreconditionerType.NEURAL,
@@ -1023,7 +1023,9 @@ def test_run_comparison_warns_and_continues_when_neural_resolution_fails(
         patch(
             "neuralls.composition.assignments.comparison_batch.resolve_preconditioner_models_with_warnings",
             return_value=MagicMock(
-                specs=[StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY)],
+                specs=[
+                    StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
+                ],
                 warnings=(
                     "Skipping neural preconditioner 'missing-neural': Registered model 'MissingFFNN' not found",
                 ),
@@ -1168,7 +1170,7 @@ def test_run_comparison_fails_before_tracking_when_matrix_input_is_missing(
         matrix_path=missing_matrix,
         rhs_path=rhs_path,
         preconditioners=[
-            StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY)
+            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
         ],
     )
     entry = _make_entry()
@@ -1200,7 +1202,7 @@ def test_run_comparison_missing_known_dataset_raises_file_not_found(
         matrix_path=missing_dataset,
         rhs_path=rhs_path,
         preconditioners=[
-            StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY)
+            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
         ],
     )
     entry = _make_entry()
@@ -1261,13 +1263,13 @@ def test_log_comparison_metrics_logs_scalar_metrics_per_preconditioner(
     result = _typed_comparison_result(tmp_path / "conv.png")
 
     with patch(_COMPARISON_TRACKING_MLFLOW_MODULE) as mock_mlflow:
-        log_comparison_result_metrics(result, child_run_tags={"none": {}})
+        log_comparison_result_metrics(result, child_run_tags={"identity": {}})
 
     metric_calls = {call.args[0]: call.args[1] for call in mock_mlflow.log_metric.call_args_list}
-    assert metric_calls["iterations/none"] == 2
-    assert metric_calls["final_residual/none"] == pytest.approx(1.0e-8)
-    assert metric_calls["converged/none"] == 1
-    mock_mlflow.log_param.assert_called_once_with("best_preconditioner", "none")
+    assert metric_calls["iterations/identity"] == 2
+    assert metric_calls["final_residual/identity"] == pytest.approx(1.0e-8)
+    assert metric_calls["converged/identity"] == 1
+    mock_mlflow.log_param.assert_called_once_with("best_preconditioner", "identity")
 
 
 def test_log_comparison_metrics_logs_cost_metrics_when_measured(tmp_path: Path) -> None:
@@ -1275,8 +1277,8 @@ def test_log_comparison_metrics_logs_cost_metrics_when_measured(tmp_path: Path) 
     result = replace(
         _typed_comparison_result(tmp_path / "conv.png"),
         results={
-            "none": replace(
-                _typed_comparison_result(tmp_path / "conv.png").results["none"],
+            "identity": replace(
+                _typed_comparison_result(tmp_path / "conv.png").results["identity"],
                 setup_time_seconds=2.0,
                 setup_peak_memory_bytes=1000,
                 solve_time_seconds=1.0,
@@ -1287,16 +1289,16 @@ def test_log_comparison_metrics_logs_cost_metrics_when_measured(tmp_path: Path) 
     )
 
     with patch(_COMPARISON_TRACKING_MLFLOW_MODULE) as mock_mlflow:
-        log_comparison_result_metrics(result, child_run_tags={"none": {}})
+        log_comparison_result_metrics(result, child_run_tags={"identity": {}})
 
     metric_calls = {call.args[0]: call.args[1] for call in mock_mlflow.log_metric.call_args_list}
-    assert metric_calls["setup_time_s/none"] == 2.0
-    assert metric_calls["solve_time_s/none"] == 1.0
-    assert metric_calls["avg_iteration_time_s/none"] == pytest.approx(0.5)
-    assert metric_calls["peak_memory_bytes/none"] == 2000.0
-    assert metric_calls["time_per_dof_per_iteration/none"] == pytest.approx(0.5 / 100)
-    assert metric_calls["setup_time_per_dof/none"] == pytest.approx(2.0 / 100)
-    assert metric_calls["peak_memory_per_dof/none"] == pytest.approx(2000 / 100)
+    assert metric_calls["setup_time_s/identity"] == 2.0
+    assert metric_calls["solve_time_s/identity"] == 1.0
+    assert metric_calls["avg_iteration_time_s/identity"] == pytest.approx(0.5)
+    assert metric_calls["peak_memory_bytes/identity"] == 2000.0
+    assert metric_calls["time_per_dof_per_iteration/identity"] == pytest.approx(0.5 / 100)
+    assert metric_calls["setup_time_per_dof/identity"] == pytest.approx(2.0 / 100)
+    assert metric_calls["peak_memory_per_dof/identity"] == pytest.approx(2000 / 100)
 
 
 def test_log_comparison_metrics_omits_cost_metrics_when_unmeasured(tmp_path: Path) -> None:
@@ -1304,7 +1306,7 @@ def test_log_comparison_metrics_omits_cost_metrics_when_unmeasured(tmp_path: Pat
     result = _typed_comparison_result(tmp_path / "conv.png")
 
     with patch(_COMPARISON_TRACKING_MLFLOW_MODULE) as mock_mlflow:
-        log_comparison_result_metrics(result, child_run_tags={"none": {}})
+        log_comparison_result_metrics(result, child_run_tags={"identity": {}})
 
     logged_names = {call.args[0] for call in mock_mlflow.log_metric.call_args_list}
     assert not any(name.startswith("setup_time_s") for name in logged_names)
@@ -1341,7 +1343,7 @@ def test_run_comparison_logs_scalar_metrics_to_mlflow(tmp_path: Path) -> None:
         matrix_path=matrix_path,
         rhs_path=rhs_path,
         preconditioners=[
-            StandardPreconditionerConfig(name="none", type=PreconditionerType.IDENTITY)
+            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
         ],
     )
     plot_path = tmp_path / "conv.png"
@@ -1363,9 +1365,9 @@ def test_run_comparison_logs_scalar_metrics_to_mlflow(tmp_path: Path) -> None:
 
     assert outcomes[0].success is True
     logged_metric_names = {call.args[0] for call in mock_mlflow.log_metric.call_args_list}
-    assert "iterations/none" in logged_metric_names
-    assert "final_residual/none" in logged_metric_names
-    assert "converged/none" in logged_metric_names
+    assert "iterations/identity" in logged_metric_names
+    assert "final_residual/identity" in logged_metric_names
+    assert "converged/identity" in logged_metric_names
 
 
 def test_log_comparison_result_metrics_logs_child_scalar_metrics(tmp_path: Path) -> None:
@@ -1382,7 +1384,7 @@ def test_log_comparison_result_metrics_logs_child_scalar_metrics(tmp_path: Path)
     with patch(_COMPARISON_TRACKING_MLFLOW_MODULE) as mock_mlflow:
         mock_mlflow.start_run.side_effect = _fake_start_run
         mock_mlflow.log_metric.side_effect = lambda k, v, **kw: captured_metrics.append((k, v))
-        log_comparison_result_metrics(result, child_run_tags={"none": {}})
+        log_comparison_result_metrics(result, child_run_tags={"identity": {}})
 
     metric_map = {k: v for k, v in captured_metrics}
     assert metric_map["iterations"] == 2

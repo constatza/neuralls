@@ -25,7 +25,10 @@ def test_work_precision_plot_skips_entries_without_cost_data(
     """A method with no measured cost is dropped, not plotted at a fake x=0."""
     target = tmp_path / "work_precision_mixed.png"
     plot_work_precision(
-        {"jacobi": comparison_result_with_cost_data, "none": comparison_result_without_cost_data},
+        {
+            "jacobi": comparison_result_with_cost_data,
+            "identity": comparison_result_without_cost_data,
+        },
         save_path=target,
     )
     assert target.stat().st_size > 0

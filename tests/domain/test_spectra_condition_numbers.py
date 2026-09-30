@@ -119,8 +119,8 @@ def test_diagonal_matrix_identity_matches_analytical_condition_number(
     diagonal_matrix: torch.Tensor,
 ) -> None:
     """For the identity preconditioner, the estimate is exact for a diagonal matrix."""
-    cond_numbers = compute_condition_numbers(diagonal_matrix.numpy(), {"none": Identity()})
-    assert cond_numbers["none"] == pytest.approx(100.0, rel=1e-2)
+    cond_numbers = compute_condition_numbers(diagonal_matrix.numpy(), {"identity": Identity()})
+    assert cond_numbers["identity"] == pytest.approx(100.0, rel=1e-2)
 
 
 def test_diagonal_matrix_jacobi_matches_analytical_condition_number(
@@ -162,9 +162,9 @@ def test_arnoldi_matches_exact_condition_number_on_heterogeneous_stiffness(
     """
     matrix, true_condition_number = heterogeneous_stiffness_matrix
 
-    cond_numbers = compute_condition_numbers(matrix.numpy(), {"none": Identity()})
+    cond_numbers = compute_condition_numbers(matrix.numpy(), {"identity": Identity()})
 
-    estimated = cond_numbers["none"]
+    estimated = cond_numbers["identity"]
     assert estimated > 0.0
     assert not np.isnan(estimated)
     assert estimated == pytest.approx(true_condition_number, rel=1e-2)
@@ -216,9 +216,9 @@ def test_dense_fallback_used_within_cost_budget(monkeypatch: pytest.MonkeyPatch)
     n = spectra_module._DENSE_FALLBACK_MAX_DIMENSION
     matrix = torch.diag(torch.linspace(1.0, 100.0, n, dtype=torch.float64))
 
-    cond_numbers = compute_condition_numbers(matrix.numpy(), {"none": Identity()})
+    cond_numbers = compute_condition_numbers(matrix.numpy(), {"identity": Identity()})
 
-    assert cond_numbers["none"] == pytest.approx(100.0, rel=1e-2)
+    assert cond_numbers["identity"] == pytest.approx(100.0, rel=1e-2)
 
 
 def test_arpack_used_above_dense_fallback_threshold_with_generous_ncv(
@@ -243,7 +243,7 @@ def test_arpack_used_above_dense_fallback_threshold_with_generous_ncv(
     n = spectra_module._DENSE_FALLBACK_MAX_DIMENSION + 1
     matrix = torch.diag(torch.linspace(1.0, 100.0, n, dtype=torch.float64))
 
-    compute_condition_numbers(matrix.numpy(), {"none": Identity()})
+    compute_condition_numbers(matrix.numpy(), {"identity": Identity()})
 
     assert len(calls) == 2, "expected one eigs() call each for lambda_max (LM) and lambda_min (SM)"
     for call_kwargs in calls:
@@ -295,7 +295,7 @@ def test_arpack_non_convergence_falls_back_to_dense_instead_of_nan(
     n = spectra_module._DENSE_FALLBACK_MAX_DIMENSION + 1
     matrix = torch.diag(torch.linspace(1.0, 100.0, n, dtype=torch.float64))
 
-    cond_numbers = compute_condition_numbers(matrix.numpy(), {"none": Identity()})
+    cond_numbers = compute_condition_numbers(matrix.numpy(), {"identity": Identity()})
 
-    assert not np.isnan(cond_numbers["none"])
-    assert cond_numbers["none"] == pytest.approx(100.0, rel=1e-2)
+    assert not np.isnan(cond_numbers["identity"])
+    assert cond_numbers["identity"] == pytest.approx(100.0, rel=1e-2)
