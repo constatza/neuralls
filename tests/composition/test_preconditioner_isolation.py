@@ -58,6 +58,7 @@ def test_unexpected_build_error_becomes_breakdown_entry(
     system_matrix: torch.Tensor,
     system_rhs: torch.Tensor,
     tmp_path: Path,
+    neuralls_settings,
 ) -> None:
     """Any exception yields a breakdown entry with the error text, never a raise."""
     entry = _evaluate_preconditioner(
@@ -68,6 +69,7 @@ def test_unexpected_build_error_becomes_breakdown_entry(
         matrix_path=tmp_path,
         matrix_index=0,
         params=solver_params,
+        settings=neuralls_settings,
     )
 
     assert entry.result.breakdown is True
@@ -81,6 +83,7 @@ def test_solver_stage_error_is_isolated(
     system_rhs: torch.Tensor,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    neuralls_settings,
 ) -> None:
     """A failure after construction (e.g. inside the solve) is isolated too."""
 
@@ -96,6 +99,7 @@ def test_solver_stage_error_is_isolated(
         matrix_path=tmp_path,
         matrix_index=0,
         params=solver_params,
+        settings=neuralls_settings,
     )
 
     assert entry.result.breakdown is True

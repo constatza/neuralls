@@ -22,8 +22,7 @@ def test_solve_measures_time_and_memory(
         assert result.solve_time_seconds >= 0
         assert result.solve_peak_memory_bytes is not None
         assert result.solve_peak_memory_bytes >= 0
-        assert result.setup_time_seconds is None
-        assert result.setup_peak_memory_bytes is None
+        assert result.setup_cost is None
 
 
 def test_avg_iteration_time_derives_from_solve_time_and_iterations(

@@ -401,8 +401,8 @@ class NeuralPreconditionerConfig(BasePreconditionerConfig, NeuralCheckpointRef):
     not derivable from this config alone — it is whatever the referenced
     checkpoint's network architecture costs per forward pass (setup: model
     load; application: one forward pass per CG iteration). No Big-O is stated
-    here for that reason; measure it (``setup_time_seconds``/
-    ``solve_time_seconds`` on the comparison result) rather than assume it.
+    here for that reason; measure it (``setup_cost``/``solve_time_seconds`` on
+    the comparison result) rather than assume it.
     """
 
     type: Literal[PreconditionerType.NEURAL] = PreconditionerType.NEURAL

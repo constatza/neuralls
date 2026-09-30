@@ -567,6 +567,7 @@ def _run_comparison_with_resolved_specs(
     work_root: Path,
     resolved_specs: list[PreconditionerConfig],
     tracking_uri: str | None = None,
+    settings: NeurallsSettings,
 ) -> ComparisonResult:
     """Run comparison with already-resolved preconditioner checkpoint paths."""
     rhs_source_kind = _require_rhs_source_kind(cfg)
@@ -602,6 +603,7 @@ def _run_comparison_with_resolved_specs(
         display_name=entry.effective_display_name,
         resolved_input=resolved_input,
         tracking_uri=tracking_uri,
+        settings=settings,
     )
     write_comparison_artifacts(
         result=raw_result,
@@ -657,6 +659,7 @@ def _run_and_log_comparison(
             work_root=work_root,
             resolved_specs=prepared.resolved.specs,
             tracking_uri=prepared.topology.tracking_uri,
+            settings=prepared.settings,
         )
         log_skipped_preconditioners(prepared.resolved.warnings)
         log_comparison_artifacts_to_mlflow(
@@ -773,6 +776,7 @@ class _PreparedComparisonExecution:
     cleanup: contextlib.ExitStack
     resolved: ResolvedComparisonSpecs
     identity: StageIdentity
+    settings: NeurallsSettings
 
 
 def _prepare_comparison_entry(
@@ -841,6 +845,7 @@ def _prepare_comparison_entry(
             cleanup=local_stack.pop_all(),
             resolved=resolved,
             identity=identity,
+            settings=context.settings,
         )
 
 

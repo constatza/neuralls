@@ -18,15 +18,17 @@ from torchalg.preconditioners.implementations import Identity, JacobiPreconditio
 from neuralls.composition.comparison._plots import _generate_comparison_plots
 from neuralls.composition.comparison.models import ComparisonPaths
 from neuralls.domain.analysis.spectra import plot_condition_numbers
-from neuralls.domain.solver.models.result import CGComparisonResult, PlotPaths
+from neuralls.domain.solver.models.result import CGComparisonResult, PlotPaths, StageCost
 from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.platform.reporting import plots as reporting_plots
 from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
     plot_metric_comparison,
     plot_time_breakdown_barplot,
+    plot_work_precision,
 )
 from neuralls.platform.reporting.preconditioner_labels import build_preconditioner_labels
+from neuralls.shared.types import CostProvenance
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -100,13 +102,52 @@ def two_result_entries_with_times() -> dict[str, CGComparisonResult]:
             exact_error=None,
             rhs_norm=1.0,
             breakdown=False,
-            setup_time_seconds=setup,
+            setup_cost=StageCost(
+                wall_time_seconds=setup, peak_memory_bytes=None, provenance=CostProvenance.MEASURED
+            ),
             solve_time_seconds=solve,
         )
 
     return {
         "identity": _make("identity", setup=0.5, solve=0.1),
         "jacobi": _make("jacobi", setup=0.2, solve=2.0),
+    }
+
+
+@pytest.fixture
+def two_result_entries_with_identical_setup_time_different_provenance() -> dict[
+    str, CGComparisonResult
+]:
+    """Two results sharing an identical ``setup_cost.wall_time_seconds`` but
+    different provenance -- one MEASURED (a genuinely fast build), one
+    UNAVAILABLE (a silently-failed historical lookup that fell back to the
+    same near-zero measured value). The direct regression fixture for the
+    original bug: these two must never render identically.
+    """
+
+    def _make(name: str, provenance: CostProvenance) -> CGComparisonResult:
+        return CGComparisonResult(
+            x=np.zeros(2),
+            converged=True,
+            iterations=3,
+            residual=1e-6,
+            residual_abs=1e-6,
+            residual_history_rel=[1.0, 0.1, 1e-6],
+            residual_history_abs=[1.0, 0.1, 1e-6],
+            preconditioner=name,
+            initial_guess=np.zeros(2),
+            exact_error=None,
+            rhs_norm=1.0,
+            breakdown=False,
+            setup_cost=StageCost(
+                wall_time_seconds=0.002, peak_memory_bytes=None, provenance=provenance
+            ),
+            solve_time_seconds=0.1,
+        )
+
+    return {
+        "measured": _make("measured", CostProvenance.MEASURED),
+        "unavailable": _make("unavailable", CostProvenance.UNAVAILABLE),
     }
 
 
@@ -381,6 +422,53 @@ def test_plot_time_breakdown_barplot_skips_methods_missing_both_times(
     save_path = tmp_path / "breakdown.png"
     plot_time_breakdown_barplot(two_result_entries, labels={}, save_path=save_path)
     assert save_path.exists()
+
+
+def test_plot_time_breakdown_barplot_hatches_only_the_unavailable_segment(
+    two_result_entries_with_identical_setup_time_different_provenance: dict[
+        str, CGComparisonResult
+    ],
+) -> None:
+    """A MEASURED and an UNAVAILABLE setup segment with identical wall time
+    must render visually distinct -- only the UNAVAILABLE one is hatched.
+    """
+    with patch("neuralls.platform.reporting.plots.plt.close"):
+        plot_time_breakdown_barplot(
+            two_result_entries_with_identical_setup_time_different_provenance,
+            labels={"measured": "measured", "unavailable": "unavailable"},
+        )
+        fig = reporting_plots.plt.gcf()
+        ax = fig.axes[0]
+        yticklabels = [t.get_text() for t in ax.get_yticklabels()]
+        # Each row draws 3 segments in order (generation, setup, solve); the
+        # setup segment is the 2nd patch (index 1) within each row's triple.
+        setup_hatches_by_label = {
+            label: ax.patches[i * 3 + 1].get_hatch() for i, label in enumerate(yticklabels)
+        }
+    reporting_plots.plt.close(fig)
+
+    assert setup_hatches_by_label["measured"] is None
+    assert setup_hatches_by_label["unavailable"] is not None
+
+
+def test_plot_work_precision_skips_results_with_unavailable_cost(
+    two_result_entries_with_identical_setup_time_different_provenance: dict[
+        str, CGComparisonResult
+    ],
+) -> None:
+    """A result with `has_unavailable_cost=True` must not appear on the
+    work-precision diagram -- plotting it would misleadingly position it at
+    a load/assembly artifact's time, not its real (unknown) cost.
+    """
+    with patch("neuralls.platform.reporting.plots.plt.close"):
+        plot_work_precision(two_result_entries_with_identical_setup_time_different_provenance)
+        fig = reporting_plots.plt.gcf()
+        ax = fig.axes[0]
+        legend = ax.get_legend()
+        plotted_labels = [text.get_text() for text in legend.get_texts()] if legend else []
+    reporting_plots.plt.close(fig)
+
+    assert plotted_labels == ["measured"]
 
 
 # ---------------------------------------------------------------------------

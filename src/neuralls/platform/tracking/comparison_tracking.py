@@ -86,6 +86,16 @@ def log_comparison_result_metrics(
         mlflow.log_metric(parent_run_metric_key("converged", name), int(cg.converged))
         for key, value in _cost_metrics(cg, system_size=system_size).items():
             mlflow.log_metric(parent_run_metric_key(key, name), value)
+        if cg.setup_cost is not None:
+            mlflow.log_param(
+                parent_run_metric_key("setup_time_provenance", name),
+                cg.setup_cost.provenance.value,
+            )
+        if cg.generation_cost is not None:
+            mlflow.log_param(
+                parent_run_metric_key("generation_time_provenance", name),
+                cg.generation_cost.provenance.value,
+            )
 
         with mlflow.start_run(run_name=name, nested=True, tags=dict(child_run_tags[name])):
             for step, residual in enumerate(cg.residual_history_rel):
@@ -97,6 +107,10 @@ def log_comparison_result_metrics(
             mlflow.log_metric("converged", int(cg.converged))
             for key, value in _cost_metrics(cg, system_size=system_size).items():
                 mlflow.log_metric(key, value)
+            if cg.setup_cost is not None:
+                mlflow.log_param("setup_time_provenance", cg.setup_cost.provenance.value)
+            if cg.generation_cost is not None:
+                mlflow.log_param("generation_time_provenance", cg.generation_cost.provenance.value)
 
     if result.recommendations.overall_best is not None:
         mlflow.log_param("best_preconditioner", result.recommendations.overall_best.label)
@@ -118,8 +132,10 @@ def _cost_metrics(cg: CGComparisonResult, *, system_size: int | None) -> dict[st
         Mapping of metric name to value, containing only measured metrics.
     """
     metrics: dict[str, float] = {}
-    if cg.setup_time_seconds is not None:
-        metrics["setup_time_s"] = cg.setup_time_seconds
+    if cg.setup_cost is not None:
+        metrics["setup_time_s"] = cg.setup_cost.wall_time_seconds
+    if cg.generation_cost is not None:
+        metrics["generation_time_s"] = cg.generation_cost.wall_time_seconds
     if cg.solve_time_seconds is not None:
         metrics["solve_time_s"] = cg.solve_time_seconds
     if cg.avg_iteration_time_seconds is not None:

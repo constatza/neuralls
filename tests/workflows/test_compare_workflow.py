@@ -164,6 +164,7 @@ def test_preconditioner_result_keys_do_not_filter_by_preconditioner_type(
 
 def test_compare_preconditioners_evaluates_configs_one_at_a_time(
     monkeypatch: pytest.MonkeyPatch,
+    neuralls_settings,
 ) -> None:
     """Comparison evaluates one preconditioner at a time on the solver device."""
     events: list[str] = []
@@ -253,6 +254,7 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
         general_params=general,
         preconditioner_configs=specs,
         output_root=Path("unused-output"),
+        settings=neuralls_settings,
     )
 
     assert events == ["create:first", "cleanup:first", "create:second", "cleanup:second"]
@@ -284,6 +286,7 @@ def test_compare_preconditioners_workflow(tmp_path: Path, neuralls_settings) -> 
         general_params=comparison_cfg_model.general,
         preconditioner_configs=comparison_cfg_model.preconditioners,
         output_root=output_root,
+        settings=neuralls_settings,
     )
 
     # Access typed solver results from ComparisonResult
@@ -291,8 +294,8 @@ def test_compare_preconditioners_workflow(tmp_path: Path, neuralls_settings) -> 
     assert set(comparison_results.keys()) == {"identity", "jacobi"}
     for name, info in comparison_results.items():
         assert info.iterations > 0, f"{name} did not run"
-        assert info.setup_time_seconds is not None
-        assert info.setup_time_seconds >= 0
+        assert info.setup_cost is not None
+        assert info.setup_cost.wall_time_seconds >= 0
         assert info.solve_time_seconds is not None
         assert info.solve_time_seconds >= 0
         assert info.peak_memory_bytes is not None

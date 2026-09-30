@@ -12,28 +12,59 @@ implementations are delegated to `torchalg`.
   - `ComparisonData`
   - `ComparisonGeneral`
 - Workflow/reporting DTOs:
-  - `CGComparisonResult` — including measured cost fields (`setup_time_seconds`,
-    `setup_peak_memory_bytes`, `solve_time_seconds`, `solve_peak_memory_bytes`,
-    all `None` until measured) and derived properties (`total_time_seconds`,
-    `avg_iteration_time_seconds`, `peak_memory_bytes`). For a checkpoint-backed
-    preconditioner (a POD-2G basis fit ahead of time, a trained neural
-    preconditioner), `setup_time_seconds` is not the freshly-measured
-    checkpoint-load/coarse-assembly overhead — it's that checkpoint's real,
-    historical fit/train duration, charged back from the origin job's own
-    MLflow run (`resolved_run_id` on the config's `NeuralCheckpointRef`) by
-    `composition/comparison/comparison_run.py::_resolve_setup_usage`, since the
-    overhead measured this run is negligible next to the training it skipped.
-    Falls back to the fresh measurement when there's no checkpoint, or no
-    history to find. One field either way — never a separate "amortized" one.
+  - `CGComparisonResult` — a unified, three-stage cost model instead of bare
+    optional floats, so "not applicable," "applicable but unknown," and
+    "applicable and known" are three distinct, checkable states that can
+    never collapse into each other:
+    - `generation_cost: StageCost | None` — dataset-generation cost feeding
+      this preconditioner's fit/train step. `None` when generation doesn't
+      apply at all (classical/geometric AMG, standard/Jacobi/IC0 — no
+      training data). When present, always `HISTORICAL` (read back from the
+      dataset's own manifest, `generation_duration_seconds`) or `UNAVAILABLE`
+      — a comparison run never generates a dataset itself, that's a separate,
+      earlier pipeline stage; see `composition/comparison/_generation_cost.py`.
+    - `setup_cost: StageCost | None` — cost to fit/train/build the
+      preconditioner itself. `None` only for a placeholder result where no
+      build was attempted (`comparison_run.py::_breakdown_result`). For a
+      checkpoint-backed preconditioner (a POD-2G basis fit ahead of time, a
+      trained neural preconditioner), this is not the freshly-measured
+      checkpoint-load/coarse-assembly overhead — it's that checkpoint's real,
+      historical fit/train duration, charged back from the origin job's own
+      MLflow run (`resolved_run_id` on the config's `NeuralCheckpointRef`) by
+      `composition/comparison/comparison_run.py::_resolve_setup_usage`, tagged
+      `CostProvenance.HISTORICAL`. When that lookup can't run or finds
+      nothing, the fresh (negligible) measurement is used instead but tagged
+      `CostProvenance.UNAVAILABLE` — never silently indistinguishable from a
+      genuinely fast build (tagged `MEASURED`). See `shared/types.py`'s
+      `CostProvenance` docstring for the full three-value contract.
+    - `solve_time_seconds`/`solve_peak_memory_bytes` — unchanged bare fields;
+      solve is always live-measured in a comparison run, so there's no
+      provenance question for it.
+    - `StageCost` (`wall_time_seconds`, `peak_memory_bytes`, `provenance`) is
+      the one value object both `generation_cost` and `setup_cost` share.
+    - Derived properties: `total_time_seconds` (sums generation + setup +
+      solve, **excluding** any `UNAVAILABLE`-provenance component — counting
+      an unknown cost as `0.0` would silently understate the total) and
+      `has_unavailable_cost` (true when generation or setup exists but
+      couldn't be resolved to a real number — plots use this to skip a result
+      rather than render a misleading position/value).
   - `ComparisonResult`
-  - `PlotPaths` — including cost bar-chart paths and `work_precision`
+  - `PlotPaths` — including `generation_time_barplot`/`setup_time_barplot`/
+    `solve_time_barplot`/`peak_memory_barplot`/`time_breakdown_barplot`
+    (the last now a three-segment generation/setup/solve stacked bar, each
+    segment styled by its own `CostProvenance`) and `work_precision`
   - recommendation records
 - `cost_metrics.py`: pure size-normalized/throughput functions
   (`iterations_per_second`, `time_per_dof_per_iteration`, `setup_time_per_dof`,
-  `peak_memory_per_dof`) — take a `CGComparisonResult` plus the comparison's
-  `system_size` (from `ComparisonResult.matrix_shape[0]`, since every
-  preconditioner in one comparison shares the same matrix) so cost is
-  comparable across comparisons run on different-sized matrices
+  `generation_time_per_dof`, `peak_memory_per_dof`) — take a `CGComparisonResult`
+  plus the comparison's `system_size` (from `ComparisonResult.matrix_shape[0]`,
+  since every preconditioner in one comparison shares the same matrix) so cost
+  is comparable across comparisons run on different-sized matrices. Both
+  `*_time_per_dof` functions are deliberately provenance-agnostic — they
+  return a number whenever the corresponding `StageCost` is present,
+  regardless of its provenance; provenance-based filtering is a
+  presentation-layer concern (plots, MLflow logging), not this pure-math
+  layer's job.
 - Comparison orchestration helpers that package `torchalg` solver output for
   neuralls reporting workflows. The reference `x*` is a Jacobi-preconditioned
   `torchalg.pcg` solve (`reference_solution`) driven until its relative

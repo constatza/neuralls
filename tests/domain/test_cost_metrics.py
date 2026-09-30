@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from neuralls.domain.solver.cost_metrics import (
+    generation_time_per_dof,
     iterations_per_second,
     peak_memory_per_dof,
     setup_time_per_dof,
@@ -76,3 +77,28 @@ def test_peak_memory_per_dof_none_without_memory_data(
     comparison_result_without_cost_data: CGComparisonResult,
 ) -> None:
     assert peak_memory_per_dof(comparison_result_without_cost_data, system_size=100) is None
+
+
+def test_setup_time_per_dof_is_provenance_agnostic(
+    comparison_result_with_unavailable_setup_cost: CGComparisonResult,
+) -> None:
+    """setup_time_per_dof returns a number regardless of StageCost.provenance --
+    provenance-based filtering belongs only in the plotting/tracking layers.
+    """
+    result = setup_time_per_dof(comparison_result_with_unavailable_setup_cost, system_size=100)
+    assert result == 0.002 / 100
+
+
+def test_generation_time_per_dof_normalizes_by_system_size(
+    comparison_result_with_generation_cost: CGComparisonResult,
+) -> None:
+    assert (
+        generation_time_per_dof(comparison_result_with_generation_cost, system_size=100)
+        == 5.0 / 100
+    )
+
+
+def test_generation_time_per_dof_none_without_generation_cost(
+    comparison_result_with_cost_data: CGComparisonResult,
+) -> None:
+    assert generation_time_per_dof(comparison_result_with_cost_data, system_size=100) is None

@@ -90,6 +90,7 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
             cleanup=contextlib.ExitStack(),
             resolved=ResolvedComparisonSpecs(specs=[], warnings=(), checkpoint_digests={}),
             identity=StageIdentity.build("comparison", {"entry": canonical_digest(entry.id)}),
+            settings=context.settings,
         )
 
     with (

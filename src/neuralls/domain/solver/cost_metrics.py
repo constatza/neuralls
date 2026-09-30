@@ -1,7 +1,7 @@
 """Size-normalized and throughput metrics derived from a ``CGComparisonResult``.
 
-Raw ``setup_time_seconds``/``solve_time_seconds``/``peak_memory_bytes`` are only
-comparable *within* one comparison run — they all share one system size ``n``.
+Raw ``generation_cost``/``setup_cost``/``solve_time_seconds``/``peak_memory_bytes``
+are only comparable *within* one comparison run — they all share one system size ``n``.
 Comparing them across comparisons run on different-sized matrices (the
 data-generation pipeline produces many sizes) requires normalizing by ``n``
 first. These are pure functions, not stored fields: ``n`` is a property of the
@@ -66,17 +66,51 @@ def setup_time_per_dof(result: CGComparisonResult, *, system_size: int) -> float
         system_size: Number of unknowns ``n`` in the linear system.
 
     Returns:
-        ``setup_time_seconds / system_size``, or ``None`` if setup time was
-        never measured.
+        ``setup_cost.wall_time_seconds / system_size``, or ``None`` if setup
+        cost was never measured (``result.setup_cost is None``).
 
     Raises:
         ValueError: If ``system_size`` is not positive.
     """
     if system_size <= 0:
         raise ValueError(f"system_size must be positive, got {system_size}.")
-    if result.setup_time_seconds is None:
+    setup_time_seconds = (
+        result.setup_cost.wall_time_seconds if result.setup_cost is not None else None
+    )
+    if setup_time_seconds is None:
         return None
-    return result.setup_time_seconds / system_size
+    return setup_time_seconds / system_size
+
+
+def generation_time_per_dof(result: CGComparisonResult, *, system_size: int) -> float | None:
+    """Dataset-generation cost feeding this preconditioner's fit/train step, normalized by problem size.
+
+    Deliberately provenance-agnostic: returns a number whenever a
+    ``StageCost`` is present on ``result.generation_cost``, regardless of
+    whether its provenance is MEASURED/HISTORICAL/UNAVAILABLE.
+    Provenance-based filtering (e.g. skipping UNAVAILABLE costs) is a
+    presentation-layer concern (plots, MLflow logging), not this pure-math
+    layer's job.
+
+    Args:
+        result: Comparison result to derive normalized generation cost from.
+        system_size: Number of unknowns ``n`` in the linear system.
+
+    Returns:
+        ``generation_time_seconds / system_size``, or ``None`` if generation
+        cost doesn't apply to this result.
+
+    Raises:
+        ValueError: If ``system_size`` is not positive.
+    """
+    if system_size <= 0:
+        raise ValueError(f"system_size must be positive, got {system_size}.")
+    generation_time_seconds = (
+        result.generation_cost.wall_time_seconds if result.generation_cost is not None else None
+    )
+    if generation_time_seconds is None:
+        return None
+    return generation_time_seconds / system_size
 
 
 def peak_memory_per_dof(result: CGComparisonResult, *, system_size: int) -> float | None:

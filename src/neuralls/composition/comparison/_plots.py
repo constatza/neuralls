@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Hashable, Mapping
+from collections.abc import Callable, Hashable, Mapping
 from pathlib import Path
+from typing import cast
 
 from neuralls.composition.comparison._presentation import build_comparison_plot_title
 from neuralls.composition.comparison.models import ComparisonPaths
@@ -67,9 +68,9 @@ def _generate_comparison_plots(
 
     Returns:
         Typed PlotPaths with paths to all generated figures — cost bar charts
-        (``setup_time_barplot``/``solve_time_barplot``/``peak_memory_barplot``/
-        ``time_breakdown_barplot``) are omitted (left ``None``) if no result in
-        this comparison has that metric measured.
+        (``generation_time_barplot``/``setup_time_barplot``/``solve_time_barplot``/
+        ``peak_memory_barplot``/``time_breakdown_barplot``) are omitted (left
+        ``None``) if no result in this comparison has that metric measured.
     """
     suffix = paths.matrix.stem or "comparison"
     labels = _unique_display_labels(results, labels)
@@ -115,17 +116,23 @@ def _generate_comparison_plots(
         save_path=iter_path,
     )
 
+    generation_time_path = _plot_cost_barplot(
+        results, labels, paths.figures / f"preconditioner_generation_time_{suffix}.png",
+        extract=lambda r: r.generation_cost.wall_time_seconds if r.generation_cost is not None else None,
+        metric_name="Generation Time (s)", title=title,
+    )  # fmt: skip
     setup_time_path = _plot_cost_barplot(
         results, labels, paths.figures / f"preconditioner_setup_time_{suffix}.png",
-        attr="setup_time_seconds", metric_name="Setup Time (s)", title=title,
+        extract=lambda r: r.setup_cost.wall_time_seconds if r.setup_cost is not None else None,
+        metric_name="Setup Time (s)", title=title,
     )  # fmt: skip
     solve_time_path = _plot_cost_barplot(
         results, labels, paths.figures / f"preconditioner_solve_time_{suffix}.png",
-        attr="solve_time_seconds", metric_name="Solve Time (s)", title=title,
+        extract=lambda r: r.solve_time_seconds, metric_name="Solve Time (s)", title=title,
     )  # fmt: skip
     memory_path = _plot_cost_barplot(
         results, labels, paths.figures / f"preconditioner_peak_memory_{suffix}.png",
-        attr="peak_memory_bytes", metric_name="Peak Memory (bytes)", title=title,
+        extract=lambda r: r.peak_memory_bytes, metric_name="Peak Memory (bytes)", title=title,
     )  # fmt: skip
 
     time_breakdown_path = _plot_time_breakdown_barplot(
@@ -147,6 +154,7 @@ def _generate_comparison_plots(
         convergence=convergence_path,
         iterations_barplot=iter_path,
         error_convergence=error_path,
+        generation_time_barplot=generation_time_path,
         setup_time_barplot=setup_time_path,
         solve_time_barplot=solve_time_path,
         peak_memory_barplot=memory_path,
@@ -160,21 +168,25 @@ def _plot_cost_barplot(
     labels: Mapping[str, str],
     save_path: Path,
     *,
-    attr: str,
+    extract: Callable[[CGComparisonResult], float | None],
     metric_name: str,
     title: str,
 ) -> Path | None:
-    """Bar chart of one cost attribute, skipping entries where it was never measured.
+    """Bar chart of one cost value (read via ``extract``), skipping unmeasured entries.
+
+    ``extract`` reads a plain numeric field directly (e.g. ``solve_time_seconds``)
+    or unwraps a ``StageCost``'s ``wall_time_seconds`` (e.g. generation/setup
+    cost) — either way this function only ever sees the resolved float.
 
     Returns ``None`` (no file written) when no result in this comparison has
-    the attribute measured — e.g. every preconditioner failed to build.
+    the value measured — e.g. every preconditioner failed to build.
     """
-    present = [name for name in results if getattr(results[name], attr) is not None]
+    present = [name for name in results if extract(results[name]) is not None]
     if not present:
         return None
     plot_metric_comparison(
         [labels.get(name, name) for name in present],
-        [getattr(results[name], attr) for name in present],
+        [cast(float, extract(results[name])) for name in present],
         metric_name=metric_name,
         title=title,
         horizontal=True,
@@ -190,16 +202,17 @@ def _plot_time_breakdown_barplot(
     *,
     title: str,
 ) -> Path | None:
-    """Stacked setup/solve time bar chart, skipping entirely if neither was ever measured.
+    """Stacked generation/setup/solve time bar chart, skipping if nothing was ever measured.
 
     Returns ``None`` (no file written) when no result in this comparison has
-    either time component measured — mirrors ``_plot_cost_barplot``'s skip
+    any time component measured — mirrors ``_plot_cost_barplot``'s skip
     convention.
     """
     present = [
         name
         for name in results
-        if results[name].setup_time_seconds is not None
+        if results[name].generation_cost is not None
+        or results[name].setup_cost is not None
         or results[name].solve_time_seconds is not None
     ]
     if not present:

@@ -31,6 +31,7 @@ from neuralls.domain.solver.models.result import (
     ComparisonResult,
     PlotPaths,
     RankedRecommendation,
+    StageCost,
 )
 from neuralls.platform.config.models.experiments import (
     AssignmentEntry,
@@ -60,7 +61,7 @@ from neuralls.platform.tracking.comparison_tracking import (
 )
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
 from neuralls.shared.digest import canonical_digest
-from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
+from neuralls.shared.types import ComparisonRhsSourceKind, CostProvenance, RowKind
 
 
 def test_resolve_comparison_config_importable_from_composition() -> None:
@@ -1279,8 +1280,11 @@ def test_log_comparison_metrics_logs_cost_metrics_when_measured(tmp_path: Path) 
         results={
             "identity": replace(
                 _typed_comparison_result(tmp_path / "conv.png").results["identity"],
-                setup_time_seconds=2.0,
-                setup_peak_memory_bytes=1000,
+                setup_cost=StageCost(
+                    wall_time_seconds=2.0,
+                    peak_memory_bytes=1000,
+                    provenance=CostProvenance.MEASURED,
+                ),
                 solve_time_seconds=1.0,
                 solve_peak_memory_bytes=2000,
             )

@@ -11,6 +11,7 @@ import torch
 from loguru import logger
 from torchalg.utils.device import resolve_device
 
+from neuralls.composition.comparison._generation_cost import resolve_generation_cost
 from neuralls.composition.comparison._linear_system import _load_linear_system
 from neuralls.composition.comparison._plots import _generate_comparison_plots
 from neuralls.composition.comparison._preconditioner_setup import (
@@ -36,6 +37,7 @@ from neuralls.domain.solver.models.result import (
     CGComparisonResult,
     ComparisonRecommendations,
     ComparisonResult,
+    StageCost,
 )
 from neuralls.platform.config.models.comparison import ComparisonGeneral
 from neuralls.platform.config.models.preconditioner import (
@@ -50,6 +52,7 @@ from neuralls.platform.config.models.preconditioner_family import (
     preconditioner_family,
 )
 from neuralls.platform.config.resolution import resolve_user_path
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.preconditioner_labels import (
     build_preconditioner_labels,
     contextualize_preconditioner_label,
@@ -58,6 +61,7 @@ from neuralls.platform.storage.filesystem import ensure_dir
 from neuralls.platform.tracking.mlflow_client import fetch_mlflow_metrics
 from neuralls.shared.constants import TRAINING_CHILD_DURATION_METRIC_KEY
 from neuralls.shared.device import ResourceUsage, release_device_memory, track_resource_usage
+from neuralls.shared.types import CostProvenance
 
 type PreconditionerEvaluationMapper = Callable[
     [
@@ -143,6 +147,7 @@ def _evaluate_preconditioner(
     display_name: str | None = None,
     x_exact: torch.Tensor | None = None,
     tracking_uri: str | None = None,
+    settings: NeurallsSettings,
 ) -> PreconditionerComparisonEntry:
     """Build one preconditioner, run it, and package its evaluation outcome.
 
@@ -164,6 +169,8 @@ def _evaluate_preconditioner(
         tracking_uri: MLflow tracking URI to charge a checkpoint-backed
             preconditioner's real (historical) setup cost against, or
             ``None`` to skip that lookup entirely.
+        settings: Resolved runtime roots, used to resolve any dataset
+            directory feeding this preconditioner's generation cost.
 
     Returns:
         Named result containing the solve outcome and plot metadata for ``cfg``.
@@ -183,6 +190,7 @@ def _evaluate_preconditioner(
             marker_key=marker_key,
             x_exact=x_exact,
             tracking_uri=tracking_uri,
+            settings=settings,
         )
     except Exception as exc:  # noqa: BLE001
         # Broad by design: one preconditioner's failure (build, solve, CUDA OOM,
@@ -207,7 +215,7 @@ def _evaluate_preconditioner(
 
 def _resolve_setup_usage(
     cfg: PreconditionerConfig, *, measured: ResourceUsage, tracking_uri: str | None
-) -> ResourceUsage:
+) -> StageCost:
     """Prefer a checkpoint-backed preconditioner's real (historical) build cost.
 
     When ``cfg`` reuses a checkpoint, the work that actually made it
@@ -250,11 +258,23 @@ def _resolve_setup_usage(
             lookup entirely (e.g. no active MLflow session).
 
     Returns:
-        ``measured`` with ``wall_time_seconds`` replaced by the historical
-        duration when found; ``measured`` unchanged otherwise.
+        A ``StageCost`` with ``wall_time_seconds`` set to the historical
+        duration when found (``CostProvenance.HISTORICAL``); the freshly
+        measured value tagged ``CostProvenance.MEASURED`` when no checkpoint
+        was reused; or the freshly measured value tagged
+        ``CostProvenance.UNAVAILABLE`` when a checkpoint was reused but no
+        historical record could be resolved (no tracking URI, or a lookup
+        that found nothing) — the number is a load/assembly artifact, not
+        the real cost, in that last case.
     """
-    if tracking_uri is None or not isinstance(cfg, CheckpointRefBearing):
-        return measured
+    if not isinstance(cfg, CheckpointRefBearing):
+        return StageCost(
+            measured.wall_time_seconds, measured.peak_memory_bytes, CostProvenance.MEASURED
+        )
+    if tracking_uri is None:
+        return StageCost(
+            measured.wall_time_seconds, measured.peak_memory_bytes, CostProvenance.UNAVAILABLE
+        )
     total_duration = 0.0
     found_any = False
     for _, ref in cfg.checkpoint_refs():
@@ -275,10 +295,10 @@ def _resolve_setup_usage(
             total_duration += duration
             found_any = True
     if not found_any:
-        return measured
-    return ResourceUsage(
-        wall_time_seconds=total_duration, peak_memory_bytes=measured.peak_memory_bytes
-    )
+        return StageCost(
+            measured.wall_time_seconds, measured.peak_memory_bytes, CostProvenance.UNAVAILABLE
+        )
+    return StageCost(total_duration, measured.peak_memory_bytes, CostProvenance.HISTORICAL)
 
 
 def _run_preconditioner(
@@ -294,6 +314,7 @@ def _run_preconditioner(
     marker_key: str | None,
     x_exact: torch.Tensor | None = None,
     tracking_uri: str | None = None,
+    settings: NeurallsSettings,
 ) -> PreconditionerComparisonEntry:
     """Build and solve one preconditioner; raises on any failure."""
     family = preconditioner_family(cfg)
@@ -321,14 +342,9 @@ def _run_preconditioner(
         m_max=params.m_max,
         reference_precision_margin=params.reference_precision_margin,
     )[cfg.name]
-    resolved_setup_usage = _resolve_setup_usage(
-        cfg, measured=setup_usage(), tracking_uri=tracking_uri
-    )
-    result = replace(
-        result,
-        setup_time_seconds=resolved_setup_usage.wall_time_seconds,
-        setup_peak_memory_bytes=resolved_setup_usage.peak_memory_bytes,
-    )
+    setup_cost = _resolve_setup_usage(cfg, measured=setup_usage(), tracking_uri=tracking_uri)
+    generation_cost = resolve_generation_cost(cfg, settings=settings)
+    result = replace(result, generation_cost=generation_cost, setup_cost=setup_cost)
     return PreconditionerComparisonEntry(
         name=cfg.name,
         result=result,
@@ -404,6 +420,7 @@ def compare_preconditioners(
     resolved_input: ResolvedComparisonInput | None = None,
     evaluation_mapper: PreconditionerEvaluationMapper = map,
     tracking_uri: str | None = None,
+    settings: NeurallsSettings,
 ) -> ComparisonResult:
     """Run CG comparisons and generate diagnostics.
 
@@ -439,6 +456,9 @@ def compare_preconditioners(
             preconditioner's real (historical) setup cost — see
             ``_resolve_setup_usage``. ``None`` (default) skips that lookup
             entirely; every existing caller keeps working unchanged.
+        settings: Resolved runtime roots, used to resolve any dataset
+            directory feeding a preconditioner's generation cost — see
+            ``_generation_cost.py::resolve_generation_cost``.
 
     Returns:
         ComparisonResult with results, summary, plot paths, and solver metadata.
@@ -496,6 +516,7 @@ def compare_preconditioners(
         display_name=display_name,
         tracking_uri=tracking_uri,
         x_exact=x_exact,
+        settings=settings,
     )
 
     results: dict[str, CGComparisonResult] = {}

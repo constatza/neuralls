@@ -23,10 +23,24 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import torch
 
+from neuralls.shared.types import CostProvenance
+
 if TYPE_CHECKING:
     from neuralls.shared.types import ComparisonRhsSourceKind
 
     from .config import ComparisonGeneral
+
+
+@dataclass(frozen=True, slots=True)
+class StageCost:
+    """One pipeline stage's wall-clock cost, tagged with where the number came from.
+
+    See shared.types.CostProvenance for what MEASURED/HISTORICAL/UNAVAILABLE mean.
+    """
+
+    wall_time_seconds: float
+    peak_memory_bytes: int | None
+    provenance: CostProvenance
 
 
 @dataclass
@@ -151,17 +165,10 @@ class CGComparisonResult:
         helper_iterations: Iterations where step helper was invoked.
         helper_norms: Residual norms after step helper application.
         error: Error message if solver failed.
-        setup_time_seconds: Wall time to build this preconditioner. For a
-            fresh (non-checkpoint) build this is measured directly around
-            `create_preconditioner()`; for a checkpoint-backed build it is
-            the historical fit/train duration charged back from that
-            checkpoint's own MLflow run instead, since the checkpoint load
-            itself is negligible overhead next to the training it skipped —
-            see `composition/comparison/comparison_run.py::_resolve_setup_usage`.
-            `None` if neither a measurement nor history was available.
-        setup_peak_memory_bytes: Peak memory during construction — see
-            `shared.device.track_resource_usage` for the CPU/GPU measurement
-            split. `None` if never measured.
+        generation_cost: Dataset-generation cost feeding this preconditioner's
+            fit/train step, or `None` if generation doesn't apply.
+        setup_cost: Cost to fit/train/build this preconditioner, or `None`
+            only for a placeholder result where no build was attempted.
         solve_time_seconds: Wall time for the CG/PCG/FCG solve itself.
             `None` if never measured.
         solve_peak_memory_bytes: Peak memory during the solve. `None` if
@@ -232,16 +239,16 @@ class CGComparisonResult:
     """Golub-Meurant lower bound on ||e_k||_A / ||e_0||_A, used when the exact
     energy error is unavailable (no reference solution). None if neither is available."""
 
-    setup_time_seconds: float | None = None
-    """Wall time to build this preconditioner. For a checkpoint-backed build
-    (e.g. a reused POD-2G basis), this is the *historical* fit/train
-    duration charged back from its own MLflow run when available, not the
-    (comparatively negligible) checkpoint-load/coarse-assembly time measured
-    this run -- see `composition/comparison/comparison_run.py::_resolve_setup_usage`.
-    None if not measured and no history was found."""
+    generation_cost: StageCost | None = None
+    """Dataset-generation cost feeding this preconditioner's fit/train step, or None if
+    generation doesn't apply (classical/geometric AMG, standard/Jacobi/IC0 preconditioners
+    have no training data at all). When present it is always HISTORICAL (read from the
+    dataset's manifest) or UNAVAILABLE — a comparison run never generates a dataset itself,
+    that's a separate, earlier pipeline stage (see composition/generation's own docs)."""
 
-    setup_peak_memory_bytes: int | None = None
-    """Peak memory during construction. None if not measured."""
+    setup_cost: StageCost | None = None
+    """Cost to fit/train/build this preconditioner. None only for a placeholder result
+    where no build was ever attempted (see comparison_run.py::_breakdown_result)."""
 
     solve_time_seconds: float | None = None
     """Wall time for the CG/PCG/FCG solve. None if not measured."""
@@ -251,10 +258,28 @@ class CGComparisonResult:
 
     @property
     def total_time_seconds(self) -> float | None:
-        """Setup + solve wall time, or None if neither was measured."""
-        if self.setup_time_seconds is None and self.solve_time_seconds is None:
-            return None
-        return (self.setup_time_seconds or 0.0) + (self.solve_time_seconds or 0.0)
+        """Setup + generation + solve wall time, or None if nothing could be summed.
+
+        Excludes any UNAVAILABLE-provenance component — an unavailable cost is a
+        real, unrecorded cost, and counting it as 0.0 would silently understate
+        the total.
+        """
+        parts = [
+            c.wall_time_seconds
+            for c in (self.generation_cost, self.setup_cost)
+            if c is not None and c.provenance is not CostProvenance.UNAVAILABLE
+        ]
+        if self.solve_time_seconds is not None:
+            parts.append(self.solve_time_seconds)
+        return sum(parts) if parts else None
+
+    @property
+    def has_unavailable_cost(self) -> bool:
+        """True when generation or setup cost exists but couldn't be resolved to a real number."""
+        return any(
+            c is not None and c.provenance is CostProvenance.UNAVAILABLE
+            for c in (self.generation_cost, self.setup_cost)
+        )
 
     @property
     def avg_iteration_time_seconds(self) -> float | None:
@@ -266,9 +291,8 @@ class CGComparisonResult:
     @property
     def peak_memory_bytes(self) -> int | None:
         """Max of setup and solve peak memory, or None if neither was measured."""
-        values = [
-            v for v in (self.setup_peak_memory_bytes, self.solve_peak_memory_bytes) if v is not None
-        ]
+        setup_peak = self.setup_cost.peak_memory_bytes if self.setup_cost is not None else None
+        values = [v for v in (setup_peak, self.solve_peak_memory_bytes) if v is not None]
         return max(values) if values else None
 
 
@@ -336,11 +360,12 @@ class PlotPaths:
         residuals: Residual history plot.
         iterations_barplot: Horizontal bar chart of iteration counts.
         error_convergence: Relative energy-norm error convergence plot.
+        generation_time_barplot: Horizontal bar chart of dataset-generation times.
         setup_time_barplot: Horizontal bar chart of preconditioner setup times.
         solve_time_barplot: Horizontal bar chart of CG solve times.
         peak_memory_barplot: Horizontal bar chart of peak memory usage.
-        time_breakdown_barplot: Stacked horizontal bar chart of setup vs.
-            solve time per method.
+        time_breakdown_barplot: Stacked horizontal bar chart of generation vs.
+            setup vs. solve time per method.
         work_precision: Work-precision diagram (final precision vs. total cost).
     """
 
@@ -349,6 +374,7 @@ class PlotPaths:
     residuals: Path | None = None
     iterations_barplot: Path | None = None
     error_convergence: Path | None = None
+    generation_time_barplot: Path | None = None
     setup_time_barplot: Path | None = None
     solve_time_barplot: Path | None = None
     peak_memory_barplot: Path | None = None
@@ -373,6 +399,7 @@ class PlotPaths:
             residuals=mapping.get("residuals"),
             iterations_barplot=mapping.get("iterations_barplot"),
             error_convergence=mapping.get("error_convergence"),
+            generation_time_barplot=mapping.get("generation_time_barplot"),
             setup_time_barplot=mapping.get("setup_time_barplot"),
             solve_time_barplot=mapping.get("solve_time_barplot"),
             peak_memory_barplot=mapping.get("peak_memory_barplot"),
@@ -392,6 +419,7 @@ class PlotPaths:
             "residuals": self.residuals,
             "iterations_barplot": self.iterations_barplot,
             "error_convergence": self.error_convergence,
+            "generation_time_barplot": self.generation_time_barplot,
             "setup_time_barplot": self.setup_time_barplot,
             "solve_time_barplot": self.solve_time_barplot,
             "peak_memory_barplot": self.peak_memory_barplot,
