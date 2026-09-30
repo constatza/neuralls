@@ -1,0 +1,20 @@
+id = "rhc-cg-start100-stop500-step100"
+
+[source]
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
+
+[generation]
+normalize = "matrix"
+shuffle = true
+seed = 42
+
+# Five round checkpoints span the solution-calibrated 500-iteration trace.
+[[generation.strategy]]
+name = "gaussian_residuals"
+samples = 10000
+start = 100
+stop = 500
+step = 100
+
+[output]
+data_dir = "${NEURALLS_PROCESSED_DIR}"

@@ -45,8 +45,9 @@ matrix family:
 - `configs/cases/45x15randomE/` — parametric family (~100 matrices, randomized
   Young's moduli)
 - `configs/cases/93x31/`
-- `configs/cases/rectangular-high-condition/` — also has a `sample-sweep.toml`
-  varying 0-CG/CG-10/CG-50 training-set size (1000/2000/5000/10000 samples)
+- `configs/cases/rectangular-high-condition/` — includes focused POD-2G-only
+  `win.toml`, `samples.toml`, and `rank.toml` parameter studies for CG-error
+  and smoother-filtered-probe datasets
 - `configs/cases/spheres-1000x/`, `spheres-50x/`, `spheres-1x/` — sphere-RVE
   matrices at decreasing sphere/matrix stiffness contrast
 

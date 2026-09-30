@@ -1,0 +1,42 @@
+[mlflow]
+tracking_uri = "http://localhost:5000"
+
+[names]
+training = "Train-RHC-POD-Samples"
+comparison = "Compare-RHC-POD-Samples"
+
+[comparison_defaults]
+rtol = 1.0e-6
+atol = 1.0e-14
+max_iterations = 200
+stopping_criterion = "residual_norm"
+m_max = 20
+
+# n=840 for this matrix. The four-point sweep keeps the exact n baseline,
+# then uses round intermediate counts up to 5000.
+[[dataset_sweeps]]
+label = "cg-n"
+path_template = "../../datasets/train/rectangular-high-condition/_generated/cg-startM1-stop30-step1-n{value}.toml"
+values = [840, 1000, 2500, 5000]
+
+[[dataset_sweeps]]
+label = "sm-n"
+path_template = "../../datasets/train/rectangular-high-condition/_generated/sm-startM1-stop7-step1-n{value}.toml"
+values = [840, 1000, 2500, 5000]
+
+[[jobs]]
+id = "pod-r50"
+path = "../../jobs/pod2g/r50.toml"
+
+[[comparisons]]
+matrix_dataset = "rhc-cg-startM1-stop30-step1-n5000"
+rhs_source = { kind = "gaussian" }
+seed = 42
+
+[[assignment_sweeps]]
+dataset_sweep = "cg-n"
+job = "pod-r50"
+
+[[assignment_sweeps]]
+dataset_sweep = "sm-n"
+job = "pod-r50"

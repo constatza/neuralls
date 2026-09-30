@@ -1,0 +1,23 @@
+id = "rhc-sm-startM1-stop7-step1-n"
+id_template = "rhc-sm-startM1-stop7-step1-n{value}"
+filename_template = "sm-startM1-stop7-step1-n{value}.toml"
+
+[source]
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
+
+[generation]
+normalize = "matrix"
+shuffle = true
+seed = 42
+
+# Final 7-sweep probe; sample count is the sole swept axis.
+[[generation.strategy]]
+name = "smoother_filtered_probes"
+samples = [840, 1000, 2500, 5000]
+start = -1
+stop = 7
+step = 1
+probe_distribution = "gaussian"
+
+[output]
+data_dir = "${NEURALLS_PROCESSED_DIR}"

@@ -1,0 +1,21 @@
+id = "rhc-sm-startM2-stop7-step1"
+
+[source]
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
+
+[generation]
+normalize = "matrix"
+shuffle = true
+seed = 42
+
+# Keep damping sweeps 6 and 7: the last two rows of the trajectory.
+[[generation.strategy]]
+name = "smoother_filtered_probes"
+samples = 10000
+start = -2
+stop = 7
+step = 1
+probe_distribution = "gaussian"
+
+[output]
+data_dir = "${NEURALLS_PROCESSED_DIR}"

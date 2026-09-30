@@ -1,0 +1,85 @@
+[mlflow]
+tracking_uri = "http://localhost:5000"
+
+[names]
+training = "Train-RHC-POD-Rank"
+comparison = "Compare-RHC-POD-Rank"
+
+[comparison_defaults]
+rtol = 1.0e-6
+atol = 1.0e-14
+max_iterations = 200
+stopping_criterion = "residual_norm"
+m_max = 20
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/cg-startM1-stop30-step1.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/sm-startM1-stop7-step1.toml"
+
+# Five round POD dimensions, ending at 300 (the rounded n/3 scale for n=840).
+[[jobs]]
+id = "pod-r5"
+path = "../../jobs/pod2g/r5.toml"
+
+[[jobs]]
+id = "pod-r25"
+path = "../../jobs/pod2g/r25.toml"
+
+[[jobs]]
+id = "pod-r50"
+path = "../../jobs/pod2g/r50.toml"
+
+[[jobs]]
+id = "pod-r100"
+path = "../../jobs/pod2g/pod2g-rank100.toml"
+
+[[jobs]]
+id = "pod-r300"
+path = "../../jobs/pod2g/pod2g-rank300.toml"
+
+[[comparisons]]
+matrix_dataset = "rhc-cg-startM1-stop30-step1"
+rhs_source = { kind = "gaussian" }
+seed = 42
+
+[[assignments]]
+dataset = "rhc-cg-startM1-stop30-step1"
+job = "pod-r5"
+
+[[assignments]]
+dataset = "rhc-cg-startM1-stop30-step1"
+job = "pod-r25"
+
+[[assignments]]
+dataset = "rhc-cg-startM1-stop30-step1"
+job = "pod-r50"
+
+[[assignments]]
+dataset = "rhc-cg-startM1-stop30-step1"
+job = "pod-r100"
+
+[[assignments]]
+dataset = "rhc-cg-startM1-stop30-step1"
+job = "pod-r300"
+
+[[assignments]]
+dataset = "rhc-sm-startM1-stop7-step1"
+job = "pod-r5"
+
+[[assignments]]
+dataset = "rhc-sm-startM1-stop7-step1"
+job = "pod-r25"
+
+[[assignments]]
+dataset = "rhc-sm-startM1-stop7-step1"
+job = "pod-r50"
+
+[[assignments]]
+dataset = "rhc-sm-startM1-stop7-step1"
+job = "pod-r100"
+
+[[assignments]]
+dataset = "rhc-sm-startM1-stop7-step1"
+job = "pod-r300"

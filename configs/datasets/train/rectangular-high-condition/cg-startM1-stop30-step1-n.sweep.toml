@@ -1,0 +1,22 @@
+id = "rhc-cg-startM1-stop30-step1-n"
+id_template = "rhc-cg-startM1-stop30-step1-n{value}"
+filename_template = "cg-startM1-stop30-step1-n{value}.toml"
+
+[source]
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
+
+[generation]
+normalize = "matrix"
+shuffle = true
+seed = 42
+
+# Final CG-30 snapshot; sample count is the sole swept axis.
+[[generation.strategy]]
+name = "gaussian_residuals"
+samples = [840, 1000, 2500, 5000]
+start = -1
+stop = 30
+step = 1
+
+[output]
+data_dir = "${NEURALLS_PROCESSED_DIR}"

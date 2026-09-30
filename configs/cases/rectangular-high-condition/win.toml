@@ -1,0 +1,97 @@
+[mlflow]
+tracking_uri = "http://localhost:5000"
+
+[names]
+training = "Train-RHC-POD-Win"
+comparison = "Compare-RHC-POD-Win"
+
+[comparison_defaults]
+rtol = 1.0e-6
+atol = 1.0e-14
+max_iterations = 200
+stopping_criterion = "residual_norm"
+m_max = 20
+
+# CG compares final-state snapshots with four coarsely sampled histories.
+# Smoother trajectories compare recent-state windows with a coarsely sampled
+# full history. Every dataset retains at most five vectors per trajectory.
+# These are separate configs because start/stop/step are coupled choices, not
+# independent axes whose Cartesian product would be meaningful.
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/cg-startM1-stop10-step1.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/cg-startM1-stop30-step1.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/cg-start1-stop10-step2.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/cg-startM10-stop30-step2.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/cg-start6-stop30-step6.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/cg-start100-stop500-step100.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/sm-startM1-stop7-step1.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/sm-startM2-stop7-step1.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/sm-startM4-stop7-step1.toml"
+
+[[datasets]]
+path = "../../datasets/train/rectangular-high-condition/sm-startM7-stop7-step2.toml"
+
+[[jobs]]
+id = "pod-r50"
+path = "../../jobs/pod2g/r50.toml"
+
+[[comparisons]]
+matrix_dataset = "rhc-cg-startM1-stop30-step1"
+rhs_source = { kind = "gaussian" }
+seed = 42
+
+[[assignments]]
+dataset = "rhc-cg-startM1-stop10-step1"
+job = "pod-r50"
+
+[[assignments]]
+dataset = "rhc-cg-startM1-stop30-step1"
+job = "pod-r50"
+
+[[assignments]]
+dataset = "rhc-cg-start1-stop10-step2"
+job = "pod-r50"
+
+[[assignments]]
+dataset = "rhc-cg-startM10-stop30-step2"
+job = "pod-r50"
+
+[[assignments]]
+dataset = "rhc-cg-start6-stop30-step6"
+job = "pod-r50"
+
+[[assignments]]
+dataset = "rhc-cg-start100-stop500-step100"
+job = "pod-r50"
+
+[[assignments]]
+dataset = "rhc-sm-startM1-stop7-step1"
+job = "pod-r50"
+
+[[assignments]]
+dataset = "rhc-sm-startM2-stop7-step1"
+job = "pod-r50"
+
+[[assignments]]
+dataset = "rhc-sm-startM4-stop7-step1"
+job = "pod-r50"
+
+[[assignments]]
+dataset = "rhc-sm-startM7-stop7-step2"
+job = "pod-r50"

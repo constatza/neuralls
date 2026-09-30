@@ -1,0 +1,20 @@
+id = "rhc-cg-startM10-stop30-step2"
+
+[source]
+matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
+
+[generation]
+normalize = "matrix"
+shuffle = true
+seed = 42
+
+# Keep iterations 21, 23, 25, 27, and 29.
+[[generation.strategy]]
+name = "gaussian_residuals"
+samples = 10000
+start = -10
+stop = 30
+step = 2
+
+[output]
+data_dir = "${NEURALLS_PROCESSED_DIR}"
