@@ -57,6 +57,32 @@ class ComparisonRhsSourceKind(StrEnum):
     DATASET = "dataset"
 
 
+class CostProvenance(StrEnum):
+    """Where a pipeline-stage cost's wall-clock number actually came from.
+
+    A comparison run's generation/setup cost for a checkpoint- or
+    dataset-backed preconditioner is never all measured live: most of the
+    time it's either paid once and charged back from history, or that
+    charge-back silently couldn't happen. Collapsing those into a bare
+    ``float | None`` (the original shape of ``CGComparisonResult.setup_time_seconds``)
+    made a real near-zero build indistinguishable from a failed historical
+    lookup that fell back to a near-zero artifact — this enum exists so
+    every reader (plots, MLflow logging) can tell the three apart instead of
+    silently rendering an unknown cost as if it were a real zero.
+    """
+
+    MEASURED = "measured"
+    """Timed fresh, this run — the number is the real cost."""
+
+    HISTORICAL = "historical"
+    """Charged back from an earlier MLflow run or a dataset manifest — the
+    number is the real cost, just not paid by this run."""
+
+    UNAVAILABLE = "unavailable"
+    """Reuse happened but no record of the real cost could be found — the
+    accompanying number is a load/assembly artifact, not a real cost."""
+
+
 class PreconditionerFamily(StrEnum):
     """Plot-style grouping for preconditioner variants that share a config `type`.
 
