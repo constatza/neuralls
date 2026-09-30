@@ -2,13 +2,33 @@
 
 from __future__ import annotations
 
-import resource
+import sys
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 
 import torch
+
+if sys.platform == "win32":
+    import psutil
+else:
+    import resource
+
+
+def _sample_peak_rss_kib() -> int:
+    """Process-wide peak RSS in KiB, POSIX `ru_maxrss` units on every platform.
+
+    POSIX `rusage` has no reset API, so `ru_maxrss` is a monotonic
+    high-water mark for the process's whole lifetime — the same is true of
+    Windows' `peak_wset`, so both give the same "under-reports if an earlier
+    region already hit a bigger peak" behavior documented on
+    `end_resource_usage`, just via different APIs (`resource` isn't present
+    on Windows at all — see `ModuleNotFoundError: No module named 'resource'`).
+    """
+    if sys.platform == "win32":
+        return psutil.Process().memory_info().peak_wset // 1024
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,8 +38,8 @@ class ResourceUsage:
     Attributes:
         wall_time_seconds: Elapsed wall-clock time for the region.
         peak_memory_bytes: On CUDA, an exact scoped peak (the allocator's
-            high-water mark reset at region entry). On CPU, a
-            `resource.getrusage` RSS delta — see `track_resource_usage`.
+            high-water mark reset at region entry). On CPU, a peak-RSS
+            delta — see `track_resource_usage`.
     """
 
     wall_time_seconds: float
@@ -62,7 +82,7 @@ def begin_resource_usage(device: torch.device) -> ResourceUsageToken:
             torch.cuda.reset_peak_memory_stats(device)
             rss_before = None
         case _:
-            rss_before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            rss_before = _sample_peak_rss_kib()
     return ResourceUsageToken(device=device, start=time.perf_counter(), rss_before=rss_before)
 
 
@@ -80,11 +100,12 @@ def end_resource_usage(token: ResourceUsageToken) -> ResourceUsage:
     - CUDA: `torch.cuda.max_memory_allocated` after
       `torch.cuda.reset_peak_memory_stats` (done in `begin_resource_usage`),
       an exact peak scoped to this call.
-    - CPU: `resource.getrusage(RUSAGE_SELF).ru_maxrss` sampled before and
-      after, delta reported (0 if no new peak was set). `ru_maxrss` is a
-      process-wide, monotonic high-water mark — POSIX `rusage` has no reset
-      API — so this under-reports if the process already hit a bigger peak
-      earlier (e.g. a prior preconditioner's build in the same run).
+    - CPU: peak RSS (`resource.getrusage(RUSAGE_SELF).ru_maxrss` on POSIX,
+      `psutil.Process().memory_info().peak_wset` on Windows) sampled before
+      and after, delta reported (0 if no new peak was set). Both are
+      process-wide, monotonic high-water marks with no reset API, so this
+      under-reports if the process already hit a bigger peak earlier (e.g. a
+      prior preconditioner's build in the same run).
       # ponytail: process-wide high-water mark, not a true scoped peak; swap
       # for a sampling thread or psutil if a precise per-call CPU peak is
       # ever needed.
@@ -101,7 +122,7 @@ def end_resource_usage(token: ResourceUsageToken) -> ResourceUsage:
             torch.cuda.synchronize(device)
             peak_memory_bytes = torch.cuda.max_memory_allocated(device)
         case _:
-            rss_after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            rss_after = _sample_peak_rss_kib()
             peak_memory_bytes = max(rss_after - (token.rss_before or 0), 0) * 1024
     return ResourceUsage(
         wall_time_seconds=time.perf_counter() - token.start,
