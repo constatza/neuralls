@@ -339,6 +339,8 @@ class PlotPaths:
         setup_time_barplot: Horizontal bar chart of preconditioner setup times.
         solve_time_barplot: Horizontal bar chart of CG solve times.
         peak_memory_barplot: Horizontal bar chart of peak memory usage.
+        time_breakdown_barplot: Stacked horizontal bar chart of setup vs.
+            solve time per method.
         work_precision: Work-precision diagram (final precision vs. total cost).
     """
 
@@ -350,6 +352,7 @@ class PlotPaths:
     setup_time_barplot: Path | None = None
     solve_time_barplot: Path | None = None
     peak_memory_barplot: Path | None = None
+    time_breakdown_barplot: Path | None = None
     work_precision: Path | None = None
 
     @classmethod
@@ -373,6 +376,7 @@ class PlotPaths:
             setup_time_barplot=mapping.get("setup_time_barplot"),
             solve_time_barplot=mapping.get("solve_time_barplot"),
             peak_memory_barplot=mapping.get("peak_memory_barplot"),
+            time_breakdown_barplot=mapping.get("time_breakdown_barplot"),
             work_precision=mapping.get("work_precision"),
         )
 
@@ -391,6 +395,7 @@ class PlotPaths:
             "setup_time_barplot": self.setup_time_barplot,
             "solve_time_barplot": self.solve_time_barplot,
             "peak_memory_barplot": self.peak_memory_barplot,
+            "time_breakdown_barplot": self.time_breakdown_barplot,
             "work_precision": self.work_precision,
         }
         return {key: path for key, path in values.items() if path is not None}

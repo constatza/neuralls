@@ -14,6 +14,7 @@ from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
     plot_error_convergence_comparison,
     plot_metric_comparison,
+    plot_time_breakdown_barplot,
     plot_work_precision,
 )
 
@@ -66,9 +67,9 @@ def _generate_comparison_plots(
 
     Returns:
         Typed PlotPaths with paths to all generated figures — cost bar charts
-        (``setup_time_barplot``/``solve_time_barplot``/``peak_memory_barplot``)
-        are omitted (left ``None``) if no result in this comparison has that
-        metric measured.
+        (``setup_time_barplot``/``solve_time_barplot``/``peak_memory_barplot``/
+        ``time_breakdown_barplot``) are omitted (left ``None``) if no result in
+        this comparison has that metric measured.
     """
     suffix = paths.matrix.stem or "comparison"
     labels = _unique_display_labels(results, labels)
@@ -127,6 +128,10 @@ def _generate_comparison_plots(
         attr="peak_memory_bytes", metric_name="Peak Memory (bytes)", title=title,
     )  # fmt: skip
 
+    time_breakdown_path = _plot_time_breakdown_barplot(
+        results, labels, paths.figures / f"preconditioner_time_breakdown_{suffix}.png", title=title,
+    )  # fmt: skip
+
     work_precision_path = paths.figures / f"preconditioner_work_precision_{suffix}.png"
     plot_work_precision(
         results,
@@ -145,6 +150,7 @@ def _generate_comparison_plots(
         setup_time_barplot=setup_time_path,
         solve_time_barplot=solve_time_path,
         peak_memory_barplot=memory_path,
+        time_breakdown_barplot=time_breakdown_path,
         work_precision=work_precision_path,
     )
 
@@ -172,6 +178,36 @@ def _plot_cost_barplot(
         metric_name=metric_name,
         title=title,
         horizontal=True,
+        save_path=save_path,
+    )
+    return save_path
+
+
+def _plot_time_breakdown_barplot(
+    results: Mapping[str, CGComparisonResult],
+    labels: Mapping[str, str],
+    save_path: Path,
+    *,
+    title: str,
+) -> Path | None:
+    """Stacked setup/solve time bar chart, skipping entirely if neither was ever measured.
+
+    Returns ``None`` (no file written) when no result in this comparison has
+    either time component measured — mirrors ``_plot_cost_barplot``'s skip
+    convention.
+    """
+    present = [
+        name
+        for name in results
+        if results[name].setup_time_seconds is not None
+        or results[name].solve_time_seconds is not None
+    ]
+    if not present:
+        return None
+    plot_time_breakdown_barplot(
+        {name: results[name] for name in present},
+        labels,
+        title=title,
         save_path=save_path,
     )
     return save_path

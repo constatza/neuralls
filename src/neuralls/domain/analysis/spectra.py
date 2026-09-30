@@ -125,6 +125,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 import torch
 from loguru import logger
 from scipy.sparse.linalg import ArpackNoConvergence, LinearOperator, eigs
@@ -314,14 +315,15 @@ def plot_condition_numbers(
     """
     if not cond_numbers:
         return None
-    labels = list(cond_numbers.keys())
+    labels = sorted(cond_numbers, key=lambda name: cond_numbers[name], reverse=True)
     values = [cond_numbers[name] for name in labels]
 
     # Dynamic figsize based on number of labels
     figsize = (9, max(3, len(labels) * 0.6))
     fig, ax = plt.subplots(figsize=figsize)
 
-    bars = ax.barh(labels, values)
+    sns.barplot(x=values, y=labels, order=labels, ax=ax)
+    bars = ax.containers[0]
     ax.set_xscale("log")
     ax.set_xlabel("Condition number (λ_max/λ_min)")
 

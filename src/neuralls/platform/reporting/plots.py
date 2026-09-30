@@ -13,6 +13,7 @@ import matplotlib
 matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 from loguru import logger
 
 from neuralls.domain.solver.models.result import CGComparisonResult
@@ -886,15 +887,23 @@ def _plot_stats_bar_chart(
     """
     ax = fig.add_subplot(gs[2, 0])
     stats_names = ["min", "max", "mean", "median", "std", "norm"]
-    pred_vals = [pred_stats[k] for k in stats_names]
-    true_vals = [true_stats[k] for k in stats_names]
-    x_pos = np.arange(len(stats_names))
-    width = 0.35
+    categories = stats_names * 2
+    series = ["Predictions"] * len(stats_names) + ["Targets"] * len(stats_names)
+    values = [pred_stats[k] for k in stats_names] + [true_stats[k] for k in stats_names]
 
-    ax.bar(x_pos - width / 2, pred_vals, width, label="Predictions", alpha=0.8, color="blue")
-    ax.bar(x_pos + width / 2, true_vals, width, label="Targets", alpha=0.8, color="orange")
-    ax.set_xticks(x_pos)
-    ax.set_xticklabels(stats_names, rotation=45, ha="right", fontsize=9)
+    sns.barplot(
+        x=categories,
+        y=values,
+        hue=series,
+        order=stats_names,
+        hue_order=["Predictions", "Targets"],
+        palette={"Predictions": "blue", "Targets": "orange"},
+        alpha=0.8,
+        ax=ax,
+    )
+    ax.tick_params(axis="x", labelsize=9, rotation=45)
+    plt.setp(ax.get_xticklabels(), ha="right")
+    ax.set_xlabel("")
     ax.set_ylabel("Value", fontsize=11)
     ax.set_title("Statistics Comparison", fontsize=12, fontweight="bold")
     ax.legend(fontsize=9, loc="upper left")
@@ -1114,7 +1123,8 @@ def plot_metric_comparison(
     without cluttering the axis.
 
     Args:
-        labels: Short axis labels for each bar (e.g. ``["1", "2", "3"]``).
+        labels: Short axis labels for each bar (e.g. ``["1", "2", "3"]``). Must
+            be unique — ``legend`` (when given) is keyed by these same values.
         values: Metric value for each corresponding label.
         metric_name: Human-readable metric description used as y-axis label
             and figure title (e.g. ``"Mean Absolute Error (eval/mae)"``).
@@ -1133,23 +1143,34 @@ def plot_metric_comparison(
     else:
         fig, ax = plt.subplots(figsize=(max(6, len(labels) * 1.2), 5))
 
-    x_pos = np.arange(len(labels))
+    order = [
+        label for label, _ in sorted(zip(labels, values), key=lambda pair: pair[1], reverse=True)
+    ]
     colormap = matplotlib.colormaps["Set1"]
     colors = colormap(np.linspace(0, 0.9, max(len(labels), 1)))
+    palette = dict(zip(labels, colors))
+    bar_kwargs = {
+        "order": order,
+        "hue": labels,
+        "palette": palette,
+        "legend": False,
+        "alpha": 0.85,
+        "edgecolor": "black",
+        "linewidth": 0.7,
+        "ax": ax,
+    }
 
     if horizontal:
-        ax.barh(x_pos, values, color=colors, alpha=0.85, edgecolor="black", linewidth=0.7)
-        ax.set_yticks(x_pos)
-        ax.set_yticklabels(labels, fontsize=11)
-        ax.invert_yaxis()
+        sns.barplot(x=values, y=labels, **bar_kwargs)
+        ax.tick_params(axis="y", labelsize=11)
         ax.set_ylabel("Experiment", fontsize=12)
         ax.set_xlabel(metric_name, fontsize=12)
         ax.set_xscale("log")
         ax.grid(True, alpha=0.3, axis="x")
     else:
-        ax.bar(x_pos, values, color=colors, alpha=0.85, edgecolor="black", linewidth=0.7)
-        ax.set_xticks(x_pos)
-        ax.set_xticklabels(labels, fontsize=11)
+        sns.barplot(x=labels, y=values, **bar_kwargs)
+        ax.tick_params(axis="x", labelsize=11, rotation=45)
+        plt.setp(ax.get_xticklabels(), ha="right")
         ax.set_xlabel("Experiment", fontsize=12)
         ax.set_ylabel(metric_name, fontsize=12)
         ax.grid(True, alpha=0.3, axis="y")
@@ -1177,6 +1198,79 @@ def plot_metric_comparison(
         save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=200, bbox_inches="tight")
         logger.info(f"Saved metric comparison plot to: {save_path}")
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+def plot_time_breakdown_barplot(
+    results: Mapping[str, CGComparisonResult],
+    labels: Mapping[str, str],
+    *,
+    save_path: str | Path | None = None,
+    show: bool = False,
+    title: str | None = None,
+) -> None:
+    """Stacked horizontal bar chart of each method's setup vs. solve time.
+
+    Complements the separate setup-time/solve-time bar charts with a single
+    view of how much of each method's ``total_time_seconds`` is setup versus
+    solve. A method missing both components is skipped (with a warning); a
+    method missing only one has that component treated as zero, matching
+    ``CGComparisonResult.total_time_seconds``'s own fallback.
+
+    Args:
+        results: Dictionary of method results.
+        labels: Display label per result key.
+        save_path: Path to save plot.
+        show: Whether to show plot.
+        title: Optional title for the plot.
+    """
+    entries: list[tuple[str, float, float]] = []
+    for name, result in results.items():
+        if result.setup_time_seconds is None and result.solve_time_seconds is None:
+            logger.warning(f"Method '{name}' has no setup/solve time to plot on time breakdown.")
+            continue
+        entries.append(
+            (
+                labels.get(name, name),
+                result.setup_time_seconds or 0.0,
+                result.solve_time_seconds or 0.0,
+            )
+        )
+    entries.sort(key=lambda entry: entry[1] + entry[2], reverse=True)
+
+    plot_labels = [entry[0] for entry in entries]
+    setup_values = [entry[1] for entry in entries]
+    solve_values = [entry[2] for entry in entries]
+
+    fig, ax = plt.subplots(figsize=(8, max(3, len(plot_labels) * 0.6)))
+    y_pos = np.arange(len(plot_labels))
+    ax.barh(
+        y_pos, setup_values, color=_OKABE_ITO_HEX[0], label="Setup",
+        edgecolor="black", linewidth=0.5,
+    )  # fmt: skip
+    ax.barh(
+        y_pos, solve_values, left=setup_values, color=_OKABE_ITO_HEX[1], label="Solve",
+        edgecolor="black", linewidth=0.5,
+    )  # fmt: skip
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(plot_labels, fontsize=11)
+    ax.invert_yaxis()
+    ax.set_xlabel("Time (s)", fontsize=12)
+    ax.grid(True, alpha=0.3, axis="x")
+    ax.legend(loc="lower right")
+    fig.suptitle(title or "Time Breakdown (Setup + Solve)", fontsize=13, fontweight="bold")
+
+    fig.tight_layout()
+
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
+        logger.info(f"Saved time breakdown plot to: {save_path}")
 
     if show:
         plt.show()

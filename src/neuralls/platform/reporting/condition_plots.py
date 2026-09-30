@@ -7,6 +7,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 
 
 def plot_condition_boxes(
@@ -88,18 +89,16 @@ def plot_condition_bars(
     labels_list = list(labels)
     cond_list = list(cond_maps)
     preconds = list(preconditioners)
-    indices = np.arange(len(labels_list))
-    width = 0.8 / max(len(preconds), 1)
+
+    categories = [label for label in labels_list for _ in preconds]
+    series = preconds * len(labels_list)
+    values = [conds.get(name, np.nan) for conds in cond_list for name in preconds]
+
     fig, ax = plt.subplots(figsize=(max(8.0, len(labels_list) * 1.6), 6.0))
-    for j, name in enumerate(preconds):
-        vals = [conds.get(name, np.nan) for conds in cond_list]
-        ax.bar(indices + j * width, vals, width, label=name)
-    ax.set_xticks(
-        indices + width * (len(preconds) - 1) / 2,
-        labels_list,
-        rotation=20,
-        ha="right",
-    )
+    sns.barplot(x=categories, y=values, hue=series, order=labels_list, hue_order=preconds, ax=ax)
+    ax.tick_params(axis="x", rotation=20)
+    plt.setp(ax.get_xticklabels(), ha="right")
+    ax.set_xlabel("")
     ax.set_ylabel("Condition number (2-norm)")
     ax.set_axisbelow(True)
     if log_scale:

@@ -21,7 +21,11 @@ from neuralls.domain.analysis.spectra import plot_condition_numbers
 from neuralls.domain.solver.models.result import CGComparisonResult, PlotPaths
 from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.platform.reporting import plots as reporting_plots
-from neuralls.platform.reporting.plots import plot_convergence_comparison, plot_metric_comparison
+from neuralls.platform.reporting.plots import (
+    plot_convergence_comparison,
+    plot_metric_comparison,
+    plot_time_breakdown_barplot,
+)
 from neuralls.platform.reporting.preconditioner_labels import build_preconditioner_labels
 
 # ---------------------------------------------------------------------------
@@ -69,6 +73,40 @@ def two_result_entries() -> dict[str, CGComparisonResult]:
     return {
         "identity": _make("identity", 5),
         "jacobi": _make("jacobi", 3),
+    }
+
+
+@pytest.fixture
+def two_result_entries_with_times() -> dict[str, CGComparisonResult]:
+    """Two minimal CGComparisonResult entries with setup/solve times set.
+
+    Returns:
+        A dict with two entries: "identity" and "jacobi", each carrying
+        distinct ``setup_time_seconds``/``solve_time_seconds`` for
+        time-breakdown plot tests.
+    """
+
+    def _make(name: str, setup: float, solve: float) -> CGComparisonResult:
+        return CGComparisonResult(
+            x=np.zeros(2),
+            converged=True,
+            iterations=3,
+            residual=1e-6,
+            residual_abs=1e-6,
+            residual_history_rel=[1.0, 0.1, 1e-6],
+            residual_history_abs=[1.0, 0.1, 1e-6],
+            preconditioner=name,
+            initial_guess=np.zeros(2),
+            exact_error=None,
+            rhs_norm=1.0,
+            breakdown=False,
+            setup_time_seconds=setup,
+            solve_time_seconds=solve,
+        )
+
+    return {
+        "identity": _make("identity", setup=0.5, solve=0.1),
+        "jacobi": _make("jacobi", setup=0.2, solve=2.0),
     }
 
 
@@ -179,6 +217,27 @@ def test_plot_paths_none_iterations_barplot_not_in_mapping() -> None:
     assert "iterations_barplot" not in mapping
 
 
+def test_plot_paths_time_breakdown_barplot_round_trips_via_mapping() -> None:
+    """PlotPaths with time_breakdown_barplot survives a to_mapping/from_mapping round-trip."""
+    expected_path = Path("out/time_breakdown.png")
+    plot_paths = PlotPaths(time_breakdown_barplot=expected_path)
+
+    mapping = plot_paths.to_mapping()
+
+    assert "time_breakdown_barplot" in mapping
+    assert mapping["time_breakdown_barplot"] == expected_path
+
+    reconstructed = PlotPaths.from_mapping(mapping)
+    assert reconstructed.time_breakdown_barplot == expected_path
+
+
+def test_plot_paths_none_time_breakdown_barplot_not_in_mapping() -> None:
+    """PlotPaths without time_breakdown_barplot omits key from to_mapping result."""
+    plot_paths = PlotPaths()
+    mapping = plot_paths.to_mapping()
+    assert "time_breakdown_barplot" not in mapping
+
+
 # ---------------------------------------------------------------------------
 # plot_metric_comparison — horizontal mode
 # ---------------------------------------------------------------------------
@@ -250,6 +309,77 @@ def test_plot_metric_comparison_with_title_saves_file(
         title="My Title",
         save_path=save_path,
     )
+    assert save_path.exists()
+
+
+def test_plot_metric_comparison_horizontal_sorts_bars_descending(
+    metric_labels: list[str],
+) -> None:
+    """Horizontal plot_metric_comparison orders bars by value, largest first (at top)."""
+    unsorted_values = [0.002, 0.005, 0.001]  # label "2" is the largest
+    with patch("neuralls.platform.reporting.plots.plt.close"):
+        plot_metric_comparison(
+            metric_labels, unsorted_values, metric_name="Metric", horizontal=True
+        )
+        fig = reporting_plots.plt.gcf()
+        ax = fig.axes[0]
+        yticklabels = [t.get_text() for t in ax.get_yticklabels()]
+    reporting_plots.plt.close(fig)
+
+    assert yticklabels == ["2", "1", "3"]
+
+
+def test_plot_metric_comparison_vertical_sorts_descending_and_rotates_labels(
+    metric_labels: list[str],
+) -> None:
+    """Vertical plot_metric_comparison orders bars by value (desc) and tilts x-tick labels."""
+    unsorted_values = [0.002, 0.005, 0.001]  # label "2" is the largest
+    with patch("neuralls.platform.reporting.plots.plt.close"):
+        plot_metric_comparison(
+            metric_labels, unsorted_values, metric_name="Metric", horizontal=False
+        )
+        fig = reporting_plots.plt.gcf()
+        ax = fig.axes[0]
+        xticklabels = [t.get_text() for t in ax.get_xticklabels()]
+        rotation = ax.get_xticklabels()[0].get_rotation()
+    reporting_plots.plt.close(fig)
+
+    assert xticklabels == ["2", "1", "3"]
+    assert rotation == 45
+
+
+# ---------------------------------------------------------------------------
+# plot_time_breakdown_barplot
+# ---------------------------------------------------------------------------
+
+
+def test_plot_time_breakdown_barplot_saves_file_when_times_present(
+    tmp_path: Path,
+    two_result_entries_with_times: dict[str, CGComparisonResult],
+) -> None:
+    """plot_time_breakdown_barplot writes a PNG when results carry setup/solve times.
+
+    Args:
+        tmp_path: Pytest temporary directory.
+        two_result_entries_with_times: Two-entry result dict with times set.
+    """
+    save_path = tmp_path / "breakdown.png"
+    plot_time_breakdown_barplot(two_result_entries_with_times, labels={}, save_path=save_path)
+    assert save_path.exists()
+
+
+def test_plot_time_breakdown_barplot_skips_methods_missing_both_times(
+    tmp_path: Path,
+    two_result_entries: dict[str, CGComparisonResult],
+) -> None:
+    """plot_time_breakdown_barplot still writes a (empty) chart when no times are measured.
+
+    Args:
+        tmp_path: Pytest temporary directory.
+        two_result_entries: Two-entry result dict fixture with no times set.
+    """
+    save_path = tmp_path / "breakdown.png"
+    plot_time_breakdown_barplot(two_result_entries, labels={}, save_path=save_path)
     assert save_path.exists()
 
 
@@ -396,6 +526,7 @@ def test_generate_comparison_plots_includes_iterations_barplot(
         )
 
     assert result.iterations_barplot is not None
+    assert result.time_breakdown_barplot is None  # neither entry has setup/solve times
     assert "condition_numbers" not in result.to_mapping()
     expected_title = "matrix=demo-matrix | rhs=gaussian\nN=1000"
     assert convergence_plot.call_args.kwargs["title"] == expected_title
@@ -404,6 +535,38 @@ def test_generate_comparison_plots_includes_iterations_barplot(
     assert error_plot.call_args.args[0] is two_result_entries
     assert error_plot.call_args.kwargs["labels"] == labels
     assert metric_plot.call_args.kwargs["title"] == expected_title
+
+
+def test_generate_comparison_plots_includes_time_breakdown_barplot_when_measured(
+    comparison_paths: ComparisonPaths,
+    two_result_entries_with_times: dict[str, CGComparisonResult],
+    two_preconditioners: dict[str, Preconditioner],
+    two_preconditioner_families: dict[str, PreconditionerType],
+) -> None:
+    """_generate_comparison_plots populates time_breakdown_barplot when times are measured.
+
+    Args:
+        comparison_paths: Pytest-managed comparison output paths.
+        two_result_entries_with_times: Two-entry result dict with setup/solve times set.
+        two_preconditioners: Constructed preconditioner instances from fixture.
+        two_preconditioner_families: Family key per name, from fixture.
+    """
+    labels = build_preconditioner_labels(two_preconditioners, two_preconditioner_families)
+
+    with (
+        patch("neuralls.composition.comparison._plots.plot_convergence_comparison"),
+        patch("neuralls.composition.comparison._plots.plot_error_convergence_comparison"),
+        patch("neuralls.composition.comparison._plots.plot_metric_comparison"),
+    ):
+        result = _generate_comparison_plots(
+            two_result_entries_with_times,
+            comparison_paths,
+            labels,
+            comparison_context="matrix=demo-matrix | rhs=gaussian",
+        )
+
+    assert result.time_breakdown_barplot is not None
+    assert result.time_breakdown_barplot.exists()
 
 
 def test_generate_comparison_plots_preserves_results_when_labels_collide(
