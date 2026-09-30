@@ -83,6 +83,23 @@ rhs_source = { kind = "sparse", indices = [
     -100.0,
 ] }
 
+[[comparisons]]
+matrix_dataset = "smoother-filtered-probes"
+rhs_source = { kind = "gaussian" }
+seed = 42
+
+[[comparisons]]
+matrix_dataset = "smoother-filtered-probes"
+rhs_source = { kind = "sparse", indices = [
+    0,
+    1,
+    -1,
+], values = [
+    90.0,
+    100.0,
+    -100.0,
+] }
+
 [[assignments]]
 dataset = "gaussian-cg10-rectangular-high-condition"
 job = "pod-2g_rank10"

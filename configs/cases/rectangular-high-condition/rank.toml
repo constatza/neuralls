@@ -40,7 +40,12 @@ id = "pod-r300"
 path = "../../jobs/pod2g/pod2g-rank300.toml"
 
 [[comparisons]]
-matrix_dataset = "rhc-cg-startM1-stop30-step1"
+matrix_dataset = "cg-startM1-stop30-step1"
+rhs_source = { kind = "gaussian" }
+seed = 42
+
+[[comparisons]]
+matrix_dataset = "sm-startM1-stop7-step1"
 rhs_source = { kind = "gaussian" }
 seed = 42
 
