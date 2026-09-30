@@ -14,7 +14,9 @@ from neuralls.platform.config.models.preconditioner_family import Preconditioner
 from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
     plot_error_convergence_comparison,
+    plot_error_vs_time,
     plot_metric_comparison,
+    plot_residual_vs_time,
     plot_time_breakdown_barplot,
     plot_work_precision,
 )
@@ -130,6 +132,14 @@ def _generate_comparison_plots(
         results, labels, paths.figures / f"preconditioner_solve_time_{suffix}.png",
         extract=lambda r: r.solve_time_seconds, metric_name="Solve Time (s)", title=title,
     )  # fmt: skip
+    avg_iter_time_path = _plot_cost_barplot(
+        results, labels, paths.figures / f"preconditioner_avg_iteration_time_{suffix}.png",
+        extract=lambda r: r.avg_iteration_time_seconds, metric_name="Solve Time Per Iteration (s)", title=title,
+    )  # fmt: skip
+    total_cost_per_iter_path = _plot_cost_barplot(
+        results, labels, paths.figures / f"preconditioner_total_cost_per_iteration_{suffix}.png",
+        extract=lambda r: r.total_cost_per_iteration_seconds, metric_name="Total Cost Per Iteration [Gen+Setup+Solve] (s)", title=title,
+    )  # fmt: skip
     memory_path = _plot_cost_barplot(
         results, labels, paths.figures / f"preconditioner_peak_memory_{suffix}.png",
         extract=lambda r: r.peak_memory_bytes, metric_name="Peak Memory (bytes)", title=title,
@@ -150,6 +160,27 @@ def _generate_comparison_plots(
         title=title,
     )
 
+    residual_vs_time_path = paths.figures / f"preconditioner_residual_vs_time_{suffix}.png"
+    plot_residual_vs_time(
+        results,
+        labels=labels,
+        families=families,
+        color_keys=color_keys,
+        marker_keys=marker_keys,
+        save_path=residual_vs_time_path,
+        title=title,
+    )
+
+    error_vs_time_path = _plot_error_vs_time_optional(
+        results,
+        labels,
+        paths.figures / f"preconditioner_error_vs_time_{suffix}.png",
+        families=families,
+        color_keys=color_keys,
+        marker_keys=marker_keys,
+        title=title,
+    )
+
     return PlotPaths(
         convergence=convergence_path,
         iterations_barplot=iter_path,
@@ -157,9 +188,13 @@ def _generate_comparison_plots(
         generation_time_barplot=generation_time_path,
         setup_time_barplot=setup_time_path,
         solve_time_barplot=solve_time_path,
+        avg_iteration_time_barplot=avg_iter_time_path,
+        total_cost_per_iteration_barplot=total_cost_per_iter_path,
         peak_memory_barplot=memory_path,
         time_breakdown_barplot=time_breakdown_path,
         work_precision=work_precision_path,
+        residual_vs_time=residual_vs_time_path,
+        error_vs_time=error_vs_time_path,
     )
 
 
@@ -191,6 +226,36 @@ def _plot_cost_barplot(
         title=title,
         horizontal=True,
         save_path=save_path,
+    )
+    return save_path
+
+
+def _plot_error_vs_time_optional(
+    results: Mapping[str, CGComparisonResult],
+    labels: Mapping[str, str],
+    save_path: Path,
+    *,
+    families: Mapping[str, PreconditionerFamilyKey] | None = None,
+    color_keys: Mapping[str, Hashable] | None = None,
+    marker_keys: Mapping[str, Hashable] | None = None,
+    title: str | None = None,
+) -> Path | None:
+    """Error vs time plot, skipped if no result has energy-norm error history.
+
+    Returns ``None`` (no file written) when no result has error_history_a_rel
+    measured — this is optional per comparison run.
+    """
+    present = [name for name in results if results[name].error_history_a_rel is not None]
+    if not present:
+        return None
+    plot_error_vs_time(
+        {name: results[name] for name in present},
+        labels=labels,
+        families=families,
+        color_keys=color_keys,
+        marker_keys=marker_keys,
+        save_path=save_path,
+        title=title,
     )
     return save_path
 

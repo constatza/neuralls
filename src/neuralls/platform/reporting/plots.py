@@ -607,7 +607,7 @@ def plot_work_precision(
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel("Total wall time (setup + solve) [s]")
+    ax.set_xlabel("Total wall time (generation + setup + solve) [s]")
     ax.set_ylabel("Final Relative Residual $\\|r\\| / \\|b\\|$")
     fig.suptitle(title or "Work-Precision Diagram", fontsize=13, fontweight="bold")
     ax.grid(True, which="both", alpha=0.3)
@@ -620,6 +620,196 @@ def plot_work_precision(
         save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=200)
         logger.info(f"Saved work-precision plot to: {save_path}")
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+def plot_residual_vs_time(
+    results: Mapping[str, CGComparisonResult],
+    labels: Mapping[str, str] | None = None,
+    families: Mapping[str, PreconditionerFamilyKey] | None = None,
+    color_keys: Mapping[str, Hashable] | None = None,
+    marker_keys: Mapping[str, Hashable] | None = None,
+    save_path: str | Path | None = None,
+    show: bool = False,
+    title: str | None = None,
+    marker_size: float = DEFAULT_LINE_MARKER_SIZE,
+) -> None:
+    """Convergence curves in wall time (not iteration): residual vs cumulative cost.
+
+    Complements iteration-based convergence curves by showing how residual
+    decreases as actual wall time accumulates (generation + setup + solve).
+    Accounts for setup cost overhead and per-iteration speed variation.
+
+    Assumes uniform time distribution across solve iterations; cumulative time
+    starts at (generation + setup) and increases linearly during solve phase.
+
+    Args:
+        results: Dictionary of method results.
+        labels: Optional display label per result key.
+        families: Optional plot-style family per method name.
+        color_keys: Optional color-axis key per method name.
+        marker_keys: Optional marker-axis key per method name.
+        save_path: Path to save plot.
+        show: Whether to call ``plt.show()``.
+        title: Optional title for the plot.
+        marker_size: Marker diameter for convergence points.
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
+    labels = labels or {}
+    line_styles = _resolve_styles(families, color_keys, marker_keys) if families else {}
+
+    for method_name, result in results.items():
+        if not result.residual_history_rel or result.solve_time_seconds is None:
+            logger.warning(f"Method '{method_name}' has no residual history or solve time to plot.")
+            continue
+
+        residuals = result.residual_history_rel
+        if len(residuals) == 0:
+            continue
+
+        # Compute cumulative wall time: setup/generation overhead, then solve iterations
+        setup_overhead = 0.0
+        if (
+            result.generation_cost is not None
+            and result.generation_cost.provenance is not CostProvenance.UNAVAILABLE
+        ):
+            setup_overhead += result.generation_cost.wall_time_seconds
+        if (
+            result.setup_cost is not None
+            and result.setup_cost.provenance is not CostProvenance.UNAVAILABLE
+        ):
+            setup_overhead += result.setup_cost.wall_time_seconds
+
+        # Time per iteration (assume uniform distribution)
+        time_per_iter = result.solve_time_seconds / len(residuals) if len(residuals) > 0 else 0.0
+        wall_times = [setup_overhead + i * time_per_iter for i in range(len(residuals))]
+
+        display_name = labels.get(method_name, method_name)
+        style = dict(line_styles.get(method_name, {"marker": "o", "linestyle": "-", "color": None}))
+        size_scale = style.pop("markersize_scale", 1.0)
+
+        ax.semilogy(
+            wall_times,
+            residuals,
+            label=display_name,
+            markersize=marker_size * size_scale,
+            **style,
+        )
+
+    ax.set_xscale("log")
+    ax.set_xlabel("Wall time: generation + setup + solve [s]")
+    ax.set_ylabel("Relative Residual $\\|r\\| / \\|b\\|$")
+    fig.suptitle(title or "Convergence vs Wall Time", fontsize=13, fontweight="bold")
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="upper right", fontsize=8)
+
+    plt.tight_layout()
+
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=200)
+        logger.info(f"Saved residual vs time plot to: {save_path}")
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+def plot_error_vs_time(
+    results: Mapping[str, CGComparisonResult],
+    labels: Mapping[str, str] | None = None,
+    families: Mapping[str, PreconditionerFamilyKey] | None = None,
+    color_keys: Mapping[str, Hashable] | None = None,
+    marker_keys: Mapping[str, Hashable] | None = None,
+    save_path: str | Path | None = None,
+    show: bool = False,
+    title: str | None = None,
+    marker_size: float = DEFAULT_LINE_MARKER_SIZE,
+) -> None:
+    """Energy-norm error convergence vs wall time (not iteration).
+
+    Complements iteration-based error convergence by showing how actual error
+    (relative energy norm ||e||_A / ||e_0||_A) decreases as wall time accumulates.
+    Only plots methods with available error_history_a_rel.
+
+    Assumes uniform time distribution across solve iterations; cumulative time
+    starts at (generation + setup) and increases linearly during solve phase.
+
+    Args:
+        results: Dictionary of method results.
+        labels: Optional display label per result key.
+        families: Optional plot-style family per method name.
+        color_keys: Optional color-axis key per method name.
+        marker_keys: Optional marker-axis key per method name.
+        save_path: Path to save plot.
+        show: Whether to call ``plt.show()``.
+        title: Optional title for the plot.
+        marker_size: Marker diameter for convergence points.
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
+    labels = labels or {}
+    line_styles = _resolve_styles(families, color_keys, marker_keys) if families else {}
+
+    for method_name, result in results.items():
+        if not result.error_history_a_rel or result.solve_time_seconds is None:
+            logger.debug(
+                f"Method '{method_name}' has no energy-norm error history to plot vs time."
+            )
+            continue
+
+        errors = result.error_history_a_rel
+        if len(errors) == 0:
+            continue
+
+        # Compute cumulative wall time: setup/generation overhead, then solve iterations
+        setup_overhead = 0.0
+        if (
+            result.generation_cost is not None
+            and result.generation_cost.provenance is not CostProvenance.UNAVAILABLE
+        ):
+            setup_overhead += result.generation_cost.wall_time_seconds
+        if (
+            result.setup_cost is not None
+            and result.setup_cost.provenance is not CostProvenance.UNAVAILABLE
+        ):
+            setup_overhead += result.setup_cost.wall_time_seconds
+
+        # Time per iteration (assume uniform distribution)
+        time_per_iter = result.solve_time_seconds / len(errors) if len(errors) > 0 else 0.0
+        wall_times = [setup_overhead + i * time_per_iter for i in range(len(errors))]
+
+        display_name = labels.get(method_name, method_name)
+        style = dict(line_styles.get(method_name, {"marker": "o", "linestyle": "-", "color": None}))
+        size_scale = style.pop("markersize_scale", 1.0)
+
+        ax.semilogy(
+            wall_times,
+            errors,
+            label=display_name,
+            markersize=marker_size * size_scale,
+            **style,
+        )
+
+    ax.set_xscale("log")
+    ax.set_xlabel("Wall time: generation + setup + solve [s]")
+    ax.set_ylabel("Relative Energy-Norm Error $\\|e_k\\|_A / \\|e_0\\|_A$")
+    fig.suptitle(title or "Error Convergence vs Wall Time", fontsize=13, fontweight="bold")
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="upper right", fontsize=8)
+
+    plt.tight_layout()
+
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=200)
+        logger.info(f"Saved error vs time plot to: {save_path}")
 
     if show:
         plt.show()

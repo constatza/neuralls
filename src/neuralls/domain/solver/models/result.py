@@ -283,10 +283,26 @@ class CGComparisonResult:
 
     @property
     def avg_iteration_time_seconds(self) -> float | None:
-        """Solve time divided by iteration count — the averaged per-iteration cost."""
+        """Solve time divided by iteration count — the averaged per-iteration solve cost.
+
+        Does NOT include generation/setup overhead; see total_cost_per_iteration_seconds
+        for amortized full cost.
+        """
         if self.solve_time_seconds is None or self.iterations <= 0:
             return None
         return self.solve_time_seconds / self.iterations
+
+    @property
+    def total_cost_per_iteration_seconds(self) -> float | None:
+        """Full pipeline cost amortized per iteration: (generation + setup + solve) / iterations.
+
+        Includes one-time setup and generation costs spread across all iterations.
+        Useful for comparing fair "cost per solve" when preconditioners have different setup costs.
+        """
+        total = self.total_time_seconds
+        if total is None or self.iterations <= 0:
+            return None
+        return total / self.iterations
 
     @property
     def peak_memory_bytes(self) -> int | None:
@@ -363,10 +379,15 @@ class PlotPaths:
         generation_time_barplot: Horizontal bar chart of dataset-generation times.
         setup_time_barplot: Horizontal bar chart of preconditioner setup times.
         solve_time_barplot: Horizontal bar chart of CG solve times.
+        avg_iteration_time_barplot: Horizontal bar chart of solve time per iteration.
+        total_cost_per_iteration_barplot: Horizontal bar chart of total amortized cost
+            (generation + setup + solve) per iteration.
         peak_memory_barplot: Horizontal bar chart of peak memory usage.
         time_breakdown_barplot: Stacked horizontal bar chart of generation vs.
             setup vs. solve time per method.
         work_precision: Work-precision diagram (final precision vs. total cost).
+        residual_vs_time: Residual vs wall time (generation + setup + solve).
+        error_vs_time: Energy-norm error vs wall time (when available).
     """
 
     convergence: Path | None = None
@@ -377,9 +398,13 @@ class PlotPaths:
     generation_time_barplot: Path | None = None
     setup_time_barplot: Path | None = None
     solve_time_barplot: Path | None = None
+    avg_iteration_time_barplot: Path | None = None
+    total_cost_per_iteration_barplot: Path | None = None
     peak_memory_barplot: Path | None = None
     time_breakdown_barplot: Path | None = None
     work_precision: Path | None = None
+    residual_vs_time: Path | None = None
+    error_vs_time: Path | None = None
 
     @classmethod
     def from_mapping(cls, mapping: dict[str, Path] | None) -> PlotPaths:
@@ -402,9 +427,13 @@ class PlotPaths:
             generation_time_barplot=mapping.get("generation_time_barplot"),
             setup_time_barplot=mapping.get("setup_time_barplot"),
             solve_time_barplot=mapping.get("solve_time_barplot"),
+            avg_iteration_time_barplot=mapping.get("avg_iteration_time_barplot"),
+            total_cost_per_iteration_barplot=mapping.get("total_cost_per_iteration_barplot"),
             peak_memory_barplot=mapping.get("peak_memory_barplot"),
             time_breakdown_barplot=mapping.get("time_breakdown_barplot"),
             work_precision=mapping.get("work_precision"),
+            residual_vs_time=mapping.get("residual_vs_time"),
+            error_vs_time=mapping.get("error_vs_time"),
         )
 
     def to_mapping(self) -> dict[str, Path]:
@@ -422,9 +451,13 @@ class PlotPaths:
             "generation_time_barplot": self.generation_time_barplot,
             "setup_time_barplot": self.setup_time_barplot,
             "solve_time_barplot": self.solve_time_barplot,
+            "avg_iteration_time_barplot": self.avg_iteration_time_barplot,
+            "total_cost_per_iteration_barplot": self.total_cost_per_iteration_barplot,
             "peak_memory_barplot": self.peak_memory_barplot,
             "time_breakdown_barplot": self.time_breakdown_barplot,
             "work_precision": self.work_precision,
+            "residual_vs_time": self.residual_vs_time,
+            "error_vs_time": self.error_vs_time,
         }
         return {key: path for key, path in values.items() if path is not None}
 
