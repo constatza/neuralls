@@ -126,6 +126,7 @@ class ValidatedArchiveStrategy:
             shuffle=shuffle,
             seed=seed,
             skip=skip,
+            file_indices=config.file_indices,
         )
         rng = np.random.default_rng(seed)
         solutions, rhs = provider.provide(matrix, count=samples, rng=rng)

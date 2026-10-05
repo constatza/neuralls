@@ -71,7 +71,7 @@ normalize = "none"
 
 [[generation.strategy]]
 name = "neutral_ones"
-samples = 1
+samples = 2
 
 [output]
 """
@@ -79,8 +79,8 @@ samples = 1
     return config_path
 
 
-def _write_replacement_generation_config(tmp_path: Path, dataset_id: str) -> Path:
-    """Create a config that exercises dataset-level replacement plumbing."""
+def _write_uniform_generation_config(tmp_path: Path, dataset_id: str) -> Path:
+    """Create a multi-matrix config whose 6 samples split uniformly: 2 per matrix."""
     matrices_dir = tmp_path / "replacement_matrices"
     matrices_dir.mkdir()
     for idx, stem in enumerate(("matrix_alpha", "matrix_beta", "matrix_gamma")):
@@ -97,11 +97,10 @@ enumerate_by = "name"
 
 [generation]
 normalize = "none"
-replacement = true
 
 [[generation.strategy]]
 name = "random"
-samples = 5
+samples = 6
 
 [output]
 """
@@ -192,11 +191,11 @@ def test_process_data_from_config_honors_enumerate_by(
     assert output_dir.exists()
 
 
-def test_build_context_preserves_replacement_from_config(
+def test_build_context_replacement_is_false_for_uniform_config(
     tmp_path: Path,
     neuralls_settings: NeurallsSettings,
 ) -> None:
-    config_path = _write_replacement_generation_config(tmp_path, "replacement-context")
+    config_path = _write_uniform_generation_config(tmp_path, "uniform-context")
     config = load_data_config(config_path, neuralls_settings).model_copy(
         update={
             "output": load_data_config(config_path, neuralls_settings).output.model_copy(
@@ -207,18 +206,18 @@ def test_build_context_preserves_replacement_from_config(
 
     context, _ = _build_context(config=config)
 
-    assert context.replacement is True
+    assert context.replacement is False
 
 
-def test_process_data_from_config_honors_replacement(
+def test_process_data_from_config_splits_samples_uniformly(
     tmp_path: Path,
     neuralls_settings: NeurallsSettings,
 ) -> None:
-    config_path = _write_replacement_generation_config(tmp_path, "replacement-end-to-end")
+    config_path = _write_uniform_generation_config(tmp_path, "uniform-end-to-end")
 
     output_dir = process_data_from_config(config_path, neuralls_settings)
 
     rhs, solutions = load_dense_training_arrays(output_dir)
-    assert output_dir == neuralls_settings.processed_dir / "replacement-end-to-end"
-    assert rhs.shape == (5, 2)
-    assert solutions.shape == (5, 2)
+    assert output_dir == neuralls_settings.processed_dir / "uniform-end-to-end"
+    assert rhs.shape == (6, 2)
+    assert solutions.shape == (6, 2)

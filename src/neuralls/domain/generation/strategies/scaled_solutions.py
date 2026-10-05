@@ -103,6 +103,7 @@ class ScaledSolutionsStrategy:
             shuffle=config.shuffle,
             seed=config.seed,
             skip=config.skip,
+            file_indices=config.file_indices,
         )
         rng = np.random.default_rng(config.seed)
         solutions = provider.provide(matrix, count=config.samples, rng=rng)

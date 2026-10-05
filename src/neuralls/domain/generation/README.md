@@ -31,12 +31,23 @@ Config-driven generation and the public composition entrypoint
 `neuralls.composition.generation.dataset_builder.build_dataset(...)` both honor
 `enumerate_by` and pass it through to the glob source streams.
 
-For multi-matrix sources, dataset-level `counts` and `mix/total` budgets are
-global across the matrix family rather than applied once per matrix. Set
-`replacement = true` under `[generation]` only when you want supported random
-strategies to reuse matrix bindings explicitly during that global allocation.
-Archive-backed and deterministic strategies remain strict and do not honor
-matrix replacement.
+For multi-matrix sources, a generated strategy's count is split with the remainder
+rule (`allocation.split_remainder`). Each matrix gets `count // matrix_count` samples,
+and the `count % matrix_count` leftover samples go to distinct matrices chosen by a
+generator seeded with the mixture seed. Each matrix's share is split the same way across
+its bindings. Nothing is dropped, so the counts always sum to the request, and no matrix
+gets more than one leftover sample. Generated strategies overload each matrix this way,
+so `replacement = true` is rejected (config validation,
+`GenerationConfig._reject_replacement`, and `_validate_replacement_support`).
+
+Archive strategies (`solution_archive`, `scaled_solutions`, `validated_archive`) draw
+from a grid of `M` matrices by `K` files and emit (matrix, file) pairs through
+`allocation.archive_units`. Unit `t` goes to matrix `t % M`, file
+`(matrix + t // M) % K`, so no pair repeats. A request is capped at `M*K` with one warning
+naming the strategy and both counts. `samples = -1` means all `M*K` pairs, each once.
+The orchestrator writes each binding's files into `file_indices`, and the provider loads
+exactly those files. A single matrix with several bindings is rejected for archive
+strategies before any glob read, because every binding would draw the same files.
 
 **Python API:**
 
@@ -84,7 +95,7 @@ block of rows per matrix binding, in ascending raw-id order — not the original
   matrices). If a strategy pools more samples than matrices across the family
   (the common case for training data), small `matrix_index` values can all fall
   inside the same matrix's row block and resolve to the identical physical
-  matrix — see `_allocate_strategy_counts_across_bindings` in `orchestration.py`.
+  matrix — see `_resolve_binding_strategy_counts` in `orchestration.py`.
 
 `configs/cases/45x15randomE/default.toml` and its
 `configs/datasets/{train,test}/45x15randomE/*.toml` datasets are a worked
@@ -250,13 +261,12 @@ finite archive-backed trace sources.
 
 Archive-backed pure-pair strategies can skip an initial slice of the deterministic
 archive order with `skip`. When `shuffle = true`, files are shuffled once with
-the configured seed and then selected as `permutation[skip:skip + samples]`.
-This is useful when combining a residual strategy with `solution_archive`: set
-`solution_archive.skip` to the number of base systems consumed by the residual
-block to avoid reusing the same `(b, x)` pairs.
+the configured seed. The pool is the remaining `permutation[skip:]`. Explicit
+`file_indices` (set per binding by the orchestrator, not by users) index into that
+pool, so every binding of a multi-matrix archive draws its own disjoint files.
 
 `FileInputProvider` (in `providers.py`) memoizes its file reads with
-`functools.lru_cache`, keyed on `(glob_pattern, count, shuffle, seed, skip)`. Every
+`functools.lru_cache`, keyed on `(glob_pattern, count, shuffle, seed, skip, file_indices)`. Every
 archive-backed strategy (`solution_archive`, `rhs_archive`, `scaled_solutions`,
 `validated_archive`, and `residuals`/`gaussian_residuals` when `solutions_glob` is set)
 routes through it, so an archive shared across many matrix bindings — or across several
@@ -290,6 +300,12 @@ disk once per distinct selection, not once per binding or per dataset file. `Arc
   `{Npy,Txt,Glob}{Matrix,Vector}Stream` classes are thin subclasses that only pick a source;
   `open_matrix_stream()`/`open_vector_stream()` are the entrypoints
 - `providers.py`: archive or synthetic sample providers
+- `allocation.py`: pure remainder-aware splits (no I/O). `split_remainder(total, M, seed=...)`
+  gives each matrix `total // M` units and hands the `total % M` leftovers to distinct
+  matrices chosen by a seeded `numpy` generator, so nothing is dropped and the split is
+  reproducible. `archive_units(M, K, count)` maps unit positions onto (matrix, file) pairs
+  with `i = t % M`, `j = (i + t // M) % K`, so archive files never repeat until the M*K grid
+  is exhausted; the count is capped there by the function itself
 - `matrix_operator.py`: `MatrixOperator`, a frozen wrapper around one system matrix (dense
   ndarray or CSR) that exposes `matvec`, `solve_direct`, and `eigensystem`. The LU/Cholesky
   factor and eigen results are memoized on a private cache, so all samples drawn from one

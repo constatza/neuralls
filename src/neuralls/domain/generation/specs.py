@@ -80,8 +80,8 @@ class DatasetSpec:
 
     Attributes:
         mixture: Strategy mixing and RNG controls applied per binding.
-        replacement: Whether multi-matrix allocation may reuse matrix bindings
-            for strategies that support it.
+        replacement: Must be False. Multi-matrix allocation is uniform and archive
+            files are never reused, so ``True`` is rejected during generation.
         normalize: Normalization strategy applied to each matrix sample.
         matrix_norm_type: Norm used to report the dataset-level matrix norm.
     """

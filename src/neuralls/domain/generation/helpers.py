@@ -569,6 +569,7 @@ def select_archive_files(
     shuffle: bool,
     seed: int | None,
     skip: int = 0,
+    file_indices: tuple[int, ...] | None = None,
 ) -> list:
     """Select N files from glob pattern with optional shuffling.
 
@@ -580,6 +581,9 @@ def select_archive_files(
         shuffle: Whether to shuffle before selection
         seed: Random seed for shuffling (required if shuffle=True)
         skip: Number of files to skip after deterministic ordering/shuffling
+        file_indices: Explicit positions in the pool that remains after ``skip``. When
+            given, ``count`` must equal their number and exactly these files are returned,
+            in this order. Lets the caller give each binding a disjoint slice of one pool.
 
     Returns:
         List of selected file paths (pathlib.Path objects)
@@ -621,6 +625,10 @@ def select_archive_files(
             f"matching pattern: {glob_pattern}"
         )
 
+    ordered = _ordered_candidates(candidates, shuffle, seed)
+    if file_indices is not None:
+        return _pick_explicit_files(ordered[skip:], count, file_indices, glob_pattern)
+
     # Handle "all files" case
     if count == -1:
         count = len(candidates) - skip
@@ -637,13 +645,36 @@ def select_archive_files(
             f"matching pattern: {glob_pattern}"
         )
 
-    # Select files with optional shuffling
-    if shuffle:
-        rng = rng_from_seed(seed)
-        indices = rng.permutation(len(candidates))[skip : skip + count]
-        return [candidates[idx] for idx in indices]
+    return ordered[skip : skip + count]
 
-    return candidates[skip : skip + count]
+
+def _ordered_candidates(candidates: list, shuffle: bool, seed: int | None) -> list:
+    """Return the sorted candidates, permuted by ``seed`` when ``shuffle`` is set."""
+    if not shuffle:
+        return candidates
+    rng = rng_from_seed(seed)
+    return [candidates[idx] for idx in rng.permutation(len(candidates))]
+
+
+def _pick_explicit_files(
+    pool: list,
+    count: int,
+    file_indices: tuple[int, ...],
+    glob_pattern: str,
+) -> list:
+    """Return the pool entries at ``file_indices`` after checking they form a valid selection."""
+    if count != len(file_indices):
+        raise ValueError(
+            f"count={count} must equal the {len(file_indices)} explicit file indices "
+            f"matching pattern: {glob_pattern}"
+        )
+    out_of_range = [idx for idx in file_indices if not 0 <= idx < len(pool)]
+    if out_of_range:
+        raise ValueError(
+            f"Explicit file indices {out_of_range} are outside the {len(pool)} files "
+            f"available matching pattern: {glob_pattern}"
+        )
+    return [pool[idx] for idx in file_indices]
 
 
 # =============================================================================

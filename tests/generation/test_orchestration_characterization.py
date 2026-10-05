@@ -166,10 +166,10 @@ def test_multi_matrix_mixture_manifest_is_stable(multi_matrix_mixture_dataset: P
 def multi_matrix_archive_dataset(
     spd_matrix_dir: Path, solution_archive_dir: Path, tmp_path: Path
 ) -> Path:
-    """samples=-1 solution-archive dataset, built once for the assertions below.
+    """samples=-1 solution-archive dataset over 3 matrices and 5 files, built once below.
 
-    Exercises _resolve_all_samples_total, the per-binding cumulative skip offsets
-    and _merge_binding_skip_overrides.
+    Exercises the archive (matrix, file) unit map and the per-binding explicit file
+    indices layered in by _merge_binding_file_overrides.
     """
     out_dir = tmp_path / "dataset"
     build_dataset(
@@ -197,37 +197,39 @@ def multi_matrix_archive_dataset(
 
 
 def test_multi_matrix_archive_shapes_are_stable(multi_matrix_archive_dataset: Path) -> None:
+    """samples=-1 emits every (matrix, file) pair: 3 matrices x 5 files = 15 rows."""
     rhs, solutions = load_dense_training_arrays(multi_matrix_archive_dataset)
-    assert (rhs.shape, solutions.shape) == ((5, 5), (5, 5))
-
-
-def test_multi_matrix_archive_rhs_is_stable(multi_matrix_archive_dataset: Path) -> None:
-    rhs, _ = load_dense_training_arrays(multi_matrix_archive_dataset)
-    assert _digest(rhs) == "713ddaaab2f77adb"
-
-
-def test_multi_matrix_archive_solutions_are_stable(multi_matrix_archive_dataset: Path) -> None:
-    _, solutions = load_dense_training_arrays(multi_matrix_archive_dataset)
-    assert _digest(solutions) == "e9b5432441f9d566"
+    assert (rhs.shape, solutions.shape) == ((15, 5), (15, 5))
 
 
 def test_multi_matrix_archive_matrix_index_is_stable(multi_matrix_archive_dataset: Path) -> None:
-    """The [0,0,1,1,2] index proves each binding drew its own disjoint slice of
-    the 5-file archive (2/2/1) instead of every binding reloading all five.
-    """
-    assert load_matrix_sample_index(multi_matrix_archive_dataset).tolist() == [0, 0, 1, 1, 2]
+    """Rows are grouped by matrix: five rows per matrix, in matrix order."""
+    assert load_matrix_sample_index(multi_matrix_archive_dataset).tolist() == (
+        [0] * 5 + [1] * 5 + [2] * 5
+    )
 
 
 def test_multi_matrix_archive_solutions_match_expected_vectors(
     multi_matrix_archive_dataset: Path,
 ) -> None:
-    """Each archive vector is the constant vector of its 1-based file index; the
-    whole archive is consumed exactly once, in order, across the three bindings.
-    """
+    """File k is the constant vector k + 1. Matrix i takes files (i + p) mod 5 for p = 0..4."""
     _, solutions = load_dense_training_arrays(multi_matrix_archive_dataset)
-    np.testing.assert_array_equal(
-        solutions, np.vstack([np.full(5, float(i + 1)) for i in range(5)])
+    expected = np.array(
+        [[float((i + p) % 5 + 1)] * 5 for i in range(3) for p in range(5)],
     )
+    np.testing.assert_array_equal(solutions, expected)
+
+
+def test_multi_matrix_archive_rhs_is_the_matrix_product(
+    multi_matrix_archive_dataset: Path,
+    spd_matrix_dir: Path,
+) -> None:
+    """Each RHS row is A_m @ x for the matrix m that owns the row."""
+    rhs, solutions = load_dense_training_arrays(multi_matrix_archive_dataset)
+    matrix_index = load_matrix_sample_index(multi_matrix_archive_dataset)
+    for row, (matrix_id, solution) in enumerate(zip(matrix_index, solutions, strict=True)):
+        A = np.loadtxt(spd_matrix_dir / f"A_{int(matrix_id):03d}.txt")
+        np.testing.assert_allclose(rhs[row], A @ solution, rtol=1e-10)
 
 
 @pytest.fixture

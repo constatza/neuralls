@@ -37,7 +37,7 @@ class DataGenerationContext:
         normalize: Normalization strategy applied to each sample.
         seed: Random seed for reproducibility.
         shuffle: Whether to shuffle samples after generation.
-        replacement: Whether to sample with replacement.
+        replacement: Must be False; generation rejects ``True`` (see ``GenerationConfig``).
         parameters_paths: Tuple of additional parameter file paths.
         dataset_format: Storage format family for persisted dataset artifacts.
         identity: Generation identity used for reuse and stamped into the manifest.

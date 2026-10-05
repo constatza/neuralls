@@ -336,7 +336,7 @@ def test_glob_matrix_gaussian_uses_global_sample_budget(
 ) -> None:
     """Multi-matrix gaussian generation treats counts as a global budget."""
     mat_dir, n = three_spd_txt_matrices
-    total_samples = 4
+    total_samples = 4  # not a multiple of three: one matrix gets 2, the others 1 each
     out_dir = tmp_path / "ds_gaussian"
 
     build_dataset(
@@ -362,6 +362,9 @@ def test_glob_matrix_gaussian_uses_global_sample_budget(
     mat_arr = zarr.open_array(str(resolve_dataset_paths(out_dir).matrix_path), mode="r")
     assert mat_arr.shape[0] == total_samples
 
+    per_matrix = np.bincount(load_matrix_sample_index(out_dir), minlength=3)
+    assert sorted(per_matrix.tolist()) == [1, 1, 2]
+
 
 def test_glob_matrix_solution_archive_uses_global_sample_budget(
     three_spd_txt_matrices: tuple[Path, int],
@@ -372,7 +375,7 @@ def test_glob_matrix_solution_archive_uses_global_sample_budget(
     sol_dir = tmp_path / "solutions"
     sol_dir.mkdir()
     rng = np.random.default_rng(13)
-    n_solutions = 5
+    n_solutions = 5  # 3 matrices x 5 files: the cyclic map gives 2, 2 and 1 units
     for j in range(n_solutions):
         np.savetxt(sol_dir / f"sol_{j:04d}.txt", rng.standard_normal(n))
 
@@ -405,6 +408,7 @@ def test_glob_matrix_solution_archive_uses_global_sample_budget(
 
     mat_arr = zarr.open_array(str(resolve_dataset_paths(out_dir).matrix_path), mode="r")
     assert mat_arr.shape[0] == n_solutions
+    assert load_matrix_sample_index(out_dir).tolist() == [0, 0, 1, 1, 2]
 
 
 # ---------------------------------------------------------------------------

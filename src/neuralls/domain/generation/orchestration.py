@@ -15,6 +15,7 @@ from neuralls.domain.normalization import ErrorTraceSamples, IScale, ResidualTra
 from neuralls.shared.enum_codecs import encode_row_kind_array
 from neuralls.shared.types import GenerationStrategyKind, LayoutType, RowKind, ScaleMetadata
 
+from .allocation import archive_units, split_remainder
 from .helpers import (
     _merge_strategy_outputs,
     _resolve_strategy_counts,
@@ -40,9 +41,16 @@ from .specs import DatasetSpec, MixtureSpec, SourceSpec
 
 @dataclass(frozen=True)
 class _StrategyProperties:
-    """Compile-time properties for a known generation strategy."""
+    """Compile-time properties for a known generation strategy.
 
-    uses_finite_source: bool
+    Attributes:
+        is_archive: Whether the strategy draws from a finite pool of files, each
+            usable at most once. Archives never overload a matrix.
+        supports_replacement: Whether the strategy counts as multi-matrix in the
+            single/multi-matrix mixing guard.
+    """
+
+    is_archive: bool
     supports_replacement: bool
 
 
@@ -53,13 +61,13 @@ _NORM_AGREEMENT_RTOL: float = 1e-10
 _NORM_AGREEMENT_ATOL: float = 1e-12
 
 _STRATEGY_PROPERTIES: dict[str, _StrategyProperties] = {
-    "solution_archive": _StrategyProperties(uses_finite_source=True, supports_replacement=False),
-    "rhs_archive": _StrategyProperties(uses_finite_source=True, supports_replacement=False),
-    "scaled_solutions": _StrategyProperties(uses_finite_source=True, supports_replacement=False),
-    "validated_archive": _StrategyProperties(uses_finite_source=True, supports_replacement=False),
-    "residuals": _StrategyProperties(uses_finite_source=True, supports_replacement=True),
-    "gaussian_residuals": _StrategyProperties(uses_finite_source=True, supports_replacement=True),
-    "search_directions": _StrategyProperties(uses_finite_source=True, supports_replacement=True),
+    "solution_archive": _StrategyProperties(is_archive=True, supports_replacement=False),
+    "rhs_archive": _StrategyProperties(is_archive=True, supports_replacement=False),
+    "scaled_solutions": _StrategyProperties(is_archive=True, supports_replacement=False),
+    "validated_archive": _StrategyProperties(is_archive=True, supports_replacement=False),
+    "residuals": _StrategyProperties(is_archive=False, supports_replacement=True),
+    "gaussian_residuals": _StrategyProperties(is_archive=False, supports_replacement=True),
+    "search_directions": _StrategyProperties(is_archive=False, supports_replacement=True),
 }
 
 
@@ -480,18 +488,18 @@ def _open_streams(source: SourceSpec) -> OpenedStreams:
     )
 
 
-def _strategy_uses_finite_source(
-    strategy_name: str,
-    strategy_overrides: Mapping[str, Mapping[str, Any]] | None,
-    has_rhs_source: bool,
-) -> bool:
-    """Return whether a strategy is configured to use a finite external source."""
+def _replacement_rejection_message(strategy_name: str) -> str:
+    """Explain why ``replacement = true`` is rejected for one strategy."""
     props = _STRATEGY_PROPERTIES.get(strategy_name)
-    if props is not None:
-        return props.uses_finite_source
-    # Fallback heuristic for unknown/future strategies
-    overrides = strategy_overrides.get(strategy_name, {}) if strategy_overrides is not None else {}
-    return has_rhs_source or isinstance(overrides.get("solutions_glob"), str)
+    if props is not None and props.is_archive:
+        return (
+            f"Strategy '{strategy_name}' draws from a finite archive where each file is "
+            "used at most once, so replacement = true is not supported."
+        )
+    return (
+        "replacement = true is not supported: generated strategies overload each matrix "
+        "uniformly, which replaces random replacement."
+    )
 
 
 def _validate_replacement_support(
@@ -499,10 +507,15 @@ def _validate_replacement_support(
     *,
     replacement: bool,
     num_matrix_samples: int,
-    strategy_overrides: Mapping[str, Mapping[str, Any]] | None,
-    has_rhs_source: bool,
 ) -> None:
     """Fail fast when replacement is requested or incompatible strategies are mixed."""
+    # count != 0 (not "> 0") so _ALL_SAMPLES (-1, "emit everything") is still
+    # treated as active — otherwise a strategy requesting -1 would be invisible
+    # to the mixing guard below, regardless of its actual output.
+    active = [name for name, count in strategy_counts.items() if count != 0]
+    if replacement and active:
+        raise ValueError(_replacement_rejection_message(active[0]))
+
     if num_matrix_samples <= 1:
         return
 
@@ -514,10 +527,6 @@ def _validate_replacement_support(
             else strategy_supports_matrix_replacement(name)
         )
 
-    # count != 0 (not "> 0") so _ALL_SAMPLES (-1, "emit everything") is still
-    # treated as active — otherwise a strategy requesting -1 would be invisible
-    # to the mixing/replacement guards below, regardless of its actual output.
-    active = [name for name, count in strategy_counts.items() if count != 0]
     multi_matrix = [name for name in active if _supports(name)]
     single_matrix = [name for name in active if not _supports(name)]
 
@@ -527,20 +536,6 @@ def _validate_replacement_support(
             f"multi-matrix strategies {multi_matrix}: "
             "the matrix source contains multiple matrices. Use a single-matrix source."
         )
-
-    if not replacement:
-        return
-
-    if single_matrix:
-        raise ValueError(
-            f"Strategy '{single_matrix[0]}' does not support matrix replacement allocation."
-        )
-    for strategy_name in multi_matrix:
-        if _strategy_uses_finite_source(strategy_name, strategy_overrides, has_rhs_source):
-            raise ValueError(
-                f"Strategy '{strategy_name}' does not support matrix replacement when configured "
-                "with a finite external source."
-            )
 
 
 def _archive_glob_for_strategy(
@@ -553,60 +548,137 @@ def _archive_glob_for_strategy(
     return glob_pattern if isinstance(glob_pattern, str) else None
 
 
-def _resolve_all_samples_total(glob_pattern: str) -> int:
-    """Resolve the ``_ALL_SAMPLES`` sentinel to the real file count behind a glob.
+def _archive_pool_size(glob_pattern: str, skip: int) -> int:
+    """Count the archive files a strategy draws from after its configured skip.
 
-    A cheap directory listing (no ``np.loadtxt``) — used so a multi-binding
-    dataset can divide "all available archive files" across its bindings the
-    same way an explicit positive count is divided, instead of handing every
-    binding the full archive (a cartesian-product blowup).
+    A cheap directory listing (no ``np.loadtxt``). Explicit archive indices refer
+    to positions in this pool, so its size is the ``K`` of the (matrix, file) grid.
     """
-    return len(select_archive_files(glob_pattern, count=-1, shuffle=False, seed=None, skip=0))
+    return len(select_archive_files(glob_pattern, count=-1, shuffle=False, seed=None, skip=skip))
 
 
-def _append_binding_count(
-    counts_by_binding: list[dict[str, int]],
-    binding_idx: int,
-    strategy_name: str,
+def _binding_indices_by_matrix(bindings: Sequence[SystemBinding]) -> dict[int, list[int]]:
+    """Group binding positions by the matrix sample each binding applies."""
+    indices_by_matrix: dict[int, list[int]] = {}
+    for binding_idx, binding in enumerate(bindings):
+        indices_by_matrix.setdefault(binding.matrix_sample_id, []).append(binding_idx)
+    return indices_by_matrix
+
+
+def _archive_skip(
+    strategy_overrides: Mapping[str, Mapping[str, Any]] | None, strategy_name: str
+) -> int:
+    """Return the strategy's configured archive skip, defaulting to zero."""
+    opts = (strategy_overrides or {}).get(strategy_name, {})
+    return int(opts.get("skip", 0))
+
+
+def _is_archive(strategy_name: str) -> bool:
+    """Whether a strategy draws from a finite archive pool."""
+    props = _STRATEGY_PROPERTIES.get(strategy_name)
+    return props is not None and props.is_archive
+
+
+def _split_generated_count(
     count: int,
-) -> None:
-    """Accumulate one per-binding strategy count."""
-    if count == _ALL_SAMPLES:
-        counts_by_binding[binding_idx][strategy_name] = _ALL_SAMPLES
-        return
-    if count <= 0:
-        return
-    counts_by_binding[binding_idx][strategy_name] = (
-        counts_by_binding[binding_idx].get(strategy_name, 0) + count
-    )
-
-
-def _allocate_strategy_counts_across_bindings(
-    *,
-    count: int,
-    bindings: Sequence[SystemBinding],
-    replacement: bool,
-    rng: np.random.Generator,
+    groups: Sequence[Sequence[int]],
+    num_bindings: int,
+    seed: int,
 ) -> list[int]:
-    """Distribute one strategy's global row budget across bindings."""
-    num_bindings = len(bindings)
-    if num_bindings < 1:
-        raise ValueError("At least one binding is required for allocation.")
-    if count == _ALL_SAMPLES:
-        return [_ALL_SAMPLES] * num_bindings
-    if count <= 0:
-        return [0] * num_bindings
+    """Split one generated count over matrices, then over each matrix's bindings.
 
-    if not replacement:
-        base = count // num_bindings
-        remainder = count % num_bindings
-        return [base + (1 if idx < remainder else 0) for idx in range(num_bindings)]
-
+    Every level uses the remainder allocation, so nothing is dropped. Pure given the seed.
+    """
     allocations = [0] * num_bindings
-    sampled_indices = rng.integers(0, num_bindings, size=count)
-    for binding_idx in sampled_indices.tolist():
-        allocations[binding_idx] += 1
+    per_matrix = split_remainder(count, len(groups), seed=seed)
+    for group, matrix_count in zip(groups, per_matrix, strict=True):
+        per_binding = split_remainder(int(matrix_count), len(group), seed=seed)
+        for binding_idx, binding_count in zip(group, per_binding, strict=True):
+            allocations[binding_idx] = int(binding_count)
     return allocations
+
+
+def _allocate_archive_files(
+    *,
+    strategy_name: str,
+    glob_pattern: str,
+    skip: int,
+    count: int,
+    groups: Sequence[Sequence[int]],
+    num_bindings: int,
+) -> tuple[list[int], list[tuple[int, ...]]]:
+    """Assign archive (matrix, file) units to bindings so no pair repeats.
+
+    The request is capped at M*K. A cap is reported with one warning naming the
+    strategy and both counts. Requires one binding per matrix (checked by the caller).
+
+    Returns:
+        Per-binding unit counts and per-binding explicit file indices, both parallel to the bindings.
+    """
+    num_matrices = len(groups)
+    num_files = _archive_pool_size(glob_pattern, skip)
+    capacity = num_matrices * num_files
+    requested = capacity if count == _ALL_SAMPLES else count
+    if requested > capacity:
+        logger.warning(
+            f"Strategy '{strategy_name}' requested {requested} samples but the archive has "
+            f"{capacity} (matrix, file) pairs: emitting {capacity}."
+        )
+    units = archive_units(num_matrices, num_files, min(requested, capacity))
+
+    files_by_matrix: list[list[int]] = [[] for _ in groups]
+    for matrix_pos, file_idx in units:
+        files_by_matrix[matrix_pos].append(file_idx)
+
+    counts = [0] * num_bindings
+    files: list[tuple[int, ...]] = [() for _ in range(num_bindings)]
+    for group, matrix_files in zip(groups, files_by_matrix, strict=True):
+        binding_idx = group[0]
+        counts[binding_idx] = len(matrix_files)
+        files[binding_idx] = tuple(matrix_files)
+    return counts, files
+
+
+def _file_backed_archive_globs(
+    strategy_counts: Mapping[str, int],
+    strategy_overrides: Mapping[str, Mapping[str, Any]] | None,
+    *,
+    has_solution_source: bool,
+) -> dict[str, str]:
+    """Archive strategies with a glob that get explicit per-binding file indices.
+
+    A per-binding solution source feeds archive strategies directly, so they are excluded.
+    """
+    if has_solution_source:
+        return {}
+    globs: dict[str, str] = {}
+    for strategy_name, count in strategy_counts.items():
+        if count == 0 or not _is_archive(strategy_name):
+            continue
+        glob_pattern = _archive_glob_for_strategy(strategy_name, strategy_overrides)
+        if glob_pattern is not None:
+            globs[strategy_name] = glob_pattern
+    return globs
+
+
+def _reject_repeated_archive_bindings(
+    archive_names: Sequence[str],
+    bindings: Sequence[SystemBinding],
+) -> None:
+    """Reject archive strategies whose matrix has several bindings.
+
+    Each such binding would draw the same archive pool, so the same (matrix, file)
+    pair would be emitted once per binding.
+    """
+    if not archive_names:
+        return
+    for matrix_id, binding_indices in _binding_indices_by_matrix(bindings).items():
+        if len(binding_indices) > 1:
+            raise ValueError(
+                f"Archive strategies {list(archive_names)} draw from one shared pool per matrix, "
+                f"but matrix {matrix_id} has {len(binding_indices)} bindings: "
+                "files would repeat across bindings. Use one binding per matrix."
+            )
 
 
 @dataclass(frozen=True)
@@ -615,32 +687,32 @@ class BindingAllocation:
 
     Attributes:
         counts: Per-binding strategy count maps, parallel to the bindings.
-        skips: Per-binding archive-file skip offsets, parallel to the bindings.
-            Only carries entries for archive-glob-backed strategies (those with
-            a ``solutions_glob`` override) — a cumulative offset into one shared
-            shuffled file ordering, so each binding draws a distinct,
-            non-overlapping slice of the archive instead of every binding
-            reusing the same first-N files.
+        file_indices: Per-binding explicit archive-file indices, parallel to the bindings.
+            Only archive strategies with a glob carry entries. Indices are positions in
+            the archive pool after the strategy's configured skip. Bindings of different
+            matrices never share a (matrix, file) pair.
     """
 
     counts: tuple[dict[str, int], ...]
-    skips: tuple[dict[str, int], ...]
+    file_indices: tuple[dict[str, tuple[int, ...]], ...]
 
 
 def _resolve_binding_strategy_counts(
     *,
     bindings: Sequence[SystemBinding],
     spec: DatasetSpec,
-    has_rhs_source: bool,
     num_matrix_samples: int,
     has_solution_source: bool = False,
 ) -> BindingAllocation:
-    """Resolve global strategy counts into per-binding count and archive-skip maps.
+    """Resolve global strategy counts into per-binding counts and archive file indices.
+
+    Generated counts are split across matrices, then across each matrix's bindings,
+    with the remainder allocation, so no sample is dropped. Archive counts are mapped
+    onto the (matrix, file) grid with ``archive_units``, so no pair is emitted twice.
 
     Args:
         bindings: Bindings the global budget is divided across.
         spec: Dataset assembly settings supplying the counts and replacement policy.
-        has_rhs_source: Whether an RHS stream is configured.
         num_matrix_samples: Number of distinct matrix samples in the source.
         has_solution_source: Whether a per-binding ``solution_path`` stream is
             configured. When it is, archive-backed strategies receive their
@@ -650,34 +722,54 @@ def _resolve_binding_strategy_counts(
             is left as-is instead of being resolved against a glob.
 
     Returns:
-        BindingAllocation holding the per-binding count and skip maps.
+        BindingAllocation holding the per-binding count and file-index maps.
+
+    Raises:
+        ValueError: If an archive strategy has several bindings on one matrix, if
+            ``samples=-1`` has no glob to resolve against, or if replacement is requested.
     """
     mixture = spec.mixture
     strategy_overrides = mixture.strategy_overrides
-    replacement = spec.replacement
     strategy_counts = _resolve_strategy_counts(mixture.counts, mixture.mix, mixture.total)
     _validate_replacement_support(
         strategy_counts,
-        replacement=replacement,
+        replacement=spec.replacement,
         num_matrix_samples=num_matrix_samples,
-        strategy_overrides=strategy_overrides,
-        has_rhs_source=has_rhs_source,
     )
+
+    archive_globs = _file_backed_archive_globs(
+        strategy_counts, strategy_overrides, has_solution_source=has_solution_source
+    )
+    _reject_repeated_archive_bindings(list(archive_globs), bindings)
 
     if num_matrix_samples <= 1:
         return BindingAllocation(
             counts=tuple(dict(strategy_counts) for _ in bindings),
-            skips=tuple({} for _ in bindings),
+            file_indices=tuple({} for _ in bindings),
         )
 
-    rng = rng_from_seed(mixture.seed)
+    groups = list(_binding_indices_by_matrix(bindings).values())
     counts_by_binding: list[dict[str, int]] = [{} for _ in bindings]
-    skips_by_binding: list[dict[str, int]] = [{} for _ in bindings]
+    files_by_binding: list[dict[str, tuple[int, ...]]] = [{} for _ in bindings]
     for strategy_name, count in strategy_counts.items():
-        glob_pattern = _archive_glob_for_strategy(strategy_name, strategy_overrides)
-        resolved_count = count
-        if count == _ALL_SAMPLES and not has_solution_source:
-            if glob_pattern is None:
+        if count == 0:
+            continue
+        if strategy_name in archive_globs:
+            counts, files = _allocate_archive_files(
+                strategy_name=strategy_name,
+                glob_pattern=archive_globs[strategy_name],
+                skip=_archive_skip(strategy_overrides, strategy_name),
+                count=count,
+                groups=groups,
+                num_bindings=len(bindings),
+            )
+            for binding_idx, binding_count in enumerate(counts):
+                if binding_count > 0:
+                    counts_by_binding[binding_idx][strategy_name] = binding_count
+                    files_by_binding[binding_idx][strategy_name] = files[binding_idx]
+            continue
+        if count == _ALL_SAMPLES:
+            if not has_solution_source:
                 raise ValueError(
                     f"Strategy '{strategy_name}' requested samples=-1 (\"all\") across "
                     f"{len(bindings)} matrix bindings, but has no 'solutions_glob' to "
@@ -685,21 +777,17 @@ def _resolve_binding_strategy_counts(
                     "load the full archive once per binding (a cartesian-product "
                     "blowup) — set an explicit positive 'samples' count instead."
                 )
-            resolved_count = _resolve_all_samples_total(glob_pattern)
-
-        allocations = _allocate_strategy_counts_across_bindings(
-            count=resolved_count,
-            bindings=bindings,
-            replacement=replacement,
-            rng=rng,
-        )
-        cumulative_skip = 0
-        for binding_idx, allocated_count in enumerate(allocations):
-            _append_binding_count(counts_by_binding, binding_idx, strategy_name, allocated_count)
-            if glob_pattern is not None and allocated_count > 0:
-                skips_by_binding[binding_idx][strategy_name] = cumulative_skip
-            cumulative_skip += allocated_count
-    return BindingAllocation(counts=tuple(counts_by_binding), skips=tuple(skips_by_binding))
+            for binding_idx in range(len(bindings)):
+                counts_by_binding[binding_idx][strategy_name] = _ALL_SAMPLES
+            continue
+        allocations = _split_generated_count(count, groups, len(bindings), mixture.seed)
+        for binding_idx, binding_count in enumerate(allocations):
+            if binding_count > 0:
+                counts_by_binding[binding_idx][strategy_name] = binding_count
+    return BindingAllocation(
+        counts=tuple(counts_by_binding),
+        file_indices=tuple(files_by_binding),
+    )
 
 
 @dataclass(frozen=True)
@@ -725,20 +813,19 @@ class _BindingResult:
     scale_params: ScaleMetadata | None
 
 
-def _merge_binding_skip_overrides(
+def _merge_binding_file_overrides(
     strategy_overrides: Mapping[str, Mapping[str, Any]] | None,
-    strategy_skips: Mapping[str, int] | None,
+    strategy_files: Mapping[str, tuple[int, ...]] | None,
 ) -> Mapping[str, Mapping[str, Any]] | None:
-    """Add each strategy's per-binding archive skip on top of its configured base skip.
+    """Layer each strategy's explicit per-binding archive file indices onto its overrides.
 
     Never mutates ``strategy_overrides`` — it's shared across every binding's call.
     """
-    if not strategy_skips:
+    if not strategy_files:
         return strategy_overrides
     merged = {name: dict(opts) for name, opts in (strategy_overrides or {}).items()}
-    for strategy_name, binding_skip in strategy_skips.items():
-        opts = merged.setdefault(strategy_name, {})
-        opts["skip"] = opts.get("skip", 0) + binding_skip
+    for strategy_name, file_indices in strategy_files.items():
+        merged.setdefault(strategy_name, {})["file_indices"] = file_indices
     return merged
 
 
@@ -885,7 +972,7 @@ class _GenerationRunContext:
 
     Attributes:
         streams: Every opened source stream and the resolved bindings.
-        allocation: Per-binding strategy count and archive-skip maps.
+        allocation: Per-binding strategy count and archive file-index maps.
     """
 
     streams: OpenedStreams
@@ -909,7 +996,6 @@ def _prepare_generation_context(
     allocation = _resolve_binding_strategy_counts(
         bindings=streams.bindings,
         spec=spec,
-        has_rhs_source=streams.rhs is not None,
         num_matrix_samples=len(streams.matrix.sample_ids),
         has_solution_source=streams.solution is not None,
     )
@@ -960,7 +1046,7 @@ def _accumulate_bindings(
         get_matrix: Callable that loads and caches a normalized matrix by sample ID.
         accumulator: Dataset accumulator for writing matrix samples.
         mixture: Global mixture settings; each binding runs with its own counts
-            and archive-skip offsets layered on top.
+            and explicit archive file indices layered on top.
 
     Returns:
         AccumulatedBindings holding every per-binding block and scale value.
@@ -979,8 +1065,8 @@ def _accumulate_bindings(
     scale_metadata_values: list[ScaleMetadata | None] = []
     emitted_binding_count = 0
 
-    for binding, binding_strategy_counts, binding_strategy_skips in zip(
-        streams.bindings, context.allocation.counts, context.allocation.skips, strict=True
+    for binding, binding_strategy_counts, binding_strategy_files in zip(
+        streams.bindings, context.allocation.counts, context.allocation.file_indices, strict=True
     ):
         if not binding_strategy_counts:
             continue
@@ -989,8 +1075,8 @@ def _accumulate_bindings(
             counts=binding_strategy_counts,
             mix=None,
             total=None,
-            strategy_overrides=_merge_binding_skip_overrides(
-                mixture.strategy_overrides, binding_strategy_skips
+            strategy_overrides=_merge_binding_file_overrides(
+                mixture.strategy_overrides, binding_strategy_files
             ),
         )
         result = _process_binding(binding, streams, get_matrix, binding_mixture)

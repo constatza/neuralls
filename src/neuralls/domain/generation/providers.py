@@ -185,7 +185,12 @@ class UniformInputProvider:
 
 @lru_cache(maxsize=128)
 def _load_archive_files_cached(
-    glob_pattern: str, count: int, shuffle: bool, seed: int | None, skip: int
+    glob_pattern: str,
+    count: int,
+    shuffle: bool,
+    seed: int | None,
+    skip: int,
+    file_indices: tuple[int, ...] | None,
 ) -> tuple[np.ndarray, ...]:
     """Load and cache solution files for a given glob/selection key.
 
@@ -195,11 +200,20 @@ def _load_archive_files_cached(
         shuffle: Whether to shuffle files before selection.
         seed: Random seed for shuffling.
         skip: Number of files to skip after ordering/shuffling.
+        file_indices: Explicit pool positions to load, or None for the contiguous selection.
+            Part of the cache key, so two bindings with different slices never share an entry.
 
     Returns:
         Loaded vectors as a tuple (hashable/immutable for caching).
     """
-    files = select_archive_files(glob_pattern, count=count, shuffle=shuffle, seed=seed, skip=skip)
+    files = select_archive_files(
+        glob_pattern,
+        count=count,
+        shuffle=shuffle,
+        seed=seed,
+        skip=skip,
+        file_indices=file_indices,
+    )
     return tuple(np.loadtxt(f) for f in files)
 
 
@@ -219,6 +233,7 @@ class FileInputProvider:
         shuffle: bool = False,
         seed: int | None = None,
         skip: int = 0,
+        file_indices: tuple[int, ...] | None = None,
     ) -> None:
         """Initialize file provider.
 
@@ -227,11 +242,14 @@ class FileInputProvider:
             shuffle: Whether to shuffle files before selection
             seed: Random seed for shuffling
             skip: Number of files to skip after deterministic ordering/shuffling
+            file_indices: Explicit positions in the pool after ``skip``; ``count`` must
+                equal their number. None selects the contiguous range instead.
         """
         self.glob_pattern = glob_pattern
         self.shuffle = shuffle
         self.seed = seed
         self.skip = skip
+        self.file_indices = file_indices
 
     def provide(
         self,
@@ -254,7 +272,7 @@ class FileInputProvider:
             ValueError: If insufficient files available
         """
         vectors = _load_archive_files_cached(
-            self.glob_pattern, count, self.shuffle, self.seed, self.skip
+            self.glob_pattern, count, self.shuffle, self.seed, self.skip, self.file_indices
         )
         return np.array(vectors, dtype=np.float64)
 
@@ -354,6 +372,7 @@ class PairedFileInputProvider:
         shuffle: bool = False,
         seed: int | None = None,
         skip: int = 0,
+        file_indices: tuple[int, ...] | None = None,
     ) -> None:
         """Initialize paired file provider.
 
@@ -363,9 +382,10 @@ class PairedFileInputProvider:
             shuffle: Whether to shuffle files
             seed: Random seed for shuffling
             skip: Number of pairs to skip after deterministic ordering/shuffling
+            file_indices: Explicit pair positions after ``skip``, applied to both globs.
         """
-        self.solution_provider = FileInputProvider(solution_glob, shuffle, seed, skip)
-        self.rhs_provider = FileInputProvider(rhs_glob, shuffle, seed, skip)
+        self.solution_provider = FileInputProvider(solution_glob, shuffle, seed, skip, file_indices)
+        self.rhs_provider = FileInputProvider(rhs_glob, shuffle, seed, skip, file_indices)
 
     def provide(
         self,

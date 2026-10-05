@@ -275,8 +275,8 @@ class GenerationConfig(BaseModel):
     replacement: bool = Field(
         default=False,
         description=(
-            "Whether global multi-matrix generation may reuse matrix bindings for "
-            "supported random strategies."
+            "Must be false. Multi-matrix generation overloads each matrix uniformly and "
+            "archive strategies never reuse files, so replacement = true is rejected."
         ),
     )
     num_samples: int | None = Field(
@@ -304,6 +304,18 @@ class GenerationConfig(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @field_validator("replacement")
+    @classmethod
+    def _reject_replacement(cls, v: bool) -> bool:
+        """Reject replacement = true: the uniform allocation rule replaces it."""
+        if v:
+            raise ValueError(
+                "replacement = true is not supported: multi-matrix strategies are allocated "
+                "uniformly across matrices and bindings, and archive strategies never reuse "
+                "files. Remove the replacement setting."
+            )
+        return v
 
     @field_validator("rhs_archive_glob", mode="before")
     @classmethod

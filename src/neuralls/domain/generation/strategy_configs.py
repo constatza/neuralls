@@ -391,6 +391,13 @@ class SolutionArchiveConfig(BaseStrategyConfig):
         description="Number of solution files to skip after deterministic ordering/shuffling.",
         ge=0,
     )
+    file_indices: tuple[int, ...] | None = Field(
+        None,
+        description=(
+            "Explicit positions in the archive pool, set per binding by the orchestrator "
+            "so bindings draw disjoint files. Must match the resolved sample count."
+        ),
+    )
 
 
 class ValidatedArchiveConfig(BaseStrategyConfig):
@@ -405,6 +412,13 @@ class ValidatedArchiveConfig(BaseStrategyConfig):
         0,
         description="Number of paired archive files to skip after deterministic ordering/shuffling.",
         ge=0,
+    )
+    file_indices: tuple[int, ...] | None = Field(
+        None,
+        description=(
+            "Explicit positions in the archive pool, set per binding by the orchestrator "
+            "so bindings draw disjoint files. Must match the resolved sample count."
+        ),
     )
     verification_tolerance: float = Field(
         1e-10,
@@ -439,6 +453,13 @@ class ScaledSolutionsConfig(BaseStrategyConfig):
         0,
         description="Number of solution files to skip after deterministic ordering/shuffling.",
         ge=0,
+    )
+    file_indices: tuple[int, ...] | None = Field(
+        None,
+        description=(
+            "Explicit positions in the archive pool, set per binding by the orchestrator "
+            "so bindings draw disjoint files. Must match the resolved sample count."
+        ),
     )
 
 

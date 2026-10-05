@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -172,3 +172,38 @@ def generated_dataset_dir(
 def npy_dataset_dir(tmp_path: Path, build_in: Callable[[Path, DatasetFormat], Path]) -> Path:
     """A freshly generated npy dataset, whose artifacts are plain editable files."""
     return build_in(tmp_path / "npy_dataset", "npy")
+
+
+# --- archive allocation fixtures ------------------------------------------------
+
+
+@pytest.fixture
+def write_solution_files(tmp_path: Path) -> Callable[[int], str]:
+    """Write ``n`` sorted solution files and return their glob pattern.
+
+    File ``k`` holds the constant vector ``k + 1`` of length 4, so its position in
+    the sorted pool is recoverable from its contents.
+    """
+
+    def _write(n_files: int) -> str:
+        directory = tmp_path / "archive"
+        directory.mkdir(exist_ok=True)
+        for idx in range(n_files):
+            np.savetxt(directory / f"solution_{idx:03d}.txt", np.full(4, float(idx + 1)))
+        return str(directory / "solution_*.txt")
+
+    return _write
+
+
+@pytest.fixture
+def warning_messages() -> Iterator[list[str]]:
+    """Collect loguru WARNING-level messages emitted during a test."""
+    from loguru import logger
+
+    messages: list[str] = []
+    sink_id = logger.add(
+        lambda message: messages.append(message.record["message"]),
+        level="WARNING",
+    )
+    yield messages
+    logger.remove(sink_id)

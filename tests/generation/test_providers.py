@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 
@@ -231,3 +233,23 @@ def test_provide_solutions_prefers_archive_over_glob(tmp_path) -> None:
     )
 
     assert np.array_equal(result, archive_data[:3])
+
+
+def test_file_input_provider_cache_key_includes_file_indices(
+    write_solution_files: Callable[[int], str],
+) -> None:
+    """Bindings with the same glob and count but different explicit files must not share a cache entry."""
+    _load_archive_files_cached.cache_clear()
+    glob_pattern = write_solution_files(5)
+    matrix = np.eye(4)
+    rng = np.random.default_rng(0)
+
+    first = FileInputProvider(glob_pattern=glob_pattern, file_indices=(0, 1)).provide(
+        matrix=matrix, count=2, rng=rng
+    )
+    second = FileInputProvider(glob_pattern=glob_pattern, file_indices=(3, 4)).provide(
+        matrix=matrix, count=2, rng=rng
+    )
+
+    np.testing.assert_array_equal(first[:, 0], [1.0, 2.0])
+    np.testing.assert_array_equal(second[:, 0], [4.0, 5.0])
