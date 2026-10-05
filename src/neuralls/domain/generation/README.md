@@ -290,11 +290,31 @@ disk once per distinct selection, not once per binding or per dataset file. `Arc
   `{Npy,Txt,Glob}{Matrix,Vector}Stream` classes are thin subclasses that only pick a source;
   `open_matrix_stream()`/`open_vector_stream()` are the entrypoints
 - `providers.py`: archive or synthetic sample providers
-- `transforms.py`: pure transforms such as `A @ x`
+- `matrix_operator.py`: `MatrixOperator`, a frozen wrapper around one system matrix (dense
+  ndarray or CSR) that exposes `matvec`, `solve_direct`, and `eigensystem`. The LU/Cholesky
+  factor and eigen results are memoized on a private cache, so all samples drawn from one
+  matrix share one factorization. Dense uses `scipy.linalg` (`cho_factor` when
+  `assume_pos_def`, else `lu_factor`; full `eigh` sliced to the requested end). CSR uses
+  `splu` on the CSC form and `eigsh`; the CSR "smallest" eigensolve is shift-invert at
+  `sigma=0` with `which="LM"` because ARPACK cannot reuse the operator's LU factor, and
+  "largest" uses `which="LA"`. CSR never densifies and cannot return the full spectrum, so
+  `random` eigenvector selection is dense-only. `ensure_symmetric` holds the symmetry check
+  shared by both formats.
+- `transforms.py`: pure transforms such as `A @ x`. `SolveTransform` and
+  `EigenvectorCombinationTransform` accept a `SystemMatrix` and wrap it in a `MatrixOperator`
 - `trace_utils.py`: trace trimming, offsets, and indexing helpers
 - `step_window.py`: `StepWindow` — which steps of a bounded trajectory to
   run and keep (see "Step Selection" above)
 - `strategies/`: concrete generation implementations
+- `helpers.py`: `_solve_linear_systems` dispatches through the `_SOLVERS` registry, keyed by
+  `(method, MatrixFormat)`: `("direct", CSR|DENSE)` calls `MatrixOperator.solve_direct`
+  (cached factor), and `("cg", CSR|DENSE)` calls `scipy.sparse.linalg.cg` on the wrapped
+  matrix. A missing key raises `ValueError`. `_compute_eigendecomposition` requests only the
+  `count` eigenpairs for "smallest"/"largest" and the full dense spectrum for "random"
+- `strategy_configs.py`: `require_which_supported_by_format` rejects `which="random"` for CSR.
+  `platform/config/models/data_models.py::DataConfigFile` calls it for every
+  eigenvector strategy, because `matrix_format` (`[output]`) and `which`
+  (`[[generation.strategy]]`) are declared in the same TOML file
 
 Config-driven generation entrypoints now live in
 `neuralls.composition.generation.processing`, which wires the generation domain

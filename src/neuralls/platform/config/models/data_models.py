@@ -9,10 +9,23 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from neuralls.domain.generation.source_streams import EnumerateBy
+from neuralls.domain.generation.strategy_configs import (
+    EIGENVECTOR_STRATEGY_NAMES,
+    require_which_supported_by_format,
+)
 from neuralls.platform.config.context import ConfigContext, expand_config_glob, expand_config_path
+from neuralls.shared.constants import EIGENVECTOR_SELECT_SMALLEST, EigenvectorSelectionMode
 from neuralls.shared.digest import Cosmetic
 from neuralls.shared.types import DatasetFormat, MatrixFormat
 
@@ -419,3 +432,19 @@ class DataConfigFile(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @model_validator(mode="after")
+    def _check_eigenvector_which_matches_format(self) -> DataConfigFile:
+        """Reject eigenvector strategies whose selection the matrix format cannot serve.
+
+        Checked here because the strategy `which` lives in `[[generation.strategy]]`
+        while `matrix_format` lives in `[output]` of the same file.
+        """
+        which_adapter = TypeAdapter(EigenvectorSelectionMode)
+        for strategy in self.generation.strategy:
+            if strategy.name not in EIGENVECTOR_STRATEGY_NAMES:
+                continue
+            extras = strategy.model_extra or {}
+            which = which_adapter.validate_python(extras.get("which", EIGENVECTOR_SELECT_SMALLEST))
+            require_which_supported_by_format(which, self.output.matrix_format)
+        return self

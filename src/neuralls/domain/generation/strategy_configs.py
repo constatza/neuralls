@@ -10,11 +10,13 @@ from neuralls.shared.constants import (
     DEFAULT_KRYLOV_ITERATIONS,
     DEFAULT_RANDOM_SEED,
     DEFAULT_SHUFFLE,
+    EIGENVECTOR_SELECT_RANDOM,
     EIGENVECTOR_SELECT_SMALLEST,
     MAX_ITERATIONS_UPPER_LIMIT,
     MIN_TOLERANCE,
     EigenvectorSelectionMode,
 )
+from neuralls.shared.types import MatrixFormat
 
 from .step_window import StepWindow
 
@@ -484,3 +486,29 @@ class GenerationConfig(BaseModel):
     # This represents the structure of the [generation] section in the config
     # Add fields as needed to match the actual data generation config structure.
     # For now, it's a placeholder.
+
+
+EIGENVECTOR_STRATEGY_NAMES: frozenset[str] = frozenset(
+    {"eigenvector_forward", "eigenvector_inverse"}
+)
+"""Strategy names whose `which` selection must be checked against the matrix format."""
+
+
+def require_which_supported_by_format(
+    which: EigenvectorSelectionMode,
+    matrix_format: MatrixFormat,
+) -> None:
+    """Reject eigenvector selections the dataset's matrix format cannot serve.
+
+    "random" selection draws from the whole spectrum, which only a dense
+    eigendecomposition provides. CSR matrices are restricted to the sparse
+    "smallest"/"largest" eigensolve.
+
+    Raises:
+        ValueError: If `which` is "random" for a CSR dataset.
+    """
+    if matrix_format is MatrixFormat.CSR and which == EIGENVECTOR_SELECT_RANDOM:
+        raise ValueError(
+            "eigenvector which='random' requires the full spectrum and is not supported "
+            "with matrix_format='csr'; use 'smallest' or 'largest', or matrix_format='dense'"
+        )

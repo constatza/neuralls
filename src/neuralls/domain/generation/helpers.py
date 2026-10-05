@@ -4,22 +4,24 @@ from __future__ import annotations
 
 import math
 import warnings
-from collections.abc import Mapping
-from typing import Any, Literal, cast
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Any, Literal
 
 import numpy as np
 from loguru import logger
-from scipy.linalg import eigh, norm
-from scipy.sparse import csc_matrix, issparse
-from scipy.sparse.linalg import LinearOperator
+from scipy.linalg import norm
 
 from neuralls.shared.constants import (
     EIGENVECTOR_SELECT_LARGEST,
     EIGENVECTOR_SELECT_RANDOM,
     EIGENVECTOR_SELECT_SMALLEST,
+    EigenvectorSelectionMode,
 )
-from neuralls.shared.types import ScaleMetadata
+from neuralls.shared.types import MatrixFormat, ScaleMetadata
 
+from .matrix_operator import MatrixOperator
 from .step_window import StepWindow
 
 
@@ -229,8 +231,65 @@ def _resolve_strategy_counts(
     return nonzero
 
 
+@dataclass(frozen=True, slots=True)
+class _SolveOptions:
+    """Per-call solver settings shared by every registry entry."""
+
+    rtol: float
+    atol: float
+    max_iters: int
+    assume_pos_def: bool
+
+
+type _SolveFn = Callable[[MatrixOperator, np.ndarray, _SolveOptions], np.ndarray]
+"""Solver over a stack of RHS rows, shape (num_systems, n)."""
+
+
+def _solve_direct_rows(
+    operator: MatrixOperator, rhs_array: np.ndarray, options: _SolveOptions
+) -> np.ndarray:
+    """Direct solve per RHS row, reusing the operator's cached factor."""
+    solutions = np.zeros(rhs_array.shape, dtype=np.float64)
+    for idx, rhs in enumerate(rhs_array):
+        solutions[idx] = operator.solve_direct(rhs, assume_pos_def=options.assume_pos_def)
+    return solutions
+
+
+def _solve_cg_rows(
+    operator: MatrixOperator, rhs_array: np.ndarray, options: _SolveOptions
+) -> np.ndarray:
+    """Iterative CG per RHS row; warns on non-convergence."""
+    from scipy.sparse.linalg import cg as scipy_cg
+
+    solutions = np.zeros(rhs_array.shape, dtype=np.float64)
+    for idx, rhs in enumerate(rhs_array):
+        solution, exit_code = scipy_cg(
+            operator.matrix,
+            rhs,
+            rtol=options.rtol,
+            atol=options.atol,
+            maxiter=options.max_iters,
+        )
+        solutions[idx] = solution
+
+        if exit_code != 0:
+            residual = np.linalg.norm(operator.matvec(solution) - rhs)
+            logger.warning(f"System {idx + 1} CG exit_code={exit_code} (residual: {residual:.2e})")
+    return solutions
+
+
+_SOLVERS: Mapping[tuple[Literal["direct", "cg"], MatrixFormat], _SolveFn] = MappingProxyType(
+    {
+        ("direct", MatrixFormat.CSR): _solve_direct_rows,
+        ("direct", MatrixFormat.DENSE): _solve_direct_rows,
+        ("cg", MatrixFormat.CSR): _solve_cg_rows,
+        ("cg", MatrixFormat.DENSE): _solve_cg_rows,
+    }
+)
+
+
 def _solve_linear_systems(
-    A: np.ndarray | LinearOperator | Any,
+    A: MatrixOperator,
     rhs_vectors: np.ndarray,
     method: Literal["direct", "cg"],
     rtol: float = 1e-12,
@@ -238,75 +297,40 @@ def _solve_linear_systems(
     max_iters: int = 500,
     assume_pos_def: bool = True,
 ) -> np.ndarray:
-    """Solve linear systems Ax = b using configured method.
+    """Solve linear systems Ax = b using configured method and matrix format.
 
-    Unified solving interface for inverse strategies. Supports direct solve
-    (via Cholesky factorization) or iterative CG solve.
+    The solver is looked up in `_SOLVERS` by (method, format). Direct solves
+    use the operator's cached factorization; CG works on either format.
 
     Args:
-        A: System matrix, shape (n, n)
+        A: Operator wrapping the system matrix, shape (n, n)
         rhs_vectors: RHS vectors, shape (num_systems, n)
         method: Solving method ("direct" or "cg")
         rtol: Relative tolerance for CG (ignored for direct)
         atol: Absolute tolerance for CG (ignored for direct)
         max_iters: Maximum CG iterations (ignored for direct)
-        assume_pos_def: Assume positive-definite for direct solve
+        assume_pos_def: Dense direct solve only: Cholesky (True) or LU (False)
 
     Returns:
         Solution vectors, shape (num_systems, n)
 
     Raises:
-        ValueError: If method is invalid
-        TypeError: If a direct solve is requested with a `LinearOperator`
-            instead of a concrete matrix
+        ValueError: If no solver is registered for (method, format)
     """
     rhs_array = np.asarray(rhs_vectors, dtype=np.float64)
-    num_systems, n = rhs_array.shape
-    solutions = np.zeros((num_systems, n), dtype=np.float64)
-
-    match method:
-        case "direct":
-            if isinstance(A, LinearOperator):
-                raise TypeError("Direct solve requires a concrete matrix, got LinearOperator.")
-            if issparse(A):
-                from scipy.sparse.linalg import factorized
-
-                solve_fn = cast(Any, factorized)(csc_matrix(cast(Any, A)))
-                for idx, rhs in enumerate(rhs_array):
-                    solutions[idx] = np.asarray(solve_fn(rhs), dtype=np.float64)
-            else:
-                # Direct solve via Cholesky (O(n³) per system)
-                from scipy.linalg import solve
-
-                assume_a = "pos" if assume_pos_def else "gen"
-                for idx, rhs in enumerate(rhs_array):
-                    solutions[idx] = solve(A, rhs, assume_a=assume_a)
-
-        case "cg":
-            # Iterative CG solve (O(n² * iters) per system)
-            from scipy.sparse.linalg import cg as scipy_cg
-
-            for idx, rhs in enumerate(rhs_array):
-                solution, exit_code = scipy_cg(
-                    A,
-                    rhs,
-                    rtol=rtol,
-                    atol=atol,
-                    maxiter=max_iters,
-                )
-                solutions[idx] = solution
-
-                # Warn on convergence failure
-                if exit_code != 0:
-                    residual = np.linalg.norm(A @ solution - rhs)
-                    logger.warning(
-                        f"System {idx + 1} CG exit_code={exit_code} (residual: {residual:.2e})"
-                    )
-
-        case _:
-            raise ValueError(f"Invalid solve method: {method}. Must be 'direct' or 'cg'")
-
-    return solutions
+    solver = _SOLVERS.get((method, A.format))
+    if solver is None:
+        raise ValueError(
+            f"Invalid solve method: {method}. Must be 'direct' or 'cg' "
+            f"(no solver registered for format {A.format.value!r})"
+        )
+    options = _SolveOptions(
+        rtol=rtol,
+        atol=atol,
+        max_iters=max_iters,
+        assume_pos_def=assume_pos_def,
+    )
+    return solver(A, rhs_array, options)
 
 
 def _build_trace_indices(
@@ -396,33 +420,40 @@ def _merge_strategy_outputs(
 # =============================================================================
 
 
-def _compute_eigendecomposition(A: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Compute eigendecomposition of symmetric matrix using scipy.
+def _compute_eigendecomposition(
+    operator: MatrixOperator,
+    count: int,
+    which: EigenvectorSelectionMode,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute the eigenpairs needed to select `count` eigenvectors.
+
+    "smallest" and "largest" ask the operator for only `count` pairs, which
+    is the only option for CSR. "random" needs the whole spectrum, so it is
+    dense-only; the dense full spectrum is requested as `count = n`.
 
     Args:
-        A: Symmetric matrix
+        operator: Operator wrapping the symmetric system matrix
+        count: Number of eigenpairs to return for "smallest"/"largest"
+        which: Selection mode
 
     Returns:
-        Tuple of (eigenvalues, eigenvectors)
+        Tuple of (eigenvalues ascending, eigenvectors as columns)
 
     Raises:
-        ValueError: If matrix is not symmetric within tolerance
-        TypeError: If `A` is a `LinearOperator` instead of an explicit matrix
+        ValueError: If the matrix is not symmetric, or "random" is requested
+            for a CSR operator
     """
-    if isinstance(A, LinearOperator):
-        raise TypeError("Eigenvector strategies require an explicit matrix, got LinearOperator.")
-    matrix = (
-        np.asarray(cast(Any, A).toarray(), dtype=np.float64)
-        if issparse(A)
-        else np.asarray(A, dtype=np.float64)
-    )
-    if not np.allclose(matrix, matrix.T, rtol=1e-10, atol=1e-10):
-        max_asymmetry = np.max(np.abs(matrix - matrix.T))
-        raise ValueError(
-            f"Eigenvector strategies require symmetric matrices. Max asymmetry: {max_asymmetry:.2e}"
-        )
-    eigenvalues, eigenvectors = eigh(matrix)
-    return eigenvalues, eigenvectors
+    match which:
+        case "random":
+            if operator.format is MatrixFormat.CSR:
+                raise ValueError(
+                    "Random eigenvector selection needs the full spectrum, which requires "
+                    "a dense matrix; use 'smallest' or 'largest' with csr matrices"
+                )
+            n = operator.shape[0]
+            return operator.eigensystem(n, EIGENVECTOR_SELECT_SMALLEST)
+        case "smallest" | "largest":
+            return operator.eigensystem(count, which)
 
 
 def _select_eigenvectors(
@@ -451,6 +482,7 @@ def _select_eigenvectors(
         ValueError: If count invalid or which unknown
     """
     n = eigenvectors.shape[0]
+    available = eigenvalues.shape[0]
     if count > n:
         raise ValueError(
             f"Requested {count} samples but matrix has only {n} eigenvectors. Maximum samples: {n}"
@@ -460,9 +492,9 @@ def _select_eigenvectors(
     if which == EIGENVECTOR_SELECT_SMALLEST:
         indices = np.arange(count)
     elif which == EIGENVECTOR_SELECT_LARGEST:
-        indices = np.arange(n - count, n)
+        indices = np.arange(available - count, available)
     elif which == EIGENVECTOR_SELECT_RANDOM:
-        indices = rng.choice(n, size=count, replace=False)
+        indices = rng.choice(available, size=count, replace=False)
     else:
         raise ValueError(
             f"Invalid which: '{which}'. Must be '{EIGENVECTOR_SELECT_SMALLEST}', "

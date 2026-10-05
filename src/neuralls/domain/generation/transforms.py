@@ -32,6 +32,9 @@ from typing import Any, Literal, Protocol, TypeVar
 import numpy as np
 from scipy.sparse.linalg import LinearOperator
 
+from neuralls.shared.constants import EigenvectorSelectionMode
+from neuralls.shared.types import SystemMatrix
+
 from .helpers import (
     _compute_eigendecomposition,
     _generate_eigenvector_combinations,
@@ -41,6 +44,7 @@ from .helpers import (
     _solve_linear_systems,
     _verify_solution_accuracy,
 )
+from .matrix_operator import MatrixOperator
 
 TIn_contra = TypeVar("TIn_contra", contravariant=True)
 TOut_co = TypeVar("TOut_co", covariant=True)
@@ -116,7 +120,7 @@ class SolveTransform:
 
     def __init__(
         self,
-        matrix: np.ndarray | LinearOperator | Any,
+        matrix: SystemMatrix,
         method: Literal["direct", "cg"] = "cg",
         rtol: float = 1e-12,
         atol: float = 0.0,
@@ -133,7 +137,7 @@ class SolveTransform:
             max_iters: Maximum CG iterations
             assume_pos_def: Assume positive-definite for direct solve
         """
-        self.matrix = matrix
+        self.operator = MatrixOperator(matrix)
         self.method: Literal["direct", "cg"] = method
         self.rtol = rtol
         self.atol = atol
@@ -150,7 +154,7 @@ class SolveTransform:
             Solution vectors, shape (N, n)
         """
         return _solve_linear_systems(
-            self.matrix,
+            self.operator,
             rhs,
             self.method,
             self.rtol,
@@ -241,7 +245,7 @@ class EigenvectorCombinationTransform:
     def __init__(
         self,
         count: int,
-        which: str,
+        which: EigenvectorSelectionMode,
         rng: np.random.Generator,
         num_eigenvectors: int | None = None,
         include_eigenvectors: bool = False,
@@ -262,18 +266,17 @@ class EigenvectorCombinationTransform:
         self.num_eigenvectors = num_eigenvectors
         self.include_eigenvectors = include_eigenvectors
 
-    def transform(self, matrix: np.ndarray) -> np.ndarray:
+    def transform(self, matrix: SystemMatrix) -> np.ndarray:
         """Generate eigenvector combinations.
 
         Args:
-            matrix: System matrix A
+            matrix: System matrix A (dense or CSR)
 
         Returns:
             Vectors (eigenvectors and/or combinations), shape (count, n)
         """
-        # Compute eigendecomposition
-        eigenvalues, eigenvectors = _compute_eigendecomposition(matrix)
-        n = eigenvectors.shape[0]
+        operator = MatrixOperator(matrix)
+        n = operator.shape[0]
 
         # Resolve num_eigenvectors
         if self.num_eigenvectors is None:
@@ -285,6 +288,9 @@ class EigenvectorCombinationTransform:
 
         if num_eigvecs > n or num_eigvecs <= 0:
             raise ValueError(f"num_eigenvectors ({num_eigvecs}) must be positive and ≤ {n}")
+
+        # Only the selected eigenpairs are computed; CSR cannot provide the full spectrum
+        eigenvalues, eigenvectors = _compute_eigendecomposition(operator, num_eigvecs, self.which)
 
         # Select subset of eigenvectors
         selected_eigvecs, _, _ = _select_eigenvectors(

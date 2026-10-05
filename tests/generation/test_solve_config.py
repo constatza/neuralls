@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from neuralls.domain.generation.helpers import _solve_linear_systems
+from neuralls.domain.generation.matrix_operator import MatrixOperator
 from neuralls.domain.generation.strategy_configs import SolveConfig
 
 
@@ -89,7 +90,7 @@ def test_solve_linear_systems_direct(
     rhs_vectors, exact_solutions = sample_rhs
 
     computed_solutions = _solve_linear_systems(
-        sample_spd_matrix,
+        MatrixOperator(sample_spd_matrix),
         rhs_vectors,
         method="direct",
         assume_pos_def=True,
@@ -113,7 +114,7 @@ def test_solve_linear_systems_cg(
     rhs_vectors, exact_solutions = sample_rhs
 
     computed_solutions = _solve_linear_systems(
-        sample_spd_matrix,
+        MatrixOperator(sample_spd_matrix),
         rhs_vectors,
         method="cg",
         rtol=1e-12,
@@ -140,7 +141,7 @@ def test_solve_linear_systems_invalid_method(
 
     with pytest.raises(ValueError, match="Invalid solve method"):
         _solve_linear_systems(
-            sample_spd_matrix,
+            MatrixOperator(sample_spd_matrix),
             rhs_vectors,
             method="invalid",  # type: ignore[arg-type]
         )
@@ -153,14 +154,14 @@ def test_solve_linear_systems_direct_vs_cg_consistency(
     rhs_vectors, _ = sample_rhs
 
     direct_solutions = _solve_linear_systems(
-        sample_spd_matrix,
+        MatrixOperator(sample_spd_matrix),
         rhs_vectors,
         method="direct",
         assume_pos_def=True,
     )
 
     cg_solutions = _solve_linear_systems(
-        sample_spd_matrix,
+        MatrixOperator(sample_spd_matrix),
         rhs_vectors,
         method="cg",
         rtol=1e-12,
@@ -184,7 +185,7 @@ def test_solve_linear_systems_cg_tolerance_effect(
 
     # Loose tolerance
     loose_solutions = _solve_linear_systems(
-        sample_spd_matrix,
+        MatrixOperator(sample_spd_matrix),
         rhs_vectors,
         method="cg",
         rtol=1e-6,
@@ -194,7 +195,7 @@ def test_solve_linear_systems_cg_tolerance_effect(
 
     # Tight tolerance
     tight_solutions = _solve_linear_systems(
-        sample_spd_matrix,
+        MatrixOperator(sample_spd_matrix),
         rhs_vectors,
         method="cg",
         rtol=1e-12,
