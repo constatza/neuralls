@@ -21,7 +21,7 @@ from neuralls.domain.solver.utils.validation import (
 )
 from neuralls.platform.storage.comparison import load_system_arrays
 from neuralls.platform.storage.manifest import DatasetNormalization
-from neuralls.shared.types import ComparisonRhsSourceKind
+from neuralls.shared.types import ComparisonRhsSourceKind, SystemMatrix
 
 # RHS sources that are independently configured (a user-chosen magnitude, or an
 # explicit sparse pattern) rather than derived from any raw/normalized matrix.
@@ -38,11 +38,11 @@ def _self_normalize_rhs(rhs: np.ndarray) -> np.ndarray:
 
 
 def _apply_fresh_matrix_scale(
-    matrix: np.ndarray,
+    matrix: SystemMatrix,
     rhs: np.ndarray,
     *,
     rhs_source_kind: ComparisonRhsSourceKind | None,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[SystemMatrix, np.ndarray]:
     """Normalize a genuinely raw matrix, computing one shared scale for both sides.
 
     The same freshly-computed scale is applied to the matrix and (unless the
@@ -61,12 +61,12 @@ def _apply_fresh_matrix_scale(
 
 
 def _apply_persisted_matrix_scale(
-    matrix: np.ndarray,
+    matrix: SystemMatrix,
     rhs: np.ndarray,
     *,
     rhs_source_kind: ComparisonRhsSourceKind | None,
     matrix_normalization: DatasetNormalization,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[SystemMatrix, np.ndarray]:
     """Normalize against a matrix already known to be normalized on disk.
 
     The matrix is never rescaled. The RHS is scaled at most once, using the
@@ -95,21 +95,21 @@ def _apply_persisted_matrix_scale(
 class _NormalizationRequest:
     """One matrix/RHS pair plus everything a normalization mode may consult."""
 
-    matrix: np.ndarray
+    matrix: SystemMatrix
     rhs: np.ndarray
     rhs_source_kind: ComparisonRhsSourceKind | None
     matrix_normalization: DatasetNormalization | None
 
 
-type NormalizationMode = Callable[[_NormalizationRequest], tuple[np.ndarray, np.ndarray]]
+type NormalizationMode = Callable[[_NormalizationRequest], tuple[SystemMatrix, np.ndarray]]
 
 
-def _normalize_none(request: _NormalizationRequest) -> tuple[np.ndarray, np.ndarray]:
+def _normalize_none(request: _NormalizationRequest) -> tuple[SystemMatrix, np.ndarray]:
     """Leave both sides exactly as loaded."""
     return request.matrix, request.rhs
 
 
-def _normalize_matrix(request: _NormalizationRequest) -> tuple[np.ndarray, np.ndarray]:
+def _normalize_matrix(request: _NormalizationRequest) -> tuple[SystemMatrix, np.ndarray]:
     """Bring the system into the matrix's units with one matrix-derived scale."""
     persisted = request.matrix_normalization
     if persisted is not None and persisted.type == "matrix":
@@ -124,12 +124,12 @@ def _normalize_matrix(request: _NormalizationRequest) -> tuple[np.ndarray, np.nd
     )
 
 
-def _normalize_rhs(request: _NormalizationRequest) -> tuple[np.ndarray, np.ndarray]:
+def _normalize_rhs(request: _NormalizationRequest) -> tuple[SystemMatrix, np.ndarray]:
     """Scale the RHS by its own norm, leaving the matrix untouched."""
     return request.matrix, _self_normalize_rhs(request.rhs)
 
 
-def _normalize_both(request: _NormalizationRequest) -> tuple[np.ndarray, np.ndarray]:
+def _normalize_both(request: _NormalizationRequest) -> tuple[SystemMatrix, np.ndarray]:
     """Apply the matrix mode, then self-normalize the RHS it produced."""
     matrix, rhs = _normalize_matrix(request)
     return matrix, _self_normalize_rhs(rhs)
@@ -173,13 +173,13 @@ def _require_supported_persisted_normalization(
 
 
 def _normalize_linear_system(
-    matrix: np.ndarray,
+    matrix: SystemMatrix,
     rhs: np.ndarray,
     normalize_system: str,
     *,
     rhs_source_kind: ComparisonRhsSourceKind | None = None,
     matrix_normalization: DatasetNormalization | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[SystemMatrix, np.ndarray]:
     """Apply comparison-time normalization to matrix and RHS.
 
     Never independently recomputes a scale for data that is already known to

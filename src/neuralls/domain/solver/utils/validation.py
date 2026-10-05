@@ -15,13 +15,20 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from scipy.sparse import csr_array
+
+from neuralls.shared.types import SystemMatrix
 
 
-def validate_matrix(A: np.ndarray) -> None:
+def validate_matrix(A: SystemMatrix) -> None:
     """Validate system matrix is square, 2-D, and finite.
 
+    For CSR matrices only the stored values (``A.data``) are checked. Implicit
+    zeros are never stored, so they are finite by construction; explicit
+    zeros are finite too and need no separate check.
+
     Args:
-        A: Input matrix.
+        A: Input matrix, dense ``ndarray`` or ``csr_array``.
 
     Raises:
         ValueError: If matrix is not 2-D, not square, or contains non-finite values.
@@ -30,11 +37,12 @@ def validate_matrix(A: np.ndarray) -> None:
         raise ValueError(f"Matrix must be 2D, got {A.ndim}D")
     if A.shape[0] != A.shape[1]:
         raise ValueError(f"Matrix must be square, got shape {A.shape}")
-    if not np.isfinite(A).all():
+    values = A.data if isinstance(A, csr_array) else A
+    if not np.isfinite(values).all():
         raise ValueError("Matrix contains non-finite values")
 
 
-def validate_rhs_vector(b: np.ndarray | None, A: np.ndarray | None = None) -> None:
+def validate_rhs_vector(b: np.ndarray | None, A: SystemMatrix | None = None) -> None:
     """Validate RHS vector dimensions and finiteness.
 
     Args:
@@ -56,7 +64,7 @@ def validate_rhs_vector(b: np.ndarray | None, A: np.ndarray | None = None) -> No
         raise ValueError(f"RHS length {len(b.flatten())} doesn't match matrix size {A.shape[0]}")
 
 
-def validate_ax_equals_b(matrix: np.ndarray, rhs: np.ndarray, lhs: np.ndarray) -> None:
+def validate_ax_equals_b(matrix: SystemMatrix, rhs: np.ndarray, lhs: np.ndarray) -> None:
     """Verify ``matrix @ lhs`` and ``rhs`` are consistent up to a positive scalar.
 
     Scale-agnostic (doesn't assume any particular multiplier baked into rhs):

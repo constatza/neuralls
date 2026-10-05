@@ -157,6 +157,8 @@ def _normalize_matrix_for_generation(
     )
     assert scale is not None, f"Expected scale for {normalize_type}"
     matrix_norm = scale.scale_matrix(matrix)
+    if not isinstance(matrix_norm, np.ndarray):
+        raise TypeError("Dense matrix input must produce a dense scaled matrix.")
     scale_params = serialize_scale_metadata(scale)
     if scale_params is None:
         raise TypeError(f"Expected scale metadata for {normalize_type}")

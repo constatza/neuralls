@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from scipy.sparse import csr_array
 
 from neuralls.composition.comparison._linear_system import _normalize_linear_system
 from neuralls.platform.storage.manifest import DatasetNormalization
@@ -68,6 +69,8 @@ def test_both_mode_equals_matrix_mode_followed_by_rhs_self_normalization(
     matrix_only, rhs_after_matrix = _normalize_linear_system(matrix, rhs, "matrix")
     both_matrix, both_rhs = _normalize_linear_system(matrix, rhs, "both")
 
+    assert isinstance(both_matrix, np.ndarray)
+    assert isinstance(matrix_only, np.ndarray)
     np.testing.assert_allclose(both_matrix, matrix_only)
     np.testing.assert_allclose(both_rhs, rhs_after_matrix / np.linalg.norm(rhs_after_matrix))
     assert float(np.linalg.norm(both_rhs)) == pytest.approx(1.0)
@@ -99,3 +102,24 @@ def test_unsupported_persisted_normalization_is_rejected_in_every_mode(
     """The persisted-metadata guard runs before mode dispatch, so it fires for all modes."""
     with pytest.raises(ValueError, match="no longer supported"):
         _normalize_linear_system(matrix, rhs, mode, matrix_normalization=unsupported_normalization)
+
+
+@pytest.fixture
+def csr_system_pair(
+    matrix: np.ndarray, rhs: np.ndarray
+) -> tuple[csr_array, np.ndarray, np.ndarray]:
+    return csr_array(matrix), matrix, rhs
+
+
+@pytest.mark.parametrize("mode", ["matrix", "rhs", "both"])
+def test_csr_matrix_mode_scales_rhs_like_dense(
+    csr_system_pair: tuple[csr_array, np.ndarray, np.ndarray], mode: str
+) -> None:
+    sparse_matrix, dense_matrix, rhs = csr_system_pair
+    sparse_out, sparse_rhs = _normalize_linear_system(sparse_matrix, rhs, mode)
+    dense_out, dense_rhs = _normalize_linear_system(dense_matrix, rhs, mode)
+
+    assert isinstance(sparse_out, csr_array)
+    assert isinstance(dense_out, np.ndarray)
+    np.testing.assert_allclose(sparse_out.toarray(), dense_out, rtol=1e-12)
+    np.testing.assert_allclose(sparse_rhs, dense_rhs, rtol=1e-12)
