@@ -19,7 +19,7 @@ This replaces three prior implementations, in order:
    and its own defensive ``if lambda_min <= 0`` guard shows the authors
    knew it could go negative.
 2. An exact dense delegation to
-   ``torchalg.utils.spectral.preconditioned_condition_number`` (full
+   ``torchalg.analysis.spectral.preconditioned_condition_number`` (full
    ``torch.linalg.eigvals`` on the densely-materialized operator). Correct,
    but O(n^3) and not matrix-free - a regression against this module's own
    prior, deliberate matrix-free/GPU-capable design goal for large
@@ -129,7 +129,7 @@ import seaborn as sns
 import torch
 from loguru import logger
 from scipy.sparse.linalg import ArpackNoConvergence, LinearOperator, eigs
-from torchalg.utils.spectral import preconditioned_condition_number
+from torchalg.analysis.spectral import preconditioned_condition_number
 
 PreconditionerCallable = Callable[[torch.Tensor], torch.Tensor]
 
