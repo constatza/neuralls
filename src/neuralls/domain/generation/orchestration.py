@@ -48,10 +48,14 @@ class _StrategyProperties:
             usable at most once. Archives never overload a matrix.
         supports_replacement: Whether the strategy counts as multi-matrix in the
             single/multi-matrix mixing guard.
+        glob_key: Override key holding the strategy's archive glob, or ``None`` when the
+            strategy has no file-backed archive. The glob fixes the pool that explicit
+            (matrix, file) indices refer to.
     """
 
     is_archive: bool
     supports_replacement: bool
+    glob_key: str | None = None
 
 
 _ALL_SAMPLES: int = -1
@@ -61,10 +65,18 @@ _NORM_AGREEMENT_RTOL: float = 1e-10
 _NORM_AGREEMENT_ATOL: float = 1e-12
 
 _STRATEGY_PROPERTIES: dict[str, _StrategyProperties] = {
-    "solution_archive": _StrategyProperties(is_archive=True, supports_replacement=False),
-    "rhs_archive": _StrategyProperties(is_archive=True, supports_replacement=False),
-    "scaled_solutions": _StrategyProperties(is_archive=True, supports_replacement=False),
-    "validated_archive": _StrategyProperties(is_archive=True, supports_replacement=False),
+    "solution_archive": _StrategyProperties(
+        is_archive=True, supports_replacement=False, glob_key="solutions_glob"
+    ),
+    "rhs_archive": _StrategyProperties(
+        is_archive=True, supports_replacement=False, glob_key="rhs_glob"
+    ),
+    "scaled_solutions": _StrategyProperties(
+        is_archive=True, supports_replacement=False, glob_key="solutions_glob"
+    ),
+    "validated_archive": _StrategyProperties(
+        is_archive=True, supports_replacement=False, glob_key="solutions_glob"
+    ),
     "residuals": _StrategyProperties(is_archive=False, supports_replacement=True),
     "gaussian_residuals": _StrategyProperties(is_archive=False, supports_replacement=True),
     "search_directions": _StrategyProperties(is_archive=False, supports_replacement=True),
@@ -542,9 +554,12 @@ def _archive_glob_for_strategy(
     strategy_name: str,
     strategy_overrides: Mapping[str, Mapping[str, Any]] | None,
 ) -> str | None:
-    """Return the strategy's configured ``solutions_glob``, or ``None`` if it has none."""
+    """Return the strategy's configured archive glob, or ``None`` if it has none."""
+    props = _STRATEGY_PROPERTIES.get(strategy_name)
+    if props is None or props.glob_key is None:
+        return None
     overrides = (strategy_overrides or {}).get(strategy_name, {})
-    glob_pattern = overrides.get("solutions_glob")
+    glob_pattern = overrides.get(props.glob_key)
     return glob_pattern if isinstance(glob_pattern, str) else None
 
 
@@ -647,17 +662,28 @@ def _file_backed_archive_globs(
 ) -> dict[str, str]:
     """Archive strategies with a glob that get explicit per-binding file indices.
 
-    A per-binding solution source feeds archive strategies directly, so they are excluded.
+    A per-binding solution source and an archive glob are two competing pools for the
+    same archive strategy, and the glob cannot be assigned per binding alongside it,
+    so combining them is rejected rather than letting files repeat.
+
+    Raises:
+        ValueError: If ``has_solution_source`` is set and an active archive strategy
+            also has a glob.
     """
-    if has_solution_source:
-        return {}
     globs: dict[str, str] = {}
     for strategy_name, count in strategy_counts.items():
         if count == 0 or not _is_archive(strategy_name):
             continue
         glob_pattern = _archive_glob_for_strategy(strategy_name, strategy_overrides)
-        if glob_pattern is not None:
-            globs[strategy_name] = glob_pattern
+        if glob_pattern is None:
+            continue
+        if has_solution_source:
+            raise ValueError(
+                f"Strategy '{strategy_name}' has a glob ({glob_pattern!r}) and a per-binding "
+                "solution_path source at the same time: the glob pool cannot be assigned "
+                "without repeats alongside it. Remove the glob or the solution_path."
+            )
+        globs[strategy_name] = glob_pattern
     return globs
 
 

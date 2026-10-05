@@ -40,14 +40,19 @@ gets more than one leftover sample. Generated strategies overload each matrix th
 so `replacement = true` is rejected (config validation,
 `GenerationConfig._reject_replacement`, and `_validate_replacement_support`).
 
-Archive strategies (`solution_archive`, `scaled_solutions`, `validated_archive`) draw
-from a grid of `M` matrices by `K` files and emit (matrix, file) pairs through
+Archive strategies (`solution_archive`, `rhs_archive`, `scaled_solutions`, `validated_archive`)
+draw from a grid of `M` matrices by `K` files and emit (matrix, file) pairs through
 `allocation.archive_units`. Unit `t` goes to matrix `t % M`, file
 `(matrix + t // M) % K`, so no pair repeats. A request is capped at `M*K` with one warning
 naming the strategy and both counts. `samples = -1` means all `M*K` pairs, each once.
 The orchestrator writes each binding's files into `file_indices`, and the provider loads
 exactly those files. A single matrix with several bindings is rejected for archive
 strategies before any glob read, because every binding would draw the same files.
+
+Each archive strategy's glob sets its pool: `solutions_glob` for `solution_archive`,
+`scaled_solutions` and `validated_archive`, and `rhs_glob` for `rhs_archive`. The
+per-binding `solution_path` source and an archive glob are competing pools, so a
+strategy that has both is rejected with a ValueError instead of letting files repeat.
 
 **Python API:**
 

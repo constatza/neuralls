@@ -110,6 +110,7 @@ class RhsArchiveStrategy:
             glob_pattern=rhs_glob,
             shuffle=shuffle,
             seed=seed,
+            file_indices=config.file_indices,
         )
         rng = np.random.default_rng(seed)
         rhs = provider.provide(matrix, count=samples, rng=rng)

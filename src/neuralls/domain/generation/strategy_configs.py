@@ -380,6 +380,13 @@ class RhsArchiveConfig(BaseStrategyConfig):
         default_factory=_default_cg_solve_config,
         description="Configuration for solving linear systems x = A^-1 @ b",
     )
+    file_indices: tuple[int, ...] | None = Field(
+        None,
+        description=(
+            "Explicit positions in the archive pool, set per binding by the orchestrator "
+            "so bindings draw disjoint files. Must match the resolved sample count."
+        ),
+    )
 
 
 class SolutionArchiveConfig(BaseStrategyConfig):
