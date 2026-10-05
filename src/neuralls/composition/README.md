@@ -8,8 +8,8 @@ The composition package owns wiring and config-driven assembly.
 - `comparison/`: single-run comparison assembly around application/domain logic
 - `generation/`: config-driven dataset orchestration, dataset persistence wiring, and default tracing services
 - `inference/`: inference data-loading composition helpers
-- `preconditioners/`: config-to-`torchalg` preconditioner factory wiring (Identity, Jacobi, ILU, IC0, ICholesky, AMG, NeuralAMG, Neural)
-- `solvers/`: config/workflow-to-`torchalg` solver runner adapters
+- `preconditioners/`: config-to-`torchalg` preconditioner factory wiring; one `(PreconditionerType, MatrixFormat)` table selects the dense or sparse CSR builder (Identity, Jacobi, ILU, IC0, ICholesky, AMG, ADAPTIVE_SA_AMG, BOOTSTRAP_AMG, NeuralAMG, Neural)
+- `solvers/`: config/workflow-to-`torchalg` solver runner adapters; `run_traced_pcg` accepts a dense ndarray or a `csr_array` and converts CSR once into a sparse CSR tensor
 - `tracking/`: tracking tag and run-spec assembly
 
 ## Semantic Difference
@@ -19,6 +19,18 @@ and the concrete adapter set needed to run it. If a module mostly wires config
 models, ports, and runtime collaborators together, it belongs here. If it
 starts doing reusable numerical work, it belongs in `domain`. If it starts
 owning concrete IO or MLflow mechanics, that code belongs in `platform`.
+
+## Matrix format dispatch
+
+`preconditioners/factory.py` selects a builder by `(PreconditionerType,
+MatrixFormat)` from one module-level table. A missing pair raises `ValueError`
+naming both halves; nothing falls back to another format. Every sparse-mapped
+type has a CSR entry backed by the torchalg sparse sibling. The sparse AMG
+preset supports aggregation coarsening only, so other coarsening kinds are
+rejected for CSR input. Neural types have a dense entry only: CSR input is
+densified in this layer, with one INFO log line per call stating the O(n^2)
+cost, and the dense builder then runs. The predictor and its model-input
+adapter never densify.
 
 ## Boundary
 

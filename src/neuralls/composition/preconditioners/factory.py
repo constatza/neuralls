@@ -22,12 +22,14 @@ Design:
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 import torch
+from loguru import logger
 from torchalg.preconditioners.base import Preconditioner
 from torchalg.preconditioners.implementations import (
     IC0Preconditioner,
@@ -37,8 +39,39 @@ from torchalg.preconditioners.implementations import (
     JacobiPreconditioner,
     NeuralPreconditioner,
 )
+from torchalg.preconditioners.implementations.amg import (
+    AMGPreconditioner,
+    JacobiSmoother,
+    NeuralCoarseningStrategy,
+    VCycle,
+)
+from torchalg.sparse.preconditioners.amg.adaptive import (
+    AdaptiveSAPreconditioner as SparseAdaptiveSAPreconditioner,
+)
+from torchalg.sparse.preconditioners.amg.bootstrap import (
+    BootstrapAMGPreconditioner as SparseBootstrapAMGPreconditioner,
+)
+from torchalg.sparse.preconditioners.amg.variants import vcycle_amg as sparse_vcycle_amg
+from torchalg.sparse.preconditioners.ic0 import IC0Preconditioner as SparseIC0Preconditioner
+from torchalg.sparse.preconditioners.icholesky import (
+    ICholeskyPreconditioner as SparseICholeskyPreconditioner,
+)
+from torchalg.sparse.preconditioners.ilu import ILUPreconditioner as SparseILUPreconditioner
+from torchalg.sparse.preconditioners.jacobi import (
+    JacobiPreconditioner as SparseJacobiPreconditioner,
+)
 
-from neuralls.platform.config.models.preconditioner import PreconditionerType
+from neuralls.platform.config.models.preconditioner import (
+    AdaptiveSAPreconditionerConfig,
+    AggregationCoarseningConfig,
+    AMGPreconditionerConfig,
+    BootstrapAMGPreconditionerConfig,
+    IC0PreconditionerConfig,
+    NeuralAMGPreconditionerConfig,
+    NeuralPreconditionerConfig,
+    PreconditionerType,
+)
+from neuralls.shared.types import MatrixFormat
 
 if TYPE_CHECKING:
     from torchalg.preconditioners.implementations.amg.protocols import CoarseningStrategy
@@ -46,12 +79,7 @@ if TYPE_CHECKING:
     from torchalg.preconditioners.ports import PredictorAdapter
 
     from neuralls.domain.inference_ports import InferencePredictorPort
-    from neuralls.platform.config.models.preconditioner import (
-        AdaptiveSAPreconditionerConfig,
-        AMGPreconditionerConfig,
-        BootstrapAMGPreconditionerConfig,
-        ConcretePreconditionerConfig,
-    )
+    from neuralls.platform.config.models.preconditioner import ConcretePreconditionerConfig
 
 
 @dataclass(frozen=True)
@@ -342,152 +370,358 @@ def _build_bootstrap_amg(
     )
 
 
+@dataclass(frozen=True)
+class _BuildDeps:
+    """Injected collaborators shared by every preconditioner builder."""
+
+    adapter: PredictorAdapter | None
+    inference_predictor_factory: Callable[[Path, Any], InferencePredictorPort] | None
+
+
+type PreconditionerBuilder = Callable[
+    [torch.Tensor, ConcretePreconditionerConfig, _BuildDeps], Preconditioner
+]
+"""Builds one preconditioner from a matrix already in the builder's format."""
+
+
+def _build_identity(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Return the no-op preconditioner; it ignores the matrix in either format."""
+    del matrix, config, deps
+    return Identity()
+
+
+def _build_dense_jacobi(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Dense diagonal (Jacobi) preconditioner."""
+    del config, deps
+    return JacobiPreconditioner(matrix)
+
+
+def _build_sparse_jacobi(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Sparse CSR diagonal (Jacobi) preconditioner."""
+    del config, deps
+    return SparseJacobiPreconditioner(matrix)
+
+
+def _build_dense_ilu(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Dense ILU(0) preconditioner."""
+    del config, deps
+    return ILUPreconditioner(matrix)
+
+
+def _build_sparse_ilu(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Sparse CSR ILU(0) preconditioner."""
+    del config, deps
+    return SparseILUPreconditioner(matrix)
+
+
+def _build_dense_icholesky(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Dense incomplete-Cholesky preconditioner over a supplied factor."""
+    del config, deps
+    return ICholeskyPreconditioner(matrix)
+
+
+def _build_sparse_icholesky(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Sparse CSR incomplete-Cholesky preconditioner over a supplied factor."""
+    del config, deps
+    return SparseICholeskyPreconditioner(matrix)
+
+
+def _build_dense_ic0(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Dense IC(0) preconditioner with its drop threshold."""
+    del deps
+    if not isinstance(config, IC0PreconditionerConfig):
+        raise TypeError(f"IC(0) type requires IC0PreconditionerConfig, got {type(config)}")
+    return IC0Preconditioner(matrix, threshold=config.threshold)
+
+
+def _build_sparse_ic0(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Sparse CSR IC(0) preconditioner with its drop threshold."""
+    del deps
+    if not isinstance(config, IC0PreconditionerConfig):
+        raise TypeError(f"IC(0) type requires IC0PreconditionerConfig, got {type(config)}")
+    return SparseIC0Preconditioner(matrix, threshold=config.threshold)
+
+
+def _build_dense_amg(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Dense AMG preconditioner; the config's coarsening selects the transfer operator."""
+    if not isinstance(config, AMGPreconditionerConfig):
+        raise TypeError(f"AMG type requires AMGPreconditionerConfig, got {type(config)}")
+    return _build_amg(matrix, config, deps.inference_predictor_factory).preconditioner
+
+
+def _build_sparse_amg(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Sparse CSR AMG V-cycle preset with smoothed aggregation.
+
+    The sparse preset exposes only aggregation coarsening. Other coarsening
+    kinds have no sparse sibling wired here and are rejected explicitly with
+    `TypeError` since the coarsening config variant is the unsupported input.
+    """
+    del deps
+    if not isinstance(config, AMGPreconditionerConfig):
+        raise TypeError(f"AMG type requires AMGPreconditionerConfig, got {type(config)}")
+    coarsening = config.coarsening
+    if not isinstance(coarsening, AggregationCoarseningConfig):
+        raise TypeError(
+            f"Sparse AMG supports only aggregation coarsening, got {type(coarsening).__name__}"
+        )
+    return sparse_vcycle_amg(
+        matrix,
+        theta=coarsening.theta,
+        omega=coarsening.omega,
+        n_levels=config.n_levels,
+        smoother_omega=config.smoother_omega,
+        n_pre=config.pre_smoothing_steps,
+        n_post=config.post_smoothing_steps,
+    )
+
+
+def _build_dense_adaptive_sa(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Dense alpha-SA AMG preconditioner."""
+    del deps
+    if not isinstance(config, AdaptiveSAPreconditionerConfig):
+        raise TypeError(
+            f"ADAPTIVE_SA_AMG type requires AdaptiveSAPreconditionerConfig, got {type(config)}"
+        )
+    return _build_adaptive_sa(matrix, config)
+
+
+def _build_sparse_adaptive_sa(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Sparse CSR alpha-SA AMG preconditioner."""
+    del deps
+    if not isinstance(config, AdaptiveSAPreconditionerConfig):
+        raise TypeError(
+            f"ADAPTIVE_SA_AMG type requires AdaptiveSAPreconditionerConfig, got {type(config)}"
+        )
+    return SparseAdaptiveSAPreconditioner(
+        matrix,
+        num_candidates=config.num_candidates,
+        candidate_iters=config.candidate_iters,
+        max_levels=config.n_levels,
+        max_coarse=config.max_coarse,
+        theta=config.theta,
+        omega=config.omega,
+        seed=config.seed,
+    )
+
+
+def _build_dense_bootstrap_amg(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Dense bootstrap AMG (BAMG) preconditioner."""
+    del deps
+    if not isinstance(config, BootstrapAMGPreconditionerConfig):
+        raise TypeError(
+            f"BOOTSTRAP_AMG type requires BootstrapAMGPreconditionerConfig, got {type(config)}"
+        )
+    return _build_bootstrap_amg(matrix, config)
+
+
+def _build_sparse_bootstrap_amg(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Sparse CSR bootstrap AMG (BAMG) preconditioner."""
+    del deps
+    if not isinstance(config, BootstrapAMGPreconditionerConfig):
+        raise TypeError(
+            f"BOOTSTRAP_AMG type requires BootstrapAMGPreconditionerConfig, got {type(config)}"
+        )
+    return SparseBootstrapAMGPreconditioner(
+        matrix,
+        k_r=config.k_r,
+        eta=config.eta,
+        n_bootstrap_cycles=config.n_bootstrap_cycles,
+        nu=config.nu,
+        delta=config.delta,
+        theta_ad=config.theta_ad,
+        caliber=config.caliber,
+        gamma=config.gamma,
+        use_lsr=config.use_lsr,
+        max_levels=config.n_levels,
+        max_coarse=config.max_coarse,
+        seed=config.seed,
+    )
+
+
+def _build_neural(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Checkpoint-backed neural preconditioner; the matrix is not used, only the model."""
+    del matrix
+    if not isinstance(config, NeuralPreconditionerConfig):
+        raise TypeError(f"Neural type requires NeuralPreconditionerConfig, got {type(config)}")
+    ckpt = config.resolved_checkpoint_path or config.checkpoint_path
+    if ckpt is None:
+        raise ValueError(
+            "NeuralPreconditionerConfig requires checkpoint_path or resolved_checkpoint_path"
+        )
+    return NeuralPreconditioner(
+        checkpoint_path=ckpt,
+        config_path=config.config_path,
+        data_config_path=config.data_config_path,
+        adapter=_resolve_adapter(deps),
+        extra_input_names=tuple(config.extra_input_names),
+    )
+
+
+def _build_neural_amg(
+    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
+) -> Preconditioner:
+    """Neural prolongation/restriction AMG preconditioner (dense input only)."""
+    if not isinstance(config, NeuralAMGPreconditionerConfig):
+        raise TypeError(
+            f"NEURAL_AMG type requires NeuralAMGPreconditionerConfig, got {type(config)}"
+        )
+    adapter = _resolve_adapter(deps)
+    p_cfg = config.prolongation
+    ckpt_p = p_cfg.resolved_checkpoint_path or p_cfg.checkpoint_path
+    if ckpt_p is None:
+        raise ValueError("NeuralAMGPreconditionerConfig.prolongation requires a checkpoint")
+    prolongator = adapter.create_predictor(ckpt_p, p_cfg.config_path, p_cfg.data_config_path)
+    restrictor = None
+    if config.restriction is not None:
+        r_cfg = config.restriction
+        ckpt_r = r_cfg.resolved_checkpoint_path or r_cfg.checkpoint_path
+        if ckpt_r is None:
+            raise ValueError("NeuralAMGPreconditionerConfig.restriction requires a checkpoint")
+        restrictor = adapter.create_predictor(ckpt_r, r_cfg.config_path, r_cfg.data_config_path)
+    coarsening = NeuralCoarseningStrategy(prolongator=prolongator, restrictor=restrictor)
+    cycle = VCycle(
+        smoother=JacobiSmoother(omega=config.smoother_omega),
+        n_pre=config.pre_smoothing_steps,
+        n_post=config.post_smoothing_steps,
+    )
+    return AMGPreconditioner(
+        matrix, coarsening=coarsening, cycle=cycle, n_levels=config.n_levels, linear=False
+    )
+
+
+def _resolve_adapter(deps: _BuildDeps) -> PredictorAdapter:
+    """Return the injected predictor adapter, or the DLKit default when none was injected."""
+    from neuralls.platform.dlkit.predictor_adapter import DLKitAdapter
+
+    return deps.adapter if deps.adapter is not None else DLKitAdapter()
+
+
+_BUILDERS: Mapping[tuple[PreconditionerType, MatrixFormat], PreconditionerBuilder] = (
+    MappingProxyType(
+        {
+            (PreconditionerType.IDENTITY, MatrixFormat.DENSE): _build_identity,
+            (PreconditionerType.IDENTITY, MatrixFormat.CSR): _build_identity,
+            (PreconditionerType.JACOBI, MatrixFormat.DENSE): _build_dense_jacobi,
+            (PreconditionerType.JACOBI, MatrixFormat.CSR): _build_sparse_jacobi,
+            (PreconditionerType.ILU, MatrixFormat.DENSE): _build_dense_ilu,
+            (PreconditionerType.ILU, MatrixFormat.CSR): _build_sparse_ilu,
+            (PreconditionerType.ICHOLESKY, MatrixFormat.DENSE): _build_dense_icholesky,
+            (PreconditionerType.ICHOLESKY, MatrixFormat.CSR): _build_sparse_icholesky,
+            (PreconditionerType.IC0, MatrixFormat.DENSE): _build_dense_ic0,
+            (PreconditionerType.IC0, MatrixFormat.CSR): _build_sparse_ic0,
+            (PreconditionerType.AMG, MatrixFormat.DENSE): _build_dense_amg,
+            (PreconditionerType.AMG, MatrixFormat.CSR): _build_sparse_amg,
+            (PreconditionerType.ADAPTIVE_SA_AMG, MatrixFormat.DENSE): _build_dense_adaptive_sa,
+            (PreconditionerType.ADAPTIVE_SA_AMG, MatrixFormat.CSR): _build_sparse_adaptive_sa,
+            (PreconditionerType.BOOTSTRAP_AMG, MatrixFormat.DENSE): _build_dense_bootstrap_amg,
+            (PreconditionerType.BOOTSTRAP_AMG, MatrixFormat.CSR): _build_sparse_bootstrap_amg,
+            (PreconditionerType.NEURAL, MatrixFormat.DENSE): _build_neural,
+            (PreconditionerType.NEURAL_AMG, MatrixFormat.DENSE): _build_neural_amg,
+        }
+    )
+)
+"""Single dispatch table from (preconditioner type, matrix format) to its builder.
+
+Callable and LinearOperator preconditioners have no `PreconditionerType`
+member today, so they are not reachable through this table.
+"""
+
+_DENSIFY_FOR_CSR: frozenset[PreconditionerType] = frozenset(
+    {PreconditionerType.NEURAL, PreconditionerType.NEURAL_AMG}
+)
+"""Types whose only builder takes dense input; CSR requests densify explicitly first."""
+
+
+def _resolve_format_input(
+    matrix: torch.Tensor,
+    preconditioner_type: PreconditionerType,
+    matrix_format: MatrixFormat,
+) -> tuple[torch.Tensor, MatrixFormat]:
+    """Densify a CSR matrix for dense-only types, logging the O(n^2) cost once per call."""
+    if matrix_format is MatrixFormat.CSR and preconditioner_type in _DENSIFY_FOR_CSR:
+        n = matrix.shape[0]
+        logger.info(
+            f"Densifying CSR system matrix for {preconditioner_type.value} preconditioner "
+            f"({n}x{n} dense; O(n^2) memory and time). Neural models take dense input only."
+        )
+        return matrix.to_dense(), MatrixFormat.DENSE
+    return matrix, matrix_format
+
+
+def _lookup_builder(
+    preconditioner_type: PreconditionerType, matrix_format: MatrixFormat
+) -> PreconditionerBuilder:
+    """Return the builder for a (type, format) pair, or raise without falling back."""
+    builder = _BUILDERS.get((preconditioner_type, matrix_format))
+    if builder is None:
+        raise ValueError(
+            f"Unsupported preconditioner type {preconditioner_type!r} "
+            f"for matrix format {matrix_format.value!r}: no builder is registered"
+        )
+    return builder
+
+
 def create_preconditioner(
     matrix: torch.Tensor,
     config: ConcretePreconditionerConfig,
     adapter: PredictorAdapter | None = None,
     inference_predictor_factory: Callable[[Path, Any], InferencePredictorPort] | None = None,
+    matrix_format: MatrixFormat = MatrixFormat.DENSE,
 ) -> Preconditioner:
-    """Create preconditioner from configuration.
-
-    Uses isinstance checks for type narrowing and explicit mapping
-    for better type safety and IDE support.
+    """Create a preconditioner from configuration for a matrix in the given format.
 
     Args:
-        matrix: System matrix A
+        matrix: System matrix A: a dense tensor for `MatrixFormat.DENSE`, a
+            sparse CSR tensor for `MatrixFormat.CSR`.
         config: Preconditioner configuration from TOML
         adapter: Optional adapter for neural preconditioner (DI for testing)
         inference_predictor_factory: Optional batch-inference predictor
             factory for neural POD-2G coarsening (DI for testing); defaults
             to `create_inference_predictor` from `platform.dlkit.inference_adapter`.
+        matrix_format: Storage format of `matrix`. Defaults to dense.
 
     Returns:
         Preconditioner instance
 
-    Example:
-        >>> # Load from TOML
-        >>> config = load_comparison_config("comparison.toml")
-        >>> precond = create_preconditioner(A, config.preconditioner)
-        >>>
-        >>> # Use it
-        >>> z = precond.apply(residual)
-
     Raises:
-        ValueError: If preconditioner type is not supported
+        ValueError: If no builder is registered for the (type, format) pair.
     """
-    from neuralls.platform.config.models.preconditioner import (
-        AdaptiveSAPreconditionerConfig,
-        AMGPreconditionerConfig,
-        BootstrapAMGPreconditionerConfig,
-        IC0PreconditionerConfig,
-        NeuralAMGPreconditionerConfig,
-        NeuralPreconditionerConfig,
-    )
-
-    # AMG family: config.coarsening selects the strategy that builds the
-    # prolongation/restriction operator (aggregation vs. POD-2G); everything
-    # else (cycle, smoothing, n_levels) is shared.
-    if config.type == PreconditionerType.AMG:
-        if not isinstance(config, AMGPreconditionerConfig):
-            raise TypeError(f"AMG type requires AMGPreconditionerConfig, got {type(config)}")
-        return _build_amg(matrix, config, inference_predictor_factory).preconditioner
-
-    # Adaptive SA-AMG (alpha-SA): its own eagerly-built hierarchy, not a
-    # pluggable coarsening strategy — see `_build_adaptive_sa`.
-    if config.type == PreconditionerType.ADAPTIVE_SA_AMG:
-        if not isinstance(config, AdaptiveSAPreconditionerConfig):
-            raise TypeError(
-                f"ADAPTIVE_SA_AMG type requires AdaptiveSAPreconditionerConfig, got {type(config)}"
-            )
-        return _build_adaptive_sa(matrix, config)
-
-    # Bootstrap AMG (BAMG): its own eagerly-built hierarchy, not a
-    # pluggable coarsening strategy — see `_build_bootstrap_amg`.
-    if config.type == PreconditionerType.BOOTSTRAP_AMG:
-        if not isinstance(config, BootstrapAMGPreconditionerConfig):
-            raise TypeError(
-                f"BOOTSTRAP_AMG type requires BootstrapAMGPreconditionerConfig, got {type(config)}"
-            )
-        return _build_bootstrap_amg(matrix, config)
-
-    # Neural AMG (neural prolongation/restriction, stub)
-    if config.type == PreconditionerType.NEURAL_AMG:
-        if not isinstance(config, NeuralAMGPreconditionerConfig):
-            raise TypeError(
-                f"NEURAL_AMG type requires NeuralAMGPreconditionerConfig, got {type(config)}"
-            )
-        if adapter is None:
-            from neuralls.platform.dlkit.predictor_adapter import DLKitAdapter
-
-            adapter = DLKitAdapter()
-        p_cfg = config.prolongation
-        ckpt_p = p_cfg.resolved_checkpoint_path or p_cfg.checkpoint_path
-        if ckpt_p is None:
-            raise ValueError("NeuralAMGPreconditionerConfig.prolongation requires a checkpoint")
-        prolongator = adapter.create_predictor(ckpt_p, p_cfg.config_path, p_cfg.data_config_path)
-        restrictor = None
-        if config.restriction is not None:
-            r_cfg = config.restriction
-            ckpt_r = r_cfg.resolved_checkpoint_path or r_cfg.checkpoint_path
-            if ckpt_r is None:
-                raise ValueError("NeuralAMGPreconditionerConfig.restriction requires a checkpoint")
-            restrictor = adapter.create_predictor(ckpt_r, r_cfg.config_path, r_cfg.data_config_path)
-        from torchalg.preconditioners.implementations.amg import (
-            AMGPreconditioner,
-            JacobiSmoother,
-            NeuralCoarseningStrategy,
-            VCycle,
-        )
-
-        coarsening = NeuralCoarseningStrategy(prolongator=prolongator, restrictor=restrictor)
-        smoother = JacobiSmoother(omega=config.smoother_omega)
-        cycle = VCycle(
-            smoother=smoother,
-            n_pre=config.pre_smoothing_steps,
-            n_post=config.post_smoothing_steps,
-        )
-        return AMGPreconditioner(
-            matrix, coarsening=coarsening, cycle=cycle, n_levels=config.n_levels, linear=False
-        )
-
-    # Check if type is NEURAL but config is not NeuralPreconditionerConfig
-    if config.type == PreconditionerType.NEURAL:
-        if not isinstance(config, NeuralPreconditionerConfig):
-            raise TypeError(f"Neural type requires NeuralPreconditionerConfig, got {type(config)}")
-        ckpt = config.resolved_checkpoint_path or config.checkpoint_path
-        if ckpt is None:
-            raise ValueError(
-                "NeuralPreconditionerConfig requires checkpoint_path or resolved_checkpoint_path"
-            )
-        if adapter is None:
-            from neuralls.platform.dlkit.predictor_adapter import DLKitAdapter
-
-            adapter = DLKitAdapter()
-        return NeuralPreconditioner(
-            checkpoint_path=ckpt,
-            config_path=config.config_path,
-            data_config_path=config.data_config_path,
-            adapter=adapter,
-            extra_input_names=tuple(config.extra_input_names),
-        )
-
-    # IC(0) with threshold parameter
-    if config.type == PreconditionerType.IC0:
-        if not isinstance(config, IC0PreconditionerConfig):
-            raise TypeError(f"IC(0) type requires IC0PreconditionerConfig, got {type(config)}")
-        return IC0Preconditioner(matrix, threshold=config.threshold)
-
-    # Standard cases with explicit dispatch for type safety
-    if config.type == PreconditionerType.IDENTITY:
-        return Identity()
-    if config.type == PreconditionerType.JACOBI:
-        return JacobiPreconditioner(matrix)
-    if config.type == PreconditionerType.ILU:
-        return ILUPreconditioner(matrix)
-    if config.type == PreconditionerType.ICHOLESKY:
-        return ICholeskyPreconditioner(matrix)
-
-    raise ValueError(f"Unsupported preconditioner type: {config.type}")
+    deps = _BuildDeps(adapter=adapter, inference_predictor_factory=inference_predictor_factory)
+    operator, resolved_format = _resolve_format_input(matrix, config.type, matrix_format)
+    builder = _lookup_builder(config.type, resolved_format)
+    return builder(operator, config, deps)
 
 
 def create_preconditioner_with_coarsening(
@@ -495,6 +729,7 @@ def create_preconditioner_with_coarsening(
     config: ConcretePreconditionerConfig,
     adapter: PredictorAdapter | None = None,
     inference_predictor_factory: Callable[[Path, Any], InferencePredictorPort] | None = None,
+    matrix_format: MatrixFormat = MatrixFormat.DENSE,
 ) -> tuple[Preconditioner, CoarseningStrategy | None]:
     """Create a preconditioner, also returning its coarsening strategy when it has one.
 
@@ -504,26 +739,31 @@ def create_preconditioner_with_coarsening(
     emergent aggregate count). Diagnostics that need the realized dimension
     must reuse this coarsening object rather than fitting a second one.
 
+    The sparse AMG preset builds its aggregation internally and does not
+    expose a coarsening object, so for CSR AMG the coarsening is ``None``.
+
     Args:
-        matrix: System matrix A.
+        matrix: System matrix A, in the format named by `matrix_format`.
         config: Preconditioner configuration from TOML.
         adapter: Optional adapter for neural preconditioner (DI for testing).
         inference_predictor_factory: Optional batch-inference predictor
             factory for neural POD-2G coarsening (DI for testing).
+        matrix_format: Storage format of `matrix`. Defaults to dense.
 
     Returns:
-        The preconditioner, and its coarsening strategy if `config.type` is
-        `PreconditionerType.AMG` (`None` for every other preconditioner type).
+        The preconditioner, and its coarsening strategy if the dense AMG path
+        built one (`None` for every other type and for sparse AMG).
     """
-    from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
-
-    if config.type == PreconditionerType.AMG:
+    if config.type == PreconditionerType.AMG and matrix_format is MatrixFormat.DENSE:
         if not isinstance(config, AMGPreconditionerConfig):
             raise TypeError(f"AMG type requires AMGPreconditionerConfig, got {type(config)}")
         build = _build_amg(matrix, config, inference_predictor_factory)
         return build.preconditioner, build.coarsening
 
-    return create_preconditioner(matrix, config, adapter, inference_predictor_factory), None
+    return (
+        create_preconditioner(matrix, config, adapter, inference_predictor_factory, matrix_format),
+        None,
+    )
 
 
 def _extract_schedule(cfg: ConcretePreconditionerConfig) -> PreconditionerScheduleConfig:
