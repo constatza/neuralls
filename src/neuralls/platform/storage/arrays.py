@@ -20,9 +20,11 @@ from neuralls.platform.storage.datasets import (
     load_dense_training_arrays,
     load_matrix_dense_sample,
 )
+from neuralls.platform.storage.matrix_readers import read_matrix, to_dense
+from neuralls.shared.types import SystemMatrix
 
 
-def _load_matrix_file(matrix_path: str | Path) -> np.ndarray:
+def _load_matrix_file(matrix_path: str | Path) -> SystemMatrix:
     """Load matrix from dataset directory or file.
 
     I/O action - reads matrix from disk.
@@ -31,7 +33,7 @@ def _load_matrix_file(matrix_path: str | Path) -> np.ndarray:
         matrix_path: Path to dataset directory or matrix file
 
     Returns:
-        Matrix array as float64
+        Dense ndarray or CSR array, depending on the file format
     """
     matrix_path = Path(matrix_path)
 
@@ -40,11 +42,7 @@ def _load_matrix_file(matrix_path: str | Path) -> np.ndarray:
         load_dataset_manifest(matrix_path)
         return load_matrix_dense_sample(matrix_path, sample_index=0)
 
-    # Handle .npy binary format or text files
-    if matrix_path.suffix == ".npy":
-        return np.load(matrix_path).astype(np.float64, copy=False)
-    else:
-        return np.loadtxt(matrix_path, dtype=np.float64)
+    return read_matrix(matrix_path)
 
 
 def _load_rhs_file(rhs_path: str | Path) -> np.ndarray:
@@ -130,7 +128,7 @@ def load_system_data(
     Returns:
         Tuple of (matrix, rhs) arrays
     """
-    A = _load_matrix_file(matrix_path)
+    A = to_dense(_load_matrix_file(matrix_path))
 
     rhs_path = Path(rhs_path) if rhs_path is not None else None
     if rhs_path is None:

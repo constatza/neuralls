@@ -7,6 +7,7 @@ The platform package isolates external integrations and side-effecting helpers.
 - `config/`: settings, config-validation context, registry resolution, TOML loaders, lower-case job metadata readers, and the thin DLKit job loader adapter
 - `config/models/`: Pydantic models for TOML sections. `OutputConfig.matrix_format` (`MatrixFormat`, default `csr`) selects the storage format of the system matrix for a dataset; it is the single declaration of that default.
 - `storage/`: filesystem, workspaces, dataset I/O, and storage validation helpers
+- `storage/matrix_readers.py`: suffix-keyed registry `MATRIX_READERS` (`.npy`, `.txt`, `.npz`, `.mtx`, `.mtx.gz`) returning `SystemMatrix` via `read_matrix`; `to_dense` is the explicit densify helper. Unknown suffixes raise; `.npz` must hold a sparse matrix.
 - `tracking/`: MLflow run helpers, naming/query policy, workflow topology resolution, and client adapters
 - `reporting/`: plotting, artifact staging, and inference output adapters
 - `dlkit/`: DLKit-backed adapters for solver preconditioners and batch inference

@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from dlkit.io import load_array
 
 from neuralls.platform.storage.datasets import (
     load_dataset_manifest,
@@ -14,6 +13,7 @@ from neuralls.platform.storage.datasets import (
     load_matrix_dense_sample,
     resolve_dataset_artifacts,
 )
+from neuralls.platform.storage.matrix_readers import read_matrix, to_dense
 
 
 def load_numpy_array(path: str | Path) -> np.ndarray:
@@ -29,11 +29,7 @@ def load_numpy_array(path: str | Path) -> np.ndarray:
     """
     path = Path(path)
 
-    if path.suffix == ".npy":
-        arr = load_array(path).numpy()
-    else:
-        # Assume text format
-        arr = np.loadtxt(path, dtype=np.float64)
+    arr = to_dense(read_matrix(path))
     if arr.dtype != np.float64:
         raise ValueError(f"Expected float64 array at {path}, got {arr.dtype}")
     return arr
