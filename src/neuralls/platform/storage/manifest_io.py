@@ -16,7 +16,7 @@ from neuralls.platform.storage.manifest import (
     manifest_path_for,
 )
 from neuralls.shared.digest import Digest
-from neuralls.shared.types import LayoutType
+from neuralls.shared.types import LayoutType, MatrixFormat
 
 
 def _optional_str(raw: dict[str, Any], key: str) -> str | None:
@@ -48,6 +48,18 @@ def manifest_to_dict(manifest: DatasetManifest) -> dict[str, Any]:
         {**entry, "shape": list(param.shape)}
         for entry, param in zip(payload["params"], manifest.params, strict=True)
     ] or None
+    # An absent matrix_format means dense; omitting it keeps dense manifests byte-stable.
+    artifact_entries = [
+        payload["matrix"],
+        payload["rhs"],
+        payload["solutions"],
+        *(payload["params"] or []),
+        payload.get("row_kind"),
+        payload.get("matrix_sample_index"),
+    ]
+    for entry in artifact_entries:
+        if entry is not None and entry.get("matrix_format") is None:
+            entry.pop("matrix_format", None)
     return payload
 
 
@@ -127,6 +139,11 @@ def read_dataset_manifest(dataset_dir: str | Path) -> DatasetManifest:
             logical_sample_count=(
                 int(payload["logical_sample_count"])
                 if payload.get("logical_sample_count") is not None
+                else None
+            ),
+            matrix_format=(
+                MatrixFormat(payload["matrix_format"])
+                if payload.get("matrix_format") is not None
                 else None
             ),
         )

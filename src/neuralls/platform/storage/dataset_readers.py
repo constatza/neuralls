@@ -11,14 +11,24 @@ from pathlib import Path
 import h5py
 import numpy as np
 import zarr
+from scipy.sparse import csr_array
 
 from neuralls.domain.solver.utils.validation import validate_ax_equals_b
+from neuralls.platform.storage.csr_layout import (
+    DATA_ARRAY,
+    INDICES_ARRAY,
+    INDPTR_ARRAY,
+    SAMPLE_OFFSETS_ARRAY,
+    SHAPE_ARRAY,
+    build_csr,
+    indptr_offsets,
+)
 from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.digest import RowSliceable
 from neuralls.shared.enum_codecs import decode_row_kind_array
-from neuralls.shared.types import LayoutType, RowKind
+from neuralls.shared.types import LayoutType, MatrixFormat, RowKind
 
 
 @dataclass(frozen=True)
@@ -35,6 +45,7 @@ class ResolvedDatasetArtifact:
     key: str | None = None
     layout: LayoutType | None = None
     logical_sample_count: int | None = None
+    matrix_format: MatrixFormat | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +101,7 @@ def _resolve_artifact(root: Path, artifact: DatasetArtifact) -> ResolvedDatasetA
         key=artifact.key,
         layout=artifact.layout,
         logical_sample_count=artifact.logical_sample_count,
+        matrix_format=artifact.matrix_format,
     )
 
 
@@ -247,7 +259,7 @@ def resolve_canonical_training_triplet(
         matrix_index=matrix_index,
         dataset_dir=dataset_dir,
     )
-    matrix = _load_sample(artifacts.matrix, resolved_matrix_index)
+    matrix = _load_matrix_dense_sample(artifacts.matrix, resolved_matrix_index)
     rhs = _load_sample(artifacts.rhs, row_index).reshape(-1)
     lhs = _load_sample(artifacts.solutions, row_index).reshape(-1)
     # STANDARD rows are genuine Ax=b pairs; CG_INTERNAL rows are CG
@@ -357,10 +369,96 @@ def load_dense_training_arrays(dataset_dir: str | Path) -> tuple[np.ndarray, np.
     return _load_resolved(artifacts.rhs), _load_resolved(artifacts.solutions)
 
 
+def _csr_member(group: zarr.Group, name: str) -> zarr.Array:
+    """Return one CSR storage member, rejecting a group where an array is required."""
+    member = group[name]
+    if not isinstance(member, zarr.Array):
+        raise TypeError(f"CSR storage member {name!r} must be a zarr array")
+    return member
+
+
+def _read_csr_sample(artifact: ResolvedDatasetArtifact, sample_index: int) -> csr_array:
+    """Read one CSR sample from a CSR zarr group, touching only that sample's chunks.
+
+    The schema is documented in ``csr_layout``. The shape table and nnz offsets
+    are small, so they are read whole; the indptr, indices and data are read
+    as slices for the requested sample. The broadcast layout keeps one pattern
+    for all samples, so its indptr and indices are read whole and only the
+    sample's data row is sliced.
+    """
+    if artifact.matrix_format is not MatrixFormat.CSR:
+        raise ValueError(f"Matrix artifact at {artifact.path} is not stored as CSR")
+    if artifact.layout is None:
+        raise ValueError(f"CSR matrix artifact at {artifact.path} is missing its layout")
+    group = zarr.open_group(str(artifact.path), mode="r")
+    shape_table = np.asarray(_csr_member(group, SHAPE_ARRAY)[:], dtype=np.int64)
+    sample_count = int(shape_table.shape[0])
+    if sample_index < 0 or sample_index >= sample_count:
+        raise IndexError(
+            f"sample_index={sample_index} out of range (available: 0..{sample_count - 1})"
+        )
+    rows, cols = (int(dim) for dim in shape_table[sample_index])
+    match artifact.layout:
+        case LayoutType.SHARED_PATTERN:
+            indptr = np.asarray(_csr_member(group, INDPTR_ARRAY)[:])
+            indices = np.asarray(_csr_member(group, INDICES_ARRAY)[:])
+            data = np.asarray(_csr_member(group, DATA_ARRAY)[sample_index])
+        case LayoutType.MANY_MATRICES:
+            ptr_bounds = indptr_offsets(shape_table)
+            nnz_bounds = np.asarray(_csr_member(group, SAMPLE_OFFSETS_ARRAY)[:], dtype=np.int64)
+            ptr_start, ptr_stop = int(ptr_bounds[sample_index]), int(ptr_bounds[sample_index + 1])
+            nnz_start, nnz_stop = int(nnz_bounds[sample_index]), int(nnz_bounds[sample_index + 1])
+            indptr = np.asarray(_csr_member(group, INDPTR_ARRAY)[ptr_start:ptr_stop])
+            indices = np.asarray(_csr_member(group, INDICES_ARRAY)[nnz_start:nnz_stop])
+            data = np.asarray(_csr_member(group, DATA_ARRAY)[nnz_start:nnz_stop])
+        case LayoutType.BROADCAST_SINGLE:
+            raise ValueError(f"BROADCAST_SINGLE is not a CSR layout (at {artifact.path})")
+    return build_csr(
+        indptr.astype(np.int64, copy=False),
+        indices.astype(np.int64, copy=False),
+        data.astype(np.float64, copy=False),
+        (rows, cols),
+    )
+
+
+def _load_matrix_dense_sample(artifact: ResolvedDatasetArtifact, sample_index: int) -> np.ndarray:
+    """Load one matrix sample as a dense ndarray, densifying CSR storage.
+
+    Densification is explicit here because legacy callers expect an ndarray.
+    New code should use ``load_matrix_sparse_sample``.
+    """
+    if artifact.matrix_format is MatrixFormat.CSR:
+        return _read_csr_sample(artifact, sample_index).toarray()
+    return _load_sample(artifact, sample_index)
+
+
+def load_matrix_sparse_sample(dataset_dir: str | Path, sample_index: int) -> csr_array:
+    """Load one matrix sample as a ``csr_array`` from a manifest-driven dataset.
+
+    CSR datasets are read directly. A dense dataset is converted to CSR after
+    loading, so callers can use one return type for either storage.
+
+    Args:
+        dataset_dir: Dataset directory containing ``manifest.json``.
+        sample_index: Physical matrix sample index.
+
+    Returns:
+        The matrix as a ``csr_array``.
+    """
+    artifact = resolve_dataset_artifacts(dataset_dir).matrix
+    if artifact.matrix_format is MatrixFormat.CSR:
+        return _read_csr_sample(artifact, sample_index)
+    return csr_array(_load_sample(artifact, sample_index))
+
+
 @lru_cache(maxsize=128)
 def load_matrix_dense_sample(dataset_dir: str | Path, sample_index: int = 0) -> np.ndarray:
-    """Load one dense matrix sample from a manifest-driven dataset directory."""
-    return _load_sample(resolve_dataset_artifacts(dataset_dir).matrix, sample_index)
+    """Load one dense matrix sample from a manifest-driven dataset directory.
+
+    For CSR datasets this reads the sparse sample and calls ``.toarray()``,
+    so the result is a full dense matrix.
+    """
+    return _load_matrix_dense_sample(resolve_dataset_artifacts(dataset_dir).matrix, sample_index)
 
 
 def read_training_sample_count(paths: DatasetPaths | DatasetArtifacts) -> int:

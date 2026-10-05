@@ -27,6 +27,8 @@ class LayoutType(StrEnum):
 
     MANY_MATRICES = "many_matrices"
     BROADCAST_SINGLE = "broadcast_single"
+    SHARED_PATTERN = "shared_pattern"
+    """CSR samples that share one indptr/indices pattern; data is (N, nnz)."""
 
 
 class MatrixFormat(StrEnum):

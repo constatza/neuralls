@@ -208,7 +208,15 @@ Dataset storage is split by responsibility:
   (one `ArtifactLocation(path, key)` per artifact) plus the physical matrix shape —
   `zarr`/`hdf5` read that shape back from the written container, `npy` derives it
   from the payload layout.
+- `storage/csr_layout.py`: the authoritative CSR-in-zarr schema (member names, dtypes,
+  per-sample and shared-pattern layouts) and pure `csr_array` <-> flat-array conversions.
+  `choose_layout` picks `SHARED_PATTERN` only when all samples share shape, indptr and indices.
+- `storage/csr_storage.py`: `write_csr_matrix_group`, the single CSR write entry point (zarr-only;
+  rejects dense or mixed samples), and `CsrAccumulator`, which collects COO or dense samples as CSR
+  (duplicate COO entries are summed by scipy) without densifying.
 - `storage/dataset_readers.py`: manifest-driven read helpers and explicit resolved dataset contracts;
+  `load_matrix_sparse_sample` reads one CSR sample from zarr slices (dense datasets are converted
+  to CSR); `load_matrix_dense_sample` densifies CSR datasets via `.toarray()`.
   `open_resolved_array` opens any artifact lazily (memmap/zarr/h5py) as an axis-0 sliceable
 - `storage/dataset_digest.py`: `dataset_content_digest` (logical-content sha256 over every
   manifest artifact, identical across npy/hdf5/zarr and independent of location),

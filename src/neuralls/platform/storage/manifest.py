@@ -8,7 +8,7 @@ from typing import Any
 
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.digest import Digest
-from neuralls.shared.types import LayoutType
+from neuralls.shared.types import LayoutType, MatrixFormat
 
 _DATASET_SCHEMA = "neuralls.dataset.v2"
 
@@ -27,6 +27,8 @@ class DatasetArtifact:
     key: str | None = None
     layout: LayoutType | None = None
     logical_sample_count: int | None = None
+    matrix_format: MatrixFormat | None = None
+    """Matrix storage format; None on legacy manifests means dense."""
 
 
 @dataclass(frozen=True)

@@ -106,7 +106,7 @@ def run_assignment(
     This function performs everything a dlkit multirun sweep child can't do for
     itself, ahead of `run_assignment_sweep()` building that sweep:
     1. Load data configuration from TOML file
-    2. Resolve the already-generated dataset's artifacts (manifest + .npy + sparse pack)
+    2. Resolve the already-generated dataset's artifacts (manifest + .npy + CSR zarr group)
     3. Check MLflow for an already-completed run of this assignment, keyed on both
        assignment_id and a fingerprint of the dataset's files — a dataset
        regenerated since that run no longer matches, so training reruns automatically

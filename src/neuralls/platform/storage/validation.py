@@ -4,10 +4,32 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import zarr
+from zarr.errors import GroupNotFoundError
+
+from neuralls.platform.storage.csr_layout import (
+    DATA_ARRAY,
+    INDICES_ARRAY,
+    INDPTR_ARRAY,
+    SAMPLE_OFFSETS_ARRAY,
+    SHAPE_ARRAY,
+)
 from neuralls.platform.storage.datasets import load_dataset_manifest, resolve_dataset_artifacts
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 
 _SUPPORTED_COMPARISON_FILE_SUFFIXES = {"", ".npy", ".txt"}
+_CSR_MATRIX_GROUP_MEMBERS = frozenset(
+    {INDPTR_ARRAY, INDICES_ARRAY, DATA_ARRAY, SAMPLE_OFFSETS_ARRAY, SHAPE_ARRAY}
+)
+
+
+def _is_csr_matrix_group(path: Path) -> bool:
+    """Return True when ``path`` is a zarr group holding every CSR storage member."""
+    try:
+        group = zarr.open_group(str(path), mode="r")
+    except FileNotFoundError, ValueError, GroupNotFoundError:
+        return False
+    return _CSR_MATRIX_GROUP_MEMBERS.issubset(group.array_keys())
 
 
 def validate_data_exists(
@@ -55,13 +77,11 @@ def validate_comparison_matrix_input(path: Path) -> None:
     try:
         load_dataset_manifest(path)
     except FileNotFoundError, ValueError:
-        manifest_path = path / DATASET_MANIFEST_FILENAME
-        values_path = path / "values.npy"
-        if not (manifest_path.exists() and values_path.exists()):
+        if not _is_csr_matrix_group(path):
             raise ValueError(
                 f"Comparison matrix dataset directory is not loadable: {path}. "
-                f"Expected a dataset root with {DATASET_MANIFEST_FILENAME} or a sparse-pack "
-                "matrix directory containing manifest.json and values.npy."
+                f"Expected a dataset root with {DATASET_MANIFEST_FILENAME} or a CSR matrix "
+                "directory (zarr group with indptr, indices, data, sample_offsets and shape)."
             ) from None
         return
     matrix_artifact = resolve_dataset_artifacts(path).matrix
