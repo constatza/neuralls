@@ -5,6 +5,7 @@ The platform package isolates external integrations and side-effecting helpers.
 ## Package Map
 
 - `config/`: settings, config-validation context, registry resolution, TOML loaders, lower-case job metadata readers, and the thin DLKit job loader adapter
+- `config/models/`: Pydantic models for TOML sections. `OutputConfig.matrix_format` (`MatrixFormat`, default `csr`) selects the storage format of the system matrix for a dataset; it is the single declaration of that default.
 - `storage/`: filesystem, workspaces, dataset I/O, and storage validation helpers
 - `tracking/`: MLflow run helpers, naming/query policy, workflow topology resolution, and client adapters
 - `reporting/`: plotting, artifact staging, and inference output adapters

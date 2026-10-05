@@ -13,6 +13,7 @@ dependencies = [
     "psutil>=7.2.2; sys_platform == 'win32'",
     "pydantic>=2.12.5",
     "pydantic-settings>=2.14.0",
+    "scipy>=1.18,<2",
     "scipy-stubs==1.16.2.0",
     "seaborn>=0.13.2",
     "tcl>=0.2",

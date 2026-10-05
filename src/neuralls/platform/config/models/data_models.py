@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 from neuralls.domain.generation.source_streams import EnumerateBy
 from neuralls.platform.config.context import ConfigContext, expand_config_glob, expand_config_path
 from neuralls.shared.digest import Cosmetic
-from neuralls.shared.types import DatasetFormat
+from neuralls.shared.types import DatasetFormat, MatrixFormat
 
 
 class SourceConfig(BaseModel):
@@ -314,9 +314,9 @@ class OutputConfig(BaseModel):
         default="hdf5",
         description="Dataset storage format ('zarr', 'npy', or 'hdf5')",
     )
-    matrix_codec: Literal["coo"] = Field(
-        default="coo",
-        description="Sparse matrix codec",
+    matrix_format: MatrixFormat = Field(
+        default=MatrixFormat.CSR,
+        description="System matrix storage format ('csr' or 'dense'); one format per dataset",
     )
     matrix_replication: Literal["duplicate_per_sample"] = Field(
         default="duplicate_per_sample",

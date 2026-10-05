@@ -12,6 +12,9 @@ from __future__ import annotations
 from enum import Enum, StrEnum
 from typing import Literal, TypedDict
 
+import numpy as np
+from scipy.sparse import csr_array
+
 DatasetFormat = Literal["zarr", "npy", "hdf5"]
 """Supported dataset storage families for generated datasets."""
 
@@ -24,6 +27,20 @@ class LayoutType(StrEnum):
 
     MANY_MATRICES = "many_matrices"
     BROADCAST_SINGLE = "broadcast_single"
+
+
+class MatrixFormat(StrEnum):
+    """Storage format of a system matrix A.
+
+    Selected by ``[output].matrix_format``; one format per dataset.
+    """
+
+    DENSE = "dense"
+    CSR = "csr"
+
+
+SystemMatrix = np.ndarray | csr_array
+"""A system matrix in either supported format: dense ndarray or CSR."""
 
 
 class MatrixNormType(StrEnum):
