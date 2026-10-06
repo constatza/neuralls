@@ -1,6 +1,6 @@
 """Which steps of a bounded iterative trajectory to run and keep.
 
-Both CG-trace strategies (`residuals.py`, `search_directions.py`) and the
+The CG-trace strategy (`residuals.py`) and the
 weighted-Jacobi smoother-probe strategy (`smoother_probes.py`) harvest
 snapshots from a bounded iterative trajectory of a single linear system —
 CG iterates in the first case, Jacobi damping sweeps in the second. `krylov.py`
@@ -26,16 +26,12 @@ class StepWindow:
     Mirrors slice/range's own start/stop/step vocabulary. `stop` is required
     (no implicit "run to convergence") and is the hard iteration/sweep cap
     handed to the solver/smoother producing the trajectory — exactly `stop`
-    steps are ever attempted, never more. The solver may still stop earlier
-    on its own (e.g. a real CG convergence tolerance), producing a
-    trajectory shorter than `stop + 1`; selection is always resolved
-    against whatever length the trajectory actually turns out to have, via
-    ordinary Python slicing — `start=None` (the default, "keep only the
-    final step") and any negative `start` ("last n") are relative to the
-    true end, not to `stop`. A non-negative `start` is an absolute,
-    from-the-beginning index, as usual, and presumes the trajectory reaches
-    that far (see `_CgTraceFields`'s tolerance/start cross-validation in
-    `strategy_configs.py` for why that combination is otherwise rejected).
+    steps are ever attempted, never more. The solver runs its full `stop`
+    steps, so the trajectory has exactly `stop + 1` rows; selection is
+    resolved against that length via ordinary Python slicing — `start=None`
+    (the default, "keep only the final step") and any negative `start`
+    ("last n") are relative to the true end, not to `stop`. A non-negative
+    `start` is an absolute, from-the-beginning index, as usual.
 
     Attributes:
         stop: Iteration/sweep cap. The trajectory has at most `stop + 1`

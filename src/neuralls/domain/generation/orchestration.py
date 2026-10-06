@@ -85,7 +85,6 @@ _STRATEGY_PROPERTIES: dict[str, _StrategyProperties] = {
     "gaussian_residuals": _StrategyProperties(
         is_archive=False, supports_replacement=True, glob_key="solutions_glob"
     ),
-    "search_directions": _StrategyProperties(is_archive=False, supports_replacement=True),
 }
 
 

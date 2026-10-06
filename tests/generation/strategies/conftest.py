@@ -34,14 +34,6 @@ def residual_solver() -> TracingSolverCallable:
     return make_solver()
 
 
-@pytest.fixture
-def direction_solver() -> TracingSolverCallable:
-    """Default tracing solver for search_directions strategy."""
-    from neuralls.composition.generation.default_services import make_solver
-
-    return make_solver()
-
-
 @dataclass
 class _SolverCallRecorder:
     """Records the keyword arguments of every call to a wrapped solver."""

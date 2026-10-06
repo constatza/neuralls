@@ -117,7 +117,7 @@ def multi_matrix_mixture_dataset(
                 counts={"gaussian_forward": 6, "gaussian_residuals": 6},
                 seed=1234,
                 shuffle=False,
-                strategy_overrides={"gaussian_residuals": {"stop": 2, "start": 0}},
+                strategy_overrides={"gaussian_residuals": {"stop": 3, "start": 1}},
                 solver_overrides=solver_overrides,
             ),
             normalize="matrix",
@@ -151,8 +151,8 @@ def test_multi_matrix_mixture_base_systems_per_matrix(multi_matrix_mixture_datas
     """Hand derivation, 3 matrices, gaussian_forward 6 rows, gaussian_residuals 6 rows.
 
     - gaussian_forward: 6 // 3 = 2 rows per matrix, remainder 0.
-    - gaussian_residuals: window 0..2 gives K_rows = 3, so B = ceil(6 / 3) = 2 base
-      systems. Two of the three matrices get one base system (3 rows each) and one
+    - gaussian_residuals: window 1..3 gives K_rows = 3 - 1 + 1 = 3, so B = ceil(6 / 3) = 2
+      base systems. Two of the three matrices get one base system (3 rows each) and one
       gets none, which matrix is chosen by the seed. Overshoot is 0.
     - Per matrix totals are therefore {2, 5, 5} in some order.
     """
@@ -165,22 +165,21 @@ def test_multi_matrix_mixture_row_kinds_are_stable(multi_matrix_mixture_dataset:
     """Hand derivation of row kinds, from the rule that iteration 0 is STANDARD.
 
     - 6 gaussian_forward rows are STANDARD.
-    - Each of the 2 residual base systems yields iterations 0, 1, 2. Iteration 0 is
-      STANDARD and iterations 1 and 2 are CG_INTERNAL, so 2 STANDARD and 4 CG_INTERNAL.
-    - Totals: STANDARD 6 + 2 = 8, CG_INTERNAL 4.
-    - Per matrix: forward gives 2 STANDARD rows each. The two matrices with a residual
-      base system get one more STANDARD row (3 total), the third keeps 2. CG_INTERNAL
-      rows are 2 on each matrix with a base system and 0 on the third.
+    - Each of the 2 residual base systems yields iterations 1, 2, 3, all CG_INTERNAL
+      (iterate 0, the base pair, is never emitted) — 6 CG_INTERNAL, 0 extra STANDARD.
+    - Totals: STANDARD 6, CG_INTERNAL 6.
+    - Per matrix: forward gives 2 STANDARD rows each, unaffected by residuals. The two
+      matrices with a residual base system get 3 CG_INTERNAL rows, the third gets 0.
     """
     kinds = load_row_kind_codes(multi_matrix_mixture_dataset)
     matrix_index = load_matrix_sample_index(multi_matrix_mixture_dataset)
-    assert np.bincount(kinds, minlength=2).tolist() == [8, 4]
+    assert np.bincount(kinds, minlength=2).tolist() == [6, 6]
     standard = int(RowKind.STANDARD)
     internal = int(RowKind.CG_INTERNAL)
     standard_per_matrix = np.bincount(matrix_index[kinds == standard], minlength=3)
     internal_per_matrix = np.bincount(matrix_index[kinds == internal], minlength=3)
-    assert sorted(standard_per_matrix.tolist()) == [2, 3, 3]
-    assert sorted(internal_per_matrix.tolist()) == [0, 2, 2]
+    assert sorted(standard_per_matrix.tolist()) == [2, 2, 2]
+    assert sorted(internal_per_matrix.tolist()) == [0, 3, 3]
 
 
 def test_multi_matrix_mixture_matrix_index_is_stable(multi_matrix_mixture_dataset: Path) -> None:

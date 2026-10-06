@@ -16,22 +16,32 @@ class TrajectoryShortfallError(RuntimeError):
     """
 
 
-def require_full_trajectory(rows: int, expected: int, sample_idx: int, stop: int) -> None:
-    """Raise unless a base system recorded all ``expected`` trace rows.
+def require_full_trajectory(
+    actual: range,
+    expected: range,
+    sample_idx: int,
+    stop: int,
+) -> None:
+    """Raise unless a base system kept exactly the step indices a full run keeps.
+
+    Comparing indices rather than row counts catches a truncated trajectory
+    whose window still yields the same number of rows but different steps
+    (e.g. a negative start counted back from an early-stopped end).
 
     Args:
-        rows: Rows the window kept from this base system's raw trajectory.
-        expected: K_rows, the rows a trajectory run to ``stop`` always yields.
+        actual: Step indices the window kept from this base system's raw trajectory.
+        expected: Step indices the window keeps from a trajectory run to ``stop``.
         sample_idx: Position of the base system in this generation call.
         stop: The window's ``stop``, quoted in the error for diagnosis.
 
     Raises:
-        TrajectoryShortfallError: If ``rows`` is below ``expected``.
+        TrajectoryShortfallError: If ``actual`` differs from ``expected``.
     """
-    if rows < expected:
+    if actual != expected:
         raise TrajectoryShortfallError(
-            f"base system {sample_idx} produced {rows} trace rows, expected {expected}: "
-            f"it converged before window.stop={stop}. Padding is disabled."
+            f"base system {sample_idx} produced {len(actual)} trace rows, "
+            f"expected {len(expected)}: it converged before window.stop={stop}. "
+            "Padding is disabled."
         )
 
 

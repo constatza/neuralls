@@ -132,9 +132,10 @@ class _StepWindowFields(BaseModel):
     start: int | None = Field(
         None,
         description=(
-            "First step kept (inclusive). Unset or negative is relative to the "
-            "trajectory's true end (unset keeps only the final step); non-negative "
-            "is an absolute index from the beginning."
+            "First step kept (inclusive). Omitted (None) means -1: keep only the last "
+            "step. Negative values count back from the last step (-stop..-1); positive "
+            "values are absolute (1..stop). The first kept step must be >= 1, since step 0 "
+            "is the base pair (r0 = b, e0 = x*) and is never emitted."
         ),
     )
     step: int = Field(
@@ -150,59 +151,22 @@ class _StepWindowFields(BaseModel):
 
     @model_validator(mode="after")
     def _validate_window(self) -> _StepWindowFields:
-        _ = self.window  # raises ValueError via StepWindow.__post_init__ if inconsistent
-        return self
+        """Check the StepWindow bounds, then that the first kept step is >= 1.
 
-
-_UNREACHABLE_TOLERANCE = 1e-20
-"""Below float64 machine epsilon (~2.2e-16) — the solver can never satisfy
-this, so it always runs exactly `stop` iterations. The default for
-`_CgTraceFields.rtol`/`atol`: forces a fixed-length trajectory (every
-trajectory has exactly `stop + 1` rows) unless a real, reachable tolerance
-is given, in which case the solver may stop earlier (see `StepWindow`'s
-docstring on variable-length trajectories)."""
-
-
-class _CgTraceFields(_StepWindowFields):
-    """`_StepWindowFields` plus the CG solver's own early-stop tolerances.
-
-    Only for strategies that actually run a CG solver (`residuals.py`,
-    `search_directions.py`) — kept separate from `_StepWindowFields` itself
-    since `smoother_filtered_probes` has no tolerance/convergence concept.
-    """
-
-    rtol: float = Field(
-        _UNREACHABLE_TOLERANCE,
-        description="CG relative convergence tolerance — the solver may stop before `stop` once satisfied.",
-        gt=0.0,
-    )
-    atol: float = Field(
-        _UNREACHABLE_TOLERANCE,
-        description="CG absolute convergence tolerance — same early-stop semantics as `rtol`.",
-        gt=0.0,
-    )
-
-    @model_validator(mode="after")
-    def _validate_tolerance_start_combination(self) -> _CgTraceFields:
-        """Reject a real tolerance combined with an absolute forward `start`.
-
-        A non-negative `start` presumes the trajectory reaches that index;
-        a real (reachable) tolerance means CG may stop before it does,
-        which would silently select zero rows for that system. Rejecting
-        the combination outright — rather than letting it fail
-        unpredictably depending on runtime convergence — means real-
-        tolerance mode is only ever combined with end-relative selection
-        (`start` unset or negative), for which "however far it actually
-        got" is always well-defined and never empty.
+        Step 0 would emit the base pair (r0 = b, e0 = x*), which generation
+        never needs: CG always begins at x0 = 0, so iterate 0 is that pair.
+        Negative starts resolve against the trajectory end, so the check runs
+        on the indices a full-length trajectory would keep, which catches a
+        start that reaches index 0 there.
         """
-        uses_real_tolerance = (
-            self.rtol != _UNREACHABLE_TOLERANCE or self.atol != _UNREACHABLE_TOLERANCE
-        )
-        if uses_real_tolerance and self.start is not None and self.start >= 0:
+        window = self.window  # raises ValueError via StepWindow.__post_init__ if inconsistent
+        kept = window.resolve_indices(self.stop + 1)
+        if not kept:
+            raise ValueError("window keeps no step")
+        if kept[0] < 1:
             raise ValueError(
-                "a real rtol/atol (early convergence) can only be combined with "
-                "start=None or a negative (end-relative) start — an absolute "
-                "forward start can silently select zero rows if CG converges early"
+                f"start must keep a first step >= 1 (got first kept step {kept[0]}): "
+                "step 0 is the base pair (r0 = b, e0 = x*) and is never emitted"
             )
         return self
 
@@ -249,9 +213,8 @@ class SmootherFilteredProbesConfig(BaseStrategyConfig, _StepWindowFields):
     being kept (per `window`) as error snapshots — the directions that
     survive are, by construction, the ones a Jacobi smoother handles poorly
     (what a multigrid coarse-grid correction needs to cover). By default
-    (`start` unset) only the fully-damped final sweep is kept, matching a
-    single Jacobi-damping call; pass `start` to harvest multiple sweep
-    depths per probe instead.
+    (`start` omitted, i.e. -1) only the fully-damped final sweep is kept; an
+    explicit `start` selects which damping sweeps are kept.
     """
 
     samples: int = Field(
@@ -335,11 +298,13 @@ class ConstantInverseConfig(ConstantForwardConfig):
     )
 
 
-class BaseTraceConfig(BaseStrategyConfig, _CgTraceFields):
+class BaseTraceConfig(BaseStrategyConfig, _StepWindowFields):
     """Shared configuration for archive-backed CG trace-collection strategies.
 
-    By default (`start` unset) only the final CG iterate is kept; pass
-    `start=0` (with `step=1`) to reproduce a full 0..stop trace.
+    The first kept step must be >= 1 (see `_StepWindowFields`), so the base
+    pair at iterate 0 is never emitted. The trajectory always runs to `stop`;
+    the CG tolerance is not configurable here because any real tolerance
+    would let CG stop early and break the fixed-length trajectory contract.
     """
 
     solutions_glob: str | None = Field(
@@ -366,18 +331,6 @@ class ResidualErrorConfig(BaseTraceConfig):
             "so bindings draw disjoint base systems. Must match the resolved base-system count."
         ),
     )
-
-
-class SearchDirectionsConfig(BaseStrategyConfig, _CgTraceFields):
-    """Configuration for SearchDirectionsStrategy.
-
-    Collects (A @ p_k, p_k) pairs from CG iterations for training neural preconditioners.
-    Training mapping: NN(A @ p_k) ≈ p_k, so NN ≈ A^{-1}
-
-    Sibling of `BaseTraceConfig`, not a subclass — this strategy has no
-    archive-backed solution/RHS source, so it deliberately does not inherit
-    `solutions_glob`/`archive_solutions`/`archive_rhs`.
-    """
 
 
 class RhsArchiveConfig(BaseStrategyConfig):

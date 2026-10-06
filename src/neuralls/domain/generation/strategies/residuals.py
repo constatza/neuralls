@@ -24,7 +24,6 @@ from ..helpers import (
     _build_trace_indices,
     resolve_trace_generation_counts,
     trace_rows_per_base_system,
-    trace_rows_per_system,
 )
 from ..interfaces import ArchiveData, ArchiveField, GeneratedSamples, TracingSolverCallable
 from ..providers import HybridInputProvider, RandomInputProvider, provide_solutions
@@ -36,6 +35,12 @@ from ..trace_utils import (
     require_full_trajectory,
 )
 from ..transforms import ComputeRhsTransform
+
+_TRAJECTORY_UNREACHABLE_TOLERANCE = 1e-20
+"""Below float64 machine epsilon (~2.2e-16), so CG can never satisfy it and every
+trajectory runs exactly `window.stop` iterations. Passed explicitly because
+torchalg's own defaults (1e-6 / 1e-14) are reachable and would stop early,
+producing a trajectory shorter than the window and a TrajectoryShortfallError."""
 
 
 def _tensor_trace_to_numpy(value: torch.Tensor | None) -> np.ndarray:
@@ -189,8 +194,8 @@ class _BaseResidualsStrategy:
                 rhs_vec,
                 np.zeros(n, dtype=np.float64),
                 maxiter=window.stop,
-                rtol=config.rtol,
-                atol=config.atol,
+                rtol=_TRAJECTORY_UNREACHABLE_TOLERANCE,
+                atol=_TRAJECTORY_UNREACHABLE_TOLERANCE,
             )
 
             residual_seq_full = _tensor_trace_to_numpy(info.residual_vectors)
@@ -198,7 +203,7 @@ class _BaseResidualsStrategy:
 
             residual_seq, indices = window.select_with_indices(residual_seq_full)
             require_full_trajectory(
-                len(indices), trace_rows_per_system(window), sample_idx, window.stop
+                indices, window.resolve_indices(window.stop + 1), sample_idx, window.stop
             )
             solution_seq = (
                 window.select(solution_seq_full)

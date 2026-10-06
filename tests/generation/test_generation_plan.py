@@ -551,7 +551,7 @@ class TestPydanticValidation:
             seed=42,
             shuffle=True,
             stop=10,
-            start=0,
+            start=1,
             solutions_glob=None,
             archive_solutions=False,
             archive_rhs=False,

@@ -19,7 +19,7 @@ the exact same thing in both places, not two independently-tuned
 approximations of it.
 
 Output is a `ResidualTraceSamples` (the same trace container
-`search_directions.py` populates) — always 2D (`sample_indices`/
+`residuals.py` populates) — always 2D (`sample_indices`/
 `iteration_indices` paired rows), whether `window` keeps one sweep per probe
 (the default) or several, so downstream consumers see a consistent shape
 regardless of how many steps were kept.
@@ -39,7 +39,6 @@ from ..helpers import (
     _build_trace_indices,
     resolve_trace_generation_counts,
     trace_rows_per_base_system,
-    trace_rows_per_system,
 )
 from ..interfaces import ArchiveData, GeneratedSamples
 from ..runner import register_strategy
@@ -131,10 +130,10 @@ class SmootherFilteredProbesStrategy:
         sample_indices: list[np.ndarray] = []
         iteration_indices: list[np.ndarray] = []
 
-        expected_rows = trace_rows_per_system(window)
+        expected_indices = window.resolve_indices(window.stop + 1)
         for sample_idx, trajectory in enumerate(trajectories):
             selected, indices = window.select_with_indices(trajectory.numpy())
-            require_full_trajectory(len(indices), expected_rows, sample_idx, window.stop)
+            require_full_trajectory(indices, expected_indices, sample_idx, window.stop)
             solution_blocks.append(selected)
             rhs_blocks.append(rhs_transform.transform(selected))
             sidx, iidx = _build_trace_indices(sample_idx, indices)

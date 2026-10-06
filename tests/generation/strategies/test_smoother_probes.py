@@ -20,7 +20,7 @@ def test_smoother_filtered_probes_registered() -> None:
 def test_smoother_filtered_probes_shapes(spd_matrix: np.ndarray) -> None:
     """Output is a residual_traces block, 2D, one row per probe by default."""
     n = spd_matrix.shape[0]
-    cfg = {"samples": 4, "seed": 0, "stop": 5}
+    cfg = {"samples": 4, "seed": 0, "stop": 5, "start": 1}
 
     result = run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg)
 
@@ -32,7 +32,7 @@ def test_smoother_filtered_probes_shapes(spd_matrix: np.ndarray) -> None:
 def test_smoother_filtered_probes_sample_count(spd_matrix: np.ndarray) -> None:
     """Different sample counts produce correct output sizes."""
     for count in (1, 5, 8):
-        cfg = {"samples": count, "seed": 0, "stop": 5}
+        cfg = {"samples": count, "seed": 0, "stop": 5, "start": 1}
         result = run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg)
         assert result.residual_traces is not None
         assert result.residual_traces.solutions.shape[0] == count
@@ -40,7 +40,7 @@ def test_smoother_filtered_probes_sample_count(spd_matrix: np.ndarray) -> None:
 
 def test_smoother_filtered_probes_computes_rhs(spd_matrix: np.ndarray) -> None:
     """RHS = A @ x for all generated samples."""
-    cfg = {"samples": 5, "seed": 42, "stop": 5}
+    cfg = {"samples": 5, "seed": 42, "stop": 5, "start": 1}
     result = run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg)
 
     traces = result.residual_traces
@@ -52,7 +52,7 @@ def test_smoother_filtered_probes_computes_rhs(spd_matrix: np.ndarray) -> None:
 
 def test_smoother_filtered_probes_deterministic(spd_matrix: np.ndarray) -> None:
     """Same seed produces identical output across two calls."""
-    cfg = {"samples": 4, "seed": 7, "stop": 5}
+    cfg = {"samples": 4, "seed": 7, "stop": 5, "start": 1}
 
     result1 = run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg)
     result2 = run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg)
@@ -69,7 +69,7 @@ def test_smoother_filtered_probes_deterministic(spd_matrix: np.ndarray) -> None:
 def test_smoother_filtered_probes_rademacher_distribution(spd_matrix: np.ndarray) -> None:
     """The 'rademacher' probe distribution runs successfully and produces valid shapes."""
     n = spd_matrix.shape[0]
-    cfg = {"samples": 3, "seed": 0, "stop": 5, "probe_distribution": "rademacher"}
+    cfg = {"samples": 3, "seed": 0, "stop": 5, "start": 1, "probe_distribution": "rademacher"}
 
     result = run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg)
 
@@ -91,8 +91,9 @@ def test_smoother_filtered_probes_more_steps_damps_more() -> None:
     """
     n = 10
     poisson_1d = 2 * np.eye(n) - np.diag(np.ones(n - 1), 1) - np.diag(np.ones(n - 1), -1)
-    cfg_few = {"samples": 20, "seed": 0, "stop": 1}
-    cfg_many = {"samples": 20, "seed": 0, "stop": 20}
+    # start must stay below stop, so the shallow case keeps sweeps 1..2 and the deep case 19..20.
+    cfg_few = {"samples": 20, "seed": 0, "stop": 2, "start": 1}
+    cfg_many = {"samples": 20, "seed": 0, "stop": 20, "start": 19}
 
     few_steps = run_generation("smoother_filtered_probes", poisson_1d, cfg=cfg_few)
     many_steps = run_generation("smoother_filtered_probes", poisson_1d, cfg=cfg_many)
@@ -115,7 +116,9 @@ def test_smoother_filtered_probes_samples_minus_one_rejected(spd_matrix: np.ndar
     """samples=-1 is rejected at config construction (SOLID finding 2: no archive source exists)."""
     with pytest.raises(Exception, match="samples"):
         run_generation(
-            "smoother_filtered_probes", spd_matrix, cfg={"samples": -1, "seed": 0, "stop": 5}
+            "smoother_filtered_probes",
+            spd_matrix,
+            cfg={"samples": -1, "seed": 0, "stop": 5, "start": 1},
         )
 
 
@@ -127,9 +130,18 @@ def test_smoother_filtered_probes_samples_minus_one_rejected(spd_matrix: np.ndar
 def test_smoother_filtered_probes_default_matches_apply_jacobi_damping(
     spd_matrix: np.ndarray,
 ) -> None:
-    """With `start` unset, output matches a direct apply_jacobi_damping call bit-for-bit."""
-    omega, stop, samples = 0.67, 6, 5
-    cfg = {"samples": samples, "seed": 3, "stop": stop, "omega": omega}
+    """Each probe's final kept sweep matches a direct apply_jacobi_damping call bit-for-bit.
+
+    stop=6, start=1 keeps K = 6 sweeps per probe. samples = K * 2 = 12 gives
+    exactly 2 probes, with rows probe-major: rows 0..5 are probe 0 at sweeps
+    1..6, rows 6..11 are probe 1. The last row of each block is the fully
+    damped sweep 6, compared against apply_jacobi_damping(steps=6).
+    """
+    omega, stop, num_probes = 0.67, 6, 2
+    window_start = 1
+    rows_per_probe = stop - window_start + 1
+    samples = rows_per_probe * num_probes
+    cfg = {"samples": samples, "seed": 3, "stop": stop, "start": window_start, "omega": omega}
 
     result = run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg)
     traces = result.residual_traces
@@ -138,13 +150,15 @@ def test_smoother_filtered_probes_default_matches_apply_jacobi_damping(
 
     # Reproduce the same probes independently and damp them directly.
     rng = np.random.default_rng(3)
-    probes = rng.standard_normal((samples, spd_matrix.shape[0])).astype(spd_matrix.dtype)
+    probes = rng.standard_normal((num_probes, spd_matrix.shape[0])).astype(spd_matrix.dtype)
     expected = apply_jacobi_damping(
         torch.as_tensor(probes), torch.as_tensor(spd_matrix), omega=omega, steps=stop
     ).numpy()
 
-    np.testing.assert_allclose(traces.solutions, expected, rtol=1e-10, atol=1e-12)
-    np.testing.assert_array_equal(traces.iteration_indices, np.full(samples, stop, dtype=np.int64))
+    final_rows = traces.solutions[rows_per_probe - 1 :: rows_per_probe]
+    np.testing.assert_allclose(final_rows, expected, rtol=1e-10, atol=1e-12)
+    expected_sweeps = np.tile(np.arange(window_start, stop + 1, dtype=np.int64), num_probes)
+    np.testing.assert_array_equal(traces.iteration_indices, expected_sweeps)
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +174,7 @@ def test_smoother_filtered_probes_multi_step_keeps_consistent_2d_shape(
     Guards against the output type changing shape/kind (flat 1D vs 2D)
     depending on how many steps are kept — it must always be a 2D block of
     (sample_indices, iteration_indices)-paired rows. `samples` here is a
-    flattened-row budget (same convention as residuals.py/search_directions.py),
+    flattened-row budget (same convention as residuals.py),
     not a probe count — 2 base probes x 3 kept rows each = 6, exactly.
     """
     stop, rows_per_probe, num_probes = 10, 3, 2

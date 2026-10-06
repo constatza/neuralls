@@ -1,6 +1,7 @@
 """Trajectory rows are allocated as whole base systems, with overshoot trimmed once.
 
-Every trajectory strategy here keeps K_rows = 4 rows per base system (window 0..3).
+Every trajectory strategy here keeps K_rows = 4 rows per base system (window 1..4,
+K = stop - start + 1 = 4; iterate 0 is the base pair and is never emitted).
 Hand derivations are in the comments next to each expected multiset.
 """
 
@@ -21,11 +22,10 @@ from neuralls.domain.generation.step_window import StepWindow
 
 from .conftest import TRACE_WINDOW_OVERRIDES
 
-TRACE_WINDOW = StepWindow(start=0, stop=3, step=1)
+TRACE_WINDOW = StepWindow(start=1, stop=4, step=1)
 TRACE_STRATEGIES = (
     "residuals",
     "gaussian_residuals",
-    "search_directions",
     "smoother_filtered_probes",
 )
 

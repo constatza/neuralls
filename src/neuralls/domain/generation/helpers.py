@@ -388,10 +388,9 @@ def trace_rows_per_system(window: StepWindow) -> int:
     """Return the worst-case number of kept trace rows for one base system.
 
     Computed against `window.stop + 1` — the trajectory length when the
-    safety cap is fully used (always exact when `rtol`/`atol` are
-    unreachable; a safe over-estimate under a real, reachable tolerance,
-    where a system that converges early contributes fewer rows than this).
-    Used only to budget how many base systems to run up front — see
+    safety cap is fully used, which is always the case for trajectories:
+    the solver runs exactly `window.stop` steps, so every base system yields
+    exactly this many rows. Used only to budget how many base systems to run up front — see
     `resolve_trace_generation_counts`.
     """
     return len(window.resolve_indices(window.stop + 1))

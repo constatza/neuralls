@@ -31,7 +31,6 @@ _CG_INTERNAL_STRATEGIES: frozenset[GenerationStrategyKind] = frozenset(
     {
         GenerationStrategyKind.RESIDUALS,
         GenerationStrategyKind.GAUSSIAN_RESIDUALS,
-        GenerationStrategyKind.SEARCH_DIRECTIONS,
     }
 )
 

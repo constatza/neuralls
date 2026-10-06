@@ -149,7 +149,6 @@ class GenerationStrategyKind(StrEnum):
     SPARSE_RHS = "sparse_rhs"
     RESIDUALS = "residuals"
     GAUSSIAN_RESIDUALS = "gaussian_residuals"
-    SEARCH_DIRECTIONS = "search_directions"
     EIGENVECTOR_FORWARD = "eigenvector_forward"
     EIGENVECTOR_INVERSE = "eigenvector_inverse"
     GAUSSIAN_FORWARD = "gaussian_forward"

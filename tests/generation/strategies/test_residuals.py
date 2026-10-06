@@ -13,12 +13,13 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from neuralls.domain.generation import run_generation
 from neuralls.domain.generation.helpers import trace_rows_per_system
 from neuralls.domain.generation.interfaces import TracingSolverCallable
 from neuralls.domain.generation.step_window import StepWindow
-from neuralls.domain.generation.strategy_configs import ResidualErrorConfig, SearchDirectionsConfig
+from neuralls.domain.generation.strategy_configs import ResidualErrorConfig
 
 from .conftest import _SolverCallRecorder
 
@@ -82,13 +83,13 @@ def test_residuals_single_rhs_shapes(
     n = spd_matrix.shape[0]
     requested_rows = 10
     stop = 4
-    cfg = {"samples": requested_rows, "stop": stop, "start": 0, "seed": 0}
+    cfg = {"samples": requested_rows, "stop": stop, "start": 1, "seed": 0}
 
     result = run_generation(
         "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
     )
 
-    rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=0))
+    rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=1))
     expected_systems = _expected_trace_systems(requested_rows, rows_per_system)
     total = requested_rows
 
@@ -126,14 +127,14 @@ def test_residuals_multi_rhs_shapes(
     cfg = {
         "samples": requested_rows,
         "stop": stop,
-        "start": 0,
+        "start": 1,
         "seed": 0,
         "solutions_glob": glob_pattern,
     }
 
     result = run_generation("residuals", spd_matrix, cfg=cfg, solver=residual_solver)
 
-    rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=0))
+    rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=1))
     expected_systems = _expected_trace_systems(requested_rows, rows_per_system)
     total = requested_rows
 
@@ -156,11 +157,11 @@ def test_gaussian_residuals_multi_rhs_shapes(
     n = spd_matrix.shape[0]
     requested_rows = 8
     stop = 3
-    cfg = {"samples": requested_rows, "stop": stop, "start": 0, "seed": 0}
+    cfg = {"samples": requested_rows, "stop": stop, "start": 1, "seed": 0}
 
     result = run_generation("gaussian_residuals", spd_matrix, cfg=cfg, solver=residual_solver)
 
-    rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=0))
+    rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=1))
     expected_systems = _expected_trace_systems(requested_rows, rows_per_system)
     total = requested_rows
 
@@ -179,7 +180,7 @@ def test_gaussian_residuals_math_holds(
     spd_matrix: np.ndarray, residual_solver: TracingSolverCallable
 ) -> None:
     """Gaussian residuals still satisfy e_k = x_true - x_k and r_k = A @ e_k."""
-    cfg = {"samples": 10, "stop": 4, "start": 0, "seed": 0}
+    cfg = {"samples": 10, "stop": 4, "start": 1, "seed": 0}
 
     result = run_generation("gaussian_residuals", spd_matrix, cfg=cfg, solver=residual_solver)
 
@@ -209,7 +210,7 @@ def test_error_equals_true_minus_current(
     cfg = {
         "samples": 10,
         "stop": 4,
-        "start": 0,
+        "start": 1,
         "seed": 0,
         "solutions_glob": glob_pattern,
     }
@@ -235,7 +236,7 @@ def test_residual_equals_b_minus_ax(
     cfg = {
         "samples": 10,
         "stop": 4,
-        "start": 0,
+        "start": 1,
         "seed": 0,
         "solutions_glob": glob_pattern,
     }
@@ -264,7 +265,7 @@ def test_residual_equals_a_times_error(
     cfg = {
         "samples": 10,
         "stop": 4,
-        "start": 0,
+        "start": 1,
         "seed": 0,
         "solutions_glob": glob_pattern,
     }
@@ -290,7 +291,7 @@ def test_residuals_trace_count(
     """Positive samples are exact final trace rows, trimming partial final systems."""
     requested_rows = 7
     stop = 4
-    cfg = {"samples": requested_rows, "stop": stop, "start": 0, "seed": 0}
+    cfg = {"samples": requested_rows, "stop": stop, "start": 1, "seed": 0}
 
     result = run_generation(
         "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
@@ -298,7 +299,7 @@ def test_residuals_trace_count(
 
     et = result.error_traces
     assert et is not None
-    rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=0))
+    rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=1))
     expected_systems = _expected_trace_systems(requested_rows, rows_per_system)
     assert et.residuals.shape[0] == requested_rows
     assert result.rhs is not None
@@ -311,7 +312,7 @@ def test_residuals_sample_indices(
     """sample_indices correctly identifies which base system each trace pair belongs to."""
     requested_rows = 15
     stop = 4
-    cfg = {"samples": requested_rows, "stop": stop, "start": 0, "seed": 0}
+    cfg = {"samples": requested_rows, "stop": stop, "start": 1, "seed": 0}
 
     result = run_generation(
         "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
@@ -320,7 +321,7 @@ def test_residuals_sample_indices(
     et = result.error_traces
     assert et is not None
 
-    entries_per_system = trace_rows_per_system(StepWindow(stop=stop, start=0))
+    entries_per_system = trace_rows_per_system(StepWindow(stop=stop, start=1))
     expected_systems = _expected_trace_systems(requested_rows, entries_per_system)
     for s in range(expected_systems):
         start = s * entries_per_system
@@ -331,10 +332,13 @@ def test_residuals_sample_indices(
 def test_residuals_iteration_indices(
     spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
 ) -> None:
-    """iteration_indices run 0..stop for each system when start=0, step=1."""
+    """iteration_indices run start..stop (1..4) for each system when start=1, step=1.
+
+    K = stop - start + 1 = 4 rows per system; iterate 0 (the base pair) is never kept.
+    """
     requested_rows = 10
     stop = 4
-    cfg = {"samples": requested_rows, "stop": stop, "start": 0, "seed": 0}
+    cfg = {"samples": requested_rows, "stop": stop, "start": 1, "seed": 0}
 
     result = run_generation(
         "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
@@ -343,8 +347,8 @@ def test_residuals_iteration_indices(
     et = result.error_traces
     assert et is not None
 
-    entries_per_system = trace_rows_per_system(StepWindow(stop=stop, start=0))
-    expected_iters = np.arange(entries_per_system, dtype=np.int64)
+    entries_per_system = trace_rows_per_system(StepWindow(stop=stop, start=1))
+    expected_iters = np.arange(1, entries_per_system + 1, dtype=np.int64)
     expected_systems = _expected_trace_systems(requested_rows, entries_per_system)
     for s in range(expected_systems):
         start = s * entries_per_system
@@ -362,10 +366,14 @@ def test_residuals_iteration_indices(
 def test_residuals_step_reduces_count(
     spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
 ) -> None:
-    """step=2 yields half the trace entries (stop=5 -> 6 residuals, divisible by 2)."""
-    stop = 5  # 6 residuals per sample (0..5)
-    cfg_full = {"samples": 12, "stop": stop, "start": 0, "seed": 0, "step": 1}
-    cfg_half = {"samples": 6, "stop": stop, "start": 0, "seed": 0, "step": 2}
+    """step=2 yields half the trace entries (stop=5, start=1 -> 5 residuals; 1,3,5 kept as 3).
+
+    Full: 12 requested over ceil(12 / 5) = 3 systems, trimmed to 12 rows.
+    Half: 6 requested over ceil(6 / 3) = 2 systems of 3 rows = 6 rows, and 12 // 2 = 6.
+    """
+    stop = 5
+    cfg_full = {"samples": 12, "stop": stop, "start": 1, "seed": 0, "step": 1}
+    cfg_half = {"samples": 6, "stop": stop, "start": 1, "seed": 0, "step": 2}
 
     r_full = run_generation(
         "residuals", spd_matrix, cfg=cfg_full, solver=residual_solver, single_rhs=single_rhs
@@ -382,8 +390,8 @@ def test_residuals_step_reduces_count(
 def test_residuals_step_indices_correct(
     spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
 ) -> None:
-    """step=2 with stop=5, start=0: iteration_indices are [0, 2, 4] not [0, 1, 2]."""
-    cfg = {"samples": 3, "stop": 5, "start": 0, "seed": 0, "step": 2}
+    """step=2 with stop=5, start=1: iteration_indices are [1, 3, 5] not [1, 2, 3]."""
+    cfg = {"samples": 3, "stop": 5, "start": 1, "seed": 0, "step": 2}
 
     result = run_generation(
         "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
@@ -391,7 +399,7 @@ def test_residuals_step_indices_correct(
 
     et = result.error_traces
     assert et is not None
-    np.testing.assert_array_equal(et.iteration_indices, np.array([0, 2, 4], dtype=np.int64))
+    np.testing.assert_array_equal(et.iteration_indices, np.array([1, 3, 5], dtype=np.int64))
 
 
 def test_residuals_step_math_still_holds(
@@ -404,7 +412,7 @@ def test_residuals_step_math_still_holds(
     cfg = {
         "samples": 6,
         "stop": 5,
-        "start": 0,
+        "start": 1,
         "seed": 0,
         "solutions_glob": glob_pattern,
         "step": 2,
@@ -423,11 +431,16 @@ def test_residuals_step_math_still_holds(
         np.testing.assert_allclose(et.residuals[i], spd_matrix @ et.errors[i], rtol=1e-9, atol=1e-9)
 
 
-def test_residuals_last_n_via_negative_start(
+def test_residuals_start_near_stop_keeps_last_two_iterates(
     spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
 ) -> None:
-    """start=-3 keeps the last 3 iterations of a stop=8 trace: indices [6, 7, 8]."""
-    cfg = {"samples": 3, "stop": 8, "start": -3, "seed": 0}
+    """start=7, stop=8 keeps K = 8 - 7 + 1 = 2 rows per system: iterates [7, 8].
+
+    Three requested rows give ceil(3 / 2) = 2 systems; the second is trimmed to
+    one row, so iteration_indices is [7, 8, 7]. start must stay below stop
+    (StepWindow rejects start >= stop), so K >= 2 here.
+    """
+    cfg = {"samples": 3, "stop": 8, "start": 7, "seed": 0}
 
     result = run_generation(
         "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
@@ -435,7 +448,7 @@ def test_residuals_last_n_via_negative_start(
 
     et = result.error_traces
     assert et is not None
-    np.testing.assert_array_equal(et.iteration_indices, np.array([6, 7, 8], dtype=np.int64))
+    np.testing.assert_array_equal(et.iteration_indices, np.array([7, 8, 7], dtype=np.int64))
 
 
 def test_residuals_samples_minus_one_requires_finite_source(
@@ -446,7 +459,7 @@ def test_residuals_samples_minus_one_requires_finite_source(
         run_generation(
             "residuals",
             spd_matrix,
-            cfg={"samples": -1, "stop": 4, "start": 0, "seed": 0},
+            cfg={"samples": -1, "stop": 4, "start": 1, "seed": 0},
             solver=residual_solver,
             single_rhs=single_rhs,
         )
@@ -471,23 +484,6 @@ def test_residuals_requires_stop(
         )
 
 
-def test_residuals_default_start_keeps_only_last_iterate(
-    spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
-) -> None:
-    """With `start` unset, every kept row is the final (stop-th) CG iterate — one row per system."""
-    stop = 6
-    cfg = {"samples": 3, "stop": stop, "seed": 0}
-
-    result = run_generation(
-        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
-    )
-
-    et = result.error_traces
-    assert et is not None
-    assert et.residuals.shape == (3, spd_matrix.shape[0])
-    np.testing.assert_array_equal(et.iteration_indices, np.full(3, stop, dtype=np.int64))
-
-
 # ---------------------------------------------------------------------------
 # CPU-waste guarantee: solver is never asked to run past `stop`
 # ---------------------------------------------------------------------------
@@ -501,7 +497,7 @@ def test_residuals_maxiter_equals_window_stop(
     """The solver is always called with maxiter == config.window.stop, never more."""
     solver, recorder = spy_solver
     stop = 9
-    cfg = {"samples": 4, "stop": stop, "start": 0, "seed": 0}
+    cfg = {"samples": 4, "stop": stop, "start": 1, "seed": 0}
 
     run_generation("residuals", spd_matrix, cfg=cfg, solver=solver, single_rhs=single_rhs)
 
@@ -510,66 +506,26 @@ def test_residuals_maxiter_equals_window_stop(
 
 
 # ---------------------------------------------------------------------------
-# Real convergence tolerance
+# Trajectory config surface
 # ---------------------------------------------------------------------------
 
 
-def test_residuals_real_tolerance_stops_before_stop(
-    spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
-) -> None:
-    """A real, reachable rtol lets CG converge well before the `stop` safety cap.
+@pytest.mark.parametrize("tolerance_key", ["rtol", "atol"])
+def test_trace_config_rejects_solver_tolerance_keys(tolerance_key: str) -> None:
+    """Trajectory configs take no CG tolerance: the key is an unknown field.
 
-    `start` unset (default: keep only the true last iterate) correctly
-    resolves to wherever CG actually stopped, not to a hardcoded index.
+    BaseStrategyConfig forbids extra keys, so a stale `rtol`/`atol` in a
+    trajectory config fails at construction instead of silently being ignored.
     """
-    cfg = {"samples": 3, "stop": 200, "rtol": 1e-6, "atol": 1e-10, "seed": 0}
-
-    result = run_generation(
-        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
-    )
-
-    et = result.error_traces
-    assert et is not None
-    assert np.all(et.iteration_indices < 200)
-    assert np.all(et.iteration_indices == et.iteration_indices[0])  # same true stop each run
-
-
-def test_residuals_real_tolerance_with_forward_start_rejected(
-    spd_matrix: np.ndarray,
-) -> None:
-    """A real tolerance combined with a non-negative (absolute forward) start is rejected.
-
-    SOLID review finding 3: this combination can silently select zero rows
-    if CG converges before reaching `start` — reject it outright instead.
-    """
-    with pytest.raises(Exception, match="rtol"):
-        ResidualErrorConfig(samples=3, stop=50, start=45, rtol=1e-6)
-
-
-def test_residuals_real_tolerance_with_end_relative_start_ok() -> None:
-    """A real tolerance combined with an end-relative (negative) start is accepted."""
-    config = ResidualErrorConfig(samples=3, stop=50, start=-3, rtol=1e-6)
-    assert config.window.start == -3
-
-
-def test_residuals_real_tolerance_with_default_start_ok() -> None:
-    """A real tolerance with `start` left unset (last-only) is accepted."""
-    config = ResidualErrorConfig(samples=3, stop=50, rtol=1e-6)
-    assert config.window.start is None
-
-
-# ---------------------------------------------------------------------------
-# SOLID review finding 1: SearchDirectionsConfig no longer exposes archive fields
-# ---------------------------------------------------------------------------
-
-
-def test_search_directions_config_rejects_archive_fields() -> None:
-    """SearchDirectionsConfig has no archive-related fields (ISP: it never uses them)."""
-    with pytest.raises(Exception, match="solutions_glob"):
-        SearchDirectionsConfig(samples=3, stop=5, solutions_glob="*.npy")
+    with pytest.raises(ValidationError) as excinfo:
+        ResidualErrorConfig.model_validate(
+            {"samples": 3, "stop": 50, "start": 45, tolerance_key: 1e-6}
+        )
+    error_types = [(err["type"], err["loc"]) for err in excinfo.value.errors()]
+    assert error_types == [("extra_forbidden", (tolerance_key,))]
 
 
 def test_residual_error_config_still_accepts_archive_fields() -> None:
     """ResidualErrorConfig (residuals.py's strategies) still accepts archive fields."""
-    config = ResidualErrorConfig(samples=3, stop=5, solutions_glob="*.npy")
+    config = ResidualErrorConfig(samples=3, stop=5, start=1, solutions_glob="*.npy")
     assert config.solutions_glob == "*.npy"

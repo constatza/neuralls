@@ -14,7 +14,6 @@ EXPECTED_STRATEGIES = {
     "krylov",
     "residuals",
     "gaussian_residuals",
-    "search_directions",
     "eigenvector_forward",
     "eigenvector_inverse",
     "rhs_archive",

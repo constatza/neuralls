@@ -32,7 +32,6 @@ _DEFAULT_SOLVER = make_solver()
 _DEFAULT_SOLVER_OVERRIDES: dict[str, Any] = {
     "residuals": _DEFAULT_SOLVER,
     "gaussian_residuals": _DEFAULT_SOLVER,
-    "search_directions": _DEFAULT_SOLVER,
 }
 
 

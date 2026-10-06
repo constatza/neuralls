@@ -224,8 +224,8 @@ def test_build_dataset_persists_residuals_pairs(tmp_path: Path) -> None:
                 shuffle=False,
                 strategy_overrides={
                     "residuals": {
-                        "stop": 1,
-                        "start": 0,
+                        "stop": 2,
+                        "start": 1,
                         "solutions_glob": str(tmp_path / "sol_*.txt"),
                     }
                 },
@@ -256,7 +256,7 @@ def test_build_dataset_persists_gaussian_residual_pairs(tmp_path: Path) -> None:
                 counts={"gaussian_residuals": 4},
                 seed=7,
                 shuffle=False,
-                strategy_overrides={"gaussian_residuals": {"stop": 1, "start": 0}},
+                strategy_overrides={"gaussian_residuals": {"stop": 2, "start": 1}},
             ),
             normalize="none",
         ),
@@ -317,7 +317,7 @@ def test_build_dataset_marks_residual_error_rows_with_kind_codes(tmp_path: Path)
                 counts={"gaussian_residuals": 2},
                 seed=7,
                 shuffle=False,
-                strategy_overrides={"gaussian_residuals": {"stop": 1, "start": 0}},
+                strategy_overrides={"gaussian_residuals": {"stop": 2, "start": 1}},
             ),
             normalize="none",
         ),
@@ -327,7 +327,9 @@ def test_build_dataset_marks_residual_error_rows_with_kind_codes(tmp_path: Path)
 
     row_kinds = decode_row_kind_array(load_row_kind_codes(out_dir))
 
-    assert row_kinds == (RowKind.STANDARD, RowKind.CG_INTERNAL)
+    # stop=2, start=1 -> K=2 rows (iterates 1, 2), both CG_INTERNAL: iterate 0
+    # (the base pair) is never emitted.
+    assert row_kinds == (RowKind.CG_INTERNAL, RowKind.CG_INTERNAL)
 
 
 def test_glob_matrix_gaussian_uses_global_sample_budget(

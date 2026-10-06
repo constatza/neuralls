@@ -13,10 +13,8 @@ from neuralls.domain.generation.ports import TracingSolverPort
 def make_solver() -> TracingSolverPort:
     """Construct the default tracing solver for single-RHS trace strategies.
 
-    Shared by residual (``residuals``/``gaussian_residuals``) and direction
-    (``search_directions``) strategies alike — both trace the same torchalg
-    PCG call with full iteration history; there is currently no behavioral
-    difference between them.
+    Used by the residual (``residuals``/``gaussian_residuals``) strategies,
+    which trace the torchalg PCG call with full iteration history.
     """
 
     def _solve(

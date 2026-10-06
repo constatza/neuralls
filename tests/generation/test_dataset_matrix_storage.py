@@ -32,7 +32,7 @@ def mixture_dataset(spd_matrix_dir: Path, tmp_path: Path) -> Path:  # noqa: F811
                 counts={"gaussian_forward": 6, "gaussian_residuals": 6},
                 seed=MIXTURE_SEED,
                 shuffle=False,
-                strategy_overrides={"gaussian_residuals": {"stop": 2, "start": 0}},
+                strategy_overrides={"gaussian_residuals": {"stop": 2, "start": 1}},
             ),
             normalize="matrix",
         ),

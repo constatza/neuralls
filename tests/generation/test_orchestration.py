@@ -83,7 +83,7 @@ def test_generate_mixture_row_kind_codes_length_matches_trace_rows_after_shuffle
     with base-system-level indices (referenced_samples entries), silently truncating it.
     _finalize_payload then caught the mismatch: row_kind_codes.shape[0] != rhs_all.shape[0].
     """
-    # stop=3, start=0 → rows_per_system=4; samples=8 → 2 base systems, 8 trace pairs.
+    # stop=4, start=1 → K = 4 - 1 + 1 = 4 rows per system; samples=8 → 2 base systems, 8 trace pairs.
     # Bug: shuffle indexed row_kind_codes (len=8) with 2 base-system indices → truncated to len=2.
     result = _generate_mixture_with_metadata(
         spd_matrix,
@@ -91,7 +91,7 @@ def test_generate_mixture_row_kind_codes_length_matches_trace_rows_after_shuffle
             counts={"gaussian_residuals": 8},
             seed=0,
             shuffle=True,
-            strategy_overrides={"gaussian_residuals": {"stop": 3, "start": 0}},
+            strategy_overrides={"gaussian_residuals": {"stop": 4, "start": 1}},
             solver_overrides=solver_overrides,
         ),
     )
@@ -108,15 +108,15 @@ def test_mixed_strategy_row_kind_codes_concatenated_correctly(
     from neuralls.shared.types import RowKind
 
     # gaussian_forward:3 → 3 STANDARD rows
-    # gaussian_residuals:4 with stop=1, start=0 → 2 base systems × 2 rows = 4 trace rows
-    #   each system: [iter0=STANDARD, iter1=CG_INTERNAL]
+    # gaussian_residuals:4 with stop=2, start=1 → K = 2 - 1 + 1 = 2 rows per system;
+    #   2 base systems × 2 rows = 4 trace rows (iterates 1 and 2 of each system)
     result = _generate_mixture_with_metadata(
         spd_matrix,
         MixtureSpec(
             counts={"gaussian_forward": 3, "gaussian_residuals": 4},
             seed=0,
             shuffle=False,
-            strategy_overrides={"gaussian_residuals": {"stop": 1, "start": 0}},
+            strategy_overrides={"gaussian_residuals": {"stop": 2, "start": 1}},
             solver_overrides=solver_overrides,
         ),
     )
@@ -126,10 +126,10 @@ def test_mixed_strategy_row_kind_codes_concatenated_correctly(
 
     kinds = decode_row_kind_array(result.row_kind_codes)
     assert kinds[:3] == (RowKind.STANDARD,) * 3
-    assert kinds[3] == RowKind.STANDARD  # iter 0, system 0
-    assert kinds[4] == RowKind.CG_INTERNAL  # iter 1, system 0
-    assert kinds[5] == RowKind.STANDARD  # iter 0, system 1
-    assert kinds[6] == RowKind.CG_INTERNAL  # iter 1, system 1
+    assert kinds[3] == RowKind.CG_INTERNAL  # iter 1, system 0
+    assert kinds[4] == RowKind.CG_INTERNAL  # iter 2, system 0
+    assert kinds[5] == RowKind.CG_INTERNAL  # iter 1, system 1
+    assert kinds[6] == RowKind.CG_INTERNAL  # iter 2, system 1
 
 
 def test_gaussian_split_mix_preserves_requested_total_rows(
@@ -146,7 +146,7 @@ def test_gaussian_split_mix_preserves_requested_total_rows(
             seed=0,
             shuffle=False,
             strategy_overrides={
-                "gaussian_residuals": {"stop": 2, "start": 0, "seed": 42},
+                "gaussian_residuals": {"stop": 2, "start": 1, "seed": 42},
                 "gaussian_forward": {"seed": 43},
             },
             solver_overrides=solver_overrides,
@@ -156,11 +156,13 @@ def test_gaussian_split_mix_preserves_requested_total_rows(
     assert result.rhs.shape[0] == 10
     assert result.solutions.shape == result.rhs.shape
     assert result.row_kind_codes.shape[0] == 10
+    # stop=2, start=1 -> K=2 rows per base system, both CG_INTERNAL (iterate 0,
+    # the base pair, is never emitted); all 5 trace rows precede the 5 forward rows.
     assert decode_row_kind_array(result.row_kind_codes) == (
-        RowKind.STANDARD,
         RowKind.CG_INTERNAL,
         RowKind.CG_INTERNAL,
-        RowKind.STANDARD,
+        RowKind.CG_INTERNAL,
+        RowKind.CG_INTERNAL,
         RowKind.CG_INTERNAL,
         RowKind.STANDARD,
         RowKind.STANDARD,
@@ -193,7 +195,7 @@ def test_archive_split_mix_uses_solution_archive_skip(
             strategy_overrides={
                 "residuals": {
                     "stop": 2,
-                    "start": 0,
+                    "start": 1,
                     "solutions_glob": glob_pattern,
                     "shuffle": False,
                 },

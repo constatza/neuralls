@@ -57,5 +57,5 @@ def make_archive_glob(tmp_path: Path) -> Callable[[int], str]:
     return _build
 
 
-TRACE_WINDOW_OVERRIDES: dict[str, int] = {"start": 0, "stop": 3, "step": 1}
-"""Window giving K_rows = 4 (rows 0..3 of a trajectory run to stop=3)."""
+TRACE_WINDOW_OVERRIDES: dict[str, int] = {"start": 1, "stop": 4, "step": 1}
+"""Window giving K_rows = 4 (rows 1..4 of a trajectory run to stop=4; K = stop - start + 1)."""

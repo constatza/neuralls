@@ -34,22 +34,11 @@ def residual_solver() -> TracingSolverCallable:
 
 
 @pytest.fixture
-def direction_solver() -> TracingSolverCallable:
-    """Default tracing solver for the search_directions strategy."""
-    from neuralls.composition.generation.default_services import make_solver
-
-    return make_solver()
-
-
-@pytest.fixture
-def solver_overrides(
-    residual_solver: TracingSolverCallable, direction_solver: TracingSolverCallable
-) -> dict[str, Any]:
+def solver_overrides(residual_solver: TracingSolverCallable) -> dict[str, Any]:
     """Solver overrides covering every single-RHS (trace) strategy."""
     return {
         "residuals": residual_solver,
         "gaussian_residuals": residual_solver,
-        "search_directions": direction_solver,
     }
 
 

@@ -45,9 +45,9 @@ gets more than one leftover sample. Generated strategies overload each matrix th
 so `replacement = true` is rejected (config validation,
 `GenerationConfig._reject_replacement`, and `_validate_replacement_support`).
 
-Trajectory strategies (`residuals`, `gaussian_residuals`, `search_directions`,
+Trajectory strategies (`residuals`, `gaussian_residuals`,
 `smoother_filtered_probes`) take a row budget. Each base system (one solve) yields
-K_rows rows, where K_rows = `len(window.resolve_indices(window.stop + 1))`, registered per
+K_rows rows, where K_rows = `stop - start + 1` (fixed, independent of the initial guess), registered per
 strategy in `runner.py` as `rows_per_base_system`. The budget becomes
 B = ceil(R / K_rows) base systems, and the same split above (or the archive map) is applied
 to base systems, not rows. The overshoot O = B * K_rows - R is trimmed from one matrix
@@ -164,7 +164,6 @@ Start with the simplest family that matches the model target.
 | Advanced | `residual_traces` | `(r_k, x_k)` |
 | Advanced | `residuals` | `(r_k, x_true - x_k)` |
 | Advanced | `gaussian_residuals` | `(r_k, x_true - x_k)` |
-| Advanced | `search_directions` | trace pairs for direction learning |
 | Advanced | `smoother_filtered_probes` | trace pairs, `x` = random probes damped by weighted-Jacobi sweeps |
 
 ## Smoother-Filtered Probes
@@ -188,7 +187,7 @@ does in `composition/preconditioners/_weighting.py`'s
 — that function returns every intermediate sweep (not just the final one),
 so `window` (see "Step Selection" below) can pick any sweep depth or range
 of depths, not only the fully-damped result. Output is a `ResidualTraceSamples`
-(the same container `search_directions.py` populates) — one `(A @ x, x)`
+(the same container `residuals.py` populates) — one `(A @ x, x)`
 row per kept sweep per probe, always 2D regardless of how many sweeps are
 kept.
 
@@ -196,7 +195,7 @@ kept.
 
 `StepWindow` (`step_window.py`) is the one shared abstraction for "which
 steps of a trajectory to run and keep," used by `residuals.py`,
-`search_directions.py`, and `smoother_probes.py` — every strategy that
+and `smoother_probes.py` — every strategy that
 harvests snapshots from a bounded iterative trajectory of a single system
 (`krylov.py` is not a consumer: its samples are random basis combinations,
 not sequential iterates). It replaced the `cg_iters`/`every_n`/`steps`
@@ -209,53 +208,47 @@ Mirrors Python's own `slice`/`range` vocabulary — `stop`/`start`/`step`:
   more. This is what guarantees a strategy never "solves to convergence and
   then discards most of the trajectory": the cap *is* the selection
   parameter, not something decided independently of it.
-- **`start`** (optional) is the first step kept. Left unset (the default
-  everywhere), only the final step is kept — the cheapest, most common
-  case, and the same behavior every one of these strategies had before this
-  abstraction existed. A non-negative `start` is an absolute index from the
-  beginning (`start=0` for a full trace, `start=m` for a `[m, stop]` range);
-  a negative `start` is relative to the trajectory's true end (`start=-n`
-  for the last `n` steps), exactly like Python's own negative indexing.
+- **`start`** (optional, default -1 = last step only) is the first step
+  kept, inclusive. Negative values count back from the last step
+  (`-stop..-1`); positive values are absolute (`1..stop`). Step 0 is never
+  emitted: generation always starts CG at x0 = 0, so iterate 0 is the base
+  pair (r0 = b, e0 = x*), and keeping it would put the right-hand side and
+  the true solution into the dataset as trajectory rows. The rule is
+  enforced once, in `_StepWindowFields`, by resolving the window against a
+  full-length trajectory and rejecting it if the first kept index is 0, so
+  every trajectory config (`residuals`, `gaussian_residuals`,
+  `smoother_filtered_probes`) inherits it. Zero and
+  starts below `-stop` are rejected. Row count per base system is
+  `len(window.resolve_indices(stop + 1))`, fixed and independent of x0; no
+  value-based trimming or scanning is done.
 - **`step`** (default 1) keeps every `step`-th row within the selected
   range.
 
-**Why `start` can be end-relative**: the solver/smoother may stop before
-`stop` on its own — CG accepts a real, reachable `rtol`/`atol` (see below)
-and stops once satisfied, so the actual trajectory can be shorter than
-`stop + 1` rows, and can vary per system. End-relative selection (`start`
-unset or negative) always resolves against whatever length the trajectory
-*actually* turns out to have, correctly picking the true last step(s)
-regardless of when the run stopped. An absolute, non-negative `start`
-presumes the trajectory reaches that far, which a real tolerance doesn't
-guarantee — combining the two is rejected at config construction (see
-below), not left to fail unpredictably depending on convergence.
+Trajectory configs expose no CG tolerance. A reachable `rtol`/`atol` would
+let the solver stop before `stop`, and the row budget below depends on every
+trajectory being full length, so the keys are rejected at config construction
+as unknown fields (`extra="forbid"`).
 
 Call sites use `window.select_with_indices(trajectory)` to get the kept
 rows and their original step indices from one call over one array — this
 is what guarantees the two can never be computed from mismatched arrays by
 mistake.
 
-### Real CG convergence tolerances
+### Trajectory CG tolerance
 
-`residuals.py`/`search_directions.py`'s `ResidualErrorConfig`/
-`SearchDirectionsConfig` (via the `_CgTraceFields` mixin) expose `rtol`/
-`atol` directly — previously hardcoded to `1e-20` in both strategies. That
-value (`_UNREACHABLE_TOLERANCE` in `strategy_configs.py`) is below float64
-machine epsilon, so CG can never actually satisfy it and always runs the
-full `stop` iterations; it's still the default, so existing behavior is
-unchanged unless a real tolerance is given. Passing a real `rtol`/`atol`
-lets CG stop early at its true convergence point — combined with an
-end-relative `start` (unset or negative), this gives "keep the last
-iterate once the residual drops below `tol`" directly, with no new
-abstraction beyond `StepWindow` + these two fields.
+`residuals.py` passes a fixed tolerance of `1e-20` to the solver
+(`_TRAJECTORY_UNREACHABLE_TOLERANCE`). That value is below float64 machine
+epsilon, so CG can never satisfy it and always runs exactly `stop`
+iterations. It must be passed explicitly: torchalg's defaults (`1e-6` /
+`1e-14`) are reachable and would stop the trajectory early.
 
 The row budget assumes every base system yields exactly K_rows rows, which holds only
 when its solve runs to `window.stop`. A base system that converges earlier is an error:
 `trace_utils.require_full_trajectory` raises `TrajectoryShortfallError` (a `RuntimeError`)
-on its raw rows, before trimming, in `residuals`, `search_directions` and
+on its raw rows, before trimming, in `residuals` and
 `smoother_filtered_probes`. Padding a short trajectory would hide the early stop, so it is
-not done. A window the solver cannot reach is therefore a config error: tighten `stop`,
-loosen `rtol`, or pick a window the solver reaches. `smoother_filtered_probes` always runs
+not done. A window the solver cannot reach is therefore a config error: tighten `stop` or
+pick a window the solver reaches. `smoother_filtered_probes` always runs
 exactly `window.stop` sweeps, so it never raises this error.
 
 ## Residual Families
