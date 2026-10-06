@@ -78,15 +78,22 @@ _ARRAY_CHUNK_BYTES = 64 * 1024 * 1024
 class RowSliceable(Protocol):
     """Array-like readable in axis-0 slices (numpy, memmap, h5py, zarr)."""
 
-    shape: tuple[int, ...]
-    dtype: Any
+    @property
+    def shape(self) -> tuple[int, ...]:
+        """Array shape (read-only, as numpy exposes it)."""
+        ...
+
+    @property
+    def dtype(self) -> Any:
+        """Element dtype (read-only, as numpy exposes it)."""
+        ...
 
     def __getitem__(self, key: Any) -> Any:
         """Return the sub-array selected by ``key`` (a row slice, or ``()`` for 0-d)."""
         ...
 
 
-def array_digest(array: RowSliceable) -> Digest:
+def array_digest(array: RowSliceable | np.ndarray) -> Digest:
     """Digest an array's *logical* content: dtype, shape and values.
 
     Independent of the storage format (npy/HDF5/zarr) and of library-version

@@ -41,6 +41,18 @@ class MatrixFormat(StrEnum):
     CSR = "csr"
 
 
+class SparsityPattern(StrEnum):
+    """How CSR samples of one dataset relate to each other's sparsity pattern.
+
+    Selected by ``[output].sparsity_pattern``; never inferred from the data.
+    """
+
+    SHARED = "shared"
+    """One pattern for every sample: indptr and indices are stored once, data is (N, nnz)."""
+    RAGGED = "ragged"
+    """Each sample keeps its own pattern; accepts any matrices."""
+
+
 SystemMatrix = np.ndarray | csr_array
 """A system matrix in either supported format: dense ndarray or CSR."""
 

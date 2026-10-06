@@ -48,6 +48,9 @@ DEFAULT_M_MAX = 20  # Maximum history length for truncated orthogonalization in 
 # =============================================================================
 DEFAULT_NUM_SAMPLES = 6000
 
+DEFAULT_WRITE_BATCH_SIZE = 1024
+"""Rows generated and written per batch. Bounds the working set; does not change output."""
+
 # Name of the gitignored subdirectory `scripts/expand_dataset_sweep.py` writes
 # expanded per-variant dataset configs into, sibling to their `*.sweep.toml`
 # source. Shared with dataset-config error messages so a missing path under
