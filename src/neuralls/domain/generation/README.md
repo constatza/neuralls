@@ -31,6 +31,11 @@ Config-driven generation and the public composition entrypoint
 `neuralls.composition.generation.dataset_builder.build_dataset(...)` both honor
 `enumerate_by` and pass it through to the glob source streams.
 
+Each strategy in a mixture draws from its own stream: unless a strategy sets its own
+`seed` override, its seed is derived from the mixture seed and the strategy name
+(`helpers.derive_strategy_seed`). A shared seed would make two strategies on the same
+matrix emit identical RHS vectors. The derivation is deterministic for a given mixture seed.
+
 For multi-matrix sources, a generated strategy's count is split with the remainder
 rule (`allocation.split_remainder`). Each matrix gets `count // matrix_count` samples,
 and the `count % matrix_count` leftover samples go to distinct matrices chosen by a

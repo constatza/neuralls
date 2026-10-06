@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import warnings
+import zlib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -35,6 +36,29 @@ def rng_from_seed(seed: int | None) -> np.random.Generator:
         Random number generator
     """
     return np.random.default_rng(seed) if seed is not None else np.random.default_rng()
+
+
+def derive_strategy_seed(mixture_seed: int | None, strategy_name: str) -> int | None:
+    """Derive an independent, deterministic seed for one strategy in a mixture.
+
+    Strategies in one mixture must not share a random stream: with a shared
+    seed, two strategies on the same matrix emit identical RHS vectors. The
+    strategy name is hashed into the SeedSequence entropy (CRC32 is stable
+    across processes, unlike ``hash()``), so the same mixture seed always maps
+    each strategy to the same stream.
+
+    Args:
+        mixture_seed: Seed of the whole mixture (None keeps non-deterministic draws).
+        strategy_name: Registered strategy name used as the stream discriminator.
+
+    Returns:
+        Non-negative integer seed for the strategy, or None when mixture_seed is None.
+    """
+    if mixture_seed is None:
+        return None
+    entropy = [mixture_seed, zlib.crc32(strategy_name.encode("utf-8"))]
+    state = np.random.SeedSequence(entropy).generate_state(1, dtype=np.uint32)
+    return int(state[0])
 
 
 def rounded_counts(total: int, proportions: Mapping[str, float]) -> dict[str, int]:

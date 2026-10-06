@@ -20,6 +20,7 @@ from .allocation import archive_units, split_remainder
 from .helpers import (
     _merge_strategy_outputs,
     _resolve_strategy_counts,
+    derive_strategy_seed,
     rng_from_seed,
     select_archive_files,
     serialize_scale_metadata,
@@ -272,7 +273,7 @@ def _generate_mixture_with_metadata(
 
         cfg = overrides.get(strategy_name, {}).copy()
         cfg.setdefault("samples", count)
-        cfg.setdefault("seed", seed)
+        cfg.setdefault("seed", derive_strategy_seed(seed, strategy_name))
 
         effective_archive_solutions = archive_solutions
         if single_solution is not None and archive_solutions is None:

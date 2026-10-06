@@ -313,15 +313,17 @@ def test_single_matrix_parameter_stream_shapes_are_stable(
 def test_single_matrix_parameter_stream_rhs_is_stable(
     single_matrix_parameter_stream_dataset: Path,
 ) -> None:
+    """Pin changed 2026-10-06 when per-strategy seeds were introduced (was 57d3f67600ec0a54)."""
     rhs, _ = load_dense_training_arrays(single_matrix_parameter_stream_dataset)
-    assert _digest(rhs) == "57d3f67600ec0a54"
+    assert _digest(rhs) == "bf19bff32d8eb9c3"
 
 
 def test_single_matrix_parameter_stream_solutions_are_stable(
     single_matrix_parameter_stream_dataset: Path,
 ) -> None:
+    """Pin changed 2026-10-06 when per-strategy seeds were introduced (was dfe2a715580137c3)."""
     _, solutions = load_dense_training_arrays(single_matrix_parameter_stream_dataset)
-    assert _digest(solutions) == "dfe2a715580137c3"
+    assert _digest(solutions) == "ef9bb49324776964"
 
 
 def test_single_matrix_parameter_stream_parameters_are_stable(
