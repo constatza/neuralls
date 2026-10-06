@@ -17,12 +17,17 @@ from torchalg.models.result import SolverResult
 
 from neuralls.domain.normalization import ResidualTraceSamples
 
-from ..helpers import _build_trace_indices, resolve_trace_generation_counts
+from ..helpers import (
+    _build_trace_indices,
+    resolve_trace_generation_counts,
+    trace_rows_per_base_system,
+    trace_rows_per_system,
+)
 from ..interfaces import ArchiveData, ArchiveField, GeneratedSamples, TracingSolverCallable
 from ..providers import HybridInputProvider
 from ..runner import register_single_rhs_strategy
 from ..strategy_configs import SearchDirectionsConfig
-from ..trace_utils import _referenced_sample_count, _trim_residual_traces
+from ..trace_utils import _referenced_sample_count, _trim_residual_traces, require_full_trajectory
 from ..transforms import ComputeRhsTransform
 
 
@@ -32,7 +37,10 @@ def _direction_trace_to_numpy(info: SolverResult) -> np.ndarray:
     return info.direction_vectors.detach().cpu().numpy()
 
 
-@register_single_rhs_strategy(supports_matrix_replacement=True)
+@register_single_rhs_strategy(
+    supports_matrix_replacement=True,
+    rows_per_base_system=trace_rows_per_base_system(SearchDirectionsConfig),
+)
 class SearchDirectionsStrategy:
     """Collect search direction pairs from CG for neural preconditioner training.
 
@@ -149,6 +157,9 @@ class SearchDirectionsStrategy:
                 raise RuntimeError(f"Search directions array is empty for sample {sample_idx + 1}.")
 
             direction_seq, indices = window.select_with_indices(direction_seq_full)
+            require_full_trajectory(
+                len(indices), trace_rows_per_system(window), sample_idx, window.stop
+            )
 
             product_seq = np.array([matrix @ p for p in direction_seq], dtype=np.float64)
 

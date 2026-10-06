@@ -101,7 +101,7 @@ def test_error_vectors_satisfy_equation(
     solver_overrides: dict,
 ) -> None:
     """A @ e_k = r_k holds for all trace rows (A e_k = r_k by construction)."""
-    stop = 5
+    stop = 2
     rhs, solutions, _, error_traces = generate_mixture(
         A=small_spd_matrix,
         mix={"residuals": 1.0},

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
 
@@ -329,3 +330,17 @@ def sample_dataset_with_raw(tmp_path, small_spd_matrix, archive_solutions, archi
     np.save(raw_dir / "solutions.npy", archive_solutions)
 
     return dataset_dir
+
+
+@pytest.fixture
+def warning_messages() -> Iterator[list[str]]:
+    """Collect loguru WARNING-level messages emitted during a test."""
+    from loguru import logger
+
+    messages: list[str] = []
+    sink_id = logger.add(
+        lambda message: messages.append(message.record["message"]),
+        level="WARNING",
+    )
+    yield messages
+    logger.remove(sink_id)

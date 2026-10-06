@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
@@ -15,6 +16,15 @@ from .interfaces import (
     TracingSolverCallable,
 )
 
+RowsPerBaseSystem = Callable[[Mapping[str, Any]], int]
+"""Maps a strategy's raw config to K_rows, the trajectory rows one base system yields."""
+
+
+def _one_row_per_base_system(cfg: Mapping[str, Any]) -> int:
+    """Strategies with no trajectory emit one row per base system."""
+    del cfg
+    return 1
+
 
 @dataclass(frozen=True)
 class MatrixStrategyRegistration:
@@ -23,6 +33,7 @@ class MatrixStrategyRegistration:
     strategy: MatrixGenerationStrategy
     supports_single_rhs: Literal[False] = False
     supports_matrix_replacement: bool = False
+    rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system
 
 
 @dataclass(frozen=True)
@@ -32,6 +43,7 @@ class SingleRhsStrategyRegistration:
     strategy: SingleRhsGenerationStrategy
     supports_single_rhs: Literal[True] = True
     supports_matrix_replacement: bool = False
+    rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system
 
 
 StrategyRegistration = MatrixStrategyRegistration | SingleRhsStrategyRegistration
@@ -48,10 +60,12 @@ class StrategyRegistry:
         strategy: MatrixGenerationStrategy,
         *,
         supports_matrix_replacement: bool = False,
+        rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system,
     ) -> None:
         self._strategies[strategy.name] = MatrixStrategyRegistration(
             strategy,
             supports_matrix_replacement=supports_matrix_replacement,
+            rows_per_base_system=rows_per_base_system,
         )
 
     def register_single_rhs(
@@ -59,10 +73,12 @@ class StrategyRegistry:
         strategy: SingleRhsGenerationStrategy,
         *,
         supports_matrix_replacement: bool = False,
+        rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system,
     ) -> None:
         self._strategies[strategy.name] = SingleRhsStrategyRegistration(
             strategy,
             supports_matrix_replacement=supports_matrix_replacement,
+            rows_per_base_system=rows_per_base_system,
         )
 
     def get(self, name: str) -> StrategyRegistration:
@@ -78,13 +94,15 @@ def register_strategy[StrategyClass](
     strategy_cls: type[StrategyClass] | None = None,
     *,
     supports_matrix_replacement: bool = False,
+    rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system,
 ) -> type[StrategyClass] | Any:
-    """Register a matrix-only generation strategy."""
+    """Register a matrix-only generation strategy (see ``register_single_rhs_strategy``)."""
 
     def _decorate(cls: type[StrategyClass]) -> type[StrategyClass]:
         _registry.register_matrix(
             cast(MatrixGenerationStrategy, cls()),
             supports_matrix_replacement=supports_matrix_replacement,
+            rows_per_base_system=rows_per_base_system,
         )
         return cls
 
@@ -97,13 +115,20 @@ def register_single_rhs_strategy[StrategyClass](
     strategy_cls: type[StrategyClass] | None = None,
     *,
     supports_matrix_replacement: bool = False,
+    rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system,
 ) -> type[StrategyClass] | Any:
-    """Register a generation strategy that supports shared RHS dispatch."""
+    """Register a generation strategy that supports shared RHS dispatch.
+
+    ``rows_per_base_system`` gives K_rows for trajectory strategies so the orchestrator
+    can convert a row budget into whole base systems. The default (one row per base
+    system) suits strategies without a trajectory.
+    """
 
     def _decorate(cls: type[StrategyClass]) -> type[StrategyClass]:
         _registry.register_single_rhs(
             cast(SingleRhsGenerationStrategy, cls()),
             supports_matrix_replacement=supports_matrix_replacement,
+            rows_per_base_system=rows_per_base_system,
         )
         return cls
 
@@ -115,6 +140,15 @@ def register_single_rhs_strategy[StrategyClass](
 def strategy_supports_matrix_replacement(strategy_name: str) -> bool:
     """Return whether the registered strategy supports matrix replacement allocation."""
     return _registry.get(strategy_name).supports_matrix_replacement
+
+
+def rows_per_base_system(strategy_name: str, cfg: Mapping[str, Any]) -> int:
+    """Return K_rows: trace rows one base system contributes to the strategy's output.
+
+    Raises:
+        KeyError: If the strategy name is unknown.
+    """
+    return _registry.get(strategy_name).rows_per_base_system(cfg)
 
 
 def run_generation(

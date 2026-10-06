@@ -71,7 +71,7 @@ normalize = "none"
 
 [[generation.strategy]]
 name = "neutral_ones"
-samples = 2
+samples = 1
 
 [output]
 """
@@ -80,7 +80,7 @@ samples = 2
 
 
 def _write_uniform_generation_config(tmp_path: Path, dataset_id: str) -> Path:
-    """Create a multi-matrix config whose 6 samples split uniformly: 2 per matrix."""
+    """Create a 3-matrix config whose 5 samples split uniformly: 2, 2 and 1 per matrix."""
     matrices_dir = tmp_path / "replacement_matrices"
     matrices_dir.mkdir()
     for idx, stem in enumerate(("matrix_alpha", "matrix_beta", "matrix_gamma")):
@@ -100,7 +100,7 @@ normalize = "none"
 
 [[generation.strategy]]
 name = "random"
-samples = 6
+samples = 5
 
 [output]
 """
@@ -188,7 +188,8 @@ def test_process_data_from_config_honors_enumerate_by(
     output_dir = process_data_from_config(config_path, neuralls_settings)
 
     assert output_dir == neuralls_settings.processed_dir / "enumerated-end-to-end"
-    assert output_dir.exists()
+    rhs, _ = load_dense_training_arrays(output_dir)
+    assert rhs.shape[0] == 1
 
 
 def test_build_context_replacement_is_false_for_uniform_config(
@@ -219,5 +220,5 @@ def test_process_data_from_config_splits_samples_uniformly(
 
     rhs, solutions = load_dense_training_arrays(output_dir)
     assert output_dir == neuralls_settings.processed_dir / "uniform-end-to-end"
-    assert rhs.shape == (6, 2)
-    assert solutions.shape == (6, 2)
+    assert rhs.shape == (5, 2)
+    assert solutions.shape == (5, 2)

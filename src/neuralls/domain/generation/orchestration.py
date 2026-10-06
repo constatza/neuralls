@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from functools import cache
@@ -26,7 +27,7 @@ from .helpers import (
 from .interfaces import ArchiveData, TracingSolverCallable
 from .payloads import GeneratedDatasetPayload
 from .ports import DenseAccumulatorPort
-from .runner import strategy_supports_matrix_replacement
+from .runner import rows_per_base_system, strategy_supports_matrix_replacement
 from .semantics import classify_strategy_row_kind
 from .source_streams import (
     MatrixSampleStream,
@@ -77,8 +78,12 @@ _STRATEGY_PROPERTIES: dict[str, _StrategyProperties] = {
     "validated_archive": _StrategyProperties(
         is_archive=True, supports_replacement=False, glob_key="solutions_glob"
     ),
-    "residuals": _StrategyProperties(is_archive=False, supports_replacement=True),
-    "gaussian_residuals": _StrategyProperties(is_archive=False, supports_replacement=True),
+    "residuals": _StrategyProperties(
+        is_archive=False, supports_replacement=True, glob_key="solutions_glob"
+    ),
+    "gaussian_residuals": _StrategyProperties(
+        is_archive=False, supports_replacement=True, glob_key="solutions_glob"
+    ),
     "search_directions": _StrategyProperties(is_archive=False, supports_replacement=True),
 }
 
@@ -563,6 +568,14 @@ def _archive_glob_for_strategy(
     return glob_pattern if isinstance(glob_pattern, str) else None
 
 
+def _glob_key_phrase(strategy_name: str) -> str:
+    """Name the override key holding this strategy's glob, quoted for error messages."""
+    props = _STRATEGY_PROPERTIES.get(strategy_name)
+    if props is None or props.glob_key is None:
+        return "archive glob"
+    return f"'{props.glob_key}'"
+
+
 def _archive_pool_size(glob_pattern: str, skip: int) -> int:
     """Count the archive files a strategy draws from after its configured skip.
 
@@ -588,12 +601,6 @@ def _archive_skip(
     return int(opts.get("skip", 0))
 
 
-def _is_archive(strategy_name: str) -> bool:
-    """Whether a strategy draws from a finite archive pool."""
-    props = _STRATEGY_PROPERTIES.get(strategy_name)
-    return props is not None and props.is_archive
-
-
 def _split_generated_count(
     count: int,
     groups: Sequence[Sequence[int]],
@@ -613,43 +620,89 @@ def _split_generated_count(
     return allocations
 
 
-def _allocate_archive_files(
+def _rows_per_system_for(
+    strategy_name: str,
+    strategy_overrides: Mapping[str, Mapping[str, Any]] | None,
+    samples: int,
+) -> int:
+    """K_rows for one strategy's budget: rows one of its base systems yields."""
+    opts = dict((strategy_overrides or {}).get(strategy_name, {}))
+    return rows_per_base_system(strategy_name, {**opts, "samples": samples})
+
+
+def _split_generated_rows(
+    rows: int,
+    rows_per_system: int,
+    groups: Sequence[Sequence[int]],
+    num_bindings: int,
+    seed: int,
+) -> list[int]:
+    """Split a generated row budget over base systems, then convert back to rows.
+
+    The budget becomes B = ceil(rows / K_rows) base systems, split like any count.
+    The overshoot O = B * K_rows - rows is trimmed from the lowest-index owner of a
+    base system, which always keeps at least one row since O < K_rows.
+    """
+    base_systems = math.ceil(rows / rows_per_system)
+    units = _split_generated_count(base_systems, groups, num_bindings, seed)
+    row_counts = [units_b * rows_per_system for units_b in units]
+    overshoot = base_systems * rows_per_system - rows
+    if overshoot:
+        first_owner = next(idx for idx, units_b in enumerate(units) if units_b > 0)
+        row_counts[first_owner] -= overshoot
+    return row_counts
+
+
+def _allocate_archive_rows(
     *,
     strategy_name: str,
     glob_pattern: str,
     skip: int,
-    count: int,
+    rows: int,
+    rows_per_system: int,
     groups: Sequence[Sequence[int]],
     num_bindings: int,
 ) -> tuple[list[int], list[tuple[int, ...]]]:
-    """Assign archive (matrix, file) units to bindings so no pair repeats.
+    """Assign archive (matrix, file) base-system units to bindings so no pair repeats.
 
-    The request is capped at M*K. A cap is reported with one warning naming the
-    strategy and both counts. Requires one binding per matrix (checked by the caller).
+    The row request becomes base systems, capped at M*K. The cap is reported once,
+    in rows and base systems. Overshoot rows are trimmed from the last-unit owner.
+    Requires one binding per matrix (checked by the caller).
 
     Returns:
-        Per-binding unit counts and per-binding explicit file indices, both parallel to the bindings.
+        Per-binding row counts and per-binding explicit file indices, both parallel to the bindings.
     """
     num_matrices = len(groups)
     num_files = _archive_pool_size(glob_pattern, skip)
     capacity = num_matrices * num_files
-    requested = capacity if count == _ALL_SAMPLES else count
-    if requested > capacity:
+    requested_rows = capacity * rows_per_system if rows == _ALL_SAMPLES else rows
+    requested_base = math.ceil(requested_rows / rows_per_system)
+    emitted_base = min(requested_base, capacity)
+    if requested_base > capacity:
         logger.warning(
-            f"Strategy '{strategy_name}' requested {requested} samples but the archive has "
-            f"{capacity} (matrix, file) pairs: emitting {capacity}."
+            f"Strategy '{strategy_name}' requested {requested_rows} rows "
+            f"({requested_base} base systems) but the archive has {capacity} (matrix, file) "
+            f"pairs: emitting {emitted_base * rows_per_system} rows ({emitted_base} base systems)."
         )
-    units = archive_units(num_matrices, num_files, min(requested, capacity))
+    units = archive_units(num_matrices, num_files, emitted_base)
 
     files_by_matrix: list[list[int]] = [[] for _ in groups]
     for matrix_pos, file_idx in units:
         files_by_matrix[matrix_pos].append(file_idx)
 
+    row_by_matrix = [len(matrix_files) * rows_per_system for matrix_files in files_by_matrix]
+    overshoot = emitted_base * rows_per_system - requested_rows
+    if units and overshoot > 0:
+        last_unit_matrix, _ = units[-1]
+        row_by_matrix[last_unit_matrix] -= overshoot
+
     counts = [0] * num_bindings
     files: list[tuple[int, ...]] = [() for _ in range(num_bindings)]
-    for group, matrix_files in zip(groups, files_by_matrix, strict=True):
+    for group, matrix_rows, matrix_files in zip(
+        groups, row_by_matrix, files_by_matrix, strict=True
+    ):
         binding_idx = group[0]
-        counts[binding_idx] = len(matrix_files)
+        counts[binding_idx] = matrix_rows
         files[binding_idx] = tuple(matrix_files)
     return counts, files
 
@@ -672,7 +725,7 @@ def _file_backed_archive_globs(
     """
     globs: dict[str, str] = {}
     for strategy_name, count in strategy_counts.items():
-        if count == 0 or not _is_archive(strategy_name):
+        if count == 0:
             continue
         glob_pattern = _archive_glob_for_strategy(strategy_name, strategy_overrides)
         if glob_pattern is None:
@@ -780,12 +833,14 @@ def _resolve_binding_strategy_counts(
     for strategy_name, count in strategy_counts.items():
         if count == 0:
             continue
+        rows_per_system = _rows_per_system_for(strategy_name, strategy_overrides, count)
         if strategy_name in archive_globs:
-            counts, files = _allocate_archive_files(
+            counts, files = _allocate_archive_rows(
                 strategy_name=strategy_name,
                 glob_pattern=archive_globs[strategy_name],
                 skip=_archive_skip(strategy_overrides, strategy_name),
-                count=count,
+                rows=count,
+                rows_per_system=rows_per_system,
                 groups=groups,
                 num_bindings=len(bindings),
             )
@@ -798,15 +853,18 @@ def _resolve_binding_strategy_counts(
             if not has_solution_source:
                 raise ValueError(
                     f"Strategy '{strategy_name}' requested samples=-1 (\"all\") across "
-                    f"{len(bindings)} matrix bindings, but has no 'solutions_glob' to "
-                    "resolve a real total from. Replicating -1 to every binding would "
-                    "load the full archive once per binding (a cartesian-product "
-                    "blowup) — set an explicit positive 'samples' count instead."
+                    f"{len(bindings)} matrix bindings, but has no "
+                    f"{_glob_key_phrase(strategy_name)} to resolve a real total from. "
+                    "Replicating -1 to every binding would load the full archive once per "
+                    "binding (a cartesian-product blowup) — set an explicit positive "
+                    "'samples' count instead."
                 )
             for binding_idx in range(len(bindings)):
                 counts_by_binding[binding_idx][strategy_name] = _ALL_SAMPLES
             continue
-        allocations = _split_generated_count(count, groups, len(bindings), mixture.seed)
+        allocations = _split_generated_rows(
+            count, rows_per_system, groups, len(bindings), mixture.seed
+        )
         for binding_idx, binding_count in enumerate(allocations):
             if binding_count > 0:
                 counts_by_binding[binding_idx][strategy_name] = binding_count

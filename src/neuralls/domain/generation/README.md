@@ -40,11 +40,21 @@ gets more than one leftover sample. Generated strategies overload each matrix th
 so `replacement = true` is rejected (config validation,
 `GenerationConfig._reject_replacement`, and `_validate_replacement_support`).
 
+Trajectory strategies (`residuals`, `gaussian_residuals`, `search_directions`,
+`smoother_filtered_probes`) take a row budget. Each base system (one solve) yields
+K_rows rows, where K_rows = `len(window.resolve_indices(window.stop + 1))`, registered per
+strategy in `runner.py` as `rows_per_base_system`. The budget becomes
+B = ceil(R / K_rows) base systems, and the same split above (or the archive map) is applied
+to base systems, not rows. The overshoot O = B * K_rows - R is trimmed from one matrix
+that owns a base system: the lowest-index one for generated strategies, the owner of the
+last unit for archives. Trimming never removes a whole base system, so every matrix keeps
+at least one row.
+
 Archive strategies (`solution_archive`, `rhs_archive`, `scaled_solutions`, `validated_archive`)
 draw from a grid of `M` matrices by `K` files and emit (matrix, file) pairs through
 `allocation.archive_units`. Unit `t` goes to matrix `t % M`, file
-`(matrix + t // M) % K`, so no pair repeats. A request is capped at `M*K` with one warning
-naming the strategy and both counts. `samples = -1` means all `M*K` pairs, each once.
+`(matrix + t // M) % K`, so no pair repeats. A request is capped at `M*K` base systems with
+one warning naming the strategy, the rows and the base systems. `samples = -1` means all `M*K` pairs, each once.
 The orchestrator writes each binding's files into `file_indices`, and the provider loads
 exactly those files. A single matrix with several bindings is rejected for archive
 strategies before any glob read, because every binding would draw the same files.
@@ -234,17 +244,14 @@ end-relative `start` (unset or negative), this gives "keep the last
 iterate once the residual drops below `tol`" directly, with no new
 abstraction beyond `StepWindow` + these two fields.
 
-Because the row-budget machinery (`resolve_trace_generation_counts`) must
-decide how many base systems to run *before* any of them run, it budgets
-for the worst case — as if every system used the full `stop` — which is
-exact under the default (unreachable-tolerance) mode and a safe
-over-estimate under a real tolerance (a system that converges early simply
-contributes fewer rows than budgeted). With a real tolerance, the final row
-count may therefore land under the requested `samples` rather than hitting
-it exactly; `_trim_error_traces`/`_trim_residual_traces` still cap it at
-`samples`, never over. `smoother_filtered_probes` has no tolerance/
-convergence concept (`apply_jacobi_damping_trajectory` always runs exactly
-`window.stop` sweeps), so this caveat doesn't apply there.
+The row budget assumes every base system yields exactly K_rows rows, which holds only
+when its solve runs to `window.stop`. A base system that converges earlier is an error:
+`trace_utils.require_full_trajectory` raises `TrajectoryShortfallError` (a `RuntimeError`)
+on its raw rows, before trimming, in `residuals`, `search_directions` and
+`smoother_filtered_probes`. Padding a short trajectory would hide the early stop, so it is
+not done. A window the solver cannot reach is therefore a config error: tighten `stop`,
+loosen `rtol`, or pick a window the solver reaches. `smoother_filtered_probes` always runs
+exactly `window.stop` sweeps, so it never raises this error.
 
 ## Residual Families
 
@@ -258,10 +265,9 @@ These names are the supported user-facing identifiers in dataset configs and
 tests.
 
 Residual and trace strategies interpret positive `samples` as the exact final
-flattened row budget (see the real-tolerance caveat above). Internally they
-generate enough complete CG traces to cover that budget, then trim the final
-trace block so downstream arrays and row-kind metadata have exactly
-`samples` rows. `samples = -1` still means all available base systems for
+flattened row budget. Internally they generate ceil(samples / K_rows) complete CG
+traces, then trim the final trace block so downstream arrays and row-kind metadata have
+exactly `samples` rows. `samples = -1` means all `M*K` (matrix, file) base systems for
 finite archive-backed trace sources.
 
 Archive-backed pure-pair strategies can skip an initial slice of the deterministic
@@ -323,7 +329,9 @@ disk once per distinct selection, not once per binding or per dataset file. `Arc
   shared by both formats.
 - `transforms.py`: pure transforms such as `A @ x`. `SolveTransform` and
   `EigenvectorCombinationTransform` accept a `SystemMatrix` and wrap it in a `MatrixOperator`
-- `trace_utils.py`: trace trimming, offsets, and indexing helpers
+- `trace_utils.py`: trace trimming, offsets, and indexing helpers;
+  `TrajectoryShortfallError` and `require_full_trajectory` reject base systems that
+  converged before `window.stop`
 - `step_window.py`: `StepWindow` — which steps of a bounded trajectory to
   run and keep (see "Step Selection" above)
 - `strategies/`: concrete generation implementations

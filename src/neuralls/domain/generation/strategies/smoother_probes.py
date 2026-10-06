@@ -35,11 +35,16 @@ from torchalg.preconditioners.implementations.pod import apply_jacobi_damping_tr
 
 from neuralls.domain.normalization import ResidualTraceSamples
 
-from ..helpers import _build_trace_indices, resolve_trace_generation_counts
+from ..helpers import (
+    _build_trace_indices,
+    resolve_trace_generation_counts,
+    trace_rows_per_base_system,
+    trace_rows_per_system,
+)
 from ..interfaces import ArchiveData, GeneratedSamples
 from ..runner import register_strategy
 from ..strategy_configs import SmootherFilteredProbesConfig
-from ..trace_utils import _trim_residual_traces
+from ..trace_utils import _trim_residual_traces, require_full_trajectory
 from ..transforms import ComputeRhsTransform
 
 
@@ -63,7 +68,7 @@ def _sample_probes(
     return rng.standard_normal((count, dimension))
 
 
-@register_strategy
+@register_strategy(rows_per_base_system=trace_rows_per_base_system(SmootherFilteredProbesConfig))
 class SmootherFilteredProbesStrategy:
     """Generate error snapshots by Jacobi-damping random probe vectors.
 
@@ -126,8 +131,10 @@ class SmootherFilteredProbesStrategy:
         sample_indices: list[np.ndarray] = []
         iteration_indices: list[np.ndarray] = []
 
+        expected_rows = trace_rows_per_system(window)
         for sample_idx, trajectory in enumerate(trajectories):
             selected, indices = window.select_with_indices(trajectory.numpy())
+            require_full_trajectory(len(indices), expected_rows, sample_idx, window.stop)
             solution_blocks.append(selected)
             rhs_blocks.append(rhs_transform.transform(selected))
             sidx, iidx = _build_trace_indices(sample_idx, indices)

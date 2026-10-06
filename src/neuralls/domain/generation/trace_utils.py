@@ -7,6 +7,34 @@ import numpy as np
 from neuralls.domain.normalization import ErrorTraceSamples, ResidualTraceSamples
 
 
+class TrajectoryShortfallError(RuntimeError):
+    """A base system's trajectory ended before its window was fully recorded.
+
+    Row budgets are converted to whole base systems assuming each one yields K_rows
+    rows. Padding a short trajectory would hide a solver that stopped early, so the
+    generation fails instead.
+    """
+
+
+def require_full_trajectory(rows: int, expected: int, sample_idx: int, stop: int) -> None:
+    """Raise unless a base system recorded all ``expected`` trace rows.
+
+    Args:
+        rows: Rows the window kept from this base system's raw trajectory.
+        expected: K_rows, the rows a trajectory run to ``stop`` always yields.
+        sample_idx: Position of the base system in this generation call.
+        stop: The window's ``stop``, quoted in the error for diagnosis.
+
+    Raises:
+        TrajectoryShortfallError: If ``rows`` is below ``expected``.
+    """
+    if rows < expected:
+        raise TrajectoryShortfallError(
+            f"base system {sample_idx} produced {rows} trace rows, expected {expected}: "
+            f"it converged before window.stop={stop}. Padding is disabled."
+        )
+
+
 def _offset_residual_traces(
     traces: ResidualTraceSamples,
     offset: int,
@@ -187,6 +215,7 @@ def _referenced_sample_count(sample_indices: np.ndarray) -> int:
 
 
 __all__ = [
+    "TrajectoryShortfallError",
     "_merge_error_traces",
     "_merge_residual_traces",
     "_offset_error_traces",
@@ -194,4 +223,5 @@ __all__ = [
     "_referenced_sample_count",
     "_trim_error_traces",
     "_trim_residual_traces",
+    "require_full_trajectory",
 ]

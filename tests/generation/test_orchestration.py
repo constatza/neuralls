@@ -448,7 +448,7 @@ def test_resolve_binding_strategy_counts_rejects_unresolvable_all_samples(
     three_bindings: list[SystemBinding],
 ) -> None:
     """samples=-1 across multiple bindings must fail fast without a resolvable glob."""
-    with pytest.raises(ValueError, match="has no 'solutions_glob'"):
+    with pytest.raises(ValueError, match="has no archive glob"):
         _resolve_binding_strategy_counts(
             bindings=three_bindings,
             spec=DatasetSpec(

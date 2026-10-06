@@ -7,7 +7,7 @@ import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 import numpy as np
 from loguru import logger
@@ -371,6 +371,24 @@ def trace_rows_per_system(window: StepWindow) -> int:
     `resolve_trace_generation_counts`.
     """
     return len(window.resolve_indices(window.stop + 1))
+
+
+class _WindowedConfig(Protocol):
+    """A validated strategy config that exposes its trajectory window."""
+
+    @property
+    def window(self) -> StepWindow: ...
+
+
+def trace_rows_per_base_system(
+    config_type: Callable[..., _WindowedConfig],
+) -> Callable[[Mapping[str, Any]], int]:
+    """Build the K_rows callable for a trace strategy from its config model."""
+
+    def _rows(cfg: Mapping[str, Any]) -> int:
+        return trace_rows_per_system(config_type(**cfg).window)
+
+    return _rows
 
 
 def required_trace_systems(samples: int, *, window: StepWindow) -> int:

@@ -419,6 +419,7 @@ def provide_solutions(
     seed: int | None,
     strategy_name: str,
     skip: int = 0,
+    file_indices: tuple[int, ...] | None = None,
 ) -> np.ndarray:
     """Load solution vectors from glob, archive, or raise immediately.
 
@@ -435,6 +436,8 @@ def provide_solutions(
         seed: Random seed for shuffling (passed to FileInputProvider).
         strategy_name: Name used in the error message when no source is available.
         skip: Number of solution files to skip after deterministic ordering/shuffling.
+        file_indices: Explicit pool positions after ``skip`` (see ``FileInputProvider``),
+            or None for the contiguous selection.
 
     Returns:
         Solution vectors, shape (count, n).
@@ -447,9 +450,13 @@ def provide_solutions(
             matrix, count=count, rng=rng
         )
     if solutions_glob is not None:
-        return FileInputProvider(solutions_glob, shuffle=shuffle, seed=seed, skip=skip).provide(
-            matrix, count=count, rng=rng
-        )
+        return FileInputProvider(
+            solutions_glob,
+            shuffle=shuffle,
+            seed=seed,
+            skip=skip,
+            file_indices=file_indices,
+        ).provide(matrix, count=count, rng=rng)
     raise ValueError(
         f"{strategy_name} requires 'solutions_glob' in config or "
         "archive solutions passed via generate_mixture()."

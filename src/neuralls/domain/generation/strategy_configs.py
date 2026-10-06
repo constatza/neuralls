@@ -359,6 +359,14 @@ class BaseTraceConfig(BaseStrategyConfig, _CgTraceFields):
 class ResidualErrorConfig(BaseTraceConfig):
     """Configuration for residual-error trace strategies."""
 
+    file_indices: tuple[int, ...] | None = Field(
+        None,
+        description=(
+            "Explicit positions in the solutions pool, set per binding by the orchestrator "
+            "so bindings draw disjoint base systems. Must match the resolved base-system count."
+        ),
+    )
+
 
 class SearchDirectionsConfig(BaseStrategyConfig, _CgTraceFields):
     """Configuration for SearchDirectionsStrategy.

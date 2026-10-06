@@ -20,12 +20,21 @@ from loguru import logger
 
 from neuralls.domain.normalization import ErrorTraceSamples
 
-from ..helpers import _build_trace_indices, resolve_trace_generation_counts
+from ..helpers import (
+    _build_trace_indices,
+    resolve_trace_generation_counts,
+    trace_rows_per_base_system,
+    trace_rows_per_system,
+)
 from ..interfaces import ArchiveData, ArchiveField, GeneratedSamples, TracingSolverCallable
 from ..providers import HybridInputProvider, RandomInputProvider, provide_solutions
 from ..runner import register_single_rhs_strategy
 from ..strategy_configs import ResidualErrorConfig
-from ..trace_utils import _referenced_sample_count, _trim_error_traces
+from ..trace_utils import (
+    _referenced_sample_count,
+    _trim_error_traces,
+    require_full_trajectory,
+)
 from ..transforms import ComputeRhsTransform
 
 
@@ -80,6 +89,7 @@ class _BaseResidualsStrategy:
             shuffle=config.shuffle,
             seed=config.seed,
             strategy_name=self.name,
+            file_indices=config.file_indices,
         )
 
     def generate(
@@ -187,6 +197,9 @@ class _BaseResidualsStrategy:
             solution_seq_full = _tensor_trace_to_numpy(info.solution_vectors)
 
             residual_seq, indices = window.select_with_indices(residual_seq_full)
+            require_full_trajectory(
+                len(indices), trace_rows_per_system(window), sample_idx, window.stop
+            )
             solution_seq = (
                 window.select(solution_seq_full)
                 if solution_seq_full.size > 0
@@ -221,12 +234,18 @@ class _BaseResidualsStrategy:
         )
 
 
-@register_single_rhs_strategy(supports_matrix_replacement=True)
+@register_single_rhs_strategy(
+    supports_matrix_replacement=True,
+    rows_per_base_system=trace_rows_per_base_system(ResidualErrorConfig),
+)
 class ResidualsStrategy(_BaseResidualsStrategy):
     name = "residuals"
 
 
-@register_single_rhs_strategy(supports_matrix_replacement=True)
+@register_single_rhs_strategy(
+    supports_matrix_replacement=True,
+    rows_per_base_system=trace_rows_per_base_system(ResidualErrorConfig),
+)
 class GaussianResidualsStrategy(_BaseResidualsStrategy):
     name = "gaussian_residuals"
 
