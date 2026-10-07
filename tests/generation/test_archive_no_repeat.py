@@ -6,11 +6,9 @@ from collections.abc import Callable
 
 import pytest
 
-from neuralls.domain.generation import orchestration
-from neuralls.domain.generation.orchestration import (
-    BindingAllocation,
-    _resolve_binding_strategy_counts,
-)
+from neuralls.domain.generation import binding_allocation
+from neuralls.domain.generation.batch_plan import BindingAllocation
+from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.source_streams import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 
@@ -130,7 +128,7 @@ def test_rhs_archive_single_matrix_several_bindings_rejected_before_glob_read(
     def _glob_must_not_be_read(*args: object, **kwargs: object) -> None:
         raise AssertionError("archive glob read before the repeat check")
 
-    monkeypatch.setattr(orchestration, "select_archive_files", _glob_must_not_be_read)
+    monkeypatch.setattr(binding_allocation, "select_archive_files", _glob_must_not_be_read)
     with pytest.raises(ValueError, match="files would repeat across bindings"):
         _resolve_binding_strategy_counts(
             bindings=one_matrix_two_bindings,

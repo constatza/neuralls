@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import pytest
 
-from neuralls.domain.generation.orchestration import _resolve_binding_strategy_counts
+from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.source_streams import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 

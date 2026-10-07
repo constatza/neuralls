@@ -122,7 +122,7 @@ block of rows per matrix binding, in ascending raw-id order — not the original
   matrices). If a strategy pools more samples than matrices across the family
   (the common case for training data), small `matrix_index` values can all fall
   inside the same matrix's row block and resolve to the identical physical
-  matrix — see `_resolve_binding_strategy_counts` in `orchestration.py`.
+  matrix — see `_resolve_binding_strategy_counts` in `binding_allocation.py`.
 
 `configs/cases/45x15randomE/default.toml` and its
 `configs/datasets/{train,test}/45x15randomE/*.toml` datasets are a worked
@@ -300,14 +300,34 @@ above the file's `K` rows is capped at `K` per binding with one warning.
 
 ## Package Map
 
-- `orchestration.py`: the streamed batch pipeline and the in-memory strategy runners. `open_batch_stream()`
-  resolves the run's streams, allocation and plan; `_make_strategy_runner()` returns the
-  `StrategyRunner` that produces one strategy's rows for one binding, loading each binding's inputs
-  once (`_BindingInputs`). `generate_batches()` (see `batch_generator.py`) drives it batch by batch.
+- `orchestration.py`: the streamed batch pipeline. `open_batch_stream()` opens the run's
+  streams (`_open_streams`), resolves the per-binding allocation (`binding_allocation.py`) and
+  plan, then drives `generate_batches()` (see `batch_generator.py`) batch by batch.
+  `_make_strategy_runner()` returns the `StrategyRunner` that produces one strategy's rows for
+  one binding, loading each binding's inputs once (`_BindingInputs`, `_load_binding_inputs`).
   Dataset-level norm and scale values are folded in by `ScalarAggregator`. Internal state
   (opened streams, per-binding strategy allocation, the run's resolved context) is held in frozen
   dataclasses (`OpenedStreams`, `BindingAllocation`, `_GenerationRunContext`) threaded through the
-  pipeline instead of positional tuples. There is no whole-dataset payload builder.
+  pipeline instead of positional tuples. There is no whole-dataset payload builder. The pure
+  allocation math, strategy properties, row generation and matrix caching it drives live in the
+  four sibling modules below, each with no dependency on `orchestration.py` itself.
+- `binding_allocation.py`: pure per-binding strategy-count and archive-file-index allocation,
+  given a seed. `_resolve_binding_strategy_counts()` is the entry point: generated counts are
+  split across matrices then across each matrix's bindings with the remainder allocation
+  (`allocation.py`), so no sample is dropped; archive counts are mapped onto the (matrix, file)
+  grid with `archive_units()`, so no pair is emitted twice. `_single_matrix_allocation()` handles
+  the one-matrix case, where every binding takes the global counts.
+- `strategy_properties.py`: compile-time properties of known generation strategies —
+  `_STRATEGY_PROPERTIES` says which strategies are file-backed archives and which override key
+  holds their glob (`_archive_glob_for_strategy`), and which are solution archives specifically
+  (`_is_solution_archive`, `_explicit_solution_strategies`).
+- `strategy_rows.py`: `_generate_strategy_rows()` runs one strategy for one binding through
+  `run_generation()` (`runner.py`) and returns its `_StrategyRows` (rhs, solutions, row-kind
+  codes), classifying each row's `RowKind` from the strategy's trace iteration indices when
+  present (`_row_kind_codes_for`).
+- `matrix_cache.py`: `_cached_matrix_loader()` returns a loader that normalizes and measures one
+  matrix sample per call, keeping only the most recently requested sample (`_CachedMatrix`)
+  cached — bindings are visited in order, so one matrix in memory at a time is enough.
 - `batch_plan.py`: the row budget of a run, fixed before generation. `plan_batches()` turns
   the resolved `BindingAllocation` into an immutable `BatchPlan` of per-binding, per-strategy
   row counts. `BindingAllocation` is defined here (re-exported by `orchestration.py`). A plan

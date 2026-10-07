@@ -10,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from neuralls.domain.generation.allocation import archive_units, split_remainder
-from neuralls.domain.generation.orchestration import _resolve_binding_strategy_counts
+from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.source_streams import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.platform.config.models.data_models import GenerationConfig

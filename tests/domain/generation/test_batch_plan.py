@@ -7,8 +7,8 @@ from collections.abc import Callable
 import pytest
 
 from neuralls.domain.generation.batch_plan import BindingAllocation, plan_batches
+from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.helpers import resolve_strategy_counts
-from neuralls.domain.generation.orchestration import _resolve_binding_strategy_counts
 from neuralls.domain.generation.source_streams import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 

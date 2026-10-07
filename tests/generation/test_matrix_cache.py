@@ -12,7 +12,7 @@ import weakref
 import numpy as np
 import pytest
 
-from neuralls.domain.generation.orchestration import _cached_matrix_loader
+from neuralls.domain.generation.matrix_cache import _cached_matrix_loader
 from neuralls.domain.generation.specs import DatasetSpec
 from neuralls.shared.types import MatrixFormat
 

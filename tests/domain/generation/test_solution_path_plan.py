@@ -14,8 +14,8 @@ import numpy as np
 import pytest
 
 from neuralls.domain.generation.batch_plan import ALL_SAMPLES, plan_batches
+from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.helpers import solution_row_count
-from neuralls.domain.generation.orchestration import _resolve_binding_strategy_counts
 from neuralls.domain.generation.source_streams import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 

@@ -8,15 +8,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neuralls.domain.generation import orchestration
-from neuralls.domain.generation.orchestration import (
-    BindingAllocation,
-    _generate_strategy_rows,
-    _resolve_binding_strategy_counts,
-    _StrategyRows,
-)
+from neuralls.domain.generation import binding_allocation
+from neuralls.domain.generation.batch_plan import BindingAllocation
+from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.source_streams import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
+from neuralls.domain.generation.strategy_rows import _generate_strategy_rows, _StrategyRows
 
 
 def _stack_strategies(matrix: np.ndarray, mixture: MixtureSpec) -> _StrategyRows:
@@ -416,7 +413,7 @@ def test_archive_single_matrix_several_bindings_is_rejected_before_draw(
     def _glob_must_not_be_read(*args: object, **kwargs: object) -> None:
         raise AssertionError("archive glob read before the repeat check")
 
-    monkeypatch.setattr(orchestration, "select_archive_files", _glob_must_not_be_read)
+    monkeypatch.setattr(binding_allocation, "select_archive_files", _glob_must_not_be_read)
     bindings = [
         SystemBinding(sample_id=0, matrix_sample_id=0, rhs_sample_id=0),
         SystemBinding(sample_id=1, matrix_sample_id=0, rhs_sample_id=1),

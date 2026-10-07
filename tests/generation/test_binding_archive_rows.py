@@ -103,16 +103,16 @@ def test_generated_strategy_with_all_samples_never_receives_archive_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``gaussian_forward`` with ``samples=-1`` is handed no archive, despite the solution file."""
-    from neuralls.domain.generation import orchestration
+    from neuralls.domain.generation import strategy_rows
 
-    real_run_generation = orchestration.run_generation
+    real_run_generation = strategy_rows.run_generation
     archives_seen: list[object] = []
 
     def _spy(strategy_name: str, A: np.ndarray, *args: object, **kwargs: object) -> object:
         archives_seen.append(kwargs.get("archive"))
         return real_run_generation(strategy_name, A, *args, **kwargs)
 
-    monkeypatch.setattr(orchestration, "run_generation", _spy)
+    monkeypatch.setattr(strategy_rows, "run_generation", _spy)
 
     stream = open_binding_stream(explicit_solution_source, {"gaussian_forward": ALL_SAMPLES})
     assert list(stream.batches)

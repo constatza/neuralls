@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from neuralls.domain.generation.batch_plan import ALL_SAMPLES, plan_batches
-from neuralls.domain.generation.orchestration import (
+from neuralls.domain.generation.binding_allocation import (
     _archive_pool_size,
     _resolve_binding_strategy_counts,
 )

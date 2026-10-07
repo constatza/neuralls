@@ -18,8 +18,8 @@ import pytest
 from neuralls.domain.generation.batch import SampleBatch
 from neuralls.domain.generation.batch_generator import generate_batches
 from neuralls.domain.generation.batch_plan import plan_batches
+from neuralls.domain.generation.matrix_cache import _cached_matrix_loader
 from neuralls.domain.generation.orchestration import (
-    _cached_matrix_loader,
     _make_strategy_runner,
     _prepare_generation_context,
 )

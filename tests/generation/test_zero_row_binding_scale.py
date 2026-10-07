@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neuralls.domain.generation import orchestration
+from neuralls.domain.generation import strategy_rows
 from neuralls.domain.generation.interfaces import GeneratedSamples
 from neuralls.domain.generation.orchestration import BatchStream
 from neuralls.domain.generation.scalar_aggregate import BindingScale, ScalarAggregator
@@ -44,7 +44,7 @@ def observed_scales(monkeypatch: pytest.MonkeyPatch) -> list[BindingScale]:
 @pytest.fixture
 def second_run_emits_no_rows(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make the generated strategy return zero rows on its second call (binding 1)."""
-    real_run_generation = orchestration.run_generation
+    real_run_generation = strategy_rows.run_generation
     calls = [0]
 
     def _run(
@@ -60,7 +60,7 @@ def second_run_emits_no_rows(monkeypatch: pytest.MonkeyPatch) -> None:
             )
         return real_run_generation(strategy_name, A, *args, **kwargs)
 
-    monkeypatch.setattr(orchestration, "run_generation", _run)
+    monkeypatch.setattr(strategy_rows, "run_generation", _run)
 
 
 def test_planned_binding_with_no_output_is_observed_once(

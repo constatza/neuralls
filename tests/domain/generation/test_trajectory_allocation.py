@@ -10,11 +10,9 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable
 
+from neuralls.domain.generation.batch_plan import BindingAllocation
+from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.helpers import required_trace_systems
-from neuralls.domain.generation.orchestration import (
-    BindingAllocation,
-    _resolve_binding_strategy_counts,
-)
 from neuralls.domain.generation.runner import rows_per_base_system
 from neuralls.domain.generation.source_streams import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
