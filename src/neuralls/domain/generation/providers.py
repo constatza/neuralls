@@ -335,19 +335,22 @@ class HybridInputProvider:
         Raises:
             ValueError: If archive has insufficient vectors
         """
-        # Try archive first
-        if self.archive is not None:
-            data = getattr(self.archive, self.field, None)
-            if data is not None:
-                if count == ALL_SAMPLES:
-                    return data.astype(np.float64, copy=True)
-                if data.shape[0] < count:
-                    raise ValueError(
-                        f"Not enough archive {self.field}: need {count}, got {data.shape[0]}"
-                    )
-                return data[:count].astype(np.float64, copy=True)
+        data = getattr(self.archive, self.field, None) if self.archive is not None else None
+        if data is None:
+            return self._random_fallback(matrix, count, rng)
+        if count == ALL_SAMPLES:
+            return data.astype(np.float64, copy=True)
+        if data.shape[0] < count:
+            raise ValueError(f"Not enough archive {self.field}: need {count}, got {data.shape[0]}")
+        return data[:count].astype(np.float64, copy=True)
 
-        # Fallback to random
+    def _random_fallback(
+        self,
+        matrix: np.ndarray,
+        count: int,
+        rng: np.random.Generator,
+    ) -> np.ndarray:
+        """Generate random vectors when no archive data is available for `self.field`."""
         if count == ALL_SAMPLES:
             raise ValueError(f"Cannot use count=-1 for field '{self.field}' without archive data.")
         n = matrix.shape[0]

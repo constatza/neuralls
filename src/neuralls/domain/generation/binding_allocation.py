@@ -361,14 +361,65 @@ def _resolve_binding_strategy_counts(
     for strategy_name, count in strategy_counts.items():
         if count == 0:
             continue
-        rows_per_system = _rows_per_system_for(strategy_name, strategy_overrides, count)
-        if solution_rows_total is not None and strategy_name in cyclic_solution_strategies:
+        per_binding_counts, per_binding_files = _binding_counts_for_strategy(
+            strategy_name,
+            count,
+            strategy_overrides=strategy_overrides,
+            groups=groups,
+            num_bindings=len(bindings),
+            archive_globs=archive_globs,
+            cyclic_solution_strategies=cyclic_solution_strategies,
+            solution_rows_total=solution_rows_total,
+            seed=mixture.seed,
+        )
+        for binding_idx, binding_count in per_binding_counts.items():
+            counts_by_binding[binding_idx][strategy_name] = binding_count
+        for binding_idx, file_indices in per_binding_files.items():
+            files_by_binding[binding_idx][strategy_name] = file_indices
+    return BindingAllocation(
+        counts=tuple(counts_by_binding),
+        file_indices=tuple(files_by_binding),
+    )
+
+
+def _binding_counts_for_strategy(
+    strategy_name: str,
+    count: int,
+    *,
+    strategy_overrides: Mapping[str, Mapping[str, Any]] | None,
+    groups: Sequence[Sequence[int]],
+    num_bindings: int,
+    archive_globs: Mapping[str, str],
+    cyclic_solution_strategies: frozenset[str],
+    solution_rows_total: int | None,
+    seed: int,
+) -> tuple[dict[int, int], dict[int, tuple[int, ...]]]:
+    """Resolve one strategy's global count into its per-binding counts and archive files.
+
+    Dispatches on which of three conditions the strategy's count meets, in the same
+    precedence order the caller previously checked them in: a cyclic draw from an
+    explicit solution file, an archive-glob allocation, or (only once neither applies)
+    an unresolvable ``samples=-1``. Anything else is a generated row budget, split
+    across matrices and bindings.
+
+    Returns:
+        Per-binding counts (only bindings with a positive count) and, for an archive
+        allocation, the matching per-binding explicit file indices.
+
+    Raises:
+        ValueError: If ``samples=-1`` has no glob or solution file to resolve against.
+    """
+    is_archive = strategy_name in archive_globs
+    is_cyclic = strategy_name in cyclic_solution_strategies
+    is_all_samples = count == ALL_SAMPLES
+
+    match (solution_rows_total, is_cyclic, is_archive, is_all_samples):
+        case (int() as rows_total, True, _, _):
             # Binding b draws rows (b + p) mod K, so each binding takes the same count.
-            capped = _solution_file_count(strategy_name, count, solution_rows_total)
-            for binding_idx in range(len(bindings)):
-                counts_by_binding[binding_idx][strategy_name] = capped
-            continue
-        if strategy_name in archive_globs:
+            capped = _solution_file_count(strategy_name, count, rows_total)
+            return {binding_idx: capped for binding_idx in range(num_bindings)}, {}
+        case (_, _, True, _):
+            rows_per_system = _rows_per_system_for(strategy_name, strategy_overrides, count)
             counts, files = _allocate_archive_rows(
                 strategy_name=strategy_name,
                 glob_pattern=archive_globs[strategy_name],
@@ -376,34 +427,35 @@ def _resolve_binding_strategy_counts(
                 rows=count,
                 rows_per_system=rows_per_system,
                 groups=groups,
-                num_bindings=len(bindings),
+                num_bindings=num_bindings,
             )
-            for binding_idx, binding_count in enumerate(counts):
-                if binding_count > 0:
-                    counts_by_binding[binding_idx][strategy_name] = binding_count
-                    files_by_binding[binding_idx][strategy_name] = files[binding_idx]
-            continue
-        if count == ALL_SAMPLES:
-            if solution_rows_total is None:
-                raise ValueError(
-                    f"Strategy '{strategy_name}' requested samples=-1 (\"all\") across "
-                    f"{len(bindings)} matrix bindings, but has no "
-                    f"{_glob_key_phrase(strategy_name)} or solution_path to resolve a real "
-                    "total from. Replicating -1 to every binding would load the full archive "
-                    "once per binding (a cartesian-product blowup) — set an explicit positive "
-                    "'samples' count instead."
-                )
+            per_binding_counts = {
+                binding_idx: binding_count
+                for binding_idx, binding_count in enumerate(counts)
+                if binding_count > 0
+            }
+            per_binding_files = {
+                binding_idx: files[binding_idx] for binding_idx in per_binding_counts
+            }
+            return per_binding_counts, per_binding_files
+        case (None, _, _, True):
+            raise ValueError(
+                f"Strategy '{strategy_name}' requested samples=-1 (\"all\") across "
+                f"{num_bindings} matrix bindings, but has no "
+                f"{_glob_key_phrase(strategy_name)} or solution_path to resolve a real "
+                "total from. Replicating -1 to every binding would load the full archive "
+                "once per binding (a cartesian-product blowup) — set an explicit positive "
+                "'samples' count instead."
+            )
+        case (int() as rows_total, _, _, True):
             # Every binding receives all rows of the solution source, so no split applies.
-            for binding_idx in range(len(bindings)):
-                counts_by_binding[binding_idx][strategy_name] = solution_rows_total
-            continue
-        allocations = _split_generated_rows(
-            count, rows_per_system, groups, len(bindings), mixture.seed
-        )
-        for binding_idx, binding_count in enumerate(allocations):
-            if binding_count > 0:
-                counts_by_binding[binding_idx][strategy_name] = binding_count
-    return BindingAllocation(
-        counts=tuple(counts_by_binding),
-        file_indices=tuple(files_by_binding),
-    )
+            return {binding_idx: rows_total for binding_idx in range(num_bindings)}, {}
+        case _:
+            rows_per_system = _rows_per_system_for(strategy_name, strategy_overrides, count)
+            allocations = _split_generated_rows(count, rows_per_system, groups, num_bindings, seed)
+            per_binding_counts = {
+                binding_idx: binding_count
+                for binding_idx, binding_count in enumerate(allocations)
+                if binding_count > 0
+            }
+            return per_binding_counts, {}

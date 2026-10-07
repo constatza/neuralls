@@ -139,13 +139,13 @@ def _write_batches(
         if not len(batch):
             continue
         writer.write_batch(batch)
-        if stream.single_matrix:
-            if matrix_written:
-                continue
-            matrix_written = True
-            csr_writer.write_batch([_csr_sample(stream, int(batch.matrix_sample_index[0]))])
-        else:
+        if not stream.single_matrix:
             csr_writer.write_batch(_csr_rows(stream, batch))
+            continue
+        if matrix_written:
+            continue
+        matrix_written = True
+        csr_writer.write_batch([_csr_sample(stream, int(batch.matrix_sample_index[0]))])
 
 
 def _csr_rows(stream: BatchStream, batch: SampleBatch) -> Sequence[csr_array]:

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 from pydantic import ValidationError
 
+from neuralls.domain.normalization import ErrorTraceSamples, ResidualTraceSamples
 from neuralls.shared.enum_codecs import encode_row_kind_array
 from neuralls.shared.types import GenerationStrategyKind, RowKind, SystemMatrix
 
@@ -34,23 +35,28 @@ class _StrategyRows:
 
 def _row_kind_codes_for(strategy_name: str, generated: GeneratedSamples) -> np.ndarray:
     """Classify each row a strategy emitted, using its trace iteration indices when present."""
-    strategy_kind = GenerationStrategyKind(strategy_name)
-    semantic_size = 0
-    if generated.error_traces is not None:
-        semantic_size = int(generated.error_traces.errors.shape[0])
-    elif generated.residual_traces is not None:
-        semantic_size = int(generated.residual_traces.residuals.shape[0])
-    elif generated.rhs is not None:
-        semantic_size = int(generated.rhs.shape[0])
+    match generated:
+        case GeneratedSamples(
+            error_traces=ErrorTraceSamples(errors=errors, iteration_indices=iter_indices)
+        ):
+            semantic_size = int(errors.shape[0])
+        case GeneratedSamples(
+            residual_traces=ResidualTraceSamples(
+                residuals=residuals, iteration_indices=iter_indices
+            )
+        ):
+            semantic_size = int(residuals.shape[0])
+        case GeneratedSamples(rhs=np.ndarray() as rhs):
+            semantic_size = int(rhs.shape[0])
+            iter_indices = None
+        case _:
+            semantic_size = 0
+            iter_indices = None
+
     if semantic_size == 0:
         return encode_row_kind_array([])
 
-    base_kind = classify_strategy_row_kind(strategy_kind)
-    iter_indices = None
-    if (et := generated.error_traces) is not None:
-        iter_indices = et.iteration_indices
-    elif (rt := generated.residual_traces) is not None:
-        iter_indices = rt.iteration_indices
+    base_kind = classify_strategy_row_kind(GenerationStrategyKind(strategy_name))
     # iter 0 is STANDARD only because CG initialises at x_0 = 0:
     # r_0 = b - A@0 = b  and  e_0 = x_true - 0 = x_true → (r_0, e_0) = (b, x_true).
     # WARNING: if the solver ever uses a non-zero initial guess this breaks silently.
