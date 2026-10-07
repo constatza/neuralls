@@ -7,7 +7,6 @@ maintainability and avoid duplication.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
 
 from neuralls.shared.types import MatrixNormType
 
@@ -98,15 +97,6 @@ DEFAULT_TEST_SAMPLE_INDEX = 0  # Which sample to extract for single-sample compa
 # from history.
 TRAINING_CHILD_DURATION_METRIC_KEY = "training_child_duration_seconds"
 TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY = "training_child_peak_memory_bytes"
-
-
-# =============================================================================
-# Eigenvector Selection
-# =============================================================================
-EIGENVECTOR_SELECT_SMALLEST = "smallest"
-EIGENVECTOR_SELECT_LARGEST = "largest"
-EIGENVECTOR_SELECT_RANDOM = "random"
-EigenvectorSelectionMode = Literal["smallest", "largest", "random"]
 
 
 # =============================================================================

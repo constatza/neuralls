@@ -32,8 +32,7 @@ from typing import Any, Literal, Protocol, TypeVar
 import numpy as np
 from scipy.sparse.linalg import LinearOperator
 
-from neuralls.shared.constants import EigenvectorSelectionMode
-from neuralls.shared.types import SystemMatrix
+from neuralls.shared.types import EigenvectorSelection, SystemMatrix
 
 from .helpers import (
     _compute_eigendecomposition,
@@ -245,7 +244,7 @@ class EigenvectorCombinationTransform:
     def __init__(
         self,
         count: int,
-        which: EigenvectorSelectionMode,
+        which: EigenvectorSelection,
         rng: np.random.Generator,
         num_eigenvectors: int | None = None,
         include_eigenvectors: bool = False,

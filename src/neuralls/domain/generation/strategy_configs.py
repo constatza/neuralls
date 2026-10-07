@@ -10,13 +10,10 @@ from neuralls.shared.constants import (
     DEFAULT_KRYLOV_ITERATIONS,
     DEFAULT_RANDOM_SEED,
     DEFAULT_SHUFFLE,
-    EIGENVECTOR_SELECT_RANDOM,
-    EIGENVECTOR_SELECT_SMALLEST,
     MAX_ITERATIONS_UPPER_LIMIT,
     MIN_TOLERANCE,
-    EigenvectorSelectionMode,
 )
-from neuralls.shared.types import MatrixFormat
+from neuralls.shared.types import EigenvectorSelection, MatrixFormat
 
 from .step_window import StepWindow
 
@@ -173,8 +170,8 @@ class _StepWindowFields(BaseModel):
 
 
 class BaseEigenvectorConfig(BaseStrategyConfig):
-    which: EigenvectorSelectionMode = Field(
-        EIGENVECTOR_SELECT_SMALLEST, description="Which eigenvalues to compute."
+    which: EigenvectorSelection = Field(
+        EigenvectorSelection.SMALLEST, description="Which eigenvalues to compute."
     )
     include_eigenvectors: bool = Field(
         True, description="Whether to include eigenvectors in the generated solutions."
@@ -485,7 +482,7 @@ EIGENVECTOR_STRATEGY_NAMES: frozenset[str] = frozenset(
 
 
 def require_which_supported_by_format(
-    which: EigenvectorSelectionMode,
+    which: EigenvectorSelection,
     matrix_format: MatrixFormat,
 ) -> None:
     """Reject eigenvector selections the dataset's matrix format cannot serve.
@@ -497,7 +494,7 @@ def require_which_supported_by_format(
     Raises:
         ValueError: If `which` is "random" for a CSR dataset.
     """
-    if matrix_format is MatrixFormat.CSR and which == EIGENVECTOR_SELECT_RANDOM:
+    if matrix_format is MatrixFormat.CSR and which == EigenvectorSelection.RANDOM:
         raise ValueError(
             "eigenvector which='random' requires the full spectrum and is not supported "
             "with matrix_format='csr'; use 'smallest' or 'largest', or matrix_format='dense'"

@@ -12,10 +12,10 @@ from neuralls.domain.generation.helpers import (
     _select_eigenvectors,
     _solve_linear_systems,
 )
-from neuralls.domain.generation.matrix_operator import MatrixOperator, _FactorKind
+from neuralls.domain.generation.matrix_operator import EigenWhich, MatrixOperator, _FactorKind
 from neuralls.domain.generation.strategy_configs import require_which_supported_by_format
 from neuralls.platform.config.models.data_models import DataConfigFile
-from neuralls.shared.types import MatrixFormat
+from neuralls.shared.types import EigenvectorSelection, MatrixFormat
 
 FIXTURE_SEED = 7
 MATRIX_SIZE = 12
@@ -116,15 +116,19 @@ def test_factor_is_built_once_and_reused(spd_dense: np.ndarray, rhs_rows: np.nda
     assert cache.factor is first_factor
 
 
-@pytest.mark.parametrize("which", ["smallest", "largest"])
+@pytest.mark.parametrize("which", [EigenvectorSelection.SMALLEST, EigenvectorSelection.LARGEST])
 def test_csr_eigensystem_matches_dense_eigh(
-    which: str, spd_dense: np.ndarray, spd_csr: _NoDensifyCsr
+    which: EigenWhich, spd_dense: np.ndarray, spd_csr: _NoDensifyCsr
 ) -> None:
     """Sparse eigensolve returns the same eigenvalues as dense eigh at each end."""
     all_values = eigh(spd_dense, eigvals_only=True)
-    expected = all_values[:EIGEN_COUNT] if which == "smallest" else all_values[-EIGEN_COUNT:]
+    expected = (
+        all_values[:EIGEN_COUNT]
+        if which is EigenvectorSelection.SMALLEST
+        else all_values[-EIGEN_COUNT:]
+    )
 
-    values, vectors = MatrixOperator(spd_csr).eigensystem(EIGEN_COUNT, which)  # type: ignore[arg-type]
+    values, vectors = MatrixOperator(spd_csr).eigensystem(EIGEN_COUNT, which)
 
     np.testing.assert_allclose(values, expected, atol=EIGEN_TOLERANCE)
     assert vectors.shape == (MATRIX_SIZE, EIGEN_COUNT)

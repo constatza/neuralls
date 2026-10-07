@@ -27,11 +27,9 @@ from neuralls.domain.generation.strategy_configs import (
 from neuralls.platform.config.context import ConfigContext, expand_config_glob, expand_config_path
 from neuralls.shared.constants import (
     DEFAULT_WRITE_BATCH_SIZE,
-    EIGENVECTOR_SELECT_SMALLEST,
-    EigenvectorSelectionMode,
 )
 from neuralls.shared.digest import Cosmetic
-from neuralls.shared.types import DatasetFormat, MatrixFormat, SparsityPattern
+from neuralls.shared.types import DatasetFormat, EigenvectorSelection, MatrixFormat, SparsityPattern
 
 
 class SourceConfig(BaseModel):
@@ -473,11 +471,13 @@ class DataConfigFile(BaseModel):
         Checked here because the strategy `which` lives in `[[generation.strategy]]`
         while `matrix_format` lives in `[output]` of the same file.
         """
-        which_adapter = TypeAdapter(EigenvectorSelectionMode)
+        which_adapter = TypeAdapter(EigenvectorSelection)
         for strategy in self.generation.strategy:
             if strategy.name not in EIGENVECTOR_STRATEGY_NAMES:
                 continue
             extras = strategy.model_extra or {}
-            which = which_adapter.validate_python(extras.get("which", EIGENVECTOR_SELECT_SMALLEST))
+            which = which_adapter.validate_python(
+                extras.get("which", EigenvectorSelection.SMALLEST)
+            )
             require_which_supported_by_format(which, self.output.matrix_format)
         return self

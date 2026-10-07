@@ -173,6 +173,14 @@ class GenerationStrategyKind(StrEnum):
     SMOOTHER_FILTERED_PROBES = "smoother_filtered_probes"
 
 
+class EigenvectorSelection(StrEnum):
+    """Which eigenvalues an eigenvector strategy draws its basis from."""
+
+    SMALLEST = "smallest"
+    LARGEST = "largest"
+    RANDOM = "random"
+
+
 class ScaleMetadata(TypedDict, total=False):
     """Type-safe schema for scale metadata dictionary."""
 

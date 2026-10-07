@@ -18,10 +18,9 @@ from scipy.linalg import cho_factor, cho_solve, eigh, lu_factor, lu_solve
 from scipy.sparse import csr_array
 from scipy.sparse.linalg import SuperLU, eigsh, splu
 
-from neuralls.shared.constants import EIGENVECTOR_SELECT_SMALLEST
-from neuralls.shared.types import MatrixFormat, SystemMatrix
+from neuralls.shared.types import EigenvectorSelection, MatrixFormat, SystemMatrix
 
-type EigenWhich = Literal["smallest", "largest"]
+type EigenWhich = Literal[EigenvectorSelection.SMALLEST, EigenvectorSelection.LARGEST]
 """Eigenvalue end requested from `MatrixOperator.eigensystem`."""
 
 SYMMETRY_ATOL = 1e-10
@@ -258,7 +257,7 @@ class MatrixOperator:
                         "use a dense matrix for the full spectrum"
                     )
                 csr = csr_array(self.matrix)
-                if which == EIGENVECTOR_SELECT_SMALLEST:
+                if which == EigenvectorSelection.SMALLEST:
                     values, vectors = eigsh(csr, k=count, sigma=_SHIFT_INVERT_SIGMA, which="LM")
                 else:
                     values, vectors = eigsh(csr, k=count, which="LA")
@@ -270,6 +269,6 @@ def _take_end(
     values: np.ndarray, vectors: np.ndarray, count: int, which: EigenWhich
 ) -> tuple[np.ndarray, np.ndarray]:
     """Slice the `count` ascending eigenpairs at the requested end."""
-    if which == EIGENVECTOR_SELECT_SMALLEST:
+    if which == EigenvectorSelection.SMALLEST:
         return values[:count], vectors[:, :count]
     return values[-count:], vectors[:, -count:]

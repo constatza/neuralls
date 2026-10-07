@@ -120,9 +120,15 @@ def test_entry_from_path_returns_hdf5_entry(tmp_path: Path) -> None:
 
 
 def test_streamed_parameter_arrays_are_stored_under_indexed_keys(
-    tmp_path: Path, matrix_file: Path
+    tmp_path: Path, two_by_two: NDArray[np.float64]
 ) -> None:
-    """Parameter streams are stored in dataset.h5 under 'parameters_<i>' and listed in the manifest."""
+    """Parameter streams are stored in dataset.h5 under 'parameters_<i>' and listed in the manifest.
+
+    Parameters belong to matrices, so each of the three matrices carries one parameter row.
+    """
+    matrix_stack = np.stack([two_by_two * (index + 1) for index in range(3)])
+    matrix_file = tmp_path / "matrices.npy"
+    np.save(matrix_file, matrix_stack)
     params = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]], dtype=np.float64)
     params_file = tmp_path / "params.npy"
     np.save(params_file, params)

@@ -16,13 +16,7 @@ from loguru import logger
 from scipy.linalg import norm
 
 from neuralls.domain.normalization import IScale
-from neuralls.shared.constants import (
-    EIGENVECTOR_SELECT_LARGEST,
-    EIGENVECTOR_SELECT_RANDOM,
-    EIGENVECTOR_SELECT_SMALLEST,
-    EigenvectorSelectionMode,
-)
-from neuralls.shared.types import MatrixFormat, ScaleMetadata, SystemMatrix
+from neuralls.shared.types import EigenvectorSelection, MatrixFormat, ScaleMetadata, SystemMatrix
 
 from .matrix_operator import MatrixOperator, require_eigen_count
 from .step_window import StepWindow
@@ -460,7 +454,7 @@ def resolve_trace_generation_counts(
 def _compute_eigendecomposition(
     operator: MatrixOperator,
     count: int,
-    which: EigenvectorSelectionMode,
+    which: EigenvectorSelection,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute the eigenpairs needed to select `count` eigenvectors.
 
@@ -481,15 +475,15 @@ def _compute_eigendecomposition(
             for a CSR operator
     """
     match which:
-        case "random":
+        case EigenvectorSelection.RANDOM:
             if operator.format is MatrixFormat.CSR:
                 raise ValueError(
                     "Random eigenvector selection needs the full spectrum, which requires "
                     "a dense matrix; use 'smallest' or 'largest' with csr matrices"
                 )
             n = operator.shape[0]
-            return operator.eigensystem(n, EIGENVECTOR_SELECT_SMALLEST)
-        case "smallest" | "largest":
+            return operator.eigensystem(n, EigenvectorSelection.SMALLEST)
+        case EigenvectorSelection.SMALLEST | EigenvectorSelection.LARGEST:
             return operator.eigensystem(count, which)
 
 
@@ -497,7 +491,7 @@ def _select_eigenvectors(
     eigenvectors: np.ndarray,
     eigenvalues: np.ndarray,
     count: int,
-    which: str,
+    which: EigenvectorSelection,
     rng: np.random.Generator,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Select subset of eigenvectors according to which eigenvalues to use.
@@ -516,22 +510,18 @@ def _select_eigenvectors(
         Tuple of (selected_eigenvectors, selected_eigenvalues, indices)
 
     Raises:
-        ValueError: If count invalid or which unknown
+        ValueError: If count is outside 1..n.
     """
     n = eigenvectors.shape[0]
     available = eigenvalues.shape[0]
     require_eigen_count(count, n)
-    if which == EIGENVECTOR_SELECT_SMALLEST:
-        indices = np.arange(count)
-    elif which == EIGENVECTOR_SELECT_LARGEST:
-        indices = np.arange(available - count, available)
-    elif which == EIGENVECTOR_SELECT_RANDOM:
-        indices = rng.choice(available, size=count, replace=False)
-    else:
-        raise ValueError(
-            f"Invalid which: '{which}'. Must be '{EIGENVECTOR_SELECT_SMALLEST}', "
-            f"'{EIGENVECTOR_SELECT_LARGEST}', or '{EIGENVECTOR_SELECT_RANDOM}'"
-        )
+    match which:
+        case EigenvectorSelection.SMALLEST:
+            indices = np.arange(count)
+        case EigenvectorSelection.LARGEST:
+            indices = np.arange(available - count, available)
+        case EigenvectorSelection.RANDOM:
+            indices = rng.choice(available, size=count, replace=False)
     return eigenvectors[:, indices], eigenvalues[indices], indices
 
 
