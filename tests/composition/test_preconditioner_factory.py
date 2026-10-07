@@ -37,9 +37,9 @@ from torchalg.preconditioners.implementations.amg import (
 from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAdapter
 
 from neuralls.composition.generation.dataset_builder import build_dataset
-from neuralls.composition.preconditioners.factory import (
+from neuralls.composition.preconditioners.factory import create_preconditioner
+from neuralls.composition.preconditioners.schedule import (
     PreconditionerScheduleConfig,
-    create_preconditioner,
     create_scheduled_preconditioner,
 )
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec

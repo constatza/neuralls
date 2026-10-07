@@ -8,7 +8,7 @@ from typing import cast
 import pytest
 import torch
 
-from neuralls.composition.preconditioners.factory import _build_amg_coarsening
+from neuralls.composition.preconditioners.coarsening import _build_amg_coarsening
 from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
 
 _MATRIX_SIZE = 4

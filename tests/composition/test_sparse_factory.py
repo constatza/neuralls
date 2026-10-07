@@ -26,10 +26,8 @@ from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAda
 from torchalg.sparse.preconditioners.jacobi import JacobiPreconditioner as SparseJacobi
 
 from neuralls.composition.generation.dataset_builder import build_dataset
-from neuralls.composition.preconditioners.factory import (
-    _lookup_builder,
-    create_preconditioner,
-)
+from neuralls.composition.preconditioners.builders import _lookup_builder
+from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.composition.solvers.torchalg_runner import _to_torch_operator
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.config.models.preconditioner import (
@@ -290,16 +288,16 @@ def test_dense_fitted_checkpoint_is_rejected_for_a_csr_matrix(
         PODCoarseningStrategy as SparsePODCoarseningStrategy,
     )
 
-    from neuralls.composition.preconditioners import factory
+    from neuralls.composition.preconditioners import coarsening
 
     dense_fitted = PODCoarseningStrategy(rank=POD_RANK)
-    monkeypatch.setattr(factory.torch, "load", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(factory, "build_model_from_checkpoint", lambda _raw: dense_fitted)
+    monkeypatch.setattr(coarsening.torch, "load", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(coarsening, "build_model_from_checkpoint", lambda _raw: dense_fitted)
     checkpoint = tmp_path / "pod.ckpt"
     checkpoint.write_bytes(b"placeholder")
 
     with pytest.raises(TypeError, match="expected PODCoarseningStrategy"):
-        factory._load_fitted_pod_coarsening(
+        coarsening._load_fitted_pod_coarsening(
             checkpoint,
             _to_torch_operator(laplacian_csr),
             SparsePODCoarseningStrategy,

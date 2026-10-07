@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING, Any, Literal
 import torch
 from torchalg.preconditioners.base import BindableInputs, Preconditioner
 
-from neuralls.composition.preconditioners.factory import (
+from neuralls.composition.preconditioners.factory import create_preconditioner
+from neuralls.composition.preconditioners.schedule import (
     PreconditionerScheduleConfig,
-    create_preconditioner,
     create_scheduled_preconditioner,
 )
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
