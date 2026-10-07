@@ -4,7 +4,7 @@ The domain package contains the pure computational core of `neuralls`.
 
 ## Package Map
 
-- `solver/`: CG solvers, monitoring, strategies, preconditioners, and comparison runner
+- `solver/`: solver/comparison config and reporting DTOs, cost metrics, and comparison orchestration over `torchalg` — CG/PCG/FCG algorithms, monitoring primitives, and preconditioners live in `torchalg`, not here (see `domain/solver/README.md`)
 - `generation/`: strategy-driven dataset payload generation
 - `analysis/`: pure numerical diagnostics used by higher layers
 - `linalg.py`: pure linear algebra utilities (matrix norms, normalization scale)

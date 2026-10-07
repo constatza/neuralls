@@ -128,14 +128,13 @@ implement torchalg's idempotent `cleanup()` port by delegating to DLKit's
 keeps comparison orchestration free of DLKit-specific cleanup calls while still
 making one-model-at-a-time evaluation deterministic for GPU memory.
 
-Neural model input is produced through the `ModelInputAdapter` protocol.
-`DenseModelInput` (the only implementation) converts a dense ndarray or tensor
-to float64 with a leading batch axis, which DLKit's predictor expects. It
-rejects a `csr_array` with `TypeError` rather than densifying: a sparse system
-matrix reaches the predictor only after composition has densified it through
-an explicit, logged step. Keeping the densify out of the adapter means the
-predictor never pays an O(n^2) cost silently; a future sparse-aware adapter
-would be a second `ModelInputAdapter` implementation, not a flag on this one.
+Neural model input is prepared by `predictor_adapter.py`'s `_prepare_model_input`,
+which takes a `torch.Tensor` and converts it to float64 with a leading batch
+axis, which DLKit's predictor expects. It never sees a `csr_array`: a sparse
+system matrix is densified before it reaches this layer, in `composition`'s
+builder dispatch (`_DENSIFY_FOR_CSR`, one `O(n^2)`-cost INFO log line per
+call), not here. Keeping the densify out of the adapter means this layer
+stays a plain tensor-shape step with no format branching of its own.
 
 `DLKitPredictor` exposes a `required_inputs: tuple[str, ...]` property so that
 the solver layer can derive which extra arrays a neural model needs without
