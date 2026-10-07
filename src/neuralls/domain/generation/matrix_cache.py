@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from functools import lru_cache
 
 from neuralls.domain.normalization import IScale
 from neuralls.domain.normalization import matrix_norm as system_matrix_norm
 from neuralls.shared.types import MatrixFormat, MatrixNormType, ScaleMetadata, SystemMatrix
 
 from .scaling import normalize_matrix_for_generation, serialize_scale_metadata
+from .single_slot import SingleSlot
 from .source_streams import MatrixSampleStream
 from .specs import DatasetSpec
 
@@ -56,9 +56,9 @@ def _cached_matrix_loader(
     Returns:
         Callable mapping a matrix sample id to its cached normalized data.
     """
+    slot = SingleSlot[int, _CachedMatrix]()
 
-    @lru_cache(maxsize=1)
-    def _get_matrix(sample_id: int) -> _CachedMatrix:
+    def _load(sample_id: int) -> _CachedMatrix:
         raw_matrix = matrix_stream.load_sample(sample_id, matrix_format)
         if raw_matrix.shape[0] != raw_matrix.shape[1]:
             raise ValueError(f"Matrix sample {sample_id} must be square, got {raw_matrix.shape}")
@@ -76,5 +76,8 @@ def _cached_matrix_loader(
             matrix_value_scale=matrix_value_scale,
             scale_params=scale_params,
         )
+
+    def _get_matrix(sample_id: int) -> _CachedMatrix:
+        return slot.get(sample_id, _load)
 
     return _get_matrix

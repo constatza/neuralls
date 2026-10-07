@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +22,7 @@ from .counts import resolve_strategy_counts
 from .matrix_cache import _cached_matrix_loader, _CachedMatrix
 from .scalar_aggregate import BindingScale, ScalarAggregator
 from .seeds import derive_seed
+from .single_slot import SingleSlot
 from .source_streams import (
     MatrixSampleStream,
     VectorSampleStream,
@@ -340,13 +340,16 @@ def _make_strategy_runner(
     ``on_inputs_loaded`` receives each binding's matrix as it loads, so its scalars are
     available without loading the matrix again.
     """
+    slot = SingleSlot[int, _BindingInputs]()
 
-    @lru_cache(maxsize=1)
-    def _inputs_for(binding_index: int) -> _BindingInputs:
+    def _load(binding_index: int) -> _BindingInputs:
         logger.info(f"Generating/loading samples for binding index={binding_index}...")
         inputs = _load_binding_inputs(binding_index, context, get_matrix, mixture)
         on_inputs_loaded(binding_index, inputs.matrix)
         return inputs
+
+    def _inputs_for(binding_index: int) -> _BindingInputs:
+        return slot.get(binding_index, _load)
 
     def run_strategy(binding_index: int, strategy_name: str) -> SampleBatch:
         inputs = _inputs_for(binding_index)

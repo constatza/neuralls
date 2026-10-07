@@ -327,7 +327,13 @@ above the file's `K` rows is capped at `K` per binding with one warning.
   present (`_row_kind_codes_for`).
 - `matrix_cache.py`: `_cached_matrix_loader()` returns a loader that normalizes and measures one
   matrix sample per call, keeping only the most recently requested sample (`_CachedMatrix`)
-  cached — bindings are visited in order, so one matrix in memory at a time is enough.
+  cached — bindings are visited in order, so one matrix in memory at a time is enough. The
+  single-entry cache is a `single_slot.SingleSlot`, not `functools.lru_cache`, so the "one
+  slot, most recent wins" rule is explicit rather than a decorator depending on call order.
+  `orchestration._make_strategy_runner`'s per-binding `_inputs_for` cache uses the same
+  `SingleSlot` for the same reason.
+- `single_slot.py`: `SingleSlot[K, V]`, a one-entry cache with an explicit `get(key, loader)` —
+  the shared replacement for the `lru_cache(maxsize=1)`-on-a-closure pattern above.
 - `batch_plan.py`: the row budget of a run, fixed before generation. `plan_batches()` turns
   the resolved `BindingAllocation` into an immutable `BatchPlan` of per-binding, per-strategy
   row counts. `BindingAllocation` is defined here (re-exported by `orchestration.py`). A plan
