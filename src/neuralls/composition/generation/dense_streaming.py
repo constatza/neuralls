@@ -8,7 +8,6 @@ from pathlib import Path
 from numpy.typing import NDArray
 from scipy.sparse import csr_array
 
-from neuralls.composition.generation.finalize import commit_staged_directory
 from neuralls.domain.generation.orchestration import open_batch_stream
 from neuralls.domain.generation.ports import ArrayStore
 from neuralls.domain.generation.sample_writer import MatrixLookup, SampleWriter
@@ -18,6 +17,7 @@ from neuralls.platform.storage.dense_stream import (
     open_dense_array_store,
     save_dense_stream_manifest,
 )
+from neuralls.platform.storage.staged_commit import commit_staged_directory
 from neuralls.shared.types import DatasetFormat, LayoutType, SystemMatrix
 
 

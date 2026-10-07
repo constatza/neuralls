@@ -11,10 +11,11 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.generation import dataset_builder, finalize
+from neuralls.composition.generation import dataset_builder
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.domain.identity import StageIdentity
+from neuralls.platform.storage import staged_commit
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.types import DatasetFormat
 
@@ -32,7 +33,7 @@ def stage_identity() -> StageIdentity:
 def event_log(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Record rename and stamp events in the order they happen."""
     events: list[str] = []
-    original_rename = finalize._rename_staged
+    original_rename = staged_commit._rename_staged
     original_stamp: Callable[..., None] = dataset_builder._stamp_dataset_identity
 
     def _recording_rename(staging: Path, final: Path) -> None:
@@ -43,7 +44,7 @@ def event_log(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         events.append(_STAMP)
         original_stamp(dataset_dir, *args, **kwargs)
 
-    monkeypatch.setattr(finalize, "_rename_staged", _recording_rename)
+    monkeypatch.setattr(staged_commit, "_rename_staged", _recording_rename)
     monkeypatch.setattr(dataset_builder, "_stamp_dataset_identity", _recording_stamp)
     return events
 

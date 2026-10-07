@@ -148,7 +148,10 @@ def _rename_staged(staging: Path, final_dir: Path) -> None:
     _move(final_dir, aside)
     try:
         _move(staging, final_dir)
-    except OSError:
-        _move(aside, final_dir)
+    except OSError as commit_error:
+        try:
+            _move(aside, final_dir)
+        except OSError as restore_error:
+            raise restore_error from commit_error
         raise
     shutil.rmtree(aside)

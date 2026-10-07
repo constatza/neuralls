@@ -14,7 +14,6 @@ from pathlib import Path
 from scipy.sparse import csr_array
 
 from neuralls.composition.generation.dense_streaming import release_after_failure
-from neuralls.composition.generation.finalize import commit_staged_directory
 from neuralls.domain.generation.batch import SampleBatch
 from neuralls.domain.generation.orchestration import BatchStream, open_batch_stream
 from neuralls.domain.generation.sample_writer import SampleWriter
@@ -27,6 +26,7 @@ from neuralls.platform.storage.dense_stream import (
     open_dense_array_store,
     save_csr_stream_manifest,
 )
+from neuralls.platform.storage.staged_commit import commit_staged_directory
 from neuralls.shared.types import (
     DatasetFormat,
     LayoutType,

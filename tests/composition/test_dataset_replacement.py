@@ -13,9 +13,10 @@ from pathlib import Path
 import h5py
 import pytest
 
-from neuralls.composition.generation import dense_streaming, finalize
+from neuralls.composition.generation import dense_streaming
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
+from neuralls.platform.storage import staged_commit
 from neuralls.platform.storage.dataset_digest import dataset_content_digest
 from neuralls.shared.types import DatasetFormat
 
@@ -80,15 +81,15 @@ def test_failed_replacement_restores_old_dataset(
     replace_build(atomic_spec)
     old_digest = dataset_content_digest(root / _DATASET_NAME)
     final = root / _DATASET_NAME
-    staged = finalize.staging_dir_for(final)
-    original_replace = finalize.os.replace
+    staged = staged_commit.staging_dir_for(final)
+    original_replace = staged_commit.os.replace
 
     def _fail_staged_to_final(src: str | Path, dst: str | Path) -> None:
         if Path(src) == staged:
             raise OSError("injected failure at staged-to-final rename")
         original_replace(src, dst)
 
-    monkeypatch.setattr(finalize.os, "replace", _fail_staged_to_final)
+    monkeypatch.setattr(staged_commit.os, "replace", _fail_staged_to_final)
     with pytest.raises(OSError, match="Committing dataset"):
         replace_build(replacement_spec)
     monkeypatch.undo()
@@ -129,13 +130,13 @@ def test_handles_are_closed_before_staged_rename(
     """The staged rename runs only after the writer has returned and released its file."""
     baseline = _open_hdf5_file_count()
     open_at_rename: list[int] = []
-    original_rename = finalize._rename_staged
+    original_rename = staged_commit._rename_staged
 
     def _recording_rename(staging: Path, final: Path) -> None:
         open_at_rename.append(_open_hdf5_file_count())
         original_rename(staging, final)
 
-    monkeypatch.setattr(finalize, "_rename_staged", _recording_rename)
+    monkeypatch.setattr(staged_commit, "_rename_staged", _recording_rename)
     final = replace_build(replacement_spec)
 
     assert open_at_rename == [baseline]
@@ -180,10 +181,10 @@ def test_permission_error_on_rename_is_retried(
 ) -> None:
     """A transient PermissionError (Windows antivirus or indexing) succeeds on a later try."""
     final = root / _DATASET_NAME
-    staged = finalize.staging_dir_for(final)
+    staged = staged_commit.staging_dir_for(final)
     sleeps: list[float] = []
     failures_left = [2]
-    original_replace = finalize.os.replace
+    original_replace = staged_commit.os.replace
 
     def _flaky_replace(src: str | Path, dst: str | Path) -> None:
         if Path(src) == staged and failures_left[0] > 0:
@@ -191,12 +192,12 @@ def test_permission_error_on_rename_is_retried(
             raise PermissionError("injected transient lock")
         original_replace(src, dst)
 
-    monkeypatch.setattr(finalize.os, "replace", _flaky_replace)
-    monkeypatch.setattr(finalize.time, "sleep", sleeps.append)
+    monkeypatch.setattr(staged_commit.os, "replace", _flaky_replace)
+    monkeypatch.setattr(staged_commit.time, "sleep", sleeps.append)
     replace_build(replacement_spec)
 
     assert failures_left == [0]
-    assert sleeps == [finalize.RENAME_RETRY_DELAY_SECONDS] * 2
+    assert sleeps == [staged_commit.RENAME_RETRY_DELAY_SECONDS] * 2
     assert final.is_dir()
     assert not staged.exists()
 
@@ -211,9 +212,9 @@ def test_persistent_permission_error_restores_old_dataset(
     replace_build(atomic_spec)
     final = root / _DATASET_NAME
     old_digest = dataset_content_digest(final)
-    staged = finalize.staging_dir_for(final)
+    staged = staged_commit.staging_dir_for(final)
     attempts: list[Path] = []
-    original_replace = finalize.os.replace
+    original_replace = staged_commit.os.replace
 
     def _locked_replace(src: str | Path, dst: str | Path) -> None:
         if Path(src) == staged:
@@ -221,12 +222,12 @@ def test_persistent_permission_error_restores_old_dataset(
             raise PermissionError("injected persistent lock")
         original_replace(src, dst)
 
-    monkeypatch.setattr(finalize.os, "replace", _locked_replace)
-    monkeypatch.setattr(finalize.time, "sleep", lambda _: None)
+    monkeypatch.setattr(staged_commit.os, "replace", _locked_replace)
+    monkeypatch.setattr(staged_commit.time, "sleep", lambda _: None)
     with pytest.raises(OSError, match="Committing dataset"):
         replace_build(replacement_spec)
 
-    assert len(attempts) == finalize.RENAME_ATTEMPTS
+    assert len(attempts) == staged_commit.RENAME_ATTEMPTS
     assert dataset_content_digest(final) == old_digest
 
 
@@ -236,10 +237,10 @@ def test_other_os_error_is_not_retried(
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    staged = finalize.staging_dir_for(root / _DATASET_NAME)
+    staged = staged_commit.staging_dir_for(root / _DATASET_NAME)
     attempts: list[Path] = []
     sleeps: list[float] = []
-    original_replace = finalize.os.replace
+    original_replace = staged_commit.os.replace
 
     def _broken_replace(src: str | Path, dst: str | Path) -> None:
         if Path(src) == staged:
@@ -247,8 +248,8 @@ def test_other_os_error_is_not_retried(
             raise OSError("injected non-transient failure")
         original_replace(src, dst)
 
-    monkeypatch.setattr(finalize.os, "replace", _broken_replace)
-    monkeypatch.setattr(finalize.time, "sleep", sleeps.append)
+    monkeypatch.setattr(staged_commit.os, "replace", _broken_replace)
+    monkeypatch.setattr(staged_commit.time, "sleep", sleeps.append)
     with pytest.raises(OSError, match="Committing dataset"):
         replace_build(replacement_spec)
 
