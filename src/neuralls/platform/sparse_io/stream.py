@@ -9,8 +9,8 @@ from the sink; the sink only creates, fills and extends members.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Final
+from collections.abc import Callable, Mapping, Sequence
+from typing import Final, Protocol
 
 import numpy as np
 from scipy.sparse import csr_array
@@ -41,11 +41,100 @@ _FIRST_SAMPLE: Final = 0
 _NO_NNZ: Final = 0
 
 
+class _LayoutStrategy(Protocol):
+    """Writes one batch of samples at a running offset, creating members on first write.
+
+    Each strategy owns the invariants its layout needs to track between batches (the
+    created-members guard, plus the ragged nnz cursor or the shared pattern) — nothing
+    the writer itself needs to branch on.
+    """
+
+    def write(
+        self, sink: CsrMemberSink, samples: Sequence[csr_array], start: int, planned: int
+    ) -> None: ...
+
+
+class _RaggedLayout:
+    """``MANY_MATRICES``: every sample keeps its own pattern, appended to flat CSR arrays."""
+
+    def __init__(self) -> None:
+        self._created = False
+        self._nnz_end = _NO_NNZ
+
+    def write(
+        self, sink: CsrMemberSink, samples: Sequence[csr_array], start: int, planned: int
+    ) -> None:
+        batch = pack_per_sample(samples)
+        if not self._created:
+            self._create(sink, planned)
+        sink.append(INDPTR_ARRAY, batch.indptr)
+        sink.append(INDICES_ARRAY, batch.indices)
+        sink.append(DATA_ARRAY, batch.data)
+        sink.write_rows(SAMPLE_OFFSETS_ARRAY, start + 1, batch.sample_offsets[1:] + self._nnz_end)
+        sink.write_rows(SHAPE_ARRAY, start, batch.shape)
+        self._nnz_end += int(batch.data.shape[0])
+
+    def _create(self, sink: CsrMemberSink, planned: int) -> None:
+        sink.create_growable(INDPTR_ARRAY, np.dtype(INDEX_DTYPE))
+        sink.create_growable(INDICES_ARRAY, np.dtype(INDEX_DTYPE))
+        sink.create_growable(DATA_ARRAY, np.dtype(VALUE_DTYPE))
+        sink.create_fixed(SAMPLE_OFFSETS_ARRAY, (planned + 1,), np.dtype(INDEX_DTYPE))
+        sink.create_fixed(SHAPE_ARRAY, (planned, SHAPE_COLUMNS), np.dtype(INDEX_DTYPE))
+        sink.write_rows(SAMPLE_OFFSETS_ARRAY, _FIRST_SAMPLE, np.zeros(1, dtype=INDEX_DTYPE))
+        self._created = True
+
+
+class _SharedLayout:
+    """``SHARED_PATTERN``: one pattern shared by every sample, rejecting any that differs."""
+
+    def __init__(self) -> None:
+        self._created = False
+        self._pattern: csr_array | None = None
+
+    def write(
+        self, sink: CsrMemberSink, samples: Sequence[csr_array], start: int, planned: int
+    ) -> None:
+        canonical = [canonicalise_csr(sample) for sample in samples]
+        if self._pattern is None:
+            self._pattern = canonical[_FIRST_SAMPLE]
+        for offset, sample in enumerate(canonical):
+            if not csr_pattern_matches(self._pattern, sample):
+                raise ValueError(
+                    f"shared-pattern stream: stored sample {start + offset} has a "
+                    f"sparsity pattern that differs from sample {_FIRST_SAMPLE}; set "
+                    '[output].sparsity_pattern = "ragged" when matrices differ in pattern'
+                )
+        parts = [to_components(sample) for sample in canonical]
+        if not self._created:
+            self._create(sink, planned, to_components(self._pattern))
+        data = np.stack([part.data for part in parts]).astype(VALUE_DTYPE, copy=False)
+        shape = shape_table([part.shape for part in parts])
+        sink.write_rows(DATA_ARRAY, start, data)
+        sink.write_rows(SHAPE_ARRAY, start, shape)
+
+    def _create(self, sink: CsrMemberSink, planned: int, pattern: CsrComponents) -> None:
+        nnz = int(pattern.data.shape[0])
+        sink.create_fixed(INDPTR_ARRAY, pattern.indptr.shape, np.dtype(INDEX_DTYPE))
+        sink.write_rows(INDPTR_ARRAY, _FIRST_SAMPLE, pattern.indptr)
+        sink.create_fixed(INDICES_ARRAY, (nnz,), np.dtype(INDEX_DTYPE))
+        sink.write_rows(INDICES_ARRAY, _FIRST_SAMPLE, pattern.indices)
+        sink.create_fixed(DATA_ARRAY, (planned, nnz), np.dtype(VALUE_DTYPE))
+        sink.create_fixed(SHAPE_ARRAY, (planned, SHAPE_COLUMNS), np.dtype(INDEX_DTYPE))
+        self._created = True
+
+
+_LAYOUT_STRATEGIES: Final[Mapping[LayoutType, Callable[[], _LayoutStrategy]]] = {
+    _RAGGED_LAYOUT: _RaggedLayout,
+    _SHARED_LAYOUT: _SharedLayout,
+}
+
+
 class CsrStreamWriter:
     """Streams CSR samples into one container through a ``CsrMemberSink``.
 
-    Members are created lazily on the first batch, because the shared-pattern
-    member shapes depend on the pattern, which is only known once samples arrive.
+    The layout is chosen once, as a ``_LayoutStrategy``, and never branched on again; members
+    are created lazily by that strategy on its first batch, because the shared-pattern member
+    shapes depend on the pattern, which is only known once samples arrive.
     """
 
     def __init__(self, sink: CsrMemberSink, planned_samples: int, layout: LayoutType) -> None:
@@ -53,17 +142,17 @@ class CsrStreamWriter:
             raise ValueError(
                 f"a streamed CSR dataset needs at least one sample, got {planned_samples}"
             )
-        if layout not in (_RAGGED_LAYOUT, _SHARED_LAYOUT):
+        try:
+            strategy_for_layout = _LAYOUT_STRATEGIES[layout]
+        except KeyError:
             raise ValueError(
                 f"streamed CSR supports MANY_MATRICES and SHARED_PATTERN, got {layout}"
-            )
+            ) from None
         self._sink = sink
         self._planned = planned_samples
         self._layout = layout
         self._written = 0
-        self._nnz_end = _NO_NNZ
-        self._pattern: csr_array | None = None
-        self._created = False
+        self._strategy = strategy_for_layout()
 
     def write_batch(self, samples: Sequence[csr_array]) -> None:
         """Append one batch of samples at the running offsets.
@@ -79,10 +168,7 @@ class CsrStreamWriter:
                 f"batch of {len(samples)} samples exceeds the planned total of {self._planned} "
                 f"with {self._written} already written"
             )
-        if self._layout is _SHARED_LAYOUT:
-            self._write_shared(samples)
-        else:
-            self._write_ragged(samples)
+        self._strategy.write(self._sink, samples, self._written, self._planned)
         self._written += len(samples)
 
     def close(self) -> SparseSummary:
@@ -100,56 +186,3 @@ class CsrStreamWriter:
         finally:
             self._sink.close()
         return SparseSummary(sample_count=self._written, layout=self._layout)
-
-    def _write_ragged(self, samples: Sequence[csr_array]) -> None:
-        batch = pack_per_sample(samples)
-        if not self._created:
-            self._create_ragged()
-        start = self._written
-        self._sink.append(INDPTR_ARRAY, batch.indptr)
-        self._sink.append(INDICES_ARRAY, batch.indices)
-        self._sink.append(DATA_ARRAY, batch.data)
-        self._sink.write_rows(
-            SAMPLE_OFFSETS_ARRAY, start + 1, batch.sample_offsets[1:] + self._nnz_end
-        )
-        self._sink.write_rows(SHAPE_ARRAY, start, batch.shape)
-        self._nnz_end += int(batch.data.shape[0])
-
-    def _write_shared(self, samples: Sequence[csr_array]) -> None:
-        canonical = [canonicalise_csr(sample) for sample in samples]
-        if self._pattern is None:
-            self._pattern = canonical[_FIRST_SAMPLE]
-        for offset, sample in enumerate(canonical):
-            if not csr_pattern_matches(self._pattern, sample):
-                raise ValueError(
-                    f"shared-pattern stream: stored sample {self._written + offset} has a "
-                    f"sparsity pattern that differs from sample {_FIRST_SAMPLE}; set "
-                    '[output].sparsity_pattern = "ragged" when matrices differ in pattern'
-                )
-        parts = [to_components(sample) for sample in canonical]
-        if not self._created:
-            self._create_shared(to_components(self._pattern))
-        start = self._written
-        data = np.stack([part.data for part in parts]).astype(VALUE_DTYPE, copy=False)
-        shape = shape_table([part.shape for part in parts])
-        self._sink.write_rows(DATA_ARRAY, start, data)
-        self._sink.write_rows(SHAPE_ARRAY, start, shape)
-
-    def _create_ragged(self) -> None:
-        self._sink.create_growable(INDPTR_ARRAY, np.dtype(INDEX_DTYPE))
-        self._sink.create_growable(INDICES_ARRAY, np.dtype(INDEX_DTYPE))
-        self._sink.create_growable(DATA_ARRAY, np.dtype(VALUE_DTYPE))
-        self._sink.create_fixed(SAMPLE_OFFSETS_ARRAY, (self._planned + 1,), np.dtype(INDEX_DTYPE))
-        self._sink.create_fixed(SHAPE_ARRAY, (self._planned, SHAPE_COLUMNS), np.dtype(INDEX_DTYPE))
-        self._sink.write_rows(SAMPLE_OFFSETS_ARRAY, _FIRST_SAMPLE, np.zeros(1, dtype=INDEX_DTYPE))
-        self._created = True
-
-    def _create_shared(self, pattern: CsrComponents) -> None:
-        nnz = int(pattern.data.shape[0])
-        self._sink.create_fixed(INDPTR_ARRAY, pattern.indptr.shape, np.dtype(INDEX_DTYPE))
-        self._sink.write_rows(INDPTR_ARRAY, _FIRST_SAMPLE, pattern.indptr)
-        self._sink.create_fixed(INDICES_ARRAY, (nnz,), np.dtype(INDEX_DTYPE))
-        self._sink.write_rows(INDICES_ARRAY, _FIRST_SAMPLE, pattern.indices)
-        self._sink.create_fixed(DATA_ARRAY, (self._planned, nnz), np.dtype(VALUE_DTYPE))
-        self._sink.create_fixed(SHAPE_ARRAY, (self._planned, SHAPE_COLUMNS), np.dtype(INDEX_DTYPE))
-        self._created = True

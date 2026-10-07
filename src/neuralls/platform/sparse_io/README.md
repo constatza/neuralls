@@ -18,7 +18,11 @@ directories, artifact resolution) stay in `platform/storage/`.
   `SparseWriter` protocols, and the streaming pair `SparseStreamWriter` and
   `CsrMemberSink`.
 - `stream.py`: `CsrStreamWriter`, the incremental writer. It owns the running offsets
-  and the sample-count check, and writes through a `CsrMemberSink`.
+  and the sample-count check, and writes through a `CsrMemberSink`. The layout
+  (`MANY_MATRICES` or `SHARED_PATTERN`) is resolved once in `__init__` to a
+  `_LayoutStrategy` (`_RaggedLayout` or `_SharedLayout`); each strategy holds its own
+  created-members guard and layout-specific state (the ragged nnz cursor, or the shared
+  pattern), so the writer itself never branches on the layout again.
 - `pattern.py`: `canonicalise_csr` and `csr_pattern_matches`, the sparsity-pattern
   identity used by the shared-pattern stream (see below).
 - `zarr_store.py`: the zarr backend.
