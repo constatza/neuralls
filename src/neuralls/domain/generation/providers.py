@@ -31,6 +31,7 @@ from typing import Protocol, TypeVar
 
 import numpy as np
 
+from .batch_plan import ALL_SAMPLES
 from .helpers import select_archive_files
 from .interfaces import ArchiveData, ArchiveField
 
@@ -338,7 +339,7 @@ class HybridInputProvider:
         if self.archive is not None:
             data = getattr(self.archive, self.field, None)
             if data is not None:
-                if count == -1:
+                if count == ALL_SAMPLES:
                     return data.astype(np.float64, copy=True)
                 if data.shape[0] < count:
                     raise ValueError(
@@ -347,7 +348,7 @@ class HybridInputProvider:
                 return data[:count].astype(np.float64, copy=True)
 
         # Fallback to random
-        if count == -1:
+        if count == ALL_SAMPLES:
             raise ValueError(f"Cannot use count=-1 for field '{self.field}' without archive data.")
         n = matrix.shape[0]
         return rng.normal(size=(count, n), scale=self.scale).astype(np.float64, copy=False)
