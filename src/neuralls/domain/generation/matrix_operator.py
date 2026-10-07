@@ -265,10 +265,16 @@ class MatrixOperator:
                 return values[order], vectors[:, order]
 
 
+def end_indices(available: int, count: int, which: EigenWhich) -> np.ndarray:
+    """Indices of the `count` ascending eigenpairs at the requested end of a length-`available` spectrum."""
+    if which == EigenvectorSelection.SMALLEST:
+        return np.arange(count)
+    return np.arange(available - count, available)
+
+
 def _take_end(
     values: np.ndarray, vectors: np.ndarray, count: int, which: EigenWhich
 ) -> tuple[np.ndarray, np.ndarray]:
     """Slice the `count` ascending eigenpairs at the requested end."""
-    if which == EigenvectorSelection.SMALLEST:
-        return values[:count], vectors[:, :count]
-    return values[-count:], vectors[:, -count:]
+    indices = end_indices(values.shape[0], count, which)
+    return values[indices], vectors[:, indices]

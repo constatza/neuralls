@@ -13,15 +13,18 @@ from pathlib import Path
 
 from scipy.sparse import csr_array
 
-from neuralls.composition.generation.dense_streaming import release_after_failure
+from neuralls.composition.generation.streamed_write import (
+    manifest_facts,
+    open_prepared_stream,
+    release_after_failure,
+)
 from neuralls.domain.generation.batch import SampleBatch
-from neuralls.domain.generation.orchestration import BatchStream, open_batch_stream
+from neuralls.domain.generation.orchestration import BatchStream
 from neuralls.domain.generation.sample_writer import SampleWriter
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.sparse_io.protocol import SparseStreamWriter
 from neuralls.platform.storage.csr_storage import open_csr_matrix_stream
 from neuralls.platform.storage.dense_stream import (
-    StreamedManifestFacts,
     csr_matrix_container,
     open_dense_array_store,
     save_csr_stream_manifest,
@@ -78,10 +81,7 @@ def _write_into(
     dataset_format: DatasetFormat,
     sparsity_pattern: SparsityPattern,
 ) -> bool:
-    stream = open_batch_stream(
-        source, spec, batch_size=spec.write_batch_size, matrix_format=MatrixFormat.CSR
-    )
-    stream.plan.require_exact()
+    stream = open_prepared_stream(source, spec, matrix_format=MatrixFormat.CSR)
     store = open_dense_array_store(staging_dir, dataset_format)
     try:
         csr_writer = open_csr_matrix_stream(
@@ -107,18 +107,11 @@ def _write_into(
         release_after_failure(store)
         _close_after_failure(csr_writer)
         raise
-    scale_summary = stream.scale.result()
     save_csr_stream_manifest(
         staging_dir,
         dataset_format,
         artifacts,
-        StreamedManifestFacts(
-            normalization_type=str(spec.normalize),
-            matrix_norm=scale_summary.matrix_norm,
-            matrix_norm_type=spec.matrix_norm_type,
-            scale_metadata=scale_summary.scale_metadata,
-            layout=summary.layout,
-        ),
+        manifest_facts(spec, stream.scale.result(), summary.layout),
         summary,
     )
     return True

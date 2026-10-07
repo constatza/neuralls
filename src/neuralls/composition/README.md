@@ -35,8 +35,9 @@ adapter never densify.
 ## Dense streamed dataset commit
 
 `generation/dense_streaming.py` writes a dense dataset batch by batch into a sibling
-staging directory, `<name>.partial`, through `generation/finalize.py::commit_staged_directory`,
-so the final name never holds a partial dataset. `SampleWriter.finalize` closes the array
+staging directory, `<name>.partial`, through
+`platform/storage/staged_commit.py::commit_staged_directory`, so the final name never holds
+a partial dataset. `SampleWriter.finalize` closes the array
 store (the HDF5 file handle, or the zarr group) before the commit runs, because Windows
 refuses to rename a directory with an open file. The commit then renames the staging
 directory to the final name with `os.replace`; only after that rename does `dataset_builder`
@@ -68,6 +69,10 @@ the supported generation formats (`npy` datasets stay readable).
   matrix sample index, parameters) use the same `SampleWriter`; the CSR matrix goes through
   `open_csr_matrix_stream` at the manifest's matrix address (`dataset.zarr/matrix` or the
   `matrix` group of `dataset.h5`).
+- `generation/streamed_write.py` holds what both of the above share: planning the batch
+  stream and rejecting an inexact row count (`open_prepared_stream`), closing a
+  partially-written store without masking the real error (`release_after_failure`), and
+  building the manifest facts common to both formats except `layout` (`manifest_facts`).
 
 The CSR layout is the configured `[output].sparsity_pattern`, passed through `process_config`,
 `_execute_plan` and the executors into `build_dataset`. `shared` maps to `SHARED_PATTERN` (one

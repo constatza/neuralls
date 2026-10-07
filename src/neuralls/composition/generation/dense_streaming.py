@@ -8,12 +8,14 @@ from pathlib import Path
 from numpy.typing import NDArray
 from scipy.sparse import csr_array
 
-from neuralls.domain.generation.orchestration import open_batch_stream
-from neuralls.domain.generation.ports import ArrayStore
+from neuralls.composition.generation.streamed_write import (
+    manifest_facts,
+    open_prepared_stream,
+    release_after_failure,
+)
 from neuralls.domain.generation.sample_writer import MatrixLookup, SampleWriter
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.storage.dense_stream import (
-    StreamedManifestFacts,
     open_dense_array_store,
     save_dense_stream_manifest,
 )
@@ -58,8 +60,7 @@ def _write_into(
     staging_dir: Path,
     dataset_format: DatasetFormat,
 ) -> bool:
-    stream = open_batch_stream(source, spec, batch_size=spec.write_batch_size)
-    stream.plan.require_exact()
+    stream = open_prepared_stream(source, spec)
     store = open_dense_array_store(staging_dir, dataset_format)
     try:
         writer = SampleWriter(
@@ -74,20 +75,12 @@ def _write_into(
     except BaseException:
         release_after_failure(store)
         raise
-    summary = stream.scale.result()
+    layout = LayoutType.BROADCAST_SINGLE if stream.single_matrix else LayoutType.MANY_MATRICES
     save_dense_stream_manifest(
         staging_dir,
         dataset_format,
         artifacts,
-        StreamedManifestFacts(
-            normalization_type=str(spec.normalize),
-            matrix_norm=summary.matrix_norm,
-            matrix_norm_type=spec.matrix_norm_type,
-            scale_metadata=summary.scale_metadata,
-            layout=LayoutType.BROADCAST_SINGLE
-            if stream.single_matrix
-            else LayoutType.MANY_MATRICES,
-        ),
+        manifest_facts(spec, stream.scale.result(), layout),
     )
     return True
 
@@ -102,15 +95,3 @@ def _dense_lookup(matrix_for: Callable[[int], SystemMatrix]) -> MatrixLookup:
         return matrix
 
     return dense_matrix_for
-
-
-def release_after_failure(store: ArrayStore) -> None:
-    """Close the store without masking the original error.
-
-    A store that was never fully written reports itself incomplete on close; that is
-    expected here, so the report is dropped in favour of the error being propagated.
-    """
-    try:
-        store.close()
-    except ValueError:
-        return

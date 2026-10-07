@@ -6,7 +6,7 @@ import numpy as np
 
 from neuralls.shared.types import EigenvectorSelection, MatrixFormat
 
-from .matrix_operator import MatrixOperator, require_eigen_count
+from .matrix_operator import MatrixOperator, end_indices, require_eigen_count
 
 
 def _compute_eigendecomposition(
@@ -74,10 +74,8 @@ def _select_eigenvectors(
     available = eigenvalues.shape[0]
     require_eigen_count(count, n)
     match which:
-        case EigenvectorSelection.SMALLEST:
-            indices = np.arange(count)
-        case EigenvectorSelection.LARGEST:
-            indices = np.arange(available - count, available)
+        case EigenvectorSelection.SMALLEST | EigenvectorSelection.LARGEST:
+            indices = end_indices(available, count, which)
         case EigenvectorSelection.RANDOM:
             indices = rng.choice(available, size=count, replace=False)
     return eigenvectors[:, indices], eigenvalues[indices], indices

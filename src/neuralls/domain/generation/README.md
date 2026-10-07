@@ -397,12 +397,13 @@ above the file's `K` rows is capped at `K` per binding with one warning.
   ndarray or CSR) that exposes `matvec`, `solve_direct`, and `eigensystem`. The LU/Cholesky
   factor and eigen results are memoized on a private cache, so all samples drawn from one
   matrix share one factorization. Dense uses `scipy.linalg` (`cho_factor` when
-  `assume_pos_def`, else `lu_factor`; full `eigh` sliced to the requested end). CSR uses
-  `splu` on the CSC form and `eigsh`; the CSR "smallest" eigensolve is shift-invert at
-  `sigma=0` with `which="LM"` because ARPACK cannot reuse the operator's LU factor, and
-  "largest" uses `which="LA"`. CSR never densifies and cannot return the full spectrum, so
-  `random` eigenvector selection is dense-only. `ensure_symmetric` holds the symmetry check
-  shared by both formats.
+  `assume_pos_def`, else `lu_factor`; full `eigh` sliced to the requested end via `end_indices`,
+  the ascending-spectrum index rule also used by `eigen_strategies.py`'s "smallest"/"largest"
+  selection). CSR uses `splu` on the CSC form and `eigsh`; the CSR "smallest" eigensolve is
+  shift-invert at `sigma=0` with `which="LM"` because ARPACK cannot reuse the operator's LU
+  factor, and "largest" uses `which="LA"`. CSR never densifies and cannot return the full
+  spectrum, so `random` eigenvector selection is dense-only. `ensure_symmetric` holds the
+  symmetry check shared by both formats.
 - `transforms.py`: pure transforms such as `A @ x`. `SolveTransform` and
   `EigenvectorCombinationTransform` accept a `SystemMatrix` and wrap it in a `MatrixOperator`
 - `trace_utils.py`: trace trimming, offsets, and indexing helpers;
@@ -432,6 +433,8 @@ above the file's `K` rows is capped at `K` per binding with one warning.
 - `eigen_strategies.py`: `_compute_eigendecomposition` requests only the `count` eigenpairs
   for "smallest"/"largest" and the full dense spectrum for "random"; `_select_eigenvectors`
   and `_generate_eigenvector_combinations` pick and linearly combine the result.
+  "smallest"/"largest" reuse `matrix_operator.end_indices` for the index slice, the same rule
+  `MatrixOperator._take_end` applies to the dense full spectrum, so the two places agree.
 - `archive_files.py`: `select_archive_files` (deterministic, optionally shuffled file
   selection from a glob) and `solution_row_count` (a cheap header-only row count for an
   explicit solution file).
