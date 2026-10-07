@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import pytest
 
-from neuralls.domain.generation.batch_plan import plan_batches
+from neuralls.domain.generation.batch_plan import BindingAllocation, plan_batches
 from neuralls.domain.generation.helpers import resolve_strategy_counts
 from neuralls.domain.generation.orchestration import _resolve_binding_strategy_counts
 from neuralls.domain.generation.source_streams import SystemBinding
@@ -49,3 +49,19 @@ def test_plan_totals_match_strategy_counts(
     assert plan.total_rows == sum(budget.values())
     assert dict(plan.strategy_totals) == budget
     assert sum(binding.total_rows for binding in plan.bindings) == plan.total_rows
+
+
+@pytest.fixture
+def zero_count_allocation() -> BindingAllocation:
+    """One binding that asks for one generated strategy and one archive strategy with no rows."""
+    return BindingAllocation(
+        counts=({"gaussian_forward": 4, "rhs_archive": 0},),
+        file_indices=({},),
+    )
+
+
+def test_plan_omits_zero_count_strategies(zero_count_allocation: BindingAllocation) -> None:
+    """A zero-count strategy is never run, so it must not reach the plan."""
+    plan = plan_batches(zero_count_allocation)
+    assert [strategy.name for strategy in plan.bindings[0].strategies] == ["gaussian_forward"]
+    assert plan.total_rows == 4

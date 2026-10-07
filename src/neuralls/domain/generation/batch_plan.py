@@ -142,8 +142,9 @@ def plan_batches(allocation: BindingAllocation) -> BatchPlan:
     """Build the immutable row plan from resolved per-binding counts.
 
     Pure: the allocation already fixes every count, so the plan only reshapes it.
-    Bindings whose counts are all zero emit nothing, so they are omitted and keep their
-    position index. A planned binding is therefore one that contributes rows to the run.
+    Strategies with a zero count and bindings whose counts are all zero emit nothing,
+    so both are omitted. Bindings keep their position index, so a planned binding is one
+    that contributes rows to the run.
 
     Args:
         allocation: Per-binding strategy counts resolved by the orchestration layer.
@@ -154,7 +155,9 @@ def plan_batches(allocation: BindingAllocation) -> BatchPlan:
     binding_plans = tuple(
         BindingPlan(
             binding_index=binding_index,
-            strategies=tuple(StrategyRows(name=name, rows=rows) for name, rows in counts.items()),
+            strategies=tuple(
+                StrategyRows(name=name, rows=rows) for name, rows in counts.items() if rows != 0
+            ),
         )
         for binding_index, counts in enumerate(allocation.counts)
         if any(rows != 0 for rows in counts.values())

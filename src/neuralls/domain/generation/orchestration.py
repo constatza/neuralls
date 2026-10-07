@@ -859,6 +859,10 @@ def _solution_archive_rows(
         return None
     sample_ids = stream.sample_ids
     total = len(sample_ids)
+    if total == 0:
+        raise ValueError(
+            f"Strategy '{strategy_name}' draws from an explicit solution file that has no samples."
+        )
     if strategy_name in context.cyclic_solution_strategies:
         positions = [(binding_index + p) % total for p in range(count)]
     else:
