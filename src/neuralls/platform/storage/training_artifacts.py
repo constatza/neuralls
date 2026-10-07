@@ -16,6 +16,7 @@ from neuralls.platform.storage.dataset_readers import (
     read_training_sample_count,
     resolve_dataset_artifacts,
 )
+from neuralls.shared.types import MatrixFormat
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,10 @@ class TrainingArrays:
     matrix_source: ArraySource
     sample_count: int
     parameter_sources: tuple[ArraySource, ...] = ()
+    matrix_format: MatrixFormat | None = None
+    """``None`` means the matrix is a flat dense array; ``CSR`` means ``matrix_source``
+    addresses an HDF5/zarr group of CSR components, not a leaf array DLKit's generic
+    path-based entries can open."""
 
 
 def matrix_zarr_path(arrays: TrainingArrays) -> Path:
@@ -159,6 +164,7 @@ def load_training_arrays(data_dir: Path) -> TrainingArrays:
         parameter_sources=tuple(
             _source_from_artifact(a.path, a.format, key=a.key) for a in artifacts.params
         ),
+        matrix_format=artifacts.matrix.matrix_format,
     )
 
 

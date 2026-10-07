@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -39,6 +40,7 @@ from neuralls.platform.storage.training_artifacts import (
     ZarrArraySource,
     matrix_zarr_path,
 )
+from neuralls.shared.types import MatrixFormat
 
 
 def _build_training_job(tmp_path: Path) -> TrainingJobConfig:
@@ -135,7 +137,9 @@ def workspace(tmp_path: Path) -> AssignmentWorkspace:
 
 def test_create_feature_configs_returns_rhs_and_matrix(sample_arrays: TrainingArrays) -> None:
     contract = default_training_dataset_contract()
-    features = _create_feature_entries(sample_arrays, contract, [], contract.primary_input_name)
+    features = _create_feature_entries(
+        sample_arrays, contract, [], contract.primary_input_name, wants_matrix_feature=True
+    )
 
     assert len(features) == 2
     names = {f.name for f in features}
@@ -147,6 +151,33 @@ def test_create_feature_configs_returns_rhs_and_matrix(sample_arrays: TrainingAr
     assert isinstance(matrix_feature, ZarrEntry)
     assert matrix_feature.model_input is False
     assert matrix_feature.path == matrix_zarr_path(sample_arrays)
+
+
+def test_create_feature_configs_omits_matrix_when_not_declared(
+    sample_arrays: TrainingArrays,
+) -> None:
+    """DLKit never needs the matrix for its own pipeline — it must not be attached
+    unless a model explicitly declared it via ``[[data.features]]``."""
+    contract = default_training_dataset_contract()
+    features = _create_feature_entries(
+        sample_arrays, contract, [], contract.primary_input_name, wants_matrix_feature=False
+    )
+
+    assert [f.name for f in features] == ["x"]
+
+
+def test_create_feature_configs_rejects_matrix_on_csr_storage(
+    sample_arrays: TrainingArrays,
+) -> None:
+    """A declared matrix feature against CSR storage must fail fast with a clear
+    neuralls-level error, not a cryptic AttributeError from inside DLKit's reader."""
+    contract = default_training_dataset_contract()
+    csr_arrays = replace(sample_arrays, matrix_format=MatrixFormat.CSR)
+
+    with pytest.raises(ValueError, match="sparse_io backend"):
+        _create_feature_entries(
+            csr_arrays, contract, [], contract.primary_input_name, wants_matrix_feature=True
+        )
 
 
 def test_create_target_configs_returns_canonical_supervised_target(
@@ -233,6 +264,19 @@ def test_validate_runtime_dataset_contract_rejects_duplicate_feature_names(
         validate_runtime_dataset_contract(duplicate_features, contract)
 
 
+def test_validate_runtime_dataset_contract_rejects_matrix_feature_on_fit_job(
+    fit_settings: FitJobConfig,
+) -> None:
+    """A run.type='fit' job is matrix-free by design; declaring 'matrix' must fail fast."""
+    declares_matrix = fit_settings.patch(
+        {"data": {"features": [ValueEntry(name="matrix", value=np.zeros((1, 1)))]}}
+    )
+
+    contract = default_training_dataset_contract()
+    with pytest.raises(ValueError, match="run.type='fit' job cannot declare"):
+        validate_runtime_dataset_contract(declares_matrix, contract)
+
+
 def test_patch_runtime_workspace_returns_new_settings(
     training_settings: TrainingJobConfig,
     tmp_path: Path,
@@ -317,7 +361,9 @@ def test_contract_override_drives_injection_and_validation(
         prediction_name="rhs_pred",
         loss_target_key="targets.rhs",
     )
-    features = _create_feature_entries(sample_arrays, contract, [], contract.primary_input_name)
+    features = _create_feature_entries(
+        sample_arrays, contract, [], contract.primary_input_name, wants_matrix_feature=True
+    )
     targets = _create_target_entries(sample_arrays.solutions_source, contract)
     settings = training_settings.patch(
         {

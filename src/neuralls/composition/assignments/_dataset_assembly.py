@@ -8,6 +8,7 @@ construction to platform adapters.
 from __future__ import annotations
 
 from dlkit.infrastructure.config.data_entries import DataEntry
+from dlkit.infrastructure.config.job_config import FitJobConfig
 from loguru import logger
 
 from neuralls.composition.assignments._job_types import AnyJobConfig
@@ -70,6 +71,13 @@ def validate_runtime_dataset_contract(
             f"target name '{contract.target_name}', got {unsupported_target_names}."
         )
 
+    if isinstance(settings, FitJobConfig) and _wants_matrix_feature(settings, contract):
+        raise ValueError(
+            f"A run.type='fit' job cannot declare a '{contract.matrix_input_name}' data "
+            "feature — fit jobs are matrix-free by design (see PODCoarseningFittable's "
+            "module docstring); the matrix is only ever available at comparison time."
+        )
+
     training_cfg = getattr(settings, "training", None)
     loss_cfg = getattr(training_cfg, "loss", None) if training_cfg else None
     target_key = getattr(loss_cfg, "target_key", None)
@@ -110,11 +118,31 @@ def _extra_feature_names_from_settings(
     return [e.name for e in dataset.features if e.name is not None and e.name not in base]
 
 
+def _wants_matrix_feature(
+    settings: AnyJobConfig,
+    contract: RuntimeDatasetContract,
+) -> bool:
+    """Whether the model opted into the system matrix via ``[[data.features]]``.
+
+    DLKit never needs the matrix for its own data pipeline — it only ever reads
+    ``rhs``/``solutions`` through its generic path-based entries. The matrix is
+    exposed as a ``model_input=False`` context feature solely for matrix-aware
+    architectures (e.g. ``GraphDataset``, see ``dataset.py::with_dataset_arrays``)
+    that explicitly declare it by name; it must not be attached unconditionally.
+    """
+    dataset = settings.data
+    if dataset is None:
+        return False
+    return any(entry.name == contract.matrix_input_name for entry in dataset.features)
+
+
 def _create_feature_entries(
     arrays: TrainingArrays,
     contract: RuntimeDatasetContract,
     declared_extra_names: list[str],
     primary_name: str,
+    *,
+    wants_matrix_feature: bool,
 ) -> list[DataEntry]:
     """Create resolved feature entries from dataset artifacts."""
     if len(declared_extra_names) > len(arrays.parameter_sources):
@@ -124,10 +152,21 @@ def _create_feature_entries(
         )
     base: list[DataEntry] = [
         _feature_entry_from_source(arrays.rhs_source, name=primary_name, model_input=True),
-        _feature_entry_from_source(
-            arrays.matrix_source, name=contract.matrix_input_name, model_input=False
-        ),
     ]
+    if wants_matrix_feature:
+        if arrays.matrix_format is not None:
+            raise ValueError(
+                f"Model declares a '{contract.matrix_input_name}' data feature, but this "
+                f"dataset's matrix is stored as {arrays.matrix_format.value} — a group of "
+                "sparse components, not a flat array DLKit's generic HDF5/zarr entry can "
+                "open. Load it via the sparse_io backend and inject it as an in-memory "
+                "feature instead (see dataset.py::with_dataset_arrays)."
+            )
+        base.append(
+            _feature_entry_from_source(
+                arrays.matrix_source, name=contract.matrix_input_name, model_input=False
+            )
+        )
     extras: list[DataEntry] = [
         _feature_entry_from_source(arrays.parameter_sources[i], name=name, model_input=True)
         for i, name in enumerate(declared_extra_names)
@@ -164,7 +203,13 @@ def _load_and_prepare_data(
     )
     primary_name = _primary_feature_name_from_settings(settings, contract)
     extra_names = _extra_feature_names_from_settings(settings, contract)
-    features = _create_feature_entries(arrays, contract, extra_names, primary_name)
+    features = _create_feature_entries(
+        arrays,
+        contract,
+        extra_names,
+        primary_name,
+        wants_matrix_feature=_wants_matrix_feature(settings, contract),
+    )
     targets = _create_target_entries(arrays.solutions_source, contract)
     return arrays, features, targets
 

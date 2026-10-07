@@ -11,6 +11,7 @@ from dlkit.infrastructure.config.data_entries import ZarrEntry
 from neuralls.composition.assignments._dataset_assembly import (
     _create_feature_entries,
     _extra_feature_names_from_settings,
+    _wants_matrix_feature,
 )
 from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
@@ -109,8 +110,21 @@ def test_no_extras_yields_x_and_matrix(
     rhs_data: np.ndarray,
     contract,
 ) -> None:
-    entries = _create_feature_entries(no_params_arrays, contract, [], contract.primary_input_name)
+    entries = _create_feature_entries(
+        no_params_arrays, contract, [], contract.primary_input_name, wants_matrix_feature=True
+    )
     assert [e.name for e in entries] == ["x", "matrix"]
+
+
+def test_matrix_omitted_when_not_declared(
+    no_params_arrays: TrainingArrays,
+    rhs_data: np.ndarray,
+    contract,
+) -> None:
+    entries = _create_feature_entries(
+        no_params_arrays, contract, [], contract.primary_input_name, wants_matrix_feature=False
+    )
+    assert [e.name for e in entries] == ["x"]
 
 
 def test_condition_extra_maps_to_parameters_0(
@@ -119,7 +133,11 @@ def test_condition_extra_maps_to_parameters_0(
     contract,
 ) -> None:
     entries = _create_feature_entries(
-        one_param_arrays, contract, ["condition"], contract.primary_input_name
+        one_param_arrays,
+        contract,
+        ["condition"],
+        contract.primary_input_name,
+        wants_matrix_feature=True,
     )
     assert [e.name for e in entries] == ["x", "matrix", "condition"]
     condition_entry = entries[2]
@@ -133,7 +151,11 @@ def test_two_extras_map_by_index(
     contract,
 ) -> None:
     entries = _create_feature_entries(
-        two_param_arrays, contract, ["condition", "query"], contract.primary_input_name
+        two_param_arrays,
+        contract,
+        ["condition", "query"],
+        contract.primary_input_name,
+        wants_matrix_feature=True,
     )
     assert [e.name for e in entries] == ["x", "matrix", "condition", "query"]
     assert isinstance(entries[2], ZarrEntry)
@@ -149,7 +171,11 @@ def test_too_many_extras_raises(
 ) -> None:
     with pytest.raises(ValueError, match="extra features but dataset has"):
         _create_feature_entries(
-            no_params_arrays, contract, ["condition"], contract.primary_input_name
+            no_params_arrays,
+            contract,
+            ["condition"],
+            contract.primary_input_name,
+            wants_matrix_feature=True,
         )
 
 
@@ -159,10 +185,18 @@ def test_declaration_order_is_preserved(
     contract,
 ) -> None:
     entries_ab = _create_feature_entries(
-        two_param_arrays, contract, ["alpha", "beta"], contract.primary_input_name
+        two_param_arrays,
+        contract,
+        ["alpha", "beta"],
+        contract.primary_input_name,
+        wants_matrix_feature=True,
     )
     entries_ba = _create_feature_entries(
-        two_param_arrays, contract, ["beta", "alpha"], contract.primary_input_name
+        two_param_arrays,
+        contract,
+        ["beta", "alpha"],
+        contract.primary_input_name,
+        wants_matrix_feature=True,
     )
     assert isinstance(entries_ab[2], ZarrEntry)
     assert isinstance(entries_ba[2], ZarrEntry)
@@ -213,3 +247,13 @@ def test_extra_names_empty_when_only_base(contract) -> None:
     settings = _make_minimal_settings(["x"])
     extra = _extra_feature_names_from_settings(settings, contract)
     assert extra == []
+
+
+def test_wants_matrix_feature_false_when_not_declared(contract) -> None:
+    settings = _make_minimal_settings(["x"])
+    assert _wants_matrix_feature(settings, contract) is False
+
+
+def test_wants_matrix_feature_true_when_declared(contract) -> None:
+    settings = _make_minimal_settings(["x", "matrix"])
+    assert _wants_matrix_feature(settings, contract) is True
