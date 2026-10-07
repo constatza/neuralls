@@ -3,33 +3,55 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Final
 
-import zarr
-from zarr.errors import GroupNotFoundError
-
-from neuralls.platform.storage.csr_layout import (
-    DATA_ARRAY,
-    INDICES_ARRAY,
-    INDPTR_ARRAY,
-    SAMPLE_OFFSETS_ARRAY,
-    SHAPE_ARRAY,
-)
+from neuralls.platform.sparse_io.protocol import SparseLocation
+from neuralls.platform.sparse_io.registry import backend_for
 from neuralls.platform.storage.datasets import load_dataset_manifest, resolve_dataset_artifacts
+from neuralls.platform.storage.generation_formats import HDF5_FILENAME
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
+from neuralls.shared.types import DatasetFormat
 
 _SUPPORTED_COMPARISON_FILE_SUFFIXES = {"", ".npy", ".txt"}
-_CSR_MATRIX_GROUP_MEMBERS = frozenset(
-    {INDPTR_ARRAY, INDICES_ARRAY, DATA_ARRAY, SAMPLE_OFFSETS_ARRAY, SHAPE_ARRAY}
-)
+_ZARR_FORMAT: Final[DatasetFormat] = "zarr"
+_HDF5_FORMAT: Final[DatasetFormat] = "hdf5"
+_PROBE_SAMPLE_INDEX: Final = 0
+_UNREADABLE_CSR_ERRORS: Final = (KeyError, IndexError, OSError, TypeError, ValueError)
+
+
+def _csr_probe_target(path: Path) -> tuple[DatasetFormat, SparseLocation]:
+    """Pick the storage format and location that a bare CSR directory would hold.
+
+    A dataset directory written by the hdf5 generation path keeps its matrix
+    inside ``HDF5_FILENAME``; anything else is probed as a zarr group rooted at
+    ``path`` itself. The filename is the only storage hint available here
+    because this runs only when the manifest did not load, so there is no
+    manifest artifact to consult.
+    """
+    hdf5_file = path / HDF5_FILENAME
+    if hdf5_file.is_file():
+        return _HDF5_FORMAT, SparseLocation(path=hdf5_file)
+    return _ZARR_FORMAT, SparseLocation(path=path)
 
 
 def _is_csr_matrix_group(path: Path) -> bool:
-    """Return True when ``path`` is a zarr group holding every CSR storage member."""
+    """Return True when ``path`` holds a CSR batch that the registered reader can load.
+
+    The probe is backend-neutral so that every storage format registered in
+    ``sparse_io`` is accepted by the same rule. Reading one sample exercises
+    every member the reader needs for that layout, so a missing member fails
+    inside the reader with its own error (a missing key or group, a missing
+    file), and this function only translates that failure into ``False``.
+    Asking the reader rather than listing member names here keeps the
+    validation from drifting from the schema each backend actually reads.
+    """
+    format_name, location = _csr_probe_target(path)
+    reader, _ = backend_for(format_name)
     try:
-        group = zarr.open_group(str(path), mode="r")
-    except FileNotFoundError, ValueError, GroupNotFoundError:
+        reader.read_sample(location, _PROBE_SAMPLE_INDEX)
+    except _UNREADABLE_CSR_ERRORS:
         return False
-    return _CSR_MATRIX_GROUP_MEMBERS.issubset(group.array_keys())
+    return True
 
 
 def validate_data_exists(
@@ -81,7 +103,7 @@ def validate_comparison_matrix_input(path: Path) -> None:
             raise ValueError(
                 f"Comparison matrix dataset directory is not loadable: {path}. "
                 f"Expected a dataset root with {DATASET_MANIFEST_FILENAME} or a CSR matrix "
-                "directory (zarr group with indptr, indices, data, sample_offsets and shape)."
+                "directory (a zarr group or an hdf5 file holding the CSR matrix group)."
             ) from None
         return
     matrix_artifact = resolve_dataset_artifacts(path).matrix

@@ -11,14 +11,18 @@ import os
 from dataclasses import asdict
 from pathlib import Path
 
+from scipy.sparse import csr_array
+
 from neuralls.platform.storage.dataset_readers import (
     DatasetArtifacts,
     ResolvedDatasetArtifact,
+    load_matrix_sparse_sample,
     open_resolved_array,
     resolve_dataset_artifacts,
 )
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.digest import Digest, array_digest, canonical_digest
+from neuralls.shared.types import MatrixFormat
 
 
 def _artifact_roles(artifacts: DatasetArtifacts) -> dict[str, ResolvedDatasetArtifact]:
@@ -41,6 +45,35 @@ def _artifact_digest(artifact: ResolvedDatasetArtifact) -> Digest:
         return array_digest(array)
 
 
+def _csr_sample_digest(matrix: csr_array) -> Digest:
+    """Digest one CSR sample by its structure and values, never by its storage layout."""
+    return canonical_digest(
+        {
+            "shape": list(matrix.shape),
+            "indptr": array_digest(matrix.indptr),
+            "indices": array_digest(matrix.indices),
+            "data": array_digest(matrix.data),
+        }
+    )
+
+
+def _matrix_digest(data_dir: Path, artifact: ResolvedDatasetArtifact) -> Digest:
+    """Digest the matrix role; a CSR dataset is hashed sample by sample as CSR.
+
+    A CSR matrix artifact is a container group (zarr or hdf5), not one flat array, so it
+    cannot be streamed through `open_resolved_array`. Each sample is read through the format-independent
+    loader and hashed by its CSR components.
+    """
+    if artifact.matrix_format is not MatrixFormat.CSR:
+        return _artifact_digest(artifact)
+    return canonical_digest(
+        {
+            f"sample.{index}": _csr_sample_digest(load_matrix_sparse_sample(data_dir, index))
+            for index in range(artifact.shape[0])
+        }
+    )
+
+
 def dataset_content_digest(data_dir: Path) -> Digest:
     """Recompute the logical-content digest of a dataset from scratch.
 
@@ -57,8 +90,13 @@ def dataset_content_digest(data_dir: Path) -> Digest:
     Raises:
         FileNotFoundError: If the manifest or an artifact is missing.
     """
-    roles = _artifact_roles(resolve_dataset_artifacts(data_dir))
-    return canonical_digest({role: _artifact_digest(a) for role, a in roles.items()})
+    artifacts = resolve_dataset_artifacts(data_dir)
+    roles = _artifact_roles(artifacts)
+    digests = {
+        role: _artifact_digest(artifact) for role, artifact in roles.items() if role != "matrix"
+    }
+    digests["matrix"] = _matrix_digest(data_dir, artifacts.matrix)
+    return canonical_digest(digests)
 
 
 def _reachable_files(path: Path) -> list[Path]:
@@ -106,7 +144,7 @@ def current_dataset_digest(data_dir: Path) -> Digest:
 
     O(1) when the manifest stores `content_digest` and `stat_digest` and the
     latter still matches the files on disk (documented blind spot: a same-size
-    edit with a restored mtime). Otherwise (legacy manifest, copied or touched
+    edit with a restored mtime). Otherwise (no stored digest, or a copied or touched
     dataset) the content is recomputed. Never writes.
 
     Args:

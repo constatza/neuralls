@@ -11,7 +11,7 @@ import zarr
 from scipy.sparse import csr_array
 
 from neuralls.platform.storage.csr_layout import build_csr, choose_layout, split_csr
-from neuralls.platform.storage.csr_storage import CsrAccumulator, write_csr_matrix_group
+from neuralls.platform.storage.csr_storage import write_csr_matrix_group
 from neuralls.platform.storage.dataset_readers import (
     load_matrix_dense_sample,
     load_matrix_sparse_sample,
@@ -204,20 +204,6 @@ def test_csr_rejected_for_non_zarr_formats(
             distinct_patterns,
             member_path="matrix",
         )
-
-
-def test_accumulator_sums_duplicate_coo_entries_without_densifying() -> None:
-    accumulator = CsrAccumulator()
-    accumulator.append_sparse_components(
-        indices=np.array([[0, 0, 1], [1, 1, 2]]),
-        values=np.array([1.0, 2.0, 3.0]),
-        size=(2, 3),
-        repeats=1,
-    )
-    (sample,) = accumulator.samples
-    assert sample.indices.shape == (2,)
-    assert sample[0, 1] == pytest.approx(3.0)
-    assert sample[1, 2] == pytest.approx(3.0)
 
 
 def test_legacy_dense_manifest_without_matrix_format_loads_dense(

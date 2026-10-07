@@ -113,7 +113,7 @@ def test_local_file_uri_artifact_is_borrowed_without_download(tmp_path: Path) ->
     checkpoint.write_bytes(WEIGHTS_PAYLOAD)
     client = FakeMlflowClient(_file_uri(artifact_root), artifact_root=artifact_root)
 
-    with MlflowArtifactLeaseManager(client=client) as leases:  # type: ignore[arg-type]
+    with MlflowArtifactLeaseManager(client=client) as leases:
         lease = leases.resolve_file(RUN_ID, CHECKPOINT_ARTIFACT_PATH)
 
     assert lease.path == checkpoint.resolve()
@@ -129,7 +129,7 @@ def test_local_plain_path_directory_is_borrowed_without_download(tmp_path: Path)
     (split_dir / SPLIT_FILE).write_text(EMPTY_JSON, encoding="utf-8")
     client = FakeMlflowClient(str(artifact_root), artifact_root=artifact_root)
 
-    with MlflowArtifactLeaseManager(client=client) as leases:  # type: ignore[arg-type]
+    with MlflowArtifactLeaseManager(client=client) as leases:
         lease = leases.resolve_dir(RUN_ID, SPLIT_DIR)
 
     assert lease.path == split_dir.resolve()
@@ -144,7 +144,7 @@ def test_remote_file_artifact_is_materialized_and_cleaned(tmp_path: Path) -> Non
     checkpoint.write_bytes(WEIGHTS_PAYLOAD)
     client = FakeMlflowClient(REMOTE_ARTIFACT_URI, artifact_root=remote_root)
 
-    with MlflowArtifactLeaseManager(client=client) as leases:  # type: ignore[arg-type]
+    with MlflowArtifactLeaseManager(client=client) as leases:
         lease = leases.resolve_file(RUN_ID, CHECKPOINT_ARTIFACT_PATH)
         materialized_path = lease.path
         materialized_root = materialized_path.parents[1]
@@ -165,7 +165,7 @@ def test_remote_directory_artifact_is_materialized_and_cleaned(tmp_path: Path) -
     (split_dir / SPLIT_FILE).write_text(EMPTY_JSON, encoding="utf-8")
     client = FakeMlflowClient(MLFLOW_ARTIFACT_URI, artifact_root=remote_root)
 
-    with MlflowArtifactLeaseManager(client=client) as leases:  # type: ignore[arg-type]
+    with MlflowArtifactLeaseManager(client=client) as leases:
         lease = leases.resolve_dir(RUN_ID, SPLIT_DIR)
         materialized_path = lease.path
         assert (materialized_path / SPLIT_FILE).exists()
@@ -177,7 +177,7 @@ def test_remote_directory_artifact_is_materialized_and_cleaned(tmp_path: Path) -
 def test_resolve_requires_active_context(tmp_path: Path) -> None:
     artifact_root = tmp_path / LOCAL_ARTIFACT_ROOT_NAME
     client = FakeMlflowClient(str(artifact_root), artifact_root=artifact_root)
-    leases = MlflowArtifactLeaseManager(client=client)  # type: ignore[arg-type]
+    leases = MlflowArtifactLeaseManager(client=client)
 
     with pytest.raises(RuntimeError, match="inside a lease-manager context"):
         leases.resolve_file(RUN_ID, CHECKPOINT_ARTIFACT_PATH)
@@ -190,7 +190,7 @@ def test_repeated_resolution_reuses_one_lease(tmp_path: Path) -> None:
     checkpoint.write_bytes(WEIGHTS_PAYLOAD)
     client = FakeMlflowClient(REMOTE_ARTIFACT_URI, artifact_root=remote_root)
 
-    with MlflowArtifactLeaseManager(client=client) as leases:  # type: ignore[arg-type]
+    with MlflowArtifactLeaseManager(client=client) as leases:
         first = leases.resolve_file(RUN_ID, CHECKPOINT_ARTIFACT_PATH)
         second = leases.resolve_file(RUN_ID, CHECKPOINT_ARTIFACT_PATH)
 
@@ -204,7 +204,7 @@ def test_missing_local_artifact_fails_without_download(tmp_path: Path) -> None:
     client = FakeMlflowClient(str(artifact_root), artifact_root=artifact_root)
 
     with (
-        MlflowArtifactLeaseManager(client=client) as leases,  # type: ignore[arg-type]
+        MlflowArtifactLeaseManager(client=client) as leases,
         pytest.raises(FileNotFoundError, match="Expected MLflow artifact file"),
     ):
         leases.resolve_file(RUN_ID, CHECKPOINT_ARTIFACT_PATH)
@@ -220,7 +220,7 @@ def test_missing_artifact_uri_fails(tmp_path: Path) -> None:
     client = MissingUriClient(str(tmp_path))
 
     with (
-        MlflowArtifactLeaseManager(client=client) as leases,  # type: ignore[arg-type]
+        MlflowArtifactLeaseManager(client=client) as leases,
         pytest.raises(RuntimeError, match="has no artifact_uri"),
     ):
         leases.resolve_file(RUN_ID, CHECKPOINT_ARTIFACT_PATH)

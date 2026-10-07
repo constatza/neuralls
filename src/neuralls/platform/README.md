@@ -5,8 +5,11 @@ The platform package isolates external integrations and side-effecting helpers.
 ## Package Map
 
 - `config/`: settings, config-validation context, registry resolution, TOML loaders, lower-case job metadata readers, and the thin DLKit job loader adapter
-- `config/models/`: Pydantic models for TOML sections. `OutputConfig.matrix_format` (`MatrixFormat`, default `csr`) selects the storage format of the system matrix for a dataset; it is the single declaration of that default.
+- `config/models/`: Pydantic models for TOML sections. `OutputConfig.matrix_format` (`MatrixFormat`, default `csr`) selects the storage format of the system matrix for a dataset; it is the single declaration of that default. `OutputConfig.sparsity_pattern` (`SparsityPattern`, `shared` or `ragged`, default `ragged`) selects the CSR layout; it is part of the digest.
 - `storage/`: filesystem, workspaces, dataset I/O, and storage validation helpers
+- `storage/array_store.py`: `ZarrArrayStore` and `Hdf5ArrayStore`, the dense backends of the `ArrayStore` protocol (defined in `domain/generation/ports.py`, so the domain depends on it without importing platform). Arrays are created at full shape; `close()` raises `ValueError` naming any array with unwritten rows. A one-dimensional array is a single chunk, so row kinds and matrix indices do not create one file per row.
+- `storage/errors.py`: `_raise_storage_error`, the OSError translation every storage module shares.
+- `storage/dense_stream.py`: streamed dense persistence for `zarr` and `hdf5`. `open_dense_array_store()` opens the store that the streamed writer fills, and `save_dense_stream_manifest()` writes the manifest last, from the shapes the writer reports.
 - `storage/matrix_readers.py`: suffix-keyed registry `MATRIX_READERS` (`.npy`, `.txt`, `.npz`, `.mtx`, `.mtx.gz`) returning `SystemMatrix` via `read_matrix`; `to_dense` is the explicit densify helper. Unknown suffixes raise; `.npz` must hold a sparse matrix.
 - `tracking/`: MLflow run helpers, naming/query policy, workflow topology resolution, and client adapters
 - `reporting/`: plotting, artifact staging, and inference output adapters
@@ -209,23 +212,26 @@ cross-format rewrites remain blocked by the manifest guard before persistence.
 
 Dataset storage is split by responsibility:
 - `storage/manifest.py`: typed dataset manifest dataclasses and JSON serialization
-- `storage/generation_formats.py`: generation-time `zarr`, `npy`, and `hdf5`
-  writers/accumulators plus backend-neutral artifact replacement helpers.
-  Manifest assembly is shared: each writer performs only its format-specific
-  array I/O, then calls the pure `_build_manifest(payload, locations, matrix_shape, params)`
-  helper. The per-format differences are carried by a `ManifestLocations` DTO
-  (one `ArtifactLocation(path, key)` per artifact) plus the physical matrix shape —
-  `zarr`/`hdf5` read that shape back from the written container, `npy` derives it
-  from the payload layout.
-- `storage/csr_layout.py`: the authoritative CSR-in-zarr schema (member names, dtypes,
-  per-sample and shared-pattern layouts) and pure `csr_array` <-> flat-array conversions.
-  `choose_layout` picks `SHARED_PATTERN` only when all samples share shape, indptr and indices.
-- `storage/csr_storage.py`: `write_csr_matrix_group`, the single CSR write entry point (zarr-only;
-  rejects dense or mixed samples), and `CsrAccumulator`, which collects COO or dense samples as CSR
-  (duplicate COO entries are summed by scipy) without densifying.
+- `storage/generation_formats.py`: the manifest vocabulary the streamed writers share. Manifest
+  assembly is `build_dense_manifest(...)`, which takes array shapes and the run's normalization.
+  The per-format differences are carried by a `ManifestLocations` DTO (one `ArtifactLocation(path,
+  key)` per artifact), and `zarr`/`hdf5` read the physical matrix shape back from the written
+  container. No generation writer buffers samples here. `npy` is not a generation format; the
+  build entry point refuses it (see `composition/README.md`), and npy datasets stay readable
+  through the reader modules.
+- `storage/csr_layout.py`: the CSR-in-zarr schema (member names, dtypes, per-sample and
+  shared-pattern layouts) documented in its docstring, plus re-exports of `sparse_io` under storage names.
+- `sparse_io/`: storage-agnostic CSR conversions, member layouts, the sparse reader/writer protocols,
+  and the zarr and hdf5 backends selected by format name through `registry.backend_for`. See
+  `sparse_io/README.md`.
+- `storage/csr_storage.py`: `open_csr_matrix_stream`, the streamed CSR matrix writer used by generation
+  (zarr or hdf5, one sample at a time), `write_csr_matrix_group`, a whole-group zarr writer kept for
+  reader fixtures (rejects dense or mixed samples; it is not on the generation path), and
+  `describe_csr_matrix_group`, which reads the manifest descriptor back from a zarr group.
 - `storage/dataset_readers.py`: manifest-driven read helpers and explicit resolved dataset contracts;
-  `load_matrix_sparse_sample` reads one CSR sample from zarr slices (dense datasets are converted
-  to CSR); `load_matrix_dense_sample` densifies CSR datasets via `.toarray()`.
+  `load_matrix_sparse_sample` reads one CSR sample through the backend registered for the artifact's
+  format (dense datasets are converted to CSR); `load_matrix_dense_sample` densifies CSR datasets via
+  `.toarray()`.
   `open_resolved_array` opens any artifact lazily (memmap/zarr/h5py) as an axis-0 sliceable
 - `storage/dataset_digest.py`: `dataset_content_digest` (logical-content sha256 over every
   manifest artifact, identical across npy/hdf5/zarr and independent of location),

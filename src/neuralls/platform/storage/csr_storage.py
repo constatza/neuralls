@@ -1,7 +1,8 @@
-"""Write-side storage for CSR system matrices (zarr group backend).
+"""Write-side storage for CSR system matrices.
 
-The on-disk schema lives in ``csr_layout``; this module only chooses the layout,
-validates the write request, and writes the arrays into a zarr group.
+The on-disk schema lives in ``csr_layout``. Writing goes through the sparse
+backend registry, so the accumulator can stage either a zarr group or an hdf5
+group; this module validates the request and converts samples to components.
 """
 
 from __future__ import annotations
@@ -9,72 +10,21 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-import zarr
-from numpy.typing import NDArray
-from scipy.sparse import coo_array, csr_array
+from scipy.sparse import csr_array
 
-from neuralls.platform.storage.csr_layout import (
-    DATA_ARRAY,
-    INDICES_ARRAY,
-    INDPTR_ARRAY,
-    SAMPLE_OFFSETS_ARRAY,
-    SHAPE_ARRAY,
-    PerSamplePack,
-    SharedPatternPack,
-    choose_layout,
-    pack_per_sample,
-    pack_shared_pattern,
+from neuralls.platform.sparse_io.components import to_components
+from neuralls.platform.sparse_io.protocol import (
+    SparseLocation,
+    SparseReader,
+    SparseStreamWriter,
+    SparseWriter,
 )
+from neuralls.platform.sparse_io.registry import backend_for, open_stream_writer
 from neuralls.platform.storage.manifest import DatasetArtifact
 from neuralls.shared.types import DatasetFormat, LayoutType, MatrixFormat, SystemMatrix
 
 _ZARR_FORMAT: DatasetFormat = "zarr"
-
-
-class CsrAccumulator:
-    """Collects COO or dense matrix samples as CSR, without densifying.
-
-    COO components are converted with ``coo_array(...).tocsr()``, which sums
-    duplicate ``(row, col)`` entries, so a repeated coordinate contributes the
-    sum of its values. Dense input is converted with ``csr_array(matrix)``,
-    which keeps only the nonzero entries.
-    """
-
-    def __init__(self) -> None:
-        self._samples: list[csr_array] = []
-
-    def append_sparse_components(
-        self,
-        *,
-        indices: NDArray,
-        values: NDArray,
-        size: tuple[int, int],
-        repeats: int,
-    ) -> None:
-        """Append one COO-described sample, repeated ``repeats`` times.
-
-        Args:
-            indices: ``(2, nnz)`` array of ``(row, col)`` coordinates.
-            values: ``(nnz,)`` values, duplicates allowed (they are summed).
-            size: ``(rows, cols)`` of the matrix.
-            repeats: How many identical samples to append (>= 1).
-        """
-        matrix = coo_array((values, (indices[0], indices[1])), shape=size).tocsr()
-        self._append(matrix, repeats)
-
-    def append_dense_matrix(self, matrix: NDArray, repeats: int) -> None:
-        """Append one dense-described sample, converted to CSR, ``repeats`` times."""
-        self._append(csr_array(matrix), repeats)
-
-    @property
-    def samples(self) -> tuple[csr_array, ...]:
-        """Every appended sample, in append order."""
-        return tuple(self._samples)
-
-    def _append(self, matrix: csr_array, repeats: int) -> None:
-        if repeats < 1:
-            raise ValueError(f"repeats must be >= 1, got {repeats}")
-        self._samples.extend([matrix] * repeats)
+_CSR_STREAM_FORMATS: frozenset[DatasetFormat] = frozenset({"zarr", "hdf5"})
 
 
 def _require_csr_samples(matrices: Sequence[SystemMatrix]) -> tuple[csr_array, ...]:
@@ -91,19 +41,24 @@ def _require_csr_samples(matrices: Sequence[SystemMatrix]) -> tuple[csr_array, .
     return tuple(matrix for matrix in matrices if isinstance(matrix, csr_array))
 
 
-def _write_per_sample(group: zarr.Group, pack: PerSamplePack) -> None:
-    group.create_array(INDPTR_ARRAY, data=pack.indptr)
-    group.create_array(INDICES_ARRAY, data=pack.indices)
-    group.create_array(DATA_ARRAY, data=pack.data)
-    group.create_array(SAMPLE_OFFSETS_ARRAY, data=pack.sample_offsets)
-    group.create_array(SHAPE_ARRAY, data=pack.shape)
+def _csr_artifact(layout: LayoutType, sample_count: int, member_path: str) -> DatasetArtifact:
+    return DatasetArtifact(
+        path=member_path,
+        format=_ZARR_FORMAT,
+        dtype="float64",
+        shape=(sample_count,),
+        n_matrix_samples=sample_count,
+        layout=layout,
+        matrix_format=MatrixFormat.CSR,
+    )
 
 
-def _write_shared_pattern(group: zarr.Group, pack: SharedPatternPack) -> None:
-    group.create_array(INDPTR_ARRAY, data=pack.indptr)
-    group.create_array(INDICES_ARRAY, data=pack.indices)
-    group.create_array(DATA_ARRAY, data=pack.data)
-    group.create_array(SHAPE_ARRAY, data=pack.shape)
+def _zarr_writer() -> SparseWriter:
+    return backend_for(_ZARR_FORMAT)[1]
+
+
+def _zarr_reader() -> SparseReader:
+    return backend_for(_ZARR_FORMAT)[0]
 
 
 def write_csr_matrix_group(
@@ -140,22 +95,69 @@ def write_csr_matrix_group(
             "supported with matrix_format='csr'. Use dataset_format='zarr'."
         )
     samples = _require_csr_samples(matrices)
-    layout = choose_layout(samples)
-    group = zarr.open_group(str(group_dir), mode="w")
-    match layout:
-        case LayoutType.SHARED_PATTERN:
-            _write_shared_pattern(group, pack_shared_pattern(samples))
-        case LayoutType.MANY_MATRICES:
-            _write_per_sample(group, pack_per_sample(samples))
-        case LayoutType.BROADCAST_SINGLE:
-            raise ValueError("BROADCAST_SINGLE is not a CSR layout; CSR never produces it.")
-    sample_count = len(samples)
-    return DatasetArtifact(
-        path=member_path,
-        format=_ZARR_FORMAT,
-        dtype="float64",
-        shape=(sample_count,),
-        n_matrix_samples=sample_count,
+    summary = _zarr_writer().write(
+        SparseLocation(path=group_dir), [to_components(sample) for sample in samples]
+    )
+    return _csr_artifact(summary.layout, summary.sample_count, member_path)
+
+
+def describe_csr_matrix_group(group_dir: Path, *, member_path: str) -> DatasetArtifact:
+    """Describe an already-written CSR zarr group for the manifest.
+
+    The layout is read back from the group's members: only the MANY_MATRICES
+    layout stores per-sample offsets, so their presence identifies it. This lets
+    the dataset writer record the layout that ``write_csr_matrix_group`` chose
+    without needing the samples again.
+
+    Args:
+        group_dir: Directory of a CSR zarr group written by ``write_csr_matrix_group``.
+        member_path: Manifest path of the group, relative to the dataset root.
+
+    Returns:
+        The manifest descriptor with ``matrix_format=CSR``, the layout and sample count.
+    """
+    summary = _zarr_reader().summary(SparseLocation(path=group_dir))
+    return _csr_artifact(summary.layout, summary.sample_count, member_path)
+
+
+def open_csr_matrix_stream(
+    dataset_format: DatasetFormat,
+    container: Path,
+    *,
+    planned_samples: int,
+    layout: LayoutType,
+) -> SparseStreamWriter:
+    """Open an incremental CSR matrix container that receives samples batch by batch.
+
+    This is the streamed counterpart of ``write_csr_matrix_group`` and stores the same
+    members. The caller chooses ``layout`` (the buffered path picks it with
+    ``choose_layout`` over every sample, which a stream cannot see in advance) and passes
+    the exact sample count. After ``close`` returns, the caller records the matrix
+    descriptor from the returned summary, or from ``describe_csr_matrix_group`` for zarr.
+
+    Args:
+        dataset_format: ``"zarr"`` (``container`` is the group directory) or ``"hdf5"``
+            (``container`` is the file; the CSR members go in its ``matrix`` group, which is
+            where the manifest addresses them).
+        container: Group directory for zarr, or HDF5 file for hdf5. Replaced if present.
+        planned_samples: Exact number of samples that will be written. Must be at least 1.
+        layout: ``MANY_MATRICES`` for per-sample patterns, or ``SHARED_PATTERN`` when every
+            sample has the first sample's pattern. A mismatching sample raises on write.
+
+    Returns:
+        A writer with ``write_batch(samples)`` and ``close() -> SparseSummary``.
+
+    Raises:
+        ValueError: If the format is not zarr or hdf5, or the plan is invalid.
+    """
+    if dataset_format not in _CSR_STREAM_FORMATS:
+        raise ValueError(
+            f"CSR storage supports zarr and hdf5; dataset_format={dataset_format!r} is not "
+            "supported with matrix_format='csr'."
+        )
+    return open_stream_writer(
+        dataset_format,
+        SparseLocation(path=container),
+        planned_samples=planned_samples,
         layout=layout,
-        matrix_format=MatrixFormat.CSR,
     )

@@ -264,6 +264,11 @@ class NeuralCheckpointRef(BaseModel):
 
     model_config = ConfigDict(extra="ignore", frozen=True)
 
+    @property
+    def active_checkpoint_path(self) -> Path | None:
+        """The checkpoint to load: the resolved MLflow artifact when present, else the explicit path."""
+        return self.resolved_checkpoint_path or self.checkpoint_path
+
     @field_validator("checkpoint_path", "config_path", "data_config_path", mode="before")
     @classmethod
     def _expand_paths(cls, v: object, info: ValidationInfo) -> object:

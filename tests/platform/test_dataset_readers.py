@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +15,6 @@ from neuralls.platform.storage.dataset_readers import (
 )
 from neuralls.platform.storage.manifest_io import load_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
-from neuralls.shared.enum_codecs import encode_row_kind_array
 from neuralls.shared.types import RowKind
 
 
@@ -37,7 +37,7 @@ def _build_dataset(root: Path) -> Path:
             normalize="none",
         ),
         str(dataset_dir),
-        dataset_format="npy",
+        dataset_format="hdf5",
     )
     return dataset_dir
 
@@ -65,12 +65,10 @@ def test_resolve_canonical_training_triplet_selects_first_standard_row(tmp_path:
 
 def test_resolve_canonical_training_triplet_rejects_explicit_residual_row(
     tmp_path: Path,
+    overwrite_row_kind: Callable[[Path, list[RowKind]], None],
 ) -> None:
     dataset_dir = _build_dataset(tmp_path)
-    np.save(
-        dataset_dir / "row_kind.npy",
-        encode_row_kind_array([RowKind.STANDARD, RowKind.CG_INTERNAL, RowKind.STANDARD]),
-    )
+    overwrite_row_kind(dataset_dir, [RowKind.STANDARD, RowKind.CG_INTERNAL, RowKind.STANDARD])
 
     with pytest.raises(ValueError, match="CG_INTERNAL"):
         resolve_canonical_training_triplet(dataset_dir, sample_index=1)

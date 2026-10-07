@@ -12,11 +12,9 @@ Design Principles:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
-import numpy as np
 import torch
 from dlkit import load_model
 from dlkit.common.errors import DLKitError
@@ -33,63 +31,17 @@ if TYPE_CHECKING:
     from dlkit.interfaces.inference import CheckpointPredictor as DLKitCheckpointPredictor
 
 
-class ModelInputAdapter(Protocol):
-    """Turns a solver-side array into the tensor a neural predictor consumes.
-
-    Implementations own the storage-format decision: a dense adapter accepts
-    only dense arrays, and a future sparse adapter would accept CSR. The
-    adapter never densifies on behalf of a caller; any densify is an explicit
-    composition-layer step.
-    """
-
-    def to_model_input(self, value: np.ndarray | torch.Tensor, device: str) -> torch.Tensor:
-        """Return ``value`` as a model-ready tensor on ``device``.
-
-        Args:
-            value: Solver-side array or tensor in the adapter's supported format.
-            device: Target device string for the predictor.
-
-        Returns:
-            A tensor carrying the batch axis the predictor expects.
-        """
-        ...
-
-
-@dataclass(frozen=True)
-class DenseModelInput:
-    """Dense float64 model input with a leading batch axis.
-
-    The only `ModelInputAdapter` today. Dense solver arrays are the sole
-    input the DLKit predictor path has been trained and exercised on.
-    """
-
-    def to_model_input(self, value: np.ndarray | torch.Tensor, device: str) -> torch.Tensor:
-        """Convert a dense array to a float64 tensor shaped ``(1, ...)`` on ``device``.
-
-        Raises:
-            TypeError: If ``value`` is not an ndarray or tensor (e.g. a
-                ``csr_array``), which must be densified upstream.
-        """
-        match value:
-            case np.ndarray():
-                tensor = torch.as_tensor(value)
-            case torch.Tensor():
-                tensor = value
-            case _:
-                raise TypeError(
-                    f"DenseModelInput accepts dense ndarray or tensor, got {type(value).__name__}; "
-                    "sparse matrices must be densified in composition before model input."
-                )
-        return tensor.detach().to(device=device, dtype=torch.float64).unsqueeze(0)
-
-
 def _extra_to_tensors(
     extra_inputs: dict[str, torch.Tensor],
     device: str,
-    model_input: ModelInputAdapter,
 ) -> dict[str, torch.Tensor]:
     """Move extra input tensors to the predictor device and add a batch axis."""
-    return {name: model_input.to_model_input(arr, device) for name, arr in extra_inputs.items()}
+    return {name: _prepare_model_input(arr, device) for name, arr in extra_inputs.items()}
+
+
+def _prepare_model_input(value: torch.Tensor, device: str) -> torch.Tensor:
+    """Prepare a solver tensor for DLKit prediction."""
+    return value.detach().to(device=device, dtype=torch.float64).unsqueeze(0)
 
 
 def _extract_model_output(value: torch.Tensor) -> torch.Tensor:
@@ -161,7 +113,6 @@ class DLKitPredictor(ExtraInputPredictorPort):
         predictor: DLKitCheckpointPredictor,
         device: str,
         required_inputs: tuple[str, ...] = (),
-        model_input: ModelInputAdapter | None = None,
     ) -> None:
         """Initialize predictor with loaded CheckpointPredictor.
 
@@ -170,15 +121,10 @@ class DLKitPredictor(ExtraInputPredictorPort):
             device: Device string ("cpu", "cuda", "mps")
             required_inputs: Names of extra arrays the model expects beyond the residual.
                 Derived from the model config by the adapter; eliminates TOML duplication.
-            model_input: Converts solver arrays to model tensors. Defaults to
-                `DenseModelInput`.
         """
         self._predictor: DLKitCheckpointPredictor = predictor
         self._device: str = device
         self._required_inputs: tuple[str, ...] = required_inputs
-        self._model_input: ModelInputAdapter = (
-            model_input if model_input is not None else DenseModelInput()
-        )
         self._closed = False
 
     @property
@@ -204,13 +150,13 @@ class DLKitPredictor(ExtraInputPredictorPort):
             RuntimeError: If predictor unloaded or GPU error
         """
         try:
-            input_tensor = self._model_input.to_model_input(residual, self._device)
+            input_tensor = _prepare_model_input(residual, self._device)
             if extra_inputs:
                 primary_name = _resolve_primary_input_name(
                     self._predictor.feature_names, frozenset(extra_inputs)
                 )
                 tensors: dict[str, torch.Tensor] = {primary_name: input_tensor}
-                tensors.update(_extra_to_tensors(extra_inputs, self._device, self._model_input))
+                tensors.update(_extra_to_tensors(extra_inputs, self._device))
                 output = self._predictor.predict(**tensors)
             else:
                 output = self._predictor.predict(input_tensor)

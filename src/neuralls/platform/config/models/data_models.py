@@ -25,9 +25,13 @@ from neuralls.domain.generation.strategy_configs import (
     require_which_supported_by_format,
 )
 from neuralls.platform.config.context import ConfigContext, expand_config_glob, expand_config_path
-from neuralls.shared.constants import EIGENVECTOR_SELECT_SMALLEST, EigenvectorSelectionMode
+from neuralls.shared.constants import (
+    DEFAULT_WRITE_BATCH_SIZE,
+    EIGENVECTOR_SELECT_SMALLEST,
+    EigenvectorSelectionMode,
+)
 from neuralls.shared.digest import Cosmetic
-from neuralls.shared.types import DatasetFormat, MatrixFormat
+from neuralls.shared.types import DatasetFormat, MatrixFormat, SparsityPattern
 
 
 class SourceConfig(BaseModel):
@@ -266,7 +270,10 @@ class GenerationConfig(BaseModel):
     )
     shuffle: bool = Field(
         default=True,
-        description="Shuffle generated samples",
+        description=(
+            "Deprecated, no effect. Stored order is always generation order because "
+            "dlkit shuffles the training loader every epoch. Setting true logs a warning."
+        ),
     )
     seed: int = Field(
         default=42,
@@ -296,6 +303,11 @@ class GenerationConfig(BaseModel):
     cg_max_iters: int | None = Field(
         default=None,
         description="Optional generation-level CG iteration override",
+        ge=1,
+    )
+    write_batch_size: Annotated[int, Cosmetic()] = Field(
+        default=DEFAULT_WRITE_BATCH_SIZE,
+        description="Rows generated and written per batch; bounds memory, never changes output",
         ge=1,
     )
     strategy: list[StrategyConfig] = Field(
@@ -342,6 +354,15 @@ class OutputConfig(BaseModel):
     matrix_format: MatrixFormat = Field(
         default=MatrixFormat.CSR,
         description="System matrix storage format ('csr' or 'dense'); one format per dataset",
+    )
+    sparsity_pattern: SparsityPattern = Field(
+        default=SparsityPattern.RAGGED,
+        description=(
+            "CSR sparsity pattern ('ragged' or 'shared'). 'shared' stores one pattern and data "
+            "of shape (N, nnz), and rejects any matrix whose pattern differs from the first. "
+            "'ragged' stores each matrix's own pattern. Not Cosmetic: it changes the stored "
+            "layout, so it is part of the dataset digest."
+        ),
     )
     matrix_replication: Literal["duplicate_per_sample"] = Field(
         default="duplicate_per_sample",

@@ -28,7 +28,7 @@ class DatasetArtifact:
     layout: LayoutType | None = None
     logical_sample_count: int | None = None
     matrix_format: MatrixFormat | None = None
-    """Matrix storage format; None on legacy manifests means dense."""
+    """Matrix storage format; None, when the manifest omits it, reads as dense."""
 
 
 @dataclass(frozen=True)
@@ -48,7 +48,7 @@ class DatasetManifest:
     Attributes:
         content_digest: Logical-content digest of every persisted artifact
             (`platform.storage.dataset_digest`), independent of format and
-            location. None on legacy manifests.
+            location. None when the manifest carries no digest.
         stat_digest: Cheap (relative path, size, mtime) snapshot of the
             artifact files taken when `content_digest` was computed; equal
             snapshot means `content_digest` is still valid without re-hashing.

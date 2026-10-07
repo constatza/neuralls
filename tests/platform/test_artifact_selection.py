@@ -53,7 +53,7 @@ def test_list_artifact_files_filters_directories() -> None:
         }
     )
 
-    result = list_artifact_files(client, run_id=RUN_ID, artifact_dir=SPLIT_ARTIFACT_DIR)  # type: ignore[arg-type]
+    result = list_artifact_files(client, run_id=RUN_ID, artifact_dir=SPLIT_ARTIFACT_DIR)
 
     assert result == (SPLIT_FILE_A,)
     assert client.list_calls == [(RUN_ID, SPLIT_ARTIFACT_DIR)]
@@ -64,7 +64,7 @@ def test_select_split_artifact_path_returns_single_json() -> None:
         {SPLIT_ARTIFACT_DIR: (FakeArtifact(NON_JSON_SPLIT_FILE), FakeArtifact(SPLIT_FILE_A))}
     )
 
-    result = select_split_artifact_path(client, run_id=RUN_ID)  # type: ignore[arg-type]
+    result = select_split_artifact_path(client, run_id=RUN_ID)
 
     assert result == SPLIT_FILE_A
 
@@ -73,7 +73,7 @@ def test_select_split_artifact_path_rejects_missing_json() -> None:
     client = FakeMlflowClient({SPLIT_ARTIFACT_DIR: (FakeArtifact(NON_JSON_SPLIT_FILE),)})
 
     with pytest.raises(FileNotFoundError, match="no split JSON artifact"):
-        select_split_artifact_path(client, run_id=RUN_ID)  # type: ignore[arg-type]
+        select_split_artifact_path(client, run_id=RUN_ID)
 
 
 def test_select_split_artifact_path_rejects_multiple_json_files() -> None:
@@ -82,13 +82,13 @@ def test_select_split_artifact_path_rejects_multiple_json_files() -> None:
     )
 
     with pytest.raises(ValueError, match="multiple split JSON artifacts"):
-        select_split_artifact_path(client, run_id=RUN_ID)  # type: ignore[arg-type]
+        select_split_artifact_path(client, run_id=RUN_ID)
 
 
 def test_select_config_artifact_dir_returns_dir_when_present() -> None:
     client = FakeMlflowClient({CONFIG_ARTIFACT_DIR: (FakeArtifact(CONFIG_FILE),)})
 
-    result = select_config_artifact_dir(client, run_id=RUN_ID)  # type: ignore[arg-type]
+    result = select_config_artifact_dir(client, run_id=RUN_ID)
 
     assert result == CONFIG_ARTIFACT_DIR
 
@@ -96,7 +96,7 @@ def test_select_config_artifact_dir_returns_dir_when_present() -> None:
 def test_select_config_artifact_dir_returns_none_when_absent() -> None:
     client = FakeMlflowClient({})
 
-    result = select_config_artifact_dir(client, run_id=RUN_ID)  # type: ignore[arg-type]
+    result = select_config_artifact_dir(client, run_id=RUN_ID)
 
     assert result is None
 
@@ -105,6 +105,6 @@ def test_has_artifact_dir_rejects_unsafe_dir_before_listing() -> None:
     client = FakeMlflowClient({})
 
     with pytest.raises(ValueError, match="Unsafe"):
-        has_artifact_dir(client, run_id=RUN_ID, artifact_dir="../config")  # type: ignore[arg-type]
+        has_artifact_dir(client, run_id=RUN_ID, artifact_dir="../config")
 
     assert client.list_calls == []

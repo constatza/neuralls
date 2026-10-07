@@ -82,6 +82,7 @@ paths = [
     "neuralls.platform.config.models",
     "neuralls.platform.dlkit",
     "neuralls.platform.reporting",
+    "neuralls.platform.sparse_io",
     "neuralls.platform.storage",
     "neuralls.platform.tracking",
 ]

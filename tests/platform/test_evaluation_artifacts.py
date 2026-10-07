@@ -111,7 +111,7 @@ def test_resolve_training_split_file_validates_single_json(tmp_path: Path) -> No
     client = FakeArtifactClient({SPLIT_ARTIFACT_DIR: _split_listing()})
     leases = FakeLeaseManager({f"{SPLIT_ARTIFACT_DIR}/{SPLIT_FILE}": split_file})
 
-    result = resolve_training_split_artifact(client=client, run_id=RUN_ID, artifact_leases=leases)  # type: ignore[arg-type]
+    result = resolve_training_split_artifact(client=client, run_id=RUN_ID, artifact_leases=leases)
 
     assert result.file == split_file
     assert result.artifact_path == f"{SPLIT_ARTIFACT_DIR}/{SPLIT_FILE}"
@@ -123,7 +123,7 @@ def test_resolve_training_split_file_rejects_missing_json() -> None:
     leases = FakeLeaseManager({})
 
     with pytest.raises(FileNotFoundError, match="no split JSON artifact"):
-        resolve_training_split_artifact(client=client, run_id=RUN_ID, artifact_leases=leases)  # type: ignore[arg-type]
+        resolve_training_split_artifact(client=client, run_id=RUN_ID, artifact_leases=leases)
 
     assert leases.file_calls == []
 
@@ -137,10 +137,11 @@ def test_resolve_training_split_file_rejects_multiple_json_files() -> None:
             )
         }
     )
+
     leases = FakeLeaseManager({})
 
     with pytest.raises(ValueError, match="multiple split JSON artifacts"):
-        resolve_training_split_artifact(client=client, run_id=RUN_ID, artifact_leases=leases)  # type: ignore[arg-type]
+        resolve_training_split_artifact(client=client, run_id=RUN_ID, artifact_leases=leases)
 
     assert leases.file_calls == []
 
@@ -152,7 +153,7 @@ def test_resolve_training_checkpoint_raises_when_no_checkpoint_artifact() -> Non
 
     with pytest.raises(MissingCheckpointArtifactError, match=f"{RUN_ID}.*{ASSIGNMENT_ID}"):
         resolve_training_checkpoint(
-            client=client,  # type: ignore[arg-type]
+            client=client,
             run_id=RUN_ID,
             artifact_leases=leases,
             assignment_id=ASSIGNMENT_ID,
@@ -170,7 +171,7 @@ def test_resolve_training_checkpoint_returns_checkpoint_when_present(tmp_path: P
     leases = FakeLeaseManager({CHECKPOINT_ARTIFACT_DIR: checkpoint_dir})
 
     result = resolve_training_checkpoint(
-        client=client,  # type: ignore[arg-type]
+        client=client,
         run_id=RUN_ID,
         artifact_leases=leases,
         assignment_id=ASSIGNMENT_ID,
@@ -195,7 +196,7 @@ def test_resolve_training_checkpoint_raises_corrupt_error_when_lease_fails(
         CorruptCheckpointArtifactError, match=f"{RUN_ID}.*{ASSIGNMENT_ID}"
     ) as excinfo:
         resolve_training_checkpoint(
-            client=client,  # type: ignore[arg-type]
+            client=client,
             run_id=RUN_ID,
             artifact_leases=leases,
             assignment_id=ASSIGNMENT_ID,
@@ -214,7 +215,7 @@ def test_resolve_training_config_artifacts_returns_none_when_absent() -> None:
     client = FakeArtifactClient({})
     leases = FakeLeaseManager({})
 
-    result = resolve_training_config_artifacts(client=client, run_id=RUN_ID, artifact_leases=leases)  # type: ignore[arg-type]
+    result = resolve_training_config_artifacts(client=client, run_id=RUN_ID, artifact_leases=leases)
 
     assert result.config_dir is None
     assert leases.dir_calls == []
@@ -227,9 +228,10 @@ def test_resolve_training_config_artifacts_uses_config_dir_when_present(tmp_path
     client = FakeArtifactClient(
         {CONFIG_ARTIFACT_DIR: (FakeArtifact(f"{CONFIG_ARTIFACT_DIR}/{CONFIG_FILE}"),)}
     )
+
     leases = FakeLeaseManager({CONFIG_ARTIFACT_DIR: config_dir})
 
-    result = resolve_training_config_artifacts(client=client, run_id=RUN_ID, artifact_leases=leases)  # type: ignore[arg-type]
+    result = resolve_training_config_artifacts(client=client, run_id=RUN_ID, artifact_leases=leases)
 
     assert result.config_dir == config_dir
     assert leases.dir_calls == [(RUN_ID, CONFIG_ARTIFACT_DIR)]
@@ -251,6 +253,7 @@ def test_resolve_training_evaluation_artifacts_resolves_all_required_paths(tmp_p
             CONFIG_ARTIFACT_DIR: (FakeArtifact(f"{CONFIG_ARTIFACT_DIR}/{CONFIG_FILE}"),),
         }
     )
+
     leases = FakeLeaseManager(
         {
             CHECKPOINT_ARTIFACT_DIR: checkpoint_dir,
@@ -260,7 +263,7 @@ def test_resolve_training_evaluation_artifacts_resolves_all_required_paths(tmp_p
     )
 
     result = resolve_training_evaluation_artifacts(
-        client=client,  # type: ignore[arg-type]
+        client=client,
         run_id=RUN_ID,
         artifact_leases=leases,
         assignment_id=ASSIGNMENT_ID,
