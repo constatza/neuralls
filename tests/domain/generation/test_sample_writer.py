@@ -150,3 +150,37 @@ def test_writer_exposes_no_read_methods() -> None:
     assert read_like == []
     assert not hasattr(SampleWriter, "read")
     assert not hasattr(SampleWriter, "get")
+
+
+@pytest.fixture
+def dropped_parameter_batch() -> SampleBatch:
+    """A later batch in which the parameter stream declared by the first batch is absent."""
+    return _batch(0, 3, 100.0, vectors=(None, None))
+
+
+def test_parameter_stream_missing_after_first_batch_raises(
+    matrix_for: object,
+    first_batch: SampleBatch,
+    dropped_parameter_batch: SampleBatch,
+) -> None:
+    """A declared parameter stream that goes empty must fail, not leave zeros in its rows."""
+    writer = SampleWriter(
+        InMemoryArrayStore(),
+        planned_rows=5,
+        matrix_for=matrix_for,
+        single_matrix=True,
+    )
+    writer.write_batch(first_batch)
+    with pytest.raises(ValueError):
+        writer.write_batch(dropped_parameter_batch)
+
+
+def test_overflowing_first_batch_creates_no_arrays(
+    matrix_for: object, first_batch: SampleBatch
+) -> None:
+    """A batch larger than the plan is refused before the store holds any array."""
+    store = InMemoryArrayStore()
+    writer = SampleWriter(store, planned_rows=1, matrix_for=matrix_for, single_matrix=True)
+    with pytest.raises(ValueError):
+        writer.write_batch(first_batch)
+    assert store.arrays == {}

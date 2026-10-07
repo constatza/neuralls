@@ -124,13 +124,13 @@ class SampleWriter:
         rows = len(batch)
         if rows == 0:
             return
-        if not self._created:
-            self._create_arrays(batch)
         start = self._rows_written
         if start + rows > self._planned_rows:
             raise ValueError(
                 f"Batch would write row {start + rows} but only {self._planned_rows} rows were planned."
             )
+        if not self._created:
+            self._create_arrays(batch)
         self._store.write_rows(RHS_NAME, start, _as_float(batch.rhs))
         self._store.write_rows(SOLUTIONS_NAME, start, _as_float(batch.solutions))
         self._store.write_rows(
@@ -196,12 +196,17 @@ class SampleWriter:
 
     def _write_parameters(self, batch: SampleBatch, start: int, rows: int) -> None:
         for index, vector in enumerate(batch.parameter_vectors):
-            if vector is None:
-                continue
             if index not in self._parameter_streams:
+                if vector is None:
+                    continue
                 raise ValueError(
                     f"Parameter stream {index} appears after the first batch, "
                     "so its array was never created."
+                )
+            if vector is None:
+                raise ValueError(
+                    f"Parameter stream {index} has no sample in a batch after the first, "
+                    "which would leave its rows unwritten."
                 )
             tiled = np.tile(np.asarray(vector, dtype=np.float64), (rows, 1))
             self._store.write_rows(_parameter_name(index), start, tiled)

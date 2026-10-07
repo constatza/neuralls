@@ -854,3 +854,32 @@ def test_bind_sources_single_matrix_broadcasts_to_many_solution_ids() -> None:
     assert all(b.matrix_sample_id == 0 for b in bindings)
     assert [b.solution_sample_id for b in bindings] == [0, 1, 2]
     assert all(b.rhs_sample_id is None for b in bindings)
+
+
+def test_bind_sources_parameter_ids_must_match_matrix_ids() -> None:
+    """A parameter stream with an id no matrix has is rejected, not silently unbound."""
+    with pytest.raises(ValueError):
+        bind_sources(
+            matrix_ids=(0, 1),
+            parameters_ids_list=((0, 1, 2),),
+        )
+
+
+def test_bind_sources_single_matrix_rejects_extra_parameter_ids() -> None:
+    """One matrix with several parameter ids is an input error, not a broadcast."""
+    with pytest.raises(ValueError):
+        bind_sources(
+            matrix_ids=(0,),
+            rhs_ids=(0,),
+            parameters_ids_list=((0, 1, 2),),
+        )
+
+
+def test_bind_sources_each_binding_takes_its_matrix_parameter() -> None:
+    """Parameters belong to the matrix, so every rhs of one matrix reuses that matrix's id."""
+    bindings = bind_sources(
+        matrix_ids=(0,),
+        rhs_ids=(0, 1, 2),
+        parameters_ids_list=((0,),),
+    )
+    assert [b.parameters_sample_ids for b in bindings] == [(0,), (0,), (0,)]
