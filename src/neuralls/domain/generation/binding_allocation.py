@@ -396,6 +396,13 @@ def _binding_counts_for_strategy(
 ) -> tuple[dict[int, int], dict[int, tuple[int, ...]]]:
     """Resolve one strategy's global count into its per-binding counts and archive files.
 
+    TODO: this dispatches on a closed, 5-case ``match``; a registry of per-kind rule
+    objects (one for the cyclic-solution case, one for archive-glob, etc.) would let a new
+    strategy kind add one entry instead of a new case here. Not done: the current ``match``
+    is exhaustive and typed, which is already the idiomatic form for a closed case set — a
+    registry only pays off once the case count or per-case state grows enough to make the
+    match unwieldy, which it isn't yet.
+
     Dispatches on which of three conditions the strategy's count meets, in the same
     precedence order the caller previously checked them in: a cyclic draw from an
     explicit solution file, an archive-glob allocation, or (only once neither applies)

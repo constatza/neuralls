@@ -77,6 +77,14 @@ class SampleWriter:
     Arrays are created lazily at the first batch, because the feature dimension and the
     parameter widths are only known once data arrives. The row total comes from the plan,
     so every array is created at its final shape.
+
+    TODO: the schema (array shapes, which parameter streams exist) is currently a side
+    effect of the first ``write_batch`` call rather than a value fixed up front. A two-phase
+    constructor — an ``open(first_batch, ...)`` that creates the arrays and returns a writer
+    whose schema is then immutable — would make that explicit. Both streaming callers would
+    need to find the first non-empty batch before constructing the writer, and the direct
+    constructor-then-``write_batch`` tests in ``test_sample_writer.py`` would need rewriting.
+    Worth doing if a second writer backend or a schema-inspection need appears; not before.
     """
 
     def __init__(
