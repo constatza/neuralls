@@ -174,7 +174,7 @@ def two_preconditioners() -> dict[str, Preconditioner]:
     matrix = torch.diag(torch.tensor([2.0, 3.0], dtype=torch.float64))
     return {
         "identity": Identity(),
-        "jacobi": JacobiPreconditioner(matrix),
+        "jacobi": JacobiPreconditioner().setup(matrix),
     }
 
 

@@ -38,6 +38,10 @@ class _StubBindable(Preconditioner, BindableInputs):
     def bind_inputs(self, **inputs: torch.Tensor) -> None:
         self.bound_inputs.update(inputs)
 
+    def setup(self, matrix: torch.Tensor, context: object | None = None) -> _StubBindable:
+        self._mark_ready()
+        return self
+
     def apply(self, residual: torch.Tensor) -> torch.Tensor:
         return residual
 

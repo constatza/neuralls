@@ -128,7 +128,7 @@ def test_diagonal_matrix_jacobi_matches_analytical_condition_number(
 ) -> None:
     """Jacobi-preconditioning a diagonal matrix yields the identity operator (condition 1)."""
     cond_numbers = compute_condition_numbers(
-        diagonal_matrix.numpy(), {"jacobi": JacobiPreconditioner(diagonal_matrix)}
+        diagonal_matrix.numpy(), {"jacobi": JacobiPreconditioner().setup(diagonal_matrix)}
     )
     assert cond_numbers["jacobi"] == pytest.approx(1.0, rel=1e-2)
 
@@ -141,7 +141,7 @@ def test_arnoldi_matches_exact_eigenvalue_ratio(
     """The fast estimate agrees with the exact eigenvalue-ratio condition number."""
     matrix: torch.Tensor = request.getfixturevalue(matrix_name)
     preconditioner: Preconditioner = (
-        Identity() if preconditioner_name == "identity" else JacobiPreconditioner(matrix)
+        Identity() if preconditioner_name == "identity" else JacobiPreconditioner().setup(matrix)
     )
 
     expected = _exact_eigenvalue_ratio(matrix, preconditioner)
@@ -183,7 +183,7 @@ def test_arnoldi_is_faster_than_exact_dense_svd() -> None:
     diag_values = torch.linspace(1.0, 1.0e4, n, dtype=torch.float64)
     off_diag = 0.1 * torch.ones(n - 1, dtype=torch.float64)
     matrix = torch.diag(diag_values) + torch.diag(off_diag, 1) + torch.diag(off_diag, -1)
-    preconditioner = JacobiPreconditioner(matrix)
+    preconditioner = JacobiPreconditioner().setup(matrix)
 
     start = time.perf_counter()
     compute_condition_numbers(matrix.numpy(), {"jacobi": preconditioner})

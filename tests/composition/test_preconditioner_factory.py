@@ -832,8 +832,8 @@ def test_factory_creates_adaptive_sa_preconditioner_with_explicit_num_candidates
     assert isinstance(precond, AdaptiveSAPreconditioner)
     assert precond._result.candidates.shape[1] == 3
     expected = AdaptiveSAPreconditioner(
-        dense_spd_matrix, num_candidates=3, max_levels=2, max_coarse=1, theta=0.1
-    )
+        num_candidates=3, max_levels=2, max_coarse=1, theta=0.1
+    ).setup(dense_spd_matrix)
     assert precond._result.matrices[-1].shape[0] == expected._result.matrices[-1].shape[0]
 
 
@@ -870,7 +870,7 @@ def test_factory_creates_bootstrap_amg_preconditioner(
     precond = create_preconditioner(dense_spd_matrix_20, config)
 
     assert isinstance(precond, BootstrapAMGPreconditioner)
-    expected = BootstrapAMGPreconditioner(dense_spd_matrix_20, max_coarse=5, seed=0)
+    expected = BootstrapAMGPreconditioner(max_coarse=5, seed=0).setup(dense_spd_matrix_20)
     assert precond._result.matrices[-1].shape[0] == expected._result.matrices[-1].shape[0]
     # n_levels=10 default is a ceiling on torchalg's coarsening loop, not an
     # exact count — real depth here is governed by max_coarse and settles
@@ -938,7 +938,8 @@ def test_create_scheduled_preconditioner_with_limit() -> None:
     """Builder wraps the preconditioner when limit_iters is specified."""
     primary = Identity()
     schedule = PreconditionerScheduleConfig(limit_iters=10)
-    result = create_scheduled_preconditioner(primary, schedule)
+    matrix = torch.eye(2, dtype=torch.float64)
+    result = create_scheduled_preconditioner(primary, schedule, matrix=matrix)
 
     assert isinstance(result, ScheduledPreconditioner)
     assert result._limit_iters == 10
@@ -949,7 +950,8 @@ def test_create_scheduled_preconditioner_with_start_iter() -> None:
     """Builder forwards delayed activation to ScheduledPreconditioner."""
     primary = Identity()
     schedule = PreconditionerScheduleConfig(start_iter=7, limit_iters=10)
-    result = create_scheduled_preconditioner(primary, schedule)
+    matrix = torch.eye(2, dtype=torch.float64)
+    result = create_scheduled_preconditioner(primary, schedule, matrix=matrix)
 
     assert isinstance(result, ScheduledPreconditioner)
     assert result._start_iter == 7
@@ -960,7 +962,8 @@ def test_create_scheduled_preconditioner_wraps_unlimited_delayed_schedule() -> N
     """Delayed unlimited schedules are still wrapped."""
     primary = Identity()
     schedule = PreconditionerScheduleConfig(start_iter=3, limit_iters=-1)
-    result = create_scheduled_preconditioner(primary, schedule)
+    matrix = torch.eye(2, dtype=torch.float64)
+    result = create_scheduled_preconditioner(primary, schedule, matrix=matrix)
 
     assert isinstance(result, ScheduledPreconditioner)
     assert result._start_iter == 3
@@ -972,9 +975,9 @@ def test_create_scheduled_preconditioner_delayed_schedule_uses_fallback_before_s
     residual_vector: torch.Tensor,
 ) -> None:
     """Delayed factory schedules use the identity fallback before activation."""
-    primary = JacobiPreconditioner(well_conditioned_matrix)
+    primary = JacobiPreconditioner().setup(well_conditioned_matrix)
     schedule = PreconditionerScheduleConfig(start_iter=2, limit_iters=-1)
-    result = create_scheduled_preconditioner(primary, schedule)
+    result = create_scheduled_preconditioner(primary, schedule, matrix=well_conditioned_matrix)
 
     early_ctx = PreconditionerContext(iteration=1, residual_norm=1.0, rhs_norm=1.0)
     active_ctx = PreconditionerContext(iteration=2, residual_norm=1.0, rhs_norm=1.0)
@@ -990,7 +993,8 @@ def test_create_scheduled_preconditioner_default_fallback() -> None:
     """Identity is used as the default fallback."""
     primary = Identity()
     schedule = PreconditionerScheduleConfig(limit_iters=5)
-    result = create_scheduled_preconditioner(primary, schedule)
+    matrix = torch.eye(2, dtype=torch.float64)
+    result = create_scheduled_preconditioner(primary, schedule, matrix=matrix)
 
     ctx = PreconditionerContext(iteration=10, residual_norm=1.0, rhs_norm=1.0)
     r = torch.tensor([1.0, 2.0], dtype=torch.float64)
@@ -1006,7 +1010,8 @@ def test_create_scheduled_preconditioner_with_identity_fallback() -> None:
         limit_iters=5,
         fallback=PreconditionerType.IDENTITY,
     )
-    result = create_scheduled_preconditioner(primary, schedule)
+    matrix = torch.eye(2, dtype=torch.float64)
+    result = create_scheduled_preconditioner(primary, schedule, matrix=matrix)
 
     ctx = PreconditionerContext(iteration=10, residual_norm=1.0, rhs_norm=1.0)
     r = torch.tensor([1.0, 2.0], dtype=torch.float64)

@@ -27,6 +27,14 @@ class _TrackingPreconditioner(Preconditioner, BindableInputs):
     def bind_inputs(self, **inputs: torch.Tensor) -> None:
         self.bound = dict(inputs)
 
+    def setup(
+        self,
+        matrix: torch.Tensor,
+        context: PreconditionerContext | None = None,
+    ) -> _TrackingPreconditioner:
+        self._mark_ready()
+        return self
+
     def apply(
         self,
         residual: torch.Tensor,

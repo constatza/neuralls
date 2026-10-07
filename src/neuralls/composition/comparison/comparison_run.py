@@ -320,11 +320,11 @@ def _run_preconditioner(
     family = preconditioner_family(cfg)
     with track_resource_usage(matrix.device) as setup_usage:
         base_preconditioners = {cfg.name: service.create_preconditioner(matrix, cfg)}
-    scheduled = _create_scheduled_preconditioners(
-        preconditioner_configs=[cfg],
-        matrix=matrix,
-        base_preconditioners=base_preconditioners,
-    )
+        scheduled = _create_scheduled_preconditioners(
+            preconditioner_configs=[cfg],
+            matrix=matrix,
+            base_preconditioners=base_preconditioners,
+        )
     _load_and_bind_extra_inputs(
         scheduled, matrix=matrix, matrix_path=matrix_path, matrix_index=matrix_index
     )

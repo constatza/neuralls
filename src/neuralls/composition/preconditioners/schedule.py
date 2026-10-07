@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import torch
 from torchalg.preconditioners.base import Preconditioner
 from torchalg.preconditioners.implementations import Identity
 from torchalg.preconditioners.implementations.scheduled import ScheduledPreconditioner
@@ -55,23 +56,40 @@ def _extract_schedule(cfg: ConcretePreconditionerConfig) -> PreconditionerSchedu
 def create_scheduled_preconditioner(
     primary: Preconditioner,
     schedule: PreconditionerScheduleConfig,
+    matrix: torch.Tensor | None = None,
 ) -> Preconditioner:
     """Create a scheduled preconditioner based on schedule config.
 
+    ``ScheduledPreconditioner`` requires its own ``setup()`` call before
+    ``apply()`` (it sets up both primary and fallback together, since both
+    branches must be ready for dispatch) — when wrapping occurs, ``matrix``
+    is required, and this function makes the wrapper ready before returning
+    it. ``primary`` is expected to already be setup (`create_preconditioner`
+    returns a ready preconditioner), so this only re-runs the fallback's
+    setup plus a cheap no-op re-setup of the already-ready primary.
+
     Args:
-        primary: Main preconditioner to apply
-        schedule: Schedule configuration with activation, limit, and fallback type
+        primary: Main preconditioner to apply (already setup).
+        schedule: Schedule configuration with activation, limit, and fallback type.
+        matrix: System matrix, required only when wrapping actually occurs.
 
     Returns:
-        ScheduledPreconditioner if delayed or limited, otherwise primary unchanged
+        ScheduledPreconditioner (ready for ``apply()``) if delayed or
+        limited, otherwise primary unchanged.
+
+    Raises:
+        ValueError: If wrapping is required but ``matrix`` was not supplied.
 
     Example:
         >>> # Limit neural preconditioner to first 10 iterations
         >>> schedule = PreconditionerScheduleConfig(limit_iters=10)
-        >>> scheduled = create_scheduled_preconditioner(neural_precond, schedule)
+        >>> scheduled = create_scheduled_preconditioner(neural_precond, schedule, matrix)
     """
     if schedule.start_iter == 0 and schedule.limit_iters < 0:
         return primary
+
+    if matrix is None:
+        raise ValueError("create_scheduled_preconditioner requires `matrix` when wrapping.")
 
     # Create fallback preconditioner based on type
     if schedule.fallback == PreconditionerType.IDENTITY:
@@ -84,4 +102,4 @@ def create_scheduled_preconditioner(
         fallback=fallback_precond,
         limit_iters=None if schedule.limit_iters < 0 else schedule.limit_iters,
         start_iter=schedule.start_iter,
-    )
+    ).setup(matrix)

@@ -41,7 +41,7 @@ def preconditioners(spd_matrix: torch.Tensor) -> dict[str, object]:
     baseline key — providing it explicitly here means no second, redundant
     baseline solve gets silently added on top of these two.
     """
-    return {"identity": Identity(), "jacobi": JacobiPreconditioner(spd_matrix)}
+    return {"identity": Identity(), "jacobi": JacobiPreconditioner().setup(spd_matrix)}
 
 
 @pytest.fixture

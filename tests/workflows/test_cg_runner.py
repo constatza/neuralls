@@ -216,7 +216,7 @@ def test_run_cg_comparison_with_preconditioner_instances(
     """Test run_cg_comparison with Identity and Jacobi preconditioner instances."""
     preconditioners = {
         "identity": Identity(),
-        "jacobi": JacobiPreconditioner(spd_matrix),
+        "jacobi": JacobiPreconditioner().setup(spd_matrix),
     }
 
     results = run_cg_comparison(
@@ -243,9 +243,9 @@ def test_run_cg_comparison_with_preconditioner_instances(
 
 def test_run_cg_comparison_routes_to_flexible_cg(spd_matrix: Tensor, rhs_vector: Tensor) -> None:
     """Test that ScheduledPreconditioner routes to flexible_cg."""
-    primary = JacobiPreconditioner(spd_matrix)
+    primary = JacobiPreconditioner().setup(spd_matrix)
     fallback = Identity()
-    scheduled = ScheduledPreconditioner(primary, fallback, limit_iters=5)
+    scheduled = ScheduledPreconditioner(primary, fallback, limit_iters=5).setup(spd_matrix)
 
     preconditioners = {"scheduled": scheduled}
 
@@ -273,6 +273,14 @@ def test_run_cg_comparison_dispatches_by_preconditioner_compatibility(
     """Non-linear preconditioners route to flexible_cg; SPD ones route to pcg."""
 
     class DummyNonLinearPreconditioner(NonLinearPreconditioner):
+        def setup(
+            self,
+            matrix: torch.Tensor,
+            context: PreconditionerContext | None = None,
+        ) -> DummyNonLinearPreconditioner:
+            self._mark_ready()
+            return self
+
         def apply(
             self,
             residual: torch.Tensor,
@@ -311,7 +319,7 @@ def test_run_cg_comparison_dispatches_by_preconditioner_compatibility(
         spd_matrix,
         rhs_vector,
         preconditioners={
-            "nonlinear": DummyNonLinearPreconditioner(),
+            "nonlinear": DummyNonLinearPreconditioner().setup(spd_matrix),
             "identity": Identity(),
         },
         rtol=1e-8,
@@ -346,7 +354,7 @@ def test_run_cg_comparison_executes_only_requested_preconditioners(
     spd_matrix: Tensor, rhs_vector: Tensor
 ) -> None:
     """Domain execution does not inject a baseline omitted by configuration."""
-    preconditioners = {"jacobi": JacobiPreconditioner(spd_matrix)}
+    preconditioners = {"jacobi": JacobiPreconditioner().setup(spd_matrix)}
 
     results = run_cg_comparison(
         spd_matrix,

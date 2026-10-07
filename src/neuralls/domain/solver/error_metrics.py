@@ -92,7 +92,7 @@ def reference_solution(
         A,
         b,
         torch.zeros_like(b),
-        preconditioner=JacobiPreconditioner(A),
+        preconditioner=JacobiPreconditioner().setup(A),
         rtol=target_rel,
         atol=0.0,
         maxiter=maxiter,

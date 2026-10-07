@@ -102,7 +102,7 @@ def _build_dense_jacobi(
 ) -> tuple[Preconditioner, CoarseningStrategy | None]:
     """Dense diagonal (Jacobi) preconditioner."""
     del config, deps
-    return JacobiPreconditioner(matrix), None
+    return JacobiPreconditioner().setup(matrix), None
 
 
 def _build_sparse_jacobi(
@@ -110,7 +110,7 @@ def _build_sparse_jacobi(
 ) -> tuple[Preconditioner, CoarseningStrategy | None]:
     """Sparse CSR diagonal (Jacobi) preconditioner."""
     del config, deps
-    return SparseJacobiPreconditioner(matrix), None
+    return SparseJacobiPreconditioner().setup(matrix), None
 
 
 def _build_dense_ilu(
@@ -118,7 +118,7 @@ def _build_dense_ilu(
 ) -> tuple[Preconditioner, CoarseningStrategy | None]:
     """Dense ILU(0) preconditioner."""
     del config, deps
-    return ILUPreconditioner(matrix), None
+    return ILUPreconditioner().setup(matrix), None
 
 
 def _build_sparse_ilu(
@@ -126,7 +126,7 @@ def _build_sparse_ilu(
 ) -> tuple[Preconditioner, CoarseningStrategy | None]:
     """Sparse CSR ILU(0) preconditioner."""
     del config, deps
-    return SparseILUPreconditioner(matrix), None
+    return SparseILUPreconditioner().setup(matrix), None
 
 
 def _build_dense_icholesky(
@@ -134,7 +134,7 @@ def _build_dense_icholesky(
 ) -> tuple[Preconditioner, CoarseningStrategy | None]:
     """Dense incomplete-Cholesky preconditioner over a supplied factor."""
     del config, deps
-    return ICholeskyPreconditioner(matrix), None
+    return ICholeskyPreconditioner().setup(matrix), None
 
 
 def _build_sparse_icholesky(
@@ -142,7 +142,7 @@ def _build_sparse_icholesky(
 ) -> tuple[Preconditioner, CoarseningStrategy | None]:
     """Sparse CSR incomplete-Cholesky preconditioner over a supplied factor."""
     del config, deps
-    return SparseICholeskyPreconditioner(matrix), None
+    return SparseICholeskyPreconditioner().setup(matrix), None
 
 
 def _build_dense_ic0(
@@ -152,7 +152,7 @@ def _build_dense_ic0(
     del deps
     if not isinstance(config, IC0PreconditionerConfig):
         raise TypeError(f"IC(0) type requires IC0PreconditionerConfig, got {type(config)}")
-    return IC0Preconditioner(matrix, threshold=config.threshold), None
+    return IC0Preconditioner(threshold=config.threshold).setup(matrix), None
 
 
 def _build_sparse_ic0(
@@ -162,7 +162,7 @@ def _build_sparse_ic0(
     del deps
     if not isinstance(config, IC0PreconditionerConfig):
         raise TypeError(f"IC(0) type requires IC0PreconditionerConfig, got {type(config)}")
-    return SparseIC0Preconditioner(matrix, threshold=config.threshold), None
+    return SparseIC0Preconditioner(threshold=config.threshold).setup(matrix), None
 
 
 def _build_sparse_amg(
@@ -189,7 +189,7 @@ def _build_sparse_amg(
                 smoother_omega=config.smoother_omega,
                 n_pre=config.pre_smoothing_steps,
                 n_post=config.post_smoothing_steps,
-            ),
+            ).setup(matrix),
             None,
         )
     coarsening = _build_amg_coarsening(
@@ -203,7 +203,7 @@ def _build_sparse_amg(
     )
     preconditioner = MultigridAMGPreconditioner(
         matrix=matrix, coarsening=coarsening, cycle=cycle, n_levels=config.n_levels, linear=True
-    )
+    ).setup(matrix)
     return preconditioner, None
 
 
@@ -241,7 +241,7 @@ def _build_amg(
     )
     preconditioner = AMGPreconditioner(
         matrix, coarsening=coarsening, cycle=cycle, n_levels=config.n_levels, linear=True
-    )
+    ).setup(matrix)
     return preconditioner, coarsening
 
 
@@ -275,7 +275,6 @@ def _build_adaptive_sa(
         The assembled `AdaptiveSAPreconditioner`.
     """
     return AdaptiveSAPreconditioner(
-        matrix,
         num_candidates=config.num_candidates,
         candidate_iters=config.candidate_iters,
         max_levels=config.n_levels,
@@ -283,7 +282,7 @@ def _build_adaptive_sa(
         theta=config.theta,
         omega=config.omega,
         seed=config.seed,
-    )
+    ).setup(matrix)
 
 
 def _build_bootstrap_amg(
@@ -303,7 +302,6 @@ def _build_bootstrap_amg(
         The assembled `BootstrapAMGPreconditioner`.
     """
     return BootstrapAMGPreconditioner(
-        matrix,
         k_r=config.k_r,
         eta=config.eta,
         n_bootstrap_cycles=config.n_bootstrap_cycles,
@@ -316,7 +314,7 @@ def _build_bootstrap_amg(
         max_levels=config.n_levels,
         max_coarse=config.max_coarse,
         seed=config.seed,
-    )
+    ).setup(matrix)
 
 
 def _build_dense_adaptive_sa(
@@ -342,7 +340,6 @@ def _build_sparse_adaptive_sa(
         )
     return (
         SparseAdaptiveSAPreconditioner(
-            matrix,
             num_candidates=config.num_candidates,
             candidate_iters=config.candidate_iters,
             max_levels=config.n_levels,
@@ -350,7 +347,7 @@ def _build_sparse_adaptive_sa(
             theta=config.theta,
             omega=config.omega,
             seed=config.seed,
-        ),
+        ).setup(matrix),
         None,
     )
 
@@ -378,7 +375,6 @@ def _build_sparse_bootstrap_amg(
         )
     return (
         SparseBootstrapAMGPreconditioner(
-            matrix,
             k_r=config.k_r,
             eta=config.eta,
             n_bootstrap_cycles=config.n_bootstrap_cycles,
@@ -391,7 +387,7 @@ def _build_sparse_bootstrap_amg(
             max_levels=config.n_levels,
             max_coarse=config.max_coarse,
             seed=config.seed,
-        ),
+        ).setup(matrix),
         None,
     )
 
@@ -399,8 +395,7 @@ def _build_sparse_bootstrap_amg(
 def _build_neural(
     matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
 ) -> tuple[Preconditioner, CoarseningStrategy | None]:
-    """Checkpoint-backed neural preconditioner; the matrix is not used, only the model."""
-    del matrix
+    """Checkpoint-backed neural preconditioner; `setup()` ignores the matrix, only loads the model."""
     if not isinstance(config, NeuralPreconditionerConfig):
         raise TypeError(f"Neural type requires NeuralPreconditionerConfig, got {type(config)}")
     ckpt = config.active_checkpoint_path
@@ -415,7 +410,7 @@ def _build_neural(
             data_config_path=config.data_config_path,
             adapter=_resolve_adapter(deps),
             extra_input_names=tuple(config.extra_input_names),
-        ),
+        ).setup(matrix),
         None,
     )
 
@@ -449,7 +444,7 @@ def _build_neural_amg(
     )
     preconditioner = AMGPreconditioner(
         matrix, coarsening=coarsening, cycle=cycle, n_levels=config.n_levels, linear=False
-    )
+    ).setup(matrix)
     return preconditioner, None
 
 

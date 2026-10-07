@@ -120,6 +120,7 @@ def _create_scheduled_preconditioners(
         scheduled[cfg.name] = create_scheduled_preconditioner(
             primary=primary,
             schedule=schedule,
+            matrix=matrix,
         )
     return scheduled
 

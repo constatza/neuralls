@@ -119,7 +119,7 @@ def target_dim_amg_preconditioner(tridiag_spd_matrix: torch.Tensor) -> AMGPrecon
 @pytest.fixture
 def adaptive_sa_preconditioner(tridiag_spd_matrix: torch.Tensor) -> AdaptiveSAPreconditioner:
     """Constructed adaptive SA-AMG (alpha-SA) preconditioner, forced to 2 levels."""
-    return AdaptiveSAPreconditioner(tridiag_spd_matrix, max_levels=2, max_coarse=1, theta=0.0)
+    return AdaptiveSAPreconditioner(max_levels=2, max_coarse=1, theta=0.0).setup(tridiag_spd_matrix)
 
 
 @pytest.fixture
@@ -144,7 +144,7 @@ def bootstrap_amg_preconditioner(
     settles on a single level, unlike aggregation/alpha-SA on the same
     matrix) — hence the larger dedicated fixture.
     """
-    return BootstrapAMGPreconditioner(tridiag_spd_matrix_20, max_coarse=5, seed=0)
+    return BootstrapAMGPreconditioner(max_coarse=5, seed=0).setup(tridiag_spd_matrix_20)
 
 
 # ==============================================================================
@@ -369,7 +369,7 @@ def test_describe_preconditioner_jacobi_returns_empty_string(
     tridiag_spd_matrix: torch.Tensor,
 ) -> None:
     """JacobiPreconditioner has no structural variants, so no detail is fabricated."""
-    precond = JacobiPreconditioner(tridiag_spd_matrix)
+    precond = JacobiPreconditioner().setup(tridiag_spd_matrix)
 
     assert describe_preconditioner(precond) == ""
 
