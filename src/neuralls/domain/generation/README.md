@@ -367,12 +367,25 @@ above the file's `K` rows is capped at `K` per binding with one warning.
 - `ports.py`: `ArrayStore` (the write-only dense store that `SampleWriter` depends on) and
   `TracingSolverPort` protocol definitions consumed by the composition layer
 - `runner.py`: strategy registry and dispatch
-- `source_streams.py`: sample discovery and loading. One `_RawSampleSource` per source
-  shape (single stacked `.npy`, single `.txt`, glob of per-sample files) is composed into
-  a generic `_SampleStream[T]` wrapper that decides what a sample *means* — `_MatrixStream`
-  (dense/sparse matrix API) or `_VectorStream` (1D vector API). The six public
-  `{Npy,Txt,Glob}{Matrix,Vector}Stream` classes are thin subclasses that only pick a source;
-  `open_matrix_stream()`/`open_vector_stream()` are the entrypoints
+- `source_streams.py`: sample discovery and loading. The `_RawSampleSource` protocol
+  (defined here, next to its consumer) is composed into a generic `_SampleStream[T]`
+  wrapper that decides what a sample *means* — `_MatrixStream` (dense/sparse matrix API)
+  or `_VectorStream` (1D vector API). The seven public `{Npy,Txt,Glob,Mtx}{Matrix,Vector}Stream`
+  classes (minus `MtxVectorStream`, which doesn't exist) are thin subclasses that only pick a
+  source, built from `file_sources.py`; `open_matrix_stream()`/`open_vector_stream()` are the
+  entrypoints. Not yet collapsed into a single lookup-by-format dispatch (plan item S4): the
+  single-file variants (`Npy`/`Txt`/`Mtx`) are directly tested by name and by `isinstance` in
+  `test_source_streams_characterization.py`, so collapsing them means rewriting that test's
+  class-identity assertions to behavioral ones — a separate decision, not folded into this split.
+- `sample_ids.py`: sample-id derivation and enumeration rules for glob-matched files —
+  `EnumerateBy` (assign sequential ids by name/ctime/mtime instead of parsing filenames),
+  `_build_glob_index` (resolve a glob to `{sample_id: path}`), `_is_glob_expression`.
+- `file_sources.py`: raw per-sample file readers satisfying `_RawSampleSource` structurally —
+  `_NpyFileSource` (single file or a stack via mmap), `_TxtFileSource`, `_GlobFileSource`
+  (one sample per matched file), `_MtxFileSource` (MatrixMarket, read as CSR).
+- `bindings.py`: pure ID-level binding across matrix/rhs/parameters/solution sample streams —
+  `SystemBinding` and `bind_sources()` (single-matrix broadcast when only one matrix id exists,
+  otherwise bindings are keyed by matrix id).
 - `providers.py`: archive or synthetic sample providers
 - `allocation.py`: pure remainder-aware splits (no I/O). `split_remainder(total, M, seed=...)`
   gives each matrix `total // M` units and hands the `total % M` leftovers to distinct

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-from neuralls.domain.generation.source_streams import _is_glob_expression
+from neuralls.domain.generation.sample_ids import _is_glob_expression
 from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.models.data_models import DataConfigFile
 from neuralls.shared.digest import Digest, canonical_digest, content_digest

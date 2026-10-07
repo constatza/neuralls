@@ -11,7 +11,7 @@ import pytest
 from neuralls.domain.generation import binding_allocation
 from neuralls.domain.generation.batch_plan import BindingAllocation
 from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
-from neuralls.domain.generation.source_streams import SystemBinding
+from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.domain.generation.strategy_rows import _generate_strategy_rows, _StrategyRows
 

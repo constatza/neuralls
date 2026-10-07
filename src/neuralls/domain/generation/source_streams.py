@@ -9,87 +9,25 @@ generation strategy logic. It supports:
 
 from __future__ import annotations
 
-import re
 from abc import ABC, abstractmethod
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 import numpy as np
-from scipy.io import mmread
 from scipy.sparse import csr_array
 
 from neuralls.shared.types import MatrixFormat, SystemMatrix
 
-_GLOB_CHARS = ("*", "?", "[", "]")
-_DEFAULT_SAMPLE_ID_REGEX = r"(\d+)(?!.*\d)"
-
-
-class EnumerateBy(StrEnum):
-    """Criterion for assigning sequential IDs to glob-matched files.
-
-    Use when filenames carry no natural integer ID (e.g. parameter-encoded names
-    like ``E1_3000_E2_78000_matrix.txt``).  Files are sorted by the chosen
-    criterion and assigned sequential IDs 0, 1, 2, …
-    """
-
-    NAME = "name"
-    CTIME = "ctime"
-    MTIME = "mtime"
-
-
-def _sort_key_for(path: Path, by: EnumerateBy) -> float | str:
-    """Return the sort key for *path* under the given *by* strategy."""
-    match by:
-        case EnumerateBy.NAME:
-            return path.name
-        case EnumerateBy.CTIME:
-            return path.stat().st_birthtime
-        case EnumerateBy.MTIME:
-            return path.stat().st_mtime
-
-
-def _enumerate_files(paths: Sequence[Path], by: EnumerateBy) -> dict[int, Path]:
-    """Assign sequential IDs to *paths* sorted by *by*, returning ``{id: path}``."""
-    return {i: p for i, p in enumerate(sorted(paths, key=lambda p: _sort_key_for(p, by)))}
-
-
-def _filter_mapping(
-    mapping: dict[int, Path],
-    *,
-    include_indices: tuple[int, ...] | None,
-    exclude_indices: tuple[int, ...],
-) -> dict[int, Path]:
-    """Restrict *mapping* to `include_indices`, or drop `exclude_indices`.
-
-    Keeps original sample ids as dict keys (no renumbering) so downstream
-    keyed lookups (`bind_sources`, `load_dense_sample`) stay correct.
-
-    # ponytail: hand-maintained id lists per dataset TOML are a crude,
-    # manual train/eval split — refine into a shared, seeded split utility
-    # (e.g. fractional or stratified) if more parametric-family cases need
-    # this, so the held-out ids aren't hardcoded and duplicated per config.
-    """
-    if include_indices is not None and exclude_indices:
-        raise ValueError("include_indices and exclude_indices are mutually exclusive.")
-    if include_indices is not None:
-        missing = set(include_indices) - mapping.keys()
-        if missing:
-            raise ValueError(f"include_indices references unknown sample ids: {sorted(missing)}")
-        return {i: mapping[i] for i in include_indices}
-    if exclude_indices:
-        missing = set(exclude_indices) - mapping.keys()
-        if missing:
-            raise ValueError(f"exclude_indices references unknown sample ids: {sorted(missing)}")
-        return {i: p for i, p in mapping.items() if i not in exclude_indices}
-    return mapping
-
-
-def _is_glob_expression(expr: str) -> bool:
-    """Return True when the path expression contains glob meta characters."""
-    return any(char in expr for char in _GLOB_CHARS)
+from .file_sources import (
+    _GlobFileSource,
+    _MtxFileSource,
+    _NpyFileSource,
+    _RawSample,
+    _TxtFileSource,
+)
+from .sample_ids import EnumerateBy, _is_glob_expression
 
 
 def _normalize_vector(array: np.ndarray, source: Path) -> np.ndarray:
@@ -100,16 +38,6 @@ def _normalize_vector(array: np.ndarray, source: Path) -> np.ndarray:
     if arr.ndim == 2 and (arr.shape[0] == 1 or arr.shape[1] == 1):
         return arr.reshape(-1)
     raise ValueError(f"Expected vector from {source}, got shape {arr.shape}")
-
-
-def _extract_sample_id(path: Path, pattern: re.Pattern[str]) -> int:
-    """Extract integer sample id from filename stem."""
-    match = pattern.search(path.stem)
-    if match is None:
-        raise ValueError(
-            f"Could not extract sample id from '{path.name}' using regex '{pattern.pattern}'."
-        )
-    return int(match.group(1))
 
 
 def _dense_to_sparse_components(
@@ -146,17 +74,6 @@ class VectorSample:
 
     sample_id: int
     vector: np.ndarray
-
-
-@dataclass(frozen=True)
-class SystemBinding:
-    """ID-level binding across matrix/rhs/parameters/solution sources."""
-
-    sample_id: int
-    matrix_sample_id: int
-    rhs_sample_id: int | None = None
-    parameters_sample_ids: tuple[int | None, ...] = ()
-    solution_sample_id: int | None = None
 
 
 @runtime_checkable
@@ -207,27 +124,14 @@ class VectorSampleStream(Protocol):
         ...
 
 
-@dataclass(frozen=True)
-class _RawSample:
-    """One sample's array exactly as read from disk, plus the file it came from.
-
-    Attributes:
-        sample_id: Sample id this array belongs to.
-        array: Raw array (possibly memory-mapped, possibly not yet float64).
-        origin: File the array was read from, used for error messages.
-    """
-
-    sample_id: int
-    array: np.ndarray | csr_array
-    origin: Path
-
-
 class _RawSampleSource(Protocol):
     """Protocol for locating sample files and reading their raw arrays.
 
-    A source owns *where* samples come from (one stacked .npy, one .txt, or a
-    glob of per-sample files); the stream wrapped around it owns *what* a sample
-    means (dense matrix vs 1D vector).
+    A source owns *where* samples come from (one stacked .npy, one .txt, a
+    glob of per-sample files, or a MatrixMarket .mtx file); the stream wrapped
+    around it owns *what* a sample means (dense matrix vs 1D vector). The
+    concrete sources in ``file_sources.py`` satisfy this structurally, with
+    no explicit inheritance.
     """
 
     @property
@@ -238,172 +142,6 @@ class _RawSampleSource(Protocol):
     def read(self, sample_id: int) -> _RawSample:
         """Read one sample's raw array."""
         ...
-
-
-def _index_by_sample_id_regex(
-    paths: Sequence[Path],
-    *,
-    noun: str,
-    sample_id_regex: str | None,
-) -> dict[int, Path]:
-    """Map filename-derived sample ids to *paths*, rejecting duplicate ids."""
-    regex = re.compile(sample_id_regex or _DEFAULT_SAMPLE_ID_REGEX)
-    mapping: dict[int, Path] = {}
-    for path in paths:
-        sample_id = _extract_sample_id(path, regex)
-        if sample_id in mapping:
-            raise ValueError(
-                f"Duplicate {noun} sample id {sample_id} for files {mapping[sample_id]} and {path}"
-            )
-        mapping[sample_id] = path
-    return mapping
-
-
-def _build_glob_index(
-    expr: str,
-    *,
-    noun: str,
-    sample_id_regex: str | None,
-    enumerate_by: EnumerateBy | None,
-    include_indices: tuple[int, ...] | None,
-    exclude_indices: tuple[int, ...],
-) -> dict[int, Path]:
-    """Resolve a glob expression to ``{sample_id: path}``.
-
-    Args:
-        expr: Glob expression whose parent directory must already exist.
-        noun: Source kind used in error messages ("matrix" or "vector").
-        sample_id_regex: Regex whose first group holds the id in the file stem.
-            Ignored when *enumerate_by* is given; defaults to the trailing
-            integer of the stem.
-        enumerate_by: Assign sequential ids by this criterion instead of parsing
-            them out of the filenames.
-        include_indices: Keep only these sample ids, if given.
-        exclude_indices: Drop these sample ids.
-
-    Returns:
-        Mapping of sample id to source file, without renumbering.
-    """
-    pattern_path = Path(expr)
-    parent = pattern_path.parent
-    if not parent.exists():
-        raise FileNotFoundError(f"{noun.capitalize()} glob parent directory not found: {parent}")
-    paths = sorted(parent.glob(pattern_path.name))
-    if not paths:
-        raise FileNotFoundError(f"No {noun} files match glob: {expr}")
-    mapping = (
-        _enumerate_files(paths, enumerate_by)
-        if enumerate_by is not None
-        else _index_by_sample_id_regex(paths, noun=noun, sample_id_regex=sample_id_regex)
-    )
-    mapping = _filter_mapping(
-        mapping, include_indices=include_indices, exclude_indices=exclude_indices
-    )
-    if not mapping:
-        raise ValueError(f"No {noun} samples remain after filtering glob: {expr}")
-    return mapping
-
-
-def _read_sample_file(path: Path, *, noun: str) -> np.ndarray:
-    """Read one per-sample .npy (memory-mapped) or .txt file."""
-    match path.suffix:
-        case ".npy":
-            return np.load(path, mmap_mode="r")
-        case ".txt":
-            return np.loadtxt(path, dtype=np.float64)
-        case _:
-            raise ValueError(f"Unsupported {noun} file extension in glob: {path.suffix}")
-
-
-class _NpyFileSource:
-    """Samples from one .npy file holding a single sample or a stack of them."""
-
-    def __init__(self, path: Path, *, noun: str, sample_ndim: int, shape_error: str) -> None:
-        """Open *path* and determine how many samples it holds.
-
-        Args:
-            path: Source .npy file, opened with mmap.
-            noun: Source kind used in error messages ("matrix" or "vector").
-            sample_ndim: Rank of a single sample; rank ``sample_ndim + 1`` is
-                read as a stack of samples along the leading axis.
-            shape_error: Message template, formatted with ``shape``, raised when
-                the file's rank is neither of the two accepted ones.
-        """
-        self._path = path
-        self._noun = noun
-        self._sample_ndim = sample_ndim
-        self._array = np.load(path, mmap_mode="r")
-        if self._array.ndim == sample_ndim:
-            self._sample_ids = (0,)
-        elif self._array.ndim == sample_ndim + 1:
-            self._sample_ids = tuple(range(int(self._array.shape[0])))
-        else:
-            raise ValueError(shape_error.format(shape=self._array.shape))
-
-    @property
-    def sample_ids(self) -> tuple[int, ...]:
-        return self._sample_ids
-
-    def read(self, sample_id: int) -> _RawSample:
-        if sample_id not in self._sample_ids:
-            raise KeyError(f"Unknown {self._noun} sample id {sample_id} for {self._path}")
-        stacked = self._array.ndim > self._sample_ndim
-        array = self._array[sample_id] if stacked else self._array
-        return _RawSample(sample_id=sample_id, array=array, origin=self._path)
-
-
-class _TxtFileSource:
-    """The single sample held by one .txt file."""
-
-    def __init__(self, path: Path, *, noun: str) -> None:
-        self._path = path
-        self._noun = noun
-
-    @property
-    def sample_ids(self) -> tuple[int, ...]:
-        return (0,)
-
-    def read(self, sample_id: int) -> _RawSample:
-        if sample_id != 0:
-            raise KeyError(f"Unknown {self._noun} sample id {sample_id} for {self._path}")
-        array = np.loadtxt(self._path, dtype=np.float64)
-        return _RawSample(sample_id=0, array=array, origin=self._path)
-
-
-class _GlobFileSource:
-    """Samples from glob-matched .txt/.npy files, one sample per file."""
-
-    def __init__(
-        self,
-        expr: str,
-        *,
-        noun: str,
-        sample_id_regex: str | None,
-        enumerate_by: EnumerateBy | None,
-        include_indices: tuple[int, ...] | None,
-        exclude_indices: tuple[int, ...],
-    ) -> None:
-        self._noun = noun
-        self._mapping = _build_glob_index(
-            expr,
-            noun=noun,
-            sample_id_regex=sample_id_regex,
-            enumerate_by=enumerate_by,
-            include_indices=include_indices,
-            exclude_indices=exclude_indices,
-        )
-        self._sample_ids = tuple(sorted(self._mapping.keys()))
-
-    @property
-    def sample_ids(self) -> tuple[int, ...]:
-        return self._sample_ids
-
-    def read(self, sample_id: int) -> _RawSample:
-        path = self._mapping.get(sample_id)
-        if path is None:
-            raise KeyError(f"Unknown {self._noun} sample id {sample_id}")
-        array = _read_sample_file(path, noun=self._noun)
-        return _RawSample(sample_id=sample_id, array=array, origin=path)
 
 
 class _SampleStream[T](ABC):
@@ -560,23 +298,6 @@ class GlobMatrixStream(_MatrixStream):
         )
 
 
-class _MtxFileSource:
-    """The single sample held by one MatrixMarket (.mtx) file, read as CSR."""
-
-    def __init__(self, path: Path) -> None:
-        self._path = path
-
-    @property
-    def sample_ids(self) -> tuple[int, ...]:
-        return (0,)
-
-    def read(self, sample_id: int) -> _RawSample:
-        if sample_id != 0:
-            raise KeyError(f"Unknown matrix sample id {sample_id} for {self._path}")
-        array = csr_array(mmread(self._path, spmatrix=False))
-        return _RawSample(sample_id=0, array=array, origin=self._path)
-
-
 class MtxMatrixStream(_MatrixStream):
     """Matrix stream backed by a single MatrixMarket (.mtx) file."""
 
@@ -690,105 +411,6 @@ def open_vector_stream(
     )
 
 
-def bind_sources(
-    matrix_ids: tuple[int, ...],
-    rhs_ids: tuple[int, ...] | None = None,
-    solution_ids: tuple[int, ...] | None = None,
-    parameters_ids_list: tuple[tuple[int, ...], ...] = (),
-) -> list[SystemBinding]:
-    """Bind matrix/rhs/solution/parameters ids with single-matrix broadcast semantics.
-
-    Rules:
-    - If only one matrix id exists and vectors have many ids, broadcast matrix id.
-    - Otherwise bindings are keyed by matrix ids.
-    - Provided rhs ids must match matrix ids (except single-matrix broadcast).
-    - Provided solution ids must match matrix ids (except single-matrix broadcast).
-    - Each entry in parameters_ids_list is a tuple of sample IDs for one parameter stream.
-
-    Args:
-        matrix_ids: Sample IDs from the matrix stream.
-        rhs_ids: Optional sample IDs from the RHS stream.
-        solution_ids: Optional sample IDs from the solution stream.
-        parameters_ids_list: Tuple of ID tuples, one per parameter stream.
-
-    Returns:
-        List of ``SystemBinding`` objects with all sources resolved.
-    """
-    if not matrix_ids:
-        raise ValueError("No matrix samples available to bind.")
-
-    matrix_set = set(matrix_ids)
-    rhs_set = set(rhs_ids or ())
-    solution_set = set(solution_ids or ())
-    param_sets = [set(ids) for ids in parameters_ids_list]
-    _check_parameter_ids(matrix_set, param_sets)
-
-    if len(matrix_set) == 1:
-        matrix_sample_id = next(iter(matrix_set))
-        candidate_ids = (
-            rhs_set if rhs_set else (solution_set if solution_set else {matrix_sample_id})
-        )
-        bound_ids = sorted(candidate_ids)
-        return [
-            _binding(sample_id, matrix_sample_id, rhs_set, solution_set, len(param_sets))
-            for sample_id in bound_ids
-        ]
-
-    bound_ids = sorted(matrix_set)
-    if rhs_set and rhs_set != matrix_set:
-        missing = sorted(matrix_set - rhs_set)
-        extra = sorted(rhs_set - matrix_set)
-        raise ValueError(
-            f"RHS IDs must match matrix IDs for multi-matrix sources. Missing={missing}, extra={extra}"
-        )
-    if solution_set and solution_set != matrix_set:
-        missing = sorted(matrix_set - solution_set)
-        extra = sorted(solution_set - matrix_set)
-        raise ValueError(
-            f"solution IDs must match matrix IDs for multi-matrix sources. Missing={missing}, extra={extra}"
-        )
-    return [
-        _binding(sample_id, sample_id, rhs_set, solution_set, len(param_sets))
-        for sample_id in bound_ids
-    ]
-
-
-def _check_parameter_ids(matrix_set: set[int], param_sets: Sequence[set[int]]) -> None:
-    """Require every parameter stream to hold exactly the matrix sample ids.
-
-    Parameters describe a matrix, so each matrix sample has one parameter sample and no
-    other. A missing or extra id is an error rather than a silently unbound sample.
-
-    Raises:
-        ValueError: If a parameter stream's ids differ from the matrix ids.
-    """
-    for index, ids in enumerate(param_sets):
-        if ids == matrix_set:
-            continue
-        missing = sorted(matrix_set - ids)
-        extra = sorted(ids - matrix_set)
-        raise ValueError(
-            f"parameter stream {index} IDs must match matrix IDs. Missing={missing}, extra={extra}"
-        )
-
-
-def _binding(
-    sample_id: int,
-    matrix_sample_id: int,
-    rhs_set: set[int],
-    solution_set: set[int],
-    parameter_stream_count: int,
-) -> SystemBinding:
-    """Bind one sample; every parameter stream takes the matrix's own sample id."""
-    return SystemBinding(
-        sample_id=sample_id,
-        matrix_sample_id=matrix_sample_id,
-        rhs_sample_id=sample_id if sample_id in rhs_set else None,
-        solution_sample_id=sample_id if sample_id in solution_set else None,
-        parameters_sample_ids=(matrix_sample_id,) * parameter_stream_count,
-    )
-
-
 __all__ = [
     "DenseMatrixSample",
     "EnumerateBy",
@@ -796,11 +418,8 @@ __all__ = [
     "GlobVectorStream",
     "MatrixSampleStream",
     "SparseMatrixSample",
-    "SystemBinding",
     "VectorSample",
     "VectorSampleStream",
-    "_enumerate_files",
-    "bind_sources",
     "open_matrix_stream",
     "open_vector_stream",
 ]

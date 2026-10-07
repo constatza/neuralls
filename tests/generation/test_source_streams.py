@@ -8,12 +8,12 @@ import zarr
 from pydantic import ValidationError
 
 from neuralls.composition.generation.dataset_builder import build_dataset
+from neuralls.domain.generation.bindings import bind_sources
+from neuralls.domain.generation.sample_ids import _enumerate_files
 from neuralls.domain.generation.source_streams import (
     EnumerateBy,
     GlobMatrixStream,
     GlobVectorStream,
-    _enumerate_files,
-    bind_sources,
     open_matrix_stream,
     open_vector_stream,
 )

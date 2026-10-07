@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.domain.generation.source_streams import SystemBinding
+from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import MixtureSpec
 
 

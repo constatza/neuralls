@@ -18,15 +18,14 @@ from .batch import SampleBatch
 from .batch_generator import StrategyRunner, generate_batches
 from .batch_plan import ALL_SAMPLES, BatchPlan, BindingAllocation, plan_batches
 from .binding_allocation import _resolve_binding_strategy_counts
+from .bindings import SystemBinding, bind_sources
 from .counts import resolve_strategy_counts
 from .matrix_cache import _cached_matrix_loader, _CachedMatrix
 from .scalar_aggregate import BindingScale, ScalarAggregator
 from .seeds import derive_seed
 from .source_streams import (
     MatrixSampleStream,
-    SystemBinding,
     VectorSampleStream,
-    bind_sources,
     open_matrix_stream,
     open_vector_stream,
 )

@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from neuralls.composition.generation.dataset_builder import is_dataset_reusable
 from neuralls.composition.generation.processing import process_config
 from neuralls.composition.identity.generation import generation_identity
-from neuralls.domain.generation.source_streams import _is_glob_expression
+from neuralls.domain.generation.sample_ids import _is_glob_expression
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.base import load_matrix

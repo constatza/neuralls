@@ -18,7 +18,7 @@ from neuralls.domain.generation.binding_allocation import (
     _archive_pool_size,
     _resolve_binding_strategy_counts,
 )
-from neuralls.domain.generation.source_streams import SystemBinding
+from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 
 _NUM_MATRICES = 3

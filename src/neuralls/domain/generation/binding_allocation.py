@@ -11,10 +11,10 @@ from loguru import logger
 from .allocation import archive_units, split_remainder
 from .archive_files import select_archive_files
 from .batch_plan import ALL_SAMPLES, BindingAllocation
+from .bindings import SystemBinding
 from .counts import resolve_strategy_counts
 from .runner import rows_per_base_system
 from .seeds import derive_seed
-from .source_streams import SystemBinding
 from .specs import DatasetSpec
 from .strategy_properties import (
     _archive_glob_for_strategy,
