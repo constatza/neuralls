@@ -5,10 +5,8 @@ from .result import (
     CGComparisonResult,
     ComparisonRecommendations,
     ComparisonResult,
-    IterationContext,
     PlotPaths,
     RankedRecommendation,
-    SolverResult,
 )
 
 __all__ = [
@@ -17,9 +15,7 @@ __all__ = [
     "ComparisonGeneral",
     "ComparisonRecommendations",
     "ComparisonResult",
-    "IterationContext",
     "PlotPaths",
     "RankedRecommendation",
     "SolverParams",
-    "SolverResult",
 ]

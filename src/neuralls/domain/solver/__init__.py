@@ -19,10 +19,8 @@ from .models.result import (
     CGComparisonResult,
     ComparisonRecommendations,
     ComparisonResult,
-    IterationContext,
     PlotPaths,
     RankedRecommendation,
-    SolverResult,
 )
 
 __all__ = [
@@ -31,12 +29,10 @@ __all__ = [
     "ComparisonGeneral",
     "ComparisonRecommendations",
     "ComparisonResult",
-    "IterationContext",
     "PlotPaths",
     "RankedRecommendation",
     "SolverConfig",
     "SolverParams",
-    "SolverResult",
     "TraceMode",
     "format_results_summary",
     "run_cg_comparison",
