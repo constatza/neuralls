@@ -14,6 +14,7 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 
+from neuralls.composition.generation.default_services import make_solver
 from neuralls.domain.generation.interfaces import TracingSolverCallable
 from neuralls.domain.generation.runner import run_generation
 from neuralls.domain.generation.trace_utils import TrajectoryShortfallError
@@ -48,8 +49,10 @@ def test_trajectory_expansion_drops_no_rows_per_base_system(
         solver=solver,
         single_rhs=small_rhs,
     )
-
     assert generated.error_traces is not None
+    assert generated.error_traces.residuals is not None
+    assert generated.error_traces is not None
+
     per_system = np.bincount(generated.error_traces.sample_indices)
     np.testing.assert_array_equal(per_system, [K_ROWS, K_ROWS, K_ROWS, 1])
     assert generated.error_traces.residuals.shape[0] == 10
@@ -80,3 +83,24 @@ def test_early_converging_base_system_raises_trajectory_shortfall(
     assert "produced 1 trace rows" in message
     assert "expected 3" in message
     assert "converged before window.stop=3" in message
+
+
+def test_real_solver_converging_early_raises_shortfall_naming_the_system() -> None:
+    """A = 2I makes CG exact after one step, so a window that keeps steps 1 and 3 falls short.
+
+    The base pair is step 0 and only step 1 is recorded, so the window keeps one row where
+    it expects two. No stub solver is involved: the default CG tracer produces the trajectory.
+    """
+    matrix = 2.0 * np.eye(4)
+    rhs = np.ones(4)
+    cfg = {"samples": 2, "start": 1, "stop": 4, "step": 2, "seed": 0}
+
+    solver = make_solver()
+
+    with pytest.raises(TrajectoryShortfallError) as excinfo:
+        run_generation("residuals", matrix, cfg=cfg, solver=solver, single_rhs=rhs)
+
+    message = str(excinfo.value)
+    assert "base system 0" in message
+    assert "produced 1 trace rows" in message
+    assert "expected 2" in message

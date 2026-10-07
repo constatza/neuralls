@@ -17,7 +17,7 @@ from ..strategy_configs import RandomNormalConfig
 from ..transforms import ComputeRhsTransform
 
 
-@register_strategy(supports_matrix_replacement=True)
+@register_strategy
 class RandomNormalStrategy:
     """Generate random normal solutions and compute RHS.
 
@@ -68,6 +68,6 @@ class RandomNormalStrategy:
 
 
 # Alias for "normal"
-@register_strategy(supports_matrix_replacement=True)
+@register_strategy
 class NormalStrategy(RandomNormalStrategy):
     name = "normal"

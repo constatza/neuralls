@@ -12,7 +12,7 @@ from neuralls.domain.generation.helpers import (
     _select_eigenvectors,
     _solve_linear_systems,
 )
-from neuralls.domain.generation.matrix_operator import MatrixOperator
+from neuralls.domain.generation.matrix_operator import MatrixOperator, _FactorKind
 from neuralls.domain.generation.strategy_configs import require_which_supported_by_format
 from neuralls.platform.config.models.data_models import DataConfigFile
 from neuralls.shared.types import MatrixFormat
@@ -108,7 +108,7 @@ def test_factor_is_built_once_and_reused(spd_dense: np.ndarray, rhs_rows: np.nda
 
     operator.solve_direct(rhs_rows[0])
     first_factor = cache.factor
-    assert first_factor is not None
+    assert first_factor is not None and first_factor.kind is _FactorKind.CHOLESKY
 
     operator.solve_direct(rhs_rows[1])
     operator.solve_direct(rhs_rows[2])

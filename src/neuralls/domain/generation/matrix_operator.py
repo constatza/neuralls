@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Literal, cast
+from typing import ClassVar, Literal
 
 import numpy as np
 from scipy.linalg import cho_factor, cho_solve, eigh, lu_factor, lu_solve
@@ -24,11 +24,12 @@ from neuralls.shared.types import MatrixFormat, SystemMatrix
 type EigenWhich = Literal["smallest", "largest"]
 """Eigenvalue end requested from `MatrixOperator.eigensystem`."""
 
-SYMMETRY_RTOL = 1e-10
-"""Relative tolerance of the dense symmetry check (matches `np.allclose` usage)."""
-
 SYMMETRY_ATOL = 1e-10
-"""Absolute tolerance of the symmetry check; asymmetry above it is rejected."""
+"""Largest allowed |A - A^T| entry, the same absolute rule for dense and CSR matrices.
+
+Generated systems are normalized to entries of order one, so an absolute bound is
+the right scale. A relative bound would let large entries hide a larger asymmetry.
+"""
 
 _SHIFT_INVERT_SIGMA = 0.0
 """Shift for `eigsh` shift-invert when computing the smallest eigenvalues.
@@ -47,37 +48,82 @@ class _FactorKind(StrEnum):
     LU = "lu"
 
 
-type _CholeskyFactor = tuple[np.ndarray, bool]
-type _LUFactor = tuple[np.ndarray, np.ndarray]
-type _Factor = SuperLU | _CholeskyFactor | _LUFactor
+@dataclass(frozen=True)
+class _SparseLUFactor:
+    """Sparse LU factorization of a CSR matrix."""
+
+    kind: ClassVar[_FactorKind] = _FactorKind.SPLU
+    lu: SuperLU
+
+    def solve(self, rhs: np.ndarray) -> np.ndarray:
+        """Solve A x = rhs with the cached factor."""
+        return np.asarray(self.lu.solve(rhs), dtype=np.float64)
+
+
+@dataclass(frozen=True)
+class _CholeskyFactor:
+    """Cholesky factorization of a dense SPD matrix, as returned by `cho_factor`."""
+
+    kind: ClassVar[_FactorKind] = _FactorKind.CHOLESKY
+    factor: tuple[np.ndarray, bool]
+
+    def solve(self, rhs: np.ndarray) -> np.ndarray:
+        """Solve A x = rhs with the cached factor."""
+        return np.asarray(cho_solve(self.factor, rhs), dtype=np.float64)
+
+
+@dataclass(frozen=True)
+class _LUFactor:
+    """LU factorization of a dense general matrix, as returned by `lu_factor`."""
+
+    kind: ClassVar[_FactorKind] = _FactorKind.LU
+    factor: tuple[np.ndarray, np.ndarray]
+
+    def solve(self, rhs: np.ndarray) -> np.ndarray:
+        """Solve A x = rhs with the cached factor."""
+        return np.asarray(lu_solve(self.factor, rhs), dtype=np.float64)
+
+
+type _Factor = _SparseLUFactor | _CholeskyFactor | _LUFactor
 
 
 @dataclass(slots=True)
 class _OperatorCache:
     """Mutable memo for one `MatrixOperator`; excluded from value identity."""
 
-    factor_kind: _FactorKind | None = None
     factor: _Factor | None = None
     eigen: dict[tuple[int, EigenWhich], tuple[np.ndarray, np.ndarray]] = field(default_factory=dict)
 
 
+def _max_asymmetry(matrix: SystemMatrix) -> float:
+    """Largest absolute entry of A - A^T, computed without densifying CSR."""
+    if isinstance(matrix, csr_array):
+        difference = abs(matrix - matrix.T)
+        return float(difference.max()) if difference.nnz else 0.0
+    return float(np.max(np.abs(matrix - matrix.T)))
+
+
+def require_eigen_count(count: int, n: int) -> None:
+    """Reject an eigenpair count outside 1..n. Every eigen path shares this rule.
+
+    Raises:
+        ValueError: If ``count`` is not in 1..n.
+    """
+    if not 0 < count <= n:
+        raise ValueError(f"count ({count}) must be positive and ≤ {n}")
+
+
 def ensure_symmetric(matrix: SystemMatrix) -> None:
-    """Raise if `matrix` is not symmetric within the module tolerances.
+    """Raise if `matrix` is not symmetric within `SYMMETRY_ATOL`.
 
     Eigenvector strategies rely on an orthogonal eigenbasis, which only exists
     for symmetric A, so asymmetry is rejected before any eigen computation.
 
     Raises:
-        ValueError: If the maximum absolute asymmetry exceeds the tolerance.
+        ValueError: If the maximum absolute asymmetry exceeds `SYMMETRY_ATOL`.
     """
-    if isinstance(matrix, csr_array):
-        asymmetry = abs(matrix - matrix.T)
-        max_asymmetry = float(asymmetry.max()) if asymmetry.nnz else 0.0
-        is_symmetric = max_asymmetry <= SYMMETRY_ATOL
-    else:
-        max_asymmetry = float(np.max(np.abs(matrix - matrix.T)))
-        is_symmetric = bool(np.allclose(matrix, matrix.T, rtol=SYMMETRY_RTOL, atol=SYMMETRY_ATOL))
-    if not is_symmetric:
+    max_asymmetry = _max_asymmetry(matrix)
+    if max_asymmetry > SYMMETRY_ATOL:
         raise ValueError(
             f"Eigenvector strategies require symmetric matrices. Max asymmetry: {max_asymmetry:.2e}"
         )
@@ -154,27 +200,19 @@ class MatrixOperator:
             Solution vector, shape (n,).
         """
         kind = _factor_kind(self.format, assume_pos_def)
-        if self._cache.factor is None or self._cache.factor_kind is not kind:
+        if self._cache.factor is None or self._cache.factor.kind is not kind:
             self._cache.factor = self._factorize(kind)
-            self._cache.factor_kind = kind
-        factor = self._cache.factor
-        match kind:
-            case _FactorKind.SPLU:
-                return np.asarray(cast(SuperLU, factor).solve(rhs), dtype=np.float64)
-            case _FactorKind.CHOLESKY:
-                return np.asarray(cho_solve(cast(_CholeskyFactor, factor), rhs), dtype=np.float64)
-            case _FactorKind.LU:
-                return np.asarray(lu_solve(cast(_LUFactor, factor), rhs), dtype=np.float64)
+        return self._cache.factor.solve(rhs)
 
     def _factorize(self, kind: _FactorKind) -> _Factor:
         """Build the factorization for `kind` from the wrapped matrix."""
         match kind:
             case _FactorKind.SPLU:
-                return splu(csr_array(self.matrix).tocsc())
+                return _SparseLUFactor(splu(csr_array(self.matrix).tocsc()))
             case _FactorKind.CHOLESKY:
-                return cho_factor(np.asarray(self.matrix, dtype=np.float64))
+                return _CholeskyFactor(cho_factor(np.asarray(self.matrix, dtype=np.float64)))
             case _FactorKind.LU:
-                return lu_factor(np.asarray(self.matrix, dtype=np.float64))
+                return _LUFactor(lu_factor(np.asarray(self.matrix, dtype=np.float64)))
 
     def eigensystem(self, count: int, which: EigenWhich) -> tuple[np.ndarray, np.ndarray]:
         """Return `count` eigenpairs at one end of the spectrum, ascending.
@@ -197,8 +235,7 @@ class MatrixOperator:
                 or a CSR request would need `count >= n` (ARPACK limit).
         """
         n = self.shape[0]
-        if count <= 0:
-            raise ValueError(f"Sample count must be positive, got {count}")
+        require_eigen_count(count, n)
         key = (count, which)
         if key in self._cache.eigen:
             return self._cache.eigen[key]
@@ -212,8 +249,6 @@ class MatrixOperator:
     ) -> tuple[np.ndarray, np.ndarray]:
         match self.format:
             case MatrixFormat.DENSE:
-                if count > n:
-                    raise ValueError(f"Requested {count} eigenpairs from a {n}x{n} matrix")
                 values, vectors = eigh(np.asarray(self.matrix, dtype=np.float64))
                 return _take_end(values, vectors, count, which)
             case MatrixFormat.CSR:

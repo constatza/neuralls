@@ -23,8 +23,8 @@ def test_smoother_filtered_probes_shapes(spd_matrix: np.ndarray) -> None:
     cfg = {"samples": 4, "seed": 0, "stop": 5, "start": 1}
 
     result = run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg)
-
     assert result.residual_traces is not None
+
     assert result.residual_traces.residuals.shape == (4, n)
     assert result.residual_traces.solutions.shape == (4, n)
 
@@ -72,8 +72,8 @@ def test_smoother_filtered_probes_rademacher_distribution(spd_matrix: np.ndarray
     cfg = {"samples": 3, "seed": 0, "stop": 5, "start": 1, "probe_distribution": "rademacher"}
 
     result = run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg)
-
     assert result.residual_traces is not None
+
     assert result.residual_traces.solutions.shape == (3, n)
 
 

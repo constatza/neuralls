@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from pydantic import ValidationError
+from scipy.sparse import csr_array
 
 from neuralls.domain.generation import run_generation
 from neuralls.domain.generation.helpers import trace_rows_per_system
@@ -88,14 +89,14 @@ def test_residuals_single_rhs_shapes(
     result = run_generation(
         "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
     )
+    assert result.solutions is not None
+    assert result.rhs is not None
 
     rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=1))
     expected_systems = _expected_trace_systems(requested_rows, rows_per_system)
     total = requested_rows
 
-    assert result.rhs is not None
     assert result.rhs.shape == (expected_systems, n)
-    assert result.solutions is not None
     assert result.solutions.shape == (expected_systems, n)
 
     et = result.error_traces
@@ -133,12 +134,12 @@ def test_residuals_multi_rhs_shapes(
     }
 
     result = run_generation("residuals", spd_matrix, cfg=cfg, solver=residual_solver)
+    assert result.rhs is not None
 
     rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=1))
     expected_systems = _expected_trace_systems(requested_rows, rows_per_system)
     total = requested_rows
 
-    assert result.rhs is not None
     assert result.rhs.shape == (expected_systems, n)
 
     et = result.error_traces
@@ -160,12 +161,12 @@ def test_gaussian_residuals_multi_rhs_shapes(
     cfg = {"samples": requested_rows, "stop": stop, "start": 1, "seed": 0}
 
     result = run_generation("gaussian_residuals", spd_matrix, cfg=cfg, solver=residual_solver)
+    assert result.rhs is not None
 
     rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=1))
     expected_systems = _expected_trace_systems(requested_rows, rows_per_system)
     total = requested_rows
 
-    assert result.rhs is not None
     assert result.rhs.shape == (expected_systems, n)
 
     et = result.error_traces
@@ -296,13 +297,13 @@ def test_residuals_trace_count(
     result = run_generation(
         "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
     )
+    assert result.rhs is not None
 
     et = result.error_traces
     assert et is not None
     rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=1))
     expected_systems = _expected_trace_systems(requested_rows, rows_per_system)
     assert et.residuals.shape[0] == requested_rows
-    assert result.rhs is not None
     assert result.rhs.shape[0] == expected_systems
 
 
@@ -378,12 +379,12 @@ def test_residuals_step_reduces_count(
     r_full = run_generation(
         "residuals", spd_matrix, cfg=cfg_full, solver=residual_solver, single_rhs=single_rhs
     )
+    assert r_full.error_traces is not None
     r_half = run_generation(
         "residuals", spd_matrix, cfg=cfg_half, solver=residual_solver, single_rhs=single_rhs
     )
-
-    assert r_full.error_traces is not None
     assert r_half.error_traces is not None
+
     assert r_half.error_traces.residuals.shape[0] == r_full.error_traces.residuals.shape[0] // 2
 
 
@@ -529,3 +530,30 @@ def test_residual_error_config_still_accepts_archive_fields() -> None:
     """ResidualErrorConfig (residuals.py's strategies) still accepts archive fields."""
     config = ResidualErrorConfig(samples=3, stop=5, start=1, solutions_glob="*.npy")
     assert config.solutions_glob == "*.npy"
+
+
+def test_single_rhs_true_solution_is_the_same_for_csr_and_dense(
+    spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
+) -> None:
+    """The exact solution used as the error target must not depend on the storage format."""
+    cfg = {"samples": 2, "stop": 3, "start": 1, "seed": 0}
+
+    dense = run_generation(
+        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
+    )
+    sparse = run_generation(
+        "residuals",
+        csr_array(spd_matrix),
+        cfg=cfg,
+        solver=residual_solver,
+        single_rhs=single_rhs,
+    )
+
+    assert dense.error_traces is not None
+    assert sparse.error_traces is not None
+    np.testing.assert_allclose(
+        sparse.error_traces.true_solutions,
+        dense.error_traces.true_solutions,
+        rtol=1e-10,
+        atol=1e-12,
+    )

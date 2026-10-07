@@ -34,21 +34,28 @@ Config-driven generation and the public composition entrypoint
 Each strategy in a mixture draws from its own stream: unless a strategy sets its own
 `seed` override, its seed is derived from the mixture seed and the strategy name
 (`helpers.derive_strategy_seed`). A shared seed would make two strategies on the same
-matrix emit identical RHS vectors. The derivation is deterministic for a given mixture seed.
+matrix emit identical RHS vectors. Each binding (one matrix) derives its own mixture seed
+from the mixture seed and its binding index (`helpers.derive_seed`), so two matrices with
+equal counts never draw the same stream. The derivation is deterministic for a given mixture seed.
 
 For multi-matrix sources, a generated strategy's count is split with the remainder
 rule (`allocation.split_remainder`). Each matrix gets `count // matrix_count` samples,
 and the `count % matrix_count` leftover samples go to distinct matrices chosen by a
-generator seeded with the mixture seed. Each matrix's share is split the same way across
-its bindings. Nothing is dropped, so the counts always sum to the request, and no matrix
-gets more than one leftover sample. Generated strategies overload each matrix this way,
-so `replacement = true` is rejected (config validation,
-`GenerationConfig._reject_replacement`, and `_validate_replacement_support`).
+generator seeded from the mixture seed under the label `matrix-split`. Each matrix's share is
+split the same way across its bindings, with a generator seeded under `binding-split` and the
+matrix index, so the two levels never reuse one stream. Nothing is dropped, so the counts always sum to the request, and no matrix
+gets more than one leftover sample. Every strategy accepts any number of matrices, so a
+mixture may combine archive and generated strategies. `replacement = true` is rejected
+(config validation, `GenerationConfig._reject_replacement`, and `_reject_replacement_request`).
 
 Trajectory strategies (`residuals`, `gaussian_residuals`,
-`smoother_filtered_probes`) take a row budget. Each base system (one solve) yields
-K_rows rows, where K_rows = `stop - start + 1` (fixed, independent of the initial guess), registered per
-strategy in `runner.py` as `rows_per_base_system`. The budget becomes
+`smoother_filtered_probes`) take a row budget. They differ in where their starting systems come from:
+`residuals` is archive-backed (a `solutions_glob` or the explicit solution rows, each file used once),
+while `gaussian_residuals` and `smoother_filtered_probes` draw random probe vectors and have no file pool,
+so no glob caps their sample count. Each base system (one solve) yields
+K_rows rows, where K_rows = `len(window.resolve_indices(stop + 1))`, the number of kept steps. For a
+positive start this is `ceil((stop - start + 1) / step)`. It is fixed, independent of the initial guess,
+and registered per strategy in `runner.py` as `rows_per_base_system`. The budget becomes
 B = ceil(R / K_rows) base systems, and the same split above (or the archive map) is applied
 to base systems, not rows. The overshoot O = B * K_rows - R is trimmed from one matrix
 that owns a base system: the lowest-index one for generated strategies, the owner of the
@@ -148,7 +155,7 @@ Import generation internals when you need to extend strategy behavior:
 
 ```python
 from neuralls.composition.generation.dataset_builder import build_dataset
-from neuralls.domain.generation import generate_mixture, run_generation
+from neuralls.domain.generation import open_batch_stream, run_generation
 ```
 
 ## Strategy Progression
@@ -282,25 +289,63 @@ routes through it, so an archive shared across many matrix bindings — or acros
 dataset configs in one `generate-all` batch that point at the same glob — is read from
 disk once per distinct selection, not once per binding or per dataset file. `ArchiveData`
 (pre-loaded in-memory archives, e.g. from `single_solution`) always takes priority over
-`solutions_glob` when both are available for a strategy.
+`solutions_glob` when both are available for a strategy. With an explicit `solution_path`,
+`_prepare_generation_context` loads every row of the file once (file order) into
+`solution_rows`, and the file takes no part in binding, so its ids are not matched to the
+matrix ids. Only solution-archive strategies receive these rows; a generated strategy never
+does, whatever its count. With `samples = -1`, each binding's archive is that full block. With
+an explicit positive count `N` on `solution_archive`, binding `b` draws rows `(b + p) mod K` for
+`p` in `range(N)`, the same cyclic map as the glob archives, so bindings get different rows. `N`
+above the file's `K` rows is capped at `K` per binding with one warning.
 
 ## Package Map
 
-- `orchestration.py`: mixed-strategy payload assembly; `build_dataset_payload()` requires an
-  injected `DatasetAccumulatorPort` — the domain never creates storage objects directly.
-  Internal stream/binding/accumulation state (opened streams, per-binding strategy
-  allocation, accumulated blocks, the run's resolved context) are each a frozen dataclass
-  (`OpenedStreams`, `BindingAllocation`, `AccumulatedBindings`, `_GenerationRunContext`)
-  threaded through the pipeline instead of positional tuples, so a step's output can't be
-  silently misread by position at its call site
+- `orchestration.py`: the streamed batch pipeline and the in-memory strategy runners. `open_batch_stream()`
+  resolves the run's streams, allocation and plan; `_make_strategy_runner()` returns the
+  `StrategyRunner` that produces one strategy's rows for one binding, loading each binding's inputs
+  once (`_BindingInputs`). `generate_batches()` (see `batch_generator.py`) drives it batch by batch.
+  Dataset-level norm and scale values are folded in by `ScalarAggregator`. Internal state
+  (opened streams, per-binding strategy allocation, the run's resolved context) is held in frozen
+  dataclasses (`OpenedStreams`, `BindingAllocation`, `_GenerationRunContext`) threaded through the
+  pipeline instead of positional tuples. There is no whole-dataset payload builder.
+- `batch_plan.py`: the row budget of a run, fixed before generation. `plan_batches()` turns
+  the resolved `BindingAllocation` into an immutable `BatchPlan` of per-binding, per-strategy
+  row counts. `BindingAllocation` is defined here (re-exported by `orchestration.py`). A plan
+  holding the open-ended `ALL_SAMPLES` count is not exact, so its totals raise instead of
+  returning a guess. `BatchPlan.require_exact()` raises a ValueError that names the open-ended
+  strategies, so the streamed writers refuse such a plan instead of falling back.
+  Every archive-style source is sized from its file list before generation, so its plan is
+  exact and is never refused. An explicit `solution_path` file is sized by `solution_row_count()`
+  in `helpers.py` (a .npy header read, no values; a .txt file is one sample). A glob
+  `solution_path` is sized by its matched file count K, from the stream's sample ids (a listing,
+  no content read). Its rows feed each binding by position: `samples = -1` takes all K rows on
+  every binding, and an explicit count N draws the cyclic rows `(b + p) mod K`, capped at K with
+  one warning. Archive strategies with an archive glob map `samples = -1` to M×K (matrix, file)
+  units, or K rows for a single matrix. `require_exact` only refuses a generated strategy with
+  `samples = -1` that has no file list to size it.
+- `batch.py`: `SampleBatch`, one strategy's rows for one binding (rhs, solutions, row kinds,
+  matrix sample ids, the binding's parameter vectors). Its constructor rejects inconsistent
+  row counts, and `slice()` cuts a bounded chunk
+- `batch_generator.py`: `generate_batches(plan, run_strategy, batch_size=)` yields batches in
+  binding order, then plan strategy order, each at most `batch_size` rows. Strategy outputs
+  are still produced whole, so the bound applies to what is yielded, not to generation
+- `sample_writer.py`: `SampleWriter`, the write-only sink for streamed dense generation.
+  `write_batch(batch)` writes rhs, solutions, row kinds, matrix sample ids, parameter
+  vectors and the matrix (one broadcast copy per row, or one row when the layout is
+  single-matrix) at a running row offset. `finalize()` checks the written rows against
+  the plan, closes the store, and returns `DatasetArtifacts` (array names, shapes, dtypes).
+  Arrays are created lazily at the first batch, at the plan's full row count. It has no
+  read methods.
+- `scalar_aggregate.py`: `ScalarAggregator` keeps the first binding's matrix norm, value
+  scale and scale payload, plus one disagreement flag per field, so its state is constant
+  in the number of bindings. Tolerances and warning text are the same as before
 - `specs.py`: frozen input DTOs mirroring the config's own `[source]`/`[generation]`
   sections — `SourceSpec` (where samples come from), `MixtureSpec` (strategy mixing + RNG),
-  `DatasetSpec` (assembly: mixture + replacement/normalize/norm-type). `generate_mixture()`
+  `DatasetSpec` (assembly: mixture + replacement/normalize/norm-type). `open_batch_stream()`
   and `build_dataset()` accept these instead of the same ~15-20 fields re-declared as loose
   kwargs at every call-chain layer
-- `payloads.py`: pure DTO — `GeneratedDatasetPayload` only; no accumulation helpers
-- `ports.py`: `DatasetAccumulatorPort`, `DatasetWriterPort`, and `TracingSolverPort` protocol
-  definitions consumed by the composition layer
+- `ports.py`: `ArrayStore` (the write-only dense store that `SampleWriter` depends on) and
+  `TracingSolverPort` protocol definitions consumed by the composition layer
 - `runner.py`: strategy registry and dispatch
 - `source_streams.py`: sample discovery and loading. One `_RawSampleSource` per source
   shape (single stacked `.npy`, single `.txt`, glob of per-sample files) is composed into
@@ -334,9 +379,9 @@ disk once per distinct selection, not once per binding or per dataset file. `Arc
   run and keep (see "Step Selection" above)
 - `strategies/`: concrete generation implementations
 - `helpers.py`: `_solve_linear_systems` dispatches through the `_SOLVERS` registry, keyed by
-  `(method, MatrixFormat)`: `("direct", CSR|DENSE)` calls `MatrixOperator.solve_direct`
-  (cached factor), and `("cg", CSR|DENSE)` calls `scipy.sparse.linalg.cg` on the wrapped
-  matrix. A missing key raises `ValueError`. `_compute_eigendecomposition` requests only the
+  method alone (`"direct"`, `"cg"`). `"direct"` calls `MatrixOperator.solve_direct` (cached
+  factor), and `"cg"` calls `scipy.sparse.linalg.cg` on the wrapped matrix. The format is
+  read by the operator, not the dispatch. A missing key raises `ValueError`. `_compute_eigendecomposition` requests only the
   `count` eigenpairs for "smallest"/"largest" and the full dense spectrum for "random"
 - `strategy_configs.py`: `require_which_supported_by_format` rejects `which="random"` for CSR.
   `platform/config/models/data_models.py::DataConfigFile` calls it for every
@@ -353,18 +398,25 @@ The generation domain is storage-agnostic. It emits one
 `GeneratedDatasetPayload` plus a staged matrix artifact path, and composition
 selects the concrete storage family through `[output].dataset_format`.
 
-Supported values:
-- `zarr`
-- `npy`
+Stored order is generation order: rows are written binding by binding, and strategy by strategy within a binding. The sample-level shuffle is gone, because dlkit shuffles every epoch during training. The mixture `shuffle` setting is accepted for compatibility and no longer changes stored order. A strategy-level `shuffle` on an archive still selects which files are drawn when the count is smaller than the file pool. That is selection randomness, not row order.
+
+The matrix format is chosen by `[output].matrix_format` and threaded to the
+streamed writer. A CSR run keeps every sample sparse end to end: the
+source loads as `csr_array`, normalization scales the data without densifying,
+the operator-based solves and the smoother-filtered probes accept csr matrices,
+and the CSR stream stores each sample as-is. Strategies outside that set have
+not been checked against csr input, and `random` eigenvector selection is
+rejected for csr by config validation. CSR storage is written by the zarr and hdf5 dataset formats (npy is refused at generation), and a dataset cannot mix dense and CSR samples.
+Dense storage formats densify CSR input explicitly.
+
+Supported generation values: `zarr` and `hdf5`. `npy` is refused.
 
 Platform storage owns the concrete implementations:
 
 | Component | Location | Role |
 | --- | --- | --- |
-| `DatasetAccumulatorPort` | `domain/generation/ports.py` | Domain-facing accumulator protocol |
-| `GenerationDatasetStorage` | `platform/storage/generation_formats.py` | Small write seam used by composition |
-| `ZarrGenerationStorage` | `platform/storage/generation_formats.py` | Writes `matrix.zarr`, `rhs.zarr`, `solutions.zarr`, `parameters_*.zarr` |
-| `NpyGenerationStorage` | `platform/storage/generation_formats.py` | Writes `matrix.npy`, `rhs.npy`, `solutions.npy`, `parameters_*.npy` |
+| `write_dense_streamed` / `write_csr_streamed` | `composition/generation/` | Stream batches into a staged directory and commit it |
+| `ArrayStore` (`ZarrArrayStore`, `Hdf5ArrayStore`) | `platform/storage/array_store.py` | Dense write backends for `SampleWriter` |
 | `DatasetManifest` | `platform/storage/manifest.py` | Typed manifest contract for persisted datasets |
 
 The manifest is the canonical dataset contract. Read paths do not assume fixed
@@ -418,9 +470,10 @@ Generation stays inside the domain layer and depends only on:
 - normalization trace containers
 - shared constants and math helpers
 
-`build_dataset()` in `neuralls.composition.generation.dataset_builder` selects a
-`GenerationDatasetStorage`, creates its accumulator, and injects that into
-`build_dataset_payload()`. The generation domain receives the accumulator via
-`DatasetAccumulatorPort` and never
-imports or instantiates storage objects directly. All file I/O is confined to the
-composition and platform layers.
+`build_dataset()` in `neuralls.composition.generation.dataset_builder` is the only generation path.
+Every dense and CSR build, in `zarr` or `hdf5`, streams through `write_dense_streamed()` or
+`write_csr_streamed()`: `open_batch_stream()` yields batches, `SampleWriter` writes them, and the
+manifest is written last. Memory is bounded by `write_batch_size`. A run whose plan is not exact
+(an open-ended `ALL_SAMPLES` count) raises a ValueError naming the strategy; there is no fallback.
+The generation domain never imports or instantiates storage objects. All file I/O is confined to
+the composition and platform layers.

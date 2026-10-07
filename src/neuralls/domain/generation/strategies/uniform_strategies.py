@@ -22,7 +22,7 @@ from ..strategy_configs import UniformForwardConfig, UniformInverseConfig
 from ..transforms import ComputeRhsTransform, SolveTransform
 
 
-@register_strategy(supports_matrix_replacement=True)
+@register_strategy
 class UniformForwardStrategy:
     """Forward mode: generate solutions x ~ U(a, b), compute RHS b = A @ x.
 
@@ -71,7 +71,7 @@ class UniformForwardStrategy:
         return GeneratedSamples(matrix=matrix, rhs=rhs, solutions=solutions)
 
 
-@register_strategy(supports_matrix_replacement=True)
+@register_strategy
 class UniformInverseStrategy:
     """Inverse mode: generate RHS b ~ U(a, b), solve for x = A^-1 @ b.
 

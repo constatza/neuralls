@@ -41,10 +41,10 @@ def test_rhs_archive_shapes(spd_matrix: np.ndarray, rhs_files: tuple[list[Path],
     _files, glob_pattern = rhs_files
 
     result = run_generation("rhs_archive", spd_matrix, cfg={"rhs_glob": glob_pattern, "samples": 3})
-
-    assert result.rhs is not None
-    assert result.rhs.shape == (3, n)
     assert result.solutions is not None
+    assert result.rhs is not None
+
+    assert result.rhs.shape == (3, n)
     assert result.solutions.shape == (3, n)
     assert result.residual_traces is None
     assert result.error_traces is None
@@ -66,9 +66,13 @@ def test_rhs_archive_solves_ax_equals_b(
     }
 
     result = run_generation("rhs_archive", spd_matrix, cfg=cfg)
+    assert result.solutions is not None
+    assert result.rhs is not None
 
-    assert result.rhs is not None and result.solutions is not None
+    assert result.rhs.ndim == 2 and result.solutions.ndim == 2
     for i in range(result.rhs.shape[0]):
+        assert result.rhs is not None
+        assert result.solutions is not None
         residual = np.linalg.norm(spd_matrix @ result.solutions[i] - result.rhs[i])
         rel = residual / np.linalg.norm(result.rhs[i])
         assert rel < 1e-6, f"Sample {i}: relative residual {rel:.2e}"
@@ -81,8 +85,8 @@ def test_rhs_archive_all_files(spd_matrix: np.ndarray, rhs_files: tuple[list[Pat
     result = run_generation(
         "rhs_archive", spd_matrix, cfg={"rhs_glob": glob_pattern, "samples": -1}
     )
-
     assert result.rhs is not None
+
     assert result.rhs.shape[0] == len(files)
 
 
@@ -94,9 +98,11 @@ def test_rhs_archive_deterministic_shuffle(
     cfg = {"rhs_glob": glob_pattern, "samples": 3, "shuffle": True, "seed": 42}
 
     r1 = run_generation("rhs_archive", spd_matrix, cfg=cfg)
+    assert r1.rhs is not None
     r2 = run_generation("rhs_archive", spd_matrix, cfg=cfg)
+    assert r2.rhs is not None
 
-    assert r1.rhs is not None and r2.rhs is not None
+    assert r1.rhs.ndim == 2 and r2.rhs.ndim == 2
     np.testing.assert_array_equal(r1.rhs, r2.rhs)
 
 

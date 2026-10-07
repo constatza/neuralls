@@ -213,6 +213,7 @@ def test_residuals_start_one_emits_k_rows_per_base_system(
     )
     traces = result.error_traces
     assert traces is not None
+    assert traces.residuals is not None
     assert traces.residuals.shape[0] == ROWS_PER_BASE_SYSTEM * BASE_SYSTEMS
     for system in range(BASE_SYSTEMS):
         assert int(np.sum(traces.sample_indices == system)) == ROWS_PER_BASE_SYSTEM

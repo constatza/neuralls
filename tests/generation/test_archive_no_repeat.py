@@ -25,6 +25,15 @@ def matrix_bindings() -> list[SystemBinding]:
     return [SystemBinding(sample_id=i, matrix_sample_id=i) for i in range(3)]
 
 
+@pytest.fixture
+def one_matrix_two_bindings() -> list[SystemBinding]:
+    """One matrix shared by two bindings (two right-hand sides on the same system)."""
+    return [
+        SystemBinding(sample_id=0, matrix_sample_id=0),
+        SystemBinding(sample_id=1, matrix_sample_id=0),
+    ]
+
+
 def _spec(strategy: str, glob_pattern: str, count: int) -> DatasetSpec:
     """Dataset spec with one archive strategy over the given glob."""
     glob_key = "rhs_glob" if strategy == RHS_ARCHIVE else "solutions_glob"
@@ -114,6 +123,7 @@ def test_rhs_archive_request_above_m_times_k_is_capped_with_one_warning(
 
 def test_rhs_archive_single_matrix_several_bindings_rejected_before_glob_read(
     monkeypatch: pytest.MonkeyPatch,
+    one_matrix_two_bindings: list[SystemBinding],
 ) -> None:
     """One matrix with several rhs_archive bindings is rejected before any glob read."""
 
@@ -121,14 +131,9 @@ def test_rhs_archive_single_matrix_several_bindings_rejected_before_glob_read(
         raise AssertionError("archive glob read before the repeat check")
 
     monkeypatch.setattr(orchestration, "select_archive_files", _glob_must_not_be_read)
-    bindings = [
-        SystemBinding(sample_id=0, matrix_sample_id=0),
-        SystemBinding(sample_id=1, matrix_sample_id=0),
-    ]
-
     with pytest.raises(ValueError, match="files would repeat across bindings"):
         _resolve_binding_strategy_counts(
-            bindings=bindings,
+            bindings=one_matrix_two_bindings,
             spec=_spec(RHS_ARCHIVE, "/fake/rhs_*.txt", 3),
             num_matrix_samples=1,
         )

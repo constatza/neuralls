@@ -18,6 +18,10 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 import numpy as np
+from scipy.io import mmread
+from scipy.sparse import csr_array
+
+from neuralls.shared.types import MatrixFormat, SystemMatrix
 
 _GLOB_CHARS = ("*", "?", "[", "]")
 _DEFAULT_SAMPLE_ID_REGEX = r"(\d+)(?!.*\d)"
@@ -168,6 +172,10 @@ class MatrixSampleStream(Protocol):
         """Load one matrix sample in dense float64 format."""
         ...
 
+    def load_sample(self, sample_id: int, matrix_format: MatrixFormat) -> SystemMatrix:
+        """Load one matrix sample in the requested storage format."""
+        ...
+
     def load_sparse_sample(self, sample_id: int) -> SparseMatrixSample:
         """Load one matrix sample as sparse COO components."""
         ...
@@ -210,7 +218,7 @@ class _RawSample:
     """
 
     sample_id: int
-    array: np.ndarray
+    array: np.ndarray | csr_array
     origin: Path
 
 
@@ -428,22 +436,45 @@ class _SampleStream[T](ABC):
             yield self._load(sample_id)
 
 
+def _check_matrix_raw(raw: _RawSample) -> None:
+    """Reject raw arrays that are not a single 2D matrix."""
+    if raw.array.ndim != 2:
+        raise ValueError(
+            f"Matrix sample from {raw.origin} must be a single 2D matrix, "
+            f"got shape {raw.array.shape}"
+        )
+
+
 class _MatrixStream(_SampleStream[DenseMatrixSample]):
     """`MatrixSampleStream` implementation over any raw source."""
 
     def _build(self, raw: _RawSample) -> DenseMatrixSample:
-        if raw.array.ndim != 2:
-            raise ValueError(
-                f"Matrix sample from {raw.origin} must be a single 2D matrix, "
-                f"got shape {raw.array.shape}"
-            )
+        _check_matrix_raw(raw)
+        # Densifying a CSR raw array is the explicit dense-request path only.
+        dense = raw.array.toarray() if isinstance(raw.array, csr_array) else raw.array
         return DenseMatrixSample(
-            sample_id=raw.sample_id, matrix=np.asarray(raw.array, dtype=np.float64)
+            sample_id=raw.sample_id, matrix=np.asarray(dense, dtype=np.float64)
         )
 
     def load_dense_sample(self, sample_id: int) -> DenseMatrixSample:
         """Load one matrix sample in dense float64 format."""
         return self._load(sample_id)
+
+    def load_sample(self, sample_id: int, matrix_format: MatrixFormat) -> SystemMatrix:
+        """Load one matrix sample in the requested storage format.
+
+        CSR input is never densified: a CSR raw array is returned as CSR, and a
+        dense raw array requested as CSR is converted once with ``csr_array``.
+        """
+        match matrix_format:
+            case MatrixFormat.DENSE:
+                return self.load_dense_sample(sample_id).matrix
+            case MatrixFormat.CSR:
+                raw = self._source.read(sample_id)
+                _check_matrix_raw(raw)
+                if isinstance(raw.array, csr_array):
+                    return csr_array(raw.array, dtype=np.float64)
+                return csr_array(np.asarray(raw.array, dtype=np.float64))
 
     def load_sparse_sample(self, sample_id: int) -> SparseMatrixSample:
         """Load one matrix sample as sparse COO components."""
@@ -470,6 +501,8 @@ class _VectorStream(_SampleStream[VectorSample]):
     """`VectorSampleStream` implementation over any raw source."""
 
     def _build(self, raw: _RawSample) -> VectorSample:
+        if isinstance(raw.array, csr_array):
+            raise TypeError(f"Vector sample from {raw.origin} cannot be a sparse matrix")
         return VectorSample(
             sample_id=raw.sample_id, vector=_normalize_vector(raw.array, raw.origin)
         )
@@ -525,6 +558,30 @@ class GlobMatrixStream(_MatrixStream):
                 exclude_indices=exclude_indices,
             )
         )
+
+
+class _MtxFileSource:
+    """The single sample held by one MatrixMarket (.mtx) file, read as CSR."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+
+    @property
+    def sample_ids(self) -> tuple[int, ...]:
+        return (0,)
+
+    def read(self, sample_id: int) -> _RawSample:
+        if sample_id != 0:
+            raise KeyError(f"Unknown matrix sample id {sample_id} for {self._path}")
+        array = csr_array(mmread(self._path, spmatrix=False))
+        return _RawSample(sample_id=0, array=array, origin=self._path)
+
+
+class MtxMatrixStream(_MatrixStream):
+    """Matrix stream backed by a single MatrixMarket (.mtx) file."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(_MtxFileSource(path))
 
 
 class NpyVectorStream(_VectorStream):
@@ -596,8 +653,10 @@ def open_matrix_stream(
         return NpyMatrixStream(path)
     if path.suffix == ".txt":
         return TxtMatrixStream(path)
+    if path.suffix == ".mtx":
+        return MtxMatrixStream(path)
     raise ValueError(
-        f"Unsupported matrix source '{path}'. Supported: .txt, .npy, or glob patterns."
+        f"Unsupported matrix source '{path}'. Supported: .txt, .npy, .mtx, or glob patterns."
     )
 
 

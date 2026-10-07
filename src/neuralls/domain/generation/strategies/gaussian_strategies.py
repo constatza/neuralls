@@ -22,7 +22,7 @@ from ..strategy_configs import GaussianForwardConfig, GaussianInverseConfig
 from ..transforms import ComputeRhsTransform, SolveTransform
 
 
-@register_strategy(supports_matrix_replacement=True)
+@register_strategy
 class GaussianForwardStrategy:
     """Forward mode: generate solutions x ~ N(mu, sigma), compute RHS b = A @ x.
 
@@ -66,7 +66,7 @@ class GaussianForwardStrategy:
         return GeneratedSamples(matrix=matrix, rhs=rhs, solutions=solutions)
 
 
-@register_strategy(supports_matrix_replacement=True)
+@register_strategy
 class GaussianInverseStrategy:
     """Inverse mode: generate RHS b ~ N(mu, sigma), solve for x = A^-1 @ b.
 

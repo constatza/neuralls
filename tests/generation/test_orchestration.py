@@ -11,11 +11,28 @@ import pytest
 from neuralls.domain.generation import orchestration
 from neuralls.domain.generation.orchestration import (
     BindingAllocation,
-    _generate_mixture_with_metadata,
+    _generate_strategy_rows,
     _resolve_binding_strategy_counts,
+    _StrategyRows,
 )
 from neuralls.domain.generation.source_streams import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
+
+
+def _stack_strategies(matrix: np.ndarray, mixture: MixtureSpec) -> _StrategyRows:
+    """Run each strategy for its count and stack rows in mixture order, row kinds included."""
+    assert mixture.counts is not None
+    parts = [
+        rows
+        for name, count in mixture.counts.items()
+        if count != 0
+        if (rows := _generate_strategy_rows(matrix, mixture, name, count)) is not None
+    ]
+    return _StrategyRows(
+        rhs=np.vstack([part.rhs for part in parts]),
+        solutions=np.vstack([part.solutions for part in parts]),
+        row_kind_codes=np.concatenate([part.row_kind_codes for part in parts]),
+    )
 
 
 @pytest.fixture
@@ -39,7 +56,7 @@ def three_bindings() -> list[SystemBinding]:
 def test_resolve_binding_strategy_counts_rejects_unsupported_replacement(
     three_bindings: list[SystemBinding],
 ) -> None:
-    with pytest.raises(ValueError, match="replacement = true is not supported"):
+    with pytest.raises(ValueError, match="generated strategies overload each matrix uniformly"):
         _resolve_binding_strategy_counts(
             bindings=three_bindings,
             spec=DatasetSpec(
@@ -57,7 +74,7 @@ def test_resolve_binding_strategy_counts_rejects_unsupported_replacement(
 def test_resolve_binding_strategy_counts_rejects_finite_trace_replacement(
     three_bindings: list[SystemBinding],
 ) -> None:
-    with pytest.raises(ValueError, match="replacement = true is not supported"):
+    with pytest.raises(ValueError, match="Strategy 'residuals' draws from a finite archive"):
         _resolve_binding_strategy_counts(
             bindings=three_bindings,
             spec=DatasetSpec(
@@ -72,25 +89,21 @@ def test_resolve_binding_strategy_counts_rejects_finite_trace_replacement(
         )
 
 
-def test_generate_mixture_row_kind_codes_length_matches_trace_rows_after_shuffle(
+def test_row_kind_codes_length_matches_trace_rows(
     spd_matrix: np.ndarray,
     solver_overrides: dict,
 ) -> None:
-    """row_kind_codes must align with error_traces.residuals, not with base-system count.
+    """row_kind_codes must align with the trace rows, not with the base-system count.
 
-    gaussian_residuals produces N base systems but N*rows_per_system trace pairs.
-    With shuffle=True the shuffle used to index row_kind_codes (trace-level, final_rows entries)
-    with base-system-level indices (referenced_samples entries), silently truncating it.
-    _finalize_payload then caught the mismatch: row_kind_codes.shape[0] != rhs_all.shape[0].
+    gaussian_residuals produces N base systems but N*rows_per_system trace pairs, so one
+    row kind per emitted pair is required.
     """
     # stop=4, start=1 → K = 4 - 1 + 1 = 4 rows per system; samples=8 → 2 base systems, 8 trace pairs.
-    # Bug: shuffle indexed row_kind_codes (len=8) with 2 base-system indices → truncated to len=2.
-    result = _generate_mixture_with_metadata(
+    result = _stack_strategies(
         spd_matrix,
         MixtureSpec(
             counts={"gaussian_residuals": 8},
             seed=0,
-            shuffle=True,
             strategy_overrides={"gaussian_residuals": {"stop": 4, "start": 1}},
             solver_overrides=solver_overrides,
         ),
@@ -110,7 +123,7 @@ def test_mixed_strategy_row_kind_codes_concatenated_correctly(
     # gaussian_forward:3 → 3 STANDARD rows
     # gaussian_residuals:4 with stop=2, start=1 → K = 2 - 1 + 1 = 2 rows per system;
     #   2 base systems × 2 rows = 4 trace rows (iterates 1 and 2 of each system)
-    result = _generate_mixture_with_metadata(
+    result = _stack_strategies(
         spd_matrix,
         MixtureSpec(
             counts={"gaussian_forward": 3, "gaussian_residuals": 4},
@@ -139,7 +152,7 @@ def test_gaussian_split_mix_preserves_requested_total_rows(
     from neuralls.shared.enum_codecs import decode_row_kind_array
     from neuralls.shared.types import RowKind
 
-    result = _generate_mixture_with_metadata(
+    result = _stack_strategies(
         spd_matrix,
         MixtureSpec(
             counts={"gaussian_residuals": 5, "gaussian_forward": 5},
@@ -186,7 +199,7 @@ def test_archive_split_mix_uses_solution_archive_skip(
         vectors.append(vector)
 
     glob_pattern = str(tmp_path / "solution_*.txt")
-    result = _generate_mixture_with_metadata(
+    result = _stack_strategies(
         spd_matrix,
         MixtureSpec(
             counts={"residuals": 3, "solution_archive": 2},
@@ -213,23 +226,29 @@ def test_archive_split_mix_uses_solution_archive_skip(
     np.testing.assert_array_equal(result.solutions[3:], np.vstack(vectors[1:3]))
 
 
-def test_resolve_binding_strategy_counts_rejects_single_multi_matrix_mix(
+def test_archive_mixes_with_generated_strategies_across_matrices(
     three_bindings: list[SystemBinding],
+    write_solution_files: Callable[[int], str],
 ) -> None:
-    """Mixing single-matrix and multi-matrix strategies with multiple matrices must fail."""
-    with pytest.raises(ValueError, match="Cannot mix single-matrix strategies"):
-        _resolve_binding_strategy_counts(
-            bindings=three_bindings,
-            spec=DatasetSpec(
-                mixture=MixtureSpec(
-                    counts={"gaussian_forward": 5, "solution_archive": 5},
-                    seed=0,
-                    strategy_overrides={"solution_archive": {"solutions_glob": "/fake/*.txt"}},
-                ),
-                replacement=False,
+    """An archive and a generated strategy share one multi-matrix mixture, each fully allocated."""
+    glob = write_solution_files(5)
+    allocation = _resolve_binding_strategy_counts(
+        bindings=three_bindings,
+        spec=DatasetSpec(
+            mixture=MixtureSpec(
+                counts={"gaussian_forward": 6, "solution_archive": 3},
+                seed=0,
+                strategy_overrides={"solution_archive": {"solutions_glob": glob}},
             ),
-            num_matrix_samples=3,
-        )
+            replacement=False,
+        ),
+        num_matrix_samples=3,
+    )
+
+    generated = [counts["gaussian_forward"] for counts in allocation.counts]
+    archived = [counts["solution_archive"] for counts in allocation.counts]
+    assert sum(generated) == 6
+    assert sum(archived) == 3
 
 
 def test_resolve_binding_strategy_counts_rejects_all_samples_with_replacement(

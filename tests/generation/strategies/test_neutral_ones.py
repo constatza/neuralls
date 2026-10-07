@@ -28,9 +28,8 @@ def test_neutral_ones_strategy_basic(sample_matrix: np.ndarray) -> None:
         cfg=config,
         archive=None,
     )
-
-    assert result.rhs is not None
     assert result.solutions is not None
+    assert result.rhs is not None
 
     # Check shapes
     assert result.rhs.shape == (1, 3)
@@ -41,6 +40,7 @@ def test_neutral_ones_strategy_basic(sample_matrix: np.ndarray) -> None:
 
     # Check b = A @ x
     expected_rhs = sample_matrix @ np.ones(3)
+    assert result.rhs is not None
     np.testing.assert_array_almost_equal(result.rhs[0], expected_rhs)
 
 
@@ -54,9 +54,8 @@ def test_neutral_ones_multiple_samples(sample_matrix: np.ndarray) -> None:
         cfg=config,
         archive=None,
     )
-
-    assert result.rhs is not None
     assert result.solutions is not None
+    assert result.rhs is not None
 
     # Check shapes
     assert result.rhs.shape == (3, 3)
@@ -77,10 +76,14 @@ def test_neutral_ones_deterministic(sample_matrix: np.ndarray) -> None:
     config = {"samples": 2, "seed": 42}
 
     result1 = strategy.generate(matrix=sample_matrix, cfg=config, archive=None)
+    assert result1.solutions is not None
+    assert result1.rhs is not None
     result2 = strategy.generate(matrix=sample_matrix, cfg=config, archive=None)
+    assert result2.solutions is not None
+    assert result2.rhs is not None
 
-    assert result1.rhs is not None and result2.rhs is not None
-    assert result1.solutions is not None and result2.solutions is not None
+    assert result1.rhs.ndim == 2 and result2.rhs.ndim == 2
+    assert result1.solutions.ndim == 2 and result2.solutions.ndim == 2
     np.testing.assert_array_equal(result1.rhs, result2.rhs)
     np.testing.assert_array_equal(result1.solutions, result2.solutions)
 

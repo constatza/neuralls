@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import itertools
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -11,9 +11,11 @@ from typing import Any, cast
 import numpy as np
 import pytest
 import torch
+from loguru import logger
 
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.interfaces import TracingSolverCallable
+from neuralls.domain.generation.orchestration import BatchStream, open_batch_stream
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.config.models.data_models import (
     DataConfigFile,
@@ -22,7 +24,7 @@ from neuralls.platform.config.models.data_models import (
     SourceConfig,
     StrategyConfig,
 )
-from neuralls.shared.types import DatasetFormat
+from neuralls.shared.types import DatasetFormat, MatrixFormat
 
 
 @pytest.fixture
@@ -108,7 +110,7 @@ def make_data_config(spd_matrix_file: Path, tmp_path: Path) -> Callable[..., Dat
         seed: int = 42,
         matrix_path: Path | None = None,
         data_dir: Path | None = None,
-        dataset_format: DatasetFormat = "npy",
+        dataset_format: DatasetFormat = "hdf5",
     ) -> DataConfigFile:
         return DataConfigFile(
             id=dataset_id,
@@ -133,7 +135,7 @@ def data_config(make_data_config: Callable[..., DataConfigFile]) -> DataConfigFi
     return make_data_config()
 
 
-@pytest.fixture(params=["npy", "hdf5", "zarr"])
+@pytest.fixture(params=["hdf5", "zarr"])
 def dataset_format(request: pytest.FixtureRequest) -> DatasetFormat:
     """Every storage format a dataset can be written in."""
     return request.param
@@ -156,14 +158,8 @@ def build_in(
 def generated_dataset_dir(
     tmp_path: Path, build_in: Callable[[Path, DatasetFormat], Path], dataset_format: DatasetFormat
 ) -> Path:
-    """A freshly generated dataset (all formats), stamped with digests but no identity."""
+    """A freshly generated dataset (every generation format), stamped with digests but no identity."""
     return build_in(tmp_path / "dataset", dataset_format)
-
-
-@pytest.fixture
-def npy_dataset_dir(tmp_path: Path, build_in: Callable[[Path, DatasetFormat], Path]) -> Path:
-    """A freshly generated npy dataset, whose artifacts are plain editable files."""
-    return build_in(tmp_path / "npy_dataset", "npy")
 
 
 # --- archive allocation fixtures ------------------------------------------------
@@ -239,3 +235,82 @@ def make_trace_solver() -> Callable[[Callable[[int], int]], TracingSolverCallabl
         return cast(TracingSolverCallable, _solve)
 
     return _build
+
+
+# --- binding-stream fixtures (multi-matrix, explicit solution files) -----------
+
+BINDING_SEED = 7
+BINDING_N_UNKNOWNS = 4
+BINDING_SOLUTION_ROWS = 4
+BINDING_SOURCE_REGEX = r"(\d+)(?!.*\d)"
+
+
+@pytest.fixture
+def three_spd_matrix_dir(tmp_path: Path) -> Path:
+    """Three seeded SPD matrices ``A_0.txt``..``A_2.txt``; returns their directory."""
+    rng = np.random.default_rng(BINDING_SEED)
+    mat_dir = tmp_path / "matrices"
+    mat_dir.mkdir()
+    for i in range(3):
+        base = rng.standard_normal((BINDING_N_UNKNOWNS, BINDING_N_UNKNOWNS))
+        matrix = base @ base.T + BINDING_N_UNKNOWNS * np.eye(BINDING_N_UNKNOWNS)
+        np.savetxt(mat_dir / f"A_{i}.txt", matrix)
+    return mat_dir
+
+
+@pytest.fixture
+def solution_block() -> np.ndarray:
+    """Seeded ``(BINDING_SOLUTION_ROWS, BINDING_N_UNKNOWNS)`` block of distinct solutions."""
+    rng = np.random.default_rng(BINDING_SEED + 1)
+    return rng.standard_normal((BINDING_SOLUTION_ROWS, BINDING_N_UNKNOWNS))
+
+
+@pytest.fixture
+def solution_block_npy(tmp_path: Path, solution_block: np.ndarray) -> Path:
+    """The solution block persisted as one stacked ``.npy`` file."""
+    path = tmp_path / "solutions.npy"
+    np.save(path, solution_block)
+    return path
+
+
+@pytest.fixture
+def open_binding_stream() -> Callable[..., BatchStream]:
+    """Open a batch stream from a source and per-strategy counts, with a fixed seed."""
+
+    def _open(
+        source: SourceSpec,
+        counts: dict[str, int],
+        *,
+        overrides: dict[str, dict[str, Any]] | None = None,
+        batch_size: int = 1 << 20,
+        matrix_format: MatrixFormat = MatrixFormat.DENSE,
+    ) -> BatchStream:
+        spec = DatasetSpec(
+            mixture=MixtureSpec(
+                counts=counts,
+                seed=BINDING_SEED,
+                shuffle=False,
+                strategy_overrides=overrides,
+            ),
+        )
+        return open_batch_stream(source, spec, batch_size=batch_size, matrix_format=matrix_format)
+
+    return _open
+
+
+@pytest.fixture
+def two_matrix_source(three_spd_matrix_dir: Path) -> SourceSpec:
+    """Source reading the first two matrices of the shared matrix directory as two bindings."""
+    return SourceSpec(
+        matrix_path=str(three_spd_matrix_dir / "A_[01].txt"),
+        sample_id_regex=BINDING_SOURCE_REGEX,
+    )
+
+
+@pytest.fixture
+def warning_messages() -> Iterator[list[str]]:
+    """Collect loguru WARNING messages emitted during one test."""
+    messages: list[str] = []
+    sink_id = logger.add(lambda record: messages.append(record.record["message"]), level="WARNING")
+    yield messages
+    logger.remove(sink_id)

@@ -102,7 +102,7 @@ class TestGenerationPlan:
             "solution_archive": StrategySpec("solution_archive", "solution_archive", -1, {}),
         }
         plan = GenerationPlan(strategies=strategies)
-        assert plan.solution_archive is not None
+        assert plan.solution_archive == strategies["solution_archive"]
 
     def test_rhs_archive_property(self) -> None:
         strategies = {
@@ -343,7 +343,7 @@ class TestParsing:
         }
         plan = parse_generation_plan(config)
         assert "rhs_archive" in plan.strategies
-        assert plan.rhs_archive is not None
+        assert plan.rhs_archive == plan.strategies["rhs_archive"]
 
     def test_archive_strategies_identified(self) -> None:
         config = {
@@ -354,8 +354,6 @@ class TestParsing:
             ]
         }
         plan = parse_generation_plan(config)
-        assert plan.rhs_archive is not None
-        assert plan.solution_archive is not None
         assert len(plan.synthetic) == 1
         assert "random" in plan.synthetic
 
@@ -400,9 +398,9 @@ class TestIntegration:
             ]
         }
         plan = parse_generation_plan(config)
+        assert plan.solution_archive is not None
 
         assert len(plan.strategies) == 1
-        assert plan.solution_archive is not None
         assert plan.solution_archive.samples == -1
         assert len(plan.synthetic) == 0
 

@@ -69,14 +69,25 @@ def test_split_1000_over_60_gives_40_at_17_and_20_at_16() -> None:
 
 
 def test_split_is_seeded_reproducible() -> None:
-    """The same seed gives equal arrays; different seeds pick different single-unit matrices."""
-    first = split_remainder(1999, 1000, seed=SEED_FOR_REPRODUCIBILITY)
-    second = split_remainder(1999, 1000, seed=SEED_FOR_REPRODUCIBILITY)
+    """The same seed gives equal arrays; different seeds pick different extra-unit sets.
+
+    1060 over 60 matrices gives 17 units each with 40 extra units, so the set of
+    matrices receiving the extra unit is compared in full, not through one index.
+    """
+    total, num_matrices, leftover = 1060, 60, 40
+    first = split_remainder(total, num_matrices, seed=SEED_FOR_REPRODUCIBILITY)
+    second = split_remainder(total, num_matrices, seed=SEED_FOR_REPRODUCIBILITY)
     np.testing.assert_array_equal(first, second)
 
-    draw_a = split_remainder(1999, 1000, seed=SEED_FIRST_DRAW)
-    draw_b = split_remainder(1999, 1000, seed=SEED_SECOND_DRAW)
-    assert int(np.argmin(draw_a)) != int(np.argmin(draw_b))
+    base = total // num_matrices
+    extra_a = frozenset(
+        np.flatnonzero(split_remainder(total, num_matrices, seed=SEED_FIRST_DRAW) > base)
+    )
+    extra_b = frozenset(
+        np.flatnonzero(split_remainder(total, num_matrices, seed=SEED_SECOND_DRAW) > base)
+    )
+    assert len(extra_a) == len(extra_b) == leftover
+    assert extra_a != extra_b
 
 
 def _matrix_index(pairs: tuple[tuple[int, int], ...]) -> list[int]:

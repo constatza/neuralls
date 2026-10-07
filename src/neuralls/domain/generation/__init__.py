@@ -6,7 +6,7 @@ krylov, residual traces, error traces, eigenvector-based) that can be mixed
 according to user-specified proportions.
 
 Public API:
-    generate_mixture: Main orchestration function for mixed-strategy generation
+    open_batch_stream: Streamed mixed-strategy generation (plan, then batches)
     run_generation: Registry-based strategy dispatcher
     Data types: StrategyOutput, ArchiveData, GeneratedSamples
     Helpers: rng_from_seed, rounded_counts
@@ -15,15 +15,13 @@ Architecture:
     - types: Immutable data structures
     - helpers: Pure utility functions
     - trace_utils: Trace manipulation
-    - orchestration: High-level workflow (generate_mixture)
+    - orchestration: High-level streamed workflow (open_batch_stream)
     - strategies: Individual generation strategies (registry pattern)
     - runner: Strategy registry and dispatcher
 
 Usage:
-    >>> from neuralls.domain.generation import generate_mixture
-    >>> X, Y, res_traces, err_traces = generate_mixture(
-    ...     A, b, mix={"normal": 1.0, "krylov": 1.0}, total=100, seed=42
-    ... )
+    Build datasets through composition.generation.dataset_builder.build_dataset, which
+    plans with open_batch_stream and writes batches as they are produced.
 """
 
 from __future__ import annotations
@@ -33,8 +31,7 @@ from __future__ import annotations
 from . import providers, strategies, transforms
 from .data_types import NormalizeType
 from .helpers import rng_from_seed, rounded_counts, select_archive_files
-from .orchestration import build_dataset_payload, generate_mixture
-from .payloads import GeneratedDatasetPayload
+from .orchestration import open_batch_stream
 from .plan import GenerationPlan, StrategySpec, parse_generation_plan
 from .runner import run_generation
 from .specs import DatasetSpec, MixtureSpec, SourceSpec
@@ -43,7 +40,6 @@ from .types import ArchiveData, GeneratedSamples, StrategyOutput
 __all__ = [
     "ArchiveData",
     "DatasetSpec",
-    "GeneratedDatasetPayload",
     "GeneratedSamples",
     "GenerationPlan",
     "MixtureSpec",
@@ -52,9 +48,8 @@ __all__ = [
     # Data types
     "StrategyOutput",
     "StrategySpec",
-    "build_dataset_payload",
     # Main API
-    "generate_mixture",
+    "open_batch_stream",
     "parse_generation_plan",
     # SOLID Components (Phase 1-2)
     "providers",

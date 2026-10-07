@@ -37,15 +37,15 @@ type ConfigFactory = Callable[..., DataConfigFile]
 
 @pytest.fixture
 def payload_calls(monkeypatch: pytest.MonkeyPatch) -> list[int]:
-    """Count real generation runs by spying on the payload builder."""
+    """Count real generation runs by spying on the dense streamed writer."""
     calls: list[int] = []
-    real = dataset_builder.build_dataset_payload
+    real = dataset_builder.write_dense_streamed
 
     def _spy(*args, **kwargs):
         calls.append(1)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(dataset_builder, "build_dataset_payload", _spy)
+    monkeypatch.setattr(dataset_builder, "write_dense_streamed", _spy)
     return calls
 
 
@@ -186,7 +186,7 @@ def test_manifest_without_identity_key_is_regenerated(
     _generate(data_config)
 
     assert len(payload_calls) == 2
-    assert read_dataset_manifest(dataset_dir).identity_key is not None
+    assert read_dataset_manifest(dataset_dir).identity_key == generation_identity(data_config).key
 
 
 def test_fresh_write_stamps_identity_and_digests(data_config: DataConfigFile) -> None:
@@ -204,7 +204,7 @@ def test_edited_artifact_is_not_reused(
 ) -> None:
     dataset_dir = _generate(data_config)
     rhs = resolve_dataset_artifacts(dataset_dir).rhs.path
-    np.save(rhs, np.load(rhs) + 1.0)
+    _flip_last_byte(rhs)
 
     _generate(data_config)
 
@@ -238,7 +238,7 @@ def test_content_digest_is_identical_across_formats(
 ) -> None:
     digests = {
         fmt: dataset_content_digest(build_in(tmp_path / f"as_{fmt}", fmt))
-        for fmt in ("npy", "hdf5", "zarr")
+        for fmt in ("hdf5", "zarr")
     }
 
     assert len(set(digests.values())) == 1
@@ -257,27 +257,40 @@ def test_fast_path_returns_stamped_digest_without_rehashing(
     assert current_dataset_digest(generated_dataset_dir) == stamped
 
 
-def test_edit_with_changed_stat_changes_current_digest(npy_dataset_dir: Path) -> None:
-    stamped = read_dataset_manifest(npy_dataset_dir).content_digest
-    rhs = resolve_dataset_artifacts(npy_dataset_dir).rhs.path
-    np.save(rhs, np.load(rhs) + 1.0)
+def _flip_last_byte(path: Path) -> None:
+    """Change one byte without changing the file size."""
+    data = bytearray(path.read_bytes())
+    data[-1] ^= 0xFF
+    path.write_bytes(bytes(data))
+
+
+@pytest.fixture
+def hdf5_dataset_dir(tmp_path: Path, build_in: Callable[[Path, DatasetFormat], Path]) -> Path:
+    """A generated hdf5 dataset whose RHS is one plain file that tests can edit."""
+    return build_in(tmp_path / "hdf5_dataset", "hdf5")
+
+
+def test_edit_with_changed_stat_changes_current_digest(hdf5_dataset_dir: Path) -> None:
+    stamped = read_dataset_manifest(hdf5_dataset_dir).content_digest
+    rhs = resolve_dataset_artifacts(hdf5_dataset_dir).rhs.path
+    _flip_last_byte(rhs)
     _bump_mtime(rhs)
 
-    assert current_dataset_digest(npy_dataset_dir) != stamped
+    assert current_dataset_digest(hdf5_dataset_dir) != stamped
 
 
 def test_same_size_edit_with_restored_mtime_is_the_documented_fast_path_blind_spot(
-    npy_dataset_dir: Path,
+    hdf5_dataset_dir: Path,
 ) -> None:
     """Known limitation: identical size and mtime_ns skip re-hashing (`--force` covers it)."""
-    stamped = read_dataset_manifest(npy_dataset_dir).content_digest
-    rhs = resolve_dataset_artifacts(npy_dataset_dir).rhs.path
+    stamped = read_dataset_manifest(hdf5_dataset_dir).content_digest
+    rhs = resolve_dataset_artifacts(hdf5_dataset_dir).rhs.path
     before = rhs.stat()
-    np.save(rhs, np.load(rhs) + 1.0)
+    _flip_last_byte(rhs)
     os.utime(rhs, ns=(before.st_atime_ns, before.st_mtime_ns))
 
-    assert current_dataset_digest(npy_dataset_dir) == stamped
-    assert dataset_content_digest(npy_dataset_dir) != stamped
+    assert current_dataset_digest(hdf5_dataset_dir) == stamped
+    assert dataset_content_digest(hdf5_dataset_dir) != stamped
 
 
 def test_legacy_manifest_without_digests_is_recomputed(generated_dataset_dir: Path) -> None:

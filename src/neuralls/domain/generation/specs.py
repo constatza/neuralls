@@ -18,6 +18,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from neuralls.shared.constants import DEFAULT_WRITE_BATCH_SIZE
+
 from .data_types import NormalizeType
 from .interfaces import TracingSolverCallable
 from .source_streams import EnumerateBy
@@ -59,7 +61,9 @@ class MixtureSpec:
         mix: Strategy proportions, used together with ``total``.
         total: Total sample count, required when ``mix`` is given.
         seed: Random seed for reproducibility.
-        shuffle: Whether to shuffle the generated samples.
+        shuffle: Accepted for config compatibility only. It has no effect on the
+            stored order, which is always generation order; dlkit shuffles the
+            training loader every epoch.
         strategy_overrides: Per-strategy configuration overrides (for example
             ``krylov_iters``, ``cg_iters`` or ``solutions_glob``).
         solver_overrides: Optional per-strategy tracing solver overrides.
@@ -84,12 +88,14 @@ class DatasetSpec:
             files are never reused, so ``True`` is rejected during generation.
         normalize: Normalization strategy applied to each matrix sample.
         matrix_norm_type: Norm used to report the dataset-level matrix norm.
+        write_batch_size: Rows generated and written per batch. Affects memory only.
     """
 
     mixture: MixtureSpec = field(default_factory=MixtureSpec)
     replacement: bool = False
     normalize: NormalizeType = "matrix"
     matrix_norm_type: str = "spectral"
+    write_batch_size: int = DEFAULT_WRITE_BATCH_SIZE
 
 
 __all__ = ["DatasetSpec", "MixtureSpec", "SourceSpec"]

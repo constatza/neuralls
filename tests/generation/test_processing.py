@@ -40,6 +40,7 @@ samples = -1
 solutions_glob = "{(solutions_dir / "solution_*.txt").as_posix()}"
 
 [output]
+matrix_format = "dense"
 """
     )
     return config_path
@@ -74,6 +75,7 @@ name = "neutral_ones"
 samples = 1
 
 [output]
+matrix_format = "dense"
 """
     )
     return config_path
@@ -103,6 +105,7 @@ name = "random"
 samples = 5
 
 [output]
+matrix_format = "dense"
 """
     )
     return config_path

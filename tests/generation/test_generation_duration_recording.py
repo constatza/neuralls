@@ -40,6 +40,7 @@ def test_skipped_regeneration_leaves_stamped_duration_untouched(
     build_dataset(source_spec, dataset_spec, dataset_dir_str, identity=identity)
     first_manifest = read_dataset_manifest(dataset_dir_str)
     assert first_manifest.generation_duration_seconds is not None
+    assert first_manifest.generation_duration_seconds > 0
 
     # Second call under the same identity hits the skip path (is_dataset_reusable
     # returns True) — the manifest must not be touched at all.

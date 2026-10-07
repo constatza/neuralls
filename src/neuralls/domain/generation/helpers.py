@@ -7,6 +7,7 @@ import warnings
 import zlib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal, Protocol
 
@@ -14,15 +15,16 @@ import numpy as np
 from loguru import logger
 from scipy.linalg import norm
 
+from neuralls.domain.normalization import IScale
 from neuralls.shared.constants import (
     EIGENVECTOR_SELECT_LARGEST,
     EIGENVECTOR_SELECT_RANDOM,
     EIGENVECTOR_SELECT_SMALLEST,
     EigenvectorSelectionMode,
 )
-from neuralls.shared.types import MatrixFormat, ScaleMetadata
+from neuralls.shared.types import MatrixFormat, ScaleMetadata, SystemMatrix
 
-from .matrix_operator import MatrixOperator
+from .matrix_operator import MatrixOperator, require_eigen_count
 from .step_window import StepWindow
 
 
@@ -38,14 +40,36 @@ def rng_from_seed(seed: int | None) -> np.random.Generator:
     return np.random.default_rng(seed) if seed is not None else np.random.default_rng()
 
 
+def derive_seed(mixture_seed: int, *labels: str | int) -> int:
+    """Derive an independent, deterministic seed for one labelled random stream.
+
+    Every stream that must not repeat another one (a strategy, a binding, a
+    split level) takes its own label path under the mixture seed. String labels
+    are hashed with CRC32, which is stable across processes unlike ``hash()``, so
+    the same label path always maps to the same stream.
+
+    Args:
+        mixture_seed: Seed of the whole mixture.
+        *labels: Stream discriminators, strings or non-negative integers.
+
+    Returns:
+        Non-negative integer seed for the labelled stream.
+    """
+    entropy = [mixture_seed, *(_label_entropy(label) for label in labels)]
+    state = np.random.SeedSequence(entropy).generate_state(1, dtype=np.uint32)
+    return int(state[0])
+
+
+def _label_entropy(label: str | int) -> int:
+    """Map one stream label to a SeedSequence entropy word."""
+    return zlib.crc32(label.encode("utf-8")) if isinstance(label, str) else label
+
+
 def derive_strategy_seed(mixture_seed: int | None, strategy_name: str) -> int | None:
     """Derive an independent, deterministic seed for one strategy in a mixture.
 
     Strategies in one mixture must not share a random stream: with a shared
-    seed, two strategies on the same matrix emit identical RHS vectors. The
-    strategy name is hashed into the SeedSequence entropy (CRC32 is stable
-    across processes, unlike ``hash()``), so the same mixture seed always maps
-    each strategy to the same stream.
+    seed, two strategies on the same matrix emit identical RHS vectors.
 
     Args:
         mixture_seed: Seed of the whole mixture (None keeps non-deterministic draws).
@@ -56,9 +80,7 @@ def derive_strategy_seed(mixture_seed: int | None, strategy_name: str) -> int | 
     """
     if mixture_seed is None:
         return None
-    entropy = [mixture_seed, zlib.crc32(strategy_name.encode("utf-8"))]
-    state = np.random.SeedSequence(entropy).generate_state(1, dtype=np.uint32)
-    return int(state[0])
+    return derive_seed(mixture_seed, strategy_name)
 
 
 def rounded_counts(total: int, proportions: Mapping[str, float]) -> dict[str, int]:
@@ -136,11 +158,11 @@ def _calculate_normalization_scale(
     return 1.0
 
 
-def _normalize_matrix_for_generation(
-    matrix: np.ndarray,
+def normalize_matrix_for_generation(
+    matrix: SystemMatrix,
     normalize_type: Literal["none", "matrix", "rhs"],
     spectral_radius_bound: float | None,
-) -> tuple[np.ndarray, Any, float]:
+) -> tuple[SystemMatrix, IScale | None, float]:
     """Normalize matrix for synthetic generation (pure function).
 
     CONTRACT:
@@ -149,7 +171,8 @@ def _normalize_matrix_for_generation(
         - Strategies receive normalized matrix and compute b_norm = A_norm @ x
 
     Args:
-        matrix: Raw system matrix A
+        matrix: Raw system matrix A, dense or CSR. CSR input stays CSR; it is
+            never densified.
         normalize_type: Normalization strategy
             - "none": No normalization (identity)
             - "matrix": Scale by spectral_radius_bound * sqrt(d)
@@ -164,7 +187,7 @@ def _normalize_matrix_for_generation(
               (A_raw = A_stored * matrix_value_scale). 1.0 for "none"/"rhs".
 
     Examples:
-        >>> A_norm, scale, value_scale = _normalize_matrix_for_generation(A, "matrix", None)
+        >>> A_norm, scale, value_scale = normalize_matrix_for_generation(A, "matrix", None)
         >>> isinstance(scale, MatrixScale)
         True
         >>> value_scale > 0
@@ -183,8 +206,6 @@ def _normalize_matrix_for_generation(
     )
     assert scale is not None, f"Expected scale for {normalize_type}"
     matrix_norm = scale.scale_matrix(matrix)
-    if not isinstance(matrix_norm, np.ndarray):
-        raise TypeError("Dense matrix input must produce a dense scaled matrix.")
     scale_params = serialize_scale_metadata(scale)
     if scale_params is None:
         raise TypeError(f"Expected scale metadata for {normalize_type}")
@@ -196,7 +217,7 @@ def _normalize_matrix_for_generation(
     return matrix_norm, scale, matrix_value_scale
 
 
-def serialize_scale_metadata(scale: Any | None) -> ScaleMetadata | None:
+def serialize_scale_metadata(scale: IScale | None) -> ScaleMetadata | None:
     """Serialize supported scale objects into manifest metadata."""
     if scale is None:
         return None
@@ -215,7 +236,7 @@ def serialize_scale_metadata(scale: Any | None) -> ScaleMetadata | None:
     return metadata or None
 
 
-def _resolve_strategy_counts(
+def resolve_strategy_counts(
     counts: Mapping[str, int] | None,
     mix: Mapping[str, float] | None,
     total: int | None,
@@ -302,12 +323,13 @@ def _solve_cg_rows(
     return solutions
 
 
-_SOLVERS: Mapping[tuple[Literal["direct", "cg"], MatrixFormat], _SolveFn] = MappingProxyType(
+type _SolveMethod = Literal["direct", "cg"]
+"""Closed set of linear-solve strategies accepted by `_solve_linear_systems`."""
+
+_SOLVERS: Mapping[_SolveMethod, _SolveFn] = MappingProxyType(
     {
-        ("direct", MatrixFormat.CSR): _solve_direct_rows,
-        ("direct", MatrixFormat.DENSE): _solve_direct_rows,
-        ("cg", MatrixFormat.CSR): _solve_cg_rows,
-        ("cg", MatrixFormat.DENSE): _solve_cg_rows,
+        "direct": _solve_direct_rows,
+        "cg": _solve_cg_rows,
     }
 )
 
@@ -315,7 +337,7 @@ _SOLVERS: Mapping[tuple[Literal["direct", "cg"], MatrixFormat], _SolveFn] = Mapp
 def _solve_linear_systems(
     A: MatrixOperator,
     rhs_vectors: np.ndarray,
-    method: Literal["direct", "cg"],
+    method: _SolveMethod,
     rtol: float = 1e-12,
     atol: float = 0.0,
     max_iters: int = 500,
@@ -323,8 +345,8 @@ def _solve_linear_systems(
 ) -> np.ndarray:
     """Solve linear systems Ax = b using configured method and matrix format.
 
-    The solver is looked up in `_SOLVERS` by (method, format). Direct solves
-    use the operator's cached factorization; CG works on either format.
+    The solver is looked up in `_SOLVERS` by method. Direct solves use the
+    operator's cached factorization; CG works on either format.
 
     Args:
         A: Operator wrapping the system matrix, shape (n, n)
@@ -339,15 +361,12 @@ def _solve_linear_systems(
         Solution vectors, shape (num_systems, n)
 
     Raises:
-        ValueError: If no solver is registered for (method, format)
+        ValueError: If no solver is registered for `method`
     """
     rhs_array = np.asarray(rhs_vectors, dtype=np.float64)
-    solver = _SOLVERS.get((method, A.format))
+    solver = _SOLVERS.get(method)
     if solver is None:
-        raise ValueError(
-            f"Invalid solve method: {method}. Must be 'direct' or 'cg' "
-            f"(no solver registered for format {A.format.value!r})"
-        )
+        raise ValueError(f"Invalid solve method: {method}. Must be 'direct' or 'cg'")
     options = _SolveOptions(
         rtol=rtol,
         atol=atol,
@@ -438,29 +457,6 @@ def resolve_trace_generation_counts(
     return required_trace_systems(samples, window=window), samples
 
 
-def _merge_strategy_outputs(
-    features_list: list[np.ndarray],
-    targets_list: list[np.ndarray],
-) -> tuple[np.ndarray, np.ndarray]:
-    """Merge feature and target arrays from multiple strategies.
-
-    Pure function.
-
-    Args:
-        features_list: List of feature arrays
-        targets_list: List of target arrays
-
-    Returns:
-        Tuple of (merged_features, merged_targets)
-    """
-    return np.vstack(features_list), np.vstack(targets_list)
-
-
-# =============================================================================
-# EIGENVECTOR STRATEGY HELPERS
-# =============================================================================
-
-
 def _compute_eigendecomposition(
     operator: MatrixOperator,
     count: int,
@@ -524,12 +520,7 @@ def _select_eigenvectors(
     """
     n = eigenvectors.shape[0]
     available = eigenvalues.shape[0]
-    if count > n:
-        raise ValueError(
-            f"Requested {count} samples but matrix has only {n} eigenvectors. Maximum samples: {n}"
-        )
-    if count <= 0:
-        raise ValueError(f"Sample count must be positive, got {count}")
+    require_eigen_count(count, n)
     if which == EIGENVECTOR_SELECT_SMALLEST:
         indices = np.arange(count)
     elif which == EIGENVECTOR_SELECT_LARGEST:
@@ -643,8 +634,6 @@ def select_archive_files(
         >>> # Select 50 shuffled files
         >>> files = select_archive_files("/data/vec_*.txt", 50, True, 42)
     """
-    from pathlib import Path
-
     pattern_path = Path(glob_pattern)
     directory = pattern_path.parent
     pattern = pattern_path.name
@@ -695,6 +684,46 @@ def _ordered_candidates(candidates: list, shuffle: bool, seed: int | None) -> li
         return candidates
     rng = rng_from_seed(seed)
     return [candidates[idx] for idx in rng.permutation(len(candidates))]
+
+
+def solution_row_count(path: Path) -> int:
+    """Count the rows of an explicit solution file without reading its values.
+
+    .npy rows come from the array header; a 1-D array is one sample, matching the
+    vector reader. A .txt file is one sample whatever its line count: the vector
+    reader loads the whole file with ``np.loadtxt`` as a single vector, so counting
+    lines would promise rows the reader never yields. Other formats have no cheap
+    row count here and are rejected by name.
+
+    Raises:
+        ValueError: If the format has no cheap row count, or the .npy rank is not 1 or 2.
+    """
+    match path.suffix:
+        case ".npy":
+            with path.open("rb") as handle:
+                version = np.lib.format.read_magic(handle)
+                if version == (1, 0):
+                    shape, _, _ = np.lib.format.read_array_header_1_0(handle)
+                elif version == (2, 0):
+                    shape, _, _ = np.lib.format.read_array_header_2_0(handle)
+                else:
+                    raise ValueError(f"Unsupported .npy version {version} in solution file {path}.")
+            match len(shape):
+                case 1:
+                    return 1
+                case 2:
+                    return int(shape[0])
+                case _:
+                    raise ValueError(
+                        f"Solution .npy file {path} must have shape (n,) or (N,n), got {shape}."
+                    )
+        case ".txt":
+            return 1
+        case _:
+            raise ValueError(
+                f"Cannot read the row count of solution file {path} (format '{path.suffix}'): "
+                "only .npy and .txt are supported."
+            )
 
 
 def _pick_explicit_files(
@@ -821,12 +850,11 @@ __all__ = [
     "_generate_eigenvector_combinations",
     "_generate_krylov_combinations",
     "_lanczos_iteration",
-    "_merge_strategy_outputs",
-    "_normalize_matrix_for_generation",
-    "_resolve_strategy_counts",
     "_select_eigenvectors",
     "_solve_linear_systems",
     "_verify_solution_accuracy",
+    "normalize_matrix_for_generation",
+    "resolve_strategy_counts",
     "rng_from_seed",
     "rounded_counts",
     "select_archive_files",

@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 
+import h5py
 import numpy as np
 import pytest
 from loguru import logger
 
 from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
+from neuralls.shared.enum_codecs import encode_row_kind_array
+from neuralls.shared.types import RowKind
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -253,86 +258,6 @@ def test_seed() -> int:
 
 
 @pytest.fixture
-def sample_dataset_npz(tmp_path, small_spd_matrix, archive_solutions, archive_rhs):
-    """Create a sample dataset using split-array sparse storage.
-
-    Args:
-        tmp_path: Pytest temporary directory fixture
-        small_spd_matrix: Test matrix
-        archive_solutions: Test solutions
-        archive_rhs: Test RHS vectors
-
-    Returns:
-        Path to dataset directory containing manifest + arrays
-    """
-    dataset_dir = tmp_path / "test-dataset"
-    dataset_dir.mkdir()
-    from neuralls.domain.generation.payloads import GeneratedDatasetPayload
-    from neuralls.platform.storage.datasets import DenseDatasetWriter, DenseZarrAccumulator
-
-    acc = DenseZarrAccumulator(dataset_dir / "matrix.zarr")
-    acc.append_dense_matrix(small_spd_matrix, repeats=1)
-    zarr_path = acc.finalize()
-    DenseDatasetWriter().write_dataset(
-        dataset_dir,
-        GeneratedDatasetPayload(
-            rhs=archive_rhs,
-            solutions=archive_solutions,
-            matrix_artifact_path=zarr_path,
-            matrix_size=(int(small_spd_matrix.shape[0]), int(small_spd_matrix.shape[1])),
-            normalization_type="matrix",
-            matrix_norm=float(np.linalg.norm(small_spd_matrix, ord=2)),
-            matrix_norm_type="spectral",
-        ),
-    )
-
-    return dataset_dir
-
-
-@pytest.fixture
-def sample_dataset_with_raw(tmp_path, small_spd_matrix, archive_solutions, archive_rhs):
-    """Create a sample dataset with normalized artifacts and raw arrays.
-
-    Args:
-        tmp_path: Pytest temporary directory fixture
-        small_spd_matrix: Test matrix
-        archive_solutions: Test solutions
-        archive_rhs: Test RHS vectors
-
-    Returns:
-        Path to dataset directory containing normalized artifacts and raw/ arrays
-    """
-    dataset_dir = tmp_path / "test-dataset-with-raw"
-    dataset_dir.mkdir()
-    from neuralls.domain.generation.payloads import GeneratedDatasetPayload
-    from neuralls.platform.storage.datasets import DenseDatasetWriter, DenseZarrAccumulator
-
-    acc = DenseZarrAccumulator(dataset_dir / "matrix.zarr")
-    acc.append_dense_matrix(small_spd_matrix, repeats=1)
-    zarr_path = acc.finalize()
-    DenseDatasetWriter().write_dataset(
-        dataset_dir,
-        GeneratedDatasetPayload(
-            rhs=archive_rhs,
-            solutions=archive_solutions,
-            matrix_artifact_path=zarr_path,
-            matrix_size=(int(small_spd_matrix.shape[0]), int(small_spd_matrix.shape[1])),
-            normalization_type="matrix",
-            matrix_norm=float(np.linalg.norm(small_spd_matrix, ord=2)),
-            matrix_norm_type="spectral",
-        ),
-    )
-
-    raw_dir = dataset_dir / "raw"
-    raw_dir.mkdir()
-    np.save(raw_dir / "matrix.npy", small_spd_matrix)
-    np.save(raw_dir / "rhs.npy", archive_rhs)
-    np.save(raw_dir / "solutions.npy", archive_solutions)
-
-    return dataset_dir
-
-
-@pytest.fixture
 def warning_messages() -> Iterator[list[str]]:
     """Collect loguru WARNING-level messages emitted during a test."""
     from loguru import logger
@@ -344,3 +269,54 @@ def warning_messages() -> Iterator[list[str]]:
     )
     yield messages
     logger.remove(sink_id)
+
+
+ARRAY_STORE_SEED: int = 7
+ARRAY_STORE_TOTAL_ROWS: int = 6
+ARRAY_STORE_FIRST_BATCH_ROWS: int = 2
+ARRAY_STORE_N: int = 3
+ARRAY_STORE_M: int = 4
+
+
+@dataclass(frozen=True)
+class DenseRowsFixture:
+    """Seeded dense rows split into two offset batches, shaped like a generated dataset."""
+
+    total_rows: int
+    first_batch_rows: int
+    matrices: np.ndarray
+    vectors: np.ndarray
+
+
+@pytest.fixture
+def dense_rows_fixture() -> DenseRowsFixture:
+    rng = np.random.default_rng(ARRAY_STORE_SEED)
+    return DenseRowsFixture(
+        total_rows=ARRAY_STORE_TOTAL_ROWS,
+        first_batch_rows=ARRAY_STORE_FIRST_BATCH_ROWS,
+        matrices=rng.standard_normal((ARRAY_STORE_TOTAL_ROWS, ARRAY_STORE_N, ARRAY_STORE_M)),
+        vectors=rng.standard_normal((ARRAY_STORE_TOTAL_ROWS, ARRAY_STORE_N)),
+    )
+
+
+@pytest.fixture
+def zarr_store_root(tmp_path: Path) -> Path:
+    return tmp_path / "store.zarr"
+
+
+@pytest.fixture
+def hdf5_store_path(tmp_path: Path) -> Path:
+    return tmp_path / "store.h5"
+
+
+@pytest.fixture
+def overwrite_row_kind() -> Callable[[Path, list[RowKind]], None]:
+    """Replace a hdf5 dataset's stored row-kind array in place, through the artifact's key."""
+
+    def _overwrite(dataset_dir: Path, kinds: list[RowKind]) -> None:
+        artifact = resolve_dataset_artifacts(dataset_dir).row_kind
+        assert artifact is not None and artifact.key is not None
+        with h5py.File(str(artifact.path), "r+") as f:
+            f[artifact.key][...] = encode_row_kind_array(kinds)
+
+    return _overwrite

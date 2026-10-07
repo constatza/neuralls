@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Protocol
 
 from numpy.typing import NDArray
-
-from .payloads import GeneratedDatasetPayload
 
 
 class TracingSolverPort(Protocol):
@@ -25,54 +22,21 @@ class TracingSolverPort(Protocol):
     ) -> tuple[NDArray, Any]: ...
 
 
-class DatasetWriterPort(Protocol):
-    """Storage port for persisting generated datasets."""
+class ArrayStore(Protocol):
+    """Write-only sink for arrays whose row count is fixed at creation.
 
-    def write_dataset(
-        self,
-        dataset_dir: Path,
-        payload: GeneratedDatasetPayload,
-    ) -> None: ...
+    Defined in the domain so generation can depend on it without importing platform
+    storage; each backend in platform/storage satisfies it structurally.
+    """
 
-
-class SparseAccumulatorPort(Protocol):
-    """Protocol for accumulating sparse matrix samples during dataset generation."""
-
-    def append_dense_matrix(self, matrix: NDArray, repeats: int) -> None: ...
-
-    def append_sparse_components(
-        self,
-        *,
-        indices: NDArray,
-        values: NDArray,
-        size: tuple[int, int],
-        repeats: int,
-    ) -> None: ...
-
-    def build_arrays(self) -> tuple[NDArray, NDArray, NDArray, tuple[int, int]]: ...
-
-
-class DenseAccumulatorPort(Protocol):
-    """Streaming dense-matrix accumulator port."""
-
-    def append_dense_matrix(self, matrix: NDArray, repeats: int) -> None: ...
-
-    def finalize(self) -> Path:
-        """Close the writer and return the on-disk pack directory path."""
+    def create(self, name: str, shape: tuple[int, ...], dtype: str) -> None:
+        """Create a named array at its full shape. Raises ValueError if the name exists."""
         ...
 
-    @property
-    def matrix_size(self) -> tuple[int, int] | None: ...
+    def write_rows(self, name: str, start: int, data: NDArray) -> None:
+        """Write `data` into rows [start, start + len(data)) of the named array."""
+        ...
 
-
-class DatasetAccumulatorPort(DenseAccumulatorPort, Protocol):
-    """Full accumulator port including sparse ingestion."""
-
-    def append_sparse_components(
-        self,
-        *,
-        indices: NDArray,
-        values: NDArray,
-        size: tuple[int, int],
-        repeats: int,
-    ) -> None: ...
+    def close(self) -> None:
+        """Flush and release the store. Raises ValueError if any array is incomplete."""
+        ...

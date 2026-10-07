@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from neuralls.composition.generation.dataset_builder import build_dataset
-from neuralls.domain.generation.orchestration import _resolve_final_scale
+from neuralls.domain.generation.scalar_aggregate import BindingScale, ScalarAggregator
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.normalization import MatrixScale, load_scale_from_metadata
 from neuralls.platform.storage.datasets import (
@@ -128,15 +128,23 @@ def test_scale_metadata_not_saved_with_none_normalization(temp_matrix_file: Path
 
 def test_multi_matrix_resolution_omits_shared_scale_metadata() -> None:
     """Mixed binding scales drop manifest-level reversible scale metadata."""
-    matrix_norm, matrix_value_scale, scale_metadata = _resolve_final_scale(
-        norm_values=[1.0, 2.0],
-        scale_values=[3.0, 5.0],
-        metadata_values=[
-            {"spectral_radius_bound": 1.5, "dimension_scale": 2.0},
-            {"spectral_radius_bound": 2.5, "dimension_scale": 2.0},
-        ],
+    aggregator = ScalarAggregator()
+    aggregator.observe(
+        BindingScale(
+            matrix_norm_value=1.0,
+            matrix_value_scale=3.0,
+            scale_params={"spectral_radius_bound": 1.5, "dimension_scale": 2.0},
+        )
     )
+    aggregator.observe(
+        BindingScale(
+            matrix_norm_value=2.0,
+            matrix_value_scale=5.0,
+            scale_params={"spectral_radius_bound": 2.5, "dimension_scale": 2.0},
+        )
+    )
+    summary = aggregator.result()
 
-    assert matrix_norm == 1.0
-    assert matrix_value_scale == 1.0
-    assert scale_metadata is None
+    assert summary.matrix_norm == 1.0
+    assert summary.matrix_value_scale == 1.0
+    assert summary.scale_metadata is None

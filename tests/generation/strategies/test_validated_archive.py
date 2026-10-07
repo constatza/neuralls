@@ -85,16 +85,18 @@ def test_validated_archive_generate_valid(
 
     strategy = ValidatedArchiveStrategy()
     samples = strategy.generate(sample_matrix, cfg=cfg)
+    assert samples.solutions is not None
+    assert samples.rhs is not None
 
     assert samples.matrix is sample_matrix
-    assert samples.rhs is not None
-    assert samples.solutions is not None
     assert samples.rhs.shape == (5, 10)
     assert samples.solutions.shape == (5, 10)
 
     # Verify consistency
     for i in range(5):
+        assert samples.solutions is not None
         b_computed = sample_matrix @ samples.solutions[i]
+        assert samples.rhs is not None
         residual = np.linalg.norm(b_computed - samples.rhs[i])
         rhs_norm = np.linalg.norm(samples.rhs[i])
         rel_error = residual / rhs_norm
@@ -143,7 +145,6 @@ def test_validated_archive_generate_invalid_warn(
     ) as mock_warning:
         samples = strategy.generate(sample_matrix, cfg=cfg)
 
-    assert samples.rhs is not None
     assert samples.solutions is not None
     mock_warning.assert_called_once()
 
@@ -171,11 +172,7 @@ def test_validated_archive_shuffle(
     samples2 = strategy.generate(sample_matrix, cfg=cfg)
 
     # Should get same results
-    assert samples1.rhs is not None
-    assert samples2.rhs is not None
     np.testing.assert_array_equal(samples1.rhs, samples2.rhs)
-    assert samples1.solutions is not None
-    assert samples2.solutions is not None
     np.testing.assert_array_equal(samples1.solutions, samples2.solutions)
 
 
@@ -196,9 +193,8 @@ def test_validated_archive_all_files(
 
     strategy = ValidatedArchiveStrategy()
     samples = strategy.generate(sample_matrix, cfg=cfg)
-
     assert samples.rhs is not None
-    assert samples.solutions is not None
+
     assert samples.rhs.shape[0] == 5  # All 5 files
 
 

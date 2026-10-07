@@ -29,10 +29,10 @@ def test_normal_strategy_normalization():
     )
     R = output.rhs
     X = output.solutions
-    assert R is not None
-    assert X is not None
+    assert R is not None and X is not None
 
     # Check RHS norms
+    assert R is not None
     rhs_norms = [norm(R[i]) for i in range(len(R))]
     print("  Generated RHS norms:")
     print(f"    Min:  {min(rhs_norms):.6f}")
@@ -41,6 +41,7 @@ def test_normal_strategy_normalization():
     print(f"    Std:  {np.std(rhs_norms):.6f}")
 
     # Verify A @ x = b relationship
+    assert X is not None
     residuals = [norm(A @ X[i] - R[i]) for i in range(len(R))]
     print("  Residual norms (A @ x - b):")
     print(f"    Max: {max(residuals):.2e}")
@@ -70,8 +71,7 @@ def test_krylov_strategy_normalization():
     )
     R = output.rhs
     X = output.solutions
-    assert R is not None
-    assert X is not None
+    assert R is not None and X is not None
 
     # Check RHS norms
     rhs_norms = [norm(R[i]) for i in range(len(R))]

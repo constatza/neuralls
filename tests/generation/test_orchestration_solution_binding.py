@@ -61,7 +61,7 @@ def test_solution_binding_loads_per_matrix_solution(
         ),
         DatasetSpec(
             mixture=MixtureSpec(
-                counts={"solution_archive": -1},
+                counts={"solution_archive": 1},
             ),
         ),
         dataset_dir,
@@ -74,3 +74,26 @@ def test_solution_binding_loads_per_matrix_solution(
     assert solutions.shape == (2, n)
     assert rhs.dtype == np.float64
     assert solutions.dtype == np.float64
+
+
+def test_open_ended_solution_archive_is_sized_by_the_matched_files(
+    two_spd_matrices_with_solutions: tuple[Path, Path, int],
+    tmp_path: Path,
+) -> None:
+    """samples=-1 on a glob solution_path takes every matched file on each matrix: M x K rows."""
+    mat_dir, sol_dir, n = two_spd_matrices_with_solutions
+    dataset_dir = str(tmp_path / "dataset")
+
+    build_dataset(
+        SourceSpec(
+            matrix_path=str(mat_dir / "A_*.txt"),
+            solution_path=str(sol_dir / "x_*.txt"),
+            sample_id_regex=r"(\d+)(?!.*\d)",
+        ),
+        DatasetSpec(mixture=MixtureSpec(counts={"solution_archive": -1})),
+        dataset_dir,
+    )
+
+    rhs, _ = load_dense_training_arrays(dataset_dir)
+    # Two matrices x two solution files -> 4 samples
+    assert rhs.shape == (4, n)

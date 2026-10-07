@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -108,47 +108,47 @@ class TestIsDatasetReusable:
         assert is_dataset_reusable(stamped_npy_dataset_dir, other) is False
 
 
+@pytest.fixture
+def stamped_hdf5_dataset_dir(
+    tmp_path: Path,
+    source_spec: SourceSpec,
+    dataset_spec: DatasetSpec,
+    identity: StageIdentity,
+) -> Path:
+    """A real hdf5 dataset built under ``identity``, so its manifest is stamped and complete."""
+    target = tmp_path / "stamped_hdf5"
+    build_dataset(source_spec, dataset_spec, str(target), dataset_format="hdf5", identity=identity)
+    return target
+
+
 class TestBuildDatasetSkipByDefault:
     def test_skips_regeneration_when_dataset_already_complete(
-        self, stamped_npy_dataset_dir: Path, identity: StageIdentity
+        self, stamped_hdf5_dataset_dir: Path, identity: StageIdentity, source_spec: SourceSpec
     ) -> None:
         with patch(
-            "neuralls.composition.generation.dataset_builder.build_dataset_payload"
-        ) as mock_build_payload:
+            "neuralls.composition.generation.dataset_builder.write_dense_streamed"
+        ) as writer:
             result = build_dataset(
-                SourceSpec(
-                    matrix_path="unused.npy",
-                ),
+                source_spec,
                 DatasetSpec(),
-                str(stamped_npy_dataset_dir),
-                dataset_format="npy",
+                str(stamped_hdf5_dataset_dir),
+                dataset_format="hdf5",
                 identity=identity,
             )
-        mock_build_payload.assert_not_called()
-        assert result == str(stamped_npy_dataset_dir)
+        writer.assert_not_called()
+        assert result == str(stamped_hdf5_dataset_dir)
 
     def test_force_regenerates_even_when_dataset_already_complete(
-        self, complete_npy_dataset_dir: Path
+        self, stamped_hdf5_dataset_dir: Path, identity: StageIdentity, source_spec: SourceSpec
     ) -> None:
-        fake_storage = MagicMock()
-        fake_storage.make_accumulator.return_value = MagicMock()
-        with (
-            patch(
-                "neuralls.composition.generation.dataset_builder.build_dataset_payload"
-            ) as mock_build_payload,
-            patch(
-                "neuralls.composition.generation.dataset_builder.make_generation_dataset_storage",
-                return_value=fake_storage,
-            ),
-        ):
+        with patch(
+            "neuralls.composition.generation.dataset_builder.write_dense_streamed"
+        ) as writer:
             build_dataset(
-                SourceSpec(
-                    matrix_path="unused.npy",
-                ),
+                source_spec,
                 DatasetSpec(),
-                str(complete_npy_dataset_dir),
-                dataset_format="npy",
+                str(stamped_hdf5_dataset_dir),
+                dataset_format="hdf5",
                 force=True,
             )
-        mock_build_payload.assert_called_once()
-        fake_storage.write_dataset.assert_called_once()
+        writer.assert_called_once()

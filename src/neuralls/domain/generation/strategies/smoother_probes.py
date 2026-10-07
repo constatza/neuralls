@@ -31,9 +31,12 @@ from typing import Any
 
 import numpy as np
 import torch
+from scipy.sparse import csr_array
 from torchalg.preconditioners.implementations.pod import apply_jacobi_damping_trajectory
+from torchalg.sparse.preconditioners.amg.smoothers import JacobiSmoother as SparseJacobiSmoother
 
 from neuralls.domain.normalization import ResidualTraceSamples
+from neuralls.shared.types import SystemMatrix
 
 from ..helpers import (
     _build_trace_indices,
@@ -67,6 +70,72 @@ def _sample_probes(
     return rng.standard_normal((count, dimension))
 
 
+def _sparse_damping_trajectories(
+    matrix: csr_array, probes: torch.Tensor, *, omega: float | None, steps: int
+) -> torch.Tensor:
+    """Weighted-Jacobi trajectories for a CSR matrix, without densifying it.
+
+    Mirrors ``apply_jacobi_damping_trajectory`` (dense torch only) with the
+    torchalg sparse ``JacobiSmoother``, which accepts a torch CSR operator.
+    The operator is built from the scipy buffers directly, so the O(n^2)
+    dense copy never exists.
+
+    Args:
+        matrix: Square SPD system matrix in CSR format.
+        probes: Batch of vectors to damp, shape (n_vectors, n_dofs).
+        omega: Jacobi damping factor; ``None`` selects torchalg's spectral rule.
+        steps: Number of damping sweeps per vector.
+
+    Returns:
+        torch.Tensor: Trajectories, shape (n_vectors, steps + 1, n_dofs).
+    """
+    operator = torch.sparse_csr_tensor(
+        torch.as_tensor(matrix.indptr, dtype=torch.int64),
+        torch.as_tensor(matrix.indices, dtype=torch.int64),
+        torch.as_tensor(matrix.data),
+        size=matrix.shape,
+    )
+    smoother = SparseJacobiSmoother(omega=omega)
+    trajectories = []
+    for row in probes:
+        zero_rhs = torch.zeros_like(row)
+        x = row
+        history = [x]
+        for _ in range(steps):
+            x = smoother.smooth(operator, zero_rhs, x, steps=1)
+            history.append(x)
+        trajectories.append(torch.stack(history))
+    return torch.stack(trajectories)
+
+
+def _damping_trajectories(
+    matrix: SystemMatrix, probes: np.ndarray, *, omega: float | None, steps: int
+) -> torch.Tensor:
+    """Dispatch the Jacobi damping sweep on the matrix format.
+
+    Dense input keeps the torchalg dense helper unchanged, so dense numbers
+    are bit-identical to the pre-sparse behaviour. CSR input uses the sparse
+    smoother path instead.
+
+    Args:
+        matrix: System matrix, dense ndarray or scipy csr_array.
+        probes: Probe vectors, shape (n_vectors, n_dofs).
+        omega: Jacobi damping factor; ``None`` selects the spectral rule.
+        steps: Number of damping sweeps per vector.
+
+    Returns:
+        torch.Tensor: Trajectories, shape (n_vectors, steps + 1, n_dofs).
+    """
+    probes_t = torch.as_tensor(probes)
+    match matrix:
+        case np.ndarray():
+            return apply_jacobi_damping_trajectory(
+                probes_t, torch.as_tensor(matrix), omega=omega, steps=steps
+            )
+        case csr_array():
+            return _sparse_damping_trajectories(matrix, probes_t, omega=omega, steps=steps)
+
+
 @register_strategy(rows_per_base_system=trace_rows_per_base_system(SmootherFilteredProbesConfig))
 class SmootherFilteredProbesStrategy:
     """Generate error snapshots by Jacobi-damping random probe vectors.
@@ -82,7 +151,7 @@ class SmootherFilteredProbesStrategy:
 
     def generate(
         self,
-        matrix: np.ndarray,
+        matrix: SystemMatrix,
         *,
         cfg: dict[str, Any],
         archive: ArchiveData | None = None,
@@ -117,11 +186,7 @@ class SmootherFilteredProbesStrategy:
         probes = _sample_probes(rng, num_base_probes, matrix.shape[0], config.probe_distribution)
         probes = probes.astype(matrix.dtype, copy=False)
 
-        matrix_t = torch.as_tensor(matrix)
-        probes_t = torch.as_tensor(probes)
-        trajectories = apply_jacobi_damping_trajectory(
-            probes_t, matrix_t, omega=config.omega, steps=window.stop
-        )
+        trajectories = _damping_trajectories(matrix, probes, omega=config.omega, steps=window.stop)
 
         rhs_transform = ComputeRhsTransform(matrix)
 

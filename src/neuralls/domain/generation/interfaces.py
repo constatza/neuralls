@@ -10,6 +10,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from neuralls.domain.normalization import ErrorTraceSamples, ResidualTraceSamples
+from neuralls.shared.types import SystemMatrix
 
 
 class TracingSolverCallable(Protocol):
@@ -34,7 +35,7 @@ class TracingSolverCallable(Protocol):
 class GeneratedSamples:
     """Container for generated data."""
 
-    matrix: np.ndarray
+    matrix: SystemMatrix
     rhs: np.ndarray | None
     solutions: np.ndarray | None
     residual_traces: ResidualTraceSamples | None = None
@@ -72,7 +73,7 @@ class MatrixGenerationStrategy(Protocol):
 
     def generate(
         self,
-        matrix: np.ndarray,
+        matrix: SystemMatrix,
         *,
         cfg: dict[str, Any],
         archive: ArchiveData | None = None,
@@ -99,7 +100,7 @@ class SingleRhsGenerationStrategy(Protocol):
 
     def generate(
         self,
-        matrix: np.ndarray,
+        matrix: SystemMatrix,
         *,
         cfg: dict[str, Any],
         solver: TracingSolverCallable,

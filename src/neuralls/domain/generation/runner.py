@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, overload
 
 import numpy as np
+
+from neuralls.shared.types import SystemMatrix
 
 from .interfaces import (
     ArchiveData,
@@ -32,7 +34,6 @@ class MatrixStrategyRegistration:
 
     strategy: MatrixGenerationStrategy
     supports_single_rhs: Literal[False] = False
-    supports_matrix_replacement: bool = False
     rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system
 
 
@@ -42,7 +43,6 @@ class SingleRhsStrategyRegistration:
 
     strategy: SingleRhsGenerationStrategy
     supports_single_rhs: Literal[True] = True
-    supports_matrix_replacement: bool = False
     rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system
 
 
@@ -59,12 +59,10 @@ class StrategyRegistry:
         self,
         strategy: MatrixGenerationStrategy,
         *,
-        supports_matrix_replacement: bool = False,
         rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system,
     ) -> None:
         self._strategies[strategy.name] = MatrixStrategyRegistration(
             strategy,
-            supports_matrix_replacement=supports_matrix_replacement,
             rows_per_base_system=rows_per_base_system,
         )
 
@@ -72,12 +70,10 @@ class StrategyRegistry:
         self,
         strategy: SingleRhsGenerationStrategy,
         *,
-        supports_matrix_replacement: bool = False,
         rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system,
     ) -> None:
         self._strategies[strategy.name] = SingleRhsStrategyRegistration(
             strategy,
-            supports_matrix_replacement=supports_matrix_replacement,
             rows_per_base_system=rows_per_base_system,
         )
 
@@ -90,18 +86,32 @@ class StrategyRegistry:
 _registry = StrategyRegistry()
 
 
+@overload
+def register_strategy[StrategyClass](
+    strategy_cls: type[StrategyClass],
+    *,
+    rows_per_base_system: RowsPerBaseSystem = ...,
+) -> type[StrategyClass]: ...
+
+
+@overload
+def register_strategy[StrategyClass](
+    strategy_cls: None = None,
+    *,
+    rows_per_base_system: RowsPerBaseSystem = ...,
+) -> Callable[[type[StrategyClass]], type[StrategyClass]]: ...
+
+
 def register_strategy[StrategyClass](
     strategy_cls: type[StrategyClass] | None = None,
     *,
-    supports_matrix_replacement: bool = False,
     rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system,
-) -> type[StrategyClass] | Any:
+) -> type[StrategyClass] | Callable[[type[StrategyClass]], type[StrategyClass]]:
     """Register a matrix-only generation strategy (see ``register_single_rhs_strategy``)."""
 
     def _decorate(cls: type[StrategyClass]) -> type[StrategyClass]:
         _registry.register_matrix(
             cast(MatrixGenerationStrategy, cls()),
-            supports_matrix_replacement=supports_matrix_replacement,
             rows_per_base_system=rows_per_base_system,
         )
         return cls
@@ -114,7 +124,6 @@ def register_strategy[StrategyClass](
 def register_single_rhs_strategy[StrategyClass](
     strategy_cls: type[StrategyClass] | None = None,
     *,
-    supports_matrix_replacement: bool = False,
     rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system,
 ) -> type[StrategyClass] | Any:
     """Register a generation strategy that supports shared RHS dispatch.
@@ -127,7 +136,6 @@ def register_single_rhs_strategy[StrategyClass](
     def _decorate(cls: type[StrategyClass]) -> type[StrategyClass]:
         _registry.register_single_rhs(
             cast(SingleRhsGenerationStrategy, cls()),
-            supports_matrix_replacement=supports_matrix_replacement,
             rows_per_base_system=rows_per_base_system,
         )
         return cls
@@ -135,11 +143,6 @@ def register_single_rhs_strategy[StrategyClass](
     if strategy_cls is None:
         return _decorate
     return _decorate(strategy_cls)
-
-
-def strategy_supports_matrix_replacement(strategy_name: str) -> bool:
-    """Return whether the registered strategy supports matrix replacement allocation."""
-    return _registry.get(strategy_name).supports_matrix_replacement
 
 
 def rows_per_base_system(strategy_name: str, cfg: Mapping[str, Any]) -> int:
@@ -153,7 +156,7 @@ def rows_per_base_system(strategy_name: str, cfg: Mapping[str, Any]) -> int:
 
 def run_generation(
     strategy_name: str,
-    matrix: np.ndarray,
+    matrix: SystemMatrix,
     *,
     cfg: dict[str, Any],
     solver: TracingSolverCallable | None = None,

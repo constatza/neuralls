@@ -26,6 +26,7 @@ from ..helpers import (
     trace_rows_per_base_system,
 )
 from ..interfaces import ArchiveData, ArchiveField, GeneratedSamples, TracingSolverCallable
+from ..matrix_operator import MatrixOperator
 from ..providers import HybridInputProvider, RandomInputProvider, provide_solutions
 from ..runner import register_single_rhs_strategy
 from ..strategy_configs import ResidualErrorConfig
@@ -144,7 +145,8 @@ class _BaseResidualsStrategy:
         if single_rhs is not None:
             # Mode 1: Single RHS - run CG multiple times on the SAME RHS
             # Solve exactly to get "true" solution for error target computation
-            true_sol = np.linalg.solve(matrix, single_rhs)
+            # LU (not Cholesky): the general solve this replaced made no SPD assumption.
+            true_sol = MatrixOperator(matrix).solve_direct(single_rhs, assume_pos_def=False)
 
             # Create array of identical RHS and solution vectors
             rhs_samples = np.tile(single_rhs, (num_base_systems, 1))
@@ -240,7 +242,6 @@ class _BaseResidualsStrategy:
 
 
 @register_single_rhs_strategy(
-    supports_matrix_replacement=True,
     rows_per_base_system=trace_rows_per_base_system(ResidualErrorConfig),
 )
 class ResidualsStrategy(_BaseResidualsStrategy):
@@ -248,11 +249,20 @@ class ResidualsStrategy(_BaseResidualsStrategy):
 
 
 @register_single_rhs_strategy(
-    supports_matrix_replacement=True,
     rows_per_base_system=trace_rows_per_base_system(ResidualErrorConfig),
 )
 class GaussianResidualsStrategy(_BaseResidualsStrategy):
     name = "gaussian_residuals"
+
+    def _resolve_available_systems(
+        self,
+        matrix: np.ndarray,
+        config: ResidualErrorConfig,
+        archive: ArchiveData | None,
+        rng: np.random.Generator,
+    ) -> int | None:
+        # ponytail: random probes have no finite pool, so no glob caps the sample count.
+        return None
 
     def _provide_true_solutions(
         self,

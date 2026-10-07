@@ -242,14 +242,16 @@ def test_eigenvector_inverse_with_solve_config() -> None:
 
     strategy = EigenvectorInverseStrategy()
     samples_direct = strategy.generate(A, cfg=cfg_direct)
-
-    assert samples_direct.rhs is not None
     assert samples_direct.solutions is not None
+    assert samples_direct.rhs is not None
+
     assert samples_direct.rhs.shape == (5, n)
     assert samples_direct.solutions.shape == (5, n)
 
     # Verify A @ x = b
     for i in range(5):
+        assert samples_direct.rhs is not None
+        assert samples_direct.solutions is not None
         residual = np.linalg.norm(A @ samples_direct.solutions[i] - samples_direct.rhs[i])
         rhs_norm = np.linalg.norm(samples_direct.rhs[i])
         rel_error = residual / rhs_norm
@@ -272,11 +274,11 @@ def test_eigenvector_inverse_with_solve_config() -> None:
 
     samples_cg = strategy.generate(A, cfg=cfg_cg)
 
-    assert samples_cg.rhs is not None
     assert samples_cg.solutions is not None
 
     # Verify A @ x = b (looser tolerance for CG)
     for i in range(5):
+        assert samples_cg.rhs is not None
         residual = np.linalg.norm(A @ samples_cg.solutions[i] - samples_cg.rhs[i])
         rhs_norm = np.linalg.norm(samples_cg.rhs[i])
         rel_error = residual / rhs_norm

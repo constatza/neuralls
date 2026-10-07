@@ -133,9 +133,10 @@ class _StepWindowFields(BaseModel):
         None,
         description=(
             "First step kept (inclusive). Omitted (None) means -1: keep only the last "
-            "step. Negative values count back from the last step (-stop..-1); positive "
-            "values are absolute (1..stop). The first kept step must be >= 1, since step 0 "
-            "is the base pair (r0 = b, e0 = x*) and is never emitted."
+            "step. Negative values count back from the last step (-(stop+1)..-1); positive "
+            "values are absolute and must be below stop (1..stop-1). The first kept step "
+            "must be >= 1, since step 0 is the base pair (r0 = b, e0 = x*) and is never "
+            "emitted."
         ),
     )
     step: int = Field(

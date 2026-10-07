@@ -44,7 +44,7 @@ from .helpers import (
     _solve_linear_systems,
     _verify_solution_accuracy,
 )
-from .matrix_operator import MatrixOperator
+from .matrix_operator import MatrixOperator, require_eigen_count
 
 TIn_contra = TypeVar("TIn_contra", contravariant=True)
 TOut_co = TypeVar("TOut_co", covariant=True)
@@ -286,8 +286,7 @@ class EigenvectorCombinationTransform:
             if num_eigvecs == -1:
                 num_eigvecs = n
 
-        if num_eigvecs > n or num_eigvecs <= 0:
-            raise ValueError(f"num_eigenvectors ({num_eigvecs}) must be positive and ≤ {n}")
+        require_eigen_count(num_eigvecs, n)
 
         # Only the selected eigenpairs are computed; CSR cannot provide the full spectrum
         eigenvalues, eigenvectors = _compute_eigendecomposition(operator, num_eigvecs, self.which)

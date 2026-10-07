@@ -1,9 +1,9 @@
 """Byte-exact characterization of the generation orchestration call chain.
 
 These tests pin the *observable output* of the full
-``build_dataset -> build_dataset_payload -> _prepare_generation_context ->
-_open_streams / _resolve_binding_strategy_counts -> _accumulate_bindings ->
-_process_binding -> _generate_mixture_with_metadata -> _finalize_payload``
+``build_dataset -> open_batch_stream -> _prepare_generation_context ->
+_open_streams / _resolve_binding_strategy_counts -> _make_strategy_runner ->
+_generate_strategy_rows``
 chain for fixed seeds, so parameter-threading refactors of those functions can
 be proven behavior-preserving rather than merely test-passing.
 
@@ -21,6 +21,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from neuralls.composition.generation import _strategy_executor as executor_module
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.composition.generation.process_data import process_data_from_config
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
@@ -34,7 +35,7 @@ from neuralls.platform.storage.datasets import (
     load_dense_training_arrays,
     load_matrix_dense_sample,
 )
-from neuralls.shared.types import RowKind
+from neuralls.shared.types import MatrixFormat, RowKind
 
 _FLOAT_DIGEST_DECIMALS = 12
 """Rounding applied before hashing floating arrays, so BLAS/LAPACK builds that
@@ -103,9 +104,8 @@ def multi_matrix_mixture_dataset(
 ) -> Path:
     """Multi-matrix synthetic mixture dataset, built once for the assertions below.
 
-    Exercises _resolve_binding_strategy_counts (multi-binding allocation),
-    _accumulate_bindings (MANY_MATRICES accumulator path), _process_binding and
-    _generate_mixture_with_metadata's trace-strategy flattening.
+    Exercises _resolve_binding_strategy_counts (multi-binding allocation), the
+    strategy runner and the per-strategy trace flattening in _generate_strategy_rows.
     """
     out_dir = tmp_path / "dataset"
     build_dataset(
@@ -123,7 +123,7 @@ def multi_matrix_mixture_dataset(
             normalize="matrix",
         ),
         str(out_dir),
-        dataset_format="npy",
+        dataset_format="hdf5",
     )
     return out_dir
 
@@ -231,7 +231,7 @@ def multi_matrix_archive_dataset(
             normalize="none",
         ),
         str(out_dir),
-        dataset_format="npy",
+        dataset_format="hdf5",
     )
     return out_dir
 
@@ -278,9 +278,8 @@ def single_matrix_parameter_stream_dataset(
 ) -> Path:
     """Single-matrix broadcast layout with parameter streams, built once below.
 
-    Exercises _open_streams' parameter-stream binding, the BROADCAST_SINGLE
-    accumulator branch in _accumulate_bindings (one matrix written, not one per
-    sample) and the param_blocks stacking in _finalize_payload.
+    Exercises _open_streams' parameter-stream binding and the per-binding parameter
+    vectors that the strategy runner attaches to every batch.
     """
     out_dir = tmp_path / "dataset"
     build_dataset(
@@ -297,7 +296,7 @@ def single_matrix_parameter_stream_dataset(
             normalize="matrix",
         ),
         str(out_dir),
-        dataset_format="npy",
+        dataset_format="hdf5",
     )
     return out_dir
 
@@ -309,20 +308,28 @@ def test_single_matrix_parameter_stream_shapes_are_stable(
     assert (rhs.shape, solutions.shape) == ((4, 4), (4, 4))
 
 
-def test_single_matrix_parameter_stream_rhs_is_stable(
+def test_single_matrix_parameter_stream_rhs_is_the_matrix_product(
     single_matrix_parameter_stream_dataset: Path,
 ) -> None:
-    """Pin changed 2026-10-06 when per-strategy seeds were introduced (was 57d3f67600ec0a54)."""
-    rhs, _ = load_dense_training_arrays(single_matrix_parameter_stream_dataset)
-    assert _digest(rhs) == "bf19bff32d8eb9c3"
+    """Each stored RHS row is the stored matrix times its solution row (exact oracle)."""
+    rhs, solutions = load_dense_training_arrays(single_matrix_parameter_stream_dataset)
+    matrix = load_matrix_dense_sample(single_matrix_parameter_stream_dataset, 0)
+    np.testing.assert_allclose(rhs, solutions @ matrix.T, rtol=1e-10, atol=1e-12)
 
 
 def test_single_matrix_parameter_stream_solutions_are_stable(
     single_matrix_parameter_stream_dataset: Path,
 ) -> None:
-    """Pin changed 2026-10-06 when per-strategy seeds were introduced (was dfe2a715580137c3)."""
+    """Regression pin on the seeded solution stream of the single binding.
+
+    Solutions are raw draws with no closed-form oracle, so the content digest guards
+    the seed derivation: any change to how the binding seed is derived changes it.
+    The fixture passes shuffle=True, which no longer permutes rows, so this digest
+    moved from the old shuffled order to generation order when the write-time
+    shuffle was dropped. Rows are not permuted in storage at all now.
+    """
     _, solutions = load_dense_training_arrays(single_matrix_parameter_stream_dataset)
-    assert _digest(solutions) == "ef9bb49324776964"
+    assert _digest(solutions) == "d050262cfc35696d"
 
 
 def test_single_matrix_parameter_stream_parameters_are_stable(
@@ -341,10 +348,10 @@ def test_single_matrix_parameter_stream_manifest_is_stable(
     assert manifest["matrix"]["shape"] == [1, 4, 4]
 
 
-def _write_config(tmp_path: Path, dataset_id: str, body: str) -> Path:
+def _write_config(tmp_path: Path, dataset_id: str, body: str, output_body: str = "") -> Path:
     """Write a data config TOML whose id matches the requested dataset id."""
     config_path = tmp_path / f"{dataset_id}.toml"
-    config_path.write_text(f'id = "{dataset_id}"\n{body}\n[output]\n')
+    config_path.write_text(f'id = "{dataset_id}"\n{body}\n[output]\n{output_body}\n')
     return config_path
 
 
@@ -391,6 +398,7 @@ shuffle = false
 name = "rhs_archive"
 samples = -1
 """,
+        output_body='matrix_format = "dense"',
     )
 
     output_dir = process_data_from_config(config_path, neuralls_settings)
@@ -431,6 +439,7 @@ shuffle = false
 name = "solution_archive"
 samples = -1
 """,
+        output_body='matrix_format = "dense"',
     )
 
     output_dir = process_data_from_config(config_path, neuralls_settings)
@@ -440,3 +449,51 @@ samples = -1
     np.testing.assert_allclose(np.sort(solutions, axis=0), [[1.0, 2.0], [2.0, 3.0], [3.0, 4.0]])
     # A = 2I, so the recorded RHS must be exactly A @ x for every stored solution.
     np.testing.assert_allclose(rhs, solutions * 2.0)
+
+
+class _StopAfterCapture(Exception):
+    """Raised by the spy to stop before any storage I/O."""
+
+
+def test_configured_matrix_format_reaches_build_dataset(
+    tmp_path: Path,
+    identity_matrix_file: Path,
+    neuralls_settings: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`[output].matrix_format` is forwarded to build_dataset as a keyword.
+
+    The configured value is CSR, which differs from build_dataset's DENSE
+    default, so a dropped or defaulted thread would be observable here. The
+    spy stops before storage so the check does not depend on a storage backend.
+    """
+    received: list[MatrixFormat] = []
+
+    def spy_build_dataset(*_args: Any, **kwargs: Any) -> Any:
+        received.append(kwargs["matrix_format"])
+        raise _StopAfterCapture
+
+    monkeypatch.setattr(executor_module, "build_dataset", spy_build_dataset)
+
+    config_path = _write_config(
+        tmp_path,
+        "matrix-format-dataset",
+        f"""
+[source]
+matrix_path = "{identity_matrix_file.as_posix()}"
+
+[generation]
+normalize = "none"
+shuffle = false
+
+[[generation.strategy]]
+name = "normal"
+samples = 2
+""",
+        output_body='matrix_format = "csr"',
+    )
+
+    with pytest.raises(_StopAfterCapture):
+        process_data_from_config(config_path, neuralls_settings)
+
+    assert received == [MatrixFormat.CSR]

@@ -459,7 +459,7 @@ def provide_solutions(
         ).provide(matrix, count=count, rng=rng)
     raise ValueError(
         f"{strategy_name} requires 'solutions_glob' in config or "
-        "archive solutions passed via generate_mixture()."
+        "archive solutions passed in ArchiveData."
     )
 
 

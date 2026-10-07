@@ -27,10 +27,10 @@ from neuralls.platform.storage.datasets import (
     load_dataset_manifest,
     load_dense_training_arrays,
     load_matrix_dense_sample,
-    resolve_dataset_artifacts,
     resolve_dataset_paths,
 )
 from neuralls.platform.storage.enum_codecs import decode_row_kind_array
+from neuralls.platform.storage.generation_formats import HDF5_FILENAME as DENSE_DATASET_FILE
 from neuralls.shared.types import RowKind
 
 
@@ -120,7 +120,7 @@ def test_build_dataset_streams_matrix_stack_without_dense_batch(tmp_path: Path) 
     np.testing.assert_allclose(dense1, matrix_stack[1])
 
 
-def test_build_dataset_supports_npy_output_format(tmp_path: Path) -> None:
+def test_build_dataset_hdf5_output_holds_the_generated_matrix(tmp_path: Path) -> None:
     matrix = np.array([[3.0, 1.0], [1.0, 2.0]], dtype=np.float64)
     matrix_path = tmp_path / "matrix.npy"
     np.save(matrix_path, matrix)
@@ -139,19 +139,11 @@ def test_build_dataset_supports_npy_output_format(tmp_path: Path) -> None:
             normalize="none",
         ),
         str(out_dir),
-        dataset_format="npy",
+        dataset_format="hdf5",
     )
 
-    manifest = load_dataset_manifest(out_dir)
-    artifacts = resolve_dataset_artifacts(out_dir)
     rhs, solutions = load_dense_training_arrays(out_dir)
 
-    assert manifest["matrix"]["format"] == "npy"
-    assert manifest["rhs"]["format"] == "npy"
-    assert manifest["solutions"]["format"] == "npy"
-    assert artifacts.matrix.path.name == "matrix.npy"
-    assert artifacts.rhs.path.name == "rhs.npy"
-    assert artifacts.solutions.path.name == "solutions.npy"
     assert rhs.shape == (2, 2)
     assert solutions.shape == (2, 2)
     np.testing.assert_allclose(load_matrix_dense_sample(out_dir, 0), matrix)
@@ -288,12 +280,12 @@ def test_build_dataset_persists_row_metadata_artifacts(tmp_path: Path) -> None:
             normalize="none",
         ),
         str(out_dir),
-        dataset_format="npy",
+        dataset_format="hdf5",
     )
 
     manifest = load_dataset_manifest(out_dir)
-    assert manifest["row_kind"]["path"] == "row_kind.npy"
-    assert manifest["matrix_sample_index"]["path"] == "matrix_sample_index.npy"
+    assert manifest["row_kind"]["path"] == DENSE_DATASET_FILE
+    assert manifest["matrix_sample_index"]["path"] == DENSE_DATASET_FILE
 
     row_kinds = decode_row_kind_array(load_row_kind_codes(out_dir))
     matrix_indices = load_matrix_sample_index(out_dir)
@@ -322,7 +314,7 @@ def test_build_dataset_marks_residual_error_rows_with_kind_codes(tmp_path: Path)
             normalize="none",
         ),
         str(out_dir),
-        dataset_format="npy",
+        dataset_format="hdf5",
     )
 
     row_kinds = decode_row_kind_array(load_row_kind_codes(out_dir))

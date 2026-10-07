@@ -16,7 +16,7 @@ from neuralls.domain.generation.interfaces import TracingSolverCallable
 def spd_matrix() -> np.ndarray:
     """10x10 symmetric positive-definite matrix."""
     n = 10
-    A = np.random.randn(n, n)
+    A = np.random.default_rng(0).standard_normal((n, n))
     return A.T @ A + np.eye(n)
 
 
