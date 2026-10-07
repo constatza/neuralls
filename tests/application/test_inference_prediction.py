@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -116,6 +117,33 @@ def test_run_prediction_preserves_batch_order(
         strict=True,
     ):
         assert_array_equal(batch["x"], expected)
+
+
+def test_run_prediction_measures_a_real_duration(
+    multi_feature_inference_fixtures: InferenceFixtures,
+) -> None:
+    """`duration_seconds` is a real wall-clock measurement, not the old hardcoded 0.0."""
+
+    class SlowPredictor(FakeInferencePredictor):
+        def predict_batch(self, feature_batch: dict[str, np.ndarray]) -> np.ndarray:
+            time.sleep(0.01)
+            return super().predict_batch(feature_batch)
+
+    predictor = SlowPredictor(
+        outputs=[
+            np.array([[10.0], [11.0]], dtype=np.float64),
+            np.array([[12.0], [13.0]], dtype=np.float64),
+            np.array([[14.0]], dtype=np.float64),
+        ]
+    )
+
+    result = run_prediction(
+        predictor,
+        multi_feature_inference_fixtures.data,
+        batch_size=2,
+    )
+
+    assert result.metadata["duration_seconds"] > 0.0
 
 
 def test_process_predictions_normalizes_scalar_batches(

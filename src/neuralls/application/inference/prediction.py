@@ -10,9 +10,11 @@ from collections.abc import Iterator
 
 import numpy as np
 from loguru import logger
+from torchalg.utils.device import resolve_device
 
 from neuralls.application.inference.models import InferenceData, InferencePredictions
 from neuralls.domain.inference_ports import InferencePredictorPort
+from neuralls.shared.device import track_resource_usage
 
 
 def iterate_feature_batches(
@@ -47,17 +49,19 @@ def collect_predictions(
         batch_size: Number of samples per batch.
 
     Returns:
-        Tuple of (predictions_list, 0.0) — duration not available in new API.
+        Tuple of (predictions_list, duration_seconds) — the real wall-clock
+        time spent in `predictor.predict_batch()` across every batch.
 
     Raises:
         ValueError: If predictor returns no predictions.
     """
     predictions: list[np.ndarray] = []
-    for batch in iterate_feature_batches(feature_arrays, batch_size):
-        predictions.append(np.asarray(predictor.predict_batch(batch), dtype=np.float64))
+    with track_resource_usage(resolve_device()) as usage:
+        for batch in iterate_feature_batches(feature_arrays, batch_size):
+            predictions.append(np.asarray(predictor.predict_batch(batch), dtype=np.float64))
     if not predictions:
         raise ValueError("Predictor returned no predictions.")
-    return predictions, 0.0
+    return predictions, usage().wall_time_seconds
 
 
 def stack_predictions(raw_predictions: list[np.ndarray]) -> np.ndarray:
