@@ -13,7 +13,7 @@ from neuralls.composition.comparison.models import (
     LinearSystem,
     ResolvedComparisonInput,
 )
-from neuralls.domain.normalization import IScale, create_scale_from_config, load_scale_from_metadata
+from neuralls.domain.normalization import create_scale_from_config, load_scale_from_metadata
 from neuralls.domain.solver.utils.validation import (
     validate_ax_equals_b,
     validate_matrix,
@@ -52,8 +52,6 @@ def _apply_fresh_matrix_scale(
     scale = create_scale_from_config("matrix", matrix)
     if scale is None:
         return matrix, rhs
-    if not isinstance(scale, IScale):
-        raise TypeError(f"Expected IScale, got {type(scale).__name__}")
     scaled_matrix = scale.scale_matrix(matrix)
     if rhs_source_kind in _SYNTHETIC_RHS_KINDS:
         return scaled_matrix, rhs

@@ -114,8 +114,8 @@ def test_pod2g_manifest_missing_duration_field_is_unavailable(
     )
 
     result = resolve_generation_cost(cfg, settings=neuralls_settings)
-
     assert result is not None
+
     assert result.provenance is CostProvenance.UNAVAILABLE
 
 
@@ -133,8 +133,8 @@ def test_pod2g_missing_dataset_dir_is_unavailable_not_an_exception(
     )
 
     result = resolve_generation_cost(cfg, settings=neuralls_settings)
-
     assert result is not None
+
     assert result.provenance is CostProvenance.UNAVAILABLE
 
 
@@ -161,8 +161,8 @@ def test_neural_config_with_data_config_path_reports_historical_cost(
     )
 
     result = resolve_generation_cost(cfg, settings=neuralls_settings)
-
     assert result is not None
+
     assert result.provenance is CostProvenance.HISTORICAL
     assert result.wall_time_seconds == _GENERATION_DURATION
 

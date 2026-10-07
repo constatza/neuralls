@@ -137,7 +137,6 @@ def test_structured_linear_model_configs_load(
     )
 
     settings = load_job_config(model_path, neuralls_settings)
-    assert settings.model is not None
     assert settings.model.name == model_name
 
 

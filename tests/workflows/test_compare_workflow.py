@@ -13,7 +13,8 @@ from neuralls.composition.comparison.comparison_run import (
 )
 from neuralls.composition.comparison.models import LinearSystem
 from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
-from neuralls.domain.generation.payloads import GeneratedDatasetPayload
+from neuralls.composition.generation.dataset_builder import build_dataset
+from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
 from neuralls.domain.solver.models.result import CGComparisonResult, PlotPaths
 from neuralls.platform.config.loaders import load_comparison_config
@@ -21,30 +22,25 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
-from neuralls.platform.storage.datasets import DenseDatasetWriter, DenseZarrAccumulator
 
 
 def _assert_under(path: Path, root: Path) -> None:
     assert path.resolve().is_relative_to(root.resolve())
 
 
-def _write_dataset(root: Path, A: np.ndarray, b: np.ndarray) -> None:
-    solutions = np.linalg.solve(A, b)
-    rhs = b.reshape(1, -1)
-    sols = solutions.reshape(1, -1)
-    acc = DenseZarrAccumulator(root / "matrix.zarr")
-    acc.append_dense_matrix(A, repeats=1)
-    zarr_path = acc.finalize()
-    payload = GeneratedDatasetPayload(
-        rhs=rhs,
-        solutions=sols,
-        matrix_artifact_path=zarr_path,
-        matrix_size=(int(A.shape[0]), int(A.shape[1])),
-        normalization_type="matrix",
-        matrix_norm=float(np.linalg.norm(A, ord=2)),
-        matrix_norm_type="spectral",
+def _write_dataset(root: Path, A: np.ndarray) -> None:
+    """Stream a one-row generated dataset for ``A`` into ``root`` (hdf5, no zarr in tests)."""
+    matrix_path = root / "matrix.npy"
+    np.save(matrix_path, A)
+    build_dataset(
+        SourceSpec(matrix_path=str(matrix_path)),
+        DatasetSpec(
+            mixture=MixtureSpec(counts={"gaussian_forward": 1}, seed=0, shuffle=False),
+            normalize="none",
+        ),
+        str(root),
+        dataset_format="hdf5",
     )
-    DenseDatasetWriter().write_dataset(root, payload)
 
 
 def _write_comparison_config(path: Path, system_path: Path) -> None:
@@ -264,8 +260,7 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
 def test_compare_preconditioners_workflow(tmp_path: Path, neuralls_settings) -> None:
     """End-to-end check that compare_preconditioners loads config and data."""
     A = np.array([[4.0, -1.0], [-1.0, 3.0]], dtype=np.float64)
-    b = np.array([1.0, 2.0], dtype=np.float64)
-    _write_dataset(tmp_path, A, b)
+    _write_dataset(tmp_path, A)
 
     comparison_cfg = tmp_path / "comparison_config.toml"
     _write_comparison_config(comparison_cfg, tmp_path)
@@ -294,11 +289,8 @@ def test_compare_preconditioners_workflow(tmp_path: Path, neuralls_settings) -> 
     assert set(comparison_results.keys()) == {"identity", "jacobi"}
     for name, info in comparison_results.items():
         assert info.iterations > 0, f"{name} did not run"
-        assert info.setup_cost is not None
         assert info.setup_cost.wall_time_seconds >= 0
-        assert info.solve_time_seconds is not None
         assert info.solve_time_seconds >= 0
-        assert info.peak_memory_bytes is not None
         assert info.peak_memory_bytes >= 0
     _assert_under(results.output_dir, tmp_path)
     for plot_path in results.plot_paths.to_mapping().values():

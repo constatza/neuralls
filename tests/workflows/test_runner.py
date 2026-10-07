@@ -172,6 +172,7 @@ def test_run_assignments_full_flow(
         },
         "output": {
             "data_dir": str(data_dir / "processed"),
+            "matrix_format": "dense",
         },
     }
     with open(data_config_path, "wb") as f:
@@ -316,6 +317,7 @@ def test_run_assignment_sweep_with_mlflow(
         },
         "output": {
             "data_dir": str(data_dir / "processed"),
+            "matrix_format": "dense",
         },
     }
     with open(data_config_path, "wb") as f:

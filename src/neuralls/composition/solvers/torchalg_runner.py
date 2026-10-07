@@ -9,13 +9,9 @@ from torchalg import pcg
 from torchalg.models.result import SolverResult
 from torchalg.monitoring import TraceMode
 
+from neuralls.platform.sparse_io.components import to_components
+from neuralls.platform.sparse_io.torch_convert import TORCH_VALUE_DTYPE, to_torch_csr
 from neuralls.shared.types import SystemMatrix
-
-_TORCH_VALUE_DTYPE = torch.float64
-"""Floating dtype of every operator and vector handed to torchalg."""
-
-_TORCH_INDEX_DTYPE = torch.int64
-"""Index dtype of CSR ``indptr``/``indices`` handed to torchalg."""
 
 
 def _to_torch_operator(matrix: SystemMatrix) -> torch.Tensor:
@@ -33,14 +29,9 @@ def _to_torch_operator(matrix: SystemMatrix) -> torch.Tensor:
     """
     match matrix:
         case np.ndarray():
-            return torch.as_tensor(matrix, dtype=_TORCH_VALUE_DTYPE)
+            return torch.as_tensor(matrix, dtype=TORCH_VALUE_DTYPE)
         case csr_array():
-            return torch.sparse_csr_tensor(
-                torch.as_tensor(matrix.indptr, dtype=_TORCH_INDEX_DTYPE),
-                torch.as_tensor(matrix.indices, dtype=_TORCH_INDEX_DTYPE),
-                torch.as_tensor(matrix.data, dtype=_TORCH_VALUE_DTYPE),
-                size=matrix.shape,
-            )
+            return to_torch_csr(to_components(matrix))
 
 
 def run_traced_pcg(
@@ -74,8 +65,8 @@ def run_traced_pcg(
     with torch.inference_mode():
         x, info = pcg(
             _to_torch_operator(A),
-            torch.as_tensor(b, dtype=_TORCH_VALUE_DTYPE),
-            torch.as_tensor(x0, dtype=_TORCH_VALUE_DTYPE),
+            torch.as_tensor(b, dtype=TORCH_VALUE_DTYPE),
+            torch.as_tensor(x0, dtype=TORCH_VALUE_DTYPE),
             maxiter=maxiter,
             rtol=rtol,
             atol=atol,

@@ -867,10 +867,10 @@ def test_resolve_preconditioner_models_resolves_neural_amg_prolongation_and_rest
     assert len(resolved) == 1
     resolved_spec = resolved[0]
     assert isinstance(resolved_spec, NeuralAMGPreconditionerConfig)
-    assert resolved_spec.prolongation.resolved_checkpoint_path is not None
-    assert resolved_spec.prolongation.resolved_checkpoint_path.read_text() == "marker-prolongation"
     assert resolved_spec.restriction is not None
     assert resolved_spec.restriction.resolved_checkpoint_path is not None
+    assert resolved_spec.prolongation.resolved_checkpoint_path is not None
+    assert resolved_spec.prolongation.resolved_checkpoint_path.read_text() == "marker-prolongation"
     assert resolved_spec.restriction.resolved_checkpoint_path.read_text() == "marker-restriction"
     assert (
         resolved_spec.prolongation.resolved_checkpoint_path

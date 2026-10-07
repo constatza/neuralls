@@ -67,6 +67,7 @@ def pod_fit_case_config(tmp_path: Path) -> tuple[Path, Path, str]:
                 "samples = 12",
                 "",
                 "[output]",
+                'matrix_format = "dense"',
                 f'data_dir = "{(tmp_path / "processed").as_posix()}"',
             ]
         ),

@@ -241,9 +241,7 @@ def test_to_numpy_extracts_predictions_from_tensordict(
     """
     result = training_result_dict_predictions.to_numpy()
 
-    assert result is not None
     output = result.get("predictions", {}).get("output")
-    assert output is not None
     assert isinstance(output, np.ndarray)
     assert output.shape == (5,)
     np.testing.assert_allclose(output, [1.0, 2.0, 3.0, 4.0, 5.0])
@@ -255,7 +253,6 @@ def test_to_numpy_extracts_targets_when_present(
     """to_numpy() extracts targets from TensorDict predictions."""
     result = training_result_with_targets.to_numpy()
 
-    assert result is not None
     targets = result.get("targets", {})
     assert "y" in targets
     y = targets["y"]
@@ -269,7 +266,6 @@ def test_to_numpy_targets_empty_when_no_targets(
 ) -> None:
     """to_numpy()['targets'] is empty when targets dicts are empty in all batches."""
     result = training_result_dict_predictions.to_numpy()
-    assert result is not None
     targets = result.get("targets", {})
     assert targets == {}
 
@@ -279,7 +275,6 @@ def test_to_numpy_predictions_shape_matches_targets(
 ) -> None:
     """Predictions and targets arrays have matching shapes from to_numpy()."""
     result = training_result_with_targets.to_numpy()
-    assert result is not None
     output = result["predictions"]["output"]
     y = result["targets"]["y"]
     assert output.shape == y.shape

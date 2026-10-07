@@ -79,5 +79,4 @@ def test_load_experiment_injects_mlflow_from_case_config(
         identity=AssignmentIdentity(dataset_registry_id=data_path.stem),
     )
 
-    assert experiment.settings.tracking is not None
     assert experiment.settings.tracking.backend == "mlflow"

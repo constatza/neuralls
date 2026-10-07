@@ -613,7 +613,6 @@ def test_generate_comparison_plots_includes_iterations_barplot(
             system_size=1000,
         )
 
-    assert result.iterations_barplot is not None
     assert result.time_breakdown_barplot is None  # neither entry has setup/solve times
     assert "condition_numbers" not in result.to_mapping()
     expected_title = "matrix=demo-matrix | rhs=gaussian\nN=1000"
@@ -652,8 +651,8 @@ def test_generate_comparison_plots_includes_time_breakdown_barplot_when_measured
             labels,
             comparison_context="matrix=demo-matrix | rhs=gaussian",
         )
+        assert result.time_breakdown_barplot is not None
 
-    assert result.time_breakdown_barplot is not None
     assert result.time_breakdown_barplot.exists()
 
 

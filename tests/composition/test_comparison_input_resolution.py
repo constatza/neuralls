@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +10,6 @@ from neuralls.composition.comparison._input_resolution import resolve_comparison
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.source_streams import EnumerateBy
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
-from neuralls.shared.enum_codecs import encode_row_kind_array
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
 
@@ -32,7 +32,7 @@ def _build_safe_dataset(root: Path, *, residual: bool = False) -> Path:
             normalize="none",
         ),
         str(dataset_dir),
-        dataset_format="npy",
+        dataset_format="hdf5",
     )
     return dataset_dir
 
@@ -54,17 +54,16 @@ def test_resolve_comparison_input_selects_canonical_dataset_triplet(tmp_path: Pa
     assert resolved.rhs_dataset_id == str(dataset_dir)
     assert resolved.rhs_sample_index == 0
     assert resolved.rhs_kind is RowKind.STANDARD
-    assert resolved.lhs is not None
     assert resolved.matrix.shape == (2, 2)
     assert resolved.rhs.shape == (2,)
 
 
-def test_resolve_comparison_input_rejects_unsafe_dataset_triplet(tmp_path: Path) -> None:
+def test_resolve_comparison_input_rejects_unsafe_dataset_triplet(
+    tmp_path: Path,
+    overwrite_row_kind: Callable[[Path, list[RowKind]], None],
+) -> None:
     dataset_dir = _build_safe_dataset(tmp_path, residual=True)
-    np.save(
-        dataset_dir / "row_kind.npy",
-        encode_row_kind_array([RowKind.CG_INTERNAL, RowKind.CG_INTERNAL]),
-    )
+    overwrite_row_kind(dataset_dir, [RowKind.CG_INTERNAL, RowKind.CG_INTERNAL])
 
     with pytest.raises(ValueError, match="No canonical non-residual rows"):
         resolve_comparison_input(
@@ -161,8 +160,8 @@ def test_resolve_comparison_input_scales_raw_lhs_into_rhs(tmp_path: Path) -> Non
         },
     )
 
+    assert resolved.rhs is not None and resolved.lhs is not None
     np.testing.assert_allclose(resolved.rhs, np.array([45.0, -25.0], dtype=np.float64))
-    assert resolved.lhs is not None
     np.testing.assert_allclose(resolved.lhs, np.array([2.0, -1.0], dtype=np.float64))
     assert resolved.rhs_source_type == "raw_lhs"
     assert resolved.rhs_sample_index == 0
@@ -226,7 +225,7 @@ def test_resolve_comparison_input_matrix_index_selects_distinct_matrix_with_one_
             normalize="none",
         ),
         str(dataset_dir),
-        dataset_format="npy",
+        dataset_format="hdf5",
     )
 
     for index, expected in enumerate(matrices):
@@ -268,7 +267,7 @@ def test_resolve_comparison_input_matrix_index_can_collide_when_samples_are_pool
             normalize="none",
         ),
         str(dataset_dir),
-        dataset_format="npy",
+        dataset_format="hdf5",
     )
 
     resolved_0 = resolve_comparison_input(
@@ -313,6 +312,5 @@ def test_resolve_comparison_input_loads_explicit_dataset_triplet(tmp_path: Path)
     assert resolved.rhs_sample_index == 1
     assert resolved.rhs_kind is RowKind.STANDARD
     assert resolved.rhs_source_kind is ComparisonRhsSourceKind.DATASET
-    assert resolved.lhs is not None
     assert resolved.matrix.shape == (2, 2)
     assert resolved.rhs.shape == (2,)

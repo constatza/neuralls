@@ -181,10 +181,8 @@ def test_patch_runtime_dataset_returns_new_settings(
         contract=contract,
     )
     assert updated is not training_settings
-    assert updated.data is not None
     assert [entry.name for entry in updated.data.features] == ["x"]
     assert [entry.name for entry in updated.data.targets] == ["y"]
-    assert training_settings.data is not None
     assert training_settings.data.features == ()
     assert training_settings.data.targets == ()
 
@@ -245,8 +243,6 @@ def test_patch_runtime_workspace_returns_new_settings(
     updated = patch_runtime_workspace(training_settings, output_dir=output_dir)
 
     assert updated is not training_settings
-    assert updated.training is not None
-    assert updated.training.trainer is not None
     assert updated.training.trainer.default_root_dir == output_dir
     assert updated.training.trainer.callbacks[-1].name == "RetainedCheckpointCopy"
 
@@ -262,8 +258,6 @@ def test_patch_runtime_workspace_for_job_patches_train_like_jobs(
     updated = patch_runtime_workspace_for_job(training_settings, output_dir=output_dir)
 
     assert updated is not training_settings
-    assert updated.training is not None
-    assert updated.training.trainer is not None
     assert updated.training.trainer.default_root_dir == output_dir
 
 
@@ -287,20 +281,17 @@ def test_patch_dataloader_runtime_clamps_workers_for_zarr(
     updated = patch_dataloader_runtime(training_settings, dataset_format="zarr")
 
     assert updated is not training_settings
-    assert updated.data is not None
     assert updated.data.num_workers == 0
     assert updated.data.pin_memory is True
-    assert training_settings.data is not None
     assert training_settings.data.num_workers == 2
 
 
 def test_patch_dataloader_runtime_leaves_non_zarr_untouched(
     training_settings: TrainingJobConfig,
 ) -> None:
-    updated = patch_dataloader_runtime(training_settings, dataset_format="npy")
+    updated = patch_dataloader_runtime(training_settings, dataset_format="hdf5")
 
     assert updated is training_settings
-    assert updated.data is not None
     assert updated.data.num_workers == 2
 
 
@@ -310,7 +301,6 @@ def test_patch_training_tracking_returns_new_settings(
     updated = patch_training_tracking(training_settings, uri="http://localhost:5000")
 
     assert updated is not training_settings
-    assert updated.tracking is not None
     assert updated.tracking.backend == "mlflow"
     assert updated.tracking.uri == "http://localhost:5000"
 
@@ -359,10 +349,9 @@ def test_contract_override_drives_injection_and_validation(
         features=features,
         targets=targets,
         contract=contract,
-        dataset_format="npy",
+        dataset_format="hdf5",
     )
 
-    assert updated.data is not None
     assert [feature.name for feature in updated.data.features] == ["lhs", "matrix"]
     assert [target.name for target in updated.data.targets] == ["rhs"]
 

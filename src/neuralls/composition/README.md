@@ -32,6 +32,57 @@ densified in this layer, with one INFO log line per call stating the O(n^2)
 cost, and the dense builder then runs. The predictor and its model-input
 adapter never densify.
 
+## Dense streamed dataset commit
+
+`generation/dense_streaming.py` writes a dense dataset batch by batch into a sibling
+staging directory, `<name>.partial`, through `generation/finalize.py::commit_staged_directory`,
+so the final name never holds a partial dataset. `SampleWriter.finalize` closes the array
+store (the HDF5 file handle, or the zarr group) before the commit runs, because Windows
+refuses to rename a directory with an open file. The commit then renames the staging
+directory to the final name with `os.replace`; only after that rename does `dataset_builder`
+stamp the identity key and content digest into the manifest, so a crash before the stamp
+leaves a dataset that reuse checks reject. Every rename goes through one helper that never
+targets an occupied name and retries only `PermissionError` (transient Windows locks) a
+bounded number of times, then reports the failure through `_raise_storage_error`.
+
+When the final directory already exists (a forced regeneration), it is first renamed aside
+to `<name>.old`, the staged directory is renamed into place, and the aside copy is deleted
+last. If the staged rename fails, the aside copy is renamed back before the error propagates,
+so the previous dataset is never lost. At the start of a commit, a leftover `.old` is
+restored to the final name when the final name is missing (it is then the only copy of the
+previous dataset) and deleted when the final name exists. Stale `.partial` directories are
+removed before a new commit starts.
+
+## Streamed dataset commit (the only generation path)
+
+`dataset_builder.build_dataset` is the single generation entry point. Every build streams
+batches from the generator into a staging directory and renames it to the final name only
+after the manifest is written. Dense and CSR matrices, and zarr and hdf5 storage, all take
+this path. Nothing buffers the whole dataset: no accumulator, no whole-payload build, no
+second writer. The entry point refuses `npy` with a ValueError that names zarr and hdf5 as
+the supported generation formats (`npy` datasets stay readable).
+
+- `generation/dense_streaming.py` writes dense zarr and hdf5 datasets, batch by batch, through
+  `SampleWriter`.
+- `generation/csr_streaming.py` writes CSR datasets. The dense arrays (rhs, solutions, row kind,
+  matrix sample index, parameters) use the same `SampleWriter`; the CSR matrix goes through
+  `open_csr_matrix_stream` at the manifest's matrix address (`dataset.zarr/matrix` or the
+  `matrix` group of `dataset.h5`).
+
+The CSR layout is the configured `[output].sparsity_pattern`, passed through `process_config`,
+`_execute_plan` and the executors into `build_dataset`. `shared` maps to `SHARED_PATTERN` (one
+indptr/indices, data of shape (N, nnz)); the stream raises on the first sample whose pattern
+differs from sample 0, before the dataset is committed. `ragged` (the default) maps to
+`MANY_MATRICES`. The layout is never inferred from the data, so the generation path never calls
+`choose_layout`. The manifest is written by `save_csr_stream_manifest`; for zarr the shape and
+layout come from `describe_csr_matrix_group`.
+
+A plan whose strategy counts are open-ended (for example a generated strategy with `samples = -1`
+and no file list to size it) has no file grid to pre-size from. Archive sources are always sized
+from their file lists, so they never reach this refusal. `BatchPlan.require_exact` raises a ValueError
+that names the open-ended strategies; there is no fallback. The identity stamp runs after the
+commit, so an interrupted or refused run never leaves a dataset that looks reusable.
+
 ## Boundary
 
 Composition is where config models, platform adapters, workflow DTOs, and

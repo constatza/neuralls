@@ -45,7 +45,7 @@ def _build_normalized_dataset(root: Path) -> Path:
             normalize="matrix",
         ),
         str(dataset_dir),
-        dataset_format="npy",
+        dataset_format="hdf5",
     )
     return dataset_dir
 
@@ -154,7 +154,6 @@ def test_gaussian_rhs_never_rescaled_by_matrix_normalization(tmp_path: Path) -> 
         rhs_source_kind=ComparisonRhsSourceKind.GAUSSIAN,
         rhs_source_params={"mean": 0.0, "std": 1.0},
     )
-    assert resolved.matrix_normalization is not None
     rhs_before = resolved.rhs.copy()
 
     system = _load_linear_system(

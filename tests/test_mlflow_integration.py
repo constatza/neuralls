@@ -197,7 +197,6 @@ class TestMLflowArtifactStorage:
             identity=AssignmentIdentity(dataset_registry_id=minimal_data_config.stem),
         )
 
-        assert experiment.settings.tracking is not None
         assert not hasattr(experiment.settings.tracking, "tracking_uri")
         assert not hasattr(experiment.settings.tracking, "artifacts_destination")
 

@@ -19,6 +19,7 @@ from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.plan import GenerationPlan, StrategySpec
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.shared.constants import DEFAULT_RANDOM_SEED
+from neuralls.shared.types import MatrixFormat, SparsityPattern
 
 
 def _execute_solution_archive(
@@ -27,6 +28,8 @@ def _execute_solution_archive(
     generation_cfg: Any,
     *,
     force: bool = False,
+    matrix_format: MatrixFormat = MatrixFormat.DENSE,
+    sparsity_pattern: SparsityPattern = SparsityPattern.RAGGED,
 ) -> Path:
     """Execute a solution-archive-only dataset build.
 
@@ -34,6 +37,8 @@ def _execute_solution_archive(
         context: Generation context with paths and options.
         strategy: StrategySpec for the solution_archive strategy.
         generation_cfg: GenerationConfig providing shuffle/seed defaults.
+        matrix_format: Storage format of the system matrices.
+        sparsity_pattern: Layout of the stored CSR samples (`[output].sparsity_pattern`).
 
     Returns:
         Path to the generated dataset directory.
@@ -69,11 +74,14 @@ def _execute_solution_archive(
             ),
             replacement=context.replacement,
             normalize=context.normalize,
+            write_batch_size=context.write_batch_size,
         ),
         str(context.dataset_dir),
         dataset_format=context.dataset_format,
         force=force,
         identity=context.identity,
+        matrix_format=matrix_format,
+        sparsity_pattern=sparsity_pattern,
     )
     return Path(dataset_path)
 
@@ -87,6 +95,8 @@ def _execute_synthetic_generation(
     matrix: np.ndarray | None,
     *,
     force: bool = False,
+    matrix_format: MatrixFormat = MatrixFormat.DENSE,
+    sparsity_pattern: SparsityPattern = SparsityPattern.RAGGED,
 ) -> Path:
     """Execute a mixed synthetic + archive dataset build.
 
@@ -98,6 +108,8 @@ def _execute_synthetic_generation(
         solution_archive_strategy: Optional solution archive StrategySpec.
         generation_cfg: GenerationConfig providing global options.
         matrix: Optional loaded system matrix (required for provide_rhs derivation).
+        matrix_format: Storage format of the system matrices.
+        sparsity_pattern: Layout of the stored CSR samples (`[output].sparsity_pattern`).
 
     Returns:
         Path to the generated dataset directory.
@@ -160,11 +172,14 @@ def _execute_synthetic_generation(
             ),
             replacement=context.replacement,
             normalize=context.normalize,
+            write_batch_size=context.write_batch_size,
         ),
         str(context.dataset_dir),
         dataset_format=context.dataset_format,
         force=force,
         identity=context.identity,
+        matrix_format=matrix_format,
+        sparsity_pattern=sparsity_pattern,
     )
     return Path(dataset_path)
 
@@ -175,6 +190,8 @@ def _execute_rhs_archive_only(
     generation_cfg: Any,
     *,
     force: bool = False,
+    matrix_format: MatrixFormat = MatrixFormat.DENSE,
+    sparsity_pattern: SparsityPattern = SparsityPattern.RAGGED,
 ) -> Path:
     """Execute an RHS-archive-only dataset build.
 
@@ -182,6 +199,8 @@ def _execute_rhs_archive_only(
         context: Generation context with paths and options.
         strategy: StrategySpec for the rhs_archive strategy.
         generation_cfg: GenerationConfig providing global options.
+        matrix_format: Storage format of the system matrices.
+        sparsity_pattern: Layout of the stored CSR samples (`[output].sparsity_pattern`).
 
     Returns:
         Path to the generated dataset directory.
@@ -208,11 +227,14 @@ def _execute_rhs_archive_only(
             ),
             replacement=context.replacement,
             normalize=context.normalize,
+            write_batch_size=context.write_batch_size,
         ),
         str(context.dataset_dir),
         dataset_format=context.dataset_format,
         force=force,
         identity=context.identity,
+        matrix_format=matrix_format,
+        sparsity_pattern=sparsity_pattern,
     )
     return Path(dataset_path)
 
@@ -224,6 +246,8 @@ def _execute_plan(
     matrix: np.ndarray | None,
     *,
     force: bool = False,
+    matrix_format: MatrixFormat = MatrixFormat.DENSE,
+    sparsity_pattern: SparsityPattern = SparsityPattern.RAGGED,
 ) -> Path:
     """Dispatch execution to the appropriate executor based on the generation plan.
 
@@ -234,6 +258,8 @@ def _execute_plan(
         matrix: Optional loaded system matrix.
         force: Regenerate even if a matching dataset already exists at
             `context.dataset_dir`.
+        matrix_format: Storage format of the system matrices.
+        sparsity_pattern: Layout of the stored CSR samples (`[output].sparsity_pattern`).
 
     Returns:
         Path to the generated dataset directory.
@@ -251,7 +277,12 @@ def _execute_plan(
 
     if solution_archive_strategy is not None and not (has_rhs_archive or has_synthetic_strategies):
         return _execute_solution_archive(
-            context, solution_archive_strategy, generation_cfg, force=force
+            context,
+            solution_archive_strategy,
+            generation_cfg,
+            force=force,
+            matrix_format=matrix_format,
+            sparsity_pattern=sparsity_pattern,
         )
 
     if has_synthetic_strategies or has_solution_archive:
@@ -263,9 +294,18 @@ def _execute_plan(
             generation_cfg=generation_cfg,
             matrix=matrix,
             force=force,
+            matrix_format=matrix_format,
+            sparsity_pattern=sparsity_pattern,
         )
 
     if rhs_archive_strategy is None:
         raise ValueError("No generation strategies configured")
 
-    return _execute_rhs_archive_only(context, rhs_archive_strategy, generation_cfg, force=force)
+    return _execute_rhs_archive_only(
+        context,
+        rhs_archive_strategy,
+        generation_cfg,
+        force=force,
+        matrix_format=matrix_format,
+        sparsity_pattern=sparsity_pattern,
+    )

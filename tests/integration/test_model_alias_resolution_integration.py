@@ -84,7 +84,6 @@ def test_registered_alias_resolution_with_local_sqlite_tracking(tmp_path: Path) 
 
     with mlflow.start_run(run_name="tiny-model-run") as run:
         run_id = run.info.run_id
-        assert run.info.artifact_uri is not None
         run_artifact_path = _artifact_uri_to_path(run.info.artifact_uri)
         _assert_path_within(run_artifact_path, artifacts_dir)
         mlflow.pyfunc.log_model(

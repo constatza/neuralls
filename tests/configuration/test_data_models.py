@@ -16,6 +16,7 @@ from neuralls.platform.config.models.data_models import (
     SourceConfig,
     StrategyConfig,
 )
+from neuralls.shared.constants import DEFAULT_WRITE_BATCH_SIZE
 
 
 def test_source_config_matrix_path_glob_preserves_wildcard(
@@ -70,6 +71,21 @@ def test_generation_config_defaults() -> None:
     assert config.shuffle is True
     assert config.seed == 42
     assert config.strategy == []
+
+
+def test_generation_write_batch_size_defaults_to_shared_constant() -> None:
+    """Batch size defaults to the shared constant so unconfigured runs share one bound."""
+    assert GenerationConfig().write_batch_size == DEFAULT_WRITE_BATCH_SIZE
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_generation_write_batch_size_rejects_non_positive(value: int) -> None:
+    with pytest.raises(ValidationError, match="write_batch_size"):
+        GenerationConfig(write_batch_size=value)
+
+
+def test_generation_write_batch_size_accepts_positive_override() -> None:
+    assert GenerationConfig(write_batch_size=7).write_batch_size == 7
 
 
 def test_data_test_config_defaults() -> None:

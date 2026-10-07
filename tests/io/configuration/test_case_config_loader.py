@@ -146,7 +146,6 @@ def test_load_assignments_success(temp_config_structure: Path, monkeypatch: pyte
     # --- Check Assignment 1 (with checkpoint) ---
     # spec.assignment_id preserves the master registry assignment id.
     assert exp1.spec.assignment_id == "exp1"
-    assert exp1.settings is not None
     assert isinstance(exp1.workspace, AssignmentWorkspace)
 
     # Check paths resolve to shared directories
@@ -156,7 +155,6 @@ def test_load_assignments_success(temp_config_structure: Path, monkeypatch: pyte
     assert "datasets" in str(exp1.spec.data_config_path)
 
     # Check checkpoint path
-    assert exp1.spec.checkpoint_path is not None
     assert "exp1.ckpt" in str(exp1.spec.checkpoint_path)
 
     # --- Check Assignment 2 (without checkpoint) ---

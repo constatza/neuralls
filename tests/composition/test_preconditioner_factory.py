@@ -36,11 +36,13 @@ from torchalg.preconditioners.implementations.amg import (
 )
 from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAdapter
 
+from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.composition.preconditioners.factory import (
     PreconditionerScheduleConfig,
     create_preconditioner,
     create_scheduled_preconditioner,
 )
+from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.inference_ports import InferencePredictorPort
 from neuralls.platform.config.models.preconditioner import (
     AdaptiveSAPreconditionerConfig,
@@ -193,37 +195,23 @@ def mock_checkpoint(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def pod_snapshot_dataset_dir(tmp_path: Path, well_conditioned_matrix: torch.Tensor) -> Path:
-    """Minimal generated dataset directory supplying POD-2G snapshot solutions.
+    """Streamed-generation dataset supplying POD-2G snapshot solutions for the 4x4 system.
 
-    Builds a manifest-backed dataset (matching the repo's canonical
-    generation pipeline) with a handful of solution rows shaped to the 4x4
-    `well_conditioned_matrix`, so `PODCoarseningConfig.dataset_dir` can be
-    read through `load_dense_training_arrays` exactly like a real dataset.
+    Built through the same streamed writer as every other generation run, so the
+    manifest and digests match the canonical pipeline. Each stored row solves against
+    the stored matrix, which is the only property the POD fit relies on.
     """
-    from neuralls.domain.generation.payloads import GeneratedDatasetPayload
-    from neuralls.platform.storage.datasets import DenseDatasetWriter, DenseZarrAccumulator
-
-    matrix_np = well_conditioned_matrix.numpy()
-    rng = np.random.default_rng(0)
-    solutions = rng.standard_normal((4, matrix_np.shape[0]))
-    rhs = solutions @ matrix_np.T
-
+    matrix_path = tmp_path / "matrix.npy"
+    np.save(matrix_path, well_conditioned_matrix.numpy())
     dataset_dir = tmp_path / "pod-dataset"
-    dataset_dir.mkdir()
-    acc = DenseZarrAccumulator(dataset_dir / "matrix.zarr")
-    acc.append_dense_matrix(matrix_np, repeats=1)
-    zarr_path = acc.finalize()
-    DenseDatasetWriter().write_dataset(
-        dataset_dir,
-        GeneratedDatasetPayload(
-            rhs=rhs,
-            solutions=solutions,
-            matrix_artifact_path=zarr_path,
-            matrix_size=(int(matrix_np.shape[0]), int(matrix_np.shape[1])),
-            normalization_type="matrix",
-            matrix_norm=float(np.linalg.norm(matrix_np, ord=2)),
-            matrix_norm_type="spectral",
+    build_dataset(
+        SourceSpec(matrix_path=str(matrix_path)),
+        DatasetSpec(
+            mixture=MixtureSpec(counts={"gaussian_forward": 4}, seed=0, shuffle=False),
+            normalize="none",
         ),
+        str(dataset_dir),
+        dataset_format="hdf5",
     )
     return dataset_dir
 

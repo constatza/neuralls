@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from loguru import logger
+
 from neuralls.domain.generation.data_types import NormalizeType
 from neuralls.domain.generation.plan import (
     GenerationPlan,
@@ -17,6 +19,7 @@ from neuralls.domain.generation.source_streams import EnumerateBy
 from neuralls.domain.generation.specs import SourceSpec
 from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.models.data_models import DataConfigFile, GenerationConfig
+from neuralls.shared.constants import DEFAULT_WRITE_BATCH_SIZE
 from neuralls.shared.types import DatasetFormat
 
 
@@ -36,11 +39,12 @@ class DataGenerationContext:
         dataset_dir: Target directory for the generated dataset.
         normalize: Normalization strategy applied to each sample.
         seed: Random seed for reproducibility.
-        shuffle: Whether to shuffle samples after generation.
+        shuffle: Ignored by storage; stored order is always generation order.
         replacement: Must be False; generation rejects ``True`` (see ``GenerationConfig``).
         parameters_paths: Tuple of additional parameter file paths.
         dataset_format: Storage format family for persisted dataset artifacts.
         identity: Generation identity used for reuse and stamped into the manifest.
+        write_batch_size: Rows generated and written per batch.
     """
 
     matrix_path: str
@@ -59,6 +63,7 @@ class DataGenerationContext:
     parameters_paths: tuple[str, ...] = ()
     dataset_format: DatasetFormat = "hdf5"
     identity: StageIdentity | None = None
+    write_batch_size: int = DEFAULT_WRITE_BATCH_SIZE
 
     def source_spec(self, *, rhs_path: str | None = None) -> SourceSpec:
         """Project the source-side fields into the domain's SourceSpec.
@@ -158,6 +163,7 @@ def _build_context(
     normalize = cast(NormalizeType, str(normalize_value))
 
     plan = _plan_from_generation_config(config.generation)
+    _warn_if_shuffle_requested(config.generation)
 
     return DataGenerationContext(
         matrix_path=matrix_path,
@@ -175,4 +181,18 @@ def _build_context(
         replacement=config.generation.replacement,
         parameters_paths=config.source.parameters_paths,
         dataset_format=config.output.dataset_format,
+        write_batch_size=config.generation.write_batch_size,
     ), plan
+
+
+def _warn_if_shuffle_requested(generation: GenerationConfig) -> None:
+    """Warn once when a config sets ``shuffle = true`` explicitly.
+
+    The default is not warned about: only a key present in the TOML is a request
+    the user expects to take effect, and it no longer does.
+    """
+    if "shuffle" in generation.model_fields_set and generation.shuffle:
+        logger.warning(
+            "generation.shuffle = true has no effect: stored order is now generation "
+            "order, and dlkit shuffles the training loader every epoch."
+        )

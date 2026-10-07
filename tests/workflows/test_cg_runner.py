@@ -566,8 +566,8 @@ def test_summarize_best_combinations_single_converged() -> None:
     }
 
     summary = summarize_best_combinations(single_result)
+    assert summary.overall_best is not None
 
     # Verify single entry
     assert len(summary.ranked) == 1
-    assert summary.overall_best is not None
     assert summary.overall_best.label == "jacobi"

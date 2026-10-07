@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from typing import Any
 
+import torch
 from loguru import logger
-from torchalg.utils.device import resolve_device
 
+from neuralls.composition.generation.csr_streaming import write_csr_streamed
 from neuralls.composition.generation.default_services import make_solver
-from neuralls.domain.generation.orchestration import build_dataset_payload
-from neuralls.domain.generation.ports import DatasetAccumulatorPort
+from neuralls.composition.generation.dense_streaming import write_dense_streamed
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.domain.identity import StageIdentity
 from neuralls.platform.storage.dataset_digest import (
@@ -19,20 +21,32 @@ from neuralls.platform.storage.dataset_digest import (
     dataset_content_digest,
     stat_digest,
 )
-from neuralls.platform.storage.datasets import (
-    GenerationDatasetStorage,
-    make_generation_dataset_storage,
-)
+from neuralls.platform.storage.dense_stream import STREAMED_DENSE_FORMATS
 from neuralls.platform.storage.manifest_io import read_dataset_manifest, save_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.device import ResourceUsage, track_resource_usage
-from neuralls.shared.types import DatasetFormat
+from neuralls.shared.types import DatasetFormat, MatrixFormat, SparsityPattern
+
+_GENERATION_DEVICE = torch.device("cpu")
+
+type StreamedWriter = Callable[[SourceSpec, DatasetSpec, Path, DatasetFormat], None]
 
 _DEFAULT_SOLVER = make_solver()
 _DEFAULT_SOLVER_OVERRIDES: dict[str, Any] = {
     "residuals": _DEFAULT_SOLVER,
     "gaussian_residuals": _DEFAULT_SOLVER,
 }
+
+
+def _refuse_non_generation_format(dataset_format: DatasetFormat) -> None:
+    """Reject formats that are readable but not generation outputs (npy)."""
+    if dataset_format in STREAMED_DENSE_FORMATS:
+        return
+    supported = ", ".join(sorted(STREAMED_DENSE_FORMATS))
+    raise ValueError(
+        f"Dataset format '{dataset_format}' cannot be generated. "
+        f"Supported generation formats: {supported}."
+    )
 
 
 def _guard_format_conflict(dataset_dir: Path, intended: DatasetFormat) -> None:
@@ -109,6 +123,20 @@ def is_dataset_reusable(dataset_dir: Path, identity: StageIdentity) -> bool:
         return False
 
 
+def _streamed_writer_for(
+    matrix_format: MatrixFormat, sparsity_pattern: SparsityPattern
+) -> StreamedWriter:
+    """The streamed writer for a matrix format.
+
+    The sparsity pattern only applies to CSR; the dense writer takes no layout argument.
+    """
+    match matrix_format:
+        case MatrixFormat.DENSE:
+            return write_dense_streamed
+        case MatrixFormat.CSR:
+            return partial(write_csr_streamed, sparsity_pattern=sparsity_pattern)
+
+
 def _with_default_solvers(spec: DatasetSpec) -> DatasetSpec:
     """Layer the composition-provided default tracing solvers under the caller's."""
     mixture = spec.mixture
@@ -127,43 +155,50 @@ def build_dataset(
     dataset_dir: str,
     *,
     dataset_format: DatasetFormat = "hdf5",
-    storage: GenerationDatasetStorage | None = None,
-    accumulator: DatasetAccumulatorPort | None = None,
     force: bool = False,
     identity: StageIdentity | None = None,
+    matrix_format: MatrixFormat = MatrixFormat.DENSE,
+    sparsity_pattern: SparsityPattern = SparsityPattern.RAGGED,
 ) -> str:
-    """Build a persisted dataset by composing domain payload generation with storage.
+    """Build a persisted dataset by streaming batches from the generator to storage.
 
     Skips regeneration when `dataset_dir` holds a dataset stamped with the same
     generation `identity` whose artifact content still matches its stamped
     digest, unless `force=True`. Without an `identity` nothing can be proven
     about an existing dataset, so it is always regenerated. Each fresh write
-    stamps the identity and content/stat digests into the manifest.
+    stamps the identity and content/stat digests into the manifest after the
+    commit rename.
 
     Args:
         source: Where the run reads its matrix/RHS/solution/parameter samples from.
         spec: How the dataset is assembled — strategy budgets, RNG controls,
             replacement policy and normalization.
         dataset_dir: Target directory for the persisted dataset.
-        dataset_format: Storage format family for the persisted artifacts.
-        storage: Optional storage override; defaults to the format's storage.
-        accumulator: Optional accumulator override; defaults to the storage's.
+        dataset_format: Storage format family; zarr or hdf5 (npy is refused).
         force: Regenerate even when a complete dataset already exists.
         identity: Generation identity used for reuse and stamped into the manifest.
+        matrix_format: Storage format of the system matrices (``[output].matrix_format``).
+        sparsity_pattern: Stored CSR layout (``[output].sparsity_pattern``); CSR only.
 
     Returns:
         The `dataset_dir` that now holds the dataset.
+
+    Raises:
+        ValueError: If `dataset_format` is not a generation format, if an existing
+            dataset was written in another format, or if a strategy count is open-ended.
     """
+    _refuse_non_generation_format(dataset_format)
     dataset_path = Path(dataset_dir)
-    dataset_path.mkdir(parents=True, exist_ok=True)
     _guard_format_conflict(dataset_path, dataset_format)
     if not force and identity is not None and is_dataset_reusable(dataset_path, identity):
         logger.info(f"Dataset already exists at '{dataset_dir}'; skipping regeneration.")
         return dataset_dir
-    dataset_storage = storage or make_generation_dataset_storage(dataset_format)
-    acc: DatasetAccumulatorPort = accumulator or dataset_storage.make_accumulator(dataset_path)
-    with track_resource_usage(resolve_device()) as usage:
-        payload = build_dataset_payload(source, _with_default_solvers(spec), accumulator=acc)
-        dataset_storage.write_dataset(dataset_path, payload)
+    streamed_writer = _streamed_writer_for(matrix_format, sparsity_pattern)
+    # Generation stays on the CPU: numpy/scipy sampling, and the residual PCG
+    # runs on CPU tensors (composition/solvers/torchalg_runner.py), so the
+    # measurement must not report CUDA memory for work that never reaches it.
+    with track_resource_usage(_GENERATION_DEVICE) as usage:
+        streamed_writer(source, _with_default_solvers(spec), dataset_path, dataset_format)
+    # Stamped only after the commit rename: an interrupted run never gets an identity.
     _stamp_dataset_identity(dataset_path, identity, generation_usage=usage())
     return dataset_dir

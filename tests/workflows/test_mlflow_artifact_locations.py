@@ -244,7 +244,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
             normalize="none",
         ),
         str(dataset_dir),
-        dataset_format="npy",
+        dataset_format="hdf5",
     )
 
     # Write a method config to test that config artifacts are logged under config/.

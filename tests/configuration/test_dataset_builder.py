@@ -121,7 +121,6 @@ class TestWithDatasetArrays:
             target_name=contract.target_name,
             matrix_input_name=contract.matrix_input_name,
         )
-        assert updated.data is not None
         assert updated.data.features[0].name == "x"
         assert updated.data.targets[0].name == "y"
 
@@ -163,8 +162,6 @@ class TestWithDatasetArrays:
         )
 
         assert updated is not settings
-        assert settings.data is not None
         assert settings.data.features == ()
         assert settings.data.targets == ()
-        assert updated.data.features is not None
         assert updated.data.targets is not None

@@ -63,6 +63,13 @@ def process_data_from_config(
         None if _is_glob_expression(matrix_path) else load_matrix(Path(matrix_path))
     )
     try:
-        return process_config(config, matrix, force=force, identity=identity)
+        return process_config(
+            config,
+            matrix,
+            force=force,
+            identity=identity,
+            matrix_format=config.output.matrix_format,
+            sparsity_pattern=config.output.sparsity_pattern,
+        )
     except ValidationError as exc:
         raise ValueError(str(exc)) from exc

@@ -100,14 +100,16 @@ def test_eval_materialization_injects_split_file_and_array_datamodule(
         checkpoint_path=checkpoint,
         features=features,
         targets=targets,
-        dataset_format="npy",
+        dataset_format="hdf5",
     )
     inference_job = _as_inference_job(eval_job)
+    assert inference_job.data is not None
+    assert inference_job.data.module is not None
+    assert inference_job.data.splits is not None
 
     assert isinstance(inference_job, InferenceJobConfig)
     assert inference_job.run.type == "predict"
     assert inference_job.model.checkpoint == str(checkpoint)
-    assert inference_job.data is not None
     assert inference_job.data.splits.filepath == split_file
     assert inference_job.data.module.name == "ArrayDataModule"
     assert inference_job.data.module.module_path == "dlkit.engine.adapters.lightning.datamodules"
