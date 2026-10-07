@@ -289,7 +289,7 @@ def test_compare_preconditioners_workflow(tmp_path: Path, neuralls_settings) -> 
     assert set(comparison_results.keys()) == {"identity", "jacobi"}
     for name, info in comparison_results.items():
         assert info.iterations > 0, f"{name} did not run"
-        assert info.setup_cost.wall_time_seconds >= 0
+        assert info.setup_cost >= 0
         assert info.solve_time_seconds >= 0
         assert info.peak_memory_bytes >= 0
     _assert_under(results.output_dir, tmp_path)

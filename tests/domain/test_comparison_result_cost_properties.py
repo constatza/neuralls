@@ -11,10 +11,12 @@ def test_total_time_sums_setup_and_solve(
     assert comparison_result_with_cost_data.total_time_seconds == 2.0 + 1.0
 
 
-def test_total_time_none_when_both_unset(
+def test_total_time_is_zero_when_nothing_else_measured(
     comparison_result_without_cost_data: CGComparisonResult,
 ) -> None:
-    assert comparison_result_without_cost_data.total_time_seconds is None
+    """``setup_cost`` is always measured (0.0 default), so ``total_time_seconds``
+    is never ``None`` — it is 0.0 when generation/solve were never measured."""
+    assert comparison_result_without_cost_data.total_time_seconds == 0.0
 
 
 def test_avg_iteration_time_divides_solve_time_by_iterations(

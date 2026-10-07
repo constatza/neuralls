@@ -13,6 +13,7 @@ from neuralls.domain.solver.cost_metrics import (
     time_per_dof_per_iteration,
 )
 from neuralls.domain.solver.models.result import CGComparisonResult, ComparisonResult
+from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.tracking.mlflow import ensure_experiment, sanitize_metric_key_segment
@@ -86,11 +87,6 @@ def log_comparison_result_metrics(
         mlflow.log_metric(parent_run_metric_key("converged", name), int(cg.converged))
         for key, value in _cost_metrics(cg, system_size=system_size).items():
             mlflow.log_metric(parent_run_metric_key(key, name), value)
-        if cg.setup_cost is not None:
-            mlflow.log_param(
-                parent_run_metric_key("setup_time_provenance", name),
-                cg.setup_cost.provenance.value,
-            )
         if cg.generation_cost is not None:
             mlflow.log_param(
                 parent_run_metric_key("generation_time_provenance", name),
@@ -107,13 +103,35 @@ def log_comparison_result_metrics(
             mlflow.log_metric("converged", int(cg.converged))
             for key, value in _cost_metrics(cg, system_size=system_size).items():
                 mlflow.log_metric(key, value)
-            if cg.setup_cost is not None:
-                mlflow.log_param("setup_time_provenance", cg.setup_cost.provenance.value)
             if cg.generation_cost is not None:
                 mlflow.log_param("generation_time_provenance", cg.generation_cost.provenance.value)
 
     if result.recommendations.overall_best is not None:
         mlflow.log_param("best_preconditioner", result.recommendations.overall_best.label)
+
+
+class MLflowCostRecorder:
+    """``CostRecorder`` implementation that logs into the currently open MLflow run.
+
+    Thin wrapper reusing ``log_comparison_result_metrics``'s existing logic
+    (not a duplicate) so composition-layer callers can depend on the
+    ``domain.solver.ports.CostRecorder`` Protocol instead of importing this
+    module's concrete MLflow function directly.
+    """
+
+    def record(
+        self,
+        result: ComparisonResult,
+        *,
+        child_run_tags: Mapping[str, Mapping[str, str]],
+    ) -> None:
+        """Log ``result``'s cost/outcome metrics into the open MLflow run."""
+        log_comparison_result_metrics(result, child_run_tags=child_run_tags)
+
+
+def create_cost_recorder() -> CostRecorder:
+    """Return the default `CostRecorder`: MLflow, logging into the open run."""
+    return MLflowCostRecorder()
 
 
 def _cost_metrics(cg: CGComparisonResult, *, system_size: int | None) -> dict[str, float]:
@@ -131,9 +149,7 @@ def _cost_metrics(cg: CGComparisonResult, *, system_size: int | None) -> dict[st
     Returns:
         Mapping of metric name to value, containing only measured metrics.
     """
-    metrics: dict[str, float] = {}
-    if cg.setup_cost is not None:
-        metrics["setup_time_s"] = cg.setup_cost.wall_time_seconds
+    metrics: dict[str, float] = {"setup_time_s": cg.setup_cost}
     if cg.generation_cost is not None:
         metrics["generation_time_s"] = cg.generation_cost.wall_time_seconds
     if cg.solve_time_seconds is not None:

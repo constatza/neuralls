@@ -66,20 +66,15 @@ def setup_time_per_dof(result: CGComparisonResult, *, system_size: int) -> float
         system_size: Number of unknowns ``n`` in the linear system.
 
     Returns:
-        ``setup_cost.wall_time_seconds / system_size``, or ``None`` if setup
-        cost was never measured (``result.setup_cost is None``).
+        ``setup_cost / system_size``. ``setup_cost`` is always measured
+        (0.0 only for a placeholder result where no build was attempted).
 
     Raises:
         ValueError: If ``system_size`` is not positive.
     """
     if system_size <= 0:
         raise ValueError(f"system_size must be positive, got {system_size}.")
-    setup_time_seconds = (
-        result.setup_cost.wall_time_seconds if result.setup_cost is not None else None
-    )
-    if setup_time_seconds is None:
-        return None
-    return setup_time_seconds / system_size
+    return result.setup_cost / system_size
 
 
 def generation_time_per_dof(result: CGComparisonResult, *, system_size: int) -> float | None:

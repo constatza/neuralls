@@ -71,8 +71,10 @@ class CGComparisonResult:
         error: Error message if solver failed.
         generation_cost: Dataset-generation cost feeding this preconditioner's
             fit/train step, or `None` if generation doesn't apply.
-        setup_cost: Cost to fit/train/build this preconditioner, or `None`
-            only for a placeholder result where no build was attempted.
+        setup_cost: Wall-clock seconds to construct and `.setup()` this
+            preconditioner. Always measured — every `torchalg.Preconditioner`
+            requires an explicit `setup(matrix)` call before `apply()`, so
+            this cost is deterministic and present for every result.
         solve_time_seconds: Wall time for the CG/PCG/FCG solve itself.
             `None` if never measured.
         solve_peak_memory_bytes: Peak memory during the solve. `None` if
@@ -150,9 +152,14 @@ class CGComparisonResult:
     dataset's manifest) or UNAVAILABLE — a comparison run never generates a dataset itself,
     that's a separate, earlier pipeline stage (see composition/generation's own docs)."""
 
-    setup_cost: StageCost | None = None
-    """Cost to fit/train/build this preconditioner. None only for a placeholder result
-    where no build was ever attempted (see comparison_run.py::_breakdown_result)."""
+    setup_cost: float = 0.0
+    """Wall-clock seconds to construct and `.setup()` this preconditioner. Always
+    measured; 0.0 only for a placeholder result where no build was ever attempted
+    (see comparison_run.py::_breakdown_result)."""
+
+    setup_peak_memory_bytes: int | None = None
+    """Peak memory while constructing and `.setup()`-ing this preconditioner.
+    None only for a placeholder result where no build was ever attempted."""
 
     solve_time_seconds: float | None = None
     """Wall time for the CG/PCG/FCG solve. None if not measured."""
@@ -164,25 +171,30 @@ class CGComparisonResult:
     def total_time_seconds(self) -> float | None:
         """Setup + generation + solve wall time, or None if nothing could be summed.
 
-        Excludes any UNAVAILABLE-provenance component — an unavailable cost is a
-        real, unrecorded cost, and counting it as 0.0 would silently understate
-        the total.
+        ``setup_cost`` is always a real measured number, so it is always
+        included. ``generation_cost`` excludes an UNAVAILABLE-provenance
+        component — an unavailable cost is a real, unrecorded cost, and
+        counting it as 0.0 would silently understate the total.
         """
-        parts = [
-            c.wall_time_seconds
-            for c in (self.generation_cost, self.setup_cost)
-            if c is not None and c.provenance is not CostProvenance.UNAVAILABLE
-        ]
+        parts = [self.setup_cost]
+        if (
+            self.generation_cost is not None
+            and self.generation_cost.provenance is not CostProvenance.UNAVAILABLE
+        ):
+            parts.append(self.generation_cost.wall_time_seconds)
         if self.solve_time_seconds is not None:
             parts.append(self.solve_time_seconds)
         return sum(parts) if parts else None
 
     @property
     def has_unavailable_cost(self) -> bool:
-        """True when generation or setup cost exists but couldn't be resolved to a real number."""
-        return any(
-            c is not None and c.provenance is CostProvenance.UNAVAILABLE
-            for c in (self.generation_cost, self.setup_cost)
+        """True when generation cost exists but couldn't be resolved to a real number.
+
+        ``setup_cost`` can no longer be UNAVAILABLE — every preconditioner's
+        `.setup()` call is always measured.
+        """
+        return self.generation_cost is not None and (
+            self.generation_cost.provenance is CostProvenance.UNAVAILABLE
         )
 
     @property
@@ -211,8 +223,9 @@ class CGComparisonResult:
     @property
     def peak_memory_bytes(self) -> int | None:
         """Max of setup and solve peak memory, or None if neither was measured."""
-        setup_peak = self.setup_cost.peak_memory_bytes if self.setup_cost is not None else None
-        values = [v for v in (setup_peak, self.solve_peak_memory_bytes) if v is not None]
+        values = [
+            v for v in (self.setup_peak_memory_bytes, self.solve_peak_memory_bytes) if v is not None
+        ]
         return max(values) if values else None
 
 

@@ -37,12 +37,10 @@ from neuralls.domain.solver.models.result import (
     CGComparisonResult,
     ComparisonRecommendations,
     ComparisonResult,
-    StageCost,
 )
 from neuralls.platform.config.models.comparison import ComparisonGeneral
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
-    CheckpointRefBearing,
     NeuralPODCoarseningConfig,
     PODCoarseningConfig,
     PreconditionerConfig,
@@ -58,10 +56,7 @@ from neuralls.platform.reporting.preconditioner_labels import (
     contextualize_preconditioner_label,
 )
 from neuralls.platform.storage.filesystem import ensure_dir
-from neuralls.platform.tracking.mlflow_client import fetch_mlflow_metrics
-from neuralls.shared.constants import TRAINING_CHILD_DURATION_METRIC_KEY
-from neuralls.shared.device import ResourceUsage, release_device_memory, track_resource_usage
-from neuralls.shared.types import CostProvenance
+from neuralls.shared.device import release_device_memory, track_resource_usage
 
 type PreconditionerEvaluationMapper = Callable[
     [
@@ -146,7 +141,6 @@ def _evaluate_preconditioner(
     params: SolverParams,
     display_name: str | None = None,
     x_exact: torch.Tensor | None = None,
-    tracking_uri: str | None = None,
     settings: NeurallsSettings,
 ) -> PreconditionerComparisonEntry:
     """Build one preconditioner, run it, and package its evaluation outcome.
@@ -166,9 +160,6 @@ def _evaluate_preconditioner(
         display_name: Optional human-readable comparison label, for logging.
         x_exact: Reference solution shared across every preconditioner in this
             comparison (see ``compare_preconditioners``), or ``None``.
-        tracking_uri: MLflow tracking URI to charge a checkpoint-backed
-            preconditioner's real (historical) setup cost against, or
-            ``None`` to skip that lookup entirely.
         settings: Resolved runtime roots, used to resolve any dataset
             directory feeding this preconditioner's generation cost.
 
@@ -189,7 +180,6 @@ def _evaluate_preconditioner(
             color_key=color_key,
             marker_key=marker_key,
             x_exact=x_exact,
-            tracking_uri=tracking_uri,
             settings=settings,
         )
     except Exception as exc:  # noqa: BLE001
@@ -213,94 +203,6 @@ def _evaluate_preconditioner(
         )
 
 
-def _resolve_setup_usage(
-    cfg: PreconditionerConfig, *, measured: ResourceUsage, tracking_uri: str | None
-) -> StageCost:
-    """Prefer a checkpoint-backed preconditioner's real (historical) build cost.
-
-    When ``cfg`` reuses a checkpoint, the work that actually made it
-    expensive — a POD-2G SVD fit, a neural preconditioner's training — was
-    already paid for in a separate, earlier MLflow run; what got measured
-    just now around ``create_preconditioner()`` is only the checkpoint load
-    plus this run's coarse-matrix assembly, negligible overhead by
-    comparison. So: if the build was skipped and its real cost is on record,
-    use that record as ``setup_time_seconds`` instead of the freshly
-    measured overhead. If it wasn't skipped (no checkpoint, or no history to
-    find), the fresh measurement already *is* the real cost — use it as-is.
-
-    Looks up each checkpoint ref's ``resolved_run_id`` (populated only when
-    resolved via ``assignment``/``model_ref``, not a literal
-    ``checkpoint_path`` — see ``NeuralCheckpointRef``) and reads back that
-    run's own ``TRAINING_CHILD_DURATION_METRIC_KEY`` metric, logged by
-    ``composition/assignments/training_batch.py``'s sweep-child timing hook.
-    Sums across multiple refs (e.g. both a prolongation and restriction
-    checkpoint) since each was paid for independently.
-
-    Never raises: a metrics-lookup failure (no tracking server, run not
-    found, metric predates this feature) must never abort a comparison —
-    same resilience shape as
-    ``domain/solver/comparison.py::compute_reference_solution`` — it just
-    falls back to the fresh measurement.
-
-    Only wall time is charged back from history — peak memory is left as the
-    fresh measurement even when the duration is historical. Wall time is a
-    real cost paid once, transferable to any later run that reuses the
-    checkpoint; peak memory is a property of the process that trained it
-    (own device, own concurrent load at the time), not a cost this
-    comparison run itself pays, so ``setup_peak_memory_bytes`` should always
-    reflect what *this* run's checkpoint load actually used.
-
-    Args:
-        cfg: Preconditioner config to check for checkpoint refs.
-        measured: The wall time/peak memory actually measured this run
-            around ``create_preconditioner()``.
-        tracking_uri: MLflow tracking URI to query, or ``None`` to skip the
-            lookup entirely (e.g. no active MLflow session).
-
-    Returns:
-        A ``StageCost`` with ``wall_time_seconds`` set to the historical
-        duration when found (``CostProvenance.HISTORICAL``); the freshly
-        measured value tagged ``CostProvenance.MEASURED`` when no checkpoint
-        was reused; or the freshly measured value tagged
-        ``CostProvenance.UNAVAILABLE`` when a checkpoint was reused but no
-        historical record could be resolved (no tracking URI, or a lookup
-        that found nothing) — the number is a load/assembly artifact, not
-        the real cost, in that last case.
-    """
-    if not isinstance(cfg, CheckpointRefBearing):
-        return StageCost(
-            measured.wall_time_seconds, measured.peak_memory_bytes, CostProvenance.MEASURED
-        )
-    if tracking_uri is None:
-        return StageCost(
-            measured.wall_time_seconds, measured.peak_memory_bytes, CostProvenance.UNAVAILABLE
-        )
-    total_duration = 0.0
-    found_any = False
-    for _, ref in cfg.checkpoint_refs():
-        if ref.resolved_run_id is None:
-            continue
-        try:
-            metrics = fetch_mlflow_metrics(ref.resolved_run_id, tracking_uri)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Could not fetch historical setup cost for run {}: {}: {}",
-                ref.resolved_run_id,
-                type(exc).__name__,
-                exc,
-            )
-            continue
-        duration = metrics.get(TRAINING_CHILD_DURATION_METRIC_KEY)
-        if duration is not None:
-            total_duration += duration
-            found_any = True
-    if not found_any:
-        return StageCost(
-            measured.wall_time_seconds, measured.peak_memory_bytes, CostProvenance.UNAVAILABLE
-        )
-    return StageCost(total_duration, measured.peak_memory_bytes, CostProvenance.HISTORICAL)
-
-
 def _run_preconditioner(
     cfg: PreconditionerConfig,
     *,
@@ -313,10 +215,21 @@ def _run_preconditioner(
     color_key: str | None,
     marker_key: str | None,
     x_exact: torch.Tensor | None = None,
-    tracking_uri: str | None = None,
     settings: NeurallsSettings,
 ) -> PreconditionerComparisonEntry:
-    """Build and solve one preconditioner; raises on any failure."""
+    """Build and solve one preconditioner; raises on any failure.
+
+    ``setup_usage`` wraps both the preconditioner's construction+``.setup()``
+    (``PreconditionerService.create_preconditioner`` — every `builders.py`
+    builder calls `.setup(matrix)` before returning) and any scheduling
+    wrapper's own `.setup()` (`_create_scheduled_preconditioners`). Every
+    `torchalg.Preconditioner` requires an explicit `setup(matrix)` call
+    before `apply()`, so this measurement is always the real build cost for
+    every preconditioner kind (IC0/Jacobi's cheap factorization, AMG/POD-2G's
+    hierarchy build, AdaptiveSA/BootstrapAMG's bootstrap cycles, a neural
+    preconditioner's checkpoint load) — never a near-zero artifact of timing
+    construction alone while the real work happened lazily inside `apply()`.
+    """
     family = preconditioner_family(cfg)
     with track_resource_usage(matrix.device) as setup_usage:
         base_preconditioners = {cfg.name: service.create_preconditioner(matrix, cfg)}
@@ -342,9 +255,14 @@ def _run_preconditioner(
         m_max=params.m_max,
         reference_precision_margin=params.reference_precision_margin,
     )[cfg.name]
-    setup_cost = _resolve_setup_usage(cfg, measured=setup_usage(), tracking_uri=tracking_uri)
+    measured_setup = setup_usage()
     generation_cost = resolve_generation_cost(cfg, settings=settings)
-    result = replace(result, generation_cost=generation_cost, setup_cost=setup_cost)
+    result = replace(
+        result,
+        generation_cost=generation_cost,
+        setup_cost=measured_setup.wall_time_seconds,
+        setup_peak_memory_bytes=measured_setup.peak_memory_bytes,
+    )
     return PreconditionerComparisonEntry(
         name=cfg.name,
         result=result,
@@ -419,7 +337,6 @@ def compare_preconditioners(
     display_name: str | None = None,
     resolved_input: ResolvedComparisonInput | None = None,
     evaluation_mapper: PreconditionerEvaluationMapper = map,
-    tracking_uri: str | None = None,
     settings: NeurallsSettings,
 ) -> ComparisonResult:
     """Run CG comparisons and generate diagnostics.
@@ -452,10 +369,6 @@ def compare_preconditioners(
             ``n`` models concurrently without any other change here — an opt-in
             left to the caller, who is best placed to judge whether ``n`` models'
             worth of GPU memory fit at once.
-        tracking_uri: MLflow tracking URI used to charge a checkpoint-backed
-            preconditioner's real (historical) setup cost — see
-            ``_resolve_setup_usage``. ``None`` (default) skips that lookup
-            entirely; every existing caller keeps working unchanged.
         settings: Resolved runtime roots, used to resolve any dataset
             directory feeding a preconditioner's generation cost — see
             ``_generation_cost.py::resolve_generation_cost``.
@@ -514,7 +427,6 @@ def compare_preconditioners(
         matrix_index=resolved_matrix_index,
         params=general_params.params,
         display_name=display_name,
-        tracking_uri=tracking_uri,
         x_exact=x_exact,
         settings=settings,
     )

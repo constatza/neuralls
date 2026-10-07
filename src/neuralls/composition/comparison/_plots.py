@@ -125,7 +125,7 @@ def _generate_comparison_plots(
     )  # fmt: skip
     setup_time_path = _plot_cost_barplot(
         results, labels, paths.figures / f"preconditioner_setup_time_{suffix}.png",
-        extract=lambda r: r.setup_cost.wall_time_seconds if r.setup_cost is not None else None,
+        extract=lambda r: r.setup_cost,
         metric_name="Setup Time (s)", title=title,
     )  # fmt: skip
     solve_time_path = _plot_cost_barplot(
@@ -269,6 +269,10 @@ def _plot_time_breakdown_barplot(
 ) -> Path | None:
     """Stacked generation/setup/solve time bar chart, skipping if nothing was ever measured.
 
+    ``setup_cost`` is always a real measured float now, so only
+    ``generation_cost``/``solve_time_seconds`` (both still optional) decide
+    whether anything beyond setup was ever measured for a given result.
+
     Returns ``None`` (no file written) when no result in this comparison has
     any time component measured — mirrors ``_plot_cost_barplot``'s skip
     convention.
@@ -276,9 +280,7 @@ def _plot_time_breakdown_barplot(
     present = [
         name
         for name in results
-        if results[name].generation_cost is not None
-        or results[name].setup_cost is not None
-        or results[name].solve_time_seconds is not None
+        if results[name].generation_cost is not None or results[name].solve_time_seconds is not None
     ]
     if not present:
         return None

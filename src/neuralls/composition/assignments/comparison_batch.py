@@ -42,6 +42,7 @@ from neuralls.composition.tracking.run_specs import (
 )
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.solver.models.result import ComparisonResult
+from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
@@ -72,9 +73,9 @@ from neuralls.platform.tracking.artifact_access import (
     MlflowArtifactLeaseManager,
 )
 from neuralls.platform.tracking.comparison_tracking import (
+    create_cost_recorder,
     log_comparison_artifact_uri,
     log_comparison_input_artifacts,
-    log_comparison_result_metrics,
     log_comparison_run_params,
     log_linear_system_params,
     log_skipped_preconditioners,
@@ -566,7 +567,6 @@ def _run_comparison_with_resolved_specs(
     entry: ComparisonRegistryEntry,
     work_root: Path,
     resolved_specs: list[PreconditionerConfig],
-    tracking_uri: str | None = None,
     settings: NeurallsSettings,
 ) -> ComparisonResult:
     """Run comparison with already-resolved preconditioner checkpoint paths."""
@@ -602,7 +602,6 @@ def _run_comparison_with_resolved_specs(
         output_root=work_root,
         display_name=entry.effective_display_name,
         resolved_input=resolved_input,
-        tracking_uri=tracking_uri,
         settings=settings,
     )
     write_comparison_artifacts(
@@ -640,6 +639,7 @@ def _run_and_log_comparison(
     *,
     run_name: str,
     comp_run_id: str,
+    cost_recorder: CostRecorder | None = None,
 ) -> ComparisonResult:
     """Run one comparison in a scratch directory, logging into the open MLflow run.
 
@@ -647,10 +647,13 @@ def _run_and_log_comparison(
         prepared: The entry, config, topology, and resolved specs to execute.
         run_name: Display name of the enclosing run, used as the child runs' parent label.
         comp_run_id: Id of the enclosing run that artifacts are uploaded to.
+        cost_recorder: Where to record the comparison's cost/outcome metrics
+            (DI for testing); defaults to MLflow, logging into the open run.
 
     Returns:
         The comparison result, after its artifacts and metrics have been logged.
     """
+    recorder = cost_recorder if cost_recorder is not None else create_cost_recorder()
     with tempfile.TemporaryDirectory() as tmp:
         work_root = Path(tmp)
         raw_result = _run_comparison_with_resolved_specs(
@@ -658,7 +661,6 @@ def _run_and_log_comparison(
             entry=prepared.entry,
             work_root=work_root,
             resolved_specs=prepared.resolved.specs,
-            tracking_uri=prepared.topology.tracking_uri,
             settings=prepared.settings,
         )
         log_skipped_preconditioners(prepared.resolved.warnings)
@@ -667,7 +669,7 @@ def _run_and_log_comparison(
             run_id=comp_run_id,
             work_root=work_root,
         )
-        log_comparison_result_metrics(
+        recorder.record(
             raw_result,
             child_run_tags=_build_child_run_tags(
                 raw_result, comparison_id=prepared.entry.id, parent_run_name=run_name

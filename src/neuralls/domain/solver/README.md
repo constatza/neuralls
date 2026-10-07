@@ -12,10 +12,10 @@ implementations are delegated to `torchalg`.
   - `ComparisonData`
   - `ComparisonGeneral`
 - Workflow/reporting DTOs:
-  - `CGComparisonResult` — a unified, three-stage cost model instead of bare
-    optional floats, so "not applicable," "applicable but unknown," and
-    "applicable and known" are three distinct, checkable states that can
-    never collapse into each other:
+  - `CGComparisonResult` — a three-stage cost model: generation, setup, and
+    solve, each measuring a conceptually different thing, so a result never
+    has to encode "which stage is this number" in a comment or a naming
+    convention:
     - `generation_cost: StageCost | None` — dataset-generation cost feeding
       this preconditioner's fit/train step. `None` when generation doesn't
       apply at all (classical/geometric AMG, standard/Jacobi/IC0 — no
@@ -23,48 +23,58 @@ implementations are delegated to `torchalg`.
       dataset's own manifest, `generation_duration_seconds`) or `UNAVAILABLE`
       — a comparison run never generates a dataset itself, that's a separate,
       earlier pipeline stage; see `composition/comparison/_generation_cost.py`.
-    - `setup_cost: StageCost | None` — cost to fit/train/build the
-      preconditioner itself. `None` only for a placeholder result where no
-      build was attempted (`comparison_run.py::_breakdown_result`). For a
-      checkpoint-backed preconditioner (a POD-2G basis fit ahead of time, a
-      trained neural preconditioner), this is not the freshly-measured
-      checkpoint-load/coarse-assembly overhead — it's that checkpoint's real,
-      historical fit/train duration, charged back from the origin job's own
-      MLflow run (`resolved_run_id` on the config's `NeuralCheckpointRef`) by
-      `composition/comparison/comparison_run.py::_resolve_setup_usage`, tagged
-      `CostProvenance.HISTORICAL`. When that lookup can't run or finds
-      nothing, the fresh (negligible) measurement is used instead but tagged
-      `CostProvenance.UNAVAILABLE` — never silently indistinguishable from a
-      genuinely fast build (tagged `MEASURED`). See `shared/types.py`'s
-      `CostProvenance` docstring for the full three-value contract.
+      `StageCost` (`wall_time_seconds`, `peak_memory_bytes`, `provenance`)
+      stays the value object for this one still-ambiguous stage.
+    - `setup_cost: float` — wall-clock seconds to construct and `.setup()`
+      this preconditioner. Always measured, every run, for every algorithm —
+      `torchalg.Preconditioner`'s two-phase contract (`setup(matrix)` must run
+      once before `apply()`) makes this deterministic, so there is no
+      provenance question for it any more than there is for
+      `solve_time_seconds`. Concretely, what gets measured per algorithm:
+      IC0/ILU/ICholesky/Jacobi's factorization; classical/POD-2G AMG's
+      hierarchy build (strength-of-connection pass, aggregation, transfer
+      operators, and — for POD-2G — the SVD fit plus the Galerkin coarse
+      triple product); AdaptiveSA/BootstrapAMG's bootstrap cycles; a neural
+      preconditioner's checkpoint load. `setup_peak_memory_bytes` is the
+      matching peak-memory field (`None` only for a placeholder result where
+      no build was ever attempted). Measured in
+      `composition/comparison/comparison_run.py::_run_preconditioner`, wrapping
+      both the preconditioner's own construction+`.setup()` and any
+      scheduling wrapper's `.setup()` in one `shared.device.track_resource_usage`
+      block.
     - `solve_time_seconds`/`solve_peak_memory_bytes` — unchanged bare fields;
-      solve is always live-measured in a comparison run, so there's no
-      provenance question for it.
-    - `StageCost` (`wall_time_seconds`, `peak_memory_bytes`, `provenance`) is
-      the one value object both `generation_cost` and `setup_cost` share.
+      solve is always live-measured in a comparison run.
     - Derived properties: `total_time_seconds` (sums generation + setup +
-      solve, **excluding** any `UNAVAILABLE`-provenance component — counting
-      an unknown cost as `0.0` would silently understate the total) and
-      `has_unavailable_cost` (true when generation or setup exists but
-      couldn't be resolved to a real number — plots use this to skip a result
-      rather than render a misleading position/value).
+      solve; `setup_cost` is always included since it is always a real
+      number, `generation_cost` excludes any `UNAVAILABLE`-provenance
+      component — counting an unknown cost as `0.0` would silently understate
+      the total) and `has_unavailable_cost` (true only when `generation_cost`
+      exists but couldn't be resolved to a real number — `setup_cost` can no
+      longer be unavailable — plots use this to skip a result rather than
+      render a misleading position/value).
   - `ComparisonResult`
   - `PlotPaths` — including `generation_time_barplot`/`setup_time_barplot`/
     `solve_time_barplot`/`peak_memory_barplot`/`time_breakdown_barplot`
-    (the last now a three-segment generation/setup/solve stacked bar, each
-    segment styled by its own `CostProvenance`) and `work_precision`
+    (the last a three-segment generation/setup/solve stacked bar; only the
+    generation segment can still be styled `UNAVAILABLE`) and `work_precision`
   - recommendation records
 - `cost_metrics.py`: pure size-normalized/throughput functions
   (`iterations_per_second`, `time_per_dof_per_iteration`, `setup_time_per_dof`,
   `generation_time_per_dof`, `peak_memory_per_dof`) — take a `CGComparisonResult`
   plus the comparison's `system_size` (from `ComparisonResult.matrix_shape[0]`,
   since every preconditioner in one comparison shares the same matrix) so cost
-  is comparable across comparisons run on different-sized matrices. Both
-  `*_time_per_dof` functions are deliberately provenance-agnostic — they
-  return a number whenever the corresponding `StageCost` is present,
-  regardless of its provenance; provenance-based filtering is a
-  presentation-layer concern (plots, MLflow logging), not this pure-math
-  layer's job.
+  is comparable across comparisons run on different-sized matrices.
+  `generation_time_per_dof` is deliberately provenance-agnostic — it returns a
+  number whenever `generation_cost` is present, regardless of its provenance;
+  provenance-based filtering is a presentation-layer concern (plots, MLflow
+  logging), not this pure-math layer's job. `setup_time_per_dof` has no
+  provenance to be agnostic about any more — `setup_cost` is just a float.
+- `ports.py`: `CostRecorder` — a narrow Protocol (`record(result, *,
+  child_run_tags)`) so composition-layer callers depend on an abstraction
+  instead of importing `platform/tracking/comparison_tracking.py`'s MLflow
+  logging function directly. `MLflowCostRecorder` (same module) is the
+  concrete implementation, wired at the `composition/assignments/` call site
+  that currently logs comparison results.
 - Comparison orchestration helpers that package `torchalg` solver output for
   neuralls reporting workflows. The reference `x*` is a Jacobi-preconditioned
   `torchalg.pcg` solve (`reference_solution`) driven until its relative
@@ -104,13 +114,15 @@ implementations are delegated to `torchalg`.
   `solve_peak_memory_bytes` to the resulting `CGComparisonResult` — cost is
   measured as an averaged/aggregate value per preconditioner (this module
   makes no attempt at a true per-iteration cost curve, since `torchalg`
-  exposes no per-iteration timing/memory hook). Preconditioner *construction*
-  time/memory (checkpoint load or inline fit, e.g. POD-2G's SVD) is measured
-  the same way one layer up, in
-  `composition/comparison/comparison_run.py::_run_preconditioner` around
-  `create_preconditioner()` — this module never measures its own
-  preconditioner's setup cost, since it only ever receives already-built
-  `Preconditioner` instances.
+  exposes no per-iteration timing/memory hook). Preconditioner *construction
+  and setup* time/memory (every algorithm's own `.setup(matrix)` call —
+  hierarchy build, factorization, checkpoint load, whatever that
+  preconditioner's setup concretely means) is measured the same way one layer
+  up, in `composition/comparison/comparison_run.py::_run_preconditioner`,
+  wrapping `PreconditionerService.create_preconditioner()` (which calls
+  `.setup()` internally) and any scheduling wrapper's own `.setup()` — this
+  module never measures its own preconditioner's setup cost, since it only
+  ever receives already-built, already-`setup()` `Preconditioner` instances.
 - Validation and artifact export helpers used by platform/composition layers.
 
 Comparison results intentionally contain solver behavior only. Raw and

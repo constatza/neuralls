@@ -31,7 +31,6 @@ from neuralls.domain.solver.models.result import (
     ComparisonResult,
     PlotPaths,
     RankedRecommendation,
-    StageCost,
 )
 from neuralls.platform.config.models.experiments import (
     AssignmentEntry,
@@ -61,7 +60,7 @@ from neuralls.platform.tracking.comparison_tracking import (
 )
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
 from neuralls.shared.digest import canonical_digest
-from neuralls.shared.types import ComparisonRhsSourceKind, CostProvenance, RowKind
+from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
 
 def test_resolve_comparison_config_importable_from_composition() -> None:
@@ -1280,11 +1279,8 @@ def test_log_comparison_metrics_logs_cost_metrics_when_measured(tmp_path: Path) 
         results={
             "identity": replace(
                 _typed_comparison_result(tmp_path / "conv.png").results["identity"],
-                setup_cost=StageCost(
-                    wall_time_seconds=2.0,
-                    peak_memory_bytes=1000,
-                    provenance=CostProvenance.MEASURED,
-                ),
+                setup_cost=2.0,
+                setup_peak_memory_bytes=1000,
                 solve_time_seconds=1.0,
                 solve_peak_memory_bytes=2000,
             )
@@ -1305,15 +1301,18 @@ def test_log_comparison_metrics_logs_cost_metrics_when_measured(tmp_path: Path) 
     assert metric_calls["peak_memory_per_dof/identity"] == pytest.approx(2000 / 100)
 
 
-def test_log_comparison_metrics_omits_cost_metrics_when_unmeasured(tmp_path: Path) -> None:
-    """No cost-metric keys are logged when a result never measured them (e.g. failed build)."""
+def test_log_comparison_metrics_omits_unmeasured_cost_metrics(tmp_path: Path) -> None:
+    """No solve/memory metric keys are logged when a result never measured them
+    (e.g. failed build). ``setup_time_s`` is always logged now (0.0 default,
+    since ``setup_cost`` is always measured for every real build)."""
     result = _typed_comparison_result(tmp_path / "conv.png")
 
     with patch(_COMPARISON_TRACKING_MLFLOW_MODULE) as mock_mlflow:
         log_comparison_result_metrics(result, child_run_tags={"identity": {}})
 
-    logged_names = {call.args[0] for call in mock_mlflow.log_metric.call_args_list}
-    assert not any(name.startswith("setup_time_s") for name in logged_names)
+    metric_calls = {call.args[0]: call.args[1] for call in mock_mlflow.log_metric.call_args_list}
+    assert metric_calls["setup_time_s/identity"] == 0.0
+    logged_names = set(metric_calls)
     assert not any(name.startswith("solve_time_s") for name in logged_names)
     assert not any(name.startswith("peak_memory_bytes") for name in logged_names)
 

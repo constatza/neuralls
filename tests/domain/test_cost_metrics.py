@@ -60,10 +60,11 @@ def test_setup_time_per_dof_normalizes_by_system_size(
     assert setup_time_per_dof(comparison_result_with_cost_data, system_size=100) == 2.0 / 100
 
 
-def test_setup_time_per_dof_none_without_setup_time(
+def test_setup_time_per_dof_zero_without_setup_time(
     comparison_result_without_cost_data: CGComparisonResult,
 ) -> None:
-    assert setup_time_per_dof(comparison_result_without_cost_data, system_size=100) is None
+    """`setup_cost` defaults to 0.0 (always measured), never `None`."""
+    assert setup_time_per_dof(comparison_result_without_cost_data, system_size=100) == 0.0
 
 
 def test_peak_memory_per_dof_normalizes_by_system_size(
@@ -77,16 +78,6 @@ def test_peak_memory_per_dof_none_without_memory_data(
     comparison_result_without_cost_data: CGComparisonResult,
 ) -> None:
     assert peak_memory_per_dof(comparison_result_without_cost_data, system_size=100) is None
-
-
-def test_setup_time_per_dof_is_provenance_agnostic(
-    comparison_result_with_unavailable_setup_cost: CGComparisonResult,
-) -> None:
-    """setup_time_per_dof returns a number regardless of StageCost.provenance --
-    provenance-based filtering belongs only in the plotting/tracking layers.
-    """
-    result = setup_time_per_dof(comparison_result_with_unavailable_setup_cost, system_size=100)
-    assert result == 0.002 / 100
 
 
 def test_generation_time_per_dof_normalizes_by_system_size(

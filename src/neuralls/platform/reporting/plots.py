@@ -672,17 +672,12 @@ def plot_residual_vs_time(
             continue
 
         # Compute cumulative wall time: setup/generation overhead, then solve iterations
-        setup_overhead = 0.0
+        setup_overhead = result.setup_cost
         if (
             result.generation_cost is not None
             and result.generation_cost.provenance is not CostProvenance.UNAVAILABLE
         ):
             setup_overhead += result.generation_cost.wall_time_seconds
-        if (
-            result.setup_cost is not None
-            and result.setup_cost.provenance is not CostProvenance.UNAVAILABLE
-        ):
-            setup_overhead += result.setup_cost.wall_time_seconds
 
         # Time per iteration (assume uniform distribution)
         time_per_iter = result.solve_time_seconds / len(residuals) if len(residuals) > 0 else 0.0
@@ -768,17 +763,12 @@ def plot_error_vs_time(
             continue
 
         # Compute cumulative wall time: setup/generation overhead, then solve iterations
-        setup_overhead = 0.0
+        setup_overhead = result.setup_cost
         if (
             result.generation_cost is not None
             and result.generation_cost.provenance is not CostProvenance.UNAVAILABLE
         ):
             setup_overhead += result.generation_cost.wall_time_seconds
-        if (
-            result.setup_cost is not None
-            and result.setup_cost.provenance is not CostProvenance.UNAVAILABLE
-        ):
-            setup_overhead += result.setup_cost.wall_time_seconds
 
         # Time per iteration (assume uniform distribution)
         time_per_iter = result.solve_time_seconds / len(errors) if len(errors) > 0 else 0.0
@@ -1490,7 +1480,7 @@ def plot_time_breakdown_barplot(
     for name, result in results.items():
         if (
             result.generation_cost is None
-            and result.setup_cost is None
+            and result.setup_cost == 0.0
             and result.solve_time_seconds is None
         ):
             logger.warning(
@@ -1499,18 +1489,17 @@ def plot_time_breakdown_barplot(
             continue
         if result.has_unavailable_cost:
             logger.warning(
-                f"Method '{name}' has an unavailable generation/setup cost — "
+                f"Method '{name}' has an unavailable generation cost — "
                 "its time-breakdown segment will be hatched, not a real zero."
             )
         generation_seconds, generation_provenance = _stage_parts(result.generation_cost)
-        setup_seconds, setup_provenance = _stage_parts(result.setup_cost)
         entries.append(
             (
                 labels.get(name, name),
                 generation_seconds,
                 generation_provenance,
-                setup_seconds,
-                setup_provenance,
+                result.setup_cost,
+                CostProvenance.MEASURED,
                 result.solve_time_seconds or 0.0,
             )
         )

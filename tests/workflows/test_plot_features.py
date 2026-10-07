@@ -102,9 +102,7 @@ def two_result_entries_with_times() -> dict[str, CGComparisonResult]:
             exact_error=None,
             rhs_norm=1.0,
             breakdown=False,
-            setup_cost=StageCost(
-                wall_time_seconds=setup, peak_memory_bytes=None, provenance=CostProvenance.MEASURED
-            ),
+            setup_cost=setup,
             solve_time_seconds=solve,
         )
 
@@ -115,14 +113,16 @@ def two_result_entries_with_times() -> dict[str, CGComparisonResult]:
 
 
 @pytest.fixture
-def two_result_entries_with_identical_setup_time_different_provenance() -> dict[
+def two_result_entries_with_identical_generation_time_different_provenance() -> dict[
     str, CGComparisonResult
 ]:
-    """Two results sharing an identical ``setup_cost.wall_time_seconds`` but
-    different provenance -- one MEASURED (a genuinely fast build), one
+    """Two results sharing an identical ``generation_cost.wall_time_seconds`` but
+    different provenance -- one MEASURED (a genuinely fast fit), one
     UNAVAILABLE (a silently-failed historical lookup that fell back to the
-    same near-zero measured value). The direct regression fixture for the
-    original bug: these two must never render identically.
+    same near-zero measured value). ``setup_cost`` is now always a plain
+    measured float (no provenance), so generation cost is the only
+    remaining stage that can carry UNAVAILABLE provenance. The direct
+    regression fixture for that: these two must never render identically.
     """
 
     def _make(name: str, provenance: CostProvenance) -> CGComparisonResult:
@@ -139,9 +139,10 @@ def two_result_entries_with_identical_setup_time_different_provenance() -> dict[
             exact_error=None,
             rhs_norm=1.0,
             breakdown=False,
-            setup_cost=StageCost(
+            generation_cost=StageCost(
                 wall_time_seconds=0.002, peak_memory_bytes=None, provenance=provenance
             ),
+            setup_cost=0.1,
             solve_time_seconds=0.1,
         )
 
@@ -425,34 +426,34 @@ def test_plot_time_breakdown_barplot_skips_methods_missing_both_times(
 
 
 def test_plot_time_breakdown_barplot_hatches_only_the_unavailable_segment(
-    two_result_entries_with_identical_setup_time_different_provenance: dict[
+    two_result_entries_with_identical_generation_time_different_provenance: dict[
         str, CGComparisonResult
     ],
 ) -> None:
-    """A MEASURED and an UNAVAILABLE setup segment with identical wall time
+    """A MEASURED and an UNAVAILABLE generation segment with identical wall time
     must render visually distinct -- only the UNAVAILABLE one is hatched.
     """
     with patch("neuralls.platform.reporting.plots.plt.close"):
         plot_time_breakdown_barplot(
-            two_result_entries_with_identical_setup_time_different_provenance,
+            two_result_entries_with_identical_generation_time_different_provenance,
             labels={"measured": "measured", "unavailable": "unavailable"},
         )
         fig = reporting_plots.plt.gcf()
         ax = fig.axes[0]
         yticklabels = [t.get_text() for t in ax.get_yticklabels()]
         # Each row draws 3 segments in order (generation, setup, solve); the
-        # setup segment is the 2nd patch (index 1) within each row's triple.
-        setup_hatches_by_label = {
-            label: ax.patches[i * 3 + 1].get_hatch() for i, label in enumerate(yticklabels)
+        # generation segment is the 1st patch (index 0) within each row's triple.
+        generation_hatches_by_label = {
+            label: ax.patches[i * 3].get_hatch() for i, label in enumerate(yticklabels)
         }
     reporting_plots.plt.close(fig)
 
-    assert setup_hatches_by_label["measured"] is None
-    assert setup_hatches_by_label["unavailable"] is not None
+    assert generation_hatches_by_label["measured"] is None
+    assert generation_hatches_by_label["unavailable"] is not None
 
 
 def test_plot_work_precision_skips_results_with_unavailable_cost(
-    two_result_entries_with_identical_setup_time_different_provenance: dict[
+    two_result_entries_with_identical_generation_time_different_provenance: dict[
         str, CGComparisonResult
     ],
 ) -> None:
@@ -461,7 +462,7 @@ def test_plot_work_precision_skips_results_with_unavailable_cost(
     a load/assembly artifact's time, not its real (unknown) cost.
     """
     with patch("neuralls.platform.reporting.plots.plt.close"):
-        plot_work_precision(two_result_entries_with_identical_setup_time_different_provenance)
+        plot_work_precision(two_result_entries_with_identical_generation_time_different_provenance)
         fig = reporting_plots.plt.gcf()
         ax = fig.axes[0]
         legend = ax.get_legend()
