@@ -145,6 +145,12 @@ class PreconditionerScheduleConfig:
 
 type PODStrategy = PODCoarseningStrategy | SparsePODCoarseningStrategy
 
+PREDICTION_BATCH_SIZE = 256
+"""Rows per predictor call when collecting POD snapshots from a neural model."""
+
+type PredictorFactory = Callable[[Path], InferencePredictorPort]
+"""Opens an inference predictor for a checkpoint; the default is `create_inference_predictor`."""
+
 
 def _load_fitted_pod_coarsening(
     checkpoint_path: Path,
@@ -227,7 +233,7 @@ def _pod_coarsening(
 def _neural_pod_coarsening(
     cfg: NeuralPODCoarseningConfig,
     matrix: torch.Tensor,
-    inference_predictor_factory: Callable[[Path, None], InferencePredictorPort] | None,
+    inference_predictor_factory: PredictorFactory | None,
     pod_cls: type[PODStrategy],
 ) -> PODStrategy:
     """POD-2G basis fit on a neural model's predictions over the parameter samples."""
@@ -247,8 +253,10 @@ def _neural_pod_coarsening(
             "array(s) — one name per array, in matching order, is required."
         )
     feature_batch = dict(zip(input_names, param_arrays))
-    with factory(ckpt, None) as predictor:
-        raw_predictions, _ = collect_predictions(predictor, feature_batch, batch_size=256)
+    with factory(ckpt) as predictor:
+        raw_predictions, _ = collect_predictions(
+            predictor, feature_batch, batch_size=PREDICTION_BATCH_SIZE
+        )
     predicted = stack_predictions(raw_predictions)
     if cfg.n_snapshots != -1:
         predicted = predicted[: cfg.n_snapshots]
@@ -260,7 +268,7 @@ def _neural_pod_coarsening(
 def _build_amg_coarsening(
     matrix: torch.Tensor,
     config: AMGPreconditionerConfig,
-    inference_predictor_factory: Callable[[Path, None], InferencePredictorPort] | None = None,
+    inference_predictor_factory: PredictorFactory | None = None,
     *,
     sparse: bool = False,
 ) -> CoarseningStrategy:
@@ -292,16 +300,18 @@ def _build_amg_coarsening(
             return _pod_coarsening(pod, matrix, pod_cls)
         case NeuralPODCoarseningConfig() as neural_pod:
             return _neural_pod_coarsening(neural_pod, matrix, inference_predictor_factory, pod_cls)
-        case aggregation:
+        case AggregationCoarseningConfig() as aggregation:
             if sparse:
                 raise TypeError("Sparse aggregation AMG is built by vcycle_amg, not here.")
             return AggregationCoarsening(theta=aggregation.theta, omega=aggregation.omega)
+        case unknown:
+            raise TypeError(f"Unsupported AMG coarsening config: {type(unknown).__name__}")
 
 
 def _build_amg(
     matrix: torch.Tensor,
     config: AMGPreconditionerConfig,
-    inference_predictor_factory: Callable[[Path, None], InferencePredictorPort] | None = None,
+    inference_predictor_factory: PredictorFactory | None = None,
 ) -> AMGBuild:
     """Assemble an `AMGPreconditioner` and return it alongside its coarsening strategy.
 
@@ -407,7 +417,7 @@ class _BuildDeps:
     """Injected collaborators shared by every preconditioner builder."""
 
     adapter: PredictorAdapter | None
-    inference_predictor_factory: Callable[[Path, None], InferencePredictorPort] | None
+    inference_predictor_factory: PredictorFactory | None
 
 
 type PreconditionerBuilder = Callable[
@@ -727,7 +737,7 @@ def create_preconditioner(
     matrix: torch.Tensor,
     config: ConcretePreconditionerConfig,
     adapter: PredictorAdapter | None = None,
-    inference_predictor_factory: Callable[[Path, None], InferencePredictorPort] | None = None,
+    inference_predictor_factory: PredictorFactory | None = None,
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
 ) -> Preconditioner:
     """Create a preconditioner from configuration for a matrix in the given format.
@@ -758,7 +768,7 @@ def create_preconditioner_with_coarsening(
     matrix: torch.Tensor,
     config: ConcretePreconditionerConfig,
     adapter: PredictorAdapter | None = None,
-    inference_predictor_factory: Callable[[Path, None], InferencePredictorPort] | None = None,
+    inference_predictor_factory: PredictorFactory | None = None,
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
 ) -> tuple[Preconditioner, CoarseningStrategy | None]:
     """Create a preconditioner, also returning its coarsening strategy when it has one.

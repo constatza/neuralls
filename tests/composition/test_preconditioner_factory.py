@@ -135,10 +135,10 @@ class MockInferencePredictor(InferencePredictorPort):
 
 def make_mock_inference_predictor_factory(
     output_dim: int,
-) -> Callable[[Path, object], MockInferencePredictor]:
+) -> Callable[[Path], MockInferencePredictor]:
     """Build an `inference_predictor_factory` callable, raising on a missing checkpoint."""
 
-    def factory(checkpoint_path: Path, settings: object) -> MockInferencePredictor:
+    def factory(checkpoint_path: Path) -> MockInferencePredictor:
         if not checkpoint_path.exists():
             raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
         return MockInferencePredictor(output_dim)

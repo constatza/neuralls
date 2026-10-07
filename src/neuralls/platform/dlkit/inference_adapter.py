@@ -83,10 +83,8 @@ class DLKitInferencePredictor(InferencePredictorPort):
         self.cleanup()
 
 
-def create_inference_predictor(checkpoint_path: Path, settings: Any) -> InferencePredictorPort:
+def create_inference_predictor(checkpoint_path: Path) -> InferencePredictorPort:
     """Create a DLKit-backed inference predictor with fitted transforms."""
-    del settings
-
     if not checkpoint_path.exists():
         raise FileNotFoundError(
             f"Checkpoint not found: {checkpoint_path}. "

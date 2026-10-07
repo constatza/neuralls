@@ -264,7 +264,7 @@ def test_inference_factory_uses_dlkit_structural_prediction_contract(
         lambda *args, **kwargs: loaded_predictor,
     )
 
-    predictor = create_inference_predictor(checkpoint_path, settings=object())
+    predictor = create_inference_predictor(checkpoint_path)
     result = predictor.predict_batch(feature_batch)
 
     assert_array_equal(result, np.array([[7.0], [8.0]], dtype=np.float64))
@@ -435,7 +435,7 @@ def test_inference_factory_fails_when_predictions_field_is_not_tensor(
         lambda *args, **kwargs: loaded_predictor,
     )
 
-    predictor = create_inference_predictor(checkpoint_path, settings=object())
+    predictor = create_inference_predictor(checkpoint_path)
     with pytest.raises(
         RuntimeError,
         match="Expected 'predictions' to be a torch.Tensor",

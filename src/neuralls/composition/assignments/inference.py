@@ -131,7 +131,7 @@ def _execute_inference_pipeline(
     )
 
     # Run prediction (transforms applied automatically from checkpoint)
-    with create_inference_predictor(config.checkpoint_path, settings) as predictor:
+    with create_inference_predictor(config.checkpoint_path) as predictor:
         predictions = run_prediction(predictor, data, batch_size=resolve_batch_size(settings))
 
     # Save synthetic results separately (if applicable)
