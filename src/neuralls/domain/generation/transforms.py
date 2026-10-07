@@ -34,12 +34,13 @@ from scipy.sparse.linalg import LinearOperator
 
 from neuralls.shared.types import EigenvectorSelection, SystemMatrix
 
-from .helpers import (
+from .eigen_strategies import (
     _compute_eigendecomposition,
     _generate_eigenvector_combinations,
-    _generate_krylov_combinations,
-    _lanczos_iteration,
     _select_eigenvectors,
+)
+from .krylov import _generate_krylov_combinations, _lanczos_iteration
+from .linear_solve import (
     _solve_linear_systems,
     _verify_solution_accuracy,
 )

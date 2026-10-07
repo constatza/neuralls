@@ -20,7 +20,7 @@ from loguru import logger
 
 from neuralls.domain.normalization import ErrorTraceSamples
 
-from ..helpers import (
+from ..counts import (
     _build_trace_indices,
     resolve_trace_generation_counts,
     trace_rows_per_base_system,

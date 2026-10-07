@@ -10,7 +10,7 @@ from neuralls.domain.normalization import IScale
 from neuralls.domain.normalization import matrix_norm as system_matrix_norm
 from neuralls.shared.types import MatrixFormat, MatrixNormType, ScaleMetadata, SystemMatrix
 
-from .helpers import normalize_matrix_for_generation, serialize_scale_metadata
+from .scaling import normalize_matrix_for_generation, serialize_scale_metadata
 from .source_streams import MatrixSampleStream
 from .specs import DatasetSpec
 

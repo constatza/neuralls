@@ -31,8 +31,8 @@ from typing import Protocol, TypeVar
 
 import numpy as np
 
+from .archive_files import select_archive_files
 from .batch_plan import ALL_SAMPLES
-from .helpers import select_archive_files
 from .interfaces import ArchiveData, ArchiveField
 
 T_co = TypeVar("T_co", covariant=True)

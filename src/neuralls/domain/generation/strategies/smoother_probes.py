@@ -38,7 +38,7 @@ from torchalg.sparse.preconditioners.amg.smoothers import JacobiSmoother as Spar
 from neuralls.domain.normalization import ResidualTraceSamples
 from neuralls.shared.types import SystemMatrix
 
-from ..helpers import (
+from ..counts import (
     _build_trace_indices,
     resolve_trace_generation_counts,
     trace_rows_per_base_system,

@@ -336,7 +336,7 @@ above the file's `K` rows is capped at `K` per binding with one warning.
   strategies, so the streamed writers refuse such a plan instead of falling back.
   Every archive-style source is sized from its file list before generation, so its plan is
   exact and is never refused. An explicit `solution_path` file is sized by `solution_row_count()`
-  in `helpers.py` (a .npy header read, no values; a .txt file is one sample). A glob
+  in `archive_files.py` (a .npy header read, no values; a .txt file is one sample). A glob
   `solution_path` is sized by its matched file count K, from the stream's sample ids (a listing,
   no content read). Its rows feed each binding by position: `samples = -1` takes all K rows on
   every binding, and an explicit count N draws the cyclic rows `(b + p) mod K`, capped at K with
@@ -398,11 +398,32 @@ above the file's `K` rows is capped at `K` per binding with one warning.
 - `step_window.py`: `StepWindow` — which steps of a bounded trajectory to
   run and keep (see "Step Selection" above)
 - `strategies/`: concrete generation implementations
-- `helpers.py`: `_solve_linear_systems` dispatches through the `_SOLVERS` registry, keyed by
+- `helpers.py`: a thin re-export surface over the seven focused modules below, kept so
+  existing `from .helpers import X` imports keep working. New code imports directly from
+  the owning module instead.
+- `seeds.py`: deterministic, independently-labelled seeds (`derive_seed`,
+  `derive_strategy_seed`, `rng_from_seed`) — every random stream that must not repeat
+  another one takes its own label path under the mixture seed, hashed with CRC32 so string
+  labels are stable across processes.
+- `counts.py`: strategy sample counts (`rounded_counts`, `resolve_strategy_counts`) and
+  trace-row counts for trajectory-harvesting strategies (`trace_rows_per_system`,
+  `trace_rows_per_base_system`, `required_trace_systems`, `resolve_trace_generation_counts`,
+  `_build_trace_indices`).
+- `scaling.py`: matrix normalization for synthetic generation (`normalize_matrix_for_generation`)
+  and scale-metadata serialization for the manifest (`serialize_scale_metadata`).
+- `linear_solve.py`: `_solve_linear_systems` dispatches through the `_SOLVERS` registry, keyed by
   method alone (`"direct"`, `"cg"`). `"direct"` calls `MatrixOperator.solve_direct` (cached
   factor), and `"cg"` calls `scipy.sparse.linalg.cg` on the wrapped matrix. The format is
-  read by the operator, not the dispatch. A missing key raises `ValueError`. `_compute_eigendecomposition` requests only the
-  `count` eigenpairs for "smallest"/"largest" and the full dense spectrum for "random"
+  read by the operator, not the dispatch. A missing key raises `ValueError`.
+  `_verify_solution_accuracy` computes relative residuals and warns above tolerance.
+- `eigen_strategies.py`: `_compute_eigendecomposition` requests only the `count` eigenpairs
+  for "smallest"/"largest" and the full dense spectrum for "random"; `_select_eigenvectors`
+  and `_generate_eigenvector_combinations` pick and linearly combine the result.
+- `archive_files.py`: `select_archive_files` (deterministic, optionally shuffled file
+  selection from a glob) and `solution_row_count` (a cheap header-only row count for an
+  explicit solution file).
+- `krylov.py`: `_lanczos_iteration` builds a Krylov subspace basis with early termination on
+  breakdown; `_generate_krylov_combinations` draws random combinations from it.
 - `strategy_configs.py`: `require_which_supported_by_format` rejects `which="random"` for CSR.
   `platform/config/models/data_models.py::DataConfigFile` calls it for every
   eigenvector strategy, because `matrix_format` (`[output]`) and `which`
