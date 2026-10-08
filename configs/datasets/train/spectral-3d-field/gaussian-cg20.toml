@@ -1,7 +1,7 @@
 id = "gaussian-cg20-spectral-3d-field"
 
 [source]
-matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/spectral-3d-field/*/K_eff.mtx"
+matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/spectral-3d-field/*/K_ff.mtx"
 
 [generation]
 normalize = "matrix"
