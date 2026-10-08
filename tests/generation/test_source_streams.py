@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -9,6 +10,7 @@ from pydantic import ValidationError
 
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.bindings import bind_sources
+from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.sample_ids import _enumerate_files
 from neuralls.domain.generation.source_streams import (
     EnumerateBy,
@@ -17,6 +19,10 @@ from neuralls.domain.generation.source_streams import (
     open_matrix_stream,
     open_vector_stream,
 )
+from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
+
+_READER = partial(read_matrix, lazy=True)
+_READERS = MatrixReaders(generic=_READER, dense=partial(read_dense_npy, lazy=True))
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.dataset_readers import (
     load_matrix_sample_index,
@@ -59,7 +65,7 @@ def test_open_matrix_stream_from_npy_stack(tmp_path: Path) -> None:
     matrix_path = tmp_path / "matrices.npy"
     np.save(matrix_path, matrix_stack)
 
-    stream = open_matrix_stream(str(matrix_path))
+    stream = open_matrix_stream(str(matrix_path), readers=_READERS)
     assert stream.sample_ids == (0, 1)
 
     dense_one = stream.load_dense_sample(1)
@@ -154,7 +160,7 @@ def test_open_vector_stream_from_npy_stack(tmp_path: Path) -> None:
     rhs_path = tmp_path / "rhs.npy"
     np.save(rhs_path, rhs)
 
-    stream = open_vector_stream(str(rhs_path))
+    stream = open_vector_stream(str(rhs_path), readers=_READERS)
     assert stream.sample_ids == (0, 1)
     np.testing.assert_allclose(stream.load_sample(1).vector, rhs[1])
 
@@ -483,7 +489,9 @@ def test_glob_matrix_stream_enumerate_by_name_with_arbitrary_filenames(
     arbitrary_named_txt_matrices: tuple[Path, int],
 ) -> None:
     mat_dir, n = arbitrary_named_txt_matrices
-    stream = GlobMatrixStream(str(mat_dir / "E1_*_matrix.txt"), enumerate_by=EnumerateBy.NAME)
+    stream = GlobMatrixStream(
+        str(mat_dir / "E1_*_matrix.txt"), enumerate_by=EnumerateBy.NAME, reader=_READER
+    )
 
     assert stream.sample_ids == (0, 1, 2)
     sample = stream.load_dense_sample(0)
@@ -497,7 +505,9 @@ def test_glob_vector_stream_enumerate_by_name_with_arbitrary_filenames(tmp_path:
     for E1, E2 in [(3000, 78000), (5000, 100000), (1000, 50000)]:
         np.savetxt(vec_dir / f"E1_{E1}_E2_{E2}_rhs.txt", rng.standard_normal(5))
 
-    stream = GlobVectorStream(str(vec_dir / "E1_*_rhs.txt"), enumerate_by=EnumerateBy.NAME)
+    stream = GlobVectorStream(
+        str(vec_dir / "E1_*_rhs.txt"), enumerate_by=EnumerateBy.NAME, reader=_READER
+    )
 
     assert stream.sample_ids == (0, 1, 2)
     assert stream.load_sample(0).vector.shape == (5,)
@@ -510,6 +520,7 @@ def test_open_matrix_stream_glob_with_enumerate_by_name(
     stream = open_matrix_stream(
         str(mat_dir / "E1_*_matrix.txt"),
         enumerate_by=EnumerateBy.NAME,
+        readers=_READERS,
     )
 
     assert stream.sample_ids == (0, 1, 2)
@@ -521,8 +532,8 @@ def test_glob_matrix_stream_enumerate_by_name_is_reproducible(
     mat_dir, _ = arbitrary_named_txt_matrices
     expr = str(mat_dir / "E1_*_matrix.txt")
 
-    stream1 = GlobMatrixStream(expr, enumerate_by=EnumerateBy.NAME)
-    stream2 = GlobMatrixStream(expr, enumerate_by=EnumerateBy.NAME)
+    stream1 = GlobMatrixStream(expr, enumerate_by=EnumerateBy.NAME, reader=_READER)
+    stream2 = GlobMatrixStream(expr, enumerate_by=EnumerateBy.NAME, reader=_READER)
 
     assert stream1.sample_ids == stream2.sample_ids
     for sid in stream1.sample_ids:
@@ -591,6 +602,7 @@ def test_glob_matrix_stream_exclude_indices_drops_sample_without_renumbering(
         str(mat_dir / "*_subdomain_1_Kaa.txt"),
         enumerate_by=EnumerateBy.NAME,
         exclude_indices=(1,),
+        reader=_READER,
     )
 
     assert stream.sample_ids == (0, 2)
@@ -604,6 +616,7 @@ def test_glob_matrix_stream_include_indices_restricts_to_subset(
         str(mat_dir / "*_subdomain_1_Kaa.txt"),
         enumerate_by=EnumerateBy.NAME,
         include_indices=(0, 2),
+        reader=_READER,
     )
 
     assert stream.sample_ids == (0, 2)
@@ -620,6 +633,7 @@ def test_glob_vector_stream_exclude_indices_drops_sample(tmp_path: Path) -> None
         str(vec_dir / "E1_*_rhs.txt"),
         enumerate_by=EnumerateBy.NAME,
         exclude_indices=(0,),
+        reader=_READER,
     )
 
     assert stream.sample_ids == (1, 2)
@@ -635,6 +649,7 @@ def test_glob_matrix_stream_include_and_exclude_indices_are_mutually_exclusive(
             enumerate_by=EnumerateBy.NAME,
             include_indices=(0,),
             exclude_indices=(1,),
+            reader=_READER,
         )
 
 
@@ -647,6 +662,7 @@ def test_glob_matrix_stream_include_indices_rejects_unknown_id(
             str(mat_dir / "*_subdomain_1_Kaa.txt"),
             enumerate_by=EnumerateBy.NAME,
             include_indices=(0, 99),
+            reader=_READER,
         )
 
 
@@ -660,6 +676,7 @@ def test_glob_matrix_stream_exclude_indices_rejects_unknown_id(
             str(mat_dir / "*_subdomain_1_Kaa.txt"),
             enumerate_by=EnumerateBy.NAME,
             exclude_indices=(99,),
+            reader=_READER,
         )
 
 
@@ -672,6 +689,7 @@ def test_glob_matrix_stream_exclude_indices_rejects_emptying_all_samples(
             str(mat_dir / "*_subdomain_1_Kaa.txt"),
             enumerate_by=EnumerateBy.NAME,
             exclude_indices=(0, 1, 2),
+            reader=_READER,
         )
 
 
@@ -680,7 +698,7 @@ def test_open_matrix_stream_exclude_indices_requires_glob_source(tmp_path: Path)
     np.save(matrix_path, np.eye(3))
 
     with pytest.raises(ValueError, match="require a glob matrix source"):
-        open_matrix_stream(str(matrix_path), exclude_indices=(0,))
+        open_matrix_stream(str(matrix_path), exclude_indices=(0,), readers=_READERS)
 
 
 def test_source_config_rejects_both_include_and_exclude_indices() -> None:

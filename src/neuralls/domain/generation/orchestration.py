@@ -19,6 +19,7 @@ from .batch_plan import ALL_SAMPLES, BatchPlan, BindingAllocation, plan_batches
 from .binding_allocation import _resolve_binding_strategy_counts
 from .bindings import SystemBinding, bind_sources
 from .counts import resolve_strategy_counts
+from .file_sources import MatrixReaders
 from .matrix_cache import _cached_matrix_loader, _CachedMatrix
 from .scalar_aggregate import BindingScale, ScalarAggregator
 from .seeds import derive_seed
@@ -58,11 +59,15 @@ class OpenedStreams:
         return len(self.matrix.sample_ids) == 1
 
 
-def _open_streams(source: SourceSpec, *, solution_unbound: bool = False) -> OpenedStreams:
+def _open_streams(
+    source: SourceSpec, *, readers: MatrixReaders, solution_unbound: bool = False
+) -> OpenedStreams:
     """Open matrix, optional RHS, optional solution, and optional parameter streams and bind them.
 
     Args:
         source: Resolved source paths and per-stream sample filters.
+        readers: Reads raw arrays/matrices at a path; injected so this domain
+            module never depends on platform's I/O directly.
         solution_unbound: Whether an explicit solution file supplies its rows to the
             bindings by row position (``samples=-1`` or an explicit archive count). Its
             ids then take no part in binding, so they are not matched against matrix ids.
@@ -78,6 +83,7 @@ def _open_streams(source: SourceSpec, *, solution_unbound: bool = False) -> Open
             enumerate_by=source.enumerate_by,
             include_indices=source.include_indices,
             exclude_indices=source.exclude_indices,
+            readers=readers,
         )
 
     matrix_stream = open_matrix_stream(
@@ -86,6 +92,7 @@ def _open_streams(source: SourceSpec, *, solution_unbound: bool = False) -> Open
         enumerate_by=source.enumerate_by,
         include_indices=source.include_indices,
         exclude_indices=source.exclude_indices,
+        readers=readers,
     )
     rhs_stream = _vector_stream(source.rhs_path) if source.rhs_path is not None else None
     solution_stream = (
@@ -173,12 +180,16 @@ def _solution_row_total(solution_path: str | None, stream: VectorSampleStream | 
 def _prepare_generation_context(
     source: SourceSpec,
     spec: DatasetSpec,
+    *,
+    readers: MatrixReaders,
 ) -> _GenerationRunContext:
     """Open all source streams, bind them, and resolve per-binding strategy counts.
 
     Args:
         source: Resolved source paths and per-stream sample filters.
         spec: Dataset assembly settings supplying the strategy budgets.
+        readers: Reads raw arrays/matrices at a path; injected so this domain
+            module never depends on platform's I/O directly.
 
     Returns:
         _GenerationRunContext pairing the opened streams with their allocation.
@@ -189,7 +200,7 @@ def _prepare_generation_context(
     rows_by_position = source.solution_path is not None and _explicit_solution_rows_requested(
         strategy_counts
     )
-    streams = _open_streams(source, solution_unbound=rows_by_position)
+    streams = _open_streams(source, readers=readers, solution_unbound=rows_by_position)
     solution_rows_total = (
         _solution_row_total(source.solution_path, streams.solution) if rows_by_position else None
     )
@@ -411,6 +422,7 @@ def open_batch_stream(
     spec: DatasetSpec,
     *,
     batch_size: int,
+    readers: MatrixReaders,
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
 ) -> BatchStream:
     """Plan a generation run and expose its batches without buffering them.
@@ -422,6 +434,8 @@ def open_batch_stream(
         source: Where the run reads its matrix/RHS/solution/parameter samples from.
         spec: Strategy budgets, RNG controls, replacement policy and normalization.
         batch_size: Maximum rows per yielded batch.
+        readers: Reads raw arrays/matrices at a path; injected so this domain
+            module never depends on platform's I/O directly.
         matrix_format: Storage format of the normalized matrices handed to ``matrix_for``.
 
     Returns:
@@ -434,7 +448,7 @@ def open_batch_stream(
     """
     if batch_size <= 0:
         raise ValueError(f"batch_size must be positive, got {batch_size}")
-    context = _prepare_generation_context(source, spec)
+    context = _prepare_generation_context(source, spec, readers=readers)
     streams = context.streams
     get_matrix = _cached_matrix_loader(streams.matrix, spec, matrix_format)
     plan = plan_batches(context.allocation)

@@ -31,7 +31,7 @@ NPZ_SUFFIX = ".npz"
 MTX_SUFFIX = ".mtx"
 MTX_GZ_SUFFIX = ".mtx.gz"
 
-MatrixReader = Callable[[Path], SystemMatrix]
+type MatrixReader = Callable[[Path], SystemMatrix]
 
 
 def _read_npy(path: Path) -> np.ndarray:
@@ -73,6 +73,18 @@ MATRIX_READERS: Mapping[str, MatrixReader] = MappingProxyType(
 )
 
 
+def _read_npy_lazy(path: Path) -> np.ndarray:
+    # No dtype cast here: casting would copy the array, defeating the mmap.
+    return np.load(path, mmap_mode="r")
+
+
+_LAZY_MATRIX_READERS: Mapping[str, MatrixReader] = MappingProxyType(
+    {
+        NPY_SUFFIX: _read_npy_lazy,
+    }
+)
+
+
 def _suffix_key(path: Path) -> str:
     """Return the registry key for a path; compound suffixes take precedence."""
     if path.name.endswith(MTX_GZ_SUFFIX):
@@ -80,13 +92,16 @@ def _suffix_key(path: Path) -> str:
     return path.suffix
 
 
-def read_matrix(path: Path) -> SystemMatrix:
+def read_matrix(path: Path, *, lazy: bool = False) -> SystemMatrix:
     """Load a system matrix, dispatching on its file suffix.
 
     I/O action - reads the matrix file from disk.
 
     Args:
         path: Path to a matrix file with a registered suffix
+        lazy: Memory-map `.npy` instead of eagerly loading and casting it.
+            Every other format has no partial-read mechanism in the library
+            that parses it, so this has no effect on them.
 
     Returns:
         Dense ndarray or CSR array, depending on the format's loader
@@ -94,13 +109,26 @@ def read_matrix(path: Path) -> SystemMatrix:
     Raises:
         ValueError: If the suffix is not registered in ``MATRIX_READERS``
     """
-    reader = MATRIX_READERS.get(_suffix_key(path))
+    key = _suffix_key(path)
+    reader = (lazy and _LAZY_MATRIX_READERS.get(key)) or MATRIX_READERS.get(key)
     if reader is None:
         supported = ", ".join(sorted(MATRIX_READERS))
         raise ValueError(
             f"Unsupported matrix file suffix for {path}; supported suffixes: {supported}"
         )
     return reader(path)
+
+
+def read_dense_npy(path: Path, *, lazy: bool = False) -> np.ndarray:
+    """Read a ``.npy`` file, always returning a dense array.
+
+    Narrower than ``read_matrix``: unlike the general suffix-dispatched
+    reader, this one's return type carries no sparse branch, because `.npy`
+    never decodes to one. Callers that already know they're reading `.npy`
+    (and only `.npy`) should use this instead of narrowing `read_matrix`'s
+    result themselves.
+    """
+    return (_read_npy_lazy if lazy else _read_npy)(path)
 
 
 def to_dense(matrix: SystemMatrix) -> np.ndarray:

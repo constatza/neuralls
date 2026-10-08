@@ -8,6 +8,7 @@ from the pool, and a count above the pool is capped at it with one warning.
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -15,9 +16,14 @@ import pytest
 
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.batch_plan import plan_batches
+from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.orchestration import _prepare_generation_context
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.datasets import load_dense_training_arrays
+from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
+
+_READER = partial(read_matrix, lazy=True)
+_READERS = MatrixReaders(generic=_READER, dense=partial(read_dense_npy, lazy=True))
 
 _NUM_MATRICES = 2
 _N = 4
@@ -64,7 +70,7 @@ def _spec(count: int) -> DatasetSpec:
 
 
 def _planned_total(source: SourceSpec, spec: DatasetSpec) -> int:
-    context = _prepare_generation_context(source, spec)
+    context = _prepare_generation_context(source, spec, readers=_READERS)
     plan = plan_batches(context.allocation)
     assert plan.is_exact
     return plan.total_rows

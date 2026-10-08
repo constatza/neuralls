@@ -16,6 +16,7 @@ from neuralls.platform.storage.matrix_readers import (
     NPY_SUFFIX,
     NPZ_SUFFIX,
     TXT_SUFFIX,
+    read_dense_npy,
     read_matrix,
     to_dense,
 )
@@ -132,3 +133,62 @@ def test_symmetric_single_triangle_mtx_expands_to_full(
 
     assert isinstance(loaded, csr_array)
     np.testing.assert_allclose(loaded.toarray(), symmetric_reference)
+
+
+def test_lazy_npy_returns_a_memory_mapped_array(
+    tmp_path: Path, dense_reference: np.ndarray
+) -> None:
+    path = tmp_path / "matrix.npy"
+    np.save(path, dense_reference)
+
+    loaded = read_matrix(path, lazy=True)
+
+    assert isinstance(loaded, np.memmap)
+    np.testing.assert_allclose(to_dense(loaded), dense_reference)
+
+
+def test_eager_npy_is_not_memory_mapped(tmp_path: Path, dense_reference: np.ndarray) -> None:
+    path = tmp_path / "matrix.npy"
+    np.save(path, dense_reference)
+
+    loaded = read_matrix(path, lazy=False)
+
+    assert not isinstance(loaded, np.memmap)
+    np.testing.assert_allclose(to_dense(loaded), dense_reference)
+
+
+@pytest.mark.parametrize(
+    ("suffix", "expected_type"),
+    [
+        (TXT_SUFFIX, np.ndarray),
+        (NPZ_SUFFIX, csr_array),
+        (MTX_SUFFIX, csr_array),
+        (MTX_GZ_SUFFIX, csr_array),
+    ],
+)
+def test_lazy_has_no_effect_on_non_npy_suffixes(
+    tmp_path: Path,
+    dense_reference: np.ndarray,
+    suffix: str,
+    expected_type: type,
+) -> None:
+    """lazy only changes .npy's read; every other format has no partial-read mechanism."""
+    path = tmp_path / f"matrix{suffix}"
+    _write_matrix(path, dense_reference, suffix)
+
+    lazy = read_matrix(path, lazy=True)
+    eager = read_matrix(path, lazy=False)
+
+    assert isinstance(lazy, expected_type)
+    np.testing.assert_allclose(to_dense(lazy), to_dense(eager))
+
+
+def test_read_dense_npy_eager_and_lazy_agree_with_read_matrix(
+    tmp_path: Path, dense_reference: np.ndarray
+) -> None:
+    path = tmp_path / "matrix.npy"
+    np.save(path, dense_reference)
+
+    assert isinstance(read_dense_npy(path, lazy=True), np.memmap)
+    np.testing.assert_allclose(read_dense_npy(path, lazy=True), dense_reference)
+    np.testing.assert_allclose(read_dense_npy(path, lazy=False), dense_reference)

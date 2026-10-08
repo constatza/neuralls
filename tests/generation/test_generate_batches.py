@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterator, Sequence
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -18,13 +19,18 @@ import pytest
 from neuralls.domain.generation.batch import SampleBatch
 from neuralls.domain.generation.batch_generator import generate_batches
 from neuralls.domain.generation.batch_plan import plan_batches
+from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.matrix_cache import _cached_matrix_loader
 from neuralls.domain.generation.orchestration import (
     _make_strategy_runner,
     _prepare_generation_context,
 )
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
 from neuralls.shared.types import MatrixFormat
+
+_READER = partial(read_matrix, lazy=True)
+_READERS = MatrixReaders(generic=_READER, dense=partial(read_dense_npy, lazy=True))
 
 _FLOAT_DIGEST_DECIMALS = 12
 _NUM_MATRICES = 3
@@ -83,7 +89,7 @@ def _stream_batches(
     source: SourceSpec, spec: DatasetSpec, batch_size: int
 ) -> Iterator[SampleBatch]:
     """Run the batch pipeline for one source and spec, as the orchestrator wires it."""
-    context = _prepare_generation_context(source, spec)
+    context = _prepare_generation_context(source, spec, readers=_READERS)
     get_matrix = _cached_matrix_loader(context.streams.matrix, spec, MatrixFormat.DENSE)
     plan = plan_batches(context.allocation)
     runner = _make_strategy_runner(context, get_matrix, spec.mixture, lambda _index, _cached: None)

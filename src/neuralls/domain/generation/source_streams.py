@@ -2,9 +2,14 @@
 
 This module keeps source discovery and per-sample loading decoupled from
 generation strategy logic. It supports:
-- single .txt matrix/vector files
+- single .txt/.npy/.mtx matrix files (vectors: .txt/.npy)
 - single .npy matrix/vector files (including stacked samples via mmap)
-- glob patterns of .txt/.npy files (one sample per file)
+- glob patterns of .txt/.npy/.mtx/.mtx.gz/.npz files, one sample per file,
+  including directory-per-sample layouts (e.g. "raw/*/K_ff.mtx")
+
+Every stream/source here takes an injected ``readers: MatrixReaders`` (see
+``file_sources.py``) and never parses bytes itself — format dispatch lives
+entirely in ``platform/storage/matrix_readers.py``.
 """
 
 from __future__ import annotations
@@ -21,11 +26,13 @@ from scipy.sparse import csr_array
 from neuralls.shared.types import MatrixFormat, SystemMatrix
 
 from .file_sources import (
+    DenseReader,
+    MatrixReader,
+    MatrixReaders,
     _GlobFileSource,
-    _MtxFileSource,
     _NpyFileSource,
     _RawSample,
-    _TxtFileSource,
+    _SingleFileSource,
 )
 from .sample_ids import EnumerateBy, _is_glob_expression
 
@@ -257,13 +264,14 @@ class _VectorStream(_SampleStream[VectorSample]):
 class NpyMatrixStream(_MatrixStream):
     """Matrix stream backed by a single .npy file with mmap."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, reader: DenseReader) -> None:
         super().__init__(
             _NpyFileSource(
                 path,
                 noun="matrix",
                 sample_ndim=2,
                 shape_error="Matrix npy file must have shape (n,n) or (N,n,n), got {shape}",
+                reader=reader,
             )
         )
 
@@ -271,12 +279,12 @@ class NpyMatrixStream(_MatrixStream):
 class TxtMatrixStream(_MatrixStream):
     """Matrix stream backed by a single .txt file."""
 
-    def __init__(self, path: Path) -> None:
-        super().__init__(_TxtFileSource(path, noun="matrix"))
+    def __init__(self, path: Path, *, reader: MatrixReader) -> None:
+        super().__init__(_SingleFileSource(path, noun="matrix", reader=reader))
 
 
 class GlobMatrixStream(_MatrixStream):
-    """Matrix stream backed by glob-matched .txt/.npy files."""
+    """Matrix stream backed by glob-matched files."""
 
     def __init__(
         self,
@@ -285,6 +293,8 @@ class GlobMatrixStream(_MatrixStream):
         enumerate_by: EnumerateBy | None = None,
         include_indices: tuple[int, ...] | None = None,
         exclude_indices: tuple[int, ...] = (),
+        *,
+        reader: MatrixReader,
     ) -> None:
         super().__init__(
             _GlobFileSource(
@@ -294,6 +304,7 @@ class GlobMatrixStream(_MatrixStream):
                 enumerate_by=enumerate_by,
                 include_indices=include_indices,
                 exclude_indices=exclude_indices,
+                reader=reader,
             )
         )
 
@@ -301,20 +312,21 @@ class GlobMatrixStream(_MatrixStream):
 class MtxMatrixStream(_MatrixStream):
     """Matrix stream backed by a single MatrixMarket (.mtx) file."""
 
-    def __init__(self, path: Path) -> None:
-        super().__init__(_MtxFileSource(path))
+    def __init__(self, path: Path, *, reader: MatrixReader) -> None:
+        super().__init__(_SingleFileSource(path, noun="matrix", reader=reader))
 
 
 class NpyVectorStream(_VectorStream):
     """Vector stream backed by a .npy file with mmap."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, reader: DenseReader) -> None:
         super().__init__(
             _NpyFileSource(
                 path,
                 noun="vector",
                 sample_ndim=1,
                 shape_error="Vector npy source must have shape (n,) or (N,n), got {shape}",
+                reader=reader,
             )
         )
 
@@ -322,12 +334,12 @@ class NpyVectorStream(_VectorStream):
 class TxtVectorStream(_VectorStream):
     """Vector stream backed by one .txt file."""
 
-    def __init__(self, path: Path) -> None:
-        super().__init__(_TxtFileSource(path, noun="vector"))
+    def __init__(self, path: Path, *, reader: MatrixReader) -> None:
+        super().__init__(_SingleFileSource(path, noun="vector", reader=reader))
 
 
 class GlobVectorStream(_VectorStream):
-    """Vector stream backed by glob-matched .txt/.npy files."""
+    """Vector stream backed by glob-matched files."""
 
     def __init__(
         self,
@@ -336,6 +348,8 @@ class GlobVectorStream(_VectorStream):
         enumerate_by: EnumerateBy | None = None,
         include_indices: tuple[int, ...] | None = None,
         exclude_indices: tuple[int, ...] = (),
+        *,
+        reader: MatrixReader,
     ) -> None:
         super().__init__(
             _GlobFileSource(
@@ -345,8 +359,42 @@ class GlobVectorStream(_VectorStream):
                 enumerate_by=enumerate_by,
                 include_indices=include_indices,
                 exclude_indices=exclude_indices,
+                reader=reader,
             )
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _GlobExpr:
+    """A path expression whose wildcard may match any number of files."""
+
+    expr: str
+
+
+@dataclass(frozen=True, slots=True)
+class _SingleFileExpr:
+    """A path expression naming exactly one, already-existing file."""
+
+    path: Path
+
+
+_PathExpr = _GlobExpr | _SingleFileExpr
+
+
+def _resolve_path_expr(expr: str, *, noun: str) -> _PathExpr:
+    """Classify a config path expression by cardinality: glob or single file.
+
+    A glob may match any number of files; a plain path names exactly one,
+    which must already exist. This is the one place that decides which of
+    the two an expression is — callers match on the result instead of
+    re-deriving the distinction with their own `_is_glob_expression` check.
+    """
+    if _is_glob_expression(expr):
+        return _GlobExpr(expr)
+    path = Path(expr)
+    if not path.exists():
+        raise FileNotFoundError(f"{noun.capitalize()} source not found: {path}")
+    return _SingleFileExpr(path)
 
 
 def open_matrix_stream(
@@ -355,30 +403,35 @@ def open_matrix_stream(
     enumerate_by: EnumerateBy | None = None,
     include_indices: tuple[int, ...] | None = None,
     exclude_indices: tuple[int, ...] = (),
+    *,
+    readers: MatrixReaders,
 ) -> MatrixSampleStream:
     """Create a matrix sample stream from path expression."""
-    if _is_glob_expression(matrix_path_expr):
-        return GlobMatrixStream(
-            matrix_path_expr,
-            sample_id_regex=sample_id_regex,
-            enumerate_by=enumerate_by,
-            include_indices=include_indices,
-            exclude_indices=exclude_indices,
-        )
-    if include_indices is not None or exclude_indices:
-        raise ValueError("include_indices/exclude_indices require a glob matrix source.")
-    path = Path(matrix_path_expr)
-    if not path.exists():
-        raise FileNotFoundError(f"Matrix source not found: {path}")
-    if path.suffix == ".npy":
-        return NpyMatrixStream(path)
-    if path.suffix == ".txt":
-        return TxtMatrixStream(path)
-    if path.suffix == ".mtx":
-        return MtxMatrixStream(path)
-    raise ValueError(
-        f"Unsupported matrix source '{path}'. Supported: .txt, .npy, .mtx, or glob patterns."
-    )
+    match _resolve_path_expr(matrix_path_expr, noun="matrix"):
+        case _GlobExpr(expr):
+            return GlobMatrixStream(
+                expr,
+                sample_id_regex=sample_id_regex,
+                enumerate_by=enumerate_by,
+                include_indices=include_indices,
+                exclude_indices=exclude_indices,
+                reader=readers.generic,
+            )
+        case _SingleFileExpr(path):
+            if include_indices is not None or exclude_indices:
+                raise ValueError("include_indices/exclude_indices require a glob matrix source.")
+            match path.suffix:
+                case ".npy":
+                    return NpyMatrixStream(path, reader=readers.dense)
+                case ".txt":
+                    return TxtMatrixStream(path, reader=readers.generic)
+                case ".mtx":
+                    return MtxMatrixStream(path, reader=readers.generic)
+                case _:
+                    raise ValueError(
+                        f"Unsupported matrix source '{path}'. "
+                        "Supported: .txt, .npy, .mtx, or glob patterns."
+                    )
 
 
 def open_vector_stream(
@@ -387,28 +440,33 @@ def open_vector_stream(
     enumerate_by: EnumerateBy | None = None,
     include_indices: tuple[int, ...] | None = None,
     exclude_indices: tuple[int, ...] = (),
+    *,
+    readers: MatrixReaders,
 ) -> VectorSampleStream:
     """Create a vector sample stream from path expression."""
-    if _is_glob_expression(vector_path_expr):
-        return GlobVectorStream(
-            vector_path_expr,
-            sample_id_regex=sample_id_regex,
-            enumerate_by=enumerate_by,
-            include_indices=include_indices,
-            exclude_indices=exclude_indices,
-        )
-    if include_indices is not None or exclude_indices:
-        raise ValueError("include_indices/exclude_indices require a glob vector source.")
-    path = Path(vector_path_expr)
-    if not path.exists():
-        raise FileNotFoundError(f"Vector source not found: {path}")
-    if path.suffix == ".npy":
-        return NpyVectorStream(path)
-    if path.suffix == ".txt":
-        return TxtVectorStream(path)
-    raise ValueError(
-        f"Unsupported vector source '{path}'. Supported: .txt, .npy, or glob patterns."
-    )
+    match _resolve_path_expr(vector_path_expr, noun="vector"):
+        case _GlobExpr(expr):
+            return GlobVectorStream(
+                expr,
+                sample_id_regex=sample_id_regex,
+                enumerate_by=enumerate_by,
+                include_indices=include_indices,
+                exclude_indices=exclude_indices,
+                reader=readers.generic,
+            )
+        case _SingleFileExpr(path):
+            if include_indices is not None or exclude_indices:
+                raise ValueError("include_indices/exclude_indices require a glob vector source.")
+            match path.suffix:
+                case ".npy":
+                    return NpyVectorStream(path, reader=readers.dense)
+                case ".txt":
+                    return TxtVectorStream(path, reader=readers.generic)
+                case _:
+                    raise ValueError(
+                        f"Unsupported vector source '{path}'. "
+                        "Supported: .txt, .npy, or glob patterns."
+                    )
 
 
 __all__ = [

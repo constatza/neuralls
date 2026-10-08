@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from neuralls.composition.generation.dataset_builder import build_dataset
+from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.helpers import solution_row_count
 from neuralls.domain.generation.source_streams import open_vector_stream
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.datasets import load_dense_training_arrays
+from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
+
+_READER = partial(read_matrix, lazy=True)
+_READERS = MatrixReaders(generic=_READER, dense=partial(read_dense_npy, lazy=True))
 
 N_UNKNOWNS = 4
 N_SOLUTION_ROWS = 4
@@ -140,6 +146,6 @@ def test_explicit_count_equal_to_file_rows_draws_every_row_in_cyclic_order(
 
 def test_text_solution_file_row_semantics_match_reader(solution_txt: Path) -> None:
     """The row count of a ``.txt`` solution file equals the rows the vector reader loads."""
-    reader_rows = len(open_vector_stream(str(solution_txt)).sample_ids)
+    reader_rows = len(open_vector_stream(str(solution_txt), readers=_READERS).sample_ids)
 
     assert solution_row_count(solution_txt) == reader_rows

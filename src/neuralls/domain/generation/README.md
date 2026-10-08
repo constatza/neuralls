@@ -4,6 +4,38 @@ The generation package turns matrices and optional archives into processed
 training datasets. Most users should interact with it through `process-data`
 first and only then drop into the package internals.
 
+## Directory-Per-Sample Raw Layouts
+
+Some raw sources arrive as one subdirectory per sample, each holding a
+constant-named file — e.g. `raw/0/K_ff.mtx`, `raw/1/K_ff.mtx`, … rather than
+`raw/K_ff_0.mtx`, `raw/K_ff_1.mtx`, … `matrix_path` (and `rhs_path`/
+`solution_path`/`parameters_paths`) accept this directly as a glob whose
+wildcard is a whole directory segment instead of part of a filename:
+
+```toml
+[source]
+matrix_path = "/data/raw/*/K_ff.mtx"   # one level
+# matrix_path = "/data/raw/**/K_ff.mtx"  # any depth, recursive
+```
+
+The sample id is derived from the matched **directory's** name, not the
+filename — because the filename (`K_ff.mtx`) is identical for every sample,
+it cannot carry the id, so the regex that would otherwise search the
+filename stem searches the directory name instead. This is automatic: it
+follows from the glob's own shape (whether its last segment is a literal
+constant or itself contains a wildcard), not a separate config flag.
+`sample_id_regex`'s default (last run of digits) and any custom override
+both apply the same way, just against the directory name.
+
+Every raw format (`.txt`, `.npy`, `.mtx`, `.mtx.gz`, `.npz`) is supported
+through this glob path, including directory-per-sample `.mtx` layouts —
+not just the flat, filename-globbed `.txt`/`.npy` case.
+
+**Pitfall:** `enumerate_by = "name"` sorts lexicographically, which does
+*not* match numeric order once there are 10+ samples (`"10"` sorts before
+`"2"`). For numerically named sample directories, rely on the default
+`sample_id_regex` (or an explicit one) rather than `enumerate_by`.
+
 ## Handling Arbitrarily-Named Matrix Files
 
 When a colleague provides matrices with parameter-encoded filenames (no sequential
@@ -378,17 +410,41 @@ above the file's `K` rows is capped at `K` per binding with one warning.
   wrapper that decides what a sample *means* — `_MatrixStream` (dense/sparse matrix API)
   or `_VectorStream` (1D vector API). The seven public `{Npy,Txt,Glob,Mtx}{Matrix,Vector}Stream`
   classes (minus `MtxVectorStream`, which doesn't exist) are thin subclasses that only pick a
-  source, built from `file_sources.py`; `open_matrix_stream()`/`open_vector_stream()` are the
-  entrypoints. Not yet collapsed into a single lookup-by-format dispatch (plan item S4): the
-  single-file variants (`Npy`/`Txt`/`Mtx`) are directly tested by name and by `isinstance` in
-  `test_source_streams_characterization.py`, so collapsing them means rewriting that test's
-  class-identity assertions to behavioral ones — a separate decision, not folded into this split.
+  source, built from `file_sources.py`, and an injected reader (`reader: MatrixReader` for
+  `Txt`/`Mtx`/`Glob`, `reader: DenseReader` for `Npy` — see `file_sources.py` below).
+  `open_matrix_stream()`/`open_vector_stream()` are the entrypoints: each first classifies
+  the path expression as `_GlobExpr` or `_SingleFileExpr` (glob vs. exactly-one-file
+  cardinality — the two are genuinely different kinds, not alternate formats of the same
+  thing), then, for a single file, dispatches on suffix. Both take a `readers: MatrixReaders`
+  bundle and hand each constructed stream whichever of `.generic`/`.dense` it needs. Not yet
+  collapsed into a single lookup-by-format dispatch (plan item S4): the single-file variants
+  are directly tested by name and by `isinstance` in `test_source_streams_characterization.py`,
+  so collapsing them means rewriting that test's class-identity assertions to behavioral
+  ones — a separate decision, not folded into this split.
 - `sample_ids.py`: sample-id derivation and enumeration rules for glob-matched files —
   `EnumerateBy` (assign sequential ids by name/ctime/mtime instead of parsing filenames),
-  `_build_glob_index` (resolve a glob to `{sample_id: path}`), `_is_glob_expression`.
+  `_split_glob_root` (split a glob into its literal root dir and the remaining, possibly
+  multi-segment/recursive, pattern — `Path.glob()` already walks arbitrary depth and `**`
+  once given the right root, so no custom traversal is needed), `_build_glob_index`
+  (resolve a glob to `{sample_id: path}`), `_is_glob_expression`. Sample ids come from
+  wherever the glob's own wildcard put the varying part: `_id_source_text` uses the matched
+  directory's name when the glob's leaf (filename) segment is a literal constant (e.g.
+  `*/K_ff.mtx` — a directory-per-sample layout), otherwise the matched file's stem (today's
+  `A_*.txt` layout) — never a heuristic search across the whole path, so a digit in a
+  directory name is never confused with one in a filename.
 - `file_sources.py`: raw per-sample file readers satisfying `_RawSampleSource` structurally —
-  `_NpyFileSource` (single file or a stack via mmap), `_TxtFileSource`, `_GlobFileSource`
-  (one sample per matched file), `_MtxFileSource` (MatrixMarket, read as CSR).
+  `_NpyFileSource` (single file or a stack via mmap), `_SingleFileSource` (exactly one
+  sample, one reader call — used for `.txt` and `.mtx`: once format dispatch moved into the
+  injected reader, those two had no behavioral difference left to justify separate classes),
+  `_GlobFileSource` (one sample per matched file). None of these parse bytes themselves —
+  format dispatch and the eager-vs-memory-mapped choice both live in
+  `platform/storage/matrix_readers.py`. Two reader shapes are injected, not one, bundled in
+  `MatrixReaders`: `MatrixReader` (`Path -> ndarray | csr_array`) for sources whose format is
+  discovered per path (`_SingleFileSource`, `_GlobFileSource` — a glob may match a mix of
+  `.txt`/`.npy`/`.mtx` files), and `DenseReader` (`Path -> ndarray`) for `_NpyFileSource`,
+  whose format — and therefore dense-ness — is already fixed at construction. Giving every
+  source the same union-returning reader would force format-known callers to narrow a type
+  that was never actually ambiguous for them.
 - `bindings.py`: pure ID-level binding across matrix/rhs/parameters/solution sample streams —
   `SystemBinding` and `bind_sources()` (single-matrix broadcast when only one matrix id exists,
   otherwise bindings are keyed by matrix id).
@@ -538,5 +594,8 @@ Every dense and CSR build, in `zarr` or `hdf5`, streams through `write_dense_str
 `write_csr_streamed()`: `open_batch_stream()` yields batches, `SampleWriter` writes them, and the
 manifest is written last. Memory is bounded by `write_batch_size`. A run whose plan is not exact
 (an open-ended `ALL_SAMPLES` count) raises a ValueError naming the strategy; there is no fallback.
-The generation domain never imports or instantiates storage objects. All file I/O is confined to
-the composition and platform layers.
+The generation domain never imports or instantiates storage objects, and never parses raw sample
+bytes itself either: `open_batch_stream()` takes an injected `readers: MatrixReaders` (built once
+in `composition/generation/streamed_write.py` from `platform.storage.matrix_readers`) and threads
+it down to every raw sample source. All file I/O — writing the dataset and reading raw matrix/
+vector files — is confined to the composition and platform layers.

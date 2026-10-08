@@ -8,12 +8,21 @@ exactly those pieces so neither streaming module has to repeat them.
 
 from __future__ import annotations
 
+from functools import partial
+
+from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.orchestration import BatchStream, open_batch_stream
 from neuralls.domain.generation.ports import ArrayStore
 from neuralls.domain.generation.scalar_aggregate import ScaleSummary
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.storage.dense_stream import StreamedManifestFacts
+from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
 from neuralls.shared.types import LayoutType, MatrixFormat
+
+_READERS = MatrixReaders(
+    generic=partial(read_matrix, lazy=True),
+    dense=partial(read_dense_npy, lazy=True),
+)
 
 
 def open_prepared_stream(
@@ -24,7 +33,11 @@ def open_prepared_stream(
 ) -> BatchStream:
     """Plan the run and reject an inexact row count before any store is opened."""
     stream = open_batch_stream(
-        source, spec, batch_size=spec.write_batch_size, matrix_format=matrix_format
+        source,
+        spec,
+        batch_size=spec.write_batch_size,
+        matrix_format=matrix_format,
+        readers=_READERS,
     )
     stream.plan.require_exact()
     return stream

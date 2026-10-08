@@ -52,11 +52,20 @@ class SourceConfig(BaseModel):
     )
     matrix_path: Annotated[str | None, Cosmetic()] = Field(
         default=None,
-        description="Full path to matrix file",
+        description=(
+            "Full path to one matrix file, or a glob pattern matching many. The glob may "
+            "span multiple path segments and use '**' for recursive matching, e.g. "
+            "'<raw_root>/*/K_ff.mtx' for a directory-per-sample layout with a constant "
+            "leaf filename — the sample id is then derived from the matched directory "
+            "name instead of the filename (see sample_id_regex)."
+        ),
     )
     rhs_path: Annotated[str | None, Cosmetic()] = Field(
         default=None,
-        description="Path to RHS vector files",
+        description=(
+            "Path to RHS vector files, or a glob pattern (same multi-segment/recursive "
+            "support as matrix_path)."
+        ),
     )
     rhs_pattern: str | None = Field(
         default=None,
@@ -69,20 +78,29 @@ class SourceConfig(BaseModel):
     solution_path: Annotated[str | None, Cosmetic()] = Field(
         default=None,
         description=(
-            "Path or glob pattern for per-matrix solution vectors used for solution binding. "
-            "Each file is paired with its matrix by the same sample_id_regex/enumerate_by strategy. "
-            "Distinct from solutions_path (which feeds the solution_archive strategy glob)."
+            "Path or glob pattern for per-matrix solution vectors used for solution binding "
+            "(same multi-segment/recursive glob support as matrix_path). Each file is paired "
+            "with its matrix by the same sample_id_regex/enumerate_by strategy. Distinct from "
+            "solutions_path (which feeds the solution_archive strategy glob)."
         ),
     )
     sample_id_regex: str | None = Field(
         default=None,
-        description="Regex used to extract sample IDs from glob filenames for source pairing",
+        description=(
+            "Regex used to extract sample IDs for source pairing. Matched against the "
+            "filename stem, unless the glob's leaf (filename) segment is a constant literal "
+            "(e.g. 'K_ff.mtx' in '*/K_ff.mtx') — then it is matched against the matched "
+            "directory's name instead, since that is where the id-bearing wildcard is."
+        ),
     )
     enumerate_by: EnumerateBy | None = Field(
         default=None,
         description=(
             "Sort glob-matched files by this criterion and assign sequential IDs (0, 1, 2, …). "
-            "Use when filenames carry no natural integer ID. "
+            "Use when filenames (or, for a directory-per-sample layout, directory names) carry "
+            "no natural integer ID. NAME sorts lexicographically, which does not match numeric "
+            "order past single digits ('10' < '2') — prefer sample_id_regex for numerically "
+            "named directories/files. "
             "Mutually exclusive with sample_id_regex."
         ),
     )

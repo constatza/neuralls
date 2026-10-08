@@ -76,12 +76,41 @@ def _is_glob_expression(expr: str) -> bool:
     return any(char in expr for char in _GLOB_CHARS)
 
 
-def _extract_sample_id(path: Path, pattern: re.Pattern[str]) -> int:
-    """Extract integer sample id from filename stem."""
-    match = pattern.search(path.stem)
+def _split_glob_root(expr: str) -> tuple[Path, str]:
+    """Split a glob expression into its literal root dir and glob pattern.
+
+    Everything up to the first path segment containing a glob character is
+    the literal root (must already exist); everything from there on,
+    rejoined with "/", is handed to ``Path.glob()`` as-is. ``Path.glob``
+    already matches multi-segment and recursive ("**") patterns on its own,
+    so no custom traversal is needed once the split point is right.
+    """
+    parts = Path(expr).parts
+    for i, part in enumerate(parts):
+        if _is_glob_expression(part):
+            return Path(*parts[:i]), "/".join(parts[i:])
+    return Path(expr).parent, Path(expr).name
+
+
+def _id_source_text(path: Path, *, leaf_is_literal: bool) -> str:
+    """Text ``sample_id_regex`` searches for the sample id.
+
+    When the glob's leaf (filename) segment is a literal constant (the
+    wildcard lives in a parent directory instead, e.g. ``*/K_ff.mtx``), the
+    id is the matched directory's name. Otherwise (today's filename-glob
+    case, e.g. ``A_*.txt``) it is the matched file's stem, as before.
+    """
+    return path.parent.name if leaf_is_literal else path.stem
+
+
+def _extract_sample_id(path: Path, pattern: re.Pattern[str], *, leaf_is_literal: bool) -> int:
+    """Extract integer sample id from wherever the glob's wildcard put it."""
+    text = _id_source_text(path, leaf_is_literal=leaf_is_literal)
+    match = pattern.search(text)
     if match is None:
         raise ValueError(
-            f"Could not extract sample id from '{path.name}' using regex '{pattern.pattern}'."
+            f"Could not extract sample id from '{text}' (derived from {path}) "
+            f"using regex '{pattern.pattern}'."
         )
     return int(match.group(1))
 
@@ -91,12 +120,13 @@ def _index_by_sample_id_regex(
     *,
     noun: str,
     sample_id_regex: str | None,
+    leaf_is_literal: bool,
 ) -> dict[int, Path]:
-    """Map filename-derived sample ids to *paths*, rejecting duplicate ids."""
+    """Map glob-derived sample ids to *paths*, rejecting duplicate ids."""
     regex = re.compile(sample_id_regex or _DEFAULT_SAMPLE_ID_REGEX)
     mapping: dict[int, Path] = {}
     for path in paths:
-        sample_id = _extract_sample_id(path, regex)
+        sample_id = _extract_sample_id(path, regex, leaf_is_literal=leaf_is_literal)
         if sample_id in mapping:
             raise ValueError(
                 f"Duplicate {noun} sample id {sample_id} for files {mapping[sample_id]} and {path}"
@@ -117,11 +147,16 @@ def _build_glob_index(
     """Resolve a glob expression to ``{sample_id: path}``.
 
     Args:
-        expr: Glob expression whose parent directory must already exist.
+        expr: Glob expression. Everything before its first wildcard segment
+            is the literal root directory, which must already exist; the
+            rest may span multiple path segments and use "**" for recursive
+            matching (see ``_split_glob_root``).
         noun: Source kind used in error messages ("matrix" or "vector").
-        sample_id_regex: Regex whose first group holds the id in the file stem.
-            Ignored when *enumerate_by* is given; defaults to the trailing
-            integer of the stem.
+        sample_id_regex: Regex whose first group holds the id. Searched
+            against the matched directory's name when the glob's leaf
+            (filename) segment is a literal constant, otherwise against the
+            matched file's stem (see ``_id_source_text``). Ignored when
+            *enumerate_by* is given; defaults to the trailing integer.
         enumerate_by: Assign sequential ids by this criterion instead of parsing
             them out of the filenames.
         include_indices: Keep only these sample ids, if given.
@@ -130,17 +165,21 @@ def _build_glob_index(
     Returns:
         Mapping of sample id to source file, without renumbering.
     """
-    pattern_path = Path(expr)
-    parent = pattern_path.parent
-    if not parent.exists():
-        raise FileNotFoundError(f"{noun.capitalize()} glob parent directory not found: {parent}")
-    paths = sorted(parent.glob(pattern_path.name))
+    root, pattern = _split_glob_root(expr)
+    if not root.exists():
+        raise FileNotFoundError(f"{noun.capitalize()} glob root directory not found: {root}")
+    paths = sorted(root.glob(pattern))
     if not paths:
         raise FileNotFoundError(f"No {noun} files match glob: {expr}")
     mapping = (
         _enumerate_files(paths, enumerate_by)
         if enumerate_by is not None
-        else _index_by_sample_id_regex(paths, noun=noun, sample_id_regex=sample_id_regex)
+        else _index_by_sample_id_regex(
+            paths,
+            noun=noun,
+            sample_id_regex=sample_id_regex,
+            leaf_is_literal=not _is_glob_expression(pattern.rsplit("/", 1)[-1]),
+        )
     )
     mapping = _filter_mapping(
         mapping, include_indices=include_indices, exclude_indices=exclude_indices
