@@ -192,7 +192,9 @@ Local MLflow artifact stores are borrowed in place; remote stores are
 materialized into scoped scratch storage owned by the lease manager. Composition
 decides which assignment or model ref should be evaluated and how those local
 paths are wired into DLKit, but it does not choose persistent download
-directories.
+directories. INFO logs bracket remote download, returned-path resolution, and
+materialized-artifact validation so a timestamped CLI trace distinguishes
+MLflow transfer work from local filesystem work.
 When runtime `MLFLOW_TRACKING_URI` or `MLFLOW_ARTIFACT_URI` values are already
 exported, platform tracking helpers preserve them verbatim instead of
 re-normalizing them against the local operating system.

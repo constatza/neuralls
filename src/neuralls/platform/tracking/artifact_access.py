@@ -17,6 +17,7 @@ from types import TracebackType
 from typing import Literal, Protocol, Self
 
 from dlkit.infrastructure.io import url_resolver
+from loguru import logger
 from mlflow.tracking import MlflowClient
 
 from neuralls.platform.config.resolution import resolve_local_path
@@ -163,13 +164,25 @@ class MlflowArtifactLeaseManager:
         normalized_path = normalize_artifact_path(artifact_path)
         cache_key = (run_id, normalized_path, kind)
         if cache_key in self._leases:
+            logger.info(
+                "Reusing materialized MLflow artifact '{}' from run {}.",
+                normalized_path,
+                run_id,
+            )
             return self._leases[cache_key]
 
+        logger.info("Resolving artifact-store URI for MLflow run {}.", run_id)
         source_uri = _run_artifact_uri(self._client, run_id=run_id)
+        logger.info("Resolved artifact-store URI for MLflow run {}.", run_id)
         path, local_copy = self._materialize_path(
             run_id=run_id,
             artifact_path=normalized_path,
             source_uri=source_uri,
+        )
+        logger.info(
+            "Validating materialized MLflow artifact '{}' from run {}.",
+            normalized_path,
+            run_id,
         )
         _validate_materialized_path(path, kind=kind, run_id=run_id, artifact_path=normalized_path)
         if local_copy:
@@ -196,13 +209,27 @@ class MlflowArtifactLeaseManager:
 
         temporary_dir = tempfile.TemporaryDirectory(prefix=REMOTE_ARTIFACT_DOWNLOAD_PREFIX)
         try:
-            path = Path(
-                self._download_artifact(
-                    run_id=run_id,
-                    path=artifact_path,
-                    dst_path=temporary_dir.name,
-                )
-            ).resolve()
+            logger.info(
+                "Starting MLflow artifact download '{}' from run {}.",
+                artifact_path,
+                run_id,
+            )
+            downloaded_path = self._download_artifact(
+                run_id=run_id,
+                path=artifact_path,
+                dst_path=temporary_dir.name,
+            )
+            logger.info(
+                "MLflow artifact download '{}' from run {} returned; resolving local path.",
+                artifact_path,
+                run_id,
+            )
+            path = Path(downloaded_path).resolve()
+            logger.info(
+                "Resolved local path for MLflow artifact '{}' from run {}.",
+                artifact_path,
+                run_id,
+            )
         except Exception:
             temporary_dir.cleanup()
             raise

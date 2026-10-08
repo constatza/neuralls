@@ -400,7 +400,10 @@ change only redoes the affected work:
    matrix/RHS data and the *content digest of each resolved checkpoint* — so
    a static-only comparison is keyed too, a retrained model with different
    weights invalidates exactly the comparisons that used it, and an identical
-   rerun does not.
+   rerun does not. INFO logs bracket checkpoint artifact resolution, each
+   checkpoint-content hash, matrix/dataset identity construction, and the
+   MLflow reuse lookup so normal log timestamps expose slow preparation phases
+   without a separate timing mechanism.
 
 Every key is derived by the pipeline from the inputs themselves (never
 authored in a config or bumped by hand), and user ids stay pure labels. All

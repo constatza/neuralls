@@ -525,12 +525,31 @@ def _checkpoint_digests(specs: Sequence[PreconditionerConfig]) -> dict[str, Dige
     resolved checkpoint (an unfitted inline POD coarsening) contribute nothing;
     their fit data is covered by the spec's own identity fields.
     """
-    return {
-        f"{index}:{label}": content_digest(ref.resolved_checkpoint_path)
-        for index, spec in enumerate(specs)
-        for _, label, ref in _iter_checkpoint_refs([spec])
-        if ref.resolved_checkpoint_path is not None
-    }
+    digests: dict[str, Digest] = {}
+    for index, spec in enumerate(specs):
+        for _, label, ref in _iter_checkpoint_refs([spec]):
+            checkpoint_path = ref.resolved_checkpoint_path
+            if checkpoint_path is None:
+                continue
+            digest_key = f"{index}:{label}"
+            logger.info(
+                "Inspecting checkpoint '{}' for preconditioner '{}' before hashing.",
+                checkpoint_path,
+                spec.name,
+            )
+            checkpoint_size = checkpoint_path.stat().st_size
+            logger.info(
+                "Hashing checkpoint '{}' for preconditioner '{}' ({} bytes).",
+                checkpoint_path,
+                spec.name,
+                checkpoint_size,
+            )
+            digests[digest_key] = content_digest(checkpoint_path)
+            logger.info(
+                "Finished hashing checkpoint for preconditioner '{}'.",
+                spec.name,
+            )
+    return digests
 
 
 def _resolve_comparison_topology(
@@ -812,20 +831,35 @@ def _prepare_comparison_entry(
         A cache-hit/failure `ComparisonOutcome`, or a `_PreparedComparisonExecution`
         ready for `_execute_prepared_comparison`.
     """
+    logger.info("Preparing comparison '{}': validating input sources.", entry.id)
     try:
         _validate_comparison_sources(cfg)
     except (FileNotFoundError, ValueError) as exc:
         return _comparison_outcome(entry, success=False, error=str(exc))
+    logger.info("Comparison '{}': input-source validation complete.", entry.id)
 
     model_client = MlflowClient(tracking_uri=context.topology.model_store_tracking_uri)
     with contextlib.ExitStack() as local_stack:
         artifact_leases = local_stack.enter_context(MlflowArtifactLeaseManager(client=model_client))
+        logger.info("Comparison '{}': resolving preconditioner checkpoints.", entry.id)
         try:
             resolved = _resolve_comparison_specs(cfg, context, artifact_leases)
         except (ValueError, RuntimeError, KeyError) as exc:
             return _comparison_failure_outcome(entry, exc)
+        logger.info(
+            "Comparison '{}': resolved {} preconditioners with {} warnings.",
+            entry.id,
+            len(resolved.specs),
+            len(resolved.warnings),
+        )
 
+        logger.info(
+            "Comparison '{}': building comparison identity, including matrix/dataset content.",
+            entry.id,
+        )
         identity = comparison_identity(cfg, resolved.specs, resolved.checkpoint_digests)
+        logger.info("Comparison '{}': built identity {}.", entry.id, identity.key)
+        logger.info("Comparison '{}': checking MLflow for a reusable run.", entry.id)
         reused = gate_reuse(
             MlflowIdentityStore(
                 tracking_uri=context.topology.tracking_uri,
@@ -836,7 +870,13 @@ def _prepare_comparison_entry(
             label=entry.id,
         )
         if reused is not None:
+            logger.info(
+                "Comparison '{}': reuse lookup selected run {}.",
+                entry.id,
+                reused.run_id,
+            )
             return _comparison_outcome(entry, success=True)
+        logger.info("Comparison '{}': no reusable run selected; execution is required.", entry.id)
 
         # Needs real execution: detach the lease manager's cleanup from this
         # function's scope-exit and hand it to the caller instead.
