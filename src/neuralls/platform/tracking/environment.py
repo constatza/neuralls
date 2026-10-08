@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator, Mapping
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 
 
 @contextmanager
-def scoped_mlflow_environment(overrides: Mapping[str, str | None]) -> Iterator[None]:
+def scoped_mlflow_environment(overrides: Mapping[str, str | None]) -> Generator[None]:
     """Temporarily apply MLflow environment variable overrides."""
     previous = {key: os.environ.get(key) for key in overrides}
     for key, value in overrides.items():

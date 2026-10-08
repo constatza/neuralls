@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -131,7 +131,7 @@ def end_resource_usage(token: ResourceUsageToken) -> ResourceUsage:
 
 
 @contextmanager
-def track_resource_usage(device: torch.device) -> Iterator[Callable[[], ResourceUsage]]:
+def track_resource_usage(device: torch.device) -> Generator[Callable[[], ResourceUsage]]:
     """Time a block and read its peak memory, via `begin_resource_usage`/`end_resource_usage`.
 
     Args:

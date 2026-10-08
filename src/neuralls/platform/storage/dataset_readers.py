@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
@@ -308,7 +308,7 @@ def _load_resolved(artifact: ResolvedDatasetArtifact) -> np.ndarray:
 
 
 @contextmanager
-def open_resolved_array(artifact: ResolvedDatasetArtifact) -> Iterator[RowSliceable]:
+def open_resolved_array(artifact: ResolvedDatasetArtifact) -> Generator[RowSliceable]:
     """Open one dataset artifact lazily, without coercing dtype or loading it.
 
     The yielded object supports axis-0 slicing, so callers can stream it in
