@@ -1,0 +1,19 @@
+id = "gaussian-cg20-spectral-3d-field"
+
+[source]
+matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/spectral-3d-field/*/K_eff.mtx"
+
+[generation]
+normalize = "matrix"
+shuffle = true
+seed = 42
+
+# `start` left unset (default -1): keeps only the last CG iterate's
+# residual/error pair per trajectory.
+[[generation.strategy]]
+name = "gaussian_residuals"
+samples = 5000
+stop = 20
+
+[output]
+data_dir = "${NEURALLS_PROCESSED_DIR}"

@@ -1,0 +1,108 @@
+[mlflow]
+tracking_uri = "http://localhost:5000"
+
+[names]
+training = "Train-Spectral3DField-POD-2G-CG"
+comparison = "Compare-Spectral3DField-POD-2G-CG"
+
+[comparison_defaults]
+rtol = 1.0e-6
+atol = 1.0e-14
+max_iterations = 200
+stopping_criterion = "residual_norm"
+m_max = 20
+
+[[comparison_defaults.preconditioners]]
+name = "identity"
+type = "identity"
+
+[[comparison_defaults.preconditioners]]
+name = "jacobi"
+type = "jacobi"
+
+[[comparison_defaults.preconditioners]]
+name = "ilu"
+type = "ilu"
+
+[[comparison_defaults.preconditioners]]
+name = "icholesky"
+type = "icholesky"
+
+[[comparison_defaults.preconditioners]]
+name = "ic0"
+type = "ic0"
+
+[[comparison_defaults.preconditioners]]
+name = "amg-small-theta"
+type = "amg"
+coarsening = { method = "aggregation", theta = 0.05 }
+
+[[comparison_defaults.preconditioners]]
+name = "amg-medium-theta"
+type = "amg"
+coarsening = { method = "aggregation", theta = 0.25 }
+
+[[comparison_defaults.preconditioners]]
+name = "asa-few-candidates"
+type = "adaptive_sa_amg"
+num_candidates = 3
+theta = 0.05
+
+[[comparison_defaults.preconditioners]]
+name = "asa-more-candidates"
+type = "adaptive_sa_amg"
+num_candidates = 7
+theta = 0.05
+
+[[comparison_defaults.preconditioners]]
+name = "bamg"
+type = "bootstrap_amg"
+
+[[datasets]]
+path = "../../datasets/train/spectral-3d-field/gaussian-cg20.toml"
+
+[[datasets]]
+path = "../../datasets/train/spectral-3d-field/smoother-filtered-probes.toml"
+
+[[jobs]]
+id = "pod-2g_rank10"
+path = "../../jobs/pod2g/pod2g-rank10.toml"
+display_name = "POD-2G (rank 10)"
+
+[[jobs]]
+id = "pod-2g_rank100"
+path = "../../jobs/pod2g/pod2g-rank100.toml"
+display_name = "POD-2G (rank 100)"
+
+[[comparisons]]
+matrix_dataset = "gaussian-cg20-spectral-3d-field"
+rhs_source = { kind = "gaussian" }
+seed = 42
+
+[[comparisons]]
+matrix_dataset = "gaussian-cg20-spectral-3d-field"
+rhs_source = { kind = "sparse", indices = [
+    0,
+    1,
+    -1,
+], values = [
+    90.0,
+    100.0,
+    -100.0,
+] }
+
+[[assignments]]
+dataset = "gaussian-cg20-spectral-3d-field"
+job = "pod-2g_rank10"
+
+[[assignments]]
+dataset = "gaussian-cg20-spectral-3d-field"
+job = "pod-2g_rank100"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-spectral-3d-field"
+job = "pod-2g_rank10"
+
+[[assignments]]
+dataset = "smoother-filtered-probes-spectral-3d-field"
+job = "pod-2g_rank100"

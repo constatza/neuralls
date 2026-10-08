@@ -1,0 +1,21 @@
+id = "smoother-filtered-probes-spectral-3d-field"
+
+[source]
+matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/spectral-3d-field/*/K_eff.mtx"
+
+[generation]
+normalize = "matrix"
+shuffle = true
+seed = 42
+
+# `start` left unset (default -1): keeps only the final, fully-damped sweep
+# per probe. See domain/generation/README.md's "Smoother-Filtered Probes"
+# section for why `stop` here isn't comparable to CG's `stop`.
+[[generation.strategy]]
+name = "smoother_filtered_probes"
+samples = 5000
+stop = 10
+probe_distribution = "gaussian"
+
+[output]
+data_dir = "${NEURALLS_PROCESSED_DIR}"
