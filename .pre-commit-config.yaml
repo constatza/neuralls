@@ -35,7 +35,7 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-commit]
-        files: ^(src/|pyproject\.toml|uv\.lock|tach\.toml|\.pre-commit-config\.yaml|\.github/workflows/|README\.md|docs/README\.md|docs/neuralls/diagrams/)
+        files: ^(src/|pyproject\.toml|uv\.lock|tach\.toml|\.pre-commit-config\.yaml|\.github/workflows/|README\.md)
       - id: pytest-fast
         name: "pytest: fast smoke"
         entry: uv run pytest tests -m "not slow" --maxfail=1 --disable-warnings -q

@@ -269,7 +269,6 @@ Use the narrowest config that matches the task:
 Additional guidance:
 
 - [Configuration Guide](configs/README.md)
-- [Architecture Docs](docs/README.md)
 
 ## Outputs
 

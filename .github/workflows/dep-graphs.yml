@@ -21,6 +21,18 @@ jobs:
       targets: ${{ steps.targets.outputs.targets }}
 
     steps:
+      - id: targets
+        name: Define graph targets
+        run: |
+          targets='[{"name":"overview","root":"neuralls","context":""},{"name":"cli","root":"neuralls.cli","context":"neuralls.composition,neuralls.shared"},{"name":"application","root":"neuralls.application","context":"neuralls.domain,neuralls.shared"},{"name":"composition","root":"neuralls.composition","context":"neuralls.application,neuralls.platform,neuralls.domain,neuralls.shared"},{"name":"domain","root":"neuralls.domain","context":"neuralls.shared"},{"name":"platform","root":"neuralls.platform","context":"neuralls.domain,neuralls.shared"},{"name":"shared","root":"neuralls.shared","context":""}]'
+          echo "targets=${targets}" >> "${GITHUB_OUTPUT}"
+
+  check-boundaries:
+    if: github.event_name != 'push' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
       - uses: actions/checkout@v5
 
       - name: Install uv
@@ -36,14 +48,11 @@ jobs:
       - name: Synchronize dependencies
         run: uv sync --dev
 
-      - id: targets
-        name: Define graph targets
-        run: |
-          targets='[{"name":"overview","dot":"docs/neuralls/diagrams/overview.dot","svg":"overview.svg","root":"neuralls","context":""},{"name":"cli","dot":"docs/neuralls/diagrams/cli.dot","svg":"cli.svg","root":"neuralls.cli","context":"neuralls.composition,neuralls.shared"},{"name":"application","dot":"docs/neuralls/diagrams/application.dot","svg":"application.svg","root":"neuralls.application","context":"neuralls.domain,neuralls.shared"},{"name":"composition","dot":"docs/neuralls/diagrams/composition.dot","svg":"composition.svg","root":"neuralls.composition","context":"neuralls.application,neuralls.platform,neuralls.domain,neuralls.shared"},{"name":"domain","dot":"docs/neuralls/diagrams/domain.dot","svg":"domain.svg","root":"neuralls.domain","context":"neuralls.shared"},{"name":"platform","dot":"docs/neuralls/diagrams/platform.dot","svg":"platform.svg","root":"neuralls.platform","context":"neuralls.domain,neuralls.shared"},{"name":"shared","dot":"docs/neuralls/diagrams/shared.dot","svg":"shared.svg","root":"neuralls.shared","context":""}]'
-          echo "targets=${targets}" >> "${GITHUB_OUTPUT}"
+      - name: Check Tach boundaries
+        run: uv run tach check
 
   render-target-graphs:
-    needs: prepare-target-matrix
+    needs: [prepare-target-matrix, check-boundaries]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -70,25 +79,16 @@ jobs:
       - name: Synchronize dependencies
         run: uv sync --dev
 
-      - name: Check Tach boundaries
-        run: uv run tach check
-
-      - name: Regenerate tracked DOT graph for ${{ matrix.target.name }}
-        run: |
-          uv run tach map -o /tmp/neuralls-map.json
-          uv run python scripts/render_actual_dependency_graph.py /tmp/neuralls-map.json ${{ matrix.target.dot }} ${{ matrix.target.root }} "${{ matrix.target.context }}"
-
-      - name: Verify tracked graph is up to date for ${{ matrix.target.name }}
-        run: git diff --exit-code -- ${{ matrix.target.dot }}
-
-      - name: Render SVG artifact for ${{ matrix.target.name }}
+      - name: Generate dependency graph for ${{ matrix.target.name }}
         run: |
           mkdir -p .tmp/dgraphs
-          dot -Tsvg ${{ matrix.target.dot }} -o .tmp/dgraphs/${{ matrix.target.svg }}
+          uv run tach map -o /tmp/neuralls-map.json
+          uv run python scripts/render_actual_dependency_graph.py /tmp/neuralls-map.json .tmp/dgraphs/${{ matrix.target.name }}.dot ${{ matrix.target.root }} "${{ matrix.target.context }}"
+          dot -Tsvg .tmp/dgraphs/${{ matrix.target.name }}.dot -o .tmp/dgraphs/${{ matrix.target.name }}.svg
 
-      - name: Upload SVG artifact for ${{ matrix.target.name }}
+      - name: Upload dependency graph for ${{ matrix.target.name }}
         uses: actions/upload-artifact@v4
         with:
-          name: dependency-graph-${{ matrix.target.name }}-svg
+          name: dependency-graph-${{ matrix.target.name }}
           path: .tmp/dgraphs
           if-no-files-found: error
