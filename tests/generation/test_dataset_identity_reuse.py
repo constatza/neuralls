@@ -122,6 +122,28 @@ def test_missing_declared_source_raises_clear_error(
         generation_identity(config)
 
 
+def test_directory_per_sample_glob_source_is_found(
+    make_data_config: ConfigFactory, tmp_path: Path
+) -> None:
+    """Regression: a wildcard spanning a whole directory segment (e.g.
+    ``raw/*/K_ff.mtx``) must resolve its literal root as the directory
+    *before* the wildcard segment, not the wildcard segment itself — which
+    never exists as a literal path and would wrongly raise "directory not
+    found" for a real, existing directory-per-sample layout.
+    """
+    raw = tmp_path / "raw"
+    for sample_id in ("0", "1"):
+        sample_dir = raw / sample_id
+        sample_dir.mkdir(parents=True)
+        (sample_dir / "K_ff.mtx").write_bytes(b"not a real matrix, just content to hash")
+
+    config = make_data_config(matrix_path=raw / "*" / "K_ff.mtx")
+
+    identity = generation_identity(config)
+
+    assert identity.key
+
+
 # --- reuse semantics ----------------------------------------------------------
 
 

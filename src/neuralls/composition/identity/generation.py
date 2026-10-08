@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-from neuralls.domain.generation.sample_ids import _is_glob_expression
+from neuralls.domain.generation.sample_ids import _is_glob_expression, _split_glob_root
 from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.models.data_models import DataConfigFile
 from neuralls.shared.digest import Digest, canonical_digest, content_digest
@@ -35,15 +35,23 @@ def _declared_expressions(cfg: DataConfigFile) -> Iterator[tuple[str, str]]:
 
 
 def _expand(expr: str) -> list[Path]:
-    """Resolve a path expression to existing files, failing loudly when none exist."""
+    """Resolve a path expression to existing files, failing loudly when none exist.
+
+    Uses the same root/pattern split as the directory-per-sample glob support
+    (`sample_ids._split_glob_root`) instead of a plain `Path.parent`/`Path.name`
+    split, so a wildcard spanning a whole directory segment (e.g.
+    ``raw/*/K_ff.mtx``) resolves its literal root correctly rather than
+    treating the wildcard segment itself as the root to check for existence.
+    """
     path = Path(expr)
     if not _is_glob_expression(expr):
         if not path.exists():
             raise FileNotFoundError(f"Declared generation source not found: {path}")
         return [path]
-    if not path.parent.exists():
-        raise FileNotFoundError(f"Declared generation source directory not found: {path.parent}")
-    matches = sorted(path.parent.glob(path.name))
+    root, pattern = _split_glob_root(expr)
+    if not root.exists():
+        raise FileNotFoundError(f"Declared generation source directory not found: {root}")
+    matches = sorted(root.glob(pattern))
     if not matches:
         raise FileNotFoundError(f"No generation source files match glob: {expr}")
     return matches
