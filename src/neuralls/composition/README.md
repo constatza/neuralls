@@ -122,10 +122,31 @@ That materialization is split on purpose. `job_loader.py` is the only local
 boundary that asks platform to load one typed DLKit job. `assembler.py` then
 applies only the minimal mode-specific startup patching needed to create a
 runnable assignment workspace, while `job_materializer.py` owns the later
-training-only runtime patch sequence for dataset entries, dataloader defaults,
-workspace callback wiring, and tracking enablement. Composition no longer
-duplicates that patch policy by re-parsing TOML or by open-coding workspace
-and tracking mutations in multiple call sites.
+training-only runtime patch sequence for dataset entries, split pinning,
+dataloader defaults, workspace callback wiring, and tracking enablement.
+Composition no longer duplicates that patch policy by re-parsing TOML or by
+open-coding workspace and tracking mutations in multiple call sites.
+
+Train/validation/test splits are pinned per dataset directory, not
+recomputed per run. `assignments/_split_pinning.py::resolve_or_create_pinned_split`
+writes a `split.json` next to the dataset the first time any job trains,
+searches, or fits against it, and every later job on that same dataset
+directory reuses that file unchanged via DLKit's `ExternalFileSplitStrategy`
+— two runs against the "same" dataset can no longer land on different
+train/test partitions just because DLKit's `RatioSplitStrategy` reseeded.
+For a many-matrix dataset (`matrix_sample_index` has more than one unique
+value), the split is computed at the matrix-group level first and then
+expanded back to rows, so every row belonging to one matrix lands in the
+same fold; a plain row-level split cannot guarantee that when a matrix
+contributes more than one RHS row. `assignments/runtime_split_patcher.py::patch_split_settings`
+is the runtime patch stage that calls this and points
+`settings.data.splits.filepath` at the resolved file; it also forces the val
+ratio to zero for `FitJobConfig`, since a one-shot `Fittable.fit()` call has
+no training loop to serve a validation fold, while leaving the configured
+test ratio untouched so a fit job can still hold back snapshots to check
+generalization. `job_materializer.py::materialize_training_job` runs this
+stage for every `TrainableJobConfig` kind — `train`/`search`/`fit` — right
+after dataset entries are injected.
 
 For DLKit-supervised training, composition is also the only layer allowed to
 translate repository storage names into runtime dataset-entry names. That
@@ -273,8 +294,48 @@ the configured matrix dataset plus `matrix_index`, while dataset sources
 delegate to platform storage to resolve one canonical `(matrix, rhs, lhs)`
 triplet. When a dataset source omits `sample_index`, platform selects the first
 STANDARD row and follows persisted `matrix_sample_index` to load the matching
-matrix. Comparison does not inspect training/test splits or infer held-out
-semantics from MLflow artifacts.
+matrix.
+
+A `[[comparisons]]` entry may set `test_position` (0-indexed, mutually
+exclusive with `matrix_index`) instead of a raw index, addressing the
+dataset's pinned `split.json` test fold directly
+(`composition/comparison/pinned_split.py::resolve_test_row_indices`/
+`resolve_test_matrix_indices`) — for the `dataset` RHS kind it resolves to a
+concrete `sample_index` within the test fold, for every other kind to a
+concrete `matrix_index` among the test-fold matrices.
+`comparison_batch.py::_run_comparison_with_resolved_specs` performs this
+translation before calling `resolve_comparison_input`, then attaches a
+`MatrixProvenance` (`domain/solver/models/provenance.py`:
+`PinnedSplitMatrix`/`UnverifiedMatrix`/`CrossDatasetMatrix`) to the resolved
+input recording whether the matrix was verified held-out, left unverified (a
+raw `matrix_index`, including the default), or loaded from an explicitly
+different dataset via `CrossDatasetSourceHandler`
+(`composition/comparison/source_handlers.py`) — `cross_dataset` RHS sources
+never touch `split.json` at all. `test_position` out of range raises an
+ordinary `IndexError`; a dataset with no pinned split yet raises a clear
+`ValueError` when addressed by `test_position`.
+
+Comparison A `[[comparison_sweeps]]` entry (`platform/config/models/experiments.py::ComparisonSweepEntry`)
+expands into many `ComparisonRegistryEntry` objects at batch time instead of
+naming one fixed `test_position`/`matrix_index` itself. Its `selector`
+(`TestSetSelector` — `FractionSelector`/`AllSelector`/`FirstNSelector`/
+`SubsetSelector`, discriminated by `kind` the same way `ComparisonRhsSourceModel`
+is) resolves against the sweep's own `matrix_dataset`'s pinned `split.json` fold
+length — `FractionSelector` seeds `numpy.random.default_rng(seed)` to sample
+`round(p * fold_length)` distinct, sorted positions; `AllSelector` takes every
+position; `FirstNSelector(n)` takes `range(min(n, fold_length))`;
+`SubsetSelector(positions)` passes its positions through unvalidated for range
+(an out-of-range one surfaces the same `IndexError` a single `test_position`
+already does). `composition/comparison/test_set_sweep.py::expand_test_set_sweep`
+performs this resolution and builds one `ComparisonRegistryEntry` per resolved
+position, with `id=f"{id_prefix}-{position}"` and `test_position` set —
+`comparison_batch.py::_prepare_all_comparisons` expands every
+`master_cfg.comparison_sweeps` entry this way and folds the results into the
+same entry list `[[comparisons]]` entries flow through, so a sweep-expanded
+entry is indistinguishable downstream from a hand-written one. Dataset
+directory resolution for a `matrix_dataset` id is shared between
+`resolve_comparison_config` and sweep expansion via
+`composition/comparison/config_assembler.py::resolve_dataset_dir`.
 
 Comparison input preflight also stays out of composition. Workflow code invokes
 platform-owned validation for matrix/RHS inputs rather than inspecting dataset

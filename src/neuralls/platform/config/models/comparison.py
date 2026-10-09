@@ -178,12 +178,35 @@ class DatasetRhsSourceModel(BaseModel):
         return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
 
 
+class CrossDatasetRhsSourceModel(BaseModel):
+    """Load a comparison matrix+RHS from an explicitly different dataset.
+
+    Never touches the home comparison dataset's pinned split.
+    """
+
+    kind: Literal["cross_dataset"] = "cross_dataset"
+    path: Annotated[Path, InputData()]
+    sample_index: int | None = Field(default=None, ge=0)
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def _expand_path(cls, v: object, info: ValidationInfo) -> object:
+        if not isinstance(v, str) or info.context is None:
+            return v
+        from neuralls.platform.config.context import ConfigContext, expand_config_path
+
+        return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
+
+
 type ComparisonRhsSourceModel = Annotated[
     GaussianRhsSourceModel
     | SparseRhsSourceModel
     | RawLhsSourceModel
     | RawRhsSourceModel
-    | DatasetRhsSourceModel,
+    | DatasetRhsSourceModel
+    | CrossDatasetRhsSourceModel,
     Field(discriminator="kind"),
 ]
 

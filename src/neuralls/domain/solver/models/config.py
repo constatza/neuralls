@@ -84,6 +84,7 @@ class ComparisonData:
     matrix_path: Annotated[Path, Cosmetic()]
     rhs_path: Annotated[Path | None, Cosmetic()]
     matrix_index: int | None = 0
+    test_position: int | None = None
     dataset_alias: str | None = None
     normalize_system: NormalizeSystem = "matrix"
     require_non_residual_rhs: bool = True

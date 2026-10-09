@@ -48,6 +48,12 @@ DEFAULT_M_MAX = 20  # Maximum history length for truncated orthogonalization in 
 DEFAULT_NUM_SAMPLES = 6000
 
 DEFAULT_WRITE_BATCH_SIZE = 1024
+
+# Seed for pinning a dataset's train/validation/test split once at creation
+# time (see composition/assignments/_split_pinning.py). Stable across runs so
+# a pinned split file, once computed, is reproducible from this constant
+# alone if it ever needs to be regenerated from scratch.
+DEFAULT_SPLIT_SEED = 20240521
 """Rows generated and written per batch. Bounds the working set; does not change output."""
 
 # Name of the gitignored subdirectory `scripts/expand_dataset_sweep.py` writes

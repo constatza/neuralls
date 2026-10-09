@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
@@ -205,28 +205,26 @@ class ComparisonDefaults(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class ComparisonRegistryEntry(BaseModel):
-    """Comparison registry entry: data binding + optional methodology override.
+class _ComparisonDataBinding(BaseModel):
+    """Fields shared by every comparison data-binding entry, sweep or not.
 
-    The test matrix and RHS are identified by dataset IDs from the case
-    ``[[datasets]]`` registry.  Solver parameters and the base preconditioner
-    list are inherited from ``[comparison_defaults]`` unless a ``method`` file
-    is given to override them.
+    Both ``ComparisonRegistryEntry`` (one fixed comparison) and
+    ``ComparisonSweepEntry`` (many comparisons expanded from one pinned-split
+    sweep) describe the same data binding — which matrix dataset, which RHS
+    source, which method override, which assignments to compare. Sharing this
+    base keeps those fields from drifting apart between the two shapes.
 
     Attributes:
-        id: Stable comparison identifier.
         matrix_dataset: Dataset id (from ``[[datasets]]``) used as the test matrix.
-        matrix_index: Matrix sample index when the dataset stores multiple matrices.
-            Defaults to 0.
         method: Optional path to a comparison TOML that overrides defaults.
         rhs_source: RHS source specification (`gaussian`, `sparse`, raw file, or `dataset`).
+        require_non_residual_rhs: Reject RHS rows flagged as solver-internal residuals.
+        seed: Optional selection seed forwarded to RHS/sample resolution.
         assignments: Optional assignment id filter; empty means all assignments.
         display_name: Optional human-facing label.
     """
 
-    id: str = Field(..., min_length=1)
     matrix_dataset: str
-    matrix_index: int = 0
     method: Path | None = None
     rhs_source: ComparisonRhsSourceModel
     require_non_residual_rhs: bool = True
@@ -254,6 +252,40 @@ class ComparisonRegistryEntry(BaseModel):
 
         return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
 
+
+class ComparisonRegistryEntry(_ComparisonDataBinding):
+    """Comparison registry entry: data binding + optional methodology override.
+
+    The test matrix and RHS are identified by dataset IDs from the case
+    ``[[datasets]]`` registry.  Solver parameters and the base preconditioner
+    list are inherited from ``[comparison_defaults]`` unless a ``method`` file
+    is given to override them.
+
+    Attributes:
+        id: Stable comparison identifier.
+        matrix_index: Matrix sample index when the dataset stores multiple matrices.
+            Defaults to 0. Mutually exclusive with `test_position`.
+        test_position: 0-indexed position within the dataset's pinned
+            `split.json` test fold. Resolves to a concrete matrix/row index at
+            runtime, guaranteed never to resolve to a training sample.
+            Mutually exclusive with `matrix_index`.
+    """
+
+    id: str = Field(..., min_length=1)
+    matrix_index: int = 0
+    test_position: int | None = None
+
+    @model_validator(mode="after")
+    def _check_matrix_index_test_position_exclusivity(self) -> ComparisonRegistryEntry:
+        """Raise when both matrix_index and test_position are explicitly set."""
+        fields_set = self.model_fields_set
+        if "matrix_index" in fields_set and "test_position" in fields_set:
+            raise ValueError(
+                "matrix_index and test_position are mutually exclusive: "
+                "use one or the other, not both."
+            )
+        return self
+
     @property
     def effective_display_name(self) -> str:
         """Return the configured label or fall back to the id."""
@@ -264,6 +296,79 @@ class ComparisonRegistryEntry(BaseModel):
         if self.matrix_index < 0:
             raise ValueError("matrix_index must be non-negative when provided.")
         return self
+
+
+class FractionSelector(BaseModel):
+    """Randomly sample a fraction of a dataset's pinned test fold."""
+
+    kind: Literal["fraction"] = "fraction"
+    p: float = Field(..., gt=0.0, le=1.0)
+    seed: int
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class AllSelector(BaseModel):
+    """Address every position in a dataset's pinned test fold."""
+
+    kind: Literal["all"] = "all"
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class FirstNSelector(BaseModel):
+    """Address the first ``n`` positions of a dataset's pinned test fold."""
+
+    kind: Literal["first_n"] = "first_n"
+    n: int = Field(..., gt=0)
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class SubsetSelector(BaseModel):
+    """Address an explicit, caller-chosen set of test-fold positions.
+
+    Positions are validated only for non-negativity here; whether a position
+    is in range for a given dataset's test fold is known only once that
+    dataset is resolved, so an out-of-range position surfaces at expansion
+    time the same way a single `test_position` already does.
+    """
+
+    kind: Literal["subset"] = "subset"
+    positions: list[int]
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @field_validator("positions")
+    @classmethod
+    def _validate_non_negative(cls, v: list[int]) -> list[int]:
+        negative = [p for p in v if p < 0]
+        if negative:
+            raise ValueError(f"SubsetSelector positions must be non-negative, got: {negative}.")
+        return v
+
+
+type TestSetSelector = Annotated[
+    FractionSelector | AllSelector | FirstNSelector | SubsetSelector,
+    Field(discriminator="kind"),
+]
+
+
+class ComparisonSweepEntry(_ComparisonDataBinding):
+    """One pinned-split sweep, expanded into many ``ComparisonRegistryEntry`` objects.
+
+    Unlike a fixed ``ComparisonRegistryEntry``, a sweep entry never names a
+    concrete position itself — ``selector`` resolves it per expansion, against
+    whichever dataset's pinned test fold ``matrix_dataset`` identifies.
+
+    Attributes:
+        selector: Which test-fold positions this sweep expands into.
+        id_prefix: Stem used to build each expanded entry's id, as
+            ``f"{id_prefix}-{position}"``.
+    """
+
+    selector: TestSetSelector
+    id_prefix: str = Field(..., min_length=1)
 
 
 def _dedupe_ids(kind: str, entries: Sequence[RegistryEntry | ComparisonRegistryEntry]) -> None:
@@ -345,6 +450,8 @@ class CaseConfig(BaseModel):
         datasets: Dataset registry entries (training data + comparison reference data).
         jobs: Job registry entries.
         comparisons: Comparison registry entries with data binding.
+        comparison_sweeps: Sweep entries, each expanded at batch time into
+            many ``ComparisonRegistryEntry`` objects via a ``TestSetSelector``.
         assignments: Assignment entries referencing registry ids.
         mlflow: MLflow topology config (tracking URI, etc.).
         names: MLflow experiment names for training and comparison.
@@ -355,6 +462,7 @@ class CaseConfig(BaseModel):
     datasets: list[RegistryEntry] = Field(default_factory=list)
     jobs: list[RegistryEntry] = Field(default_factory=list)
     comparisons: list[ComparisonRegistryEntry] = Field(default_factory=list)
+    comparison_sweeps: list[ComparisonSweepEntry] = Field(default_factory=list)
     assignments: list[AssignmentEntry] = Field(default_factory=list)
     mlflow: MlflowTopologyConfig = Field(default_factory=MlflowTopologyConfig)
     names: ExperimentNamesConfig = Field(default_factory=ExperimentNamesConfig)

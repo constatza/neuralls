@@ -30,12 +30,35 @@ from neuralls.shared.types import ComparisonRhsSourceKind
 
 def _resolve_runtime_index(
     entry: ComparisonRegistryEntry,
-    field_name: Literal["matrix_index"],
+    field_name: Literal["matrix_index", "test_position"],
 ) -> int | None:
     """Translate case-config defaults into runtime omission semantics."""
     if field_name not in entry.model_fields_set:
         return None
     return getattr(entry, field_name)
+
+
+def resolve_dataset_dir(
+    case_cfg: CaseConfig,
+    config_dir: Path,
+    dataset_id: str,
+    settings: NeurallsSettings,
+) -> Path:
+    """Resolve a ``[[datasets]]`` registry id into its concrete dataset directory.
+
+    Shared by ``resolve_comparison_config`` (a comparison entry's
+    ``matrix_dataset``) and ``expand_test_set_sweep``'s callers (a sweep
+    entry's ``matrix_dataset``) so both read the same dataset directory the
+    same way, instead of re-deriving it.
+    """
+    data_cfg = load_data_config(
+        resolve_dataset_config_path(case_cfg, config_dir, dataset_id), settings
+    )
+    return (
+        Path(data_cfg.output.data_dir) / data_cfg.id
+        if data_cfg.output.data_dir is not None
+        else settings.processed_dir / data_cfg.id
+    )
 
 
 def resolve_comparison_config(
@@ -83,15 +106,7 @@ def resolve_comparison_config(
         if override.general.params is not None:
             params_override = override.general.params.model_dump()
 
-    matrix_data_cfg = load_data_config(
-        resolve_dataset_config_path(case_cfg, config_dir, entry.matrix_dataset),
-        settings,
-    )
-    matrix_path = (
-        Path(matrix_data_cfg.output.data_dir) / matrix_data_cfg.id
-        if matrix_data_cfg.output.data_dir is not None
-        else settings.processed_dir / matrix_data_cfg.id
-    )
+    matrix_path = resolve_dataset_dir(case_cfg, config_dir, entry.matrix_dataset, settings)
     base_params: dict[str, Any] = {
         "rtol": defaults.rtol,
         "atol": defaults.atol,
@@ -109,6 +124,7 @@ def resolve_comparison_config(
                 matrix_path=matrix_path,
                 rhs_path=None,
                 matrix_index=_resolve_runtime_index(entry, "matrix_index"),
+                test_position=_resolve_runtime_index(entry, "test_position"),
                 normalize_system=normalize_system,
                 require_non_residual_rhs=entry.require_non_residual_rhs,
                 selection_seed=entry.seed,

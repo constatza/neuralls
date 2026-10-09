@@ -69,20 +69,6 @@ def load_dataset(
     return {"matrix": matrix, "rhs": rhs, "solutions": solutions}
 
 
-def has_comparison_split(dataset_dir: str | Path) -> bool:
-    """Check if dataset has a dedicated comparison split.
-
-    I/O action - checks filesystem.
-
-    Args:
-        dataset_dir: Directory containing dataset files
-
-    Returns:
-        True if a dedicated comparison split exists, False otherwise
-    """
-    return False
-
-
 def list_available_variants(dataset_dir: str | Path) -> list[str]:
     """List available dataset variants in directory.
 

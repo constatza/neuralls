@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -275,6 +276,23 @@ class UniformForwardConfig(BaseStrategyConfig):
 class UniformInverseConfig(UniformForwardConfig):
     """Configuration for UniformInverseStrategy."""
 
+    solve_config: SolveConfig = Field(
+        default_factory=_default_direct_solve_config,
+        description="Configuration for solving linear systems x = A^-1 @ b",
+    )
+
+
+class SinusoidalFieldConfig(BaseStrategyConfig):
+    """Configuration for SinusoidalFieldStrategy."""
+
+    omega: float = Field(
+        math.tau,
+        description=(
+            "Total phase (radians) swept across the vector in sin(omega/n * i + phi), "
+            "e.g. 2*pi*k for k full cycles — independent of the vector length n."
+        ),
+        gt=0,
+    )
     solve_config: SolveConfig = Field(
         default_factory=_default_direct_solve_config,
         description="Configuration for solving linear systems x = A^-1 @ b",

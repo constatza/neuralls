@@ -28,6 +28,7 @@ EXPECTED_STRATEGIES = {
     "scaled_solutions",
     "sparse_rhs",
     "smoother_filtered_probes",
+    "sinusoidal_field",
 }
 
 

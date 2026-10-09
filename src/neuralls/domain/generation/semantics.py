@@ -24,6 +24,7 @@ _NON_RESIDUAL_STRATEGIES: frozenset[GenerationStrategyKind] = frozenset(
         GenerationStrategyKind.CONSTANT_INVERSE,
         GenerationStrategyKind.NEUTRAL_ONES,
         GenerationStrategyKind.SMOOTHER_FILTERED_PROBES,
+        GenerationStrategyKind.SINUSOIDAL_FIELD,
     }
 )
 

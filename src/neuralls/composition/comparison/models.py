@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from neuralls.domain.solver.models.provenance import MatrixProvenance
 from neuralls.domain.solver.models.result import CGComparisonResult, ComparisonResult
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
@@ -126,7 +127,7 @@ class ResolvedComparisonInput:
     lhs: np.ndarray | None = None
     rhs_dataset_id: str | None = None
     rhs_sample_index: int | None = None
-    rhs_kind: RowKind | None = None
+    row_kind: RowKind | None = None
     rhs_source_kind: ComparisonRhsSourceKind | None = None
     rhs_source_params: dict[str, object] | None = None
     matrix_normalization: DatasetNormalization | None = None
@@ -134,6 +135,11 @@ class ResolvedComparisonInput:
     from, or None when the matrix came from a raw/external file with no
     manifest. Drives whether comparison-time code treats the matrix as
     already-normalized (skip/derive) or genuinely raw (compute fresh)."""
+    matrix_provenance: MatrixProvenance | None = None
+    """Whether this matrix was verified held-out via a pinned split, left
+    unverified (a raw matrix_index), or loaded cross-dataset. `None` only
+    for call sites that have not yet been migrated to attach it; new result
+    producers should always set it."""
 
     @property
     def rhs_source_type(self) -> str:

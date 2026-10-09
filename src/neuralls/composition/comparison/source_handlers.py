@@ -13,7 +13,9 @@ from neuralls.composition.comparison.rhs_generation import (
     generate_gaussian_rhs,
     generate_sparse_rhs,
 )
+from neuralls.domain.solver.models.provenance import CrossDatasetMatrix
 from neuralls.platform.config.models.comparison import (
+    CrossDatasetRhsSourceModel,
     DatasetRhsSourceModel,
     GaussianRhsSourceModel,
     RawLhsSourceModel,
@@ -31,7 +33,7 @@ from neuralls.platform.storage.validation import (
     validate_comparison_matrix_input,
     validate_comparison_rhs_input,
 )
-from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
+from neuralls.shared.types import ComparisonRhsSourceKind, MatrixId, RowKind
 
 
 @dataclass(frozen=True)
@@ -200,7 +202,7 @@ class RawLhsSourceHandler:
             matrix_dataset_id=ctx.matrix_dataset_id,
             matrix_index=matrix_index,
             rhs_sample_index=cfg.sample_index,
-            rhs_kind=cfg.row_kind,
+            row_kind=cfg.row_kind,
             rhs_source_kind=ctx.rhs_source_kind,
             rhs_source_params=ctx.rhs_source_params,
             matrix_normalization=try_read_dataset_normalization(ctx.matrix_path),
@@ -242,7 +244,7 @@ class RawRhsSourceHandler:
             matrix_dataset_id=ctx.matrix_dataset_id,
             matrix_index=matrix_index,
             rhs_sample_index=cfg.sample_index,
-            rhs_kind=cfg.row_kind,
+            row_kind=cfg.row_kind,
             rhs_source_kind=ctx.rhs_source_kind,
             rhs_source_params=ctx.rhs_source_params,
             matrix_normalization=try_read_dataset_normalization(ctx.matrix_path),
@@ -280,10 +282,57 @@ class DatasetSourceHandler:
             matrix_index=triplet.matrix_index,
             rhs_dataset_id=str(cfg.path),
             rhs_sample_index=triplet.sample_index,
-            rhs_kind=triplet.row_kind,
+            row_kind=triplet.row_kind,
             rhs_source_kind=ctx.rhs_source_kind,
             rhs_source_params=ctx.rhs_source_params,
             matrix_normalization=triplet.normalization,
+        )
+
+
+@dataclass(frozen=True)
+class CrossDatasetSourceHandler:
+    """Resolve matrix+RHS from an explicitly different dataset directory.
+
+    Opt-in and additive: never reads or depends on `split.json` for either
+    the home comparison dataset or the cross dataset — there is no "test
+    fold" concept for data that was never part of this training run.
+    """
+
+    def validate(self, spec: ComparisonSourceSpec) -> None:
+        """Only the cross dataset's own path is checked."""
+        source = CrossDatasetRhsSourceModel.model_validate(
+            {"kind": spec.rhs_source_kind, **(spec.rhs_source_params or {})}
+        )
+        validate_comparison_rhs_input(source.path)
+
+    def resolve(self, ctx: ComparisonSourceContext) -> ResolvedComparisonInput:
+        cfg = CrossDatasetRhsSourceModel.model_validate(
+            {"kind": ctx.rhs_source_kind, **(ctx.rhs_source_params or {})}
+        )
+        if not cfg.path.is_dir():
+            raise ValueError(f"Cross-dataset RHS source must be a directory, got file: {cfg.path}")
+        triplet = resolve_canonical_training_triplet(
+            cfg.path,
+            cfg.sample_index,
+            require_standard=ctx.require_non_residual_rhs,
+            matrix_index=ctx.matrix_index,
+        )
+        return ResolvedComparisonInput(
+            matrix=triplet.matrix,
+            rhs=triplet.rhs,
+            lhs=triplet.lhs,
+            matrix_dataset_id=ctx.matrix_dataset_id,
+            matrix_index=triplet.matrix_index,
+            rhs_dataset_id=str(cfg.path),
+            rhs_sample_index=triplet.sample_index,
+            row_kind=triplet.row_kind,
+            rhs_source_kind=ctx.rhs_source_kind,
+            rhs_source_params=ctx.rhs_source_params,
+            matrix_normalization=triplet.normalization,
+            matrix_provenance=CrossDatasetMatrix(
+                dataset_id=str(cfg.path),
+                raw_matrix_index=MatrixId(triplet.matrix_index),
+            ),
         )
 
 
@@ -293,6 +342,7 @@ _SOURCE_HANDLERS: dict[ComparisonRhsSourceKind, ComparisonSourceHandler] = {
     ComparisonRhsSourceKind.RAW_LHS: RawLhsSourceHandler(),
     ComparisonRhsSourceKind.RAW_RHS: RawRhsSourceHandler(),
     ComparisonRhsSourceKind.DATASET: DatasetSourceHandler(),
+    ComparisonRhsSourceKind.CROSS_DATASET: CrossDatasetSourceHandler(),
 }
 
 

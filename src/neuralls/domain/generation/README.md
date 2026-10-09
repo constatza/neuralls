@@ -204,6 +204,23 @@ Start with the simplest family that matches the model target.
 | Advanced | `residuals` | `(r_k, x_true - x_k)` |
 | Advanced | `gaussian_residuals` | `(r_k, x_true - x_k)` |
 | Advanced | `smoother_filtered_probes` | trace pairs, `x` = random probes damped by weighted-Jacobi sweeps |
+| Basic | `sinusoidal_field` | `(b, x)`, `b[i]` = `sin(omega/n * i + phi)` |
+
+## Sinusoidal Field
+
+`sinusoidal_field` (`strategies/sinusoidal_field.py`) draws RHS entries from
+a 1D sinusoid over the vector's own index: entry `i` of each sample is
+`sin(omega/n * i + phi)`, where `n` is the vector length, with `phi` drawn
+uniformly from the strategy's seeded RNG once per sample, then solved for
+`x = A^-1 @ b`. `omega` (config field, default `2*pi`) is normalized by `n`
+so it reads as "total radians of phase swept across the whole vector" (e.g.
+`2*pi*k` for `k` full cycles) rather than "radians per index step" — the
+same `omega` produces a comparably-shaped waveform whether the matrix is
+size 100 or 10000, instead of oscillating faster as `n` grows. Unlike every
+other strategy in this package (which draws entries independently), this
+produces a smooth, structured RHS that still varies sample-to-sample and
+reproduces exactly under a fixed seed — useful as a comparison RHS
+distribution unrelated to whatever random family trained the preconditioner.
 
 ## Smoother-Filtered Probes
 
@@ -544,13 +561,12 @@ filenames beyond what the manifest declares.
 Generated datasets also persist row-level comparison metadata in the same
 storage family as the dataset itself. The persisted metadata artifacts are:
 
-- `rhs_kind`
-- `target_kind`
+- `row_kind`
 - `matrix_sample_index`
 
 Internal workflow logic uses `StrEnum` semantic types, while storage encodes
 those enums as compact integer arrays through shared pure codecs. Safe
-comparison selection is derived from the persisted `rhs_kind` metadata rather
+comparison selection is derived from the persisted `row_kind` metadata rather
 than from a separate stored allowlist.
 
 ## Normalization Metadata

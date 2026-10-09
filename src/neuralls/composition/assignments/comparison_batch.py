@@ -24,13 +24,21 @@ from neuralls.composition.assignments.model_resolution import (
 )
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
 from neuralls.composition.comparison.comparison_run import compare_preconditioners
-from neuralls.composition.comparison.config_assembler import resolve_comparison_config
+from neuralls.composition.comparison.config_assembler import (
+    resolve_comparison_config,
+    resolve_dataset_dir,
+)
 from neuralls.composition.comparison.models import ComparisonOutcome, ComparisonParams
+from neuralls.composition.comparison.pinned_split import (
+    resolve_test_matrix_indices,
+    resolve_test_row_indices,
+)
 from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
 from neuralls.composition.comparison.source_handlers import (
     ComparisonSourceSpec,
     validate_comparison_source,
 )
+from neuralls.composition.comparison.test_set_sweep import expand_test_set_sweep
 from neuralls.composition.identity.comparison import comparison_identity
 from neuralls.composition.identity.gate import gate_reuse
 from neuralls.composition.identity.training import training_identity
@@ -41,6 +49,7 @@ from neuralls.composition.tracking.run_specs import (
     build_session_run_spec,
 )
 from neuralls.domain.identity import StageIdentity
+from neuralls.domain.solver.models.provenance import PinnedSplitMatrix, UnverifiedMatrix
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.loaders import load_data_config
@@ -87,7 +96,7 @@ from neuralls.platform.tracking.mlflow_client import log_comparison_artifacts_to
 from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
 from neuralls.platform.tracking.model_registry import build_registered_model_name
 from neuralls.shared.digest import Digest, content_digest
-from neuralls.shared.types import ComparisonRhsSourceKind
+from neuralls.shared.types import ComparisonRhsSourceKind, MatrixId, TestPosition
 
 
 @dataclass(frozen=True)
@@ -590,15 +599,52 @@ def _run_comparison_with_resolved_specs(
 ) -> ComparisonResult:
     """Run comparison with already-resolved preconditioner checkpoint paths."""
     rhs_source_kind = _require_rhs_source_kind(cfg)
+    matrix_path = Path(cfg.general.data.matrix_path)
+    test_position = cfg.general.data.test_position
+    matrix_index = cfg.general.data.matrix_index
+    rhs_source_params = cfg.general.data.rhs_source_params
+    if test_position is not None:
+        if rhs_source_kind is ComparisonRhsSourceKind.DATASET:
+            test_rows = resolve_test_row_indices(matrix_path)
+            if test_position >= len(test_rows):
+                raise IndexError(
+                    f"test_position={test_position} is out of range for dataset "
+                    f"'{matrix_path}', which has {len(test_rows)} test-fold rows."
+                )
+            resolved_row = test_rows[test_position]
+            rhs_source_params = {**(rhs_source_params or {}), "sample_index": resolved_row}
+        else:
+            test_matrix_indices = resolve_test_matrix_indices(matrix_path)
+            if test_position >= len(test_matrix_indices):
+                raise IndexError(
+                    f"test_position={test_position} is out of range for dataset "
+                    f"'{matrix_path}', which has {len(test_matrix_indices)} test-fold matrices."
+                )
+            matrix_index = test_matrix_indices[test_position]
+
     resolved_input = resolve_comparison_input(
-        matrix_path=Path(cfg.general.data.matrix_path),
+        matrix_path=matrix_path,
         matrix_dataset_id=entry.matrix_dataset,
-        matrix_index=cfg.general.data.matrix_index,
+        matrix_index=matrix_index,
         require_non_residual_rhs=cfg.general.data.require_non_residual_rhs,
         seed=cfg.general.data.selection_seed,
         rhs_source_kind=rhs_source_kind,
-        rhs_source_params=cfg.general.data.rhs_source_params,
+        rhs_source_params=rhs_source_params,
     )
+    if resolved_input.matrix_provenance is None:
+        # Source handlers that know their own provenance (e.g. cross-dataset)
+        # set it directly; every other kind is pinned-split or unverified
+        # depending only on whether a test_position was requested here.
+        if test_position is not None:
+            matrix_provenance = PinnedSplitMatrix(
+                test_position=TestPosition(test_position),
+                raw_matrix_index=MatrixId(resolved_input.matrix_index),
+            )
+        else:
+            matrix_provenance = UnverifiedMatrix(
+                raw_matrix_index=MatrixId(resolved_input.matrix_index)
+            )
+        resolved_input = replace(resolved_input, matrix_provenance=matrix_provenance)
     staged_input_dir = stage_comparison_inputs(
         work_root,
         ComparisonInputArtifacts(
@@ -610,9 +656,10 @@ def _run_comparison_with_resolved_specs(
             lhs=resolved_input.lhs,
             rhs_dataset_id=resolved_input.rhs_dataset_id,
             rhs_sample_index=resolved_input.rhs_sample_index,
-            rhs_kind=resolved_input.rhs_kind,
+            row_kind=resolved_input.row_kind,
             rhs_source_kind=resolved_input.rhs_source_kind,
             rhs_source_params=resolved_input.rhs_source_params,
+            matrix_provenance=resolved_input.matrix_provenance,
         ),
     )
     raw_result = compare_preconditioners(
@@ -844,7 +891,7 @@ def _prepare_comparison_entry(
         logger.info("Comparison '{}': resolving preconditioner checkpoints.", entry.id)
         try:
             resolved = _resolve_comparison_specs(cfg, context, artifact_leases)
-        except (ValueError, RuntimeError, KeyError) as exc:
+        except (ValueError, RuntimeError, KeyError, IndexError) as exc:
             return _comparison_failure_outcome(entry, exc)
         logger.info(
             "Comparison '{}': resolved {} preconditioners with {} warnings.",
@@ -898,7 +945,7 @@ def _execute_prepared_comparison(prepared: _PreparedComparisonExecution) -> Comp
             entry=prepared.entry, include_timestamp=False
         )
         return _execute_comparison_in_run(prepared, run_name=run_name, comp_tags=comp_tags)
-    except (ValueError, RuntimeError, KeyError) as exc:
+    except (ValueError, RuntimeError, KeyError, IndexError) as exc:
         return _comparison_failure_outcome(prepared.entry, exc)
 
 
@@ -958,6 +1005,25 @@ def _validate_comparison_sources(cfg: ComparisonConfig) -> None:
     )
 
 
+def _expand_comparison_sweeps(
+    master_cfg: CaseConfig,
+    config_dir: Path,
+    settings: NeurallsSettings,
+) -> list[ComparisonRegistryEntry]:
+    """Expand every `[[comparison_sweeps]]` entry into concrete comparison entries.
+
+    Each expanded entry flows into `_prepare_all_comparisons` indistinguishable
+    from a hand-written `[[comparisons]]` entry with `test_position` set.
+    """
+    expanded: list[ComparisonRegistryEntry] = []
+    for sweep_entry in master_cfg.comparison_sweeps:
+        dataset_dir = resolve_dataset_dir(
+            master_cfg, config_dir, sweep_entry.matrix_dataset, settings
+        )
+        expanded.extend(expand_test_set_sweep(sweep_entry, dataset_dir=dataset_dir))
+    return expanded
+
+
 def _prepare_all_comparisons(
     master_cfg: CaseConfig,
     topology: ComparisonTopology,
@@ -968,10 +1034,14 @@ def _prepare_all_comparisons(
     *,
     force: bool,
 ) -> list[ComparisonOutcome | _PreparedComparisonExecution]:
-    """Resolve + reuse-check every [[comparisons]] entry. Opens no MLflow run.
+    """Resolve + reuse-check every [[comparisons]]/[[comparison_sweeps]] entry.
 
-    Entries needing execution have their cleanup registered onto `stack`,
-    which the caller must keep open until after execution.
+    Opens no MLflow run. Every `[[comparison_sweeps]]` entry is expanded into
+    concrete `ComparisonRegistryEntry` objects first (`_expand_comparison_sweeps`),
+    so sweep-expanded entries are resolved and reuse-checked exactly like any
+    hand-written `[[comparisons]]` entry. Entries needing execution have their
+    cleanup registered onto `stack`, which the caller must keep open until
+    after execution.
 
     Returns:
         One outcome-or-prepared-execution per entry, in declared config order.
@@ -984,7 +1054,11 @@ def _prepare_all_comparisons(
         master_cfg=master_cfg,
     )
     pending: list[ComparisonOutcome | _PreparedComparisonExecution] = []
-    for entry in master_cfg.comparisons:
+    all_entries = [
+        *master_cfg.comparisons,
+        *_expand_comparison_sweeps(master_cfg, config_dir, settings),
+    ]
+    for entry in all_entries:
         logger.info(f"Comparison [{entry.id}]: {entry.effective_display_name}")
         assignment_entries: list[AssignmentEntry] = (
             [e for e in master_cfg.assignments if e.id in entry.assignments]
@@ -1033,13 +1107,16 @@ def run_comparison_batch(
         settings: Optional pre-loaded runtime settings.
 
     Returns:
-        List of comparison outcomes, one per [[comparisons]] entry, in
-        declared config order.
+        List of comparison outcomes, one per [[comparisons]] entry plus one per
+        position expanded from each [[comparison_sweeps]] entry, in declared
+        config order (sweep-expanded entries follow all [[comparisons]] entries).
     """
     settings = require_settings(settings, case_config_path=case_config_path)
     master_cfg, _ = _load_master_config(case_config_path, settings)
-    if not master_cfg.comparisons:
-        raise ValueError("Case config must define at least one [[comparisons]] entry.")
+    if not master_cfg.comparisons and not master_cfg.comparison_sweeps:
+        raise ValueError(
+            "Case config must define at least one [[comparisons]] or [[comparison_sweeps]] entry."
+        )
 
     topology = _resolve_comparison_topology(case_config_path, settings)
     mlflow_client = MlflowClient(tracking_uri=topology.model_store_tracking_uri)

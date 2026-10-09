@@ -10,13 +10,23 @@ Moving cross-boundary types here prevents upward dependencies, e.g. io → gener
 from __future__ import annotations
 
 from enum import Enum, StrEnum
-from typing import Literal, TypedDict
+from typing import Literal, NewType, TypedDict
 
 import numpy as np
 from scipy.sparse import csr_array
 
 DatasetFormat = Literal["zarr", "npy", "hdf5"]
 """Supported dataset storage families for generated datasets."""
+
+TestPosition = NewType("TestPosition", int)
+"""A 0-indexed position within a pinned split's `test` fold — never a raw row
+or matrix index, so it can never resolve to a training sample by construction."""
+
+MatrixId = NewType("MatrixId", int)
+"""A raw physical matrix index within a comparison dataset directory."""
+
+RhsId = NewType("RhsId", int)
+"""A raw row/sample index identifying one RHS within a comparison dataset directory."""
 
 EntryRole = Literal["feature", "target"]
 """Runtime dataset entry roles understood by neuralls bridge code."""
@@ -86,6 +96,7 @@ class ComparisonRhsSourceKind(StrEnum):
     RAW_LHS = "raw_lhs"
     RAW_RHS = "raw_rhs"
     DATASET = "dataset"
+    CROSS_DATASET = "cross_dataset"
 
 
 class CostProvenance(StrEnum):
@@ -171,6 +182,7 @@ class GenerationStrategyKind(StrEnum):
     CONSTANT_INVERSE = "constant_inverse"
     NEUTRAL_ONES = "neutral_ones"
     SMOOTHER_FILTERED_PROBES = "smoother_filtered_probes"
+    SINUSOIDAL_FIELD = "sinusoidal_field"
 
 
 class EigenvectorSelection(StrEnum):

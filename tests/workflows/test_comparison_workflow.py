@@ -248,6 +248,7 @@ def _mock_cfg(
     cfg.general.data.matrix_path = matrix_path
     cfg.general.data.rhs_path = rhs_path
     cfg.general.data.matrix_index = 0
+    cfg.general.data.test_position = None
     cfg.general.data.dataset_alias = None
     cfg.general.data.normalize_system = "matrix"
     cfg.general.data.require_non_residual_rhs = True
@@ -435,6 +436,27 @@ def test_resolve_comparison_config_recovers_omitted_index_semantics(tmp_path: Pa
     assert explicit_cfg.general.data.matrix_index == 0
     assert explicit_cfg.general.data.rhs_source_params is not None
     assert explicit_cfg.general.data.rhs_source_params["sample_index"] == 0
+
+
+def test_comparison_registry_entry_rejects_matrix_index_and_test_position_together() -> None:
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        ComparisonRegistryEntry(
+            id="both",
+            matrix_dataset="matrix",
+            matrix_index=1,
+            test_position=0,
+            rhs_source={"kind": "gaussian"},
+        )
+
+
+def test_comparison_registry_entry_allows_test_position_alone() -> None:
+    entry = ComparisonRegistryEntry(
+        id="test-position-only",
+        matrix_dataset="matrix",
+        test_position=0,
+        rhs_source={"kind": "gaussian"},
+    )
+    assert entry.test_position == 0
 
 
 def test_resolve_comparison_config_carries_generated_rhs_without_rhs_path(
@@ -769,6 +791,182 @@ def test_run_comparison_uses_explicit_entry_indices(
     assert mock_compare.call_args.kwargs["general_params"].data.matrix_index == 4
     assert (
         mock_compare.call_args.kwargs["general_params"].data.rhs_source_params["sample_index"] == 9
+    )
+
+
+def _build_split_pinned_dataset(root: Path) -> Path:
+    """Single-matrix, 3-row dataset with a pinned split test fold of rows (1, 2)."""
+    from dlkit.infrastructure.io.index import save_split_indices
+    from dlkit.infrastructure.types.split import IndexSplit
+
+    from neuralls.composition.generation.dataset_builder import build_dataset
+    from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+
+    root.mkdir(parents=True, exist_ok=True)
+    matrix = np.array([[4.0, -1.0], [-1.0, 3.0]], dtype=np.float64)
+    matrix_path = root / "matrix.npy"
+    np.save(matrix_path, matrix)
+    dataset_dir = root / "dataset"
+    build_dataset(
+        SourceSpec(matrix_path=str(matrix_path)),
+        DatasetSpec(
+            mixture=MixtureSpec(counts={"neutral_ones": 3}, seed=42, shuffle=False),
+            normalize="none",
+        ),
+        str(dataset_dir),
+        dataset_format="hdf5",
+    )
+    save_split_indices(
+        IndexSplit(train=(0,), validation=(), test=(1, 2), predict=None),
+        dataset_dir / "split.json",
+    )
+    return dataset_dir
+
+
+def test_run_comparison_test_position_resolves_dataset_sample_index(
+    tmp_path: Path, stub_comparison_result: ComparisonResult
+) -> None:
+    """A dataset-kind comparison with test_position resolves a pinned-split row."""
+    experiments_config = tmp_path / "experiments.toml"
+    _write_experiments_config(experiments_config)
+    dataset_dir = _build_split_pinned_dataset(tmp_path)
+    cfg = _mock_cfg(
+        matrix_path=dataset_dir,
+        rhs_path=None,
+        preconditioners=[
+            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
+        ],
+    )
+    cfg.general.data.test_position = 0
+    cfg.general.data.rhs_source_kind = ComparisonRhsSourceKind.DATASET
+    cfg.general.data.rhs_source_params = {"path": dataset_dir}
+    cfg.general.data.matrix_index = None
+    entry = _make_entry()
+    settings = _make_settings(tmp_path)
+
+    with (
+        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result) as mock_compare,
+        patch(_MLFLOW_MODULE) as mock_mlflow,
+        patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
+        patch(_SETUP_TRACKING),
+        patch(_LOG_COMPARISON_ARTIFACTS),
+    ):
+        _configure_mock_mlflow(mock_mlflow)
+        topology = _resolve_comparison_topology(experiments_config, settings)
+        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+
+    assert outcomes[0].success is True
+    resolved_input = mock_compare.call_args.kwargs["resolved_input"]
+    assert resolved_input.rhs_sample_index == 1
+    from neuralls.domain.solver.models.provenance import PinnedSplitMatrix
+
+    assert isinstance(resolved_input.matrix_provenance, PinnedSplitMatrix)
+    assert resolved_input.matrix_provenance.test_position == 0
+    assert resolved_input.matrix_provenance.raw_matrix_index == resolved_input.matrix_index
+
+
+def test_run_comparison_test_position_resolves_matrix_index_for_non_dataset_kind(
+    tmp_path: Path, stub_comparison_result: ComparisonResult
+) -> None:
+    """A generated-RHS comparison with test_position resolves a pinned-split matrix."""
+    experiments_config = tmp_path / "experiments.toml"
+    _write_experiments_config(experiments_config)
+    dataset_dir = _build_split_pinned_dataset(tmp_path)
+    cfg = _mock_cfg(
+        matrix_path=dataset_dir,
+        rhs_path=None,
+        preconditioners=[
+            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
+        ],
+    )
+    cfg.general.data.test_position = 0
+    cfg.general.data.matrix_index = None
+    entry = _make_entry()
+    settings = _make_settings(tmp_path)
+
+    with (
+        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result) as mock_compare,
+        patch(_MLFLOW_MODULE) as mock_mlflow,
+        patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
+        patch(_SETUP_TRACKING),
+        patch(_LOG_COMPARISON_ARTIFACTS),
+    ):
+        _configure_mock_mlflow(mock_mlflow)
+        topology = _resolve_comparison_topology(experiments_config, settings)
+        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+
+    assert outcomes[0].success is True
+    resolved_input = mock_compare.call_args.kwargs["resolved_input"]
+    assert resolved_input.matrix_index == 0
+    from neuralls.domain.solver.models.provenance import PinnedSplitMatrix
+
+    assert resolved_input.matrix_provenance == PinnedSplitMatrix(
+        test_position=0, raw_matrix_index=0
+    )
+
+
+def test_run_comparison_test_position_out_of_range_raises(tmp_path: Path) -> None:
+    experiments_config = tmp_path / "experiments.toml"
+    _write_experiments_config(experiments_config)
+    dataset_dir = _build_split_pinned_dataset(tmp_path)
+    cfg = _mock_cfg(
+        matrix_path=dataset_dir,
+        rhs_path=None,
+        preconditioners=[
+            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
+        ],
+    )
+    cfg.general.data.test_position = 5
+    cfg.general.data.matrix_index = None
+    entry = _make_entry()
+    settings = _make_settings(tmp_path)
+
+    with (
+        patch(_MLFLOW_MODULE) as mock_mlflow,
+        patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
+        patch(_SETUP_TRACKING),
+    ):
+        _configure_mock_mlflow(mock_mlflow)
+        topology = _resolve_comparison_topology(experiments_config, settings)
+        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+
+    assert outcomes[0].success is False
+    assert "out of range" in (outcomes[0].error or "")
+
+
+def test_run_comparison_without_test_position_carries_unverified_matrix_provenance(
+    tmp_path: Path, stub_comparison_result: ComparisonResult
+) -> None:
+    experiments_config = tmp_path / "experiments.toml"
+    _write_experiments_config(experiments_config)
+    matrix_path, rhs_path = _write_system_inputs(tmp_path)
+    cfg = _mock_cfg(
+        matrix_path=matrix_path,
+        rhs_path=rhs_path,
+        preconditioners=[
+            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
+        ],
+    )
+    entry = _make_entry()
+    settings = _make_settings(tmp_path)
+
+    with (
+        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result) as mock_compare,
+        patch(_MLFLOW_MODULE) as mock_mlflow,
+        patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
+        patch(_SETUP_TRACKING),
+        patch(_LOG_COMPARISON_ARTIFACTS),
+    ):
+        _configure_mock_mlflow(mock_mlflow)
+        topology = _resolve_comparison_topology(experiments_config, settings)
+        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+
+    assert outcomes[0].success is True
+    resolved_input = mock_compare.call_args.kwargs["resolved_input"]
+    from neuralls.domain.solver.models.provenance import UnverifiedMatrix
+
+    assert resolved_input.matrix_provenance == UnverifiedMatrix(
+        raw_matrix_index=resolved_input.matrix_index
     )
 
 
@@ -1393,3 +1591,100 @@ def test_log_comparison_result_metrics_logs_child_scalar_metrics(tmp_path: Path)
     assert metric_map["iterations"] == 2
     assert metric_map["final_residual"] == pytest.approx(1.0e-8)
     assert metric_map["converged"] == 1
+
+
+def _build_sweep_dataset(settings: NeurallsSettings) -> Path:
+    """Single-matrix dataset at `settings.processed_dir / "solutions"` with a 4-row test fold."""
+    from dlkit.infrastructure.io.index import save_split_indices
+    from dlkit.infrastructure.types.split import IndexSplit
+
+    from neuralls.composition.generation.dataset_builder import build_dataset
+    from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+
+    root = settings.processed_dir
+    root.mkdir(parents=True, exist_ok=True)
+    matrix = np.array([[4.0, -1.0], [-1.0, 3.0]], dtype=np.float64)
+    matrix_path = root / "matrix.npy"
+    np.save(matrix_path, matrix)
+    dataset_dir = root / "solutions"
+    build_dataset(
+        SourceSpec(matrix_path=str(matrix_path)),
+        DatasetSpec(
+            mixture=MixtureSpec(counts={"neutral_ones": 5}, seed=42, shuffle=False),
+            normalize="none",
+        ),
+        str(dataset_dir),
+        dataset_format="hdf5",
+    )
+    save_split_indices(
+        IndexSplit(train=(0,), validation=(), test=(1, 2, 3, 4), predict=None),
+        dataset_dir / "split.json",
+    )
+    return dataset_dir
+
+
+def test_comparison_sweep_expands_into_distinct_pinned_split_outcomes(
+    tmp_path: Path, stub_comparison_result: ComparisonResult
+) -> None:
+    """A `[[comparison_sweeps]]` FirstNSelector(n=3) entry runs 3 comparisons.
+
+    Each expanded comparison carries a distinct `test_position` (0, 1, 2) and
+    `PinnedSplitMatrix` provenance, exactly like a hand-written
+    `[[comparisons]]` entry with `test_position` set.
+    """
+    settings = _make_settings(tmp_path)
+    dataset_dir = _build_sweep_dataset(settings)
+
+    experiments_config = tmp_path / "experiments.toml"
+    payload: dict[str, object] = {
+        "mlflow": {"tracking_uri": build_sqlite_tracking_uri(tmp_path / "mlruns" / "mlflow.db")},
+        "names": {"training": "neuralls-training", "comparison": "Comparisons"},
+        "comparison_defaults": {
+            "rtol": 1.0e-6,
+            "atol": 1.0e-14,
+            "max_iterations": 10,
+            "stopping_criterion": "residual_norm",
+            "m_max": 20,
+            "preconditioners": [{"name": "identity", "type": "identity"}],
+        },
+        "datasets": [{"id": "solutions", "path": "datasets/solutions.toml"}],
+        "comparison_sweeps": [
+            {
+                "matrix_dataset": "solutions",
+                "rhs_source": {"kind": "dataset", "path": str(dataset_dir)},
+                "selector": {"kind": "first_n", "n": 3},
+                "id_prefix": "sweep",
+            }
+        ],
+    }
+    (tmp_path / "datasets").mkdir(exist_ok=True)
+    _write_dataset_config(tmp_path / "datasets" / "solutions.toml", "solutions")
+    with experiments_config.open("wb") as fh:
+        tomli_w.dump(payload, fh)
+
+    with (
+        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result) as mock_compare,
+        patch(_MLFLOW_MODULE) as mock_mlflow,
+        patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
+        patch(_SETUP_TRACKING),
+        patch(_LOG_COMPARISON_ARTIFACTS),
+    ):
+        _configure_mock_mlflow(mock_mlflow)
+        outcomes = run_comparison_batch(experiments_config, ComparisonParams(), settings)
+
+    assert len(outcomes) == 3
+    assert all(outcome.success for outcome in outcomes)
+    assert [outcome.comparison_id for outcome in outcomes] == [
+        "sweep-0",
+        "sweep-1",
+        "sweep-2",
+    ]
+
+    from neuralls.domain.solver.models.provenance import PinnedSplitMatrix
+
+    provenances = [
+        call.kwargs["resolved_input"].matrix_provenance for call in mock_compare.call_args_list
+    ]
+    assert len(provenances) == 3
+    assert all(isinstance(p, PinnedSplitMatrix) for p in provenances)
+    assert sorted(p.test_position for p in provenances) == [0, 1, 2]

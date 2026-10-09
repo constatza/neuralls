@@ -53,7 +53,7 @@ def test_resolve_comparison_input_selects_canonical_dataset_triplet(tmp_path: Pa
     assert resolved.rhs_source_type == "dataset"
     assert resolved.rhs_dataset_id == str(dataset_dir)
     assert resolved.rhs_sample_index == 0
-    assert resolved.rhs_kind is RowKind.STANDARD
+    assert resolved.row_kind is RowKind.STANDARD
     assert resolved.matrix.shape == (2, 2)
     assert resolved.rhs.shape == (2,)
 
@@ -136,7 +136,7 @@ def test_resolve_comparison_input_loads_raw_rhs_with_explicit_row_kind(tmp_path:
     np.testing.assert_allclose(resolved.rhs, np.array([3.0, -2.0], dtype=np.float64))
     assert resolved.rhs_source_type == "raw_rhs"
     assert resolved.rhs_sample_index == 1
-    assert resolved.rhs_kind is RowKind.STANDARD
+    assert resolved.row_kind is RowKind.STANDARD
     assert resolved.rhs_source_kind is ComparisonRhsSourceKind.RAW_RHS
     assert resolved.lhs is None
 
@@ -165,7 +165,7 @@ def test_resolve_comparison_input_scales_raw_lhs_into_rhs(tmp_path: Path) -> Non
     np.testing.assert_allclose(resolved.lhs, np.array([2.0, -1.0], dtype=np.float64))
     assert resolved.rhs_source_type == "raw_lhs"
     assert resolved.rhs_sample_index == 0
-    assert resolved.rhs_kind is RowKind.STANDARD
+    assert resolved.row_kind is RowKind.STANDARD
     assert resolved.rhs_source_kind is ComparisonRhsSourceKind.RAW_LHS
 
 
@@ -310,7 +310,52 @@ def test_resolve_comparison_input_loads_explicit_dataset_triplet(tmp_path: Path)
     assert resolved.rhs_source_type == "dataset"
     assert resolved.rhs_dataset_id == str(rhs_source)
     assert resolved.rhs_sample_index == 1
-    assert resolved.rhs_kind is RowKind.STANDARD
+    assert resolved.row_kind is RowKind.STANDARD
     assert resolved.rhs_source_kind is ComparisonRhsSourceKind.DATASET
     assert resolved.matrix.shape == (2, 2)
     assert resolved.rhs.shape == (2,)
+
+
+def test_resolve_comparison_input_cross_dataset_loads_other_dataset_triplet(
+    tmp_path: Path,
+) -> None:
+    """cross_dataset resolves matrix+RHS from an explicitly different dataset, tagged accordingly."""
+    from neuralls.domain.solver.models.provenance import CrossDatasetMatrix
+
+    other_dataset = _build_safe_dataset(tmp_path / "other")
+
+    resolved = resolve_comparison_input(
+        matrix_path=other_dataset,
+        matrix_dataset_id="home-dataset",
+        matrix_index=None,
+        require_non_residual_rhs=True,
+        seed=None,
+        rhs_source_kind=ComparisonRhsSourceKind.CROSS_DATASET,
+        rhs_source_params={"path": other_dataset, "sample_index": 0},
+    )
+
+    assert resolved.rhs_source_kind is ComparisonRhsSourceKind.CROSS_DATASET
+    assert resolved.rhs_dataset_id == str(other_dataset)
+    assert isinstance(resolved.matrix_provenance, CrossDatasetMatrix)
+    assert resolved.matrix_provenance.dataset_id == str(other_dataset)
+    assert resolved.matrix_provenance.raw_matrix_index == resolved.matrix_index
+
+
+def test_resolve_comparison_input_cross_dataset_does_not_require_split_json(
+    tmp_path: Path,
+) -> None:
+    """cross_dataset works fine even when the other dataset has no pinned split at all."""
+    other_dataset = _build_safe_dataset(tmp_path / "other")
+    assert not (other_dataset / "split.json").exists()
+
+    resolved = resolve_comparison_input(
+        matrix_path=other_dataset,
+        matrix_dataset_id="home-dataset",
+        matrix_index=None,
+        require_non_residual_rhs=True,
+        seed=None,
+        rhs_source_kind=ComparisonRhsSourceKind.CROSS_DATASET,
+        rhs_source_params={"path": other_dataset},
+    )
+
+    assert resolved.matrix.shape == (2, 2)

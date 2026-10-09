@@ -259,11 +259,10 @@ write-once/read-many) is still not picked up without a process restart.
 Safe comparison selection relies on manifest-declared metadata artifacts stored
 in the dataset's native format. Mature datasets may expose:
 
-- `rhs_kind`
-- `target_kind`
+- `row_kind`
 - `matrix_sample_index`
 
-Readers derive safe RHS candidates from `rhs_kind`; they do not trust ad hoc
+Readers derive safe RHS candidates from `row_kind`; they do not trust ad hoc
 filenames or stored allowlists. Storage owns persistence and artifact
 resolution, while the compact integer encoding/decoding boundary lives in
 shared pure codecs so domain and composition code do not depend on platform.
@@ -276,8 +275,17 @@ dataset-backed `rhs_source` entries resolve a canonical manifest-backed triplet
 instead. Dataset sources use `sample_index` when provided and otherwise select
 the first STANDARD row. `raw_rhs` sources point at concrete RHS vector files;
 `raw_lhs` sources point at concrete solution-side vector files that comparison
-transforms into an RHS with `A @ vector` and the configured scale. Platform does
-not infer held-out semantics from training runs or MLflow split artifacts.
+transforms into an RHS with `A @ vector` and the configured scale.
+
+`ComparisonRegistryEntry.test_position` is the alternative to `matrix_index`
+that does infer held-out semantics, from the dataset's own pinned
+`split.json` directly (never from training runs or MLflow artifacts):
+`composition/comparison/pinned_split.py` reads that file's `test` fold and
+`load_matrix_sample_index` to translate a `test_position` into a concrete row
+or matrix index, guaranteed to never resolve to a training sample. Platform
+itself still performs no leakage inference — composition resolves
+`test_position` before calling into platform's existing matrix/triplet
+readers unchanged.
 
 Training artifact persistence also stays generic: platform storage writes the
 already-normalized numpy payload it receives from composition without
