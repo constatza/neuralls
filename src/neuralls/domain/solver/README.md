@@ -31,7 +31,7 @@ implementations are delegated to `torchalg`.
       once before `apply()`) makes this deterministic, so there is no
       provenance question for it any more than there is for
       `solve_time_seconds`. Concretely, what gets measured per algorithm:
-      IC0/ILU/ICholesky/Jacobi's factorization; classical/POD-2G AMG's
+      IC0/ILU/Jacobi's factorization; classical/POD-2G AMG's
       hierarchy build (strength-of-connection pass, aggregation, transfer
       operators, and — for POD-2G — the SVD fit plus the Galerkin coarse
       triple product); AdaptiveSA/BootstrapAMG's bootstrap cycles; a neural

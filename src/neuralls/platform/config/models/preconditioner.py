@@ -30,7 +30,6 @@ class PreconditionerType(StrEnum):
     JACOBI = "jacobi"
     ILU = "ilu"
     IC0 = "ic0"
-    ICHOLESKY = "icholesky"
     NEURAL = "neural"
     AMG = "amg"
     NEURAL_AMG = "neural_amg"
@@ -59,8 +58,6 @@ class PreconditionerType(StrEnum):
                 return "ILU"
             case PreconditionerType.IC0:
                 return "IC0"
-            case PreconditionerType.ICHOLESKY:
-                return "IChol"
             case PreconditionerType.NEURAL:
                 return "Neural"
             case PreconditionerType.AMG:
@@ -355,7 +352,7 @@ class BasePreconditionerConfig(BaseModel):
 
 
 class StandardPreconditionerConfig(BasePreconditionerConfig):
-    """Non-parametric, static preconditioners (identity, jacobi, ilu, icholesky).
+    """Non-parametric, static preconditioners (identity, jacobi, ilu).
 
     Complexity: no setup beyond one factorization/diagonal extraction, no
     hyperparameters that change asymptotic cost. See the constructed
@@ -369,7 +366,6 @@ class StandardPreconditionerConfig(BasePreconditionerConfig):
         PreconditionerType.IDENTITY,
         PreconditionerType.JACOBI,
         PreconditionerType.ILU,
-        PreconditionerType.ICHOLESKY,
     ]
 
 

@@ -8,7 +8,7 @@ The composition package owns wiring and config-driven assembly.
 - `comparison/`: single-run comparison assembly around application/domain logic
 - `generation/`: config-driven dataset orchestration, dataset persistence wiring, and default tracing services
 - `inference/`: inference data-loading composition helpers
-- `preconditioners/`: config-to-`torchalg` preconditioner factory wiring; one `(PreconditionerType, MatrixFormat)` table selects the dense or sparse CSR builder (Identity, Jacobi, ILU, IC0, ICholesky, AMG, ADAPTIVE_SA_AMG, BOOTSTRAP_AMG, NeuralAMG, Neural)
+- `preconditioners/`: config-to-`torchalg` preconditioner factory wiring; one `(PreconditionerType, MatrixFormat)` table selects the dense or sparse CSR builder (Identity, Jacobi, ILU, IC0, AMG, ADAPTIVE_SA_AMG, BOOTSTRAP_AMG, NeuralAMG, Neural)
 - `solvers/`: config/workflow-to-`torchalg` solver runner adapters; `run_traced_pcg` accepts a dense ndarray or a `csr_array` and converts CSR once into a sparse CSR tensor
 - `tracking/`: tracking tag and run-spec assembly
 

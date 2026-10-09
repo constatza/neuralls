@@ -243,7 +243,7 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
     )
     specs = (
         StandardPreconditionerConfig(name="first", type=PreconditionerType.JACOBI),
-        StandardPreconditionerConfig(name="second", type=PreconditionerType.ICHOLESKY),
+        StandardPreconditionerConfig(name="second", type=PreconditionerType.ILU),
     )
 
     compare_preconditioners(

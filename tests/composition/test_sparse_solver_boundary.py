@@ -56,16 +56,10 @@ def rhs_vector() -> np.ndarray:
     return rng.standard_normal(GRID_SIDE**2)
 
 
-def _dense_factor_cholesky(laplacian_csr: csr_array) -> np.ndarray:
-    """Lower Cholesky factor of the Laplacian, used as the ICHOLESKY input matrix."""
-    dense = torch.as_tensor(laplacian_csr.toarray(), dtype=torch.float64)
-    return torch.linalg.cholesky(dense).numpy()
-
-
 def _config_for(preconditioner_type: PreconditionerType) -> ConcretePreconditionerConfig:
     """Default config for each sparse-mapped preconditioner type."""
     match preconditioner_type:
-        case PreconditionerType.JACOBI | PreconditionerType.ILU | PreconditionerType.ICHOLESKY:
+        case PreconditionerType.JACOBI | PreconditionerType.ILU:
             return StandardPreconditionerConfig(
                 name=str(preconditioner_type), type=preconditioner_type
             )
@@ -89,7 +83,6 @@ SPARSE_MAPPED_TYPES = [
     pytest.param(PreconditionerType.JACOBI, id="jacobi"),
     pytest.param(PreconditionerType.IC0, id="ic0"),
     pytest.param(PreconditionerType.ILU, id="ilu"),
-    pytest.param(PreconditionerType.ICHOLESKY, id="icholesky"),
     pytest.param(PreconditionerType.AMG, id="amg-aggregation-preset"),
     pytest.param(PreconditionerType.ADAPTIVE_SA_AMG, id="adaptive-sa-amg"),
     pytest.param(PreconditionerType.BOOTSTRAP_AMG, id="bootstrap-amg"),
@@ -142,13 +135,8 @@ def test_sparse_preconditioner_apply_matches_dense(
 ) -> None:
     """Each sparse-mapped preconditioner applies the same action in CSR and dense form."""
     config = _config_for(preconditioner_type)
-    if preconditioner_type is PreconditionerType.ICHOLESKY:
-        factor = _dense_factor_cholesky(laplacian_csr)
-        dense_operand = torch.as_tensor(factor, dtype=torch.float64)
-        csr_operand = _to_torch_operator(csr_array(factor))
-    else:
-        dense_operand = torch.as_tensor(laplacian_csr.toarray(), dtype=torch.float64)
-        csr_operand = _to_torch_operator(laplacian_csr)
+    dense_operand = torch.as_tensor(laplacian_csr.toarray(), dtype=torch.float64)
+    csr_operand = _to_torch_operator(laplacian_csr)
 
     dense_precond: Preconditioner = create_preconditioner(dense_operand, config)
     csr_precond: Preconditioner = create_preconditioner(

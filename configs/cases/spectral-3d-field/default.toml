@@ -21,13 +21,9 @@ name = "jacobi"
 type = "jacobi"
 
 # TODO: "ilu" removed - comparisons on this case stall during its evaluation.
-# Suspect torchalg's sparse ILU/ICholesky apply() path (level_schedule() is
-# recomputed from a pure-Python per-row loop on every apply() call, not
-# cached in setup()); root cause not yet confirmed. Re-add once diagnosed.
-
-[[comparison_defaults.preconditioners]]
-name = "icholesky"
-type = "icholesky"
+# Suspect torchalg's sparse ILU apply() path (level_schedule() is recomputed
+# from a pure-Python per-row loop on every apply() call, not cached in
+# setup()); root cause not yet confirmed. Re-add once diagnosed.
 
 [[comparison_defaults.preconditioners]]
 name = "ic0"

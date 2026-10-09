@@ -20,7 +20,6 @@ from torchalg.multigrid import VCycle as MultigridVCycle
 from torchalg.preconditioners.base import Preconditioner
 from torchalg.preconditioners.implementations import (
     IC0Preconditioner,
-    ICholeskyPreconditioner,
     Identity,
     ILUPreconditioner,
     JacobiPreconditioner,
@@ -44,9 +43,6 @@ from torchalg.sparse.preconditioners.amg.coarse_solve import dense_coarse_solve
 from torchalg.sparse.preconditioners.amg.smoothers import resolve_jacobi_default
 from torchalg.sparse.preconditioners.amg.variants import vcycle_amg as sparse_vcycle_amg
 from torchalg.sparse.preconditioners.ic0 import IC0Preconditioner as SparseIC0Preconditioner
-from torchalg.sparse.preconditioners.icholesky import (
-    ICholeskyPreconditioner as SparseICholeskyPreconditioner,
-)
 from torchalg.sparse.preconditioners.ilu import ILUPreconditioner as SparseILUPreconditioner
 from torchalg.sparse.preconditioners.jacobi import (
     JacobiPreconditioner as SparseJacobiPreconditioner,
@@ -127,22 +123,6 @@ def _build_sparse_ilu(
     """Sparse CSR ILU(0) preconditioner."""
     del config, deps
     return SparseILUPreconditioner().setup(matrix), None
-
-
-def _build_dense_icholesky(
-    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
-) -> tuple[Preconditioner, CoarseningStrategy | None]:
-    """Dense incomplete-Cholesky preconditioner over a supplied factor."""
-    del config, deps
-    return ICholeskyPreconditioner().setup(matrix), None
-
-
-def _build_sparse_icholesky(
-    matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
-) -> tuple[Preconditioner, CoarseningStrategy | None]:
-    """Sparse CSR incomplete-Cholesky preconditioner over a supplied factor."""
-    del config, deps
-    return SparseICholeskyPreconditioner().setup(matrix), None
 
 
 def _build_dense_ic0(
@@ -462,8 +442,6 @@ _BUILDERS: Mapping[tuple[PreconditionerType, MatrixFormat], PreconditionerBuilde
             (PreconditionerType.JACOBI, MatrixFormat.CSR): _build_sparse_jacobi,
             (PreconditionerType.ILU, MatrixFormat.DENSE): _build_dense_ilu,
             (PreconditionerType.ILU, MatrixFormat.CSR): _build_sparse_ilu,
-            (PreconditionerType.ICHOLESKY, MatrixFormat.DENSE): _build_dense_icholesky,
-            (PreconditionerType.ICHOLESKY, MatrixFormat.CSR): _build_sparse_icholesky,
             (PreconditionerType.IC0, MatrixFormat.DENSE): _build_dense_ic0,
             (PreconditionerType.IC0, MatrixFormat.CSR): _build_sparse_ic0,
             (PreconditionerType.AMG, MatrixFormat.DENSE): _build_dense_amg,
