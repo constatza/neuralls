@@ -27,9 +27,11 @@ implementations are delegated to `torchalg`.
       stays the value object for this one still-ambiguous stage.
     - `setup_cost: float` — wall-clock seconds to construct and `.setup()`
       this preconditioner. Always measured, every run, for every algorithm —
-      `torchalg.Preconditioner`'s two-phase contract (`setup(matrix)` must run
-      once before `apply()`) makes this deterministic, so there is no
-      provenance question for it any more than there is for
+      `torchalg.Preconditioner`'s two-phase contract (`setup()` must run once
+      before `apply()`, taking `matrix` for a `MatrixSetupPreconditioner` or
+      no argument at all for a `StaticSetupPreconditioner`) makes this
+      deterministic, so there is no provenance question for it any more than
+      there is for
       `solve_time_seconds`. Concretely, what gets measured per algorithm:
       IC0/ILU/Jacobi's factorization; classical/POD-2G AMG's
       hierarchy build (strength-of-connection pass, aggregation, transfer
@@ -58,6 +60,22 @@ implementations are delegated to `torchalg`.
     (the last a three-segment generation/setup/solve stacked bar; only the
     generation segment can still be styled `UNAVAILABLE`) and `work_precision`
   - recommendation records
+  - `SetupSharingPolicy`/`ProjectedComparisonResult` — a scaling-law
+    projection aggregated across a `comparison_sweeps` group's sibling
+    systems (5-7 in practice, never the N it extrapolates to). Two
+    independent booleans (`share_setup`/`share_generation`) decide, per cost
+    term, whether it amortizes (contributes its one-time value once,
+    regardless of N) or repeats (contributes `N *` its per-system average);
+    `projected_total_seconds(n)`/`projected_avg_per_system_seconds(n)` are
+    the resulting closed-form extrapolations, never a real N-system run.
+    `domain/solver/comparison.py::aggregate_projected_results` builds these
+    from sibling `CGComparisonResult`s plus a pre-computed sharing policy per
+    preconditioner — it cannot compute `share_setup` itself (that needs the
+    live `torchalg.Preconditioner` object's role interface, which no longer
+    exists by aggregation time), so the execution layer
+    (`composition/comparison/_preconditioner_setup.py::SweepPreconditionerCache`)
+    computes and passes it in. See `composition/README.md`'s sweep-cache
+    section for the full wiring.
 - `cost_metrics.py`: pure size-normalized/throughput functions
   (`iterations_per_second`, `time_per_dof_per_iteration`, `setup_time_per_dof`,
   `generation_time_per_dof`, `peak_memory_per_dof`) — take a `CGComparisonResult`
@@ -115,14 +133,17 @@ implementations are delegated to `torchalg`.
   measured as an averaged/aggregate value per preconditioner (this module
   makes no attempt at a true per-iteration cost curve, since `torchalg`
   exposes no per-iteration timing/memory hook). Preconditioner *construction
-  and setup* time/memory (every algorithm's own `.setup(matrix)` call —
-  hierarchy build, factorization, checkpoint load, whatever that
-  preconditioner's setup concretely means) is measured the same way one layer
-  up, in `composition/comparison/comparison_run.py::_run_preconditioner`,
-  wrapping `PreconditionerService.create_preconditioner()` (which calls
-  `.setup()` internally) and any scheduling wrapper's own `.setup()` — this
-  module never measures its own preconditioner's setup cost, since it only
-  ever receives already-built, already-`setup()` `Preconditioner` instances.
+  and setup* time/memory (every algorithm's own `.setup()` call — hierarchy
+  build, factorization, checkpoint load, whatever that preconditioner's
+  setup concretely means) is measured the same way one layer up, in
+  `composition/comparison/comparison_run.py::_run_preconditioner`, wrapping
+  `PreconditionerService.create_preconditioner()` (which calls `.setup()`
+  internally) and any scheduling wrapper's own `.setup()` — this module
+  never measures its own preconditioner's setup cost, since it only ever
+  receives already-built, already-`setup()` `Preconditioner` instances. On a
+  `SweepPreconditionerCache` hit, `_run_preconditioner` skips rebuilding
+  entirely and reports the real cost from whichever sibling built it first,
+  rather than a fresh (and misleadingly near-zero) measurement.
 - Validation and artifact export helpers used by platform/composition layers.
 
 Comparison results intentionally contain solver behavior only. Raw and
@@ -138,7 +159,17 @@ serialized by the comparison workflow; optional spectral investigations use
 - `torchalg.monitoring.IterationHistory`
 - `torchalg.monitoring.analysis.golub_meurant_error_bound`
 - `torchalg.models.result.SolverResult`
-- `torchalg.preconditioners.*`
+- `torchalg.preconditioners.*`, including the `setup()` role-interface split:
+  `MatrixSetupPreconditioner.setup(matrix, context=None)` for anything whose
+  setup genuinely depends on the matrix's values (Jacobi, IC0, ILU, ICholesky,
+  every AMG/BootCMatch variant), `StaticSetupPreconditioner.setup(context=None)`
+  — no matrix argument at all — for anything whose setup never reads it
+  (`NeuralPreconditioner`'s checkpoint load, `CallablePreconditioner`/
+  `LinearOperatorPreconditioner`'s wrapped callables, `Identity`). This is a
+  property of each concrete class, not of "neural vs classical" — it is what
+  `SweepPreconditionerCache` checks (`isinstance(precond,
+  StaticSetupPreconditioner)`) to decide whether a built preconditioner can
+  be reused across sibling systems with a different matrix.
 
 Production code must not import local solver factories, solver classes,
 strategy classes, monitoring implementations, or preconditioner algorithms

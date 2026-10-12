@@ -345,6 +345,42 @@ directory resolution for a `matrix_dataset` id is shared between
 `resolve_comparison_config` and sweep expansion via
 `composition/comparison/config_assembler.py::resolve_dataset_dir`.
 
+A sweep's siblings share one preconditioner cache, scoped to the sweep
+group. `_expand_comparison_sweeps` now also returns a `_SweepMembership`
+(which `comparison_sweeps` group, if any, each expanded entry belongs to,
+and whether that group's RHS kind is `dataset` — i.e. every sibling resolves
+to the *same* matrix). `run_comparison_batch` uses this to construct one
+`composition.comparison._preconditioner_setup.SweepPreconditionerCache` per
+group, lazily on first use, and passes it into each sibling's
+`compare_preconditioners(..., cache=...)` call. Whether a given
+preconditioner actually gets reused across siblings is then a fact about
+the *built* `torchalg.Preconditioner` object, not the sweep: a
+`torchalg.StaticSetupPreconditioner` (its `setup()` never reads the matrix
+at all, e.g. a checkpoint-backed `NeuralPreconditioner`) is cached
+regardless of whether the matrix varies; a `torchalg.MatrixSetupPreconditioner`
+(Jacobi, IC0, every AMG variant) is cached only within a same-matrix
+(`dataset`-RHS-kind) group. A cache hit skips the rebuild entirely and
+copies forward the real measured `setup_cost`/peak-memory from whichever
+sibling built it first — never a misleading 0.0.
+
+After every sibling in a sweep group has executed,
+`_log_projected_sweep_metrics` aggregates their results into a scaling-law
+projection: for each preconditioner, `domain.solver.comparison
+.aggregate_projected_results` sums `solve_time_seconds`/`iterations` across
+the siblings and resolves one `domain.solver.models.result
+.SetupSharingPolicy` (`share_setup` from whether the cache actually shared
+that preconditioner; `share_generation` from
+`_generation_cost.py::resolve_generation_repeatability` — a config fact,
+independent of the algorithm). The resulting `ProjectedComparisonResult`
+per preconditioner is logged as MLflow metrics
+(`platform.tracking.comparison_tracking.log_projected_metrics`) and as a
+plot of projected average cost per system against an extrapolated system
+count N (`platform.reporting.plots.plot_projected_scaling_law`, never
+literally run at N) on the session parent run — a sweep where every
+sibling turned out to be a reused/cache-hit `ComparisonOutcome` (no fresh
+`payload`) contributes nothing here, the same as it opens no MLflow run at
+all.
+
 Comparison input preflight also stays out of composition. Workflow code invokes
 platform-owned validation for matrix/RHS inputs rather than inspecting dataset
 manifests directly. Preflight validates only the concrete artifacts required by

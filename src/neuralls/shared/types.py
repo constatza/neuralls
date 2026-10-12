@@ -126,6 +126,31 @@ class CostProvenance(StrEnum):
     accompanying number is a load/assembly artifact, not a real cost."""
 
 
+class GenerationRepeatability(StrEnum):
+    """Whether a preconditioner's fit/train step is paid once, ever, or repeats per system.
+
+    A resolved-config fact, not an algorithm fact: the same preconditioner
+    type (e.g. POD-2G AMG) can be either variant depending on whether its
+    config names a checkpoint. Drives whether a comparison-sweep aggregator
+    may amortize this preconditioner's `generation_cost` across many systems
+    (`ONE_TIME`) or must keep counting it per system (`PER_SYSTEM`), exactly
+    like `CostProvenance` lets readers distinguish a real cost from an
+    unavailable one instead of collapsing both into a bare number.
+    """
+
+    NOT_APPLICABLE = "not_applicable"
+    """No fit/train step at all (classical/geometric Jacobi, IC0, AMG)."""
+
+    ONE_TIME = "one_time"
+    """Checkpoint-backed: the fit/train step already happened once, upstream,
+    and is reusable across any number of future comparison systems."""
+
+    PER_SYSTEM = "per_system"
+    """No checkpoint identity set: the fit/train step reruns inline from
+    `dataset_dir` on every comparison run (see `_generation_cost.py`), so it
+    is not a one-time cost and must not be amortized across systems."""
+
+
 class PreconditionerFamily(StrEnum):
     """Plot-style grouping for preconditioner variants that share a config `type`.
 

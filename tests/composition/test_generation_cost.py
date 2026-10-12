@@ -16,7 +16,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from neuralls.composition.comparison._generation_cost import resolve_generation_cost
+from neuralls.composition.comparison._generation_cost import (
+    resolve_generation_cost,
+    resolve_generation_repeatability,
+)
 from neuralls.domain.solver.models.result import StageCost
 from neuralls.platform.config.models.preconditioner import (
     AggregationCoarseningConfig,
@@ -29,7 +32,7 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
 from neuralls.platform.storage.manifest_io import make_dataset_manifest as _make_manifest
 from neuralls.platform.storage.manifest_io import save_dataset_manifest
-from neuralls.shared.types import CostProvenance
+from neuralls.shared.types import CostProvenance, GenerationRepeatability
 
 _GENERATION_DURATION = 12.5
 
@@ -173,3 +176,41 @@ def test_neural_config_without_data_config_path_has_no_generation_cost(
     """A Neural config with no `data_config_path` at all is not applicable."""
     cfg = NeuralPreconditionerConfig(name="neural", type=PreconditionerType.NEURAL)
     assert resolve_generation_cost(cfg, settings=neuralls_settings) is None
+
+
+def test_classical_amg_repeatability_is_not_applicable() -> None:
+    """Classical/geometric AMG has no fit/train step, so repeatability is moot."""
+    cfg = AMGPreconditionerConfig(
+        name="amg", type=PreconditionerType.AMG, coarsening=AggregationCoarseningConfig()
+    )
+    assert resolve_generation_repeatability(cfg) is GenerationRepeatability.NOT_APPLICABLE
+
+
+def test_checkpoint_backed_pod2g_repeatability_is_one_time(tmp_path: Path) -> None:
+    """A POD-2G config with an explicit checkpoint_path is a one-time cost."""
+    cfg = AMGPreconditionerConfig(
+        name="pod2g",
+        type=PreconditionerType.AMG,
+        coarsening=PODCoarseningConfig(
+            dataset_dir=tmp_path / "pod-dataset", rank=4, checkpoint_path=tmp_path / "pod.ckpt"
+        ),
+    )
+    assert resolve_generation_repeatability(cfg) is GenerationRepeatability.ONE_TIME
+
+
+def test_checkpointless_pod2g_repeatability_is_per_system(tmp_path: Path) -> None:
+    """A POD-2G config fit inline from `dataset_dir` (no checkpoint) repeats per system."""
+    cfg = AMGPreconditionerConfig(
+        name="pod2g",
+        type=PreconditionerType.AMG,
+        coarsening=PODCoarseningConfig(dataset_dir=tmp_path / "pod-dataset", rank=4),
+    )
+    assert resolve_generation_repeatability(cfg) is GenerationRepeatability.PER_SYSTEM
+
+
+def test_checkpoint_backed_neural_repeatability_is_one_time(tmp_path: Path) -> None:
+    """A Neural config with an explicit checkpoint_path is a one-time cost."""
+    cfg = NeuralPreconditionerConfig(
+        name="neural", type=PreconditionerType.NEURAL, checkpoint_path=tmp_path / "model.ckpt"
+    )
+    assert resolve_generation_repeatability(cfg) is GenerationRepeatability.ONE_TIME

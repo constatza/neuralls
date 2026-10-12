@@ -230,6 +230,140 @@ class CGComparisonResult:
 
 
 @dataclass(frozen=True, slots=True)
+class SetupSharingPolicy:
+    """Whether one preconditioner's setup/generation cost amortizes across sibling systems.
+
+    Two independent facts, not a single state — a preconditioner can share
+    one without the other (e.g. a checkpointless POD-2G AMG preconditioner
+    in a fixed-matrix sweep: its `AMGPreconditioner.setup(matrix)` is
+    shareable because the matrix never changes, but its inline-fit
+    generation cost reruns every comparison regardless).
+
+    Attributes:
+        share_setup: True iff the preconditioner's `setup()` is provably
+            reusable across the sibling systems being aggregated — either
+            because it is a `torchalg.StaticSetupPreconditioner` (setup
+            never reads the matrix at all) or because every sibling resolves
+            to the same matrix (an RHS-only sweep).
+        share_generation: True iff `GenerationRepeatability.ONE_TIME` for
+            this preconditioner's config — its fit/train step already
+            happened once, upstream, and is not being repeated here.
+    """
+
+    share_setup: bool
+    share_generation: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectedComparisonResult:
+    """Scaling-law projection for one preconditioner, aggregated across sibling systems.
+
+    Built from the `n_systems` sibling `CGComparisonResult`s a comparison
+    sweep actually ran (5-7 in practice) — never from N systems actually
+    executed. `projected_total_seconds(n)`/`projected_avg_per_system_seconds(n)`
+    extrapolate the measured constants to an arbitrary N, purely for
+    plotting, so the one-time cost's contribution can be shown shrinking
+    at scale without ever running N real systems.
+
+    Each of `setup`/`generation` is amortized or repeated independently per
+    `setup_sharing` — not a single combined choice, since the two costs can
+    have different sharing policies for the same preconditioner (see
+    `SetupSharingPolicy`).
+
+    Attributes:
+        preconditioner_name: Matches `CGComparisonResult.preconditioner`.
+        n_systems: Number of sibling systems actually aggregated.
+        setup_sharing: Which cost components amortize vs. repeat per system.
+        setup_cost_total_seconds: Sum of `setup_cost` across all `n_systems`
+            measured results. If `setup_sharing.share_setup`, every sibling
+            already carries the same real one-time value (the caching layer
+            copies it forward rather than reporting 0.0 on a cache hit), so
+            dividing by `n_systems` recovers that single value exactly.
+        generation_cost_total_seconds: Sum of `generation_cost.wall_time_seconds`
+            across all `n_systems` measured results, or `None` if generation
+            does not apply to this preconditioner at all
+            (`GenerationRepeatability.NOT_APPLICABLE`).
+        total_solve_time_seconds: Sum of `solve_time_seconds` across all
+            `n_systems` measured results — always repeats per system;
+            solving is never a one-time cost.
+        total_iterations: Sum of `iterations` across all `n_systems`
+            measured results.
+    """
+
+    preconditioner_name: str
+    n_systems: int
+    setup_sharing: SetupSharingPolicy
+    setup_cost_total_seconds: float
+    generation_cost_total_seconds: float | None
+    total_solve_time_seconds: float
+    total_iterations: int
+
+    @property
+    def avg_setup_cost_seconds(self) -> float:
+        """Setup cost per measured system — the one-time value itself when shared."""
+        return self.setup_cost_total_seconds / self.n_systems
+
+    @property
+    def avg_generation_cost_seconds(self) -> float | None:
+        """Generation cost per measured system, or `None` if not applicable."""
+        if self.generation_cost_total_seconds is None:
+            return None
+        return self.generation_cost_total_seconds / self.n_systems
+
+    @property
+    def avg_solve_time_per_system_seconds(self) -> float:
+        """Solve time per measured system — always a recurring cost."""
+        return self.total_solve_time_seconds / self.n_systems
+
+    @property
+    def avg_iteration_time_seconds(self) -> float | None:
+        """Solve time divided by total iteration count across all measured systems."""
+        if self.total_iterations <= 0:
+            return None
+        return self.total_solve_time_seconds / self.total_iterations
+
+    def projected_total_seconds(self, n: int) -> float:
+        """Projected total wall time to solve `n` systems with this preconditioner.
+
+        Each cost component amortizes (contributes its one-time value once,
+        regardless of `n`) or repeats (contributes `n *` its per-system
+        average) according to its own entry in `setup_sharing` — solve time
+        always repeats.
+
+        Args:
+            n: Number of systems to project to. Never actually run; this is
+                a closed-form extrapolation from the `n_systems` real
+                measurements, for plotting only.
+
+        Returns:
+            float: Projected total wall-clock seconds.
+        """
+        setup_term = (
+            self.avg_setup_cost_seconds
+            if self.setup_sharing.share_setup
+            else n * self.avg_setup_cost_seconds
+        )
+        generation_term = 0.0
+        avg_generation = self.avg_generation_cost_seconds
+        if avg_generation is not None:
+            generation_term = (
+                avg_generation if self.setup_sharing.share_generation else n * avg_generation
+            )
+        return setup_term + generation_term + n * self.avg_solve_time_per_system_seconds
+
+    def projected_avg_per_system_seconds(self, n: int) -> float:
+        """Projected total cost amortized per system — flattens toward the solve floor as `n` grows.
+
+        Args:
+            n: Number of systems to project to (must be positive).
+
+        Returns:
+            float: `projected_total_seconds(n) / n`.
+        """
+        return self.projected_total_seconds(n) / n
+
+
+@dataclass(frozen=True, slots=True)
 class PlotPaths:
     """Paths to generated diagnostic plots from a comparison workflow.
 

@@ -22,7 +22,9 @@ from neuralls.composition.assignments.model_resolution import (
     TrainingLookup,
     resolve_preconditioner_models_with_warnings,
 )
+from neuralls.composition.comparison._generation_cost import resolve_generation_repeatability
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
+from neuralls.composition.comparison._preconditioner_setup import SweepPreconditionerCache
 from neuralls.composition.comparison.comparison_run import compare_preconditioners
 from neuralls.composition.comparison.config_assembler import (
     resolve_comparison_config,
@@ -49,8 +51,9 @@ from neuralls.composition.tracking.run_specs import (
     build_session_run_spec,
 )
 from neuralls.domain.identity import StageIdentity
+from neuralls.domain.solver.comparison import aggregate_projected_results
 from neuralls.domain.solver.models.provenance import PinnedSplitMatrix, UnverifiedMatrix
-from neuralls.domain.solver.models.result import ComparisonResult
+from neuralls.domain.solver.models.result import ComparisonResult, SetupSharingPolicy
 from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.comparison import ComparisonConfig
@@ -77,6 +80,7 @@ from neuralls.platform.reporting.comparison_inputs import (
     ComparisonInputArtifacts,
     stage_comparison_inputs,
 )
+from neuralls.platform.reporting.plots import plot_projected_scaling_law
 from neuralls.platform.tracking.artifact_access import (
     ArtifactLeaseManager,
     MlflowArtifactLeaseManager,
@@ -87,6 +91,7 @@ from neuralls.platform.tracking.comparison_tracking import (
     log_comparison_input_artifacts,
     log_comparison_run_params,
     log_linear_system_params,
+    log_projected_metrics,
     log_skipped_preconditioners,
     setup_comparison_tracking,
 )
@@ -96,7 +101,12 @@ from neuralls.platform.tracking.mlflow_client import log_comparison_artifacts_to
 from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
 from neuralls.platform.tracking.model_registry import build_registered_model_name
 from neuralls.shared.digest import Digest, content_digest
-from neuralls.shared.types import ComparisonRhsSourceKind, MatrixId, TestPosition
+from neuralls.shared.types import (
+    ComparisonRhsSourceKind,
+    GenerationRepeatability,
+    MatrixId,
+    TestPosition,
+)
 
 
 @dataclass(frozen=True)
@@ -596,8 +606,16 @@ def _run_comparison_with_resolved_specs(
     work_root: Path,
     resolved_specs: list[PreconditionerConfig],
     settings: NeurallsSettings,
+    cache: SweepPreconditionerCache | None = None,
 ) -> ComparisonResult:
-    """Run comparison with already-resolved preconditioner checkpoint paths."""
+    """Run comparison with already-resolved preconditioner checkpoint paths.
+
+    `cache`, when given, lets a preconditioner built for an earlier sibling
+    system in the same `comparison_sweeps` group be reused here instead of
+    rebuilt — see `SweepPreconditionerCache`. `None` (the default) means
+    this call builds every preconditioner fresh, unchanged from before this
+    parameter existed.
+    """
     rhs_source_kind = _require_rhs_source_kind(cfg)
     matrix_path = Path(cfg.general.data.matrix_path)
     test_position = cfg.general.data.test_position
@@ -669,6 +687,7 @@ def _run_comparison_with_resolved_specs(
         display_name=entry.effective_display_name,
         resolved_input=resolved_input,
         settings=settings,
+        cache=cache,
     )
     write_comparison_artifacts(
         result=raw_result,
@@ -706,6 +725,7 @@ def _run_and_log_comparison(
     run_name: str,
     comp_run_id: str,
     cost_recorder: CostRecorder | None = None,
+    cache: SweepPreconditionerCache | None = None,
 ) -> ComparisonResult:
     """Run one comparison in a scratch directory, logging into the open MLflow run.
 
@@ -715,6 +735,8 @@ def _run_and_log_comparison(
         comp_run_id: Id of the enclosing run that artifacts are uploaded to.
         cost_recorder: Where to record the comparison's cost/outcome metrics
             (DI for testing); defaults to MLflow, logging into the open run.
+        cache: Optional per-sweep-group preconditioner cache (see
+            `SweepPreconditionerCache`); `None` for a non-sweep entry.
 
     Returns:
         The comparison result, after its artifacts and metrics have been logged.
@@ -728,6 +750,7 @@ def _run_and_log_comparison(
             work_root=work_root,
             resolved_specs=prepared.resolved.specs,
             settings=prepared.settings,
+            cache=cache,
         )
         log_skipped_preconditioners(prepared.resolved.warnings)
         log_comparison_artifacts_to_mlflow(
@@ -750,6 +773,7 @@ def _execute_comparison_in_run(
     *,
     run_name: str,
     comp_tags: ComparisonRunTags,
+    cache: SweepPreconditionerCache | None = None,
 ) -> ComparisonOutcome:
     """Open an MLflow run, execute the comparison, upload artifacts, and report the outcome.
 
@@ -758,6 +782,8 @@ def _execute_comparison_in_run(
             entry, topology, resolved specs, warnings, and dependency hash.
         run_name: Display name for the MLflow run.
         comp_tags: Structured tags applied to the MLflow run.
+        cache: Optional per-sweep-group preconditioner cache (see
+            `SweepPreconditionerCache`); `None` for a non-sweep entry.
 
     Returns:
         The successful ComparisonOutcome for this entry.
@@ -770,7 +796,9 @@ def _execute_comparison_in_run(
     ) as comp_run:
         comp_run_id = comp_run.info.run_id
         log_comparison_artifact_uri()
-        raw_result = _run_and_log_comparison(prepared, run_name=run_name, comp_run_id=comp_run_id)
+        raw_result = _run_and_log_comparison(
+            prepared, run_name=run_name, comp_run_id=comp_run_id, cache=cache
+        )
         log_comparison_run_params(
             comp_run_id=comp_run_id,
             comparison_id=entry.id,
@@ -938,13 +966,25 @@ def _prepare_comparison_entry(
         )
 
 
-def _execute_prepared_comparison(prepared: _PreparedComparisonExecution) -> ComparisonOutcome:
-    """Build the run spec/tags and execute inside an already-active nested MLflow run."""
+def _execute_prepared_comparison(
+    prepared: _PreparedComparisonExecution,
+    *,
+    cache: SweepPreconditionerCache | None = None,
+) -> ComparisonOutcome:
+    """Build the run spec/tags and execute inside an already-active nested MLflow run.
+
+    Args:
+        prepared: Everything resolved ahead of execution.
+        cache: Optional per-sweep-group preconditioner cache (see
+            `SweepPreconditionerCache`); `None` for a non-sweep entry.
+    """
     try:
         run_name, comp_tags = build_comparison_run_spec(
             entry=prepared.entry, include_timestamp=False
         )
-        return _execute_comparison_in_run(prepared, run_name=run_name, comp_tags=comp_tags)
+        return _execute_comparison_in_run(
+            prepared, run_name=run_name, comp_tags=comp_tags, cache=cache
+        )
     except (ValueError, RuntimeError, KeyError, IndexError) as exc:
         return _comparison_failure_outcome(prepared.entry, exc)
 
@@ -1005,23 +1045,54 @@ def _validate_comparison_sources(cfg: ComparisonConfig) -> None:
     )
 
 
+@dataclass(frozen=True)
+class _SweepMembership:
+    """Which `comparison_sweeps` group each expanded entry belongs to.
+
+    Threaded alongside `_prepare_all_comparisons`'s flat entry list so
+    `run_comparison_batch` can later group sibling outcomes by sweep and
+    construct one `SweepPreconditionerCache` per group — the flat entry
+    list itself carries no memory of which sweep (if any) produced each
+    entry once `[[comparisons]]` and expanded `[[comparison_sweeps]]`
+    entries are concatenated together.
+    """
+
+    sweep_id_by_entry_id: Mapping[str, str]
+    same_matrix_by_sweep_id: Mapping[str, bool]
+
+
 def _expand_comparison_sweeps(
     master_cfg: CaseConfig,
     config_dir: Path,
     settings: NeurallsSettings,
-) -> list[ComparisonRegistryEntry]:
+) -> tuple[list[ComparisonRegistryEntry], _SweepMembership]:
     """Expand every `[[comparison_sweeps]]` entry into concrete comparison entries.
 
     Each expanded entry flows into `_prepare_all_comparisons` indistinguishable
-    from a hand-written `[[comparisons]]` entry with `test_position` set.
+    from a hand-written `[[comparisons]]` entry with `test_position` set —
+    except that its membership in this sweep's group (and whether that
+    group's siblings share one matrix, from `rhs_source.kind`) is recorded
+    in the returned `_SweepMembership`, used later to decide whether
+    preconditioner setup can be shared across siblings at all.
     """
     expanded: list[ComparisonRegistryEntry] = []
+    sweep_id_by_entry_id: dict[str, str] = {}
+    same_matrix_by_sweep_id: dict[str, bool] = {}
     for sweep_entry in master_cfg.comparison_sweeps:
         dataset_dir = resolve_dataset_dir(
             master_cfg, config_dir, sweep_entry.matrix_dataset, settings
         )
-        expanded.extend(expand_test_set_sweep(sweep_entry, dataset_dir=dataset_dir))
-    return expanded
+        sweep_positions = expand_test_set_sweep(sweep_entry, dataset_dir=dataset_dir)
+        expanded.extend(sweep_positions)
+        same_matrix_by_sweep_id[sweep_entry.id_prefix] = (
+            sweep_entry.rhs_source.kind == ComparisonRhsSourceKind.DATASET
+        )
+        for position_entry in sweep_positions:
+            sweep_id_by_entry_id[position_entry.id] = sweep_entry.id_prefix
+    return expanded, _SweepMembership(
+        sweep_id_by_entry_id=sweep_id_by_entry_id,
+        same_matrix_by_sweep_id=same_matrix_by_sweep_id,
+    )
 
 
 def _prepare_all_comparisons(
@@ -1033,7 +1104,7 @@ def _prepare_all_comparisons(
     stack: contextlib.ExitStack,
     *,
     force: bool,
-) -> list[ComparisonOutcome | _PreparedComparisonExecution]:
+) -> tuple[list[ComparisonOutcome | _PreparedComparisonExecution], _SweepMembership]:
     """Resolve + reuse-check every [[comparisons]]/[[comparison_sweeps]] entry.
 
     Opens no MLflow run. Every `[[comparison_sweeps]]` entry is expanded into
@@ -1044,7 +1115,8 @@ def _prepare_all_comparisons(
     after execution.
 
     Returns:
-        One outcome-or-prepared-execution per entry, in declared config order.
+        One outcome-or-prepared-execution per entry, in declared config
+        order, plus which `comparison_sweeps` group (if any) each belongs to.
     """
     config_dir = case_config_path.resolve().parent
     context = _ComparisonResolutionContext(
@@ -1054,10 +1126,10 @@ def _prepare_all_comparisons(
         master_cfg=master_cfg,
     )
     pending: list[ComparisonOutcome | _PreparedComparisonExecution] = []
-    all_entries = [
-        *master_cfg.comparisons,
-        *_expand_comparison_sweeps(master_cfg, config_dir, settings),
-    ]
+    expanded_sweep_entries, sweep_membership = _expand_comparison_sweeps(
+        master_cfg, config_dir, settings
+    )
+    all_entries = [*master_cfg.comparisons, *expanded_sweep_entries]
     for entry in all_entries:
         logger.info(f"Comparison [{entry.id}]: {entry.effective_display_name}")
         assignment_entries: list[AssignmentEntry] = (
@@ -1083,7 +1155,76 @@ def _prepare_all_comparisons(
         if isinstance(prepared, _PreparedComparisonExecution):
             stack.enter_context(prepared.cleanup)
         pending.append(prepared)
-    return pending
+    return pending, sweep_membership
+
+
+def _log_projected_sweep_metrics(
+    outcomes: Sequence[ComparisonOutcome],
+    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+    sweep_membership: _SweepMembership,
+    sweep_caches: Mapping[str, SweepPreconditionerCache],
+) -> None:
+    """Aggregate each sweep group's results into a projection, logged to the open run.
+
+    Only outcomes with a real payload (i.e. actually executed this call, not
+    a cache hit reusing an earlier MLflow run's identity) are aggregated — a
+    cache-hit outcome carries no `CGComparisonResult` to aggregate, so a
+    sweep where every sibling was already done contributes nothing here,
+    same as it opens no MLflow run at all (see `run_comparison_batch`'s
+    all-cache-hit short-circuit).
+
+    Args:
+        outcomes: Every outcome `run_comparison_batch` is about to return.
+        pending: The same-indexed prepared batch `outcomes` was built from —
+            read for `_PreparedComparisonExecution.resolved.specs`, the
+            resolved preconditioner configs this sweep's siblings share.
+        sweep_membership: Which sweep group each entry belongs to.
+        sweep_caches: Each sweep group's preconditioner cache, if one needed
+            constructing (absent entirely for a case with no sweeps).
+    """
+    specs_by_entry_id = {
+        p.entry.id: p.resolved.specs for p in pending if isinstance(p, _PreparedComparisonExecution)
+    }
+    groups: dict[str, list[ComparisonOutcome]] = {}
+    for outcome in outcomes:
+        if outcome.payload is None:
+            continue
+        sweep_id = sweep_membership.sweep_id_by_entry_id.get(outcome.comparison_id)
+        if sweep_id is None:
+            continue
+        groups.setdefault(sweep_id, []).append(outcome)
+
+    for sweep_id, group in groups.items():
+        specs = specs_by_entry_id.get(group[0].comparison_id, [])
+        repeatability_by_name = {
+            spec.name: resolve_generation_repeatability(spec) for spec in specs
+        }
+        cache = sweep_caches.get(sweep_id)
+        shared_names = cache.shared_names() if cache is not None else frozenset[str]()
+        sharing_by_name = {
+            name: SetupSharingPolicy(
+                share_setup=name in shared_names,
+                share_generation=repeatability is GenerationRepeatability.ONE_TIME,
+            )
+            for name, repeatability in repeatability_by_name.items()
+        }
+
+        results_by_system = {
+            outcome.comparison_id: outcome.payload.results
+            for outcome in group
+            if outcome.payload is not None
+        }
+        projected = aggregate_projected_results(results_by_system, sharing_by_name)
+        log_projected_metrics(sweep_id, projected)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plot_path = Path(tmp) / f"projected_scaling_law_{sweep_id}.png"
+            plot_projected_scaling_law(
+                projected,
+                save_path=plot_path,
+                title=f"Projected cost per system vs. N — sweep '{sweep_id}'",
+            )
+            mlflow.log_artifact(str(plot_path), artifact_path="projected_scaling_law")
 
 
 def run_comparison_batch(
@@ -1132,7 +1273,7 @@ def run_comparison_batch(
     )
 
     with contextlib.ExitStack() as stack:
-        pending = _prepare_all_comparisons(
+        pending, sweep_membership = _prepare_all_comparisons(
             master_cfg,
             topology,
             case_config_path,
@@ -1146,9 +1287,21 @@ def run_comparison_batch(
             return [p for p in pending if isinstance(p, ComparisonOutcome)]
 
         with mlflow.start_run(run_name=session_run_name, tags=session_tags.as_mlflow_tags()):
-            return [
-                _execute_prepared_comparison(p)
-                if isinstance(p, _PreparedComparisonExecution)
-                else p
-                for p in pending
-            ]
+            sweep_caches: dict[str, SweepPreconditionerCache] = {}
+            outcomes: list[ComparisonOutcome] = []
+            for p in pending:
+                if isinstance(p, _PreparedComparisonExecution):
+                    sweep_id = sweep_membership.sweep_id_by_entry_id.get(p.entry.id)
+                    cache = None
+                    if sweep_id is not None:
+                        cache = sweep_caches.setdefault(
+                            sweep_id,
+                            SweepPreconditionerCache(
+                                same_matrix=sweep_membership.same_matrix_by_sweep_id[sweep_id]
+                            ),
+                        )
+                    outcomes.append(_execute_prepared_comparison(p, cache=cache))
+                else:
+                    outcomes.append(p)
+            _log_projected_sweep_metrics(outcomes, pending, sweep_membership, sweep_caches)
+            return outcomes

@@ -383,6 +383,7 @@ def _build_neural(
         raise ValueError(
             "NeuralPreconditionerConfig requires checkpoint_path or resolved_checkpoint_path"
         )
+    del matrix  # NeuralPreconditioner.setup() takes no matrix; it only loads the checkpoint.
     return (
         NeuralPreconditioner(
             checkpoint_path=ckpt,
@@ -390,7 +391,7 @@ def _build_neural(
             data_config_path=config.data_config_path,
             adapter=_resolve_adapter(deps),
             extra_input_names=tuple(config.extra_input_names),
-        ).setup(matrix),
+        ).setup(),
         None,
     )
 

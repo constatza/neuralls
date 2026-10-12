@@ -18,7 +18,11 @@ import numpy as np
 import seaborn as sns
 from loguru import logger
 
-from neuralls.domain.solver.models.result import CGComparisonResult, StageCost
+from neuralls.domain.solver.models.result import (
+    CGComparisonResult,
+    ProjectedComparisonResult,
+    StageCost,
+)
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
 from neuralls.shared.types import CostProvenance
 
@@ -1387,6 +1391,68 @@ def plot_metric_comparison(
         save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=200, bbox_inches="tight")
         logger.info(f"Saved metric comparison plot to: {save_path}")
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+def plot_projected_scaling_law(
+    projected: Mapping[str, ProjectedComparisonResult],
+    *,
+    n_max: int = 10_000,
+    save_path: Path | None = None,
+    show: bool = False,
+    title: str | None = None,
+) -> None:
+    """Plot each preconditioner's projected average cost per system against N.
+
+    Extrapolates ``ProjectedComparisonResult.projected_avg_per_system_seconds``
+    from 1 to ``n_max`` systems — this is a closed-form projection from the
+    systems a comparison sweep actually ran (5-7 in practice), never a plot
+    of N systems actually executed. A preconditioner whose one-time costs
+    amortize (``setup_sharing.share_setup``/``share_generation``) shows its
+    curve visibly flattening toward the pure-solve floor as N grows; one
+    whose costs recur per system shows a flat line at its true per-system
+    cost from N=1 onward — the two are deliberately shown on the same
+    linear y-axis so that flattening reads as a real visual effect, not
+    compressed away by a log scale.
+
+    Args:
+        projected: One ``ProjectedComparisonResult`` per preconditioner name,
+            as ``domain.solver.comparison.aggregate_projected_results`` returns.
+        n_max: Largest N to extrapolate to (log-spaced x-axis from 1 to this).
+        save_path: Path to save the figure. Parent directories are created
+            automatically if they do not exist.
+        show: Whether to call ``plt.show()`` (disabled by default for
+            headless / batch use).
+        title: Optional title for the plot.
+    """
+    n_values = np.unique(np.round(np.geomspace(1, n_max, num=200)).astype(int))
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    colormap = matplotlib.colormaps["Set1"]
+    colors = colormap(np.linspace(0, 0.9, max(len(projected), 1)))
+
+    for (name, result), color in zip(sorted(projected.items()), colors, strict=False):
+        y_values = [result.projected_avg_per_system_seconds(int(n)) for n in n_values]
+        ax.plot(n_values, y_values, label=name, color=color, linewidth=1.8)
+
+    ax.set_xscale("log")
+    ax.set_xlabel("Number of systems (N)", fontsize=12)
+    ax.set_ylabel("Projected avg. cost per system (s)", fontsize=12)
+    ax.set_title(title or "Projected cost per system vs. N", fontsize=13, fontweight="bold")
+    ax.grid(True, alpha=0.3)
+    if projected:
+        ax.legend(loc="upper right", fontsize=9)
+    fig.tight_layout()
+
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
+        logger.info(f"Saved projected scaling-law plot to: {save_path}")
 
     if show:
         plt.show()

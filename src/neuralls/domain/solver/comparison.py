@@ -29,10 +29,13 @@ from neuralls.domain.solver.error_metrics import (
 from neuralls.domain.solver.models.result import (
     CGComparisonResult,
     ComparisonRecommendations,
+    ProjectedComparisonResult,
     RankedRecommendation,
+    SetupSharingPolicy,
 )
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
 from neuralls.shared.device import release_device_memory, track_resource_usage
+from neuralls.shared.types import CostProvenance
 
 
 class CGAlgorithm(StrEnum):
@@ -375,4 +378,90 @@ def summarize_best_combinations(
     return ComparisonRecommendations(
         ranked=tuple(ranked),
         overall_best=overall_best,
+    )
+
+
+def aggregate_projected_results(
+    results_by_system: Mapping[str, dict[str, CGComparisonResult]],
+    sharing_by_name: Mapping[str, SetupSharingPolicy],
+) -> dict[str, ProjectedComparisonResult]:
+    """Aggregate sibling systems' results into one scaling-law projection per preconditioner.
+
+    Pure aggregation over results a comparison sweep already produced — never
+    runs anything itself. Groups by preconditioner name across
+    `results_by_system`'s sibling systems (each one a single system's
+    `dict[str, CGComparisonResult]`, as `ComparisonOutcome.payload.results`
+    already shapes it), then reduces each group with `sharing_by_name`'s
+    pre-computed policy for that preconditioner — the sharing decision
+    itself needs the live `torchalg.Preconditioner` object (to check
+    `isinstance(precond, StaticSetupPreconditioner)`), which no longer
+    exists by aggregation time, so the execution layer computes it while
+    building/solving and passes it in here.
+
+    Args:
+        results_by_system: One `dict[str, CGComparisonResult]` per sibling
+            system actually run (5-7 in practice, never N), keyed by
+            anything stable (e.g. the system's `comparison_id`) — only the
+            values are used.
+        sharing_by_name: Each preconditioner name's `SetupSharingPolicy`,
+            computed by the execution layer during this same sweep.
+
+    Returns:
+        One `ProjectedComparisonResult` per preconditioner name present in
+        every system's results.
+
+    Raises:
+        KeyError: If a preconditioner name present in `results_by_system`
+            has no entry in `sharing_by_name`.
+    """
+    grouped: dict[str, list[CGComparisonResult]] = {}
+    for system_results in results_by_system.values():
+        for name, result in system_results.items():
+            grouped.setdefault(name, []).append(result)
+
+    return {
+        name: _aggregate_one_preconditioner(name, group, sharing_by_name[name])
+        for name, group in grouped.items()
+    }
+
+
+def _aggregate_one_preconditioner(
+    name: str,
+    results: list[CGComparisonResult],
+    sharing: SetupSharingPolicy,
+) -> ProjectedComparisonResult:
+    """Reduce one preconditioner's sibling results into its projection.
+
+    A `generation_cost` with `CostProvenance.UNAVAILABLE` is excluded from
+    the sum rather than counted as its (fake, near-zero) reported value —
+    same treatment `CGComparisonResult.total_time_seconds` already gives an
+    unavailable cost, so an unknown cost never silently reads as zero here
+    either. In practice every sibling shares the same provenance (same
+    config, same dataset manifest lookup), so this never actually mixes
+    real and unavailable values within one preconditioner's group.
+
+    Args:
+        name: Preconditioner name shared by every result in `results`.
+        results: One `CGComparisonResult` per sibling system.
+        sharing: This preconditioner's pre-computed sharing policy.
+
+    Returns:
+        ProjectedComparisonResult: The aggregated projection.
+    """
+    real_generation_values = [
+        result.generation_cost.wall_time_seconds
+        for result in results
+        if result.generation_cost is not None
+        and result.generation_cost.provenance is not CostProvenance.UNAVAILABLE
+    ]
+    return ProjectedComparisonResult(
+        preconditioner_name=name,
+        n_systems=len(results),
+        setup_sharing=sharing,
+        setup_cost_total_seconds=sum(result.setup_cost for result in results),
+        generation_cost_total_seconds=(
+            sum(real_generation_values) if real_generation_values else None
+        ),
+        total_solve_time_seconds=sum(result.solve_time_seconds or 0.0 for result in results),
+        total_iterations=sum(result.iterations for result in results),
     )

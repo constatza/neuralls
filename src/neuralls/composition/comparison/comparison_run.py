@@ -9,6 +9,7 @@ from pathlib import Path
 
 import torch
 from loguru import logger
+from torchalg.preconditioners.base import Preconditioner
 from torchalg.utils.device import resolve_device
 
 from neuralls.composition.comparison._generation_cost import resolve_generation_cost
@@ -16,6 +17,7 @@ from neuralls.composition.comparison._linear_system import _load_linear_system
 from neuralls.composition.comparison._plots import _generate_comparison_plots
 from neuralls.composition.comparison._preconditioner_setup import (
     PreconditionerService,
+    SweepPreconditionerCache,
     _create_scheduled_preconditioners,
     _load_and_bind_extra_inputs,
 )
@@ -142,12 +144,16 @@ def _evaluate_preconditioner(
     display_name: str | None = None,
     x_exact: torch.Tensor | None = None,
     settings: NeurallsSettings,
+    cache: SweepPreconditionerCache | None = None,
 ) -> PreconditionerComparisonEntry:
     """Build one preconditioner, run it, and package its evaluation outcome.
 
     The constructed preconditioner (and, for neural preconditioners, its loaded
     checkpoint) is only referenced by locals in this call — it goes out of scope
     on return, so the caller's loop never holds more than one model at a time.
+    Exception: a preconditioner `cache` stores reuses it across sibling calls
+    (see `SweepPreconditionerCache`), by design — the caller owns that
+    cache's lifetime, scoped to the whole sweep group, not to this call.
 
     Args:
         cfg: Preconditioner configuration to build and evaluate.
@@ -162,6 +168,11 @@ def _evaluate_preconditioner(
             comparison (see ``compare_preconditioners``), or ``None``.
         settings: Resolved runtime roots, used to resolve any dataset
             directory feeding this preconditioner's generation cost.
+        cache: Optional per-sweep-group cache letting a preconditioner built
+            for an earlier sibling system be reused here instead of rebuilt,
+            when doing so is provably valid (see `SweepPreconditionerCache`).
+            `None` (the default) means every call builds fresh, unchanged
+            from before this parameter existed.
 
     Returns:
         Named result containing the solve outcome and plot metadata for ``cfg``.
@@ -181,6 +192,7 @@ def _evaluate_preconditioner(
             marker_key=marker_key,
             x_exact=x_exact,
             settings=settings,
+            cache=cache,
         )
     except Exception as exc:  # noqa: BLE001
         # Broad by design: one preconditioner's failure (build, solve, CUDA OOM,
@@ -216,6 +228,7 @@ def _run_preconditioner(
     marker_key: str | None,
     x_exact: torch.Tensor | None = None,
     settings: NeurallsSettings,
+    cache: SweepPreconditionerCache | None = None,
 ) -> PreconditionerComparisonEntry:
     """Build and solve one preconditioner; raises on any failure.
 
@@ -229,15 +242,38 @@ def _run_preconditioner(
     hierarchy build, AdaptiveSA/BootstrapAMG's bootstrap cycles, a neural
     preconditioner's checkpoint load) — never a near-zero artifact of timing
     construction alone while the real work happened lazily inside `apply()`.
+
+    On a `cache` hit, none of that rebuilding happens at all: the already-
+    ready object from an earlier sibling system is reused directly, and the
+    *real* measured cost from that earlier build is reported again rather
+    than a fresh (near-zero, misleadingly "free") measurement — the whole
+    point of caching is that this cost is genuinely paid once, so every
+    sibling's result should keep showing its true size.
     """
     family = preconditioner_family(cfg)
-    with track_resource_usage(matrix.device) as setup_usage:
-        base_preconditioners = {cfg.name: service.create_preconditioner(matrix, cfg)}
-        scheduled = _create_scheduled_preconditioners(
-            preconditioner_configs=[cfg],
-            matrix=matrix,
-            base_preconditioners=base_preconditioners,
-        )
+    cached = cache.get(cfg.name) if cache is not None else None
+    if cached is not None:
+        scheduled: dict[str, Preconditioner] = {cfg.name: cached.preconditioner}
+        setup_cost_seconds = cached.setup_cost_seconds
+        setup_peak_memory_bytes = cached.setup_peak_memory_bytes
+    else:
+        with track_resource_usage(matrix.device) as setup_usage:
+            base_preconditioners = {cfg.name: service.create_preconditioner(matrix, cfg)}
+            scheduled = _create_scheduled_preconditioners(
+                preconditioner_configs=[cfg],
+                matrix=matrix,
+                base_preconditioners=base_preconditioners,
+            )
+        measured_setup = setup_usage()
+        setup_cost_seconds = measured_setup.wall_time_seconds
+        setup_peak_memory_bytes = measured_setup.peak_memory_bytes
+        if cache is not None:
+            cache.put(
+                cfg.name,
+                scheduled[cfg.name],
+                setup_cost_seconds=setup_cost_seconds,
+                setup_peak_memory_bytes=setup_peak_memory_bytes,
+            )
     _load_and_bind_extra_inputs(
         scheduled, matrix=matrix, matrix_path=matrix_path, matrix_index=matrix_index
     )
@@ -255,13 +291,12 @@ def _run_preconditioner(
         m_max=params.m_max,
         reference_precision_margin=params.reference_precision_margin,
     )[cfg.name]
-    measured_setup = setup_usage()
     generation_cost = resolve_generation_cost(cfg, settings=settings)
     result = replace(
         result,
         generation_cost=generation_cost,
-        setup_cost=measured_setup.wall_time_seconds,
-        setup_peak_memory_bytes=measured_setup.peak_memory_bytes,
+        setup_cost=setup_cost_seconds,
+        setup_peak_memory_bytes=setup_peak_memory_bytes,
     )
     return PreconditionerComparisonEntry(
         name=cfg.name,
@@ -338,6 +373,7 @@ def compare_preconditioners(
     resolved_input: ResolvedComparisonInput | None = None,
     evaluation_mapper: PreconditionerEvaluationMapper = map,
     settings: NeurallsSettings,
+    cache: SweepPreconditionerCache | None = None,
 ) -> ComparisonResult:
     """Run CG comparisons and generate diagnostics.
 
@@ -372,6 +408,13 @@ def compare_preconditioners(
         settings: Resolved runtime roots, used to resolve any dataset
             directory feeding a preconditioner's generation cost — see
             ``_generation_cost.py::resolve_generation_cost``.
+        cache: Optional per-sweep-group cache letting each preconditioner
+            built here be reused by a later sibling system's call to this
+            same function, when doing so is provably valid (see
+            ``SweepPreconditionerCache``). ``None`` (the default) means
+            every call builds every preconditioner fresh, unchanged from
+            before this parameter existed — only a sweep-aware caller
+            passes a real cache, scoped to its own sweep group.
 
     Returns:
         ComparisonResult with results, summary, plot paths, and solver metadata.
@@ -429,6 +472,7 @@ def compare_preconditioners(
         display_name=display_name,
         x_exact=x_exact,
         settings=settings,
+        cache=cache,
     )
 
     results: dict[str, CGComparisonResult] = {}

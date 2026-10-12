@@ -12,7 +12,11 @@ from neuralls.domain.solver.cost_metrics import (
     setup_time_per_dof,
     time_per_dof_per_iteration,
 )
-from neuralls.domain.solver.models.result import CGComparisonResult, ComparisonResult
+from neuralls.domain.solver.models.result import (
+    CGComparisonResult,
+    ComparisonResult,
+    ProjectedComparisonResult,
+)
 from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
@@ -108,6 +112,65 @@ def log_comparison_result_metrics(
 
     if result.recommendations.overall_best is not None:
         mlflow.log_param("best_preconditioner", result.recommendations.overall_best.label)
+
+
+def _projected_metric_key(metric: str, sweep_id: str, preconditioner_name: str) -> str:
+    """Build a projected-metric key, namespaced by sweep group and preconditioner.
+
+    Mirrors ``parent_run_metric_key``'s single-``"/"``-separator convention,
+    with one more segment: a case config can declare several
+    ``[[comparison_sweeps]]`` groups, so the sweep id disambiguates which
+    group a projection came from.
+    """
+    return (
+        f"{metric}/{sanitize_metric_key_segment(sweep_id)}"
+        f"/{sanitize_metric_key_segment(preconditioner_name)}"
+    )
+
+
+def log_projected_metrics(
+    sweep_id: str, projected: Mapping[str, ProjectedComparisonResult]
+) -> None:
+    """Log one `comparison_sweeps` group's scaling-law projection to the open MLflow run.
+
+    Logged onto whatever run is currently active (the session parent, since
+    a projection aggregates across several sibling systems' own child
+    runs, not any single one of them) — never opens a new run itself.
+
+    Args:
+        sweep_id: The `[[comparison_sweeps]]` entry's `id_prefix`, used to
+            namespace metric keys when a case declares more than one.
+        projected: One `ProjectedComparisonResult` per preconditioner name,
+            as `domain.solver.comparison.aggregate_projected_results` returns.
+    """
+    for name, result in projected.items():
+        mlflow.log_metric(_projected_metric_key("n_systems", sweep_id, name), result.n_systems)
+        mlflow.log_metric(
+            _projected_metric_key("avg_setup_cost_s", sweep_id, name),
+            result.avg_setup_cost_seconds,
+        )
+        if result.avg_generation_cost_seconds is not None:
+            mlflow.log_metric(
+                _projected_metric_key("avg_generation_cost_s", sweep_id, name),
+                result.avg_generation_cost_seconds,
+            )
+        mlflow.log_metric(
+            _projected_metric_key("avg_solve_time_per_system_s", sweep_id, name),
+            result.avg_solve_time_per_system_seconds,
+        )
+        if result.avg_iteration_time_seconds is not None:
+            mlflow.log_metric(
+                _projected_metric_key("avg_iteration_time_s", sweep_id, name),
+                result.avg_iteration_time_seconds,
+            )
+        mlflow.log_param(
+            _projected_metric_key("share_setup", sweep_id, name),
+            str(result.setup_sharing.share_setup),
+        )
+        mlflow.log_param(
+            _projected_metric_key("share_generation", sweep_id, name),
+            str(result.setup_sharing.share_generation),
+        )
 
 
 class MLflowCostRecorder:

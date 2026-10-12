@@ -32,7 +32,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
-from neuralls.shared.types import CostProvenance
+from neuralls.shared.types import CostProvenance, GenerationRepeatability
 
 
 def resolve_generation_cost(
@@ -65,6 +65,46 @@ def resolve_generation_cost(
     if not found_any:
         return StageCost(0.0, None, CostProvenance.UNAVAILABLE)
     return StageCost(total_seconds, total_memory, CostProvenance.HISTORICAL)
+
+
+def resolve_generation_repeatability(cfg: PreconditionerConfig) -> GenerationRepeatability:
+    """Classify whether `cfg`'s fit/train step is a one-time artifact or reruns per system.
+
+    Mirrors `_resolve_generation_dataset_dirs`'s own two-branch dispatch
+    exactly, so this can never disagree with it about which configs have a
+    fit/train step at all — but answers a question that needs no dataset
+    lookup: unlike `resolve_generation_cost` (which separately needs
+    `data_config_path` resolvable to report the cost's *magnitude*),
+    checkpoint presence alone decides whether that cost is one-time.
+
+    Deliberately does not shortcut through `CheckpointRefBearing
+    .checkpoint_refs()` alone for the POD-2G branch: `PODCoarseningConfig
+    .exposed_checkpoint_ref()` *intentionally* returns an empty ref set for
+    a checkpointless POD-2G config (so it stays invisible to checkpoint
+    *resolution*) — the same emptiness that means "no fit step at all" for
+    every other type means "fit step present, just not checkpoint-backed"
+    here, so this checks `isinstance(..., PODCoarseningConfig |
+    NeuralPODCoarseningConfig)` directly instead, the same as
+    `_resolve_generation_dataset_dirs` does.
+    """
+    if isinstance(cfg, AMGPreconditionerConfig) and isinstance(
+        cfg.coarsening, PODCoarseningConfig | NeuralPODCoarseningConfig
+    ):
+        has_checkpoint = cfg.coarsening.active_checkpoint_path is not None
+        return (
+            GenerationRepeatability.ONE_TIME
+            if has_checkpoint
+            else GenerationRepeatability.PER_SYSTEM
+        )
+    if isinstance(cfg, CheckpointRefBearing) and cfg.checkpoint_refs():
+        refs = cfg.checkpoint_refs()
+        has_checkpoint = all(ref.active_checkpoint_path is not None for _, ref in refs)
+        return (
+            GenerationRepeatability.ONE_TIME
+            if has_checkpoint
+            else GenerationRepeatability.PER_SYSTEM
+        )
+    return GenerationRepeatability.NOT_APPLICABLE
 
 
 def _resolve_generation_dataset_dirs(

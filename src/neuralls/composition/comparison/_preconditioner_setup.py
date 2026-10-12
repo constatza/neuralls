@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import torch
-from torchalg.preconditioners.base import BindableInputs, Preconditioner
+from torchalg.preconditioners.base import BindableInputs, Preconditioner, StaticSetupPreconditioner
 
 from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.composition.preconditioners.schedule import (
@@ -65,6 +66,88 @@ def _map_stopping_criterion(name: str) -> StoppingCriterion:
         valid_names = ", ".join(sorted(_STOPPING_CRITERION_REGISTRY.keys()))
         raise ValueError(f"Unknown stopping criterion: '{name}'. Valid options: {valid_names}")
     return criterion
+
+
+@dataclass(frozen=True)
+class _CachedPreconditioner:
+    """One preconditioner's already-built-and-ready object, plus its real one-time cost.
+
+    Stored instead of re-measuring on a cache hit — copying these values
+    forward (never reporting 0.0) is what lets a reused result still show
+    its true setup cost.
+    """
+
+    preconditioner: Preconditioner
+    setup_cost_seconds: float
+    setup_peak_memory_bytes: int | None
+
+
+class SweepPreconditionerCache:
+    """Per-sweep-group cache of already-built-and-setup preconditioners.
+
+    Scoped to one `comparison_sweeps` group (siblings expanded from the same
+    `[[comparison_sweeps]]` entry) — constructed once per group by the
+    caller and passed into every sibling system's `compare_preconditioners`
+    call, so a preconditioner built for the first sibling can be reused by
+    the rest whenever doing so is provably valid:
+
+    - Always valid for a `torchalg.StaticSetupPreconditioner` (its `setup()`
+      never reads the matrix at all — see that class's docstring).
+    - Valid for a `torchalg.MatrixSetupPreconditioner` only when every
+      sibling in this group resolves to the *same* matrix (`same_matrix`,
+      e.g. a `dataset`-kind sweep that only varies the RHS row).
+
+    `put` silently does nothing when neither condition holds, so a classical
+    preconditioner in a matrix-varying sweep is simply never cached — it
+    keeps rebuilding fresh every sibling, exactly like today, with no risk
+    of ever serving a stale build.
+    """
+
+    def __init__(self, *, same_matrix: bool) -> None:
+        """Create an empty cache scoped to one sweep group.
+
+        Args:
+            same_matrix: Whether every sibling system in this sweep group
+                resolves to the same system matrix (a `dataset`-kind sweep).
+        """
+        self._same_matrix = same_matrix
+        self._entries: dict[str, _CachedPreconditioner] = {}
+
+    def get(self, name: str) -> _CachedPreconditioner | None:
+        """Return the cached entry for preconditioner `name`, or `None` on a miss."""
+        return self._entries.get(name)
+
+    def put(
+        self,
+        name: str,
+        preconditioner: Preconditioner,
+        *,
+        setup_cost_seconds: float,
+        setup_peak_memory_bytes: int | None,
+    ) -> None:
+        """Store `preconditioner` for reuse by later siblings, if sharing is valid for it.
+
+        A no-op when neither sharing condition holds for `preconditioner` —
+        the next sibling will see a cache miss and rebuild fresh, same as if
+        no cache existed at all.
+        """
+        if not (isinstance(preconditioner, StaticSetupPreconditioner) or self._same_matrix):
+            return
+        self._entries[name] = _CachedPreconditioner(
+            preconditioner=preconditioner,
+            setup_cost_seconds=setup_cost_seconds,
+            setup_peak_memory_bytes=setup_peak_memory_bytes,
+        )
+
+    def shared_names(self) -> frozenset[str]:
+        """Names of every preconditioner this cache actually shared across siblings.
+
+        Used after a sweep group finishes executing to answer
+        `SetupSharingPolicy.share_setup` per preconditioner — by then the
+        live objects are out of scope, but the cache's own record of what it
+        successfully stored survives as the fact of record.
+        """
+        return frozenset(self._entries)
 
 
 class PreconditionerService:
