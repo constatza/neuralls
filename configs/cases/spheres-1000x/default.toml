@@ -83,6 +83,18 @@ rhs_source = { kind = "sparse", indices = [
     -100.0,
 ] }
 
+[[comparisons]]
+id = "sinusoidal-low-freq"
+matrix_dataset = "gaussian-cg10-spheres-1000x"
+rhs_source = { kind = "sinusoidal", omega = 6.283185307179586 }
+seed = 44
+
+[[comparisons]]
+id = "sinusoidal-high-freq"
+matrix_dataset = "gaussian-cg10-spheres-1000x"
+rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
+seed = 45
+
 [[assignments]]
 dataset = "gaussian-cg10-spheres-1000x"
 job = "pod-2g_rank10"

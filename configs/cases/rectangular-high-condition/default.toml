@@ -84,12 +84,12 @@ rhs_source = { kind = "sparse", indices = [
 ] }
 
 [[comparisons]]
-matrix_dataset = "smoother-filtered-probes"
+matrix_dataset = "smoother-filtered-probes-rectangular-high-condition"
 rhs_source = { kind = "gaussian" }
 seed = 42
 
 [[comparisons]]
-matrix_dataset = "smoother-filtered-probes"
+matrix_dataset = "smoother-filtered-probes-rectangular-high-condition"
 rhs_source = { kind = "sparse", indices = [
     0,
     1,
@@ -99,6 +99,30 @@ rhs_source = { kind = "sparse", indices = [
     100.0,
     -100.0,
 ] }
+
+[[comparisons]]
+id = "gaussian-cg10-sinusoidal-low-freq"
+matrix_dataset = "gaussian-cg10-rectangular-high-condition"
+rhs_source = { kind = "sinusoidal", omega = 6.283185307179586 }
+seed = 44
+
+[[comparisons]]
+id = "gaussian-cg10-sinusoidal-high-freq"
+matrix_dataset = "gaussian-cg10-rectangular-high-condition"
+rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
+seed = 45
+
+[[comparisons]]
+id = "smoother-filtered-probes-sinusoidal-low-freq"
+matrix_dataset = "smoother-filtered-probes-rectangular-high-condition"
+rhs_source = { kind = "sinusoidal", omega = 6.283185307179586 }
+seed = 44
+
+[[comparisons]]
+id = "smoother-filtered-probes-sinusoidal-high-freq"
+matrix_dataset = "smoother-filtered-probes-rectangular-high-condition"
+rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
+seed = 45
 
 [[assignments]]
 dataset = "gaussian-cg10-rectangular-high-condition"

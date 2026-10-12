@@ -221,6 +221,11 @@ other strategy in this package (which draws entries independently), this
 produces a smooth, structured RHS that still varies sample-to-sample and
 reproduces exactly under a fixed seed — useful as a comparison RHS
 distribution unrelated to whatever random family trained the preconditioner.
+A comparison that wants this distribution without generating a dataset for it
+can instead use the `sinusoidal` `rhs_source` kind
+(`composition/comparison/rhs_generation.py::generate_sinusoidal_rhs`), the
+same `sin(omega/n * i + phi)` formula computed on the fly from the matrix
+dimension alone — see `composition/README.md`'s generated-RHS-kinds note.
 
 ## Smoother-Filtered Probes
 

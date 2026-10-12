@@ -114,6 +114,29 @@ def test_resolve_comparison_input_generates_sparse_rhs(tmp_path: Path) -> None:
     assert resolved.rhs_source_kind is ComparisonRhsSourceKind.SPARSE
 
 
+def test_resolve_comparison_input_generates_sinusoidal_rhs(tmp_path: Path) -> None:
+    dataset_dir = _build_safe_dataset(tmp_path)
+
+    resolved = resolve_comparison_input(
+        matrix_path=dataset_dir,
+        matrix_dataset_id="safe-dataset",
+        matrix_index=0,
+        require_non_residual_rhs=True,
+        seed=5,
+        rhs_source_kind=ComparisonRhsSourceKind.SINUSOIDAL,
+        rhs_source_params={"omega": 6.283185307179586},
+    )
+
+    assert resolved.rhs_source_type == "generated"
+    assert resolved.rhs_source_kind is ComparisonRhsSourceKind.SINUSOIDAL
+    assert resolved.rhs.shape == (2,)
+    assert resolved.rhs_dataset_id is None
+    assert resolved.lhs is None
+    # Entries are samples of a unit sinusoid, never a constant/degenerate vector.
+    assert np.all(np.abs(resolved.rhs) <= 1.0)
+    assert not np.allclose(resolved.rhs, resolved.rhs[0])
+
+
 def test_resolve_comparison_input_loads_raw_rhs_with_explicit_row_kind(tmp_path: Path) -> None:
     dataset_dir = _build_safe_dataset(tmp_path)
     rhs_path = tmp_path / "rhs.npy"

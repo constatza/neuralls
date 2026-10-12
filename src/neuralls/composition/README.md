@@ -294,7 +294,15 @@ the configured matrix dataset plus `matrix_index`, while dataset sources
 delegate to platform storage to resolve one canonical `(matrix, rhs, lhs)`
 triplet. When a dataset source omits `sample_index`, platform selects the first
 STANDARD row and follows persisted `matrix_sample_index` to load the matching
-matrix.
+matrix. `gaussian`, `sparse`, and `sinusoidal` are the three *generated* RHS
+kinds (`composition/comparison/rhs_generation.py`, dispatched through the one
+`GeneratedSourceHandler`): each synthesizes its vector on the fly from `dim`
+alone, independent of any dataset row, and is therefore never rescaled by a
+matrix-derived normalization scale (`_linear_system.py::_SYNTHETIC_RHS_KINDS`).
+`sinusoidal`'s `omega` is total phase swept across the vector (e.g. `2*pi*k`
+for `k` full cycles), normalized by vector length the same way as the
+`sinusoidal_field` generation strategy, so it reads as a cycle count
+independent of system size rather than a per-step frequency.
 
 A `[[comparisons]]` entry may set `test_position` (0-indexed, mutually
 exclusive with `matrix_index`) instead of a raw index, addressing the

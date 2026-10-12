@@ -108,6 +108,21 @@ class SparseRhsSourceModel(BaseModel):
         return self
 
 
+class SinusoidalRhsSourceModel(BaseModel):
+    """Direct sinusoidal RHS source for comparison workflows: sin(omega/n * i + phi).
+
+    omega is normalized by the vector length n (see
+    domain/generation/strategies/sinusoidal_field.py), so it reads as "total
+    radians swept across the vector" (e.g. 2*pi*k for k full cycles)
+    independent of the system size.
+    """
+
+    kind: Literal["sinusoidal"] = "sinusoidal"
+    omega: float = Field(gt=0.0)
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
 def _parse_row_kind(value: object) -> RowKind | None:
     """Parse row-kind config values from enum, integer code, or lowercase name."""
     if value is None or isinstance(value, RowKind):
@@ -203,6 +218,7 @@ class CrossDatasetRhsSourceModel(BaseModel):
 type ComparisonRhsSourceModel = Annotated[
     GaussianRhsSourceModel
     | SparseRhsSourceModel
+    | SinusoidalRhsSourceModel
     | RawLhsSourceModel
     | RawRhsSourceModel
     | DatasetRhsSourceModel

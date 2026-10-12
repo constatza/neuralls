@@ -26,7 +26,13 @@ from neuralls.shared.types import ComparisonRhsSourceKind, SystemMatrix
 # RHS sources that are independently configured (a user-chosen magnitude, or an
 # explicit sparse pattern) rather than derived from any raw/normalized matrix.
 # These must never be touched by a matrix-derived scale, fresh or persisted.
-_SYNTHETIC_RHS_KINDS = frozenset({ComparisonRhsSourceKind.GAUSSIAN, ComparisonRhsSourceKind.SPARSE})
+_SYNTHETIC_RHS_KINDS = frozenset(
+    {
+        ComparisonRhsSourceKind.GAUSSIAN,
+        ComparisonRhsSourceKind.SPARSE,
+        ComparisonRhsSourceKind.SINUSOIDAL,
+    }
+)
 
 
 def _self_normalize_rhs(rhs: np.ndarray) -> np.ndarray:

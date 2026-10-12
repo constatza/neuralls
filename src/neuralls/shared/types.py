@@ -93,6 +93,7 @@ class ComparisonRhsSourceKind(StrEnum):
 
     GAUSSIAN = "gaussian"
     SPARSE = "sparse"
+    SINUSOIDAL = "sinusoidal"
     RAW_LHS = "raw_lhs"
     RAW_RHS = "raw_rhs"
     DATASET = "dataset"

@@ -92,6 +92,22 @@ matrix_index = 0
 rhs_source = { kind = "raw_lhs", path = "${NEURALLS_RAW_DIR}/SpectralData/45x15-displacements/UaVectorsFromSpectral/ua_vector from_spectral_no_realization_0.txt", row_kind = "standard", scale = 1.0 }
 
 [[comparisons]]
+id = "eval-0-sinusoidal-low-freq"
+display_name = "Eval matrix 0 | Sinusoidal RHS (low freq)"
+matrix_dataset = "gaussian-eval-45x15randomE"
+matrix_index = 0
+rhs_source = { kind = "sinusoidal", omega = 6.283185307179586 }
+seed = 44
+
+[[comparisons]]
+id = "eval-0-sinusoidal-high-freq"
+display_name = "Eval matrix 0 | Sinusoidal RHS (high freq)"
+matrix_dataset = "gaussian-eval-45x15randomE"
+matrix_index = 0
+rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
+seed = 45
+
+[[comparisons]]
 id = "eval-7-gaussian"
 display_name = "Eval matrix 7 | Gaussian RHS"
 matrix_dataset = "gaussian-eval-45x15randomE"
@@ -114,6 +130,22 @@ matrix_index = 7
 rhs_source = { kind = "raw_lhs", path = "${NEURALLS_RAW_DIR}/SpectralData/45x15-displacements/UaVectorsFromSpectral/ua_vector from_spectral_no_realization_0.txt", row_kind = "standard", scale = 1.0 }
 
 [[comparisons]]
+id = "eval-7-sinusoidal-low-freq"
+display_name = "Eval matrix 7 | Sinusoidal RHS (low freq)"
+matrix_dataset = "gaussian-eval-45x15randomE"
+matrix_index = 7
+rhs_source = { kind = "sinusoidal", omega = 6.283185307179586 }
+seed = 46
+
+[[comparisons]]
+id = "eval-7-sinusoidal-high-freq"
+display_name = "Eval matrix 7 | Sinusoidal RHS (high freq)"
+matrix_dataset = "gaussian-eval-45x15randomE"
+matrix_index = 7
+rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
+seed = 47
+
+[[comparisons]]
 id = "eval-14-gaussian"
 display_name = "Eval matrix 14 | Gaussian RHS"
 matrix_dataset = "gaussian-eval-45x15randomE"
@@ -134,6 +166,22 @@ display_name = "Eval matrix 14 | Raw LHS"
 matrix_dataset = "gaussian-eval-45x15randomE"
 matrix_index = 14
 rhs_source = { kind = "raw_lhs", path = "${NEURALLS_RAW_DIR}/SpectralData/45x15-displacements/UaVectorsFromSpectral/ua_vector from_spectral_no_realization_0.txt", row_kind = "standard", scale = 1.0 }
+
+[[comparisons]]
+id = "eval-14-sinusoidal-low-freq"
+display_name = "Eval matrix 14 | Sinusoidal RHS (low freq)"
+matrix_dataset = "gaussian-eval-45x15randomE"
+matrix_index = 14
+rhs_source = { kind = "sinusoidal", omega = 6.283185307179586 }
+seed = 48
+
+[[comparisons]]
+id = "eval-14-sinusoidal-high-freq"
+display_name = "Eval matrix 14 | Sinusoidal RHS (high freq)"
+matrix_dataset = "gaussian-eval-45x15randomE"
+matrix_index = 14
+rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
+seed = 49
 
 [[assignments]]
 dataset = "gaussian-cg10-45x15randomE"

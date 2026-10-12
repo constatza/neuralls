@@ -79,6 +79,18 @@ rhs_source = { kind = "sparse", indices = [0, 1, -1], values = [90.0, 100.0, -10
 matrix_dataset = "gaussian-cg10-93x31"
 rhs_source = { kind = "raw_lhs", path = "${NEURALLS_RAW_DIR}/SpectralData/93x31-displacements/UaVectorsFromSpectral/ua_vector from_spectral_no_realization_0.txt", row_kind = "standard", scale = 1.0 }
 
+[[comparisons]]
+id = "sinusoidal-low-freq"
+matrix_dataset = "gaussian-cg10-93x31"
+rhs_source = { kind = "sinusoidal", omega = 6.283185307179586 }
+seed = 44
+
+[[comparisons]]
+id = "sinusoidal-high-freq"
+matrix_dataset = "gaussian-cg10-93x31"
+rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
+seed = 45
+
 [[assignments]]
 dataset = "gaussian-cg10-93x31"
 job = "pod-2g_rank10"

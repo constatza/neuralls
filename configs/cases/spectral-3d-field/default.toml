@@ -88,6 +88,18 @@ rhs_source = { kind = "sparse", indices = [
     -100.0,
 ] }
 
+[[comparisons]]
+id = "sinusoidal-low-freq"
+matrix_dataset = "gaussian-cg20-spectral-3d-field"
+rhs_source = { kind = "sinusoidal", omega = 6.283185307179586 }
+seed = 44
+
+[[comparisons]]
+id = "sinusoidal-high-freq"
+matrix_dataset = "gaussian-cg20-spectral-3d-field"
+rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
+seed = 45
+
 [[assignments]]
 dataset = "gaussian-cg20-spectral-3d-field"
 job = "pod-2g_rank10"

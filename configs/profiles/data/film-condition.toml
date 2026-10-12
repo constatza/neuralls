@@ -4,6 +4,14 @@ batch_size = 256
 pin_memory = true
 shuffle = true
 
+# val is forced to 0 by runtime_split_patcher.py for fit jobs (POD-2G has no
+# training loop to serve a validation fold) regardless of what's set here, so
+# fit jobs train on 90% (1 - test). Train/search jobs get 80/10/10, keeping a
+# validation fold for early-stopping/plateau profiles.
+[data.splits]
+test = 0.1
+val = 0.1
+
 [[data.features]]
 name = "x"
 

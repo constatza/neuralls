@@ -48,14 +48,14 @@ class SinusoidalFieldInputProvider:
 
     def provide(
         self,
-        matrix: np.ndarray,
+        n: int,
         count: int,
         rng: np.random.Generator,
     ) -> np.ndarray:
         """Generate sinusoidal vectors.
 
         Args:
-            matrix: System matrix (used only for its dimension, otherwise ignored).
+            n: Vector length.
             count: Number of vectors to generate.
             rng: Random number generator for per-sample phase offsets.
 
@@ -63,7 +63,6 @@ class SinusoidalFieldInputProvider:
             np.ndarray: Vectors of shape (count, n), entry i is
             sin(omega/n * i + phi).
         """
-        n = matrix.shape[0]
         i = np.arange(n)
         phase = rng.uniform(0.0, _TWO_PI, size=count)
         return np.sin((self.omega / n) * i[np.newaxis, :] + phase[:, np.newaxis])
@@ -106,7 +105,7 @@ class SinusoidalFieldStrategy:
 
         # Layer 1: Input provision (sinusoidal RHS)
         provider = SinusoidalFieldInputProvider(omega=config.omega)
-        rhs = provider.provide(matrix, count=config.samples, rng=rng)
+        rhs = provider.provide(matrix.shape[0], count=config.samples, rng=rng)
 
         # Layer 2: Transformation (solve for solutions)
         solutions = SolveTransform(matrix, **config.solve_config.model_dump()).transform(rhs)

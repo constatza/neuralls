@@ -11,6 +11,7 @@ import numpy as np
 from neuralls.composition.comparison.models import ResolvedComparisonInput
 from neuralls.composition.comparison.rhs_generation import (
     generate_gaussian_rhs,
+    generate_sinusoidal_rhs,
     generate_sparse_rhs,
 )
 from neuralls.domain.solver.models.provenance import CrossDatasetMatrix
@@ -20,6 +21,7 @@ from neuralls.platform.config.models.comparison import (
     GaussianRhsSourceModel,
     RawLhsSourceModel,
     RawRhsSourceModel,
+    SinusoidalRhsSourceModel,
     SparseRhsSourceModel,
 )
 from neuralls.platform.storage.comparison import load_system_arrays
@@ -151,6 +153,11 @@ class GeneratedSourceHandler:
                     {"kind": ctx.rhs_source_kind, **(ctx.rhs_source_params or {})}
                 )
                 rhs = generate_sparse_rhs(matrix.shape[0], cfg)
+            case ComparisonRhsSourceKind.SINUSOIDAL:
+                cfg = SinusoidalRhsSourceModel.model_validate(
+                    {"kind": ctx.rhs_source_kind, **(ctx.rhs_source_params or {})}
+                )
+                rhs = generate_sinusoidal_rhs(matrix.shape[0], cfg, ctx.seed)
             case _:
                 raise ValueError(
                     f"Unsupported generated comparison RHS source: {ctx.rhs_source_kind}."
@@ -339,6 +346,7 @@ class CrossDatasetSourceHandler:
 _SOURCE_HANDLERS: dict[ComparisonRhsSourceKind, ComparisonSourceHandler] = {
     ComparisonRhsSourceKind.GAUSSIAN: GeneratedSourceHandler(),
     ComparisonRhsSourceKind.SPARSE: GeneratedSourceHandler(),
+    ComparisonRhsSourceKind.SINUSOIDAL: GeneratedSourceHandler(),
     ComparisonRhsSourceKind.RAW_LHS: RawLhsSourceHandler(),
     ComparisonRhsSourceKind.RAW_RHS: RawRhsSourceHandler(),
     ComparisonRhsSourceKind.DATASET: DatasetSourceHandler(),

@@ -144,7 +144,11 @@ class ResolvedComparisonInput:
     @property
     def rhs_source_type(self) -> str:
         match self.rhs_source_kind:
-            case ComparisonRhsSourceKind.GAUSSIAN | ComparisonRhsSourceKind.SPARSE:
+            case (
+                ComparisonRhsSourceKind.GAUSSIAN
+                | ComparisonRhsSourceKind.SPARSE
+                | ComparisonRhsSourceKind.SINUSOIDAL
+            ):
                 return "generated"
             case None:
                 return "unknown"

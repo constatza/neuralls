@@ -187,7 +187,10 @@ from this dataset (RHS is synthesized fresh per `[[comparisons]]` entry) — unl
 the training datasets, nothing ever reads this dataset's own RHS/solution rows,
 so there's no reason to pay for CG solves here. Its comparisons mirror the 45x15
 RHS modes on 3 of the 15 eval matrix positions (0, 7, and 14 — first/middle/last):
-random RHS, sparse RHS, and raw-LHS comparisons. The companion 45x15
+random (gaussian), sparse, raw-LHS, and low/high-frequency sinusoidal
+comparisons — the sinusoidal pair uses `rhs_source = { kind = "sinusoidal" }`
+(see `composition/README.md`'s generated-RHS-kinds note), not a generated
+dataset. The companion 45x15
 `default-search.toml` case binds one Optuna search job per network variant. Those
 search jobs tune learning rate, layer count, activation, bias, dropout, and
 scale-equivariant initialization/gain parameters.
