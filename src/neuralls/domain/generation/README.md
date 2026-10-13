@@ -503,6 +503,15 @@ above the file's `K` rows is capped at `K` per binding with one warning.
   `derive_strategy_seed`, `rng_from_seed`) — every random stream that must not repeat
   another one takes its own label path under the mixture seed, hashed with CRC32 so string
   labels are stable across processes.
+- `descriptions.py`: `describe_residual_trace()` builds a `shared.scientific_description.ScientificDescription`
+  (base name `"CG Residuals"`/`"Gaussian CG Residuals"` plus `k`=iteration count, `N`=realized
+  generated rows) for the `residuals`/`gaussian_residuals` family; `residuals.py`'s `generate()`
+  renders and logs it once `referenced_samples` is known. Every other registered strategy
+  (`_GENERATION_RESULT_BASE_NAMES`) goes through `describe_generation_result()` instead (base name
+  plus `N` only — none of them have a second structural parameter as central to their identity as
+  CG's iteration cap); `runner.py::run_generation()` is the single dispatch point that calls it for
+  every strategy except the residual-trace pair (`RESIDUAL_TRACE_STRATEGY_NAMES`), which already
+  logged their own richer description before this dispatcher would ever see them.
 - `counts.py`: strategy sample counts (`rounded_counts`, `resolve_strategy_counts`) and
   trace-row counts for trajectory-harvesting strategies (`trace_rows_per_system`,
   `trace_rows_per_base_system`, `required_trace_systems`, `resolve_trace_generation_counts`,

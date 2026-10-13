@@ -7,9 +7,12 @@ from dataclasses import dataclass
 from typing import Any, Literal, cast, overload
 
 import numpy as np
+from loguru import logger
 
+from neuralls.shared.scientific_description import LOG_PROFILE, NotationPolicy, render
 from neuralls.shared.types import SystemMatrix
 
+from .descriptions import RESIDUAL_TRACE_STRATEGY_NAMES, describe_generation_result
 from .interfaces import (
     ArchiveData,
     GeneratedSamples,
@@ -193,11 +196,50 @@ def run_generation(
                 "construct a default one. Inject one via "
                 "neuralls.composition.generation.default_services.make_solver()."
             )
-        return registration.strategy.generate(
+        result = registration.strategy.generate(
             matrix,
             cfg=cfg,
             solver=solver,
             single_rhs=single_rhs,
             archive=archive,
         )
-    return registration.strategy.generate(matrix, cfg=cfg, archive=archive)
+    else:
+        result = registration.strategy.generate(matrix, cfg=cfg, archive=archive)
+    _log_generation_result(strategy_name, result)
+    return result
+
+
+def _realized_row_count(result: GeneratedSamples) -> int:
+    """The realized number of generated rows, from whichever field the strategy populated.
+
+    ``smoother_filtered_probes`` populates only ``residual_traces`` (``rhs``
+    and ``solutions`` are both ``None`` for it) — falling through to
+    ``matrix.shape[0]`` there would log the system dimension instead of the
+    realized sample count. ``error_traces`` is included for completeness
+    even though its only producers (``residuals``/``gaussian_residuals``)
+    never reach this function (see ``RESIDUAL_TRACE_STRATEGY_NAMES``).
+    """
+    if result.rhs is not None:
+        return result.rhs.shape[0]
+    if result.solutions is not None:
+        return result.solutions.shape[0]
+    if result.residual_traces is not None:
+        return result.residual_traces.residuals.shape[0]
+    if result.error_traces is not None:
+        return result.error_traces.errors.shape[0]
+    return result.matrix.shape[0]
+
+
+def _log_generation_result(strategy_name: str, result: GeneratedSamples) -> None:
+    """Log the realized scientific description for every strategy except the residual-trace pair.
+
+    ``residuals``/``gaussian_residuals`` already log their own richer
+    (``k``+``N``) description from inside ``generate()`` before this ever
+    runs — see ``descriptions.py``'s module docstring.
+    """
+    if strategy_name in RESIDUAL_TRACE_STRATEGY_NAMES:
+        return
+    description = describe_generation_result(
+        strategy_name, sample_count=_realized_row_count(result)
+    )
+    logger.info(render(description, LOG_PROFILE, NotationPolicy.default()))

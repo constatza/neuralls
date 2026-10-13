@@ -19,12 +19,14 @@ import torch
 from loguru import logger
 
 from neuralls.domain.normalization import ErrorTraceSamples
+from neuralls.shared.scientific_description import LOG_PROFILE, NotationPolicy, render
 
 from ..counts import (
     _build_trace_indices,
     resolve_trace_generation_counts,
     trace_rows_per_base_system,
 )
+from ..descriptions import describe_residual_trace
 from ..interfaces import ArchiveData, ArchiveField, GeneratedSamples, TracingSolverCallable
 from ..matrix_operator import MatrixOperator
 from ..providers import HybridInputProvider, RandomInputProvider, provide_solutions
@@ -232,6 +234,15 @@ class _BaseResidualsStrategy:
         )
         error_traces = _trim_error_traces(error_traces, final_rows)
         referenced_samples = _referenced_sample_count(error_traces.sample_indices)
+        logger.info(
+            render(
+                describe_residual_trace(
+                    self.name, iteration_count=window.stop, sample_count=referenced_samples
+                ),
+                LOG_PROFILE,
+                NotationPolicy.default(),
+            )
+        )
 
         return GeneratedSamples(
             matrix=matrix,
