@@ -186,7 +186,7 @@ def _write_experiments_config(
             "training": "neuralls-training",
             "comparison": "Comparisons",
         },
-        "comparison_defaults": {
+        "comparison_baseline": {
             "rtol": 1e-6,
             "atol": 1e-14,
             "max_iterations": 20,

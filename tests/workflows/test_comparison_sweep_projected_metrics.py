@@ -37,7 +37,7 @@ def _write_sweep_config(path: Path, dataset_dir: Path, tmp_path: Path) -> None:
     payload: dict[str, object] = {
         "mlflow": {"tracking_uri": build_sqlite_tracking_uri(tmp_path / "mlruns" / "mlflow.db")},
         "names": {"training": "neuralls-training", "comparison": "Comparisons"},
-        "comparison_defaults": {
+        "comparison_baseline": {
             "rtol": 1.0e-6,
             "atol": 1.0e-14,
             "max_iterations": 10,

@@ -5,48 +5,48 @@ tracking_uri = "http://localhost:5000"
 training = "Train-Spheres50x-POD-2G-CG"
 comparison = "Compare-Spheres50x-POD-2G-CG"
 
-[comparison_defaults]
+[comparison_baseline]
 rtol = 1.0e-6
 atol = 1.0e-14
 max_iterations = 200
 stopping_criterion = "residual_norm"
 m_max = 20
 
-[[comparison_defaults.preconditioners]]
+[[comparison_baseline.preconditioners]]
 name = "identity"
 type = "identity"
 
-[[comparison_defaults.preconditioners]]
+[[comparison_baseline.preconditioners]]
 name = "jacobi"
 type = "jacobi"
 
-[[comparison_defaults.preconditioners]]
+[[comparison_baseline.preconditioners]]
 name = "ic0"
 type = "ic0"
 
-[[comparison_defaults.preconditioners]]
+[[comparison_baseline.preconditioners]]
 name = "amg-small-theta"
 type = "amg"
 coarsening = { method = "aggregation", theta = 0.05 }
 
-[[comparison_defaults.preconditioners]]
+[[comparison_baseline.preconditioners]]
 name = "amg-medium-theta"
 type = "amg"
 coarsening = { method = "aggregation", theta = 0.25 }
 
-# [[comparison_defaults.preconditioners]]
+# [[comparison_baseline.preconditioners]]
 # name = "asa-few-candidates"
 # type = "adaptive_sa_amg"
 # num_candidates = 3
 # theta = 0.05
 
-# [[comparison_defaults.preconditioners]]
+# [[comparison_baseline.preconditioners]]
 # name = "asa-more-candidates"
 # type = "adaptive_sa_amg"
 # num_candidates = 7
 # theta = 0.05
 
-# [[comparison_defaults.preconditioners]]
+# [[comparison_baseline.preconditioners]]
 # name = "bamg"
 # type = "bootstrap_amg"
 

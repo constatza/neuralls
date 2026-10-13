@@ -210,7 +210,7 @@ binds:
 - `[[jobs]]` — thin runnable entrypoints (`run.type = "train" | "search" | "fit"`)
   referencing a model profile, data profile, and training profile
 - `[[comparisons]]` — inline solver-comparison scenarios (matrix, RHS source,
-  seed), evaluated against `[comparison_defaults]` preconditioners
+  seed), evaluated against `[comparison_baseline]` preconditioners
 - `[[assignments]]` — pairs one dataset with one job
 - optional `[mlflow]` topology and `[names]` for training/comparison experiment
   buckets

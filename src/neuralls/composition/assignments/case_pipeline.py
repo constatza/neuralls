@@ -35,7 +35,7 @@ def run_case_pipeline(
     three separate commands by hand. Training and comparisons are each
     skipped entirely when the case config declares none — a case config may
     legitimately declare only `[[comparisons]]` with preconditioners inline
-    in `comparison_defaults` (e.g. POD-2G weighting variants that need the
+    in `comparison_baseline` (e.g. POD-2G weighting variants that need the
     matrix at fit time, which a checkpoint-backed `fit` job can't provide).
 
     Args:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -20,12 +20,14 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerConfig,
     RegisteredModelRefConfig,
 )
+from neuralls.platform.config.models.presentation import ScientificLabelsConfig
 from neuralls.shared.constants import (
     DEFAULT_ATOL,
     DEFAULT_M_MAX,
     DEFAULT_RTOL,
 )
 from neuralls.shared.digest import Cosmetic, InputData
+from neuralls.shared.scientific_description import NotationPolicy
 from neuralls.shared.types import RowKind
 
 type NormalizeSystem = Literal["none", "matrix", "rhs", "both"]
@@ -37,6 +39,11 @@ class ComparisonConfig:
 
     general: ComparisonGeneral
     preconditioners: tuple[PreconditionerConfig, ...]
+    notation_policy: Annotated[NotationPolicy, Cosmetic()] = field(
+        default_factory=NotationPolicy.default
+    )
+    """Plot/legend notation only — changing it must never change comparison
+    identity or trigger a reuse-invalidating rerun, so it's `Cosmetic()`."""
 
 
 class _SolverParamsModel(BaseModel):
@@ -231,11 +238,12 @@ class _ComparisonConfigModel(BaseModel):
     """Parser for comparison method override files.
 
     All sections are optional — absent sections inherit from case
-    ``[comparison_defaults]`` when resolved via ``resolve_comparison_config``.
+    ``[comparison_baseline]`` when resolved via ``resolve_comparison_config``.
     """
 
     general: _ComparisonGeneralModel = Field(default_factory=_ComparisonGeneralModel)
     preconditioners: list[PreconditionerConfig] = Field(default_factory=list)
+    presentation: ScientificLabelsConfig | None = None
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     @model_validator(mode="after")
@@ -324,6 +332,7 @@ def parse_comparison_config(
             data=ComparisonData(**data.model_dump()),
         ),
         preconditioners=tuple(parsed.preconditioners),
+        notation_policy=(parsed.presentation or ScientificLabelsConfig()).notation_policy(),
     )
 
 
@@ -340,6 +349,6 @@ def parse_comparison_method_override(
         context: ConfigContext for expanding ${NEURALLS_*} path placeholders.
 
     Returns:
-        Parsed partial config model for merging with case comparison_defaults.
+        Parsed partial config model for merging with case comparison_baseline.
     """
     return _ComparisonConfigModel.model_validate(raw, context=context.as_pydantic_context())

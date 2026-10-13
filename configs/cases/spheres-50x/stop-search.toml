@@ -5,26 +5,26 @@ tracking_uri = "http://localhost:5000"
 training = "Train-Spheres50x-POD-2G-StopSearch"
 comparison = "Compare-Spheres50x-POD-2G-StopSearch"
 
-[comparison_defaults]
+[comparison_baseline]
 rtol = 1.0e-6
 atol = 1.0e-14
 max_iterations = 200
 stopping_criterion = "residual_norm"
 m_max = 20
 
-[[comparison_defaults.preconditioners]]
+[[comparison_baseline.preconditioners]]
 name = "identity"
 type = "identity"
 
-[[comparison_defaults.preconditioners]]
+[[comparison_baseline.preconditioners]]
 name = "jacobi"
 type = "jacobi"
 
-[[comparison_defaults.preconditioners]]
+[[comparison_baseline.preconditioners]]
 name = "ic0"
 type = "ic0"
 
-[[comparison_defaults.preconditioners]]
+[[comparison_baseline.preconditioners]]
 name = "amg-dim100"
 type = "amg"
 coarsening = { method = "target_dim", target_coarse_dim = 100 }

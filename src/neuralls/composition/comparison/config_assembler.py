@@ -18,7 +18,7 @@ from neuralls.platform.config.models.comparison import (
 )
 from neuralls.platform.config.models.experiments import (
     CaseConfig,
-    ComparisonDefaults,
+    ComparisonBaseline,
     ComparisonRegistryEntry,
 )
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
@@ -69,7 +69,7 @@ def resolve_comparison_config(
 ) -> ComparisonConfig:
     """Build a fully resolved ComparisonConfig from a case comparison entry.
 
-    Merges ``[comparison_defaults]`` with an optional methodology override file,
+    Merges ``[comparison_baseline]`` with an optional methodology override file,
     then injects the data paths resolved from the dataset registry.
 
     Args:
@@ -82,16 +82,17 @@ def resolve_comparison_config(
         Fully materialised ``ComparisonConfig`` with injected paths.
 
     Raises:
-        ValueError: If required defaults or datasets are missing.
+        ValueError: If the case comparison baseline or a referenced dataset is missing.
     """
-    defaults: ComparisonDefaults | None = case_cfg.comparison_defaults
-    if defaults is None:
+    baseline: ComparisonBaseline | None = case_cfg.comparison_baseline
+    if baseline is None:
         raise ValueError(
-            "Case config must define [comparison_defaults] to use the [[comparisons]] registry."
+            "Case config must define [comparison_baseline] to use the [[comparisons]] registry."
         )
 
-    preconditioners: list[PreconditionerConfig] = list(defaults.preconditioners)
-    normalize_system = defaults.normalize_system
+    preconditioners: list[PreconditionerConfig] = list(baseline.preconditioners)
+    normalize_system = baseline.normalize_system
+    presentation = baseline.presentation
     params_override: dict[str, Any] | None = None
 
     if entry.method is not None:
@@ -105,14 +106,16 @@ def resolve_comparison_config(
             normalize_system = override.general.data.normalize_system
         if override.general.params is not None:
             params_override = override.general.params.model_dump()
+        if override.presentation is not None:
+            presentation = override.presentation
 
     matrix_path = resolve_dataset_dir(case_cfg, config_dir, entry.matrix_dataset, settings)
     base_params: dict[str, Any] = {
-        "rtol": defaults.rtol,
-        "atol": defaults.atol,
-        "max_iterations": defaults.max_iterations,
-        "stopping_criterion": defaults.stopping_criterion,
-        "m_max": defaults.m_max,
+        "rtol": baseline.rtol,
+        "atol": baseline.atol,
+        "max_iterations": baseline.max_iterations,
+        "stopping_criterion": baseline.stopping_criterion,
+        "m_max": baseline.m_max,
     }
     if params_override:
         base_params.update(params_override)
@@ -133,4 +136,5 @@ def resolve_comparison_config(
             ),
         ),
         preconditioners=tuple(preconditioners),
+        notation_policy=presentation.notation_policy(),
     )

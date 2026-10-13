@@ -76,7 +76,7 @@ def test_skips_comparison_batch_when_case_config_declares_none(tmp_path: Path) -
 
 def test_skips_assignment_sweep_when_case_config_declares_none(tmp_path: Path) -> None:
     """A comparison-only case config (preconditioners declared inline in
-    comparison_defaults, e.g. POD-2G weighting variants) must not hit
+    comparison_baseline, e.g. POD-2G weighting variants) must not hit
     load_assignment_batch's "no assignments" error.
     """
     case_config_path = tmp_path / "case.toml"

@@ -18,6 +18,7 @@ from neuralls.platform.config.models.id_generation import (
     _infer_comparison_id,
 )
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
+from neuralls.platform.config.models.presentation import ScientificLabelsConfig
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
 
 
@@ -181,8 +182,16 @@ class AssignmentEntry(BaseModel):
         return resolve_display_name(self.id, self.display_name)
 
 
-class ComparisonDefaults(BaseModel):
-    """Shared methodology defaults applied to all ``[[comparisons]]`` entries.
+class ComparisonBaseline(BaseModel):
+    """Shared comparison methodology every ``[[comparisons]]`` entry starts from.
+
+    Every field already carries its own source-code default (``DEFAULT_RTOL``
+    and friends below), so ``[comparison_baseline]`` is never a required full
+    declaration — a case states only the fields it wants to diverge from the
+    source default, and a per-entry ``method`` file may in turn diverge from
+    this baseline. "Baseline" names that two-layer relationship explicitly,
+    since "defaults" alone is ambiguous between "this model's own field
+    defaults" and "the case-wide baseline these fields establish."
 
     Attributes:
         rtol: Relative convergence tolerance.
@@ -193,6 +202,11 @@ class ComparisonDefaults(BaseModel):
         normalize_system: Normalization applied to the test system.
         preconditioners: Classical preconditioner list (neural preconditioners are
             auto-generated from case assignments at runtime).
+        presentation: Scientific-label notation for this case's preconditioner
+            comparison plots (target: plain/mathtext/latex, symbol overrides).
+            Complete defaults, so no case needs a ``[comparison_baseline.presentation]``
+            table at all. A per-entry ``method`` file may override it the same
+            way it overrides ``preconditioners``/``normalize_system``.
     """
 
     rtol: float = Field(default=DEFAULT_RTOL, gt=0.0)
@@ -202,6 +216,7 @@ class ComparisonDefaults(BaseModel):
     m_max: int = Field(default=DEFAULT_M_MAX, ge=-1)
     normalize_system: Literal["none", "matrix", "rhs", "both"] = "matrix"
     preconditioners: list[PreconditionerConfig] = Field(default_factory=list)
+    presentation: ScientificLabelsConfig = Field(default_factory=ScientificLabelsConfig)
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
@@ -258,7 +273,7 @@ class ComparisonRegistryEntry(_ComparisonDataBinding):
 
     The test matrix and RHS are identified by dataset IDs from the case
     ``[[datasets]]`` registry.  Solver parameters and the base preconditioner
-    list are inherited from ``[comparison_defaults]`` unless a ``method`` file
+    list are inherited from ``[comparison_baseline]`` unless a ``method`` file
     is given to override them.
 
     Attributes:
@@ -455,7 +470,7 @@ class CaseConfig(BaseModel):
         assignments: Assignment entries referencing registry ids.
         mlflow: MLflow topology config (tracking URI, etc.).
         names: MLflow experiment names for training and comparison.
-        comparison_defaults: Shared solver params and preconditioner list applied to
+        comparison_baseline: Shared solver params and preconditioner list applied to
             all comparisons unless overridden by a per-entry ``method`` file.
     """
 
@@ -466,7 +481,7 @@ class CaseConfig(BaseModel):
     assignments: list[AssignmentEntry] = Field(default_factory=list)
     mlflow: MlflowTopologyConfig = Field(default_factory=MlflowTopologyConfig)
     names: ExperimentNamesConfig = Field(default_factory=ExperimentNamesConfig)
-    comparison_defaults: ComparisonDefaults | None = None
+    comparison_baseline: ComparisonBaseline | None = None
 
     model_config = ConfigDict(extra="allow", frozen=True)
 

@@ -5,7 +5,7 @@ tracking_uri = "http://localhost:5000"
 training = "Train-RHC-POD-Rank"
 comparison = "Compare-RHC-POD-Rank"
 
-[comparison_defaults]
+[comparison_baseline]
 rtol = 1.0e-6
 atol = 1.0e-14
 max_iterations = 200
