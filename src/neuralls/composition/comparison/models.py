@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,17 +14,22 @@ from neuralls.domain.solver.models.result import CGComparisonResult, ComparisonR
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.storage.manifest import DatasetNormalization
-from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
+from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, MatrixId, RowKind
 
 __all__ = [
+    "ComparisonGroup",
+    "ComparisonGroupings",
     "ComparisonOutcome",
     "ComparisonParams",
     "ComparisonPaths",
     "ComparisonResult",
     "ComparisonSpec",
+    "GroupMatrixIdentity",
     "LinearSystem",
+    "MultiMatrixDataset",
     "PreconditionerComparisonEntry",
     "ResolvedComparisonInput",
+    "SingleMatrixDataset",
 ]
 
 
@@ -167,6 +173,72 @@ class ComparisonParams:
     """
 
     force: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SingleMatrixDataset:
+    """This dataset has exactly one matrix — no sample index exists at all."""
+
+    dataset_id: DatasetId
+
+
+@dataclass(frozen=True, slots=True)
+class MultiMatrixDataset:
+    """This dataset stores several matrix samples.
+
+    `resolved_indices` are the ones a comparison group's members actually
+    resolved to.
+    """
+
+    dataset_id: DatasetId
+    resolved_indices: frozenset[MatrixId]
+
+
+type GroupMatrixIdentity = SingleMatrixDataset | MultiMatrixDataset
+"""Which matrix(es) a `ComparisonGroup`'s members resolve to.
+
+Exactly two variants because a dataset is exactly one of two kinds (see
+`platform.storage.dataset_readers.list_available_matrix_indices`). For a
+`MultiMatrixDataset`, `len(resolved_indices) == 1` means every member hit
+the same matrix — a derived fact, not a third variant.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonGroup:
+    """Every resolved comparison entry sharing one partition key.
+
+    Hand-written `[[comparisons]]` entries and `comparison_sweeps`-expanded
+    entries land in the same group whenever their data says they belong
+    together under whichever key partitioned them — group membership is a
+    property of what an entry tests, never of which TOML array declared
+    it. See `ComparisonGroupings` for the two partition keys this codebase
+    actually uses.
+    """
+
+    group_id: str
+    matrix_identity: GroupMatrixIdentity
+    entry_ids: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonGroupings:
+    """Every comparison group discovered for one batch, under both granularities.
+
+    `by_matrix` partitions purely by `matrix_dataset` — this is the
+    execution-time grouping `SweepPreconditionerCache` scopes
+    setup-sharing to, since `rhs_source.kind` has no bearing on whether a
+    preconditioner's `setup()` can be reused (`setup()` never sees the RHS
+    at all). `by_matrix_and_rhs_kind` additionally partitions by
+    `rhs_source.kind` — a reporting-only view that keeps same-matrix,
+    different-RHS-kind systems apart, so a preconditioner's behavior under
+    one forcing structure doesn't get blended into another's average. Both
+    are reported (see `comparison_batch.py::_log_group_aggregation`), but
+    only `by_matrix` ever backs a `SweepPreconditionerCache`.
+    """
+
+    by_matrix: Mapping[str, ComparisonGroup]
+    by_matrix_and_rhs_kind: Mapping[str, ComparisonGroup]
 
 
 @dataclass(frozen=True)

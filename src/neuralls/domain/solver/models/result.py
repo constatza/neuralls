@@ -15,6 +15,7 @@ Theory:
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -230,6 +231,71 @@ class CGComparisonResult:
 
 
 @dataclass(frozen=True, slots=True)
+class CostFieldSpec:
+    """One reportable scalar cost, shared by every consumer that reports costs.
+
+    `field_name` is the stable key written to `comparison.toml` (§ persistence);
+    `extractor` is the same accessor the existing cost bar-charts already
+    use. Adding a new measured cost means adding one entry here, not
+    touching the plotting code and the TOML writer separately — they would
+    otherwise be two hand-copied lists that can silently drift apart.
+    """
+
+    field_name: str
+    extractor: Callable[[CGComparisonResult], float | int | None]
+    metric_name: str
+    filename_suffix: str
+
+
+COST_FIELD_REGISTRY: tuple[CostFieldSpec, ...] = (
+    CostFieldSpec(
+        field_name="generation_time_seconds",
+        extractor=lambda r: (
+            r.generation_cost.wall_time_seconds if r.generation_cost is not None else None
+        ),
+        metric_name="Generation Time (s)",
+        filename_suffix="generation_time",
+    ),
+    CostFieldSpec(
+        field_name="setup_time_seconds",
+        extractor=lambda r: r.setup_cost,
+        metric_name="Setup Time (s)",
+        filename_suffix="setup_time",
+    ),
+    CostFieldSpec(
+        field_name="solve_time_seconds",
+        extractor=lambda r: r.solve_time_seconds,
+        metric_name="Solve Time (s)",
+        filename_suffix="solve_time",
+    ),
+    CostFieldSpec(
+        field_name="avg_iteration_time_seconds",
+        extractor=lambda r: r.avg_iteration_time_seconds,
+        metric_name="Solve Time Per Iteration (s)",
+        filename_suffix="avg_iteration_time",
+    ),
+    CostFieldSpec(
+        field_name="total_cost_per_iteration_seconds",
+        extractor=lambda r: r.total_cost_per_iteration_seconds,
+        metric_name="Total Cost Per Iteration [Gen+Setup+Solve] (s)",
+        filename_suffix="total_cost_per_iteration",
+    ),
+    CostFieldSpec(
+        field_name="peak_memory_bytes",
+        extractor=lambda r: r.peak_memory_bytes,
+        metric_name="Peak Memory (bytes)",
+        filename_suffix="peak_memory",
+    ),
+)
+"""Every scalar cost reported per preconditioner per comparison run.
+
+Iterated by `_plots.py`'s bar-chart generation and by
+`_save_comparison_toml` (`platform/reporting/artifacts.py`) — the one list
+both read from.
+"""
+
+
+@dataclass(frozen=True, slots=True)
 class SetupSharingPolicy:
     """Whether one preconditioner's setup/generation cost amortizes across sibling systems.
 
@@ -361,6 +427,49 @@ class ProjectedComparisonResult:
             float: `projected_total_seconds(n) / n`.
         """
         return self.projected_total_seconds(n) / n
+
+
+@dataclass(frozen=True, slots=True)
+class GroupAggregated:
+    """At least one comparison group member contributed a real result.
+
+    Attributes:
+        group_id: The `ComparisonGroup` this projection was built from.
+        projected: One `ProjectedComparisonResult` per preconditioner name.
+        n_aggregated: Members actually contributing a result this run.
+        n_in_group: Total members in the group; `n_aggregated < n_in_group`
+            means the rest were cache hits (reused from an earlier run,
+            carrying no result to aggregate this time).
+    """
+
+    group_id: str
+    projected: Mapping[str, ProjectedComparisonResult]
+    n_aggregated: int
+    n_in_group: int
+
+
+@dataclass(frozen=True, slots=True)
+class GroupSkippedAllCacheHit:
+    """Every member of this comparison group was a cache hit this run.
+
+    There is no `CGComparisonResult` to aggregate — not the same as zero
+    cost, just nothing measured this run.
+    """
+
+    group_id: str
+    n_in_group: int
+
+
+type ComparisonGroupOutcome = GroupAggregated | GroupSkippedAllCacheHit
+"""The outcome of attempting to aggregate one comparison group's results.
+
+Two variants because there are exactly two cases that call for different
+handling: there is a projection to act on, or there is none. Whether every
+member contributed (`n_aggregated == n_in_group`) or only some did is a
+fact carried as data on `GroupAggregated`, not a third variant — both
+cases are plotted/logged/uploaded identically, differing only in whether a
+warning fires.
+"""
 
 
 @dataclass(frozen=True, slots=True)

@@ -28,6 +28,9 @@ MatrixId = NewType("MatrixId", int)
 RhsId = NewType("RhsId", int)
 """A raw row/sample index identifying one RHS within a comparison dataset directory."""
 
+DatasetId = NewType("DatasetId", str)
+"""A `[[datasets]]` registry id — a dataset reference, never a free-form label."""
+
 EntryRole = Literal["feature", "target"]
 """Runtime dataset entry roles understood by neuralls bridge code."""
 

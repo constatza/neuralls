@@ -28,7 +28,10 @@ from neuralls.domain.solver.error_metrics import (
 )
 from neuralls.domain.solver.models.result import (
     CGComparisonResult,
+    ComparisonGroupOutcome,
     ComparisonRecommendations,
+    GroupAggregated,
+    GroupSkippedAllCacheHit,
     ProjectedComparisonResult,
     RankedRecommendation,
     SetupSharingPolicy,
@@ -464,4 +467,40 @@ def _aggregate_one_preconditioner(
         ),
         total_solve_time_seconds=sum(result.solve_time_seconds or 0.0 for result in results),
         total_iterations=sum(result.iterations for result in results),
+    )
+
+
+def classify_group_aggregation(
+    group_id: str,
+    n_in_group: int,
+    results_by_system: Mapping[str, dict[str, CGComparisonResult]],
+    sharing_by_name: Mapping[str, SetupSharingPolicy],
+) -> ComparisonGroupOutcome:
+    """Classify one comparison group's aggregation attempt as a closed outcome.
+
+    Pure: takes already-filtered real results (callers drop cache hits,
+    which carry no `CGComparisonResult`) plus the group's total member
+    count, and decides which of the two cases applies — no MLflow or
+    composition-layer types involved.
+
+    Args:
+        group_id: The `ComparisonGroup` being classified.
+        n_in_group: Total members in the group (including any cache hits).
+        results_by_system: One `dict[str, CGComparisonResult]` per member
+            that actually produced a result this run — fewer than
+            `n_in_group` when some members were cache hits.
+        sharing_by_name: Each preconditioner name's `SetupSharingPolicy`.
+
+    Returns:
+        `GroupAggregated` if at least one member contributed a result,
+        else `GroupSkippedAllCacheHit`.
+    """
+    if not results_by_system:
+        return GroupSkippedAllCacheHit(group_id=group_id, n_in_group=n_in_group)
+    projected = aggregate_projected_results(results_by_system, sharing_by_name)
+    return GroupAggregated(
+        group_id=group_id,
+        projected=projected,
+        n_aggregated=len(results_by_system),
+        n_in_group=n_in_group,
     )

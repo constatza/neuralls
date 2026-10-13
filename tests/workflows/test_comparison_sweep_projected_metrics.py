@@ -83,15 +83,24 @@ def test_real_sweep_execution_logs_projected_metrics_and_scaling_plot(
     assert all(outcome.success for outcome in outcomes)
     assert all(outcome.payload is not None for outcome in outcomes)
 
+    # Every expanded sibling shares matrix_dataset="solutions" and
+    # rhs_source.kind="dataset", so the coarse (by-matrix) and fine
+    # (by-matrix-and-rhs-kind) groupings have identical membership here —
+    # just two different group ids, each aggregated and reported
+    # independently. Coarse group id is the bare dataset id ("solutions");
+    # fine is `matrix_dataset::rhs_source.kind`, sanitized for MLflow
+    # (":" -> "_") to "solutions_dataset".
     metric_calls = {call.args[0]: call.args[1] for call in mock_mlflow.log_metric.call_args_list}
-    assert metric_calls["n_systems/sweep/identity"] == 4
-    assert "avg_setup_cost_s/sweep/identity" in metric_calls
-    assert "avg_solve_time_per_system_s/sweep/identity" in metric_calls
+    for group_id in ("solutions", "solutions_dataset"):
+        assert metric_calls[f"n_systems/{group_id}/identity"] == 4
+        assert f"avg_setup_cost_s/{group_id}/identity" in metric_calls
+        assert f"avg_solve_time_per_system_s/{group_id}/identity" in metric_calls
 
     param_calls = {call.args[0]: call.args[1] for call in mock_mlflow.log_param.call_args_list}
     # Identity is a torchalg StaticSetupPreconditioner: setup is shareable
-    # regardless of same_matrix, and this sweep has no fit/train step at all.
-    assert param_calls["share_setup/sweep/identity"] == "True"
+    # regardless of matrix identity, and this sweep has no fit/train step at all.
+    for group_id in ("solutions", "solutions_dataset"):
+        assert param_calls[f"share_setup/{group_id}/identity"] == "True"
 
     artifact_calls = mock_mlflow.log_artifact.call_args_list
     scaling_plot_calls = [
@@ -99,5 +108,11 @@ def test_real_sweep_execution_logs_projected_metrics_and_scaling_plot(
         for call in artifact_calls
         if call.kwargs.get("artifact_path") == "projected_scaling_law"
     ]
-    assert len(scaling_plot_calls) == 1
-    assert Path(scaling_plot_calls[0].args[0]).suffix == ".png"
+    # Two PNGs + two TOMLs — one pair per grouping.
+    suffixes = sorted(Path(call.args[0]).suffix for call in scaling_plot_calls)
+    assert suffixes == [".png", ".png", ".toml", ".toml"]
+    stems = {Path(call.args[0]).stem for call in scaling_plot_calls}
+    assert stems == {
+        "projected_scaling_law_solutions",
+        "projected_scaling_law_solutions::dataset",
+    }

@@ -345,41 +345,120 @@ directory resolution for a `matrix_dataset` id is shared between
 `resolve_comparison_config` and sweep expansion via
 `composition/comparison/config_assembler.py::resolve_dataset_dir`.
 
-A sweep's siblings share one preconditioner cache, scoped to the sweep
-group. `_expand_comparison_sweeps` now also returns a `_SweepMembership`
-(which `comparison_sweeps` group, if any, each expanded entry belongs to,
-and whether that group's RHS kind is `dataset` — i.e. every sibling resolves
-to the *same* matrix). `run_comparison_batch` uses this to construct one
+**Comparison groups** are what preconditioner setup-sharing and the
+projected-cost reporting key off — and group membership is a property of
+*what an entry tests*, not of whether it came from `[[comparisons]]` or a
+`[[comparison_sweeps]]` expansion. Grouping is computed at **two**
+granularities at once, bundled in
+`composition.comparison.models.ComparisonGroupings`, because they answer
+two different questions and only one of them matters for caching:
+
+- `by_matrix` (`_group_key_by_matrix`) partitions by `matrix_dataset`
+  alone. This is the only grouping `SweepPreconditionerCache` is ever
+  scoped to — `rhs_source.kind` has no bearing on whether a
+  preconditioner's `setup()` can be reused, since `setup()` never sees
+  the RHS at all. Two entries with different RHS kinds against the same
+  matrix *do* share a cache under this grouping.
+- `by_matrix_and_rhs_kind` (`_group_key_by_matrix_and_rhs_kind`)
+  additionally partitions by `rhs_source.kind` — reporting-only, never
+  used for caching. It keeps same-matrix, different-RHS-kind systems
+  apart in the aggregated output, so a preconditioner's cost/iteration
+  behavior under one forcing structure (gaussian, sparse, sinusoidal, ...)
+  doesn't get blended into another's average — the standard "average over
+  RHS realizations of the same kind, don't silently pool heterogeneous
+  ones" practice from iterative-solver benchmarking.
+
+`_discover_comparison_groups` (`comparison_batch.py`) is one algorithm
+parameterized by whichever key function is supplied — it buckets every
+resolved entry (hand-written and sweep-expanded together) into
+`composition.comparison.models.ComparisonGroup`s. Two entries sharing a
+key land in the same group even if one is hand-written and the other came
+from a sweep — a hand-written `[[comparisons]]` entry testing the same
+matrix/RHS-recipe family as a sweep's siblings is no longer structurally
+excluded from aggregation the way it used to be.
+`_discover_comparison_groupings` calls it twice (once per key function) to
+build the `ComparisonGroupings` a batch needs.
+
+Each group's `composition.comparison.models.GroupMatrixIdentity` — exactly
+`SingleMatrixDataset` or `MultiMatrixDataset(resolved_indices=...)`, the two
+shapes `platform.storage.dataset_readers.list_available_matrix_indices`
+distinguishes — is resolved directly (each member's actual matrix id,
+compared), never inferred from `rhs_source.kind` alone: two entries can
+share `rhs_source.kind == "dataset"` while still resolving to different
+matrices (different `matrix_index`, or dataset rows bound to different
+matrix samples), so the kind alone was never a reliable signal. A
+`MultiMatrixDataset` whose members all resolved to the same single matrix
+id (`len(resolved_indices) == 1`) is a `SingleMatrixDataset`'s functional
+equivalent for sharing purposes, decided by
+`_allows_matrix_dependent_sharing` in `_preconditioner_setup.py`, not a
+third variant.
+
+`run_comparison_batch` constructs one
 `composition.comparison._preconditioner_setup.SweepPreconditionerCache` per
-group, lazily on first use, and passes it into each sibling's
+`by_matrix` group, lazily on first use, keyed by `GroupMatrixIdentity`
+rather than a bare `same_matrix: bool` — and passes it into each member's
 `compare_preconditioners(..., cache=...)` call. Whether a given
-preconditioner actually gets reused across siblings is then a fact about
-the *built* `torchalg.Preconditioner` object, not the sweep: a
+preconditioner actually gets reused across a group's members is then a
+fact about the *built* `torchalg.Preconditioner` object: a
 `torchalg.StaticSetupPreconditioner` (its `setup()` never reads the matrix
 at all, e.g. a checkpoint-backed `NeuralPreconditioner`) is cached
-regardless of whether the matrix varies; a `torchalg.MatrixSetupPreconditioner`
-(Jacobi, IC0, every AMG variant) is cached only within a same-matrix
-(`dataset`-RHS-kind) group. A cache hit skips the rebuild entirely and
-copies forward the real measured `setup_cost`/peak-memory from whichever
-sibling built it first — never a misleading 0.0.
+regardless of the group's matrix identity; a
+`torchalg.MatrixSetupPreconditioner` (Jacobi, IC0, every AMG variant) is
+cached only within a `SingleMatrixDataset`/single-resolved-id group. A
+cache hit skips the rebuild entirely and copies forward the real measured
+`setup_cost`/peak-memory from whichever member built it first — never a
+misleading 0.0.
 
-After every sibling in a sweep group has executed,
-`_log_projected_sweep_metrics` aggregates their results into a scaling-law
-projection: for each preconditioner, `domain.solver.comparison
-.aggregate_projected_results` sums `solve_time_seconds`/`iterations` across
-the siblings and resolves one `domain.solver.models.result
-.SetupSharingPolicy` (`share_setup` from whether the cache actually shared
-that preconditioner; `share_generation` from
-`_generation_cost.py::resolve_generation_repeatability` — a config fact,
-independent of the algorithm). The resulting `ProjectedComparisonResult`
-per preconditioner is logged as MLflow metrics
-(`platform.tracking.comparison_tracking.log_projected_metrics`) and as a
-plot of projected average cost per system against an extrapolated system
-count N (`platform.reporting.plots.plot_projected_scaling_law`, never
-literally run at N) on the session parent run — a sweep where every
-sibling turned out to be a reused/cache-hit `ComparisonOutcome` (no fresh
-`payload`) contributes nothing here, the same as it opens no MLflow run at
-all.
+After every member of a batch has executed, `_log_all_groupings`
+(`comparison_batch.py`) calls `_log_group_aggregation` **twice** — once
+for `by_matrix`, once for `by_matrix_and_rhs_kind` — each an independent
+aggregation pass over the same executed results, producing its own
+metrics/plot/TOML under its own `group_id`. Either pass's `group.group_id`
+resolves back to the *coarse* group for cache lookup, via
+`_cache_for_group` (a `by_matrix_and_rhs_kind` group is always a subset of
+exactly one `by_matrix` group, since matching both keys implies matching
+the first — one representative member's coarse group is enough). Each
+group's result is classified via
+`domain.solver.comparison.classify_group_aggregation` into one of two
+closed `domain.solver.models.result.ComparisonGroupOutcome` cases —
+`GroupAggregated` (at least one member contributed a real result; carries
+`n_aggregated`/`n_in_group` so a partially-cached group still logs a
+warning rather than silently under-counting) or `GroupSkippedAllCacheHit`
+(every member was a cache hit this run — logged loudly, not silently, so a
+plain re-run without `--force` never looks the same as "nothing to
+aggregate because there's nothing configured"). For a `GroupAggregated`
+outcome, `domain.solver.comparison.aggregate_projected_results` sums
+`solve_time_seconds`/`iterations` across members and resolves one
+`domain.solver.models.result.SetupSharingPolicy` per preconditioner
+(`share_setup` from whether the cache actually shared it;
+`share_generation` from `_generation_cost.py::resolve_generation_repeatability`
+— a config fact, independent of the algorithm). The resulting
+`ProjectedComparisonResult` per preconditioner is logged as MLflow metrics
+(`platform.tracking.comparison_tracking.log_projected_metrics`), as a TOML
+of the same scalar fields (the plot's actual source of truth — see
+`platform/reporting/artifacts.py`), and as a plot of projected average cost
+per system against an extrapolated system count N
+(`platform.reporting.plots.plot_projected_scaling_law`, never literally run
+at N) — all three on the session parent run, since the projection
+aggregates across several members' own child runs, not any single one of
+them. Running both passes doubles the reported artifacts, never the
+underlying execution — preconditioners are only ever built/measured once
+per entry; the two passes aggregate the same results two ways.
+
+Multi-matrix and single-matrix cases answer genuinely different questions
+and are kept in separate case files
+(`_validate_one_matrix_shape_per_case` in `comparison_batch.py` rejects a
+case that mixes them). A multi-matrix case (e.g.
+`configs/cases/45x15randomE/default.toml`) shows each preconditioner's
+true per-matrix setup cost — AMG/POD-2G's line stays flat (never fully
+amortizes; a fresh coarse-operator assembly is unavoidable per matrix) but
+sits below classical AMG's, since checkpoint-backed POD-2G skips the
+expensive basis-fit step classical aggregation redoes from scratch every
+time. A single-matrix case is the one scenario where AMG/POD-2G's whole
+hierarchy — not just the basis — is shareable (whenever a `by_matrix`
+group's `GroupMatrixIdentity` is `SingleMatrixDataset`, or a
+`MultiMatrixDataset` with one resolved id), so its line visibly flattens
+toward the pure-solve floor as N grows.
 
 Comparison input preflight also stays out of composition. Workflow code invokes
 platform-owned validation for matrix/RHS inputs rather than inspecting dataset

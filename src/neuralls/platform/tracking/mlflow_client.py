@@ -117,6 +117,7 @@ _COMPARISON_FLAT_FILES: tuple[str, ...] = (
     "comparison.json",
     "recommendations.json",
     "summary.txt",
+    "histories.h5",
 )
 
 

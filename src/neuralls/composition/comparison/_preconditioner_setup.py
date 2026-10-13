@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import torch
 from torchalg.preconditioners.base import BindableInputs, Preconditioner, StaticSetupPreconditioner
 
+from neuralls.composition.comparison.models import GroupMatrixIdentity, MultiMatrixDataset
 from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.composition.preconditioners.schedule import (
     PreconditionerScheduleConfig,
@@ -82,35 +83,44 @@ class _CachedPreconditioner:
     setup_peak_memory_bytes: int | None
 
 
-class SweepPreconditionerCache:
-    """Per-sweep-group cache of already-built-and-setup preconditioners.
+def _allows_matrix_dependent_sharing(identity: GroupMatrixIdentity) -> bool:
+    """Whether a `MatrixSetupPreconditioner` can share its setup across this group.
 
-    Scoped to one `comparison_sweeps` group (siblings expanded from the same
-    `[[comparison_sweeps]]` entry) — constructed once per group by the
-    caller and passed into every sibling system's `compare_preconditioners`
-    call, so a preconditioner built for the first sibling can be reused by
-    the rest whenever doing so is provably valid:
+    True for a `SingleMatrixDataset` (nothing else it could be) or a
+    `MultiMatrixDataset` whose members all resolved to the same matrix id.
+    """
+    return not isinstance(identity, MultiMatrixDataset) or len(identity.resolved_indices) == 1
+
+
+class SweepPreconditionerCache:
+    """Per-comparison-group cache of already-built-and-setup preconditioners.
+
+    Scoped to one `ComparisonGroup` (comparisons sharing a matrix/RHS-recipe
+    family, whether hand-written or `comparison_sweeps`-expanded) —
+    constructed once per group by the caller and passed into every
+    member's `compare_preconditioners` call, so a preconditioner built for
+    the first member can be reused by the rest whenever doing so is
+    provably valid:
 
     - Always valid for a `torchalg.StaticSetupPreconditioner` (its `setup()`
       never reads the matrix at all — see that class's docstring).
     - Valid for a `torchalg.MatrixSetupPreconditioner` only when every
-      sibling in this group resolves to the *same* matrix (`same_matrix`,
-      e.g. a `dataset`-kind sweep that only varies the RHS row).
+      member in this group resolves to the *same* matrix.
 
     `put` silently does nothing when neither condition holds, so a classical
-    preconditioner in a matrix-varying sweep is simply never cached — it
-    keeps rebuilding fresh every sibling, exactly like today, with no risk
+    preconditioner in a matrix-varying group is simply never cached — it
+    keeps rebuilding fresh every member, exactly like today, with no risk
     of ever serving a stale build.
     """
 
-    def __init__(self, *, same_matrix: bool) -> None:
-        """Create an empty cache scoped to one sweep group.
+    def __init__(self, *, matrix_identity: GroupMatrixIdentity) -> None:
+        """Create an empty cache scoped to one comparison group.
 
         Args:
-            same_matrix: Whether every sibling system in this sweep group
-                resolves to the same system matrix (a `dataset`-kind sweep).
+            matrix_identity: This group's `GroupMatrixIdentity`, as computed
+                by group discovery — never inferred locally from a flag.
         """
-        self._same_matrix = same_matrix
+        self._matrix_identity = matrix_identity
         self._entries: dict[str, _CachedPreconditioner] = {}
 
     def get(self, name: str) -> _CachedPreconditioner | None:
@@ -131,7 +141,10 @@ class SweepPreconditionerCache:
         the next sibling will see a cache miss and rebuild fresh, same as if
         no cache existed at all.
         """
-        if not (isinstance(preconditioner, StaticSetupPreconditioner) or self._same_matrix):
+        if not (
+            isinstance(preconditioner, StaticSetupPreconditioner)
+            or _allows_matrix_dependent_sharing(self._matrix_identity)
+        ):
             return
         self._entries[name] = _CachedPreconditioner(
             preconditioner=preconditioner,

@@ -61,21 +61,47 @@ implementations are delegated to `torchalg`.
     generation segment can still be styled `UNAVAILABLE`) and `work_precision`
   - recommendation records
   - `SetupSharingPolicy`/`ProjectedComparisonResult` — a scaling-law
-    projection aggregated across a `comparison_sweeps` group's sibling
-    systems (5-7 in practice, never the N it extrapolates to). Two
-    independent booleans (`share_setup`/`share_generation`) decide, per cost
-    term, whether it amortizes (contributes its one-time value once,
-    regardless of N) or repeats (contributes `N *` its per-system average);
+    projection aggregated across one `composition.comparison.models
+    .ComparisonGroup`'s members (5-7 in practice, never the N it extrapolates
+    to) — a group being any resolved comparisons sharing `(matrix_dataset,
+    rhs_source.kind)`, hand-written or `comparison_sweeps`-expanded alike,
+    never a sweep-only concept. Two independent booleans
+    (`share_setup`/`share_generation`) decide, per cost term, whether it
+    amortizes (contributes its one-time value once, regardless of N) or
+    repeats (contributes `N *` its per-system average);
     `projected_total_seconds(n)`/`projected_avg_per_system_seconds(n)` are
     the resulting closed-form extrapolations, never a real N-system run.
     `domain/solver/comparison.py::aggregate_projected_results` builds these
-    from sibling `CGComparisonResult`s plus a pre-computed sharing policy per
-    preconditioner — it cannot compute `share_setup` itself (that needs the
-    live `torchalg.Preconditioner` object's role interface, which no longer
-    exists by aggregation time), so the execution layer
+    from members' `CGComparisonResult`s plus a pre-computed sharing policy
+    per preconditioner — it cannot compute `share_setup` itself (that needs
+    the live `torchalg.Preconditioner` object's role interface, which no
+    longer exists by aggregation time), so the execution layer
     (`composition/comparison/_preconditioner_setup.py::SweepPreconditionerCache`)
-    computes and passes it in. See `composition/README.md`'s sweep-cache
-    section for the full wiring.
+    computes and passes it in. See `composition/README.md`'s "comparison
+    groups" section for the full wiring.
+  - `ComparisonGroupOutcome` (`GroupAggregated | GroupSkippedAllCacheHit`) —
+    the closed outcome of attempting to aggregate one group: a projection to
+    act on, or nothing because every member was a cache hit this run.
+    `GroupAggregated` carries `n_aggregated`/`n_in_group` so a partially-
+    cached group (some members cache hits, some fresh) is still reported
+    with a visible gap rather than silently under-counting; this is data on
+    the one variant that has a projection, not a third variant, since both
+    "every member fresh" and "some were cache hits" get handled identically
+    downstream. `domain/solver/comparison.py::classify_group_aggregation` is
+    the pure classifier; `composition/assignments/comparison_batch.py
+    ::_log_group_aggregation` is the thin MLflow-logging/plotting step that
+    pattern-matches it exhaustively.
+  - `COST_FIELD_REGISTRY` — one `(field_name, extractor, metric_name,
+    filename_suffix)` tuple per reportable scalar cost
+    (generation/setup/solve/avg-iteration/total-cost-per-iteration/peak-
+    memory time), read by both the cost bar-charts
+    (`composition/comparison/_plots.py`) and the per-run `comparison.toml`
+    writer (`platform/reporting/artifacts.py::_save_comparison_toml`) — one
+    list to extend when a new cost is measured, not two hand-copied ones.
+    1D per-iteration histories (`residual_history_rel/abs`,
+    `error_history_a_rel`, `error_bound_a_rel`) are written to one
+    `histories.h5` per comparison run instead of inlined as JSON lists in
+    `comparison.json` — `platform/reporting/artifacts.py::write_histories_h5`.
 - `cost_metrics.py`: pure size-normalized/throughput functions
   (`iterations_per_second`, `time_per_dof_per_iteration`, `setup_time_per_dof`,
   `generation_time_per_dof`, `peak_memory_per_dof`) — take a `CGComparisonResult`
@@ -142,8 +168,8 @@ implementations are delegated to `torchalg`.
   never measures its own preconditioner's setup cost, since it only ever
   receives already-built, already-`setup()` `Preconditioner` instances. On a
   `SweepPreconditionerCache` hit, `_run_preconditioner` skips rebuilding
-  entirely and reports the real cost from whichever sibling built it first,
-  rather than a fresh (and misleadingly near-zero) measurement.
+  entirely and reports the real cost from whichever group member built it
+  first, rather than a fresh (and misleadingly near-zero) measurement.
 - Validation and artifact export helpers used by platform/composition layers.
 
 Comparison results intentionally contain solver behavior only. Raw and

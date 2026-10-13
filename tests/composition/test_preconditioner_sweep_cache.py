@@ -20,7 +20,11 @@ from neuralls.composition.comparison._preconditioner_setup import (
     SweepPreconditionerCache,
 )
 from neuralls.composition.comparison.comparison_run import _run_preconditioner
-from neuralls.composition.comparison.models import PreconditionerComparisonEntry
+from neuralls.composition.comparison.models import (
+    MultiMatrixDataset,
+    PreconditionerComparisonEntry,
+    SingleMatrixDataset,
+)
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.platform.config.models.preconditioner import (
     AggregationCoarseningConfig,
@@ -30,6 +34,7 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
 )
 from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.shared.types import DatasetId, MatrixId
 
 _SOLVER_PARAMS = SolverParams(
     rtol=1e-6,
@@ -71,9 +76,13 @@ def _run(
 def test_static_setup_preconditioner_is_reused_across_different_matrices(
     neuralls_settings: NeurallsSettings,
 ) -> None:
-    """Identity is matrix-agnostic, so it is shareable even when same_matrix=False."""
+    """Identity is matrix-agnostic, so it is shareable even across different matrices."""
     cfg = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
-    cache = SweepPreconditionerCache(same_matrix=False)
+    cache = SweepPreconditionerCache(
+        matrix_identity=MultiMatrixDataset(
+            dataset_id=DatasetId("test"), resolved_indices=frozenset({MatrixId(0), MatrixId(1)})
+        )
+    )
     matrix_a = _diagonal([2.0, 4.0, 8.0])
     matrix_b = _diagonal([1.0, 1.0, 9.0])
     rhs = torch.ones(3, dtype=torch.float64)
@@ -89,9 +98,11 @@ def test_static_setup_preconditioner_is_reused_across_different_matrices(
 def test_matrix_setup_preconditioner_is_reused_only_for_the_same_matrix(
     neuralls_settings: NeurallsSettings,
 ) -> None:
-    """Jacobi is matrix-dependent; sharing is valid only when same_matrix=True."""
+    """Jacobi is matrix-dependent; sharing is valid only for a single-matrix dataset."""
     cfg = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
-    cache = SweepPreconditionerCache(same_matrix=True)
+    cache = SweepPreconditionerCache(
+        matrix_identity=SingleMatrixDataset(dataset_id=DatasetId("test"))
+    )
     matrix = _diagonal([2.0, 4.0, 8.0])
     rhs_a = torch.ones(3, dtype=torch.float64)
     rhs_b = torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64)
@@ -114,13 +125,17 @@ def test_matrix_setup_preconditioner_is_reused_only_for_the_same_matrix(
 def test_matrix_setup_preconditioner_is_rebuilt_for_a_different_matrix(
     neuralls_settings: NeurallsSettings,
 ) -> None:
-    """A matrix-varying sweep (same_matrix=False) never caches a MatrixSetupPreconditioner."""
+    """A multi-matrix group never caches a MatrixSetupPreconditioner."""
     cfg = AMGPreconditionerConfig(
         type=PreconditionerType.AMG,
         coarsening=AggregationCoarseningConfig(theta=0.25),
         n_levels=2,
     )
-    cache = SweepPreconditionerCache(same_matrix=False)
+    cache = SweepPreconditionerCache(
+        matrix_identity=MultiMatrixDataset(
+            dataset_id=DatasetId("test"), resolved_indices=frozenset({MatrixId(0), MatrixId(1)})
+        )
+    )
     n = 50
     matrix_a = (
         2 * torch.eye(n, dtype=torch.float64)

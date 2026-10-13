@@ -9,7 +9,7 @@ from typing import cast
 
 from neuralls.composition.comparison._presentation import build_comparison_plot_title
 from neuralls.composition.comparison.models import ComparisonPaths
-from neuralls.domain.solver.models.result import CGComparisonResult, PlotPaths
+from neuralls.domain.solver.models.result import COST_FIELD_REGISTRY, CGComparisonResult, PlotPaths
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
 from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
@@ -118,32 +118,17 @@ def _generate_comparison_plots(
         save_path=iter_path,
     )
 
-    generation_time_path = _plot_cost_barplot(
-        results, labels, paths.figures / f"preconditioner_generation_time_{suffix}.png",
-        extract=lambda r: r.generation_cost.wall_time_seconds if r.generation_cost is not None else None,
-        metric_name="Generation Time (s)", title=title,
-    )  # fmt: skip
-    setup_time_path = _plot_cost_barplot(
-        results, labels, paths.figures / f"preconditioner_setup_time_{suffix}.png",
-        extract=lambda r: r.setup_cost,
-        metric_name="Setup Time (s)", title=title,
-    )  # fmt: skip
-    solve_time_path = _plot_cost_barplot(
-        results, labels, paths.figures / f"preconditioner_solve_time_{suffix}.png",
-        extract=lambda r: r.solve_time_seconds, metric_name="Solve Time (s)", title=title,
-    )  # fmt: skip
-    avg_iter_time_path = _plot_cost_barplot(
-        results, labels, paths.figures / f"preconditioner_avg_iteration_time_{suffix}.png",
-        extract=lambda r: r.avg_iteration_time_seconds, metric_name="Solve Time Per Iteration (s)", title=title,
-    )  # fmt: skip
-    total_cost_per_iter_path = _plot_cost_barplot(
-        results, labels, paths.figures / f"preconditioner_total_cost_per_iteration_{suffix}.png",
-        extract=lambda r: r.total_cost_per_iteration_seconds, metric_name="Total Cost Per Iteration [Gen+Setup+Solve] (s)", title=title,
-    )  # fmt: skip
-    memory_path = _plot_cost_barplot(
-        results, labels, paths.figures / f"preconditioner_peak_memory_{suffix}.png",
-        extract=lambda r: r.peak_memory_bytes, metric_name="Peak Memory (bytes)", title=title,
-    )  # fmt: skip
+    cost_plot_paths: dict[str, Path | None] = {
+        spec.filename_suffix: _plot_cost_barplot(
+            results,
+            labels,
+            paths.figures / f"preconditioner_{spec.filename_suffix}_{suffix}.png",
+            extract=spec.extractor,
+            metric_name=spec.metric_name,
+            title=title,
+        )
+        for spec in COST_FIELD_REGISTRY
+    }
 
     time_breakdown_path = _plot_time_breakdown_barplot(
         results, labels, paths.figures / f"preconditioner_time_breakdown_{suffix}.png", title=title,
@@ -185,12 +170,12 @@ def _generate_comparison_plots(
         convergence=convergence_path,
         iterations_barplot=iter_path,
         error_convergence=error_path,
-        generation_time_barplot=generation_time_path,
-        setup_time_barplot=setup_time_path,
-        solve_time_barplot=solve_time_path,
-        avg_iteration_time_barplot=avg_iter_time_path,
-        total_cost_per_iteration_barplot=total_cost_per_iter_path,
-        peak_memory_barplot=memory_path,
+        generation_time_barplot=cost_plot_paths["generation_time"],
+        setup_time_barplot=cost_plot_paths["setup_time"],
+        solve_time_barplot=cost_plot_paths["solve_time"],
+        avg_iteration_time_barplot=cost_plot_paths["avg_iteration_time"],
+        total_cost_per_iteration_barplot=cost_plot_paths["total_cost_per_iteration"],
+        peak_memory_barplot=cost_plot_paths["peak_memory"],
         time_breakdown_barplot=time_breakdown_path,
         work_precision=work_precision_path,
         residual_vs_time=residual_vs_time_path,

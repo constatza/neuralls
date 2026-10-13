@@ -9,11 +9,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+import h5py
 import numpy as np
 import tomli_w
 from numpy.typing import NDArray
 
 from neuralls.domain.solver.models.result import (
+    COST_FIELD_REGISTRY,
     CGComparisonResult,
     ComparisonRecommendations,
     ComparisonResult,
@@ -46,6 +48,7 @@ class ComparisonArtifactManifest:
         comparison_json: Path to comparison summary JSON.
         recommendations_json: Path to ranked recommendations JSON.
         summary_txt: Path to text summary.
+        histories_h5: Path to the per-preconditioner iteration-history HDF5 file.
         config_copy: Path to config file copy.
         arrays: Tuple of array artifact references.
     """
@@ -54,6 +57,7 @@ class ComparisonArtifactManifest:
     comparison_json: Path
     recommendations_json: Path
     summary_txt: Path
+    histories_h5: Path
     config_copy: Path | None
     arrays: tuple[ArrayArtifact, ...] = ()
 
@@ -68,14 +72,18 @@ class PendingArrayArtifact:
 
 @dataclass(frozen=True)
 class SerializedSolverResult:
-    """JSON-safe solver result payload."""
+    """JSON-safe solver result payload.
+
+    1D iteration histories (`residual_history_rel/abs`,
+    `error_history_a_rel`, `error_bound_a_rel`) live in `histories.h5`
+    instead of here — a single source of truth for array data, not
+    duplicated as inline JSON lists.
+    """
 
     iterations: int
     residual: float
     residual_abs: float | None = None
     converged: bool | None = None
-    residual_history_rel: tuple[float, ...] = ()
-    residual_history_abs: tuple[float, ...] = ()
     preconditioner: str | None = None
     exact_error: float | None = None
     rhs_norm: float | None = None
@@ -132,8 +140,6 @@ def _serialize_solver_result(
         residual=result.residual,
         residual_abs=result.residual_abs,
         converged=result.converged,
-        residual_history_rel=tuple(result.residual_history_rel),
-        residual_history_abs=tuple(result.residual_history_abs),
         preconditioner=result.preconditioner,
         exact_error=result.exact_error,
         rhs_norm=result.rhs_norm,
@@ -174,6 +180,38 @@ def serialize_comparison_payload(payload: SerializedComparisonPayload) -> dict[s
     if not isinstance(serialized, dict):
         raise TypeError("Serialized comparison payload must be a mapping.")
     return serialized
+
+
+_HISTORY_FIELDS: tuple[str, ...] = (
+    "residual_history_rel",
+    "residual_history_abs",
+    "error_history_a_rel",
+    "error_bound_a_rel",
+)
+"""`CGComparisonResult` fields written to `histories.h5` — 1D per-iteration
+arrays, never inlined as JSON (see `SerializedSolverResult`)."""
+
+
+def write_histories_h5(result: ComparisonResult, output_path: Path) -> None:
+    """Write every preconditioner's 1D iteration histories to one HDF5 file.
+
+    One dataset per field, under `/<preconditioner_name>/<field>`, omitting
+    any field that's `None` or empty for that preconditioner — mirrors the
+    "omit if unmeasured" convention `_plot_cost_barplot` already uses.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(output_path, "w") as h5file:
+        for name, entry in result.results.items():
+            if not isinstance(entry, CGComparisonResult):
+                continue
+            group = None
+            for field_name in _HISTORY_FIELDS:
+                values = getattr(entry, field_name)
+                if not values:
+                    continue
+                if group is None:
+                    group = h5file.create_group(name)
+                group.create_dataset(field_name, data=np.asarray(values, dtype=np.float64))
 
 
 def save_numpy_artifacts(
@@ -220,10 +258,25 @@ def _save_comparison_toml(
     result: ComparisonResult,
     output_path: Path,
 ) -> None:
-    """Save scalar comparison diagnostics to a TOML file."""
+    """Save scalar comparison diagnostics to a TOML file.
+
+    Every field in `COST_FIELD_REGISTRY` is written per preconditioner,
+    skipped for one that didn't measure it — the same registry the cost
+    bar-charts read from (`composition/comparison/_plots.py`), so a new
+    measured cost is added here by extending that one list, not by also
+    editing this function.
+    """
     iterations = {name: entry.iterations for name, entry in result.results.items()}
     residuals = {name: entry.residual for name, entry in result.results.items()}
-    payload = {"iterations": iterations, "final_residual": residuals}
+    payload: dict[str, Any] = {"iterations": iterations, "final_residual": residuals}
+    for spec in COST_FIELD_REGISTRY:
+        values = {
+            name: value
+            for name, entry in result.results.items()
+            if (value := spec.extractor(entry)) is not None
+        }
+        if values:
+            payload[spec.field_name] = values
     with open(output_path, "wb") as fh:
         tomli_w.dump(payload, fh)
 
@@ -247,10 +300,12 @@ def write_comparison_artifacts(
         comparison_json=work_root / "comparison.json",
         recommendations_json=work_root / "recommendations.json",
         summary_txt=work_root / "summary.txt",
+        histories_h5=work_root / "histories.h5",
         config_copy=config_copy,
         arrays=save_numpy_artifacts(work_root, pending_arrays),
     )
     _save_comparison_toml(staged_result, manifest.comparison_toml)
+    write_histories_h5(staged_result, manifest.histories_h5)
     manifest.comparison_json.write_text(
         json.dumps(serialize_comparison_payload(payload), indent=2, sort_keys=True),
         encoding="utf-8",
