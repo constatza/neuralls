@@ -16,6 +16,7 @@ from pydantic import (
     Field,
     TypeAdapter,
     ValidationInfo,
+    computed_field,
     field_validator,
     model_validator,
 )
@@ -318,11 +319,6 @@ class BasePreconditionerConfig(BaseModel):
     Includes scheduling fields shared by all preconditioner variants.
     """
 
-    name: Annotated[str, Cosmetic()] = Field(
-        default="",
-        description="Config identity, used as the results/plot key. Defaults to "
-        "the concrete subclass's `type` when omitted.",
-    )
     start_iter: int = Field(
         default=0,
         ge=0,
@@ -339,16 +335,22 @@ class BasePreconditionerConfig(BaseModel):
         frozen=True,
     )
 
-    @model_validator(mode="after")
-    def _default_name_to_type(self) -> Self:
-        """Fall back `name` to the concrete subclass's `type` value when omitted.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def name(self) -> str:
+        """Deterministic result/plot key, derived from this config's own fields.
 
-        Returns:
-            The validated config instance.
+        Never user-settable: two configs with the same type and fields are
+        the same preconditioner and must collide under this key (that
+        collision is correct and is exactly what
+        ``result_keys.validate_unique_preconditioner_keys`` catches); two
+        configs differing in any distinguishing field always produce a
+        different key. See ``preconditioner_slug`` below — kept config-only
+        (never reads a constructed object) so it's available before a
+        preconditioner is built, for dict/cache keys and MLflow
+        run-name/metric-key segments.
         """
-        if not self.name:
-            object.__setattr__(self, "name", str(getattr(self, "type", "")))
-        return self
+        return preconditioner_slug(cast(ConcretePreconditionerConfig, self))
 
 
 class StandardPreconditionerConfig(BasePreconditionerConfig):
@@ -1118,3 +1120,169 @@ _StrictPreconditionerConfig = Annotated[
 PreconditionerConfig = _StrictPreconditionerConfig
 
 parse_preconditioner_config = TypeAdapter(PreconditionerConfig).validate_python
+
+
+def _num(value: float) -> str:
+    """Slug-safe rendering of a float: no ``.``/``-``/``+`` (e.g. a ``%g``-formatted exponent)."""
+    return f"{value:g}".replace(".", "p").replace("-", "neg").replace("+", "")
+
+
+def _sanitize(text: str) -> str:
+    """Lowercase, alnum-and-underscore-only rendering of free text from a checkpoint ref."""
+    return "".join(c if c.isalnum() else "_" for c in text.lower()).strip("_") or "unset"
+
+
+def _checkpoint_ref_slug(ref: NeuralCheckpointRef) -> str:
+    """Deterministic slug for whichever checkpoint-identity source ``ref`` actually sets.
+
+    Priority: ``assignment`` / ``model_ref`` (the stable, *logical* reference)
+    over a bare ``checkpoint_path``. This matters because checkpoint
+    resolution (``model_resolution.py``) fills in ``checkpoint_path`` with
+    the resolved *local* path once a ``model_ref`` is resolved — a path that
+    can differ run to run (temp dirs, cache locations) even for the exact
+    same logical reference. If the slug followed that local path, the same
+    comparison re-run later would get a different MLflow metric-key segment
+    for what is logically the same preconditioner. A bare ``checkpoint_path``
+    with no ``model_ref``/``assignment`` at all (an explicit local file,
+    never resolved from MLflow) is the only case with nothing better to key
+    on, so it's the fallback, not the first choice.
+    """
+    if ref.assignment is not None:
+        return f"assignment_{_sanitize(ref.assignment)}"
+    match ref.model_ref:
+        case RegisteredModelRefConfig(name=name, alias=alias, version=version, latest=latest):
+            selector = (
+                alias
+                or (f"v{version}" if version is not None else None)
+                or ("latest" if latest else "unset")
+            )
+            return f"registry_{_sanitize(name or 'assignment')}_{_sanitize(selector)}"
+        case LoggedModelRefConfig(run_id=run_id, latest=latest, model_name=model_name):
+            if run_id is not None:
+                return f"run_{_sanitize(run_id)}"
+            return f"run_latest_{_sanitize(model_name or 'unset')}" if latest else "run_unset"
+        case TrainedAssignmentRefConfig(assignment_id=assignment_id):
+            return f"assignment_{_sanitize(assignment_id)}"
+        case None:
+            pass
+    if ref.checkpoint_path is not None:
+        return f"path_{_sanitize(ref.checkpoint_path.stem)}"
+    return "unset"
+
+
+def _weighting_slug(weighting: SnapshotWeightingConfig) -> str:
+    """Deterministic slug for a POD-2G snapshot-weighting config."""
+    match weighting:
+        case RawWeightingConfig():
+            return "raw"
+        case PowerNormWeightingConfig(metric=metric, beta=beta):
+            return f"powernorm_{metric}_beta{_num(beta)}"
+        case SmootherPersistenceWeightingConfig(omega=omega, steps=steps):
+            omega_text = _num(omega) if omega is not None else "auto"
+            return f"smoother_omega{omega_text}_steps{steps}"
+
+
+def _coarsening_slug(coarsening: CoarseningConfig) -> str:
+    """Deterministic slug for an AMG coarsening config, including any checkpoint identity."""
+    match coarsening:
+        case AggregationCoarseningConfig(theta=theta, omega=omega):
+            omega_text = _num(omega) if omega is not None else "auto"
+            return f"aggregation_theta{_num(theta)}_omega{omega_text}"
+        case TargetDimCoarseningConfig(
+            target_coarse_dim=target, theta_min=theta_min, theta_max=theta_max, step=step
+        ):
+            return f"targetdim{target}_range{_num(theta_min)}to{_num(theta_max)}_step{_num(step)}"
+        case PODCoarseningConfig(rank=rank, n_snapshots=n_snapshots, weighting=weighting):
+            base = f"pod_rank{_num(rank)}_n{n_snapshots}_{_weighting_slug(weighting)}"
+            ref = coarsening.exposed_checkpoint_ref()
+            return f"{base}_{_checkpoint_ref_slug(ref)}" if ref is not None else base
+        case NeuralPODCoarseningConfig(rank=rank, n_snapshots=n_snapshots):
+            return f"neuralpod_rank{_num(rank)}_n{n_snapshots}_{_checkpoint_ref_slug(coarsening)}"
+
+
+def preconditioner_slug(cfg: PreconditionerConfig) -> str:
+    """Deterministic ASCII identity key from a config's own type + distinguishing fields.
+
+    Config-only (never reads a constructed object), so it's available
+    before construction — used as the dict/cache key and MLflow
+    run-name/metric-key segment throughout the comparison pipeline. Two
+    configs with identical fields produce the identical slug (a true
+    duplicate, correctly rejected by
+    ``result_keys.validate_unique_preconditioner_keys``); any differing
+    field changes the slug. Never carries the Greek/space/paren notation
+    of the human-readable render (see ``platform.reporting
+    .preconditioner_labels.describe_preconditioner``) — that would break
+    MLflow metric-key stability across runs.
+    """
+    match cfg:
+        case StandardPreconditionerConfig(type=kind):
+            return kind.value
+        case IC0PreconditionerConfig(threshold=threshold):
+            return f"ic0_threshold{_num(threshold)}"
+        case NeuralPreconditionerConfig():
+            return f"neural_{_checkpoint_ref_slug(cfg)}"
+        case AMGPreconditionerConfig(
+            coarsening=coarsening,
+            n_levels=n_levels,
+            pre_smoothing_steps=pre_smoothing_steps,
+            post_smoothing_steps=post_smoothing_steps,
+            smoother_omega=smoother_omega,
+        ):
+            smoother_omega_text = _num(smoother_omega) if smoother_omega is not None else "auto"
+            return (
+                f"amg_levels{n_levels}_pre{pre_smoothing_steps}_post{post_smoothing_steps}"
+                f"_smootheromega{smoother_omega_text}_{_coarsening_slug(coarsening)}"
+            )
+        case AdaptiveSAPreconditionerConfig(
+            n_levels=n_levels,
+            num_candidates=num_candidates,
+            candidate_iters=candidate_iters,
+            max_coarse=max_coarse,
+            theta=theta,
+            omega=omega,
+            seed=seed,
+        ):
+            return (
+                f"asa_levels{n_levels}_k{num_candidates}_iters{candidate_iters}"
+                f"_maxcoarse{max_coarse}_theta{_num(theta)}_omega{_num(omega)}_seed{seed}"
+            )
+        case BootstrapAMGPreconditionerConfig(
+            n_levels=n_levels,
+            k_r=k_r,
+            eta=eta,
+            n_bootstrap_cycles=n_bootstrap_cycles,
+            nu=nu,
+            delta=delta,
+            theta_ad=theta_ad,
+            caliber=caliber,
+            gamma=gamma,
+            use_lsr=use_lsr,
+            max_coarse=max_coarse,
+            seed=seed,
+        ):
+            return (
+                f"bamg_levels{n_levels}_kr{k_r}_eta{eta}_cycles{n_bootstrap_cycles}_nu{nu}"
+                f"_delta{_num(delta)}_thetaad{_num(theta_ad)}_caliber{caliber}"
+                f"_gamma{_num(gamma)}_lsr{use_lsr}_maxcoarse{max_coarse}_seed{seed}"
+            )
+        case NeuralAMGPreconditionerConfig(
+            prolongation=prolongation,
+            restriction=restriction,
+            n_levels=n_levels,
+            pre_smoothing_steps=pre_smoothing_steps,
+            post_smoothing_steps=post_smoothing_steps,
+            smoother_omega=smoother_omega,
+            aggregation_omega=aggregation_omega,
+        ):
+            smoother_omega_text = _num(smoother_omega) if smoother_omega is not None else "auto"
+            aggregation_omega_text = (
+                _num(aggregation_omega) if aggregation_omega is not None else "auto"
+            )
+            base = (
+                f"neural_amg_levels{n_levels}_pre{pre_smoothing_steps}_post{post_smoothing_steps}"
+                f"_smootheromega{smoother_omega_text}_aggomega{aggregation_omega_text}"
+                f"_{_checkpoint_ref_slug(prolongation)}"
+            )
+            if restriction is None:
+                return base
+            return f"{base}_{_checkpoint_ref_slug(restriction)}"

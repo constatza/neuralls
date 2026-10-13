@@ -55,7 +55,6 @@ def test_classical_amg_setup_cost_is_substantial_and_a_plain_float(
     rhs = torch.randn(n, dtype=torch.float64, generator=torch.Generator().manual_seed(0))
 
     cfg = AMGPreconditionerConfig(
-        name="amg_agg",
         coarsening=AggregationCoarseningConfig(theta=0.25),
         n_levels=3,
     )
@@ -106,7 +105,6 @@ def test_pod2g_from_scratch_setup_cost_is_substantial_and_a_plain_float(
     )
 
     cfg = AMGPreconditionerConfig(
-        name="pod2g",
         coarsening=PODCoarseningConfig(dataset_dir=dataset_dir, rank=0.99),
         n_levels=2,
     )

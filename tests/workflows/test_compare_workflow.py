@@ -138,24 +138,30 @@ def _cg_result(name: str) -> CGComparisonResult:
 
 
 def test_preconditioner_result_keys_reject_duplicate_keys() -> None:
-    """Duplicate wiring keys cannot silently collapse two solver cases."""
+    """Two configs with identical type and fields derive the identical key and must be rejected.
+
+    `name` is no longer user-settable — it's derived from type + fields (see
+    `preconditioner.py::preconditioner_slug`), so a "duplicate key" now means
+    what it should: two requested solves that are actually the same
+    preconditioner, listed twice.
+    """
     specs = (
-        StandardPreconditionerConfig(name="same", type=PreconditionerType.IDENTITY),
-        StandardPreconditionerConfig(name="same", type=PreconditionerType.JACOBI),
+        StandardPreconditionerConfig(type=PreconditionerType.IDENTITY),
+        StandardPreconditionerConfig(type=PreconditionerType.IDENTITY),
     )
 
-    with pytest.raises(ValueError, match="duplicate keys: 'same'"):
+    with pytest.raises(ValueError, match="duplicate keys: 'identity'"):
         validate_unique_preconditioner_keys(specs)
 
 
-def test_preconditioner_result_keys_do_not_filter_by_preconditioner_type(
-    same_type_distinct_key_specs: tuple[StandardPreconditionerConfig, ...],
-) -> None:
-    """Distinct result ids remain valid even when their typed implementations match."""
-    assert validate_unique_preconditioner_keys(same_type_distinct_key_specs) == (
-        "pcg-identity",
-        "future-solver-identity",
+def test_preconditioner_result_keys_differ_when_fields_differ() -> None:
+    """Same type, different distinguishing field -> different derived keys, no collision."""
+    specs = (
+        StandardPreconditionerConfig(type=PreconditionerType.IDENTITY),
+        StandardPreconditionerConfig(type=PreconditionerType.JACOBI),
     )
+
+    assert validate_unique_preconditioner_keys(specs) == ("identity", "jacobi")
 
 
 def test_compare_preconditioners_evaluates_configs_one_at_a_time(
@@ -242,8 +248,8 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
         ),
     )
     specs = (
-        StandardPreconditionerConfig(name="first", type=PreconditionerType.JACOBI),
-        StandardPreconditionerConfig(name="second", type=PreconditionerType.ILU),
+        StandardPreconditionerConfig(type=PreconditionerType.JACOBI),
+        StandardPreconditionerConfig(type=PreconditionerType.ILU),
     )
 
     compare_preconditioners(
@@ -253,7 +259,7 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
         settings=neuralls_settings,
     )
 
-    assert events == ["create:first", "cleanup:first", "create:second", "cleanup:second"]
+    assert events == ["create:jacobi", "cleanup:jacobi", "create:ilu", "cleanup:ilu"]
     assert not active
 
 

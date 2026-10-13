@@ -275,7 +275,7 @@ def neural_pod_dataset_dir(tmp_path: Path, well_conditioned_matrix: torch.Tensor
 
 def test_factory_creates_identity_preconditioner(well_conditioned_matrix: torch.Tensor) -> None:
     """Factory creates Identity preconditioner for identity type."""
-    config = StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
+    config = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
 
     precond = create_preconditioner(well_conditioned_matrix, config)
 
@@ -293,7 +293,7 @@ def test_identity_preconditioner_returns_copy(
     well_conditioned_matrix: torch.Tensor, residual_vector: torch.Tensor
 ) -> None:
     """Identity preconditioner returns an equal-valued clone of the input."""
-    config = StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
+    config = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
 
     precond = create_preconditioner(well_conditioned_matrix, config)
     result = precond.apply(residual_vector)
@@ -309,7 +309,7 @@ def test_identity_preconditioner_returns_copy(
 
 def test_factory_creates_jacobi_preconditioner(well_conditioned_matrix: torch.Tensor) -> None:
     """Factory creates JacobiPreconditioner for jacobi type."""
-    config = StandardPreconditionerConfig(name="jacobi", type=PreconditionerType.JACOBI)
+    config = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
 
     precond = create_preconditioner(well_conditioned_matrix, config)
 
@@ -320,7 +320,7 @@ def test_jacobi_preconditioner_applies_diagonal_scaling(
     well_conditioned_matrix: torch.Tensor, residual_vector: torch.Tensor
 ) -> None:
     """JacobiPreconditioner divides by the diagonal: z_i = r_i / A_ii."""
-    config = StandardPreconditionerConfig(name="jacobi", type=PreconditionerType.JACOBI)
+    config = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
 
     precond = create_preconditioner(well_conditioned_matrix, config)
     result = precond.apply(residual_vector)
@@ -331,7 +331,7 @@ def test_jacobi_preconditioner_applies_diagonal_scaling(
 
 def test_jacobi_preserves_dtype(well_conditioned_matrix: torch.Tensor) -> None:
     """JacobiPreconditioner preserves float64 dtype."""
-    config = StandardPreconditionerConfig(name="jacobi", type=PreconditionerType.JACOBI)
+    config = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
 
     precond = create_preconditioner(well_conditioned_matrix, config)
     residual = torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float64)
@@ -347,7 +347,7 @@ def test_jacobi_preserves_dtype(well_conditioned_matrix: torch.Tensor) -> None:
 
 def test_factory_creates_ilu_preconditioner(dense_spd_matrix: torch.Tensor) -> None:
     """Factory creates ILUPreconditioner for ilu type."""
-    config = StandardPreconditionerConfig(name="ilu", type=PreconditionerType.ILU)
+    config = StandardPreconditionerConfig(type=PreconditionerType.ILU)
 
     precond = create_preconditioner(dense_spd_matrix, config)
 
@@ -356,7 +356,7 @@ def test_factory_creates_ilu_preconditioner(dense_spd_matrix: torch.Tensor) -> N
 
 def test_ilu_preconditioner_accepts_dense_matrix(dense_spd_matrix: torch.Tensor) -> None:
     """ILUPreconditioner applies without error on a dense tridiagonal matrix."""
-    config = StandardPreconditionerConfig(name="ilu", type=PreconditionerType.ILU)
+    config = StandardPreconditionerConfig(type=PreconditionerType.ILU)
 
     precond = create_preconditioner(dense_spd_matrix, config)
 
@@ -369,7 +369,7 @@ def test_ilu_preconditioner_accepts_dense_matrix(dense_spd_matrix: torch.Tensor)
 
 def test_ilu_preserves_dtype(dense_spd_matrix: torch.Tensor) -> None:
     """ILUPreconditioner preserves float64 dtype."""
-    config = StandardPreconditionerConfig(name="ilu", type=PreconditionerType.ILU)
+    config = StandardPreconditionerConfig(type=PreconditionerType.ILU)
 
     precond = create_preconditioner(dense_spd_matrix, config)
     residual = torch.ones(5, dtype=torch.float64)
@@ -390,7 +390,6 @@ def test_factory_creates_neural_preconditioner(
     mock_adapter = MockAdapter()
 
     config = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         checkpoint_path=mock_checkpoint,
     )
@@ -407,7 +406,6 @@ def test_neural_preconditioner_with_custom_adapter(
     mock_adapter = MockAdapter()
 
     config = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         checkpoint_path=mock_checkpoint,
     )
@@ -428,7 +426,6 @@ def test_neural_preconditioner_checkpoint_not_found(
     missing_checkpoint = tmp_path / "missing" / "checkpoint.ckpt"
 
     config = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         checkpoint_path=missing_checkpoint,
     )
@@ -444,7 +441,6 @@ def test_neural_preconditioner_cleanup_on_delete(
     mock_adapter = MockAdapter()
 
     config = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         checkpoint_path=mock_checkpoint,
     )
@@ -471,7 +467,6 @@ def test_factory_creates_amg_preconditioner_with_aggregation_coarsening(
 ) -> None:
     """Factory creates AMGPreconditioner for AMG type with aggregation coarsening."""
     config = AMGPreconditionerConfig(
-        name="amg",
         coarsening=AggregationCoarseningConfig(theta=0.05, omega=0.5),
     )
 
@@ -495,7 +490,6 @@ def test_factory_creates_amg_preconditioner_with_target_dim_coarsening(
     confirms the config's fields reach the constructed strategy unchanged.
     """
     config = AMGPreconditionerConfig(
-        name="amg-target-dim",
         coarsening=TargetDimCoarseningConfig(
             target_coarse_dim=2, theta_min=0.1, theta_max=0.9, step=0.1, omega=0.5
         ),
@@ -525,7 +519,7 @@ def test_factory_creates_amg_preconditioner_with_pod_coarsening(
     `load_dense_training_arrays`), not a raw glob — the gap this task closes.
     """
     coarsening = PODCoarseningConfig(dataset_dir=pod_snapshot_dataset_dir, rank=2)
-    config = AMGPreconditionerConfig(name="pod2g", coarsening=coarsening)
+    config = AMGPreconditionerConfig(coarsening=coarsening)
 
     precond = create_preconditioner(well_conditioned_matrix, config)
 
@@ -544,7 +538,7 @@ def test_factory_pod_coarsening_default_weighting_matches_unweighted_fit(
     from neuralls.platform.storage.dataset_readers import load_dense_training_arrays
 
     config = AMGPreconditionerConfig(
-        name="pod2g", coarsening=PODCoarseningConfig(dataset_dir=pod_snapshot_dataset_dir, rank=2)
+        coarsening=PODCoarseningConfig(dataset_dir=pod_snapshot_dataset_dir, rank=2)
     )
 
     precond = create_preconditioner(well_conditioned_matrix, config)
@@ -572,12 +566,12 @@ def test_factory_pod_coarsening_power_norm_weighting_changes_the_basis(
         rank=2,
         weighting=PowerNormWeightingConfig(metric="l2", beta=1.0),
     )
-    config = AMGPreconditionerConfig(name="pod2g", coarsening=coarsening)
+    config = AMGPreconditionerConfig(coarsening=coarsening)
 
     precond = create_preconditioner(well_conditioned_matrix, config)
 
     default_config = AMGPreconditionerConfig(
-        name="pod2g", coarsening=PODCoarseningConfig(dataset_dir=pod_snapshot_dataset_dir, rank=2)
+        coarsening=PODCoarseningConfig(dataset_dir=pod_snapshot_dataset_dir, rank=2)
     )
     default_precond = create_preconditioner(well_conditioned_matrix, default_config)
     assert isinstance(precond, AMGPreconditioner)
@@ -598,7 +592,7 @@ def test_factory_pod_coarsening_smoother_persistence_weighting_runs_end_to_end(
         rank=2,
         weighting=SmootherPersistenceWeightingConfig(omega=0.67, steps=3),
     )
-    config = AMGPreconditionerConfig(name="pod2g", coarsening=coarsening)
+    config = AMGPreconditionerConfig(coarsening=coarsening)
 
     precond = create_preconditioner(well_conditioned_matrix, config)
 
@@ -666,7 +660,7 @@ def test_factory_creates_amg_preconditioner_from_fitted_pod_checkpoint(
         rank=2,
         resolved_checkpoint_path=fitted_pod_checkpoint,
     )
-    config = AMGPreconditionerConfig(name="pod2g-fit", coarsening=coarsening)
+    config = AMGPreconditionerConfig(coarsening=coarsening)
 
     precond = create_preconditioner(well_conditioned_matrix, config)
 
@@ -699,7 +693,7 @@ def test_factory_pod_checkpoint_reconstruction_rejects_non_pod_model(
         rank=2,
         resolved_checkpoint_path=checkpoint_path,
     )
-    config = AMGPreconditionerConfig(name="pod2g-fit", coarsening=coarsening)
+    config = AMGPreconditionerConfig(coarsening=coarsening)
 
     with pytest.raises(TypeError, match="expected PODCoarseningStrategy"):
         create_preconditioner(well_conditioned_matrix, config)
@@ -723,7 +717,7 @@ def test_factory_creates_amg_preconditioner_with_neural_pod_coarsening(
         input_names=("x",),
         rank=2,
     )
-    config = AMGPreconditionerConfig(name="neural-pod2g", coarsening=coarsening)
+    config = AMGPreconditionerConfig(coarsening=coarsening)
     factory = make_mock_inference_predictor_factory(output_dim=well_conditioned_matrix.shape[0])
 
     precond = create_preconditioner(
@@ -754,7 +748,7 @@ def test_factory_neural_pod_coarsening_requires_params_in_dataset(
         input_names=("x",),
         rank=2,
     )
-    config = AMGPreconditionerConfig(name="neural-pod2g", coarsening=coarsening)
+    config = AMGPreconditionerConfig(coarsening=coarsening)
     factory = make_mock_inference_predictor_factory(output_dim=well_conditioned_matrix.shape[0])
 
     with pytest.raises(ValueError, match="input_names has 1 name.*has 0 .params. array"):
@@ -778,7 +772,7 @@ def test_factory_neural_pod_coarsening_rejects_input_names_count_mismatch(
         input_names=("young_modulus", "poisson_ratio"),
         rank=2,
     )
-    config = AMGPreconditionerConfig(name="neural-pod2g", coarsening=coarsening)
+    config = AMGPreconditionerConfig(coarsening=coarsening)
     factory = make_mock_inference_predictor_factory(output_dim=well_conditioned_matrix.shape[0])
 
     with pytest.raises(ValueError, match="input_names has 2 name.*has 1 .params. array"):
@@ -787,7 +781,7 @@ def test_factory_neural_pod_coarsening_rejects_input_names_count_mismatch(
 
 def test_factory_amg_requires_amg_config(well_conditioned_matrix: torch.Tensor) -> None:
     """Factory requires AMGPreconditionerConfig for AMG type."""
-    config = StandardPreconditionerConfig(name="amg", type=PreconditionerType.IDENTITY)
+    config = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
     config = config.model_copy(update={"type": PreconditionerType.AMG})
 
     with pytest.raises(TypeError, match="AMG type requires AMGPreconditionerConfig"):
@@ -803,7 +797,7 @@ def test_factory_creates_adaptive_sa_preconditioner_with_fixed_theta(
     dense_spd_matrix: torch.Tensor,
 ) -> None:
     """Factory creates AdaptiveSAPreconditioner directly when no target dimension is set."""
-    config = AdaptiveSAPreconditionerConfig(name="asa", max_coarse=1, theta=0.0)
+    config = AdaptiveSAPreconditionerConfig(max_coarse=1, theta=0.0)
 
     precond = create_preconditioner(dense_spd_matrix, config)
 
@@ -825,7 +819,7 @@ def test_factory_creates_adaptive_sa_preconditioner_with_explicit_num_candidates
     `docs/plan.md`); this just confirms config fields reach the built
     object unchanged.
     """
-    config = AdaptiveSAPreconditionerConfig(name="asa", max_coarse=1, num_candidates=3, theta=0.1)
+    config = AdaptiveSAPreconditionerConfig(max_coarse=1, num_candidates=3, theta=0.1)
 
     precond = create_preconditioner(dense_spd_matrix, config)
 
@@ -841,7 +835,7 @@ def test_factory_adaptive_sa_requires_adaptive_sa_config(
     well_conditioned_matrix: torch.Tensor,
 ) -> None:
     """Factory requires AdaptiveSAPreconditionerConfig for ADAPTIVE_SA_AMG type."""
-    config = StandardPreconditionerConfig(name="asa", type=PreconditionerType.IDENTITY)
+    config = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
     config = config.model_copy(update={"type": PreconditionerType.ADAPTIVE_SA_AMG})
 
     with pytest.raises(
@@ -865,7 +859,7 @@ def test_factory_creates_bootstrap_amg_preconditioner(
     (matching the same finding behind `tridiag_spd_matrix_20` in
     `test_preconditioner_labels.py`) — hence the larger dedicated fixture.
     """
-    config = BootstrapAMGPreconditionerConfig(name="bamg", max_coarse=5, seed=0)
+    config = BootstrapAMGPreconditionerConfig(max_coarse=5, seed=0)
 
     precond = create_preconditioner(dense_spd_matrix_20, config)
 
@@ -886,7 +880,7 @@ def test_factory_bootstrap_amg_requires_bootstrap_amg_config(
     well_conditioned_matrix: torch.Tensor,
 ) -> None:
     """Factory requires BootstrapAMGPreconditionerConfig for BOOTSTRAP_AMG type."""
-    config = StandardPreconditionerConfig(name="bamg", type=PreconditionerType.IDENTITY)
+    config = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
     config = config.model_copy(update={"type": PreconditionerType.BOOTSTRAP_AMG})
 
     with pytest.raises(
@@ -902,7 +896,7 @@ def test_factory_bootstrap_amg_requires_bootstrap_amg_config(
 
 def test_factory_rejects_unsupported_type(well_conditioned_matrix: torch.Tensor) -> None:
     """Factory raises ValueError for unsupported preconditioner type."""
-    config = StandardPreconditionerConfig(name="invalid", type=PreconditionerType.IDENTITY)
+    config = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
     config = config.model_copy(update={"type": "invalid_type"})
 
     with pytest.raises(ValueError, match="Unsupported preconditioner type"):
@@ -913,7 +907,7 @@ def test_factory_requires_neural_config_for_neural_type(
     well_conditioned_matrix: torch.Tensor,
 ) -> None:
     """Factory requires NeuralPreconditionerConfig for neural type."""
-    config = StandardPreconditionerConfig(name="neural", type=PreconditionerType.IDENTITY)
+    config = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
     config = config.model_copy(update={"type": PreconditionerType.NEURAL})
 
     with pytest.raises(TypeError, match="Neural type requires NeuralPreconditionerConfig"):

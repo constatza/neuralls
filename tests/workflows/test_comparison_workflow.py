@@ -124,7 +124,7 @@ def _write_experiments_config(
             "training": "neuralls-training",
             "comparison": comparison_name,
         },
-        "comparison_defaults": {
+        "comparison_baseline": {
             "rtol": 1.0e-6,
             "atol": 1.0e-14,
             "max_iterations": 10,
@@ -400,7 +400,7 @@ def test_resolve_comparison_config_recovers_omitted_index_semantics(tmp_path: Pa
                 {"id": "matrix", "path": "datasets/matrix.toml"},
                 {"id": "rhs", "path": "datasets/rhs.toml"},
             ],
-            "comparison_defaults": {
+            "comparison_baseline": {
                 "rtol": 1.0e-6,
                 "atol": 1.0e-14,
                 "max_iterations": 10,
@@ -438,6 +438,83 @@ def test_resolve_comparison_config_recovers_omitted_index_semantics(tmp_path: Pa
     assert explicit_cfg.general.data.rhs_source_params["sample_index"] == 0
 
 
+def test_resolve_comparison_config_presentation_falls_back_to_case_default(
+    tmp_path: Path,
+) -> None:
+    """With no per-entry method override, the case's `[comparison_baseline.presentation]` applies."""
+    from neuralls.shared.scientific_description import RenderTarget
+
+    datasets_dir = tmp_path / "datasets"
+    datasets_dir.mkdir()
+    _write_dataset_config(datasets_dir / "matrix.toml", "matrix")
+    _write_dataset_config(datasets_dir / "rhs.toml", "rhs")
+    settings = _make_settings(tmp_path)
+    case_cfg = CaseConfig.model_validate(
+        {
+            "datasets": [
+                {"id": "matrix", "path": "datasets/matrix.toml"},
+                {"id": "rhs", "path": "datasets/rhs.toml"},
+            ],
+            "comparison_baseline": {
+                "preconditioners": [{"type": "identity"}],
+                "presentation": {"rendering": "latex"},
+            },
+        }
+    )
+    entry = ComparisonRegistryEntry(
+        id="no-override",
+        matrix_dataset="matrix",
+        rhs_source={"kind": "dataset", "path": settings.processed_dir / "rhs"},
+    )
+
+    resolved = resolve_comparison_config(case_cfg, tmp_path, entry, settings)
+
+    assert resolved.notation_policy.target is RenderTarget.LATEX
+
+
+def test_resolve_comparison_config_presentation_override_replaces_case_default(
+    tmp_path: Path,
+) -> None:
+    """A per-entry `method` file's `[presentation]` fully replaces the case-level default.
+
+    Matches how `preconditioners`/`normalize_system` already override in
+    this same function — a full replace, not a field-level merge.
+    """
+    from neuralls.shared.scientific_description import RenderTarget
+
+    datasets_dir = tmp_path / "datasets"
+    datasets_dir.mkdir()
+    _write_dataset_config(datasets_dir / "matrix.toml", "matrix")
+    _write_dataset_config(datasets_dir / "rhs.toml", "rhs")
+    settings = _make_settings(tmp_path)
+    case_cfg = CaseConfig.model_validate(
+        {
+            "datasets": [
+                {"id": "matrix", "path": "datasets/matrix.toml"},
+                {"id": "rhs", "path": "datasets/rhs.toml"},
+            ],
+            "comparison_baseline": {
+                "preconditioners": [{"type": "identity"}],
+                "presentation": {"rendering": "latex"},
+            },
+        }
+    )
+    method_path = tmp_path / "method.toml"
+    method_path.write_text(
+        tomli_w.dumps({"presentation": {"rendering": "mathtext"}}), encoding="utf-8"
+    )
+    entry = ComparisonRegistryEntry(
+        id="with-override",
+        matrix_dataset="matrix",
+        method=method_path,
+        rhs_source={"kind": "dataset", "path": settings.processed_dir / "rhs"},
+    )
+
+    resolved = resolve_comparison_config(case_cfg, tmp_path, entry, settings)
+
+    assert resolved.notation_policy.target is RenderTarget.MATHTEXT
+
+
 def test_comparison_registry_entry_rejects_matrix_index_and_test_position_together() -> None:
     with pytest.raises(ValueError, match="mutually exclusive"):
         ComparisonRegistryEntry(
@@ -469,7 +546,7 @@ def test_resolve_comparison_config_carries_generated_rhs_without_rhs_path(
     case_cfg = CaseConfig.model_validate(
         {
             "datasets": [{"id": "matrix", "path": "datasets/matrix.toml"}],
-            "comparison_defaults": {
+            "comparison_baseline": {
                 "rtol": 1.0e-6,
                 "atol": 1.0e-14,
                 "max_iterations": 10,
@@ -505,7 +582,7 @@ def test_resolve_comparison_config_carries_raw_rhs_source(
     case_cfg = CaseConfig.model_validate(
         {
             "datasets": [{"id": "matrix", "path": "datasets/matrix.toml"}],
-            "comparison_defaults": {
+            "comparison_baseline": {
                 "rtol": 1.0e-6,
                 "atol": 1.0e-14,
                 "max_iterations": 10,
@@ -549,7 +626,7 @@ def test_resolve_comparison_config_carries_dataset_rhs_source(
     case_cfg = CaseConfig.model_validate(
         {
             "datasets": [{"id": "matrix", "path": "datasets/matrix.toml"}],
-            "comparison_defaults": {
+            "comparison_baseline": {
                 "rtol": 1.0e-6,
                 "atol": 1.0e-14,
                 "max_iterations": 10,
@@ -591,7 +668,7 @@ def test_comparison_data_model_tracks_explicit_normalize_in_fields_set() -> None
 
 
 def test_validate_neural_preconditioner_requires_model_ref() -> None:
-    spec = NeuralPreconditionerConfig(name="neural", type=PreconditionerType.NEURAL)
+    spec = NeuralPreconditionerConfig(type=PreconditionerType.NEURAL)
     try:
         _validate_neural_preconditioner(spec)
     except ValueError as exc:
@@ -602,7 +679,6 @@ def test_validate_neural_preconditioner_requires_model_ref() -> None:
 
 def test_validate_neural_preconditioner_rejects_checkpoint_path(tmp_path: Path) -> None:
     spec = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         checkpoint_path=tmp_path / "model.ckpt",
         model_ref=_logged_ref("run-1"),
@@ -617,9 +693,8 @@ def test_validate_neural_preconditioner_rejects_checkpoint_path(tmp_path: Path) 
 
 def test_resolve_neural_preconditioners_validates_all() -> None:
     specs = [
-        StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY),
+        StandardPreconditionerConfig(type=PreconditionerType.IDENTITY),
         NeuralPreconditionerConfig(
-            name="neural",
             type=PreconditionerType.NEURAL,
             model_ref=_logged_ref("run-1"),
         ),
@@ -651,7 +726,7 @@ def test_neural_specs_from_assignments_uses_strict_assignment_ref(
     assert len(specs) == 1
     spec = specs[0]
     assert isinstance(spec, NeuralPreconditionerConfig)
-    assert spec.name == "ffnn_solutions"
+    assert spec.name == "neural_assignment_ffnn_solutions"
     assert spec.assignment == "ffnn_solutions"
     assert spec.model_ref == TrainedAssignmentRefConfig(assignment_id="ffnn_solutions")
 
@@ -702,7 +777,7 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
     assert len(specs) == 1
     spec = specs[0]
     assert isinstance(spec, AMGPreconditionerConfig)
-    assert spec.name == "pod2g_cg1"
+    assert "pod_rank0p9999_n-1_raw_assignment_pod2g_cg1" in spec.name
     assert isinstance(spec.coarsening, PODCoarseningConfig)
     assert spec.coarsening.assignment == "pod2g_cg1"
     assert spec.coarsening.rank == 0.9999
@@ -736,9 +811,7 @@ def test_run_comparison_injects_master_topology(
     cfg = _mock_cfg(
         matrix_path=matrix_path,
         rhs_path=rhs_path,
-        preconditioners=[
-            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
-        ],
+        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
     entry = _make_entry()
     settings = _make_settings(tmp_path)
@@ -767,9 +840,7 @@ def test_run_comparison_uses_explicit_entry_indices(
     cfg = _mock_cfg(
         matrix_path=matrix_path,
         rhs_path=rhs_path,
-        preconditioners=[
-            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
-        ],
+        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
     cfg.general.data.matrix_index = 4
     cfg.general.data.rhs_source_params["sample_index"] = 9
@@ -833,9 +904,7 @@ def test_run_comparison_test_position_resolves_dataset_sample_index(
     cfg = _mock_cfg(
         matrix_path=dataset_dir,
         rhs_path=None,
-        preconditioners=[
-            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
-        ],
+        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
     cfg.general.data.test_position = 0
     cfg.general.data.rhs_source_kind = ComparisonRhsSourceKind.DATASET
@@ -875,9 +944,7 @@ def test_run_comparison_test_position_resolves_matrix_index_for_non_dataset_kind
     cfg = _mock_cfg(
         matrix_path=dataset_dir,
         rhs_path=None,
-        preconditioners=[
-            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
-        ],
+        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
     cfg.general.data.test_position = 0
     cfg.general.data.matrix_index = None
@@ -912,9 +979,7 @@ def test_run_comparison_test_position_out_of_range_raises(tmp_path: Path) -> Non
     cfg = _mock_cfg(
         matrix_path=dataset_dir,
         rhs_path=None,
-        preconditioners=[
-            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
-        ],
+        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
     cfg.general.data.test_position = 5
     cfg.general.data.matrix_index = None
@@ -943,9 +1008,7 @@ def test_run_comparison_without_test_position_carries_unverified_matrix_provenan
     cfg = _mock_cfg(
         matrix_path=matrix_path,
         rhs_path=rhs_path,
-        preconditioners=[
-            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
-        ],
+        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
     entry = _make_entry()
     settings = _make_settings(tmp_path)
@@ -980,9 +1043,7 @@ def test_run_comparison_generated_rhs_accepts_matrix_only_input(
     cfg = _mock_cfg(
         matrix_path=matrix_path,
         rhs_path=None,
-        preconditioners=[
-            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
-        ],
+        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
     cfg.general.data.rhs_source_kind = ComparisonRhsSourceKind.GAUSSIAN
     cfg.general.data.rhs_source_params = {"mean": 0.0, "std": 1.0}
@@ -1009,9 +1070,7 @@ def test_resolved_generated_rhs_uses_matrix_source_without_rhs_dataset(tmp_path:
     cfg = _mock_cfg(
         matrix_path=matrix_path,
         rhs_path=None,
-        preconditioners=[
-            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
-        ],
+        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
     cfg.general.data.matrix_index = 0
     cfg.general.data.require_non_residual_rhs = True
@@ -1059,9 +1118,7 @@ def test_run_comparison_does_not_require_split_artifacts(
     cfg = _mock_cfg(
         matrix_path=matrix_path,
         rhs_path=rhs_path,
-        preconditioners=[
-            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
-        ],
+        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
     entry = _make_entry()
     settings = _make_settings(tmp_path)
@@ -1147,9 +1204,7 @@ def test_run_comparison_stages_plot_paths_before_logging(tmp_path: Path) -> None
     cfg = _mock_cfg(
         matrix_path=matrix_path,
         rhs_path=rhs_path,
-        preconditioners=[
-            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
-        ],
+        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
     staged_plots_result = ComparisonResult(
         results={},
@@ -1201,9 +1256,8 @@ def test_run_comparison_warns_and_continues_when_neural_resolution_fails(
         matrix_path=matrix_path,
         rhs_path=rhs_path,
         preconditioners=[
-            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY),
+            StandardPreconditionerConfig(type=PreconditionerType.IDENTITY),
             NeuralPreconditionerConfig(
-                name="missing-neural",
                 type=PreconditionerType.NEURAL,
                 model_ref=_registered_ref("MissingFFNN", "solutions"),
             ),
@@ -1221,9 +1275,7 @@ def test_run_comparison_warns_and_continues_when_neural_resolution_fails(
         patch(
             "neuralls.composition.assignments.comparison_batch.resolve_preconditioner_models_with_warnings",
             return_value=MagicMock(
-                specs=[
-                    StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
-                ],
+                specs=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
                 warnings=(
                     "Skipping neural preconditioner 'missing-neural': Registered model 'MissingFFNN' not found",
                 ),
@@ -1250,7 +1302,6 @@ def test_run_comparison_fails_if_all_preconditioners_are_skipped(
         rhs_path=rhs_path,
         preconditioners=[
             NeuralPreconditionerConfig(
-                name="missing-neural",
                 type=PreconditionerType.NEURAL,
                 model_ref=_registered_ref("MissingFFNN", "solutions"),
             ),
@@ -1326,7 +1377,6 @@ job = "valid-job"
         rhs_path=rhs_path,
         preconditioners=[
             NeuralPreconditionerConfig(
-                name="registered-neural",
                 type=PreconditionerType.NEURAL,
                 model_ref=_registered_ref(
                     "NormScaledLinearFFNN",
@@ -1367,9 +1417,7 @@ def test_run_comparison_fails_before_tracking_when_matrix_input_is_missing(
     cfg = _mock_cfg(
         matrix_path=missing_matrix,
         rhs_path=rhs_path,
-        preconditioners=[
-            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
-        ],
+        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
     entry = _make_entry()
     settings = _make_settings(tmp_path)
@@ -1399,9 +1447,7 @@ def test_run_comparison_missing_known_dataset_raises_file_not_found(
     cfg = _mock_cfg(
         matrix_path=missing_dataset,
         rhs_path=rhs_path,
-        preconditioners=[
-            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
-        ],
+        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
     entry = _make_entry()
     settings = _make_settings(tmp_path)
@@ -1543,9 +1589,7 @@ def test_run_comparison_logs_scalar_metrics_to_mlflow(tmp_path: Path) -> None:
     cfg = _mock_cfg(
         matrix_path=matrix_path,
         rhs_path=rhs_path,
-        preconditioners=[
-            StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
-        ],
+        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
     plot_path = tmp_path / "conv.png"
     plot_path.write_text("x", encoding="utf-8")
@@ -1639,7 +1683,7 @@ def test_comparison_sweep_expands_into_distinct_pinned_split_outcomes(
     payload: dict[str, object] = {
         "mlflow": {"tracking_uri": build_sqlite_tracking_uri(tmp_path / "mlruns" / "mlflow.db")},
         "names": {"training": "neuralls-training", "comparison": "Comparisons"},
-        "comparison_defaults": {
+        "comparison_baseline": {
             "rtol": 1.0e-6,
             "atol": 1.0e-14,
             "max_iterations": 10,

@@ -110,7 +110,6 @@ def test_registered_alias_resolution_with_local_sqlite_tracking(tmp_path: Path) 
     assert assigned_version == registered_version
 
     spec = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         model_ref=RegisteredModelRefConfig(name=model_name, alias="@solutions"),
     )
@@ -168,7 +167,6 @@ def test_experiment_id_registration_resolves_via_latest(tmp_path: Path) -> None:
     assert record.version == 1
 
     spec = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         model_ref=RegisteredModelRefConfig(latest=True),
     )

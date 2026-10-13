@@ -49,17 +49,6 @@ EXP_ID_BETA: str = "beta-experiment"
 _IDENTITY_MODEL_SOURCE = "import mlflow\nfrom typing import Dict, List\n\nclass _IdentityModel(mlflow.pyfunc.PythonModel):\n    def predict(self, context, model_input: List[Dict[str, str]], params=None) -> List[Dict[str, str]]:\n        _ = context\n        _ = params\n        return model_input\n\nmlflow.models.set_model(_IdentityModel())\n"
 
 
-@pytest.fixture
-def same_type_distinct_key_specs() -> tuple[StandardPreconditionerConfig, ...]:
-    """Return same-type preconditioners with distinct opaque result identifiers."""
-    return (
-        StandardPreconditionerConfig(name="pcg-identity", type=PreconditionerType.IDENTITY),
-        StandardPreconditionerConfig(
-            name="future-solver-identity", type=PreconditionerType.IDENTITY
-        ),
-    )
-
-
 def _artifact_location(path: Path) -> str:
     """Convert a local artifacts root into the file:// URI form MLflow expects.
 
@@ -119,7 +108,7 @@ def jacobi_spec() -> StandardPreconditionerConfig:
     Returns:
         StandardPreconditionerConfig for jacobi.
     """
-    return StandardPreconditionerConfig(name="jacobi", type=PreconditionerType.JACOBI)
+    return StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
 
 
 @pytest.fixture
@@ -133,7 +122,6 @@ def neural_spec_with_checkpoint(checkpoint_alpha: Path) -> NeuralPreconditionerC
         NeuralPreconditionerConfig with checkpoint_path set.
     """
     return NeuralPreconditionerConfig(
-        name="neural-explicit",
         type=PreconditionerType.NEURAL,
         checkpoint_path=checkpoint_alpha,
     )
@@ -147,7 +135,6 @@ def neural_spec_with_experiment() -> NeuralPreconditionerConfig:
         NeuralPreconditionerConfig with assignment set but checkpoint_path=None.
     """
     return NeuralPreconditionerConfig(
-        name="neural-by-experiment",
         type=PreconditionerType.NEURAL,
         assignment=EXP_ID_ALPHA,
     )
@@ -161,7 +148,6 @@ def neural_spec_invalid() -> NeuralPreconditionerConfig:
         NeuralPreconditionerConfig that should fail validation.
     """
     return NeuralPreconditionerConfig(
-        name="neural-invalid",
         type=PreconditionerType.NEURAL,
     )
 

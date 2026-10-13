@@ -151,7 +151,6 @@ def _sweep_amg(
     points = []
     for theta in thetas:
         config = AMGPreconditionerConfig(
-            name=f"amg (theta={theta:g})",
             n_levels=n_levels,
             pre_smoothing_steps=n_pre,
             post_smoothing_steps=n_post,
@@ -200,7 +199,6 @@ def _sweep_pod(
     points = []
     for rank in ranks:
         config = AMGPreconditionerConfig(
-            name=f"POD-2G (rank={rank})",
             n_levels=n_levels,
             pre_smoothing_steps=n_pre,
             post_smoothing_steps=n_post,
@@ -443,7 +441,6 @@ def main() -> int:
 
     if args.match_pod_rank is not None:
         pod_config = AMGPreconditionerConfig(
-            name=f"POD-2G (rank={args.match_pod_rank})",
             n_levels=args.n_levels,
             pre_smoothing_steps=args.n_pre,
             post_smoothing_steps=args.n_post,
@@ -459,7 +456,6 @@ def main() -> int:
         target_c = _realized_coarse_dimension(pod_coarsening, A)
 
         target_dim_config = AMGPreconditionerConfig(
-            name=f"amg (target_dim={target_c})",
             n_levels=args.n_levels,
             pre_smoothing_steps=args.n_pre,
             post_smoothing_steps=args.n_post,

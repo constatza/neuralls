@@ -72,7 +72,7 @@ def test_static_setup_preconditioner_is_reused_across_different_matrices(
     neuralls_settings: NeurallsSettings,
 ) -> None:
     """Identity is matrix-agnostic, so it is shareable even when same_matrix=False."""
-    cfg = StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
+    cfg = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
     cache = SweepPreconditionerCache(same_matrix=False)
     matrix_a = _diagonal([2.0, 4.0, 8.0])
     matrix_b = _diagonal([1.0, 1.0, 9.0])
@@ -90,7 +90,7 @@ def test_matrix_setup_preconditioner_is_reused_only_for_the_same_matrix(
     neuralls_settings: NeurallsSettings,
 ) -> None:
     """Jacobi is matrix-dependent; sharing is valid only when same_matrix=True."""
-    cfg = StandardPreconditionerConfig(name="jacobi", type=PreconditionerType.JACOBI)
+    cfg = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
     cache = SweepPreconditionerCache(same_matrix=True)
     matrix = _diagonal([2.0, 4.0, 8.0])
     rhs_a = torch.ones(3, dtype=torch.float64)
@@ -116,7 +116,6 @@ def test_matrix_setup_preconditioner_is_rebuilt_for_a_different_matrix(
 ) -> None:
     """A matrix-varying sweep (same_matrix=False) never caches a MatrixSetupPreconditioner."""
     cfg = AMGPreconditionerConfig(
-        name="amg_agg",
         type=PreconditionerType.AMG,
         coarsening=AggregationCoarseningConfig(theta=0.25),
         n_levels=2,

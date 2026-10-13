@@ -89,7 +89,6 @@ def test_factory_passes_single_extra_input_name(
 ) -> None:
     """Factory passes a single extra_input_name to NeuralPreconditioner."""
     config = NeuralPreconditionerConfig(
-        name="neural",
         checkpoint_path=mock_checkpoint,
         extra_input_names=("matrix",),
     )
@@ -107,7 +106,6 @@ def test_factory_passes_multiple_extra_input_names(
 ) -> None:
     """Factory passes multiple extra_input_names to NeuralPreconditioner."""
     config = NeuralPreconditionerConfig(
-        name="neural",
         checkpoint_path=mock_checkpoint,
         extra_input_names=("matrix", "coordinates", "bc_mask"),
     )
@@ -125,7 +123,6 @@ def test_factory_empty_extra_input_names_by_default(
 ) -> None:
     """Factory uses an empty tuple as the default for extra_input_names."""
     config = NeuralPreconditionerConfig(
-        name="neural",
         checkpoint_path=mock_checkpoint,
         # extra_input_names not specified - should default to ()
     )
@@ -144,7 +141,6 @@ def test_factory_preserves_extra_input_names_order(
     """Factory preserves declaration order of extra_input_names."""
     names = ("first", "second", "third")
     config = NeuralPreconditionerConfig(
-        name="neural",
         checkpoint_path=mock_checkpoint,
         extra_input_names=names,
     )

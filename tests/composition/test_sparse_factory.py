@@ -124,7 +124,7 @@ def info_messages() -> Iterator[list[str]]:
 
 def test_csr_jacobi_request_returns_torchalg_sparse_class(laplacian_csr: csr_array) -> None:
     """A CSR Jacobi request resolves to torchalg's sparse `JacobiPreconditioner`."""
-    config = StandardPreconditionerConfig(name="jacobi", type=PreconditionerType.JACOBI)
+    config = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
 
     precond = create_preconditioner(
         _to_torch_operator(laplacian_csr), config, matrix_format=MatrixFormat.CSR
@@ -135,7 +135,7 @@ def test_csr_jacobi_request_returns_torchalg_sparse_class(laplacian_csr: csr_arr
 
 def test_dense_jacobi_request_returns_dense_class(laplacian_dense: torch.Tensor) -> None:
     """A dense Jacobi request resolves to the dense `JacobiPreconditioner`."""
-    config = StandardPreconditionerConfig(name="jacobi", type=PreconditionerType.JACOBI)
+    config = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
 
     precond = create_preconditioner(laplacian_dense, config)
 
@@ -150,7 +150,7 @@ def test_identity_resolves_for_both_formats(
     matrix_format: MatrixFormat,
 ) -> None:
     """IDENTITY is format-free and returns `Identity` for either format."""
-    config = StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
+    config = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
     matrix = (
         laplacian_dense
         if matrix_format is MatrixFormat.DENSE
@@ -170,7 +170,6 @@ def test_neural_csr_request_densifies_once_and_logs(
 ) -> None:
     """A CSR neural request logs one densify line and reaches the dense neural builder."""
     config = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         checkpoint_path=mock_checkpoint,
     )
@@ -197,7 +196,6 @@ def test_dense_neural_request_does_not_log_densify(
 ) -> None:
     """A dense neural request is not a densify and must not emit the densify line."""
     config = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         checkpoint_path=mock_checkpoint,
     )
@@ -228,7 +226,6 @@ def test_prepare_model_input_returns_float64_batched_tensor() -> None:
 def test_csr_amg_preset_applies_an_approximate_inverse(laplacian_csr: csr_array) -> None:
     """The CSR AMG V-cycle approximates A^-1: one application shrinks the residual of A z = r."""
     config = AMGPreconditionerConfig(
-        name="amg",
         type=PreconditionerType.AMG,
         coarsening=AggregationCoarseningConfig(),
     )
@@ -263,7 +260,6 @@ def test_csr_pod_2g_preset_applies_an_approximate_inverse(
         matrix_format=MatrixFormat.CSR,
     )
     config = AMGPreconditionerConfig(
-        name="pod2g",
         type=PreconditionerType.AMG,
         coarsening=PODCoarseningConfig(dataset_dir=dataset_dir, rank=POD_RANK),
     )

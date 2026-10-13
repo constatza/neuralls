@@ -45,7 +45,7 @@ def _resolved(
     path: Path, *, name: str = "a", run_id: str | None = "run-1"
 ) -> NeuralPreconditionerConfig:
     """A NeuralPreconditionerConfig as it looks after model resolution has run."""
-    spec = NeuralPreconditionerConfig(name=name, checkpoint_path=path)
+    spec = NeuralPreconditionerConfig(checkpoint_path=path)
     return spec.model_copy(update={"resolved_checkpoint_path": path, "resolved_run_id": run_id})
 
 

@@ -64,14 +64,14 @@ def checkpoint(tmp_path: Path) -> Path:
 def neural_spec(ref: TrainedAssignmentRefConfig) -> NeuralPreconditionerConfig:
     """Neural preconditioner stub referencing the assignment's training run."""
     return NeuralPreconditionerConfig(
-        name="stub", type=PreconditionerType.NEURAL, assignment=ASSIGNMENT_ID, model_ref=ref
+        type=PreconditionerType.NEURAL, assignment=ASSIGNMENT_ID, model_ref=ref
     )
 
 
 def _resolve(ref: TrainedAssignmentRefConfig, lookup: TrainingLookup | None):
     return resolve_model_ref(
         spec=NeuralPreconditionerConfig(
-            name="stub", type=PreconditionerType.NEURAL, assignment=ASSIGNMENT_ID, model_ref=ref
+            type=PreconditionerType.NEURAL, assignment=ASSIGNMENT_ID, model_ref=ref
         ),
         tracking_uri="sqlite:///unused",
         artifact_leases=NoopArtifactLeaseManager(),

@@ -60,21 +60,18 @@ def _config_for(preconditioner_type: PreconditionerType) -> ConcretePrecondition
     """Default config for each sparse-mapped preconditioner type."""
     match preconditioner_type:
         case PreconditionerType.JACOBI | PreconditionerType.ILU:
-            return StandardPreconditionerConfig(
-                name=str(preconditioner_type), type=preconditioner_type
-            )
+            return StandardPreconditionerConfig(type=preconditioner_type)
         case PreconditionerType.IC0:
-            return IC0PreconditionerConfig(name="ic0", type=preconditioner_type)
+            return IC0PreconditionerConfig(type=preconditioner_type)
         case PreconditionerType.AMG:
             return AMGPreconditionerConfig(
-                name="amg",
                 type=preconditioner_type,
                 coarsening=AggregationCoarseningConfig(),
             )
         case PreconditionerType.ADAPTIVE_SA_AMG:
-            return AdaptiveSAPreconditionerConfig(name="adaptive", type=preconditioner_type)
+            return AdaptiveSAPreconditionerConfig(type=preconditioner_type)
         case PreconditionerType.BOOTSTRAP_AMG:
-            return BootstrapAMGPreconditionerConfig(name="bootstrap", type=preconditioner_type)
+            return BootstrapAMGPreconditionerConfig(type=preconditioner_type)
         case _:
             raise ValueError(f"No sparse-mapped test config for {preconditioner_type}")
 

@@ -331,9 +331,11 @@ def _neural_spec_from_assignment(
 ) -> NeuralPreconditionerConfig:
     """Build an unresolved neural preconditioner stub for a train/search-kind assignment.
 
-    Uses the assignment id as the result key; the display name remains purely
-    presentational and can therefore collide without merging results. References
-    the assignment's training run through a strict
+    The result key (`spec.name`) is derived from the config's own fields
+    (`preconditioner.py::preconditioner_slug`), not set here — it always
+    embeds `entry.id` via the `assignment` field below, so it stays
+    traceable to the assignment without needing a separately-chosen name.
+    References the assignment's training run through a strict
     `TrainedAssignmentRefConfig` (same experiment, FINISHED, checkpoint present,
     current dataset), rather than a registry entry or a tag search — the
     registry is reserved for deliberate/manual promotion. Also fetches the
@@ -341,7 +343,6 @@ def _neural_spec_from_assignment(
     models receive their condition tensor during comparison.
     """
     return NeuralPreconditionerConfig(
-        name=entry.id,
         type=PreconditionerType.NEURAL,
         assignment=entry.id,
         model_ref=TrainedAssignmentRefConfig(assignment_id=entry.id),
@@ -357,16 +358,16 @@ def _pod_fit_spec_from_assignment(
 ) -> AMGPreconditionerConfig:
     """Build an unresolved AMG/POD stub for a `fit`-kind (POD-2G) assignment.
 
-    Mirrors `_neural_spec_from_assignment`'s stable assignment-id key and
-    "unresolved stub referencing the
-    assignment's training run" shape, but for `AMGPreconditionerConfig(coarsening
-    =PODCoarseningConfig(...))` instead of `NeuralPreconditionerConfig` — the
-    checkpoint-shaped side of the kind dispatch in
-    `neural_specs_from_assignments`. `dataset_dir`/`rank` are populated from
-    the assignment's own job/dataset so the config stays valid (required
-    fields) even before resolution runs; once `resolved_checkpoint_path` is
-    set by `resolve_preconditioner_models_with_warnings`, the factory
-    reconstructs the fitted basis from the checkpoint and never reads these.
+    Mirrors `_neural_spec_from_assignment`'s "derived result key, unresolved
+    stub referencing the assignment's training run" shape, but for
+    `AMGPreconditionerConfig(coarsening=PODCoarseningConfig(...))` instead of
+    `NeuralPreconditionerConfig` — the checkpoint-shaped side of the kind
+    dispatch in `neural_specs_from_assignments`. `dataset_dir`/`rank` are
+    populated from the assignment's own job/dataset so the config stays
+    valid (required fields) even before resolution runs; once
+    `resolved_checkpoint_path` is set by
+    `resolve_preconditioner_models_with_warnings`, the factory reconstructs
+    the fitted basis from the checkpoint and never reads these.
     """
     rank = getattr(job.model, "rank", None)
     if rank is None:
@@ -375,7 +376,6 @@ def _pod_fit_spec_from_assignment(
             "'rank' hyperparameter — expected a PODCoarseningStrategy-shaped model."
         )
     return AMGPreconditionerConfig(
-        name=entry.id,
         type=PreconditionerType.AMG,
         coarsening=PODCoarseningConfig(
             dataset_dir=dataset_dir,

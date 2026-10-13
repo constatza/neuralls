@@ -62,7 +62,6 @@ def test_neural_pod_coarsening_config_coerces_input_names_list_to_tuple(tmp_path
 def test_amg_config_resolves_neural_pod_coarsening_via_discriminator(tmp_path: Path) -> None:
     """AMGPreconditionerConfig.coarsening resolves to NeuralPODCoarseningConfig by method."""
     config = AMGPreconditionerConfig(
-        name="neural-pod2g",
         coarsening={
             "method": "neural_pod",
             "dataset_dir": str(tmp_path / "params-dataset"),

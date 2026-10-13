@@ -75,7 +75,6 @@ def pod_specs_across_datasets(tmp_path: Path) -> list[AMGPreconditionerConfig]:
     )
     return [
         AMGPreconditionerConfig(
-            name=name,
             coarsening=PODCoarseningConfig(
                 dataset_dir=tmp_path / dataset,
                 rank=rank,
@@ -133,7 +132,7 @@ def test_resolve_preconditioner_models_keeps_non_neural_specs(
     noop_artifact_leases: ArtifactLeaseManager,
 ) -> None:
     """Non-neural preconditioners pass through unchanged."""
-    jacobi = StandardPreconditionerConfig(name="jacobi", type=PreconditionerType.JACOBI)
+    jacobi = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
     resolved = resolve_preconditioner_models(
         specs=[jacobi],
         tracking_uri=_tracking_uri(tmp_path),
@@ -158,7 +157,6 @@ def test_resolve_preconditioner_models_sets_resolved_checkpoint(
     )
 
     neural = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         model_ref=LoggedModelRefConfig(run_id="run-1"),
     )
@@ -186,7 +184,6 @@ def test_resolve_preconditioner_models_keeps_explicit_checkpoint(
     checkpoint = tmp_path / "explicit.ckpt"
     checkpoint.write_text("checkpoint")
     neural = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         checkpoint_path=checkpoint,
     )
@@ -211,7 +208,6 @@ def test_resolve_preconditioner_models_requires_model_source(
 ) -> None:
     """Neural specs without checkpoint_path/model_ref are invalid for resolution."""
     neural = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
     )
 
@@ -231,9 +227,8 @@ def test_resolve_preconditioner_models_with_warnings_skips_unresolved_neural(
 ) -> None:
     """Comparison-specific resolution can skip unresolved neural specs."""
     mock_resolve_model_ref.side_effect = ValueError("Registered model 'MissingFFNN' not found")
-    jacobi = StandardPreconditionerConfig(name="jacobi", type=PreconditionerType.JACOBI)
+    jacobi = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
     neural = NeuralPreconditionerConfig(
-        name="missing-neural",
         type=PreconditionerType.NEURAL,
         model_ref=RegisteredModelRefConfig(name="MissingFFNN", alias="solutions"),
     )
@@ -248,7 +243,7 @@ def test_resolve_preconditioner_models_with_warnings_skips_unresolved_neural(
     assert isinstance(resolved, PreconditionerResolutionResult)
     assert resolved.specs == [jacobi]
     assert len(resolved.warnings) == 1
-    assert "Skipping missing-neural" in resolved.warnings[0]
+    assert f"Skipping {neural.name}" in resolved.warnings[0]
 
 
 @patch("neuralls.composition.assignments.model_resolution.MlflowClient")
@@ -263,7 +258,6 @@ def test_resolve_model_ref_dataset_placeholder_requires_dataset_alias(
     mock_client_cls.return_value = object()
     mock_search_registered_models.return_value = [object()]
     neural = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         model_ref=RegisteredModelRefConfig(
             name="NormScaledLinearFFNN",
@@ -287,7 +281,6 @@ def test_resolve_model_ref_rejects_mismatched_artifact_lease_store(tmp_path: Pat
             return "sqlite:////tmp/other-mlflow.db"
 
     neural = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         model_ref=LoggedModelRefConfig(run_id="run-1"),
     )
@@ -317,7 +310,6 @@ def test_resolve_model_ref_normalizes_explicit_at_alias(
     artifact_leases = _CheckpointLeaseManager(checkpoint_root=tmp_path)
 
     neural = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         model_ref=RegisteredModelRefConfig(
             name="NormScaledLinearFFNN",
@@ -580,7 +572,6 @@ def test_resolve_registered_ref_latest_picks_highest_version(
     )  # v3
 
     spec = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         model_ref=RegisteredModelRefConfig(name=model_name, latest=True),
     )
@@ -614,7 +605,6 @@ def test_resolve_logged_ref_latest_picks_most_recently_started_run(
     assert run_old != run_new
 
     spec = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         model_ref=LoggedModelRefConfig(latest=True, experiment_name=mlflow_experiment),
     )
@@ -641,12 +631,10 @@ def test_resolve_preconditioner_models_with_warnings_skips_unresolved_and_contin
     """
     run_id = log_run_with_checkpoint("marker-ok")
     resolvable = NeuralPreconditionerConfig(
-        name="neural-ok",
         type=PreconditionerType.NEURAL,
         model_ref=LoggedModelRefConfig(run_id=run_id),
     )
     unresolvable = NeuralPreconditionerConfig(
-        name="neural-missing",
         type=PreconditionerType.NEURAL,
         model_ref=RegisteredModelRefConfig(name="DoesNotExistModel", latest=True),
     )
@@ -661,10 +649,10 @@ def test_resolve_preconditioner_models_with_warnings_skips_unresolved_and_contin
     assert len(result.specs) == 1
     resolved_spec = result.specs[0]
     assert isinstance(resolved_spec, NeuralPreconditionerConfig)
-    assert resolved_spec.name == "neural-ok"
+    assert resolved_spec.name == resolvable.name
     assert resolved_spec.resolved_checkpoint_path is not None
     assert len(result.warnings) == 1
-    assert "neural-missing" in result.warnings[0]
+    assert unresolvable.name in result.warnings[0]
     assert "DoesNotExistModel" in result.warnings[0]
 
     with pytest.raises(ValueError, match="DoesNotExistModel"):
@@ -711,7 +699,12 @@ def test_skipping_one_pod_case_preserves_each_survivors_dataset_rank_and_checkpo
         checkpoint = spec.coarsening.resolved_checkpoint_path
         assert checkpoint is not None
         actual.append(
-            (spec.name, spec.coarsening.dataset_dir.name, spec.coarsening.rank, checkpoint.name)
+            (
+                spec.coarsening.assignment,
+                spec.coarsening.dataset_dir.name,
+                spec.coarsening.rank,
+                checkpoint.name,
+            )
         )
 
     assert actual == [
@@ -720,7 +713,7 @@ def test_skipping_one_pod_case_preserves_each_survivors_dataset_rank_and_checkpo
         ("pod-smoother-r100", "smoother", 100, "pod-smoother-r100.ckpt"),
     ]
     assert len(result.warnings) == 1
-    assert "pod-smoother-r10" in result.warnings[0]
+    assert "pod_smoother_r10" in result.warnings[0]
 
 
 def test_resolve_registered_ref_uses_pinned_checkpoint_without_rescanning(
@@ -754,7 +747,6 @@ def test_resolve_registered_ref_uses_pinned_checkpoint_without_rescanning(
     client.log_artifact(run_id, str(ambiguous_best), artifact_path="checkpoints/nested")
 
     spec = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         model_ref=RegisteredModelRefConfig(name=model_name, version=record.version),
     )
@@ -783,7 +775,6 @@ def test_resolve_registered_ref_without_pinned_tag_raises_actionable_error(
     client.create_model_version(name=model_name, source=f"runs:/{run_id}/model", run_id=run_id)
 
     spec = NeuralPreconditionerConfig(
-        name="neural",
         type=PreconditionerType.NEURAL,
         model_ref=RegisteredModelRefConfig(name=model_name, version=1),
     )
@@ -815,7 +806,6 @@ def test_resolve_preconditioner_models_resolves_neural_pod_coarsening_ref(
     """
     run_id = log_run_with_checkpoint("marker-neural-pod")
     spec = AMGPreconditionerConfig(
-        name="neural-pod2g",
         coarsening=NeuralPODCoarseningConfig(
             dataset_dir=tmp_path / "params-dataset",
             input_names=("young_modulus",),
@@ -853,7 +843,6 @@ def test_resolve_preconditioner_models_resolves_neural_amg_prolongation_and_rest
     prolongation_run = log_run_with_checkpoint("marker-prolongation")
     restriction_run = log_run_with_checkpoint("marker-restriction")
     spec = NeuralAMGPreconditionerConfig(
-        name="neural-amg",
         prolongation=NeuralTransferConfig(model_ref=LoggedModelRefConfig(run_id=prolongation_run)),
         restriction=NeuralTransferConfig(model_ref=LoggedModelRefConfig(run_id=restriction_run)),
     )
@@ -885,7 +874,6 @@ def test_resolve_preconditioner_models_with_warnings_labels_failed_nested_ref(
 ) -> None:
     """A failed nested ref's warning names its label, not just the spec name."""
     spec = NeuralAMGPreconditionerConfig(
-        name="neural-amg-broken",
         prolongation=NeuralTransferConfig(
             model_ref=RegisteredModelRefConfig(name="DoesNotExistModel", latest=True)
         ),
@@ -900,4 +888,4 @@ def test_resolve_preconditioner_models_with_warnings_labels_failed_nested_ref(
 
     assert result.specs == []
     assert len(result.warnings) == 1
-    assert "neural-amg-broken (prolongation)" in result.warnings[0]
+    assert f"{spec.name} (prolongation)" in result.warnings[0]

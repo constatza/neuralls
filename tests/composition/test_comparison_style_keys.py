@@ -38,20 +38,20 @@ def pod2g_config_with_power_norm_weighting(pod2g_dataset_dir: Path) -> AMGPrecon
         rank=8,
         weighting=PowerNormWeightingConfig(metric="a", beta=1.0),
     )
-    return AMGPreconditionerConfig(name="pod2g-power-norm", coarsening=coarsening)
+    return AMGPreconditionerConfig(coarsening=coarsening)
 
 
 @pytest.fixture
 def neural_pod2g_config(pod2g_dataset_dir: Path) -> AMGPreconditionerConfig:
     """An AMG config with checkpoint-predicted (neural) POD-2G coarsening."""
     coarsening = NeuralPODCoarseningConfig(dataset_dir=pod2g_dataset_dir, input_names=("params",))
-    return AMGPreconditionerConfig(name="neural-pod2g", coarsening=coarsening)
+    return AMGPreconditionerConfig(coarsening=coarsening)
 
 
 @pytest.fixture
 def jacobi_config() -> StandardPreconditionerConfig:
     """A non-AMG preconditioner config — no coarsening/dataset concept at all."""
-    return StandardPreconditionerConfig(name="jacobi", type=PreconditionerType.JACOBI)
+    return StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
 
 
 def test_pod2g_style_keys_extracts_dataset_and_weighting(

@@ -38,7 +38,7 @@ type AmgSpecFactory = Callable[..., AMGPreconditionerConfig]
 @pytest.fixture
 def identity_spec() -> StandardPreconditionerConfig:
     """A preconditioner that bears no checkpoint ref at all."""
-    return StandardPreconditionerConfig(name="identity", type=PreconditionerType.IDENTITY)
+    return StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
 
 
 @pytest.fixture
@@ -52,7 +52,6 @@ def make_neural_spec() -> NeuralSpecFactory:
         model_ref: LoggedModelRefConfig | None = None,
     ) -> NeuralPreconditionerConfig:
         return NeuralPreconditionerConfig(
-            name=name,
             type=PreconditionerType.NEURAL,
             assignment=assignment,
             model_ref=model_ref,
@@ -72,7 +71,6 @@ def make_pod_amg_spec(tmp_path: Path) -> AmgSpecFactory:
         model_ref: LoggedModelRefConfig | None = None,
     ) -> AMGPreconditionerConfig:
         return AMGPreconditionerConfig(
-            name=name,
             type=PreconditionerType.AMG,
             coarsening=PODCoarseningConfig(
                 dataset_dir=tmp_path / "snapshots",
@@ -179,7 +177,6 @@ def test_pod_coarsening_with_model_ref_exposes_its_ref(
 
 def test_pod_coarsening_with_checkpoint_path_exposes_its_ref(tmp_path: Path) -> None:
     spec = AMGPreconditionerConfig(
-        name="amg",
         type=PreconditionerType.AMG,
         coarsening=PODCoarseningConfig(
             dataset_dir=tmp_path / "snapshots",
@@ -193,7 +190,6 @@ def test_pod_coarsening_with_checkpoint_path_exposes_its_ref(tmp_path: Path) -> 
 def test_neural_pod_coarsening_is_always_checkpoint_backed(tmp_path: Path) -> None:
     """Its snapshot ensemble only exists via a checkpoint, so it needs no identity fields."""
     spec = AMGPreconditionerConfig(
-        name="amg",
         type=PreconditionerType.AMG,
         coarsening=NeuralPODCoarseningConfig(
             dataset_dir=tmp_path / "params",
@@ -206,7 +202,6 @@ def test_neural_pod_coarsening_is_always_checkpoint_backed(tmp_path: Path) -> No
 
 def test_aggregation_coarsening_exposes_no_checkpoint_ref() -> None:
     spec = AMGPreconditionerConfig(
-        name="amg",
         type=PreconditionerType.AMG,
         coarsening=AggregationCoarseningConfig(),
     )
@@ -215,7 +210,6 @@ def test_aggregation_coarsening_exposes_no_checkpoint_ref() -> None:
 
 def test_target_dim_coarsening_exposes_no_checkpoint_ref() -> None:
     spec = AMGPreconditionerConfig(
-        name="amg",
         type=PreconditionerType.AMG,
         coarsening=TargetDimCoarseningConfig(target_coarse_dim=8),
     )
