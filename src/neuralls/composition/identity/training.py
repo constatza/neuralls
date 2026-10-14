@@ -13,7 +13,9 @@ from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.dataset_digest import current_dataset_digest
-from neuralls.shared.digest import canonical_digest
+from neuralls.shared.constants import SPLIT_FILENAME
+from neuralls.shared.digest import canonical_digest, content_digest
+from neuralls.shared.errors import StageInputsStale
 
 # DLKit job sections that only say where/how results are reported, not what is trained.
 # Every other section — including ones added by future DLKit versions — is hashed.
@@ -70,16 +72,26 @@ def training_identity(
         settings (NeurallsSettings): Runtime settings.
 
     Returns:
-        StageIdentity: Changes iff the dataset content or the effective job
-        settings change.
+        StageIdentity: Changes iff the dataset content, its pinned split, or
+        the effective job settings change.
 
     Raises:
         FileNotFoundError: If the assignment's dataset has not been generated.
+        StageInputsStale: If generation has not pinned the dataset's split.
     """
+    dataset_dir = assignment_dataset_dir(data_config_path, settings)
+    dataset_digest = current_dataset_digest(dataset_dir)
+    split_path = dataset_dir / SPLIT_FILENAME
+    if not split_path.exists():
+        raise StageInputsStale(
+            f"Dataset '{dataset_dir}' has no pinned split ({SPLIT_FILENAME}): "
+            "run `neuralls generate` (or `neuralls run`) first."
+        )
     return StageIdentity.build(
         "training",
         {
-            "dataset": current_dataset_digest(assignment_dataset_dir(data_config_path, settings)),
+            "dataset": dataset_digest,
+            "split": content_digest(split_path),
             "job": canonical_digest(job_payload(job_config_path, settings)),
         },
     )

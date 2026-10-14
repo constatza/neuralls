@@ -1,0 +1,56 @@
+"""Refuse to compare against datasets that generation has not produced and pinned.
+
+Comparison consumes hashes: it selects systems out of an existing pinned test
+fold and never generates, splits or trains anything itself. This gate proves,
+before any planning, that each dataset it will read still matches what the case
+config would generate today, so a stale or missing one fails with the stage to
+run instead of silently comparing on the wrong data.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from pathlib import Path
+
+from neuralls.composition.generation.dataset_builder import is_dataset_reusable
+from neuralls.composition.generation.split_pinning import split_is_current
+from neuralls.composition.identity.generation import generation_identity
+from neuralls.platform.config.loaders import load_data_config
+from neuralls.platform.config.models.experiments import CaseConfig
+from neuralls.platform.config.registry import resolve_dataset_config_path
+from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.shared.errors import StageInputsStale
+
+
+def require_current_inputs(
+    case_cfg: CaseConfig,
+    config_dir: Path,
+    settings: NeurallsSettings,
+    dataset_ids: Iterable[str],
+) -> None:
+    """Check each dataset is generated under its current identity with a current split.
+
+    Args:
+        case_cfg: The validated case config.
+        config_dir: Directory of the case config file.
+        settings: Runtime settings.
+        dataset_ids: Registry ids of the datasets comparison will read.
+
+    Raises:
+        StageInputsStale: Naming the dataset and the stage to run first.
+    """
+    for dataset_id in dict.fromkeys(dataset_ids):
+        data_cfg = load_data_config(
+            resolve_dataset_config_path(case_cfg, config_dir, dataset_id), settings
+        )
+        dataset_dir = (data_cfg.output.data_dir or settings.processed_dir) / data_cfg.id
+        if not is_dataset_reusable(dataset_dir, generation_identity(data_cfg)):
+            raise StageInputsStale(
+                f"Dataset '{dataset_id}' at '{dataset_dir}' is missing or no longer matches "
+                "its config and sources: run `neuralls generate` (or `neuralls run`) first."
+            )
+        if not split_is_current(dataset_dir, data_cfg.split):
+            raise StageInputsStale(
+                f"Dataset '{dataset_id}' has no pinned split matching its [split] config: "
+                "run `neuralls generate` (or `neuralls run`) first."
+            )

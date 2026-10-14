@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from neuralls.composition.generation.dataset_builder import is_dataset_reusable
 from neuralls.composition.generation.processing import process_config
+from neuralls.composition.generation.split_pinning import pin_dataset_split
 from neuralls.composition.identity.generation import generation_identity
 from neuralls.domain.generation.sample_ids import _is_glob_expression
 from neuralls.platform.config.loaders import load_data_config
@@ -55,6 +56,7 @@ def process_data_from_config(
     dataset_dir = (config.output.data_dir or settings.processed_dir) / config.id
     if not force and is_dataset_reusable(dataset_dir, identity):
         logger.info(f"Dataset already exists at '{dataset_dir}'; skipping regeneration.")
+        pin_dataset_split(dataset_dir, config.split)
         return dataset_dir
 
     # Glob paths fan out to multiple matrix files; GlobMatrixStream handles loading.
@@ -63,7 +65,7 @@ def process_data_from_config(
         None if _is_glob_expression(matrix_path) else load_matrix(Path(matrix_path))
     )
     try:
-        return process_config(
+        written_dir = process_config(
             config,
             matrix,
             force=force,
@@ -73,3 +75,5 @@ def process_data_from_config(
         )
     except ValidationError as exc:
         raise ValueError(str(exc)) from exc
+    pin_dataset_split(written_dir, config.split)
+    return written_dir

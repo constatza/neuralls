@@ -385,12 +385,8 @@ def test_contract_override_drives_injection_and_validation(
     validate_runtime_dataset_contract(settings, contract)
     runtime_root = tmp_path / "runtime-run"
     runtime_root.mkdir(parents=True, exist_ok=True)
-    stub_split_path = runtime_root / "split.json"
-    stub_split_path.write_text("{}")
-    monkeypatch.setattr(
-        "neuralls.composition.assignments.runtime_split_patcher.resolve_or_create_pinned_split",
-        lambda *_args, **_kwargs: stub_split_path,
-    )
+    (runtime_root / "data").mkdir(parents=True, exist_ok=True)
+    (runtime_root / "data" / "split.json").write_text("{}")
     updated, _ = _configure_training_pipeline(
         settings,
         workspace=AssignmentWorkspace(

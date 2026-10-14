@@ -10,7 +10,7 @@ from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.storage.dataset_digest import current_dataset_digest
-from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
+from neuralls.shared.constants import DATASET_MANIFEST_FILENAME, SPLIT_FILENAME
 from neuralls.shared.digest import Digest, canonical_digest, content_digest
 
 
@@ -18,13 +18,17 @@ def input_digest(path: Path) -> Digest:
     """Digest a comparison input: a generated dataset by content, any other file by bytes.
 
     Args:
-        path (Path): Dataset directory (has a manifest) or a raw input file/directory.
+        path (Path): Dataset directory (has a manifest; its pinned split, when present,
+            is part of the digest) or a raw input file/directory.
 
     Returns:
         Digest: Path-independent digest of what the input contains.
     """
     if path.is_dir() and (path / DATASET_MANIFEST_FILENAME).exists():
-        return current_dataset_digest(path)
+        split_path = path / SPLIT_FILENAME
+        if not split_path.exists():
+            return current_dataset_digest(path)
+        return canonical_digest(current_dataset_digest(path), content_digest(split_path))
     return content_digest(path)
 
 

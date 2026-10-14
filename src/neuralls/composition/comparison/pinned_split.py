@@ -10,8 +10,8 @@ from pathlib import Path
 
 from dlkit.infrastructure.io.index import load_split_indices
 
-from neuralls.composition.assignments._split_pinning import SPLIT_FILENAME
 from neuralls.platform.storage.dataset_readers import load_matrix_sample_index
+from neuralls.shared.constants import SPLIT_FILENAME
 from neuralls.shared.types import ComparisonRhsSourceKind
 
 

@@ -13,7 +13,9 @@ from neuralls.composition.identity.training import (
     dataset_unchanged_since,
     training_identity,
 )
+from neuralls.shared.constants import SPLIT_FILENAME
 from neuralls.shared.digest import canonical_digest
+from neuralls.shared.errors import StageInputsStale
 from tests.composition.conftest import JobWriter
 
 
@@ -21,7 +23,10 @@ from tests.composition.conftest import JobWriter
 def dataset(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, str]:
     """Isolate dataset resolution: the digest is whatever this dict says."""
     state = {"digest": canonical_digest("dataset-v1")}
-    monkeypatch.setattr(training, "assignment_dataset_dir", lambda *_: tmp_path / "ds")
+    dataset_dir = tmp_path / "ds"
+    dataset_dir.mkdir()
+    (dataset_dir / SPLIT_FILENAME).write_text('{"split": "v1"}')
+    monkeypatch.setattr(training, "assignment_dataset_dir", lambda *_: dataset_dir)
     monkeypatch.setattr(training, "current_dataset_digest", lambda _dir: state["digest"])
     return state
 
@@ -80,3 +85,18 @@ def test_dataset_guard_detects_a_dataset_changed_during_training(
     assert dataset_unchanged_since(identity.tags(), Path("unused"), MagicMock()) is True
     dataset["digest"] = canonical_digest("regenerated-meanwhile")
     assert dataset_unchanged_since(identity.tags(), Path("unused"), MagicMock()) is False
+
+
+def test_a_changed_split_invalidates(write_job: JobWriter, tmp_path: Path) -> None:
+    before = _key(write_job())
+
+    (tmp_path / "ds" / SPLIT_FILENAME).write_text('{"split": "v2"}')
+
+    assert _key(write_job()) != before
+
+
+def test_a_missing_split_asks_for_generation(write_job: JobWriter, tmp_path: Path) -> None:
+    (tmp_path / "ds" / SPLIT_FILENAME).unlink()
+
+    with pytest.raises(StageInputsStale, match="neuralls generate"):
+        _key(write_job())

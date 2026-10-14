@@ -98,10 +98,8 @@ def isolate_default_paths_with_tmp_path(
     mlflow_artifact_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Force all default artifact paths into pytest temp storage."""
+    """Redirect ambient defaults without creating files for pure tests."""
     case_config_path = runtime_root / "case.toml"
-    case_config_path.parent.mkdir(parents=True, exist_ok=True)
-    case_config_path.write_text("", encoding="utf-8")
     env_map = {
         "NEURALLS_PROCESSED_DIR": str(processed_root),
         "NEURALLS_OUTPUT_DIR": str(output_root),
@@ -113,8 +111,7 @@ def isolate_default_paths_with_tmp_path(
         "DLKIT_ROOT_DIR": str(runtime_root),
         "DLKIT_INTERNAL_DIR": str(runtime_root / ".dlkit"),
     }
-    (runtime_root / "raw").mkdir(parents=True, exist_ok=True)
-    monkeypatch.chdir(runtime_root)
+    monkeypatch.chdir(runtime_root.parent)
     for key, value in env_map.items():
         monkeypatch.setenv(key, value)
 
@@ -142,6 +139,7 @@ def neuralls_settings(
     raw = runtime_root / "raw"
     for directory in (raw, processed_root, output_root):
         directory.mkdir(parents=True, exist_ok=True)
+    (runtime_root / "case.toml").touch()
     return NeurallsSettings(
         _env_file=[],
         processed_dir=processed_root,
@@ -320,3 +318,57 @@ def overwrite_row_kind() -> Callable[[Path, list[RowKind]], None]:
             f[artifact.key][...] = encode_row_kind_array(kinds)
 
     return _overwrite
+
+
+@pytest.fixture
+def stub_input_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip the generated-and-pinned-inputs gate for tests that hand-build their datasets.
+
+    The gate has its own tests; end-to-end comparison tests that write a tiny
+    dataset directly (no generation stage) would otherwise be refused as stale.
+    """
+    monkeypatch.setattr(
+        "neuralls.composition.assignments.comparison_batch.require_current_inputs",
+        lambda *_args, **_kwargs: None,
+    )
+
+
+def _build_diag_matrix_dataset(
+    root: Path, matrix_ids: tuple[int, ...], rows: int, dimension: int = 2
+) -> Path:
+    """Build an hdf5 dataset of `rows` rows over one diagonal SPD matrix per id in `matrix_ids`."""
+    from scipy.io import mmwrite
+    from scipy.sparse import csr_array
+
+    from neuralls.composition.generation.dataset_builder import build_dataset
+    from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+
+    raw = root / "raw"
+    for matrix_id in matrix_ids:
+        case_dir = raw / str(matrix_id)
+        case_dir.mkdir(parents=True)
+        mmwrite(
+            str(case_dir / "K_ff.mtx"),
+            csr_array(np.diag([float(matrix_id), *([1.0] * (dimension - 1))])),
+        )
+    dataset_dir = root / "dataset"
+    build_dataset(
+        SourceSpec(matrix_path=str(raw / "*" / "K_ff.mtx")),
+        DatasetSpec(
+            mixture=MixtureSpec(counts={"neutral_ones": rows}, seed=42, shuffle=False),
+            normalize="none",
+        ),
+        str(dataset_dir),
+        dataset_format="hdf5",
+    )
+    return dataset_dir
+
+
+@pytest.fixture
+def sparse_id_dataset(tmp_path: Path) -> Path:
+    """Two matrices whose sample ids (5, 9) differ from every physical row position.
+
+    The multi-matrix layout stores one matrix copy per row, so rows 0-1 hold
+    matrix id 5 and rows 2-3 hold matrix id 9; neither id is a valid row.
+    """
+    return _build_diag_matrix_dataset(tmp_path / "multi", (5, 9), rows=4)

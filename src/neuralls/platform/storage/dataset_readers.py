@@ -198,6 +198,34 @@ def _select_canonical_row(
     raise ValueError(f"No canonical non-residual rows are available in dataset '{dataset_dir}'.")
 
 
+def matrix_row(matrix: ResolvedDatasetArtifact, *, row_index: int, matrix_id: int) -> int:
+    """Return the physical index into the stored matrix array for one dataset row.
+
+    A matrix id is the sample id the generator bound the row to
+    (`matrix_sample_index`); it names a matrix, not a storage position. The
+    multi-matrix layout stores one matrix copy per row, so the row itself is
+    the position; a broadcast single-matrix layout stores one copy at 0.
+    This is the only place an id is turned into a storage index.
+
+    Args:
+        matrix: The dataset's resolved matrix artifact.
+        row_index: The dataset row whose matrix is wanted.
+        matrix_id: The matrix id bound to that row, kept for the error message.
+
+    Raises:
+        IndexError: If the row has no stored matrix copy.
+    """
+    if matrix.broadcast:
+        return 0
+    stored = matrix.shape[0] if matrix.shape else 0
+    if row_index >= stored:
+        raise IndexError(
+            f"Row {row_index} (matrix id {matrix_id}) has no stored matrix; "
+            f"the matrix array holds {stored} entries."
+        )
+    return row_index
+
+
 def _resolve_triplet_matrix_index(
     *,
     artifacts: DatasetArtifacts,
@@ -253,7 +281,12 @@ def resolve_canonical_training_triplet(
         matrix_index=matrix_index,
         dataset_dir=dataset_dir,
     )
-    matrix = _load_matrix_dense_sample(artifacts.matrix, resolved_matrix_index)
+    matrix = _load_matrix_dense_sample(
+        artifacts.matrix,
+        matrix_row(artifacts.matrix, row_index=row_index, matrix_id=resolved_matrix_index)
+        if matrix_binding_enforced
+        else resolved_matrix_index,
+    )
     rhs = _load_sample(artifacts.rhs, row_index).reshape(-1)
     lhs = _load_sample(artifacts.solutions, row_index).reshape(-1)
     # STANDARD rows are genuine Ax=b pairs; CG_INTERNAL rows are CG

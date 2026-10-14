@@ -118,3 +118,12 @@ def test_load_matrix_dense_sample_caches_repeated_calls(tmp_path: Path) -> None:
 
     assert np.array_equal(first, second)
     assert load_matrix_dense_sample.cache_info().hits == 1
+
+
+def test_triplet_loads_the_matrix_bound_to_the_row_when_ids_differ_from_rows(
+    sparse_id_dataset: Path,
+) -> None:
+    triplet = resolve_canonical_training_triplet(sparse_id_dataset, sample_index=2)
+
+    assert triplet.matrix_index == 9
+    assert triplet.matrix[0, 0] == 9.0

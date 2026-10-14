@@ -60,11 +60,15 @@ DEFAULT_NUM_SAMPLES = 6000
 
 DEFAULT_WRITE_BATCH_SIZE = 1024
 
-# Seed for pinning a dataset's train/validation/test split once at creation
-# time (see composition/assignments/_split_pinning.py). Stable across runs so
-# a pinned split file, once computed, is reproducible from this constant
-# alone if it ever needs to be regenerated from scratch.
+# Default seed and ratios for a dataset's pinned train/validation/test split
+# (see composition/generation/split_pinning.py). A dataset config's `[split]`
+# section overrides them; the split is a pure function of the dataset's
+# matrix bindings and these values, so it is reproducible from the config alone.
 DEFAULT_SPLIT_SEED = 20240521
+DEFAULT_SPLIT_TEST_RATIO = 0.1
+DEFAULT_SPLIT_VAL_RATIO = 0.1
+# Name of the pinned split file written next to a dataset's manifest.
+SPLIT_FILENAME = "split.json"
 """Rows generated and written per batch. Bounds the working set; does not change output."""
 
 # Name of the gitignored subdirectory `scripts/expand_dataset_sweep.py` writes
@@ -160,3 +164,11 @@ MAX_ITERATIONS_UPPER_LIMIT = 1_000_000
 DEFAULT_PLOT_DPI = 150
 DEFAULT_PLOT_FIGSIZE = (10, 6)
 DEFAULT_PLOT_STYLE = "seaborn-v0_8-darkgrid"
+
+# =============================================================================
+# Comparison RHS masking
+# =============================================================================
+DEFAULT_RHS_MASK_DENSITY = 0.1
+MAX_RHS_MASK_DENSITY = 0.5
+MASK_STREAM_TAG = 0x4D41534B
+"""Spawn key (ASCII "MASK") that separates the mask's random stream from the RHS draw's, both derived from one system seed."""
