@@ -8,7 +8,8 @@ for iteration-varying or non-SPD ones) — plus result formatting and analysis.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import statistics
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
 
 import numpy as np
@@ -31,14 +32,16 @@ from neuralls.domain.solver.models.result import (
     ComparisonGroupOutcome,
     ComparisonRecommendations,
     GroupAggregated,
+    GroupBelowMinimumSize,
     GroupSkippedAllCacheHit,
     ProjectedComparisonResult,
     RankedRecommendation,
     SetupSharingPolicy,
 )
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
-from neuralls.shared.device import release_device_memory, track_resource_usage
-from neuralls.shared.types import CostProvenance
+from neuralls.shared.device import release_device_memory, repeat_timed
+from neuralls.shared.timing import TimingRepeatPolicy
+from neuralls.shared.types import CostProvenance, GroupId
 
 
 class CGAlgorithm(StrEnum):
@@ -60,6 +63,7 @@ def run_cg_comparison(
     maxiter: int = 100,
     m_max: int = DEFAULT_M_MAX,
     reference_precision_margin: float = REFERENCE_PRECISION_MARGIN,
+    timing: TimingRepeatPolicy = TimingRepeatPolicy(),  # noqa: B008 -- frozen, so safely shared
 ) -> dict[str, CGComparisonResult]:
     """Run CG with multiple preconditioners for comparison.
 
@@ -97,6 +101,7 @@ def run_cg_comparison(
         reference_precision_margin: How many orders of magnitude tighter than
             ``rtol`` the host reference solution must be. Ignored when
             ``x_exact`` is given.
+        timing: How often each solve is timed. The default is one timed run.
 
     Returns:
         Dict mapping preconditioner names to CGComparisonResult.
@@ -126,11 +131,16 @@ def run_cg_comparison(
 
     for precond_name, precond in preconditioners.items():
         try:
-            with track_resource_usage(A.device) as usage:
-                x_sol, info = _solve_one(
+            timed = repeat_timed(
+                lambda precond=precond: _solve_one(
                     A, b, x0, precond, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
                     x_exact=x_exact,
-                )  # fmt: skip
+                ),
+                timing,
+                device=A.device,
+                fingerprint=lambda solved: solved[1].iterations,
+            )  # fmt: skip
+            x_sol, info = timed.value
         except (ValueError, RuntimeError) as solver_exc:
             result = CGComparisonResult(
                 x=_to_numpy(x0_base),
@@ -172,8 +182,9 @@ def run_cg_comparison(
                 breakdown=info.breakdown,
                 error_history_a_rel=error_history,
                 error_bound_a_rel=error_bound,
-                solve_time_seconds=usage().wall_time_seconds,
-                solve_peak_memory_bytes=usage().peak_memory_bytes,
+                solve_time_seconds=timed.seconds,
+                solve_peak_memory_bytes=timed.peak_memory_bytes,
+                solve_time_samples=timed.samples_seconds,
             )
 
         results[precond_name] = result
@@ -350,10 +361,21 @@ def _format_result_line(name: str, result: CGComparisonResult) -> str:
     return line
 
 
+def _time_to_solution(info: CGComparisonResult) -> float | None:
+    """Total time, or `None` when an unavailable cost makes it incomparable."""
+    return None if info.has_unavailable_cost else info.total_time_seconds
+
+
 def summarize_best_combinations(
     results: dict[str, CGComparisonResult],
 ) -> ComparisonRecommendations:
-    """Summarize best-performing CG combinations by preconditioner and overall.
+    """Rank converged CG combinations by time-to-solution.
+
+    Every converged run stops just below the tolerance, so its final residual
+    says nothing about quality; what differs is the cost of getting there.
+    Entries are ordered by total time (generation + setup + solve), then by
+    iterations; an entry whose time is incomparable ranks after all timed
+    ones.
 
     Args:
         results: CG comparison results.
@@ -361,26 +383,28 @@ def summarize_best_combinations(
     Returns:
         Typed ranked recommendations with an overall best entry.
     """
-    ranked: list[RankedRecommendation] = []
-    for label, info in results.items():
-        if not info.converged:
-            continue
-        ranked.append(
+    ranked = sorted(
+        (
             RankedRecommendation(
                 label=label,
                 iterations=info.iterations,
                 residual=info.residual,
                 residual_abs=info.residual_abs,
                 breakdown=info.breakdown,
+                total_time_seconds=_time_to_solution(info),
             )
-        )
-
-    ranked = sorted(ranked, key=lambda entry: entry.residual)
-    overall_best = ranked[0] if ranked else None
-
+            for label, info in results.items()
+            if info.converged
+        ),
+        key=lambda entry: (
+            entry.total_time_seconds is None,
+            entry.total_time_seconds or 0.0,
+            entry.iterations,
+        ),
+    )
     return ComparisonRecommendations(
         ranked=tuple(ranked),
-        overall_best=overall_best,
+        overall_best=ranked[0] if ranked else None,
     )
 
 
@@ -457,6 +481,8 @@ def _aggregate_one_preconditioner(
         if result.generation_cost is not None
         and result.generation_cost.provenance is not CostProvenance.UNAVAILABLE
     ]
+    solve_times = [result.solve_time_seconds or 0.0 for result in results]
+    iterations = [result.iterations for result in results]
     return ProjectedComparisonResult(
         preconditioner_name=name,
         n_systems=len(results),
@@ -465,23 +491,32 @@ def _aggregate_one_preconditioner(
         generation_cost_total_seconds=(
             sum(real_generation_values) if real_generation_values else None
         ),
-        total_solve_time_seconds=sum(result.solve_time_seconds or 0.0 for result in results),
-        total_iterations=sum(result.iterations for result in results),
+        total_solve_time_seconds=sum(solve_times),
+        total_iterations=sum(iterations),
+        solve_time_std_seconds=_sample_std(solve_times),
+        iterations_std=_sample_std(iterations),
     )
 
 
+def _sample_std(values: Sequence[float]) -> float | None:
+    """Sample standard deviation (ddof=1), or `None` for fewer than two values."""
+    return statistics.stdev(values) if len(values) >= 2 else None
+
+
 def classify_group_aggregation(
-    group_id: str,
+    group_id: GroupId,
     n_in_group: int,
     results_by_system: Mapping[str, dict[str, CGComparisonResult]],
     sharing_by_name: Mapping[str, SetupSharingPolicy],
+    *,
+    min_size: int,
 ) -> ComparisonGroupOutcome:
     """Classify one comparison group's aggregation attempt as a closed outcome.
 
     Pure: takes already-filtered real results (callers drop cache hits,
     which carry no `CGComparisonResult`) plus the group's total member
-    count, and decides which of the two cases applies — no MLflow or
-    composition-layer types involved.
+    count, and decides which case applies — no MLflow or composition-layer
+    types involved.
 
     Args:
         group_id: The `ComparisonGroup` being classified.
@@ -490,17 +525,40 @@ def classify_group_aggregation(
             that actually produced a result this run — fewer than
             `n_in_group` when some members were cache hits.
         sharing_by_name: Each preconditioner name's `SetupSharingPolicy`.
+        min_size: Fewest contributing members a projection needs.
 
     Returns:
-        `GroupAggregated` if at least one member contributed a result,
-        else `GroupSkippedAllCacheHit`.
+        `GroupSkippedAllCacheHit` if nothing was measured this run,
+        `GroupBelowMinimumSize` if fewer than `min_size` members contributed,
+        else `GroupAggregated`.
     """
-    if not results_by_system:
+    n_aggregated = len(results_by_system)
+    if n_aggregated == 0:
         return GroupSkippedAllCacheHit(group_id=group_id, n_in_group=n_in_group)
-    projected = aggregate_projected_results(results_by_system, sharing_by_name)
+    if n_aggregated < min_size:
+        return GroupBelowMinimumSize(
+            group_id=group_id,
+            n_aggregated=n_aggregated,
+            n_in_group=n_in_group,
+            min_size=min_size,
+        )
     return GroupAggregated(
         group_id=group_id,
-        projected=projected,
-        n_aggregated=len(results_by_system),
+        projected=aggregate_projected_results(results_by_system, sharing_by_name),
+        n_aggregated=n_aggregated,
         n_in_group=n_in_group,
+        time_to_solution_by_system=_time_to_solution_by_system(results_by_system),
     )
+
+
+def _time_to_solution_by_system(
+    results_by_system: Mapping[str, dict[str, CGComparisonResult]],
+) -> dict[str, dict[str, float]]:
+    """Each preconditioner's per-system time-to-solution, omitting incomparable ones."""
+    by_name: dict[str, dict[str, float]] = {}
+    for system_id, system_results in results_by_system.items():
+        for name, result in system_results.items():
+            seconds = _time_to_solution(result)
+            if seconds is not None:
+                by_name.setdefault(name, {})[system_id] = seconds
+    return by_name

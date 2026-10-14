@@ -28,6 +28,7 @@ from neuralls.shared.constants import (
 )
 from neuralls.shared.digest import Cosmetic, InputData
 from neuralls.shared.scientific_description import NotationPolicy
+from neuralls.shared.timing import TimingRepeatPolicy
 from neuralls.shared.types import RowKind
 
 type NormalizeSystem = Literal["none", "matrix", "rhs", "both"]
@@ -53,6 +54,7 @@ class _SolverParamsModel(BaseModel):
     stopping_criterion: Literal["residual_norm", "fixed_iterations"] = "residual_norm"
     m_max: int = Field(default=DEFAULT_M_MAX, ge=-1)
     reference_precision_margin: float = Field(default=REFERENCE_PRECISION_MARGIN, gt=0.0, lt=1.0)
+    timing: TimingRepeatPolicy = Field(default_factory=TimingRepeatPolicy)
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
@@ -328,7 +330,7 @@ def parse_comparison_config(
         )
     return ComparisonConfig(
         general=ComparisonGeneral(
-            params=SolverParams(**params.model_dump()),
+            params=SolverParams(**dict(params)),
             data=ComparisonData(**data.model_dump()),
         ),
         preconditioners=tuple(parsed.preconditioners),

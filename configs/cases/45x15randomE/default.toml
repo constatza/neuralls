@@ -107,17 +107,12 @@ matrix_index = 0
 rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
 seed = 45
 
-# Every [[comparisons]] entry in this file shares matrix_dataset =
-# "gaussian-eval-45x15randomE", so all of them (gaussian, sparse, raw-lhs,
-# sinusoidal alike) pool into one coarse (by-matrix) aggregation covering
-# matrix indices 0, 1, 2, 3, 7, 14 — the real "N systems" projection,
-# averaging solve cost across whatever RHS each system happened to use.
-# The eval-*-gaussian entries additionally form their own finer
-# (by-matrix-and-rhs-kind) group, reported separately — see
-# composition/README.md's "comparison groups" section for why both
-# granularities are computed and reported. eval-1/2/3 exist purely to
-# grow the gaussian-only fine group past N=5; the coarse group already
-# has 18 members without them.
+# Every [[comparisons]] entry here shares matrix_dataset
+# "gaussian-eval-45x15randomE", so they all share one setup cache (by-matrix)
+# and also form a pooled mixture report. The headline report is per RHS kind
+# (by-matrix-and-rhs-kind): the eval-*-gaussian entries are one group, and a
+# group needs at least MIN_GROUP_SIZE systems to get a projection and std.
+# See composition/README.md's "comparison groups" section.
 [[comparisons]]
 id = "eval-1-gaussian"
 display_name = "Eval matrix 1 | Gaussian RHS"

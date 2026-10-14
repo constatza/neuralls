@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from neuralls.shared.types import CostProvenance
+from neuralls.shared.types import CostProvenance, GroupId
 
 if TYPE_CHECKING:
     from neuralls.shared.types import ComparisonRhsSourceKind
@@ -168,6 +168,14 @@ class CGComparisonResult:
     solve_peak_memory_bytes: int | None = None
     """Peak memory during the solve. None if not measured."""
 
+    setup_time_samples: tuple[float, ...] = ()
+    """Every timed build+setup execution behind `setup_cost` (its statistic), in run
+    order. Empty for a cache hit (the cost was copied forward) or a placeholder."""
+
+    solve_time_samples: tuple[float, ...] = ()
+    """Every timed solve execution behind `solve_time_seconds` (its statistic), in run
+    order. Empty when the solve was not measured."""
+
     @property
     def total_time_seconds(self) -> float | None:
         """Setup + generation + solve wall time, or None if nothing could be summed.
@@ -213,8 +221,11 @@ class CGComparisonResult:
     def total_cost_per_iteration_seconds(self) -> float | None:
         """Full pipeline cost amortized per iteration: (generation + setup + solve) / iterations.
 
-        Includes one-time setup and generation costs spread across all iterations.
-        Useful for comparing fair "cost per solve" when preconditioners have different setup costs.
+        Includes one-time setup and generation costs spread across all iterations,
+        so its ratio to `avg_iteration_time_seconds` shows how much one-time cost
+        inflates a method's effective iteration cost. A diagnostic, not a ranking
+        criterion: it depends on the stopping tolerance through the iteration count.
+        Rank by `total_time_seconds` (time-to-solution) instead.
         """
         total = self.total_time_seconds
         if total is None or self.iterations <= 0:
@@ -234,17 +245,14 @@ class CGComparisonResult:
 class CostFieldSpec:
     """One reportable scalar cost, shared by every consumer that reports costs.
 
-    `field_name` is the stable key written to `comparison.toml` (§ persistence);
-    `extractor` is the same accessor the existing cost bar-charts already
-    use. Adding a new measured cost means adding one entry here, not
-    touching the plotting code and the TOML writer separately — they would
-    otherwise be two hand-copied lists that can silently drift apart.
+    `field_name` is the stable key written to `comparison.toml`; `extractor`
+    is the same accessor the cost bar-charts use. Titles and filenames are
+    presentation and live with the plots (`composition/comparison/_plots.py`),
+    keyed by `field_name` — a test keeps the two in step.
     """
 
     field_name: str
     extractor: Callable[[CGComparisonResult], float | int | None]
-    metric_name: str
-    filename_suffix: str
 
 
 COST_FIELD_REGISTRY: tuple[CostFieldSpec, ...] = (
@@ -253,38 +261,26 @@ COST_FIELD_REGISTRY: tuple[CostFieldSpec, ...] = (
         extractor=lambda r: (
             r.generation_cost.wall_time_seconds if r.generation_cost is not None else None
         ),
-        metric_name="Generation Time (s)",
-        filename_suffix="generation_time",
     ),
     CostFieldSpec(
         field_name="setup_time_seconds",
         extractor=lambda r: r.setup_cost,
-        metric_name="Setup Time (s)",
-        filename_suffix="setup_time",
     ),
     CostFieldSpec(
         field_name="solve_time_seconds",
         extractor=lambda r: r.solve_time_seconds,
-        metric_name="Solve Time (s)",
-        filename_suffix="solve_time",
     ),
     CostFieldSpec(
         field_name="avg_iteration_time_seconds",
         extractor=lambda r: r.avg_iteration_time_seconds,
-        metric_name="Solve Time Per Iteration (s)",
-        filename_suffix="avg_iteration_time",
     ),
     CostFieldSpec(
         field_name="total_cost_per_iteration_seconds",
         extractor=lambda r: r.total_cost_per_iteration_seconds,
-        metric_name="Total Cost Per Iteration [Gen+Setup+Solve] (s)",
-        filename_suffix="total_cost_per_iteration",
     ),
     CostFieldSpec(
         field_name="peak_memory_bytes",
         extractor=lambda r: r.peak_memory_bytes,
-        metric_name="Peak Memory (bytes)",
-        filename_suffix="peak_memory",
     ),
 )
 """Every scalar cost reported per preconditioner per comparison run.
@@ -354,6 +350,12 @@ class ProjectedComparisonResult:
             solving is never a one-time cost.
         total_iterations: Sum of `iterations` across all `n_systems`
             measured results.
+        solve_time_std_seconds: Sample standard deviation (ddof=1) of the
+            per-system solve time — the spread behind `avg_solve_time_per_system_seconds`,
+            as the learned-preconditioner literature reports (mean ± std over
+            the test set). `None` for a single system.
+        iterations_std: Sample standard deviation of the per-system iteration
+            count, or `None` for a single system.
     """
 
     preconditioner_name: str
@@ -363,6 +365,8 @@ class ProjectedComparisonResult:
     generation_cost_total_seconds: float | None
     total_solve_time_seconds: float
     total_iterations: int
+    solve_time_std_seconds: float | None = None
+    iterations_std: float | None = None
 
     @property
     def avg_setup_cost_seconds(self) -> float:
@@ -439,13 +443,19 @@ class GroupAggregated:
         n_aggregated: Members actually contributing a result this run.
         n_in_group: Total members in the group; `n_aggregated < n_in_group`
             means the rest were cache hits (reused from an earlier run,
-            carrying no result to aggregate this time).
+            carrying no result to aggregate this time) or failed.
+        time_to_solution_by_system: For each preconditioner name, each
+            contributing system's time-to-solution in seconds, keyed by
+            comparison id in config order — the individual points behind the
+            projection's means. A system whose time is incomparable (an
+            unavailable cost) is omitted for that preconditioner.
     """
 
-    group_id: str
+    group_id: GroupId
     projected: Mapping[str, ProjectedComparisonResult]
     n_aggregated: int
     n_in_group: int
+    time_to_solution_by_system: Mapping[str, Mapping[str, float]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -456,17 +466,35 @@ class GroupSkippedAllCacheHit:
     cost, just nothing measured this run.
     """
 
-    group_id: str
+    group_id: GroupId
     n_in_group: int
 
 
-type ComparisonGroupOutcome = GroupAggregated | GroupSkippedAllCacheHit
+@dataclass(frozen=True, slots=True)
+class GroupBelowMinimumSize:
+    """Too few systems contributed a result for a projection (and its std) to mean anything.
+
+    Attributes:
+        group_id: The `ComparisonGroup` that was too small.
+        n_aggregated: Members that produced a result this run.
+        n_in_group: Total members in the group.
+        min_size: The minimum `n_aggregated` a projection requires.
+    """
+
+    group_id: GroupId
+    n_aggregated: int
+    n_in_group: int
+    min_size: int
+
+
+type ComparisonGroupOutcome = GroupAggregated | GroupSkippedAllCacheHit | GroupBelowMinimumSize
 """The outcome of attempting to aggregate one comparison group's results.
 
-Two variants because there are exactly two cases that call for different
-handling: there is a projection to act on, or there is none. Whether every
+Three variants because there are exactly three cases that call for different
+handling: there is a projection to act on, there is nothing measured this run,
+or something was measured but too little to project from. Whether every
 member contributed (`n_aggregated == n_in_group`) or only some did is a
-fact carried as data on `GroupAggregated`, not a third variant — both
+fact carried as data on `GroupAggregated`, not another variant — both
 cases are plotted/logged/uploaded identically, differing only in whether a
 warning fires.
 """
@@ -578,6 +606,9 @@ class RankedRecommendation:
         residual: Final relative residual.
         residual_abs: Final absolute residual.
         breakdown: Whether breakdown occurred.
+        total_time_seconds: Time-to-solution (generation + setup + solve), the
+            ranking key; `None` when it cannot be compared fairly (an
+            unavailable-provenance cost), which ranks after every timed entry.
     """
 
     label: str
@@ -585,6 +616,7 @@ class RankedRecommendation:
     residual: float
     residual_abs: float
     breakdown: bool
+    total_time_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -592,7 +624,7 @@ class ComparisonRecommendations:
     """Ranked recommendations from a comparison run.
 
     Args:
-        ranked: All converged entries sorted by residual (best first).
+        ranked: All converged entries sorted by time-to-solution (best first).
         overall_best: The single best entry, or None if none converged.
     """
 

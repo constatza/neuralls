@@ -13,7 +13,10 @@ onto every ``CGComparisonResult``.
 
 from __future__ import annotations
 
+import math
+
 from neuralls.domain.solver.models.result import CGComparisonResult
+from neuralls.shared.constants import TOLERANCE_LADDER_DECADE_STEP, TOLERANCE_LADDER_START_DECADE
 
 
 def iterations_per_second(result: CGComparisonResult) -> float | None:
@@ -127,3 +130,50 @@ def peak_memory_per_dof(result: CGComparisonResult, *, system_size: int) -> floa
     if result.peak_memory_bytes is None:
         return None
     return result.peak_memory_bytes / system_size
+
+
+def tolerance_ladder(rtol: float) -> tuple[float, ...]:
+    """Tolerances to report iterations at: every few decades from 1e-3 down to `rtol`.
+
+    Never goes below `rtol` (the solve stops there, so deeper rungs would be
+    unreachable), and `rtol` itself is always the last rung. A loose `rtol`
+    (>= 1e-3) gives just `(rtol,)`.
+
+    Examples:
+        ``rtol=1e-9`` -> (1e-3, 1e-6, 1e-9); ``rtol=1e-8`` -> (1e-3, 1e-6, 1e-8).
+
+    Raises:
+        ValueError: If `rtol` is not positive — rungs shrink toward zero, so a
+            non-positive bound would never be reached.
+    """
+    if rtol <= 0:
+        raise ValueError(f"rtol must be positive, got {rtol}.")
+    rungs: list[float] = []
+    decade = TOLERANCE_LADDER_START_DECADE
+    while (rung := float(f"1e-{decade}")) > rtol and not math.isclose(rung, rtol):
+        rungs.append(rung)
+        decade += TOLERANCE_LADDER_DECADE_STEP
+    return (*rungs, rtol)
+
+
+def iterations_to_tolerances(result: CGComparisonResult, rtol: float) -> dict[float, int | None]:
+    """Iterations needed to first reach each rung of `tolerance_ladder(rtol)`.
+
+    Read off the stored relative-residual history (entry ``k`` is the residual
+    after ``k`` iterations, entry 0 the initial one), so no extra solve is
+    needed. A rung the run never reached maps to ``None`` rather than a
+    sentinel count.
+
+    Args:
+        result: Comparison result carrying ``residual_history_rel``.
+        rtol: The solve's relative tolerance, which caps the ladder.
+
+    Returns:
+        Tolerance -> first iteration index at which the relative residual was
+        at or below it, or ``None``.
+    """
+    history = result.residual_history_rel
+    return {
+        tolerance: next((k for k, value in enumerate(history) if value <= tolerance), None)
+        for tolerance in tolerance_ladder(rtol)
+    }

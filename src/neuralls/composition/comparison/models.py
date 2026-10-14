@@ -14,7 +14,7 @@ from neuralls.domain.solver.models.result import CGComparisonResult, ComparisonR
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.storage.manifest import DatasetNormalization
-from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, MatrixId, RowKind
+from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, GroupId, MatrixId, RowKind
 
 __all__ = [
     "ComparisonGroup",
@@ -24,6 +24,7 @@ __all__ = [
     "ComparisonPaths",
     "ComparisonResult",
     "ComparisonSpec",
+    "GroupKey",
     "GroupMatrixIdentity",
     "LinearSystem",
     "MultiMatrixDataset",
@@ -205,40 +206,81 @@ the same matrix — a derived fact, not a third variant.
 
 
 @dataclass(frozen=True, slots=True)
+class GroupKey:
+    """Structured partition key of a comparison group.
+
+    `rhs_kind is None` is the coarse key (matrix dataset alone): the scope a
+    preconditioner's setup can be shared across, since `setup()` never sees the
+    RHS. A set `rhs_kind` is the finer reporting key — a matrix family with one
+    RHS distribution, the analogue of a "dataset" in the learned-preconditioner
+    literature, which never pools different RHS distributions into one number.
+    """
+
+    dataset_id: DatasetId
+    rhs_kind: ComparisonRhsSourceKind | None
+
+    def render(self) -> GroupId:
+        """The one string form, used as a filename stem and MLflow key segment."""
+        if self.rhs_kind is None:
+            return GroupId(self.dataset_id)
+        return GroupId(f"{self.dataset_id}::{self.rhs_kind}")
+
+    def coarse(self) -> GroupKey:
+        """The key whose group owns the setup cache covering this key's group."""
+        return GroupKey(dataset_id=self.dataset_id, rhs_kind=None)
+
+
+@dataclass(frozen=True, slots=True)
 class ComparisonGroup:
     """Every resolved comparison entry sharing one partition key.
 
     Hand-written `[[comparisons]]` entries and `comparison_sweeps`-expanded
     entries land in the same group whenever their data says they belong
-    together under whichever key partitioned them — group membership is a
-    property of what an entry tests, never of which TOML array declared
-    it. See `ComparisonGroupings` for the two partition keys this codebase
-    actually uses.
+    together — group membership is a property of what an entry tests, never
+    of which TOML array declared it. See `ComparisonGroupings`.
+
+    `entry_ids` is in declared config order so that anything derived from
+    "the first member" or from summation order is reproducible across runs.
+    `rhs_kind_counts` records the RHS composition so a pooled group can be
+    labelled with exactly what it mixes.
     """
 
-    group_id: str
+    key: GroupKey
     matrix_identity: GroupMatrixIdentity
-    entry_ids: frozenset[str]
+    entry_ids: tuple[str, ...]
+    rhs_kind_counts: tuple[tuple[ComparisonRhsSourceKind, int], ...]
+
+    @property
+    def group_id(self) -> GroupId:
+        """Rendered identity of this group."""
+        return self.key.render()
 
 
 @dataclass(frozen=True, slots=True)
 class ComparisonGroupings:
     """Every comparison group discovered for one batch, under both granularities.
 
-    `by_matrix` partitions purely by `matrix_dataset` — this is the
-    execution-time grouping `SweepPreconditionerCache` scopes
-    setup-sharing to, since `rhs_source.kind` has no bearing on whether a
-    preconditioner's `setup()` can be reused (`setup()` never sees the RHS
-    at all). `by_matrix_and_rhs_kind` additionally partitions by
-    `rhs_source.kind` — a reporting-only view that keeps same-matrix,
-    different-RHS-kind systems apart, so a preconditioner's behavior under
-    one forcing structure doesn't get blended into another's average. Both
-    are reported (see `comparison_batch.py::_log_group_aggregation`), but
-    only `by_matrix` ever backs a `SweepPreconditionerCache`.
+    `by_matrix` partitions purely by `matrix_dataset` — the execution-time
+    grouping `GroupPreconditionerCache` scopes setup-sharing to, and a pooled
+    "mixture" view. `by_matrix_and_rhs_kind` additionally partitions by
+    `rhs_source.kind` and is the headline reporting view: it keeps
+    same-matrix, different-RHS-kind systems apart so one forcing structure's
+    behavior is not blended into another's average. Only `by_matrix` ever
+    backs a cache.
     """
 
-    by_matrix: Mapping[str, ComparisonGroup]
-    by_matrix_and_rhs_kind: Mapping[str, ComparisonGroup]
+    by_matrix: Mapping[GroupId, ComparisonGroup]
+    by_matrix_and_rhs_kind: Mapping[GroupId, ComparisonGroup]
+
+    def group_for_entry(self, entry_id: str) -> ComparisonGroup | None:
+        """The coarse group `entry_id` belongs to, or `None` if it belongs to none."""
+        return next(
+            (group for group in self.by_matrix.values() if entry_id in group.entry_ids), None
+        )
+
+    def cache_scope(self, group: ComparisonGroup) -> ComparisonGroup | None:
+        """The coarse group whose cache covers `group`'s members."""
+        return self.by_matrix.get(group.key.coarse().render())
 
 
 @dataclass(frozen=True)

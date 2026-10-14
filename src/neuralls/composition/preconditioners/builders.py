@@ -23,7 +23,6 @@ from torchalg.preconditioners.implementations import (
     Identity,
     ILUPreconditioner,
     JacobiPreconditioner,
-    NeuralPreconditioner,
 )
 from torchalg.preconditioners.implementations.amg import (
     AdaptiveSAPreconditioner,
@@ -58,7 +57,7 @@ from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     PreconditionerType,
 )
-from neuralls.platform.dlkit.predictor_adapter import DLKitAdapter
+from neuralls.platform.dlkit.predictor_adapter import DLKitAdapter, DLKitNeuralPreconditioner
 from neuralls.shared.types import MatrixFormat
 
 from .coarsening import PredictorFactory, _build_amg_coarsening
@@ -385,7 +384,7 @@ def _build_neural(
         )
     del matrix  # NeuralPreconditioner.setup() takes no matrix; it only loads the checkpoint.
     return (
-        NeuralPreconditioner(
+        DLKitNeuralPreconditioner(
             checkpoint_path=ckpt,
             config_path=config.config_path,
             data_config_path=config.data_config_path,

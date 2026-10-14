@@ -1,5 +1,6 @@
-"""Tests for data-driven comparison grouping: `_discover_comparison_groups`
-and `_validate_one_matrix_shape_per_case` in `comparison_batch.py`.
+"""Tests for data-driven comparison grouping: `discover_comparison_groupings`,
+`validate_one_matrix_shape_per_case` and `validate_group_specs_consistent`
+in `composition/comparison/groups.py`.
 
 Builds real npy-backed dataset directories (one single-matrix, one
 multi-matrix) and hand-written `ComparisonRegistryEntry` objects — no TOML
@@ -9,25 +10,39 @@ case file needed, since these two functions only need a `CaseConfig` with a
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from neuralls.composition.assignments.comparison_batch import (
-    _discover_comparison_groups,
-    _group_key_by_matrix,
-    _group_key_by_matrix_and_rhs_kind,
-    _validate_one_matrix_shape_per_case,
+from neuralls.composition.comparison.groups import (
+    discover_comparison_groupings,
+    validate_group_specs_consistent,
+    validate_one_matrix_shape_per_case,
 )
-from neuralls.composition.comparison.models import MultiMatrixDataset, SingleMatrixDataset
+from neuralls.composition.comparison.models import (
+    ComparisonGroup,
+    GroupKey,
+    MultiMatrixDataset,
+    SingleMatrixDataset,
+)
+from neuralls.composition.identity.comparison import preconditioner_identities
 from neuralls.platform.config.models.experiments import (
     CaseConfig,
     ComparisonRegistryEntry,
 )
+from neuralls.platform.config.models.preconditioner import (
+    NeuralPreconditionerConfig,
+    PreconditionerConfig,
+    PreconditionerType,
+    StandardPreconditionerConfig,
+)
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
+from neuralls.shared.digest import Digest
+from neuralls.shared.types import GroupId
 
 
 def _write_dataset_dir(dataset_dir: Path, *, n_matrix_samples: int) -> None:
@@ -121,14 +136,14 @@ def test_single_matrix_dataset_resolves_to_single_matrix_identity(
     master_cfg, config_dir, settings = case_setup
     entries = [_entry("a", matrix_dataset="single"), _entry("b", matrix_dataset="single")]
 
-    groups = _discover_comparison_groups(
-        entries, master_cfg, config_dir, settings, key_fn=_group_key_by_matrix_and_rhs_kind
-    )
+    groups = discover_comparison_groupings(
+        entries, master_cfg, config_dir, settings
+    ).by_matrix_and_rhs_kind
 
     assert len(groups) == 1
     (group,) = groups.values()
     assert isinstance(group.matrix_identity, SingleMatrixDataset)
-    assert group.entry_ids == frozenset({"a", "b"})
+    assert group.entry_ids == ("a", "b")
 
 
 def test_hand_written_entries_sharing_dataset_and_kind_group_together(
@@ -141,13 +156,13 @@ def test_hand_written_entries_sharing_dataset_and_kind_group_together(
         _entry("eval-1", matrix_dataset="multi", matrix_index=1),
     ]
 
-    groups = _discover_comparison_groups(
-        entries, master_cfg, config_dir, settings, key_fn=_group_key_by_matrix_and_rhs_kind
-    )
+    groups = discover_comparison_groupings(
+        entries, master_cfg, config_dir, settings
+    ).by_matrix_and_rhs_kind
 
     assert len(groups) == 1
     (group,) = groups.values()
-    assert group.entry_ids == frozenset({"eval-0", "eval-1"})
+    assert group.entry_ids == ("eval-0", "eval-1")
 
 
 def test_different_matrix_indices_resolve_to_multi_matrix_with_both_ids(
@@ -159,9 +174,9 @@ def test_different_matrix_indices_resolve_to_multi_matrix_with_both_ids(
         _entry("eval-1", matrix_dataset="multi", matrix_index=1),
     ]
 
-    groups = _discover_comparison_groups(
-        entries, master_cfg, config_dir, settings, key_fn=_group_key_by_matrix_and_rhs_kind
-    )
+    groups = discover_comparison_groupings(
+        entries, master_cfg, config_dir, settings
+    ).by_matrix_and_rhs_kind
 
     (group,) = groups.values()
     assert isinstance(group.matrix_identity, MultiMatrixDataset)
@@ -179,9 +194,9 @@ def test_same_matrix_index_within_multi_matrix_dataset_still_resolves_multi(
         _entry("eval-0b", matrix_dataset="multi", matrix_index=0),
     ]
 
-    groups = _discover_comparison_groups(
-        entries, master_cfg, config_dir, settings, key_fn=_group_key_by_matrix_and_rhs_kind
-    )
+    groups = discover_comparison_groupings(
+        entries, master_cfg, config_dir, settings
+    ).by_matrix_and_rhs_kind
 
     (group,) = groups.values()
     assert isinstance(group.matrix_identity, MultiMatrixDataset)
@@ -198,14 +213,14 @@ def test_different_rhs_kinds_split_apart_under_fine_grouping(
         _entry("sinusoidal-run", matrix_dataset="single", rhs_kind="sinusoidal"),
     ]
 
-    groups = _discover_comparison_groups(
-        entries, master_cfg, config_dir, settings, key_fn=_group_key_by_matrix_and_rhs_kind
-    )
+    groups = discover_comparison_groupings(
+        entries, master_cfg, config_dir, settings
+    ).by_matrix_and_rhs_kind
 
     assert len(groups) == 2
     assert {group.entry_ids for group in groups.values()} == {
-        frozenset({"gaussian-run"}),
-        frozenset({"sinusoidal-run"}),
+        ("gaussian-run",),
+        ("sinusoidal-run",),
     }
 
 
@@ -220,13 +235,11 @@ def test_different_rhs_kinds_pool_together_under_coarse_grouping(
         _entry("sinusoidal-run", matrix_dataset="single", rhs_kind="sinusoidal"),
     ]
 
-    groups = _discover_comparison_groups(
-        entries, master_cfg, config_dir, settings, key_fn=_group_key_by_matrix
-    )
+    groups = discover_comparison_groupings(entries, master_cfg, config_dir, settings).by_matrix
 
     assert len(groups) == 1
     (group,) = groups.values()
-    assert group.entry_ids == frozenset({"gaussian-run", "sinusoidal-run"})
+    assert group.entry_ids == ("gaussian-run", "sinusoidal-run")
 
 
 def test_case_mixing_single_and_multi_matrix_datasets_is_rejected(
@@ -239,7 +252,7 @@ def test_case_mixing_single_and_multi_matrix_datasets_is_rejected(
     ]
 
     with pytest.raises(ValueError, match="mixes single-matrix and multi-matrix"):
-        _validate_one_matrix_shape_per_case(entries, master_cfg, config_dir, settings)
+        validate_one_matrix_shape_per_case(entries, master_cfg, config_dir, settings)
 
 
 def test_case_with_one_matrix_shape_passes_validation(
@@ -251,4 +264,113 @@ def test_case_with_one_matrix_shape_passes_validation(
         _entry("eval-1", matrix_dataset="multi", matrix_index=1),
     ]
 
-    _validate_one_matrix_shape_per_case(entries, master_cfg, config_dir, settings)  # no raise
+    validate_one_matrix_shape_per_case(entries, master_cfg, config_dir, settings)  # no raise
+
+
+def _jacobi(**overrides: int) -> StandardPreconditionerConfig:
+    """Jacobi's derived name ignores schedule fields, so `start_iter` yields a same-name conflict."""
+    return StandardPreconditionerConfig(type=PreconditionerType.JACOBI, **overrides)
+
+
+def test_group_members_keep_declared_config_order(
+    case_setup: tuple[CaseConfig, Path, NeurallsSettings],
+) -> None:
+    """Order is config order, never hash order, so "first member" is reproducible."""
+    master_cfg, config_dir, settings = case_setup
+    ids = ["z-last-alphabetically-first", "m", "a-first-alphabetically-last"]
+    entries = [
+        _entry(entry_id, matrix_dataset="multi", matrix_index=i) for i, entry_id in enumerate(ids)
+    ]
+
+    (group,) = discover_comparison_groupings(
+        entries, master_cfg, config_dir, settings
+    ).by_matrix.values()
+
+    assert group.entry_ids == tuple(ids)
+
+
+def test_group_key_renders_once_and_coarse_key_owns_the_cache(
+    case_setup: tuple[CaseConfig, Path, NeurallsSettings],
+) -> None:
+    master_cfg, config_dir, settings = case_setup
+    entries = [
+        _entry("g", matrix_dataset="single", rhs_kind="gaussian"),
+        _entry("s", matrix_dataset="single", rhs_kind="sinusoidal"),
+    ]
+
+    groupings = discover_comparison_groupings(entries, master_cfg, config_dir, settings)
+
+    fine = groupings.by_matrix_and_rhs_kind["single::gaussian"]
+    assert fine.key == GroupKey(dataset_id="single", rhs_kind="gaussian")
+    coarse = groupings.cache_scope(fine)
+    assert coarse is groupings.by_matrix["single"]
+    assert groupings.group_for_entry("s") is coarse
+    assert dict(coarse.rhs_kind_counts) == {"gaussian": 1, "sinusoidal": 1}
+
+
+def _identities(spec: PreconditionerConfig, *digests: str) -> dict[str, Digest]:
+    """Identity of one spec whose checkpoint (if any) has the given content digests."""
+    return preconditioner_identities([spec], {f"0:ckpt{i}": d for i, d in enumerate(digests)})
+
+
+def _two_entry_groups(
+    case_setup: tuple[CaseConfig, Path, NeurallsSettings],
+) -> Mapping[GroupId, ComparisonGroup]:
+    master_cfg, config_dir, settings = case_setup
+    entries = [_entry("a", matrix_dataset="single"), _entry("b", matrix_dataset="single")]
+    return discover_comparison_groupings(entries, master_cfg, config_dir, settings).by_matrix
+
+
+def test_group_whose_members_define_one_name_differently_is_rejected(
+    case_setup: tuple[CaseConfig, Path, NeurallsSettings],
+) -> None:
+    groups = _two_entry_groups(case_setup)
+
+    with pytest.raises(ValueError, match="configured differently in entries 'a' and 'b'"):
+        validate_group_specs_consistent(
+            groups, {"a": _identities(_jacobi()), "b": _identities(_jacobi(start_iter=5))}
+        )
+
+
+def test_same_neural_name_with_different_checkpoint_content_is_rejected(
+    case_setup: tuple[CaseConfig, Path, NeurallsSettings],
+) -> None:
+    """Both are `neural_assignment_pod_run`; only the checkpoint bytes differ."""
+    groups = _two_entry_groups(case_setup)
+    first = NeuralPreconditionerConfig(assignment="pod-run")
+    second = NeuralPreconditionerConfig(assignment="pod-run")
+    assert first.name == second.name
+
+    with pytest.raises(ValueError, match="different checkpoint"):
+        validate_group_specs_consistent(
+            groups,
+            {"a": _identities(first, "sha256:aaa"), "b": _identities(second, "sha256:bbb")},
+        )
+
+
+def test_same_neural_model_resolved_to_different_local_paths_is_accepted(
+    case_setup: tuple[CaseConfig, Path, NeurallsSettings],
+) -> None:
+    """Same bytes at two temp paths is one preconditioner — no false conflict."""
+    groups = _two_entry_groups(case_setup)
+    at_a = NeuralPreconditionerConfig(
+        assignment="pod-run", resolved_checkpoint_path=Path("/tmp/a/model.ckpt")
+    )
+    at_b = NeuralPreconditionerConfig(
+        assignment="pod-run", resolved_checkpoint_path=Path("/tmp/b/model.ckpt")
+    )
+    assert at_a != at_b  # why `==` was the wrong comparison
+
+    validate_group_specs_consistent(
+        groups, {"a": _identities(at_a, "sha256:same"), "b": _identities(at_b, "sha256:same")}
+    )
+
+
+def test_group_with_identical_specs_or_cache_hit_members_passes(
+    case_setup: tuple[CaseConfig, Path, NeurallsSettings],
+) -> None:
+    master_cfg, config_dir, settings = case_setup
+    entries = [_entry("a", matrix_dataset="single"), _entry("b", matrix_dataset="single")]
+    groups = discover_comparison_groupings(entries, master_cfg, config_dir, settings).by_matrix
+
+    validate_group_specs_consistent(groups, {"a": _identities(_jacobi())})

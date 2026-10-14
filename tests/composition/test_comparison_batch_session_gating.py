@@ -57,7 +57,7 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
             return_value=_mock_cfg(),
         ),
         patch(
-            "neuralls.composition.assignments.comparison_batch.list_available_matrix_indices",
+            "neuralls.composition.comparison.groups.list_available_matrix_indices",
             return_value=(0,),
         ),
         patch(_MLFLOW_MODULE) as mock_mlflow,
@@ -107,7 +107,7 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
             return_value=_mock_cfg(),
         ),
         patch(
-            "neuralls.composition.assignments.comparison_batch.list_available_matrix_indices",
+            "neuralls.composition.comparison.groups.list_available_matrix_indices",
             return_value=(0,),
         ),
         patch(

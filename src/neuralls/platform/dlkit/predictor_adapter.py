@@ -20,12 +20,16 @@ from dlkit import load_model
 from dlkit.common.errors import DLKitError
 from dlkit.infrastructure.precision.strategy import PrecisionStrategy
 from loguru import logger
+from torchalg.preconditioners.implementations import NeuralPreconditioner
 from torchalg.preconditioners.ports import (
     ExtraInputPredictorPort,
     PredictorAdapter,
 )
 
 from ._prediction_outputs import extract_prediction_tensor
+
+UNKNOWN_MODEL_CLASS_NAME = "unknown"
+"""Placeholder when a predictor is built without a model to name (never from `DLKitAdapter`)."""
 
 if TYPE_CHECKING:
     from dlkit.interfaces.inference import CheckpointPredictor as DLKitCheckpointPredictor
@@ -113,6 +117,7 @@ class DLKitPredictor(ExtraInputPredictorPort):
         predictor: DLKitCheckpointPredictor,
         device: str,
         required_inputs: tuple[str, ...] = (),
+        model_class_name: str = UNKNOWN_MODEL_CLASS_NAME,
     ) -> None:
         """Initialize predictor with loaded CheckpointPredictor.
 
@@ -121,11 +126,22 @@ class DLKitPredictor(ExtraInputPredictorPort):
             device: Device string ("cpu", "cuda", "mps")
             required_inputs: Names of extra arrays the model expects beyond the residual.
                 Derived from the model config by the adapter; eliminates TOML duplication.
+            model_class_name: Architecture class name of the loaded model, recorded by the
+                adapter that loaded it (which holds the model) for display labels.
         """
         self._predictor: DLKitCheckpointPredictor = predictor
+        self._model_class_name: str = model_class_name
         self._device: str = device
         self._required_inputs: tuple[str, ...] = required_inputs
         self._closed = False
+
+    @property
+    def model_class_name(self) -> str:
+        """Class name of the loaded torch model (its architecture), e.g. ``"GraphNet"``.
+
+        Captured at load time so it stays available after ``cleanup()`` unloads the model.
+        """
+        return self._model_class_name
 
     @property
     def required_inputs(self) -> tuple[str, ...]:
@@ -203,6 +219,24 @@ class DLKitPredictor(ExtraInputPredictorPort):
         self.cleanup()
 
 
+class DLKitNeuralPreconditioner(NeuralPreconditioner):
+    """`NeuralPreconditioner` that can name the architecture it loaded, for display labels.
+
+    torchalg keeps the loaded predictor private, so a label has no public way to
+    ask which model is behind a neural preconditioner. This subclass is the
+    sanctioned extension seam: it reads the (protected) predictor once, after
+    ``setup()`` has loaded it, and exposes only the class name.
+    """
+
+    @property
+    def model_class_name(self) -> str:
+        """Architecture class name; valid once ``setup()`` has loaded the predictor."""
+        predictor = self._predictor
+        if isinstance(predictor, DLKitPredictor):
+            return predictor.model_class_name
+        return type(predictor).__name__
+
+
 class DLKitAdapter(PredictorAdapter):
     """Adapter for DLKit framework.
 
@@ -268,7 +302,12 @@ class DLKitAdapter(PredictorAdapter):
 
             logger.info(f"Loaded model from {checkpoint_path} on device {device}")
             # ponytail: parse required_inputs from config_path TOML when DLKit config schema known
-            return DLKitPredictor(dlkit_predictor, device, required_inputs=())
+            return DLKitPredictor(
+                dlkit_predictor,
+                device,
+                required_inputs=(),
+                model_class_name=type(model).__name__,
+            )
 
         except (FileNotFoundError, OSError, ValueError, RuntimeError) as e:
             raise RuntimeError(

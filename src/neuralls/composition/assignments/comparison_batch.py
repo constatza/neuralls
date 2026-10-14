@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import contextlib
 import tempfile
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import mlflow
-import tomli_w
 from dlkit.infrastructure.config.job_config import FitJobConfig
 from loguru import logger
 from mlflow.tracking import MlflowClient
@@ -23,25 +22,26 @@ from neuralls.composition.assignments.model_resolution import (
     TrainingLookup,
     resolve_preconditioner_models_with_warnings,
 )
-from neuralls.composition.comparison._generation_cost import resolve_generation_repeatability
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
-from neuralls.composition.comparison._preconditioner_setup import SweepPreconditionerCache
+from neuralls.composition.comparison._preconditioner_setup import GroupPreconditionerCache
 from neuralls.composition.comparison.comparison_run import compare_preconditioners
 from neuralls.composition.comparison.config_assembler import (
     resolve_comparison_config,
     resolve_dataset_dir,
 )
+from neuralls.composition.comparison.group_reporting import report_all_groupings
+from neuralls.composition.comparison.groups import (
+    discover_comparison_groupings,
+    validate_group_specs_consistent,
+    validate_one_matrix_shape_per_case,
+)
 from neuralls.composition.comparison.models import (
-    ComparisonGroup,
     ComparisonGroupings,
     ComparisonOutcome,
     ComparisonParams,
-    GroupMatrixIdentity,
-    MultiMatrixDataset,
-    SingleMatrixDataset,
 )
 from neuralls.composition.comparison.pinned_split import (
-    resolve_test_matrix_indices,
+    resolve_matrix_index,
     resolve_test_row_indices,
 )
 from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
@@ -50,7 +50,10 @@ from neuralls.composition.comparison.source_handlers import (
     validate_comparison_source,
 )
 from neuralls.composition.comparison.test_set_sweep import expand_test_set_sweep
-from neuralls.composition.identity.comparison import comparison_identity
+from neuralls.composition.identity.comparison import (
+    comparison_identity,
+    preconditioner_identities,
+)
 from neuralls.composition.identity.gate import gate_reuse
 from neuralls.composition.identity.training import training_identity
 from neuralls.composition.tracking.run_specs import (
@@ -60,15 +63,9 @@ from neuralls.composition.tracking.run_specs import (
     build_session_run_spec,
 )
 from neuralls.domain.identity import StageIdentity
-from neuralls.domain.solver.comparison import classify_group_aggregation
 from neuralls.domain.solver.models.provenance import PinnedSplitMatrix, UnverifiedMatrix
 from neuralls.domain.solver.models.result import (
-    CGComparisonResult,
     ComparisonResult,
-    GroupAggregated,
-    GroupSkippedAllCacheHit,
-    ProjectedComparisonResult,
-    SetupSharingPolicy,
 )
 from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.loaders import load_data_config
@@ -96,19 +93,17 @@ from neuralls.platform.reporting.comparison_inputs import (
     ComparisonInputArtifacts,
     stage_comparison_inputs,
 )
-from neuralls.platform.reporting.plots import plot_projected_scaling_law
-from neuralls.platform.storage.dataset_readers import list_available_matrix_indices
 from neuralls.platform.tracking.artifact_access import (
     ArtifactLeaseManager,
     MlflowArtifactLeaseManager,
 )
 from neuralls.platform.tracking.comparison_tracking import (
+    MLflowGroupReportSink,
     create_cost_recorder,
     log_comparison_artifact_uri,
     log_comparison_input_artifacts,
     log_comparison_run_params,
     log_linear_system_params,
-    log_projected_metrics,
     log_skipped_preconditioners,
     setup_comparison_tracking,
 )
@@ -120,8 +115,7 @@ from neuralls.platform.tracking.model_registry import build_registered_model_nam
 from neuralls.shared.digest import Digest, content_digest
 from neuralls.shared.types import (
     ComparisonRhsSourceKind,
-    DatasetId,
-    GenerationRepeatability,
+    GroupId,
     MatrixId,
     TestPosition,
 )
@@ -624,13 +618,13 @@ def _run_comparison_with_resolved_specs(
     work_root: Path,
     resolved_specs: list[PreconditionerConfig],
     settings: NeurallsSettings,
-    cache: SweepPreconditionerCache | None = None,
+    cache: GroupPreconditionerCache | None = None,
 ) -> ComparisonResult:
     """Run comparison with already-resolved preconditioner checkpoint paths.
 
     `cache`, when given, lets a preconditioner built for an earlier sibling
     system in the same `comparison_sweeps` group be reused here instead of
-    rebuilt — see `SweepPreconditionerCache`. `None` (the default) means
+    rebuilt — see `GroupPreconditionerCache`. `None` (the default) means
     this call builds every preconditioner fresh, unchanged from before this
     parameter existed.
     """
@@ -639,24 +633,20 @@ def _run_comparison_with_resolved_specs(
     test_position = cfg.general.data.test_position
     matrix_index = cfg.general.data.matrix_index
     rhs_source_params = cfg.general.data.rhs_source_params
-    if test_position is not None:
-        if rhs_source_kind is ComparisonRhsSourceKind.DATASET:
-            test_rows = resolve_test_row_indices(matrix_path)
-            if test_position >= len(test_rows):
-                raise IndexError(
-                    f"test_position={test_position} is out of range for dataset "
-                    f"'{matrix_path}', which has {len(test_rows)} test-fold rows."
-                )
-            resolved_row = test_rows[test_position]
-            rhs_source_params = {**(rhs_source_params or {}), "sample_index": resolved_row}
-        else:
-            test_matrix_indices = resolve_test_matrix_indices(matrix_path)
-            if test_position >= len(test_matrix_indices):
-                raise IndexError(
-                    f"test_position={test_position} is out of range for dataset "
-                    f"'{matrix_path}', which has {len(test_matrix_indices)} test-fold matrices."
-                )
-            matrix_index = test_matrix_indices[test_position]
+    if test_position is not None and rhs_source_kind is ComparisonRhsSourceKind.DATASET:
+        test_rows = resolve_test_row_indices(matrix_path)
+        if test_position >= len(test_rows):
+            raise IndexError(
+                f"test_position={test_position} is out of range for dataset "
+                f"'{matrix_path}', which has {len(test_rows)} test-fold rows."
+            )
+        rhs_source_params = {**(rhs_source_params or {}), "sample_index": test_rows[test_position]}
+    matrix_index = resolve_matrix_index(
+        matrix_path,
+        matrix_index=matrix_index,
+        test_position=test_position,
+        rhs_source_kind=rhs_source_kind,
+    )
 
     resolved_input = resolve_comparison_input(
         matrix_path=matrix_path,
@@ -706,6 +696,7 @@ def _run_comparison_with_resolved_specs(
         resolved_input=resolved_input,
         settings=settings,
         cache=cache,
+        notation_policy=cfg.notation_policy,
     )
     write_comparison_artifacts(
         result=raw_result,
@@ -743,7 +734,7 @@ def _run_and_log_comparison(
     run_name: str,
     comp_run_id: str,
     cost_recorder: CostRecorder | None = None,
-    cache: SweepPreconditionerCache | None = None,
+    cache: GroupPreconditionerCache | None = None,
 ) -> ComparisonResult:
     """Run one comparison in a scratch directory, logging into the open MLflow run.
 
@@ -754,7 +745,7 @@ def _run_and_log_comparison(
         cost_recorder: Where to record the comparison's cost/outcome metrics
             (DI for testing); defaults to MLflow, logging into the open run.
         cache: Optional per-sweep-group preconditioner cache (see
-            `SweepPreconditionerCache`); `None` for a non-sweep entry.
+            `GroupPreconditionerCache`); `None` for a non-sweep entry.
 
     Returns:
         The comparison result, after its artifacts and metrics have been logged.
@@ -791,7 +782,7 @@ def _execute_comparison_in_run(
     *,
     run_name: str,
     comp_tags: ComparisonRunTags,
-    cache: SweepPreconditionerCache | None = None,
+    cache: GroupPreconditionerCache | None = None,
 ) -> ComparisonOutcome:
     """Open an MLflow run, execute the comparison, upload artifacts, and report the outcome.
 
@@ -801,7 +792,7 @@ def _execute_comparison_in_run(
         run_name: Display name for the MLflow run.
         comp_tags: Structured tags applied to the MLflow run.
         cache: Optional per-sweep-group preconditioner cache (see
-            `SweepPreconditionerCache`); `None` for a non-sweep entry.
+            `GroupPreconditionerCache`); `None` for a non-sweep entry.
 
     Returns:
         The successful ComparisonOutcome for this entry.
@@ -987,14 +978,14 @@ def _prepare_comparison_entry(
 def _execute_prepared_comparison(
     prepared: _PreparedComparisonExecution,
     *,
-    cache: SweepPreconditionerCache | None = None,
+    cache: GroupPreconditionerCache | None = None,
 ) -> ComparisonOutcome:
     """Build the run spec/tags and execute inside an already-active nested MLflow run.
 
     Args:
         prepared: Everything resolved ahead of execution.
         cache: Optional per-sweep-group preconditioner cache (see
-            `SweepPreconditionerCache`); `None` for a non-sweep entry.
+            `GroupPreconditionerCache`); `None` for a non-sweep entry.
     """
     try:
         run_name, comp_tags = build_comparison_run_spec(
@@ -1085,188 +1076,6 @@ def _expand_comparison_sweeps(
     return expanded
 
 
-def _group_key_by_matrix(entry: ComparisonRegistryEntry) -> str:
-    """Partition key for execution-time setup-sharing and the coarse report.
-
-    `rhs_source.kind` plays no part: a preconditioner's `setup()` never
-    sees the RHS, so whether its build can be reused across entries is a
-    question about `matrix_dataset` alone.
-    """
-    return entry.matrix_dataset
-
-
-def _group_key_by_matrix_and_rhs_kind(entry: ComparisonRegistryEntry) -> str:
-    """Partition key for the finer, reporting-only aggregation.
-
-    Keeps same-matrix entries apart when they differ in `rhs_source.kind`,
-    so a preconditioner's cost/iteration behavior under one forcing
-    structure (gaussian, sparse, sinusoidal, ...) isn't blended into
-    another's average.
-    """
-    return f"{entry.matrix_dataset}::{entry.rhs_source.kind}"
-
-
-def _resolve_entry_matrix_id(entry: ComparisonRegistryEntry, dataset_dir: Path) -> MatrixId:
-    """Resolve which matrix one entry addresses, without executing it.
-
-    Mirrors `_run_comparison_with_resolved_specs`'s own resolution (needed
-    there for RHS/LHS loading too) — this only needs the matrix identity,
-    run cheaply and early for group discovery, since both paths are pure
-    reads of the dataset's pinned split / matrix-sample-index metadata.
-    """
-    if entry.test_position is None:
-        return MatrixId(entry.matrix_index)
-    if entry.rhs_source.kind == ComparisonRhsSourceKind.DATASET:
-        # `test_position` here only selects which RHS row to use; the
-        # dataset is single-matrix by this kind's own precondition, so
-        # `matrix_index` (unchanged, default 0) is already correct.
-        return MatrixId(entry.matrix_index)
-    test_matrix_indices = resolve_test_matrix_indices(dataset_dir)
-    if entry.test_position >= len(test_matrix_indices):
-        raise IndexError(
-            f"test_position={entry.test_position} is out of range for dataset "
-            f"'{dataset_dir}', which has {len(test_matrix_indices)} test-fold matrices."
-        )
-    return MatrixId(test_matrix_indices[entry.test_position])
-
-
-def _discover_comparison_groups(
-    all_entries: Sequence[ComparisonRegistryEntry],
-    master_cfg: CaseConfig,
-    config_dir: Path,
-    settings: NeurallsSettings,
-    *,
-    key_fn: Callable[[ComparisonRegistryEntry], str],
-) -> Mapping[str, ComparisonGroup]:
-    """Group every resolved entry by `key_fn`, from data.
-
-    One algorithm, pluggable partition key (`_group_key_by_matrix` or
-    `_group_key_by_matrix_and_rhs_kind` — see `_discover_comparison_groupings`,
-    which calls this once per key to build both views of one batch).
-    Hand-written `[[comparisons]]` entries and `comparison_sweeps`-expanded
-    entries are grouped identically regardless of which key is used — group
-    membership is a property of what an entry tests, never of which TOML
-    array declared it. A group's `GroupMatrixIdentity` is resolved from the
-    dataset and each member's actual matrix index, never inferred from
-    `rhs_source.kind`.
-    """
-    members_by_key: dict[str, list[ComparisonRegistryEntry]] = {}
-    for entry in all_entries:
-        members_by_key.setdefault(key_fn(entry), []).append(entry)
-
-    groups: dict[str, ComparisonGroup] = {}
-    for key, members in members_by_key.items():
-        dataset_dir = resolve_dataset_dir(
-            master_cfg, config_dir, members[0].matrix_dataset, settings
-        )
-        dataset_id = DatasetId(members[0].matrix_dataset)
-        identity: GroupMatrixIdentity
-        if len(list_available_matrix_indices(dataset_dir)) <= 1:
-            identity = SingleMatrixDataset(dataset_id=dataset_id)
-        else:
-            identity = MultiMatrixDataset(
-                dataset_id=dataset_id,
-                resolved_indices=frozenset(
-                    _resolve_entry_matrix_id(member, dataset_dir) for member in members
-                ),
-            )
-        groups[key] = ComparisonGroup(
-            group_id=key,
-            matrix_identity=identity,
-            entry_ids=frozenset(member.id for member in members),
-        )
-    return groups
-
-
-def _discover_comparison_groupings(
-    all_entries: Sequence[ComparisonRegistryEntry],
-    master_cfg: CaseConfig,
-    config_dir: Path,
-    settings: NeurallsSettings,
-) -> ComparisonGroupings:
-    """Discover both grouping granularities `run_comparison_batch` needs.
-
-    `by_matrix` backs `SweepPreconditionerCache`; `by_matrix_and_rhs_kind`
-    is reported alongside it, never used for caching — see
-    `ComparisonGroupings`'s own docstring for why the two differ.
-    """
-    return ComparisonGroupings(
-        by_matrix=_discover_comparison_groups(
-            all_entries, master_cfg, config_dir, settings, key_fn=_group_key_by_matrix
-        ),
-        by_matrix_and_rhs_kind=_discover_comparison_groups(
-            all_entries,
-            master_cfg,
-            config_dir,
-            settings,
-            key_fn=_group_key_by_matrix_and_rhs_kind,
-        ),
-    )
-
-
-def _group_for_entry(
-    groups: Mapping[str, ComparisonGroup], entry_id: str
-) -> ComparisonGroup | None:
-    """The one group `entry_id` belongs to, or `None` if it belongs to none."""
-    return next((group for group in groups.values() if entry_id in group.entry_ids), None)
-
-
-def _cache_for_group(
-    group: ComparisonGroup,
-    by_matrix: Mapping[str, ComparisonGroup],
-    group_caches: Mapping[str, SweepPreconditionerCache],
-) -> SweepPreconditionerCache | None:
-    """The execution-time cache covering `group`'s members.
-
-    Always resolved via the coarse (`by_matrix`) grouping, regardless of
-    which grouping `group` itself came from — `SweepPreconditionerCache`
-    is only ever scoped to `by_matrix` groups (§ `ComparisonGroupings`), so
-    a `by_matrix_and_rhs_kind` group (a subset of exactly one `by_matrix`
-    group, since matching both keys implies matching the first) must look
-    its cache up by proxy through any one of its own members.
-    """
-    representative_entry_id = next(iter(group.entry_ids), None)
-    if representative_entry_id is None:
-        return None
-    coarse_group = _group_for_entry(by_matrix, representative_entry_id)
-    if coarse_group is None:
-        return None
-    return group_caches.get(coarse_group.group_id)
-
-
-def _validate_one_matrix_shape_per_case(
-    all_entries: Sequence[ComparisonRegistryEntry],
-    master_cfg: CaseConfig,
-    config_dir: Path,
-    settings: NeurallsSettings,
-) -> None:
-    """Reject a case that mixes single-matrix and multi-matrix dataset references.
-
-    A case is one coherent experimental question — a multi-matrix case and
-    a single-matrix one answer genuinely different questions and produce
-    differently-shaped plot evidence — so mixing the two dataset shapes in
-    one case file is rejected outright rather than left to authoring
-    discipline.
-    """
-    is_multi_by_dataset: dict[str, bool] = {}
-    for entry in all_entries:
-        if entry.matrix_dataset in is_multi_by_dataset:
-            continue
-        dataset_dir = resolve_dataset_dir(master_cfg, config_dir, entry.matrix_dataset, settings)
-        is_multi_by_dataset[entry.matrix_dataset] = (
-            len(list_available_matrix_indices(dataset_dir)) > 1
-        )
-    if len(set(is_multi_by_dataset.values())) <= 1:
-        return
-    single = sorted(name for name, is_multi in is_multi_by_dataset.items() if not is_multi)
-    multi = sorted(name for name, is_multi in is_multi_by_dataset.items() if is_multi)
-    raise ValueError(
-        "Case config mixes single-matrix and multi-matrix dataset references "
-        f"(single-matrix: {single}; multi-matrix: {multi}). A case must be one "
-        "matrix shape — split this into separate case files."
-    )
-
-
 def _prepare_all_comparisons(
     master_cfg: CaseConfig,
     topology: ComparisonTopology,
@@ -1300,8 +1109,8 @@ def _prepare_all_comparisons(
     pending: list[ComparisonOutcome | _PreparedComparisonExecution] = []
     expanded_sweep_entries = _expand_comparison_sweeps(master_cfg, config_dir, settings)
     all_entries = [*master_cfg.comparisons, *expanded_sweep_entries]
-    _validate_one_matrix_shape_per_case(all_entries, master_cfg, config_dir, settings)
-    groupings = _discover_comparison_groupings(all_entries, master_cfg, config_dir, settings)
+    validate_one_matrix_shape_per_case(all_entries, master_cfg, config_dir, settings)
+    groupings = discover_comparison_groupings(all_entries, master_cfg, config_dir, settings)
     for entry in all_entries:
         logger.info(f"Comparison [{entry.id}]: {entry.effective_display_name}")
         assignment_entries: list[AssignmentEntry] = (
@@ -1327,160 +1136,28 @@ def _prepare_all_comparisons(
         if isinstance(prepared, _PreparedComparisonExecution):
             stack.enter_context(prepared.cleanup)
         pending.append(prepared)
+    validate_group_specs_consistent(groupings.by_matrix, _identities_by_entry_id(pending))
     return pending, groupings
 
 
-def _projected_results_toml_payload(
-    projected: Mapping[str, ProjectedComparisonResult],
-) -> dict[str, Any]:
-    """Build one group's scaling-law numbers as a TOML-ready payload.
-
-    Pure scalars per preconditioner — the plotted curve
-    (`plot_projected_scaling_law`) is a deterministic function of exactly
-    these fields, so this is the source of truth the PNG is derived from,
-    not a separate, possibly-drifting summary of it.
-    """
-    payload: dict[str, Any] = {}
-    for name, result in projected.items():
-        entry: dict[str, Any] = {
-            "n_systems": result.n_systems,
-            "setup_cost_total_seconds": result.setup_cost_total_seconds,
-            "total_solve_time_seconds": result.total_solve_time_seconds,
-            "total_iterations": result.total_iterations,
-            "share_setup": result.setup_sharing.share_setup,
-            "share_generation": result.setup_sharing.share_generation,
-        }
-        if result.generation_cost_total_seconds is not None:
-            entry["generation_cost_total_seconds"] = result.generation_cost_total_seconds
-        payload[name] = entry
-    return payload
-
-
-def _log_group_aggregation(
-    outcomes: Sequence[ComparisonOutcome],
+def _identities_by_entry_id(
     pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
-    groups: Mapping[str, ComparisonGroup],
-    by_matrix: Mapping[str, ComparisonGroup],
-    group_caches: Mapping[str, SweepPreconditionerCache],
-) -> None:
-    """Classify and report every discovered group's aggregation outcome.
+) -> dict[str, dict[str, Digest]]:
+    """Identity of every preconditioner of every entry that will execute, by name."""
+    return {
+        p.entry.id: preconditioner_identities(p.resolved.specs, p.resolved.checkpoint_digests)
+        for p in pending
+        if isinstance(p, _PreparedComparisonExecution)
+    }
 
-    Visits every group discovered for this batch — including one where
-    every member was a cache hit — so a fully- or partially-skipped group
-    is logged loudly instead of silently producing nothing. Safe to call
-    with no open MLflow run as long as every group classifies as
-    `GroupSkippedAllCacheHit` (that branch only logs; see
-    `run_comparison_batch`'s all-cache-hit short-circuit, which relies on
-    this).
 
-    Called once per grouping granularity (see
-    `ComparisonGroupings`/`_log_all_groupings`) — `groups` is whichever
-    grouping is being reported this call, while `by_matrix` is always the
-    coarse grouping, since that's the only one a cache was ever built
-    against (`_cache_for_group` resolves through it regardless of `groups`).
-
-    Args:
-        outcomes: Every outcome `run_comparison_batch` is about to return.
-        pending: The same-indexed prepared batch `outcomes` was built from —
-            read for `_PreparedComparisonExecution.resolved.specs`, the
-            resolved preconditioner configs a group's members share.
-        groups: The `ComparisonGroup`s being classified/reported this call.
-        by_matrix: The coarse grouping, for cache resolution only.
-        group_caches: Each `by_matrix` group's preconditioner cache, if one
-            needed constructing (empty for a fully-cache-hit batch).
-    """
-    specs_by_entry_id = {
+def _specs_by_entry_id(
+    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+) -> dict[str, list[PreconditionerConfig]]:
+    """Resolved preconditioner definitions of every entry that will execute."""
+    return {
         p.entry.id: p.resolved.specs for p in pending if isinstance(p, _PreparedComparisonExecution)
     }
-    outcomes_by_id = {outcome.comparison_id: outcome for outcome in outcomes}
-
-    for group in groups.values():
-        results_by_system: dict[str, dict[str, CGComparisonResult]] = {}
-        for entry_id in group.entry_ids:
-            outcome = outcomes_by_id.get(entry_id)
-            if outcome is None or outcome.payload is None:
-                continue
-            results_by_system[entry_id] = outcome.payload.results
-        specs = next(
-            (
-                specs_by_entry_id[entry_id]
-                for entry_id in group.entry_ids
-                if entry_id in specs_by_entry_id
-            ),
-            [],
-        )
-        repeatability_by_name = {
-            spec.name: resolve_generation_repeatability(spec) for spec in specs
-        }
-        cache = _cache_for_group(group, by_matrix, group_caches)
-        shared_names = cache.shared_names() if cache is not None else frozenset[str]()
-        sharing_by_name = {
-            name: SetupSharingPolicy(
-                share_setup=name in shared_names,
-                share_generation=repeatability is GenerationRepeatability.ONE_TIME,
-            )
-            for name, repeatability in repeatability_by_name.items()
-        }
-
-        outcome = classify_group_aggregation(
-            group.group_id, len(group.entry_ids), results_by_system, sharing_by_name
-        )
-        match outcome:
-            case GroupAggregated(
-                group_id=group_id,
-                projected=projected,
-                n_aggregated=n_aggregated,
-                n_in_group=n_in_group,
-            ):
-                if n_aggregated < n_in_group:
-                    logger.warning(
-                        "Group '{}': aggregated {} of {} members — the rest were cache hits.",
-                        group_id,
-                        n_aggregated,
-                        n_in_group,
-                    )
-                log_projected_metrics(group_id, projected)
-                with tempfile.TemporaryDirectory() as tmp:
-                    tmp_dir = Path(tmp)
-                    plot_path = tmp_dir / f"projected_scaling_law_{group_id}.png"
-                    plot_projected_scaling_law(
-                        projected,
-                        save_path=plot_path,
-                        title=f"Projected cost per system vs. N — group '{group_id}'",
-                    )
-                    toml_path = tmp_dir / f"projected_scaling_law_{group_id}.toml"
-                    with toml_path.open("wb") as fh:
-                        tomli_w.dump(_projected_results_toml_payload(projected), fh)
-                    mlflow.log_artifact(str(plot_path), artifact_path="projected_scaling_law")
-                    mlflow.log_artifact(str(toml_path), artifact_path="projected_scaling_law")
-            case GroupSkippedAllCacheHit(group_id=group_id, n_in_group=n_in_group):
-                logger.warning(
-                    "Group '{}': all {} members were cache hits — nothing to aggregate this run.",
-                    group_id,
-                    n_in_group,
-                )
-
-
-def _log_all_groupings(
-    outcomes: Sequence[ComparisonOutcome],
-    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
-    groupings: ComparisonGroupings,
-    group_caches: Mapping[str, SweepPreconditionerCache],
-) -> None:
-    """Report both grouping granularities for one batch.
-
-    Two independent aggregations over the same executed results: by
-    matrix alone (what `SweepPreconditionerCache` actually shares setup
-    across) and by matrix-and-RHS-kind (keeps same-matrix,
-    different-RHS-kind systems apart in the report, without affecting
-    what was cached during execution).
-    """
-    _log_group_aggregation(
-        outcomes, pending, groupings.by_matrix, groupings.by_matrix, group_caches
-    )
-    _log_group_aggregation(
-        outcomes, pending, groupings.by_matrix_and_rhs_kind, groupings.by_matrix, group_caches
-    )
 
 
 def run_comparison_batch(
@@ -1541,23 +1218,29 @@ def run_comparison_batch(
 
         if not any(isinstance(p, _PreparedComparisonExecution) for p in pending):
             outcomes = [p for p in pending if isinstance(p, ComparisonOutcome)]
-            _log_all_groupings(outcomes, pending, groupings, {})
+            report_all_groupings(outcomes, {}, groupings, {}, MLflowGroupReportSink())
             return outcomes
 
         with mlflow.start_run(run_name=session_run_name, tags=session_tags.as_mlflow_tags()):
-            group_caches: dict[str, SweepPreconditionerCache] = {}
+            group_caches: dict[GroupId, GroupPreconditionerCache] = {}
             outcomes: list[ComparisonOutcome] = []
             for p in pending:
                 if isinstance(p, _PreparedComparisonExecution):
-                    group = _group_for_entry(groupings.by_matrix, p.entry.id)
+                    group = groupings.group_for_entry(p.entry.id)
                     cache = None
                     if group is not None:
                         cache = group_caches.setdefault(
                             group.group_id,
-                            SweepPreconditionerCache(matrix_identity=group.matrix_identity),
+                            GroupPreconditionerCache(matrix_identity=group.matrix_identity),
                         )
                     outcomes.append(_execute_prepared_comparison(p, cache=cache))
                 else:
                     outcomes.append(p)
-            _log_all_groupings(outcomes, pending, groupings, group_caches)
+            report_all_groupings(
+                outcomes,
+                _specs_by_entry_id(pending),
+                groupings,
+                group_caches,
+                MLflowGroupReportSink(),
+            )
             return outcomes

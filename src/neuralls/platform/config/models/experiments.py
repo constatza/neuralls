@@ -20,6 +20,7 @@ from neuralls.platform.config.models.id_generation import (
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.models.presentation import ScientificLabelsConfig
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
+from neuralls.shared.timing import TimingRepeatPolicy
 
 
 def resolve_display_name(entity_id: str, display_name: str | None) -> str:
@@ -207,6 +208,10 @@ class ComparisonBaseline(BaseModel):
             Complete defaults, so no case needs a ``[comparison_baseline.presentation]``
             table at all. A per-entry ``method`` file may override it the same
             way it overrides ``preconditioners``/``normalize_system``.
+        timing: How often each preconditioner build and each solve is timed
+            (``repeats``, ``warmup``, ``statistic``). Defaults to one timed run;
+            raise ``repeats`` for steadier estimates when systems are cheap
+            enough to afford it. Capped by ``MAX_TIMING_REPEATS``.
     """
 
     rtol: float = Field(default=DEFAULT_RTOL, gt=0.0)
@@ -217,6 +222,7 @@ class ComparisonBaseline(BaseModel):
     normalize_system: Literal["none", "matrix", "rhs", "both"] = "matrix"
     preconditioners: list[PreconditionerConfig] = Field(default_factory=list)
     presentation: ScientificLabelsConfig = Field(default_factory=ScientificLabelsConfig)
+    timing: TimingRepeatPolicy = Field(default_factory=TimingRepeatPolicy)
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 

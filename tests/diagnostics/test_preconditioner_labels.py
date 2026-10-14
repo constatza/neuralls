@@ -7,6 +7,8 @@ introspection).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import torch
 from torchalg.preconditioners.base import Preconditioner
@@ -26,19 +28,44 @@ from torchalg.preconditioners.implementations.amg import (
 )
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
-from neuralls.platform.config.models.preconditioner import PreconditionerType
+from neuralls.platform.config.models.preconditioner import (
+    AdaptiveSAPreconditionerConfig,
+    AggregationCoarseningConfig,
+    AMGPreconditionerConfig,
+    BootstrapAMGPreconditionerConfig,
+    IC0PreconditionerConfig,
+    NeuralPreconditionerConfig,
+    PODCoarseningConfig,
+    PreconditionerConfig,
+    PreconditionerType,
+    StandardPreconditionerConfig,
+)
+from neuralls.platform.dlkit.predictor_adapter import DLKitNeuralPreconditioner, DLKitPredictor
 from neuralls.platform.reporting.preconditioner_labels import (
-    MAX_LABEL_LENGTH,
-    AggregationCoarseningDetail,
-    PODCoarseningDetail,
-    TargetDimensionCoarseningDetail,
     build_preconditioner_labels,
-    coarsening_detail,
+    coarsening_facts,
+    configured_facts,
     contextualize_preconditioner_label,
     describe_preconditioner,
     preconditioner_label,
 )
+from neuralls.shared.scientific_description import (
+    COARSE_DIMENSION,
+    DAMPING,
+    DROP_TOLERANCE,
+    LEGEND_PROFILE,
+    PRE_SMOOTHING_STEPS,
+    THRESHOLD,
+    DecimalFact,
+    FieldImportance,
+    IntegerFact,
+    NotationPolicy,
+    RenderTarget,
+    TextFact,
+)
 from neuralls.shared.types import PreconditionerFamily
+
+AGGREGATION = AggregationCoarseningConfig()
 
 # ==============================================================================
 # Fixtures
@@ -148,241 +175,126 @@ def bootstrap_amg_preconditioner(
 
 
 # ==============================================================================
-# coarsening_detail — structured facts, no string parsing required to verify
+# coarsening_facts — realized values, no string parsing required to verify
 # ==============================================================================
 
 
-def test_coarsening_detail_reports_realized_coarse_dimension_for_aggregation(
+def test_coarsening_facts_report_realized_coarse_dimension_for_aggregation(
     aggregation_amg_preconditioner: AMGPreconditioner,
 ) -> None:
     """Aggregation coarsening's realized coarse dimension is read back, not guessed.
 
     ``theta`` is a strength-of-connection threshold, not a chosen dimension —
     the only way to know how many aggregates it produced is to build the
-    transfer operator and check its shape.
-
-    Expected value is 2 (one boundary pair {0,1} + one interior triple
-    {2,3,4}) under torchalg's field-standard three-pass
-    ``standard_aggregation`` (VMB96/PyAMG's ``amg_core::standard_aggregation``),
-    which replaced the single-pass ``greedy_aggregation`` this test
-    previously pinned to 3 aggregates against.
+    transfer operator and check its shape (2 here: one boundary pair plus one
+    interior triple under torchalg's three-pass standard aggregation).
     """
-    detail = coarsening_detail(
+    facts = coarsening_facts(
         aggregation_amg_preconditioner.coarsening, aggregation_amg_preconditioner.matrix
     )
 
-    assert detail == AggregationCoarseningDetail(theta=0.25, omega=0.67, coarse_dimension=2)
+    essential = FieldImportance.ESSENTIAL
+    assert facts == (
+        DecimalFact(THRESHOLD, 0.25, essential),
+        DecimalFact(DAMPING, 0.67, essential),
+        IntegerFact(COARSE_DIMENSION, 2, essential),
+    )
 
 
-def test_coarsening_detail_reports_none_omega_when_left_to_auto_rule(
+def test_coarsening_facts_report_auto_omega_as_text_not_a_guessed_float(
     auto_omega_aggregation_amg_preconditioner: AMGPreconditioner,
 ) -> None:
-    """An unset omega is read back as None, not a guessed or defaulted float.
-
-    torchalg resolves the actual damping per-matrix at solve time via its own
-    spectral-radius rule; the label layer must not fabricate a value it never
-    configured.
-    """
-    detail = coarsening_detail(
+    """An unset omega is "auto" — torchalg resolves it per matrix; the label must not invent a value."""
+    facts = coarsening_facts(
         auto_omega_aggregation_amg_preconditioner.coarsening,
         auto_omega_aggregation_amg_preconditioner.matrix,
     )
 
-    assert isinstance(detail, AggregationCoarseningDetail)
-    assert detail.omega is None
+    assert TextFact(DAMPING, "auto", FieldImportance.ESSENTIAL) in facts
 
 
-def test_coarsening_detail_reports_fitted_rank_for_pod(
+def test_coarsening_facts_report_fitted_rank_for_pod(
     pod_amg_preconditioner: AMGPreconditioner,
 ) -> None:
-    """POD-2G's detail is its actual fitted basis width, not the configured threshold."""
-    detail = coarsening_detail(pod_amg_preconditioner.coarsening, pod_amg_preconditioner.matrix)
+    """POD-2G's fact is its actual fitted basis width (2), not the configured threshold (0.999)."""
+    facts = coarsening_facts(pod_amg_preconditioner.coarsening, pod_amg_preconditioner.matrix)
 
-    assert detail == PODCoarseningDetail(rank=2)
+    assert facts == (IntegerFact(COARSE_DIMENSION, 2, FieldImportance.ESSENTIAL),)
 
 
-def test_coarsening_detail_reports_realized_dimension_for_target_dim(
+def test_coarsening_facts_report_realized_dimension_for_target_dim(
     target_dim_amg_preconditioner: AMGPreconditioner,
 ) -> None:
-    """Target-dimension coarsening's detail carries both the target and what was realized."""
-    detail = coarsening_detail(
-        target_dim_amg_preconditioner.coarsening, target_dim_amg_preconditioner.matrix
-    )
-
     coarsening = target_dim_amg_preconditioner.coarsening
     assert isinstance(coarsening, TargetDimensionCoarsening)
-    assert isinstance(detail, TargetDimensionCoarseningDetail)
-    assert detail.target_coarse_dim == 3
-    assert detail.realized_coarse_dim == coarsening.realized_coarse_dim(
-        target_dim_amg_preconditioner.matrix
-    )
+
+    facts = coarsening_facts(coarsening, target_dim_amg_preconditioner.matrix)
+
+    realized = coarsening.realized_coarse_dim(target_dim_amg_preconditioner.matrix)
+    assert facts == (IntegerFact(COARSE_DIMENSION, realized, FieldImportance.ESSENTIAL),)
 
 
 # ==============================================================================
-# describe_preconditioner — AMG with aggregation coarsening
+# describe_preconditioner — realized facts of the built object
 # ==============================================================================
 
 
-def test_describe_preconditioner_amg_aggregation_coarsening_has_detail(
+def test_describe_amg_aggregation_renders_theta_omega_and_coarse_dimension(
     aggregation_amg_preconditioner: AMGPreconditioner,
 ) -> None:
-    """AMG with smoothed-aggregation coarsening reports non-empty structural detail.
-
-    The actual facts (theta, omega, realized coarse dimension) are verified
-    structurally by ``test_coarsening_detail_reports_realized_coarse_dimension_for_aggregation``.
-    """
-    assert describe_preconditioner(aggregation_amg_preconditioner) != ""
+    assert describe_preconditioner(aggregation_amg_preconditioner) == "θ=0.25, ω=0.67, c=2"
 
 
-def test_describe_preconditioner_amg_aggregation_renders_auto_omega(
+def test_describe_amg_aggregation_renders_auto_omega(
     auto_omega_aggregation_amg_preconditioner: AMGPreconditioner,
 ) -> None:
-    """An unset omega renders as 'auto' in the label instead of crashing on None."""
-    detail = describe_preconditioner(auto_omega_aggregation_amg_preconditioner)
-
-    assert "ω=auto" in detail
+    assert "ω=auto" in describe_preconditioner(auto_omega_aggregation_amg_preconditioner)
 
 
-# ==============================================================================
-# describe_preconditioner — AMG with POD-2G coarsening
-# ==============================================================================
+def test_describe_pod_uses_c_only(pod_amg_preconditioner: AMGPreconditioner) -> None:
+    """POD-2G's coarse dimension is ``c=``; no ``rank=`` word, no level count."""
+    assert describe_preconditioner(pod_amg_preconditioner) == "c=2"
 
 
-def test_describe_preconditioner_amg_pod_coarsening_has_detail(
-    pod_amg_preconditioner: AMGPreconditioner,
-) -> None:
-    """AMG with POD-2G coarsening reports non-empty structural detail.
-
-    That the reported rank is the actual fitted basis width (2) rather than
-    the configured energy threshold (0.999) is verified structurally by
-    ``test_coarsening_detail_reports_fitted_rank_for_pod``.
-    """
-    assert describe_preconditioner(pod_amg_preconditioner) != ""
+def test_describe_target_dim_reports_c(target_dim_amg_preconditioner: AMGPreconditioner) -> None:
+    assert "c=" in describe_preconditioner(target_dim_amg_preconditioner)
 
 
-# ==============================================================================
-# describe_preconditioner — AMG with target-coarse-dimension coarsening
-# ==============================================================================
-
-
-def test_describe_preconditioner_target_dim_coarsening_has_detail(
-    target_dim_amg_preconditioner: AMGPreconditioner,
-) -> None:
-    """AMG with target-dimension coarsening reports non-empty structural detail."""
-    assert describe_preconditioner(target_dim_amg_preconditioner) != ""
-
-
-def test_describe_preconditioner_target_dim_keeps_level_count(
-    target_dim_amg_preconditioner: AMGPreconditioner,
-) -> None:
-    """Unlike POD-2G, target-dimension coarsening keeps L= — n_levels is a real knob for it too."""
-    detail = describe_preconditioner(target_dim_amg_preconditioner)
-
-    assert "L=" in detail
-    assert "c=" in detail
-
-
-# ==============================================================================
-# describe_preconditioner — adaptive SA-AMG (alpha-SA)
-# ==============================================================================
-
-
-def test_describe_preconditioner_adaptive_sa_has_detail(
+def test_describe_adaptive_sa_reports_realized_hierarchy_not_the_placeholder_coarsening(
     adaptive_sa_preconditioner: AdaptiveSAPreconditioner,
 ) -> None:
-    """Adaptive SA-AMG reports non-empty structural detail instead of the prebuilt placeholder.
-
-    ``AdaptiveSAPreconditioner`` stores ``_PrebuiltCoarsening()`` as its
-    ``_coarsening`` (torchalg's placeholder, never a real strategy) — this
-    guards against the generic ``AMGPreconditioner`` branch matching first
-    and rendering that placeholder's class name instead of real detail.
-    """
-    detail = describe_preconditioner(adaptive_sa_preconditioner)
-
-    assert detail != ""
-    assert "_PrebuiltCoarsening" not in detail
-    assert "L=" in detail
-    assert "k=" in detail
-    assert "c=" in detail
-
-
-def test_describe_preconditioner_adaptive_sa_reports_realized_coarse_dimension(
-    adaptive_sa_preconditioner: AdaptiveSAPreconditioner,
-) -> None:
-    """The rendered `c=` matches the hierarchy's actual coarsest-level dimension."""
+    """aSA stores torchalg's prebuilt placeholder as its coarsening; its own registration wins by MRO."""
     detail = describe_preconditioner(adaptive_sa_preconditioner)
 
     realized = adaptive_sa_preconditioner.result.matrices[-1].shape[0]
+    assert "Prebuilt" not in detail
+    assert "L=" in detail
+    assert "k=" in detail
     assert f"c={realized}" in detail
 
 
-# ==============================================================================
-# describe_preconditioner — Bootstrap AMG (BAMG)
-# ==============================================================================
-
-
-def test_describe_preconditioner_bootstrap_amg_has_detail(
+def test_describe_bootstrap_amg_reports_realized_hierarchy_not_the_placeholder_coarsening(
     bootstrap_amg_preconditioner: BootstrapAMGPreconditioner,
 ) -> None:
-    """Bootstrap AMG reports non-empty structural detail instead of the prebuilt placeholder.
-
-    Same most-derived-first reasoning as the alpha-SA case above:
-    ``BootstrapAMGPreconditioner`` also subclasses ``AMGPreconditioner`` and
-    stores a prebuilt placeholder as its ``_coarsening``.
-    """
-    detail = describe_preconditioner(bootstrap_amg_preconditioner)
-
-    assert detail != ""
-    assert "PrebuiltCoarsening" not in detail
-    assert "L=" in detail
-    assert "k_r=" in detail
-    assert "c=" in detail
-
-
-def test_describe_preconditioner_bootstrap_amg_reports_realized_coarse_dimension(
-    bootstrap_amg_preconditioner: BootstrapAMGPreconditioner,
-) -> None:
-    """The rendered `c=` matches the hierarchy's actual coarsest-level dimension."""
     detail = describe_preconditioner(bootstrap_amg_preconditioner)
 
     realized = bootstrap_amg_preconditioner.result.matrices[-1].shape[0]
+    assert "Prebuilt" not in detail
+    assert "L=" in detail
+    assert "k_r=" in detail
     assert f"c={realized}" in detail
 
 
-# ==============================================================================
-# describe_preconditioner — plain preconditioners (no structural variants)
-# ==============================================================================
-
-
-@pytest.mark.parametrize(
-    "precond",
-    [
-        Identity(),
-    ],
-)
-def test_describe_preconditioner_identity_returns_empty_string(precond: Preconditioner) -> None:
-    """Identity has no structural variants, so no detail is fabricated."""
-    assert describe_preconditioner(precond) == ""
-
-
-def test_describe_preconditioner_jacobi_returns_empty_string(
+def test_describe_plain_preconditioners_fabricate_nothing(
     tridiag_spd_matrix: torch.Tensor,
 ) -> None:
-    """JacobiPreconditioner has no structural variants, so no detail is fabricated."""
-    precond = JacobiPreconditioner().setup(tridiag_spd_matrix)
-
-    assert describe_preconditioner(precond) == ""
+    assert describe_preconditioner(Identity()) == ""
+    assert describe_preconditioner(JacobiPreconditioner().setup(tridiag_spd_matrix)) == ""
 
 
-# ==============================================================================
-# describe_preconditioner — ScheduledPreconditioner unwraps to its primary
-# ==============================================================================
-
-
-def test_describe_preconditioner_unwraps_scheduled_preconditioner(
+def test_describe_unwraps_scheduled_preconditioner(
     aggregation_amg_preconditioner: AMGPreconditioner,
 ) -> None:
-    """A scheduled AMG preconditioner still reports the wrapped AMG's structural detail."""
     scheduled = ScheduledPreconditioner(
         primary=aggregation_amg_preconditioner,
         fallback=Identity(),
@@ -396,31 +308,207 @@ def test_describe_preconditioner_unwraps_scheduled_preconditioner(
 
 
 # ==============================================================================
-# preconditioner_label / build_preconditioner_labels
+# configured_facts — config-driven, defaults omitted, seeds never shown
 # ==============================================================================
 
 
-def test_preconditioner_label_includes_amg_detail(
+def test_ic0_default_threshold_shows_nothing() -> None:
+    assert configured_facts(IC0PreconditionerConfig()) == ()
+
+
+def test_ic0_non_default_threshold_shows_tau() -> None:
+    facts = configured_facts(IC0PreconditionerConfig(threshold=1e-4))
+
+    assert facts == (DecimalFact(DROP_TOLERANCE, 1e-4, FieldImportance.ESSENTIAL),)
+
+
+def test_amg_default_shows_only_the_level_count() -> None:
+    facts = configured_facts(AMGPreconditionerConfig(coarsening=AGGREGATION))
+
+    assert [fact.key.value for fact in facts] == ["multigrid_levels"]
+
+
+def test_pod_amg_has_no_level_count() -> None:
+    """POD-2G is single-basis two-grid, so a level count would be constant noise."""
+    cfg = AMGPreconditionerConfig(coarsening=PODCoarseningConfig(dataset_dir=Path("snapshots")))
+
+    assert configured_facts(cfg) == ()
+
+
+def test_amg_smoothing_steps_are_variant_facts_only_when_non_default() -> None:
+    cfg = AMGPreconditionerConfig(coarsening=AGGREGATION, pre_smoothing_steps=3)
+
+    facts = configured_facts(cfg)
+
+    assert IntegerFact(PRE_SMOOTHING_STEPS, 3, FieldImportance.VARIANT) in facts
+    assert all(fact.key.value != "post_smoothing_steps" for fact in facts)
+
+
+@pytest.mark.parametrize(
+    ("default", "tuned"),
+    [
+        (AdaptiveSAPreconditionerConfig(), AdaptiveSAPreconditionerConfig(theta=0.1)),
+        (AdaptiveSAPreconditionerConfig(), AdaptiveSAPreconditionerConfig(candidate_iters=9)),
+        (BootstrapAMGPreconditionerConfig(), BootstrapAMGPreconditionerConfig(eta=8)),
+        (
+            BootstrapAMGPreconditionerConfig(),
+            BootstrapAMGPreconditionerConfig(n_bootstrap_cycles=5),
+        ),
+    ],
+)
+def test_adaptive_and_bootstrap_settings_show_only_when_tuned(
+    default: PreconditionerConfig, tuned: PreconditionerConfig
+) -> None:
+    assert configured_facts(default) == ()  # type: ignore[arg-type]
+    tuned_facts = configured_facts(tuned)  # type: ignore[arg-type]
+    assert len(tuned_facts) == 1
+    assert tuned_facts[0].importance is FieldImportance.VARIANT
+
+
+@pytest.mark.parametrize(
+    "cfg",
+    [AdaptiveSAPreconditionerConfig(seed=7), BootstrapAMGPreconditionerConfig(seed=7)],
+)
+def test_seeds_never_appear(cfg: PreconditionerConfig) -> None:
+    assert all("seed" not in fact.key.value for fact in configured_facts(cfg))  # type: ignore[arg-type]
+
+
+# ==============================================================================
+# preconditioner_label / build_preconditioner_labels
+# ==============================================================================
+
+_AMG_CFG = AMGPreconditionerConfig(coarsening=AGGREGATION)
+
+
+def test_label_combines_family_configured_and_realized_facts(
     aggregation_amg_preconditioner: AMGPreconditioner,
 ) -> None:
-    """A label combines the family abbreviation with whatever describe_preconditioner reports."""
-    detail = describe_preconditioner(aggregation_amg_preconditioner)
+    label = preconditioner_label(PreconditionerFamily.AMG, aggregation_amg_preconditioner, _AMG_CFG)
 
-    assert (
-        preconditioner_label(PreconditionerFamily.AMG, aggregation_amg_preconditioner)
-        == f"AMG ({detail})"
+    assert label == "AMG (L=2, θ=0.25, ω=0.67, c=2)"
+
+
+def test_amg_variants_that_differ_only_in_smoothing_get_distinct_labels(
+    aggregation_amg_preconditioner: AMGPreconditioner,
+) -> None:
+    """They used to collide and fall back to a label with the raw ASCII key appended."""
+    tuned = AMGPreconditionerConfig(coarsening=AGGREGATION, pre_smoothing_steps=3)
+
+    default_label = preconditioner_label(
+        PreconditionerFamily.AMG, aggregation_amg_preconditioner, _AMG_CFG
+    )
+    tuned_label = preconditioner_label(
+        PreconditionerFamily.AMG, aggregation_amg_preconditioner, tuned
     )
 
-
-def test_preconditioner_label_falls_back_to_bare_abbreviation_without_detail() -> None:
-    """Labels fall back to the bare abbreviation when there is no structural detail."""
-    label = preconditioner_label(PreconditionerType.IDENTITY, Identity())
-
-    assert label == "Identity"
+    assert default_label != tuned_label
+    assert tuned_label.endswith("ν1=3)")
 
 
-def test_contextualize_preconditioner_label_appends_fit_dataset() -> None:
-    """POD-2G provenance stays explicit without changing structural label generation."""
+def test_label_with_no_facts_is_the_bare_abbreviation() -> None:
+    cfg = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
+
+    assert preconditioner_label(PreconditionerType.IDENTITY, Identity(), cfg) == "Identity"
+
+
+def test_ic0_label_hides_the_default_threshold_and_shows_a_tuned_one() -> None:
+    from torchalg.preconditioners.implementations import IC0Preconditioner
+
+    default_label = preconditioner_label(
+        PreconditionerType.IC0, IC0Preconditioner(), IC0PreconditionerConfig()
+    )
+    tuned_label = preconditioner_label(
+        PreconditionerType.IC0,
+        IC0Preconditioner(threshold=1e-4),
+        IC0PreconditionerConfig(threshold=1e-4),
+    )
+
+    assert default_label == "IC0"
+    assert tuned_label == "IC0 (τ=0.0001)"
+
+
+def test_label_honours_the_configured_notation_policy(
+    aggregation_amg_preconditioner: AMGPreconditioner,
+) -> None:
+    mathtext = NotationPolicy.default(RenderTarget.MATHTEXT)
+
+    label = preconditioner_label(
+        PreconditionerFamily.AMG, aggregation_amg_preconditioner, _AMG_CFG, policy=mathtext
+    )
+
+    assert "$\\theta=0.25$" in label
+    assert "$\\omega=0.67$" in label
+
+
+def test_label_honours_a_symbol_override(
+    aggregation_amg_preconditioner: AMGPreconditioner,
+) -> None:
+    from neuralls.shared.scientific_description import SymbolSpec
+
+    policy = NotationPolicy.default().with_overrides({THRESHOLD: SymbolSpec(plain="th", math="th")})
+
+    label = preconditioner_label(
+        PreconditionerFamily.AMG, aggregation_amg_preconditioner, _AMG_CFG, policy=policy
+    )
+
+    assert "th=0.25" in label
+
+
+def test_every_label_stays_within_the_shared_legend_budget(
+    aggregation_amg_preconditioner: AMGPreconditioner,
+    pod_amg_preconditioner: AMGPreconditioner,
+    target_dim_amg_preconditioner: AMGPreconditioner,
+) -> None:
+    """Even with every smoothing setting overridden, essential facts survive and the budget holds."""
+    crowded = AMGPreconditionerConfig(
+        coarsening=AGGREGATION, pre_smoothing_steps=7, post_smoothing_steps=9, smoother_omega=0.123
+    )
+    labels = [
+        preconditioner_label(PreconditionerFamily.AMG, aggregation_amg_preconditioner, crowded),
+        preconditioner_label(
+            PreconditionerFamily.POD2G,
+            pod_amg_preconditioner,
+            AMGPreconditionerConfig(
+                coarsening=PODCoarseningConfig(dataset_dir=Path("snapshots")), pre_smoothing_steps=7
+            ),
+        ),
+        preconditioner_label(PreconditionerFamily.AMG, target_dim_amg_preconditioner, crowded),
+    ]
+
+    assert all(len(label) <= (LEGEND_PROFILE.max_length or 0) for label in labels)
+    assert all("c=" in label for label in labels)
+
+
+def test_pod_label_uses_the_pod2g_abbreviation_and_no_level_count(
+    pod_amg_preconditioner: AMGPreconditioner,
+) -> None:
+    cfg = AMGPreconditionerConfig(coarsening=PODCoarseningConfig(dataset_dir=Path("snapshots")))
+
+    label = preconditioner_label(PreconditionerFamily.POD2G, pod_amg_preconditioner, cfg)
+
+    assert label == "POD-2G (c=2)"
+
+
+def test_adaptive_sa_and_bamg_labels_use_their_abbreviations(
+    adaptive_sa_preconditioner: AdaptiveSAPreconditioner,
+    bootstrap_amg_preconditioner: BootstrapAMGPreconditioner,
+) -> None:
+    asa = preconditioner_label(
+        PreconditionerType.ADAPTIVE_SA_AMG,
+        adaptive_sa_preconditioner,
+        AdaptiveSAPreconditionerConfig(),
+    )
+    bamg = preconditioner_label(
+        PreconditionerType.BOOTSTRAP_AMG,
+        bootstrap_amg_preconditioner,
+        BootstrapAMGPreconditionerConfig(),
+    )
+
+    assert asa.startswith("aSA (")
+    assert bamg.startswith("BAMG (")
+
+
+def test_contextualize_appends_fit_dataset() -> None:
     label = contextualize_preconditioner_label(
         "POD-2G (c=10)", "smoother-filtered-probes-spheres-1000x"
     )
@@ -428,133 +516,100 @@ def test_contextualize_preconditioner_label_appends_fit_dataset() -> None:
     assert label == "POD-2G (c=10) | smoother-filtered-probes-spheres-1000x"
 
 
-def test_contextualize_preconditioner_label_preserves_unqualified_label() -> None:
-    """Preconditioners without dataset provenance keep their base label."""
+def test_contextualize_preserves_unqualified_label() -> None:
     assert contextualize_preconditioner_label("Jacobi", None) == "Jacobi"
 
 
-@pytest.mark.parametrize(
-    "family",
-    [PreconditionerFamily.AMG],
-)
-def test_preconditioner_label_stays_within_length_budget_for_amg(
-    family: PreconditionerFamily, aggregation_amg_preconditioner: AMGPreconditioner
-) -> None:
-    """AMG legend entries stay short even with multiple theta variants compared side by side.
-
-    Long per-entry legend text is what actually motivated dropping grid
-    levels/cycle/smoother detail from ``describe_preconditioner`` — this is
-    the regression check for that: a length property, not a wording check.
-    """
-    label = preconditioner_label(family, aggregation_amg_preconditioner)
-
-    assert len(label) <= MAX_LABEL_LENGTH
+# ==============================================================================
+# Neural preconditioners — architecture class name
+# ==============================================================================
 
 
-def test_preconditioner_label_stays_within_length_budget_for_pod(
-    pod_amg_preconditioner: AMGPreconditioner,
-) -> None:
-    """POD-2G legend entries stay within the same length budget as AMG's."""
-    label = preconditioner_label(PreconditionerFamily.POD2G, pod_amg_preconditioner)
-
-    assert len(label) <= MAX_LABEL_LENGTH
+class _GraphNet(torch.nn.Module):
+    """Stand-in model whose class name is the architecture shown in the label."""
 
 
-def test_preconditioner_label_uses_pod2g_abbreviation(
-    pod_amg_preconditioner: AMGPreconditioner,
-) -> None:
-    """POD-2G always renders as the fixed abbreviation "POD-2G", from the family alone.
-
-    Unlike the previous config-name-based approach, the base name no longer
-    depends on any string a caller happened to put in ``cfg.name`` (e.g. an
-    assignment display name carrying the fitted dataset's id) — the dataset
-    is already conveyed by the legend's color/marker key, and the rank by
-    the ``c=`` detail this label is combined with.
-    """
-    label = preconditioner_label(PreconditionerFamily.POD2G, pod_amg_preconditioner)
-
-    assert label.startswith("POD-2G ")
+class _OtherNet(torch.nn.Module):
+    """A second architecture, to prove two neural variants no longer collide."""
 
 
-def test_preconditioner_label_stays_within_length_budget_for_target_dim(
-    target_dim_amg_preconditioner: AMGPreconditioner,
-) -> None:
-    """Target-dimension-coarsening legend entries stay within the same length budget."""
-    label = preconditioner_label(PreconditionerFamily.AMG, target_dim_amg_preconditioner)
+class _FakeCheckpointPredictor:
+    def __init__(self, model: torch.nn.Module) -> None:
+        self.model = model
 
-    assert len(label) <= MAX_LABEL_LENGTH
-
-
-def test_preconditioner_label_for_adaptive_sa_uses_asa_abbreviation(
-    adaptive_sa_preconditioner: AdaptiveSAPreconditioner,
-) -> None:
-    """Adaptive SA-AMG renders with the "aSA" abbreviation from its type."""
-    label = preconditioner_label(PreconditionerType.ADAPTIVE_SA_AMG, adaptive_sa_preconditioner)
-
-    assert label.startswith("aSA ")
+    def unload(self) -> None:
+        """Nothing to release; present so `DLKitPredictor.cleanup()` runs quietly."""
 
 
-def test_preconditioner_label_for_bootstrap_amg_uses_bamg_abbreviation(
-    bootstrap_amg_preconditioner: BootstrapAMGPreconditioner,
-) -> None:
-    """Bootstrap AMG renders with the "BAMG" abbreviation from its type."""
-    label = preconditioner_label(PreconditionerType.BOOTSTRAP_AMG, bootstrap_amg_preconditioner)
+class _FakeAdapter:
+    """Hands out a DLKitPredictor wrapping a given model, with no checkpoint or DLKit involved."""
 
-    assert label.startswith("BAMG ")
+    def __init__(self, model: torch.nn.Module) -> None:
+        self._model = model
+
+    def create_predictor(self, checkpoint_path, config_path=None, data_config_path=None):
+        return DLKitPredictor(
+            _FakeCheckpointPredictor(self._model),  # type: ignore[arg-type]
+            "cpu",
+            model_class_name=type(self._model).__name__,
+        )
+
+
+def _neural(model: torch.nn.Module) -> DLKitNeuralPreconditioner:
+    return DLKitNeuralPreconditioner(
+        checkpoint_path=Path("unused.ckpt"),
+        adapter=_FakeAdapter(model),  # type: ignore[arg-type]
+    ).setup()
+
+
+def test_neural_label_names_the_model_architecture() -> None:
+    cfg = NeuralPreconditionerConfig(assignment="pod-run")
+
+    label = preconditioner_label(PreconditionerFamily.NEURAL, _neural(_GraphNet()), cfg)
+
+    assert label == "Neural (arch=_GraphNet)"
+
+
+def test_two_neural_variants_with_different_architectures_get_distinct_labels() -> None:
+    cfg = NeuralPreconditionerConfig(assignment="pod-run")
+
+    first = preconditioner_label(PreconditionerFamily.NEURAL, _neural(_GraphNet()), cfg)
+    second = preconditioner_label(PreconditionerFamily.NEURAL, _neural(_OtherNet()), cfg)
+
+    assert first != second
+
+
+def test_neural_architecture_with_an_underscore_survives_mathtext() -> None:
+    """An underscore would be a subscript in mathtext and break the fragment."""
+    mathtext = NotationPolicy.default(RenderTarget.MATHTEXT)
+    cfg = NeuralPreconditionerConfig(assignment="pod-run")
+
+    label = preconditioner_label(
+        PreconditionerFamily.NEURAL, _neural(_GraphNet()), cfg, policy=mathtext
+    )
+
+    assert "\\_GraphNet" in label
+
+
+# ==============================================================================
+# Exhaustiveness and mapping
+# ==============================================================================
 
 
 @pytest.mark.parametrize("member", list(PreconditionerFamily))
 def test_preconditioner_family_abbreviation_is_exhaustive(member: PreconditionerFamily) -> None:
-    """Every `PreconditionerFamily` member has a non-empty abbreviation.
-
-    A future member without a matching `abbreviation()` arm fails loudly here
-    (and via `ty`'s exhaustiveness check on the `match`) rather than raising
-    at label-rendering time.
-    """
+    """A future member without an `abbreviation()` arm fails loudly here, not at render time."""
     assert member.abbreviation()
 
 
 @pytest.mark.parametrize("member", list(PreconditionerType))
 def test_preconditioner_type_abbreviation_is_exhaustive(member: PreconditionerType) -> None:
-    """Every `PreconditionerType` member has a non-empty abbreviation.
-
-    Same exhaustiveness guarantee as
-    ``test_preconditioner_family_abbreviation_is_exhaustive``, for the finer
-    ``PreconditionerType`` enum.
-    """
     assert member.abbreviation()
-
-
-def test_describe_preconditioner_pod_uses_c_not_rank_or_level_count(
-    pod_amg_preconditioner: AMGPreconditioner,
-) -> None:
-    """POD-2G's coarse dimension is rendered as ``c=``, matching AMG's terminology.
-
-    ``L=`` is also omitted: ``PODCoarseningStrategy`` is architecturally a
-    single-basis two-grid method, so a constant level count would be noise,
-    not signal, in a legend comparing POD-2G variants against each other or
-    against AMG.
-    """
-    detail = describe_preconditioner(pod_amg_preconditioner)
-
-    assert "c=" in detail
-    assert "rank=" not in detail
-    assert "L=" not in detail
-
-
-def test_describe_preconditioner_amg_aggregation_still_shows_level_count(
-    aggregation_amg_preconditioner: AMGPreconditioner,
-) -> None:
-    """AMG-aggregation keeps ``L=`` — it's a real, independently-tunable knob there."""
-    detail = describe_preconditioner(aggregation_amg_preconditioner)
-
-    assert "L=" in detail
 
 
 def test_build_preconditioner_labels_maps_each_name(
     aggregation_amg_preconditioner: AMGPreconditioner,
 ) -> None:
-    """Each entry in the mapping equals what preconditioner_label returns for it."""
     preconditioners: dict[str, Preconditioner] = {
         "amg": aggregation_amg_preconditioner,
         "identity": Identity(),
@@ -563,10 +618,14 @@ def test_build_preconditioner_labels_maps_each_name(
         "amg": PreconditionerFamily.AMG,
         "identity": PreconditionerType.IDENTITY,
     }
+    configs: dict[str, PreconditionerConfig] = {
+        "amg": _AMG_CFG,
+        "identity": StandardPreconditionerConfig(type=PreconditionerType.IDENTITY),
+    }
 
-    labels = build_preconditioner_labels(preconditioners, families)
+    labels = build_preconditioner_labels(preconditioners, families, configs)
 
     assert labels == {
-        name: preconditioner_label(families[name], precond)
+        name: preconditioner_label(families[name], precond, configs[name])
         for name, precond in preconditioners.items()
     }

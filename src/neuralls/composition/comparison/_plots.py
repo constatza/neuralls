@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Hashable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
@@ -31,6 +32,29 @@ def _unique_display_labels(
     return {
         key: label if counts[label] == 1 else f"{label} [{key}]" for key, label in resolved.items()
     }
+
+
+@dataclass(frozen=True, slots=True)
+class CostPlotStyle:
+    """Axis label and filename stem of one cost bar chart."""
+
+    metric_name: str
+    filename_suffix: str
+
+
+COST_PLOT_STYLE: Mapping[str, CostPlotStyle] = {
+    "generation_time_seconds": CostPlotStyle("Generation Time (s)", "generation_time"),
+    "setup_time_seconds": CostPlotStyle("Setup Time (s)", "setup_time"),
+    "solve_time_seconds": CostPlotStyle("Solve Time (s)", "solve_time"),
+    "avg_iteration_time_seconds": CostPlotStyle(
+        "Solve Time Per Iteration (s)", "avg_iteration_time"
+    ),
+    "total_cost_per_iteration_seconds": CostPlotStyle(
+        "Total Cost Per Iteration [Gen+Setup+Solve] (s)", "total_cost_per_iteration"
+    ),
+    "peak_memory_bytes": CostPlotStyle("Peak Memory (bytes)", "peak_memory"),
+}
+"""Presentation of each `COST_FIELD_REGISTRY` entry, keyed by its `field_name`."""
 
 
 def _generate_comparison_plots(
@@ -119,12 +143,13 @@ def _generate_comparison_plots(
     )
 
     cost_plot_paths: dict[str, Path | None] = {
-        spec.filename_suffix: _plot_cost_barplot(
+        spec.field_name: _plot_cost_barplot(
             results,
             labels,
-            paths.figures / f"preconditioner_{spec.filename_suffix}_{suffix}.png",
+            paths.figures
+            / f"preconditioner_{COST_PLOT_STYLE[spec.field_name].filename_suffix}_{suffix}.png",
             extract=spec.extractor,
-            metric_name=spec.metric_name,
+            metric_name=COST_PLOT_STYLE[spec.field_name].metric_name,
             title=title,
         )
         for spec in COST_FIELD_REGISTRY
@@ -170,12 +195,12 @@ def _generate_comparison_plots(
         convergence=convergence_path,
         iterations_barplot=iter_path,
         error_convergence=error_path,
-        generation_time_barplot=cost_plot_paths["generation_time"],
-        setup_time_barplot=cost_plot_paths["setup_time"],
-        solve_time_barplot=cost_plot_paths["solve_time"],
-        avg_iteration_time_barplot=cost_plot_paths["avg_iteration_time"],
-        total_cost_per_iteration_barplot=cost_plot_paths["total_cost_per_iteration"],
-        peak_memory_barplot=cost_plot_paths["peak_memory"],
+        generation_time_barplot=cost_plot_paths["generation_time_seconds"],
+        setup_time_barplot=cost_plot_paths["setup_time_seconds"],
+        solve_time_barplot=cost_plot_paths["solve_time_seconds"],
+        avg_iteration_time_barplot=cost_plot_paths["avg_iteration_time_seconds"],
+        total_cost_per_iteration_barplot=cost_plot_paths["total_cost_per_iteration_seconds"],
+        peak_memory_barplot=cost_plot_paths["peak_memory_bytes"],
         time_breakdown_barplot=time_breakdown_path,
         work_precision=work_precision_path,
         residual_vs_time=residual_vs_time_path,

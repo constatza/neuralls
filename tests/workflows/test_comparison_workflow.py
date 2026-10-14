@@ -1492,7 +1492,7 @@ def test_run_comparison_batch_preserves_declared_order(tmp_path: Path) -> None:
             return_value=_mock_cfg(),
         ),
         patch(
-            "neuralls.composition.assignments.comparison_batch.list_available_matrix_indices",
+            "neuralls.composition.comparison.groups.list_available_matrix_indices",
             return_value=(0,),
         ),
         patch(_MLFLOW_MODULE) as mock_mlflow,

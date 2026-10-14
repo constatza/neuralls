@@ -105,7 +105,7 @@ def resolve_comparison_config(
         if "normalize_system" in override.general.data.model_fields_set:
             normalize_system = override.general.data.normalize_system
         if override.general.params is not None:
-            params_override = override.general.params.model_dump()
+            params_override = dict(override.general.params)
         if override.presentation is not None:
             presentation = override.presentation
 
@@ -116,6 +116,7 @@ def resolve_comparison_config(
         "max_iterations": baseline.max_iterations,
         "stopping_criterion": baseline.stopping_criterion,
         "m_max": baseline.m_max,
+        "timing": baseline.timing,
     }
     if params_override:
         base_params.update(params_override)

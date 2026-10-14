@@ -1,47 +1,45 @@
-"""Descriptive labels for constructed preconditioner objects.
+"""Display names for preconditioners: a family abbreviation plus scientific facts.
 
-Builds short, human-readable structural descriptions of live ``torchalg``
-preconditioner instances (grid levels; coarsening strategy: threshold +
-prolongation-smoothing damping + realized coarse dimension, or fitted POD
-rank as that same coarse dimension) for use in comparison plot legends and
-axis labels. Cycle type is deliberately excluded — see
-:func:`_describe_coarsening` — and Greek/math symbols (``L``, ``θ``, ``ω``,
-``c``) are used throughout rather than spelled-out words, matching the
-notation the study's own plots put on their axes. Every coarsening strategy
-renders its coarse dimension as ``c=`` — POD-2G's fitted rank and
-target-dimension coarsening's realized dimension are each that same
-coarse dimension — so all methods read consistently side by side; grid
-level count (``L=``) is shown for every strategy except POD-2G, which is
-architecturally single-basis two-grid (a level count there would be
-constant noise, not signal).
+A label is ``render(ScientificDescription(base, facts), LEGEND_PROFILE, policy)``
+— the same vocabulary, notation policy (plain / mathtext / latex, symbol
+overrides) and length budget the rest of the study's descriptions use. Facts
+come from two places, kept apart on purpose:
 
-Detail is read from the constructed object's own public properties, never
-from the TOML config that produced it: the object is the ground truth for
-what was actually built (e.g. the POD basis's real fitted rank, which may
-differ from a configured energy-threshold ``rank``).
+* **Realized facts** are read from the *constructed* object, because it is the
+  ground truth for what was actually built (the POD basis's real fitted rank,
+  the coarse dimension an aggregation threshold actually produced, an
+  adaptive hierarchy's realized level count, the neural model's architecture).
+  They are ``ESSENTIAL``: never dropped to fit the budget. Dispatch is
+  ``functools.singledispatch`` on the object's class, so the most-derived
+  registration wins by MRO and a new preconditioner registers its own describer.
+* **Configured facts** come from the config (``configured_facts``): the grid
+  level count, the IC0 drop tolerance, smoothing steps, and the aSA/BAMG
+  settings. torchalg keeps cycles and smoothers private, so the config is the
+  only reliable source, and it covers CSR (sparse) preconditioners too. Anything
+  equal to its config default is omitted, so a default configuration keeps a
+  short legend; the settings that merely distinguish variants are ``VARIANT``
+  and are the first facts dropped when the legend budget is exceeded. Seeds are
+  never shown.
 
-The base display name (e.g. ``"POD-2G"``, ``"aSA"``, ``"BAMG"``) comes from
-the preconditioner's ``PreconditionerFamilyKey``
-(``platform.config.models.preconditioner_family.preconditioner_family``),
-not from the config's ``name`` field. ``name`` is a derived, never-user-set
-ASCII identity slug (``preconditioner.py::preconditioner_slug``) used as the
-dict/cache key and MLflow run-name/metric-key segment throughout the
-comparison pipeline — it must stay ASCII and run-stable (no Greek symbols,
-no realized-fact values that could differ between otherwise-identical
-re-runs), which this module's Greek/math human-readable render is free to
-ignore entirely. Workflow provenance remains a separate input: callers can
-append an already-resolved context such as a POD-2G fit-dataset id through
-``contextualize_preconditioner_label`` without coupling this module to
-assignment or config parsing.
+The base display name (``"POD-2G"``, ``"aSA"``, ``"BAMG"``) comes from the
+preconditioner's ``PreconditionerFamilyKey``, not from the config's ``name``:
+``name`` is a derived ASCII identity slug used as the dict/cache key and MLflow
+metric-key segment, so it must stay ASCII and run-stable, which this
+human-readable render is free to ignore. Workflow provenance stays a separate
+input appended with ``contextualize_preconditioner_label``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import replace
+from functools import singledispatch
+from typing import assert_never
 
 import torch
+from pydantic import BaseModel
 from torchalg.preconditioners.base import Preconditioner
-from torchalg.preconditioners.implementations import IC0Preconditioner, ScheduledPreconditioner
+from torchalg.preconditioners.implementations import ScheduledPreconditioner
 from torchalg.preconditioners.implementations.amg import (
     AdaptiveSAPreconditioner,
     AggregationCoarsening,
@@ -49,290 +47,309 @@ from torchalg.preconditioners.implementations.amg import (
     BootstrapAMGPreconditioner,
     TargetDimensionCoarsening,
 )
+from torchalg.preconditioners.implementations.amg.protocols import CoarseningStrategy
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
+from neuralls.platform.config.models.preconditioner import (
+    AdaptiveSAPreconditionerConfig,
+    AMGPreconditionerConfig,
+    BootstrapAMGPreconditionerConfig,
+    ConcretePreconditionerConfig,
+    IC0PreconditionerConfig,
+    NeuralAMGPreconditionerConfig,
+    NeuralPODCoarseningConfig,
+    NeuralPreconditionerConfig,
+    PODCoarseningConfig,
+    PreconditionerConfig,
+    StandardPreconditionerConfig,
+)
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
+from neuralls.platform.dlkit.predictor_adapter import DLKitNeuralPreconditioner
 from neuralls.shared.scientific_description import (
+    ALGEBRAIC_DISTANCE_THRESHOLD,
+    BOOTSTRAP_CYCLES,
+    CANDIDATE_COUNT,
+    CANDIDATE_ITERATIONS,
+    COARSE_DIMENSION,
+    COARSENING_STRATEGY,
+    DAMPING,
+    DROP_TOLERANCE,
+    LEGEND_PROFILE,
+    MODEL_ARCHITECTURE,
+    MULTIGRID_LEVELS,
+    POST_SMOOTHING_STEPS,
+    PRE_SMOOTHING_STEPS,
+    RELAXATION_SWEEPS,
+    RELAXATION_TEST_VECTORS,
+    SMOOTHER_DAMPING,
+    THRESHOLD,
     DecimalFact,
     FieldImportance,
     FieldKey,
     IntegerFact,
     NotationPolicy,
+    ScientificDescription,
     ScientificFact,
-    SymbolSpec,
     TextFact,
+    render,
     render_facts,
 )
 
-_MULTIGRID_LEVELS = FieldKey("multigrid_levels")
-_THRESHOLD = FieldKey("threshold")
-_DAMPING = FieldKey("damping")
-_COARSE_DIMENSION = FieldKey("coarse_dimension")
-_NUM_CANDIDATES = FieldKey("num_candidates")
-_RELAXATION_TEST_VECTOR_COUNT = FieldKey("relaxation_test_vector_count")
-_IC0_DROP_THRESHOLD = FieldKey("ic0_drop_threshold")
-"""Distinct from `_THRESHOLD` (AMG's strength-of-connection theta): IC0's drop
-tolerance is a different physical quantity that happens to share the English
-word "threshold", so it gets its own symbol override below rather than
-inheriting theta's Greek rendering."""
-
-_LOCAL_SYMBOLS = {
-    _NUM_CANDIDATES: SymbolSpec(plain="k", math="k"),
-    _RELAXATION_TEST_VECTOR_COUNT: SymbolSpec(plain="k_r", math="k_r"),
-    _IC0_DROP_THRESHOLD: SymbolSpec(plain="threshold", math="threshold"),
-}
-"""Symbols for this module's own field keys — never configurable from TOML,
-since `ScientificLabelsConfig` only knows the shared default vocabulary.
-`_MULTIGRID_LEVELS`, `_THRESHOLD`, `_DAMPING`, and `_COARSE_DIMENSION`
-deliberately reuse `shared.scientific_description`'s default L/theta/omega/c
-symbols unchanged (the same quantities, same notation, as generation's
-`descriptions.py`), so a caller-supplied policy's overrides for *those* keys
-still apply."""
-
-
-def _effective_policy(policy: NotationPolicy | None) -> NotationPolicy:
-    """Layer this module's required local symbols onto a caller-supplied policy.
-
-    ``policy`` (e.g. resolved from ``[comparison_baseline.presentation]`` via
-    ``ComparisonConfig.notation_policy``) controls render target and may
-    override shared symbols like theta/omega; it cannot know about this
-    module's own ``k``/``k_r``/``threshold`` keys, so those are always
-    layered on top regardless of what the caller passed.
-    """
-    base = policy if policy is not None else NotationPolicy.default()
-    return base.with_overrides(_LOCAL_SYMBOLS)
-
-
 __all__ = [
-    "MAX_LABEL_LENGTH",
-    "AdaptiveSADetail",
-    "AggregationCoarseningDetail",
-    "BootstrapAMGDetail",
-    "PODCoarseningDetail",
-    "TargetDimensionCoarseningDetail",
     "build_preconditioner_labels",
-    "coarsening_detail",
+    "coarsening_facts",
+    "configured_facts",
     "contextualize_preconditioner_label",
     "describe_preconditioner",
     "preconditioner_label",
+    "realized_facts",
 ]
 
-MAX_LABEL_LENGTH = 45
-"""Legend-text budget per preconditioner, abbreviation included.
+type Facts = tuple[ScientificFact, ...]
 
-Sized to the actual longest current entry (an AMG variant with ``L``, ``θ``,
-``ω``, and ``c`` all shown: ``"AMG (L=2, θ=0.25, ω=0.67, c=15)"`` is 32
-characters) plus generous headroom, not picked arbitrarily.
+_ESSENTIAL = FieldImportance.ESSENTIAL
+_VARIANT = FieldImportance.VARIANT
 
-A comparison run typically legends several variants of the same type side by
-side (e.g. three AMG theta values) — this keeps each entry to roughly one
-line so the legend stays readable rather than pushing plots off-canvas.
-"""
-
-
-@dataclass(frozen=True)
-class AggregationCoarseningDetail:
-    """Structured facts about a built smoothed-aggregation coarsening level.
-
-    Attributes:
-        theta (float): Configured strength-of-connection threshold.
-        omega (float | None): Configured Jacobi-smoothing damping for the
-            prolongation smoother, or ``None`` when left to torchalg's own
-            per-matrix spectral-radius rule (``(4/3) / rho(D^-1 A)``) rather
-            than a fixed value.
-        coarse_dimension (int): Realized coarse dimension, read back by
-            building the transfer operator — ``theta`` is a threshold, not a
-            chosen dimension, so this is the only way to know it.
-    """
-
-    theta: float
-    omega: float | None
-    coarse_dimension: int
-
-
-@dataclass(frozen=True)
-class PODCoarseningDetail:
-    """Structured facts about a fitted POD-2G coarsening basis.
-
-    Attributes:
-        rank (int): Actual fitted basis width (may differ from a configured
-            energy-threshold ``rank``).
-    """
-
-    rank: int
-
-
-@dataclass(frozen=True)
-class TargetDimensionCoarseningDetail:
-    """Structured facts about a coarsening strategy driven by a target dimension.
-
-    Attributes:
-        target_coarse_dim (int): The requested coarse dimension.
-        realized_coarse_dim (int): The actual coarse dimension the closest-
-            matching `theta` produced — may differ slightly from
-            `target_coarse_dim`, since realized dimension vs. `theta` is a
-            step function (see `TargetDimensionCoarsening`'s docstring).
-    """
-
-    target_coarse_dim: int
-    realized_coarse_dim: int
-
-
-@dataclass(frozen=True)
-class AdaptiveSADetail:
-    """Structured facts about a built adaptive smoothed-aggregation (alpha-SA) hierarchy.
-
-    Attributes:
-        n_levels (int): Realized number of grid levels.
-        num_candidates (int): Configured near-null-space candidate count.
-        coarse_dimension (int): Realized coarsest-level dimension. alpha-SA
-            has no direct rank knob (unlike POD-2G) and no ``theta`` left on
-            the built object to report (unlike ``AggregationCoarsening``) —
-            this is the only structural fact torchalg's object exposes.
-    """
-
-    n_levels: int
-    num_candidates: int
-    coarse_dimension: int
-
-
-@dataclass(frozen=True)
-class BootstrapAMGDetail:
-    """Structured facts about a built Bootstrap AMG (BAMG) hierarchy.
-
-    Attributes:
-        n_levels (int): Realized number of grid levels.
-        k_r (int): Configured relaxation-derived test-vector count.
-        coarse_dimension (int): Realized coarsest-level dimension.
-    """
-
-    n_levels: int
-    k_r: int
-    coarse_dimension: int
-
-
-type CoarseningDetail = (
-    AggregationCoarseningDetail | PODCoarseningDetail | TargetDimensionCoarseningDetail | None
+_PRECONDITIONER_LEGEND = replace(
+    LEGEND_PROFILE,
+    precision={
+        THRESHOLD: 2,
+        DAMPING: 2,
+        SMOOTHER_DAMPING: 2,
+        ALGEBRAIC_DISTANCE_THRESHOLD: 2,
+        DROP_TOLERANCE: 1,
+    },
 )
+"""The shared legend profile (55-character budget, VARIANT facts dropped first) with
+the precision the study's plots already use for these quantities."""
 
 
-def coarsening_detail(coarsening: object, matrix: torch.Tensor) -> CoarseningDetail:
-    """Extract structured facts from a coarsening strategy.
+def _default_policy(policy: NotationPolicy | None) -> NotationPolicy:
+    return policy if policy is not None else NotationPolicy.default()
 
-    Kept separate from string formatting so callers (tests included) can
-    assert on the real values (a float, an int) instead of parsing them back
-    out of rendered text.
+
+# ==============================================================================
+# Realized facts — read from the constructed object
+# ==============================================================================
+
+
+@singledispatch
+def coarsening_facts(coarsening: CoarseningStrategy, matrix: torch.Tensor) -> Facts:
+    """Realized facts of a coarsening strategy; an unknown strategy names its class.
+
+    The set of torchalg strategies is open, so an unrecognized one is shown
+    explicitly as ``coarsening=<ClassName>`` rather than silently dropped.
 
     Args:
-        coarsening (object): The AMG preconditioner's coarsening strategy
-            object.
-        matrix (torch.Tensor): The finest-level system matrix, used to read
-            back the realized coarse dimension for aggregation coarsening.
-
-    Returns:
-        CoarseningDetail: The matching detail dataclass, or ``None`` for
-            unrecognized strategies.
+        coarsening (CoarseningStrategy): The AMG preconditioner's strategy.
+        matrix (torch.Tensor): Finest-level matrix, used to read back realized
+            dimensions that a threshold only implies.
     """
-    if isinstance(coarsening, PODCoarseningStrategy):
-        return PODCoarseningDetail(rank=coarsening.rank)
-    if isinstance(coarsening, AggregationCoarsening):
-        coarse_matrix, _ = coarsening.build_transfer(matrix)
-        omega = coarsening.omega
-        return AggregationCoarseningDetail(
-            theta=coarsening.theta,
-            omega=omega.item() if isinstance(omega, torch.Tensor) else omega,
-            coarse_dimension=coarse_matrix.shape[0],
-        )
-    if isinstance(coarsening, TargetDimensionCoarsening):
-        return TargetDimensionCoarseningDetail(
-            target_coarse_dim=coarsening.target_coarse_dim,
-            realized_coarse_dim=coarsening.realized_coarse_dim(matrix),
-        )
-    return None
+    return (TextFact(COARSENING_STRATEGY, type(coarsening).__name__, _VARIANT),)
+
+
+@coarsening_facts.register
+def _(coarsening: PODCoarseningStrategy, matrix: torch.Tensor) -> Facts:
+    return (IntegerFact(COARSE_DIMENSION, coarsening.rank, _ESSENTIAL),)
+
+
+@coarsening_facts.register
+def _(coarsening: TargetDimensionCoarsening, matrix: torch.Tensor) -> Facts:
+    return (IntegerFact(COARSE_DIMENSION, coarsening.realized_coarse_dim(matrix), _ESSENTIAL),)
+
+
+@coarsening_facts.register
+def _(coarsening: AggregationCoarsening, matrix: torch.Tensor) -> Facts:
+    coarse_matrix, _ = coarsening.build_transfer(matrix)
+    omega = coarsening.omega
+    omega_value = omega.item() if isinstance(omega, torch.Tensor) else omega
+    damping: ScientificFact = (
+        TextFact(DAMPING, "auto", _ESSENTIAL)
+        if omega_value is None
+        else DecimalFact(DAMPING, omega_value, _ESSENTIAL)
+    )
+    return (
+        DecimalFact(THRESHOLD, coarsening.theta, _ESSENTIAL),
+        damping,
+        IntegerFact(COARSE_DIMENSION, coarse_matrix.shape[0], _ESSENTIAL),
+    )
+
+
+@singledispatch
+def realized_facts(precond: Preconditioner) -> Facts:
+    """Facts only the built object knows; ``()`` for types with none (Identity, Jacobi, ILU, IC0)."""
+    return ()
+
+
+@realized_facts.register
+def _(precond: ScheduledPreconditioner) -> Facts:
+    return realized_facts(precond.primary)
+
+
+@realized_facts.register
+def _(precond: AMGPreconditioner) -> Facts:
+    return coarsening_facts(precond.coarsening, precond.matrix)
+
+
+def _hierarchy_facts(n_levels: int, candidate_fact: IntegerFact, coarse_dimension: int) -> Facts:
+    """Realized hierarchy of a bootstrapped/adaptive AMG: levels, its candidate count, coarsest size."""
+    return (
+        IntegerFact(MULTIGRID_LEVELS, n_levels, _ESSENTIAL),
+        candidate_fact,
+        IntegerFact(COARSE_DIMENSION, coarse_dimension, _ESSENTIAL),
+    )
+
+
+@realized_facts.register
+def _(precond: AdaptiveSAPreconditioner) -> Facts:
+    result = precond.result
+    return _hierarchy_facts(
+        len(result.matrices),
+        IntegerFact(CANDIDATE_COUNT, result.candidates.shape[1], _ESSENTIAL),
+        int(result.matrices[-1].shape[0]),
+    )
+
+
+@realized_facts.register
+def _(precond: BootstrapAMGPreconditioner) -> Facts:
+    result = precond.result
+    return _hierarchy_facts(
+        len(result.matrices),
+        IntegerFact(RELAXATION_TEST_VECTORS, result.candidates.shape[1], _ESSENTIAL),
+        int(result.matrices[-1].shape[0]),
+    )
+
+
+@realized_facts.register
+def _(precond: DLKitNeuralPreconditioner) -> Facts:
+    return (TextFact(MODEL_ARCHITECTURE, precond.model_class_name, _ESSENTIAL),)
+
+
+# ==============================================================================
+# Configured facts — read from the config, defaults omitted
+# ==============================================================================
+
+
+def _overridden(cfg: BaseModel, field_name: str) -> bool:
+    """Whether `field_name` differs from its declared config default."""
+    return getattr(cfg, field_name) != type(cfg).model_fields[field_name].default
+
+
+def _integer_variant(cfg: BaseModel, field_name: str, key: FieldKey) -> Facts:
+    if not _overridden(cfg, field_name):
+        return ()
+    return (IntegerFact(key, getattr(cfg, field_name), _VARIANT),)
+
+
+def _decimal_variant(cfg: BaseModel, field_name: str, key: FieldKey) -> Facts:
+    if not _overridden(cfg, field_name):
+        return ()
+    return (DecimalFact(key, getattr(cfg, field_name), _VARIANT),)
+
+
+def _smoothing_facts(cfg: AMGPreconditionerConfig | NeuralAMGPreconditionerConfig) -> Facts:
+    return (
+        *_integer_variant(cfg, "pre_smoothing_steps", PRE_SMOOTHING_STEPS),
+        *_integer_variant(cfg, "post_smoothing_steps", POST_SMOOTHING_STEPS),
+        *_decimal_variant(cfg, "smoother_omega", SMOOTHER_DAMPING),
+    )
+
+
+def configured_facts(cfg: ConcretePreconditionerConfig) -> Facts:
+    """Facts that come from the configuration, with default-valued ones omitted.
+
+    Exhaustive over the closed config union, so a new preconditioner type forces
+    a decision here. The grid level count is ``ESSENTIAL`` for aggregation-style
+    AMG (POD-2G is architecturally single-basis two-grid, so a level count there
+    would be constant noise); everything that only tells variants apart is
+    ``VARIANT``. Seeds are never facts.
+
+    Args:
+        cfg (ConcretePreconditionerConfig): The preconditioner's config.
+    """
+    match cfg:
+        case StandardPreconditionerConfig() | NeuralPreconditionerConfig():
+            return ()
+        case IC0PreconditionerConfig():
+            return (
+                (DecimalFact(DROP_TOLERANCE, cfg.threshold, _ESSENTIAL),)
+                if _overridden(cfg, "threshold")
+                else ()
+            )
+        case AMGPreconditionerConfig():
+            levels: Facts = (
+                ()
+                if isinstance(cfg.coarsening, PODCoarseningConfig | NeuralPODCoarseningConfig)
+                else (IntegerFact(MULTIGRID_LEVELS, cfg.n_levels, _ESSENTIAL),)
+            )
+            return (*levels, *_smoothing_facts(cfg))
+        case NeuralAMGPreconditionerConfig():
+            return (IntegerFact(MULTIGRID_LEVELS, cfg.n_levels, _ESSENTIAL), *_smoothing_facts(cfg))
+        case AdaptiveSAPreconditionerConfig():
+            return (
+                *_decimal_variant(cfg, "theta", THRESHOLD),
+                *_decimal_variant(cfg, "omega", DAMPING),
+                *_integer_variant(cfg, "candidate_iters", CANDIDATE_ITERATIONS),
+            )
+        case BootstrapAMGPreconditionerConfig():
+            return (
+                *_integer_variant(cfg, "eta", RELAXATION_SWEEPS),
+                *_integer_variant(cfg, "n_bootstrap_cycles", BOOTSTRAP_CYCLES),
+                *_decimal_variant(cfg, "theta_ad", ALGEBRAIC_DISTANCE_THRESHOLD),
+            )
+        case _:
+            assert_never(cfg)
+
+
+# ==============================================================================
+# Labels
+# ==============================================================================
 
 
 def describe_preconditioner(
     precond: Preconditioner, *, policy: NotationPolicy | None = None
 ) -> str:
-    """Build a short structural-detail string from a constructed preconditioner.
+    """Render only a built object's realized facts, e.g. ``"θ=0.25, ω=0.67, c=2"``.
 
     Args:
-        precond (Preconditioner): A constructed (already-instantiated)
-            preconditioner object, e.g. as produced by
-            ``composition.preconditioners.factory.create_preconditioner``.
-            ``ScheduledPreconditioner`` wrappers are unwrapped to their
-            primary preconditioner before inspection.
-        policy (NotationPolicy | None): Notation (render target, symbol
-            overrides), e.g. resolved from a case's
-            ``[comparison_baseline.presentation]``. ``None`` (the default)
-            uses the plain-text default symbols, unchanged from before this
-            parameter existed.
+        precond (Preconditioner): A constructed preconditioner; schedule
+            wrappers are unwrapped to their primary.
+        policy (NotationPolicy | None): Notation; ``None`` is plain text.
 
     Returns:
-        str: A structural detail string, such as ``"L=2, θ=0.25, ω=0.67,
-            c=17"`` for AMG (``θ``/``ω``/``c`` match the notation the
-            study's own plots already put on their x-axis — see
-            ``MAX_LABEL_LENGTH``, since a comparison run typically legends
-            several AMG variants at once), or ``""`` for preconditioner
-            types with no meaningful structural variants (e.g. ``Identity``,
-            ``JacobiPreconditioner``, ``NeuralPreconditioner``).
+        str: The facts joined by ``", "``, or ``""`` when the object has none.
     """
-    effective_policy = _effective_policy(policy)
-    match precond:
-        case ScheduledPreconditioner():
-            return describe_preconditioner(precond.primary, policy=effective_policy)
-        # AdaptiveSAPreconditioner subclasses AMGPreconditioner, so this case
-        # must come first (most-derived-first dispatch) or aSA instances would
-        # silently match the generic AMGPreconditioner case below and leak
-        # torchalg's internal `_PrebuiltCoarsening` placeholder name instead
-        # of real detail.
-        case AdaptiveSAPreconditioner():
-            return _describe_adaptive_sa(precond, effective_policy)
-        # BootstrapAMGPreconditioner subclasses AMGPreconditioner too, same
-        # most-derived-first reasoning as the AdaptiveSAPreconditioner case.
-        case BootstrapAMGPreconditioner():
-            return _describe_bootstrap_amg(precond, effective_policy)
-        case AMGPreconditioner():
-            return _describe_amg(precond, effective_policy)
-        case IC0Preconditioner():
-            return render_facts(
-                (
-                    TextFact(
-                        key=_IC0_DROP_THRESHOLD,
-                        value=f"{precond.threshold:.0e}",
-                        importance=FieldImportance.ESSENTIAL,
-                    ),
-                ),
-                effective_policy,
-            )
-        case _:
-            return ""
+    return render_facts(
+        realized_facts(precond),
+        _default_policy(policy),
+        precision=_PRECONDITIONER_LEGEND.precision,
+    )
 
 
 def preconditioner_label(
     family: PreconditionerFamilyKey,
     precond: Preconditioner,
+    cfg: PreconditionerConfig,
     *,
     policy: NotationPolicy | None = None,
 ) -> str:
-    """Combine a preconditioner's family abbreviation with its live structural detail.
+    """The legend/axis display name: family abbreviation plus scientific facts.
 
     Args:
-        family (PreconditionerFamilyKey): The preconditioner's family (see
-            ``platform.config.models.preconditioner_family.preconditioner_family``),
-            driving the base display name via ``.abbreviation()``.
-        precond (Preconditioner): The corresponding constructed
-            preconditioner object.
-        policy (NotationPolicy | None): Forwarded to :func:`describe_preconditioner`.
+        family (PreconditionerFamilyKey): The base display name's source.
+        precond (Preconditioner): The constructed preconditioner (realized facts).
+        cfg (PreconditionerConfig): The config it was built from (configured facts).
+        policy (NotationPolicy | None): Render target and symbol overrides, e.g. from
+            ``[comparison_baseline.presentation]``; ``None`` is plain text.
 
     Returns:
-        str: ``"{abbreviation} ({detail})"`` when structural detail is
-            available (see :func:`describe_preconditioner`), else just the
-            abbreviation.
+        str: ``"AMG (L=2, θ=0.25, ω=0.67, c=15)"``-style text, within the legend
+        budget; ``VARIANT`` facts are dropped first when it would overflow.
     """
-    detail = describe_preconditioner(precond, policy=policy)
-    display_name = family.abbreviation()
-    return f"{display_name} ({detail})" if detail else display_name
+    facts = (*configured_facts(cfg), *realized_facts(precond))
+    ordered = tuple(sorted(facts, key=lambda fact: fact.importance is _VARIANT))
+    description = ScientificDescription(base_name=family.abbreviation(), facts=ordered)
+    return render(description, _PRECONDITIONER_LEGEND, _default_policy(policy))
 
 
 def contextualize_preconditioner_label(label: str, context: str | None) -> str:
@@ -355,187 +372,21 @@ def contextualize_preconditioner_label(label: str, context: str | None) -> str:
 
 
 def build_preconditioner_labels(
-    preconditioners: dict[str, Preconditioner],
-    families: dict[str, PreconditionerFamilyKey],
+    preconditioners: Mapping[str, Preconditioner],
+    families: Mapping[str, PreconditionerFamilyKey],
+    configs: Mapping[str, PreconditionerConfig],
     *,
     policy: NotationPolicy | None = None,
 ) -> dict[str, str]:
-    """Build a name -> descriptive-label mapping for a set of preconditioners.
+    """Build a name -> display-name mapping for a set of preconditioners.
 
     Args:
-        preconditioners (dict[str, Preconditioner]): Constructed
-            preconditioner instances keyed by config name, e.g. as produced
-            by ``PreconditionerService.create_preconditioner_set``.
-        families (dict[str, PreconditionerFamilyKey]): Family key per name
-            (see ``platform.config.models.preconditioner_family.preconditioner_family``),
-            same keys as ``preconditioners``.
-        policy (NotationPolicy | None): Forwarded to :func:`preconditioner_label`.
-
-    Returns:
-        dict[str, str]: Mapping from each name to its
-            :func:`preconditioner_label` string.
+        preconditioners: Constructed instances keyed by config name.
+        families: Family key per name (see ``preconditioner_family``).
+        configs: The config each was built from, per name.
+        policy: Forwarded to :func:`preconditioner_label`.
     """
     return {
-        name: preconditioner_label(families[name], precond, policy=policy)
+        name: preconditioner_label(families[name], precond, configs[name], policy=policy)
         for name, precond in preconditioners.items()
     }
-
-
-def _describe_amg(precond: AMGPreconditioner, policy: NotationPolicy) -> str:
-    """Describe an AMG preconditioner's grid levels plus coarsening detail.
-
-    Cycle type is left out — see :func:`_describe_coarsening` — and so is
-    ``n_levels`` for POD-2G coarsening: ``PODCoarseningStrategy`` is
-    architecturally a single-basis two-grid method, so its own docstring
-    notes level count isn't a meaningful variant there. For aggregation
-    coarsening, ``n_levels`` stays, written as ``L={n}`` (the standard
-    multigrid symbol for level count, mirroring ``θ``/``ω``/``c`` rather
-    than an English abbreviation): it is a real config knob that can differ
-    between runs.
-
-    Args:
-        precond (AMGPreconditioner): Constructed AMG preconditioner instance.
-
-    Returns:
-        str: ``"L={n}, {coarsening detail}"`` for aggregation coarsening, or
-            just the coarsening detail for POD-2G.
-    """
-    detail = _describe_coarsening(precond.coarsening, precond.matrix, policy)
-    if isinstance(precond.coarsening, PODCoarseningStrategy):
-        return detail
-    levels = render_facts(
-        (
-            IntegerFact(
-                key=_MULTIGRID_LEVELS, value=precond.n_levels, importance=FieldImportance.ESSENTIAL
-            ),
-        ),
-        policy,
-    )
-    return f"{levels}, {detail}"
-
-
-def _describe_adaptive_sa(precond: AdaptiveSAPreconditioner, policy: NotationPolicy) -> str:
-    """Describe an adaptive SA-AMG (alpha-SA) preconditioner's realized hierarchy.
-
-    Args:
-        precond (AdaptiveSAPreconditioner): Constructed alpha-SA preconditioner.
-
-    Returns:
-        str: ``"L={n}, k={num_candidates}, c={coarse_dim}"``.
-    """
-    detail = AdaptiveSADetail(
-        n_levels=len(precond.result.matrices),
-        num_candidates=precond.result.candidates.shape[1],
-        coarse_dimension=int(precond.result.matrices[-1].shape[0]),
-    )
-    return render_facts(
-        (
-            IntegerFact(
-                key=_MULTIGRID_LEVELS, value=detail.n_levels, importance=FieldImportance.ESSENTIAL
-            ),
-            IntegerFact(
-                key=_NUM_CANDIDATES,
-                value=detail.num_candidates,
-                importance=FieldImportance.ESSENTIAL,
-            ),
-            IntegerFact(
-                key=_COARSE_DIMENSION,
-                value=detail.coarse_dimension,
-                importance=FieldImportance.ESSENTIAL,
-            ),
-        ),
-        policy,
-    )
-
-
-def _describe_bootstrap_amg(precond: BootstrapAMGPreconditioner, policy: NotationPolicy) -> str:
-    """Describe a Bootstrap AMG (BAMG) preconditioner's realized hierarchy.
-
-    Args:
-        precond (BootstrapAMGPreconditioner): Constructed BAMG preconditioner.
-
-    Returns:
-        str: ``"L={n}, k_r={k_r}, c={coarse_dim}"``.
-    """
-    detail = BootstrapAMGDetail(
-        n_levels=len(precond.result.matrices),
-        k_r=precond.result.candidates.shape[1],
-        coarse_dimension=int(precond.result.matrices[-1].shape[0]),
-    )
-    return render_facts(
-        (
-            IntegerFact(
-                key=_MULTIGRID_LEVELS, value=detail.n_levels, importance=FieldImportance.ESSENTIAL
-            ),
-            IntegerFact(
-                key=_RELAXATION_TEST_VECTOR_COUNT,
-                value=detail.k_r,
-                importance=FieldImportance.ESSENTIAL,
-            ),
-            IntegerFact(
-                key=_COARSE_DIMENSION,
-                value=detail.coarse_dimension,
-                importance=FieldImportance.ESSENTIAL,
-            ),
-        ),
-        policy,
-    )
-
-
-def _describe_coarsening(coarsening: object, matrix: torch.Tensor, policy: NotationPolicy) -> str:
-    """Render a coarsening strategy's structured detail as plot-legend text.
-
-    Deliberately omits cycle type: cycle is fixed across every preconditioner
-    in a typical comparison run (all variants share the same multigrid
-    scaffolding — only the coarsening differs), so repeating it per legend
-    entry would be redundant, not informative. ``θ``, ``ω``, and ``c`` are
-    always the Greek/math symbols (never the spelled-out words) and match
-    the notation the study's own plots already use on their axes (e.g.
-    "Realized coarse dimension c"), so the legend stays consistent with the
-    figure instead of introducing new shorthand a reader has to decode.
-    ``c`` is used for both methods' coarse dimension — POD-2G's fitted rank
-    *is* its coarse dimension, so there is no separate symbol for it.
-
-    Args:
-        coarsening (object): The AMG preconditioner's coarsening strategy
-            object.
-        matrix (torch.Tensor): The finest-level system matrix, forwarded to
-            :func:`coarsening_detail`.
-
-    Returns:
-        str: ``"c={n}"`` for POD-2G or target-dimension coarsening,
-            ``"θ={theta}, ω={omega}, c={n}"`` for aggregation coarsening with
-            a fixed ``omega`` (``"ω=auto"`` when it was left to torchalg's
-            per-matrix rule instead), ``c`` being the realized coarse
-            dimension in every case, or the class name as a fallback for
-            unrecognized ``CoarseningStrategy`` implementations.
-    """
-    match coarsening_detail(coarsening, matrix):
-        case PODCoarseningDetail(rank=rank):
-            return render_facts((_coarse_dimension_fact(rank),), policy)
-        case TargetDimensionCoarseningDetail(realized_coarse_dim=c):
-            return render_facts((_coarse_dimension_fact(c),), policy)
-        case AggregationCoarseningDetail(theta=theta, omega=omega, coarse_dimension=c):
-            return render_facts(
-                (
-                    DecimalFact(key=_THRESHOLD, value=theta, importance=FieldImportance.ESSENTIAL),
-                    _omega_fact(omega),
-                    _coarse_dimension_fact(c),
-                ),
-                policy,
-                precision={_THRESHOLD: 2, _DAMPING: 2},
-            )
-        case None:
-            return type(coarsening).__name__
-
-
-def _coarse_dimension_fact(value: int) -> IntegerFact:
-    """A ``c={value}`` fact, shared by every coarsening strategy's detail."""
-    return IntegerFact(key=_COARSE_DIMENSION, value=value, importance=FieldImportance.ESSENTIAL)
-
-
-def _omega_fact(omega: float | None) -> ScientificFact:
-    """A damping fact, rendering as ``ω=auto`` when left to torchalg's per-matrix rule."""
-    if omega is None:
-        return TextFact(key=_DAMPING, value="auto", importance=FieldImportance.ESSENTIAL)
-    return DecimalFact(key=_DAMPING, value=omega, importance=FieldImportance.ESSENTIAL)

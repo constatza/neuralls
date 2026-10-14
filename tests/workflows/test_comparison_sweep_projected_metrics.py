@@ -3,7 +3,7 @@
 Unlike the sibling tests in `test_comparison_workflow.py`, this does NOT mock
 `compare_preconditioners` — it lets the real build/setup/solve pipeline run
 (a trivial `Identity` preconditioner against a tiny 2x2 matrix, so it stays
-fast) so the real `SweepPreconditionerCache` + `aggregate_projected_results`
+fast) so the real `GroupPreconditionerCache` + `aggregate_projected_results`
 wiring in `comparison_batch.py` is actually exercised, not just its
 individually-unit-tested pieces in isolation.
 """
@@ -108,11 +108,13 @@ def test_real_sweep_execution_logs_projected_metrics_and_scaling_plot(
         for call in artifact_calls
         if call.kwargs.get("artifact_path") == "projected_scaling_law"
     ]
-    # Two PNGs + two TOMLs — one pair per grouping.
+    # Per grouping: the scaling-law PNG, its TOML, and the per-system scatter PNG.
     suffixes = sorted(Path(call.args[0]).suffix for call in scaling_plot_calls)
-    assert suffixes == [".png", ".png", ".toml", ".toml"]
+    assert suffixes == [".png"] * 4 + [".toml"] * 2
     stems = {Path(call.args[0]).stem for call in scaling_plot_calls}
     assert stems == {
         "projected_scaling_law_solutions",
         "projected_scaling_law_solutions::dataset",
+        "system_time_scatter_solutions",
+        "system_time_scatter_solutions::dataset",
     }

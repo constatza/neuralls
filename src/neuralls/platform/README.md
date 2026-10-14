@@ -58,8 +58,10 @@ Auto-generated comparison display names stay dataset-defined: they resolve to
 the matrix dataset label alone when matrix and RHS come from the same dataset,
 or to `{matrix_label} | {rhs_label}` when they differ. Explicitly configured
 comparison display names still override the generated label.
-Reporting labels derive the method abbreviation and measured structural detail
-from the constructed preconditioner. Workflow provenance is added separately:
+Reporting labels (`reporting/preconditioner_labels.py`) combine the method
+abbreviation with realized facts from the constructed preconditioner and
+configured facts from its config, rendered under the case's notation policy and
+the shared legend budget. Workflow provenance is added separately:
 POD-2G labels append the fit-dataset id after ``|`` so equal-rank bases fitted
 on different datasets remain explicit, while the plotting API keeps result
 keys and display labels as separate mappings. Human-readable labels are never

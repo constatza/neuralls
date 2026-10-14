@@ -72,3 +72,44 @@ def comparison_identity(
             "checkpoints": canonical_digest(dict(checkpoint_digests)),
         },
     )
+
+
+def preconditioner_identities(
+    specs: Sequence[PreconditionerConfig],
+    checkpoint_digests: Mapping[str, Digest],
+) -> dict[str, Digest]:
+    """Identity of each preconditioner, keyed by its (display) name.
+
+    A preconditioner's name is a readable label derived from its config; for a
+    neural one it names the model *reference*, not the model, so two different
+    checkpoints can share it. This is the key that actually decides whether two
+    same-named preconditioners are the same: the config's identity digest
+    (excluding resolved local paths) plus the content digest of every
+    checkpoint it loads. Two specs with equal identity are interchangeable even
+    if their resolved temp paths differ; equal names with different identity are
+    different preconditioners.
+
+    Args:
+        specs (Sequence[PreconditionerConfig]): Specs after checkpoint resolution.
+        checkpoint_digests (Mapping[str, Digest]): Per-checkpoint content
+            digests keyed ``"<spec index>:<label>"``, as the resolution step
+            produces them.
+
+    Returns:
+        dict[str, Digest]: Preconditioner name -> identity digest.
+    """
+    return {
+        spec.name: canonical_digest(
+            {
+                "spec": canonical_digest(spec),
+                "checkpoints": canonical_digest(
+                    {
+                        key: digest
+                        for key, digest in checkpoint_digests.items()
+                        if key.startswith(f"{index}:")
+                    }
+                ),
+            }
+        )
+        for index, spec in enumerate(specs)
+    }

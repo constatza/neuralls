@@ -516,7 +516,7 @@ def test_summarize_best_combinations(
     ranked = summary.ranked
     assert len(ranked) == 2  # Only jacobi and identity converged
 
-    # Verify sorted by residual (jacobi has lower residual: 1e-8 < 1e-7)
+    # Equal (zero) cost, so iterations break the tie: jacobi 10 < identity 20
     assert ranked[0].label == "jacobi"
     assert ranked[1].label == "identity"
 
@@ -579,3 +579,23 @@ def test_summarize_best_combinations_single_converged() -> None:
     # Verify single entry
     assert len(summary.ranked) == 1
     assert summary.overall_best.label == "jacobi"
+
+
+def test_summarize_best_combinations_ranks_by_time_not_final_residual(
+    mock_comparison_results: dict[str, CGComparisonResult],
+) -> None:
+    """The lowest residual is not the winner: the faster run wins despite the looser residual."""
+    from dataclasses import replace
+
+    slow_but_precise = replace(
+        mock_comparison_results["jacobi"], solve_time_seconds=9.0, residual=1e-12
+    )
+    fast_but_looser = replace(
+        mock_comparison_results["identity"], solve_time_seconds=1.0, residual=1e-7
+    )
+
+    summary = summarize_best_combinations({"jacobi": slow_but_precise, "identity": fast_but_looser})
+
+    assert [entry.label for entry in summary.ranked] == ["identity", "jacobi"]
+    assert summary.overall_best is not None
+    assert summary.overall_best.total_time_seconds == pytest.approx(1.0)

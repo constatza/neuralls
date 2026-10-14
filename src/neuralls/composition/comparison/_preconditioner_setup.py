@@ -92,7 +92,7 @@ def _allows_matrix_dependent_sharing(identity: GroupMatrixIdentity) -> bool:
     return not isinstance(identity, MultiMatrixDataset) or len(identity.resolved_indices) == 1
 
 
-class SweepPreconditionerCache:
+class GroupPreconditionerCache:
     """Per-comparison-group cache of already-built-and-setup preconditioners.
 
     Scoped to one `ComparisonGroup` (comparisons sharing a matrix/RHS-recipe

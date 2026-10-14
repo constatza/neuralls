@@ -22,6 +22,7 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
+from neuralls.shared.scientific_description import NotationPolicy, RenderTarget
 
 
 def _assert_under(path: Path, root: Path) -> None:
@@ -170,6 +171,7 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
 ) -> None:
     """Comparison evaluates one preconditioner at a time on the solver device."""
     events: list[str] = []
+    seen_policies: list[NotationPolicy | None] = []
     active: set[str] = set()
     expected_device = torch.device("meta")
 
@@ -225,7 +227,9 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
     monkeypatch.setattr(
         comparison_run,
         "build_preconditioner_labels",
-        lambda preconditioners, families: {name: name for name in preconditioners},
+        lambda preconditioners, families, configs, *, policy=None: (
+            seen_policies.append(policy) or {name: name for name in preconditioners}
+        ),
     )
     monkeypatch.setattr(comparison_run, "run_cg_comparison", fake_run_cg_comparison)
     monkeypatch.setattr(
@@ -251,15 +255,19 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
         StandardPreconditionerConfig(type=PreconditionerType.JACOBI),
         StandardPreconditionerConfig(type=PreconditionerType.ILU),
     )
+    mathtext = NotationPolicy.default(RenderTarget.MATHTEXT)
 
     compare_preconditioners(
         general_params=general,
         preconditioner_configs=specs,
         output_root=Path("unused-output"),
         settings=neuralls_settings,
+        notation_policy=mathtext,
     )
 
     assert events == ["create:jacobi", "cleanup:jacobi", "create:ilu", "cleanup:ilu"]
+    # The configured presentation must reach the label builder for every preconditioner.
+    assert seen_policies == [mathtext, mathtext]
     assert not active
 
 

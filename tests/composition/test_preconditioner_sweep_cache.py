@@ -1,4 +1,4 @@
-"""Tests for `SweepPreconditionerCache` reuse through `_run_preconditioner`.
+"""Tests for `GroupPreconditionerCache` reuse through `_run_preconditioner`.
 
 Covers the three cases the cache must tell apart:
 - A matrix-agnostic preconditioner (Identity, a `StaticSetupPreconditioner`)
@@ -16,8 +16,8 @@ from pathlib import Path
 import torch
 
 from neuralls.composition.comparison._preconditioner_setup import (
+    GroupPreconditionerCache,
     PreconditionerService,
-    SweepPreconditionerCache,
 )
 from neuralls.composition.comparison.comparison_run import _run_preconditioner
 from neuralls.composition.comparison.models import (
@@ -55,7 +55,7 @@ def _run(
     matrix: torch.Tensor,
     rhs: torch.Tensor,
     settings: NeurallsSettings,
-    cache: SweepPreconditionerCache,
+    cache: GroupPreconditionerCache,
 ) -> PreconditionerComparisonEntry:
     return _run_preconditioner(
         cfg,
@@ -78,7 +78,7 @@ def test_static_setup_preconditioner_is_reused_across_different_matrices(
 ) -> None:
     """Identity is matrix-agnostic, so it is shareable even across different matrices."""
     cfg = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
-    cache = SweepPreconditionerCache(
+    cache = GroupPreconditionerCache(
         matrix_identity=MultiMatrixDataset(
             dataset_id=DatasetId("test"), resolved_indices=frozenset({MatrixId(0), MatrixId(1)})
         )
@@ -100,7 +100,7 @@ def test_matrix_setup_preconditioner_is_reused_only_for_the_same_matrix(
 ) -> None:
     """Jacobi is matrix-dependent; sharing is valid only for a single-matrix dataset."""
     cfg = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
-    cache = SweepPreconditionerCache(
+    cache = GroupPreconditionerCache(
         matrix_identity=SingleMatrixDataset(dataset_id=DatasetId("test"))
     )
     matrix = _diagonal([2.0, 4.0, 8.0])
@@ -131,7 +131,7 @@ def test_matrix_setup_preconditioner_is_rebuilt_for_a_different_matrix(
         coarsening=AggregationCoarseningConfig(theta=0.25),
         n_levels=2,
     )
-    cache = SweepPreconditionerCache(
+    cache = GroupPreconditionerCache(
         matrix_identity=MultiMatrixDataset(
             dataset_id=DatasetId("test"), resolved_indices=frozenset({MatrixId(0), MatrixId(1)})
         )

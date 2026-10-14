@@ -8,6 +8,7 @@ from torchalg.monitoring import TraceMode
 
 from neuralls.domain.solver.error_metrics import REFERENCE_PRECISION_MARGIN
 from neuralls.shared.digest import Cosmetic
+from neuralls.shared.timing import TimingRepeatPolicy
 from neuralls.shared.types import ComparisonRhsSourceKind
 
 
@@ -60,6 +61,7 @@ class SolverParams:
         reference_precision_margin: How many orders of magnitude tighter than
             ``rtol`` the host reference solution must be (see
             ``error_metrics.reference_solution``).
+        timing: How often each setup and solve is timed.
     """
 
     rtol: float
@@ -68,6 +70,10 @@ class SolverParams:
     stopping_criterion: Literal["residual_norm", "fixed_iterations"]
     m_max: int
     reference_precision_margin: float = REFERENCE_PRECISION_MARGIN
+    timing: Annotated[TimingRepeatPolicy, Cosmetic()] = field(default_factory=TimingRepeatPolicy)
+    """Measurement effort only — it changes the noise of the recorded times, not what is
+    computed, so `Cosmetic()`: editing it never silently invalidates (and reruns) every
+    expensive prior comparison. Pass `--force` to remeasure with a higher setting."""
 
 
 @dataclass(frozen=True)

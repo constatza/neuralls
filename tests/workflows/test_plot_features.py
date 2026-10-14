@@ -19,7 +19,11 @@ from neuralls.composition.comparison._plots import _generate_comparison_plots
 from neuralls.composition.comparison.models import ComparisonPaths
 from neuralls.domain.analysis.spectra import plot_condition_numbers
 from neuralls.domain.solver.models.result import CGComparisonResult, PlotPaths, StageCost
-from neuralls.platform.config.models.preconditioner import PreconditionerType
+from neuralls.platform.config.models.preconditioner import (
+    PreconditionerConfig,
+    PreconditionerType,
+    StandardPreconditionerConfig,
+)
 from neuralls.platform.reporting import plots as reporting_plots
 from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
@@ -176,6 +180,15 @@ def two_preconditioners() -> dict[str, Preconditioner]:
     return {
         "identity": Identity(),
         "jacobi": JacobiPreconditioner().setup(matrix),
+    }
+
+
+@pytest.fixture
+def two_preconditioner_configs() -> dict[str, PreconditionerConfig]:
+    """Config per name, matching ``two_preconditioners``' keys (the label's configured facts)."""
+    return {
+        "identity": StandardPreconditionerConfig(type=PreconditionerType.IDENTITY),
+        "jacobi": StandardPreconditionerConfig(type=PreconditionerType.JACOBI),
     }
 
 
@@ -583,6 +596,7 @@ def test_generate_comparison_plots_includes_iterations_barplot(
     two_result_entries: dict[str, CGComparisonResult],
     two_preconditioners: dict[str, Preconditioner],
     two_preconditioner_families: dict[str, PreconditionerType],
+    two_preconditioner_configs: dict[str, PreconditionerConfig],
 ) -> None:
     """_generate_comparison_plots returns PlotPaths with iterations_barplot set.
 
@@ -594,8 +608,11 @@ def test_generate_comparison_plots_includes_iterations_barplot(
         two_result_entries: Two-entry result dict from fixture.
         two_preconditioners: Constructed preconditioner instances from fixture.
         two_preconditioner_families: Family key per name, from fixture.
+        two_preconditioner_configs: Config per name, from fixture.
     """
-    labels = build_preconditioner_labels(two_preconditioners, two_preconditioner_families)
+    labels = build_preconditioner_labels(
+        two_preconditioners, two_preconditioner_families, two_preconditioner_configs
+    )
 
     with (
         patch(
@@ -630,6 +647,7 @@ def test_generate_comparison_plots_includes_time_breakdown_barplot_when_measured
     two_result_entries_with_times: dict[str, CGComparisonResult],
     two_preconditioners: dict[str, Preconditioner],
     two_preconditioner_families: dict[str, PreconditionerType],
+    two_preconditioner_configs: dict[str, PreconditionerConfig],
 ) -> None:
     """_generate_comparison_plots populates time_breakdown_barplot when times are measured.
 
@@ -638,8 +656,11 @@ def test_generate_comparison_plots_includes_time_breakdown_barplot_when_measured
         two_result_entries_with_times: Two-entry result dict with setup/solve times set.
         two_preconditioners: Constructed preconditioner instances from fixture.
         two_preconditioner_families: Family key per name, from fixture.
+        two_preconditioner_configs: Config per name, from fixture.
     """
-    labels = build_preconditioner_labels(two_preconditioners, two_preconditioner_families)
+    labels = build_preconditioner_labels(
+        two_preconditioners, two_preconditioner_families, two_preconditioner_configs
+    )
 
     with (
         patch("neuralls.composition.comparison._plots.plot_convergence_comparison"),
@@ -661,6 +682,7 @@ def test_generate_comparison_plots_preserves_results_when_labels_collide(
     comparison_paths: ComparisonPaths,
     two_result_entries: dict[str, CGComparisonResult],
     two_preconditioner_families: dict[str, PreconditionerType],
+    two_preconditioner_configs: dict[str, PreconditionerConfig],
 ) -> None:
     """Presentation-label collisions must not overwrite distinct solver results."""
     labels = dict.fromkeys(two_result_entries, "POD-2G (c=10)")

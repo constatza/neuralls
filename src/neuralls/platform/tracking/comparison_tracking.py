@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -15,12 +16,16 @@ from neuralls.domain.solver.cost_metrics import (
 from neuralls.domain.solver.models.result import (
     CGComparisonResult,
     ComparisonResult,
+    GroupAggregated,
     ProjectedComparisonResult,
 )
 from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
+from neuralls.platform.reporting.artifacts import write_projected_toml
+from neuralls.platform.reporting.plots import plot_projected_scaling_law, plot_system_time_scatter
 from neuralls.platform.tracking.mlflow import ensure_experiment, sanitize_metric_key_segment
+from neuralls.shared.types import GroupId
 
 
 def setup_comparison_tracking(
@@ -114,63 +119,95 @@ def log_comparison_result_metrics(
         mlflow.log_param("best_preconditioner", result.recommendations.overall_best.label)
 
 
-def _projected_metric_key(metric: str, sweep_id: str, preconditioner_name: str) -> str:
-    """Build a projected-metric key, namespaced by sweep group and preconditioner.
+def _projected_metric_key(metric: str, group_id: GroupId, preconditioner_name: str) -> str:
+    """Build a projected-metric key, namespaced by comparison group and preconditioner.
 
     Mirrors ``parent_run_metric_key``'s single-``"/"``-separator convention,
-    with one more segment: a case config can declare several
-    ``[[comparison_sweeps]]`` groups, so the sweep id disambiguates which
-    group a projection came from.
+    with one more segment: a case config can have several comparison groups,
+    so the group id disambiguates which group a projection came from.
     """
     return (
-        f"{metric}/{sanitize_metric_key_segment(sweep_id)}"
+        f"{metric}/{sanitize_metric_key_segment(group_id)}"
         f"/{sanitize_metric_key_segment(preconditioner_name)}"
     )
 
 
 def log_projected_metrics(
-    sweep_id: str, projected: Mapping[str, ProjectedComparisonResult]
+    group_id: GroupId, projected: Mapping[str, ProjectedComparisonResult]
 ) -> None:
-    """Log one `comparison_sweeps` group's scaling-law projection to the open MLflow run.
+    """Log one comparison group's scaling-law projection to the open MLflow run.
 
     Logged onto whatever run is currently active (the session parent, since
     a projection aggregates across several sibling systems' own child
     runs, not any single one of them) — never opens a new run itself.
 
     Args:
-        sweep_id: The `[[comparison_sweeps]]` entry's `id_prefix`, used to
-            namespace metric keys when a case declares more than one.
+        group_id: The comparison group's rendered id, used to namespace
+            metric keys when a case has more than one group.
         projected: One `ProjectedComparisonResult` per preconditioner name,
             as `domain.solver.comparison.aggregate_projected_results` returns.
     """
     for name, result in projected.items():
-        mlflow.log_metric(_projected_metric_key("n_systems", sweep_id, name), result.n_systems)
+        mlflow.log_metric(_projected_metric_key("n_systems", group_id, name), result.n_systems)
         mlflow.log_metric(
-            _projected_metric_key("avg_setup_cost_s", sweep_id, name),
+            _projected_metric_key("avg_setup_cost_s", group_id, name),
             result.avg_setup_cost_seconds,
         )
         if result.avg_generation_cost_seconds is not None:
             mlflow.log_metric(
-                _projected_metric_key("avg_generation_cost_s", sweep_id, name),
+                _projected_metric_key("avg_generation_cost_s", group_id, name),
                 result.avg_generation_cost_seconds,
             )
         mlflow.log_metric(
-            _projected_metric_key("avg_solve_time_per_system_s", sweep_id, name),
+            _projected_metric_key("avg_solve_time_per_system_s", group_id, name),
             result.avg_solve_time_per_system_seconds,
         )
         if result.avg_iteration_time_seconds is not None:
             mlflow.log_metric(
-                _projected_metric_key("avg_iteration_time_s", sweep_id, name),
+                _projected_metric_key("avg_iteration_time_s", group_id, name),
                 result.avg_iteration_time_seconds,
             )
         mlflow.log_param(
-            _projected_metric_key("share_setup", sweep_id, name),
+            _projected_metric_key("share_setup", group_id, name),
             str(result.setup_sharing.share_setup),
         )
         mlflow.log_param(
-            _projected_metric_key("share_generation", sweep_id, name),
+            _projected_metric_key("share_generation", group_id, name),
             str(result.setup_sharing.share_generation),
         )
+
+
+class MLflowGroupReportSink:
+    """``GroupReportSink`` that logs a group's projection into the open MLflow run.
+
+    Logs the projected metrics, then uploads the scaling-law plot and its
+    TOML numbers under ``projected_scaling_law``. Requires an open run: the
+    composition layer only calls ``report`` when a projection exists, which
+    only happens in a batch that executed something.
+    """
+
+    def report(self, outcome: GroupAggregated, *, title: str) -> None:
+        """Log metrics, scaling plot, TOML numbers and per-system scatter for one group."""
+        group_id = outcome.group_id
+        log_projected_metrics(group_id, outcome.projected)
+        with tempfile.TemporaryDirectory() as tmp:
+            stem = f"projected_scaling_law_{group_id}"
+            plot_path = Path(tmp) / f"{stem}.png"
+            toml_path = Path(tmp) / f"{stem}.toml"
+            scatter_path = Path(tmp) / f"system_time_scatter_{group_id}.png"
+            plot_projected_scaling_law(outcome.projected, save_path=plot_path, title=title)
+            write_projected_toml(outcome.projected, toml_path)
+            plot_system_time_scatter(
+                outcome.time_to_solution_by_system,
+                save_path=scatter_path,
+                title=f"Per-system time to solution — group '{group_id}'",
+            )
+            for artifact in (plot_path, toml_path, scatter_path):
+                mlflow.log_artifact(str(artifact), artifact_path=PROJECTED_ARTIFACT_DIR)
+
+
+PROJECTED_ARTIFACT_DIR = "projected_scaling_law"
+"""MLflow artifact directory holding every group's projected scaling-law files."""
 
 
 class MLflowCostRecorder:

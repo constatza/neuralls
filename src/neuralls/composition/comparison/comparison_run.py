@@ -16,8 +16,8 @@ from neuralls.composition.comparison._generation_cost import resolve_generation_
 from neuralls.composition.comparison._linear_system import _load_linear_system
 from neuralls.composition.comparison._plots import _generate_comparison_plots
 from neuralls.composition.comparison._preconditioner_setup import (
+    GroupPreconditionerCache,
     PreconditionerService,
-    SweepPreconditionerCache,
     _create_scheduled_preconditioners,
     _load_and_bind_extra_inputs,
 )
@@ -58,7 +58,8 @@ from neuralls.platform.reporting.preconditioner_labels import (
     contextualize_preconditioner_label,
 )
 from neuralls.platform.storage.filesystem import ensure_dir
-from neuralls.shared.device import release_device_memory, track_resource_usage
+from neuralls.shared.device import release_device_memory, repeat_timed
+from neuralls.shared.scientific_description import NotationPolicy
 
 type PreconditionerEvaluationMapper = Callable[
     [
@@ -144,7 +145,8 @@ def _evaluate_preconditioner(
     display_name: str | None = None,
     x_exact: torch.Tensor | None = None,
     settings: NeurallsSettings,
-    cache: SweepPreconditionerCache | None = None,
+    cache: GroupPreconditionerCache | None = None,
+    notation_policy: NotationPolicy | None = None,
 ) -> PreconditionerComparisonEntry:
     """Build one preconditioner, run it, and package its evaluation outcome.
 
@@ -152,7 +154,7 @@ def _evaluate_preconditioner(
     checkpoint) is only referenced by locals in this call — it goes out of scope
     on return, so the caller's loop never holds more than one model at a time.
     Exception: a preconditioner `cache` stores reuses it across sibling calls
-    (see `SweepPreconditionerCache`), by design — the caller owns that
+    (see `GroupPreconditionerCache`), by design — the caller owns that
     cache's lifetime, scoped to the whole sweep group, not to this call.
 
     Args:
@@ -170,9 +172,11 @@ def _evaluate_preconditioner(
             directory feeding this preconditioner's generation cost.
         cache: Optional per-sweep-group cache letting a preconditioner built
             for an earlier sibling system be reused here instead of rebuilt,
-            when doing so is provably valid (see `SweepPreconditionerCache`).
+            when doing so is provably valid (see `GroupPreconditionerCache`).
             `None` (the default) means every call builds fresh, unchanged
             from before this parameter existed.
+        notation_policy: Render target and symbol overrides for the display name
+            (from ``[comparison_baseline.presentation]``); ``None`` is plain text.
 
     Returns:
         Named result containing the solve outcome and plot metadata for ``cfg``.
@@ -193,6 +197,7 @@ def _evaluate_preconditioner(
             x_exact=x_exact,
             settings=settings,
             cache=cache,
+            notation_policy=notation_policy,
         )
     except Exception as exc:  # noqa: BLE001
         # Broad by design: one preconditioner's failure (build, solve, CUDA OOM,
@@ -215,6 +220,17 @@ def _evaluate_preconditioner(
         )
 
 
+def _build_scheduled(
+    service: PreconditionerService, matrix: torch.Tensor, cfg: PreconditionerConfig
+) -> dict[str, Preconditioner]:
+    """Construct, `.setup()` and schedule-wrap one preconditioner — the timed unit of a build."""
+    return _create_scheduled_preconditioners(
+        preconditioner_configs=[cfg],
+        matrix=matrix,
+        base_preconditioners={cfg.name: service.create_preconditioner(matrix, cfg)},
+    )
+
+
 def _run_preconditioner(
     cfg: PreconditionerConfig,
     *,
@@ -228,7 +244,8 @@ def _run_preconditioner(
     marker_key: str | None,
     x_exact: torch.Tensor | None = None,
     settings: NeurallsSettings,
-    cache: SweepPreconditionerCache | None = None,
+    cache: GroupPreconditionerCache | None = None,
+    notation_policy: NotationPolicy | None = None,
 ) -> PreconditionerComparisonEntry:
     """Build and solve one preconditioner; raises on any failure.
 
@@ -256,17 +273,17 @@ def _run_preconditioner(
         scheduled: dict[str, Preconditioner] = {cfg.name: cached.preconditioner}
         setup_cost_seconds = cached.setup_cost_seconds
         setup_peak_memory_bytes = cached.setup_peak_memory_bytes
+        setup_time_samples = ()
     else:
-        with track_resource_usage(matrix.device) as setup_usage:
-            base_preconditioners = {cfg.name: service.create_preconditioner(matrix, cfg)}
-            scheduled = _create_scheduled_preconditioners(
-                preconditioner_configs=[cfg],
-                matrix=matrix,
-                base_preconditioners=base_preconditioners,
-            )
-        measured_setup = setup_usage()
-        setup_cost_seconds = measured_setup.wall_time_seconds
-        setup_peak_memory_bytes = measured_setup.peak_memory_bytes
+        timed_setup = repeat_timed(
+            lambda: _build_scheduled(service, matrix, cfg),
+            params.timing,
+            device=matrix.device,
+        )
+        scheduled = timed_setup.value
+        setup_cost_seconds = timed_setup.seconds
+        setup_peak_memory_bytes = timed_setup.peak_memory_bytes
+        setup_time_samples = timed_setup.samples_seconds
         if cache is not None:
             cache.put(
                 cfg.name,
@@ -277,7 +294,9 @@ def _run_preconditioner(
     _load_and_bind_extra_inputs(
         scheduled, matrix=matrix, matrix_path=matrix_path, matrix_index=matrix_index
     )
-    base_label = build_preconditioner_labels(scheduled, {cfg.name: family})[cfg.name]
+    base_label = build_preconditioner_labels(
+        scheduled, {cfg.name: family}, {cfg.name: cfg}, policy=notation_policy
+    )[cfg.name]
     dataset_label = Path(color_key).name if color_key is not None else None
     label = contextualize_preconditioner_label(base_label, dataset_label)
     result = run_cg_comparison(
@@ -290,6 +309,7 @@ def _run_preconditioner(
         maxiter=params.max_iterations,
         m_max=params.m_max,
         reference_precision_margin=params.reference_precision_margin,
+        timing=params.timing,
     )[cfg.name]
     generation_cost = resolve_generation_cost(cfg, settings=settings)
     result = replace(
@@ -297,6 +317,7 @@ def _run_preconditioner(
         generation_cost=generation_cost,
         setup_cost=setup_cost_seconds,
         setup_peak_memory_bytes=setup_peak_memory_bytes,
+        setup_time_samples=setup_time_samples,
     )
     return PreconditionerComparisonEntry(
         name=cfg.name,
@@ -373,7 +394,8 @@ def compare_preconditioners(
     resolved_input: ResolvedComparisonInput | None = None,
     evaluation_mapper: PreconditionerEvaluationMapper = map,
     settings: NeurallsSettings,
-    cache: SweepPreconditionerCache | None = None,
+    cache: GroupPreconditionerCache | None = None,
+    notation_policy: NotationPolicy | None = None,
 ) -> ComparisonResult:
     """Run CG comparisons and generate diagnostics.
 
@@ -411,10 +433,13 @@ def compare_preconditioners(
         cache: Optional per-sweep-group cache letting each preconditioner
             built here be reused by a later sibling system's call to this
             same function, when doing so is provably valid (see
-            ``SweepPreconditionerCache``). ``None`` (the default) means
+            ``GroupPreconditionerCache``). ``None`` (the default) means
             every call builds every preconditioner fresh, unchanged from
             before this parameter existed — only a sweep-aware caller
             passes a real cache, scoped to its own sweep group.
+        notation_policy: Render target and symbol overrides for preconditioner
+            display names, from ``[comparison_baseline.presentation]``. ``None``
+            (the default) renders plain text with the default symbols.
 
     Returns:
         ComparisonResult with results, summary, plot paths, and solver metadata.
@@ -473,6 +498,7 @@ def compare_preconditioners(
         x_exact=x_exact,
         settings=settings,
         cache=cache,
+        notation_policy=notation_policy,
     )
 
     results: dict[str, CGComparisonResult] = {}

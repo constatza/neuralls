@@ -5,21 +5,24 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 import h5py
 import numpy as np
 import tomli_w
 from numpy.typing import NDArray
 
+from neuralls.domain.solver.cost_metrics import iterations_to_tolerances
 from neuralls.domain.solver.models.result import (
     COST_FIELD_REGISTRY,
     CGComparisonResult,
     ComparisonRecommendations,
     ComparisonResult,
     PlotPaths,
+    ProjectedComparisonResult,
 )
 from neuralls.platform.reporting.serialization import to_json_primitive
 
@@ -187,9 +190,64 @@ _HISTORY_FIELDS: tuple[str, ...] = (
     "residual_history_abs",
     "error_history_a_rel",
     "error_bound_a_rel",
+    "setup_time_samples",
+    "solve_time_samples",
 )
-"""`CGComparisonResult` fields written to `histories.h5` — 1D per-iteration
-arrays, never inlined as JSON (see `SerializedSolverResult`)."""
+"""`CGComparisonResult` fields written to `histories.h5` — 1D arrays (per-iteration
+histories and per-repeat timing samples), never inlined as JSON (see
+`SerializedSolverResult`)."""
+
+
+class ProjectedTomlEntry(TypedDict):
+    """One preconditioner's scaling-law numbers as written to the projected TOML."""
+
+    n_systems: int
+    setup_cost_total_seconds: float
+    total_solve_time_seconds: float
+    total_iterations: int
+    share_setup: bool
+    share_generation: bool
+    generation_cost_total_seconds: NotRequired[float]
+    solve_time_std_seconds: NotRequired[float]
+    iterations_std: NotRequired[float]
+
+
+def projected_toml_payload(
+    projected: Mapping[str, ProjectedComparisonResult],
+) -> dict[str, ProjectedTomlEntry]:
+    """Build one group's scaling-law numbers as a TOML-ready payload.
+
+    Pure scalars per preconditioner — the plotted curve is a deterministic
+    function of exactly these fields, so this is the source of truth the PNG
+    is derived from, not a separate, possibly-drifting summary of it. Optional
+    numbers are omitted rather than written as sentinels.
+    """
+    payload: dict[str, ProjectedTomlEntry] = {}
+    for name, result in projected.items():
+        entry = ProjectedTomlEntry(
+            n_systems=result.n_systems,
+            setup_cost_total_seconds=result.setup_cost_total_seconds,
+            total_solve_time_seconds=result.total_solve_time_seconds,
+            total_iterations=result.total_iterations,
+            share_setup=result.setup_sharing.share_setup,
+            share_generation=result.setup_sharing.share_generation,
+        )
+        if result.generation_cost_total_seconds is not None:
+            entry["generation_cost_total_seconds"] = result.generation_cost_total_seconds
+        if result.solve_time_std_seconds is not None:
+            entry["solve_time_std_seconds"] = result.solve_time_std_seconds
+        if result.iterations_std is not None:
+            entry["iterations_std"] = result.iterations_std
+        payload[name] = entry
+    return payload
+
+
+def write_projected_toml(
+    projected: Mapping[str, ProjectedComparisonResult], output_path: Path
+) -> None:
+    """Write one group's scaling-law numbers to `output_path` as TOML."""
+    with open(output_path, "wb") as fh:
+        tomli_w.dump(projected_toml_payload(projected), fh)
 
 
 def write_histories_h5(result: ComparisonResult, output_path: Path) -> None:
@@ -210,7 +268,7 @@ def write_histories_h5(result: ComparisonResult, output_path: Path) -> None:
                 if not values:
                     continue
                 if group is None:
-                    group = h5file.create_group(name)
+                    group = h5file.create_group(name.replace("/", "_"))  # "/" would nest
                 group.create_dataset(field_name, data=np.asarray(values, dtype=np.float64))
 
 
@@ -254,6 +312,19 @@ def _stage_result_plots(
     return replace(result, plot_paths=staged_paths)
 
 
+def _iterations_to_tolerance_table(result: ComparisonResult) -> dict[str, dict[str, int]]:
+    """Per-tolerance, per-preconditioner iterations; a rung a run never reached is omitted."""
+    rtol = result.solver_params.params.rtol
+    table: dict[str, dict[str, int]] = {}
+    for name, entry in result.results.items():
+        if not isinstance(entry, CGComparisonResult):
+            continue
+        for tolerance, iterations in iterations_to_tolerances(entry, rtol).items():
+            if iterations is not None:
+                table.setdefault(f"{tolerance:.0e}", {})[name] = iterations
+    return table
+
+
 def _save_comparison_toml(
     result: ComparisonResult,
     output_path: Path,
@@ -277,6 +348,7 @@ def _save_comparison_toml(
         }
         if values:
             payload[spec.field_name] = values
+    payload["iterations_to_tolerance"] = _iterations_to_tolerance_table(result)
     with open(output_path, "wb") as fh:
         tomli_w.dump(payload, fh)
 

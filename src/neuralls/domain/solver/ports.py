@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Protocol, runtime_checkable
 
-from neuralls.domain.solver.models.result import ComparisonResult
+from neuralls.domain.solver.models.result import ComparisonResult, GroupAggregated
 
 
 @runtime_checkable
@@ -37,4 +37,19 @@ class CostRecorder(Protocol):
             child_run_tags: Per-preconditioner nested-run tags, keyed by
                 preconditioner name.
         """
+        ...
+
+
+class GroupReportSink(Protocol):
+    """Receives one aggregated comparison group and records it.
+
+    The composition layer decides *which* groups produce a projection; the
+    sink decides *where* it goes (MLflow metrics plus plot and TOML artifacts
+    today, `platform/tracking/comparison_tracking.py`'s `MLflowGroupReportSink`).
+    Only ever called when there is a projection to record, so an implementation
+    may assume a destination (e.g. an open MLflow run) exists.
+    """
+
+    def report(self, outcome: GroupAggregated, *, title: str) -> None:
+        """Record `outcome`'s projection and per-system points, headed by `title`."""
         ...

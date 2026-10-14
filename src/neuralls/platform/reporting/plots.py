@@ -631,6 +631,34 @@ def plot_work_precision(
         plt.close(fig)
 
 
+def _method_wall_times(result: CGComparisonResult, n_points: int) -> list[float]:
+    """Time axis, in seconds on the method's *own* clock, for an `n_points` history.
+
+    Every method is timed from its own start: generation + setup is the offset
+    at which its first history point sits, and the solve is spread uniformly
+    over the remaining intervals. Methods are never chained one after another,
+    so a curve's position depends only on that method's cost, not on the order
+    methods happened to run in.
+
+    A history holds the initial value plus one entry per iteration
+    (`n_points = iterations + 1`), so the solve covers `n_points - 1` intervals
+    and the last point lands exactly on generation + setup + solve — the same
+    total that the work-precision plot places this method at.
+
+    Uniform spacing is an assumption: per-iteration wall time is not recorded,
+    so an iteration-varying preconditioner is drawn smoothed.
+    """
+    offset = result.setup_cost
+    if (
+        result.generation_cost is not None
+        and result.generation_cost.provenance is not CostProvenance.UNAVAILABLE
+    ):
+        offset += result.generation_cost.wall_time_seconds
+    solve = result.solve_time_seconds or 0.0
+    n_intervals = max(n_points - 1, 1)
+    return [offset + solve * i / n_intervals for i in range(n_points)]
+
+
 def plot_residual_vs_time(
     results: Mapping[str, CGComparisonResult],
     labels: Mapping[str, str] | None = None,
@@ -648,8 +676,9 @@ def plot_residual_vs_time(
     decreases as actual wall time accumulates (generation + setup + solve).
     Accounts for setup cost overhead and per-iteration speed variation.
 
-    Assumes uniform time distribution across solve iterations; cumulative time
-    starts at (generation + setup) and increases linearly during solve phase.
+    Each method is drawn on its own clock (see ``_method_wall_times``): its
+    curve starts at (generation + setup) and increases linearly through the
+    solve, ending at the method's total time. Methods are not chained.
 
     Args:
         results: Dictionary of method results.
@@ -675,17 +704,7 @@ def plot_residual_vs_time(
         if len(residuals) == 0:
             continue
 
-        # Compute cumulative wall time: setup/generation overhead, then solve iterations
-        setup_overhead = result.setup_cost
-        if (
-            result.generation_cost is not None
-            and result.generation_cost.provenance is not CostProvenance.UNAVAILABLE
-        ):
-            setup_overhead += result.generation_cost.wall_time_seconds
-
-        # Time per iteration (assume uniform distribution)
-        time_per_iter = result.solve_time_seconds / len(residuals) if len(residuals) > 0 else 0.0
-        wall_times = [setup_overhead + i * time_per_iter for i in range(len(residuals))]
+        wall_times = _method_wall_times(result, len(residuals))
 
         display_name = labels.get(method_name, method_name)
         style = dict(line_styles.get(method_name, {"marker": "o", "linestyle": "-", "color": None}))
@@ -737,8 +756,9 @@ def plot_error_vs_time(
     (relative energy norm ||e||_A / ||e_0||_A) decreases as wall time accumulates.
     Only plots methods with available error_history_a_rel.
 
-    Assumes uniform time distribution across solve iterations; cumulative time
-    starts at (generation + setup) and increases linearly during solve phase.
+    Each method is drawn on its own clock (see ``_method_wall_times``): its
+    curve starts at (generation + setup) and increases linearly through the
+    solve, ending at the method's total time. Methods are not chained.
 
     Args:
         results: Dictionary of method results.
@@ -766,17 +786,7 @@ def plot_error_vs_time(
         if len(errors) == 0:
             continue
 
-        # Compute cumulative wall time: setup/generation overhead, then solve iterations
-        setup_overhead = result.setup_cost
-        if (
-            result.generation_cost is not None
-            and result.generation_cost.provenance is not CostProvenance.UNAVAILABLE
-        ):
-            setup_overhead += result.generation_cost.wall_time_seconds
-
-        # Time per iteration (assume uniform distribution)
-        time_per_iter = result.solve_time_seconds / len(errors) if len(errors) > 0 else 0.0
-        wall_times = [setup_overhead + i * time_per_iter for i in range(len(errors))]
+        wall_times = _method_wall_times(result, len(errors))
 
         display_name = labels.get(method_name, method_name)
         style = dict(line_styles.get(method_name, {"marker": "o", "linestyle": "-", "color": None}))
@@ -1419,6 +1429,12 @@ def plot_projected_scaling_law(
     linear y-axis so that flattening reads as a real visual effect, not
     compressed away by a log scale.
 
+    The shaded band is ±1 sample standard deviation of the *per-system solve
+    time* around each curve: the spread of a single system's cost, not a
+    confidence interval of the mean. The curve is a model extrapolated from
+    the measured systems (assuming they are representative draws), not a
+    measurement at N.
+
     Args:
         projected: One ``ProjectedComparisonResult`` per preconditioner name,
             as ``domain.solver.comparison.aggregate_projected_results`` returns.
@@ -1438,6 +1454,16 @@ def plot_projected_scaling_law(
     for (name, result), color in zip(sorted(projected.items()), colors, strict=False):
         y_values = [result.projected_avg_per_system_seconds(int(n)) for n in n_values]
         ax.plot(n_values, y_values, label=name, color=color, linewidth=1.8)
+        if result.solve_time_std_seconds is not None:
+            spread = np.asarray(y_values)
+            ax.fill_between(
+                n_values,
+                np.maximum(spread - result.solve_time_std_seconds, 0.0),
+                spread + result.solve_time_std_seconds,
+                color=color,
+                alpha=0.12,
+                linewidth=0,
+            )
 
     ax.set_xscale("log")
     ax.set_xlabel("Number of systems (N)", fontsize=12)
@@ -1453,6 +1479,66 @@ def plot_projected_scaling_law(
         save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=200, bbox_inches="tight")
         logger.info(f"Saved projected scaling-law plot to: {save_path}")
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+def plot_system_time_scatter(
+    time_by_system: Mapping[str, Mapping[str, float]],
+    *,
+    save_path: Path | None = None,
+    show: bool = False,
+    title: str | None = None,
+) -> None:
+    """Per-system time-to-solution, one marker per (system, preconditioner).
+
+    The individual points behind each preconditioner's group mean, so the
+    spread a mean hides is visible (the per-instance scatter learned-
+    preconditioner papers use). Systems sit on the x-axis in the order they
+    are given; y is log-scaled wall time (generation + setup + solve).
+
+    Args:
+        time_by_system: Preconditioner name -> {system id -> seconds}.
+        save_path: Path to save the figure; parent directories are created.
+        show: Whether to call ``plt.show()``.
+        title: Optional title for the plot.
+    """
+    system_ids = list(
+        dict.fromkeys(sid for per_system in time_by_system.values() for sid in per_system)
+    )
+    position = {system_id: index for index, system_id in enumerate(system_ids)}
+
+    fig, ax = plt.subplots(figsize=(max(6.0, 0.7 * len(system_ids) + 3.0), 5))
+    colors = matplotlib.colormaps["Set1"](np.linspace(0, 0.9, max(len(time_by_system), 1)))
+    for (name, per_system), color in zip(sorted(time_by_system.items()), colors, strict=False):
+        ax.scatter(
+            [position[sid] for sid in per_system],
+            list(per_system.values()),
+            label=name,
+            color=color,
+            s=36,
+            edgecolors="black",
+            linewidths=0.4,
+        )
+
+    ax.set_yscale("log")
+    ax.set_xticks(range(len(system_ids)), system_ids, rotation=45, ha="right", fontsize=8)
+    ax.set_xlabel("System")
+    ax.set_ylabel("Time to solution: generation + setup + solve [s]")
+    ax.set_title(title or "Per-system time to solution", fontsize=13, fontweight="bold")
+    ax.grid(True, axis="y", which="both", alpha=0.3)
+    if time_by_system:
+        ax.legend(loc="best", fontsize=9)
+    fig.tight_layout()
+
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
+        logger.info(f"Saved per-system time scatter to: {save_path}")
 
     if show:
         plt.show()
