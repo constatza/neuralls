@@ -33,7 +33,8 @@ def run_case_pipeline(
     reuse check) and recomparing (stage 3, via its checkpoint-dependency reuse
     check) exactly the affected assignments/comparisons, without invoking
     three separate commands by hand. Training and comparisons are each
-    skipped entirely when the case config declares none — a case config may
+    skipped entirely when the case config declares no `[[comparisons]]` or
+    `[[comparison_sweeps]]` — a case config may
     legitimately declare only `[[comparisons]]` with preconditioners inline
     in `comparison_baseline` (e.g. POD-2G weighting variants that need the
     matrix at fit time, which a checkpoint-backed `fit` job can't provide).
@@ -68,7 +69,7 @@ def run_case_pipeline(
         )
         assignment_results = sweep_result.results
 
-    if not cfg.comparisons:
+    if not cfg.comparisons and not cfg.comparison_sweeps:
         return assignment_results, []
 
     # Training and comparison run in this same process with no allocator

@@ -21,10 +21,15 @@ class _PipelineMocks:
 
 
 def _patch_pipeline(
-    stack: ExitStack, *, has_comparisons: bool, has_assignments: bool = True
+    stack: ExitStack,
+    *,
+    has_comparisons: bool,
+    has_assignments: bool = True,
+    has_sweeps: bool = False,
 ) -> _PipelineMocks:
     cfg = MagicMock(
         comparisons=(MagicMock(),) if has_comparisons else (),
+        comparison_sweeps=(MagicMock(),) if has_sweeps else (),
         assignments=(MagicMock(),) if has_assignments else (),
     )
     stack.enter_context(
@@ -72,6 +77,17 @@ def test_skips_comparison_batch_when_case_config_declares_none(tmp_path: Path) -
     mocks.compare.assert_not_called()
     assert assignment_results == ["assignment-result"]
     assert comparison_outcomes == []
+
+
+def test_runs_comparison_batch_when_case_config_declares_only_sweeps(tmp_path: Path) -> None:
+    case_config_path = tmp_path / "case.toml"
+    settings = MagicMock()
+    with ExitStack() as stack:
+        mocks = _patch_pipeline(stack, has_comparisons=False, has_sweeps=True)
+        _, comparison_outcomes = run_case_pipeline(case_config_path, settings)
+
+    mocks.compare.assert_called_once()
+    assert comparison_outcomes == ["comparison-outcome"]
 
 
 def test_skips_assignment_sweep_when_case_config_declares_none(tmp_path: Path) -> None:
@@ -147,7 +163,7 @@ def test_run_case_pipeline_calls_generate_batch_as_an_explicit_stage(
         ),
         patch(
             "neuralls.composition.assignments.case_pipeline.load_validated_case_config",
-            return_value=(MagicMock(comparisons=()), tmp_path),
+            return_value=(MagicMock(comparisons=(), comparison_sweeps=()), tmp_path),
         ),
         patch(
             "neuralls.composition.assignments.case_pipeline.generate_batch",

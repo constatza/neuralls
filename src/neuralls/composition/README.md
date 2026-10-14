@@ -550,7 +550,7 @@ orchestrator itself:
    favor of this shared function.
 3. **Compare** — `assignments/comparison_batch.py::run_comparison_batch()`,
    also called directly by `neuralls compare`, only when the case config
-   declares `[[comparisons]]`.
+   declares `[[comparisons]]` or `[[comparison_sweeps]]`.
 
 All three stages, and every fit-job child within the training sweep, run
 sequentially in one process with no CUDA context reset between them —
