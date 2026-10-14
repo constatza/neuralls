@@ -23,7 +23,6 @@ from neuralls.domain.solver.models.result import (
     ProjectedComparisonResult,
     StageCost,
 )
-from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
 from neuralls.shared.types import CostProvenance
 
 DEFAULT_LINE_MARKER_SIZE = 2.0
@@ -331,7 +330,7 @@ def _assign_axis(keys: Mapping[str, Hashable], palette: Sequence[Any]) -> dict[s
 
 
 def _resolve_styles(
-    families: Mapping[str, PreconditionerFamilyKey],
+    families: Mapping[str, Hashable],
     color_keys: Mapping[str, Hashable] | None,
     marker_keys: Mapping[str, Hashable] | None,
 ) -> dict[str, dict[str, Any]]:
@@ -399,7 +398,7 @@ def plot_convergence_comparison(
     rtol: float | None = None,
     atol: float | None = None,
     max_iterations: int | None = None,
-    families: Mapping[str, PreconditionerFamilyKey] | None = None,
+    families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
     marker_size: float = DEFAULT_LINE_MARKER_SIZE,
@@ -547,7 +546,7 @@ def plot_work_precision(
     results: Mapping[str, CGComparisonResult],
     *,
     labels: Mapping[str, str] | None = None,
-    families: Mapping[str, PreconditionerFamilyKey] | None = None,
+    families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
     save_path: str | Path | None = None,
@@ -662,7 +661,7 @@ def _method_wall_times(result: CGComparisonResult, n_points: int) -> list[float]
 def plot_residual_vs_time(
     results: Mapping[str, CGComparisonResult],
     labels: Mapping[str, str] | None = None,
-    families: Mapping[str, PreconditionerFamilyKey] | None = None,
+    families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
     save_path: str | Path | None = None,
@@ -742,7 +741,7 @@ def plot_residual_vs_time(
 def plot_error_vs_time(
     results: Mapping[str, CGComparisonResult],
     labels: Mapping[str, str] | None = None,
-    families: Mapping[str, PreconditionerFamilyKey] | None = None,
+    families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
     save_path: str | Path | None = None,
@@ -1408,6 +1407,70 @@ def plot_metric_comparison(
         plt.close(fig)
 
 
+_STD_BAND_LABEL = "±1σ over systems"
+"""Legend text for the shaded per-system spread band of the scaling-law plot."""
+
+_STD_BAND_ALPHA = 0.12
+_SCALING_MARKER_COUNT = 8
+"""Markers drawn along each 200-point scaling curve, so the marker identifies
+the series in the legend without turning the line into a dotted trail."""
+
+
+def _group_series_styles(
+    names: Sequence[str],
+    families: Mapping[str, Hashable] | None,
+    color_keys: Mapping[str, Hashable] | None,
+    marker_keys: Mapping[str, Hashable] | None,
+) -> dict[str, dict[str, Any]]:
+    """Resolve per-preconditioner styles for the group-level (cross-system) plots.
+
+    Uses the same resolution as ``plot_convergence_comparison`` so a
+    preconditioner keeps one colour and marker across every comparison plot.
+    Without ``families`` each name is its own family: still Okabe-Ito and
+    distinct, just not shared with the convergence plots.
+
+    Args:
+        names: Preconditioner names to style, in legend order.
+        families: Optional family per name (as the convergence plots receive).
+        color_keys: Optional colour-axis key per name.
+        marker_keys: Optional marker-axis key per name.
+
+    Returns:
+        dict[str, dict[str, Any]]: Name -> style with ``marker``, ``linestyle``,
+        ``color`` and ``markersize_scale``.
+    """
+    effective_families = families if families else {name: name for name in names}
+    return _resolve_styles(effective_families, color_keys, marker_keys)
+
+
+def _finish_group_figure(
+    fig: Any,
+    ax: Any,
+    *,
+    title: str,
+    subtitle: str | None,
+    save_path: Path | None,
+    show: bool,
+    saved_message: str,
+) -> None:
+    """Title, save and close/show a group-level figure (shared by both plots)."""
+    fig.suptitle(title, fontsize=13, fontweight="bold")
+    if subtitle:
+        ax.set_title(subtitle, fontsize=9)
+    fig.tight_layout()
+
+    if save_path is not None:
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
+        logger.info(f"{saved_message}: {save_path}")
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
 def plot_projected_scaling_law(
     projected: Mapping[str, ProjectedComparisonResult],
     *,
@@ -1415,12 +1478,17 @@ def plot_projected_scaling_law(
     save_path: Path | None = None,
     show: bool = False,
     title: str | None = None,
+    subtitle: str | None = None,
+    labels: Mapping[str, str] | None = None,
+    families: Mapping[str, Hashable] | None = None,
+    color_keys: Mapping[str, Hashable] | None = None,
+    marker_keys: Mapping[str, Hashable] | None = None,
 ) -> None:
     """Plot each preconditioner's projected average cost per system against N.
 
     Extrapolates ``ProjectedComparisonResult.projected_avg_per_system_seconds``
     from 1 to ``n_max`` systems — this is a closed-form projection from the
-    systems a comparison sweep actually ran (5-7 in practice), never a plot
+    systems a comparison sweep actually ran, never a plot
     of N systems actually executed. A preconditioner whose one-time costs
     amortize (``setup_sharing.share_setup``/``share_generation``) shows its
     curve visibly flattening toward the pure-solve floor as N grows; one
@@ -1431,59 +1499,80 @@ def plot_projected_scaling_law(
 
     The shaded band is ±1 sample standard deviation of the *per-system solve
     time* around each curve: the spread of a single system's cost, not a
-    confidence interval of the mean. The curve is a model extrapolated from
-    the measured systems (assuming they are representative draws), not a
-    measurement at N.
+    confidence interval of the mean. It only exists for a preconditioner
+    measured on at least two systems; a single-system series draws no band.
+    The curve is a model extrapolated from the measured systems (assuming
+    they are representative draws), not a measurement at N.
 
     Args:
         projected: One ``ProjectedComparisonResult`` per preconditioner name,
-            as ``domain.solver.comparison.aggregate_projected_results`` returns.
+            as ``domain.solver.metrics_table.report_level`` returns.
         n_max: Largest N to extrapolate to (log-spaced x-axis from 1 to this).
         save_path: Path to save the figure. Parent directories are created
             automatically if they do not exist.
         show: Whether to call ``plt.show()`` (disabled by default for
             headless / batch use).
         title: Optional title for the plot.
+        subtitle: Optional small-font line under the title.
+        labels: Optional display label per preconditioner name (falls back to
+            the name). The legend appends the number of systems measured.
+        families: Optional family per name; see ``plot_convergence_comparison``.
+        color_keys: Optional colour-axis key per name.
+        marker_keys: Optional marker-axis key per name.
     """
     n_values = np.unique(np.round(np.geomspace(1, n_max, num=200)).astype(int))
+    labels = labels or {}
+    names = sorted(projected)
+    styles = _group_series_styles(names, families, color_keys, marker_keys)
 
     fig, ax = plt.subplots(figsize=(7, 5))
-    colormap = matplotlib.colormaps["Set1"]
-    colors = colormap(np.linspace(0, 0.9, max(len(projected), 1)))
+    has_band = False
 
-    for (name, result), color in zip(sorted(projected.items()), colors, strict=False):
+    for name in names:
+        result = projected[name]
+        style = dict(styles[name])
+        size_scale = style.pop("markersize_scale", 1.0)
         y_values = [result.projected_avg_per_system_seconds(int(n)) for n in n_values]
-        ax.plot(n_values, y_values, label=name, color=color, linewidth=1.8)
+        ax.plot(
+            n_values,
+            y_values,
+            label=f"{labels.get(name, name)} (n={result.n_systems})",
+            linewidth=1.8,
+            markersize=5 * size_scale,
+            markevery=max(len(n_values) // _SCALING_MARKER_COUNT, 1),
+            **style,
+        )
         if result.solve_time_std_seconds is not None:
+            has_band = True
             spread = np.asarray(y_values)
             ax.fill_between(
                 n_values,
                 np.maximum(spread - result.solve_time_std_seconds, 0.0),
                 spread + result.solve_time_std_seconds,
-                color=color,
-                alpha=0.12,
+                color=style["color"],
+                alpha=_STD_BAND_ALPHA,
                 linewidth=0,
             )
 
     ax.set_xscale("log")
     ax.set_xlabel("Number of systems (N)", fontsize=12)
     ax.set_ylabel("Projected avg. cost per system (s)", fontsize=12)
-    ax.set_title(title or "Projected cost per system vs. N", fontsize=13, fontweight="bold")
     ax.grid(True, alpha=0.3)
     if projected:
-        ax.legend(loc="upper right", fontsize=9)
-    fig.tight_layout()
-
-    if save_path is not None:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=200, bbox_inches="tight")
-        logger.info(f"Saved projected scaling-law plot to: {save_path}")
-
-    if show:
-        plt.show()
-    else:
-        plt.close(fig)
+        handles, texts = ax.get_legend_handles_labels()
+        if has_band:
+            handles.append(matplotlib.patches.Patch(color="gray", alpha=_STD_BAND_ALPHA * 2))
+            texts.append(_STD_BAND_LABEL)
+        ax.legend(handles, texts, loc="upper right", fontsize=9)
+    _finish_group_figure(
+        fig,
+        ax,
+        title=title or "Projected cost per system vs. N",
+        subtitle=subtitle,
+        save_path=save_path,
+        show=show,
+        saved_message="Saved projected scaling-law plot to",
+    )
 
 
 def plot_system_time_scatter(
@@ -1492,6 +1581,12 @@ def plot_system_time_scatter(
     save_path: Path | None = None,
     show: bool = False,
     title: str | None = None,
+    subtitle: str | None = None,
+    labels: Mapping[str, str] | None = None,
+    system_labels: Mapping[str, str] | None = None,
+    families: Mapping[str, Hashable] | None = None,
+    color_keys: Mapping[str, Hashable] | None = None,
+    marker_keys: Mapping[str, Hashable] | None = None,
 ) -> None:
     """Per-system time-to-solution, one marker per (system, preconditioner).
 
@@ -1505,45 +1600,61 @@ def plot_system_time_scatter(
         save_path: Path to save the figure; parent directories are created.
         show: Whether to call ``plt.show()``.
         title: Optional title for the plot.
+        subtitle: Optional small-font line under the title.
+        labels: Optional display label per preconditioner name (falls back to
+            the name). The legend appends the number of systems plotted.
+        system_labels: Optional short x tick label per system id (falls back
+            to the id).
+        families: Optional family per name; see ``plot_convergence_comparison``.
+        color_keys: Optional colour-axis key per name.
+        marker_keys: Optional marker-axis key per name.
     """
+    labels = labels or {}
+    system_labels = system_labels or {}
+    names = sorted(time_by_system)
+    styles = _group_series_styles(names, families, color_keys, marker_keys)
     system_ids = list(
         dict.fromkeys(sid for per_system in time_by_system.values() for sid in per_system)
     )
     position = {system_id: index for index, system_id in enumerate(system_ids)}
 
     fig, ax = plt.subplots(figsize=(max(6.0, 0.7 * len(system_ids) + 3.0), 5))
-    colors = matplotlib.colormaps["Set1"](np.linspace(0, 0.9, max(len(time_by_system), 1)))
-    for (name, per_system), color in zip(sorted(time_by_system.items()), colors, strict=False):
+    for name in names:
+        per_system = time_by_system[name]
+        style = styles[name]
         ax.scatter(
             [position[sid] for sid in per_system],
             list(per_system.values()),
-            label=name,
-            color=color,
-            s=36,
+            label=f"{labels.get(name, name)} (n={len(per_system)})",
+            color=style["color"],
+            marker=style["marker"],
+            s=36 * style["markersize_scale"],
             edgecolors="black",
             linewidths=0.4,
         )
 
     ax.set_yscale("log")
-    ax.set_xticks(range(len(system_ids)), system_ids, rotation=45, ha="right", fontsize=8)
+    ax.set_xticks(
+        range(len(system_ids)),
+        [system_labels.get(sid, sid) for sid in system_ids],
+        rotation=45,
+        ha="right",
+        fontsize=8,
+    )
     ax.set_xlabel("System")
     ax.set_ylabel("Time to solution: generation + setup + solve [s]")
-    ax.set_title(title or "Per-system time to solution", fontsize=13, fontweight="bold")
     ax.grid(True, axis="y", which="both", alpha=0.3)
     if time_by_system:
         ax.legend(loc="best", fontsize=9)
-    fig.tight_layout()
-
-    if save_path is not None:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=200, bbox_inches="tight")
-        logger.info(f"Saved per-system time scatter to: {save_path}")
-
-    if show:
-        plt.show()
-    else:
-        plt.close(fig)
+    _finish_group_figure(
+        fig,
+        ax,
+        title=title or "Per-system time to solution",
+        subtitle=subtitle,
+        save_path=save_path,
+        show=show,
+        saved_message="Saved per-system time scatter to",
+    )
 
 
 _TIME_BREAKDOWN_UNAVAILABLE_HATCH = "///"

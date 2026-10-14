@@ -95,6 +95,39 @@ def _select_rhs_sample(arr: np.ndarray, rhs_sample_index: int, source_path: Path
     return arr[rhs_sample_index].reshape(-1)
 
 
+def _load_array_file(path: Path, *, mmap: bool = False) -> np.ndarray:
+    """Read one external ``.npy`` or text array; `mmap` avoids loading a whole ``.npy`` into memory."""
+    match path.suffix:
+        case ".npy":
+            return (
+                np.load(path, mmap_mode="r")
+                if mmap
+                else np.load(path).astype(np.float64, copy=False)
+            )
+        case ".npz":
+            raise ValueError(
+                f"NPZ inputs are no longer supported ({path}). Use dataset directories or .npy files."
+            )
+        case _:
+            return np.loadtxt(path, dtype=np.float64)
+
+
+def external_vector_length(path: Path, sample_index: int) -> int:
+    """Length of the vector `load_system_arrays` would select from the external file `path`.
+
+    Applies the same flatten and row-selection rules, so it also raises
+    `IndexError` for an out-of-range `sample_index`, but memory-maps ``.npy``
+    files so a preflight check never loads a large multi-RHS array.
+    """
+    arr = _flatten_rhs_if_needed(_load_array_file(Path(path), mmap=True), Path(path))
+    return int(_select_rhs_sample(arr, sample_index, Path(path)).shape[0])
+
+
+def matrix_file_order(matrix_path: Path) -> int:
+    """Order of a square matrix stored as a standalone file (a dataset directory has `system_dimension`)."""
+    return int(_load_array_file(Path(matrix_path), mmap=True).shape[-1])
+
+
 def load_system_arrays(
     matrix_path: Path,
     rhs_path: Path | None = None,
@@ -114,15 +147,7 @@ def load_system_arrays(
                 return load_matrix_dense_sample(path, sample_index=matrix_index)
             rhs, _ = load_dense_training_arrays(path)
             return np.asarray(rhs, dtype=np.float64)
-        match path.suffix:
-            case ".npy":
-                return np.load(path).astype(np.float64, copy=False)
-            case ".npz":
-                raise ValueError(
-                    f"NPZ inputs are no longer supported ({path}). Use dataset directories or .npy files."
-                )
-            case _:
-                return np.loadtxt(path, dtype=np.float64)
+        return _load_array_file(path)
 
     A = _load_array(matrix_path, "matrix")
     b_raw = _load_array(rhs_path, "rhs")

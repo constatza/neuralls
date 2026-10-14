@@ -19,20 +19,19 @@ from neuralls.domain.solver.utils.validation import (
     validate_matrix,
     validate_rhs_vector,
 )
+from neuralls.platform.config.models.comparison import RHS_SOURCE_MODEL_BY_KIND
 from neuralls.platform.storage.comparison import load_system_arrays
 from neuralls.platform.storage.manifest import DatasetNormalization
 from neuralls.shared.types import ComparisonRhsSourceKind, SystemMatrix
 
-# RHS sources that are independently configured (a user-chosen magnitude, or an
-# explicit sparse pattern) rather than derived from any raw/normalized matrix.
-# These must never be touched by a matrix-derived scale, fresh or persisted.
-_SYNTHETIC_RHS_KINDS = frozenset(
-    {
-        ComparisonRhsSourceKind.GAUSSIAN,
-        ComparisonRhsSourceKind.SPARSE,
-        ComparisonRhsSourceKind.SINUSOIDAL,
-    }
-)
+
+def _rhs_is_generated(rhs_source_kind: ComparisonRhsSourceKind | None) -> bool:
+    """Whether the RHS is synthesized from its own parameters rather than derived from data.
+
+    A generated RHS has a user-chosen magnitude, so a matrix-derived scale,
+    fresh or persisted, must never touch it.
+    """
+    return rhs_source_kind is not None and RHS_SOURCE_MODEL_BY_KIND[rhs_source_kind].generated
 
 
 def _self_normalize_rhs(rhs: np.ndarray) -> np.ndarray:
@@ -52,14 +51,14 @@ def _apply_fresh_matrix_scale(
     """Normalize a genuinely raw matrix, computing one shared scale for both sides.
 
     The same freshly-computed scale is applied to the matrix and (unless the
-    RHS is independently configured) to the RHS — never two independently
+    RHS is generated) to the RHS — never two independently
     derived scale values combined on the two sides of ``Ax = b``.
     """
     scale = create_scale_from_config("matrix", matrix)
     if scale is None:
         return matrix, rhs
     scaled_matrix = scale.scale_matrix(matrix)
-    if rhs_source_kind in _SYNTHETIC_RHS_KINDS:
+    if _rhs_is_generated(rhs_source_kind):
         return scaled_matrix, rhs
     return scaled_matrix, scale.scale_rhs(rhs)
 
@@ -81,7 +80,7 @@ def _apply_persisted_matrix_scale(
       generation time — untouched.
     - RAW_LHS-sourced RHS was just derived as ``cfg.scale * matrix @ lhs``
       from this exact (already-normalized) matrix — untouched.
-    - GAUSSIAN/SPARSE RHS is independently configured — untouched.
+    - A generated RHS is independently configured — untouched.
     - RAW_RHS is a genuinely raw external vector with no associated x — scaled
       exactly once by the persisted scale to bring it into the matrix's units.
     """

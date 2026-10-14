@@ -165,7 +165,6 @@ def test_comparison_auto_id_when_same_datasets(
     config = CaseConfig.model_validate(raw)
     assert config.comparisons[0].id == "gaussian-cg0-45x15-gaussian"
     assert config.comparisons[0].display_name == "Gaussian CG-1 45x15 | gaussian"
-    assert config.comparisons[0].matrix_index == 0
 
 
 def test_comparison_auto_id_when_different_datasets(
@@ -176,7 +175,7 @@ def test_comparison_auto_id_when_different_datasets(
     raw["comparisons"] = [
         {
             "matrix_dataset": "gaussian-cg0-45x15",
-            "rhs_source": {"kind": "dataset", "path": "/fake/solutions"},
+            "rhs_source": {"kind": "dataset"},
             "assignments": ["ffnn-standard-gaussian-cg0-45x15"],
             # no id, no display_name
         }
@@ -220,31 +219,6 @@ def test_explicit_id_and_display_name_preserved(
 
     assert config.comparisons[0].id == "my-comp"
     assert config.comparisons[0].display_name == "My Comparison"
-
-
-def test_comparison_explicit_indices_are_preserved(
-    minimal_case_raw: dict[str, object],
-) -> None:
-    """Comparison entries keep explicit matrix and RHS-source sample indices."""
-    from neuralls.platform.config.models.comparison import DatasetRhsSourceModel
-
-    raw = dict(minimal_case_raw)
-    raw["assignments"] = [{"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard"}]
-    raw["comparisons"] = [
-        {
-            "matrix_dataset": "gaussian-cg0-45x15",
-            "matrix_index": 3,
-            "rhs_source": {
-                "kind": "dataset",
-                "path": "/fake/gaussian-cg0-45x15",
-                "sample_index": 7,
-            },
-        }
-    ]
-    config = CaseConfig.model_validate(raw)
-    assert config.comparisons[0].matrix_index == 3
-    assert isinstance(config.comparisons[0].rhs_source, DatasetRhsSourceModel)
-    assert config.comparisons[0].rhs_source.sample_index == 7
 
 
 def test_comparison_rejects_removed_train_run_id(
@@ -333,7 +307,7 @@ def test_comparison_display_name_ignores_assignment_filter_for_parent_name(
     raw["comparisons"] = [
         {
             "matrix_dataset": "gaussian-cg0-45x15",
-            "rhs_source": {"kind": "dataset", "path": "/fake/solutions"},
+            "rhs_source": {"kind": "dataset"},
             "assignments": ["ffnn-standard-gaussian-cg0-45x15"],
         }
     ]

@@ -17,6 +17,7 @@ from neuralls.composition.comparison._linear_system import _load_linear_system
 from neuralls.composition.comparison.models import ComparisonPaths
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
 
@@ -58,13 +59,14 @@ def test_dataset_sourced_comparison_recovers_true_solution(tmp_path: Path) -> No
     """DATASET-sourced comparison must not double-normalize RHS."""
     dataset_dir = _build_normalized_dataset(tmp_path)
     resolved = resolve_comparison_input(
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
         matrix_path=dataset_dir,
         matrix_dataset_id="norm-dataset",
-        matrix_index=None,
+        matrix_index=0,
         require_non_residual_rhs=True,
         seed=1,
         rhs_source_kind=ComparisonRhsSourceKind.DATASET,
-        rhs_source_params={"path": dataset_dir},
+        rhs_source_params={"sample_index": 0},
     )
     assert resolved.matrix_normalization is not None
     assert resolved.matrix_normalization.type == "matrix"
@@ -85,13 +87,14 @@ def test_dataset_sourced_comparison_matches_no_renormalization(tmp_path: Path) -
     """A matching normalize_system must be an exact no-op vs 'none'."""
     dataset_dir = _build_normalized_dataset(tmp_path)
     resolved = resolve_comparison_input(
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
         matrix_path=dataset_dir,
         matrix_dataset_id="norm-dataset",
-        matrix_index=None,
+        matrix_index=0,
         require_non_residual_rhs=True,
         seed=1,
         rhs_source_kind=ComparisonRhsSourceKind.DATASET,
-        rhs_source_params={"path": dataset_dir},
+        rhs_source_params={"sample_index": 0},
     )
 
     system_matrix = _load_linear_system(
@@ -121,13 +124,14 @@ def test_normalize_system_mismatch_raises(tmp_path: Path) -> None:
     manifest_path.write_text(json.dumps(manifest))
 
     resolved = resolve_comparison_input(
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
         matrix_path=dataset_dir,
         matrix_dataset_id="norm-dataset",
-        matrix_index=None,
+        matrix_index=0,
         require_non_residual_rhs=True,
         seed=1,
         rhs_source_kind=ComparisonRhsSourceKind.DATASET,
-        rhs_source_params={"path": dataset_dir},
+        rhs_source_params={"sample_index": 0},
     )
     assert resolved.matrix_normalization is not None
     assert resolved.matrix_normalization.type == "diagonal"
@@ -146,6 +150,7 @@ def test_gaussian_rhs_never_rescaled_by_matrix_normalization(tmp_path: Path) -> 
     """A synthetic GAUSSIAN RHS is independently configured — never touched by matrix scale."""
     dataset_dir = _build_normalized_dataset(tmp_path)
     resolved = resolve_comparison_input(
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
         matrix_path=dataset_dir,
         matrix_dataset_id="norm-dataset",
         matrix_index=0,
@@ -180,9 +185,10 @@ def test_raw_lhs_source_satisfies_ax_equals_b(tmp_path: Path) -> None:
     np.save(raw_matrix_path, raw_matrix)
 
     resolved_raw = resolve_comparison_input(
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
         matrix_path=raw_matrix_path,
         matrix_dataset_id="raw-matrix",
-        matrix_index=None,
+        matrix_index=0,
         require_non_residual_rhs=True,
         seed=None,
         rhs_source_kind=ComparisonRhsSourceKind.RAW_LHS,
@@ -201,6 +207,7 @@ def test_raw_lhs_source_satisfies_ax_equals_b(tmp_path: Path) -> None:
     # Case 2: dataset-sourced matrix (already normalized) — matrix/rhs untouched.
     dataset_dir = _build_normalized_dataset(tmp_path)
     resolved_dataset = resolve_comparison_input(
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
         matrix_path=dataset_dir,
         matrix_dataset_id="norm-dataset",
         matrix_index=0,

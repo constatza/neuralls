@@ -16,8 +16,8 @@ from neuralls.composition.comparison._generation_cost import resolve_generation_
 from neuralls.composition.comparison._linear_system import _load_linear_system
 from neuralls.composition.comparison._plots import _generate_comparison_plots
 from neuralls.composition.comparison._preconditioner_setup import (
-    GroupPreconditionerCache,
     PreconditionerService,
+    SystemPreconditionerCache,
     _create_scheduled_preconditioners,
     _load_and_bind_extra_inputs,
 )
@@ -39,6 +39,8 @@ from neuralls.domain.solver.models.result import (
     CGComparisonResult,
     ComparisonRecommendations,
     ComparisonResult,
+    PreconditionerPlotStyle,
+    plot_style_maps,
 )
 from neuralls.platform.config.models.comparison import ComparisonGeneral
 from neuralls.platform.config.models.preconditioner import (
@@ -47,10 +49,7 @@ from neuralls.platform.config.models.preconditioner import (
     PODCoarseningConfig,
     PreconditionerConfig,
 )
-from neuralls.platform.config.models.preconditioner_family import (
-    PreconditionerFamilyKey,
-    preconditioner_family,
-)
+from neuralls.platform.config.models.preconditioner_family import preconditioner_family
 from neuralls.platform.config.resolution import resolve_user_path
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.preconditioner_labels import (
@@ -145,7 +144,7 @@ def _evaluate_preconditioner(
     display_name: str | None = None,
     x_exact: torch.Tensor | None = None,
     settings: NeurallsSettings,
-    cache: GroupPreconditionerCache | None = None,
+    cache: SystemPreconditionerCache | None = None,
     notation_policy: NotationPolicy | None = None,
 ) -> PreconditionerComparisonEntry:
     """Build one preconditioner, run it, and package its evaluation outcome.
@@ -154,7 +153,7 @@ def _evaluate_preconditioner(
     checkpoint) is only referenced by locals in this call — it goes out of scope
     on return, so the caller's loop never holds more than one model at a time.
     Exception: a preconditioner `cache` stores reuses it across sibling calls
-    (see `GroupPreconditionerCache`), by design — the caller owns that
+    (see `SystemPreconditionerCache`), by design — the caller owns that
     cache's lifetime, scoped to the whole sweep group, not to this call.
 
     Args:
@@ -172,7 +171,7 @@ def _evaluate_preconditioner(
             directory feeding this preconditioner's generation cost.
         cache: Optional per-sweep-group cache letting a preconditioner built
             for an earlier sibling system be reused here instead of rebuilt,
-            when doing so is provably valid (see `GroupPreconditionerCache`).
+            when doing so is provably valid (see `SystemPreconditionerCache`).
             `None` (the default) means every call builds fresh, unchanged
             from before this parameter existed.
         notation_policy: Render target and symbol overrides for the display name
@@ -244,7 +243,7 @@ def _run_preconditioner(
     marker_key: str | None,
     x_exact: torch.Tensor | None = None,
     settings: NeurallsSettings,
-    cache: GroupPreconditionerCache | None = None,
+    cache: SystemPreconditionerCache | None = None,
     notation_policy: NotationPolicy | None = None,
 ) -> PreconditionerComparisonEntry:
     """Build and solve one preconditioner; raises on any failure.
@@ -394,7 +393,7 @@ def compare_preconditioners(
     resolved_input: ResolvedComparisonInput | None = None,
     evaluation_mapper: PreconditionerEvaluationMapper = map,
     settings: NeurallsSettings,
-    cache: GroupPreconditionerCache | None = None,
+    cache: SystemPreconditionerCache | None = None,
     notation_policy: NotationPolicy | None = None,
 ) -> ComparisonResult:
     """Run CG comparisons and generate diagnostics.
@@ -433,7 +432,7 @@ def compare_preconditioners(
         cache: Optional per-sweep-group cache letting each preconditioner
             built here be reused by a later sibling system's call to this
             same function, when doing so is provably valid (see
-            ``GroupPreconditionerCache``). ``None`` (the default) means
+            ``SystemPreconditionerCache``). ``None`` (the default) means
             every call builds every preconditioner fresh, unchanged from
             before this parameter existed — only a sweep-aware caller
             passes a real cache, scoped to its own sweep group.
@@ -462,9 +461,7 @@ def compare_preconditioners(
     comparison_context = build_comparison_source_context(paths, resolved_input)
     logger.info("Comparison: {} | device={}", comparison_context, solver_device)
 
-    resolved_matrix_index = (
-        general_params.data.matrix_index if general_params.data.matrix_index is not None else 0
-    )
+    resolved_matrix_index = general_params.data.matrix_index
 
     system = _load_linear_system(
         paths,
@@ -502,10 +499,7 @@ def compare_preconditioners(
     )
 
     results: dict[str, CGComparisonResult] = {}
-    labels: dict[str, str] = {}
-    families: dict[str, PreconditionerFamilyKey] = {}
-    color_keys: dict[str, str] = {}
-    marker_keys: dict[str, str] = {}
+    plot_styles: dict[str, PreconditionerPlotStyle] = {}
     for entry in evaluation_mapper(evaluate_one, preconditioner_configs):
         if entry.name not in expected_keys:
             raise RuntimeError(
@@ -522,12 +516,12 @@ def compare_preconditioners(
                 f"{entry.result.preconditioner!r}."
             )
         results[entry.name] = entry.result
-        labels[entry.name] = entry.label
-        families[entry.name] = entry.family
-        if entry.color_key is not None:
-            color_keys[entry.name] = entry.color_key
-        if entry.marker_key is not None:
-            marker_keys[entry.name] = entry.marker_key
+        plot_styles[entry.name] = PreconditionerPlotStyle(
+            label=entry.label,
+            family=entry.family,
+            color_key=entry.color_key,
+            marker_key=entry.marker_key,
+        )
 
     missing_keys = tuple(key for key in expected_keys if key not in results)
     if missing_keys:
@@ -537,14 +531,15 @@ def compare_preconditioners(
 
     recommendations = ComparisonRecommendations()
 
+    style = plot_style_maps(plot_styles)
     plot_paths = _generate_comparison_plots(
         results,
         paths,
-        labels,
+        style.labels,
         comparison_context=comparison_context,
-        families=families,
-        color_keys=color_keys,
-        marker_keys=marker_keys,
+        families=style.families,
+        color_keys=style.color_keys,
+        marker_keys=style.marker_keys,
         system_size=int(matrix.shape[0]),
         rtol=general_params.params.rtol,
         atol=general_params.params.atol,
@@ -562,4 +557,5 @@ def compare_preconditioners(
         matrix_shape=(matrix.shape[0], matrix.shape[1]),
         rhs_shape=tuple(rhs.shape),
         rhs_source_kind=resolved_input.rhs_source_kind if resolved_input is not None else None,
+        plot_styles=plot_styles,
     )

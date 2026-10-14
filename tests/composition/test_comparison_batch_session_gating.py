@@ -13,21 +13,27 @@ import contextlib
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from neuralls.composition.assignments.comparison_batch import (
     ResolvedComparisonSpecs,
     _ComparisonResolutionContext,
     _PreparedComparisonExecution,
     run_comparison_batch,
 )
-from neuralls.composition.comparison.models import ComparisonOutcome, ComparisonParams
+from neuralls.composition.comparison.models import (
+    ComparisonOutcome,
+    ComparisonParams,
+    PlannedSystem,
+)
 from neuralls.domain.identity import StageIdentity
-from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.shared.digest import canonical_digest
 from tests.workflows.test_comparison_workflow import _mock_cfg, _write_experiments_config
 
 _MLFLOW_MODULE = "neuralls.composition.assignments.comparison_batch.mlflow"
 
 
+@pytest.mark.usefixtures("stub_input_gate", "stub_planning")
 def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
     tmp_path: Path,
 ) -> None:
@@ -36,14 +42,14 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
 
     def _fake_prepare_entry(
         cfg: object,
-        entry: ComparisonRegistryEntry,
+        planned: PlannedSystem,
         context: object,
         *,
         force: bool = False,
     ) -> ComparisonOutcome:
         return ComparisonOutcome(
-            comparison_id=entry.id,
-            comparison_display_name=entry.effective_display_name,
+            comparison_id=planned.entry.id,
+            comparison_display_name=planned.entry.effective_display_name,
             success=True,
         )
 
@@ -56,10 +62,6 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
             "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
             return_value=_mock_cfg(),
         ),
-        patch(
-            "neuralls.composition.comparison.groups.list_available_matrix_indices",
-            return_value=(0,),
-        ),
         patch(_MLFLOW_MODULE) as mock_mlflow,
     ):
         outcomes = run_comparison_batch(experiments_config, ComparisonParams())
@@ -68,6 +70,7 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
     mock_mlflow.start_run.assert_not_called()
 
 
+@pytest.mark.usefixtures("stub_input_gate", "stub_planning")
 def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
     tmp_path: Path,
 ) -> None:
@@ -76,24 +79,26 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
 
     def _fake_prepare_entry(
         cfg: object,
-        entry: ComparisonRegistryEntry,
+        planned: PlannedSystem,
         context: _ComparisonResolutionContext,
         *,
         force: bool = False,
     ) -> ComparisonOutcome | _PreparedComparisonExecution:
-        if entry.id == "a":
+        if planned.entry.id == "a":
             return ComparisonOutcome(
-                comparison_id=entry.id,
-                comparison_display_name=entry.effective_display_name,
+                comparison_id=planned.entry.id,
+                comparison_display_name=planned.entry.effective_display_name,
                 success=True,
             )
         return _PreparedComparisonExecution(
             cfg=cfg,
-            entry=entry,
+            planned=planned,
             topology=context.topology,
             cleanup=contextlib.ExitStack(),
             resolved=ResolvedComparisonSpecs(specs=[], warnings=(), checkpoint_digests={}),
-            identity=StageIdentity.build("comparison", {"entry": canonical_digest(entry.id)}),
+            identity=StageIdentity.build(
+                "comparison", {"entry": canonical_digest(planned.entry.id)}
+            ),
             settings=context.settings,
         )
 
@@ -105,10 +110,6 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
         patch(
             "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
             return_value=_mock_cfg(),
-        ),
-        patch(
-            "neuralls.composition.comparison.groups.list_available_matrix_indices",
-            return_value=(0,),
         ),
         patch(
             "neuralls.composition.assignments.comparison_batch._execute_prepared_comparison",

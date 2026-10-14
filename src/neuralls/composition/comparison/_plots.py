@@ -11,7 +11,6 @@ from typing import cast
 from neuralls.composition.comparison._presentation import build_comparison_plot_title
 from neuralls.composition.comparison.models import ComparisonPaths
 from neuralls.domain.solver.models.result import COST_FIELD_REGISTRY, CGComparisonResult, PlotPaths
-from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
 from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
     plot_error_convergence_comparison,
@@ -23,7 +22,7 @@ from neuralls.platform.reporting.plots import (
 )
 
 
-def _unique_display_labels(
+def unique_display_labels(
     result_keys: Mapping[str, object], labels: Mapping[str, str]
 ) -> dict[str, str]:
     """Keep friendly labels, suffixing only collisions with their stable result key."""
@@ -57,12 +56,14 @@ COST_PLOT_STYLE: Mapping[str, CostPlotStyle] = {
 """Presentation of each `COST_FIELD_REGISTRY` entry, keyed by its `field_name`."""
 
 
+# TODO(urgent): Inject a narrow reporter from the I/O shell so comparison planning and
+# orchestration can run without constructing output paths or rendering plot files.
 def _generate_comparison_plots(
     results: dict[str, CGComparisonResult],
     paths: ComparisonPaths,
     labels: Mapping[str, str],
     comparison_context: str,
-    families: Mapping[str, PreconditionerFamilyKey] | None = None,
+    families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
     system_size: int | None = None,
@@ -99,7 +100,7 @@ def _generate_comparison_plots(
         ``None``) if no result in this comparison has that metric measured.
     """
     suffix = paths.matrix.stem or "comparison"
-    labels = _unique_display_labels(results, labels)
+    labels = unique_display_labels(results, labels)
     families = families or {}
     color_keys = color_keys or {}
     marker_keys = marker_keys or {}
@@ -245,7 +246,7 @@ def _plot_error_vs_time_optional(
     labels: Mapping[str, str],
     save_path: Path,
     *,
-    families: Mapping[str, PreconditionerFamilyKey] | None = None,
+    families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
     title: str | None = None,

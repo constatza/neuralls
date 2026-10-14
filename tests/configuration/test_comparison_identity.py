@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from neuralls.composition.identity.comparison import comparison_identity
-from neuralls.platform.config.models.comparison import ComparisonConfig
+from neuralls.platform.config.models.comparison import ComparisonConfig, RandomMask
 from neuralls.shared.digest import canonical_digest
 from tests.configuration.conftest import ComparisonFactory
 
@@ -36,8 +36,18 @@ def test_identical_config_gives_the_same_key(
         {"ic0_threshold": 0.5},
         {"pod_rank": 8},
         {"rhs_std": 2.0},
+        {"rhs_mask": RandomMask(density=0.1)},
+        {"rhs_mask": RandomMask(density=0.2)},
     ],
-    ids=["rtol", "max_iterations", "static-preconditioner-param", "pod-rank", "rhs-source"],
+    ids=[
+        "rtol",
+        "max_iterations",
+        "static-preconditioner-param",
+        "pod-rank",
+        "rhs-source",
+        "rhs-mask",
+        "rhs-mask-density",
+    ],
 )
 def test_result_determining_settings_change_the_key(
     baseline: ComparisonConfig, make_comparison: ComparisonFactory, override: dict[str, object]
@@ -81,3 +91,9 @@ def test_static_only_comparison_is_keyed_too(make_comparison: ComparisonFactory)
     a = make_comparison(rtol=1e-8)
     b = make_comparison(rtol=1e-7)
     assert comparison_identity(a, (), {}).key != comparison_identity(b, (), {}).key
+
+
+def test_two_mask_densities_have_different_keys(make_comparison: ComparisonFactory) -> None:
+    assert _key(make_comparison(rhs_mask=RandomMask(density=0.1))) != _key(
+        make_comparison(rhs_mask=RandomMask(density=0.2))
+    )

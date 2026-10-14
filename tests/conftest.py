@@ -372,3 +372,57 @@ def sparse_id_dataset(tmp_path: Path) -> Path:
     matrix id 5 and rows 2-3 hold matrix id 9; neither id is a valid row.
     """
     return _build_diag_matrix_dataset(tmp_path / "multi", (5, 9), rows=4)
+
+
+@pytest.fixture
+def single_matrix_dataset(tmp_path: Path) -> Path:
+    """One matrix (id 7) with four right-hand-side rows."""
+    return _build_diag_matrix_dataset(tmp_path / "single", (7,), rows=4)
+
+
+@pytest.fixture
+def pin_test_fold() -> Callable[[Path, tuple[int, ...]], None]:
+    """Write a `split.json` holding out the given rows, as generation would."""
+    from dlkit.infrastructure.io.index import save_split_indices
+    from dlkit.infrastructure.types.split import IndexSplit
+
+    def _pin(dataset_dir: Path, test_rows: tuple[int, ...]) -> None:
+        save_split_indices(
+            IndexSplit(train=(), validation=(), test=test_rows, predict=None),
+            dataset_dir / "split.json",
+        )
+
+    return _pin
+
+
+@pytest.fixture
+def larger_single_matrix_dataset(tmp_path: Path) -> Path:
+    """A single-matrix dataset of 3x3 systems, to pair with the 2x2 fixtures."""
+    return _build_diag_matrix_dataset(tmp_path / "larger", (3,), rows=4, dimension=3)
+
+
+@pytest.fixture
+def stub_planning(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plan every `[[comparisons]]` entry onto a shared matrix without reading any dataset.
+
+    For batch tests that drive orchestration with mocked configs and have no
+    generated dataset for the planner to classify; planning has its own tests.
+    """
+    from neuralls.composition.comparison.models import MatrixRef, PlannedSystem
+    from neuralls.domain.solver.models.provenance import SharedSingleMatrix
+    from neuralls.platform.config.models.experiments import CaseConfig
+    from neuralls.shared.types import MatrixId
+
+    def _plan(case_cfg: CaseConfig, *_args: object) -> tuple[PlannedSystem, ...]:
+        return tuple(
+            PlannedSystem(
+                entry=entry,
+                matrix=MatrixRef(matrix_id=MatrixId(0), row=0),
+                rhs_row=None,
+                rhs_ordinal=0,
+                provenance=SharedSingleMatrix(raw_matrix_index=0),
+            )
+            for entry in case_cfg.comparisons
+        )
+
+    monkeypatch.setattr("neuralls.composition.assignments.comparison_batch.plan_comparisons", _plan)

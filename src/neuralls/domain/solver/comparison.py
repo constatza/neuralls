@@ -8,7 +8,6 @@ for iteration-varying or non-SPD ones) — plus result formatting and analysis.
 
 from __future__ import annotations
 
-import statistics
 from collections.abc import Mapping, Sequence
 from enum import StrEnum
 
@@ -27,21 +26,31 @@ from neuralls.domain.solver.error_metrics import (
     reference_solution,
     relative_exact_error,
 )
+from neuralls.domain.solver.metrics_table import (
+    ReportLevel,
+    SystemTag,
+    build_metrics_frame,
+    label_for_tags,
+    label_key,
+    report_key,
+    report_level,
+    system_counts,
+    time_to_solution,
+    time_to_solution_by_system,
+)
 from neuralls.domain.solver.models.result import (
     CGComparisonResult,
     ComparisonGroupOutcome,
     ComparisonRecommendations,
     GroupAggregated,
-    GroupBelowMinimumSize,
     GroupSkippedAllCacheHit,
-    ProjectedComparisonResult,
     RankedRecommendation,
     SetupSharingPolicy,
+    render_group_id,
 )
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
 from neuralls.shared.device import release_device_memory, repeat_timed
 from neuralls.shared.timing import TimingRepeatPolicy
-from neuralls.shared.types import CostProvenance, GroupId
 
 
 class CGAlgorithm(StrEnum):
@@ -361,11 +370,6 @@ def _format_result_line(name: str, result: CGComparisonResult) -> str:
     return line
 
 
-def _time_to_solution(info: CGComparisonResult) -> float | None:
-    """Total time, or `None` when an unavailable cost makes it incomparable."""
-    return None if info.has_unavailable_cost else info.total_time_seconds
-
-
 def summarize_best_combinations(
     results: dict[str, CGComparisonResult],
 ) -> ComparisonRecommendations:
@@ -391,7 +395,7 @@ def summarize_best_combinations(
                 residual=info.residual,
                 residual_abs=info.residual_abs,
                 breakdown=info.breakdown,
-                total_time_seconds=_time_to_solution(info),
+                total_time_seconds=time_to_solution(info),
             )
             for label, info in results.items()
             if info.converged
@@ -408,157 +412,66 @@ def summarize_best_combinations(
     )
 
 
-def aggregate_projected_results(
-    results_by_system: Mapping[str, dict[str, CGComparisonResult]],
+def classify_level(
+    planned: Sequence[SystemTag],
+    results_by_system: Mapping[SystemTag, Mapping[str, CGComparisonResult]],
     sharing_by_name: Mapping[str, SetupSharingPolicy],
-) -> dict[str, ProjectedComparisonResult]:
-    """Aggregate sibling systems' results into one scaling-law projection per preconditioner.
+    level: ReportLevel,
+) -> tuple[ComparisonGroupOutcome, ...]:
+    """Reduce one report level to a closed outcome per report group.
 
-    Pure aggregation over results a comparison sweep already produced — never
-    runs anything itself. Groups by preconditioner name across
-    `results_by_system`'s sibling systems (each one a single system's
-    `dict[str, CGComparisonResult]`, as `ComparisonOutcome.payload.results`
-    already shapes it), then reduces each group with `sharing_by_name`'s
-    pre-computed policy for that preconditioner — the sharing decision
-    itself needs the live `torchalg.Preconditioner` object (to check
-    `isinstance(precond, StaticSetupPreconditioner)`), which no longer
-    exists by aggregation time, so the execution layer computes it while
-    building/solving and passes it in here.
+    Pure: ``planned`` names every system of the case, ``results_by_system``
+    only those that produced results this run (cache hits and failures carry
+    none). A group with at least one measured system is aggregated; one with
+    none is `GroupSkippedAllCacheHit`. A group of a single system is still
+    reported (without a spread); the only statistical control is the
+    per-system timing repeat policy.
 
     Args:
-        results_by_system: One `dict[str, CGComparisonResult]` per sibling
-            system actually run (5-7 in practice, never N), keyed by
-            anything stable (e.g. the system's `comparison_id`) — only the
-            values are used.
-        sharing_by_name: Each preconditioner name's `SetupSharingPolicy`,
-            computed by the execution layer during this same sweep.
+        planned: Tag of every planned system, in plan order.
+        results_by_system: Results of each system that produced some this run.
+        sharing_by_name: Each preconditioner name's `SetupSharingPolicy`.
+        level: Which columns, besides the preconditioner, key the groups.
 
     Returns:
-        One `ProjectedComparisonResult` per preconditioner name present in
-        every system's results.
+        One outcome per group of ``planned`` at ``level``, in first-seen order.
 
     Raises:
-        KeyError: If a preconditioner name present in `results_by_system`
-            has no entry in `sharing_by_name`.
+        KeyError: If a measured preconditioner has no entry in ``sharing_by_name``.
     """
-    grouped: dict[str, list[CGComparisonResult]] = {}
-    for system_results in results_by_system.values():
-        for name, result in system_results.items():
-            grouped.setdefault(name, []).append(result)
+    frame = build_metrics_frame(results_by_system)
+    projected_by_label = report_level(frame, level, sharing_by_name) if frame.height else {}
+    times_by_label = time_to_solution_by_system(frame, level) if frame.height else {}
+    counts_by_label = system_counts(frame, level) if frame.height else {}
+    measured = {label_key(label): label for label in projected_by_label}
 
-    return {
-        name: _aggregate_one_preconditioner(name, group, sharing_by_name[name])
-        for name, group in grouped.items()
-    }
+    tags_by_key: dict[tuple[str, ...], list[SystemTag]] = {}
+    for tag in planned:
+        tags_by_key.setdefault(report_key(level, tag), []).append(tag)
 
-
-def _aggregate_one_preconditioner(
-    name: str,
-    results: list[CGComparisonResult],
-    sharing: SetupSharingPolicy,
-) -> ProjectedComparisonResult:
-    """Reduce one preconditioner's sibling results into its projection.
-
-    A `generation_cost` with `CostProvenance.UNAVAILABLE` is excluded from
-    the sum rather than counted as its (fake, near-zero) reported value —
-    same treatment `CGComparisonResult.total_time_seconds` already gives an
-    unavailable cost, so an unknown cost never silently reads as zero here
-    either. In practice every sibling shares the same provenance (same
-    config, same dataset manifest lookup), so this never actually mixes
-    real and unavailable values within one preconditioner's group.
-
-    Args:
-        name: Preconditioner name shared by every result in `results`.
-        results: One `CGComparisonResult` per sibling system.
-        sharing: This preconditioner's pre-computed sharing policy.
-
-    Returns:
-        ProjectedComparisonResult: The aggregated projection.
-    """
-    real_generation_values = [
-        result.generation_cost.wall_time_seconds
-        for result in results
-        if result.generation_cost is not None
-        and result.generation_cost.provenance is not CostProvenance.UNAVAILABLE
-    ]
-    solve_times = [result.solve_time_seconds or 0.0 for result in results]
-    iterations = [result.iterations for result in results]
-    return ProjectedComparisonResult(
-        preconditioner_name=name,
-        n_systems=len(results),
-        setup_sharing=sharing,
-        setup_cost_total_seconds=sum(result.setup_cost for result in results),
-        generation_cost_total_seconds=(
-            sum(real_generation_values) if real_generation_values else None
-        ),
-        total_solve_time_seconds=sum(solve_times),
-        total_iterations=sum(iterations),
-        solve_time_std_seconds=_sample_std(solve_times),
-        iterations_std=_sample_std(iterations),
-    )
-
-
-def _sample_std(values: Sequence[float]) -> float | None:
-    """Sample standard deviation (ddof=1), or `None` for fewer than two values."""
-    return statistics.stdev(values) if len(values) >= 2 else None
-
-
-def classify_group_aggregation(
-    group_id: GroupId,
-    n_in_group: int,
-    results_by_system: Mapping[str, dict[str, CGComparisonResult]],
-    sharing_by_name: Mapping[str, SetupSharingPolicy],
-    *,
-    min_size: int,
-) -> ComparisonGroupOutcome:
-    """Classify one comparison group's aggregation attempt as a closed outcome.
-
-    Pure: takes already-filtered real results (callers drop cache hits,
-    which carry no `CGComparisonResult`) plus the group's total member
-    count, and decides which case applies — no MLflow or composition-layer
-    types involved.
-
-    Args:
-        group_id: The `ComparisonGroup` being classified.
-        n_in_group: Total members in the group (including any cache hits).
-        results_by_system: One `dict[str, CGComparisonResult]` per member
-            that actually produced a result this run — fewer than
-            `n_in_group` when some members were cache hits.
-        sharing_by_name: Each preconditioner name's `SetupSharingPolicy`.
-        min_size: Fewest contributing members a projection needs.
-
-    Returns:
-        `GroupSkippedAllCacheHit` if nothing was measured this run,
-        `GroupBelowMinimumSize` if fewer than `min_size` members contributed,
-        else `GroupAggregated`.
-    """
-    n_aggregated = len(results_by_system)
-    if n_aggregated == 0:
-        return GroupSkippedAllCacheHit(group_id=group_id, n_in_group=n_in_group)
-    if n_aggregated < min_size:
-        return GroupBelowMinimumSize(
-            group_id=group_id,
-            n_aggregated=n_aggregated,
-            n_in_group=n_in_group,
-            min_size=min_size,
+    outcomes: list[ComparisonGroupOutcome] = []
+    for key, tags in tags_by_key.items():
+        label = measured.get(key)
+        if label is None:
+            skipped_label = label_for_tags(level, tags)
+            outcomes.append(
+                GroupSkippedAllCacheHit(
+                    group_id=render_group_id(skipped_label),
+                    label=skipped_label,
+                    n_in_group=len(tags),
+                )
+            )
+            continue
+        counts = counts_by_label[label]
+        outcomes.append(
+            GroupAggregated(
+                group_id=render_group_id(label),
+                label=label,
+                projected=projected_by_label[label],
+                n_aggregated=counts.n_systems,
+                n_matrices=counts.n_matrices,
+                n_in_group=len(tags),
+                time_to_solution_by_system=times_by_label.get(label, {}),
+            )
         )
-    return GroupAggregated(
-        group_id=group_id,
-        projected=aggregate_projected_results(results_by_system, sharing_by_name),
-        n_aggregated=n_aggregated,
-        n_in_group=n_in_group,
-        time_to_solution_by_system=_time_to_solution_by_system(results_by_system),
-    )
-
-
-def _time_to_solution_by_system(
-    results_by_system: Mapping[str, dict[str, CGComparisonResult]],
-) -> dict[str, dict[str, float]]:
-    """Each preconditioner's per-system time-to-solution, omitting incomparable ones."""
-    by_name: dict[str, dict[str, float]] = {}
-    for system_id, system_results in results_by_system.items():
-        for name, result in system_results.items():
-            seconds = _time_to_solution(result)
-            if seconds is not None:
-                by_name.setdefault(name, {})[system_id] = seconds
-    return by_name
+    return tuple(outcomes)

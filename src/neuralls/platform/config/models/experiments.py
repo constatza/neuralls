@@ -226,21 +226,21 @@ class ComparisonBaseline(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class _ComparisonDataBinding(BaseModel):
+class ComparisonDataBinding(BaseModel):
     """Fields shared by every comparison data-binding entry, sweep or not.
 
-    Both ``ComparisonRegistryEntry`` (one fixed comparison) and
-    ``ComparisonSweepEntry`` (many comparisons expanded from one pinned-split
-    sweep) describe the same data binding — which matrix dataset, which RHS
+    Both ``ComparisonRegistryEntry`` (single-matrix dataset) and
+    ``ComparisonSweepEntry`` (multi-matrix dataset) describe the same data binding — which matrix dataset, which RHS
     source, which method override, which assignments to compare. Sharing this
     base keeps those fields from drifting apart between the two shapes.
 
     Attributes:
         matrix_dataset: Dataset id (from ``[[datasets]]``) used as the test matrix.
         method: Optional path to a comparison TOML that overrides defaults.
-        rhs_source: RHS source specification (`gaussian`, `sparse`, raw file, or `dataset`).
+        rhs_source: RHS source specification (`gaussian`, `sinusoidal`, raw file, or `dataset`), each optionally masked.
+        rhs_count: How many RHS draws to solve per matrix.
         require_non_residual_rhs: Reject RHS rows flagged as solver-internal residuals.
-        seed: Optional selection seed forwarded to RHS/sample resolution.
+        seed: Optional base seed; each planned system derives its own RHS seed from it.
         assignments: Optional assignment id filter; empty means all assignments.
         display_name: Optional human-facing label.
     """
@@ -248,6 +248,7 @@ class _ComparisonDataBinding(BaseModel):
     matrix_dataset: str
     method: Path | None = None
     rhs_source: ComparisonRhsSourceModel
+    rhs_count: int = Field(default=1, ge=1)
     require_non_residual_rhs: bool = True
     seed: int | None = None
     assignments: list[str] = Field(default_factory=list)
@@ -274,53 +275,32 @@ class _ComparisonDataBinding(BaseModel):
         return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
 
 
-class ComparisonRegistryEntry(_ComparisonDataBinding):
+class ComparisonRegistryEntry(ComparisonDataBinding):
     """Comparison registry entry: data binding + optional methodology override.
 
     The test matrix and RHS are identified by dataset IDs from the case
     ``[[datasets]]`` registry.  Solver parameters and the base preconditioner
     list are inherited from ``[comparison_baseline]`` unless a ``method`` file
-    is given to override them.
+    is given to override them. The dataset must hold a single matrix (see
+    ``ComparisonSweepEntry`` for multi-matrix datasets).
 
     Attributes:
         id: Stable comparison identifier.
-        matrix_index: Matrix sample index when the dataset stores multiple matrices.
-            Defaults to 0. Mutually exclusive with `test_position`.
-        test_position: 0-indexed position within the dataset's pinned
-            `split.json` test fold. Resolves to a concrete matrix/row index at
-            runtime, guaranteed never to resolve to a training sample.
-            Mutually exclusive with `matrix_index`.
     """
 
     id: str = Field(..., min_length=1)
-    matrix_index: int = 0
-    test_position: int | None = None
-
-    @model_validator(mode="after")
-    def _check_matrix_index_test_position_exclusivity(self) -> ComparisonRegistryEntry:
-        """Raise when both matrix_index and test_position are explicitly set."""
-        fields_set = self.model_fields_set
-        if "matrix_index" in fields_set and "test_position" in fields_set:
-            raise ValueError(
-                "matrix_index and test_position are mutually exclusive: "
-                "use one or the other, not both."
-            )
-        return self
 
     @property
     def effective_display_name(self) -> str:
         """Return the configured label or fall back to the id."""
         return resolve_display_name(self.id, self.display_name)
 
-    @model_validator(mode="after")
-    def _validate_rhs_source(self) -> ComparisonRegistryEntry:
-        if self.matrix_index < 0:
-            raise ValueError("matrix_index must be non-negative when provided.")
-        return self
-
 
 class FractionSelector(BaseModel):
-    """Randomly sample a fraction of a dataset's pinned test fold."""
+    """Randomly sample a fraction of a dataset's held-out matrices.
+
+    ``p = 1.0`` selects every held-out matrix.
+    """
 
     kind: Literal["fraction"] = "fraction"
     p: float = Field(..., gt=0.0, le=1.0)
@@ -329,16 +309,8 @@ class FractionSelector(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class AllSelector(BaseModel):
-    """Address every position in a dataset's pinned test fold."""
-
-    kind: Literal["all"] = "all"
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
 class FirstNSelector(BaseModel):
-    """Address the first ``n`` positions of a dataset's pinned test fold."""
+    """Select the first ``n`` held-out matrices of a dataset, in ascending matrix-id order."""
 
     kind: Literal["first_n"] = "first_n"
     n: int = Field(..., gt=0)
@@ -346,46 +318,24 @@ class FirstNSelector(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class SubsetSelector(BaseModel):
-    """Address an explicit, caller-chosen set of test-fold positions.
-
-    Positions are validated only for non-negativity here; whether a position
-    is in range for a given dataset's test fold is known only once that
-    dataset is resolved, so an out-of-range position surfaces at expansion
-    time the same way a single `test_position` already does.
-    """
-
-    kind: Literal["subset"] = "subset"
-    positions: list[int]
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    @field_validator("positions")
-    @classmethod
-    def _validate_non_negative(cls, v: list[int]) -> list[int]:
-        negative = [p for p in v if p < 0]
-        if negative:
-            raise ValueError(f"SubsetSelector positions must be non-negative, got: {negative}.")
-        return v
-
-
 type TestSetSelector = Annotated[
-    FractionSelector | AllSelector | FirstNSelector | SubsetSelector,
+    FractionSelector | FirstNSelector,
     Field(discriminator="kind"),
 ]
 
 
-class ComparisonSweepEntry(_ComparisonDataBinding):
-    """One pinned-split sweep, expanded into many ``ComparisonRegistryEntry`` objects.
+class ComparisonSweepEntry(ComparisonDataBinding):
+    """One sweep over a multi-matrix dataset's held-out matrices.
 
-    Unlike a fixed ``ComparisonRegistryEntry``, a sweep entry never names a
-    concrete position itself — ``selector`` resolves it per expansion, against
-    whichever dataset's pinned test fold ``matrix_dataset`` identifies.
+    A sweep entry never names a matrix itself — ``selector`` chooses among the
+    matrices of whichever dataset's pinned test fold ``matrix_dataset``
+    identifies, and the planner expands the entry into one system per
+    (selected matrix, RHS draw).
 
     Attributes:
-        selector: Which test-fold positions this sweep expands into.
-        id_prefix: Stem used to build each expanded entry's id, as
-            ``f"{id_prefix}-{position}"``.
+        selector: Which held-out matrices this sweep covers.
+        id_prefix: Stem used to build each planned system's id, as
+            ``f"{id_prefix}-{matrix_id}"`` (plus ``-{k}`` when ``rhs_count > 1``).
     """
 
     selector: TestSetSelector
@@ -547,6 +497,11 @@ class CaseConfig(BaseModel):
             rhs_source = comp_dict.get("rhs_source")
             rhs_kind = rhs_source.get("kind") if isinstance(rhs_source, dict) else None
             rhs_id = str(rhs_kind or "")
+            # A masked source is a different problem from the unmasked one of the
+            # same kind, so entries declaring both must not collide on one id.
+            mask = rhs_source.get("mask") if isinstance(rhs_source, dict) else None
+            if isinstance(mask, dict) and mask.get("kind") != "none":
+                rhs_id = f"{rhs_id}-masked"
             raw_id = comp_dict.get("id")
             raw_dn = comp_dict.get("display_name")
             user_id = str(raw_id).strip() if isinstance(raw_id, str) else None

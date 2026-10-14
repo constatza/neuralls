@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from abc import abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
@@ -24,12 +26,14 @@ from neuralls.platform.config.models.presentation import ScientificLabelsConfig
 from neuralls.shared.constants import (
     DEFAULT_ATOL,
     DEFAULT_M_MAX,
+    DEFAULT_RHS_MASK_DENSITY,
     DEFAULT_RTOL,
+    MAX_RHS_MASK_DENSITY,
 )
 from neuralls.shared.digest import Cosmetic, InputData
 from neuralls.shared.scientific_description import NotationPolicy
 from neuralls.shared.timing import TimingRepeatPolicy
-from neuralls.shared.types import RowKind
+from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
 type NormalizeSystem = Literal["none", "matrix", "rhs", "both"]
 
@@ -67,7 +71,6 @@ class ComparisonDataModel(BaseModel):
 
     matrix_path: Annotated[Path | None, Cosmetic()] = None
     rhs_path: Annotated[Path | None, Cosmetic()] = None
-    matrix_index: int = 0
     dataset_alias: str | None = None
     normalize_system: NormalizeSystem = "matrix"
     require_non_residual_rhs: bool = True
@@ -91,33 +94,107 @@ class _ComparisonGeneralModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class GaussianRhsSourceModel(BaseModel):
+class NoMask(BaseModel):
+    """Keep every entry of the RHS."""
+
+    kind: Literal["none"] = "none"
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @property
+    def seeded(self) -> bool:
+        return False
+
+    @property
+    def label_suffix(self) -> str:
+        return ""
+
+
+class RandomMask(BaseModel):
+    """Zero all but a random subset of the RHS entries.
+
+    ``density`` is the fraction of entries kept. It is capped at one half so a
+    "sparse" system stays sparse, and is strictly positive because an all-zero
+    RHS has the trivial solution.
+    """
+
+    kind: Literal["random"] = "random"
+    density: float = Field(default=DEFAULT_RHS_MASK_DENSITY, gt=0.0, le=MAX_RHS_MASK_DENSITY)
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @property
+    def seeded(self) -> bool:
+        return True
+
+    @property
+    def label_suffix(self) -> str:
+        return f" · mask ρ={self.density:g}"
+
+
+type RhsMask = Annotated[NoMask | RandomMask, Field(discriminator="kind")]
+
+
+class RhsSourceModelBase(BaseModel):
+    """Common shape of every comparison RHS source.
+
+    The three class-level traits are the single place a kind's behaviour is
+    declared, so the planner, the normalization step and the report tables read
+    them instead of keeping their own lists of kinds. A new source needs one
+    model (declaring its traits) and one handler.
+    """
+
+    generated: ClassVar[bool]
+    """The vector is synthesized from the source's parameters, so it is never
+    rescaled by a matrix-derived normalization scale."""
+    seeded: ClassVar[bool]
+    """The vector consumes the per-system derived seed, so each of the
+    ``rhs_count`` draws needs its own."""
+    single_draw: ClassVar[bool]
+    """The source yields one fixed vector, so ``rhs_count`` must be 1."""
+
+    mask: RhsMask = NoMask()
+    """Applied to the RHS after the source produced it, uniformly for every kind."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @property
+    @abstractmethod
+    def base_label(self) -> str:
+        """Short, stable, human-readable label of the kind and the parameters that make problems differ."""
+
+    @property
+    def recipe_label(self) -> str:
+        """`base_label` plus the mask, so masked and unmasked runs of one kind are separate recipes."""
+        return self.base_label + self.mask.label_suffix
+
+    @property
+    def needs_own_seed(self) -> bool:
+        """Whether each of the ``rhs_count`` draws needs its own derived seed.
+
+        A random mask consumes the seed even for sources that do not, so
+        the draws of a masked dataset source get different supports.
+        """
+        return self.seeded or self.mask.seeded
+
+
+class GaussianRhsSourceModel(RhsSourceModelBase):
     """Direct Gaussian RHS source for comparison workflows."""
+
+    generated: ClassVar[bool] = True
+    seeded: ClassVar[bool] = True
+    single_draw: ClassVar[bool] = False
 
     kind: Literal["gaussian"] = "gaussian"
     mean: float = 0.0
     std: float = Field(default=1.0, gt=0.0)
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    @property
+    def base_label(self) -> str:
+        if (self.mean, self.std) == (0.0, 1.0):
+            return ComparisonRhsSourceKind.GAUSSIAN.value
+        return f"{ComparisonRhsSourceKind.GAUSSIAN}[μ={self.mean:g}, σ={self.std:g}]"
 
 
-class SparseRhsSourceModel(BaseModel):
-    """Direct sparse RHS source for comparison workflows."""
-
-    kind: Literal["sparse"] = "sparse"
-    indices: list[int]
-    values: list[float]
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    @model_validator(mode="after")
-    def _validate_lengths(self) -> SparseRhsSourceModel:
-        if len(self.indices) != len(self.values):
-            raise ValueError("Sparse RHS source requires indices and values of equal length.")
-        return self
-
-
-class SinusoidalRhsSourceModel(BaseModel):
+class SinusoidalRhsSourceModel(RhsSourceModelBase):
     """Direct sinusoidal RHS source for comparison workflows: sin(omega/n * i + phi).
 
     omega is normalized by the vector length n (see
@@ -126,10 +203,16 @@ class SinusoidalRhsSourceModel(BaseModel):
     independent of the system size.
     """
 
+    generated: ClassVar[bool] = True
+    seeded: ClassVar[bool] = True
+    single_draw: ClassVar[bool] = False
+
     kind: Literal["sinusoidal"] = "sinusoidal"
     omega: float = Field(gt=0.0)
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    @property
+    def base_label(self) -> str:
+        return f"{ComparisonRhsSourceKind.SINUSOIDAL} ω={self.omega:.6g}"
 
 
 def _parse_row_kind(value: object) -> RowKind | None:
@@ -146,15 +229,17 @@ def _parse_row_kind(value: object) -> RowKind | None:
     raise ValueError(f"Unsupported row_kind value: {value!r}")
 
 
-class _RawVectorSourceBase(BaseModel):
+class RawVectorSourceBase(RhsSourceModelBase):
     """Shared fields for concrete raw vector comparison sources."""
+
+    generated: ClassVar[bool] = False
+    seeded: ClassVar[bool] = False
+    single_draw: ClassVar[bool] = True
 
     path: Annotated[Path, InputData()]
     sample_index: int = Field(default=0, ge=0)
     row_kind: RowKind | None = None
     scale: float = 1.0
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     @field_validator("path", mode="before")
     @classmethod
@@ -171,69 +256,68 @@ class _RawVectorSourceBase(BaseModel):
         return _parse_row_kind(v)
 
 
-class RawLhsSourceModel(_RawVectorSourceBase):
+class RawLhsSourceModel(RawVectorSourceBase):
     """Load a raw solution-side vector and convert it to RHS with A @ vector."""
 
     kind: Literal["raw_lhs"] = "raw_lhs"
 
+    @property
+    def base_label(self) -> str:
+        return ComparisonRhsSourceKind.RAW_LHS.value
 
-class RawRhsSourceModel(_RawVectorSourceBase):
+
+class RawRhsSourceModel(RawVectorSourceBase):
     """Load a raw vector that is already an RHS."""
 
     kind: Literal["raw_rhs"] = "raw_rhs"
 
-
-class DatasetRhsSourceModel(BaseModel):
-    """Load a comparison RHS from a manifest-backed neuralls dataset directory."""
-
-    kind: Literal["dataset"] = "dataset"
-    path: Annotated[Path, InputData()]
-    sample_index: int | None = Field(default=None, ge=0)
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    @field_validator("path", mode="before")
-    @classmethod
-    def _expand_path(cls, v: object, info: ValidationInfo) -> object:
-        if not isinstance(v, str) or info.context is None:
-            return v
-        from neuralls.platform.config.context import ConfigContext, expand_config_path
-
-        return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
+    @property
+    def base_label(self) -> str:
+        return ComparisonRhsSourceKind.RAW_RHS.value
 
 
-class CrossDatasetRhsSourceModel(BaseModel):
-    """Load a comparison matrix+RHS from an explicitly different dataset.
+class DatasetRhsSourceModel(RhsSourceModelBase):
+    """Use rows of the comparison entry's own ``matrix_dataset`` as the RHS.
 
-    Never touches the home comparison dataset's pinned split.
+    Carries no path or row: the planner binds each system to the first
+    ``rhs_count`` held-out rows of its matrix.
     """
 
-    kind: Literal["cross_dataset"] = "cross_dataset"
-    path: Annotated[Path, InputData()]
-    sample_index: int | None = Field(default=None, ge=0)
+    generated: ClassVar[bool] = False
+    seeded: ClassVar[bool] = False
+    single_draw: ClassVar[bool] = False
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    kind: Literal["dataset"] = "dataset"
 
-    @field_validator("path", mode="before")
-    @classmethod
-    def _expand_path(cls, v: object, info: ValidationInfo) -> object:
-        if not isinstance(v, str) or info.context is None:
-            return v
-        from neuralls.platform.config.context import ConfigContext, expand_config_path
-
-        return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
+    @property
+    def base_label(self) -> str:
+        return ComparisonRhsSourceKind.DATASET.value
 
 
 type ComparisonRhsSourceModel = Annotated[
     GaussianRhsSourceModel
-    | SparseRhsSourceModel
     | SinusoidalRhsSourceModel
     | RawLhsSourceModel
     | RawRhsSourceModel
-    | DatasetRhsSourceModel
-    | CrossDatasetRhsSourceModel,
+    | DatasetRhsSourceModel,
     Field(discriminator="kind"),
 ]
+
+
+def _rhs_source_model_types() -> Mapping[ComparisonRhsSourceKind, type[RhsSourceModelBase]]:
+    """Index the union's members by kind, so the union stays the one list of kinds."""
+    union, _discriminator = get_args(ComparisonRhsSourceModel.__value__)
+    return {
+        ComparisonRhsSourceKind(member.model_fields["kind"].default): member
+        for member in get_args(union)
+    }
+
+
+RHS_SOURCE_MODEL_BY_KIND: Mapping[ComparisonRhsSourceKind, type[RhsSourceModelBase]] = (
+    _rhs_source_model_types()
+)
+"""Source model class per kind, for callers that only hold the kind enum and
+need one of its class-level traits."""
 
 
 class _ComparisonConfigModel(BaseModel):

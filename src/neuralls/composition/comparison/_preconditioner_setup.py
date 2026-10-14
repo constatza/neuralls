@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import torch
 from torchalg.preconditioners.base import BindableInputs, Preconditioner, StaticSetupPreconditioner
 
-from neuralls.composition.comparison.models import GroupMatrixIdentity, MultiMatrixDataset
+from neuralls.composition.comparison.models import PlannedSystem
 from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.composition.preconditioners.schedule import (
     PreconditionerScheduleConfig,
@@ -21,6 +21,7 @@ from neuralls.platform.storage.training_artifacts import (
     load_array_source_sample,
     load_training_arrays,
 )
+from neuralls.shared.types import MatrixId
 
 if TYPE_CHECKING:
     from torchalg.preconditioners.ports import PredictorAdapter
@@ -83,49 +84,76 @@ class _CachedPreconditioner:
     setup_peak_memory_bytes: int | None
 
 
-def _allows_matrix_dependent_sharing(identity: GroupMatrixIdentity) -> bool:
-    """Whether a `MatrixSetupPreconditioner` can share its setup across this group.
-
-    True for a `SingleMatrixDataset` (nothing else it could be) or a
-    `MultiMatrixDataset` whose members all resolved to the same matrix id.
-    """
-    return not isinstance(identity, MultiMatrixDataset) or len(identity.resolved_indices) == 1
+def matrix_key(system: PlannedSystem) -> MatrixId:
+    """The matrix a planned system solves on, for setup-cache scoping."""
+    return system.matrix.matrix_id
 
 
-class GroupPreconditionerCache:
-    """Per-comparison-group cache of already-built-and-setup preconditioners.
+class DatasetPreconditionerCache:
+    """Cache of already-built-and-setup preconditioners for one matrix dataset.
 
-    Scoped to one `ComparisonGroup` (comparisons sharing a matrix/RHS-recipe
-    family, whether hand-written or `comparison_sweeps`-expanded) —
-    constructed once per group by the caller and passed into every
-    member's `compare_preconditioners` call, so a preconditioner built for
-    the first member can be reused by the rest whenever doing so is
-    provably valid:
+    Reuse is correct by construction from `torchalg`'s own role interface:
 
-    - Always valid for a `torchalg.StaticSetupPreconditioner` (its `setup()`
-      never reads the matrix at all — see that class's docstring).
-    - Valid for a `torchalg.MatrixSetupPreconditioner` only when every
-      member in this group resolves to the *same* matrix.
+    - A `StaticSetupPreconditioner`'s `setup()` never reads the matrix (e.g. a
+      checkpoint-backed neural preconditioner), so one build serves every
+      system of the dataset.
+    - A `MatrixSetupPreconditioner`'s build depends on the matrix, so it is
+      stored per `MatrixId` and only served to systems on that same matrix.
 
-    `put` silently does nothing when neither condition holds, so a classical
-    preconditioner in a matrix-varying group is simply never cached — it
-    keeps rebuilding fresh every member, exactly like today, with no risk
-    of ever serving a stale build.
+    A preconditioner name must mean one preconditioner within a dataset
+    (`validate_dataset_specs_consistent`), which is what makes serving by name
+    safe. Systems get a `SystemPreconditionerCache` view via `for_system`.
     """
 
-    def __init__(self, *, matrix_identity: GroupMatrixIdentity) -> None:
-        """Create an empty cache scoped to one comparison group.
+    def __init__(self) -> None:
+        self._static: dict[str, _CachedPreconditioner] = {}
+        self._by_matrix: dict[MatrixId, dict[str, _CachedPreconditioner]] = {}
+        self._matrices_seen: set[MatrixId] = set()
 
-        Args:
-            matrix_identity: This group's `GroupMatrixIdentity`, as computed
-                by group discovery — never inferred locally from a flag.
+    def for_system(self, matrix: MatrixId) -> SystemPreconditionerCache:
+        """The view one system on ``matrix`` reads and writes through."""
+        self._matrices_seen.add(matrix)
+        return SystemPreconditionerCache(self, matrix)
+
+    def lookup(self, name: str, matrix: MatrixId) -> _CachedPreconditioner | None:
+        cached = self._static.get(name)
+        return cached if cached is not None else self._by_matrix.get(matrix, {}).get(name)
+
+    def store(self, name: str, matrix: MatrixId, cached: _CachedPreconditioner) -> None:
+        if isinstance(cached.preconditioner, StaticSetupPreconditioner):
+            self._static[name] = cached
+        else:
+            self._by_matrix.setdefault(matrix, {})[name] = cached
+
+    def shared_names(self) -> frozenset[str]:
+        """Names whose setup this cache shares across every system it served.
+
+        A static-setup name is shared dataset-wide. A matrix-setup name is
+        shared across all systems only when they all solved on one matrix;
+        with several matrices it is rebuilt per matrix, so its setup recurs
+        and projecting it as a one-off would understate its cost. Used after
+        execution to answer `SetupSharingPolicy.share_setup`.
         """
-        self._matrix_identity = matrix_identity
-        self._entries: dict[str, _CachedPreconditioner] = {}
+        shared = set(self._static)
+        if len(self._matrices_seen) == 1:
+            shared.update(name for names in self._by_matrix.values() for name in names)
+        return frozenset(shared)
+
+
+class SystemPreconditionerCache:
+    """One system's view of its dataset's `DatasetPreconditionerCache`.
+
+    Binds the system's matrix so `compare_preconditioners` and the per-
+    preconditioner runner need only a name to read or write an entry.
+    """
+
+    def __init__(self, store: DatasetPreconditionerCache, matrix: MatrixId) -> None:
+        self._store = store
+        self._matrix = matrix
 
     def get(self, name: str) -> _CachedPreconditioner | None:
         """Return the cached entry for preconditioner `name`, or `None` on a miss."""
-        return self._entries.get(name)
+        return self._store.lookup(name, self._matrix)
 
     def put(
         self,
@@ -135,32 +163,16 @@ class GroupPreconditionerCache:
         setup_cost_seconds: float,
         setup_peak_memory_bytes: int | None,
     ) -> None:
-        """Store `preconditioner` for reuse by later siblings, if sharing is valid for it.
-
-        A no-op when neither sharing condition holds for `preconditioner` —
-        the next sibling will see a cache miss and rebuild fresh, same as if
-        no cache existed at all.
-        """
-        if not (
-            isinstance(preconditioner, StaticSetupPreconditioner)
-            or _allows_matrix_dependent_sharing(self._matrix_identity)
-        ):
-            return
-        self._entries[name] = _CachedPreconditioner(
-            preconditioner=preconditioner,
-            setup_cost_seconds=setup_cost_seconds,
-            setup_peak_memory_bytes=setup_peak_memory_bytes,
+        """Store `preconditioner` for reuse by later systems whose scope it is valid for."""
+        self._store.store(
+            name,
+            self._matrix,
+            _CachedPreconditioner(
+                preconditioner=preconditioner,
+                setup_cost_seconds=setup_cost_seconds,
+                setup_peak_memory_bytes=setup_peak_memory_bytes,
+            ),
         )
-
-    def shared_names(self) -> frozenset[str]:
-        """Names of every preconditioner this cache actually shared across siblings.
-
-        Used after a sweep group finishes executing to answer
-        `SetupSharingPolicy.share_setup` per preconditioner — by then the
-        live objects are out of scope, but the cache's own record of what it
-        successfully stored survives as the fact of record.
-        """
-        return frozenset(self._entries)
 
 
 class PreconditionerService:

@@ -9,6 +9,7 @@ from neuralls.composition.comparison.source_handlers import (
     ComparisonSourceContext,
     resolve_comparison_source,
 )
+from neuralls.domain.solver.models.provenance import MatrixProvenance
 from neuralls.shared.types import ComparisonRhsSourceKind
 
 
@@ -30,7 +31,8 @@ def resolve_comparison_input(
     *,
     matrix_path: Path,
     matrix_dataset_id: str,
-    matrix_index: int | None,
+    matrix_index: int,
+    matrix_provenance: MatrixProvenance,
     require_non_residual_rhs: bool,
     seed: int | None,
     rhs_source_kind: ComparisonRhsSourceKind | str,
@@ -41,6 +43,7 @@ def resolve_comparison_input(
         matrix_path=matrix_path,
         matrix_dataset_id=matrix_dataset_id,
         matrix_index=matrix_index,
+        matrix_provenance=matrix_provenance,
         require_non_residual_rhs=require_non_residual_rhs,
         seed=_normalize_seed(seed),
         rhs_source_kind=_normalize_rhs_source_kind(rhs_source_kind),

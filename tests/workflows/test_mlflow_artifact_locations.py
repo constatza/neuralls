@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import mlflow
 import numpy as np
+import pytest
 import tomli_w
 from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
@@ -222,6 +223,8 @@ def _write_method_config(path: Path) -> None:
     )
 
 
+@pytest.mark.usefixtures("stub_input_gate")
+@pytest.mark.integration
 def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None:
     """Comparison workflow logs figures and diagnostics files under run artifacts."""
     output_root = tmp_path / "output"

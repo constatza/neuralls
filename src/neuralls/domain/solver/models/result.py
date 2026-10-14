@@ -15,14 +15,16 @@ Theory:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import re
+from collections.abc import Callable, Hashable, Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from neuralls.shared.types import CostProvenance, GroupId
+from neuralls.shared.types import CostProvenance, DatasetId, GroupId
 
 if TYPE_CHECKING:
     from neuralls.shared.types import ComparisonRhsSourceKind
@@ -321,7 +323,7 @@ class ProjectedComparisonResult:
     """Scaling-law projection for one preconditioner, aggregated across sibling systems.
 
     Built from the `n_systems` sibling `CGComparisonResult`s a comparison
-    sweep actually ran (5-7 in practice) — never from N systems actually
+    sweep actually ran — never from N systems actually
     executed. `projected_total_seconds(n)`/`projected_avg_per_system_seconds(n)`
     extrapolate the measured constants to an arbitrary N, purely for
     plotting, so the one-time cost's contribution can be shown shrinking
@@ -341,13 +343,13 @@ class ProjectedComparisonResult:
             already carries the same real one-time value (the caching layer
             copies it forward rather than reporting 0.0 on a cache hit), so
             dividing by `n_systems` recovers that single value exactly.
-        generation_cost_total_seconds: Sum of `generation_cost.wall_time_seconds`
-            across all `n_systems` measured results, or `None` if generation
-            does not apply to this preconditioner at all
-            (`GenerationRepeatability.NOT_APPLICABLE`).
-        total_solve_time_seconds: Sum of `solve_time_seconds` across all
-            `n_systems` measured results — always repeats per system;
-            solving is never a one-time cost.
+        generation_cost_total_seconds: Mean generation wall time over the
+            results whose cost is available, scaled to `n_systems` (so that
+            dividing by `n_systems` recovers that mean), or `None` if
+            generation does not apply or is unavailable for every result.
+        total_solve_time_seconds: Mean `solve_time_seconds` over the results
+            that measured one, scaled to `n_systems` — always repeats per
+            system; solving is never a one-time cost.
         total_iterations: Sum of `iterations` across all `n_systems`
             measured results.
         solve_time_std_seconds: Sample standard deviation (ddof=1) of the
@@ -434,65 +436,177 @@ class ProjectedComparisonResult:
 
 
 @dataclass(frozen=True, slots=True)
-class GroupAggregated:
-    """At least one comparison group member contributed a real result.
+class FineLabel:
+    """One dataset and one RHS recipe: a homogeneous problem family."""
+
+    dataset: DatasetId
+    recipe: str
+
+
+@dataclass(frozen=True, slots=True)
+class MediumLabel:
+    """One dataset, pooling every RHS recipe listed in `mixture_of`."""
+
+    dataset: DatasetId
+    mixture_of: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class GlobalLabel:
+    """Every dataset and recipe of the case, pooling the recipes in `mixture_of`."""
+
+    mixture_of: tuple[str, ...]
+
+
+type GroupLabel = FineLabel | MediumLabel | GlobalLabel
+"""Identifies the keys of one report group. Medium and global groups are
+mixtures: their spread mostly reflects recipes differing, so titles must say so."""
+
+
+@dataclass(frozen=True, slots=True)
+class PreconditionerPlotStyle:
+    """How one preconditioner is drawn: its legend label and style-axis keys.
+
+    Carried from the run that built the preconditioner to every later plot of
+    it, so a group report is styled exactly like the per-run convergence plots.
 
     Attributes:
-        group_id: The `ComparisonGroup` this projection was built from.
+        label: Scientific legend label built from the constructed preconditioner.
+        family: Plot-style family; same-family preconditioners share a linestyle.
+        color_key: Optional colour-axis key; ``None`` falls back to ``family``.
+        marker_key: Optional marker-axis key; ``None`` falls back to ``family``.
+    """
+
+    label: str
+    family: StrEnum
+    color_key: str | None = None
+    marker_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PlotStyleMaps:
+    """Per-name mappings in the shape the plot functions take.
+
+    Keys absent from ``color_keys``/``marker_keys`` fall back to the family.
+    """
+
+    labels: Mapping[str, str]
+    families: Mapping[str, Hashable]
+    color_keys: Mapping[str, Hashable]
+    marker_keys: Mapping[str, Hashable]
+
+
+def plot_style_maps(styles: Mapping[str, PreconditionerPlotStyle]) -> PlotStyleMaps:
+    """Split per-preconditioner styles into the mappings plots consume.
+
+    The one derivation shared by per-run and per-group plots, so a
+    preconditioner keeps the same colour, marker and linestyle everywhere.
+    """
+    return PlotStyleMaps(
+        labels={name: style.label for name, style in styles.items()},
+        families={name: style.family for name, style in styles.items()},
+        color_keys={
+            name: style.color_key for name, style in styles.items() if style.color_key is not None
+        },
+        marker_keys={
+            name: style.marker_key for name, style in styles.items() if style.marker_key is not None
+        },
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class GroupPresentation:
+    """Everything a sink needs, besides the numbers, to draw one report group.
+
+    Attributes:
+        subject: What the group is, for titles (e.g. ``"ds, gaussian"`` or
+            ``"ds, mixture of gaussian, sparse[3 nnz]"``).
+        subtitle: Level, keys, recipe and system count, as one plot subtitle.
+        plot_styles: Style of each preconditioner of the group, by name.
+        system_labels: Short x tick label (matrix id and RHS ordinal) of each
+            system id in the group.
+    """
+
+    subject: str
+    subtitle: str
+    plot_styles: Mapping[str, PreconditionerPlotStyle]
+    system_labels: Mapping[str, str]
+
+
+def render_group_id(label: GroupLabel) -> GroupId:
+    """The one stable, level-unique string form of a label (filename stem, metric key segment).
+
+    The level prefix keeps a dataset named like another level's id from
+    colliding with it.
+    """
+    match label:
+        case FineLabel(dataset=dataset, recipe=recipe):
+            return GroupId(f"fine/{dataset}/{_slug(recipe)}")
+        case MediumLabel(dataset=dataset):
+            return GroupId(f"medium/{dataset}")
+        case GlobalLabel():
+            return GroupId("global")
+
+
+def _slug(text: str) -> str:
+    """Filesystem-safe form of a recipe label, keeping parameters (``ω`` becomes ``omega``)."""
+    ascii_text = text.replace("ω", "omega")
+    return _SLUG_SEPARATORS.sub("_", ascii_text).strip("_")
+
+
+_SLUG_SEPARATORS = re.compile(r"[^A-Za-z0-9.]+")
+
+
+@dataclass(frozen=True, slots=True)
+class GroupAggregated:
+    """One or more comparison group members contributed a real result.
+
+    Attributes:
+        group_id: Stable, unique rendering of `label`, used for filenames and
+            metric keys.
+        label: Which report level and keys the projection belongs to; mixture
+            levels name the recipes they pool.
         projected: One `ProjectedComparisonResult` per preconditioner name.
-        n_aggregated: Members actually contributing a result this run.
-        n_in_group: Total members in the group; `n_aggregated < n_in_group`
+        n_aggregated: Systems actually contributing a result this run.
+        n_matrices: Distinct matrices those systems solve on.
+        n_in_group: Total planned systems of the group; `n_aggregated < n_in_group`
             means the rest were cache hits (reused from an earlier run,
             carrying no result to aggregate this time) or failed.
         time_to_solution_by_system: For each preconditioner name, each
             contributing system's time-to-solution in seconds, keyed by
-            comparison id in config order — the individual points behind the
+            system id in plan order — the individual points behind the
             projection's means. A system whose time is incomparable (an
             unavailable cost) is omitted for that preconditioner.
     """
 
     group_id: GroupId
+    label: GroupLabel
     projected: Mapping[str, ProjectedComparisonResult]
     n_aggregated: int
+    n_matrices: int
     n_in_group: int
     time_to_solution_by_system: Mapping[str, Mapping[str, float]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class GroupSkippedAllCacheHit:
-    """Every member of this comparison group was a cache hit this run.
+    """No system of this report group produced a result this run.
 
-    There is no `CGComparisonResult` to aggregate — not the same as zero
-    cost, just nothing measured this run.
+    Every member was a cache hit (or failed). There is no `CGComparisonResult`
+    to aggregate — not the same as zero cost, just nothing measured this run.
     """
 
     group_id: GroupId
+    label: GroupLabel
     n_in_group: int
 
 
-@dataclass(frozen=True, slots=True)
-class GroupBelowMinimumSize:
-    """Too few systems contributed a result for a projection (and its std) to mean anything.
-
-    Attributes:
-        group_id: The `ComparisonGroup` that was too small.
-        n_aggregated: Members that produced a result this run.
-        n_in_group: Total members in the group.
-        min_size: The minimum `n_aggregated` a projection requires.
-    """
-
-    group_id: GroupId
-    n_aggregated: int
-    n_in_group: int
-    min_size: int
-
-
-type ComparisonGroupOutcome = GroupAggregated | GroupSkippedAllCacheHit | GroupBelowMinimumSize
+type ComparisonGroupOutcome = GroupAggregated | GroupSkippedAllCacheHit
 """The outcome of attempting to aggregate one comparison group's results.
 
-Three variants because there are exactly three cases that call for different
-handling: there is a projection to act on, there is nothing measured this run,
-or something was measured but too little to project from. Whether every
+Two variants because there are exactly two cases that call for different
+handling: there is a projection to act on, or there is nothing measured this
+run. A group of one system is still a projection (without a spread). Whether every
 member contributed (`n_aggregated == n_in_group`) or only some did is a
 fact carried as data on `GroupAggregated`, not another variant — both
 cases are plotted/logged/uploaded identically, differing only in whether a
@@ -650,6 +764,8 @@ class ComparisonResult:
             raw_rhs, dataset) — a matrix may be paired with several different
             RHS sources across sibling ``[[comparisons]]`` entries, each its
             own MLflow run, so this disambiguates which one a given run used.
+        plot_styles: How each preconditioner is drawn, by name, so later
+            group-level plots reuse the per-run styling.
     """
 
     results: dict[str, Any]
@@ -662,3 +778,4 @@ class ComparisonResult:
     matrix_shape: tuple[int, int] | None = None
     rhs_shape: tuple[int, ...] | None = None
     rhs_source_kind: ComparisonRhsSourceKind | None = None
+    plot_styles: Mapping[str, PreconditionerPlotStyle] = field(default_factory=dict)

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
+from neuralls.composition.comparison.models import PlannedSystem
 from neuralls.domain.solver.models.config import (
     ComparisonData,
     ComparisonGeneral,
@@ -19,23 +20,12 @@ from neuralls.platform.config.models.comparison import (
 from neuralls.platform.config.models.experiments import (
     CaseConfig,
     ComparisonBaseline,
-    ComparisonRegistryEntry,
 )
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.registry import resolve_dataset_config_path
 from neuralls.platform.config.resolution import resolve_registry_path
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.types import ComparisonRhsSourceKind
-
-
-def _resolve_runtime_index(
-    entry: ComparisonRegistryEntry,
-    field_name: Literal["matrix_index", "test_position"],
-) -> int | None:
-    """Translate case-config defaults into runtime omission semantics."""
-    if field_name not in entry.model_fields_set:
-        return None
-    return getattr(entry, field_name)
 
 
 def resolve_dataset_dir(
@@ -46,10 +36,8 @@ def resolve_dataset_dir(
 ) -> Path:
     """Resolve a ``[[datasets]]`` registry id into its concrete dataset directory.
 
-    Shared by ``resolve_comparison_config`` (a comparison entry's
-    ``matrix_dataset``) and ``expand_test_set_sweep``'s callers (a sweep
-    entry's ``matrix_dataset``) so both read the same dataset directory the
-    same way, instead of re-deriving it.
+    Shared by ``resolve_comparison_config`` and the comparison planner so both
+    read the same dataset directory the same way, instead of re-deriving it.
     """
     data_cfg = load_data_config(
         resolve_dataset_config_path(case_cfg, config_dir, dataset_id), settings
@@ -61,21 +49,30 @@ def resolve_dataset_dir(
     )
 
 
+def _rhs_source_params(planned: PlannedSystem) -> dict[str, object]:
+    """The source's own params, plus the held-out row the planner bound for a `dataset` source."""
+    params = planned.entry.rhs_source.model_dump(exclude={"kind"})
+    if planned.rhs_row is not None:
+        params["sample_index"] = planned.rhs_row
+    return params
+
+
 def resolve_comparison_config(
     case_cfg: CaseConfig,
     config_dir: Path,
-    entry: ComparisonRegistryEntry,
+    planned: PlannedSystem,
     settings: NeurallsSettings,
 ) -> ComparisonConfig:
-    """Build a fully resolved ComparisonConfig from a case comparison entry.
+    """Build a fully resolved ComparisonConfig from one planned system.
 
     Merges ``[comparison_baseline]`` with an optional methodology override file,
-    then injects the data paths resolved from the dataset registry.
+    then injects the data paths resolved from the dataset registry and the
+    matrix row, RHS seed and RHS row the planner bound to this system.
 
     Args:
         case_cfg: Top-level case configuration.
         config_dir: Directory of the case config file (for resolving relative paths).
-        entry: The specific ``[[comparisons]]`` entry to resolve.
+        planned: The planned system to resolve.
         settings: ``NeurallsSettings`` for processed-dir expansion.
 
     Returns:
@@ -84,6 +81,7 @@ def resolve_comparison_config(
     Raises:
         ValueError: If the case comparison baseline or a referenced dataset is missing.
     """
+    entry = planned.entry
     baseline: ComparisonBaseline | None = case_cfg.comparison_baseline
     if baseline is None:
         raise ValueError(
@@ -127,13 +125,12 @@ def resolve_comparison_config(
             data=ComparisonData(
                 matrix_path=matrix_path,
                 rhs_path=None,
-                matrix_index=_resolve_runtime_index(entry, "matrix_index"),
-                test_position=_resolve_runtime_index(entry, "test_position"),
+                matrix_index=planned.matrix.row,
                 normalize_system=normalize_system,
                 require_non_residual_rhs=entry.require_non_residual_rhs,
                 selection_seed=entry.seed,
                 rhs_source_kind=ComparisonRhsSourceKind(entry.rhs_source.kind),
-                rhs_source_params=entry.rhs_source.model_dump(exclude={"kind"}),
+                rhs_source_params=_rhs_source_params(planned),
             ),
         ),
         preconditioners=tuple(preconditioners),

@@ -17,7 +17,9 @@ from neuralls.domain.solver.models.result import (
     CGComparisonResult,
     ComparisonResult,
     GroupAggregated,
+    GroupPresentation,
     ProjectedComparisonResult,
+    plot_style_maps,
 )
 from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
@@ -145,7 +147,7 @@ def log_projected_metrics(
         group_id: The comparison group's rendered id, used to namespace
             metric keys when a case has more than one group.
         projected: One `ProjectedComparisonResult` per preconditioner name,
-            as `domain.solver.comparison.aggregate_projected_results` returns.
+            as `domain.solver.metrics_table.report_level` returns.
     """
     for name, result in projected.items():
         mlflow.log_metric(_projected_metric_key("n_systems", group_id, name), result.n_systems)
@@ -186,21 +188,39 @@ class MLflowGroupReportSink:
     only happens in a batch that executed something.
     """
 
-    def report(self, outcome: GroupAggregated, *, title: str) -> None:
+    def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
         """Log metrics, scaling plot, TOML numbers and per-system scatter for one group."""
         group_id = outcome.group_id
         log_projected_metrics(group_id, outcome.projected)
+        style = plot_style_maps(presentation.plot_styles)
         with tempfile.TemporaryDirectory() as tmp:
-            stem = f"projected_scaling_law_{group_id}"
+            # Group ids contain `/`, a path separator in artifact names.
+            file_key = sanitize_metric_key_segment(group_id)
+            stem = f"projected_scaling_law_{file_key}"
             plot_path = Path(tmp) / f"{stem}.png"
             toml_path = Path(tmp) / f"{stem}.toml"
-            scatter_path = Path(tmp) / f"system_time_scatter_{group_id}.png"
-            plot_projected_scaling_law(outcome.projected, save_path=plot_path, title=title)
+            scatter_path = Path(tmp) / f"system_time_scatter_{file_key}.png"
+            plot_projected_scaling_law(
+                outcome.projected,
+                save_path=plot_path,
+                title=f"Projected cost per system vs. N — {presentation.subject}",
+                subtitle=presentation.subtitle,
+                labels=style.labels,
+                families=style.families,
+                color_keys=style.color_keys,
+                marker_keys=style.marker_keys,
+            )
             write_projected_toml(outcome.projected, toml_path)
             plot_system_time_scatter(
                 outcome.time_to_solution_by_system,
                 save_path=scatter_path,
-                title=f"Per-system time to solution — group '{group_id}'",
+                title=f"Per-system time to solution — {presentation.subject}",
+                subtitle=presentation.subtitle,
+                labels=style.labels,
+                system_labels=presentation.system_labels,
+                families=style.families,
+                color_keys=style.color_keys,
+                marker_keys=style.marker_keys,
             )
             for artifact in (plot_path, toml_path, scatter_path):
                 mlflow.log_artifact(str(artifact), artifact_path=PROJECTED_ARTIFACT_DIR)

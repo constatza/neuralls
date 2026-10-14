@@ -5,7 +5,7 @@ The platform package isolates external integrations and side-effecting helpers.
 ## Package Map
 
 - `config/`: settings, config-validation context, registry resolution, TOML loaders, lower-case job metadata readers, and the thin DLKit job loader adapter
-- `config/models/`: Pydantic models for TOML sections. `OutputConfig.matrix_format` (`MatrixFormat`, default `csr`) selects the storage format of the system matrix for a dataset; it is the single declaration of that default. `OutputConfig.sparsity_pattern` (`SparsityPattern`, `shared` or `ragged`, default `ragged`) selects the CSR layout; it is part of the digest.
+- `config/models/`: Pydantic models for TOML sections. `comparison.py`'s RHS source models share `RhsSourceModelBase`, whose `mask: RhsMask` (`NoMask | RandomMask`, discriminated by `kind`) is available on every kind and part of its `recipe_label`. `OutputConfig.matrix_format` (`MatrixFormat`, default `csr`) selects the storage format of the system matrix for a dataset; it is the single declaration of that default. `OutputConfig.sparsity_pattern` (`SparsityPattern`, `shared` or `ragged`, default `ragged`) selects the CSR layout; it is part of the digest.
 - `storage/`: filesystem, workspaces, dataset I/O, and storage validation helpers
 - `storage/array_store.py`: `ZarrArrayStore` and `Hdf5ArrayStore`, the dense backends of the `ArrayStore` protocol (defined in `domain/generation/ports.py`, so the domain depends on it without importing platform). Arrays are created at full shape; `close()` raises `ValueError` naming any array with unwritten rows. A one-dimensional array is a single chunk, so row kinds and matrix indices do not create one file per row.
 - `storage/errors.py`: `_raise_storage_error`, the OSError translation every storage module shares.
@@ -95,6 +95,15 @@ renders at a visually balanced weight. Any residual group of entries sharing
 an identical (linestyle, marker, color) triple — the case when no override
 keys are given at all — still gets spread across a lightness ramp so it
 stays distinguishable.
+
+The group-level plots (`plot_projected_scaling_law`, `plot_system_time_scatter`)
+use that same resolution, fed the families and colour/marker keys the runs
+recorded, so a preconditioner looks the same in every plot. Their legends use
+the scientific label rather than the config name and append n, the scaling-law
+band is labelled "±1σ over systems", each carries a subtitle (level, keys,
+recipe, system count), and the scatter's x axis is keyed by matrix id and RHS
+ordinal. `MLflowGroupReportSink.report` takes the aggregated group plus a
+`GroupPresentation` and names artifacts by the sanitized group id.
 
 The DLKit dataset bridge stays generic. Platform helpers construct and patch
 DLKit-native dataset entries with the names supplied by composition, but
@@ -271,23 +280,24 @@ shared pure codecs so domain and composition code do not depend on platform.
 When datasets expose `matrix_sample_index`, the canonical triplet resolver uses
 that binding to load the matching matrix for a selected `(rhs, solution)` row.
 
-Case-driven comparison sample selection stays explicit and deterministic.
-`ComparisonRegistryEntry.matrix_index` applies to generated and raw sources;
-dataset-backed `rhs_source` entries resolve a canonical manifest-backed triplet
-instead. Dataset sources use `sample_index` when provided and otherwise select
-the first STANDARD row. `raw_rhs` sources point at concrete RHS vector files;
-`raw_lhs` sources point at concrete solution-side vector files that comparison
-transforms into an RHS with `A @ vector` and the configured scale.
-
-`ComparisonRegistryEntry.test_position` is the alternative to `matrix_index`
-that does infer held-out semantics, from the dataset's own pinned
-`split.json` directly (never from training runs or MLflow artifacts):
-`composition/comparison/pinned_split.py` reads that file's `test` fold and
-`load_matrix_sample_index` to translate a `test_position` into a concrete row
-or matrix index, guaranteed to never resolve to a training sample. Platform
-itself still performs no leakage inference — composition resolves
-`test_position` before calling into platform's existing matrix/triplet
-readers unchanged.
+Case-driven comparison sample selection stays explicit and deterministic, and
+is decided once by the composition planner (`composition/comparison/plan.py`)
+from `dataset_shape.py` — `classify_dataset` (single vs multi matrix, from the
+unique ids in `matrix_sample_index`), `load_held_out_fold` (the pinned
+`split.json` test rows grouped by the matrix id each is bound to) and
+`system_dimension` (the system order, from the manifest's RHS shape). A matrix
+id is the sample id the generator bound rows to; the physical row passed to
+`load_system_arrays`/`load_matrix_dense_sample` is a different number, and the
+planner hands readers the row. Platform itself performs no leakage inference
+and has no notion of a test position. Dataset-backed `rhs_source` entries
+resolve a canonical manifest-backed triplet for the one planned row;
+`raw_rhs` sources point at concrete RHS vector files; `raw_lhs` sources point
+at concrete solution-side vector files that comparison transforms into an RHS
+with `A @ vector` and the configured scale. Every system solves on a matrix of
+its own dataset, so an external vector is accepted only when its length equals
+that dataset's `system_dimension` (`storage/comparison.py::external_vector_length`
+reads it, memory-mapping `.npy` files, with the same row-selection and
+`sample_index` bounds rules as `load_system_arrays`).
 
 Training artifact persistence also stays generic: platform storage writes the
 already-normalized numpy payload it receives from composition without

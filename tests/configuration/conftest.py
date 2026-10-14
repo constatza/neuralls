@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
-from neuralls.platform.config.models.comparison import ComparisonConfig
+from neuralls.platform.config.models.comparison import ComparisonConfig, NoMask, RhsMask
 from neuralls.platform.config.models.data_models import (
     DataConfigFile,
     GenerationConfig,
@@ -25,6 +25,8 @@ from neuralls.platform.config.models.preconditioner import (
 
 type ComparisonFactory = Callable[..., ComparisonConfig]
 type DataConfigFactory = Callable[..., DataConfigFile]
+
+_NO_MASK = NoMask()
 
 
 @pytest.fixture
@@ -55,6 +57,7 @@ def make_comparison(matrix_file: Path, snapshot_dir: Path) -> ComparisonFactory:
         ic0_threshold: float = 0.0,
         pod_rank: int = 4,
         rhs_std: float = 1.0,
+        rhs_mask: RhsMask = _NO_MASK,
         jacobi_name: str = "jacobi",
         matrix_path: Path | None = None,
     ) -> ComparisonConfig:
@@ -62,7 +65,7 @@ def make_comparison(matrix_file: Path, snapshot_dir: Path) -> ComparisonFactory:
             matrix_path=matrix_path or matrix_file,
             rhs_path=None,
             rhs_source_kind=None,
-            rhs_source_params={"kind": "gaussian", "std": rhs_std},
+            rhs_source_params={"kind": "gaussian", "std": rhs_std, "mask": rhs_mask.model_dump()},
         )
         params = SolverParams(
             rtol=rtol,

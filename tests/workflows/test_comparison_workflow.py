@@ -22,9 +22,15 @@ from neuralls.composition.assignments.comparison_batch import (
 )
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
 from neuralls.composition.comparison.config_assembler import resolve_comparison_config
-from neuralls.composition.comparison.models import ComparisonOutcome, ComparisonParams
+from neuralls.composition.comparison.models import (
+    ComparisonOutcome,
+    ComparisonParams,
+    MatrixRef,
+    PlannedSystem,
+)
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
+from neuralls.domain.solver.models.provenance import HeldOutMatrix, SharedSingleMatrix
 from neuralls.domain.solver.models.result import (
     CGComparisonResult,
     ComparisonRecommendations,
@@ -60,7 +66,7 @@ from neuralls.platform.tracking.comparison_tracking import (
 )
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
 from neuralls.shared.digest import canonical_digest
-from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
+from neuralls.shared.types import ComparisonRhsSourceKind, MatrixId, RowKind
 
 
 def test_resolve_comparison_config_importable_from_composition() -> None:
@@ -248,7 +254,6 @@ def _mock_cfg(
     cfg.general.data.matrix_path = matrix_path
     cfg.general.data.rhs_path = rhs_path
     cfg.general.data.matrix_index = 0
-    cfg.general.data.test_position = None
     cfg.general.data.dataset_alias = None
     cfg.general.data.normalize_system = "matrix"
     cfg.general.data.require_non_residual_rhs = True
@@ -379,6 +384,19 @@ def _make_entry(comparison_id: str = "test") -> ComparisonRegistryEntry:
     )
 
 
+def _planned(
+    entry: ComparisonRegistryEntry, *, matrix_row: int = 0, rhs_row: int | None = None
+) -> PlannedSystem:
+    """Bind an entry to the dataset's one shared matrix, as the planner does for [[comparisons]]."""
+    return PlannedSystem(
+        entry=entry,
+        matrix=MatrixRef(matrix_id=MatrixId(0), row=matrix_row),
+        rhs_row=rhs_row,
+        rhs_ordinal=0,
+        provenance=SharedSingleMatrix(raw_matrix_index=matrix_row),
+    )
+
+
 def _make_settings(tmp_path: Path) -> NeurallsSettings:
     """Build a NeurallsSettings backed by tmp_path."""
     return NeurallsSettings(
@@ -388,54 +406,30 @@ def _make_settings(tmp_path: Path) -> NeurallsSettings:
     )
 
 
-def test_resolve_comparison_config_recovers_omitted_index_semantics(tmp_path: Path) -> None:
+def test_resolve_comparison_config_binds_the_planned_matrix_row_and_dataset_row(
+    tmp_path: Path,
+) -> None:
     datasets_dir = tmp_path / "datasets"
     datasets_dir.mkdir()
     _write_dataset_config(datasets_dir / "matrix.toml", "matrix")
-    _write_dataset_config(datasets_dir / "rhs.toml", "rhs")
     settings = _make_settings(tmp_path)
     case_cfg = CaseConfig.model_validate(
         {
-            "datasets": [
-                {"id": "matrix", "path": "datasets/matrix.toml"},
-                {"id": "rhs", "path": "datasets/rhs.toml"},
-            ],
-            "comparison_baseline": {
-                "rtol": 1.0e-6,
-                "atol": 1.0e-14,
-                "max_iterations": 10,
-                "stopping_criterion": "residual_norm",
-                "m_max": 20,
-                "preconditioners": [{"name": "identity", "type": "identity"}],
-            },
+            "datasets": [{"id": "matrix", "path": "datasets/matrix.toml"}],
+            "comparison_baseline": {"preconditioners": [{"name": "identity", "type": "identity"}]},
         }
     )
-    omitted_entry = ComparisonRegistryEntry(
-        id="omitted",
-        matrix_dataset="matrix",
-        rhs_source={
-            "kind": "dataset",
-            "path": settings.processed_dir / "rhs",
-        },
-    )
-    explicit_entry = ComparisonRegistryEntry(
-        id="explicit",
-        matrix_dataset="matrix",
-        matrix_index=0,
-        rhs_source={
-            "kind": "dataset",
-            "path": settings.processed_dir / "rhs",
-            "sample_index": 0,
-        },
+    entry = ComparisonRegistryEntry(
+        id="dataset-row", matrix_dataset="matrix", rhs_source={"kind": "dataset"}
     )
 
-    omitted_cfg = resolve_comparison_config(case_cfg, tmp_path, omitted_entry, settings)
-    explicit_cfg = resolve_comparison_config(case_cfg, tmp_path, explicit_entry, settings)
+    cfg = resolve_comparison_config(
+        case_cfg, tmp_path, _planned(entry, matrix_row=4, rhs_row=4), settings
+    )
 
-    assert omitted_cfg.general.data.matrix_index is None
-    assert explicit_cfg.general.data.matrix_index == 0
-    assert explicit_cfg.general.data.rhs_source_params is not None
-    assert explicit_cfg.general.data.rhs_source_params["sample_index"] == 0
+    assert cfg.general.data.matrix_path == settings.processed_dir / "matrix"
+    assert cfg.general.data.matrix_index == 4
+    assert cfg.general.data.rhs_source_params == {"sample_index": 4, "mask": {"kind": "none"}}
 
 
 def test_resolve_comparison_config_presentation_falls_back_to_case_default(
@@ -447,14 +441,10 @@ def test_resolve_comparison_config_presentation_falls_back_to_case_default(
     datasets_dir = tmp_path / "datasets"
     datasets_dir.mkdir()
     _write_dataset_config(datasets_dir / "matrix.toml", "matrix")
-    _write_dataset_config(datasets_dir / "rhs.toml", "rhs")
     settings = _make_settings(tmp_path)
     case_cfg = CaseConfig.model_validate(
         {
-            "datasets": [
-                {"id": "matrix", "path": "datasets/matrix.toml"},
-                {"id": "rhs", "path": "datasets/rhs.toml"},
-            ],
+            "datasets": [{"id": "matrix", "path": "datasets/matrix.toml"}],
             "comparison_baseline": {
                 "preconditioners": [{"type": "identity"}],
                 "presentation": {"rendering": "latex"},
@@ -464,10 +454,10 @@ def test_resolve_comparison_config_presentation_falls_back_to_case_default(
     entry = ComparisonRegistryEntry(
         id="no-override",
         matrix_dataset="matrix",
-        rhs_source={"kind": "dataset", "path": settings.processed_dir / "rhs"},
+        rhs_source={"kind": "dataset"},
     )
 
-    resolved = resolve_comparison_config(case_cfg, tmp_path, entry, settings)
+    resolved = resolve_comparison_config(case_cfg, tmp_path, _planned(entry), settings)
 
     assert resolved.notation_policy.target is RenderTarget.LATEX
 
@@ -485,14 +475,10 @@ def test_resolve_comparison_config_presentation_override_replaces_case_default(
     datasets_dir = tmp_path / "datasets"
     datasets_dir.mkdir()
     _write_dataset_config(datasets_dir / "matrix.toml", "matrix")
-    _write_dataset_config(datasets_dir / "rhs.toml", "rhs")
     settings = _make_settings(tmp_path)
     case_cfg = CaseConfig.model_validate(
         {
-            "datasets": [
-                {"id": "matrix", "path": "datasets/matrix.toml"},
-                {"id": "rhs", "path": "datasets/rhs.toml"},
-            ],
+            "datasets": [{"id": "matrix", "path": "datasets/matrix.toml"}],
             "comparison_baseline": {
                 "preconditioners": [{"type": "identity"}],
                 "presentation": {"rendering": "latex"},
@@ -507,33 +493,12 @@ def test_resolve_comparison_config_presentation_override_replaces_case_default(
         id="with-override",
         matrix_dataset="matrix",
         method=method_path,
-        rhs_source={"kind": "dataset", "path": settings.processed_dir / "rhs"},
+        rhs_source={"kind": "dataset"},
     )
 
-    resolved = resolve_comparison_config(case_cfg, tmp_path, entry, settings)
+    resolved = resolve_comparison_config(case_cfg, tmp_path, _planned(entry), settings)
 
     assert resolved.notation_policy.target is RenderTarget.MATHTEXT
-
-
-def test_comparison_registry_entry_rejects_matrix_index_and_test_position_together() -> None:
-    with pytest.raises(ValueError, match="mutually exclusive"):
-        ComparisonRegistryEntry(
-            id="both",
-            matrix_dataset="matrix",
-            matrix_index=1,
-            test_position=0,
-            rhs_source={"kind": "gaussian"},
-        )
-
-
-def test_comparison_registry_entry_allows_test_position_alone() -> None:
-    entry = ComparisonRegistryEntry(
-        id="test-position-only",
-        matrix_dataset="matrix",
-        test_position=0,
-        rhs_source={"kind": "gaussian"},
-    )
-    assert entry.test_position == 0
 
 
 def test_resolve_comparison_config_carries_generated_rhs_without_rhs_path(
@@ -563,7 +528,7 @@ def test_resolve_comparison_config_carries_generated_rhs_without_rhs_path(
         seed=42,
     )
 
-    cfg = resolve_comparison_config(case_cfg, tmp_path, entry, settings)
+    cfg = resolve_comparison_config(case_cfg, tmp_path, _planned(entry), settings)
 
     assert cfg.general.data.rhs_path is None
     assert cfg.general.data.rhs_source_kind is ComparisonRhsSourceKind.GAUSSIAN
@@ -603,7 +568,7 @@ def test_resolve_comparison_config_carries_raw_rhs_source(
         },
     )
 
-    cfg = resolve_comparison_config(case_cfg, tmp_path, entry, settings)
+    cfg = resolve_comparison_config(case_cfg, tmp_path, _planned(entry), settings)
 
     assert cfg.general.data.rhs_path is None
     assert cfg.general.data.rhs_source_kind is ComparisonRhsSourceKind.RAW_RHS
@@ -612,48 +577,32 @@ def test_resolve_comparison_config_carries_raw_rhs_source(
         "sample_index": 0,
         "row_kind": RowKind.STANDARD,
         "scale": 1.0,
+        "mask": {"kind": "none"},
     }
 
 
-def test_resolve_comparison_config_carries_dataset_rhs_source(
+def test_resolve_comparison_config_binds_a_dataset_rhs_to_the_planned_row(
     tmp_path: Path,
 ) -> None:
     datasets_dir = tmp_path / "datasets"
     datasets_dir.mkdir()
     _write_dataset_config(datasets_dir / "matrix.toml", "matrix")
-    rhs_dataset_dir = tmp_path / "processed" / "rhs-dataset"
     settings = _make_settings(tmp_path)
     case_cfg = CaseConfig.model_validate(
         {
             "datasets": [{"id": "matrix", "path": "datasets/matrix.toml"}],
-            "comparison_baseline": {
-                "rtol": 1.0e-6,
-                "atol": 1.0e-14,
-                "max_iterations": 10,
-                "stopping_criterion": "residual_norm",
-                "m_max": 20,
-                "preconditioners": [{"name": "identity", "type": "identity"}],
-            },
+            "comparison_baseline": {"preconditioners": [{"name": "identity", "type": "identity"}]},
         }
     )
     entry = ComparisonRegistryEntry(
-        id="dataset",
-        matrix_dataset="matrix",
-        rhs_source={
-            "kind": "dataset",
-            "path": rhs_dataset_dir,
-            "sample_index": 2,
-        },
+        id="dataset", matrix_dataset="matrix", rhs_source={"kind": "dataset"}
     )
 
-    cfg = resolve_comparison_config(case_cfg, tmp_path, entry, settings)
+    cfg = resolve_comparison_config(case_cfg, tmp_path, _planned(entry, rhs_row=2), settings)
 
     assert cfg.general.data.rhs_path is None
     assert cfg.general.data.rhs_source_kind is ComparisonRhsSourceKind.DATASET
-    assert cfg.general.data.rhs_source_params == {
-        "path": rhs_dataset_dir,
-        "sample_index": 2,
-    }
+    assert cfg.general.data.rhs_source_params == {"sample_index": 2, "mask": {"kind": "none"}}
 
 
 def test_comparison_data_model_tracks_explicit_normalize_in_fields_set() -> None:
@@ -824,7 +773,9 @@ def test_run_comparison_injects_master_topology(
     ):
         _configure_mock_mlflow(mock_mlflow)
         topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+        outcomes = _run_comparison_from_config(
+            cfg, _planned(entry), topology, experiments_config, settings
+        )
 
     assert outcomes[0].success is True
     assert topology.experiment_name == "CustomComparison"
@@ -857,7 +808,7 @@ def test_run_comparison_uses_explicit_entry_indices(
     ):
         _configure_mock_mlflow(mock_mlflow)
         topology = _resolve_comparison_topology(experiments_config, settings)
-        _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+        _run_comparison_from_config(cfg, _planned(entry), topology, experiments_config, settings)
 
     assert mock_compare.call_args.kwargs["general_params"].data.matrix_index == 4
     assert (
@@ -894,10 +845,10 @@ def _build_split_pinned_dataset(root: Path) -> Path:
     return dataset_dir
 
 
-def test_run_comparison_test_position_resolves_dataset_sample_index(
+def test_run_comparison_loads_the_planned_dataset_row_and_attaches_planner_provenance(
     tmp_path: Path, stub_comparison_result: ComparisonResult
 ) -> None:
-    """A dataset-kind comparison with test_position resolves a pinned-split row."""
+    """A dataset-kind system solves on its planned held-out row, with the planner's provenance."""
     experiments_config = tmp_path / "experiments.toml"
     _write_experiments_config(experiments_config)
     dataset_dir = _build_split_pinned_dataset(tmp_path)
@@ -906,11 +857,8 @@ def test_run_comparison_test_position_resolves_dataset_sample_index(
         rhs_path=None,
         preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
-    cfg.general.data.test_position = 0
     cfg.general.data.rhs_source_kind = ComparisonRhsSourceKind.DATASET
-    cfg.general.data.rhs_source_params = {"path": dataset_dir}
-    cfg.general.data.matrix_index = None
-    entry = _make_entry()
+    cfg.general.data.rhs_source_params = {"sample_index": 1}
     settings = _make_settings(tmp_path)
 
     with (
@@ -922,84 +870,17 @@ def test_run_comparison_test_position_resolves_dataset_sample_index(
     ):
         _configure_mock_mlflow(mock_mlflow)
         topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+        outcomes = _run_comparison_from_config(
+            cfg, _planned(_make_entry(), rhs_row=1), topology, experiments_config, settings
+        )
 
     assert outcomes[0].success is True
     resolved_input = mock_compare.call_args.kwargs["resolved_input"]
     assert resolved_input.rhs_sample_index == 1
-    from neuralls.domain.solver.models.provenance import PinnedSplitMatrix
-
-    assert isinstance(resolved_input.matrix_provenance, PinnedSplitMatrix)
-    assert resolved_input.matrix_provenance.test_position == 0
-    assert resolved_input.matrix_provenance.raw_matrix_index == resolved_input.matrix_index
+    assert resolved_input.matrix_provenance == SharedSingleMatrix(raw_matrix_index=0)
 
 
-def test_run_comparison_test_position_resolves_matrix_index_for_non_dataset_kind(
-    tmp_path: Path, stub_comparison_result: ComparisonResult
-) -> None:
-    """A generated-RHS comparison with test_position resolves a pinned-split matrix."""
-    experiments_config = tmp_path / "experiments.toml"
-    _write_experiments_config(experiments_config)
-    dataset_dir = _build_split_pinned_dataset(tmp_path)
-    cfg = _mock_cfg(
-        matrix_path=dataset_dir,
-        rhs_path=None,
-        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
-    )
-    cfg.general.data.test_position = 0
-    cfg.general.data.matrix_index = None
-    entry = _make_entry()
-    settings = _make_settings(tmp_path)
-
-    with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result) as mock_compare,
-        patch(_MLFLOW_MODULE) as mock_mlflow,
-        patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
-        patch(_SETUP_TRACKING),
-        patch(_LOG_COMPARISON_ARTIFACTS),
-    ):
-        _configure_mock_mlflow(mock_mlflow)
-        topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
-
-    assert outcomes[0].success is True
-    resolved_input = mock_compare.call_args.kwargs["resolved_input"]
-    assert resolved_input.matrix_index == 0
-    from neuralls.domain.solver.models.provenance import PinnedSplitMatrix
-
-    assert resolved_input.matrix_provenance == PinnedSplitMatrix(
-        test_position=0, raw_matrix_index=0
-    )
-
-
-def test_run_comparison_test_position_out_of_range_raises(tmp_path: Path) -> None:
-    experiments_config = tmp_path / "experiments.toml"
-    _write_experiments_config(experiments_config)
-    dataset_dir = _build_split_pinned_dataset(tmp_path)
-    cfg = _mock_cfg(
-        matrix_path=dataset_dir,
-        rhs_path=None,
-        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
-    )
-    cfg.general.data.test_position = 5
-    cfg.general.data.matrix_index = None
-    entry = _make_entry()
-    settings = _make_settings(tmp_path)
-
-    with (
-        patch(_MLFLOW_MODULE) as mock_mlflow,
-        patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
-        patch(_SETUP_TRACKING),
-    ):
-        _configure_mock_mlflow(mock_mlflow)
-        topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
-
-    assert outcomes[0].success is False
-    assert "out of range" in (outcomes[0].error or "")
-
-
-def test_run_comparison_without_test_position_carries_unverified_matrix_provenance(
+def test_run_comparison_attaches_the_planned_held_out_provenance(
     tmp_path: Path, stub_comparison_result: ComparisonResult
 ) -> None:
     experiments_config = tmp_path / "experiments.toml"
@@ -1010,7 +891,9 @@ def test_run_comparison_without_test_position_carries_unverified_matrix_provenan
         rhs_path=rhs_path,
         preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
-    entry = _make_entry()
+    planned = replace(
+        _planned(_make_entry()), provenance=HeldOutMatrix(matrix_id=MatrixId(9), raw_matrix_index=0)
+    )
     settings = _make_settings(tmp_path)
 
     with (
@@ -1022,14 +905,12 @@ def test_run_comparison_without_test_position_carries_unverified_matrix_provenan
     ):
         _configure_mock_mlflow(mock_mlflow)
         topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+        outcomes = _run_comparison_from_config(cfg, planned, topology, experiments_config, settings)
 
     assert outcomes[0].success is True
     resolved_input = mock_compare.call_args.kwargs["resolved_input"]
-    from neuralls.domain.solver.models.provenance import UnverifiedMatrix
-
-    assert resolved_input.matrix_provenance == UnverifiedMatrix(
-        raw_matrix_index=resolved_input.matrix_index
+    assert resolved_input.matrix_provenance == HeldOutMatrix(
+        matrix_id=MatrixId(9), raw_matrix_index=0
     )
 
 
@@ -1060,7 +941,9 @@ def test_run_comparison_generated_rhs_accepts_matrix_only_input(
     ):
         _configure_mock_mlflow(mock_mlflow)
         topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+        outcomes = _run_comparison_from_config(
+            cfg, _planned(entry), topology, experiments_config, settings
+        )
 
     assert outcomes[0].success is True
 
@@ -1075,22 +958,18 @@ def test_resolved_generated_rhs_uses_matrix_source_without_rhs_dataset(tmp_path:
     cfg.general.data.matrix_index = 0
     cfg.general.data.require_non_residual_rhs = True
     cfg.general.data.selection_seed = None
-    cfg.general.data.rhs_source_kind = ComparisonRhsSourceKind.SPARSE
+    cfg.general.data.rhs_source_kind = ComparisonRhsSourceKind.GAUSSIAN
     cfg.general.data.rhs_source_params = {
-        "indices": [0, 1],
-        "values": [3.0, -2.0],
+        "mask": {"kind": "random", "density": 0.5},
     }
     entry = ComparisonRegistryEntry(
-        id="generated-sparse",
+        id="generated-masked",
         matrix_dataset="solutions",
-        rhs_source={
-            "kind": "sparse",
-            "indices": [0, 1],
-            "values": [3.0, -2.0],
-        },
+        rhs_source={"kind": "gaussian", "mask": {"kind": "random", "density": 0.5}},
     )
 
     resolved = resolve_comparison_input(
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
         matrix_path=Path(cfg.general.data.matrix_path),
         matrix_dataset_id=entry.matrix_dataset,
         matrix_index=cfg.general.data.matrix_index,
@@ -1103,9 +982,9 @@ def test_resolved_generated_rhs_uses_matrix_source_without_rhs_dataset(tmp_path:
     assert resolved.rhs_source_type == "generated"
     assert resolved.rhs_dataset_id is None
     assert resolved.rhs_sample_index is None
-    assert resolved.rhs_source_kind is ComparisonRhsSourceKind.SPARSE
-    assert resolved.rhs_source_params == {"indices": [0, 1], "values": [3.0, -2.0]}
-    np.testing.assert_allclose(resolved.rhs, np.array([3.0, -2.0], dtype=np.float64))
+    assert resolved.rhs_source_kind is ComparisonRhsSourceKind.GAUSSIAN
+    assert resolved.rhs_source_params == {"mask": {"kind": "random", "density": 0.5}}
+    assert np.count_nonzero(resolved.rhs) == 1
 
 
 def test_run_comparison_does_not_require_split_artifacts(
@@ -1136,7 +1015,9 @@ def test_run_comparison_does_not_require_split_artifacts(
     ):
         _configure_mock_mlflow(mock_mlflow)
         topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+        outcomes = _run_comparison_from_config(
+            cfg, _planned(entry), topology, experiments_config, settings
+        )
 
     assert outcomes[0].success is True
 
@@ -1237,7 +1118,9 @@ def test_run_comparison_stages_plot_paths_before_logging(tmp_path: Path) -> None
     ):
         _configure_mock_mlflow(mock_mlflow)
         topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+        outcomes = _run_comparison_from_config(
+            cfg, _planned(entry), topology, experiments_config, settings
+        )
 
     assert outcomes[0].success is True
     assert "figures/convergence.png" in logged_files
@@ -1284,7 +1167,9 @@ def test_run_comparison_warns_and_continues_when_neural_resolution_fails(
     ):
         _configure_mock_mlflow(mock_mlflow)
         topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+        outcomes = _run_comparison_from_config(
+            cfg, _planned(entry), topology, experiments_config, settings
+        )
 
     assert outcomes[0].success is True
     assert len(outcomes[0].warnings) == 1
@@ -1326,7 +1211,9 @@ def test_run_comparison_fails_if_all_preconditioners_are_skipped(
     ):
         _configure_mock_mlflow(mock_mlflow)
         topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+        outcomes = _run_comparison_from_config(
+            cfg, _planned(entry), topology, experiments_config, settings
+        )
 
     assert outcomes[0].success is False
     assert "No runnable preconditioners remain" in (outcomes[0].error or "")
@@ -1401,7 +1288,9 @@ job = "valid-job"
     ):
         _configure_mock_mlflow(mock_mlflow)
         topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+        outcomes = _run_comparison_from_config(
+            cfg, _planned(entry), topology, experiments_config, settings
+        )
 
     assert outcomes[0].success is True
     assert mock_resolve_specs.call_args.kwargs["assignment_contexts"] is None
@@ -1428,7 +1317,9 @@ def test_run_comparison_fails_before_tracking_when_matrix_input_is_missing(
         patch(_SETUP_TRACKING) as mock_setup_tracking,
     ):
         topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+        outcomes = _run_comparison_from_config(
+            cfg, _planned(entry), topology, experiments_config, settings
+        )
 
     assert outcomes[0].success is False
     assert f"Comparison input not found: {missing_matrix}" in (outcomes[0].error or "")
@@ -1453,12 +1344,15 @@ def test_run_comparison_missing_known_dataset_raises_file_not_found(
     settings = _make_settings(tmp_path)
 
     topology = _resolve_comparison_topology(experiments_config, settings)
-    outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+    outcomes = _run_comparison_from_config(
+        cfg, _planned(entry), topology, experiments_config, settings
+    )
 
     assert outcomes[0].success is False
     assert str(missing_dataset) in (outcomes[0].error or "")
 
 
+@pytest.mark.usefixtures("stub_input_gate", "stub_planning")
 def test_run_comparison_batch_preserves_declared_order(tmp_path: Path) -> None:
     """Cache-hit outcomes come back in declared config order.
 
@@ -1471,14 +1365,14 @@ def test_run_comparison_batch_preserves_declared_order(tmp_path: Path) -> None:
 
     def _fake_prepare_entry(
         cfg: object,
-        entry: ComparisonRegistryEntry,
+        planned: PlannedSystem,
         context: object,
         *,
         force: bool = False,
     ) -> ComparisonOutcome:
         return ComparisonOutcome(
-            comparison_id=entry.id,
-            comparison_display_name=entry.effective_display_name,
+            comparison_id=planned.entry.id,
+            comparison_display_name=planned.entry.effective_display_name,
             success=True,
         )
 
@@ -1491,16 +1385,12 @@ def test_run_comparison_batch_preserves_declared_order(tmp_path: Path) -> None:
             "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
             return_value=_mock_cfg(),
         ),
-        patch(
-            "neuralls.composition.comparison.groups.list_available_matrix_indices",
-            return_value=(0,),
-        ),
         patch(_MLFLOW_MODULE) as mock_mlflow,
     ):
         outcomes = run_comparison_batch(experiments_config, ComparisonParams())
 
     assert [outcome.comparison_id for outcome in outcomes] == ["a", "b"]
-    assert [call.args[1].id for call in mock_prepare.call_args_list] == ["a", "b"]
+    assert [call.args[1].entry.id for call in mock_prepare.call_args_list] == ["a", "b"]
     mock_mlflow.start_run.assert_not_called()
 
 
@@ -1571,7 +1461,7 @@ def test_log_linear_system_params_logs_matrix_and_rhs_shape(tmp_path: Path) -> N
         _typed_comparison_result(tmp_path / "conv.png"),
         matrix_shape=(10, 10),
         rhs_shape=(10,),
-        rhs_source_kind=ComparisonRhsSourceKind.SPARSE,
+        rhs_source_kind=ComparisonRhsSourceKind.GAUSSIAN,
     )
 
     with patch(_COMPARISON_TRACKING_MLFLOW_MODULE) as mock_mlflow:
@@ -1581,7 +1471,7 @@ def test_log_linear_system_params_logs_matrix_and_rhs_shape(tmp_path: Path) -> N
     assert param_calls["matrix_rows"] == 10
     assert param_calls["matrix_cols"] == 10
     assert param_calls["rhs_dim"] == 10
-    assert param_calls["rhs_source_kind"] == "sparse"
+    assert param_calls["rhs_source_kind"] == "gaussian"
     mock_mlflow.log_metric.assert_not_called()
 
 
@@ -1610,7 +1500,9 @@ def test_run_comparison_logs_scalar_metrics_to_mlflow(tmp_path: Path) -> None:
     ):
         _configure_mock_mlflow(mock_mlflow)
         topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(cfg, entry, topology, experiments_config, settings)
+        outcomes = _run_comparison_from_config(
+            cfg, _planned(entry), topology, experiments_config, settings
+        )
 
     assert outcomes[0].success is True
     logged_metric_names = {call.args[0] for call in mock_mlflow.log_metric.call_args_list}
@@ -1641,47 +1533,24 @@ def test_log_comparison_result_metrics_logs_child_scalar_metrics(tmp_path: Path)
     assert metric_map["converged"] == 1
 
 
-def _build_sweep_dataset(settings: NeurallsSettings) -> Path:
-    """Single-matrix dataset at `settings.processed_dir / "solutions"` with a 4-row test fold."""
-    from dlkit.infrastructure.io.index import save_split_indices
-    from dlkit.infrastructure.types.split import IndexSplit
-
-    from neuralls.composition.generation.dataset_builder import build_dataset
-    from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
-
-    root = settings.processed_dir
-    root.mkdir(parents=True, exist_ok=True)
-    matrix = np.array([[4.0, -1.0], [-1.0, 3.0]], dtype=np.float64)
-    matrix_path = root / "matrix.npy"
-    np.save(matrix_path, matrix)
-    dataset_dir = root / "solutions"
-    build_dataset(
-        SourceSpec(matrix_path=str(matrix_path)),
-        DatasetSpec(
-            mixture=MixtureSpec(counts={"neutral_ones": 5}, seed=42, shuffle=False),
-            normalize="none",
-        ),
-        str(dataset_dir),
-        dataset_format="hdf5",
-    )
-    save_split_indices(
-        IndexSplit(train=(0,), validation=(), test=(1, 2, 3, 4), predict=None),
-        dataset_dir / "split.json",
-    )
-    return dataset_dir
-
-
-def test_comparison_sweep_expands_into_distinct_pinned_split_outcomes(
-    tmp_path: Path, stub_comparison_result: ComparisonResult
+@pytest.mark.usefixtures("stub_input_gate")
+def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
+    tmp_path: Path,
+    stub_comparison_result: ComparisonResult,
+    sparse_id_dataset: Path,
+    pin_test_fold: Callable[[Path, tuple[int, ...]], None],
 ) -> None:
-    """A `[[comparison_sweeps]]` FirstNSelector(n=3) entry runs 3 comparisons.
+    """A `first_n` sweep over a multi-matrix dataset solves each selected matrix `rhs_count` times.
 
-    Each expanded comparison carries a distinct `test_position` (0, 1, 2) and
-    `PinnedSplitMatrix` provenance, exactly like a hand-written
-    `[[comparisons]]` entry with `test_position` set.
+    Matrix ids (5, 9) differ from every storage row, so the run proves the
+    runner loads each matrix by its planned row and tags it with the planner's
+    held-out provenance.
     """
     settings = _make_settings(tmp_path)
-    dataset_dir = _build_sweep_dataset(settings)
+    dataset_dir = settings.processed_dir / "solutions"
+    dataset_dir.parent.mkdir(parents=True)
+    sparse_id_dataset.rename(dataset_dir)
+    pin_test_fold(dataset_dir, (0, 1, 2, 3))
 
     experiments_config = tmp_path / "experiments.toml"
     payload: dict[str, object] = {
@@ -1699,8 +1568,10 @@ def test_comparison_sweep_expands_into_distinct_pinned_split_outcomes(
         "comparison_sweeps": [
             {
                 "matrix_dataset": "solutions",
-                "rhs_source": {"kind": "dataset", "path": str(dataset_dir)},
-                "selector": {"kind": "first_n", "n": 3},
+                "rhs_source": {"kind": "gaussian"},
+                "rhs_count": 2,
+                "seed": 42,
+                "selector": {"kind": "first_n", "n": 2},
                 "id_prefix": "sweep",
             }
         ],
@@ -1720,19 +1591,84 @@ def test_comparison_sweep_expands_into_distinct_pinned_split_outcomes(
         _configure_mock_mlflow(mock_mlflow)
         outcomes = run_comparison_batch(experiments_config, ComparisonParams(), settings)
 
-    assert len(outcomes) == 3
     assert all(outcome.success for outcome in outcomes)
     assert [outcome.comparison_id for outcome in outcomes] == [
-        "sweep-0",
-        "sweep-1",
-        "sweep-2",
+        "sweep-5-0",
+        "sweep-5-1",
+        "sweep-9-0",
+        "sweep-9-1",
     ]
-
-    from neuralls.domain.solver.models.provenance import PinnedSplitMatrix
-
-    provenances = [
-        call.kwargs["resolved_input"].matrix_provenance for call in mock_compare.call_args_list
+    inputs = [call.kwargs["resolved_input"] for call in mock_compare.call_args_list]
+    assert [i.matrix_provenance for i in inputs] == [
+        HeldOutMatrix(matrix_id=MatrixId(5), raw_matrix_index=0),
+        HeldOutMatrix(matrix_id=MatrixId(5), raw_matrix_index=0),
+        HeldOutMatrix(matrix_id=MatrixId(9), raw_matrix_index=2),
+        HeldOutMatrix(matrix_id=MatrixId(9), raw_matrix_index=2),
     ]
-    assert len(provenances) == 3
-    assert all(isinstance(p, PinnedSplitMatrix) for p in provenances)
-    assert sorted(p.test_position for p in provenances) == [0, 1, 2]
+    assert [float(i.matrix[0, 0]) for i in inputs] == [5.0, 5.0, 9.0, 9.0]
+    # Each system draws its own RHS, so no two vectors coincide.
+    assert len({tuple(i.rhs) for i in inputs}) == 4
+
+
+@pytest.mark.usefixtures("stub_input_gate")
+def test_an_external_rhs_of_the_wrong_length_fails_only_its_own_system(
+    tmp_path: Path,
+    stub_comparison_result: ComparisonResult,
+    single_matrix_dataset: Path,
+    pin_test_fold: Callable[[Path, tuple[int, ...]], None],
+) -> None:
+    """A raw RHS that does not fit the native 2x2 matrix fails its system; the batch goes on."""
+    settings = _make_settings(tmp_path)
+    dataset_dir = settings.processed_dir / "solutions"
+    dataset_dir.parent.mkdir(parents=True)
+    single_matrix_dataset.rename(dataset_dir)
+    pin_test_fold(dataset_dir, (0, 1))
+    wrong_length_rhs = tmp_path / "rhs-of-length-3.npy"
+    np.save(wrong_length_rhs, np.ones(3))
+
+    experiments_config = tmp_path / "experiments.toml"
+    payload: dict[str, object] = {
+        "mlflow": {"tracking_uri": build_sqlite_tracking_uri(tmp_path / "mlruns" / "mlflow.db")},
+        "names": {"training": "neuralls-training", "comparison": "Comparisons"},
+        "comparison_baseline": {
+            "rtol": 1.0e-6,
+            "atol": 1.0e-14,
+            "max_iterations": 10,
+            "stopping_criterion": "residual_norm",
+            "m_max": 20,
+            "preconditioners": [{"name": "identity", "type": "identity"}],
+        },
+        "datasets": [{"id": "solutions", "path": "datasets/solutions.toml"}],
+        "comparisons": [
+            {"id": "fits", "matrix_dataset": "solutions", "rhs_source": {"kind": "gaussian"}},
+            {
+                "id": "too-long",
+                "matrix_dataset": "solutions",
+                "rhs_source": {
+                    "kind": "raw_rhs",
+                    "path": str(wrong_length_rhs),
+                    "row_kind": "standard",
+                },
+            },
+        ],
+    }
+    (tmp_path / "datasets").mkdir(exist_ok=True)
+    _write_dataset_config(tmp_path / "datasets" / "solutions.toml", "solutions")
+    with experiments_config.open("wb") as fh:
+        tomli_w.dump(payload, fh)
+
+    with (
+        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result) as mock_compare,
+        patch(_MLFLOW_MODULE) as mock_mlflow,
+        patch(_COMPARISON_TRACKING_MLFLOW_MODULE, mock_mlflow),
+        patch(_SETUP_TRACKING),
+        patch(_LOG_COMPARISON_ARTIFACTS),
+    ):
+        _configure_mock_mlflow(mock_mlflow)
+        outcomes = run_comparison_batch(experiments_config, ComparisonParams(), settings)
+
+    by_id = {outcome.comparison_id: outcome for outcome in outcomes}
+    assert by_id["fits"].success is True
+    assert by_id["too-long"].success is False
+    assert "rhs-of-length-3.npy" in (by_id["too-long"].error or "")
+    assert mock_compare.call_count == 1

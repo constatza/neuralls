@@ -1,53 +1,81 @@
-"""``report_all_groupings``: which groups reach the sink, and what is logged otherwise."""
+"""``report_all_levels``: which report groups reach the sink, how they are described,
+and what is logged otherwise."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 import numpy as np
 import pytest
+import torch
+from loguru import logger
 
-from neuralls.composition.comparison.group_reporting import report_all_groupings
+from neuralls.composition.comparison._preconditioner_setup import (
+    DatasetPreconditionerCache,
+    PreconditionerService,
+)
+from neuralls.composition.comparison.group_reporting import report_all_levels
 from neuralls.composition.comparison.models import (
-    ComparisonGroup,
-    ComparisonGroupings,
     ComparisonOutcome,
-    GroupKey,
-    SingleMatrixDataset,
+    MatrixRef,
+    PlannedSystem,
 )
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
 from neuralls.domain.solver.models.result import (
     CGComparisonResult,
     ComparisonResult,
     GroupAggregated,
-    ProjectedComparisonResult,
+    GroupPresentation,
+    PreconditionerPlotStyle,
 )
+from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
-from neuralls.shared.constants import MIN_GROUP_SIZE
-from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, GroupId
+from neuralls.shared.types import DatasetId, MatrixId
 
-DATASET = DatasetId("ds")
-GAUSSIAN = ComparisonRhsSourceKind.GAUSSIAN
-SINUSOIDAL = ComparisonRhsSourceKind.SINUSOIDAL
 JACOBI = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
+JACOBI_STYLE = PreconditionerPlotStyle(label="Jacobi (D⁻¹)", family=PreconditionerType.JACOBI)
+OMEGA = 6.283185307179586
 
 
 @dataclass
 class RecordingSink:
     """Stands in for the MLflow sink: records what it was asked to report."""
 
-    reported: list[tuple[GroupId, Mapping[str, ProjectedComparisonResult], str]] = field(
-        default_factory=list
-    )
     outcomes: list[GroupAggregated] = field(default_factory=list)
+    presentations: list[GroupPresentation] = field(default_factory=list)
 
-    def report(self, outcome: GroupAggregated, *, title: str) -> None:
-        self.reported.append((outcome.group_id, outcome.projected, title))
+    def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
         self.outcomes.append(outcome)
+        self.presentations.append(presentation)
+
+    @property
+    def group_ids(self) -> list[str]:
+        return [outcome.group_id for outcome in self.outcomes]
+
+
+def _system(
+    entry_id: str,
+    *,
+    dataset: str = "ds",
+    matrix: int = 0,
+    ordinal: int = 0,
+    rhs_source: dict[str, object] | None = None,
+) -> PlannedSystem:
+    return PlannedSystem(
+        entry=ComparisonRegistryEntry(
+            id=entry_id,
+            matrix_dataset=dataset,
+            rhs_source=rhs_source or {"kind": "gaussian"},
+        ),
+        matrix=MatrixRef(matrix_id=MatrixId(matrix), row=matrix),
+        rhs_row=None,
+        rhs_ordinal=ordinal,
+        provenance=None,
+    )
 
 
 def _cg_result(name: str) -> CGComparisonResult:
@@ -69,7 +97,7 @@ def _cg_result(name: str) -> CGComparisonResult:
     )
 
 
-def _executed(entry_id: str) -> ComparisonOutcome:
+def _executed(entry_id: str, spec: StandardPreconditionerConfig = JACOBI) -> ComparisonOutcome:
     general = ComparisonGeneral(
         params=SolverParams(
             rtol=1e-6, atol=1e-14, max_iterations=10, stopping_criterion="residual_norm", m_max=1
@@ -77,7 +105,10 @@ def _executed(entry_id: str) -> ComparisonOutcome:
         data=ComparisonData(matrix_path=None, rhs_path=None),
     )
     payload = ComparisonResult(
-        results={JACOBI.name: _cg_result(JACOBI.name)}, summary="", solver_params=general
+        results={spec.name: _cg_result(spec.name)},
+        summary="",
+        solver_params=general,
+        plot_styles={spec.name: JACOBI_STYLE},
     )
     return ComparisonOutcome(entry_id, entry_id, success=True, payload=payload)
 
@@ -86,132 +117,216 @@ def _cache_hit(entry_id: str) -> ComparisonOutcome:
     return ComparisonOutcome(entry_id, entry_id, success=True, payload=None)
 
 
-def _group(rhs_kind: ComparisonRhsSourceKind | None, entry_ids: tuple[str, ...]) -> ComparisonGroup:
-    return ComparisonGroup(
-        key=GroupKey(dataset_id=DATASET, rhs_kind=rhs_kind),
-        matrix_identity=SingleMatrixDataset(dataset_id=DATASET),
-        entry_ids=entry_ids,
-        rhs_kind_counts=((GAUSSIAN, len(entry_ids)),),
-    )
+def _failed(entry_id: str) -> ComparisonOutcome:
+    return ComparisonOutcome(entry_id, entry_id, success=False, error="boom")
 
 
-def _groupings(fine: ComparisonGroup, coarse: ComparisonGroup) -> ComparisonGroupings:
-    return ComparisonGroupings(
-        by_matrix={coarse.group_id: coarse},
-        by_matrix_and_rhs_kind={fine.group_id: fine},
+def _report(
+    planned: list[PlannedSystem],
+    outcomes: list[ComparisonOutcome],
+    sink: RecordingSink,
+) -> None:
+    report_all_levels(
+        outcomes,
+        planned,
+        {outcome.comparison_id: [JACOBI] for outcome in outcomes if outcome.payload is not None},
+        {},
+        sink,
     )
 
 
 @pytest.fixture
-def entry_ids() -> tuple[str, ...]:
-    return tuple(f"s{i}" for i in range(MIN_GROUP_SIZE))
+def two_dataset_case() -> list[PlannedSystem]:
+    """`ds`: matrices 3 and 7, two gaussian draws each plus one sinusoidal; `other`: one system."""
+    sinus = {"kind": "sinusoidal", "omega": OMEGA}
+    return [
+        _system("a-3-0", matrix=3, ordinal=0),
+        _system("a-3-1", matrix=3, ordinal=1),
+        _system("a-7-0", matrix=7, ordinal=0),
+        _system("a-7-1", matrix=7, ordinal=1),
+        _system("s-3", matrix=3, rhs_source=sinus),
+        _system("o-0", dataset="other"),
+    ]
 
 
-def test_a_group_with_enough_results_reaches_the_sink_headline_group_first(
-    entry_ids: tuple[str, ...],
+@pytest.fixture
+def warnings_log() -> Iterator[list[str]]:
+    messages: list[str] = []
+    handler_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
+    yield messages
+    logger.remove(handler_id)
+
+
+def test_every_level_reports_its_groups_finest_level_first(
+    two_dataset_case: list[PlannedSystem],
 ) -> None:
-    fine, coarse = _group(GAUSSIAN, entry_ids), _group(None, entry_ids)
     sink = RecordingSink()
 
-    report_all_groupings(
-        [_executed(e) for e in entry_ids],
-        {e: [JACOBI] for e in entry_ids},
-        _groupings(fine, coarse),
-        {},
-        sink,
-    )
+    _report(two_dataset_case, [_executed(s.entry.id) for s in two_dataset_case], sink)
 
-    assert [group_id for group_id, _, _ in sink.reported] == ["ds::gaussian", "ds"]
-    assert set(sink.reported[0][1]) == {JACOBI.name}
+    assert sink.group_ids == [
+        "fine/ds/gaussian",
+        "fine/ds/sinusoidal_omega_6.28319",
+        "fine/other/gaussian",
+        "medium/ds",
+        "medium/other",
+        "global",
+    ]
+    assert len(set(sink.group_ids)) == len(sink.group_ids)
 
 
-def test_a_pooled_group_is_titled_as_a_mixture_with_its_composition(
-    entry_ids: tuple[str, ...],
+def test_medium_and_global_groups_pool_systems_and_say_mixture(
+    two_dataset_case: list[PlannedSystem],
 ) -> None:
-    pooled = ComparisonGroup(
-        key=GroupKey(dataset_id=DATASET, rhs_kind=None),
-        matrix_identity=SingleMatrixDataset(dataset_id=DATASET),
-        entry_ids=entry_ids,
-        rhs_kind_counts=((GAUSSIAN, 2), (SINUSOIDAL, 1)),
-    )
     sink = RecordingSink()
 
-    report_all_groupings(
-        [_executed(e) for e in entry_ids],
-        {e: [JACOBI] for e in entry_ids},
-        ComparisonGroupings(by_matrix={pooled.group_id: pooled}, by_matrix_and_rhs_kind={}),
-        {},
-        sink,
-    )
+    _report(two_dataset_case, [_executed(s.entry.id) for s in two_dataset_case], sink)
 
-    title = sink.reported[0][2]
-    assert "pooled mixture" in title
-    assert "gaussian ×2" in title
-    assert "sinusoidal ×1" in title
+    by_id = dict(zip(sink.group_ids, sink.presentations, strict=True))
+    assert "mixture of gaussian, sinusoidal ω=6.28319" in by_id["medium/ds"].subject
+    assert by_id["global"].subject.startswith("all datasets, mixture of ")
+    assert "mixture" not in by_id["fine/ds/gaussian"].subject
+    assert by_id["fine/ds/gaussian"].subject == "ds, gaussian"
 
 
-def test_a_group_below_the_minimum_size_never_reaches_the_sink() -> None:
-    ids = ("only",)
+def test_subtitle_states_level_keys_recipe_and_system_count(
+    two_dataset_case: list[PlannedSystem],
+) -> None:
     sink = RecordingSink()
 
-    report_all_groupings(
-        [_executed("only")],
-        {"only": [JACOBI]},
-        _groupings(_group(GAUSSIAN, ids), _group(None, ids)),
-        {},
-        sink,
+    _report(two_dataset_case, [_executed(s.entry.id) for s in two_dataset_case], sink)
+
+    by_id = dict(zip(sink.group_ids, sink.presentations, strict=True))
+    assert by_id["fine/ds/gaussian"].subtitle == (
+        "Fine level · keys: dataset, recipe · recipe: gaussian · N = 4 (2 matrices × RHS)"
     )
+    assert by_id["medium/ds"].subtitle.startswith("Medium level · keys: dataset · mixture of ")
+    assert by_id["medium/ds"].subtitle.endswith("N = 5 (2 matrices × RHS)")
+    assert by_id["global"].subtitle.startswith("Global level · keys: none · mixture of ")
+    assert by_id["global"].subtitle.endswith("N = 6 (3 matrices × RHS)")
 
-    assert sink.reported == []
 
-
-def test_all_cache_hit_batch_touches_no_destination(entry_ids: tuple[str, ...]) -> None:
+def test_scatter_labels_name_matrix_and_rhs_ordinal(
+    two_dataset_case: list[PlannedSystem],
+) -> None:
     sink = RecordingSink()
 
-    report_all_groupings(
-        [_cache_hit(e) for e in entry_ids],
-        {},
-        _groupings(_group(GAUSSIAN, entry_ids), _group(None, entry_ids)),
-        {},
-        sink,
-    )
+    _report(two_dataset_case, [_executed(s.entry.id) for s in two_dataset_case], sink)
 
-    assert sink.reported == []
+    by_id = dict(zip(sink.group_ids, sink.presentations, strict=True))
+    assert by_id["fine/ds/gaussian"].system_labels == {
+        "a-3-0": "m3/r0",
+        "a-3-1": "m3/r1",
+        "a-7-0": "m7/r0",
+        "a-7-1": "m7/r1",
+    }
+    assert by_id["medium/ds"].system_labels["s-3"].startswith("m3/r0 sinusoidal")
+    assert by_id["global"].system_labels["o-0"] == "other m0/r0 gaussian"
 
 
-def test_members_with_different_preconditioner_lists_do_not_raise() -> None:
-    """A name present in only some members still gets a sharing policy (union of specs)."""
-    ids = tuple(f"s{i}" for i in range(MIN_GROUP_SIZE))
+def test_plot_styles_come_from_the_run_results(two_dataset_case: list[PlannedSystem]) -> None:
     sink = RecordingSink()
-    specs = {entry_id: [JACOBI] for entry_id in ids}
-    # the last member also ran a second preconditioner the first member lacks
+
+    _report(two_dataset_case, [_executed(s.entry.id) for s in two_dataset_case], sink)
+
+    assert all(p.plot_styles == {JACOBI.name: JACOBI_STYLE} for p in sink.presentations)
+
+
+def test_a_single_system_group_is_reported_without_a_spread() -> None:
+    sink = RecordingSink()
+
+    _report([_system("only")], [_executed("only")], sink)
+
+    assert len(sink.outcomes) == 3
+    projected = sink.outcomes[0].projected[JACOBI.name]
+    assert projected.n_systems == 1
+    assert projected.solve_time_std_seconds is None
+
+
+def test_all_cache_hit_batch_logs_loudly_and_touches_no_destination(
+    two_dataset_case: list[PlannedSystem], warnings_log: list[str]
+) -> None:
+    sink = RecordingSink()
+
+    _report(two_dataset_case, [_cache_hit(s.entry.id) for s in two_dataset_case], sink)
+
+    assert sink.outcomes == []
+    assert any("global" in message and "nothing measured" in message for message in warnings_log)
+    assert any("fine/ds/gaussian" in message for message in warnings_log)
+
+
+def test_a_partially_measured_group_is_reported_with_a_warning(
+    warnings_log: list[str],
+) -> None:
+    planned = [_system(f"s{i}", ordinal=i) for i in range(4)]
+    outcomes = [_executed("s0"), _executed("s1"), _cache_hit("s2"), _failed("s3")]
+    sink = RecordingSink()
+
+    _report(planned, outcomes, sink)
+
+    aggregated = sink.outcomes[0]
+    assert (aggregated.n_aggregated, aggregated.n_in_group) == (2, 4)
+    assert any("aggregated 2 of 4" in m and "1 cache hit(s), 1 failed" in m for m in warnings_log)
+
+
+def test_a_fully_cached_recipe_is_skipped_while_its_sibling_recipe_is_reported(
+    warnings_log: list[str],
+) -> None:
+    planned = [_system("g"), _system("s", rhs_source={"kind": "sinusoidal", "omega": OMEGA})]
+    sink = RecordingSink()
+
+    _report(planned, [_executed("g"), _cache_hit("s")], sink)
+
+    assert sink.group_ids == ["fine/ds/gaussian", "medium/ds", "global"]
+    assert any("fine/ds/sinusoidal_omega_6.28319" in m for m in warnings_log)
+
+
+def test_preconditioners_present_in_only_some_systems_still_get_a_sharing_policy() -> None:
+    planned = [_system("a"), _system("b", ordinal=1)]
     extra = StandardPreconditionerConfig(type=PreconditionerType.ILU)
-    specs[ids[-1]] = [JACOBI, extra]
-    outcomes = [_executed(e) for e in ids]
-    last = outcomes[-1].payload
-    assert last is not None
-    last.results[extra.name] = _cg_result(extra.name)
-
-    report_all_groupings(
-        outcomes, specs, _groupings(_group(GAUSSIAN, ids), _group(None, ids)), {}, sink
-    )
-
-    assert set(sink.reported[0][1]) == {JACOBI.name, extra.name}
-
-
-def test_aggregated_outcome_carries_each_systems_time_to_solution(
-    entry_ids: tuple[str, ...],
-) -> None:
+    first, second = _executed("a"), _executed("b")
+    assert second.payload is not None
+    second.payload.results[extra.name] = _cg_result(extra.name)
     sink = RecordingSink()
 
-    report_all_groupings(
-        [_executed(e) for e in entry_ids],
-        {e: [JACOBI] for e in entry_ids},
-        _groupings(_group(GAUSSIAN, entry_ids), _group(None, entry_ids)),
-        {},
+    report_all_levels([first, second], planned, {"a": [JACOBI], "b": [JACOBI, extra]}, {}, sink)
+
+    assert set(sink.outcomes[0].projected) == {JACOBI.name, extra.name}
+
+
+def test_a_static_setup_name_shared_in_its_dataset_projects_as_shared() -> None:
+    identity = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
+    planned = [_system("a"), _system("b", ordinal=1)]
+    cache = DatasetPreconditionerCache()
+    cache.for_system(MatrixId(0)).put(
+        identity.name,
+        PreconditionerService().create_preconditioner(torch.eye(2, dtype=torch.float64), identity),
+        setup_cost_seconds=1.0,
+        setup_peak_memory_bytes=None,
+    )
+    sink = RecordingSink()
+
+    report_all_levels(
+        [_executed("a", identity), _executed("b", identity)],
+        planned,
+        {"a": [identity], "b": [identity]},
+        {DatasetId("ds"): cache},
         sink,
     )
 
-    per_system = sink.outcomes[0].time_to_solution_by_system[JACOBI.name]
-    assert list(per_system) == list(entry_ids)  # config order
-    assert set(per_system.values()) == {1.5}  # setup 1.0 + solve 0.5
+    assert sink.outcomes[0].projected[identity.name].setup_sharing.share_setup is True
+
+
+def test_a_name_unshared_in_any_dataset_projects_as_unshared() -> None:
+    planned = [_system("a"), _system("b", dataset="other")]
+    sink = RecordingSink()
+
+    report_all_levels(
+        [_executed("a"), _executed("b")],
+        planned,
+        {"a": [JACOBI], "b": [JACOBI]},
+        {DatasetId("ds"): DatasetPreconditionerCache()},
+        sink,
+    )
+
+    assert sink.outcomes[-1].projected[JACOBI.name].setup_sharing.share_setup is False

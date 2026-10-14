@@ -82,15 +82,15 @@ class ComparisonData:
 
     Args:
         matrix_path: Path to system matrix file.
-        matrix_index: Optional index of matrix sample when dataset has multiple matrices.
+        matrix_index: Physical storage row of the matrix to solve on (0 for a
+            single-matrix dataset, whose one matrix is stored once).
         dataset_alias: Optional dataset label.
         normalize_system: Normalization strategy to apply.
     """
 
     matrix_path: Annotated[Path, Cosmetic()]
     rhs_path: Annotated[Path | None, Cosmetic()]
-    matrix_index: int | None = 0
-    test_position: int | None = None
+    matrix_index: int = 0
     dataset_alias: str | None = None
     normalize_system: NormalizeSystem = "matrix"
     require_non_residual_rhs: bool = True

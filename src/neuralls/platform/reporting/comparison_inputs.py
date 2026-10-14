@@ -9,35 +9,23 @@ from pathlib import Path
 import numpy as np
 
 from neuralls.domain.solver.models.provenance import (
-    CrossDatasetMatrix,
+    HeldOutMatrix,
     MatrixProvenance,
-    PinnedSplitMatrix,
-    UnverifiedMatrix,
+    SharedSingleMatrix,
 )
 from neuralls.platform.reporting.serialization import to_json_primitive
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
 
-def _matrix_provenance_to_json(provenance: MatrixProvenance | None) -> dict[str, object] | None:
+def _matrix_provenance_to_json(provenance: MatrixProvenance) -> dict[str, object]:
     """Serialize one `MatrixProvenance` variant into a tagged JSON-safe dict."""
     match provenance:
-        case None:
-            return None
-        case PinnedSplitMatrix(test_position=test_position, raw_matrix_index=raw_matrix_index):
+        case SharedSingleMatrix(raw_matrix_index=raw_matrix_index):
+            return {"kind": "shared_single", "raw_matrix_index": int(raw_matrix_index)}
+        case HeldOutMatrix(matrix_id=matrix_id, raw_matrix_index=raw_matrix_index):
             return {
-                "kind": "pinned_split",
-                "test_position": int(test_position),
-                "raw_matrix_index": int(raw_matrix_index),
-            }
-        case UnverifiedMatrix(raw_matrix_index=raw_matrix_index):
-            return {
-                "kind": "unverified",
-                "raw_matrix_index": int(raw_matrix_index),
-            }
-        case CrossDatasetMatrix(dataset_id=dataset_id, raw_matrix_index=raw_matrix_index):
-            return {
-                "kind": "cross_dataset",
-                "dataset_id": dataset_id,
+                "kind": "held_out",
+                "matrix_id": int(matrix_id),
                 "raw_matrix_index": int(raw_matrix_index),
             }
 
@@ -51,13 +39,13 @@ class ComparisonInputArtifacts:
     matrix_dataset_id: str
     matrix_index: int
     rhs_source_type: str
+    matrix_provenance: MatrixProvenance
     lhs: np.ndarray | None = None
     rhs_dataset_id: str | None = None
     rhs_sample_index: int | None = None
     row_kind: RowKind | None = None
     rhs_source_kind: ComparisonRhsSourceKind | None = None
     rhs_source_params: dict[str, object] | None = None
-    matrix_provenance: MatrixProvenance | None = None
 
 
 def stage_comparison_inputs(root: Path, resolved: ComparisonInputArtifacts) -> Path:

@@ -9,7 +9,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Protocol, runtime_checkable
 
-from neuralls.domain.solver.models.result import ComparisonResult, GroupAggregated
+from neuralls.domain.solver.models.result import (
+    ComparisonResult,
+    GroupAggregated,
+    GroupPresentation,
+)
 
 
 @runtime_checkable
@@ -41,7 +45,7 @@ class CostRecorder(Protocol):
 
 
 class GroupReportSink(Protocol):
-    """Receives one aggregated comparison group and records it.
+    """Receives one aggregated report group and records it.
 
     The composition layer decides *which* groups produce a projection; the
     sink decides *where* it goes (MLflow metrics plus plot and TOML artifacts
@@ -50,6 +54,6 @@ class GroupReportSink(Protocol):
     may assume a destination (e.g. an open MLflow run) exists.
     """
 
-    def report(self, outcome: GroupAggregated, *, title: str) -> None:
-        """Record `outcome`'s projection and per-system points, headed by `title`."""
+    def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
+        """Record `outcome`'s projection and per-system points, drawn per `presentation`."""
         ...

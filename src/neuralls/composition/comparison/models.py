@@ -2,35 +2,36 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import torch
 
-from neuralls.domain.solver.models.provenance import MatrixProvenance
+from neuralls.domain.solver.models.provenance import (
+    HeldOutMatrix,
+    MatrixProvenance,
+    SharedSingleMatrix,
+)
 from neuralls.domain.solver.models.result import CGComparisonResult, ComparisonResult
+from neuralls.platform.config.models.comparison import RHS_SOURCE_MODEL_BY_KIND
+from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.storage.manifest import DatasetNormalization
-from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, GroupId, MatrixId, RowKind
+from neuralls.shared.types import ComparisonRhsSourceKind, MatrixId, RowKind
 
 __all__ = [
-    "ComparisonGroup",
-    "ComparisonGroupings",
     "ComparisonOutcome",
     "ComparisonParams",
     "ComparisonPaths",
     "ComparisonResult",
     "ComparisonSpec",
-    "GroupKey",
-    "GroupMatrixIdentity",
     "LinearSystem",
-    "MultiMatrixDataset",
+    "MatrixRef",
+    "PlannedSystem",
     "PreconditionerComparisonEntry",
     "ResolvedComparisonInput",
-    "SingleMatrixDataset",
 ]
 
 
@@ -131,6 +132,10 @@ class ResolvedComparisonInput:
     rhs: np.ndarray
     matrix_dataset_id: str
     matrix_index: int
+    matrix_provenance: MatrixProvenance
+    """Whether this matrix is the dataset's one shared matrix or a held-out
+    matrix of a multi-matrix dataset: the claim the planner proved for the
+    system, carried through so no resolved input is ever without one."""
     lhs: np.ndarray | None = None
     rhs_dataset_id: str | None = None
     rhs_sample_index: int | None = None
@@ -142,25 +147,14 @@ class ResolvedComparisonInput:
     from, or None when the matrix came from a raw/external file with no
     manifest. Drives whether comparison-time code treats the matrix as
     already-normalized (skip/derive) or genuinely raw (compute fresh)."""
-    matrix_provenance: MatrixProvenance | None = None
-    """Whether this matrix was verified held-out via a pinned split, left
-    unverified (a raw matrix_index), or loaded cross-dataset. `None` only
-    for call sites that have not yet been migrated to attach it; new result
-    producers should always set it."""
 
     @property
     def rhs_source_type(self) -> str:
         match self.rhs_source_kind:
-            case (
-                ComparisonRhsSourceKind.GAUSSIAN
-                | ComparisonRhsSourceKind.SPARSE
-                | ComparisonRhsSourceKind.SINUSOIDAL
-            ):
-                return "generated"
             case None:
                 return "unknown"
-            case _:
-                return str(self.rhs_source_kind)
+            case kind:
+                return "generated" if RHS_SOURCE_MODEL_BY_KIND[kind].generated else str(kind)
 
 
 @dataclass(frozen=True)
@@ -177,110 +171,39 @@ class ComparisonParams:
 
 
 @dataclass(frozen=True, slots=True)
-class SingleMatrixDataset:
-    """This dataset has exactly one matrix — no sample index exists at all."""
+class MatrixRef:
+    """One matrix of a dataset: its id and the storage row to read it from.
 
-    dataset_id: DatasetId
+    `matrix_id` is the sample id the generator bound rows to; `row` is the
+    physical row passed to matrix and parameter-array readers. The two only
+    coincide by accident, so neither is derived from the other.
+    """
+
+    matrix_id: MatrixId
+    row: int
 
 
 @dataclass(frozen=True, slots=True)
-class MultiMatrixDataset:
-    """This dataset stores several matrix samples.
+class PlannedSystem:
+    """One concrete linear system a comparison will solve, fully bound to its data.
 
-    `resolved_indices` are the ones a comparison group's members actually
-    resolved to.
+    `entry` is a concrete registry entry with a unique id and the RHS seed
+    derived for this system, so everything downstream that already consumes an
+    entry (naming, method, assignments, RHS source) keeps working unchanged.
+
+    `rhs_row` is the held-out dataset row used as RHS for the `dataset` kind
+    and `None` for every other kind. `rhs_ordinal` is this system's position
+    among the `rhs_count` draws planned on its matrix (0 for a single draw).
+
+    `provenance` is what the planner proved about the system's matrix: the
+    dataset's one shared matrix, or a held-out matrix of a multi-matrix dataset.
     """
 
-    dataset_id: DatasetId
-    resolved_indices: frozenset[MatrixId]
-
-
-type GroupMatrixIdentity = SingleMatrixDataset | MultiMatrixDataset
-"""Which matrix(es) a `ComparisonGroup`'s members resolve to.
-
-Exactly two variants because a dataset is exactly one of two kinds (see
-`platform.storage.dataset_readers.list_available_matrix_indices`). For a
-`MultiMatrixDataset`, `len(resolved_indices) == 1` means every member hit
-the same matrix — a derived fact, not a third variant.
-"""
-
-
-@dataclass(frozen=True, slots=True)
-class GroupKey:
-    """Structured partition key of a comparison group.
-
-    `rhs_kind is None` is the coarse key (matrix dataset alone): the scope a
-    preconditioner's setup can be shared across, since `setup()` never sees the
-    RHS. A set `rhs_kind` is the finer reporting key — a matrix family with one
-    RHS distribution, the analogue of a "dataset" in the learned-preconditioner
-    literature, which never pools different RHS distributions into one number.
-    """
-
-    dataset_id: DatasetId
-    rhs_kind: ComparisonRhsSourceKind | None
-
-    def render(self) -> GroupId:
-        """The one string form, used as a filename stem and MLflow key segment."""
-        if self.rhs_kind is None:
-            return GroupId(self.dataset_id)
-        return GroupId(f"{self.dataset_id}::{self.rhs_kind}")
-
-    def coarse(self) -> GroupKey:
-        """The key whose group owns the setup cache covering this key's group."""
-        return GroupKey(dataset_id=self.dataset_id, rhs_kind=None)
-
-
-@dataclass(frozen=True, slots=True)
-class ComparisonGroup:
-    """Every resolved comparison entry sharing one partition key.
-
-    Hand-written `[[comparisons]]` entries and `comparison_sweeps`-expanded
-    entries land in the same group whenever their data says they belong
-    together — group membership is a property of what an entry tests, never
-    of which TOML array declared it. See `ComparisonGroupings`.
-
-    `entry_ids` is in declared config order so that anything derived from
-    "the first member" or from summation order is reproducible across runs.
-    `rhs_kind_counts` records the RHS composition so a pooled group can be
-    labelled with exactly what it mixes.
-    """
-
-    key: GroupKey
-    matrix_identity: GroupMatrixIdentity
-    entry_ids: tuple[str, ...]
-    rhs_kind_counts: tuple[tuple[ComparisonRhsSourceKind, int], ...]
-
-    @property
-    def group_id(self) -> GroupId:
-        """Rendered identity of this group."""
-        return self.key.render()
-
-
-@dataclass(frozen=True, slots=True)
-class ComparisonGroupings:
-    """Every comparison group discovered for one batch, under both granularities.
-
-    `by_matrix` partitions purely by `matrix_dataset` — the execution-time
-    grouping `GroupPreconditionerCache` scopes setup-sharing to, and a pooled
-    "mixture" view. `by_matrix_and_rhs_kind` additionally partitions by
-    `rhs_source.kind` and is the headline reporting view: it keeps
-    same-matrix, different-RHS-kind systems apart so one forcing structure's
-    behavior is not blended into another's average. Only `by_matrix` ever
-    backs a cache.
-    """
-
-    by_matrix: Mapping[GroupId, ComparisonGroup]
-    by_matrix_and_rhs_kind: Mapping[GroupId, ComparisonGroup]
-
-    def group_for_entry(self, entry_id: str) -> ComparisonGroup | None:
-        """The coarse group `entry_id` belongs to, or `None` if it belongs to none."""
-        return next(
-            (group for group in self.by_matrix.values() if entry_id in group.entry_ids), None
-        )
-
-    def cache_scope(self, group: ComparisonGroup) -> ComparisonGroup | None:
-        """The coarse group whose cache covers `group`'s members."""
-        return self.by_matrix.get(group.key.coarse().render())
+    entry: ComparisonRegistryEntry
+    matrix: MatrixRef
+    rhs_row: int | None
+    rhs_ordinal: int
+    provenance: SharedSingleMatrix | HeldOutMatrix
 
 
 @dataclass(frozen=True)

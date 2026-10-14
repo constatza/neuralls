@@ -209,8 +209,15 @@ binds:
 - `[[datasets]]` — processed-dataset generation configs
 - `[[jobs]]` — thin runnable entrypoints (`run.type = "train" | "search" | "fit"`)
   referencing a model profile, data profile, and training profile
-- `[[comparisons]]` — inline solver-comparison scenarios (matrix, RHS source,
-  seed), evaluated against `[comparison_baseline]` preconditioners
+- `[[comparisons]]` — solver-comparison scenarios on a **single-matrix**
+  dataset (RHS source, optionally zero-masked via
+  `mask = { kind = "random", density = 0.1 }`, `rhs_count` draws, seed), evaluated against
+  `[comparison_baseline]` preconditioners
+- `[[comparison_sweeps]]` — the same for a **multi-matrix** dataset: a
+  `selector` (`first_n` or `fraction`, where `p = 1.0` is every matrix) picks
+  held-out matrices from the dataset's pinned test fold and each gets
+  `rhs_count` RHS draws. The dataset's matrix shape decides which array a
+  dataset may appear in; `matrix_index` and `test_position` no longer exist
 - `[[assignments]]` — pairs one dataset with one job
 - optional `[mlflow]` topology and `[names]` for training/comparison experiment
   buckets

@@ -38,9 +38,6 @@ DEFAULT_ATOL = 1e-14  # Absolute tolerance for convergence (in addition to relat
 # =============================================================================
 # Comparison Reporting
 # =============================================================================
-MIN_GROUP_SIZE = (
-    3  # Fewest systems a group needs before a scaling projection (and its std) is drawn
-)
 TOLERANCE_LADDER_START_DECADE = 3  # First rung of the iterations-to-tolerance table is 1e-3
 TOLERANCE_LADDER_DECADE_STEP = 3  # Decades between consecutive rungs
 

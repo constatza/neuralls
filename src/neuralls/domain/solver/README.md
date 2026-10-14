@@ -61,35 +61,59 @@ implementations are delegated to `torchalg`.
     generation segment can still be styled `UNAVAILABLE`) and `work_precision`
   - recommendation records
   - `SetupSharingPolicy`/`ProjectedComparisonResult` — a scaling-law
-    projection aggregated across one `composition.comparison.models
-    .ComparisonGroup`'s members (5-7 in practice, never the N it extrapolates
-    to) — a group being any resolved comparisons sharing `(matrix_dataset,
-    rhs_source.kind)` (headline) or `matrix_dataset` alone (pooled), hand-written
-    or `comparison_sweeps`-expanded alike, never a sweep-only concept. Two independent booleans
+    projection aggregated across the systems of one report group (see the
+    levels below; never the N it extrapolates to). Two independent booleans
     (`share_setup`/`share_generation`) decide, per cost term, whether it
     amortizes (contributes its one-time value once, regardless of N) or
     repeats (contributes `N *` its per-system average);
     `projected_total_seconds(n)`/`projected_avg_per_system_seconds(n)` are
     the resulting closed-form extrapolations, never a real N-system run.
-    `domain/solver/comparison.py::aggregate_projected_results` builds these
-    from members' `CGComparisonResult`s plus a pre-computed sharing policy
+    `domain/solver/metrics_table.py::report_level` builds these
+    from systems' `CGComparisonResult`s (via the long-form `build_metrics_frame`
+    polars table) plus a pre-computed sharing policy
     per preconditioner — it cannot compute `share_setup` itself (that needs
     the live `torchalg.Preconditioner` object's role interface, which no
     longer exists by aggregation time), so the execution layer
-    (`composition/comparison/_preconditioner_setup.py::GroupPreconditionerCache`)
-    computes and passes it in. See `composition/README.md`'s "comparison
-    groups" section for the full wiring.
-  - `ComparisonGroupOutcome` (`GroupAggregated | GroupSkippedAllCacheHit |
-    GroupBelowMinimumSize`) — the closed outcome of attempting to aggregate
-    one group: a projection to act on, nothing measured this run, or too few
-    systems (`MIN_GROUP_SIZE`) for a projection or std to mean anything.
-    `GroupAggregated` carries `n_aggregated`/`n_in_group` (a partially-cached
-    or partly-failed group is reported with a visible gap, handled like a
-    full one) and `time_to_solution_by_system`, each system's point behind
-    the means. `domain/solver/comparison.py::classify_group_aggregation` is
-    the pure classifier; `composition/comparison/group_reporting.py` matches
-    it exhaustively and hands a `GroupAggregated` to the `GroupReportSink`
-    port (`ports.py`).
+    (`composition/comparison/_preconditioner_setup.py::DatasetPreconditionerCache`)
+    computes and passes it in. See `composition/README.md`'s "report levels"
+    and "setup cache" sections for the full wiring.
+  - `metrics_table.py` — `build_metrics_frame` turns `Mapping[SystemTag,
+    Mapping[str, CGComparisonResult]]` into one polars row per (system,
+    preconditioner) (`dataset`, `recipe`, `matrix_id`, `rhs_ordinal`,
+    `system_id`, `preconditioner`, `setup_s`, `generation_s`, `solve_s`,
+    `iterations`, `time_to_solution_s`, `peak_memory_bytes`). `report_level(
+    frame, level, sharing_by_name)` groups by the level's keys plus the
+    preconditioner, where `level` is the closed `FineLevel` (dataset +
+    recipe) | `MediumLevel` (dataset) | `GlobalLevel` (no keys), and returns
+    projections per `GroupLabel` (`FineLabel` | `MediumLabel` | `GlobalLabel`;
+    the latter two carry `mixture_of`, the pooled recipes, because their
+    spread mostly reflects recipes differing). Unmeasured values are nulls:
+    unmeasured solve times and unavailable generation costs are skipped by
+    the means and spreads rather than read as 0.0, and the generation
+    average divides by the available results only. A spread is `None` below
+    two values; a one-system group is reported, with its n. The only
+    statistical control is the per-system `TimingRepeatPolicy`.
+    `time_to_solution_by_system` gives each system's comparable
+    time-to-solution per group; `system_counts` gives each group's distinct
+    measured systems and matrices; `report_key`/`label_key`/`label_for_tags`
+    relate planned systems to labels, including a group nothing was measured in.
+  - `ComparisonGroupOutcome` (`GroupAggregated | GroupSkippedAllCacheHit`) —
+    the closed outcome of attempting to aggregate one report group: a
+    projection to act on, or nothing measured this run. `GroupAggregated`
+    carries its `label`, the level-unique `group_id` (`render_group_id`:
+    `fine/<dataset>/<recipe slug>`, `medium/<dataset>`, `global`),
+    `n_aggregated`/`n_matrices`/`n_in_group` (a partially-cached or
+    partly-failed group is reported with a visible gap, handled like a full
+    one) and `time_to_solution_by_system`, each system's point behind the
+    means. `domain/solver/comparison.py::classify_level` is the pure
+    classifier producing one outcome per report group of a level from the
+    planned systems' tags and the measured results;
+    `composition/comparison/group_reporting.py` matches it exhaustively and
+    hands each `GroupAggregated` and its `GroupPresentation` to the
+    `GroupReportSink` port (`ports.py`). `PreconditionerPlotStyle`/
+    `plot_style_maps` (label, family, colour key, marker key per
+    preconditioner, recorded on `ComparisonResult.plot_styles`) are the one
+    derivation of plot styling shared by per-run and per-group plots.
   - `COST_FIELD_REGISTRY` — one `(field_name, extractor)` pair per
     reportable scalar cost, read by both the cost bar-charts
     (`composition/comparison/_plots.py`, which owns each cost's title and
@@ -184,8 +208,8 @@ implementations are delegated to `torchalg`.
   internally) and any scheduling wrapper's own `.setup()` — this module
   never measures its own preconditioner's setup cost, since it only ever
   receives already-built, already-`setup()` `Preconditioner` instances. On a
-  `GroupPreconditionerCache` hit, `_run_preconditioner` skips rebuilding
-  entirely and reports the real cost from whichever group member built it
+  `SystemPreconditionerCache` hit, `_run_preconditioner` skips rebuilding
+  entirely and reports the real cost from whichever system built it
   first, rather than a fresh (and misleadingly near-zero) measurement.
 - Validation and artifact export helpers used by platform/composition layers.
 
@@ -210,7 +234,7 @@ serialized by the comparison workflow; optional spectral investigations use
   (`NeuralPreconditioner`'s checkpoint load, `CallablePreconditioner`/
   `LinearOperatorPreconditioner`'s wrapped callables, `Identity`). This is a
   property of each concrete class, not of "neural vs classical" — it is what
-  `GroupPreconditionerCache` checks (`isinstance(precond,
+  `DatasetPreconditionerCache` checks (`isinstance(precond,
   StaticSetupPreconditioner)`) to decide whether a built preconditioner can
   be reused across sibling systems with a different matrix.
 

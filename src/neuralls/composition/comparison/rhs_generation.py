@@ -7,7 +7,6 @@ import numpy as np
 from neuralls.platform.config.models.comparison import (
     GaussianRhsSourceModel,
     SinusoidalRhsSourceModel,
-    SparseRhsSourceModel,
 )
 
 _TWO_PI = 2.0 * np.pi
@@ -21,14 +20,6 @@ def generate_gaussian_rhs(
     """Generate a direct Gaussian RHS vector."""
     rng = np.random.default_rng(seed)
     return rng.normal(loc=cfg.mean, scale=cfg.std, size=dim).astype(np.float64)
-
-
-def generate_sparse_rhs(dim: int, cfg: SparseRhsSourceModel) -> np.ndarray:
-    """Generate a direct sparse RHS vector from explicit index/value pairs."""
-    rhs = np.zeros(dim, dtype=np.float64)
-    for index, value in zip(cfg.indices, cfg.values, strict=True):
-        rhs[index] = value
-    return rhs
 
 
 def generate_sinusoidal_rhs(

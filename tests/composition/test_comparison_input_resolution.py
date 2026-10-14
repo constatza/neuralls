@@ -7,9 +7,11 @@ import numpy as np
 import pytest
 
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
+from neuralls.composition.comparison.models import ResolvedComparisonInput
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.source_streams import EnumerateBy
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
 
@@ -41,13 +43,14 @@ def test_resolve_comparison_input_selects_canonical_dataset_triplet(tmp_path: Pa
     dataset_dir = _build_safe_dataset(tmp_path)
 
     resolved = resolve_comparison_input(
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
         matrix_path=dataset_dir,
         matrix_dataset_id="safe-dataset",
-        matrix_index=None,
+        matrix_index=0,
         require_non_residual_rhs=True,
         seed=11,
         rhs_source_kind=ComparisonRhsSourceKind.DATASET,
-        rhs_source_params={"path": dataset_dir},
+        rhs_source_params={"sample_index": 0},
     )
 
     assert resolved.rhs_source_type == "dataset"
@@ -65,15 +68,16 @@ def test_resolve_comparison_input_rejects_unsafe_dataset_triplet(
     dataset_dir = _build_safe_dataset(tmp_path, residual=True)
     overwrite_row_kind(dataset_dir, [RowKind.CG_INTERNAL, RowKind.CG_INTERNAL])
 
-    with pytest.raises(ValueError, match="No canonical non-residual rows"):
+    with pytest.raises(ValueError, match="CG_INTERNAL"):
         resolve_comparison_input(
+            matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
             matrix_path=dataset_dir,
             matrix_dataset_id="residual-dataset",
-            matrix_index=None,
+            matrix_index=0,
             require_non_residual_rhs=True,
             seed=3,
             rhs_source_kind=ComparisonRhsSourceKind.DATASET,
-            rhs_source_params={"path": dataset_dir},
+            rhs_source_params={"sample_index": 0},
         )
 
 
@@ -81,6 +85,7 @@ def test_resolve_comparison_input_generates_gaussian_rhs(tmp_path: Path) -> None
     dataset_dir = _build_safe_dataset(tmp_path)
 
     resolved = resolve_comparison_input(
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
         matrix_path=dataset_dir,
         matrix_dataset_id="safe-dataset",
         matrix_index=0,
@@ -97,27 +102,11 @@ def test_resolve_comparison_input_generates_gaussian_rhs(tmp_path: Path) -> None
     assert resolved.lhs is None
 
 
-def test_resolve_comparison_input_generates_sparse_rhs(tmp_path: Path) -> None:
-    dataset_dir = _build_safe_dataset(tmp_path)
-
-    resolved = resolve_comparison_input(
-        matrix_path=dataset_dir,
-        matrix_dataset_id="safe-dataset",
-        matrix_index=0,
-        require_non_residual_rhs=True,
-        seed=None,
-        rhs_source_kind=ComparisonRhsSourceKind.SPARSE,
-        rhs_source_params={"indices": [0, 1], "values": [3.0, -2.0]},
-    )
-
-    np.testing.assert_allclose(resolved.rhs, np.array([3.0, -2.0], dtype=np.float64))
-    assert resolved.rhs_source_kind is ComparisonRhsSourceKind.SPARSE
-
-
 def test_resolve_comparison_input_generates_sinusoidal_rhs(tmp_path: Path) -> None:
     dataset_dir = _build_safe_dataset(tmp_path)
 
     resolved = resolve_comparison_input(
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
         matrix_path=dataset_dir,
         matrix_dataset_id="safe-dataset",
         matrix_index=0,
@@ -143,6 +132,7 @@ def test_resolve_comparison_input_loads_raw_rhs_with_explicit_row_kind(tmp_path:
     np.save(rhs_path, np.array([[9.0, 8.0], [3.0, -2.0]], dtype=np.float64))
 
     resolved = resolve_comparison_input(
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
         matrix_path=dataset_dir,
         matrix_dataset_id="safe-dataset",
         matrix_index=0,
@@ -170,6 +160,7 @@ def test_resolve_comparison_input_scales_raw_lhs_into_rhs(tmp_path: Path) -> Non
     np.savetxt(solution_path, np.array([2.0, -1.0], dtype=np.float64))
 
     resolved = resolve_comparison_input(
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
         matrix_path=dataset_dir,
         matrix_dataset_id="safe-dataset",
         matrix_index=0,
@@ -199,6 +190,7 @@ def test_resolve_comparison_input_rejects_raw_rhs_without_row_kind(tmp_path: Pat
 
     with pytest.raises(ValueError, match="must define row_kind"):
         resolve_comparison_input(
+            matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
             matrix_path=dataset_dir,
             matrix_dataset_id="safe-dataset",
             matrix_index=0,
@@ -253,6 +245,7 @@ def test_resolve_comparison_input_matrix_index_selects_distinct_matrix_with_one_
 
     for index, expected in enumerate(matrices):
         resolved = resolve_comparison_input(
+            matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
             matrix_path=dataset_dir,
             matrix_dataset_id="holdout-dataset",
             matrix_index=index,
@@ -294,6 +287,7 @@ def test_resolve_comparison_input_matrix_index_can_collide_when_samples_are_pool
     )
 
     resolved_0 = resolve_comparison_input(
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
         matrix_path=dataset_dir,
         matrix_dataset_id="pooled-dataset",
         matrix_index=0,
@@ -303,6 +297,7 @@ def test_resolve_comparison_input_matrix_index_can_collide_when_samples_are_pool
         rhs_source_params={"mean": 0.0, "std": 1.0},
     )
     resolved_1 = resolve_comparison_input(
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
         matrix_path=dataset_dir,
         matrix_dataset_id="pooled-dataset",
         matrix_index=1,
@@ -316,22 +311,24 @@ def test_resolve_comparison_input_matrix_index_can_collide_when_samples_are_pool
     np.testing.assert_allclose(resolved_0.matrix, matrices[0])
 
 
-def test_resolve_comparison_input_loads_explicit_dataset_triplet(tmp_path: Path) -> None:
-    matrix_dataset = _build_safe_dataset(tmp_path / "matrix")
-    rhs_source = _build_safe_dataset(tmp_path / "rhs")
+def test_resolve_comparison_input_loads_the_requested_row_of_the_entrys_own_dataset(
+    tmp_path: Path,
+) -> None:
+    dataset_dir = _build_safe_dataset(tmp_path)
 
     resolved = resolve_comparison_input(
-        matrix_path=matrix_dataset,
+        matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
+        matrix_path=dataset_dir,
         matrix_dataset_id="matrix-dataset",
         matrix_index=0,
         require_non_residual_rhs=True,
         seed=None,
         rhs_source_kind=ComparisonRhsSourceKind.DATASET,
-        rhs_source_params={"path": rhs_source, "sample_index": 1},
+        rhs_source_params={"sample_index": 1},
     )
 
     assert resolved.rhs_source_type == "dataset"
-    assert resolved.rhs_dataset_id == str(rhs_source)
+    assert resolved.rhs_dataset_id == str(dataset_dir)
     assert resolved.rhs_sample_index == 1
     assert resolved.row_kind is RowKind.STANDARD
     assert resolved.rhs_source_kind is ComparisonRhsSourceKind.DATASET
@@ -339,46 +336,8 @@ def test_resolve_comparison_input_loads_explicit_dataset_triplet(tmp_path: Path)
     assert resolved.rhs.shape == (2,)
 
 
-def test_resolve_comparison_input_cross_dataset_loads_other_dataset_triplet(
-    tmp_path: Path,
-) -> None:
-    """cross_dataset resolves matrix+RHS from an explicitly different dataset, tagged accordingly."""
-    from neuralls.domain.solver.models.provenance import CrossDatasetMatrix
-
-    other_dataset = _build_safe_dataset(tmp_path / "other")
-
-    resolved = resolve_comparison_input(
-        matrix_path=other_dataset,
-        matrix_dataset_id="home-dataset",
-        matrix_index=None,
-        require_non_residual_rhs=True,
-        seed=None,
-        rhs_source_kind=ComparisonRhsSourceKind.CROSS_DATASET,
-        rhs_source_params={"path": other_dataset, "sample_index": 0},
-    )
-
-    assert resolved.rhs_source_kind is ComparisonRhsSourceKind.CROSS_DATASET
-    assert resolved.rhs_dataset_id == str(other_dataset)
-    assert isinstance(resolved.matrix_provenance, CrossDatasetMatrix)
-    assert resolved.matrix_provenance.dataset_id == str(other_dataset)
-    assert resolved.matrix_provenance.raw_matrix_index == resolved.matrix_index
-
-
-def test_resolve_comparison_input_cross_dataset_does_not_require_split_json(
-    tmp_path: Path,
-) -> None:
-    """cross_dataset works fine even when the other dataset has no pinned split at all."""
-    other_dataset = _build_safe_dataset(tmp_path / "other")
-    assert not (other_dataset / "split.json").exists()
-
-    resolved = resolve_comparison_input(
-        matrix_path=other_dataset,
-        matrix_dataset_id="home-dataset",
-        matrix_index=None,
-        require_non_residual_rhs=True,
-        seed=None,
-        rhs_source_kind=ComparisonRhsSourceKind.CROSS_DATASET,
-        rhs_source_params={"path": other_dataset},
-    )
-
-    assert resolved.matrix.shape == (2, 2)
+def test_a_resolved_input_cannot_be_built_without_matrix_provenance() -> None:
+    with pytest.raises(TypeError, match="matrix_provenance"):
+        ResolvedComparisonInput(  # ty: ignore[missing-argument]
+            matrix=np.eye(2), rhs=np.ones(2), matrix_dataset_id="ds", matrix_index=0
+        )

@@ -99,12 +99,10 @@ class ComparisonRhsSourceKind(StrEnum):
     """Supported RHS sources for comparison workflows."""
 
     GAUSSIAN = "gaussian"
-    SPARSE = "sparse"
     SINUSOIDAL = "sinusoidal"
     RAW_LHS = "raw_lhs"
     RAW_RHS = "raw_rhs"
     DATASET = "dataset"
-    CROSS_DATASET = "cross_dataset"
 
 
 class CostProvenance(StrEnum):

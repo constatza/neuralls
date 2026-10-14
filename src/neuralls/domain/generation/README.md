@@ -140,27 +140,20 @@ multi-matrix source's existing id-matching validation (`bind_sources`) keeps
 holding. Referencing an id that doesn't exist in a given stream raises
 immediately rather than silently doing nothing.
 
-**`matrix_index` is a row position, not a raw family id.** Code that later reads
-a generated dataset by `matrix_index` (e.g. `[[comparisons]]` in a case TOML) is
-indexing that dataset's own stored matrix array — physically laid out as one
-block of rows per matrix binding, in ascending raw-id order — not the original
-`enumerate_by` id. Two consequences:
-
-- After filtering, `matrix_index = 0` means "the first *included* matrix," not
-  "raw id 0."
-- `matrix_index` values only address genuinely distinct matrices when the
-  dataset's generation strategy emits **exactly one row per included matrix**
-  (set `[[generation.strategy]].samples` equal to the number of included
-  matrices). If a strategy pools more samples than matrices across the family
-  (the common case for training data), small `matrix_index` values can all fall
-  inside the same matrix's row block and resolve to the identical physical
-  matrix — see `_resolve_binding_strategy_counts` in `binding_allocation.py`.
+**A stored matrix row is not a raw family id.** A generated dataset's matrix
+array is physically laid out as one block of rows per matrix binding, in
+ascending raw-id order, and each row's matrix id is recorded in
+`matrix_sample_index`; neither a row position nor that id equals the original
+`enumerate_by` id after `include_indices`/`exclude_indices` filtering. The
+comparison planner (`composition/comparison/plan.py`) addresses matrices by the
+recorded id and reads them by physical row, so a case never names either.
 
 `configs/cases/45x15randomE/default.toml` and its
 `configs/datasets/{train,test}/45x15randomE/*.toml` datasets are a worked
-example of both: train datasets `exclude_indices` a held-back subset, and
+example: train datasets `exclude_indices` a held-back subset, and
 `gaussian-eval.toml` `include_indices`s the same subset with `samples` set to
-its exact size so every comparison `matrix_index` is a distinct matrix.
+its exact size (one row per matrix) and `[split] test_ratio = 1.0`, so each of
+its matrices is one held-out matrix a `[[comparison_sweeps]]` entry can select.
 
 ## User Path
 
