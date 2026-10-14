@@ -176,19 +176,20 @@ against matrices no POD basis has seen. `include_indices`/
 `domain/generation/README.md`); they don't require computing anything — the two
 lists are just the same 15 ids, used as an exclude on the train side and an
 include on the eval side. The eval dataset's `[[generation.strategy]]` sample
-count is set to exactly 15 (one per included matrix) so `matrix_index` in
-`[[comparisons]]` addresses genuinely distinct matrices — `matrix_index` is a
-*row position in that dataset*, not a raw family id, and only maps 1:1 to
-distinct matrices when the strategy emits exactly one row per matrix (see
-`_allocate_strategy_counts_across_bindings` in `domain/generation/orchestration.py`).
-`gaussian-eval.toml` uses the cheap `gaussian_forward` strategy rather than
+count is set to exactly 15 (one per included matrix), so each of its 15 matrices
+is one held-out matrix, and its `[split]` (`test_ratio = 1.0`) makes the whole
+dataset the pinned test fold that comparisons select from. The case then
+declares one `[[comparison_sweeps]]` entry per RHS recipe; each selects the
+dataset's first few held-out matrices with `selector = { kind = "first_n", n = ... }`
+and solves one system per matrix (`rhs_count` raises the number of RHS draws per
+matrix). `gaussian-eval.toml` uses the cheap `gaussian_forward` strategy rather than
 `gaussian_residuals`/CG trajectories because comparisons only read the *matrix*
-from this dataset (RHS is synthesized fresh per `[[comparisons]]` entry) — unlike
+from this dataset (RHS is synthesized fresh per system) — unlike
 the training datasets, nothing ever reads this dataset's own RHS/solution rows,
-so there's no reason to pay for CG solves here. Its comparisons mirror the 45x15
-RHS modes on 3 of the 15 eval matrix positions (0, 7, and 14 — first/middle/last):
-random (gaussian), sparse, raw-LHS, and low/high-frequency sinusoidal
-comparisons — the sinusoidal pair uses `rhs_source = { kind = "sinusoidal" }`
+so there's no reason to pay for CG solves here. The sweeps mirror the 45x15
+RHS modes: random (gaussian), masked gaussian
+(`mask = { kind = "random", density = 0.1 }`, a zero-mask any `rhs_source` kind accepts), raw-LHS, and low/high-frequency sinusoidal
+— the sinusoidal pair uses `rhs_source = { kind = "sinusoidal" }`
 (see `composition/README.md`'s generated-RHS-kinds note), not a generated
 dataset. The companion 45x15
 `default-search.toml` case binds one Optuna search job per network variant. Those

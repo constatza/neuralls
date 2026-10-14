@@ -12,6 +12,9 @@ max_iterations = 200
 stopping_criterion = "residual_norm"
 m_max = 20
 
+[comparison_baseline.timing]
+repeats = 3
+
 [[comparison_baseline.preconditioners]]
 name = "identity"
 type = "identity"
@@ -71,32 +74,38 @@ id = "pod-2g_rank100"
 path = "../../jobs/pod2g/pod2g-rank100.toml"
 display_name = "POD-2G (rank 100)"
 
-[[comparisons]]
+# The dataset is a glob over many matrices (`*/K_ff.mtx`), so every recipe is one
+# [[comparison_sweeps]] entry solving on the first 5 matrices of the pinned test
+# fold. Systems of one recipe form one reporting group.
+[[comparison_sweeps]]
+id_prefix = "gaussian"
+display_name = "Gaussian RHS"
 matrix_dataset = "gaussian-cg20-spectral-3d-field"
+selector = { kind = "first_n", n = 5 }
 rhs_source = { kind = "gaussian" }
 seed = 42
 
-[[comparisons]]
+[[comparison_sweeps]]
+id_prefix = "gaussian-masked"
+display_name = "Sparse Gaussian RHS"
 matrix_dataset = "gaussian-cg20-spectral-3d-field"
-rhs_source = { kind = "sparse", indices = [
-    0,
-    1,
-    -1,
-], values = [
-    90.0,
-    100.0,
-    -100.0,
-] }
+selector = { kind = "first_n", n = 5 }
+rhs_source = { kind = "gaussian", mask = { kind = "random", density = 0.1 } }
+seed = 43
 
-[[comparisons]]
-id = "sinusoidal-low-freq"
+[[comparison_sweeps]]
+id_prefix = "sinusoidal-low-freq"
+display_name = "Sinusoidal RHS (low freq)"
 matrix_dataset = "gaussian-cg20-spectral-3d-field"
+selector = { kind = "first_n", n = 5 }
 rhs_source = { kind = "sinusoidal", omega = 6.283185307179586 }
 seed = 44
 
-[[comparisons]]
-id = "sinusoidal-high-freq"
+[[comparison_sweeps]]
+id_prefix = "sinusoidal-high-freq"
+display_name = "Sinusoidal RHS (high freq)"
 matrix_dataset = "gaussian-cg20-spectral-3d-field"
+selector = { kind = "first_n", n = 5 }
 rhs_source = { kind = "sinusoidal", omega = 62.83185307179586 }
 seed = 45
 

@@ -53,15 +53,7 @@ seed = 42
 
 [[comparisons]]
 matrix_dataset = "gaussian-cg50-rectangular-high-condition-10000"
-rhs_source = { kind = "sparse", indices = [
-    0,
-    1,
-    -1,
-], values = [
-    90.0,
-    100.0,
-    -100.0,
-] }
+rhs_source = { kind = "gaussian", mask = { kind = "random", density = 0.1 } }
 
 [[assignment_sweeps]]
 dataset_sweep = "cg50-samples"

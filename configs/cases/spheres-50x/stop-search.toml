@@ -50,15 +50,7 @@ seed = 42
 
 [[comparisons]]
 matrix_dataset = "gaussian-cg50-spheres-50x"
-rhs_source = { kind = "sparse", indices = [
-    0,
-    1,
-    -1,
-], values = [
-    90.0,
-    100.0,
-    -100.0,
-] }
+rhs_source = { kind = "gaussian", mask = { kind = "random", density = 0.1 } }
 
 [[assignments]]
 dataset = "gaussian-cg0-spheres-50x"

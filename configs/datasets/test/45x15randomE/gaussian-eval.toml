@@ -24,5 +24,11 @@ seed = 42
 name = "gaussian_forward"
 samples = 15
 
+# Held-out evaluation data: no model trains on it, so the whole dataset is the
+# pinned test fold that comparisons select systems from.
+[split]
+test_ratio = 1.0
+val_ratio = 0.0
+
 [output]
 data_dir = "${NEURALLS_PROCESSED_DIR}"
