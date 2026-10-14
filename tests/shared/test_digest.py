@@ -12,6 +12,7 @@ from neuralls.shared.digest import (
     array_digest,
     canonical_digest,
     content_digest,
+    digest_memo,
     toml_digest,
 )
 from tests.shared.conftest import (
@@ -176,3 +177,51 @@ def test_array_digest_handles_scalars_and_big_endian(sample_array: np.ndarray) -
     """0-d arrays hash, and byte order does not matter."""
     assert array_digest(np.asarray(3.5)) == array_digest(np.asarray(3.5))
     assert array_digest(sample_array.astype(">f8")) == array_digest(sample_array)
+
+
+@pytest.fixture
+def hash_calls(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    calls: list[Path] = []
+    real = digest_module._hash_file
+
+    def counting(path: Path) -> str:
+        calls.append(path)
+        return real(path)
+
+    monkeypatch.setattr(digest_module, "_hash_file", counting)
+    return calls
+
+
+def test_digest_memo_hashes_an_unchanged_file_once(tmp_path: Path, hash_calls: list[Path]) -> None:
+    file = tmp_path / "weights.bin"
+    file.write_bytes(b"payload")
+
+    with digest_memo():
+        first = content_digest(file)
+        second = content_digest(file)
+
+    assert first == second
+    assert len(hash_calls) == 1
+
+
+def test_digest_memo_rehashes_a_changed_file(tmp_path: Path, hash_calls: list[Path]) -> None:
+    file = tmp_path / "weights.bin"
+    file.write_bytes(b"payload")
+
+    with digest_memo():
+        before = content_digest(file)
+        file.write_bytes(b"payload, retrained")
+        after = content_digest(file)
+
+    assert before != after
+    assert len(hash_calls) == 2
+
+
+def test_digest_is_not_memoized_outside_a_scope(tmp_path: Path, hash_calls: list[Path]) -> None:
+    file = tmp_path / "weights.bin"
+    file.write_bytes(b"payload")
+
+    content_digest(file)
+    content_digest(file)
+
+    assert len(hash_calls) == 2

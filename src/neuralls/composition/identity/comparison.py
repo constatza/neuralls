@@ -11,7 +11,7 @@ from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.storage.dataset_digest import current_dataset_digest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME, SPLIT_FILENAME
-from neuralls.shared.digest import Digest, canonical_digest, content_digest
+from neuralls.shared.digest import Digest, canonical_digest, content_digest, memoized
 
 
 def input_digest(path: Path) -> Digest:
@@ -25,11 +25,15 @@ def input_digest(path: Path) -> Digest:
         Digest: Path-independent digest of what the input contains.
     """
     if path.is_dir() and (path / DATASET_MANIFEST_FILENAME).exists():
-        split_path = path / SPLIT_FILENAME
-        if not split_path.exists():
-            return current_dataset_digest(path)
-        return canonical_digest(current_dataset_digest(path), content_digest(split_path))
+        return memoized(("dataset", path.resolve()), lambda: _dataset_input_digest(path))
     return content_digest(path)
+
+
+def _dataset_input_digest(path: Path) -> Digest:
+    split_path = path / SPLIT_FILENAME
+    if not split_path.exists():
+        return current_dataset_digest(path)
+    return canonical_digest(current_dataset_digest(path), content_digest(split_path))
 
 
 def _digestible_params(params: Mapping[str, object] | None) -> dict[str, object] | None:

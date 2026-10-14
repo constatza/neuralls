@@ -18,7 +18,9 @@ import hashlib
 import json
 import math
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Callable, Generator, Hashable, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import Enum
 from functools import singledispatch
@@ -310,7 +312,44 @@ def content_digest(path: Path) -> Digest:
     raise FileNotFoundError(path)
 
 
+_MEMO: ContextVar[dict[Hashable, Digest] | None] = ContextVar("digest_memo", default=None)
+
+
+@contextmanager
+def digest_memo() -> Generator[None]:
+    """Reuse digests of unchanged inputs for the duration of the ``with`` block.
+
+    A sweep digests the same checkpoints and datasets once per comparison, and
+    ``canonical`` re-digests every ``InputData`` file on each call. Inside this
+    scope a file is hashed once per ``(path, size, mtime_ns)``. The scope is
+    opt-in and ends with the block, so a file rewritten between sweeps (or in a
+    test) is never served a stale digest.
+    """
+    token = _MEMO.set({})
+    try:
+        yield
+    finally:
+        _MEMO.reset(token)
+
+
+def memoized(key: Hashable, compute: Callable[[], Digest]) -> Digest:
+    """Return ``compute()``, cached under ``key`` while a ``digest_memo`` scope is active."""
+    memo = _MEMO.get()
+    if memo is None:
+        return compute()
+    if key not in memo:
+        memo[key] = compute()
+    return memo[key]
+
+
 def _file_digest(path: Path) -> Digest:
+    stat = path.stat()
+    return memoized(
+        ("file", path.resolve(), stat.st_size, stat.st_mtime_ns), lambda: _hash_file(path)
+    )
+
+
+def _hash_file(path: Path) -> Digest:
     with path.open("rb") as fh:
         return _format(hashlib.file_digest(fh, _ALGORITHM).hexdigest())
 

@@ -6,9 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.identity.comparison import comparison_identity
+from neuralls.composition.identity import comparison as identity_module
+from neuralls.composition.identity.comparison import comparison_identity, input_digest
 from neuralls.platform.config.models.comparison import ComparisonConfig, RandomMask
-from neuralls.shared.digest import canonical_digest
+from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
+from neuralls.shared.digest import canonical_digest, digest_memo
 from tests.configuration.conftest import ComparisonFactory
 
 
@@ -97,3 +99,23 @@ def test_two_mask_densities_have_different_keys(make_comparison: ComparisonFacto
     assert _key(make_comparison(rhs_mask=RandomMask(density=0.1))) != _key(
         make_comparison(rhs_mask=RandomMask(density=0.2))
     )
+
+
+def test_dataset_input_digest_is_computed_once_per_directory_inside_a_memo_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / DATASET_MANIFEST_FILENAME).write_text("{}")
+    calls: list[Path] = []
+
+    def counting(path: Path) -> str:
+        calls.append(path)
+        return "sha256:stub"
+
+    monkeypatch.setattr(identity_module, "current_dataset_digest", counting)
+
+    with digest_memo():
+        digests = {input_digest(tmp_path) for _ in range(5)}
+    input_digest(tmp_path)
+
+    assert digests == {"sha256:stub"}
+    assert len(calls) == 2  # once inside the scope, once outside it (no memo)
