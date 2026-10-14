@@ -24,6 +24,8 @@ ROW_KIND_NAME: str = "row_kind"
 MATRIX_SAMPLE_INDEX_NAME: str = "matrix_sample_index"
 MATRIX_NAME: str = "matrix"
 
+# TODO: float32 unsupported; generation writes float64 only. See the matching TODO on
+# `OutputConfig.dtype` in `platform/config/models/data_models.py`.
 FLOAT_DTYPE: str = "float64"
 ROW_KIND_DTYPE: str = "uint8"
 MATRIX_SAMPLE_INDEX_DTYPE: str = "int64"

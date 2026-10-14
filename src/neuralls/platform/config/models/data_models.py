@@ -387,6 +387,11 @@ class OutputConfig(BaseModel):
         default="duplicate_per_sample",
         description="Matrix replication policy",
     )
+    # TODO: float32 unsupported at the generation level: the dtype is pinned to
+    # "float64" here and in `domain/generation/sample_writer.py` (`FLOAT_DTYPE`) and the
+    # generation strategies/providers. Widening it needs a dataset-identity change
+    # (the dtype is part of what a generated dataset is), a matching reader path,
+    # and agreement with the comparison and preconditioner precision settings.
     dtype: Literal["float64"] = Field(
         default="float64",
         description="Numeric dtype for persisted arrays",

@@ -8,6 +8,12 @@ import torch
 
 from neuralls.platform.sparse_io.components import CsrComponents
 
+# TODO: float32 unsupported at the comparison level. Every system the comparison
+# loads (CSR here, dense via `platform/storage/matrix_readers.py` and
+# `comparison.py`) is float64, and `ComparisonConfig` has no dtype field. Add a
+# comparison-level dtype (part of the comparison identity, so a float32 rerun is
+# never served a float64 cache hit), thread it through system loading, and keep it
+# consistent with the preconditioner precision and the generated dataset dtype.
 TORCH_VALUE_DTYPE: Final = torch.float64
 """Floating dtype of tensors produced from CSR components."""
 
