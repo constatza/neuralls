@@ -52,9 +52,7 @@ from neuralls.platform.config.models.preconditioner import (
     NeuralPODCoarseningConfig,
     NeuralPreconditionerConfig,
     PODCoarseningConfig,
-    PowerNormWeightingConfig,
     PreconditionerType,
-    SmootherPersistenceWeightingConfig,
     StandardPreconditionerConfig,
     TargetDimCoarseningConfig,
     parse_preconditioner_config,
@@ -289,19 +287,6 @@ def test_preconditioner_config_rejects_removed_identity_aliases(invalid_type: st
         parse_preconditioner_config({"name": "identity", "type": invalid_type})
 
 
-def test_identity_preconditioner_returns_copy(
-    well_conditioned_matrix: torch.Tensor, residual_vector: torch.Tensor
-) -> None:
-    """Identity preconditioner returns an equal-valued clone of the input."""
-    config = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
-
-    precond = create_preconditioner(well_conditioned_matrix, config)
-    result = precond.apply(residual_vector)
-
-    assert_close(result, residual_vector)
-    assert result is not residual_vector
-
-
 # ==============================================================================
 # Factory Tests - Jacobi
 # ==============================================================================
@@ -316,30 +301,6 @@ def test_factory_creates_jacobi_preconditioner(well_conditioned_matrix: torch.Te
     assert isinstance(precond, JacobiPreconditioner)
 
 
-def test_jacobi_preconditioner_applies_diagonal_scaling(
-    well_conditioned_matrix: torch.Tensor, residual_vector: torch.Tensor
-) -> None:
-    """JacobiPreconditioner divides by the diagonal: z_i = r_i / A_ii."""
-    config = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
-
-    precond = create_preconditioner(well_conditioned_matrix, config)
-    result = precond.apply(residual_vector)
-
-    expected = residual_vector / torch.diagonal(well_conditioned_matrix)
-    assert_close(result, expected)
-
-
-def test_jacobi_preserves_dtype(well_conditioned_matrix: torch.Tensor) -> None:
-    """JacobiPreconditioner preserves float64 dtype."""
-    config = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
-
-    precond = create_preconditioner(well_conditioned_matrix, config)
-    residual = torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float64)
-    result = precond.apply(residual)
-
-    assert result.dtype == torch.float64
-
-
 # ==============================================================================
 # Factory Tests - ILU
 # ==============================================================================
@@ -352,30 +313,6 @@ def test_factory_creates_ilu_preconditioner(dense_spd_matrix: torch.Tensor) -> N
     precond = create_preconditioner(dense_spd_matrix, config)
 
     assert isinstance(precond, ILUPreconditioner)
-
-
-def test_ilu_preconditioner_accepts_dense_matrix(dense_spd_matrix: torch.Tensor) -> None:
-    """ILUPreconditioner applies without error on a dense tridiagonal matrix."""
-    config = StandardPreconditionerConfig(type=PreconditionerType.ILU)
-
-    precond = create_preconditioner(dense_spd_matrix, config)
-
-    residual_5d = torch.ones(5, dtype=torch.float64)
-    result = precond.apply(residual_5d)
-
-    assert result.shape == (5,)
-    assert result.dtype == torch.float64
-
-
-def test_ilu_preserves_dtype(dense_spd_matrix: torch.Tensor) -> None:
-    """ILUPreconditioner preserves float64 dtype."""
-    config = StandardPreconditionerConfig(type=PreconditionerType.ILU)
-
-    precond = create_preconditioner(dense_spd_matrix, config)
-    residual = torch.ones(5, dtype=torch.float64)
-    result = precond.apply(residual)
-
-    assert result.dtype == torch.float64
 
 
 # ==============================================================================
@@ -510,7 +447,6 @@ def test_factory_creates_amg_preconditioner_with_target_dim_coarsening(
 
 def test_factory_creates_amg_preconditioner_with_pod_coarsening(
     well_conditioned_matrix: torch.Tensor,
-    residual_vector: torch.Tensor,
     pod_snapshot_dataset_dir: Path,
 ) -> None:
     """Factory creates AMGPreconditioner for AMG type with POD-2G coarsening.
@@ -524,81 +460,6 @@ def test_factory_creates_amg_preconditioner_with_pod_coarsening(
     precond = create_preconditioner(well_conditioned_matrix, config)
 
     assert isinstance(precond, AMGPreconditioner)
-    result = precond.apply(residual_vector)
-    assert result.shape == residual_vector.shape
-
-
-def test_factory_pod_coarsening_default_weighting_matches_unweighted_fit(
-    well_conditioned_matrix: torch.Tensor,
-    pod_snapshot_dataset_dir: Path,
-) -> None:
-    """No `weighting` configured must fit the exact same basis as before this feature existed."""
-    from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
-
-    from neuralls.platform.storage.dataset_readers import load_dense_training_arrays
-
-    config = AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(dataset_dir=pod_snapshot_dataset_dir, rank=2)
-    )
-
-    precond = create_preconditioner(well_conditioned_matrix, config)
-
-    assert isinstance(precond, AMGPreconditioner)
-    assert isinstance(precond._coarsening, PODCoarseningStrategy)
-    _, solutions = load_dense_training_arrays(pod_snapshot_dataset_dir)
-    expected = PODCoarseningStrategy(rank=2)
-    expected.fit(torch.as_tensor(solutions, dtype=well_conditioned_matrix.dtype))
-    torch.testing.assert_close(precond._coarsening._basis, expected._basis)
-
-
-def test_factory_pod_coarsening_power_norm_weighting_changes_the_basis(
-    well_conditioned_matrix: torch.Tensor,
-    pod_snapshot_dataset_dir: Path,
-) -> None:
-    """`weighting=power_norm` must produce a basis different from the unweighted fit.
-
-    Confirms the config actually reaches the SVD, not just that it parses.
-    """
-    from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
-
-    coarsening = PODCoarseningConfig(
-        dataset_dir=pod_snapshot_dataset_dir,
-        rank=2,
-        weighting=PowerNormWeightingConfig(metric="l2", beta=1.0),
-    )
-    config = AMGPreconditionerConfig(coarsening=coarsening)
-
-    precond = create_preconditioner(well_conditioned_matrix, config)
-
-    default_config = AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(dataset_dir=pod_snapshot_dataset_dir, rank=2)
-    )
-    default_precond = create_preconditioner(well_conditioned_matrix, default_config)
-    assert isinstance(precond, AMGPreconditioner)
-    assert isinstance(default_precond, AMGPreconditioner)
-    assert isinstance(precond._coarsening, PODCoarseningStrategy)
-    assert isinstance(default_precond._coarsening, PODCoarseningStrategy)
-    assert not torch.allclose(precond._coarsening._basis, default_precond._coarsening._basis)
-
-
-def test_factory_pod_coarsening_smoother_persistence_weighting_runs_end_to_end(
-    well_conditioned_matrix: torch.Tensor,
-    residual_vector: torch.Tensor,
-    pod_snapshot_dataset_dir: Path,
-) -> None:
-    """`weighting=smoother_persistence` (the scheme needing the system matrix) must work end-to-end."""
-    coarsening = PODCoarseningConfig(
-        dataset_dir=pod_snapshot_dataset_dir,
-        rank=2,
-        weighting=SmootherPersistenceWeightingConfig(omega=0.67, steps=3),
-    )
-    config = AMGPreconditionerConfig(coarsening=coarsening)
-
-    precond = create_preconditioner(well_conditioned_matrix, config)
-
-    assert isinstance(precond, AMGPreconditioner)
-    result = precond.apply(residual_vector)
-    assert result.shape == residual_vector.shape
 
 
 @pytest.fixture

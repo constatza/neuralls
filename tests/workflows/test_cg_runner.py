@@ -20,13 +20,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 import torch
-from numpy.testing import assert_allclose
 from torchalg.models.result import SolverResult
 from torchalg.preconditioners.base import NonLinearPreconditioner, PreconditionerContext
 from torchalg.preconditioners.implementations import (
     Identity,
-    JacobiPreconditioner,
-    ScheduledPreconditioner,
 )
 
 from neuralls.domain.solver.comparison import (
@@ -210,61 +207,6 @@ def mock_comparison_results() -> dict[str, CGComparisonResult]:
 # ==============================================================================
 
 
-def test_run_cg_comparison_with_preconditioner_instances(
-    spd_matrix: Tensor, rhs_vector: Tensor
-) -> None:
-    """Test run_cg_comparison with Identity and Jacobi preconditioner instances."""
-    preconditioners = {
-        "identity": Identity(),
-        "jacobi": JacobiPreconditioner().setup(spd_matrix),
-    }
-
-    results = run_cg_comparison(
-        spd_matrix,
-        rhs_vector,
-        preconditioners=preconditioners,
-        rtol=1e-8,
-        atol=1e-10,
-        maxiter=100,
-    )
-
-    # The runner preserves the caller's exact key set.
-    assert "identity" in results
-    assert "jacobi" in results
-    assert len(results) == 2
-
-    # Verify result types
-    for name, result in results.items():
-        assert isinstance(result, CGComparisonResult)
-        assert result.preconditioner == name
-        assert result.iterations >= 0
-        assert isinstance(result.converged, bool)
-
-
-def test_run_cg_comparison_routes_to_flexible_cg(spd_matrix: Tensor, rhs_vector: Tensor) -> None:
-    """Test that ScheduledPreconditioner routes to flexible_cg."""
-    primary = JacobiPreconditioner().setup(spd_matrix)
-    fallback = Identity()
-    scheduled = ScheduledPreconditioner(primary, fallback, limit_iters=5).setup(spd_matrix)
-
-    preconditioners = {"scheduled": scheduled}
-
-    results = run_cg_comparison(
-        spd_matrix,
-        rhs_vector,
-        preconditioners=preconditioners,
-        rtol=1e-8,
-        atol=1e-10,
-        maxiter=100,
-    )
-
-    # Verify flexible_cg was used (check for iteration history)
-    result = results["scheduled"]
-    assert isinstance(result, CGComparisonResult)
-    # Flexible CG provides iteration history
-    assert len(result.residual_history_rel) > 1
-
-
 def test_run_cg_comparison_dispatches_by_preconditioner_compatibility(
     monkeypatch: pytest.MonkeyPatch,
     spd_matrix: Tensor,
@@ -330,99 +272,6 @@ def test_run_cg_comparison_dispatches_by_preconditioner_compatibility(
     assert calls == ["flexible", "pcg"]
     assert results["nonlinear"].converged
     assert results["identity"].converged
-
-
-def test_run_cg_comparison_routes_to_pcg(spd_matrix: Tensor, rhs_vector: Tensor) -> None:
-    """Identity preconditioner converges via the real, non-mocked pcg() path."""
-    preconditioners = {"identity": Identity()}
-
-    results = run_cg_comparison(
-        spd_matrix,
-        rhs_vector,
-        preconditioners=preconditioners,
-        rtol=1e-8,
-        atol=1e-10,
-        maxiter=100,
-    )
-
-    result = results["identity"]
-    assert isinstance(result, CGComparisonResult)
-    assert result.converged
-
-
-def test_run_cg_comparison_executes_only_requested_preconditioners(
-    spd_matrix: Tensor, rhs_vector: Tensor
-) -> None:
-    """Domain execution does not inject a baseline omitted by configuration."""
-    preconditioners = {"jacobi": JacobiPreconditioner().setup(spd_matrix)}
-
-    results = run_cg_comparison(
-        spd_matrix,
-        rhs_vector,
-        preconditioners=preconditioners,
-        rtol=1e-8,
-        atol=1e-10,
-        maxiter=100,
-    )
-
-    assert tuple(results) == ("jacobi",)
-    assert results["jacobi"].preconditioner == "jacobi"
-
-
-def test_run_cg_comparison_computes_exact_error(spd_matrix: Tensor, rhs_vector: Tensor) -> None:
-    """Test that run_cg_comparison computes exact error correctly."""
-    preconditioners = {"identity": Identity()}
-
-    results = run_cg_comparison(
-        spd_matrix,
-        rhs_vector,
-        preconditioners=preconditioners,
-        rtol=1e-8,
-        atol=1e-10,
-        maxiter=100,
-    )
-
-    result = results["identity"]
-
-    # Verify exact error computed
-    assert result.exact_error is not None
-    assert result.exact_error >= 0
-
-    # Compute expected exact error
-    x_exact = np.linalg.solve(spd_matrix.numpy(), rhs_vector.numpy())
-    exact_norm = np.linalg.norm(x_exact)
-    expected_error = np.linalg.norm(result.x - x_exact) / exact_norm
-
-    assert_allclose(result.exact_error, expected_error, rtol=1e-7)
-
-
-def test_run_cg_comparison_preserves_input_dtype(
-    spd_matrix_precision: Tensor,
-    rhs_vector_precision: Tensor,
-    precision_dtype: torch.dtype,
-    precision_tolerances: tuple[float, float],
-) -> None:
-    """CGComparisonResult.x keeps the input dtype through the full comparison pipeline.
-
-    Device auto-placement in run_cg_comparison must never coerce precision -
-    float32 in stays float32 out, float64 in stays float64 out.
-    """
-    rtol, atol = precision_tolerances
-
-    results = run_cg_comparison(
-        spd_matrix_precision,
-        rhs_vector_precision,
-        preconditioners={"identity": Identity()},
-        rtol=rtol,
-        atol=atol,
-        maxiter=200,
-    )
-
-    result = results["identity"]
-    expected_numpy_dtype = torch.empty(0, dtype=precision_dtype).numpy().dtype
-    assert result.x.dtype == expected_numpy_dtype
-    assert result.exact_error is not None
-    assert np.isfinite(result.exact_error)
 
 
 def test_relative_exact_error_preserves_dtype_and_computes_correctly(

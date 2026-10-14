@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
+from neuralls.platform.config.settings import NeurallsSettings
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -65,7 +66,11 @@ max_epochs = 1
         MINIMAL_GNN_CONFIG,
     ],
 )
-def test_training_sections_round_trip(tmp_path: Path, config_content_template: str) -> None:
+def test_training_sections_round_trip(
+    tmp_path: Path,
+    config_content_template: str,
+    neuralls_settings: NeurallsSettings,
+) -> None:
     """Ensure load_assignment preserves trainer callbacks/metrics from a temporary file."""
     # Create necessary directories that dlkit expects
     (tmp_path / "output").mkdir()
@@ -131,6 +136,7 @@ name = "ArrayDataModule"
     experiment = load_assignment(
         config_path,
         data_config_path=data_path,
+        neuralls_settings=neuralls_settings,
         output_root=tmp_path / "output",
         identity=AssignmentIdentity(dataset_registry_id=data_path.stem),
     )

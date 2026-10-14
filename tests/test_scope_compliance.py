@@ -25,7 +25,7 @@ def test_runtime_roots_stay_under_tmp_path(
     assert figures_root == expected_root / "figures"
     assert mlflow_tracking_dir == expected_root / "mlruns"
     assert mlflow_artifact_dir == expected_root / "mlartifacts"
-    assert Path.cwd() == expected_root
+    assert Path.cwd() == tmp_path.resolve()
 
 
 def test_comparison_fixture_configs_load_from_tests_tree(neuralls_settings) -> None:

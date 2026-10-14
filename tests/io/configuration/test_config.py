@@ -9,6 +9,7 @@ import pytest
 
 from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 from neuralls.platform.config.models.workspace import AssignmentWorkspace, RunnableAssignment
+from neuralls.platform.config.settings import NeurallsSettings
 
 pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("dlkit") is None, reason="dlkit circular import issue"
@@ -47,7 +48,11 @@ def temp_config_structure(tmp_path: Path) -> Path:
     return project_root
 
 
-def test_load_experiment_success(temp_config_structure: Path, monkeypatch: pytest.MonkeyPatch):
+def test_load_experiment_success(
+    temp_config_structure: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    neuralls_settings: NeurallsSettings,
+) -> None:
     """Test that load_assignment correctly loads a single experiment."""
     monkeypatch.chdir(temp_config_structure)
 
@@ -57,6 +62,7 @@ def test_load_experiment_success(temp_config_structure: Path, monkeypatch: pytes
     experiment = load_assignment(
         job_config_path=model_path,
         data_config_path=data_path,
+        neuralls_settings=neuralls_settings,
         output_root=temp_config_structure / "output",
         identity=AssignmentIdentity(dataset_registry_id=data_path.stem),
     )

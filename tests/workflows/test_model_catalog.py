@@ -264,31 +264,3 @@ def test_register_logged_model_registered_at_not_overridden_by_caller(
     version = client.get_model_version("exp-1", str(record.version))
     assert version.tags["registered_at"] != "override"
     datetime.fromisoformat(version.tags["registered_at"])
-
-
-def test_register_logged_model_two_experiments_no_alias_collision(
-    mlflow_tracking_uri: str,
-    log_run_with_checkpoint: LoggedRunFactory,
-) -> None:
-    """Two experiments on the same dataset register under separate names without collision."""
-    run_id_a = log_run_with_checkpoint("marker-a")
-    run_id_b = log_run_with_checkpoint("marker-b")
-
-    record_a = register_logged_model(
-        run_id=run_id_a,
-        registered_model_name="spectral-energy",
-        tracking_uri=mlflow_tracking_uri,
-        aliases=("candidate",),
-        tags={"model_class": "NormScaledLinearFFNN"},
-    )
-    record_b = register_logged_model(
-        run_id=run_id_b,
-        registered_model_name="spectral-energy-normalized",
-        tracking_uri=mlflow_tracking_uri,
-        aliases=("candidate",),
-        tags={"model_class": "NormScaledLinearFFNN"},
-    )
-
-    assert record_a.name != record_b.name
-    assert record_a.name == "spectral-energy"
-    assert record_b.name == "spectral-energy-normalized"

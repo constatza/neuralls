@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from shutil import copy2
 from typing import Protocol
 
 import mlflow
@@ -45,8 +46,6 @@ module_path = "dlkit.engine.adapters.lightning.datamodules"
 
 EXP_ID_ALPHA: str = "alpha-experiment"
 EXP_ID_BETA: str = "beta-experiment"
-
-_IDENTITY_MODEL_SOURCE = "import mlflow\nfrom typing import Dict, List\n\nclass _IdentityModel(mlflow.pyfunc.PythonModel):\n    def predict(self, context, model_input: List[Dict[str, str]], params=None) -> List[Dict[str, str]]:\n        _ = context\n        _ = params\n        return model_input\n\nmlflow.models.set_model(_IdentityModel())\n"
 
 
 def _artifact_location(path: Path) -> str:
@@ -157,17 +156,32 @@ def neural_spec_invalid() -> NeuralPreconditionerConfig:
 # ---------------------------------------------------------------------------
 
 
+# TODO: Promote this schema-copy fixture to the root test fixtures and reuse it in
+# platform/composition MLflow adapter tests instead of rerunning migrations.
+@pytest.fixture(scope="session")
+def mlflow_db_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Create the migrated MLflow schema once for isolated per-test copies."""
+    template_dir = tmp_path_factory.mktemp("mlflow-template")
+    template_path = template_dir / "mlflow.db"
+    client = MlflowClient(tracking_uri=f"sqlite:///{template_path.as_posix()}")
+    client.search_experiments()
+    return template_path
+
+
 @pytest.fixture
-def mlflow_tracking_uri(tmp_path: Path) -> str:
-    """Local SQLite MLflow tracking URI scoped to this test's temp directory.
+def mlflow_tracking_uri(tmp_path: Path, mlflow_db_template: Path) -> str:
+    """Local isolated MLflow store copied from a pre-migrated template.
 
     Args:
         tmp_path: Pytest-provided isolated temp directory.
+        mlflow_db_template: Session-scoped database containing only the schema.
 
     Returns:
         A ``sqlite:///...`` tracking URI string.
     """
-    return f"sqlite:///{(tmp_path / 'mlflow.db').as_posix()}"
+    database_path = tmp_path / "mlflow.db"
+    copy2(mlflow_db_template, database_path)
+    return f"sqlite:///{database_path.as_posix()}"
 
 
 @pytest.fixture
@@ -201,7 +215,7 @@ def log_run_with_checkpoint(
     mlflow_tracking_uri: str,
     mlflow_experiment: str,
 ) -> LoggedRunFactory:
-    """Factory fixture: log one real run with a minimal pyfunc model + checkpoint.
+    """Factory fixture: log one real run with checkpoint artifacts.
 
     Each call logs a distinct run under ``mlflow_experiment`` containing a
     ``.ckpt`` artifact under both the ``model`` and ``checkpoints`` artifact
@@ -234,9 +248,6 @@ def log_run_with_checkpoint(
     ) -> str:
         checkpoint_file = tmp_path / f"{marker}.ckpt"
         checkpoint_file.write_text(marker)
-        model_code = tmp_path / f"{marker}_model.py"
-        model_code.write_text(_IDENTITY_MODEL_SOURCE)
-
         if start_time_ms is not None:
             created = client.create_run(
                 experiment_id=experiment.experiment_id,
@@ -248,7 +259,6 @@ def log_run_with_checkpoint(
             run_context = mlflow.start_run(run_name=run_name or marker)
 
         with run_context as run:
-            mlflow.pyfunc.log_model(artifact_path="model", python_model=model_code)
             mlflow.log_artifact(str(checkpoint_file), artifact_path="model")
             mlflow.log_artifact(str(checkpoint_file), artifact_path="checkpoints")
             return run.info.run_id

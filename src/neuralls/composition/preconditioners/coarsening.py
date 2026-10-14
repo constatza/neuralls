@@ -103,6 +103,8 @@ def _target_dim_coarsening(cfg: TargetDimCoarseningConfig) -> CoarseningStrategy
     )
 
 
+# TODO(urgent): Resolve snapshot/parameter arrays at the storage boundary and inject them here;
+# composition must not make POD builders accept, import, and dereference dataset paths.
 def _pod_coarsening(
     cfg: PODCoarseningConfig,
     matrix: torch.Tensor,

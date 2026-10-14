@@ -171,6 +171,8 @@ fallback firing somewhat more often for slow-converging spectra.
 """
 
 
+# TODO(urgent): Move the remaining numerical estimator into torchalg; keep only
+# neuralls-owned diagnostic dispatch and result mapping in this module.
 def compute_condition_numbers(
     matrix: np.ndarray,
     preconditioners: dict[str, PreconditionerCallable],

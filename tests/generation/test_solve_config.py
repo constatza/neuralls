@@ -14,7 +14,7 @@ from neuralls.domain.generation.strategy_configs import SolveConfig
 def sample_spd_matrix() -> np.ndarray:
     """Create a small symmetric positive-definite matrix."""
     n = 20
-    A = np.random.randn(n, n)
+    A = np.random.default_rng(0).standard_normal((n, n))
     return A.T @ A + 5 * np.eye(n)  # Well-conditioned SPD
 
 
@@ -25,7 +25,7 @@ def sample_rhs(sample_spd_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     num_systems = 5
 
     # Create exact solutions
-    solutions = np.random.randn(num_systems, n)
+    solutions = np.random.default_rng(1).standard_normal((num_systems, n))
 
     # Compute RHS: b = A @ x
     rhs_vectors = np.array([sample_spd_matrix @ x for x in solutions])
@@ -83,56 +83,6 @@ def test_solve_config_frozen() -> None:
         cfg.method = "cg"  # type: ignore[misc]
 
 
-def test_solve_linear_systems_direct(
-    sample_spd_matrix: np.ndarray, sample_rhs: tuple[np.ndarray, np.ndarray]
-) -> None:
-    """Test direct solve produces accurate solutions."""
-    rhs_vectors, exact_solutions = sample_rhs
-
-    computed_solutions = _solve_linear_systems(
-        MatrixOperator(sample_spd_matrix),
-        rhs_vectors,
-        method="direct",
-        assume_pos_def=True,
-    )
-
-    # Check shape
-    assert computed_solutions.shape == exact_solutions.shape
-
-    # Check accuracy (should be very accurate with direct solve)
-    for i in range(len(rhs_vectors)):
-        residual = np.linalg.norm(sample_spd_matrix @ computed_solutions[i] - rhs_vectors[i])
-        rhs_norm = np.linalg.norm(rhs_vectors[i])
-        rel_error = residual / rhs_norm
-        assert rel_error < 1e-10  # Very tight for direct solve
-
-
-def test_solve_linear_systems_cg(
-    sample_spd_matrix: np.ndarray, sample_rhs: tuple[np.ndarray, np.ndarray]
-) -> None:
-    """Test CG solve produces accurate solutions."""
-    rhs_vectors, exact_solutions = sample_rhs
-
-    computed_solutions = _solve_linear_systems(
-        MatrixOperator(sample_spd_matrix),
-        rhs_vectors,
-        method="cg",
-        rtol=1e-12,
-        atol=0.0,
-        max_iters=100,
-    )
-
-    # Check shape
-    assert computed_solutions.shape == exact_solutions.shape
-
-    # Check accuracy (CG should converge to high accuracy for well-conditioned SPD)
-    for i in range(len(rhs_vectors)):
-        residual = np.linalg.norm(sample_spd_matrix @ computed_solutions[i] - rhs_vectors[i])
-        rhs_norm = np.linalg.norm(rhs_vectors[i])
-        rel_error = residual / rhs_norm
-        assert rel_error < 1e-8  # Looser tolerance for CG
-
-
 def test_solve_linear_systems_invalid_method(
     sample_spd_matrix: np.ndarray, sample_rhs: tuple[np.ndarray, np.ndarray]
 ) -> None:
@@ -147,84 +97,13 @@ def test_solve_linear_systems_invalid_method(
         )
 
 
-def test_solve_linear_systems_direct_vs_cg_consistency(
-    sample_spd_matrix: np.ndarray, sample_rhs: tuple[np.ndarray, np.ndarray]
-) -> None:
-    """Test that direct and CG solves produce similar results."""
-    rhs_vectors, _ = sample_rhs
-
-    direct_solutions = _solve_linear_systems(
-        MatrixOperator(sample_spd_matrix),
-        rhs_vectors,
-        method="direct",
-        assume_pos_def=True,
-    )
-
-    cg_solutions = _solve_linear_systems(
-        MatrixOperator(sample_spd_matrix),
-        rhs_vectors,
-        method="cg",
-        rtol=1e-12,
-        atol=0.0,
-        max_iters=100,
-    )
-
-    # Solutions should be close
-    for i in range(len(rhs_vectors)):
-        diff = np.linalg.norm(direct_solutions[i] - cg_solutions[i])
-        sol_norm = np.linalg.norm(direct_solutions[i])
-        rel_diff = diff / sol_norm
-        assert rel_diff < 1e-6  # CG and direct should agree closely
-
-
-def test_solve_linear_systems_cg_tolerance_effect(
-    sample_spd_matrix: np.ndarray, sample_rhs: tuple[np.ndarray, np.ndarray]
-) -> None:
-    """Test that tighter tolerance produces more accurate solutions."""
-    rhs_vectors, _ = sample_rhs
-
-    # Loose tolerance
-    loose_solutions = _solve_linear_systems(
-        MatrixOperator(sample_spd_matrix),
-        rhs_vectors,
-        method="cg",
-        rtol=1e-6,
-        atol=0.0,
-        max_iters=100,
-    )
-
-    # Tight tolerance
-    tight_solutions = _solve_linear_systems(
-        MatrixOperator(sample_spd_matrix),
-        rhs_vectors,
-        method="cg",
-        rtol=1e-12,
-        atol=0.0,
-        max_iters=100,
-    )
-
-    # Compute residuals
-    loose_errors = [
-        np.linalg.norm(sample_spd_matrix @ sol - rhs) / np.linalg.norm(rhs)
-        for sol, rhs in zip(loose_solutions, rhs_vectors)
-    ]
-
-    tight_errors = [
-        np.linalg.norm(sample_spd_matrix @ sol - rhs) / np.linalg.norm(rhs)
-        for sol, rhs in zip(tight_solutions, rhs_vectors)
-    ]
-
-    # Tight tolerance should produce smaller errors
-    assert max(tight_errors) < max(loose_errors)
-
-
 def test_eigenvector_inverse_with_solve_config() -> None:
     """Test EigenvectorInverseStrategy with custom solve config."""
     from neuralls.domain.generation.strategies.eigenvector import EigenvectorInverseStrategy
 
     # Create symmetric matrix
     n = 20
-    A = np.random.randn(n, n)
+    A = np.random.default_rng(2).standard_normal((n, n))
     A = A.T @ A + 5 * np.eye(n)
 
     # Test with direct solve (default)

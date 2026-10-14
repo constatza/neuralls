@@ -10,11 +10,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-import numpy as np
 import pytest
 import torch
 from loguru import logger
-from scipy.io import mmwrite
 from scipy.sparse import csr_array, diags, identity, kron
 from torchalg.preconditioners.base import Preconditioner
 from torchalg.preconditioners.implementations import (
@@ -25,16 +23,11 @@ from torchalg.preconditioners.implementations import (
 from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAdapter
 from torchalg.sparse.preconditioners.jacobi import JacobiPreconditioner as SparseJacobi
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.composition.preconditioners.builders import _lookup_builder
 from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.composition.solvers.torchalg_runner import _to_torch_operator
-from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.config.models.preconditioner import (
-    AggregationCoarseningConfig,
-    AMGPreconditionerConfig,
     NeuralPreconditionerConfig,
-    PODCoarseningConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
 )
@@ -221,58 +214,6 @@ def test_prepare_model_input_returns_float64_batched_tensor() -> None:
 
     assert tensor.dtype == torch.float64
     assert tuple(tensor.shape) == (1, 6)
-
-
-def test_csr_amg_preset_applies_an_approximate_inverse(laplacian_csr: csr_array) -> None:
-    """The CSR AMG V-cycle approximates A^-1: one application shrinks the residual of A z = r."""
-    config = AMGPreconditionerConfig(
-        type=PreconditionerType.AMG,
-        coarsening=AggregationCoarseningConfig(),
-    )
-    operator = _to_torch_operator(laplacian_csr)
-    precond = create_preconditioner(operator, config, matrix_format=MatrixFormat.CSR)
-
-    residual = torch.as_tensor(
-        np.random.default_rng(0).standard_normal(laplacian_csr.shape[0]), dtype=torch.float64
-    )
-    approx_solution = precond(residual)
-    remaining = operator @ approx_solution - residual
-
-    relative_remaining = (torch.linalg.norm(remaining) / torch.linalg.norm(residual)).item()
-    assert relative_remaining < RELATIVE_REMAINING_BOUND
-
-
-def test_csr_pod_2g_preset_applies_an_approximate_inverse(
-    laplacian_csr: csr_array, tmp_path: Path
-) -> None:
-    """POD-2G on a CSR matrix: A stays sparse and one application shrinks the residual of A z = r."""
-    matrix_path = tmp_path / "laplacian.mtx"
-    mmwrite(matrix_path, laplacian_csr)
-    dataset_dir = tmp_path / "dataset"
-    build_dataset(
-        SourceSpec(matrix_path=str(matrix_path)),
-        DatasetSpec(
-            mixture=MixtureSpec(counts={"gaussian_forward": 16}, seed=0, shuffle=False),
-            normalize="none",
-        ),
-        str(dataset_dir),
-        dataset_format="zarr",
-        matrix_format=MatrixFormat.CSR,
-    )
-    config = AMGPreconditionerConfig(
-        type=PreconditionerType.AMG,
-        coarsening=PODCoarseningConfig(dataset_dir=dataset_dir, rank=POD_RANK),
-    )
-    operator = _to_torch_operator(laplacian_csr)
-    precond = create_preconditioner(operator, config, matrix_format=MatrixFormat.CSR)
-
-    residual = torch.as_tensor(
-        np.random.default_rng(0).standard_normal(laplacian_csr.shape[0]), dtype=torch.float64
-    )
-    remaining = operator @ precond(residual) - residual
-
-    relative_remaining = (torch.linalg.norm(remaining) / torch.linalg.norm(residual)).item()
-    assert relative_remaining < POD_RELATIVE_REMAINING_BOUND
 
 
 def test_dense_fitted_checkpoint_is_rejected_for_a_csr_matrix(

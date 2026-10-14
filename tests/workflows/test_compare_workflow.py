@@ -271,6 +271,7 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
     assert not active
 
 
+@pytest.mark.integration
 def test_compare_preconditioners_workflow(tmp_path: Path, neuralls_settings) -> None:
     """End-to-end check that compare_preconditioners loads config and data."""
     A = np.array([[4.0, -1.0], [-1.0, 3.0]], dtype=np.float64)

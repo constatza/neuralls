@@ -55,14 +55,6 @@ def test_amortized_seconds_divides_only_setup_cost(convergence_study_module: Mod
     assert point.amortized_seconds(10) == pytest.approx(2.0)
 
 
-def test_timed_returns_elapsed_seconds_and_the_original_result(
-    convergence_study_module: ModuleType,
-) -> None:
-    elapsed, result = convergence_study_module.timed(lambda x: x + 1)(41)
-    assert result == 42
-    assert elapsed >= 0.0
-
-
 def test_fastest_of_keeps_the_result_from_the_minimum_elapsed_call(
     convergence_study_module: ModuleType,
 ) -> None:

@@ -34,6 +34,9 @@ from neuralls.platform.reporting.plots import (
 from neuralls.platform.reporting.preconditioner_labels import build_preconditioner_labels
 from neuralls.shared.types import CostProvenance
 
+# TODO: Keep one real save per public plotter; mock the render/save boundary in
+# behavioral tests that only verify sorting, labels, collision handling, or omission.
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------

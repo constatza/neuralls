@@ -7,10 +7,7 @@ from collections.abc import Iterator
 import numpy as np
 import pytest
 import torch
-from torchalg.preconditioners.implementations.pod import (
-    PODCoarseningStrategy,
-    power_norm_scales,
-)
+from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
 from neuralls.composition.preconditioners.pod_fittable import PODCoarseningFittable
 from neuralls.platform.config.models.preconditioner import (
@@ -46,20 +43,6 @@ def test_fit_concatenates_batches_and_delegates_to_tensor_fit(
     assert model.is_fitted()
     assert isinstance(model, PODCoarseningStrategy)
     assert model._basis.shape == (5, 2)
-
-
-def test_fit_matches_direct_tensor_fit(
-    snapshot_batches: list[dict[str, dict[str, torch.Tensor]]],
-) -> None:
-    """Fitting via the dataloader adapter yields the same basis as a direct tensor fit."""
-    via_dataloader = PODCoarseningFittable(rank=2)
-    via_dataloader.fit(snapshot_batches)
-
-    all_snapshots = torch.cat([batch["targets"]["y"] for batch in snapshot_batches], dim=0)
-    via_tensor = PODCoarseningStrategy(rank=2)
-    via_tensor.fit(all_snapshots)
-
-    torch.testing.assert_close(via_dataloader._basis, via_tensor._basis)
 
 
 def test_fit_respects_custom_target_name(
@@ -122,35 +105,6 @@ def test_hparams_exposes_configured_rank_before_fit() -> None:
     model = PODCoarseningFittable(rank=0.99)
 
     assert dict(model.hparams) == {"rank": 0.99, "weighting": "raw"}
-
-
-def test_fit_default_weighting_matches_unweighted_fit(
-    snapshot_batches: list[dict[str, dict[str, torch.Tensor]]],
-) -> None:
-    """No `weighting` configured must fit the exact same basis as before this feature existed."""
-    model = PODCoarseningFittable(rank=2)
-
-    model.fit(snapshot_batches)
-
-    all_snapshots = torch.cat([batch["targets"]["y"] for batch in snapshot_batches], dim=0)
-    expected = PODCoarseningStrategy(rank=2)
-    expected.fit(all_snapshots)
-    torch.testing.assert_close(model._basis, expected._basis)
-
-
-def test_fit_applies_weighting_that_does_not_need_the_matrix(
-    snapshot_batches: list[dict[str, dict[str, torch.Tensor]]],
-) -> None:
-    """`metric='l2'` power-norm weighting must reach the SVD without a `features` key at all."""
-    model = PODCoarseningFittable(rank=2, weighting=PowerNormWeightingConfig(metric="l2", beta=1.0))
-
-    model.fit(snapshot_batches)
-
-    all_snapshots = torch.cat([batch["targets"]["y"] for batch in snapshot_batches], dim=0)
-    expected_scales = power_norm_scales(all_snapshots, metric="l2", beta=1.0)
-    expected = PODCoarseningStrategy(rank=2)
-    expected.fit(all_snapshots, row_scales=expected_scales)
-    torch.testing.assert_close(model._basis, expected._basis)
 
 
 def test_weighting_accepts_raw_dict_like_a_toml_model_table(

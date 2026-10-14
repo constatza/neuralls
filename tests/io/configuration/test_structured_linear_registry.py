@@ -14,6 +14,7 @@ from neuralls.composition.assignments.assembler import (
 )
 from neuralls.platform.config.dlkit_bridge import load_job_config
 from neuralls.platform.config.registry import list_assignment_bindings
+from neuralls.platform.config.settings import NeurallsSettings
 
 pytestmark = pytest.mark.skipif(
     importlib.util.find_spec("dlkit") is None,
@@ -241,7 +242,10 @@ def test_linear_registry_uses_single_normalized_model(tmp_path: Path) -> None:
     ]
 
 
-def test_load_experiment_supports_structured_linear_job(tmp_path: Path) -> None:
+def test_load_experiment_supports_structured_linear_job(
+    tmp_path: Path,
+    neuralls_settings: NeurallsSettings,
+) -> None:
     """A structured job config loads through the training entry point."""
     output_root = tmp_path / "output"
     output_root.mkdir()
@@ -256,6 +260,7 @@ def test_load_experiment_supports_structured_linear_job(tmp_path: Path) -> None:
     experiment = load_assignment(
         job_config_path=job_config_path,
         data_config_path=data_config_path,
+        neuralls_settings=neuralls_settings,
         output_root=output_root,
         identity=AssignmentIdentity(dataset_registry_id="dummy-dataset"),
     )

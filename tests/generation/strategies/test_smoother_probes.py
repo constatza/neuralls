@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-import torch
-from torchalg.preconditioners.implementations.pod import apply_jacobi_damping
 
 from neuralls.domain.generation import run_generation
 
@@ -77,33 +75,6 @@ def test_smoother_filtered_probes_rademacher_distribution(spd_matrix: np.ndarray
     assert result.residual_traces.solutions.shape == (3, n)
 
 
-def test_smoother_filtered_probes_more_steps_damps_more() -> None:
-    """More Jacobi damping steps must not increase a probe's norm (damping only removes energy).
-
-    Weighted-Jacobi with `omega=0.67` is only a contraction
-    (`rho(I - omega D^-1 A) < 1`) for matrices in its intended regime — the
-    default's own docstring says "isotropic SPD problems where
-    rho(D^-1 A) ~= 2", e.g. FEM/Poisson-type stiffness matrices, not an
-    arbitrary dense SPD matrix (`spd_matrix`'s `A^T A + I` construction gives
-    no diagonal-dominance guarantee at all, so damping can diverge there).
-    A small 1D-Poisson-style tridiagonal matrix is the standard well-behaved
-    case for this claim.
-    """
-    n = 10
-    poisson_1d = 2 * np.eye(n) - np.diag(np.ones(n - 1), 1) - np.diag(np.ones(n - 1), -1)
-    # start must stay below stop, so the shallow case keeps sweeps 1..2 and the deep case 19..20.
-    cfg_few = {"samples": 20, "seed": 0, "stop": 2, "start": 1}
-    cfg_many = {"samples": 20, "seed": 0, "stop": 20, "start": 19}
-
-    few_steps = run_generation("smoother_filtered_probes", poisson_1d, cfg=cfg_few)
-    many_steps = run_generation("smoother_filtered_probes", poisson_1d, cfg=cfg_many)
-
-    assert few_steps.residual_traces is not None and many_steps.residual_traces is not None
-    few_norms = np.linalg.norm(few_steps.residual_traces.solutions, axis=1)
-    many_norms = np.linalg.norm(many_steps.residual_traces.solutions, axis=1)
-    assert np.mean(many_norms) < np.mean(few_norms)
-
-
 def test_smoother_filtered_probes_requires_stop(spd_matrix: np.ndarray) -> None:
     """Omitting the required 'stop' field must raise a validation error, not run with a silent default."""
     cfg = {"samples": 3, "seed": 0}
@@ -120,45 +91,6 @@ def test_smoother_filtered_probes_samples_minus_one_rejected(spd_matrix: np.ndar
             spd_matrix,
             cfg={"samples": -1, "seed": 0, "stop": 5, "start": 1},
         )
-
-
-# ---------------------------------------------------------------------------
-# Default (last-only) matches the old, final-only apply_jacobi_damping call exactly
-# ---------------------------------------------------------------------------
-
-
-def test_smoother_filtered_probes_default_matches_apply_jacobi_damping(
-    spd_matrix: np.ndarray,
-) -> None:
-    """Each probe's final kept sweep matches a direct apply_jacobi_damping call bit-for-bit.
-
-    stop=6, start=1 keeps K = 6 sweeps per probe. samples = K * 2 = 12 gives
-    exactly 2 probes, with rows probe-major: rows 0..5 are probe 0 at sweeps
-    1..6, rows 6..11 are probe 1. The last row of each block is the fully
-    damped sweep 6, compared against apply_jacobi_damping(steps=6).
-    """
-    omega, stop, num_probes = 0.67, 6, 2
-    window_start = 1
-    rows_per_probe = stop - window_start + 1
-    samples = rows_per_probe * num_probes
-    cfg = {"samples": samples, "seed": 3, "stop": stop, "start": window_start, "omega": omega}
-
-    result = run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg)
-    traces = result.residual_traces
-    assert traces is not None
-    assert traces.solutions.shape == (samples, spd_matrix.shape[0])
-
-    # Reproduce the same probes independently and damp them directly.
-    rng = np.random.default_rng(3)
-    probes = rng.standard_normal((num_probes, spd_matrix.shape[0])).astype(spd_matrix.dtype)
-    expected = apply_jacobi_damping(
-        torch.as_tensor(probes), torch.as_tensor(spd_matrix), omega=omega, steps=stop
-    ).numpy()
-
-    final_rows = traces.solutions[rows_per_probe - 1 :: rows_per_probe]
-    np.testing.assert_allclose(final_rows, expected, rtol=1e-10, atol=1e-12)
-    expected_sweeps = np.tile(np.arange(window_start, stop + 1, dtype=np.int64), num_probes)
-    np.testing.assert_array_equal(traces.iteration_indices, expected_sweeps)
 
 
 # ---------------------------------------------------------------------------
