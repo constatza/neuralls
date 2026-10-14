@@ -23,6 +23,7 @@ dependencies = [
     "zarr>=3.2.0",
     "torch>=2.8.0,<3.0",
     "typer>=0.19.2",
+    "polars>=1.44.2",
 ]
 
 [project.scripts]
@@ -111,7 +112,7 @@ error-on-warning = true
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-addopts = ["-m", "not benchmark"]
+addopts = ["-m", "not benchmark and not integration"]
 markers = [
     "slow: tests that take >5 seconds (deselect with '-m \"not slow\"')",
     "benchmark: numerical algorithm benchmarks and exactness tests",

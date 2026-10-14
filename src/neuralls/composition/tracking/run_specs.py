@@ -21,14 +21,12 @@ def iso_timestamp(dt: datetime | None = None) -> str:
     Returns:
         ISO 8601 formatted timestamp string at second precision.
     """
-    return (dt or datetime.now()).strftime("%Y-%m-%dT%H:%M:%S")  # noqa: DTZ005 -- local time intended
+    return (dt or datetime.now()).strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def format_run_timestamp(dt: datetime | None = None) -> str:
     """Return a readable local timestamp for MLflow run names."""
-    return (dt or datetime.now()).strftime(  # noqa: DTZ005 -- local time intended
-        "%a %d %b %Y - %H:%M:%S"
-    )
+    return (dt or datetime.now()).strftime("%a %d %b %Y - %H:%M:%S")
 
 
 @dataclass(frozen=True)
