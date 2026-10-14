@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import tempfile
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -13,6 +13,7 @@ import mlflow
 from dlkit.infrastructure.config.job_config import FitJobConfig
 from loguru import logger
 from mlflow.tracking import MlflowClient
+from torchalg.utils.device import resolve_device
 
 from neuralls.composition.assignments._job_types import AnyJobConfig
 from neuralls.composition.assignments.assembler import load_validated_case_config
@@ -25,6 +26,7 @@ from neuralls.composition.assignments.model_resolution import (
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
 from neuralls.composition.comparison._preconditioner_setup import (
     DatasetPreconditionerCache,
+    DatasetScope,
     SystemPreconditionerCache,
     matrix_key,
 )
@@ -105,9 +107,10 @@ from neuralls.platform.tracking.mlflow import build_workflow_environment
 from neuralls.platform.tracking.mlflow_client import log_comparison_artifacts_to_mlflow
 from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
 from neuralls.platform.tracking.model_registry import build_registered_model_name
-from neuralls.shared.digest import Digest, content_digest
+from neuralls.shared.device import release_device_memory, warm_up_device
+from neuralls.shared.digest import Digest, content_digest, digest_memo
 from neuralls.shared.errors import StageInputsStale
-from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId
+from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, MatrixId
 
 
 @dataclass(frozen=True)
@@ -146,6 +149,10 @@ def _resolve_neural_preconditioners(
 ) -> list[PreconditionerConfig]:
     """Validate neural preconditioners and return unchanged specs."""
     return [_resolve_preconditioner(spec) for spec in solver_specs]
+
+
+CHECKPOINT_LOAD_METRIC = "checkpoint_load_s"
+"""Session metric: seconds spent loading checkpoints, which are outside every measured setup time."""
 
 
 def _iter_checkpoint_refs(
@@ -465,12 +472,18 @@ class _ComparisonResolutionContext:
             callers with no preloaded config leave this unset and pay one
             lazy reload, only when an assignment-bound model ref actually
             needs it.
+        artifact_leases: Lease manager shared by every entry of a sweep, owned
+            (entered and closed) by the caller. It downloads each MLflow
+            artifact once however many entries reference it, and keeps the
+            files alive until the sweep ends. Standalone callers leave this
+            unset and each entry then owns a private manager.
     """
 
     topology: ComparisonTopology
     case_config_path: Path
     settings: NeurallsSettings
     master_cfg: CaseConfig | None = None
+    artifact_leases: MlflowArtifactLeaseManager | None = None
 
 
 @dataclass(frozen=True)
@@ -860,9 +873,13 @@ def _prepare_comparison_entry(
     success is reported directly (unless force=True) — no MLflow run is ever
     opened for a cache hit.
 
-    Every terminal outcome (validation failure, resolution failure, or a
-    cache hit) closes the entry's artifact lease manager before returning. A
-    `_PreparedComparisonExecution` instead detaches that lifetime for the
+    Artifact leases come from `context.artifact_leases` when set (the sweep
+    case: one manager, owned and closed by the caller, so each MLflow artifact
+    is downloaded once however many entries reference it and every download
+    lives until the sweep ends, cache hits and failures included). Without it,
+    the entry owns a private manager: every terminal outcome (validation
+    failure, resolution failure, or a cache hit) closes it before returning,
+    and a `_PreparedComparisonExecution` instead detaches that lifetime for the
     caller to keep open through execution.
 
     Args:
@@ -884,9 +901,12 @@ def _prepare_comparison_entry(
         return _comparison_failure_outcome(entry, exc)
     logger.info("Comparison '{}': input-source validation complete.", entry.id)
 
-    model_client = MlflowClient(tracking_uri=context.topology.model_store_tracking_uri)
     with contextlib.ExitStack() as local_stack:
-        artifact_leases = local_stack.enter_context(MlflowArtifactLeaseManager(client=model_client))
+        artifact_leases = context.artifact_leases or local_stack.enter_context(
+            MlflowArtifactLeaseManager(
+                client=MlflowClient(tracking_uri=context.topology.model_store_tracking_uri)
+            )
+        )
         logger.info("Comparison '{}': resolving preconditioner checkpoints.", entry.id)
         try:
             resolved = _resolve_comparison_specs(cfg, context, artifact_leases)
@@ -1053,6 +1073,11 @@ def _prepare_all_comparisons(
         case_config_path=case_config_path,
         settings=settings,
         master_cfg=master_cfg,
+        artifact_leases=stack.enter_context(
+            MlflowArtifactLeaseManager(
+                client=MlflowClient(tracking_uri=topology.model_store_tracking_uri)
+            )
+        ),
     )
     pending: list[ComparisonOutcome | _PreparedComparisonExecution] = []
     planned_systems = plan_comparisons(master_cfg, config_dir, settings)
@@ -1095,6 +1120,68 @@ def _identities_by_entry_id(
         for p in pending
         if isinstance(p, _PreparedComparisonExecution)
     }
+
+
+def _last_positions[K](
+    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+    key: Callable[[_PreparedComparisonExecution], K],
+) -> dict[K, int]:
+    """Position in ``pending`` of the last system to execute under each ``key``."""
+    return {
+        key(p): position
+        for position, p in enumerate(pending)
+        if isinstance(p, _PreparedComparisonExecution)
+    }
+
+
+def _dataset_of(prepared: _PreparedComparisonExecution) -> DatasetId:
+    return DatasetId(prepared.entry.matrix_dataset)
+
+
+def _matrix_of(prepared: _PreparedComparisonExecution) -> tuple[DatasetId, MatrixId]:
+    return _dataset_of(prepared), matrix_key(prepared.planned)
+
+
+def _execute_all(
+    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+) -> tuple[list[ComparisonOutcome], dict[DatasetId, DatasetPreconditionerCache]]:
+    """Execute every pending system in plan order, bounding what stays in memory.
+
+    Each dataset gets one `DatasetScope` (preconditioner cache plus the checkpoint
+    store its builds borrow from). A matrix's matrix-dependent builds are evicted
+    after the last system on that matrix, and a dataset's scope is released after
+    its last system, so only the datasets and matrices still to be visited keep
+    models resident. The device is warmed once before the first system, so no
+    preconditioner's timing absorbs first-call costs.
+
+    Returns:
+        One outcome per pending entry, in order, plus each executed dataset's
+        preconditioner cache (the group report reads its `shared_names`).
+    """
+    warm_up_device(resolve_device())
+    last_of_dataset = _last_positions(pending, _dataset_of)
+    last_of_matrix = _last_positions(pending, _matrix_of)
+    scopes: dict[DatasetId, DatasetScope] = {}
+    caches: dict[DatasetId, DatasetPreconditionerCache] = {}
+    outcomes: list[ComparisonOutcome] = []
+    load_seconds = 0.0
+    for position, p in enumerate(pending):
+        if not isinstance(p, _PreparedComparisonExecution):
+            outcomes.append(p)
+            continue
+        dataset_id, matrix_id = _matrix_of(p)
+        scope = scopes.setdefault(dataset_id, DatasetScope())
+        caches[dataset_id] = scope.cache
+        outcomes.append(_execute_prepared_comparison(p, cache=scope.for_system(matrix_id)))
+        if last_of_matrix[(dataset_id, matrix_id)] == position:
+            scope.cache.evict_matrix(matrix_id)
+        if last_of_dataset[dataset_id] == position:
+            load_seconds += scope.checkpoints.load_seconds
+            scope.release()
+            del scopes[dataset_id]
+            release_device_memory()
+    mlflow.log_metric(CHECKPOINT_LOAD_METRIC, load_seconds)
+    return outcomes, caches
 
 
 def _specs_by_entry_id(
@@ -1151,6 +1238,7 @@ def run_comparison_batch(
     )
 
     with contextlib.ExitStack() as stack:
+        stack.enter_context(digest_memo())
         pending, planned_systems = _prepare_all_comparisons(
             master_cfg,
             topology,
@@ -1167,20 +1255,7 @@ def run_comparison_batch(
             return outcomes
 
         with mlflow.start_run(run_name=session_run_name, tags=session_tags.as_mlflow_tags()):
-            dataset_caches: dict[DatasetId, DatasetPreconditionerCache] = {}
-            outcomes: list[ComparisonOutcome] = []
-            for p in pending:
-                if isinstance(p, _PreparedComparisonExecution):
-                    dataset_cache = dataset_caches.setdefault(
-                        DatasetId(p.entry.matrix_dataset), DatasetPreconditionerCache()
-                    )
-                    outcomes.append(
-                        _execute_prepared_comparison(
-                            p, cache=dataset_cache.for_system(matrix_key(p.planned))
-                        )
-                    )
-                else:
-                    outcomes.append(p)
+            outcomes, dataset_caches = _execute_all(pending)
             report_all_levels(
                 outcomes,
                 planned_systems,

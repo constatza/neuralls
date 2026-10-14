@@ -641,7 +641,8 @@ class PODCoarseningConfig(NeuralCheckpointRef):
     triple product `Phi_r^T @ A @ Phi_r` in `build_transfer`, `O(rank * n^2)`
     (dense `n x n` matrix, dominates the SVD when `rank` isn't tiny relative
     to `m`). No fit cost at all when checkpoint-backed (see the class
-    docstring above) — just a checkpoint load, though `build_transfer`'s
+    docstring above) — just a checkpoint load (done ahead of the timed build, once
+    per dataset), though `build_transfer`'s
     triple product still runs once per comparison since it depends on the
     matrix, not the basis. Per-iteration application cost is `O(rank * n)`
     for the basis projection itself, but every CG iteration through

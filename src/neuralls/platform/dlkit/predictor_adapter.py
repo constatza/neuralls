@@ -43,6 +43,13 @@ def _extra_to_tensors(
     return {name: _prepare_model_input(arr, device) for name, arr in extra_inputs.items()}
 
 
+# TODO: float32 is not supported anywhere yet; float64 is hardcoded in this module
+# (`_prepare_model_input`, `_extract_model_output`, and `PrecisionStrategy.FULL_64` in
+# `DLKitAdapter.create_predictor`). Make the precision a preconditioner-level setting
+# (a field on `NeuralPreconditionerConfig`, part of its identity) and derive the cast
+# dtype and the `load_model` precision from it. Until then a float32 solve silently
+# casts every extra input, including the full matrix, to float64 on every
+# `apply()`, and fp64 is slow on most GPUs.
 def _prepare_model_input(value: torch.Tensor, device: str) -> torch.Tensor:
     """Prepare a solver tensor for DLKit prediction."""
     return value.detach().to(device=device, dtype=torch.float64).unsqueeze(0)
@@ -150,6 +157,38 @@ class DLKitPredictor(ExtraInputPredictorPort):
         # currently populated by DLKitAdapter from config if available, else empty.
         return self._required_inputs
 
+    def check_extra_inputs(self, extra_input_names: tuple[str, ...]) -> None:
+        """Fail fast if declared extra inputs do not fit the checkpoint's features.
+
+        Every declared name must be a feature of the checkpoint, and exactly one
+        feature must be left over for the residual (the same resolution
+        `apply()` performs on every call, here done once up front so a
+        misconfigured ``extra_input_names`` fails when the preconditioner is built
+        instead of mid-solve). Checkpoints that persisted no feature names, and an
+        empty declaration (which `apply()` serves with a positional call), are not
+        checked.
+
+        Args:
+            extra_input_names: Names the config declares as extra model inputs.
+
+        Raises:
+            ValueError: If a name is not a checkpoint feature, or the residual's
+                feature cannot be identified uniquely.
+        """
+        if not extra_input_names:
+            return
+        feature_names = self._predictor.feature_names
+        if not feature_names:
+            return
+        unknown = sorted(set(extra_input_names) - set(feature_names))
+        if unknown:
+            raise ValueError(
+                f"extra_input_names {unknown} are not features of the checkpoint "
+                f"(feature_names={feature_names!r}). Check extra_input_names against the "
+                "checkpoint's actual forward() parameters."
+            )
+        _resolve_primary_input_name(feature_names, frozenset(extra_input_names))
+
     def apply(self, residual: torch.Tensor, **extra_inputs: torch.Tensor) -> torch.Tensor:
         """Apply neural network to residual.
 
@@ -222,11 +261,25 @@ class DLKitPredictor(ExtraInputPredictorPort):
 class DLKitNeuralPreconditioner(NeuralPreconditioner):
     """`NeuralPreconditioner` that can name the architecture it loaded, for display labels.
 
-    torchalg keeps the loaded predictor private, so a label has no public way to
-    ask which model is behind a neural preconditioner. This subclass is the
-    sanctioned extension seam: it reads the (protected) predictor once, after
-    ``setup()`` has loaded it, and exposes only the class name.
+    torchalg keeps the predictor private, so a label has no public way to ask
+    which model is behind a neural preconditioner. This subclass is the
+    sanctioned extension seam: it reads the (protected) predictor and exposes
+    only the class name.
+
+    It *borrows* its predictor, like every torchalg `NeuralPreconditioner`: the
+    caller (the checkpoint store, or `OwningDLKitNeuralPreconditioner`) releases
+    it, so one loaded predictor can back several preconditioners.
+
+    A DLKit predictor's declared ``extra_input_names`` are checked against the
+    checkpoint's features at construction (`DLKitPredictor.check_extra_inputs`).
     """
+
+    def __init__(
+        self, predictor: ExtraInputPredictorPort, extra_input_names: tuple[str, ...] = ()
+    ) -> None:
+        if isinstance(predictor, DLKitPredictor):
+            predictor.check_extra_inputs(extra_input_names)
+        super().__init__(predictor, extra_input_names)
 
     @property
     def model_class_name(self) -> str:
@@ -235,6 +288,27 @@ class DLKitNeuralPreconditioner(NeuralPreconditioner):
         if isinstance(predictor, DLKitPredictor):
             return predictor.model_class_name
         return type(predictor).__name__
+
+
+class OwningDLKitNeuralPreconditioner(DLKitNeuralPreconditioner):
+    """A `DLKitNeuralPreconditioner` that releases the predictor it was handed.
+
+    For a predictor loaded just for this preconditioner and shared with nobody:
+    the GPU memory is freed with the preconditioner, explicitly through
+    ``cleanup()`` or, failing that, when it is garbage collected. A predictor
+    that outlives the preconditioner (preloaded and shared) must go to
+    `DLKitNeuralPreconditioner` instead, whose owner releases it.
+    """
+
+    def cleanup(self) -> None:
+        """Release the owned predictor (idempotent)."""
+        self._predictor.cleanup()
+
+    def __del__(self) -> None:
+        """Release the owned predictor when garbage collected."""
+        predictor = getattr(self, "_predictor", None)
+        if predictor is not None:
+            predictor.cleanup()
 
 
 class DLKitAdapter(PredictorAdapter):
@@ -285,6 +359,7 @@ class DLKitAdapter(PredictorAdapter):
                 # PCA-trained models, for example, expect DLKit to project the
                 # raw residual into the learned feature space before forward().
                 apply_transforms=True,
+                # TODO: float32 unsupported; see the module-level precision TODO above.
                 precision=PrecisionStrategy.FULL_64,
             )
 

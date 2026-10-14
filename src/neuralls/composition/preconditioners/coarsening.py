@@ -7,7 +7,6 @@ neural POD-2G (fit on a neural model's predictions), or aggregation.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -24,6 +23,13 @@ from torchalg.sparse.preconditioners.pod.coarsening import (
 
 from neuralls.application.inference.prediction import collect_predictions, stack_predictions
 from neuralls.composition.preconditioners._weighting import resolve_row_scales
+from neuralls.composition.preconditioners.checkpoint_store import (
+    NO_PRELOADED,
+    PodBasisKey,
+    PredictorFactory,
+    PreloadedCheckpoints,
+    preloaded_inference_factory,
+)
 from neuralls.platform.config.models.preconditioner import (
     AggregationCoarseningConfig,
     AMGPreconditionerConfig,
@@ -40,30 +46,39 @@ from neuralls.platform.storage.dataset_readers import (
 if TYPE_CHECKING:
     from torchalg.preconditioners.implementations.amg.protocols import CoarseningStrategy
 
-    from neuralls.domain.inference_ports import InferencePredictorPort
 
 type PODStrategy = PODCoarseningStrategy | SparsePODCoarseningStrategy
 
 PREDICTION_BATCH_SIZE = 256
 """Rows per predictor call when collecting POD snapshots from a neural model."""
 
-type PredictorFactory = Callable[[Path], InferencePredictorPort]
-"""Opens an inference predictor for a checkpoint; the default is `create_inference_predictor`."""
+
+def load_fitted_pod_model(checkpoint_path: Path) -> torch.nn.Module:
+    """Read a fitted POD-2G checkpoint and rebuild its module (disk I/O, no placement).
+
+    Loads the raw checkpoint dict and rebuilds the module via dlkit's generic,
+    trainer-agnostic checkpoint reconstruction (`build_model_from_checkpoint`) —
+    the bare `nn.Module`, not the `CheckpointPredictor` inference wrapper
+    `dlkit.load_model` returns: a coarsening strategy is invoked directly
+    (`build_transfer(A)`) once at AMG setup, not through `PredictorPort`'s
+    per-iteration `apply()`.
+    """
+    raw_checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    return build_model_from_checkpoint(raw_checkpoint)
 
 
 def _load_fitted_pod_coarsening(
     checkpoint_path: Path,
     matrix: torch.Tensor,
     pod_cls: type[PODStrategy],
+    preloaded: PreloadedCheckpoints = NO_PRELOADED,
 ) -> PODStrategy:
     """Reconstruct a fitted POD-2G coarsening strategy from its checkpoint.
 
-    Loads the raw checkpoint dict and rebuilds the module via dlkit's
-    generic, trainer-agnostic checkpoint reconstruction
-    (`build_model_from_checkpoint`) — the bare `nn.Module`, not the
-    `CheckpointPredictor` inference wrapper `dlkit.load_model` returns: a
-    coarsening strategy is invoked directly (`build_transfer(A)`) once at
-    AMG setup, not through `PredictorPort`'s per-iteration `apply()`.
+    The basis is matrix-independent, so when ``preloaded`` already holds the
+    module for this ``(path, dtype, device)`` it is reused as is (read and moved
+    once, outside the timed build, and shared by every matrix of the dataset);
+    otherwise it is read and moved here, inside the build.
 
     Args:
         checkpoint_path: Local path to the fitted `.ckpt` file, already
@@ -72,6 +87,7 @@ def _load_fitted_pod_coarsening(
         matrix: System matrix; used only to match dtype/device.
         pod_cls: Strategy class the checkpoint must reconstruct: the dense
             class for a dense matrix, the sparse class for a CSR matrix.
+        preloaded: Checkpoints loaded ahead of the build.
 
     Returns:
         A `pod_cls` instance with its `_basis` buffer already loaded from the
@@ -81,14 +97,15 @@ def _load_fitted_pod_coarsening(
         TypeError: If the reconstructed model is not a `pod_cls`, e.g. a
             checkpoint fitted for the dense class used with a CSR matrix.
     """
-    raw_checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    model = build_model_from_checkpoint(raw_checkpoint)
+    model = preloaded.pod_basis(PodBasisKey(checkpoint_path, matrix.dtype, matrix.device))
+    if model is None:
+        model = load_fitted_pod_model(checkpoint_path).to(dtype=matrix.dtype, device=matrix.device)
     if not isinstance(model, pod_cls):
         raise TypeError(
             f"Checkpoint at {checkpoint_path} reconstructed a {type(model).__name__}, "
             f"expected {pod_cls.__name__}."
         )
-    return model.to(dtype=matrix.dtype, device=matrix.device)
+    return model
 
 
 def _target_dim_coarsening(cfg: TargetDimCoarseningConfig) -> CoarseningStrategy:
@@ -109,6 +126,7 @@ def _pod_coarsening(
     cfg: PODCoarseningConfig,
     matrix: torch.Tensor,
     pod_cls: type[PODStrategy],
+    preloaded: PreloadedCheckpoints,
 ) -> PODStrategy:
     """POD-2G basis: reconstructed from a fitted checkpoint, or fit inline from snapshots.
 
@@ -119,7 +137,7 @@ def _pod_coarsening(
     if ckpt is not None:
         # Fitted ahead of time by a `FitJobConfig` assignment (kind dispatch in
         # composition/assignments/comparison_batch.py); the basis is loaded, not refit.
-        return _load_fitted_pod_coarsening(ckpt, matrix, pod_cls)
+        return _load_fitted_pod_coarsening(ckpt, matrix, pod_cls, preloaded)
 
     _, solutions = load_dense_training_arrays(cfg.dataset_dir)
     if cfg.n_snapshots != -1:
@@ -136,6 +154,7 @@ def _neural_pod_coarsening(
     matrix: torch.Tensor,
     inference_predictor_factory: PredictorFactory | None,
     pod_cls: type[PODStrategy],
+    preloaded: PreloadedCheckpoints,
 ) -> PODStrategy:
     """POD-2G basis fit on a neural model's predictions over the parameter samples."""
     ckpt = cfg.active_checkpoint_path
@@ -143,7 +162,9 @@ def _neural_pod_coarsening(
         raise ValueError(
             "NeuralPODCoarseningConfig requires checkpoint_path or resolved_checkpoint_path"
         )
-    factory = inference_predictor_factory or create_inference_predictor
+    factory = preloaded_inference_factory(
+        inference_predictor_factory or create_inference_predictor, preloaded
+    )
 
     param_arrays = load_parameter_arrays(cfg.dataset_dir)
     input_names = cfg.input_names
@@ -172,6 +193,7 @@ def _build_amg_coarsening(
     inference_predictor_factory: PredictorFactory | None = None,
     *,
     sparse: bool = False,
+    preloaded: PreloadedCheckpoints = NO_PRELOADED,
 ) -> CoarseningStrategy:
     """Build the coarsening strategy selected by an AMG config's ``coarsening`` field.
 
@@ -183,6 +205,8 @@ def _build_amg_coarsening(
             `create_inference_predictor`.
         sparse: True when A is CSR. POD-2G then uses torchalg's sparse strategy, so
             the transfer operator is built from A without densifying it.
+        preloaded: Checkpoints loaded ahead of the build (see `checkpoint_store`);
+            the default loads inside the build.
 
     Returns:
         A ready-to-use coarsening strategy (already fit, if applicable).
@@ -198,9 +222,11 @@ def _build_amg_coarsening(
                 raise TypeError("Sparse AMG has no target-dimension coarsening.")
             return _target_dim_coarsening(target_dim)
         case PODCoarseningConfig() as pod:
-            return _pod_coarsening(pod, matrix, pod_cls)
+            return _pod_coarsening(pod, matrix, pod_cls, preloaded)
         case NeuralPODCoarseningConfig() as neural_pod:
-            return _neural_pod_coarsening(neural_pod, matrix, inference_predictor_factory, pod_cls)
+            return _neural_pod_coarsening(
+                neural_pod, matrix, inference_predictor_factory, pod_cls, preloaded
+            )
         case AggregationCoarseningConfig() as aggregation:
             if sparse:
                 raise TypeError("Sparse aggregation AMG is built by vcycle_amg, not here.")

@@ -57,16 +57,26 @@ from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     PreconditionerType,
 )
-from neuralls.platform.dlkit.predictor_adapter import DLKitAdapter, DLKitNeuralPreconditioner
+from neuralls.platform.dlkit.predictor_adapter import (
+    DLKitAdapter,
+    DLKitNeuralPreconditioner,
+    OwningDLKitNeuralPreconditioner,
+)
 from neuralls.shared.types import MatrixFormat
 
+from .checkpoint_store import NO_PRELOADED, PredictorKey, PreloadedCheckpoints
 from .coarsening import PredictorFactory, _build_amg_coarsening
 
 if TYPE_CHECKING:
-    from torchalg.preconditioners.implementations.amg.protocols import CoarseningStrategy
-    from torchalg.preconditioners.ports import PredictorAdapter
+    from pathlib import Path
 
-    from neuralls.platform.config.models.preconditioner import ConcretePreconditionerConfig
+    from torchalg.preconditioners.implementations.amg.protocols import CoarseningStrategy
+    from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAdapter
+
+    from neuralls.platform.config.models.preconditioner import (
+        ConcretePreconditionerConfig,
+        NeuralCheckpointRef,
+    )
 
 
 @dataclass(frozen=True)
@@ -75,6 +85,7 @@ class _BuildDeps:
 
     adapter: PredictorAdapter | None
     inference_predictor_factory: PredictorFactory | None
+    preloaded: PreloadedCheckpoints = NO_PRELOADED
 
 
 type PreconditionerBuilder = Callable[
@@ -172,7 +183,7 @@ def _build_sparse_amg(
             None,
         )
     coarsening = _build_amg_coarsening(
-        matrix, config, deps.inference_predictor_factory, sparse=True
+        matrix, config, deps.inference_predictor_factory, sparse=True, preloaded=deps.preloaded
     )
     cycle = MultigridVCycle(
         resolve_jacobi_default(None, config.smoother_omega),
@@ -190,6 +201,7 @@ def _build_amg(
     matrix: torch.Tensor,
     config: AMGPreconditionerConfig,
     inference_predictor_factory: PredictorFactory | None = None,
+    preloaded: PreloadedCheckpoints = NO_PRELOADED,
 ) -> tuple[Preconditioner, CoarseningStrategy]:
     """Assemble an `AMGPreconditioner` and return it alongside its coarsening strategy.
 
@@ -207,11 +219,14 @@ def _build_amg(
         config: AMG preconditioner configuration.
         inference_predictor_factory: Optional batch-inference predictor factory
             for neural POD-2G coarsening (DI for testing).
+        preloaded: Checkpoints loaded ahead of the build; the default loads inside it.
 
     Returns:
         The assembled preconditioner and the coarsening strategy used to build it.
     """
-    coarsening = _build_amg_coarsening(matrix, config, inference_predictor_factory)
+    coarsening = _build_amg_coarsening(
+        matrix, config, inference_predictor_factory, preloaded=preloaded
+    )
     smoother = JacobiSmoother(omega=config.smoother_omega)
     cycle = VCycle(
         smoother=smoother,
@@ -230,7 +245,7 @@ def _build_dense_amg(
     """Dense AMG: the one builder whose coarsening is exposed in its return."""
     if not isinstance(config, AMGPreconditionerConfig):
         raise TypeError(f"AMG type requires AMGPreconditionerConfig, got {type(config)}")
-    return _build_amg(matrix, config, deps.inference_predictor_factory)
+    return _build_amg(matrix, config, deps.inference_predictor_factory, deps.preloaded)
 
 
 def _build_adaptive_sa(
@@ -374,7 +389,12 @@ def _build_sparse_bootstrap_amg(
 def _build_neural(
     matrix: torch.Tensor, config: ConcretePreconditionerConfig, deps: _BuildDeps
 ) -> tuple[Preconditioner, CoarseningStrategy | None]:
-    """Checkpoint-backed neural preconditioner; `setup()` ignores the matrix, only loads the model."""
+    """Checkpoint-backed neural preconditioner, built on an already-loaded predictor.
+
+    A preloaded predictor (owned by the checkpoint store, shared across builds) is
+    borrowed by a plain `DLKitNeuralPreconditioner`. Without one, the predictor is
+    loaded here and handed to the owning variant, which frees it with itself.
+    """
     if not isinstance(config, NeuralPreconditionerConfig):
         raise TypeError(f"Neural type requires NeuralPreconditionerConfig, got {type(config)}")
     ckpt = config.active_checkpoint_path
@@ -382,17 +402,25 @@ def _build_neural(
         raise ValueError(
             "NeuralPreconditionerConfig requires checkpoint_path or resolved_checkpoint_path"
         )
-    del matrix  # NeuralPreconditioner.setup() takes no matrix; it only loads the checkpoint.
-    return (
-        DLKitNeuralPreconditioner(
-            checkpoint_path=ckpt,
-            config_path=config.config_path,
-            data_config_path=config.data_config_path,
-            adapter=_resolve_adapter(deps),
-            extra_input_names=tuple(config.extra_input_names),
-        ).setup(),
-        None,
+    del matrix  # A neural preconditioner's setup is matrix-independent.
+    extra_input_names = tuple(config.extra_input_names)
+    preloaded = deps.preloaded.predictor(PredictorKey(ckpt))
+    if preloaded is not None:
+        return DLKitNeuralPreconditioner(preloaded, extra_input_names), None
+    predictor = _resolve_adapter(deps).create_predictor(
+        ckpt, config.config_path, config.data_config_path
     )
+    return OwningDLKitNeuralPreconditioner(predictor, extra_input_names), None
+
+
+def _create_predictor(
+    ref: NeuralCheckpointRef, ckpt: Path, deps: _BuildDeps
+) -> ExtraInputPredictorPort:
+    """The preloaded predictor for ``ckpt`` (borrowed), else one loaded through the adapter."""
+    preloaded = deps.preloaded.predictor(PredictorKey(ckpt))
+    if preloaded is not None:
+        return preloaded
+    return _resolve_adapter(deps).create_predictor(ckpt, ref.config_path, ref.data_config_path)
 
 
 def _build_neural_amg(
@@ -403,19 +431,18 @@ def _build_neural_amg(
         raise TypeError(
             f"NEURAL_AMG type requires NeuralAMGPreconditionerConfig, got {type(config)}"
         )
-    adapter = _resolve_adapter(deps)
     p_cfg = config.prolongation
     ckpt_p = p_cfg.active_checkpoint_path
     if ckpt_p is None:
         raise ValueError("NeuralAMGPreconditionerConfig.prolongation requires a checkpoint")
-    prolongator = adapter.create_predictor(ckpt_p, p_cfg.config_path, p_cfg.data_config_path)
+    prolongator = _create_predictor(p_cfg, ckpt_p, deps)
     restrictor = None
     if config.restriction is not None:
         r_cfg = config.restriction
         ckpt_r = r_cfg.active_checkpoint_path
         if ckpt_r is None:
             raise ValueError("NeuralAMGPreconditionerConfig.restriction requires a checkpoint")
-        restrictor = adapter.create_predictor(ckpt_r, r_cfg.config_path, r_cfg.data_config_path)
+        restrictor = _create_predictor(r_cfg, ckpt_r, deps)
     coarsening = NeuralCoarseningStrategy(prolongator=prolongator, restrictor=restrictor)
     cycle = VCycle(
         smoother=JacobiSmoother(omega=config.smoother_omega),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import replace
 from functools import partial
@@ -28,6 +29,7 @@ from neuralls.composition.comparison.models import (
     ResolvedComparisonInput,
 )
 from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
+from neuralls.composition.preconditioners.checkpoint_store import CheckpointStore
 from neuralls.domain.solver.comparison import (
     _to_numpy,
     compute_reference_solution,
@@ -255,9 +257,23 @@ def _run_preconditioner(
     `torchalg.Preconditioner` requires an explicit `setup(matrix)` call
     before `apply()`, so this measurement is always the real build cost for
     every preconditioner kind (IC0/Jacobi's cheap factorization, AMG/POD-2G's
-    hierarchy build, AdaptiveSA/BootstrapAMG's bootstrap cycles, a neural
-    preconditioner's checkpoint load) — never a near-zero artifact of timing
-    construction alone while the real work happened lazily inside `apply()`.
+    hierarchy build, AdaptiveSA/BootstrapAMG's bootstrap cycles) — never a
+    near-zero artifact of timing construction alone while the real work
+    happened lazily inside `apply()`.
+
+    Checkpoint loading is deliberately *outside* the timed region, for every
+    checkpoint-backed kind alike (neural, neural AMG, fitted POD-2G basis,
+    neural POD-2G's predictor), and so outside `setup_peak_memory_bytes`
+    too: it is file I/O that a deployment pays once, not algorithmic setup
+    cost. `PreconditionerService.preload` loads each checkpoint once per
+    dataset (the store lives as long as the dataset's cache), and the timed
+    build only borrows the loaded object. A neural preconditioner's setup is
+    matrix-independent, so its setup cost is therefore near zero by design; the
+    time spent loading is still reported (`CheckpointStore.load_seconds`,
+    logged as the `checkpoint_load_s` session metric). Download and hashing are
+    outside the measurement as well (they run in the prepare phase, before any
+    MLflow run opens). A service built without a store loads inside the build,
+    and then inside the timer.
 
     On a `cache` hit, none of that rebuilding happens at all: the already-
     ready object from an earlier sibling system is reused directly, and the
@@ -274,6 +290,7 @@ def _run_preconditioner(
         setup_peak_memory_bytes = cached.setup_peak_memory_bytes
         setup_time_samples = ()
     else:
+        service.preload(matrix, cfg)
         timed_setup = repeat_timed(
             lambda: _build_scheduled(service, matrix, cfg),
             params.timing,
@@ -435,7 +452,11 @@ def compare_preconditioners(
             ``SystemPreconditionerCache``). ``None`` (the default) means
             every call builds every preconditioner fresh, unchanged from
             before this parameter existed — only a sweep-aware caller
-            passes a real cache, scoped to its own sweep group.
+            passes a real cache, scoped to its own sweep group. A cache also
+            carries its dataset's checkpoint store, so checkpoints are loaded
+            once per dataset; without a cache (or a store on it) this call uses
+            a private store released when it returns, so the load is still
+            outside the timer.
         notation_policy: Render target and symbol overrides for preconditioner
             display names, from ``[comparison_baseline.presentation]``. ``None``
             (the default) renders plain text with the default symbols.
@@ -482,52 +503,55 @@ def compare_preconditioners(
         margin=general_params.params.reference_precision_margin,
     )
 
-    service = PreconditionerService()
-    evaluate_one = partial(
-        _evaluate_preconditioner,
-        service=service,
-        matrix=matrix,
-        rhs=rhs,
-        matrix_path=paths.matrix,
-        matrix_index=resolved_matrix_index,
-        params=general_params.params,
-        display_name=display_name,
-        x_exact=x_exact,
-        settings=settings,
-        cache=cache,
-        notation_policy=notation_policy,
-    )
-
     results: dict[str, CGComparisonResult] = {}
     plot_styles: dict[str, PreconditionerPlotStyle] = {}
-    for entry in evaluation_mapper(evaluate_one, preconditioner_configs):
-        if entry.name not in expected_keys:
-            raise RuntimeError(
-                f"Evaluation returned unexpected preconditioner key {entry.name!r}; "
-                f"expected one of {expected_keys!r}."
-            )
-        if entry.name in results:
-            raise RuntimeError(
-                f"Evaluation returned preconditioner key {entry.name!r} more than once."
-            )
-        if entry.result.preconditioner != entry.name:
-            raise RuntimeError(
-                f"Evaluation result for {entry.name!r} identifies itself as "
-                f"{entry.result.preconditioner!r}."
-            )
-        results[entry.name] = entry.result
-        plot_styles[entry.name] = PreconditionerPlotStyle(
-            label=entry.label,
-            family=entry.family,
-            color_key=entry.color_key,
-            marker_key=entry.marker_key,
+    with contextlib.ExitStack() as stack:
+        shared_store = cache.checkpoints if cache is not None else None
+        store = shared_store if shared_store is not None else stack.enter_context(CheckpointStore())
+        service = PreconditionerService(checkpoints=store)
+        evaluate_one = partial(
+            _evaluate_preconditioner,
+            service=service,
+            matrix=matrix,
+            rhs=rhs,
+            matrix_path=paths.matrix,
+            matrix_index=resolved_matrix_index,
+            params=general_params.params,
+            display_name=display_name,
+            x_exact=x_exact,
+            settings=settings,
+            cache=cache,
+            notation_policy=notation_policy,
         )
 
-    missing_keys = tuple(key for key in expected_keys if key not in results)
-    if missing_keys:
-        raise RuntimeError(
-            f"Evaluation returned no result for preconditioner keys {missing_keys!r}."
-        )
+        for entry in evaluation_mapper(evaluate_one, preconditioner_configs):
+            if entry.name not in expected_keys:
+                raise RuntimeError(
+                    f"Evaluation returned unexpected preconditioner key {entry.name!r}; "
+                    f"expected one of {expected_keys!r}."
+                )
+            if entry.name in results:
+                raise RuntimeError(
+                    f"Evaluation returned preconditioner key {entry.name!r} more than once."
+                )
+            if entry.result.preconditioner != entry.name:
+                raise RuntimeError(
+                    f"Evaluation result for {entry.name!r} identifies itself as "
+                    f"{entry.result.preconditioner!r}."
+                )
+            results[entry.name] = entry.result
+            plot_styles[entry.name] = PreconditionerPlotStyle(
+                label=entry.label,
+                family=entry.family,
+                color_key=entry.color_key,
+                marker_key=entry.marker_key,
+            )
+
+        missing_keys = tuple(key for key in expected_keys if key not in results)
+        if missing_keys:
+            raise RuntimeError(
+                f"Evaluation returned no result for preconditioner keys {missing_keys!r}."
+            )
 
     recommendations = ComparisonRecommendations()
 

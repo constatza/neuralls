@@ -534,6 +534,8 @@ class _OtherNet(torch.nn.Module):
 
 
 class _FakeCheckpointPredictor:
+    feature_names: tuple[str, ...] = ()
+
     def __init__(self, model: torch.nn.Module) -> None:
         self.model = model
 
@@ -556,10 +558,7 @@ class _FakeAdapter:
 
 
 def _neural(model: torch.nn.Module) -> DLKitNeuralPreconditioner:
-    return DLKitNeuralPreconditioner(
-        checkpoint_path=Path("unused.ckpt"),
-        adapter=_FakeAdapter(model),  # type: ignore[arg-type]
-    ).setup()
+    return DLKitNeuralPreconditioner(_FakeAdapter(model).create_predictor(Path("unused.ckpt")))
 
 
 def test_neural_label_names_the_model_architecture() -> None:

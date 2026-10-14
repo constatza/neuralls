@@ -57,6 +57,7 @@ from neuralls.platform.config.models.preconditioner import (
     TargetDimCoarseningConfig,
     parse_preconditioner_config,
 )
+from neuralls.platform.dlkit.predictor_adapter import OwningDLKitNeuralPreconditioner
 
 # ==============================================================================
 # Mock Predictor and Adapter for Neural Preconditioner Testing
@@ -384,7 +385,7 @@ def test_neural_preconditioner_cleanup_on_delete(
 
     precond = create_preconditioner(well_conditioned_matrix, config, adapter=mock_adapter)
 
-    assert isinstance(precond, NeuralPreconditioner)
+    assert isinstance(precond, OwningDLKitNeuralPreconditioner)
     predictor = mock_adapter.predictor
     assert not predictor.cleaned_up
     _ = precond.apply(residual_vector)

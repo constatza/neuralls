@@ -16,7 +16,11 @@ from neuralls.platform.dlkit.inference_adapter import (
     DLKitInferencePredictor,
     create_inference_predictor,
 )
-from neuralls.platform.dlkit.predictor_adapter import DLKitAdapter, DLKitPredictor
+from neuralls.platform.dlkit.predictor_adapter import (
+    DLKitAdapter,
+    DLKitNeuralPreconditioner,
+    DLKitPredictor,
+)
 
 
 @dataclass(frozen=True)
@@ -441,3 +445,33 @@ def test_inference_factory_fails_when_predictions_field_is_not_tensor(
         match="Expected 'predictions' to be a torch.Tensor",
     ):
         predictor.predict_batch(feature_batch)
+
+
+def _neural(feature_names: tuple[str, ...], extra_input_names: tuple[str, ...]):
+    predictor = DLKitPredictor(FakeCheckpointPredictor(None, feature_names), "cpu")  # type: ignore[arg-type]
+    return DLKitNeuralPreconditioner(predictor, extra_input_names)
+
+
+def test_extra_inputs_matching_the_checkpoint_features_are_accepted() -> None:
+    precond = _neural(("x", "matrix"), ("matrix",))
+
+    assert precond.extra_input_names == ("matrix",)
+
+
+def test_legacy_checkpoint_without_feature_names_is_not_validated() -> None:
+    assert _neural((), ("matrix",)).extra_input_names == ("matrix",)
+
+
+@pytest.mark.parametrize(
+    ("feature_names", "extra_input_names", "message"),
+    [
+        (("x",), ("matrix",), "not features of the checkpoint"),
+        (("matrix",), ("matrix",), "expected exactly 1"),
+        (("x", "y", "matrix"), ("matrix",), "expected exactly 1"),
+    ],
+)
+def test_mismatched_extra_inputs_fail_when_the_preconditioner_is_built(
+    feature_names: tuple[str, ...], extra_input_names: tuple[str, ...], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        _neural(feature_names, extra_input_names)

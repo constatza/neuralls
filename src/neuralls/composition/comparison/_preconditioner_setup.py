@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -11,7 +11,9 @@ import torch
 from torchalg.preconditioners.base import BindableInputs, Preconditioner, StaticSetupPreconditioner
 
 from neuralls.composition.comparison.models import PlannedSystem
+from neuralls.composition.preconditioners.checkpoint_store import NO_PRELOADED, CheckpointStore
 from neuralls.composition.preconditioners.factory import create_preconditioner
+from neuralls.composition.preconditioners.preloading import CheckpointLoaders, preload_checkpoints
 from neuralls.composition.preconditioners.schedule import (
     PreconditionerScheduleConfig,
     create_scheduled_preconditioner,
@@ -109,11 +111,29 @@ class DatasetPreconditionerCache:
         self._static: dict[str, _CachedPreconditioner] = {}
         self._by_matrix: dict[MatrixId, dict[str, _CachedPreconditioner]] = {}
         self._matrices_seen: set[MatrixId] = set()
+        self._released_shared_names: frozenset[str] | None = None
 
-    def for_system(self, matrix: MatrixId) -> SystemPreconditionerCache:
-        """The view one system on ``matrix`` reads and writes through."""
+    def for_system(
+        self, matrix: MatrixId, checkpoints: CheckpointStore | None = None
+    ) -> SystemPreconditionerCache:
+        """The view one system on ``matrix`` reads and writes through.
+
+        Args:
+            matrix: The system's matrix.
+            checkpoints: The dataset's checkpoint store the view hands to the
+                system's builds; ``None`` makes each comparison use a private one.
+        """
         self._matrices_seen.add(matrix)
-        return SystemPreconditionerCache(self, matrix)
+        return SystemPreconditionerCache(self, matrix, checkpoints)
+
+    def evict_matrix(self, matrix: MatrixId) -> None:
+        """Drop the matrix-dependent builds for ``matrix`` (reusable only on that matrix).
+
+        Called after the matrix's last system executed, so a dataset with many
+        matrices never keeps every matrix's AMG hierarchy or factorization
+        resident. Static-setup entries are kept: they serve the whole dataset.
+        """
+        self._by_matrix.pop(matrix, None)
 
     def lookup(self, name: str, matrix: MatrixId) -> _CachedPreconditioner | None:
         cached = self._static.get(name)
@@ -134,10 +154,24 @@ class DatasetPreconditionerCache:
         and projecting it as a one-off would understate its cost. Used after
         execution to answer `SetupSharingPolicy.share_setup`.
         """
+        if self._released_shared_names is not None:
+            return self._released_shared_names
         shared = set(self._static)
         if len(self._matrices_seen) == 1:
             shared.update(name for names in self._by_matrix.values() for name in names)
         return frozenset(shared)
+
+    def release(self) -> None:
+        """Drop every built preconditioner (and the weights/hierarchies it holds).
+
+        Called once the dataset's last system has executed, so a sweep over
+        many datasets never keeps all their models and AMG hierarchies in memory
+        at the same time. `shared_names()` is frozen first because the group
+        report reads it after execution; any later lookup is a miss.
+        """
+        self._released_shared_names = self.shared_names()
+        self._static.clear()
+        self._by_matrix.clear()
 
 
 class SystemPreconditionerCache:
@@ -147,9 +181,16 @@ class SystemPreconditionerCache:
     preconditioner runner need only a name to read or write an entry.
     """
 
-    def __init__(self, store: DatasetPreconditionerCache, matrix: MatrixId) -> None:
+    def __init__(
+        self,
+        store: DatasetPreconditionerCache,
+        matrix: MatrixId,
+        checkpoints: CheckpointStore | None = None,
+    ) -> None:
         self._store = store
         self._matrix = matrix
+        self.checkpoints = checkpoints
+        """The dataset's checkpoint store, owned by its `DatasetScope` (``None``: none shared)."""
 
     def get(self, name: str) -> _CachedPreconditioner | None:
         """Return the cached entry for preconditioner `name`, or `None` on a miss."""
@@ -175,22 +216,70 @@ class SystemPreconditionerCache:
         )
 
 
+@dataclass(slots=True)
+class DatasetScope:
+    """Everything one `matrix_dataset` keeps alive across its systems, released together.
+
+    The preconditioner cache serves built objects; the checkpoint store owns the
+    loaded checkpoints they borrow. Keeping both lifetimes in one object means
+    they cannot be released out of step.
+    """
+
+    cache: DatasetPreconditionerCache = field(default_factory=DatasetPreconditionerCache)
+    checkpoints: CheckpointStore = field(default_factory=CheckpointStore)
+
+    def for_system(self, matrix: MatrixId) -> SystemPreconditionerCache:
+        """The view one system on ``matrix`` reads and writes through."""
+        return self.cache.for_system(matrix, self.checkpoints)
+
+    def release(self) -> None:
+        """Drop the cached builds, then the checkpoints they borrowed."""
+        self.cache.release()
+        self.checkpoints.release()
+
+
 class PreconditionerService:
-    """Service for creating and managing preconditioners via the composition factory.
+    """Service for creating preconditioners via the composition factory.
 
     Args:
         adapter: Optional adapter for neural preconditioners (dependency injection for testing).
+        checkpoints: Where checkpoints are loaded ahead of a build (see `preload`).
+            ``None`` means nothing is preloaded: every checkpoint is then read
+            inside the build, and so inside its timed region.
     """
 
-    def __init__(self, adapter: PredictorAdapter | None = None) -> None:
+    def __init__(
+        self, adapter: PredictorAdapter | None = None, checkpoints: CheckpointStore | None = None
+    ) -> None:
         self._adapter = adapter
+        self._checkpoints = checkpoints
+
+    def preload(self, matrix: torch.Tensor, config: PreconditionerConfig) -> None:
+        """Load the checkpoints ``config`` depends on, outside any timed region.
+
+        Loading a checkpoint is file I/O, not part of a preconditioner's
+        algorithmic setup cost, and a checkpoint can serve many builds (every
+        matrix of a dataset, every timing repeat); so it is loaded once, here,
+        before the timed build, and the build borrows the loaded object. A
+        no-op for configs without checkpoints and for a service built without a
+        store.
+
+        Args:
+            matrix: System matrix; a fitted POD basis is moved to its dtype/device.
+            config: Preconditioner configuration.
+        """
+        if self._checkpoints is None:
+            return
+        preload_checkpoints(
+            config, matrix, self._checkpoints, CheckpointLoaders.default(self._adapter)
+        )
 
     def create_preconditioner(
         self,
         matrix: torch.Tensor,
         config: PreconditionerConfig,
     ) -> Preconditioner:
-        """Create a single preconditioner.
+        """Create a single preconditioner, borrowing whatever `preload` already loaded.
 
         Args:
             matrix: System matrix to precondition (shape: n x n).
@@ -199,7 +288,8 @@ class PreconditionerService:
         Returns:
             Preconditioner instance.
         """
-        return create_preconditioner(matrix, config, adapter=self._adapter)
+        preloaded = self._checkpoints if self._checkpoints is not None else NO_PRELOADED
+        return create_preconditioner(matrix, config, adapter=self._adapter, preloaded=preloaded)
 
 
 def _create_scheduled_preconditioners(

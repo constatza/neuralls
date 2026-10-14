@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import torch
+from torchalg.preconditioners.implementations import Identity
 
 from neuralls.composition.comparison._preconditioner_setup import (
     DatasetPreconditionerCache,
@@ -165,3 +166,15 @@ def _planned(entry_id: str, rhs_source: dict[str, object]) -> PlannedSystem:
 
 def test_matrix_key_is_the_planned_matrix_id() -> None:
     assert matrix_key(_planned("a", {"kind": "gaussian"})) == MatrixId(0)
+
+
+def test_release_drops_built_preconditioners_but_keeps_the_shared_names() -> None:
+    dataset_cache = DatasetPreconditionerCache()
+    cache = dataset_cache.for_system(MatrixId(0))
+    cache.put("identity", Identity(), setup_cost_seconds=0.1, setup_peak_memory_bytes=None)
+    shared_before = dataset_cache.shared_names()
+
+    dataset_cache.release()
+
+    assert cache.get("identity") is None
+    assert dataset_cache.shared_names() == shared_before

@@ -19,6 +19,9 @@ from neuralls.platform.config.models.preconditioner import (
 class _FailingService:
     """Preconditioner service whose construction raises a non-Runtime/Value error."""
 
+    def preload(self, matrix: torch.Tensor, cfg: object) -> None:
+        """Nothing to preload: the failure under test happens at construction."""
+
     def create_preconditioner(self, matrix: torch.Tensor, cfg: object) -> object:
         raise KeyError("checkpoint key missing")
 

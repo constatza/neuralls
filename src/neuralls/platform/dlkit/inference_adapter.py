@@ -83,6 +83,25 @@ class DLKitInferencePredictor(InferencePredictorPort):
         self.cleanup()
 
 
+class NonOwningInferencePredictor(InferencePredictorPort):
+    """A view of an inference predictor someone else owns: ``cleanup()`` never releases it.
+
+    Consumers written as ``with factory(path) as predictor:`` release the predictor
+    on exit; handing them this view lets one preloaded predictor serve many
+    builds, with the owner doing the single real ``cleanup()``.
+    """
+
+    def __init__(self, owner: InferencePredictorPort) -> None:
+        self._owner = owner
+
+    def predict_batch(self, feature_batch: dict[str, NDArray]) -> NDArray:
+        """Predict one batch with the owner's model."""
+        return self._owner.predict_batch(feature_batch)
+
+    def cleanup(self) -> None:
+        """Do nothing: the owner releases the model."""
+
+
 def create_inference_predictor(checkpoint_path: Path) -> InferencePredictorPort:
     """Create a DLKit-backed inference predictor with fitted transforms."""
     if not checkpoint_path.exists():
@@ -97,6 +116,10 @@ def create_inference_predictor(checkpoint_path: Path) -> InferencePredictorPort:
             checkpoint_path,
             device="auto",
             apply_transforms=True,
+            # TODO: float32 unsupported: FULL_64 is hardcoded here and in
+            # `_prediction_outputs` (float64 feature and prediction conversion).
+            # Take the precision from the same preconditioner-level setting as
+            # `DLKitAdapter.create_predictor`.
             precision=PrecisionStrategy.FULL_64,
         )
 

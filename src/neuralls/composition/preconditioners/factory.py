@@ -29,7 +29,7 @@ from torchalg.preconditioners.base import Preconditioner
 from neuralls.shared.types import MatrixFormat
 
 from .builders import _BuildDeps, _lookup_builder, _resolve_format_input
-from .coarsening import PredictorFactory
+from .checkpoint_store import NO_PRELOADED, PredictorFactory, PreloadedCheckpoints
 
 if TYPE_CHECKING:
     from torchalg.preconditioners.implementations.amg.protocols import CoarseningStrategy
@@ -44,6 +44,7 @@ def create_preconditioner(
     adapter: PredictorAdapter | None = None,
     inference_predictor_factory: PredictorFactory | None = None,
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
+    preloaded: PreloadedCheckpoints = NO_PRELOADED,
 ) -> Preconditioner:
     """Create a preconditioner from configuration for a matrix in the given format.
 
@@ -56,6 +57,9 @@ def create_preconditioner(
             factory for neural POD-2G coarsening (DI for testing); defaults
             to `create_inference_predictor` from `platform.dlkit.inference_adapter`.
         matrix_format: Storage format of `matrix`. Defaults to dense.
+        preloaded: Checkpoints loaded ahead of the build (see `checkpoint_store`),
+            so the build does not pay for reading them. The default loads every
+            checkpoint inside the build.
 
     Returns:
         Preconditioner instance
@@ -64,7 +68,7 @@ def create_preconditioner(
         ValueError: If no builder is registered for the (type, format) pair.
     """
     preconditioner, _ = create_preconditioner_with_coarsening(
-        matrix, config, adapter, inference_predictor_factory, matrix_format
+        matrix, config, adapter, inference_predictor_factory, matrix_format, preloaded
     )
     return preconditioner
 
@@ -75,6 +79,7 @@ def create_preconditioner_with_coarsening(
     adapter: PredictorAdapter | None = None,
     inference_predictor_factory: PredictorFactory | None = None,
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
+    preloaded: PreloadedCheckpoints = NO_PRELOADED,
 ) -> tuple[Preconditioner, CoarseningStrategy | None]:
     """Create a preconditioner, also returning its coarsening strategy when it has one.
 
@@ -95,6 +100,7 @@ def create_preconditioner_with_coarsening(
         inference_predictor_factory: Optional batch-inference predictor
             factory for neural POD-2G coarsening (DI for testing).
         matrix_format: Storage format of `matrix`. Defaults to dense.
+        preloaded: Checkpoints loaded ahead of the build; see `create_preconditioner`.
 
     Returns:
         The preconditioner, and its coarsening strategy if the dense AMG path
@@ -104,7 +110,11 @@ def create_preconditioner_with_coarsening(
         ValueError: If no builder is registered for the (type, format) pair.
         TypeError: If the config variant does not match its preconditioner type.
     """
-    deps = _BuildDeps(adapter=adapter, inference_predictor_factory=inference_predictor_factory)
+    deps = _BuildDeps(
+        adapter=adapter,
+        inference_predictor_factory=inference_predictor_factory,
+        preloaded=preloaded,
+    )
     operator, resolved_format = _resolve_format_input(matrix, config.type, matrix_format)
     builder = _lookup_builder(config.type, resolved_format)
     return builder(operator, config, deps)

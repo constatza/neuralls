@@ -36,8 +36,11 @@ implementations are delegated to `torchalg`.
       IC0/ILU/Jacobi's factorization; classical/POD-2G AMG's
       hierarchy build (strength-of-connection pass, aggregation, transfer
       operators, and — for POD-2G — the SVD fit plus the Galerkin coarse
-      triple product); AdaptiveSA/BootstrapAMG's bootstrap cycles; a neural
-      preconditioner's checkpoint load. `setup_peak_memory_bytes` is the
+      triple product); AdaptiveSA/BootstrapAMG's bootstrap cycles. Checkpoint
+      loading (a neural preconditioner's, a fitted POD-2G basis's) is deliberately
+      *not* included: it is file I/O done once per dataset ahead of the timed
+      build and reported separately as `checkpoint_load_s`, so a neural
+      preconditioner's setup is near zero. `setup_peak_memory_bytes` is the
       matching peak-memory field (`None` only for a placeholder result where
       no build was ever attempted). Measured in
       `composition/comparison/comparison_run.py::_run_preconditioner`, wrapping
@@ -201,8 +204,8 @@ implementations are delegated to `torchalg`.
   makes no attempt at a true per-iteration cost curve, since `torchalg`
   exposes no per-iteration timing/memory hook). Preconditioner *construction
   and setup* time/memory (every algorithm's own `.setup()` call — hierarchy
-  build, factorization, checkpoint load, whatever that preconditioner's
-  setup concretely means) is measured the same way one layer up, in
+  build, factorization, whatever that preconditioner's setup concretely means,
+  except checkpoint loading, which runs ahead of the timed build) is measured the same way one layer up, in
   `composition/comparison/comparison_run.py::_run_preconditioner`, wrapping
   `PreconditionerService.create_preconditioner()` (which calls `.setup()`
   internally) and any scheduling wrapper's own `.setup()` — this module
@@ -231,7 +234,7 @@ serialized by the comparison workflow; optional spectral investigations use
   setup genuinely depends on the matrix's values (Jacobi, IC0, ILU, ICholesky,
   every AMG/BootCMatch variant), `StaticSetupPreconditioner.setup(context=None)`
   — no matrix argument at all — for anything whose setup never reads it
-  (`NeuralPreconditioner`'s checkpoint load, `CallablePreconditioner`/
+  (`NeuralPreconditioner`'s checkpoint binding, `CallablePreconditioner`/
   `LinearOperatorPreconditioner`'s wrapped callables, `Identity`). This is a
   property of each concrete class, not of "neural vs classical" — it is what
   `DatasetPreconditionerCache` checks (`isinstance(precond,

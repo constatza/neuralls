@@ -463,6 +463,51 @@ copies forward the real measured `setup_cost`/peak memory — never a misleading
 0.0. `shared_names()` answers `SetupSharingPolicy.share_setup`: a static-setup
 name always, a matrix-setup name only when every system solved on one matrix.
 
+**Checkpoint loading and memory.** Loading a checkpoint is file I/O that a
+deployment pays once, not algorithmic setup cost, so no kind's measured setup
+includes it (`_run_preconditioner`'s docstring is the contract). Before a
+cache-miss build, `PreconditionerService.preload` loads every checkpoint the
+config depends on into the dataset's `CheckpointStore`
+(`preconditioners/checkpoint_store.py`); the timed build then only borrows the
+loaded object. Which checkpoints a config needs comes from the
+`CheckpointRefBearing` protocol, and how each kind loads is the mapping in
+`preconditioners/preloading.py` (fitted POD-2G basis, neural and neural-AMG
+predictors, neural POD-2G's inference predictor). A fitted POD-2G basis does not
+depend on the matrix (only the coarse operator `Phi^T A Phi` does), so it is read
+once and shared by every matrix of the dataset. The store owns the loaded
+predictors and builds only borrow them: torchalg's `NeuralPreconditioner` takes an
+already-loaded predictor and never releases it, so a discarded timing repeat cannot
+unload a model the kept build still uses. A neural preconditioner built without a
+preload loads its own predictor and owns it
+(`OwningDLKitNeuralPreconditioner`). The time spent loading is
+reported as the session metric `checkpoint_load_s`, not hidden. The device is
+also warmed once per process before the first system (`shared.device.warm_up_device`),
+so no preconditioner's timing absorbs CUDA/cuSPARSE first-call costs; this is
+separate from the per-run `timing.warmup`, which stays opt-in.
+
+Lifetimes keep memory bounded without changing the one-MLflow-run-per-system
+order. `_execute_all` gives each dataset a `DatasetScope` (preconditioner cache
+plus checkpoint store). After the last system on a matrix, that matrix's
+matrix-dependent builds (AMG hierarchies, factorizations) are evicted; after the
+last system of a dataset the whole scope is released. Only static-setup builds
+(neural) and the store stay resident for a dataset, since their reuse across its
+systems is the speedup.
+
+*Worked example.* One dataset with 3 matrices, each with 3 right-hand sides, is 9
+systems; each runs classical (matrix-setup), fitted POD-2G (matrix-setup) and
+neural (static-setup), 27 runs. With `timing.repeats = 2`:
+
+| Preconditioner | Cache misses | Timed `setup()` runs | Checkpoint loads |
+|---|---|---|---|
+| neural | 1 (system 1; 8 hit) | 2 (bind only, ~0 s) | 1 |
+| POD-2G | 3 (first RHS per matrix; 6 hit) | 6 (coarse operator per matrix) | 1 |
+| classical | 3 | 6 | 0 |
+
+That is 14 setup runs instead of 54 without the cache, and 2 loads instead of 36;
+all 27 solves are timed twice on the built objects without calling `setup()`
+again. Across three separate datasets the neural cache and store are per
+dataset, so neural loads 3 times; the RHS count never changes any count.
+
 One check runs before anything executes:
 `spec_consistency.validate_dataset_specs_consistent` rejects a dataset whose
 systems define the same preconditioner name with different configs (the derived
@@ -614,7 +659,17 @@ change only redoes the affected work:
    rerun does not. INFO logs bracket checkpoint artifact resolution, each
    checkpoint-content hash, matrix/dataset identity construction, and the
    MLflow reuse lookup so normal log timestamps expose slow preparation phases
-   without a separate timing mechanism.
+   without a separate timing mechanism. `run_comparison_batch` wraps the whole
+   batch in `shared.digest.digest_memo()`, so each checkpoint file is hashed
+   once per `(resolved path, size, mtime_ns)` and each dataset's input digest
+   once per directory, however many systems share them (the memo ends with the
+   batch, so a file rewritten between runs is never served stale). All entries
+   of a batch also share one `MlflowArtifactLeaseManager`
+   (`_ComparisonResolutionContext.artifact_leases`): one download per run id,
+   kept until the batch ends. Download and hashing happen in the prepare phase,
+   outside every measured walltime, and so is checkpoint *loading* for every
+   checkpoint-backed kind (see "Checkpoint loading and memory" below), so setup
+   costs stay comparable across kinds.
 
 Every key is derived by the pipeline from the inputs themselves (never
 authored in a config or bumped by hand), and user ids stay pure labels. All
