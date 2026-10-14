@@ -258,3 +258,53 @@ def release_device_memory() -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch._C._host_emptyCache()
+
+
+WARMUP_SYSTEM_SIZE = 64
+"""Rows of the throwaway SPD system `warm_up_device` runs on: big enough to hit real kernels."""
+
+WARMUP_CG_ITERATIONS = 5
+"""CG-style iterations `warm_up_device` runs, enough to touch every op CG's loop uses."""
+
+
+def warm_up_device(device: torch.device) -> None:
+    """Pay a device's first-call costs once, outside every timed region.
+
+    The first use of dense and sparse kernels in a process carries one-off costs
+    unrelated to any algorithm: CUDA context and cuBLAS/cuSPARSE handle creation,
+    kernel loading, allocator growth, lazy imports. Without this, whichever
+    preconditioner is measured first absorbs them and the comparison depends on
+    configuration order. This runs a tiny throwaway workload covering the ops the
+    preconditioners and CG use (dense matmul and triangular solve, CSR matvec, and
+    the dot/axpy loop of CG) on a small SPD system.
+
+    This is a per-*process* warm-up. It is deliberately not the per-run
+    `TimingRepeatPolicy.warmup`, which repeats a whole timed build or solve for
+    every (system, preconditioner) just to absorb costs that occur once.
+
+    Args:
+        device: Solver device to warm.
+    """
+    n = WARMUP_SYSTEM_SIZE
+    generator = torch.Generator().manual_seed(0)
+    base = torch.randn(n, n, generator=generator, dtype=torch.float64)
+    matrix = (base @ base.T + n * torch.eye(n, dtype=torch.float64)).to(device)
+    rhs = torch.ones(n, dtype=torch.float64, device=device)
+    csr = matrix.to_sparse_csr()
+
+    torch.linalg.solve_triangular(torch.tril(matrix), rhs[:, None], upper=False)
+    x = torch.zeros_like(rhs)
+    residual = rhs.clone()
+    direction = residual.clone()
+    for _ in range(WARMUP_CG_ITERATIONS):
+        for operator in (matrix, csr):
+            applied = operator @ direction
+        alpha = (residual @ residual) / (direction @ applied)
+        x = x + alpha * direction
+        new_residual = residual - alpha * applied
+        direction = (
+            new_residual + ((new_residual @ new_residual) / (residual @ residual)) * direction
+        )
+        residual = new_residual
+    if device.type == "cuda":
+        torch.cuda.synchronize(device)

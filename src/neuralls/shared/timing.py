@@ -43,7 +43,13 @@ class TimingRepeatPolicy:
     Attributes:
         repeats: Timed executions whose samples are reduced by `statistic`.
         warmup: Untimed executions run first, absorbing one-off costs (lazy
-            imports, allocator growth, cold caches).
+            imports, allocator growth, cold caches). Each one repeats the whole
+            timed region (a full build or solve) for every (system,
+            preconditioner), so it is opt-in. Costs that occur once per process
+            (CUDA context, cuBLAS/cuSPARSE handles, kernel loading) are instead
+            paid once by `shared.device.warm_up_device` before the first
+            measurement, and checkpoint loading is kept outside the timed region
+            altogether (`PreconditionerService.preload`).
         statistic: Reduction applied to the timed samples.
     """
 
