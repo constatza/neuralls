@@ -35,6 +35,17 @@ EXP_SOLVER_CONFIG_NAME = "solver.toml"
 DEFAULT_RTOL = 1e-6  # Relative tolerance for CG solves
 DEFAULT_ATOL = 1e-14  # Absolute tolerance for convergence (in addition to relative tolerance)
 
+# =============================================================================
+# Comparison Reporting
+# =============================================================================
+MIN_GROUP_SIZE = (
+    3  # Fewest systems a group needs before a scaling projection (and its std) is drawn
+)
+TOLERANCE_LADDER_START_DECADE = 3  # First rung of the iterations-to-tolerance table is 1e-3
+TOLERANCE_LADDER_DECADE_STEP = 3  # Decades between consecutive rungs
+
+MAX_TIMING_REPEATS = 10  # Cap on timed (and warm-up) executions per measured region
+
 # Prediction diagnostic thresholds
 PREDICTION_NORM_EPSILON = 1e-12  # Epsilon for safe division in prediction norm ratio
 

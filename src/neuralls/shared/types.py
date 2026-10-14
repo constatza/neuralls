@@ -31,6 +31,10 @@ RhsId = NewType("RhsId", int)
 DatasetId = NewType("DatasetId", str)
 """A `[[datasets]]` registry id — a dataset reference, never a free-form label."""
 
+GroupId = NewType("GroupId", str)
+"""Rendered identity of one comparison group — used as a filename stem and an
+MLflow key segment, so it is produced once from a structured key, never parsed."""
+
 EntryRole = Literal["feature", "target"]
 """Runtime dataset entry roles understood by neuralls bridge code."""
 

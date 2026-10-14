@@ -50,6 +50,18 @@ THRESHOLD = _key("threshold")
 DAMPING = _key("damping")
 MEAN = _key("mean")
 STANDARD_DEVIATION = _key("standard_deviation")
+DROP_TOLERANCE = _key("drop_tolerance")
+PRE_SMOOTHING_STEPS = _key("pre_smoothing_steps")
+POST_SMOOTHING_STEPS = _key("post_smoothing_steps")
+SMOOTHER_DAMPING = _key("smoother_damping")
+CANDIDATE_COUNT = _key("candidate_count")
+CANDIDATE_ITERATIONS = _key("candidate_iterations")
+RELAXATION_TEST_VECTORS = _key("relaxation_test_vectors")
+RELAXATION_SWEEPS = _key("relaxation_sweeps")
+BOOTSTRAP_CYCLES = _key("bootstrap_cycles")
+ALGEBRAIC_DISTANCE_THRESHOLD = _key("algebraic_distance_threshold")
+COARSENING_STRATEGY = _key("coarsening_strategy")
+MODEL_ARCHITECTURE = _key("model_architecture")
 
 DEFAULT_SYMBOLS: Mapping[FieldKey, SymbolSpec] = {
     SAMPLE_COUNT: SymbolSpec(plain="N", math="N"),
@@ -63,6 +75,18 @@ DEFAULT_SYMBOLS: Mapping[FieldKey, SymbolSpec] = {
     DAMPING: SymbolSpec(plain="ω", math="\\omega"),
     MEAN: SymbolSpec(plain="μ", math="\\mu"),
     STANDARD_DEVIATION: SymbolSpec(plain="σ", math="\\sigma"),
+    DROP_TOLERANCE: SymbolSpec(plain="τ", math="\\tau"),
+    PRE_SMOOTHING_STEPS: SymbolSpec(plain="ν1", math="\\nu_1"),
+    POST_SMOOTHING_STEPS: SymbolSpec(plain="ν2", math="\\nu_2"),
+    SMOOTHER_DAMPING: SymbolSpec(plain="ω_s", math="\\omega_s"),
+    CANDIDATE_COUNT: SymbolSpec(plain="k", math="k"),
+    CANDIDATE_ITERATIONS: SymbolSpec(plain="n_it", math="n_{it}"),
+    RELAXATION_TEST_VECTORS: SymbolSpec(plain="k_r", math="k_r"),
+    RELAXATION_SWEEPS: SymbolSpec(plain="η", math="\\eta"),
+    BOOTSTRAP_CYCLES: SymbolSpec(plain="n_b", math="n_b"),
+    ALGEBRAIC_DISTANCE_THRESHOLD: SymbolSpec(plain="θ_ad", math="\\theta_{ad}"),
+    COARSENING_STRATEGY: SymbolSpec(plain="coarsening", math="\\mathrm{coarsening}"),
+    MODEL_ARCHITECTURE: SymbolSpec(plain="arch", math="\\mathrm{arch}"),
 }
 
 

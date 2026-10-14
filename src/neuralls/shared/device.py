@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import sys
 import time
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Hashable
 from contextlib import contextmanager
 from dataclasses import dataclass
 
 import torch
+from loguru import logger
+
+from neuralls.shared.timing import TimingRepeatPolicy
 
 if sys.platform == "win32":
     import psutil
@@ -154,6 +157,82 @@ def track_resource_usage(device: torch.device) -> Generator[Callable[[], Resourc
         yield lambda: box[0]
     finally:
         box.append(end_resource_usage(token))
+
+
+@dataclass(frozen=True, slots=True)
+class TimedRuns[T]:
+    """Outcome of `repeat_timed`.
+
+    Attributes:
+        value: What the first timed execution returned.
+        seconds: The policy's statistic over `samples_seconds`.
+        samples_seconds: Wall time of every timed execution, in run order —
+            kept so the spread behind `seconds` stays visible.
+        peak_memory_bytes: Peak memory of the very first execution (warm-up
+            included). CPU peak RSS is a process-wide high-water mark with no
+            reset, so any later execution would report ~0.
+    """
+
+    value: T
+    seconds: float
+    samples_seconds: tuple[float, ...]
+    peak_memory_bytes: int
+
+
+def _measure[T](run: Callable[[], T], device: torch.device) -> tuple[T, ResourceUsage]:
+    """One GPU-synchronised execution of `run` and its resource usage."""
+    with track_resource_usage(device) as usage:
+        value = run()
+    return value, usage()
+
+
+def repeat_timed[T](
+    run: Callable[[], T],
+    policy: TimingRepeatPolicy,
+    *,
+    device: torch.device,
+    fingerprint: Callable[[T], Hashable] | None = None,
+) -> TimedRuns[T]:
+    """Execute `run` per `policy` and reduce its wall times to one number.
+
+    Runs `policy.warmup` untimed executions, then `policy.repeats` timed ones,
+    each GPU-synchronised through `track_resource_usage`. The default policy is
+    exactly one timed execution, i.e. a plain measurement.
+
+    Args:
+        run: The region to measure. Must be repeatable (fresh state each call).
+        policy: Warm-up count, repeat count and reduction.
+        device: Device the region runs on.
+        fingerprint: Optional summary of each result (e.g. an iteration count).
+            A repeat whose summary differs from the first logs a warning,
+            since a nondeterministic or stateful region makes its samples
+            incomparable.
+
+    Returns:
+        The first timed value, the reduced time, every sample, and the first
+        execution's peak memory.
+    """
+    warmup_usages = [_measure(run, device)[1] for _ in range(policy.warmup)]
+    first_value, first_usage = _measure(run, device)
+    samples = [first_usage.wall_time_seconds]
+    reference = fingerprint(first_value) if fingerprint is not None else None
+    for repeat in range(1, policy.repeats):
+        value, usage = _measure(run, device)
+        samples.append(usage.wall_time_seconds)
+        if fingerprint is not None and fingerprint(value) != reference:
+            logger.warning(
+                "Timed repeat {} differs from the first ({} != {}); its timing is not comparable.",
+                repeat + 1,
+                fingerprint(value),
+                reference,
+            )
+    first_execution = warmup_usages[0] if warmup_usages else first_usage
+    return TimedRuns(
+        value=first_value,
+        seconds=policy.statistic.reduce(samples),
+        samples_seconds=tuple(samples),
+        peak_memory_bytes=first_execution.peak_memory_bytes,
+    )
 
 
 def release_device_memory() -> None:

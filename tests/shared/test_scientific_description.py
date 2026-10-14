@@ -12,6 +12,7 @@ from neuralls.shared.scientific_description import (
     DETAILED_PROFILE,
     LEGEND_PROFILE,
     LOG_PROFILE,
+    DecimalFact,
     FieldImportance,
     FieldKey,
     IntegerFact,
@@ -186,3 +187,22 @@ def test_package_imports_standard_library_only() -> None:
                 continue
             for name in names:
                 assert name in stdlib_names, f"{source_file.name} imports non-stdlib {name!r}"
+
+
+def test_length_budget_is_measured_on_visible_width_not_markup() -> None:
+    """`$\\theta=0.25$` is markup: the same facts must survive the same budget in every target."""
+    key_a, key_b = FieldKey("threshold"), FieldKey("damping")
+    description = ScientificDescription(
+        base_name="AMG",
+        facts=(
+            DecimalFact(key_a, 0.25, FieldImportance.ESSENTIAL),
+            DecimalFact(key_b, 0.67, FieldImportance.VARIANT),
+        ),
+    )
+    plain = NotationPolicy.default(RenderTarget.PLAIN)
+    mathtext = NotationPolicy.default(RenderTarget.MATHTEXT)
+    visible_width = len(render(description, RenderProfile("p", False), plain))
+    profile = RenderProfile(name="tight", include_context=False, max_length=visible_width)
+
+    assert "ω" in render(description, profile, plain)
+    assert "\\omega" in render(description, profile, mathtext)

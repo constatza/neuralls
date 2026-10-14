@@ -7,6 +7,7 @@ a strategy/preconditioner/storage object to produce a label.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 
 from neuralls.shared.scientific_description.models import (
     DecimalFact,
@@ -33,15 +34,18 @@ def render(
 ) -> str:
     """Render ``description`` under ``profile`` using ``policy``'s notation."""
     selected = _select_facts(description, profile)
-    rendered = _compose(description.base_name, selected, profile, policy)
-    while profile.max_length is not None and len(rendered) > profile.max_length:
+    # The budget is about what a reader sees, so it is measured on the plain
+    # spelling for every target: `$\\theta=0.25$` is markup, not extra width.
+    visible_policy = replace(policy, target=RenderTarget.PLAIN)
+    while profile.max_length is not None and (
+        len(_compose(description.base_name, selected, profile, visible_policy)) > profile.max_length
+    ):
         droppable = [fact for fact in selected if _drop_priority(fact, description) > 0]
         if not droppable:
             break
         to_drop = max(droppable, key=lambda fact: _drop_priority(fact, description))
         selected = [fact for fact in selected if fact is not to_drop]
-        rendered = _compose(description.base_name, selected, profile, policy)
-    return rendered
+    return _compose(description.base_name, selected, profile, policy)
 
 
 def render_facts(
@@ -95,11 +99,18 @@ def _compose(
     return f"{base_name} ({formatted})"
 
 
+_MATH_TEXT_SPECIALS = str.maketrans({"_": "\\_", "%": "\\%", "#": "\\#", "&": "\\&", "$": "\\$"})
+"""Characters that break a mathtext/LaTeX fragment when they appear in a text value
+(e.g. an underscore in a class name)."""
+
+
 def _format_fact(fact: ScientificFact, profile: RenderProfile, policy: NotationPolicy) -> str:
     symbol = policy.symbol_for(fact.key)
     value_str = _format_value(fact, profile.precision.get(fact.key))
     if policy.target is RenderTarget.PLAIN:
         return f"{symbol.plain}={value_str}"
+    if isinstance(fact, TextFact):
+        value_str = value_str.translate(_MATH_TEXT_SPECIALS)
     return f"${symbol.math}={value_str}$"
 
 
