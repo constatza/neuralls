@@ -1493,9 +1493,8 @@ def plot_projected_scaling_law(
     amortize (``setup_sharing.share_setup``/``share_generation``) shows its
     curve visibly flattening toward the pure-solve floor as N grows; one
     whose costs recur per system shows a flat line at its true per-system
-    cost from N=1 onward — the two are deliberately shown on the same
-    linear y-axis so that flattening reads as a real visual effect, not
-    compressed away by a log scale.
+    cost from N=1 onward — the two share one log-scaled y-axis so costs that
+    differ by orders of magnitude stay comparable.
 
     The shaded band is ±1 sample standard deviation of the *per-system solve
     time* around each curve: the spread of a single system's cost, not a
@@ -1547,7 +1546,8 @@ def plot_projected_scaling_law(
             spread = np.asarray(y_values)
             ax.fill_between(
                 n_values,
-                np.maximum(spread - result.solve_time_std_seconds, 0.0),
+                # A log axis cannot show a non-positive edge; floor at 1% of the curve.
+                np.maximum(spread - result.solve_time_std_seconds, spread * 0.01),
                 spread + result.solve_time_std_seconds,
                 color=style["color"],
                 alpha=_STD_BAND_ALPHA,
@@ -1555,6 +1555,7 @@ def plot_projected_scaling_law(
             )
 
     ax.set_xscale("log")
+    ax.set_yscale("log")
     ax.set_xlabel("Number of systems (N)", fontsize=12)
     ax.set_ylabel("Projected avg. cost per system (s)", fontsize=12)
     ax.grid(True, alpha=0.3)
