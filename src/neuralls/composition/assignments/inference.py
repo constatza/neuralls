@@ -24,16 +24,12 @@ class InferenceResult:
         y_true: True target values array
         y_pred: Predicted values array (same as predictions, kept for compatibility)
         duration_seconds: Elapsed time for inference in seconds
-        plot_path: Path to parity/residuals plot or None
-        diagnostic_plot_path: Path to diagnostics plot or None
     """
 
     predictions: np.ndarray | None
     y_true: np.ndarray | None
     y_pred: np.ndarray | None
     duration_seconds: float
-    plot_path: Path | None
-    diagnostic_plot_path: Path | None
 
 
 def _validate_inference_config(config: InferenceConfig) -> None:
@@ -94,7 +90,7 @@ def _execute_inference_pipeline(
     settings: Any,
     workspace: Any,
     dataset_id: str,
-) -> tuple[Any, dict[str, float], list[Path]]:
+) -> tuple[Any, dict[str, float]]:
     """Execute core inference pipeline.
 
     Args:
@@ -104,7 +100,7 @@ def _execute_inference_pipeline(
         dataset_id: Dataset identifier
 
     Returns:
-        Tuple of (predictions, metrics_dict, plot_paths)
+        Tuple of (predictions, metrics_dict)
     """
     from neuralls.application.inference.prediction import run_prediction
     from neuralls.composition.inference.data_loading import load_inference_data
@@ -143,7 +139,7 @@ def _execute_inference_pipeline(
         identifier = f"{dataset_slug}-{run_identifier}"
         save_synthetic_predictions(predictions, workspace.predictions_dir, identifier)
 
-    # Save outputs (CSV + plots)
+    # Save outputs (CSV)
     outputs = save_inference_outputs(
         predictions=predictions,
         workspace=workspace,
@@ -151,24 +147,20 @@ def _execute_inference_pipeline(
         checkpoint_path=config.checkpoint_path,
         config_path=config.config_path,
         dataset_id=dataset_id,
-        save_plots=config.save_plots,
-        figures_dir=config.figures_dir,
     )
 
-    return predictions, outputs.metrics, outputs.plot_paths
+    return predictions, outputs.metrics
 
 
 def _build_inference_result(
     predictions: Any,
     metrics: dict[str, float],
-    plot_paths: list[Path],
 ) -> InferenceResult:
     """Build typed inference result from predictions and metrics.
 
     Args:
         predictions: Prediction results
         metrics: Performance metrics
-        plot_paths: Generated plot paths
 
     Returns:
         InferenceResult with all outputs
@@ -178,8 +170,6 @@ def _build_inference_result(
         y_true=predictions.targets.get("y_true"),
         y_pred=predictions.predictions.get("y_pred"),
         duration_seconds=metrics.get("duration_seconds", 0.0),
-        plot_path=plot_paths[0] if len(plot_paths) > 0 else None,
-        diagnostic_plot_path=plot_paths[1] if len(plot_paths) > 1 else None,
     )
 
 
@@ -192,14 +182,12 @@ def run_inference(
     checkpoint_path: str | Path | None = None,
     features_path: str | Path | None = None,
     targets_path: str | Path | None = None,
-    save_plots: bool = True,
-    figures_dir: str | Path | None = None,
     enable_mlflow: bool = False,
     output_root: str | Path | None = None,
     synthetic_benchmark: bool = False,
     comparison_config_path: str | Path | None = None,
 ) -> InferenceResult:
-    """Run inference for parity plot generation.
+    """Run batch inference and save predictions.
 
     This is a pure orchestration function that composes single-responsibility
     functions. No business logic here - only composition.
@@ -210,8 +198,6 @@ def run_inference(
         checkpoint_path: Path to model checkpoint (required)
         features_path: Path to features file (for standard inference)
         targets_path: Path to targets file (for standard inference)
-        save_plots: Whether to generate diagnostic plots
-        figures_dir: Custom figures directory (optional)
         enable_mlflow: Whether to log to MLflow
         output_root: Custom output root directory (optional)
         synthetic_benchmark: Use synthetic benchmark data
@@ -238,8 +224,6 @@ def run_inference(
         data_config_path=Path(data_config_path) if data_config_path else None,
         features_path=Path(features_path) if features_path else None,
         targets_path=Path(targets_path) if targets_path else None,
-        save_plots=save_plots,
-        figures_dir=Path(figures_dir) if figures_dir else None,
         enable_mlflow=enable_mlflow,
         output_root=Path(output_root) if output_root else None,
         synthetic_benchmark=synthetic_benchmark,
@@ -269,12 +253,12 @@ def run_inference(
 
     try:
         # 4. Execute inference pipeline
-        predictions, metrics, plot_paths = _execute_inference_pipeline(
+        predictions, metrics = _execute_inference_pipeline(
             config, settings, assignment_settings, workspace, dataset_id
         )
 
         # 5. Build typed result
-        return _build_inference_result(predictions, metrics, plot_paths)
+        return _build_inference_result(predictions, metrics)
 
     except (FileNotFoundError, ValueError, OSError, RuntimeError) as exc:
         error = exc

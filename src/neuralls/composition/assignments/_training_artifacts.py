@@ -19,7 +19,6 @@ from neuralls.composition.tracking.run_specs import build_training_run_spec, for
 from neuralls.platform.config.models.experiments import AssignmentEntry, ExperimentNamesConfig
 from neuralls.platform.reporting.training_diagnostics import (
     compute_diagnostics,
-    write_diagnostics_figure,
 )
 from neuralls.platform.storage.checkpoints import get_latest_checkpoint
 from neuralls.platform.storage.training_artifacts import (
@@ -340,19 +339,20 @@ def _log_training_evaluation(
     tracking_uri: str,
     run_id: str,
     numpy_payload: Mapping[str, Any] | None,
-    figures_dir: Path,
+    metrics_dir: Path,
     contract: RuntimeDatasetContract,
 ) -> None:
     """Compute diagnostics from training predictions and log to an existing MLflow run.
 
     Uses the predictions and targets already captured by trainer.predict() during
-    training. Delegates figure writing and MLflow logging to dedicated helpers.
+    training. Delegates MLflow logging to a dedicated helper; plots come from DLKit's
+    ``[plots]`` callbacks.
 
     Args:
         tracking_uri: MLflow tracking URI (HTTP or SQLite).
         run_id: Existing MLflow run ID to reopen.
         numpy_payload: Normalized DLKit prediction/target payload.
-        figures_dir: Directory to write the diagnostics figure.
+        metrics_dir: Directory the diagnostics JSON is written into.
         contract: Runtime dataset contract for array key resolution.
     """
     selected = _extract_evaluation_arrays(numpy_payload, contract)
@@ -365,9 +365,7 @@ def _log_training_evaluation(
     y_pred, y_true = selected
     try:
         diagnostics = compute_diagnostics(y_pred, y_true)
-        figure_path = write_diagnostics_figure(y_true, y_pred, figures_dir)
-        log_diagnostics_to_mlflow(tracking_uri, run_id, diagnostics, figure_path)
-        metrics_dir = figures_dir.parent / "metrics"
+        log_diagnostics_to_mlflow(tracking_uri, run_id, diagnostics)
         metrics_dir.mkdir(parents=True, exist_ok=True)
         (metrics_dir / "training_diagnostics.json").write_text(
             json.dumps({k: float(v) for k, v in diagnostics.metrics.items()}, indent=2),

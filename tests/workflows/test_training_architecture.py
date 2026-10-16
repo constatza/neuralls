@@ -406,11 +406,9 @@ def test_contract_override_drives_injection_and_validation(
 
 
 @patch("neuralls.composition.assignments._training_artifacts.compute_diagnostics")
-@patch("neuralls.composition.assignments._training_artifacts.write_diagnostics_figure")
 @patch("neuralls.composition.assignments._training_artifacts.log_diagnostics_to_mlflow")
 def test_log_training_evaluation_orchestration(
     mock_mlflow_log: MagicMock,
-    mock_write: MagicMock,
     mock_compute: MagicMock,
     tmp_path: Path,
 ) -> None:
@@ -422,19 +420,17 @@ def test_log_training_evaluation_orchestration(
         "targets": {"y": np.zeros((10, 1))},
     }
     mock_compute.return_value = MagicMock()
-    mock_write.return_value = Path("dummy.png")
     tracking_uri = f"sqlite:///{(tmp_path / 'mlruns' / 'mlflow.db').as_posix()}"
 
     _log_training_evaluation(
         tracking_uri=tracking_uri,
         run_id="run123",
         numpy_payload=normalized_payload,
-        figures_dir=tmp_path / "figures",
+        metrics_dir=tmp_path / "metrics",
         contract=contract,
     )
 
     mock_compute.assert_called_once()
-    mock_write.assert_called_once()
     mock_mlflow_log.assert_called_once()
 
 

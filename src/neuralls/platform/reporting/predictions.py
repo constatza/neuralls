@@ -14,7 +14,6 @@ from loguru import logger
 
 from neuralls.domain.inference import InferenceOutputs, InferencePredictions
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
-from neuralls.platform.reporting.plots import plot_parity_and_residuals, plot_prediction_diagnostics
 from neuralls.platform.reporting.prediction_csv import save_prediction_samples_to_csv
 from neuralls.platform.reporting.synthetic import save_synthetic_results
 from neuralls.platform.storage.filesystem import derive_model_identifier, sanitize_identifier
@@ -165,47 +164,6 @@ def save_synthetic_predictions(
     )
 
 
-def create_diagnostic_plots(
-    predictions: InferencePredictions,
-    figures_dir: Path,
-    identifier: str,
-) -> dict[str, Path]:
-    """Generate diagnostic plots for predictions.
-
-    Creates two plots:
-    1. Parity and residuals plot
-    2. Detailed diagnostics plot
-
-    Args:
-        predictions: Inference predictions with targets
-        figures_dir: Directory for saving plots
-        identifier: Filename prefix/identifier
-
-    Returns:
-        Dictionary mapping plot types to saved paths
-    """
-    figures_dir.mkdir(parents=True, exist_ok=True)
-
-    y_true = predictions.targets.get("y_true", np.array([]))
-    y_pred = predictions.predictions.get("y_pred", np.array([]))
-
-    plot_paths = {}
-
-    # Parity and residuals plot
-    parity_path = figures_dir / f"parity_residuals_{identifier}.png"
-    plot_parity_and_residuals(y_pred, y_true, sample=0, save_path=parity_path, show=False)
-    plot_paths["parity"] = parity_path
-
-    # Diagnostics plot
-    diagnostic_path = figures_dir / f"diagnostics_{identifier}.png"
-    plot_prediction_diagnostics(y_pred, y_true, sample=0, save_path=diagnostic_path, show=False)
-    plot_paths["diagnostics"] = diagnostic_path
-
-    logger.info(f"Saved diagnostic plots to {figures_dir}")
-
-    return plot_paths
-
-
 def save_inference_outputs(
     predictions: InferencePredictions,
     workspace: AssignmentWorkspace,
@@ -213,8 +171,6 @@ def save_inference_outputs(
     checkpoint_path: Path,
     config_path: Path,
     dataset_id: str,
-    save_plots: bool = True,
-    figures_dir: Path | None = None,
 ) -> InferenceOutputs:
     """Save all inference outputs to workspace.
 
@@ -225,8 +181,6 @@ def save_inference_outputs(
         checkpoint_path: Path to model checkpoint
         config_path: Path to config file
         dataset_id: Dataset identifier
-        save_plots: Whether to generate diagnostic plots
-        figures_dir: Custom figures directory (optional)
 
     Returns:
         InferenceOutputs with saved paths and metrics
@@ -241,19 +195,12 @@ def save_inference_outputs(
     # Save CSV predictions
     csv_paths = save_predictions_csv(predictions, workspace.predictions_dir, identifier)
 
-    # Save plots if enabled
-    plot_paths_dict = {}
-    if save_plots:
-        output_figures_dir = Path(figures_dir) if figures_dir is not None else workspace.figures_dir
-        plot_paths_dict = create_diagnostic_plots(predictions, output_figures_dir, identifier)
-
     # Extract metrics
     duration = predictions.metadata.get("duration_seconds", 0.0)
     metrics = {"duration_seconds": float(duration)}
 
     return InferenceOutputs(
         csv_paths=csv_paths,
-        plot_paths=list(plot_paths_dict.values()),
         metrics=metrics,
     )
 

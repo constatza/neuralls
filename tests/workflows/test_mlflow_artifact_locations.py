@@ -95,16 +95,14 @@ def test_training_logs_diagnostics_artifact_to_mlflow_with_sqlite(tmp_path: Path
         tracking_uri=tracking_uri,
         run_id=run_id,
         numpy_payload=normalized_payload,
-        figures_dir=tmp_path / "tmp-figures",
+        metrics_dir=tmp_path / "metrics",
         contract=contract,
     )
 
     run_data = client.get_run(run_id).data
     assert "eval/mae" in run_data.metrics
     assert "eval/mse" in run_data.metrics
-
-    figures = client.list_artifacts(run_id, path="figures")
-    assert any(item.path.endswith("diagnostics_training.png") for item in figures)
+    assert "eval/rmse" in run_data.metrics
 
 
 def test_log_diagnostics_to_mlflow_reopens_sqlite_run_without_active_context(
@@ -131,17 +129,12 @@ def test_log_diagnostics_to_mlflow_reopens_sqlite_run_without_active_context(
         np.array([[1.0], [2.0]], dtype=np.float64),
         np.array([[1.1], [1.9]], dtype=np.float64),
     )
-    figure_path = tmp_path / "diagnostics_training.png"
-    figure_path.write_text("placeholder", encoding="utf-8")
 
-    log_diagnostics_to_mlflow(tracking_uri, run_id, diagnostics, figure_path)
+    log_diagnostics_to_mlflow(tracking_uri, run_id, diagnostics)
 
     run_data = client.get_run(run_id).data
     assert "eval/mae" in run_data.metrics
     assert "eval/mse" in run_data.metrics
-
-    figures = client.list_artifacts(run_id, path="figures")
-    assert any(item.path.endswith("diagnostics_training.png") for item in figures)
 
 
 def _write_dataset_config(path: Path, dataset_id: str, data_dir: Path) -> None:

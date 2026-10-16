@@ -228,15 +228,13 @@ def log_diagnostics_to_mlflow(
     tracking_uri: str,
     run_id: str,
     diagnostics: object,
-    figure_path: Path,
 ) -> None:
-    """Log diagnostics metrics and figure to an existing MLflow run.
+    """Log diagnostics metrics to an existing MLflow run.
 
     Args:
         tracking_uri: MLflow tracking URI (HTTP or SQLite).
         run_id: Existing MLflow run ID to reopen.
         diagnostics: Diagnostics result with ``metrics`` dict attribute.
-        figure_path: Path to the figure file to upload.
     """
     from mlflow.tracking import MlflowClient
 
@@ -244,5 +242,3 @@ def log_diagnostics_to_mlflow(
     metrics = getattr(diagnostics, "metrics", {})
     for key, value in metrics.items():
         client.log_metric(run_id, key, float(value))
-    if figure_path.exists():
-        client.log_artifact(run_id, str(figure_path), artifact_path="figures")

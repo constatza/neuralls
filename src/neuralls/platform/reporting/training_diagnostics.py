@@ -13,8 +13,6 @@ Domain models:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -60,10 +58,21 @@ def compute_diagnostics(
     diff = pred - true
     mae = float(np.mean(np.abs(diff)))
     mse = float(np.mean(diff**2))
+    true_std = float(np.std(true))
+    ss_tot = float(np.sum((true - true.mean()) ** 2))
 
+    # Constant targets make the scale and R² undefined; NaN beats a misleading 0 or inf.
     metrics = {
         "eval/mae": mae,
         "eval/mse": mse,
+        "eval/rmse": float(np.sqrt(mse)),
+        "eval/r2": float(1.0 - np.sum(diff**2) / ss_tot) if ss_tot > 0 else float("nan"),
+        "eval/pred_target_std_ratio": float(np.std(pred)) / true_std
+        if true_std > 0
+        else float("nan"),
+        "eval/mean_shift": float(pred.mean() - true.mean()) / true_std
+        if true_std > 0
+        else float("nan"),
         "eval/duration_seconds": duration,
     }
 
@@ -73,29 +82,3 @@ def compute_diagnostics(
         duration_seconds=duration,
         metrics=metrics,
     )
-
-
-def write_diagnostics_figure(
-    y_true: Any,
-    y_pred: Any,
-    figures_dir: Path,
-) -> Path:
-    """Write a parity + residuals diagnostics figure to disk.
-
-    Args:
-        y_true: True target values.
-        y_pred: Predicted values.
-        figures_dir: Directory to write the figure into.
-
-    Returns:
-        Path to the saved figure file.
-    """
-    from neuralls.platform.reporting.plots import plot_parity_and_residuals
-
-    figure_path = figures_dir / "diagnostics_training.png"
-    plot_parity_and_residuals(
-        y_true.ravel(),
-        y_pred.ravel(),
-        save_path=figure_path,
-    )
-    return figure_path

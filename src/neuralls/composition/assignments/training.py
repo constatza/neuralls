@@ -183,7 +183,7 @@ def _finalize_existing_mlflow_run(
         tracking_uri,
         run_id,
         normalized_numpy,
-        context.workspace.figures_dir,
+        context.workspace.root_dir / "metrics",
         context.contract,
     )
     log_artifacts_to_mlflow(

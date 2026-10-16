@@ -34,10 +34,8 @@ class InferenceOutputs:
 
     Args:
         csv_paths: Paths to saved CSV prediction files.
-        plot_paths: Paths to saved diagnostic plots.
         metrics: Computed metrics (e.g., errors, norms).
     """
 
     csv_paths: list[Path] = field(default_factory=list)
-    plot_paths: list[Path] = field(default_factory=list)
     metrics: dict[str, float] = field(default_factory=dict)
