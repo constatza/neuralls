@@ -116,12 +116,12 @@ def test_real_sweep_execution_logs_projected_metrics_and_scaling_plot(
         for call in artifact_calls
         if call.kwargs.get("artifact_path") == "projected_scaling_law"
     ]
-    # Per reported label: the scaling-law PNG, its TOML, and the per-system scatter PNG.
+    # Per reported label: the scaling-law PNG, its TOML, and the per-preconditioner time-bars PNG.
     suffixes = sorted(Path(call.args[0]).suffix for call in scaling_plot_calls)
     assert suffixes == [".png"] * 2 * len(_GROUP_IDS) + [".toml"] * len(_GROUP_IDS)
     stems = {Path(call.args[0]).stem for call in scaling_plot_calls}
     assert stems == {
         f"{prefix}_{group_id}"
         for group_id in _GROUP_IDS
-        for prefix in ("projected_scaling_law", "system_time_scatter")
+        for prefix in ("projected_scaling_law", "system_time_bars")
     }

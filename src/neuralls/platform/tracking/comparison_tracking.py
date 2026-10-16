@@ -25,7 +25,7 @@ from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.reporting.artifacts import write_projected_toml
-from neuralls.platform.reporting.plots import plot_projected_scaling_law, plot_system_time_scatter
+from neuralls.platform.reporting.plots import plot_projected_scaling_law, plot_system_time_bars
 from neuralls.platform.tracking.mlflow import ensure_experiment, sanitize_metric_key_segment
 from neuralls.shared.types import GroupId
 
@@ -199,7 +199,7 @@ class MLflowGroupReportSink:
             stem = f"projected_scaling_law_{file_key}"
             plot_path = Path(tmp) / f"{stem}.png"
             toml_path = Path(tmp) / f"{stem}.toml"
-            scatter_path = Path(tmp) / f"system_time_scatter_{file_key}.png"
+            bars_path = Path(tmp) / f"system_time_bars_{file_key}.png"
             plot_projected_scaling_law(
                 outcome.projected,
                 save_path=plot_path,
@@ -211,18 +211,17 @@ class MLflowGroupReportSink:
                 marker_keys=style.marker_keys,
             )
             write_projected_toml(outcome.projected, toml_path)
-            plot_system_time_scatter(
+            plot_system_time_bars(
                 outcome.time_to_solution_by_system,
-                save_path=scatter_path,
-                title=f"Per-system time to solution — {presentation.subject}",
+                save_path=bars_path,
+                title=f"Time to solution per preconditioner — {presentation.subject}",
                 subtitle=presentation.subtitle,
                 labels=style.labels,
-                system_labels=presentation.system_labels,
                 families=style.families,
                 color_keys=style.color_keys,
                 marker_keys=style.marker_keys,
             )
-            for artifact in (plot_path, toml_path, scatter_path):
+            for artifact in (plot_path, toml_path, bars_path):
                 mlflow.log_artifact(str(artifact), artifact_path=PROJECTED_ARTIFACT_DIR)
 
 

@@ -182,6 +182,20 @@ def _generate_comparison_plots(
         title=title,
     )
 
+    residual_vs_solve_time_path = (
+        paths.figures / f"preconditioner_residual_vs_solve_time_{suffix}.png"
+    )
+    plot_residual_vs_time(
+        results,
+        labels=labels,
+        families=families,
+        color_keys=color_keys,
+        marker_keys=marker_keys,
+        save_path=residual_vs_solve_time_path,
+        title=title,
+        solve_only=True,
+    )
+
     error_vs_time_path = _plot_error_vs_time_optional(
         results,
         labels,
@@ -190,6 +204,16 @@ def _generate_comparison_plots(
         color_keys=color_keys,
         marker_keys=marker_keys,
         title=title,
+    )
+    error_vs_solve_time_path = _plot_error_vs_time_optional(
+        results,
+        labels,
+        paths.figures / f"preconditioner_error_vs_solve_time_{suffix}.png",
+        families=families,
+        color_keys=color_keys,
+        marker_keys=marker_keys,
+        title=title,
+        solve_only=True,
     )
 
     return PlotPaths(
@@ -206,6 +230,8 @@ def _generate_comparison_plots(
         work_precision=work_precision_path,
         residual_vs_time=residual_vs_time_path,
         error_vs_time=error_vs_time_path,
+        residual_vs_solve_time=residual_vs_solve_time_path,
+        error_vs_solve_time=error_vs_solve_time_path,
     )
 
 
@@ -250,6 +276,7 @@ def _plot_error_vs_time_optional(
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
     title: str | None = None,
+    solve_only: bool = False,
 ) -> Path | None:
     """Error vs time plot, skipped if no result has energy-norm error history.
 
@@ -267,6 +294,7 @@ def _plot_error_vs_time_optional(
         marker_keys=marker_keys,
         save_path=save_path,
         title=title,
+        solve_only=solve_only,
     )
     return save_path
 

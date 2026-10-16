@@ -523,14 +523,11 @@ class GroupPresentation:
             ``"ds, mixture of gaussian, sparse[3 nnz]"``).
         subtitle: Level, keys, recipe and system count, as one plot subtitle.
         plot_styles: Style of each preconditioner of the group, by name.
-        system_labels: Short x tick label (matrix id and RHS ordinal) of each
-            system id in the group.
     """
 
     subject: str
     subtitle: str
     plot_styles: Mapping[str, PreconditionerPlotStyle]
-    system_labels: Mapping[str, str]
 
 
 def render_group_id(label: GroupLabel) -> GroupId:
@@ -636,6 +633,8 @@ class PlotPaths:
         work_precision: Work-precision diagram (final precision vs. total cost).
         residual_vs_time: Residual vs wall time (generation + setup + solve).
         error_vs_time: Energy-norm error vs wall time (when available).
+        residual_vs_solve_time: Residual vs solve time only; every curve starts at t=0.
+        error_vs_solve_time: Energy-norm error vs solve time only (when available).
     """
 
     convergence: Path | None = None
@@ -653,6 +652,8 @@ class PlotPaths:
     work_precision: Path | None = None
     residual_vs_time: Path | None = None
     error_vs_time: Path | None = None
+    residual_vs_solve_time: Path | None = None
+    error_vs_solve_time: Path | None = None
 
     @classmethod
     def from_mapping(cls, mapping: dict[str, Path] | None) -> PlotPaths:
@@ -682,6 +683,8 @@ class PlotPaths:
             work_precision=mapping.get("work_precision"),
             residual_vs_time=mapping.get("residual_vs_time"),
             error_vs_time=mapping.get("error_vs_time"),
+            residual_vs_solve_time=mapping.get("residual_vs_solve_time"),
+            error_vs_solve_time=mapping.get("error_vs_solve_time"),
         )
 
     def to_mapping(self) -> dict[str, Path]:
@@ -706,6 +709,8 @@ class PlotPaths:
             "work_precision": self.work_precision,
             "residual_vs_time": self.residual_vs_time,
             "error_vs_time": self.error_vs_time,
+            "residual_vs_solve_time": self.residual_vs_solve_time,
+            "error_vs_solve_time": self.error_vs_solve_time,
         }
         return {key: path for key, path in values.items() if path is not None}
 

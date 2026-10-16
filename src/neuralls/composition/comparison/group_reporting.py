@@ -109,18 +109,6 @@ def _subtitle(outcome: GroupAggregated) -> str:
     return f"{scope} · N = {outcome.n_aggregated} ({outcome.n_matrices} matrices × RHS)"
 
 
-def _system_label(level: ReportLevel, tag: SystemTag) -> str:
-    """Short x tick label: matrix id and RHS ordinal, plus what the level pools over."""
-    base = f"m{tag.matrix_id}/r{tag.rhs_ordinal}"
-    match level:
-        case FineLevel():
-            return base
-        case MediumLevel():
-            return f"{base} {tag.recipe}"
-        case GlobalLevel():
-            return f"{tag.dataset} {base} {tag.recipe}"
-
-
 def _unmeasured_note(n_unmeasured: int, n_failed: int) -> str:
     """Why systems produced no result: cache hits carry none, and failures never had one."""
     return f"{n_unmeasured - n_failed} cache hit(s), {n_failed} failed"
@@ -209,9 +197,6 @@ def report_all_levels(
                             subject=_subject(aggregated.label),
                             subtitle=_subtitle(aggregated),
                             plot_styles=_plot_styles(measured, styles_by_system),
-                            system_labels={
-                                tag.system_id: _system_label(level, tag) for tag in measured
-                            },
                         ),
                     )
                 case GroupSkippedAllCacheHit(group_id=group_id, n_in_group=n_total):

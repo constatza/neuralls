@@ -96,13 +96,13 @@ an identical (linestyle, marker, color) triple — the case when no override
 keys are given at all — still gets spread across a lightness ramp so it
 stays distinguishable.
 
-The group-level plots (`plot_projected_scaling_law`, `plot_system_time_scatter`)
+The group-level plots (`plot_projected_scaling_law`, `plot_system_time_bars`)
 use that same resolution, fed the families and colour/marker keys the runs
 recorded, so a preconditioner looks the same in every plot. Their legends use
 the scientific label rather than the config name and append n, the scaling-law
 band is labelled "±1σ over systems", each carries a subtitle (level, keys,
-recipe, system count), and the scatter's x axis is keyed by matrix id and RHS
-ordinal. `MLflowGroupReportSink.report` takes the aggregated group plus a
+recipe, system count). The per-run convergence plots also come in solve-only
+variants (`solve_only=True`) whose curves all start at t=0. `MLflowGroupReportSink.report` takes the aggregated group plus a
 `GroupPresentation` and names artifacts by the sanitized group id.
 
 The DLKit dataset bridge stays generic. Platform helpers construct and patch

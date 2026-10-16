@@ -206,24 +206,6 @@ def test_subtitle_states_level_keys_recipe_and_system_count(
     assert by_id["global"].subtitle.endswith("N = 6 (3 matrices × RHS)")
 
 
-def test_scatter_labels_name_matrix_and_rhs_ordinal(
-    two_dataset_case: list[PlannedSystem],
-) -> None:
-    sink = RecordingSink()
-
-    _report(two_dataset_case, [_executed(s.entry.id) for s in two_dataset_case], sink)
-
-    by_id = dict(zip(sink.group_ids, sink.presentations, strict=True))
-    assert by_id["fine/ds/gaussian"].system_labels == {
-        "a-3-0": "m3/r0",
-        "a-3-1": "m3/r1",
-        "a-7-0": "m7/r0",
-        "a-7-1": "m7/r1",
-    }
-    assert by_id["medium/ds"].system_labels["s-3"].startswith("m3/r0 sinusoidal")
-    assert by_id["global"].system_labels["o-0"] == "other m0/r0 gaussian"
-
-
 def test_plot_styles_come_from_the_run_results(two_dataset_case: list[PlannedSystem]) -> None:
     sink = RecordingSink()
 

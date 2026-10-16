@@ -543,7 +543,9 @@ def plot_work_precision(
         plt.close(fig)
 
 
-def _method_wall_times(result: CGComparisonResult, n_points: int) -> list[float]:
+def _method_wall_times(
+    result: CGComparisonResult, n_points: int, *, solve_only: bool = False
+) -> list[float]:
     """Time axis, in seconds on the method's *own* clock, for an `n_points` history.
 
     Every method is timed from its own start: generation + setup is the offset
@@ -559,13 +561,19 @@ def _method_wall_times(result: CGComparisonResult, n_points: int) -> list[float]
 
     Uniform spacing is an assumption: per-iteration wall time is not recorded,
     so an iteration-varying preconditioner is drawn smoothed.
+
+    With ``solve_only`` the offset is dropped, so every method starts at t=0
+    and curves compare convergence speed alone (setup/generation are shown by
+    the time-breakdown and work-precision plots).
     """
-    offset = result.setup_cost
-    if (
-        result.generation_cost is not None
-        and result.generation_cost.provenance is not CostProvenance.UNAVAILABLE
-    ):
-        offset += result.generation_cost.wall_time_seconds
+    offset = 0.0
+    if not solve_only:
+        offset = result.setup_cost
+        if (
+            result.generation_cost is not None
+            and result.generation_cost.provenance is not CostProvenance.UNAVAILABLE
+        ):
+            offset += result.generation_cost.wall_time_seconds
     solve = result.solve_time_seconds or 0.0
     n_intervals = max(n_points - 1, 1)
     return [offset + solve * i / n_intervals for i in range(n_points)]
@@ -581,6 +589,7 @@ def plot_residual_vs_time(
     show: bool = False,
     title: str | None = None,
     marker_size: float = DEFAULT_LINE_MARKER_SIZE,
+    solve_only: bool = False,
 ) -> None:
     """Convergence curves in wall time (not iteration): residual vs cumulative cost.
 
@@ -602,6 +611,8 @@ def plot_residual_vs_time(
         show: Whether to call ``plt.show()``.
         title: Optional title for the plot.
         marker_size: Marker diameter for convergence points.
+        solve_only: Start every curve at t=0 on a linear axis, excluding
+            generation and setup time (see ``_method_wall_times``).
     """
     fig, ax = plt.subplots(figsize=(10, 6))
     labels = labels or {}
@@ -616,7 +627,7 @@ def plot_residual_vs_time(
         if len(residuals) == 0:
             continue
 
-        wall_times = _method_wall_times(result, len(residuals))
+        wall_times = _method_wall_times(result, len(residuals), solve_only=solve_only)
 
         display_name = labels.get(method_name, method_name)
         style = dict(line_styles.get(method_name, {"marker": "o", "linestyle": "-", "color": None}))
@@ -630,8 +641,12 @@ def plot_residual_vs_time(
             **style,
         )
 
-    ax.set_xscale("log")
-    ax.set_xlabel("Wall time: generation + setup + solve [s]")
+    if solve_only:
+        ax.set_xlim(left=0.0)
+        ax.set_xlabel("Solve time [s]")
+    else:
+        ax.set_xscale("log")
+        ax.set_xlabel("Wall time: generation + setup + solve [s]")
     ax.set_ylabel("Relative Residual $\\|r\\| / \\|b\\|$")
     fig.suptitle(title or "Convergence vs Wall Time", fontsize=13, fontweight="bold")
     ax.grid(True, alpha=0.3)
@@ -661,6 +676,7 @@ def plot_error_vs_time(
     show: bool = False,
     title: str | None = None,
     marker_size: float = DEFAULT_LINE_MARKER_SIZE,
+    solve_only: bool = False,
 ) -> None:
     """Energy-norm error convergence vs wall time (not iteration).
 
@@ -682,6 +698,8 @@ def plot_error_vs_time(
         show: Whether to call ``plt.show()``.
         title: Optional title for the plot.
         marker_size: Marker diameter for convergence points.
+        solve_only: Start every curve at t=0 on a linear axis, excluding
+            generation and setup time (see ``_method_wall_times``).
     """
     fig, ax = plt.subplots(figsize=(10, 6))
     labels = labels or {}
@@ -698,7 +716,7 @@ def plot_error_vs_time(
         if len(errors) == 0:
             continue
 
-        wall_times = _method_wall_times(result, len(errors))
+        wall_times = _method_wall_times(result, len(errors), solve_only=solve_only)
 
         display_name = labels.get(method_name, method_name)
         style = dict(line_styles.get(method_name, {"marker": "o", "linestyle": "-", "color": None}))
@@ -712,8 +730,12 @@ def plot_error_vs_time(
             **style,
         )
 
-    ax.set_xscale("log")
-    ax.set_xlabel("Wall time: generation + setup + solve [s]")
+    if solve_only:
+        ax.set_xlim(left=0.0)
+        ax.set_xlabel("Solve time [s]")
+    else:
+        ax.set_xscale("log")
+        ax.set_xlabel("Wall time: generation + setup + solve [s]")
     ax.set_ylabel("Relative Energy-Norm Error $\\|e_k\\|_A / \\|e_0\\|_A$")
     fig.suptitle(title or "Error Convergence vs Wall Time", fontsize=13, fontweight="bold")
     ax.grid(True, alpha=0.3)
@@ -917,6 +939,8 @@ _STD_BAND_LABEL = "±1σ over systems"
 
 _STD_BAND_ALPHA = 0.12
 _SCALING_MARKER_COUNT = 8
+SCALING_LAW_N_MIN = 10
+"""Smallest N shown: below it the one-time-cost amortization transient hides the large-N plateau."""
 """Markers drawn along each 200-point scaling curve, so the marker identifies
 the series in the legend without turning the line into a dotted trail."""
 
@@ -992,7 +1016,7 @@ def plot_projected_scaling_law(
     """Plot each preconditioner's projected average cost per system against N.
 
     Extrapolates ``ProjectedComparisonResult.projected_avg_per_system_seconds``
-    from 1 to ``n_max`` systems — this is a closed-form projection from the
+    from ``SCALING_LAW_N_MIN`` to ``n_max`` systems — this is a closed-form projection from the
     systems a comparison sweep actually ran, never a plot
     of N systems actually executed. A preconditioner whose one-time costs
     amortize (``setup_sharing.share_setup``/``share_generation``) shows its
@@ -1011,7 +1035,7 @@ def plot_projected_scaling_law(
     Args:
         projected: One ``ProjectedComparisonResult`` per preconditioner name,
             as ``domain.solver.metrics_table.report_level`` returns.
-        n_max: Largest N to extrapolate to (log-spaced x-axis from 1 to this).
+        n_max: Largest N to extrapolate to (log-spaced x-axis from ``SCALING_LAW_N_MIN`` to this).
         save_path: Path to save the figure. Parent directories are created
             automatically if they do not exist.
         show: Whether to call ``plt.show()`` (disabled by default for
@@ -1024,7 +1048,7 @@ def plot_projected_scaling_law(
         color_keys: Optional colour-axis key per name.
         marker_keys: Optional marker-axis key per name.
     """
-    n_values = np.unique(np.round(np.geomspace(1, n_max, num=200)).astype(int))
+    n_values = np.unique(np.round(np.geomspace(SCALING_LAW_N_MIN, n_max, num=200)).astype(int))
     labels = labels or {}
     names = sorted(projected)
     styles = _group_series_styles(names, families, color_keys, marker_keys)
@@ -1060,6 +1084,7 @@ def plot_projected_scaling_law(
             )
 
     ax.set_xscale("log")
+    ax.set_xlim(SCALING_LAW_N_MIN, n_max)
     ax.set_yscale("log")
     ax.set_xlabel("Number of systems (N)", fontsize=12)
     ax.set_ylabel("Projected avg. cost per system (s)", fontsize=12)
@@ -1081,7 +1106,7 @@ def plot_projected_scaling_law(
     )
 
 
-def plot_system_time_scatter(
+def plot_system_time_bars(
     time_by_system: Mapping[str, Mapping[str, float]],
     *,
     save_path: Path | None = None,
@@ -1089,17 +1114,16 @@ def plot_system_time_scatter(
     title: str | None = None,
     subtitle: str | None = None,
     labels: Mapping[str, str] | None = None,
-    system_labels: Mapping[str, str] | None = None,
     families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
 ) -> None:
-    """Per-system time-to-solution, one marker per (system, preconditioner).
+    """Median time-to-solution per preconditioner, whiskers spanning the IQR.
 
-    The individual points behind each preconditioner's group mean, so the
-    spread a mean hides is visible (the per-instance scatter learned-
-    preconditioner papers use). Systems sit on the x-axis in the order they
-    are given; y is log-scaled wall time (generation + setup + solve).
+    One horizontal bar per preconditioner, fastest at the top. The bar is the
+    median over the systems it was run on of generation + setup + solve wall
+    time; the whisker runs from the 25th to the 75th percentile, so the spread
+    across systems stays visible without a meaningless system axis.
 
     Args:
         time_by_system: Preconditioner name -> {system id -> seconds}.
@@ -1108,58 +1132,47 @@ def plot_system_time_scatter(
         title: Optional title for the plot.
         subtitle: Optional small-font line under the title.
         labels: Optional display label per preconditioner name (falls back to
-            the name). The legend appends the number of systems plotted.
-        system_labels: Optional short x tick label per system id (falls back
-            to the id).
+            the name). The tick label appends the number of systems plotted.
         families: Optional family per name; see ``plot_convergence_comparison``.
         color_keys: Optional colour-axis key per name.
         marker_keys: Optional marker-axis key per name.
     """
     labels = labels or {}
-    system_labels = system_labels or {}
-    names = sorted(time_by_system)
+    quartiles = {
+        name: np.percentile(list(per_system.values()), [25, 50, 75])
+        for name, per_system in time_by_system.items()
+        if per_system
+    }
+    names = sorted(quartiles, key=lambda name: quartiles[name][1], reverse=True)
     styles = _group_series_styles(names, families, color_keys, marker_keys)
-    system_ids = list(
-        dict.fromkeys(sid for per_system in time_by_system.values() for sid in per_system)
-    )
-    position = {system_id: index for index, system_id in enumerate(system_ids)}
 
-    fig, ax = plt.subplots(figsize=(max(6.0, 0.7 * len(system_ids) + 3.0), 5))
-    for name in names:
-        per_system = time_by_system[name]
-        style = styles[name]
-        ax.scatter(
-            [position[sid] for sid in per_system],
-            list(per_system.values()),
-            label=f"{labels.get(name, name)} (n={len(per_system)})",
-            color=style["color"],
-            marker=style["marker"],
-            s=36 * style["markersize_scale"],
-            edgecolors="black",
-            linewidths=0.4,
-        )
-
-    ax.set_yscale("log")
-    ax.set_xticks(
-        range(len(system_ids)),
-        [system_labels.get(sid, sid) for sid in system_ids],
-        rotation=45,
-        ha="right",
-        fontsize=8,
+    fig, ax = plt.subplots(figsize=(8, max(3.0, 0.5 * len(names) + 1.5)))
+    medians = np.array([quartiles[name][1] for name in names])
+    lower = medians - np.array([quartiles[name][0] for name in names])
+    upper = np.array([quartiles[name][2] for name in names]) - medians
+    ax.barh(
+        range(len(names)),
+        medians,
+        xerr=[lower, upper],
+        color=[styles[name]["color"] for name in names],
+        capsize=3,
     )
-    ax.set_xlabel("System")
-    ax.set_ylabel("Time to solution: generation + setup + solve [s]")
-    ax.grid(True, axis="y", which="both", alpha=0.3)
-    if time_by_system:
-        ax.legend(loc="best", fontsize=9)
+    ax.set_yticks(
+        range(len(names)),
+        [f"{labels.get(name, name)} (n={len(time_by_system[name])})" for name in names],
+        fontsize=9,
+    )
+    ax.set_xscale("log")
+    ax.set_xlabel("Median time to solution: generation + setup + solve [s]  (whisker: IQR)")
+    ax.grid(True, axis="x", which="both", alpha=0.3)
     _finish_group_figure(
         fig,
         ax,
-        title=title or "Per-system time to solution",
+        title=title or "Time to solution per preconditioner",
         subtitle=subtitle,
         save_path=save_path,
         show=show,
-        saved_message="Saved per-system time scatter to",
+        saved_message="Saved per-preconditioner time bars to",
     )
 
 

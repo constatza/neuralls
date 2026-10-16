@@ -218,7 +218,10 @@ Prediction payload normalization follows the same rule. Composition accepts
 DLKit's raw boundary output once, normalizes it into the canonical prediction
 key `y_pred`, and then hands the normalized payload to diagnostics and artifact
 staging. Downstream reporting code does not keep a fallback list of prediction
-aliases.
+aliases. Training diagnostics are scalar `eval/*` MLflow metrics (MAE, MSE, RMSE,
+R², prediction/target std ratio, normalized mean shift); parity, residual and
+error-histogram figures come only from DLKit's `[plots]` callbacks (training)
+and `evaluate()` (eval), never from neuralls plotting code.
 
 Training, eval, inference, comparison, and generation assembly all follow the same
 rule: composition may decide which collaborators participate in a workflow, but
@@ -436,14 +439,15 @@ Only a `GroupAggregated` reaches the injected
 `domain.solver.ports.GroupReportSink` (`platform.tracking.comparison_tracking.
 MLflowGroupReportSink`), together with a `GroupPresentation` (subject,
 subtitle `level · keys · recipe · N = <systems> (<matrices> matrices × RHS)`,
-per-system tick labels, and the per-preconditioner `PreconditionerPlotStyle`).
+and the per-preconditioner `PreconditionerPlotStyle`).
 The styles are the label, family, colour key and marker key each run recorded
 in `ComparisonResult.plot_styles`, split into plot mappings by the same
 `plot_style_maps` the per-run convergence plots use, so a preconditioner keeps
 one colour, marker and linestyle across every plot. The sink logs the
 projected metrics (namespaced by group id), the scaling-law plot (with a ±1σ
-band of per-system solve time), the TOML of the same scalars, and a
-per-system time-to-solution scatter on the session parent run; artifact names
+band of per-system solve time, log N axis starting at `SCALING_LAW_N_MIN`),
+the TOML of the same scalars, and a per-preconditioner bar chart of median
+time-to-solution with IQR whiskers on the session parent run; artifact names
 use the sanitized group id. Because the sink is called only when there is
 something to record, a fully cache-hit batch touches no MLflow run. Running
 three levels triples the reported artifacts, never the execution.
