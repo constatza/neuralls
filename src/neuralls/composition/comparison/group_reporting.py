@@ -18,6 +18,7 @@ from neuralls.composition.comparison._plots import unique_display_labels
 from neuralls.composition.comparison._preconditioner_setup import DatasetPreconditionerCache
 from neuralls.composition.comparison.models import ComparisonOutcome, PlannedSystem
 from neuralls.composition.comparison.recipes import system_tag
+from neuralls.domain.benchmarking.selection import systems_solved_by_all
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated, GroupSkippedAllCacheHit
 from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLabel, MediumLabel
@@ -100,7 +101,22 @@ def _subtitle(outcome: GroupAggregated) -> str:
             scope = f"Medium level · keys: dataset · {_mixture_text(mixture)}"
         case GlobalLabel(mixture_of=mixture):
             scope = f"Global level · keys: none · {_mixture_text(mixture)}"
-    return f"{scope} · N = {outcome.n_aggregated} ({outcome.n_matrices} matrices × RHS)"
+    return (
+        f"{scope} · N = {outcome.n_aggregated} ({outcome.n_matrices} matrices × RHS)"
+        f"{_common_solved_note(outcome)}{_never_converged_note(outcome)}"
+    )
+
+
+def _common_solved_note(outcome: GroupAggregated) -> str:
+    """How many systems every preconditioner solved, when that is fewer than all of them."""
+    common = len(systems_solved_by_all(outcome.outcomes))
+    return f" · solved by all: {common}" if common < outcome.n_aggregated else ""
+
+
+def _never_converged_note(outcome: GroupAggregated) -> str:
+    """Names the preconditioners with no converged system, which have no projected curve."""
+    names = [name for name, c in outcome.convergence.items() if c.n_converged == 0]
+    return f" · never converged: {', '.join(names)}" if names else ""
 
 
 def _unmeasured_note(n_unmeasured: int, n_failed: int) -> str:

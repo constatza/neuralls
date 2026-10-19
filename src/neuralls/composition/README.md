@@ -426,7 +426,7 @@ chooses the other columns:
 | `GlobalLevel` | none | `global` |
 
 Each report group is a `GroupAggregated` (at least one system measured; carries
-`n_aggregated`, `n_matrices`, `n_in_group` and each system's time to solution) or
+`n_aggregated`, `n_matrices`, `n_in_group`, each preconditioner's success rate and ERT, and each system's `Solved | Failed` outcome) or
 a `GroupSkippedAllCacheHit` (nothing measured this run; logged loudly, the log
 distinguishing cache hits from failures). A group with unmeasured members is
 reported with a warning. There is no minimum group size: a one-system group
@@ -438,7 +438,8 @@ differing; fine titles name the dataset and recipe.
 Only a `GroupAggregated` reaches the injected
 `domain.solver.ports.GroupReportSink` (`platform.tracking.comparison_tracking.
 MLflowGroupReportSink`), together with a `GroupPresentation` (subject,
-subtitle `level · keys · recipe · N = <systems> (<matrices> matrices × RHS)`,
+subtitle `level · keys · recipe · N = <systems> (<matrices> matrices × RHS)` plus
+`solved by all: <n>` when some system defeated a method and `never converged: <names>` when a preconditioner converged nowhere,
 and the per-preconditioner `PreconditionerPlotStyle`).
 The styles are the label, family, colour key and marker key each run recorded
 in `ComparisonResult.plot_styles`, split into plot mappings by the same
@@ -446,8 +447,18 @@ in `ComparisonResult.plot_styles`, split into plot mappings by the same
 one colour, marker and linestyle across every plot. The sink logs the
 projected metrics (namespaced by group id), the scaling-law plot (with a ±1σ
 band of per-system solve time, log N axis starting at `SCALING_LAW_N_MIN`),
-the TOML of the same scalars, and a per-preconditioner bar chart of median
-time-to-solution with IQR whiskers on the session parent run; artifact names
+the TOML of the same scalars (with `n_converged`, `ert_seconds` and its
+interval, iteration statistics, and each method's break-even count, speedup
+and Wilcoxon p-value against the reference), the success rate, ERT and
+comparison metrics, and the outcome plots on the session parent run:
+`system_time_scatter_*` (failed runs as hollow markers on the top edge, no
+imputed time), `paired_time_scatter_*` (against the reference method, the one
+that solved most systems), `performance_profile_*` (Dolan-Moré),
+`ecdf_iterations_*` and `ecdf_time_*` (ECDFs over iterations and recurring time) and
+`speedup_cdf_*` (only when some method has paired systems). Times in these
+plots are recurring per system (solve plus per-system setup/generation); a
+one-time shared cost, such as a checkpoint load, is charged once in ERT, the
+projection and break-even. Artifact names
 use the sanitized group id. Because the sink is called only when there is
 something to record, a fully cache-hit batch touches no MLflow run. Running
 three levels triples the reported artifacts, never the execution.

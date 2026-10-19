@@ -35,6 +35,21 @@ def unique_display_labels(
     }
 
 
+DID_NOT_CONVERGE_MARK = "[did not converge]"
+"""Suffix on a failed run's label, so a run stopped by the iteration cap is never read
+as a cheap solve in the cost, iteration and time plots."""
+
+
+def mark_unconverged(
+    results: Mapping[str, CGComparisonResult], labels: Mapping[str, str]
+) -> dict[str, str]:
+    """Suffix the label of every run that did not converge with `DID_NOT_CONVERGE_MARK`."""
+    return {
+        key: label if results[key].converged else f"{label} {DID_NOT_CONVERGE_MARK}"
+        for key, label in labels.items()
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class CostPlotStyle:
     """Axis label and filename stem of one cost bar chart."""
@@ -102,7 +117,7 @@ def _generate_comparison_plots(
         ``None``) if no result in this comparison has that metric measured.
     """
     suffix = paths.matrix.stem or "comparison"
-    labels = unique_display_labels(results, labels)
+    labels = mark_unconverged(results, unique_display_labels(results, labels))
     families = families or {}
     color_keys = color_keys or {}
     marker_keys = marker_keys or {}
