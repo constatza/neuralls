@@ -5,20 +5,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.plot_paths import PlotPaths
-from neuralls.domain.solver.models.plot_style import (
-    PreconditionerPlotStyle,
-)
-from neuralls.domain.solver.models.recommendations import (
-    ComparisonRecommendations,
-)
+from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
+from neuralls.domain.solver.models.recommendations import ComparisonRecommendations
 
 if TYPE_CHECKING:
+    from neuralls.domain.solver.models.config import ComparisonGeneral
     from neuralls.shared.types import ComparisonRhsSourceKind
-
-    from .config import ComparisonGeneral
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +39,7 @@ class ComparisonResult:
             group-level plots reuse the per-run styling.
     """
 
-    results: dict[str, Any]
+    results: Mapping[str, CGComparisonResult]
     summary: str
     solver_params: ComparisonGeneral
     plot_paths: PlotPaths = field(default_factory=PlotPaths)

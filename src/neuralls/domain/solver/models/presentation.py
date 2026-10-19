@@ -5,9 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from neuralls.domain.solver.models.plot_style import (
-    PreconditionerPlotStyle,
-)
+from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 
 
 @dataclass(frozen=True, slots=True)
