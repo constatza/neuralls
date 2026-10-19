@@ -7,11 +7,14 @@ that produced some, decide per report group which of the two
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated, GroupSkippedAllCacheHit
 from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, MediumLabel
+from neuralls.domain.solver.models.outcomes import Failed, Solved
 from neuralls.domain.solver.models.sharing import SetupSharingPolicy
 from neuralls.domain.solver.reporting.classification import classify_level
 from neuralls.domain.solver.reporting.metrics_frame import SystemTag
@@ -67,8 +70,11 @@ def test_all_systems_contributing_classifies_as_fully_aggregated() -> None:
     assert set(outcome.projected) == {"jacobi"}
     assert outcome.label == GlobalLabel(mixture_of=("gauss",))
     assert outcome.group_id == GroupId("global")
-    assert outcome.time_to_solution_by_system == {
-        "jacobi": {tags[0].system_id: 1.5, tags[1].system_id: 1.5}
+    assert outcome.outcomes == {
+        "jacobi": {
+            tags[0].system_id: Solved(iterations=3, recurring_time_s=1.5),
+            tags[1].system_id: Solved(iterations=3, recurring_time_s=1.5),
+        }
     }
 
 
@@ -145,3 +151,27 @@ def test_group_ids_are_unique_across_levels() -> None:
     ]
 
     assert len(set(ids)) == 3
+
+
+def test_method_that_never_converged_is_summarised_but_not_projected() -> None:
+    """``none`` hits the cap on every system: counted and plotted as failures, not projected."""
+    tags = [_tag(0), _tag(1)]
+    results = {
+        tag: {
+            "jacobi": _result("jacobi"),
+            "none": replace(_result("none"), converged=False, iterations=100),
+        }
+        for tag in tags
+    }
+    sharing = {**_SHARING, "none": _SHARING["jacobi"]}
+
+    (outcome,) = classify_level(tags, results, sharing, GlobalLevel())
+
+    assert isinstance(outcome, GroupAggregated)
+    assert set(outcome.projected) == {"jacobi"}
+    assert (outcome.convergence["none"].n_converged, outcome.convergence["none"].ert_seconds) == (
+        0,
+        None,
+    )
+    assert set(outcome.outcomes["none"].values()) == {Failed()}
+    assert outcome.comparisons == {}

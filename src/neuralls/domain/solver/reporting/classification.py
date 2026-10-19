@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from neuralls.domain.benchmarking.reference_comparison import compare_to_reference
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.group_outcomes import (
     ComparisonGroupOutcome,
@@ -12,7 +13,11 @@ from neuralls.domain.solver.models.group_outcomes import (
 )
 from neuralls.domain.solver.models.labels import render_group_id
 from neuralls.domain.solver.models.sharing import SetupSharingPolicy
-from neuralls.domain.solver.reporting.aggregation import report_level, time_to_solution_by_system
+from neuralls.domain.solver.reporting.aggregation import (
+    convergence_by_level,
+    outcomes_by_system,
+    report_level,
+)
 from neuralls.domain.solver.reporting.metrics_frame import SystemTag, build_metrics_frame
 from neuralls.domain.solver.reporting.report_levels import (
     ReportLevel,
@@ -21,6 +26,7 @@ from neuralls.domain.solver.reporting.report_levels import (
     report_key,
     system_counts,
 )
+from neuralls.shared.constants import DEFAULT_RANDOM_SEED
 
 
 def classify_level(
@@ -50,11 +56,14 @@ def classify_level(
     Raises:
         KeyError: If a measured preconditioner has no entry in ``sharing_by_name``.
     """
-    frame = build_metrics_frame(results_by_system)
+    frame = build_metrics_frame(results_by_system, sharing_by_name)
     projected_by_label = report_level(frame, level, sharing_by_name) if frame.height else {}
-    times_by_label = time_to_solution_by_system(frame, level) if frame.height else {}
+    convergence_by_label = (
+        convergence_by_level(frame, level, sharing_by_name) if frame.height else {}
+    )
+    outcomes_by_label = outcomes_by_system(frame, level) if frame.height else {}
     counts_by_label = system_counts(frame, level) if frame.height else {}
-    measured = {label_key(label): label for label in projected_by_label}
+    measured = {label_key(label): label for label in counts_by_label}
 
     tags_by_key: dict[tuple[str, ...], list[SystemTag]] = {}
     for tag in planned:
@@ -78,11 +87,17 @@ def classify_level(
             GroupAggregated(
                 group_id=render_group_id(label),
                 label=label,
-                projected=projected_by_label[label],
+                projected=projected_by_label.get(label, {}),
                 n_aggregated=counts.n_systems,
                 n_matrices=counts.n_matrices,
                 n_in_group=len(tags),
-                time_to_solution_by_system=times_by_label.get(label, {}),
+                convergence=convergence_by_label[label],
+                outcomes=outcomes_by_label[label],
+                comparisons=compare_to_reference(
+                    outcomes_by_label[label],
+                    projected_by_label.get(label, {}),
+                    seed=DEFAULT_RANDOM_SEED,
+                ),
             )
         )
     return tuple(outcomes)

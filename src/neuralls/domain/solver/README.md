@@ -10,11 +10,15 @@ implementations are delegated to `torchalg`.
   ranks its results; `error_metrics.py` and `cost_metrics.py` derive per-run
   metrics.
 - `models/` holds one concept per file: `cg_result` (`CGComparisonResult`),
-  `cost` (`StageCost`), `cost_fields`, `sharing`, `projection`, `labels`,
-  `group_outcomes`, `plot_style`, `plot_paths`, `presentation`,
-  `recommendations`, `result` (`ComparisonResult`) and `config`.
+  `cost` (`StageCost`), `cost_fields`, `sharing`, `convergence`, `projection`,
+  `outcomes`, `statistics` (leaf value types), `labels`, `group_outcomes`,
+  `plot_style`, `plot_paths`, `presentation`, `recommendations`, `result`
+  (`ComparisonResult`) and `config`.
 - `reporting/` turns measured results into report groups: `metrics_frame`,
   `solve_time`, `report_levels`, `aggregation`, `classification`.
+- Method-comparison statistics (profiles, paired comparison, break-even,
+  bootstrap intervals) live in `domain/benchmarking/`, which depends on
+  `solver.models` and never the reverse.
 
 ## What Stays Here
 
@@ -80,9 +84,14 @@ implementations are delegated to `torchalg`.
     levels below; never the N it extrapolates to). Two independent booleans
     (`share_setup`/`share_generation`) decide, per cost term, whether it
     amortizes (contributes its one-time value once, regardless of N) or
-    repeats (contributes `N *` its per-system average);
-    `projected_total_seconds(n)`/`projected_avg_per_system_seconds(n)` are
-    the resulting closed-form extrapolations, never a real N-system run.
+    repeats on every attempt. The projection is a cost per *solved* system
+    (pooled ERT): `one_time_seconds` (shared terms) and
+    `per_solved_system_seconds` (repeated setup, generation and solve, divided
+    by `success_rate`), so `projected_total_seconds(n) = one_time_seconds + n *
+    per_solved_system_seconds` with `n` counting solved systems;
+    `projected_avg_per_system_seconds(n)` divides that by `n`. Both are
+    closed-form extrapolations, never a real N-system run. At `success_rate`
+    1 they equal the plain per-system averages.
     `domain/solver/reporting/aggregation.py::report_level` builds these
     from systems' `CGComparisonResult`s (via the long-form `build_metrics_frame`
     polars table) plus a pre-computed sharing policy
@@ -96,7 +105,15 @@ implementations are delegated to `torchalg`.
     Mapping[str, CGComparisonResult]]` into one polars row per (system,
     preconditioner) (`dataset`, `recipe`, `matrix_id`, `rhs_ordinal`,
     `system_id`, `preconditioner`, `setup_s`, `generation_s`, `solve_s`,
-    `iterations`, `time_to_solution_s`, `peak_memory_bytes`). `report_level(
+    `iterations`, `converged`, `time_to_solution_s`, `recurring_s`,
+    `peak_memory_bytes`). `time_to_solution_s` is the full wall time of the row;
+    `recurring_s` removes the setup/generation that the preconditioner's
+    `SetupSharingPolicy` flags shared (one real one-time value copied into every
+    sibling by the setup cache), so a shared cost such as a checkpoint load is not
+    charged once per system. A setup that depends on each system's matrix
+    (`share_setup` False) stays in `recurring_s`. `build_metrics_frame(results,
+    sharing_by_name)` needs the policy of every preconditioner (`KeyError`
+    otherwise). `report_level(
     frame, level, sharing_by_name)` groups by the level's keys plus the
     preconditioner, where `level` is the closed `FineLevel` (dataset +
     recipe) | `MediumLevel` (dataset) | `GlobalLevel` (no keys), and returns
@@ -108,8 +125,39 @@ implementations are delegated to `torchalg`.
     average divides by the available results only. A spread is `None` below
     two values; a one-system group is reported, with its n. The only
     statistical control is the per-system `TimingRepeatPolicy`.
-    `time_to_solution_by_system` gives each system's comparable
-    time-to-solution per group; `system_counts` gives each group's distinct
+    A run stopped by the iteration cap or a breakdown is a failure (a
+    right-censored observation), never averaged in and never given a
+    penalty: failed runs are charged to the systems that did converge at their
+    measured cost (`total_solve_time_seconds` and `total_iterations` cover all
+    runs), while the spreads (`solve_time_std_seconds`, `iterations_std`)
+    describe a successful solve and cover the converged systems only
+    (`ProjectedComparisonResult.n_converged` of `n_systems`). A
+    preconditioner that converged nowhere has no projection.
+    `convergence_by_level` gives every preconditioner's `ConvergenceSummary`
+    (success rate and ERT, the COCO expected running time: all runs' time
+    divided by successes, with a shared one-time cost charged once instead of
+    per run: `(one_time + sum of recurring_s) / n_converged`, the same
+    `one_time` as `ProjectedComparisonResult.one_time_seconds`, so ERT agrees
+    with the projection; a pooled cost per solved system and not a restart
+    expectation; Hansen et al. 2016, arXiv:1605.03560), the converged runs'
+    `IterationStats` (mean, median, std) and a bootstrap `ert_interval`
+    (`domain/benchmarking/uncertainty.ert_interval`, seeded with `DEFAULT_RANDOM_SEED`).
+  - `domain/benchmarking/breakeven.py` — `break_even(method, reference) -> BreakEven` compares the
+    lines `T(n) = one_time_seconds + n * per_solved_system_seconds` of two
+    projections and returns `BreakEvenAt(n)`, `AlwaysCheaper`,
+    `CheaperOnlyBelow(n)` or `NeverCheaper` (match exhaustively).
+    `outcomes_by_system` gives each system's `Solved | Failed` outcome, the
+    input of `domain/benchmarking/profiles.py`: Dolan-Moré performance profiles (Math. Program.
+    91, 2002) and unnormalised ECDF profiles (Hansen et al. 2016; not the
+    n_p+1-normalised Moré-Wild data profile), in which a failure stays unsolved; `benchmarking/selection.py` picks the
+    `reference_preconditioner` (most systems solved, ties by summed recurring time) for paired scatters and
+    `systems_solved_by_all` (the common subset, shown in the group subtitle).
+    `Solved.recurring_time_s` is the per-system time that profiles, ECDFs,
+    scatters and speedups use: solve plus per-system setup/generation, never a
+    one-time shared cost (those are charged once in ERT, the projection and
+    break-even).
+    A run with no measured solve (a failed build) has no recurring time, so
+    ERT is undefined rather than understated. `system_counts` gives each group's distinct
     measured systems and matrices; `report_key`/`label_key`/`label_for_tags`
     relate planned systems to labels, including a group nothing was measured in.
   - `ComparisonGroupOutcome` (`GroupAggregated | GroupSkippedAllCacheHit`) —
@@ -119,8 +167,8 @@ implementations are delegated to `torchalg`.
     `fine/<dataset>/<recipe slug>`, `medium/<dataset>`, `global`),
     `n_aggregated`/`n_matrices`/`n_in_group` (a partially-cached or
     partly-failed group is reported with a visible gap, handled like a full
-    one) and `time_to_solution_by_system`, each system's point behind the
-    means. `domain/solver/reporting/classification.py::classify_level` is the pure
+    one), `convergence` (every preconditioner's success rate and ERT) and
+    `outcomes`, each system's `Solved | Failed` point behind the means. `domain/solver/reporting/classification.py::classify_level` is the pure
     classifier producing one outcome per report group of a level from the
     planned systems' tags and the measured results;
     `composition/comparison/group_reporting.py` matches it exhaustively and

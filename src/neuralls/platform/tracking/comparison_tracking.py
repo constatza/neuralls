@@ -15,6 +15,7 @@ from neuralls.domain.solver.cost_metrics import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
+from neuralls.domain.solver.models.outcomes import Solved
 from neuralls.domain.solver.models.plot_style import plot_style_maps
 from neuralls.domain.solver.models.presentation import GroupPresentation
 from neuralls.domain.solver.models.projection import ProjectedComparisonResult
@@ -210,7 +211,7 @@ class MLflowGroupReportSink:
             )
             write_projected_toml(outcome.projected, toml_path)
             plot_system_time_bars(
-                outcome.time_to_solution_by_system,
+                _recurring_seconds_by_system(outcome),
                 save_path=bars_path,
                 title=f"Time to solution per preconditioner — {presentation.subject}",
                 subtitle=presentation.subtitle,
@@ -221,6 +222,18 @@ class MLflowGroupReportSink:
             )
             for artifact in (plot_path, toml_path, bars_path):
                 mlflow.log_artifact(str(artifact), artifact_path=PROJECTED_ARTIFACT_DIR)
+
+
+def _recurring_seconds_by_system(outcome: GroupAggregated) -> dict[str, dict[str, float]]:
+    """Each preconditioner's recurring time per system it solved with a comparable cost."""
+    return {
+        name: {
+            system: run.recurring_time_s
+            for system, run in per_system.items()
+            if isinstance(run, Solved) and run.recurring_time_s is not None
+        }
+        for name, per_system in outcome.outcomes.items()
+    }
 
 
 PROJECTED_ARTIFACT_DIR = "projected_scaling_law"

@@ -33,6 +33,7 @@ def _projected(
     return ProjectedComparisonResult(
         preconditioner_name=name,
         n_systems=5,
+        n_converged=5,
         setup_sharing=SetupSharingPolicy(
             share_setup=share_setup, share_generation=share_generation
         ),

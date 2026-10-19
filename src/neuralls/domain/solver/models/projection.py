@@ -9,23 +9,31 @@ from neuralls.domain.solver.models.sharing import SetupSharingPolicy
 
 @dataclass(frozen=True, slots=True)
 class ProjectedComparisonResult:
-    """Scaling-law projection for one preconditioner, aggregated across sibling systems.
+    """Scaling-law projection for one preconditioner: cost per *solved* system.
 
     Built from the `n_systems` sibling `CGComparisonResult`s a comparison
-    sweep actually ran — never from N systems actually
-    executed. `projected_total_seconds(n)`/`projected_avg_per_system_seconds(n)`
-    extrapolate the measured constants to an arbitrary N, purely for
-    plotting, so the one-time cost's contribution can be shown shrinking
-    at scale without ever running N real systems.
+    sweep actually ran, never from N systems actually executed. A run stopped
+    by the iteration cap is a failure that still cost time, so every failed
+    run's measured cost is charged to the systems that did converge. This is
+    the pooled expected running time (ERT) of Hansen et al. 2016, "COCO:
+    Performance Assessment" (arXiv:1605.03560): total cost of all runs divided
+    by the number of successes. It is a cost per solved system, not the
+    expectation of a restart strategy.
+
+    `projected_total_seconds(n)` extrapolates the measured constants to `n`
+    solved systems, purely for plotting, as `one_time_seconds +
+    n * per_solved_system_seconds`.
 
     Each of `setup`/`generation` is amortized or repeated independently per
-    `setup_sharing` — not a single combined choice, since the two costs can
-    have different sharing policies for the same preconditioner (see
-    `SetupSharingPolicy`).
+    `setup_sharing` (see `SetupSharingPolicy`). Amortized terms are paid once
+    and do not depend on the success rate; repeated terms are paid on every
+    attempt, so per solved system they are divided by `success_rate`.
 
     Attributes:
         preconditioner_name: Matches `CGComparisonResult.preconditioner`.
         n_systems: Number of sibling systems actually aggregated.
+        n_converged: Of those, the systems that converged (at least one: a
+            preconditioner that never converged has nothing to project).
         setup_sharing: Which cost components amortize vs. repeat per system.
         setup_cost_total_seconds: Sum of `setup_cost` across all `n_systems`
             measured results. If `setup_sharing.share_setup`, every sibling
@@ -36,21 +44,23 @@ class ProjectedComparisonResult:
             results whose cost is available, scaled to `n_systems` (so that
             dividing by `n_systems` recovers that mean), or `None` if
             generation does not apply or is unavailable for every result.
-        total_solve_time_seconds: Mean `solve_time_seconds` over the results
-            that measured one, scaled to `n_systems` — always repeats per
-            system; solving is never a one-time cost.
-        total_iterations: Sum of `iterations` across all `n_systems`
-            measured results.
+        total_solve_time_seconds: Mean `solve_time_seconds` over all runs that
+            measured one (failed runs at their measured cost), scaled to
+            `n_systems`. Always repeats per system; solving is never a
+            one-time cost.
+        total_iterations: Sum of `iterations` across all `n_systems` runs
+            (failed runs contribute the iterations they spent).
         solve_time_std_seconds: Sample standard deviation (ddof=1) of the
-            per-system solve time — the spread behind `avg_solve_time_per_system_seconds`,
-            as the learned-preconditioner literature reports (mean ± std over
-            the test set). `None` for a single system.
-        iterations_std: Sample standard deviation of the per-system iteration
-            count, or `None` for a single system.
+            solve time over the converged runs only, i.e. the spread of a
+            successful solve, as the learned-preconditioner literature reports
+            (mean +- std over the test set). `None` below two converged runs.
+        iterations_std: Sample standard deviation of the iteration count over
+            the converged runs only, or `None` below two converged runs.
     """
 
     preconditioner_name: str
     n_systems: int
+    n_converged: int
     setup_sharing: SetupSharingPolicy
     setup_cost_total_seconds: float
     generation_cost_total_seconds: float | None
@@ -61,7 +71,7 @@ class ProjectedComparisonResult:
 
     @property
     def avg_setup_cost_seconds(self) -> float:
-        """Setup cost per measured system — the one-time value itself when shared."""
+        """Setup cost per measured system, the one-time value itself when shared."""
         return self.setup_cost_total_seconds / self.n_systems
 
     @property
@@ -73,50 +83,63 @@ class ProjectedComparisonResult:
 
     @property
     def avg_solve_time_per_system_seconds(self) -> float:
-        """Solve time per measured system — always a recurring cost."""
+        """Solve time per measured system over all runs, failed ones at their measured cost."""
         return self.total_solve_time_seconds / self.n_systems
 
     @property
+    def success_rate(self) -> float:
+        """Fraction of the measured systems that converged."""
+        return self.n_converged / self.n_systems
+
+    @property
+    def avg_solve_time_per_solved_system_seconds(self) -> float:
+        """Solve time of all runs divided by the number of converged runs (solve-only ERT)."""
+        return self.total_solve_time_seconds / self.n_converged
+
+    @property
     def avg_iteration_time_seconds(self) -> float | None:
-        """Solve time divided by total iteration count across all measured systems."""
+        """Solve time per iteration, both over all runs; `None` without iterations."""
         if self.total_iterations <= 0:
             return None
         return self.total_solve_time_seconds / self.total_iterations
 
-    def projected_total_seconds(self, n: int) -> float:
-        """Projected total wall time to solve `n` systems with this preconditioner.
+    @property
+    def one_time_seconds(self) -> float:
+        """Cost paid once whatever the number of systems: the shared setup and generation."""
+        return self.setup_sharing.one_time_seconds(
+            self.avg_setup_cost_seconds, self.avg_generation_cost_seconds
+        )
 
-        Each cost component amortizes (contributes its one-time value once,
-        regardless of `n`) or repeats (contributes `n *` its per-system
-        average) according to its own entry in `setup_sharing` — solve time
-        always repeats.
+    @property
+    def per_solved_system_seconds(self) -> float:
+        """Recurring cost per solved system: repeated setup, repeated generation and solve.
+
+        Every attempt pays the repeated terms and only `success_rate` of the
+        attempts solve a system, so their sum is divided by `success_rate`.
+        """
+        repeated = self.setup_sharing.repeated_seconds(
+            self.avg_setup_cost_seconds, self.avg_generation_cost_seconds
+        )
+        return (repeated + self.avg_solve_time_per_system_seconds) / self.success_rate
+
+    def projected_total_seconds(self, n: int) -> float:
+        """Projected total wall time to obtain `n` solved systems with this preconditioner.
 
         Args:
-            n: Number of systems to project to. Never actually run; this is
-                a closed-form extrapolation from the `n_systems` real
+            n: Number of *solved* systems to project to. Never actually run;
+                this is a closed-form extrapolation from the `n_systems` real
                 measurements, for plotting only.
 
         Returns:
-            float: Projected total wall-clock seconds.
+            float: `one_time_seconds + n * per_solved_system_seconds`.
         """
-        setup_term = (
-            self.avg_setup_cost_seconds
-            if self.setup_sharing.share_setup
-            else n * self.avg_setup_cost_seconds
-        )
-        generation_term = 0.0
-        avg_generation = self.avg_generation_cost_seconds
-        if avg_generation is not None:
-            generation_term = (
-                avg_generation if self.setup_sharing.share_generation else n * avg_generation
-            )
-        return setup_term + generation_term + n * self.avg_solve_time_per_system_seconds
+        return self.one_time_seconds + n * self.per_solved_system_seconds
 
     def projected_avg_per_system_seconds(self, n: int) -> float:
-        """Projected total cost amortized per system — flattens toward the solve floor as `n` grows.
+        """Projected total cost amortized per solved system, flattening toward the recurring floor.
 
         Args:
-            n: Number of systems to project to (must be positive).
+            n: Number of solved systems to project to (must be positive).
 
         Returns:
             float: `projected_total_seconds(n) / n`.

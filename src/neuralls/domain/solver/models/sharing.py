@@ -28,3 +28,21 @@ class SetupSharingPolicy:
 
     share_setup: bool
     share_generation: bool
+
+    def one_time_seconds(self, setup: float, generation: float | None) -> float:
+        """The part of a setup and a generation cost that is paid once, not per system.
+
+        Each component counts only if this policy shares it; an unavailable
+        generation (`None`) counts 0.0.
+        """
+        shared_setup = setup if self.share_setup else 0.0
+        shared_generation = generation if self.share_generation and generation is not None else 0.0
+        return shared_setup + shared_generation
+
+    def repeated_seconds(self, setup: float, generation: float | None) -> float:
+        """The part of a setup and a generation cost that every system pays again."""
+        repeated_setup = 0.0 if self.share_setup else setup
+        repeated_generation = (
+            generation if not self.share_generation and generation is not None else 0.0
+        )
+        return repeated_setup + repeated_generation

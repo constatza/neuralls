@@ -89,6 +89,11 @@ PARAMETERS_ZARR_PREFIX = "parameters_"
 DEFAULT_KRYLOV_ITERATIONS = 15
 
 DEFAULT_RANDOM_SEED = 42
+
+# Uncertainty estimates in comparison reports
+BOOTSTRAP_RESAMPLES = 2000
+CONFIDENCE_LEVEL = 0.95
+MIN_PAIRED_SYSTEMS = 6  # fewer pairs leave the Wilcoxon test with no attainable small p-value
 DEFAULT_SHUFFLE = True
 
 # =============================================================================
