@@ -5,6 +5,7 @@ from __future__ import annotations
 import statistics
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
+from math import fsum
 from typing import Any
 
 import polars as pl
@@ -115,9 +116,9 @@ def summarize_method_workload(
     bundles = build_matrix_bundle_frame(planned, method_setups, method_attempts)
     attempted_ids = {attempt.system_id for attempt in method_attempts}
     missing_ids = tuple(tag.system_id for tag in planned if tag.system_id not in attempted_ids)
-    setup_total_s = float(bundles["setup_s"].sum() or 0.0)
-    solve_total_s = float(bundles["solve_total_s"].sum() or 0.0)
-    workload_online_s = float(bundles["matrix_online_s"].sum() or 0.0)
+    setup_total_s = fsum(bundles["setup_s"])
+    solve_total_s = fsum(bundles["solve_total_s"])
+    workload_online_s = fsum(bundles["matrix_online_s"])
     n_attempted_rhs = len(method_attempts)
     n_converged = sum(isinstance(attempt.outcome, SolveConverged) for attempt in method_attempts)
     online_s_per_attempted_rhs = (

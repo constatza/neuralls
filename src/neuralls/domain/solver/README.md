@@ -125,9 +125,11 @@ implementations are delegated to `torchalg`.
     charge instead of duplicating it. `build_matrix_bundle_frame` retains one
     setup row per method and matrix and derives `matrix_online_s = setup_s +
     sum(solve_s)`. `summarize_method_workload` sums its setup, solve, and online
-    totals from those matrix-bundle columns, so every workload value reconciles
-    with the matrix report regardless of raw event order, and preserves
-    incomplete planned membership.
+    totals from those matrix-bundle columns using `math.fsum`, so every workload
+    value uses a stable reduction and reconciles with the matrix report
+    regardless of raw event order. A tight IEEE-754 tolerance covers only the
+    per-matrix rounding of `setup_s + solve_total_s`; incomplete planned
+    membership remains explicit.
   - `reporting/metrics_frame.py::build_metrics_frame` turns `Mapping[SystemTag,
     Mapping[str, CGComparisonResult]]` into one polars row per (system,
     preconditioner) (`dataset`, `recipe`, `matrix_id`, `rhs_ordinal`,

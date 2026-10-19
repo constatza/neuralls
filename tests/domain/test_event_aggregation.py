@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError, replace
+from math import fsum
 
 import polars as pl
 import pytest
@@ -241,6 +242,103 @@ def reordered_extreme_attempts(
             outcome=SolveConverged(iterations=1, final_relative_residual=0.0),
         )
         for index, solve_s in zip(event_order, solve_times, strict=True)
+    )
+
+
+@pytest.fixture
+def ten_matrix_setup_seconds() -> tuple[float, ...]:
+    """Setup durations that expose unstable reductions across matrix bundles."""
+    return (
+        5.231236581944393e-06,
+        1.6379742769566546e-06,
+        1.1812327605353179e-08,
+        0.0002687144161572402,
+        0.2307060992860164,
+        3.482289241866152e-06,
+        1.7011254636935144e-05,
+        1.5535985004364952e-08,
+        1.0815094722005388e-08,
+        4.447926727633621e-06,
+    )
+
+
+@pytest.fixture
+def ten_matrix_solve_seconds() -> tuple[float, ...]:
+    """Solve durations paired with the ten-matrix setup regression."""
+    return (
+        0.26321670417652404,
+        0.0009090938433168009,
+        9.164911617911309e-06,
+        0.07473175740475564,
+        4.0834176476383283e-07,
+        1.0716215101613529e-08,
+        4.442937680110062e-10,
+        0.00035717248331157517,
+        3.6939335343251666e-07,
+        7.260316363851749e-09,
+    )
+
+
+@pytest.fixture
+def ten_matrix_planned_systems() -> tuple[SystemTag, ...]:
+    """One planned RHS for each matrix in the stable-reduction regression."""
+    return tuple(
+        SystemTag(
+            DatasetId("ten-matrix"),
+            "r",
+            MatrixId(index),
+            0,
+            SystemId(f"ten-{index}"),
+        )
+        for index in range(10)
+    )
+
+
+@pytest.fixture
+def ten_matrix_setup_events(
+    method: PreconditionerName,
+    ten_matrix_setup_seconds: tuple[float, ...],
+) -> tuple[MatrixSetupEvent, ...]:
+    """One measured setup event for each stable-reduction matrix."""
+    return tuple(
+        MatrixSetupEvent(
+            event_id=SetupEventId(f"ten-setup-{index}"),
+            dataset=DatasetId("ten-matrix"),
+            matrix_id=MatrixId(index),
+            method=method,
+            setup_s=setup_s,
+            samples_s=(setup_s,),
+            peak_memory=UnknownPeakMemory(),
+            outcome=SetupCompleted(),
+        )
+        for index, setup_s in enumerate(ten_matrix_setup_seconds)
+    )
+
+
+@pytest.fixture
+def ten_matrix_attempts(
+    method: PreconditionerName,
+    ten_matrix_planned_systems: tuple[SystemTag, ...],
+    ten_matrix_solve_seconds: tuple[float, ...],
+) -> tuple[SolveAttempt, ...]:
+    """One converged solve for each stable-reduction matrix."""
+    return tuple(
+        SolveAttempt(
+            setup_event_id=SetupEventId(f"ten-setup-{index}"),
+            system_id=tag.system_id,
+            dataset=tag.dataset,
+            recipe=tag.recipe,
+            matrix_id=tag.matrix_id,
+            rhs_ordinal=tag.rhs_ordinal,
+            method=method,
+            solve_s=solve_s,
+            samples_s=(solve_s,),
+            peak_memory=UnknownPeakMemory(),
+            outcome=SolveConverged(iterations=1, final_relative_residual=0.0),
+        )
+        for index, (tag, solve_s) in enumerate(
+            zip(ten_matrix_planned_systems, ten_matrix_solve_seconds, strict=True)
+        )
     )
 
 
@@ -506,6 +604,32 @@ def test_workload_totals_are_derived_from_matrix_bundles(
     assert summary.setup_total_s == bundles["setup_s"].sum()
     assert summary.solve_total_s == bundles["solve_total_s"].sum()
     assert summary.workload_online_s == bundles["matrix_online_s"].sum()
+
+
+def test_workload_totals_use_stable_matrix_bundle_reductions(
+    method: PreconditionerName,
+    workload_peak_memory: MeasuredPeakMemory,
+    ten_matrix_planned_systems: tuple[SystemTag, ...],
+    ten_matrix_setup_events: tuple[MatrixSetupEvent, ...],
+    ten_matrix_attempts: tuple[SolveAttempt, ...],
+    ten_matrix_setup_seconds: tuple[float, ...],
+    ten_matrix_solve_seconds: tuple[float, ...],
+) -> None:
+    """Valid matrix costs must survive different floating-point reduction paths."""
+    summary = summarize_method_workload(
+        method,
+        ten_matrix_planned_systems,
+        ten_matrix_setup_events,
+        ten_matrix_attempts,
+        workload_peak_memory,
+    )
+
+    assert summary.setup_total_s == fsum(ten_matrix_setup_seconds)
+    assert summary.solve_total_s == fsum(ten_matrix_solve_seconds)
+    assert summary.workload_online_s == fsum(
+        setup_s + solve_s
+        for setup_s, solve_s in zip(ten_matrix_setup_seconds, ten_matrix_solve_seconds, strict=True)
+    )
 
 
 def test_incomplete_workload_is_visible_and_not_rankable(

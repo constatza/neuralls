@@ -9,7 +9,7 @@ from sys import float_info
 from neuralls.domain.solver.models.benchmark_events import PeakMemory
 from neuralls.shared.types import PreconditionerName, SystemId
 
-_DERIVED_SECONDS_REL_TOLERANCE = 2 * float_info.epsilon
+_DERIVED_SECONDS_REL_TOLERANCE = 4 * float_info.epsilon
 _DERIVED_SECONDS_ABS_TOLERANCE = 0.0
 
 
@@ -89,7 +89,12 @@ def _validate_summary_fields(summary: MethodWorkloadSummary) -> None:
 
 
 def _derived_seconds_match(left: float, right: float) -> bool:
-    """Accept two relative IEEE-754 epsilons, but no material timing discrepancy."""
+    """Allow the bounded rounding from separately reduced non-negative costs.
+
+    ``matrix_online_s`` rounds each setup-plus-solve row before ``fsum`` reduces
+    it. Four machine epsilons cover that row-rounding total plus the separately
+    rounded setup, solve, and final addition, while excluding material errors.
+    """
     return isclose(
         left,
         right,
