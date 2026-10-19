@@ -9,7 +9,8 @@ implementations are delegated to `torchalg`.
 - `comparison.py` runs the CG comparison; `comparison_summary.py` formats and
   ranks its results; `error_metrics.py` and `cost_metrics.py` derive per-run
   metrics.
-- `models/` holds one concept per file: `cg_result` (`CGComparisonResult`),
+- `models/` holds one concept per file: `benchmark_events` (canonical raw
+  `MatrixSetupEvent` and `SolveAttempt` timing data), `cg_result` (`CGComparisonResult`),
   `cost` (`StageCost`), `cost_fields`, `sharing`, `convergence`, `projection`,
   `outcomes`, `statistics` (leaf value types), `labels`, `group_outcomes`,
   `plot_style`, `plot_paths`, `presentation`, `recommendations`, `result`
@@ -28,6 +29,12 @@ implementations are delegated to `torchalg`.
   - `ComparisonData`
   - `ComparisonGeneral`
 - Workflow/reporting DTOs:
+  - `MatrixSetupEvent` and `SolveAttempt` are the canonical raw timing data:
+    a setup event records one method setup for one matrix and a solve attempt
+    links explicitly to its required setup event. Their memory and outcome
+    states are closed variants, so unknown memory and failed operations are
+    never silently represented as zero, `None`, or a Boolean. During this
+    migration, `CGComparisonResult` remains the diagnostic solver DTO.
   - `CGComparisonResult` — a three-stage cost model: generation, setup, and
     solve, each measuring a conceptually different thing, so a result never
     has to encode "which stage is this number" in a comment or a naming

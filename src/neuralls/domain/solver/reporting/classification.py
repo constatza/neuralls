@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from neuralls.domain.benchmarking.reference_comparison import compare_to_reference
+from neuralls.domain.solver.models.benchmark_events import SystemTag
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.group_outcomes import (
     ComparisonGroupOutcome,
@@ -18,7 +19,7 @@ from neuralls.domain.solver.reporting.aggregation import (
     outcomes_by_system,
     report_level,
 )
-from neuralls.domain.solver.reporting.metrics_frame import SystemTag, build_metrics_frame
+from neuralls.domain.solver.reporting.metrics_frame import build_metrics_frame
 from neuralls.domain.solver.reporting.report_levels import (
     ReportLevel,
     label_for_tags,

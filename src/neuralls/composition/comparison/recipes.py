@@ -9,8 +9,8 @@ identical parameters share one. The label is each source model's
 from __future__ import annotations
 
 from neuralls.composition.comparison.models import PlannedSystem
-from neuralls.domain.solver.reporting.metrics_frame import SystemTag
-from neuralls.shared.types import DatasetId
+from neuralls.domain.solver.models.benchmark_events import SystemTag
+from neuralls.shared.types import DatasetId, SystemId
 
 __all__ = ["system_tag"]
 
@@ -22,5 +22,5 @@ def system_tag(planned: PlannedSystem) -> SystemTag:
         recipe=planned.entry.rhs_source.recipe_label,
         matrix_id=planned.matrix.matrix_id,
         rhs_ordinal=planned.rhs_ordinal,
-        system_id=planned.entry.id,
+        system_id=SystemId(planned.entry.id),
     )

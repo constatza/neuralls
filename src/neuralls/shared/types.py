@@ -31,6 +31,15 @@ RhsId = NewType("RhsId", int)
 DatasetId = NewType("DatasetId", str)
 """A `[[datasets]]` registry id — a dataset reference, never a free-form label."""
 
+SystemId = NewType("SystemId", str)
+"""A stable logical identifier for one matrix-and-RHS system."""
+
+PreconditionerName = NewType("PreconditionerName", str)
+"""A stable configured name for one preconditioner variant."""
+
+SetupEventId = NewType("SetupEventId", str)
+"""A stable identity for one method setup against one matrix."""
+
 GroupId = NewType("GroupId", str)
 """Rendered identity of one comparison group — used as a filename stem and an
 MLflow key segment, so it is produced once from a structured key, never parsed."""

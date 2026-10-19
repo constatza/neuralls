@@ -7,10 +7,10 @@ from dataclasses import dataclass
 
 import polars as pl
 
+from neuralls.domain.solver.models.benchmark_events import SystemTag
 from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLabel, MediumLabel
 from neuralls.domain.solver.reporting.metrics_frame import (
     SYSTEM_ID,
-    SystemTag,
 )
 from neuralls.shared.types import DatasetId
 

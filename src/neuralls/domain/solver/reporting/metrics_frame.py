@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 
 import polars as pl
 
+from neuralls.domain.solver.models.benchmark_events import SystemTag
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.sharing import SetupSharingPolicy
 from neuralls.domain.solver.reporting.solve_time import (
@@ -14,7 +14,6 @@ from neuralls.domain.solver.reporting.solve_time import (
     recurring_seconds,
     time_to_solution,
 )
-from neuralls.shared.types import DatasetId, MatrixId
 
 PRECONDITIONER = "preconditioner"
 
@@ -36,25 +35,6 @@ METRICS_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "recurring_s": pl.Float64,
     "peak_memory_bytes": pl.Int64,
 }
-
-
-@dataclass(frozen=True, slots=True)
-class SystemTag:
-    """Where one solved system sits in the case: dataset, RHS recipe, matrix, RHS.
-
-    Attributes:
-        dataset: The dataset the system's matrix and RHS come from.
-        recipe: Rendered RHS recipe label (e.g. ``"sinusoidal ω=6.28"``).
-        matrix_id: Physical matrix index within the dataset.
-        rhs_ordinal: Position of this RHS among the matrix's RHS draws.
-        system_id: Stable identifier of the system, used to key per-system points.
-    """
-
-    dataset: DatasetId
-    recipe: str
-    matrix_id: MatrixId
-    rhs_ordinal: int
-    system_id: str
 
 
 def build_metrics_frame(

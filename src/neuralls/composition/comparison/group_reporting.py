@@ -19,6 +19,7 @@ from neuralls.composition.comparison._preconditioner_setup import DatasetPrecond
 from neuralls.composition.comparison.models import ComparisonOutcome, PlannedSystem
 from neuralls.composition.comparison.recipes import system_tag
 from neuralls.domain.benchmarking.selection import systems_solved_by_all
+from neuralls.domain.solver.models.benchmark_events import SystemTag
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated, GroupSkippedAllCacheHit
 from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLabel, MediumLabel
@@ -27,7 +28,6 @@ from neuralls.domain.solver.models.presentation import GroupPresentation
 from neuralls.domain.solver.models.sharing import SetupSharingPolicy
 from neuralls.domain.solver.ports import GroupReportSink
 from neuralls.domain.solver.reporting.classification import classify_level
-from neuralls.domain.solver.reporting.metrics_frame import SystemTag
 from neuralls.domain.solver.reporting.report_levels import (
     FineLevel,
     GlobalLevel,

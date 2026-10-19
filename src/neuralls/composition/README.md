@@ -404,7 +404,7 @@ resolution for a `matrix_dataset` id is shared between the planner and
 `resolve_comparison_config` via `config_assembler.resolve_dataset_dir`.
 
 **Report levels.** Every executed system is tagged once
-(`comparison/recipes.py::system_tag` -> `domain.solver.reporting.metrics_frame.SystemTag`)
+(`comparison/recipes.py::system_tag` -> `domain.solver.models.benchmark_events.SystemTag`)
 with its dataset, RHS recipe label, matrix id, RHS ordinal and entry id.
 Each source model's `recipe_label` is the single definition of a recipe: the
 kind plus the parameters that make problems differ (`gaussian`,
