@@ -606,7 +606,7 @@
 
 - [ ] **Step 2: Write title/subtitle/filename tests**
 
-  Titles are exactly core metrics such as `Online Time`, `Performance Profile`, or `Speed Ratio`. Subtitles contain only `Dataset X - sinusoidal omega=...` or `All datasets`. Assert visible text excludes `mixture of`, `keys:`, `matrices x RHS`, and never-converged lists. Filenames include kind, level, group slug, and scenario.
+  Assert the exact expected title and subtitle for representative fine and global figures: titles are core metrics such as `Online Time`, `Performance Profile`, or `Speed Ratio`; subtitles are concise scopes such as `Dataset X - sinusoidal omega=...` or `All datasets`. Do not add separate tests for strings removed by this change. Assert filenames include kind, level, group slug, and scenario.
 
 - [ ] **Step 3: Write manifest lifecycle tests**
 
