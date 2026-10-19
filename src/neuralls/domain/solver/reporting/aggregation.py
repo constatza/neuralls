@@ -116,8 +116,8 @@ def summarize_method_workload(
     attempted_ids = {attempt.system_id for attempt in method_attempts}
     missing_ids = tuple(tag.system_id for tag in planned if tag.system_id not in attempted_ids)
     setup_total_s = float(bundles["setup_s"].sum() or 0.0)
-    solve_total_s = sum((attempt.solve_s for attempt in method_attempts), start=0.0)
-    workload_online_s = setup_total_s + solve_total_s
+    solve_total_s = float(bundles["solve_total_s"].sum() or 0.0)
+    workload_online_s = float(bundles["matrix_online_s"].sum() or 0.0)
     n_attempted_rhs = len(method_attempts)
     n_converged = sum(isinstance(attempt.outcome, SolveConverged) for attempt in method_attempts)
     online_s_per_attempted_rhs = (
