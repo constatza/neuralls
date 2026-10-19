@@ -5,13 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import matplotlib
 import numpy as np
 import pytest
 import torch
-
-matplotlib.use("Agg")
-
 from torchalg.preconditioners.base import Preconditioner
 from torchalg.preconditioners.implementations import Identity, JacobiPreconditioner
 

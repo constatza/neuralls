@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from shutil import copy2
 from typing import Protocol
+from unittest.mock import MagicMock
 
 import mlflow
 import pytest
@@ -18,6 +18,13 @@ from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
+)
+from tests.workflows.comparison_support import (
+    COMPARISON_TRACKING_MLFLOW_MODULE,
+    LOG_COMPARISON_ARTIFACTS,
+    MLFLOW_MODULE,
+    SETUP_TRACKING,
+    configure_mock_mlflow,
 )
 
 _MINIMAL_TRAINING_JOB_TOML = """
@@ -156,34 +163,6 @@ def neural_spec_invalid() -> NeuralPreconditionerConfig:
 # ---------------------------------------------------------------------------
 
 
-# TODO: Promote this schema-copy fixture to the root test fixtures and reuse it in
-# platform/composition MLflow adapter tests instead of rerunning migrations.
-@pytest.fixture(scope="session")
-def mlflow_db_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Create the migrated MLflow schema once for isolated per-test copies."""
-    template_dir = tmp_path_factory.mktemp("mlflow-template")
-    template_path = template_dir / "mlflow.db"
-    client = MlflowClient(tracking_uri=f"sqlite:///{template_path.as_posix()}")
-    client.search_experiments()
-    return template_path
-
-
-@pytest.fixture
-def mlflow_tracking_uri(tmp_path: Path, mlflow_db_template: Path) -> str:
-    """Local isolated MLflow store copied from a pre-migrated template.
-
-    Args:
-        tmp_path: Pytest-provided isolated temp directory.
-        mlflow_db_template: Session-scoped database containing only the schema.
-
-    Returns:
-        A ``sqlite:///...`` tracking URI string.
-    """
-    database_path = tmp_path / "mlflow.db"
-    copy2(mlflow_db_template, database_path)
-    return f"sqlite:///{database_path.as_posix()}"
-
-
 @pytest.fixture
 def mlflow_experiment(tmp_path: Path, mlflow_tracking_uri: str) -> str:
     """Create and activate a real local MLflow experiment with file-backed artifacts.
@@ -306,3 +285,38 @@ def log_run_with_named_checkpoints(
             return run.info.run_id
 
     return _log_run
+
+
+# ---------------------------------------------------------------------------
+# Mocked MLflow for comparison-batch tests (no store, no artifact upload)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fake_mlflow(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """One `mlflow` double shared by the comparison batch and its tracking sink.
+
+    Both modules must see the same object so a test can assert on the metrics, params and
+    artifacts logged from either of them.
+    """
+    mock = MagicMock()
+    configure_mock_mlflow(mock)
+    monkeypatch.setattr(MLFLOW_MODULE, mock)
+    monkeypatch.setattr(COMPARISON_TRACKING_MLFLOW_MODULE, mock)
+    return mock
+
+
+@pytest.fixture
+def stub_setup_tracking(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Skip creating the comparison experiment in a tracking store."""
+    stub = MagicMock()
+    monkeypatch.setattr(SETUP_TRACKING, stub)
+    return stub
+
+
+@pytest.fixture
+def stub_log_comparison_artifacts(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Skip uploading the comparison artifact directories to MLflow."""
+    stub = MagicMock()
+    monkeypatch.setattr(LOG_COMPARISON_ARTIFACTS, stub)
+    return stub

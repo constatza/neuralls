@@ -4,10 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-
 import pytest
 
 from neuralls.domain.solver.models.convergence import ConvergenceSummary

@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from shutil import copy2
 from types import ModuleType
 
 import h5py
+import matplotlib.figure
 import numpy as np
 import pytest
 from loguru import logger
+from mlflow.tracking import MlflowClient
 
 from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.settings import NeurallsSettings
@@ -129,6 +133,66 @@ def isolate_default_paths_with_tmp_path(
 
     _patch_default_paths_for_loaded_modules(path_values, monkeypatch)
     _patch_dlkit_environment(runtime_root, monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+def redirect_tempfile_under_pytest_tmp(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Send library `tempfile` use (batch work roots, staging dirs) under pytest's managed tmp."""
+    monkeypatch.setattr(
+        tempfile, "tempdir", str(tmp_path_factory.mktemp("tempfile")), raising=False
+    )
+
+
+@pytest.fixture(autouse=True)
+def skip_figure_encoding(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make `Figure.savefig` create an empty file instead of encoding a PNG.
+
+    Figure building and all artist state stay real, so tests that inspect a figure or
+    assert that a file was produced are unaffected; only the costly raster encoding is
+    skipped. Tests whose subject is the encoded image opt out with `@pytest.mark.real_render`.
+    """
+    if request.node.get_closest_marker("real_render") is not None:
+        return
+    encode = matplotlib.figure.Figure.savefig
+
+    def touch(
+        self: matplotlib.figure.Figure, fname: object, *args: object, **kwargs: object
+    ) -> None:
+        if isinstance(fname, str | Path):
+            Path(fname).touch()
+            return
+        encode(self, fname, *args, **kwargs)
+
+    monkeypatch.setattr(matplotlib.figure.Figure, "savefig", touch)
+
+
+# Real local MLflow store: migrate the schema once per session, copy it per test.
+@pytest.fixture(scope="session")
+def mlflow_db_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Create the migrated MLflow schema once for isolated per-test copies."""
+    template_dir = tmp_path_factory.mktemp("mlflow-template")
+    template_path = template_dir / "mlflow.db"
+    client = MlflowClient(tracking_uri=f"sqlite:///{template_path.as_posix()}")
+    client.search_experiments()
+    return template_path
+
+
+@pytest.fixture
+def mlflow_tracking_uri(tmp_path: Path, mlflow_db_template: Path) -> str:
+    """Local isolated MLflow store copied from a pre-migrated template.
+
+    Args:
+        tmp_path: Pytest-provided isolated temp directory.
+        mlflow_db_template: Session-scoped database containing only the schema.
+
+    Returns:
+        A ``sqlite:///...`` tracking URI string.
+    """
+    database_path = tmp_path / "mlflow.db"
+    copy2(mlflow_db_template, database_path)
+    return f"sqlite:///{database_path.as_posix()}"
 
 
 @pytest.fixture

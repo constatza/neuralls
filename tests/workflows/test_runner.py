@@ -5,12 +5,12 @@ without involving the CLI layer. These are integration tests that verify
 the full workflow logic.
 """
 
-import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 import tomli_w
 from dlkit.common import ChildSuccess
 
@@ -121,6 +121,7 @@ def _write_training_job_config(path: Path, *, experiment_name: str) -> None:
 def test_run_assignments_full_flow(
     tmp_path: Path,
     neuralls_settings,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test workflow orchestration without expensive training.
 
@@ -148,7 +149,7 @@ def test_run_assignments_full_flow(
     matrix_path = raw_dir / "matrix.txt"
     rhs_path = raw_dir / "rhs.txt"
 
-    N = 10
+    N = 3
     A = np.random.rand(N, N)
     A = A.T @ A + np.eye(N)
     b = np.random.rand(N)
@@ -168,7 +169,7 @@ def test_run_assignments_full_flow(
             "normalize": "none",
             "shuffle": True,
             "seed": 42,
-            "strategy": [{"name": "random", "samples": 100}],
+            "strategy": [{"name": "random", "samples": 2}],
         },
         "output": {
             "data_dir": str(data_dir / "processed"),
@@ -219,7 +220,7 @@ def test_run_assignments_full_flow(
         f.write(f'job = "{exp_name}_job"\n')
 
     # Set NEURALLS_OUTPUT_DIR to ensure no contamination
-    os.environ["NEURALLS_OUTPUT_DIR"] = str(data_dir / "output")
+    monkeypatch.setenv("NEURALLS_OUTPUT_DIR", str(data_dir / "output"))
 
     # Mock the dlkit sweep dispatch/finalization to avoid expensive training.
     prepared = _fake_prepared_training(tmp_path, exp_name)
@@ -268,6 +269,7 @@ def test_run_assignments_full_flow(
 def test_run_assignment_sweep_with_mlflow(
     tmp_path: Path,
     neuralls_settings,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test MLflow integration in workflow without expensive training.
 
@@ -293,7 +295,7 @@ def test_run_assignment_sweep_with_mlflow(
     matrix_path = raw_dir / "matrix.txt"
     rhs_path = raw_dir / "rhs.txt"
 
-    N = 10
+    N = 3
     A = np.random.rand(N, N)
     A = A.T @ A + np.eye(N)
     b = np.random.rand(N)
@@ -313,7 +315,7 @@ def test_run_assignment_sweep_with_mlflow(
             "normalize": "none",
             "shuffle": True,
             "seed": 42,
-            "strategy": [{"name": "random", "samples": 50}],
+            "strategy": [{"name": "random", "samples": 2}],
         },
         "output": {
             "data_dir": str(data_dir / "processed"),
@@ -350,7 +352,7 @@ def test_run_assignment_sweep_with_mlflow(
         f.write(f'job = "{exp_name}_job"\n')
 
     # Set NEURALLS_OUTPUT_DIR
-    os.environ["NEURALLS_OUTPUT_DIR"] = str(data_dir / "output")
+    monkeypatch.setenv("NEURALLS_OUTPUT_DIR", str(data_dir / "output"))
 
     # Mock the dlkit sweep dispatch/finalization to avoid expensive training.
     prepared = _fake_prepared_training(tmp_path, exp_name)

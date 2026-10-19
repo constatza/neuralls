@@ -217,12 +217,14 @@ def test_each_assignment_is_looked_up_under_its_own_derived_identity(
 
 
 @pytest.fixture
-def real_mlflow(tmp_path: Path) -> Iterator[tuple[dict[str, MagicMock], str]]:
+def real_mlflow(
+    tmp_path: Path, mlflow_tracking_uri: str
+) -> Iterator[tuple[dict[str, MagicMock], str]]:
     """Like run_assignment_dependencies, but the identity store hits a real
     sqlite-backed MLflow store — exercises the real tag round-trip end-to-end."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
-    tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
+    tracking_uri = mlflow_tracking_uri
     MlflowClient(tracking_uri=tracking_uri).create_experiment("Train")
     with (
         patch.object(training_batch, "load_data_config") as load_data_config,

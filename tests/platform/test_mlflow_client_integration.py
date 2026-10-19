@@ -24,12 +24,6 @@ from neuralls.shared.digest import canonical_digest
 
 
 @pytest.fixture
-def sqlite_tracking_uri(tmp_path: Path) -> str:
-    """A real, empty MLflow tracking store backed by a local sqlite file."""
-    return f"sqlite:///{tmp_path / 'mlflow.db'}"
-
-
-@pytest.fixture
 def identity() -> StageIdentity:
     """Training identity of the seeded run."""
     return StageIdentity.build("training", {"dataset": canonical_digest("old")})
@@ -62,17 +56,17 @@ def _seed_finished_run(
 
 
 @pytest.fixture
-def store(sqlite_tracking_uri: str) -> MlflowIdentityStore:
+def store(mlflow_tracking_uri: str) -> MlflowIdentityStore:
     """Store requiring a real checkpoint artifact, as training reuse does."""
     return MlflowIdentityStore(
-        tracking_uri=sqlite_tracking_uri, experiment="Train", require_checkpoint=True
+        tracking_uri=mlflow_tracking_uri, experiment="Train", require_checkpoint=True
     )
 
 
 @pytest.fixture
-def client(sqlite_tracking_uri: str) -> MlflowClient:
+def client(mlflow_tracking_uri: str) -> MlflowClient:
     """Client bound to the real store."""
-    return MlflowClient(tracking_uri=sqlite_tracking_uri)
+    return MlflowClient(tracking_uri=mlflow_tracking_uri)
 
 
 def test_finds_seeded_run_with_matching_identity(
