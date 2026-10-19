@@ -96,14 +96,46 @@ an identical (linestyle, marker, color) triple — the case when no override
 keys are given at all — still gets spread across a lightness ramp so it
 stays distinguishable.
 
-The group-level plots (`plot_projected_scaling_law`, `plot_system_time_bars`)
-use that same resolution, fed the families and colour/marker keys the runs
-recorded, so a preconditioner looks the same in every plot. Their legends use
-the scientific label rather than the config name and append n, the scaling-law
-band is labelled "±1σ over systems", each carries a subtitle (level, keys,
-recipe, system count). The per-run convergence plots also come in solve-only
-variants (`solve_only=True`) whose curves all start at t=0. `MLflowGroupReportSink.report` takes the aggregated group plus a
-`GroupPresentation` and names artifacts by the sanitized group id.
+The group-level plots (`plot_projected_scaling_law` in `plots.py`; the
+functions of `outcome_plots.py` listed below) use that same resolution through
+two public helpers in `plots.py`: `group_series_styles` (per-preconditioner
+colour, marker and linestyle from the recorded families and colour/marker keys)
+and `finish_group_figure` (title, subtitle, save, close). A preconditioner thus
+looks the same in every plot. Their legends use the scientific label rather
+than the config name and append k/n converged, the scaling-law band is labelled
+"±1σ over systems", each carries a subtitle (level, keys, recipe, system
+count). The per-run convergence plots also come in solve-only variants
+(`solve_only=True`) whose curves all start at t=0. `MLflowGroupReportSink.report`
+takes the aggregated group plus a `GroupPresentation` and names artifacts by the
+sanitized group id.
+
+`outcome_plots.py` draws the per-system outcome plots from
+`domain.benchmarking.profiles` and `domain.benchmarking.paired`; every function takes a
+required `save_path` and returns it, or `None` when nothing was drawn, and a
+`GroupStyle` (title, subtitle, and label/family/colour/marker mappings that
+default to empty). A failed run is never given a time:
+
+- `plot_time_scatter` (`system_time_scatter_*`): recurring time per system (solve plus
+  per-system setup/generation; one-time shared costs such as a checkpoint load
+  appear in ERT, the projection and break-even instead), failures as hollow markers on the top edge.
+- `plot_paired_time_scatter` (`paired_time_scatter_*`): recurring times of each method against the
+  reference; hollow markers sit on the axis of the run that failed, and a
+  reference run that solved without a comparable time is not drawn as failed.
+- `plot_performance_profile` (`performance_profile_*`): Dolan-Moré profile
+  (Math. Program. 91, 2002).
+- `plot_ecdf_profile` (`ecdf_iterations_*`, `ecdf_time_*`): unnormalised ECDF
+  over an absolute budget (Hansen et al. 2016, COCO), not the n_p+1-normalised
+  Moré-Wild data profile. Step curves share one right edge so each plateau is
+  its success rate.
+- `plot_speedup_cdf` (`speedup_cdf_*`): ECDF of per-system speedups over the
+  reference with a line at 1; the legend gives the median, its bootstrap
+  interval, the Wilcoxon p-value and the pair count.
+
+`system_time_bars_*` is no longer produced. The projected TOML
+(`write_projected_toml`) also carries ERT bootstrap bounds, iteration statistics
+and, per method, the reference, break-even count, median speedup with interval
+and Wilcoxon p-value, each omitted when undefined; `log_comparison_metrics`
+logs the same comparison numbers as MLflow metrics.
 
 The DLKit dataset bridge stays generic. Platform helpers construct and patch
 DLKit-native dataset entries with the names supplied by composition, but

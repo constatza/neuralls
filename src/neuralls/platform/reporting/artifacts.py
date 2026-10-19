@@ -17,11 +17,19 @@ from numpy.typing import NDArray
 
 from neuralls.domain.solver.cost_metrics import iterations_to_tolerances
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.models.cost_fields import COST_FIELD_REGISTRY
 from neuralls.domain.solver.models.plot_paths import PlotPaths
 from neuralls.domain.solver.models.projection import ProjectedComparisonResult
 from neuralls.domain.solver.models.recommendations import ComparisonRecommendations
 from neuralls.domain.solver.models.result import ComparisonResult
+from neuralls.domain.solver.models.statistics import (
+    AlwaysCheaper,
+    BreakEvenAt,
+    CheaperOnlyBelow,
+    MethodComparison,
+    NeverCheaper,
+)
 from neuralls.platform.reporting.serialization import to_json_primitive
 
 
@@ -196,10 +204,11 @@ histories and per-repeat timing samples), never inlined as JSON (see
 `SerializedSolverResult`)."""
 
 
-class ProjectedTomlEntry(TypedDict):
-    """One preconditioner's scaling-law numbers as written to the projected TOML."""
+class ScalingLawTomlFields(TypedDict):
+    """The measured constants a preconditioner's scaling-law curve is computed from."""
 
     n_systems: int
+    n_converged: int
     setup_cost_total_seconds: float
     total_solve_time_seconds: float
     total_iterations: int
@@ -207,45 +216,150 @@ class ProjectedTomlEntry(TypedDict):
     share_generation: bool
     generation_cost_total_seconds: NotRequired[float]
     solve_time_std_seconds: NotRequired[float]
-    iterations_std: NotRequired[float]
+
+
+class ConvergenceTomlFields(TypedDict, total=False):
+    """ERT with its bootstrap interval and the converged runs' iteration statistics."""
+
+    ert_seconds: float
+    ert_ci_low: float
+    ert_ci_high: float
+    iterations_mean: float
+    iterations_median: float
+    iterations_std: float
+
+
+class ComparisonTomlFields(TypedDict, total=False):
+    """A method's comparison with the group's reference, each field present when defined."""
+
+    reference: str
+    break_even_systems: float
+    speedup_median: float
+    speedup_ci_low: float
+    speedup_ci_high: float
+    wilcoxon_p: float
+
+
+class ProjectedTomlEntry(ScalingLawTomlFields, ConvergenceTomlFields, ComparisonTomlFields):
+    """One preconditioner's scaling-law numbers as written to the projected TOML.
+
+    `total_solve_time_seconds` and `total_iterations` cover every run (failed
+    ones at their measured cost); the stds and `iterations_*` describe the
+    `n_converged` of `n_systems` converged runs. `ert_seconds` is the pooled
+    cost per solved system of COCO (Hansen et al. 2016, arXiv:1605.03560)
+    with a bootstrap interval
+    `ert_ci_low/high`; `iterations_mean/median/std` describe the converged runs.
+    The comparison fields exist for a method with a reference: `reference` names
+    it, `break_even_systems` is the solved-system count beyond which the method
+    is cheaper (only when the break-even is a finite count), `speedup_*` is the
+    median of reference time / method time over systems both solved with its
+    bootstrap interval, and `wilcoxon_p` the signed-rank p-value of the log
+    speedups (Wilcoxon 1945). Every optional field is omitted when it is
+    undefined.
+    """
+
+
+class UnconvergedTomlEntry(TypedDict):
+    """A preconditioner that converged on no system: nothing to project, only the count."""
+
+    n_systems: int
+    n_converged: int
 
 
 def projected_toml_payload(
     projected: Mapping[str, ProjectedComparisonResult],
-) -> dict[str, ProjectedTomlEntry]:
+    convergence: Mapping[str, ConvergenceSummary],
+    comparisons: Mapping[str, MethodComparison],
+) -> dict[str, ProjectedTomlEntry | UnconvergedTomlEntry]:
     """Build one group's scaling-law numbers as a TOML-ready payload.
 
     Pure scalars per preconditioner — the plotted curve is a deterministic
     function of exactly these fields, so this is the source of truth the PNG
     is derived from, not a separate, possibly-drifting summary of it. Optional
-    numbers are omitted rather than written as sentinels.
+    numbers are omitted rather than written as sentinels. Every preconditioner
+    of ``convergence`` appears, so a method that never converged is visible
+    rather than silently absent.
     """
-    payload: dict[str, ProjectedTomlEntry] = {}
-    for name, result in projected.items():
-        entry = ProjectedTomlEntry(
-            n_systems=result.n_systems,
-            setup_cost_total_seconds=result.setup_cost_total_seconds,
-            total_solve_time_seconds=result.total_solve_time_seconds,
-            total_iterations=result.total_iterations,
-            share_setup=result.setup_sharing.share_setup,
-            share_generation=result.setup_sharing.share_generation,
+    payload: dict[str, ProjectedTomlEntry | UnconvergedTomlEntry] = {}
+    for name, summary in convergence.items():
+        result = projected.get(name)
+        if result is None:
+            payload[name] = UnconvergedTomlEntry(
+                n_systems=summary.n_systems, n_converged=summary.n_converged
+            )
+            continue
+        comparison = comparisons.get(name)
+        payload[name] = ProjectedTomlEntry(
+            **_projected_entry(result),
+            **_convergence_fields(summary),
+            **(_comparison_fields(comparison) if comparison is not None else {}),
         )
-        if result.generation_cost_total_seconds is not None:
-            entry["generation_cost_total_seconds"] = result.generation_cost_total_seconds
-        if result.solve_time_std_seconds is not None:
-            entry["solve_time_std_seconds"] = result.solve_time_std_seconds
-        if result.iterations_std is not None:
-            entry["iterations_std"] = result.iterations_std
-        payload[name] = entry
     return payload
 
 
+def _projected_entry(result: ProjectedComparisonResult) -> ScalingLawTomlFields:
+    """The scaling-law constants of one projection, optional numbers only when defined."""
+    entry = ScalingLawTomlFields(
+        n_systems=result.n_systems,
+        n_converged=result.n_converged,
+        setup_cost_total_seconds=result.setup_cost_total_seconds,
+        total_solve_time_seconds=result.total_solve_time_seconds,
+        total_iterations=result.total_iterations,
+        share_setup=result.setup_sharing.share_setup,
+        share_generation=result.setup_sharing.share_generation,
+    )
+    if result.generation_cost_total_seconds is not None:
+        entry["generation_cost_total_seconds"] = result.generation_cost_total_seconds
+    if result.solve_time_std_seconds is not None:
+        entry["solve_time_std_seconds"] = result.solve_time_std_seconds
+    return entry
+
+
+def _convergence_fields(summary: ConvergenceSummary) -> ConvergenceTomlFields:
+    """ERT with its interval and the converged runs' iteration statistics, when defined."""
+    fields = ConvergenceTomlFields()
+    if summary.ert_seconds is not None:
+        fields["ert_seconds"] = summary.ert_seconds
+    if summary.ert_interval is not None:
+        fields["ert_ci_low"] = summary.ert_interval.low
+        fields["ert_ci_high"] = summary.ert_interval.high
+    if summary.iterations is not None:
+        fields["iterations_mean"] = summary.iterations.mean
+        fields["iterations_median"] = summary.iterations.median
+        if summary.iterations.std is not None:
+            fields["iterations_std"] = summary.iterations.std
+    return fields
+
+
+def _comparison_fields(comparison: MethodComparison) -> ComparisonTomlFields:
+    """The reference, break-even count, speedup and Wilcoxon p-value of one method."""
+    fields = ComparisonTomlFields(reference=comparison.reference)
+    match comparison.break_even:
+        case BreakEvenAt(n_systems=n_systems):
+            fields["break_even_systems"] = n_systems
+        case AlwaysCheaper() | NeverCheaper() | CheaperOnlyBelow():
+            pass
+    paired = comparison.paired
+    if paired is None:
+        return fields
+    fields["speedup_median"] = paired.median_speedup
+    if paired.median_speedup_ci is not None:
+        fields["speedup_ci_low"] = paired.median_speedup_ci.low
+        fields["speedup_ci_high"] = paired.median_speedup_ci.high
+    if paired.wilcoxon_p is not None:
+        fields["wilcoxon_p"] = paired.wilcoxon_p
+    return fields
+
+
 def write_projected_toml(
-    projected: Mapping[str, ProjectedComparisonResult], output_path: Path
+    projected: Mapping[str, ProjectedComparisonResult],
+    convergence: Mapping[str, ConvergenceSummary],
+    comparisons: Mapping[str, MethodComparison],
+    output_path: Path,
 ) -> None:
     """Write one group's scaling-law numbers to `output_path` as TOML."""
     with open(output_path, "wb") as fh:
-        tomli_w.dump(projected_toml_payload(projected), fh)
+        tomli_w.dump(projected_toml_payload(projected, convergence, comparisons), fh)
 
 
 def write_histories_h5(result: ComparisonResult, output_path: Path) -> None:

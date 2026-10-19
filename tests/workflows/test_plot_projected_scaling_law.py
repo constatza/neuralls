@@ -23,7 +23,6 @@ from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
     plot_projected_scaling_law,
     plot_residual_vs_time,
-    plot_system_time_bars,
 )
 
 
@@ -77,24 +76,6 @@ def test_plot_projected_scaling_law_draws_a_std_band_when_present(tmp_path: Path
     assert save_path.exists()
 
 
-def test_plot_system_time_bars_saves_file_with_unequal_system_sets(tmp_path: Path) -> None:
-    """A preconditioner missing some systems (failed/incomparable) still plots."""
-    save_path = tmp_path / "bars.png"
-    times = {"jacobi": {"s0": 1.0, "s1": 2.0, "s2": 1.5}, "amg": {"s0": 0.5, "s2": 0.7}}
-
-    plot_system_time_bars(times, save_path=save_path)
-
-    assert save_path.exists()
-
-
-def test_plot_system_time_bars_handles_empty_mapping(tmp_path: Path) -> None:
-    save_path = tmp_path / "bars_empty.png"
-
-    plot_system_time_bars({}, save_path=save_path)
-
-    assert save_path.exists()
-
-
 @pytest.fixture
 def captured_figures(monkeypatch: pytest.MonkeyPatch) -> list[Figure]:
     """Keep figures alive past the plotting call so tests can inspect their artists."""
@@ -127,16 +108,18 @@ def test_scaling_law_legend_has_labels_n_and_std_band_entry(
     )
 
     (fig,) = captured_figures
-    assert _legend_texts(fig) == ["Neural (CG) (n=5)", "±1σ over systems"]
+    assert _legend_texts(fig) == ["Neural (CG) (5/5 converged)", "±1σ over systems"]
     assert fig.axes[0].get_title() == "fine level, N = 5"
 
 
 def test_scaling_law_without_std_has_no_band_entry(captured_figures: list[Figure]) -> None:
-    single = replace(_projected("amg", share_setup=False, share_generation=False), n_systems=1)
+    single = replace(
+        _projected("amg", share_setup=False, share_generation=False), n_systems=1, n_converged=1
+    )
     plot_projected_scaling_law({"amg": single})
 
     (fig,) = captured_figures
-    assert _legend_texts(fig) == ["amg (n=1)"]
+    assert _legend_texts(fig) == ["amg (1/1 converged)"]
 
 
 def test_scaling_law_style_matches_convergence_plot(captured_figures: list[Figure]) -> None:
@@ -153,22 +136,9 @@ def test_scaling_law_style_matches_convergence_plot(captured_figures: list[Figur
     convergence_fig, scaling_fig = captured_figures
     expected = {line.get_label(): line for line in convergence_fig.axes[0].get_lines()}
     for line in scaling_fig.axes[0].get_lines():
-        base = expected[str(line.get_label()).split(" (n=")[0]]
+        base = expected[str(line.get_label()).split(" (")[0]]
         assert line.get_color() == base.get_color()
         assert line.get_marker() == base.get_marker()
-
-
-def test_time_bars_sorted_fastest_first_with_labelled_ticks(
-    captured_figures: list[Figure],
-) -> None:
-    times = {"jacobi": {"s0": 1.0, "s1": 2.0}, "amg": {"s0": 0.5}}
-    plot_system_time_bars(times, labels={"amg": "AMG (POD-2G)"}, subtitle="coarse level")
-
-    (fig,) = captured_figures
-    ax = fig.axes[0]
-    # barh puts the first category at the bottom, so the fastest is the last tick.
-    assert [t.get_text() for t in ax.get_yticklabels()] == ["jacobi (n=2)", "AMG (POD-2G) (n=1)"]
-    assert ax.get_title() == "coarse level"
 
 
 def test_scaling_law_axis_is_log_and_starts_at_n_min(captured_figures: list[Figure]) -> None:

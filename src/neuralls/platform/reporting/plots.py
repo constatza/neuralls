@@ -943,7 +943,7 @@ SCALING_LAW_N_MIN = 10
 the series in the legend without turning the line into a dotted trail."""
 
 
-def _group_series_styles(
+def group_series_styles(
     names: Sequence[str],
     families: Mapping[str, Hashable] | None,
     color_keys: Mapping[str, Hashable] | None,
@@ -970,7 +970,7 @@ def _group_series_styles(
     return _resolve_styles(effective_families, color_keys, marker_keys)
 
 
-def _finish_group_figure(
+def finish_group_figure(
     fig: Any,
     ax: Any,
     *,
@@ -1032,7 +1032,7 @@ def plot_projected_scaling_law(
 
     Args:
         projected: One ``ProjectedComparisonResult`` per preconditioner name,
-            as ``domain.solver.metrics_table.report_level`` returns.
+            as ``domain.solver.reporting.aggregation.report_level`` returns.
         n_max: Largest N to extrapolate to (log-spaced x-axis from ``SCALING_LAW_N_MIN`` to this).
         save_path: Path to save the figure. Parent directories are created
             automatically if they do not exist.
@@ -1049,7 +1049,7 @@ def plot_projected_scaling_law(
     n_values = np.unique(np.round(np.geomspace(SCALING_LAW_N_MIN, n_max, num=200)).astype(int))
     labels = labels or {}
     names = sorted(projected)
-    styles = _group_series_styles(names, families, color_keys, marker_keys)
+    styles = group_series_styles(names, families, color_keys, marker_keys)
 
     fig, ax = plt.subplots(figsize=(7, 5))
     has_band = False
@@ -1062,7 +1062,7 @@ def plot_projected_scaling_law(
         ax.plot(
             n_values,
             y_values,
-            label=f"{labels.get(name, name)} (n={result.n_systems})",
+            label=f"{labels.get(name, name)} ({result.n_converged}/{result.n_systems} converged)",
             linewidth=1.8,
             markersize=5 * size_scale,
             markevery=max(len(n_values) // _SCALING_MARKER_COUNT, 1),
@@ -1085,7 +1085,7 @@ def plot_projected_scaling_law(
     ax.set_xlim(SCALING_LAW_N_MIN, n_max)
     ax.set_yscale("log")
     ax.set_xlabel("Number of systems (N)", fontsize=12)
-    ax.set_ylabel("Projected avg. cost per system (s)", fontsize=12)
+    ax.set_ylabel("Projected cost per solved system (s)", fontsize=12)
     ax.grid(True, alpha=0.3)
     if projected:
         handles, texts = ax.get_legend_handles_labels()
@@ -1093,7 +1093,7 @@ def plot_projected_scaling_law(
             handles.append(matplotlib.patches.Patch(color="gray", alpha=_STD_BAND_ALPHA * 2))
             texts.append(_STD_BAND_LABEL)
         ax.legend(handles, texts, loc="upper right", fontsize=9)
-    _finish_group_figure(
+    finish_group_figure(
         fig,
         ax,
         title=title or "Projected cost per system vs. N",
@@ -1101,76 +1101,6 @@ def plot_projected_scaling_law(
         save_path=save_path,
         show=show,
         saved_message="Saved projected scaling-law plot to",
-    )
-
-
-def plot_system_time_bars(
-    time_by_system: Mapping[str, Mapping[str, float]],
-    *,
-    save_path: Path | None = None,
-    show: bool = False,
-    title: str | None = None,
-    subtitle: str | None = None,
-    labels: Mapping[str, str] | None = None,
-    families: Mapping[str, Hashable] | None = None,
-    color_keys: Mapping[str, Hashable] | None = None,
-    marker_keys: Mapping[str, Hashable] | None = None,
-) -> None:
-    """Median time-to-solution per preconditioner, whiskers spanning the IQR.
-
-    One horizontal bar per preconditioner, fastest at the top. The bar is the
-    median over the systems it was run on of generation + setup + solve wall
-    time; the whisker runs from the 25th to the 75th percentile, so the spread
-    across systems stays visible without a meaningless system axis.
-
-    Args:
-        time_by_system: Preconditioner name -> {system id -> seconds}.
-        save_path: Path to save the figure; parent directories are created.
-        show: Whether to call ``plt.show()``.
-        title: Optional title for the plot.
-        subtitle: Optional small-font line under the title.
-        labels: Optional display label per preconditioner name (falls back to
-            the name). The tick label appends the number of systems plotted.
-        families: Optional family per name; see ``plot_convergence_comparison``.
-        color_keys: Optional colour-axis key per name.
-        marker_keys: Optional marker-axis key per name.
-    """
-    labels = labels or {}
-    quartiles = {
-        name: np.percentile(list(per_system.values()), [25, 50, 75])
-        for name, per_system in time_by_system.items()
-        if per_system
-    }
-    names = sorted(quartiles, key=lambda name: quartiles[name][1], reverse=True)
-    styles = _group_series_styles(names, families, color_keys, marker_keys)
-
-    fig, ax = plt.subplots(figsize=(8, max(3.0, 0.5 * len(names) + 1.5)))
-    medians = np.array([quartiles[name][1] for name in names])
-    lower = medians - np.array([quartiles[name][0] for name in names])
-    upper = np.array([quartiles[name][2] for name in names]) - medians
-    ax.barh(
-        range(len(names)),
-        medians,
-        xerr=[lower, upper],
-        color=[styles[name]["color"] for name in names],
-        capsize=3,
-    )
-    ax.set_yticks(
-        range(len(names)),
-        [f"{labels.get(name, name)} (n={len(time_by_system[name])})" for name in names],
-        fontsize=9,
-    )
-    ax.set_xscale("log")
-    ax.set_xlabel("Median time to solution: generation + setup + solve [s]  (whisker: IQR)")
-    ax.grid(True, axis="x", which="both", alpha=0.3)
-    _finish_group_figure(
-        fig,
-        ax,
-        title=title or "Time to solution per preconditioner",
-        subtitle=subtitle,
-        save_path=save_path,
-        show=show,
-        saved_message="Saved per-preconditioner time bars to",
     )
 
 

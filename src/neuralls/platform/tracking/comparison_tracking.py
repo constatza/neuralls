@@ -8,23 +8,40 @@ from pathlib import Path
 
 import mlflow
 
+from neuralls.domain.benchmarking.costs import seconds
 from neuralls.domain.solver.cost_metrics import (
     peak_memory_per_dof,
     setup_time_per_dof,
     time_per_dof_per_iteration,
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
-from neuralls.domain.solver.models.outcomes import Solved
-from neuralls.domain.solver.models.plot_style import plot_style_maps
+from neuralls.domain.solver.models.plot_style import PlotStyleMaps, plot_style_maps
 from neuralls.domain.solver.models.presentation import GroupPresentation
 from neuralls.domain.solver.models.projection import ProjectedComparisonResult
 from neuralls.domain.solver.models.result import ComparisonResult
+from neuralls.domain.solver.models.statistics import (
+    AlwaysCheaper,
+    BreakEvenAt,
+    CheaperOnlyBelow,
+    MethodComparison,
+    NeverCheaper,
+    PairedComparison,
+)
 from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.reporting.artifacts import write_projected_toml
-from neuralls.platform.reporting.plots import plot_projected_scaling_law, plot_system_time_bars
+from neuralls.platform.reporting.outcome_plots import (
+    GroupStyle,
+    plot_ecdf_profile,
+    plot_paired_time_scatter,
+    plot_performance_profile,
+    plot_speedup_cdf,
+    plot_time_scatter,
+)
+from neuralls.platform.reporting.plots import plot_projected_scaling_law
 from neuralls.platform.tracking.mlflow import ensure_experiment, sanitize_metric_key_segment
 from neuralls.shared.types import GroupId
 
@@ -146,7 +163,7 @@ def log_projected_metrics(
         group_id: The comparison group's rendered id, used to namespace
             metric keys when a case has more than one group.
         projected: One `ProjectedComparisonResult` per preconditioner name,
-            as `domain.solver.metrics_table.report_level` returns.
+            as `domain.solver.reporting.aggregation.report_level` returns.
     """
     for name, result in projected.items():
         mlflow.log_metric(_projected_metric_key("n_systems", group_id, name), result.n_systems)
@@ -163,6 +180,10 @@ def log_projected_metrics(
             _projected_metric_key("avg_solve_time_per_system_s", group_id, name),
             result.avg_solve_time_per_system_seconds,
         )
+        mlflow.log_metric(
+            _projected_metric_key("avg_solve_time_per_solved_system_s", group_id, name),
+            result.avg_solve_time_per_solved_system_seconds,
+        )
         if result.avg_iteration_time_seconds is not None:
             mlflow.log_metric(
                 _projected_metric_key("avg_iteration_time_s", group_id, name),
@@ -175,6 +196,91 @@ def log_projected_metrics(
         mlflow.log_param(
             _projected_metric_key("share_generation", group_id, name),
             str(result.setup_sharing.share_generation),
+        )
+
+
+def log_convergence_metrics(
+    group_id: GroupId, convergence: Mapping[str, ConvergenceSummary]
+) -> None:
+    """Log each preconditioner's success rate and ERT beside its projected averages.
+
+    ``avg_solve_time_per_system_s`` averages every run, failed ones at their
+    measured cost, while ``avg_solve_time_per_solved_system_s`` divides the same
+    total by the successes; the success rate belongs beside both. ERT
+    (Hansen et al. 2016, arXiv:1605.03560) and its bootstrap interval are
+    logged only when defined, as are the iteration statistics over converged runs.
+    """
+    for name, summary in convergence.items():
+        mlflow.log_metric(_projected_metric_key("n_converged", group_id, name), summary.n_converged)
+        mlflow.log_metric(
+            _projected_metric_key("success_rate", group_id, name), summary.success_rate
+        )
+        if summary.ert_seconds is not None:
+            mlflow.log_metric(_projected_metric_key("ert_s", group_id, name), summary.ert_seconds)
+        if summary.ert_interval is not None:
+            _log_optional_metrics(
+                group_id,
+                name,
+                {
+                    "ert_ci_low": summary.ert_interval.low,
+                    "ert_ci_high": summary.ert_interval.high,
+                },
+            )
+        if summary.iterations is not None:
+            _log_optional_metrics(
+                group_id,
+                name,
+                {
+                    "iterations_mean": summary.iterations.mean,
+                    "iterations_median": summary.iterations.median,
+                    "iterations_std": summary.iterations.std,
+                },
+            )
+
+
+def _log_optional_metrics(
+    group_id: GroupId, preconditioner_name: str, metrics: Mapping[str, float | None]
+) -> None:
+    """Log each defined (non-`None`) metric under the group/preconditioner-namespaced key."""
+    for metric, value in metrics.items():
+        if value is not None:
+            mlflow.log_metric(_projected_metric_key(metric, group_id, preconditioner_name), value)
+
+
+def _break_even_metrics(comparison: MethodComparison) -> dict[str, float | None]:
+    """`break_even_n` for a finite break-even; the other outcomes have no count to log."""
+    match comparison.break_even:
+        case BreakEvenAt(n_systems=n_systems):
+            return {"break_even_n": n_systems}
+        case AlwaysCheaper() | NeverCheaper() | CheaperOnlyBelow():
+            return {}
+
+
+def _paired_metrics(paired: PairedComparison | None) -> dict[str, float | None]:
+    """Median speedup, its interval and the Wilcoxon p-value of a paired comparison."""
+    if paired is None:
+        return {}
+    interval = paired.median_speedup_ci
+    return {
+        "speedup_median": paired.median_speedup,
+        "speedup_ci_low": interval.low if interval is not None else None,
+        "speedup_ci_high": interval.high if interval is not None else None,
+        "wilcoxon_p": paired.wilcoxon_p,
+    }
+
+
+def log_comparison_metrics(group_id: GroupId, comparisons: Mapping[str, MethodComparison]) -> None:
+    """Log each method's break-even count, speedup over the reference and Wilcoxon p-value.
+
+    Every metric is logged only when defined; the break-even count exists only
+    for a finite crossing (`BreakEvenAt`). Speedup is reference time over method
+    time, so values above 1 mean the method was faster.
+    """
+    for name, comparison in comparisons.items():
+        _log_optional_metrics(
+            group_id,
+            name,
+            {**_break_even_metrics(comparison), **_paired_metrics(comparison.paired)},
         )
 
 
@@ -191,6 +297,8 @@ class MLflowGroupReportSink:
         """Log metrics, scaling plot, TOML numbers and per-system scatter for one group."""
         group_id = outcome.group_id
         log_projected_metrics(group_id, outcome.projected)
+        log_convergence_metrics(group_id, outcome.convergence)
+        log_comparison_metrics(group_id, outcome.comparisons)
         style = plot_style_maps(presentation.plot_styles)
         with tempfile.TemporaryDirectory() as tmp:
             # Group ids contain `/`, a path separator in artifact names.
@@ -198,7 +306,6 @@ class MLflowGroupReportSink:
             stem = f"projected_scaling_law_{file_key}"
             plot_path = Path(tmp) / f"{stem}.png"
             toml_path = Path(tmp) / f"{stem}.toml"
-            bars_path = Path(tmp) / f"system_time_bars_{file_key}.png"
             plot_projected_scaling_law(
                 outcome.projected,
                 save_path=plot_path,
@@ -209,31 +316,98 @@ class MLflowGroupReportSink:
                 color_keys=style.color_keys,
                 marker_keys=style.marker_keys,
             )
-            write_projected_toml(outcome.projected, toml_path)
-            plot_system_time_bars(
-                _recurring_seconds_by_system(outcome),
-                save_path=bars_path,
-                title=f"Time to solution per preconditioner — {presentation.subject}",
-                subtitle=presentation.subtitle,
-                labels=style.labels,
-                families=style.families,
-                color_keys=style.color_keys,
-                marker_keys=style.marker_keys,
+            write_projected_toml(
+                outcome.projected, outcome.convergence, outcome.comparisons, toml_path
             )
-            for artifact in (plot_path, toml_path, bars_path):
+            outcome_plots = _write_outcome_plots(outcome, presentation, Path(tmp), file_key)
+            for artifact in (plot_path, toml_path, *outcome_plots):
                 mlflow.log_artifact(str(artifact), artifact_path=PROJECTED_ARTIFACT_DIR)
 
 
-def _recurring_seconds_by_system(outcome: GroupAggregated) -> dict[str, dict[str, float]]:
-    """Each preconditioner's recurring time per system it solved with a comparable cost."""
+def _group_style(
+    kind: str, presentation: GroupPresentation, plot_style: PlotStyleMaps
+) -> GroupStyle:
+    """The shared title and per-preconditioner styling of one outcome plot."""
+    return GroupStyle(
+        title=f"{kind} — {presentation.subject}",
+        subtitle=presentation.subtitle,
+        labels=plot_style.labels,
+        families=plot_style.families,
+        color_keys=plot_style.color_keys,
+        marker_keys=plot_style.marker_keys,
+    )
+
+
+def _paired_by_method(
+    comparisons: Mapping[str, MethodComparison],
+) -> dict[str, PairedComparison]:
+    """The paired comparisons of the methods that had any system solved alongside the reference."""
     return {
-        name: {
-            system: run.recurring_time_s
-            for system, run in per_system.items()
-            if isinstance(run, Solved) and run.recurring_time_s is not None
-        }
-        for name, per_system in outcome.outcomes.items()
+        name: comparison.paired
+        for name, comparison in comparisons.items()
+        if comparison.paired is not None
     }
+
+
+def _write_profile_plots(
+    outcome: GroupAggregated, presentation: GroupPresentation, directory: Path, file_key: str
+) -> list[Path | None]:
+    """Draw the performance profile and the iteration and time ECDFs of one group."""
+    plot_style = plot_style_maps(presentation.plot_styles)
+    return [
+        plot_performance_profile(
+            outcome.outcomes,
+            style=_group_style("Performance profile (time)", presentation, plot_style),
+            save_path=directory / f"performance_profile_{file_key}.png",
+        ),
+        plot_ecdf_profile(
+            outcome.outcomes,
+            style=_group_style("ECDF (iterations)", presentation, plot_style),
+            save_path=directory / f"ecdf_iterations_{file_key}.png",
+        ),
+        plot_ecdf_profile(
+            outcome.outcomes,
+            style=_group_style("ECDF (time)", presentation, plot_style),
+            cost=seconds,
+            xlabel="Recurring time per system: solve + per-system setup/generation [s]",
+            save_path=directory / f"ecdf_time_{file_key}.png",
+        ),
+    ]
+
+
+def _write_system_plots(
+    outcome: GroupAggregated, presentation: GroupPresentation, directory: Path, file_key: str
+) -> list[Path | None]:
+    """Draw the per-system scatter, the paired scatter and the speedup CDF of one group."""
+    plot_style = plot_style_maps(presentation.plot_styles)
+    return [
+        plot_time_scatter(
+            outcome.outcomes,
+            style=_group_style("Time to solution per system", presentation, plot_style),
+            save_path=directory / f"system_time_scatter_{file_key}.png",
+        ),
+        plot_paired_time_scatter(
+            outcome.outcomes,
+            style=_group_style("Time to solution vs reference", presentation, plot_style),
+            save_path=directory / f"paired_time_scatter_{file_key}.png",
+        ),
+        plot_speedup_cdf(
+            _paired_by_method(outcome.comparisons),
+            style=_group_style("Speedup over the reference", presentation, plot_style),
+            save_path=directory / f"speedup_cdf_{file_key}.png",
+        ),
+    ]
+
+
+def _write_outcome_plots(
+    outcome: GroupAggregated, presentation: GroupPresentation, directory: Path, file_key: str
+) -> tuple[Path, ...]:
+    """Draw every per-system outcome plot of one group and return the files that were drawn."""
+    drawn = [
+        *_write_system_plots(outcome, presentation, directory, file_key),
+        *_write_profile_plots(outcome, presentation, directory, file_key),
+    ]
+    return tuple(path for path in drawn if path is not None)
 
 
 PROJECTED_ARTIFACT_DIR = "projected_scaling_law"
