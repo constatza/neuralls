@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 import pytest
 
@@ -101,6 +101,26 @@ def solve_attempt(
         peak_memory=measured_memory,
         outcome=SolveConverged(iterations=4, final_relative_residual=1e-9),
     )
+
+
+@pytest.mark.parametrize("invalid_value", [float("nan"), float("inf"), float("-inf")])
+def test_canonical_floats_must_be_finite(
+    invalid_value: float, setup_event: MatrixSetupEvent, solve_attempt: SolveAttempt
+) -> None:
+    """Non-finite measurements cannot be canonical benchmark facts."""
+    with pytest.raises(ValueError):
+        replace(setup_event, setup_s=invalid_value)
+    with pytest.raises(ValueError):
+        replace(setup_event, samples_s=(invalid_value,))
+    with pytest.raises(ValueError):
+        replace(solve_attempt, solve_s=invalid_value)
+    with pytest.raises(ValueError):
+        replace(solve_attempt, samples_s=(invalid_value,))
+    with pytest.raises(ValueError):
+        replace(
+            solve_attempt,
+            outcome=SolveConverged(iterations=4, final_relative_residual=invalid_value),
+        )
 
 
 def test_setup_event_retains_the_complete_raw_payload(setup_event: MatrixSetupEvent) -> None:

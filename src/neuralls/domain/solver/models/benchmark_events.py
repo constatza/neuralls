@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 
@@ -138,5 +139,5 @@ def _validate_samples(samples_s: tuple[float, ...]) -> None:
 
 def _validate_non_negative(value: float, name: str) -> None:
     """Reject quantities that cannot represent a physical benchmark measurement."""
-    if value < 0:
-        raise ValueError(f"{name} must be non-negative")
+    if not isfinite(value) or value < 0:
+        raise ValueError(f"{name} must be finite and non-negative")
