@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from neuralls.domain.solver.models.result import CGComparisonResult
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 
 
 def test_total_time_sums_setup_and_solve(

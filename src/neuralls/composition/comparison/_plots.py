@@ -10,7 +10,9 @@ from typing import cast
 
 from neuralls.composition.comparison._presentation import build_comparison_plot_title
 from neuralls.composition.comparison.models import ComparisonPaths
-from neuralls.domain.solver.models.result import COST_FIELD_REGISTRY, CGComparisonResult, PlotPaths
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.cost_fields import COST_FIELD_REGISTRY
+from neuralls.domain.solver.models.plot_paths import PlotPaths
 from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
     plot_error_convergence_comparison,

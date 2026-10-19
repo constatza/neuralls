@@ -18,29 +18,23 @@ from neuralls.composition.comparison._plots import unique_display_labels
 from neuralls.composition.comparison._preconditioner_setup import DatasetPreconditionerCache
 from neuralls.composition.comparison.models import ComparisonOutcome, PlannedSystem
 from neuralls.composition.comparison.recipes import system_tag
-from neuralls.domain.solver.comparison import classify_level
-from neuralls.domain.solver.metrics_table import (
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.group_outcomes import GroupAggregated, GroupSkippedAllCacheHit
+from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLabel, MediumLabel
+from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
+from neuralls.domain.solver.models.presentation import GroupPresentation
+from neuralls.domain.solver.models.sharing import SetupSharingPolicy
+from neuralls.domain.solver.ports import GroupReportSink
+from neuralls.domain.solver.reporting.classification import classify_level
+from neuralls.domain.solver.reporting.metrics_frame import SystemTag
+from neuralls.domain.solver.reporting.report_levels import (
     FineLevel,
     GlobalLevel,
     MediumLevel,
     ReportLevel,
-    SystemTag,
     label_key,
     report_key,
 )
-from neuralls.domain.solver.models.result import (
-    CGComparisonResult,
-    FineLabel,
-    GlobalLabel,
-    GroupAggregated,
-    GroupLabel,
-    GroupPresentation,
-    GroupSkippedAllCacheHit,
-    MediumLabel,
-    PreconditionerPlotStyle,
-    SetupSharingPolicy,
-)
-from neuralls.domain.solver.ports import GroupReportSink
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.shared.types import DatasetId, GenerationRepeatability
 

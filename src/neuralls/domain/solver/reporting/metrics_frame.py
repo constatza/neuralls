@@ -1,0 +1,83 @@
+"""Long-form metrics frame: one row per preconditioner and system."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass
+
+import polars as pl
+
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.reporting.solve_time import (
+    available_generation_seconds,
+    time_to_solution,
+)
+from neuralls.shared.types import DatasetId, MatrixId
+
+PRECONDITIONER = "preconditioner"
+
+SYSTEM_ID = "system_id"
+
+METRICS_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
+    "dataset": pl.String,
+    "recipe": pl.String,
+    "matrix_id": pl.Int64,
+    "rhs_ordinal": pl.Int64,
+    SYSTEM_ID: pl.String,
+    PRECONDITIONER: pl.String,
+    "setup_s": pl.Float64,
+    "generation_s": pl.Float64,
+    "solve_s": pl.Float64,
+    "iterations": pl.Int64,
+    "time_to_solution_s": pl.Float64,
+    "peak_memory_bytes": pl.Int64,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class SystemTag:
+    """Where one solved system sits in the case: dataset, RHS recipe, matrix, RHS.
+
+    Attributes:
+        dataset: The dataset the system's matrix and RHS come from.
+        recipe: Rendered RHS recipe label (e.g. ``"sinusoidal ω=6.28"``).
+        matrix_id: Physical matrix index within the dataset.
+        rhs_ordinal: Position of this RHS among the matrix's RHS draws.
+        system_id: Stable identifier of the system, used to key per-system points.
+    """
+
+    dataset: DatasetId
+    recipe: str
+    matrix_id: MatrixId
+    rhs_ordinal: int
+    system_id: str
+
+
+def build_metrics_frame(
+    results_by_system: Mapping[SystemTag, Mapping[str, CGComparisonResult]],
+) -> pl.DataFrame:
+    """One row per (system, preconditioner).
+
+    ``generation_s`` is null when the generation cost is unavailable (the same
+    results ``time_to_solution_s`` treats as incomparable, which is null too);
+    ``solve_s`` is null when the solve was not measured.
+    """
+    rows = [
+        {
+            "dataset": tag.dataset,
+            "recipe": tag.recipe,
+            "matrix_id": tag.matrix_id,
+            "rhs_ordinal": tag.rhs_ordinal,
+            SYSTEM_ID: tag.system_id,
+            PRECONDITIONER: name,
+            "setup_s": result.setup_cost,
+            "generation_s": available_generation_seconds(result),
+            "solve_s": result.solve_time_seconds,
+            "iterations": result.iterations,
+            "time_to_solution_s": time_to_solution(result),
+            "peak_memory_bytes": result.peak_memory_bytes,
+        }
+        for tag, system_results in results_by_system.items()
+        for name, result in system_results.items()
+    ]
+    return pl.DataFrame(rows, schema=METRICS_SCHEMA)

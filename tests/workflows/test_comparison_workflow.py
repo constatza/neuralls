@@ -29,15 +29,15 @@ from neuralls.composition.comparison.models import (
     PlannedSystem,
 )
 from neuralls.domain.identity import StageIdentity
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
+from neuralls.domain.solver.models.plot_paths import PlotPaths
 from neuralls.domain.solver.models.provenance import HeldOutMatrix, SharedSingleMatrix
-from neuralls.domain.solver.models.result import (
-    CGComparisonResult,
+from neuralls.domain.solver.models.recommendations import (
     ComparisonRecommendations,
-    ComparisonResult,
-    PlotPaths,
     RankedRecommendation,
 )
+from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.platform.config.models.experiments import (
     AssignmentEntry,
     CaseConfig,

@@ -16,14 +16,12 @@ import tomli_w
 from numpy.typing import NDArray
 
 from neuralls.domain.solver.cost_metrics import iterations_to_tolerances
-from neuralls.domain.solver.models.result import (
-    COST_FIELD_REGISTRY,
-    CGComparisonResult,
-    ComparisonRecommendations,
-    ComparisonResult,
-    PlotPaths,
-    ProjectedComparisonResult,
-)
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.cost_fields import COST_FIELD_REGISTRY
+from neuralls.domain.solver.models.plot_paths import PlotPaths
+from neuralls.domain.solver.models.projection import ProjectedComparisonResult
+from neuralls.domain.solver.models.recommendations import ComparisonRecommendations
+from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.platform.reporting.serialization import to_json_primitive
 
 

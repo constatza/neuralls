@@ -9,11 +9,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Protocol, runtime_checkable
 
-from neuralls.domain.solver.models.result import (
-    ComparisonResult,
-    GroupAggregated,
-    GroupPresentation,
-)
+from neuralls.domain.solver.models.group_outcomes import GroupAggregated
+from neuralls.domain.solver.models.presentation import GroupPresentation
+from neuralls.domain.solver.models.result import ComparisonResult
 
 
 @runtime_checkable

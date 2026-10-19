@@ -18,7 +18,9 @@ from torchalg.preconditioners.implementations import Identity, JacobiPreconditio
 from neuralls.composition.comparison._plots import _generate_comparison_plots
 from neuralls.composition.comparison.models import ComparisonPaths
 from neuralls.domain.analysis.spectra import plot_condition_numbers
-from neuralls.domain.solver.models.result import CGComparisonResult, PlotPaths, StageCost
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.plot_paths import PlotPaths
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerConfig,
     PreconditionerType,

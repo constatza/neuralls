@@ -8,7 +8,8 @@ import torch
 from torchalg.models.result import SolverResult
 from torchalg.preconditioners.implementations import Identity, JacobiPreconditioner
 
-from neuralls.domain.solver.models.result import CGComparisonResult, StageCost
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.cost import StageCost
 from neuralls.shared.types import CostProvenance
 
 

@@ -26,13 +26,13 @@ from torchalg.preconditioners.implementations import (
     Identity,
 )
 
-from neuralls.domain.solver.comparison import (
+from neuralls.domain.solver.comparison import run_cg_comparison
+from neuralls.domain.solver.comparison_summary import (
     format_results_summary,
-    run_cg_comparison,
     summarize_best_combinations,
 )
 from neuralls.domain.solver.error_metrics import relative_exact_error
-from neuralls.domain.solver.models.result import CGComparisonResult
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 
 if TYPE_CHECKING:
     from torch import Tensor

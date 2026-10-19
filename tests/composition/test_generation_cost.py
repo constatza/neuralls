@@ -20,7 +20,7 @@ from neuralls.composition.comparison._generation_cost import (
     resolve_generation_cost,
     resolve_generation_repeatability,
 )
-from neuralls.domain.solver.models.result import StageCost
+from neuralls.domain.solver.models.cost import StageCost
 from neuralls.platform.config.models.preconditioner import (
     AggregationCoarseningConfig,
     AMGPreconditionerConfig,

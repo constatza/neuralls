@@ -59,9 +59,7 @@ from neuralls.composition.tracking.run_specs import (
     build_session_run_spec,
 )
 from neuralls.domain.identity import StageIdentity
-from neuralls.domain.solver.models.result import (
-    ComparisonResult,
-)
+from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.comparison import ComparisonConfig

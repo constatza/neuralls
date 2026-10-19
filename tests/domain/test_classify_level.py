@@ -9,17 +9,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from neuralls.domain.solver.comparison import classify_level
-from neuralls.domain.solver.metrics_table import FineLevel, GlobalLevel, MediumLevel, SystemTag
-from neuralls.domain.solver.models.result import (
-    CGComparisonResult,
-    FineLabel,
-    GlobalLabel,
-    GroupAggregated,
-    GroupSkippedAllCacheHit,
-    MediumLabel,
-    SetupSharingPolicy,
-)
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.group_outcomes import GroupAggregated, GroupSkippedAllCacheHit
+from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, MediumLabel
+from neuralls.domain.solver.models.sharing import SetupSharingPolicy
+from neuralls.domain.solver.reporting.classification import classify_level
+from neuralls.domain.solver.reporting.metrics_frame import SystemTag
+from neuralls.domain.solver.reporting.report_levels import FineLevel, GlobalLevel, MediumLevel
 from neuralls.shared.types import DatasetId, GroupId, MatrixId
 
 

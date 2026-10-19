@@ -11,7 +11,7 @@ from neuralls.domain.solver.cost_metrics import (
     setup_time_per_dof,
     time_per_dof_per_iteration,
 )
-from neuralls.domain.solver.models.result import CGComparisonResult
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 
 
 def test_iterations_per_second_computes_throughput(

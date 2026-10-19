@@ -1,13 +1,10 @@
 """Workflow configuration and reporting models for solver orchestration."""
 
+from .cg_result import CGComparisonResult
 from .config import ComparisonData, ComparisonGeneral, SolverParams
-from .result import (
-    CGComparisonResult,
-    ComparisonRecommendations,
-    ComparisonResult,
-    PlotPaths,
-    RankedRecommendation,
-)
+from .plot_paths import PlotPaths
+from .recommendations import ComparisonRecommendations, RankedRecommendation
+from .result import ComparisonResult
 
 __all__ = [
     "CGComparisonResult",

@@ -14,23 +14,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from neuralls.domain.solver.metrics_table import (
-    FineLevel,
-    GlobalLevel,
-    MediumLevel,
-    SystemTag,
-    build_metrics_frame,
-    report_level,
-    time_to_solution_by_system,
-)
-from neuralls.domain.solver.models.result import (
-    CGComparisonResult,
-    FineLabel,
-    GlobalLabel,
-    MediumLabel,
-    SetupSharingPolicy,
-    StageCost,
-)
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, MediumLabel
+from neuralls.domain.solver.models.sharing import SetupSharingPolicy
+from neuralls.domain.solver.reporting.aggregation import report_level, time_to_solution_by_system
+from neuralls.domain.solver.reporting.metrics_frame import SystemTag, build_metrics_frame
+from neuralls.domain.solver.reporting.report_levels import FineLevel, GlobalLevel, MediumLevel
 from neuralls.shared.types import CostProvenance, DatasetId, MatrixId
 
 NOT_SHARED = SetupSharingPolicy(share_setup=False, share_generation=False)

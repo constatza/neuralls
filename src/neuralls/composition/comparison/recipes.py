@@ -9,7 +9,7 @@ identical parameters share one. The label is each source model's
 from __future__ import annotations
 
 from neuralls.composition.comparison.models import PlannedSystem
-from neuralls.domain.solver.metrics_table import SystemTag
+from neuralls.domain.solver.reporting.metrics_frame import SystemTag
 from neuralls.shared.types import DatasetId
 
 __all__ = ["system_tag"]

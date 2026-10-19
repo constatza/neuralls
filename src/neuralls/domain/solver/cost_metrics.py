@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import math
 
-from neuralls.domain.solver.models.result import CGComparisonResult
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.shared.constants import TOLERANCE_LADDER_DECADE_STEP, TOLERANCE_LADDER_START_DECADE
 
 

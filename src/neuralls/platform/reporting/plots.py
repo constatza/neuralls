@@ -18,11 +18,9 @@ import numpy as np
 import seaborn as sns
 from loguru import logger
 
-from neuralls.domain.solver.models.result import (
-    CGComparisonResult,
-    ProjectedComparisonResult,
-    StageCost,
-)
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.projection import ProjectedComparisonResult
 from neuralls.shared.types import CostProvenance
 
 DEFAULT_LINE_MARKER_SIZE = 2.0

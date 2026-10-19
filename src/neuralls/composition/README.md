@@ -404,7 +404,7 @@ resolution for a `matrix_dataset` id is shared between the planner and
 `resolve_comparison_config` via `config_assembler.resolve_dataset_dir`.
 
 **Report levels.** Every executed system is tagged once
-(`comparison/recipes.py::system_tag` -> `domain.solver.metrics_table.SystemTag`)
+(`comparison/recipes.py::system_tag` -> `domain.solver.reporting.metrics_frame.SystemTag`)
 with its dataset, RHS recipe label, matrix id, RHS ordinal and entry id.
 Each source model's `recipe_label` is the single definition of a recipe: the
 kind plus the parameters that make problems differ (`gaussian`,
@@ -415,7 +415,7 @@ omegas, or a masked and an unmasked run of one kind, are two recipes and entries
 
 After the batch executes, `comparison/group_reporting.py::report_all_levels`
 makes one pass over the planned systems and their outcomes, then calls
-`domain.solver.comparison.classify_level` once per level of
+`domain.solver.reporting.classification.classify_level` once per level of
 `REPORT_LEVELS` — the preconditioner is always part of the key, the level
 chooses the other columns:
 

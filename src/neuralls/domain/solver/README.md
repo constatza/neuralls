@@ -4,6 +4,18 @@
 CG, PCG, FCG, monitoring primitives, solver results, and preconditioner
 implementations are delegated to `torchalg`.
 
+## Layout
+
+- `comparison.py` runs the CG comparison; `comparison_summary.py` formats and
+  ranks its results; `error_metrics.py` and `cost_metrics.py` derive per-run
+  metrics.
+- `models/` holds one concept per file: `cg_result` (`CGComparisonResult`),
+  `cost` (`StageCost`), `cost_fields`, `sharing`, `projection`, `labels`,
+  `group_outcomes`, `plot_style`, `plot_paths`, `presentation`,
+  `recommendations`, `result` (`ComparisonResult`) and `config`.
+- `reporting/` turns measured results into report groups: `metrics_frame`,
+  `solve_time`, `report_levels`, `aggregation`, `classification`.
+
 ## What Stays Here
 
 - Solver and comparison configuration DTOs:
@@ -71,7 +83,7 @@ implementations are delegated to `torchalg`.
     repeats (contributes `N *` its per-system average);
     `projected_total_seconds(n)`/`projected_avg_per_system_seconds(n)` are
     the resulting closed-form extrapolations, never a real N-system run.
-    `domain/solver/metrics_table.py::report_level` builds these
+    `domain/solver/reporting/aggregation.py::report_level` builds these
     from systems' `CGComparisonResult`s (via the long-form `build_metrics_frame`
     polars table) plus a pre-computed sharing policy
     per preconditioner — it cannot compute `share_setup` itself (that needs
@@ -80,7 +92,7 @@ implementations are delegated to `torchalg`.
     (`composition/comparison/_preconditioner_setup.py::DatasetPreconditionerCache`)
     computes and passes it in. See `composition/README.md`'s "report levels"
     and "setup cache" sections for the full wiring.
-  - `metrics_table.py` — `build_metrics_frame` turns `Mapping[SystemTag,
+  - `reporting/` — `metrics_frame.py::build_metrics_frame` turns `Mapping[SystemTag,
     Mapping[str, CGComparisonResult]]` into one polars row per (system,
     preconditioner) (`dataset`, `recipe`, `matrix_id`, `rhs_ordinal`,
     `system_id`, `preconditioner`, `setup_s`, `generation_s`, `solve_s`,
@@ -108,7 +120,7 @@ implementations are delegated to `torchalg`.
     `n_aggregated`/`n_matrices`/`n_in_group` (a partially-cached or
     partly-failed group is reported with a visible gap, handled like a full
     one) and `time_to_solution_by_system`, each system's point behind the
-    means. `domain/solver/comparison.py::classify_level` is the pure
+    means. `domain/solver/reporting/classification.py::classify_level` is the pure
     classifier producing one outcome per report group of a level from the
     planned systems' tags and the measured results;
     `composition/comparison/group_reporting.py` matches it exhaustively and

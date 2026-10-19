@@ -1,14 +1,8 @@
-"""CG solver comparison runner.
-
-This module provides pure domain logic for running CG comparisons across multiple
-preconditioners — dispatching each to the cheapest CG variant it is mathematically
-compatible with (standard PCG for deterministic SPD preconditioners, Flexible CG
-for iteration-varying or non-SPD ones) — plus result formatting and analysis.
-"""
+"""CG comparison runner: solve each preconditioner with the cheapest compatible CG variant."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from enum import StrEnum
 
 import numpy as np
@@ -26,28 +20,7 @@ from neuralls.domain.solver.error_metrics import (
     reference_solution,
     relative_exact_error,
 )
-from neuralls.domain.solver.metrics_table import (
-    ReportLevel,
-    SystemTag,
-    build_metrics_frame,
-    label_for_tags,
-    label_key,
-    report_key,
-    report_level,
-    system_counts,
-    time_to_solution,
-    time_to_solution_by_system,
-)
-from neuralls.domain.solver.models.result import (
-    CGComparisonResult,
-    ComparisonGroupOutcome,
-    ComparisonRecommendations,
-    GroupAggregated,
-    GroupSkippedAllCacheHit,
-    RankedRecommendation,
-    SetupSharingPolicy,
-    render_group_id,
-)
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
 from neuralls.shared.device import release_device_memory, repeat_timed
 from neuralls.shared.timing import TimingRepeatPolicy
@@ -323,155 +296,3 @@ def _solve_one(
                 trace_mode=TraceMode.MINIMAL,
                 x_exact=x_exact,
             )
-
-
-def format_results_summary(results: dict[str, CGComparisonResult]) -> str:
-    """Format CG results into a readable summary.
-
-    Status codes follow SciPy convention:
-    - "ok": converged (info=0)
-    - "fail": did not converge (info>0), either max iterations or breakdown
-
-    Args:
-        results: CG comparison results.
-
-    Returns:
-        Formatted summary string.
-    """
-    return "\n".join(
-        ["CG comparison results:"]
-        + [_format_result_line(name, result) for name, result in results.items()]
-    )
-
-
-def _format_result_line(name: str, result: CGComparisonResult) -> str:
-    """Format one preconditioner's result as a single summary line.
-
-    Args:
-        name: Preconditioner name.
-        result: Its CG comparison result.
-
-    Returns:
-        One formatted line, e.g. ``"- jacobi  status=ok  iters=5  rel_res=1.0e-08"``.
-    """
-    status = "ok" if result.converged else "fail"
-    line = (
-        f"- {name:<18} status={status:<4} iters={result.iterations:>3}"
-        f"  rel_res={result.residual:.3e}"
-    )
-    if result.residual_abs is not None:
-        line += f" (abs={result.residual_abs:.3e})"
-    if result.exact_error is not None:
-        line += f"  exact_err={result.exact_error:.3e}"
-    if result.error:
-        line += f"  note={result.error}"
-    if result.breakdown:
-        line += "  note=breakdown_post_convergence" if result.converged else "  note=breakdown"
-    return line
-
-
-def summarize_best_combinations(
-    results: dict[str, CGComparisonResult],
-) -> ComparisonRecommendations:
-    """Rank converged CG combinations by time-to-solution.
-
-    Every converged run stops just below the tolerance, so its final residual
-    says nothing about quality; what differs is the cost of getting there.
-    Entries are ordered by total time (generation + setup + solve), then by
-    iterations; an entry whose time is incomparable ranks after all timed
-    ones.
-
-    Args:
-        results: CG comparison results.
-
-    Returns:
-        Typed ranked recommendations with an overall best entry.
-    """
-    ranked = sorted(
-        (
-            RankedRecommendation(
-                label=label,
-                iterations=info.iterations,
-                residual=info.residual,
-                residual_abs=info.residual_abs,
-                breakdown=info.breakdown,
-                total_time_seconds=time_to_solution(info),
-            )
-            for label, info in results.items()
-            if info.converged
-        ),
-        key=lambda entry: (
-            entry.total_time_seconds is None,
-            entry.total_time_seconds or 0.0,
-            entry.iterations,
-        ),
-    )
-    return ComparisonRecommendations(
-        ranked=tuple(ranked),
-        overall_best=ranked[0] if ranked else None,
-    )
-
-
-def classify_level(
-    planned: Sequence[SystemTag],
-    results_by_system: Mapping[SystemTag, Mapping[str, CGComparisonResult]],
-    sharing_by_name: Mapping[str, SetupSharingPolicy],
-    level: ReportLevel,
-) -> tuple[ComparisonGroupOutcome, ...]:
-    """Reduce one report level to a closed outcome per report group.
-
-    Pure: ``planned`` names every system of the case, ``results_by_system``
-    only those that produced results this run (cache hits and failures carry
-    none). A group with at least one measured system is aggregated; one with
-    none is `GroupSkippedAllCacheHit`. A group of a single system is still
-    reported (without a spread); the only statistical control is the
-    per-system timing repeat policy.
-
-    Args:
-        planned: Tag of every planned system, in plan order.
-        results_by_system: Results of each system that produced some this run.
-        sharing_by_name: Each preconditioner name's `SetupSharingPolicy`.
-        level: Which columns, besides the preconditioner, key the groups.
-
-    Returns:
-        One outcome per group of ``planned`` at ``level``, in first-seen order.
-
-    Raises:
-        KeyError: If a measured preconditioner has no entry in ``sharing_by_name``.
-    """
-    frame = build_metrics_frame(results_by_system)
-    projected_by_label = report_level(frame, level, sharing_by_name) if frame.height else {}
-    times_by_label = time_to_solution_by_system(frame, level) if frame.height else {}
-    counts_by_label = system_counts(frame, level) if frame.height else {}
-    measured = {label_key(label): label for label in projected_by_label}
-
-    tags_by_key: dict[tuple[str, ...], list[SystemTag]] = {}
-    for tag in planned:
-        tags_by_key.setdefault(report_key(level, tag), []).append(tag)
-
-    outcomes: list[ComparisonGroupOutcome] = []
-    for key, tags in tags_by_key.items():
-        label = measured.get(key)
-        if label is None:
-            skipped_label = label_for_tags(level, tags)
-            outcomes.append(
-                GroupSkippedAllCacheHit(
-                    group_id=render_group_id(skipped_label),
-                    label=skipped_label,
-                    n_in_group=len(tags),
-                )
-            )
-            continue
-        counts = counts_by_label[label]
-        outcomes.append(
-            GroupAggregated(
-                group_id=render_group_id(label),
-                label=label,
-                projected=projected_by_label[label],
-                n_aggregated=counts.n_systems,
-                n_matrices=counts.n_matrices,
-                n_in_group=len(tags),
-                time_to_solution_by_system=times_by_label.get(label, {}),
-            )
-        )
-    return tuple(outcomes)

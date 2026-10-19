@@ -15,8 +15,9 @@ from neuralls.composition.comparison.models import LinearSystem
 from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
-from neuralls.domain.solver.models.result import CGComparisonResult, PlotPaths
+from neuralls.domain.solver.models.plot_paths import PlotPaths
 from neuralls.platform.config.loaders import load_comparison_config
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,

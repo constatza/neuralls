@@ -14,11 +14,9 @@ import numpy as np
 import pytest
 from matplotlib.figure import Figure
 
-from neuralls.domain.solver.models.result import (
-    CGComparisonResult,
-    ProjectedComparisonResult,
-    SetupSharingPolicy,
-)
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.projection import ProjectedComparisonResult
+from neuralls.domain.solver.models.sharing import SetupSharingPolicy
 from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.platform.reporting.plots import (
     SCALING_LAW_N_MIN,

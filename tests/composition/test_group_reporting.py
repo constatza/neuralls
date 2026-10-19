@@ -21,14 +21,12 @@ from neuralls.composition.comparison.models import (
     MatrixRef,
     PlannedSystem,
 )
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
-from neuralls.domain.solver.models.result import (
-    CGComparisonResult,
-    ComparisonResult,
-    GroupAggregated,
-    GroupPresentation,
-    PreconditionerPlotStyle,
-)
+from neuralls.domain.solver.models.group_outcomes import GroupAggregated
+from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
+from neuralls.domain.solver.models.presentation import GroupPresentation
+from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,

@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from neuralls.domain.solver.cost_metrics import iterations_to_tolerances, tolerance_ladder
-from neuralls.domain.solver.models.result import CGComparisonResult
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 
 
 @pytest.mark.parametrize(

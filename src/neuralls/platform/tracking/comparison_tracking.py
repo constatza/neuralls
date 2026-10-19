@@ -13,14 +13,12 @@ from neuralls.domain.solver.cost_metrics import (
     setup_time_per_dof,
     time_per_dof_per_iteration,
 )
-from neuralls.domain.solver.models.result import (
-    CGComparisonResult,
-    ComparisonResult,
-    GroupAggregated,
-    GroupPresentation,
-    ProjectedComparisonResult,
-    plot_style_maps,
-)
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.group_outcomes import GroupAggregated
+from neuralls.domain.solver.models.plot_style import plot_style_maps
+from neuralls.domain.solver.models.presentation import GroupPresentation
+from neuralls.domain.solver.models.projection import ProjectedComparisonResult
+from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths

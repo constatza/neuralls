@@ -23,13 +23,13 @@ from neuralls.composition.assignments.runtime_dataset_contract import (
 from neuralls.composition.comparison.models import ComparisonParams
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import ComparisonGeneral
-from neuralls.domain.solver.models.result import (
-    CGComparisonResult,
+from neuralls.domain.solver.models.recommendations import (
     ComparisonRecommendations,
-    ComparisonResult,
     RankedRecommendation,
 )
+from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.reporting.training_diagnostics import compute_diagnostics
 from neuralls.platform.tracking.mlflow_client import log_diagnostics_to_mlflow

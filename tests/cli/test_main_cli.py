@@ -26,7 +26,7 @@ from neuralls.composition.comparison.models import (
     ComparisonResult,
 )
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
-from neuralls.domain.solver.models.result import ComparisonRecommendations
+from neuralls.domain.solver.models.recommendations import ComparisonRecommendations
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.shared.constants import EXIT_FAILURE
 

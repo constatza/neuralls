@@ -8,7 +8,8 @@ one implies the other.
 
 from __future__ import annotations
 
-from neuralls.domain.solver.models.result import ProjectedComparisonResult, SetupSharingPolicy
+from neuralls.domain.solver.models.projection import ProjectedComparisonResult
+from neuralls.domain.solver.models.sharing import SetupSharingPolicy
 
 
 def test_fully_amortized_total_is_constant_setup_plus_scaling_solve() -> None:

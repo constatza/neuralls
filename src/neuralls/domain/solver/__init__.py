@@ -9,19 +9,20 @@ from __future__ import annotations
 
 from torchalg.monitoring import TraceMode
 
-from .comparison import (
+from neuralls.domain.solver.comparison import run_cg_comparison
+from neuralls.domain.solver.comparison_summary import (
     format_results_summary,
-    run_cg_comparison,
     summarize_best_combinations,
 )
-from .models.config import ComparisonData, ComparisonGeneral, SolverConfig, SolverParams
-from .models.result import (
-    CGComparisonResult,
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.plot_paths import PlotPaths
+from neuralls.domain.solver.models.recommendations import (
     ComparisonRecommendations,
-    ComparisonResult,
-    PlotPaths,
     RankedRecommendation,
 )
+from neuralls.domain.solver.models.result import ComparisonResult
+
+from .models.config import ComparisonData, ComparisonGeneral, SolverConfig, SolverParams
 
 __all__ = [
     "CGComparisonResult",

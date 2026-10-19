@@ -33,17 +33,14 @@ from neuralls.composition.preconditioners.checkpoint_store import CheckpointStor
 from neuralls.domain.solver.comparison import (
     _to_numpy,
     compute_reference_solution,
-    format_results_summary,
     run_cg_comparison,
 )
+from neuralls.domain.solver.comparison_summary import format_results_summary
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
-from neuralls.domain.solver.models.result import (
-    CGComparisonResult,
-    ComparisonRecommendations,
-    ComparisonResult,
-    PreconditionerPlotStyle,
-    plot_style_maps,
-)
+from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle, plot_style_maps
+from neuralls.domain.solver.models.recommendations import ComparisonRecommendations
+from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.platform.config.models.comparison import ComparisonGeneral
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,

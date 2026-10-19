@@ -8,12 +8,13 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.provenance import (
     HeldOutMatrix,
     MatrixProvenance,
     SharedSingleMatrix,
 )
-from neuralls.domain.solver.models.result import CGComparisonResult, ComparisonResult
+from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.platform.config.models.comparison import RHS_SOURCE_MODEL_BY_KIND
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey

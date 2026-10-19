@@ -12,12 +12,10 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
-from neuralls.domain.solver.models.result import (
-    CGComparisonResult,
-    ComparisonResult,
-    StageCost,
-)
+from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.platform.reporting.artifacts import write_comparison_artifacts
 from neuralls.shared.types import CostProvenance
 

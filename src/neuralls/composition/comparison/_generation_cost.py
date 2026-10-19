@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from neuralls.domain.solver.models.result import StageCost
+from neuralls.domain.solver.models.cost import StageCost
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
 from neuralls.platform.config.models.preconditioner import (

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from neuralls.composition.comparison._plots import COST_PLOT_STYLE
-from neuralls.domain.solver.models.result import COST_FIELD_REGISTRY
+from neuralls.domain.solver.models.cost_fields import COST_FIELD_REGISTRY
 
 
 def test_plot_styles_cover_exactly_the_registered_cost_fields() -> None:
