@@ -28,9 +28,8 @@ from neuralls.composition.comparison.models import (
 )
 from neuralls.domain.identity import StageIdentity
 from neuralls.shared.digest import canonical_digest
+from tests.workflows.comparison_support import MLFLOW_MODULE
 from tests.workflows.test_comparison_workflow import _mock_cfg, _write_experiments_config
-
-_MLFLOW_MODULE = "neuralls.composition.assignments.comparison_batch.mlflow"
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
@@ -62,7 +61,7 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
             "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
             return_value=_mock_cfg(),
         ),
-        patch(_MLFLOW_MODULE) as mock_mlflow,
+        patch(MLFLOW_MODULE) as mock_mlflow,
     ):
         outcomes = run_comparison_batch(experiments_config, ComparisonParams())
 
@@ -117,7 +116,7 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
                 comparison_id="b", comparison_display_name="b", success=True
             ),
         ),
-        patch(_MLFLOW_MODULE) as mock_mlflow,
+        patch(MLFLOW_MODULE) as mock_mlflow,
     ):
         outcomes = run_comparison_batch(experiments_config, ComparisonParams())
 
