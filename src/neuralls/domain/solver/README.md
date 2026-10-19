@@ -10,13 +10,15 @@ implementations are delegated to `torchalg`.
   ranks its results; `error_metrics.py` and `cost_metrics.py` derive per-run
   metrics.
 - `models/` holds one concept per file: `benchmark_events` (canonical raw
-  `MatrixSetupEvent` and `SolveAttempt` timing data), `cg_result` (`CGComparisonResult`),
+  `MatrixSetupEvent` and `SolveAttempt` timing data), `workload` (complete and
+  explicitly incomplete method workload summaries), `cg_result` (`CGComparisonResult`),
   `cost` (`StageCost`), `cost_fields`, `sharing`, `convergence`, `projection`,
   `outcomes`, `statistics` (leaf value types), `labels`, `group_outcomes`,
   `plot_style`, `plot_paths`, `presentation`, `recommendations`, `result`
   (`ComparisonResult`) and `config`.
-- `reporting/` turns measured results into report groups: `metrics_frame`,
-  `solve_time`, `report_levels`, `aggregation`, `classification`.
+- `reporting/` serializes normalized events and derives report groups:
+  `event_frames`, `aggregation`, `metrics_frame`, `solve_time`, `report_levels`,
+  `classification`.
 - Method-comparison statistics (profiles, paired comparison, break-even,
   bootstrap intervals) live in `domain/benchmarking/`, which depends on
   `solver.models` and never the reverse.
@@ -35,6 +37,11 @@ implementations are delegated to `torchalg`.
     states are closed variants, so unknown memory and failed operations are
     never silently represented as zero, `None`, or a Boolean. During this
     migration, `CGComparisonResult` remains the diagnostic solver DTO.
+  - `CompleteWorkloadSummary | IncompleteWorkloadSummary` reports one method's
+    planned, attempted, and converged RHS counts; setup, solve, and online
+    workload totals; online time per attempted RHS when defined; and workload
+    peak memory. An incomplete summary also names every unattempted system and
+    is rejected by ranking rather than appearing artificially cheap.
   - `CGComparisonResult` — a three-stage cost model: generation, setup, and
     solve, each measuring a conceptually different thing, so a result never
     has to encode "which stage is this number" in a comment or a naming
@@ -108,7 +115,18 @@ implementations are delegated to `torchalg`.
     (`composition/comparison/_preconditioner_setup.py::DatasetPreconditionerCache`)
     computes and passes it in. See `composition/README.md`'s "report levels"
     and "setup cache" sections for the full wiring.
-  - `reporting/` — `metrics_frame.py::build_metrics_frame` turns `Mapping[SystemTag,
+  - `reporting/event_frames.py` serializes setup events and solve attempts as
+    separate normalized Polars frames. `aggregation.py::build_system_cost_frame`
+    first counts the complete planned RHS membership of each `(dataset,
+    matrix_id)`, validates every solve-to-setup link, then derives
+    `allocated_setup_s = setup_s / planned_rhs_count` and
+    `amortized_online_s = solve_s + allocated_setup_s`. Recipe grouping happens
+    only after this allocation, so recipes sharing a matrix divide one setup
+    charge instead of duplicating it. `build_matrix_bundle_frame` retains one
+    setup row per method and matrix and derives `matrix_online_s = setup_s +
+    sum(solve_s)`. `summarize_method_workload` derives setup, solve, and online
+    totals from those raw events and preserves incomplete planned membership.
+  - `reporting/metrics_frame.py::build_metrics_frame` turns `Mapping[SystemTag,
     Mapping[str, CGComparisonResult]]` into one polars row per (system,
     preconditioner) (`dataset`, `recipe`, `matrix_id`, `rhs_ordinal`,
     `system_id`, `preconditioner`, `setup_s`, `generation_s`, `solve_s`,
