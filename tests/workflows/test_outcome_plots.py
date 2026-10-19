@@ -8,10 +8,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-
 import numpy as np
 import pytest
 from matplotlib.axes import Axes
@@ -145,6 +141,27 @@ def test_time_scatter_handles_a_group_where_nothing_was_solved(
     )
 
     assert path is not None and path.exists()
+
+
+@pytest.mark.real_render
+def test_time_scatter_saves_a_decodable_png(
+    tmp_path: Path, style: GroupStyle, outcomes: Outcomes
+) -> None:
+    path = plot_time_scatter(outcomes, style=style, save_path=tmp_path / "s.png")
+
+    assert path is not None
+    assert path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_time_scatter_draws_nothing_when_solved_systems_have_no_recorded_time(
+    tmp_path: Path, style: GroupStyle
+) -> None:
+    path = plot_time_scatter(
+        {"identity": {"s0": Solved(2, None)}}, style=style, save_path=tmp_path / "s.png"
+    )
+
+    assert path is None
+    assert not (tmp_path / "s.png").exists()
 
 
 def test_paired_scatter_marks_the_reference_runs_the_method_failed(

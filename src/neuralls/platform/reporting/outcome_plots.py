@@ -208,6 +208,8 @@ def plot_time_scatter(
     Unlike a median bar, every system stays a point, so a method that is fast
     only because it fails is visible as a row of hollow markers. The y value is
     the recurring time per system (solve plus per-system setup/generation). One-time shared costs are not in these times; they appear in ERT, the projection and break-even instead.
+    Returns `None` when there is nothing to place: no solved system has a recorded time
+    and none failed (a log axis cannot be drawn without data).
     """
     if not outcomes:
         return None
@@ -216,6 +218,13 @@ def plot_time_scatter(
     system_ids = list(dict.fromkeys(sid for per_system in outcomes.values() for sid in per_system))
     position = {sid: i for i, sid in enumerate(system_ids)}
     all_times = [t for per_system in outcomes.values() for t in _solved_times(per_system).values()]
+    any_failed = any(
+        isinstance(outcome, Failed)
+        for per_system in outcomes.values()
+        for outcome in per_system.values()
+    )
+    if not all_times and not any_failed:
+        return None
     failed_y = _FAILED_AXIS_MARGIN * max(all_times) if all_times else 1.0
 
     fig, ax = plt.subplots(figsize=(9, 5))
