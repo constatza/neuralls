@@ -7,7 +7,6 @@ from neuralls.domain.solver.models.recommendations import (
     ComparisonRecommendations,
     RankedRecommendation,
 )
-from neuralls.domain.solver.reporting.solve_time import time_to_solution
 
 
 def format_results_summary(results: dict[str, CGComparisonResult]) -> str:
@@ -58,13 +57,12 @@ def _format_result_line(name: str, result: CGComparisonResult) -> str:
 def summarize_best_combinations(
     results: dict[str, CGComparisonResult],
 ) -> ComparisonRecommendations:
-    """Rank converged CG combinations by time-to-solution.
+    """Rank converged diagnostic results by measured solve time.
 
     Every converged run stops just below the tolerance, so its final residual
     says nothing about quality; what differs is the cost of getting there.
-    Entries are ordered by total time (generation + setup + solve), then by
-    iterations; an entry whose time is incomparable ranks after all timed
-    ones.
+    Entries are ordered by PCG/FCG solve time, then iterations. Workload-level
+    setup-aware ranking uses canonical benchmark events instead.
 
     Args:
         results: CG comparison results.
@@ -80,14 +78,14 @@ def summarize_best_combinations(
                 residual=info.residual,
                 residual_abs=info.residual_abs,
                 breakdown=info.breakdown,
-                total_time_seconds=time_to_solution(info),
+                solve_time_seconds=info.solve_time_seconds,
             )
             for label, info in results.items()
             if info.converged
         ),
         key=lambda entry: (
-            entry.total_time_seconds is None,
-            entry.total_time_seconds or 0.0,
+            entry.solve_time_seconds is None,
+            entry.solve_time_seconds or 0.0,
             entry.iterations,
         ),
     )

@@ -152,7 +152,7 @@ class DatasetPreconditionerCache:
         shared across all systems only when they all solved on one matrix;
         with several matrices it is rebuilt per matrix, so its setup recurs
         and projecting it as a one-off would understate its cost. Used after
-        execution to answer `SetupSharingPolicy.share_setup`.
+        execution to determine safe prepared-state reuse.
         """
         if self._released_shared_names is not None:
             return self._released_shared_names

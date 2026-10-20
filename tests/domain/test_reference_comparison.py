@@ -1,64 +1,50 @@
-"""Group-level comparison against the reference method (``domain.benchmarking.reference_comparison``)."""
+"""Temporary observed-reference comparison until explicit configuration lands."""
 
 from __future__ import annotations
 
 import pytest
 
-from neuralls.domain.benchmarking.paired import compare_paired, paired_points
 from neuralls.domain.benchmarking.reference_comparison import compare_to_reference
 from neuralls.domain.solver.models.outcomes import Failed, Solved, SystemOutcome
-from neuralls.domain.solver.models.projection import ProjectedComparisonResult
-from neuralls.domain.solver.models.sharing import SetupSharingPolicy
+from neuralls.shared.types import MatrixId
 
 SEED = 11
 
 
-def _projection(name: str) -> ProjectedComparisonResult:
-    return ProjectedComparisonResult(
-        preconditioner_name=name,
-        n_systems=3,
-        n_converged=3,
-        setup_sharing=SetupSharingPolicy(share_setup=True, share_generation=True),
-        setup_cost_total_seconds=3.0,
-        generation_cost_total_seconds=3.0,
-        total_solve_time_seconds=6.0,
-        total_iterations=30,
-    )
+def _solved(time: float) -> Solved:
+    return Solved(MatrixId(1), 1, solve_s=time, amortized_online_s=time)
 
 
 @pytest.fixture
 def outcomes() -> dict[str, dict[str, SystemOutcome]]:
-    """``amg`` solves all three systems (reference), ``jacobi`` two, ``never`` none."""
     return {
-        "amg": {s: Solved(1, t) for s, t in (("s0", 4.0), ("s1", 6.0), ("s2", 8.0))},
-        "jacobi": {"s0": Solved(1, 2.0), "s1": Solved(1, 3.0), "s2": Failed()},
-        "never": {"s0": Failed(), "s1": Failed(), "s2": Failed()},
+        "amg": {"s0": _solved(4.0), "s1": _solved(6.0), "s2": _solved(8.0)},
+        "jacobi": {
+            "s0": _solved(2.0),
+            "s1": _solved(3.0),
+            "s2": Failed(MatrixId(1), 100, "limit"),
+        },
+        "never": {
+            "s0": Failed(MatrixId(1), 100, "limit"),
+            "s1": Failed(MatrixId(1), 100, "limit"),
+            "s2": Failed(MatrixId(1), 100, "limit"),
+        },
     }
 
 
-def test_reference_is_skipped_and_method_without_projection_is_skipped(outcomes) -> None:
-    projected = {"amg": _projection("amg"), "jacobi": _projection("jacobi")}
+def test_reference_is_skipped_but_every_other_method_is_compared(outcomes) -> None:
+    comparisons = compare_to_reference(outcomes, seed=SEED)
 
-    comparisons = compare_to_reference(outcomes, projected, seed=SEED)
-
-    assert set(comparisons) == {"jacobi"}
+    assert set(comparisons) == {"jacobi", "never"}
     assert comparisons["jacobi"].reference == "amg"
+    assert comparisons["never"].paired.n_reference_only == 3
 
 
-def test_paired_part_uses_the_reference_and_method_outcomes(outcomes) -> None:
-    projected = {"amg": _projection("amg"), "jacobi": _projection("jacobi")}
+def test_paired_part_uses_reference_over_method_ratio(outcomes) -> None:
+    comparison = compare_to_reference(outcomes, seed=SEED)["jacobi"]
 
-    comparison = compare_to_reference(outcomes, projected, seed=SEED)["jacobi"]
-
-    expected = compare_paired(paired_points(outcomes["amg"], outcomes["jacobi"]), seed=SEED)
-    assert comparison.paired == expected
-    assert comparison.paired is not None
-    assert comparison.paired.speedups == (2.0, 2.0)
-
-
-def test_missing_reference_projection_yields_no_comparisons(outcomes) -> None:
-    assert compare_to_reference(outcomes, {"jacobi": _projection("jacobi")}, seed=SEED) == {}
+    assert comparison.paired.speed_ratios == (2.0, 2.0)
 
 
 def test_empty_group_yields_no_comparisons() -> None:
-    assert compare_to_reference({}, {}, seed=SEED) == {}
+    assert compare_to_reference({}, seed=SEED) == {}

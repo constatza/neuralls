@@ -1,44 +1,39 @@
-"""Tests for ``domain.solver.comparison.classify_level``.
-
-Pure classification: given every planned system's tag and the results of those
-that produced some, decide per report group which of the two
-``ComparisonGroupOutcome`` cases applies. No MLflow or I/O involved.
-"""
+"""Event-based report-level classification."""
 
 from __future__ import annotations
 
 from dataclasses import replace
 
-import numpy as np
+import pytest
 
-from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.benchmark_events import (
+    MatrixSetupEvent,
+    SetupCompleted,
+    SetupFailed,
+    SolveAttempt,
+    SolveConverged,
+    SolveFailed,
+    SystemTag,
+    UnknownPeakMemory,
+)
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated, GroupSkippedAllCacheHit
 from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, MediumLabel
 from neuralls.domain.solver.models.outcomes import Failed, Solved
-from neuralls.domain.solver.models.sharing import SetupSharingPolicy
 from neuralls.domain.solver.reporting.classification import classify_level
-from neuralls.domain.solver.reporting.metrics_frame import SystemTag
 from neuralls.domain.solver.reporting.report_levels import FineLevel, GlobalLevel, MediumLevel
-from neuralls.shared.types import DatasetId, GroupId, MatrixId
+from neuralls.shared.types import (
+    DatasetId,
+    GroupId,
+    MatrixId,
+    PreconditionerName,
+    SetupEventId,
+    SystemId,
+)
 
 
-def _result(name: str) -> CGComparisonResult:
-    return CGComparisonResult(
-        x=np.zeros(2),
-        converged=True,
-        iterations=3,
-        residual=1e-9,
-        residual_abs=1e-9,
-        residual_history_rel=[1.0, 1e-9],
-        residual_history_abs=[1.0, 1e-9],
-        preconditioner=name,
-        initial_guess=np.zeros(2),
-        exact_error=None,
-        rhs_norm=1.0,
-        breakdown=False,
-        setup_cost=1.0,
-        solve_time_seconds=0.5,
-    )
+@pytest.fixture
+def method() -> PreconditionerName:
+    return PreconditionerName("jacobi")
 
 
 def _tag(ordinal: int, *, recipe: str = "gauss", matrix: int = 0, dataset: str = "ds") -> SystemTag:
@@ -47,131 +42,145 @@ def _tag(ordinal: int, *, recipe: str = "gauss", matrix: int = 0, dataset: str =
         recipe=recipe,
         matrix_id=MatrixId(matrix),
         rhs_ordinal=ordinal,
-        system_id=f"{dataset}-{recipe}-{matrix}-{ordinal}",
+        system_id=SystemId(f"{dataset}-{recipe}-{matrix}-{ordinal}"),
     )
 
 
-def _measured(tags: list[SystemTag]) -> dict[SystemTag, dict[str, CGComparisonResult]]:
-    return {tag: {"jacobi": _result("jacobi")} for tag in tags}
+def _setup(method: PreconditionerName, matrix: int = 0) -> MatrixSetupEvent:
+    return MatrixSetupEvent(
+        event_id=SetupEventId(f"{method}:ds:{matrix}"),
+        dataset=DatasetId("ds"),
+        matrix_id=MatrixId(matrix),
+        method=method,
+        setup_s=2.0,
+        samples_s=(2.0,),
+        peak_memory=UnknownPeakMemory(),
+        outcome=SetupCompleted(),
+    )
 
 
-_SHARING = {"jacobi": SetupSharingPolicy(share_setup=False, share_generation=False)}
+def _attempt(
+    tag: SystemTag,
+    method: PreconditionerName,
+    *,
+    converged: bool = True,
+) -> SolveAttempt:
+    outcome = (
+        SolveConverged(iterations=3, final_relative_residual=1e-9)
+        if converged
+        else SolveFailed(iterations=100, reason="iteration limit")
+    )
+    return SolveAttempt(
+        setup_event_id=SetupEventId(f"{method}:ds:{tag.matrix_id}"),
+        system_id=tag.system_id,
+        dataset=tag.dataset,
+        recipe=tag.recipe,
+        matrix_id=tag.matrix_id,
+        rhs_ordinal=tag.rhs_ordinal,
+        method=method,
+        solve_s=0.5,
+        samples_s=(0.5,),
+        peak_memory=UnknownPeakMemory(),
+        outcome=outcome,
+    )
 
 
-def test_all_systems_contributing_classifies_as_fully_aggregated() -> None:
-    tags = [_tag(0), _tag(1)]
+def test_counts_planned_attempted_converged_and_matrices_independently(method) -> None:
+    tags = (_tag(0, matrix=3), _tag(1, matrix=3), _tag(0, matrix=7))
+    setups = (_setup(method, 3), _setup(method, 7))
+    attempts = (_attempt(tags[0], method), _attempt(tags[1], method, converged=False))
 
-    (outcome,) = classify_level(tags, _measured(tags), _SHARING, GlobalLevel())
+    (outcome,) = classify_level(tags, setups, attempts, GlobalLevel())
 
     assert isinstance(outcome, GroupAggregated)
-    assert outcome.n_aggregated == 2
-    assert outcome.n_in_group == 2
-    assert outcome.n_matrices == 1
-    assert set(outcome.projected) == {"jacobi"}
-    assert outcome.label == GlobalLabel(mixture_of=("gauss",))
+    assert (outcome.n_planned_rhs, outcome.n_matrices) == (3, 2)
+    summary = outcome.convergence[method]
+    assert (summary.n_planned_rhs, summary.n_attempted_rhs, summary.n_converged) == (3, 2, 1)
     assert outcome.group_id == GroupId("global")
-    assert outcome.outcomes == {
-        "jacobi": {
-            tags[0].system_id: Solved(iterations=3, recurring_time_s=1.5),
-            tags[1].system_id: Solved(iterations=3, recurring_time_s=1.5),
-        }
+    assert outcome.label == GlobalLabel(("gauss",))
+
+
+def test_system_cost_rows_become_explicit_solved_and_failed_outcomes(method) -> None:
+    tags = (_tag(0), _tag(1))
+    setup = _setup(method)
+    attempts = (_attempt(tags[0], method), _attempt(tags[1], method, converged=False))
+
+    (group,) = classify_level(tags, (setup,), attempts, GlobalLevel())
+
+    assert isinstance(group, GroupAggregated)
+    assert group.outcomes[method] == {
+        tags[0].system_id: Solved(MatrixId(0), 3, solve_s=0.5, amortized_online_s=1.5),
+        tags[1].system_id: Failed(MatrixId(0), 100, "iteration limit"),
     }
 
 
-def test_some_systems_cache_hits_classifies_as_partially_aggregated() -> None:
-    """Fewer measured systems than planned — still GroupAggregated, with the gap recorded."""
-    tags = [_tag(0), _tag(1), _tag(2)]
+def test_setup_failure_is_reported_as_zero_attempts_not_zero_planned(method) -> None:
+    tags = (_tag(0), _tag(1))
+    failed_setup = replace(_setup(method), outcome=SetupFailed(reason="factorization failed"))
 
-    (outcome,) = classify_level(tags, _measured(tags[:1]), _SHARING, GlobalLevel())
+    (group,) = classify_level(tags, (failed_setup,), (), GlobalLevel())
 
-    assert isinstance(outcome, GroupAggregated)
-    assert outcome.n_aggregated == 1
-    assert outcome.n_in_group == 3
-    assert outcome.projected["jacobi"].solve_time_std_seconds is None
-
-
-def test_every_system_a_cache_hit_classifies_as_skipped() -> None:
-    tags = [_tag(i) for i in range(4)]
-
-    (outcome,) = classify_level(tags, {}, _SHARING, GlobalLevel())
-
-    assert isinstance(outcome, GroupSkippedAllCacheHit)
-    assert outcome.group_id == GroupId("global")
-    assert outcome.label == GlobalLabel(mixture_of=("gauss",))
-    assert outcome.n_in_group == 4
+    assert isinstance(group, GroupAggregated)
+    summary = group.convergence[method]
+    assert (summary.n_planned_rhs, summary.n_attempted_rhs, summary.n_converged) == (2, 0, 0)
+    assert summary.iterations is None
+    assert group.outcomes[method] == {}
 
 
-def test_fine_level_yields_one_outcome_per_dataset_and_recipe() -> None:
-    tags = [_tag(0), _tag(1), _tag(0, recipe="sine"), _tag(0, dataset="other")]
+def test_unmeasured_group_retains_planned_membership(method) -> None:
+    tags = (_tag(0), _tag(1))
 
-    outcomes = classify_level(tags, _measured(tags), _SHARING, FineLevel())
+    (group,) = classify_level(tags, (), (), GlobalLevel())
 
-    assert [outcome.label for outcome in outcomes] == [
+    assert isinstance(group, GroupSkippedAllCacheHit)
+    assert (group.n_planned_rhs, group.n_matrices) == (2, 1)
+
+
+def test_fine_and_medium_labels_preserve_recipe_membership(method) -> None:
+    tags = (_tag(0), _tag(0, recipe="sine"), _tag(0, dataset="other"))
+    setups = (
+        _setup(method),
+        replace(
+            _setup(method),
+            event_id=SetupEventId(f"{method}:other:0"),
+            dataset=DatasetId("other"),
+        ),
+    )
+    attempts = tuple(
+        replace(
+            _attempt(tag, method),
+            setup_event_id=(
+                SetupEventId(f"{method}:other:0")
+                if tag.dataset == DatasetId("other")
+                else SetupEventId(f"{method}:ds:0")
+            ),
+        )
+        for tag in tags
+    )
+
+    fine = classify_level(tags, setups, attempts, FineLevel())
+    medium = classify_level(tags, setups, attempts, MediumLevel())
+
+    assert [group.label for group in fine] == [
         FineLabel(DatasetId("ds"), "gauss"),
         FineLabel(DatasetId("ds"), "sine"),
         FineLabel(DatasetId("other"), "gauss"),
     ]
-    assert [outcome.n_in_group for outcome in outcomes] == [2, 1, 1]
-
-
-def test_medium_level_pools_a_datasets_recipes_and_names_the_mixture() -> None:
-    tags = [_tag(0), _tag(0, recipe="sine"), _tag(0, dataset="other")]
-
-    outcomes = classify_level(tags, _measured(tags), _SHARING, MediumLevel())
-
-    assert [outcome.label for outcome in outcomes] == [
+    assert [group.label for group in medium] == [
         MediumLabel(DatasetId("ds"), ("gauss", "sine")),
         MediumLabel(DatasetId("other"), ("gauss",)),
     ]
 
 
-def test_a_fully_cached_group_is_skipped_while_its_siblings_are_aggregated() -> None:
-    tags = [_tag(0), _tag(0, recipe="sine")]
+def test_removed_cost_models_are_absent_from_event_classification(method) -> None:
+    tag = _tag(0)
 
-    outcomes = classify_level(tags, _measured(tags[:1]), _SHARING, FineLevel())
+    (group,) = classify_level((tag,), (_setup(method),), (_attempt(tag, method),), GlobalLevel())
 
-    assert [type(outcome) for outcome in outcomes] == [GroupAggregated, GroupSkippedAllCacheHit]
-
-
-def test_systems_count_distinct_matrices_not_rhs_draws() -> None:
-    tags = [_tag(0, matrix=3), _tag(1, matrix=3), _tag(0, matrix=7), _tag(1, matrix=7)]
-
-    (outcome,) = classify_level(tags, _measured(tags), _SHARING, MediumLevel())
-
-    assert isinstance(outcome, GroupAggregated)
-    assert (outcome.n_aggregated, outcome.n_matrices) == (4, 2)
-
-
-def test_group_ids_are_unique_across_levels() -> None:
-    tags = [_tag(0)]
-    ids = [
-        outcome.group_id
-        for level in (FineLevel(), MediumLevel(), GlobalLevel())
-        for outcome in classify_level(tags, _measured(tags), _SHARING, level)
-    ]
-
-    assert len(set(ids)) == 3
-
-
-def test_method_that_never_converged_is_summarised_but_not_projected() -> None:
-    """``none`` hits the cap on every system: counted and plotted as failures, not projected."""
-    tags = [_tag(0), _tag(1)]
-    results = {
-        tag: {
-            "jacobi": _result("jacobi"),
-            "none": replace(_result("none"), converged=False, iterations=100),
-        }
-        for tag in tags
-    }
-    sharing = {**_SHARING, "none": _SHARING["jacobi"]}
-
-    (outcome,) = classify_level(tags, results, sharing, GlobalLevel())
-
-    assert isinstance(outcome, GroupAggregated)
-    assert set(outcome.projected) == {"jacobi"}
-    assert (outcome.convergence["none"].n_converged, outcome.convergence["none"].ert_seconds) == (
-        0,
-        None,
-    )
-    assert set(outcome.outcomes["none"].values()) == {Failed()}
-    assert outcome.comparisons == {}
+    assert isinstance(group, GroupAggregated)
+    summary = group.convergence[method]
+    solved = group.outcomes[method][tag.system_id]
+    for value in (group, summary, solved):
+        assert not hasattr(value, "ert_seconds")
+        assert not hasattr(value, "recurring_s")
+        assert not hasattr(value, "setup_sharing")

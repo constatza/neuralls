@@ -20,7 +20,6 @@ from loguru import logger
 
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.cost import StageCost
-from neuralls.domain.solver.models.projection import ProjectedComparisonResult
 from neuralls.shared.types import CostProvenance
 
 DEFAULT_LINE_MARKER_SIZE = 2.0
@@ -496,8 +495,8 @@ def plot_work_precision(
                 "skipping on work-precision to avoid a misleading time position."
             )
             continue
-        total_time = result.total_time_seconds
-        if total_time is None or total_time <= 0 or result.residual <= 0:
+        solve_time = result.solve_time_seconds
+        if solve_time is None or solve_time <= 0 or result.residual <= 0:
             logger.warning(f"Method '{method_name}' has no cost data to plot on work-precision.")
             continue
 
@@ -509,7 +508,7 @@ def plot_work_precision(
         size_scale = style.pop("markersize_scale", 1.0)
 
         ax.scatter(
-            [total_time],
+            [solve_time],
             [result.residual],
             label=display_name,
             s=marker_size * 20 * size_scale,
@@ -932,17 +931,6 @@ def plot_metric_comparison(
         plt.close(fig)
 
 
-_STD_BAND_LABEL = "±1σ over systems"
-"""Legend text for the shaded per-system spread band of the scaling-law plot."""
-
-_STD_BAND_ALPHA = 0.12
-_SCALING_MARKER_COUNT = 8
-SCALING_LAW_N_MIN = 10
-"""Smallest N shown: below it the one-time-cost amortization transient hides the large-N plateau."""
-"""Markers drawn along each 200-point scaling curve, so the marker identifies
-the series in the legend without turning the line into a dotted trail."""
-
-
 def group_series_styles(
     names: Sequence[str],
     families: Mapping[str, Hashable] | None,
@@ -996,112 +984,6 @@ def finish_group_figure(
         plt.show()
     else:
         plt.close(fig)
-
-
-def plot_projected_scaling_law(
-    projected: Mapping[str, ProjectedComparisonResult],
-    *,
-    n_max: int = 10_000,
-    save_path: Path | None = None,
-    show: bool = False,
-    title: str | None = None,
-    subtitle: str | None = None,
-    labels: Mapping[str, str] | None = None,
-    families: Mapping[str, Hashable] | None = None,
-    color_keys: Mapping[str, Hashable] | None = None,
-    marker_keys: Mapping[str, Hashable] | None = None,
-) -> None:
-    """Plot each preconditioner's projected average cost per system against N.
-
-    Extrapolates ``ProjectedComparisonResult.projected_avg_per_system_seconds``
-    from ``SCALING_LAW_N_MIN`` to ``n_max`` systems — this is a closed-form projection from the
-    systems a comparison sweep actually ran, never a plot
-    of N systems actually executed. A preconditioner whose one-time costs
-    amortize (``setup_sharing.share_setup``/``share_generation``) shows its
-    curve visibly flattening toward the pure-solve floor as N grows; one
-    whose costs recur per system shows a flat line at its true per-system
-    cost from N=1 onward — the two share one log-scaled y-axis so costs that
-    differ by orders of magnitude stay comparable.
-
-    The shaded band is ±1 sample standard deviation of the *per-system solve
-    time* around each curve: the spread of a single system's cost, not a
-    confidence interval of the mean. It only exists for a preconditioner
-    measured on at least two systems; a single-system series draws no band.
-    The curve is a model extrapolated from the measured systems (assuming
-    they are representative draws), not a measurement at N.
-
-    Args:
-        projected: One ``ProjectedComparisonResult`` per preconditioner name,
-            as ``domain.solver.reporting.aggregation.report_level`` returns.
-        n_max: Largest N to extrapolate to (log-spaced x-axis from ``SCALING_LAW_N_MIN`` to this).
-        save_path: Path to save the figure. Parent directories are created
-            automatically if they do not exist.
-        show: Whether to call ``plt.show()`` (disabled by default for
-            headless / batch use).
-        title: Optional title for the plot.
-        subtitle: Optional small-font line under the title.
-        labels: Optional display label per preconditioner name (falls back to
-            the name). The legend appends the number of systems measured.
-        families: Optional family per name; see ``plot_convergence_comparison``.
-        color_keys: Optional colour-axis key per name.
-        marker_keys: Optional marker-axis key per name.
-    """
-    n_values = np.unique(np.round(np.geomspace(SCALING_LAW_N_MIN, n_max, num=200)).astype(int))
-    labels = labels or {}
-    names = sorted(projected)
-    styles = group_series_styles(names, families, color_keys, marker_keys)
-
-    fig, ax = plt.subplots(figsize=(7, 5))
-    has_band = False
-
-    for name in names:
-        result = projected[name]
-        style = dict(styles[name])
-        size_scale = style.pop("markersize_scale", 1.0)
-        y_values = [result.projected_avg_per_system_seconds(int(n)) for n in n_values]
-        ax.plot(
-            n_values,
-            y_values,
-            label=f"{labels.get(name, name)} ({result.n_converged}/{result.n_systems} converged)",
-            linewidth=1.8,
-            markersize=5 * size_scale,
-            markevery=max(len(n_values) // _SCALING_MARKER_COUNT, 1),
-            **style,
-        )
-        if result.solve_time_std_seconds is not None:
-            has_band = True
-            spread = np.asarray(y_values)
-            ax.fill_between(
-                n_values,
-                # A log axis cannot show a non-positive edge; floor at 1% of the curve.
-                np.maximum(spread - result.solve_time_std_seconds, spread * 0.01),
-                spread + result.solve_time_std_seconds,
-                color=style["color"],
-                alpha=_STD_BAND_ALPHA,
-                linewidth=0,
-            )
-
-    ax.set_xscale("log")
-    ax.set_xlim(SCALING_LAW_N_MIN, n_max)
-    ax.set_yscale("log")
-    ax.set_xlabel("Number of systems (N)", fontsize=12)
-    ax.set_ylabel("Projected cost per solved system (s)", fontsize=12)
-    ax.grid(True, alpha=0.3)
-    if projected:
-        handles, texts = ax.get_legend_handles_labels()
-        if has_band:
-            handles.append(matplotlib.patches.Patch(color="gray", alpha=_STD_BAND_ALPHA * 2))
-            texts.append(_STD_BAND_LABEL)
-        ax.legend(handles, texts, loc="upper right", fontsize=9)
-    finish_group_figure(
-        fig,
-        ax,
-        title=title or "Projected cost per system vs. N",
-        subtitle=subtitle,
-        save_path=save_path,
-        show=show,
-        saved_message="Saved projected scaling-law plot to",
-    )
 
 
 _TIME_BREAKDOWN_UNAVAILABLE_HATCH = "///"
@@ -1161,15 +1043,15 @@ def plot_time_breakdown_barplot(
 ) -> None:
     """Stacked horizontal bar chart of each method's generation/setup/solve time.
 
-    Complements the separate setup-time/solve-time bar charts with a single
-    view of how much of each method's ``total_time_seconds`` is generation,
-    setup, or solve. Each segment is styled by its own ``StageCost.provenance``
+    Complements the separate setup-time/solve-time bar charts with a diagnostic
+    view of separately named generation, setup, and solve stages. This is not
+    an online workload total; canonical event summaries own that quantity.
+    Each segment is styled by its own ``StageCost.provenance``
     (solid for a real MEASURED/HISTORICAL cost, hatched for UNAVAILABLE — a
     real, unrecorded cost, not a true zero) so a silently-failed historical
     lookup can never render identically to a genuinely fast build. A method
     missing all three components is skipped (with a warning); a method
-    missing only some has those components treated as zero-width, matching
-    ``CGComparisonResult.total_time_seconds``'s own fallback.
+    missing only some has those components treated as zero-width.
 
     Args:
         results: Dictionary of method results.

@@ -15,9 +15,8 @@ class RankedRecommendation:
         residual: Final relative residual.
         residual_abs: Final absolute residual.
         breakdown: Whether breakdown occurred.
-        total_time_seconds: Time-to-solution (generation + setup + solve), the
-            ranking key; `None` when it cannot be compared fairly (an
-            unavailable-provenance cost), which ranks after every timed entry.
+        solve_time_seconds: Diagnostic PCG/FCG execution time, the ranking key;
+            `None` ranks after every measured solve.
     """
 
     label: str
@@ -25,7 +24,7 @@ class RankedRecommendation:
     residual: float
     residual_abs: float
     breakdown: bool
-    total_time_seconds: float | None = None
+    solve_time_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +32,7 @@ class ComparisonRecommendations:
     """Ranked recommendations from a comparison run.
 
     Args:
-        ranked: All converged entries sorted by time-to-solution (best first).
+        ranked: All converged entries sorted by solve time (best first).
         overall_best: The single best entry, or None if none converged.
     """
 

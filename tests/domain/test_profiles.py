@@ -1,105 +1,108 @@
-"""Performance and ECDF profiles (``domain.benchmarking.profiles``): failures stay unsolved."""
+"""Failure-aware profiles over explicit solve and amortized-online costs."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 
-from neuralls.domain.benchmarking.costs import iterations, seconds
+from neuralls.domain.benchmarking.costs import (
+    amortized_online_seconds,
+    iterations,
+    solve_seconds,
+)
 from neuralls.domain.benchmarking.profiles import ecdf_profiles, performance_profiles
 from neuralls.domain.benchmarking.selection import reference_preconditioner, systems_solved_by_all
 from neuralls.domain.solver.models.outcomes import Failed, Solved, SystemOutcome
+from neuralls.shared.types import MatrixId
 
 
 @pytest.fixture
 def outcomes() -> dict[str, dict[str, SystemOutcome]]:
-    """Four systems; ``amg`` solves all, ``jacobi`` fails s2 and s3."""
+    """Four systems; ``amg`` solves all, ``jacobi`` fails two without numeric costs."""
     return {
         "amg": {
-            "s0": Solved(iterations=5, recurring_time_s=1.0),
-            "s1": Solved(iterations=6, recurring_time_s=2.0),
-            "s2": Solved(iterations=7, recurring_time_s=4.0),
-            "s3": Solved(iterations=8, recurring_time_s=8.0),
+            "s0": Solved(MatrixId(10), iterations=5, solve_s=1.0, amortized_online_s=1.5),
+            "s1": Solved(MatrixId(10), iterations=6, solve_s=2.0, amortized_online_s=2.5),
+            "s2": Solved(MatrixId(20), iterations=7, solve_s=4.0, amortized_online_s=4.5),
+            "s3": Solved(MatrixId(20), iterations=8, solve_s=8.0, amortized_online_s=8.5),
         },
         "jacobi": {
-            "s0": Solved(iterations=10, recurring_time_s=2.0),
-            "s1": Solved(iterations=12, recurring_time_s=2.0),
-            "s2": Failed(),
-            "s3": Failed(),
+            "s0": Solved(MatrixId(10), iterations=10, solve_s=2.0, amortized_online_s=3.0),
+            "s1": Solved(MatrixId(10), iterations=12, solve_s=2.0, amortized_online_s=3.0),
+            "s2": Failed(MatrixId(20), iterations=100, reason="iteration limit"),
+            "s3": Failed(MatrixId(20), iterations=4, reason="breakdown"),
         },
     }
 
 
-def test_performance_profile_scores_failures_as_unsolved(outcomes) -> None:
-    profiles = performance_profiles(outcomes, seconds)
+@pytest.fixture(params=(solve_seconds, amortized_online_seconds))
+def time_cost(request: pytest.FixtureRequest) -> Callable[[Solved], float]:
+    """Every time-profile contract is exercised for both supported scenarios."""
+    return request.param
+
+
+def test_performance_profile_scores_failures_as_unsolved(outcomes, time_cost) -> None:
+    profiles = performance_profiles(outcomes, time_cost)
 
     assert profiles["amg"].solved_at == (1.0, 1.0, 1.0, 1.0)
-    assert profiles["jacobi"].solved_at == (1.0, 2.0)
-    assert profiles["jacobi"].fraction_solved(2.0) == pytest.approx(0.5)
+    expected = (1.0, 2.0) if time_cost is solve_seconds else (1.2, 2.0)
+    assert profiles["jacobi"].solved_at == pytest.approx(expected)
     assert profiles["jacobi"].fraction_solved(1e9) == pytest.approx(0.5)
 
 
-def test_systems_no_method_solved_are_excluded_from_every_performance_profile() -> None:
+def test_systems_no_method_solved_are_excluded_from_performance_profiles(time_cost) -> None:
     outcomes = {
-        "a": {"s0": Solved(1, 1.0), "s1": Failed()},
-        "b": {"s0": Solved(1, 2.0), "s1": Failed()},
+        "a": {
+            "s0": Solved(MatrixId(1), 1, 1.0, 1.5),
+            "s1": Failed(MatrixId(2), 3, "limit"),
+        },
+        "b": {
+            "s0": Solved(MatrixId(1), 1, 2.0, 2.5),
+            "s1": Failed(MatrixId(2), 3, "limit"),
+        },
     }
 
-    profiles = performance_profiles(outcomes, seconds)
+    profiles = performance_profiles(outcomes, time_cost)
 
     assert profiles["a"].n_systems == profiles["b"].n_systems == 1
 
 
-def test_ecdf_profile_is_absolute_and_counts_failures_in_the_denominator(outcomes) -> None:
-    profiles = ecdf_profiles(outcomes, iterations)
+def test_ecdf_counts_failures_in_the_denominator(outcomes, time_cost) -> None:
+    profiles = ecdf_profiles(outcomes, time_cost)
 
     assert profiles["jacobi"].n_systems == 4
-    assert profiles["jacobi"].fraction_solved(11.0) == pytest.approx(0.25)
-    assert profiles["amg"].fraction_solved(6.0) == pytest.approx(0.5)
-
-
-def test_solved_run_with_incomparable_time_is_dropped_from_the_time_profile() -> None:
-    outcomes = {"a": {"s0": Solved(1, None), "s1": Solved(1, 1.0)}}
-
-    assert ecdf_profiles(outcomes, seconds)["a"].n_systems == 1
-
-
-def test_incomparable_time_in_one_method_removes_the_system_for_every_method() -> None:
-    outcomes = {
-        "a": {"s0": Solved(1, None), "s1": Solved(1, 1.0), "s2": Solved(1, 1.0)},
-        "b": {"s0": Solved(1, 2.0), "s1": Failed(), "s2": Solved(1, 3.0)},
-    }
-
-    ecdf = ecdf_profiles(outcomes, seconds)
-    perf = performance_profiles(outcomes, seconds)
-
-    assert ecdf["a"].n_systems == ecdf["b"].n_systems == 2
-    assert ecdf["a"].solved_at == (1.0, 1.0)
-    assert ecdf["b"].solved_at == (3.0,)
-    assert perf["a"].n_systems == perf["b"].n_systems == 2
-
-
-def test_zero_cost_run_is_excluded_for_every_method() -> None:
-    outcomes = {
-        "a": {"s0": Solved(1, 0.0), "s1": Solved(1, 1.0)},
-        "b": {"s0": Solved(1, 5.0), "s1": Solved(1, 2.0)},
-    }
-
-    profiles = ecdf_profiles(outcomes, seconds)
-
-    assert profiles["a"].n_systems == profiles["b"].n_systems == 1
-    assert profiles["b"].solved_at == (2.0,)
-
-
-def test_plateau_is_the_success_rate_over_the_common_systems(outcomes) -> None:
-    profiles = ecdf_profiles(outcomes, seconds)
-
     assert profiles["jacobi"].fraction_solved(1e9) == pytest.approx(0.5)
     assert profiles["amg"].fraction_solved(1e9) == pytest.approx(1.0)
 
 
-def test_reference_tie_goes_to_the_lowest_total_time_then_plan_order() -> None:
-    slow = {"s0": Solved(1, 5.0), "s1": Failed()}
-    fast = {"s0": Solved(1, 1.0), "s1": Failed()}
+def test_failed_observation_has_no_numeric_cost_fields(outcomes, time_cost) -> None:
+    failure = outcomes["jacobi"]["s2"]
+
+    assert isinstance(failure, Failed)
+    assert vars(type(failure))["__slots__"] == ("matrix_id", "iterations", "reason")
+    assert not hasattr(failure, "solve_s")
+    assert not hasattr(failure, "amortized_online_s")
+
+
+def test_fastest_method_is_selected_per_problem_not_globally(outcomes, time_cost) -> None:
+    profiles = performance_profiles(outcomes, time_cost)
+
+    assert profiles["amg"].fraction_solved(1.0) == pytest.approx(1.0)
+    assert profiles["jacobi"].fraction_solved(1.0) == pytest.approx(
+        0.25 if time_cost is solve_seconds else 0.0
+    )
+
+
+def test_reference_tie_uses_amortized_cost_then_plan_order() -> None:
+    slow = {
+        "s0": Solved(MatrixId(1), 1, solve_s=1.0, amortized_online_s=5.0),
+        "s1": Failed(MatrixId(2), 3, "limit"),
+    }
+    fast = {
+        "s0": Solved(MatrixId(1), 1, solve_s=1.0, amortized_online_s=1.0),
+        "s1": Failed(MatrixId(2), 3, "limit"),
+    }
 
     assert reference_preconditioner({"slow": slow, "fast": fast}) == "fast"
     assert reference_preconditioner({"first": fast, "second": dict(fast)}) == "first"
@@ -117,8 +120,13 @@ def test_systems_solved_by_all_is_the_intersection_of_solved_sets(outcomes) -> N
     assert systems_solved_by_all(outcomes) == {"s0", "s1"}
 
 
-def test_converged_at_the_initial_guess_keeps_its_system_in_the_iteration_ecdf() -> None:
-    outcomes = {"a": {"s0": Solved(0, 1.0), "s1": Solved(5, 1.0)}}
+def test_initial_guess_convergence_remains_in_iteration_ecdf() -> None:
+    outcomes = {
+        "a": {
+            "s0": Solved(MatrixId(1), 0, 0.0, 0.5),
+            "s1": Solved(MatrixId(1), 5, 1.0, 1.5),
+        }
+    }
 
     profile = ecdf_profiles(outcomes, iterations)["a"]
 

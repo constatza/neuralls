@@ -8,9 +8,8 @@ save to and returns it, or `None` when there was nothing to draw. The curves
 and points themselves come from `domain.benchmarking.profiles` and
 `domain.benchmarking.paired`; this module only draws them.
 
-Times are the recurring time per system: solve plus per-system setup or
-generation. One-time shared costs (e.g. a checkpoint load) are not in them;
-they appear in ERT, the projection and break-even instead.
+Time plots use amortized online seconds: solve plus the planned share of the
+matrix setup event.
 """
 
 from __future__ import annotations
@@ -24,13 +23,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
 
-from neuralls.domain.benchmarking.costs import Cost, iterations, seconds
+from neuralls.domain.benchmarking.costs import Cost, amortized_online_seconds, iterations
 from neuralls.domain.benchmarking.paired import PairedPoints, paired_points
 from neuralls.domain.benchmarking.profiles import Profile, ecdf_profiles, performance_profiles
 from neuralls.domain.benchmarking.selection import reference_preconditioner
-from neuralls.domain.solver.models.outcomes import Failed, Solved, SystemOutcome
+from neuralls.domain.solver.models.outcomes import Failed, Outcomes, Solved, SystemOutcome
 from neuralls.domain.solver.models.statistics import PairedComparison
 from neuralls.platform.reporting.plots import finish_group_figure, group_series_styles
+from neuralls.shared.types import PreconditionerName, SystemId
 
 _FAILED_AXIS_MARGIN = 1.6
 """Factor above the slowest solved run at which failures are drawn; a position on the
@@ -136,24 +136,24 @@ def _step_profile_figure(
 
 
 def plot_performance_profile(
-    outcomes: Mapping[str, Mapping[str, SystemOutcome]],
+    outcomes: Outcomes,
     *,
     style: GroupStyle,
     save_path: Path,
-    cost: Cost = seconds,
+    cost: Cost = amortized_online_seconds,
 ) -> Path | None:
     """Dolan-Moré performance profile: fraction of systems within a factor tau of the best method.
 
     Reference: Dolan & Moré 2002, "Benchmarking optimization software with
     performance profiles", Math. Program. 91. A curve that plateaus below 1
     belongs to a method that failed on some systems; the plateau is its success
-    rate over the systems some method solved. Cost is the recurring time per
-    system (solve plus per-system setup/generation); One-time shared costs are not in these times; they appear in ERT, the projection and break-even instead.
+    rate over the systems some method solved. The default cost is amortized
+    online time (solve plus allocated matrix setup).
     """
     return _step_profile_figure(
         performance_profiles(outcomes, cost),
         style=style,
-        xlabel="Recurring cost relative to the best method, tau",
+        xlabel="Amortized online cost relative to the best method, tau",
         ylabel="Fraction of systems with ratio <= tau",
         log_x=True,
         save_path=save_path,
@@ -162,7 +162,7 @@ def plot_performance_profile(
 
 
 def plot_ecdf_profile(
-    outcomes: Mapping[str, Mapping[str, SystemOutcome]],
+    outcomes: Outcomes,
     *,
     style: GroupStyle,
     save_path: Path,
@@ -175,8 +175,8 @@ def plot_ecdf_profile(
     arXiv:1605.03560. It is not the Moré & Wild (2009) data profile, whose
     budget is divided by n_p + 1. It is independent of the other methods,
     unlike the performance profile, and the plateau is the plain success rate
-    over every system the method was run on. A time budget is the recurring time
-    per system; One-time shared costs are not in these times; they appear in ERT, the projection and break-even instead.
+    over every system the method was run on. When a time cost is selected, the
+    budget is one of the explicit solve-only or amortized-online scenarios.
     """
     return _step_profile_figure(
         ecdf_profiles(outcomes, cost),
@@ -189,25 +189,25 @@ def plot_ecdf_profile(
     )
 
 
-def _solved_times(per_system: Mapping[str, SystemOutcome]) -> dict[str, float]:
+def _solved_times(per_system: Mapping[SystemId, SystemOutcome]) -> dict[SystemId, float]:
     return {
-        sid: outcome.recurring_time_s
+        sid: outcome.amortized_online_s
         for sid, outcome in per_system.items()
-        if isinstance(outcome, Solved) and outcome.recurring_time_s is not None
+        if isinstance(outcome, Solved)
     }
 
 
 def plot_time_scatter(
-    outcomes: Mapping[str, Mapping[str, SystemOutcome]],
+    outcomes: Outcomes,
     *,
     style: GroupStyle,
     save_path: Path,
 ) -> Path | None:
-    """Per-system recurring time by system, failures as hollow markers on the top edge.
+    """Per-system amortized online time, failures as hollow markers on the top edge.
 
     Unlike a median bar, every system stays a point, so a method that is fast
     only because it fails is visible as a row of hollow markers. The y value is
-    the recurring time per system (solve plus per-system setup/generation). One-time shared costs are not in these times; they appear in ERT, the projection and break-even instead.
+    solve time plus the system's planned share of matrix setup.
     Returns `None` when there is nothing to place: no solved system has a recorded time
     and none failed (a log axis cannot be drawn without data).
     """
@@ -250,7 +250,7 @@ def plot_time_scatter(
         )
     ax.set_yscale("log")
     ax.set_xlabel("System (plan order)\nhollow markers: did not converge")
-    ax.set_ylabel("Recurring time per system: solve + per-system setup/generation [s]")
+    ax.set_ylabel("Amortized online time: solve + allocated matrix setup [s]")
     ax.grid(True, which="both", alpha=0.3)
     _legend_outside(ax)
     finish_group_figure(
@@ -271,17 +271,21 @@ def _paired_axes_limits(times: Sequence[float]) -> tuple[float, float, float]:
     return low / _FAILED_AXIS_MARGIN, high * _FAILED_AXIS_MARGIN**2, high * _FAILED_AXIS_MARGIN
 
 
-def _all_paired_times(points: Mapping[str, PairedPoints]) -> list[float]:
+def _all_paired_times(points: Mapping[PreconditionerName, PairedPoints]) -> list[float]:
     """Every time that appears on a paired scatter, for sizing its axes."""
     return [
         t
         for p in points.values()
-        for t in (*(x for pair in p.both for x in pair), *p.method_only, *p.reference_only)
+        for t in (
+            *(x.amortized_online_s for pair in p.both for x in pair),
+            *(x.amortized_online_s for x in p.method_only),
+            *(x.amortized_online_s for x in p.reference_only),
+        )
     ]
 
 
 def plot_paired_time_scatter(
-    outcomes: Mapping[str, Mapping[str, SystemOutcome]],
+    outcomes: Outcomes,
     *,
     style: GroupStyle,
     save_path: Path,
@@ -293,8 +297,8 @@ def plot_paired_time_scatter(
     which the method beat the reference. Where only one of the two failed the
     point sits on the failing axis's edge as a hollow marker; where both
     failed, or a solved run has no comparable time, there is nothing to
-    compare and the system is not drawn. Both axes are the recurring time per
-    system (solve plus per-system setup/generation). One-time shared costs are not in these times; they appear in ERT, the projection and break-even instead.
+    compare and the system is not drawn. Both axes use amortized online time:
+    solve plus the system's planned share of matrix setup.
     """
     reference = reference_preconditioner(outcomes)
     if reference is None:
@@ -313,21 +317,34 @@ def plot_paired_time_scatter(
         p = points[name]
         color, marker = styles[name]["color"], styles[name]["marker"]
         ax.scatter(
-            [ref for ref, _ in p.both], [own for _, own in p.both],
+            [ref.amortized_online_s for ref, _ in p.both],
+            [own.amortized_online_s for _, own in p.both],
             color=color, marker=marker, s=28,
             label=f"{style.labels.get(name, name)} ({len(p.both) + len(p.method_only)} solved)",
         )  # fmt: skip
-        _hollow(ax, [edge] * len(p.method_only), p.method_only, color=color, marker=marker)
-        _hollow(ax, p.reference_only, [edge] * len(p.reference_only), color=color, marker=marker)
+        _hollow(
+            ax,
+            [edge] * len(p.method_only),
+            [point.amortized_online_s for point in p.method_only],
+            color=color,
+            marker=marker,
+        )
+        _hollow(
+            ax,
+            [point.amortized_online_s for point in p.reference_only],
+            [edge] * len(p.reference_only),
+            color=color,
+            marker=marker,
+        )
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlim(low, high)
     ax.set_ylim(low, high)
     ax.set_xlabel(
-        f"{style.labels.get(reference, reference)} (reference): recurring time per system [s]"
+        f"{style.labels.get(reference, reference)} (reference): amortized online time [s]"
         "\nhollow markers: the other axis's run did not converge"
     )
-    ax.set_ylabel("Method: recurring time per system [s]")
+    ax.set_ylabel("Method: amortized online time [s]")
     ax.grid(True, which="both", alpha=0.3)
     _legend_outside(ax)
     finish_group_figure(
@@ -344,9 +361,10 @@ def plot_paired_time_scatter(
 
 def _speedup_legend(label: str, comparison: PairedComparison) -> str:
     """Legend text: median speedup with its interval, Wilcoxon p-value and pair count."""
-    text = f"{label}: median {comparison.median_speedup:.2f}"
-    if comparison.median_speedup_ci is not None:
-        ci = comparison.median_speedup_ci
+    median = comparison.median_speed_ratio
+    text = f"{label}: median {median:.2f}" if median is not None else f"{label}: no paired ratio"
+    if comparison.median_speed_ratio_ci is not None:
+        ci = comparison.median_speed_ratio_ci
         text += f" [{ci.low:.2f}, {ci.high:.2f}]"
     if comparison.wilcoxon_p is not None:
         text += f", Wilcoxon p={comparison.wilcoxon_p:.3g}"
@@ -355,12 +373,13 @@ def _speedup_legend(label: str, comparison: PairedComparison) -> str:
 
 def _speedup_curve(comparison: PairedComparison) -> tuple[np.ndarray, np.ndarray]:
     """Sorted speedups and the fraction of paired systems at or below each."""
-    speedups = np.sort(np.asarray(comparison.speedups, dtype=np.float64))
-    return speedups, np.arange(1, len(speedups) + 1) / len(speedups)
+    ratios = np.sort(np.asarray(comparison.speed_ratios, dtype=np.float64))
+    fractions = np.arange(1, len(ratios) + 1) / len(ratios) if len(ratios) else np.asarray([])
+    return ratios, fractions
 
 
 def plot_speedup_cdf(
-    comparisons: Mapping[str, PairedComparison],
+    comparisons: Mapping[PreconditionerName, PairedComparison],
     *,
     style: GroupStyle,
     save_path: Path,

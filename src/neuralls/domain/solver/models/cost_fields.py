@@ -25,9 +25,7 @@ class CostFieldSpec:
 COST_FIELD_REGISTRY: tuple[CostFieldSpec, ...] = (
     CostFieldSpec(
         field_name="generation_time_seconds",
-        extractor=lambda r: (
-            r.generation_cost.wall_time_seconds if r.generation_cost is not None else None
-        ),
+        extractor=lambda r: r.offline_generation_time_seconds,
     ),
     CostFieldSpec(
         field_name="setup_time_seconds",
@@ -40,10 +38,6 @@ COST_FIELD_REGISTRY: tuple[CostFieldSpec, ...] = (
     CostFieldSpec(
         field_name="avg_iteration_time_seconds",
         extractor=lambda r: r.avg_iteration_time_seconds,
-    ),
-    CostFieldSpec(
-        field_name="total_cost_per_iteration_seconds",
-        extractor=lambda r: r.total_cost_per_iteration_seconds,
     ),
     CostFieldSpec(
         field_name="peak_memory_bytes",

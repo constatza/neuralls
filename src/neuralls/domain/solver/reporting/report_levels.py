@@ -9,10 +9,9 @@ import polars as pl
 
 from neuralls.domain.solver.models.benchmark_events import SystemTag
 from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLabel, MediumLabel
-from neuralls.domain.solver.reporting.metrics_frame import (
-    SYSTEM_ID,
-)
 from neuralls.shared.types import DatasetId
+
+SYSTEM_ID = "system_id"
 
 
 @dataclass(frozen=True, slots=True)

@@ -413,11 +413,9 @@ omegas, or a masked and an unmasked run of one kind, are two recipes and entries
 `PlannedSystem.rhs_ordinal` is the draw's position among the matrix's
 `rhs_count` draws.
 
-After the batch executes, `comparison/group_reporting.py::report_all_levels`
-makes one pass over the planned systems and their outcomes, then calls
-`domain.solver.reporting.classification.classify_level` once per level of
-`REPORT_LEVELS` — the preconditioner is always part of the key, the level
-chooses the other columns:
+Domain classification consumes canonical setup events and solve attempts,
+never `CGComparisonResult` rows. The preconditioner is always part of the key;
+the level chooses the other columns:
 
 | Level | Keys besides the preconditioner | Group id (`render_group_id`) |
 |---|---|---|
@@ -425,43 +423,18 @@ chooses the other columns:
 | `MediumLevel` | dataset | `medium/<dataset>` |
 | `GlobalLevel` | none | `global` |
 
-Each report group is a `GroupAggregated` (at least one system measured; carries
-`n_aggregated`, `n_matrices`, `n_in_group`, each preconditioner's success rate and ERT, and each system's `Solved | Failed` outcome) or
-a `GroupSkippedAllCacheHit` (nothing measured this run; logged loudly, the log
-distinguishing cache hits from failures). A group with unmeasured members is
-reported with a warning. There is no minimum group size: a one-system group
-is drawn without a spread and every legend prints its n; the only statistical
-control is the per-system timing repeat policy. Medium and global groups are
-titled "mixture of <recipes>" because their spread mostly reflects recipes
-differing; fine titles name the dataset and recipe.
+`classify_level(planned, setup_events, solve_attempts, level)` returns
+`GroupAggregated` when at least one method has a setup event and
+`GroupSkippedAllCacheHit` when the group has no benchmark event. Aggregated
+groups carry planned matrix/RHS membership, per-method planned/attempted/
+converged counts, converged-iteration statistics, and failure-aware per-system
+outcomes. A setup failure therefore remains a zero-attempt incomplete method,
+not an artificially cheap empty result.
 
-Only a `GroupAggregated` reaches the injected
-`domain.solver.ports.GroupReportSink` (`platform.tracking.comparison_tracking.
-MLflowGroupReportSink`), together with a `GroupPresentation` (subject,
-subtitle `level · keys · recipe · N = <systems> (<matrices> matrices × RHS)` plus
-`solved by all: <n>` when some system defeated a method and `never converged: <names>` when a preconditioner converged nowhere,
-and the per-preconditioner `PreconditionerPlotStyle`).
-The styles are the label, family, colour key and marker key each run recorded
-in `ComparisonResult.plot_styles`, split into plot mappings by the same
-`plot_style_maps` the per-run convergence plots use, so a preconditioner keeps
-one colour, marker and linestyle across every plot. The sink logs the
-projected metrics (namespaced by group id), the scaling-law plot (with a ±1σ
-band of per-system solve time, log N axis starting at `SCALING_LAW_N_MIN`),
-the TOML of the same scalars (with `n_converged`, `ert_seconds` and its
-interval, iteration statistics, and each method's break-even count, speedup
-and Wilcoxon p-value against the reference), the success rate, ERT and
-comparison metrics, and the outcome plots on the session parent run:
-`system_time_scatter_*` (failed runs as hollow markers on the top edge, no
-imputed time), `paired_time_scatter_*` (against the reference method, the one
-that solved most systems), `performance_profile_*` (Dolan-Moré),
-`ecdf_iterations_*` and `ecdf_time_*` (ECDFs over iterations and recurring time) and
-`speedup_cdf_*` (only when some method has paired systems). Times in these
-plots are recurring per system (solve plus per-system setup/generation); a
-one-time shared cost, such as a checkpoint load, is charged once in ERT, the
-projection and break-even. Artifact names
-use the sanitized group id. Because the sink is called only when there is
-something to record, a fully cache-hit batch touches no MLflow run. Running
-three levels triples the reported artifacts, never the execution.
+The legacy system-major batch cannot reconstruct these events without copying
+one matrix setup into every sibling RHS row. `group_reporting.py` therefore
+does not emit aggregate output from `CGComparisonResult`; method-major
+execution supplies the canonical event workload at this boundary.
 
 **Setup cache.** Independent of the report levels.
 `_preconditioner_setup.DatasetPreconditionerCache` is constructed lazily per
@@ -475,8 +448,9 @@ is shared by every system of the dataset; a `MatrixSetupPreconditioner`
 (Jacobi, IC0, every AMG variant) is stored per `MatrixId` (`matrix_key`) and served only to
 systems on that same matrix. A cache hit skips the rebuild and
 copies forward the real measured `setup_cost`/peak memory — never a misleading
-0.0. `shared_names()` answers `SetupSharingPolicy.share_setup`: a static-setup
-name always, a matrix-setup name only when every system solved on one matrix.
+0.0. `shared_names()` reports which built entries the cache can safely reuse:
+a static-setup name always, a matrix-setup name only when every system solved
+on one matrix.
 
 **Checkpoint loading and memory.** Loading a checkpoint is file I/O that a
 deployment pays once, not algorithmic setup cost, so no kind's measured setup
@@ -528,11 +502,6 @@ One check runs before anything executes:
 systems define the same preconditioner name with different configs (the derived
 name ignores scheduling fields such as `start_iter`, yet a cached,
 schedule-wrapped build would be wrongly served to the other system).
-
-The projection is a closed-form model extrapolated from the measured
-systems, not a measurement at N; `ProjectedComparisonResult` carries the
-per-system sample std of solve time and iterations so the spread behind each
-mean is reported (n is always printed with it).
 
 Multi-matrix and single-matrix cases answer genuinely different questions;
 `[[comparison_sweeps]]` addresses the former and `[[comparisons]]` the latter,

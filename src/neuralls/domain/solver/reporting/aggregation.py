@@ -1,16 +1,13 @@
-"""Matrix-first event aggregation and legacy projection reporting."""
+"""Matrix-first event aggregation and failure-aware report inputs."""
 
 from __future__ import annotations
 
 import statistics
 from collections.abc import Collection, Mapping, Sequence
-from dataclasses import dataclass
 from math import fsum
-from typing import Any
 
 import polars as pl
 
-from neuralls.domain.benchmarking.uncertainty import ert_interval
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
     PeakMemory,
@@ -22,8 +19,6 @@ from neuralls.domain.solver.models.benchmark_events import (
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.models.labels import GroupLabel
 from neuralls.domain.solver.models.outcomes import Failed, Solved, SystemOutcome
-from neuralls.domain.solver.models.projection import ProjectedComparisonResult
-from neuralls.domain.solver.models.sharing import SetupSharingPolicy
 from neuralls.domain.solver.models.statistics import IterationStats
 from neuralls.domain.solver.models.workload import (
     CompleteWorkloadSummary,
@@ -31,23 +26,17 @@ from neuralls.domain.solver.models.workload import (
     MethodWorkloadSummary,
 )
 from neuralls.domain.solver.reporting.event_frames import build_setup_frame, build_solve_frame
-from neuralls.domain.solver.reporting.metrics_frame import (
-    PRECONDITIONER,
-    SYSTEM_ID,
-)
 from neuralls.domain.solver.reporting.report_levels import (
     ReportLevel,
-    group_label,
-    level_columns,
-    mixtures_by_key,
+    label_for_tags,
+    report_key,
 )
-from neuralls.shared.constants import DEFAULT_RANDOM_SEED
 from neuralls.shared.types import MatrixId, PreconditionerName, SetupEventId, SystemId
 
 _PLANNED_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "dataset": pl.String,
     "matrix_id": pl.Int64,
-    SYSTEM_ID: pl.String,
+    "system_id": pl.String,
 }
 
 
@@ -64,12 +53,8 @@ def build_system_cost_frame(
         build_solve_frame(attempts)
         .join(setup_costs, on="setup_event_id", how="left", validate="m:1")
         .join(planned_counts, on=["dataset", "matrix_id"], how="left", validate="m:1")
-        .with_columns(
-            allocated_setup_s=pl.col("setup_s") / pl.col("planned_rhs_count"),
-        )
-        .with_columns(
-            amortized_online_s=pl.col("solve_s") + pl.col("allocated_setup_s"),
-        )
+        .with_columns(allocated_setup_s=pl.col("setup_s") / pl.col("planned_rhs_count"))
+        .with_columns(amortized_online_s=pl.col("solve_s") + pl.col("allocated_setup_s"))
     )
 
 
@@ -124,30 +109,20 @@ def summarize_method_workload(
     online_s_per_attempted_rhs = (
         workload_online_s / n_attempted_rhs if n_attempted_rhs > 0 else None
     )
+    summary_fields = {
+        "method": method,
+        "n_planned_rhs": len(planned),
+        "n_attempted_rhs": n_attempted_rhs,
+        "n_converged": n_converged,
+        "setup_total_s": setup_total_s,
+        "solve_total_s": solve_total_s,
+        "workload_online_s": workload_online_s,
+        "online_s_per_attempted_rhs": online_s_per_attempted_rhs,
+        "workload_peak_memory": workload_peak_memory,
+    }
     if missing_ids:
-        return IncompleteWorkloadSummary(
-            method=method,
-            n_planned_rhs=len(planned),
-            n_attempted_rhs=n_attempted_rhs,
-            n_converged=n_converged,
-            setup_total_s=setup_total_s,
-            solve_total_s=solve_total_s,
-            workload_online_s=workload_online_s,
-            online_s_per_attempted_rhs=online_s_per_attempted_rhs,
-            workload_peak_memory=workload_peak_memory,
-            missing_system_ids=missing_ids,
-        )
-    return CompleteWorkloadSummary(
-        method=method,
-        n_planned_rhs=len(planned),
-        n_attempted_rhs=n_attempted_rhs,
-        n_converged=n_converged,
-        setup_total_s=setup_total_s,
-        solve_total_s=solve_total_s,
-        workload_online_s=workload_online_s,
-        online_s_per_attempted_rhs=online_s_per_attempted_rhs,
-        workload_peak_memory=workload_peak_memory,
-    )
+        return IncompleteWorkloadSummary(**summary_fields, missing_system_ids=missing_ids)
+    return CompleteWorkloadSummary(**summary_fields)
 
 
 def ranking_costs(
@@ -164,10 +139,117 @@ def ranking_costs(
     return costs
 
 
+def convergence_by_level(
+    planned: Sequence[SystemTag],
+    setup_events: Collection[MatrixSetupEvent],
+    attempts: Collection[SolveAttempt],
+    level: ReportLevel,
+) -> dict[GroupLabel, dict[PreconditionerName, ConvergenceSummary]]:
+    """Count planned, attempted, and converged RHS values for every observed method."""
+    _validate_event_links(planned, setup_events, attempts)
+    attempts_by_system = _attempts_by_system(attempts)
+    report: dict[GroupLabel, dict[PreconditionerName, ConvergenceSummary]] = {}
+    for tags in _tags_by_report_key(planned, level).values():
+        label = label_for_tags(level, tags)
+        systems = {tag.system_id for tag in tags}
+        matrices = {(tag.dataset, tag.matrix_id) for tag in tags}
+        methods = tuple(
+            dict.fromkeys(
+                event.method
+                for event in setup_events
+                if (event.dataset, event.matrix_id) in matrices
+            )
+        )
+        by_method: dict[PreconditionerName, ConvergenceSummary] = {}
+        for method in methods:
+            method_attempts = [
+                attempt
+                for system_id in systems
+                for attempt in attempts_by_system.get(system_id, ())
+                if attempt.method == method
+            ]
+            converged_iterations = [
+                attempt.outcome.iterations
+                for attempt in method_attempts
+                if isinstance(attempt.outcome, SolveConverged)
+            ]
+            by_method[method] = ConvergenceSummary(
+                n_planned_rhs=len(tags),
+                n_attempted_rhs=len(method_attempts),
+                n_converged=len(converged_iterations),
+                iterations=_iteration_stats(converged_iterations),
+            )
+        if by_method:
+            report[label] = by_method
+    return report
+
+
+def outcomes_by_system(
+    planned: Sequence[SystemTag],
+    setup_events: Collection[MatrixSetupEvent],
+    attempts: Collection[SolveAttempt],
+    level: ReportLevel,
+) -> dict[GroupLabel, dict[PreconditionerName, dict[SystemId, SystemOutcome]]]:
+    """Build profile outcomes from allocated system costs, censoring failures."""
+    costs = build_system_cost_frame(planned, setup_events, attempts)
+    tags_by_id = {tag.system_id: tag for tag in planned}
+    groups = _tags_by_report_key(planned, level)
+    labels = {key: label_for_tags(level, tags) for key, tags in groups.items()}
+    report: dict[GroupLabel, dict[PreconditionerName, dict[SystemId, SystemOutcome]]] = {}
+    for row in costs.iter_rows(named=True):
+        system_id = SystemId(row["system_id"])
+        label = labels[report_key(level, tags_by_id[system_id])]
+        method = PreconditionerName(row["method"])
+        outcome: SystemOutcome
+        if row["solve_status"] == "converged":
+            outcome = Solved(
+                matrix_id=MatrixId(row["matrix_id"]),
+                iterations=row["iterations"],
+                solve_s=row["solve_s"],
+                amortized_online_s=row["amortized_online_s"],
+            )
+        else:
+            outcome = Failed(
+                matrix_id=MatrixId(row["matrix_id"]),
+                iterations=row["iterations"],
+                reason=row["failure_reason"],
+            )
+        report.setdefault(label, {}).setdefault(method, {})[system_id] = outcome
+    return report
+
+
+def _iteration_stats(converged_iterations: Sequence[int]) -> IterationStats | None:
+    if not converged_iterations:
+        return None
+    std = statistics.stdev(converged_iterations) if len(converged_iterations) > 1 else None
+    return IterationStats(
+        mean=statistics.fmean(converged_iterations),
+        median=statistics.median(converged_iterations),
+        std=std,
+    )
+
+
+def _tags_by_report_key(
+    planned: Sequence[SystemTag], level: ReportLevel
+) -> dict[tuple[str, ...], list[SystemTag]]:
+    grouped: dict[tuple[str, ...], list[SystemTag]] = {}
+    for tag in planned:
+        grouped.setdefault(report_key(level, tag), []).append(tag)
+    return grouped
+
+
+def _attempts_by_system(
+    attempts: Collection[SolveAttempt],
+) -> dict[SystemId, list[SolveAttempt]]:
+    grouped: dict[SystemId, list[SolveAttempt]] = {}
+    for attempt in attempts:
+        grouped.setdefault(attempt.system_id, []).append(attempt)
+    return grouped
+
+
 def _planned_matrix_counts(planned: Sequence[SystemTag]) -> pl.DataFrame:
-    """Count complete planned membership before any solve-attempt join."""
     rows = [
-        {"dataset": tag.dataset, "matrix_id": tag.matrix_id, SYSTEM_ID: tag.system_id}
+        {"dataset": tag.dataset, "matrix_id": tag.matrix_id, "system_id": tag.system_id}
         for tag in planned
     ]
     return (
@@ -210,7 +292,6 @@ def _validate_event_links(
         if setup is None:
             raise ValueError(f"unknown setup event ID: {attempt.setup_event_id!r}")
         if isinstance(setup.outcome, SetupFailed):
-            # The type is valid; its failed state makes the relationship invalid.
             raise ValueError("solve attempt cannot link to a failed setup event")  # noqa: TRY004
         if (attempt.dataset, attempt.matrix_id, attempt.method) != (
             setup.dataset,
@@ -221,12 +302,7 @@ def _validate_event_links(
         planned_tag = planned_by_id.get(attempt.system_id)
         if planned_tag is None:
             raise ValueError(f"solve attempt is not a planned system: {attempt.system_id!r}")
-        if (
-            attempt.dataset,
-            attempt.recipe,
-            attempt.matrix_id,
-            attempt.rhs_ordinal,
-        ) != (
+        if (attempt.dataset, attempt.recipe, attempt.matrix_id, attempt.rhs_ordinal) != (
             planned_tag.dataset,
             planned_tag.recipe,
             planned_tag.matrix_id,
@@ -237,209 +313,3 @@ def _validate_event_links(
         if attempt_key in attempt_keys:
             raise ValueError("duplicate solve attempt for one system and method")
         attempt_keys.add(attempt_key)
-
-
-def report_level(
-    frame: pl.DataFrame,
-    level: ReportLevel,
-    sharing_by_name: Mapping[str, SetupSharingPolicy],
-) -> dict[GroupLabel, dict[str, ProjectedComparisonResult]]:
-    """Reduce the frame to one projection per (group, preconditioner).
-
-    Solve time and iterations average over every run, a run stopped by the
-    iteration cap included at its measured cost, so the projection is a cost
-    per solved system (`ProjectedComparisonResult`); their spreads cover the
-    converged runs only. A preconditioner that converged on no system of a
-    group has nothing to project and is absent from that group;
-    `convergence_by_level` still reports it.
-
-    Args:
-        frame: Output of `build_metrics_frame`.
-        level: Which columns, besides the preconditioner, key the groups.
-        sharing_by_name: Each preconditioner's setup/generation sharing policy.
-
-    Returns:
-        Projections per group label, groups and preconditioners in first-seen order.
-
-    Raises:
-        KeyError: If a preconditioner in the frame has no sharing policy.
-    """
-    aggregated = _aggregate_by_preconditioner(frame, level_columns(level))
-    mixtures = mixtures_by_key(frame, level_columns(level))
-    report: dict[GroupLabel, dict[str, ProjectedComparisonResult]] = {}
-    for row in aggregated.iter_rows(named=True):
-        agg = _Aggregate.from_row(row)
-        if agg.n_converged == 0:
-            continue
-        report.setdefault(group_label(level, row, mixtures), {})[agg.name] = _projection(
-            agg, sharing_by_name[agg.name]
-        )
-    return report
-
-
-def _aggregate_by_preconditioner(frame: pl.DataFrame, keys: list[str]) -> pl.DataFrame:
-    """Per (group, preconditioner): costs over all runs, spreads over converged ones.
-
-    Setup, generation, solve time and iterations are paid whether or not the
-    solve converged, so their totals cover every run (a failed run at its
-    measured cost). The spreads `solve_std` and `iterations_std` describe a
-    successful solve and so cover the converged runs only.
-    """
-    converged = pl.col("converged")
-    return frame.group_by([*keys, PRECONDITIONER], maintain_order=True).agg(
-        n_systems=pl.len(),
-        n_converged=converged.sum(),
-        setup_total=pl.col("setup_s").sum(),
-        generation_mean=pl.col("generation_s").mean(),
-        solve_mean=pl.col("solve_s").mean(),
-        solve_std=pl.col("solve_s").filter(converged).std(),
-        iterations_total=pl.col("iterations").sum(),
-        iterations_std=pl.col("iterations").filter(converged).std(),
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class _Aggregate:
-    """Typed form of one `_aggregate_by_preconditioner` row, parsed once at the polars boundary."""
-
-    name: str
-    n_systems: int
-    n_converged: int
-    setup_total: float
-    generation_mean: float | None
-    solve_mean: float | None
-    solve_std: float | None
-    iterations_total: int
-    iterations_std: float | None
-
-    @classmethod
-    def from_row(cls, row: Mapping[str, Any]) -> _Aggregate:
-        return cls(
-            name=row[PRECONDITIONER],
-            n_systems=row["n_systems"],
-            n_converged=row["n_converged"],
-            setup_total=row["setup_total"],
-            generation_mean=row["generation_mean"],
-            solve_mean=row["solve_mean"],
-            solve_std=row["solve_std"],
-            iterations_total=row["iterations_total"],
-            iterations_std=row["iterations_std"],
-        )
-
-
-def _projection(agg: _Aggregate, sharing: SetupSharingPolicy) -> ProjectedComparisonResult:
-    """One preconditioner's projection (needs at least one converged run)."""
-    n = agg.n_systems
-    # Means scaled to n, so the per-system average (total / n) is that mean
-    # rather than diluted by unavailable results (generation or an unmeasured solve).
-    return ProjectedComparisonResult(
-        preconditioner_name=agg.name,
-        n_systems=n,
-        n_converged=agg.n_converged,
-        setup_sharing=sharing,
-        setup_cost_total_seconds=agg.setup_total,
-        generation_cost_total_seconds=(
-            None if agg.generation_mean is None else agg.generation_mean * n
-        ),
-        total_solve_time_seconds=0.0 if agg.solve_mean is None else agg.solve_mean * n,
-        total_iterations=agg.iterations_total,
-        solve_time_std_seconds=agg.solve_std,
-        iterations_std=agg.iterations_std,
-    )
-
-
-def convergence_by_level(
-    frame: pl.DataFrame,
-    level: ReportLevel,
-    sharing_by_name: Mapping[str, SetupSharingPolicy],
-) -> dict[GroupLabel, dict[str, ConvergenceSummary]]:
-    """Each group's per-preconditioner success count and expected running time.
-
-    Unlike `report_level`, every preconditioner of a group appears, including
-    those that never converged. ERT (COCO) charges failed runs their measured
-    cost: the one-time shared cost (see `_one_time_seconds`, the definition
-    `ProjectedComparisonResult.one_time_seconds` uses) plus the recurring time
-    of all runs, divided by the number of successes. It is `None` when nothing
-    converged or when any run's recurring time is incomparable (an unavailable
-    cost would silently understate it). Also carries the iteration statistics
-    of the converged runs and, when ERT is defined, its bootstrap interval.
-
-    Raises:
-        KeyError: If a preconditioner in the frame has no sharing policy.
-    """
-    keys = level_columns(level)
-    summary = frame.group_by([*keys, PRECONDITIONER], maintain_order=True).agg(
-        n_systems=pl.len(),
-        n_converged=pl.col("converged").sum(),
-        recurring_total=pl.col("recurring_s").sum(),
-        n_incomparable=pl.col("recurring_s").null_count(),
-        times=pl.col("recurring_s"),
-        flags=pl.col("converged"),
-        setup_mean=pl.col("setup_s").mean(),
-        generation_mean=pl.col("generation_s").mean(),
-        converged_iterations=pl.col("iterations").filter(pl.col("converged")),
-    )
-    mixtures = mixtures_by_key(frame, keys)
-    out: dict[GroupLabel, dict[str, ConvergenceSummary]] = {}
-    for row in summary.iter_rows(named=True):
-        name = row[PRECONDITIONER]
-        out.setdefault(group_label(level, row, mixtures), {})[name] = _convergence_summary(
-            row, sharing_by_name[name]
-        )
-    return out
-
-
-def _convergence_summary(row: Mapping[str, Any], sharing: SetupSharingPolicy) -> ConvergenceSummary:
-    """One preconditioner's success count, ERT, ERT interval and iteration statistics.
-
-    ERT = (one-time cost + recurring time of all runs) / successes, defined only
-    when something converged and every run's recurring time is comparable.
-    """
-    n_converged = row["n_converged"]
-    one_time = sharing.one_time_seconds(row["setup_mean"], row["generation_mean"])
-    measurable = n_converged > 0 and row["n_incomparable"] == 0
-    return ConvergenceSummary(
-        n_systems=row["n_systems"],
-        n_converged=n_converged,
-        ert_seconds=(one_time + row["recurring_total"]) / n_converged if measurable else None,
-        iterations=_iteration_stats(row["converged_iterations"]),
-        ert_interval=(
-            ert_interval(
-                row["times"], row["flags"], one_time_seconds=one_time, seed=DEFAULT_RANDOM_SEED
-            )
-            if measurable
-            else None
-        ),
-    )
-
-
-def _iteration_stats(converged_iterations: Sequence[int]) -> IterationStats | None:
-    """Mean, median and sample std (ddof=1) of the converged runs' iterations.
-
-    `None` when nothing converged; the std is `None` for a single run.
-    """
-    if not converged_iterations:
-        return None
-    std = statistics.stdev(converged_iterations) if len(converged_iterations) > 1 else None
-    return IterationStats(
-        mean=statistics.fmean(converged_iterations),
-        median=statistics.median(converged_iterations),
-        std=std,
-    )
-
-
-def outcomes_by_system(
-    frame: pl.DataFrame, level: ReportLevel
-) -> dict[GroupLabel, dict[str, dict[str, SystemOutcome]]]:
-    """Each group's per-preconditioner, per-system `Solved` or `Failed`, in frame order."""
-    mixtures = mixtures_by_key(frame, level_columns(level))
-    out: dict[GroupLabel, dict[str, dict[str, SystemOutcome]]] = {}
-    for row in frame.iter_rows(named=True):
-        outcome: SystemOutcome = (
-            Solved(iterations=row["iterations"], recurring_time_s=row["recurring_s"])
-            if row["converged"]
-            else Failed()
-        )
-        by_name = out.setdefault(group_label(level, row, mixtures), {})
-        by_name.setdefault(row[PRECONDITIONER], {})[row[SYSTEM_ID]] = outcome
-    return out

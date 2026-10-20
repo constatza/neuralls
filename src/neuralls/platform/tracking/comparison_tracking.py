@@ -8,7 +8,7 @@ from pathlib import Path
 
 import mlflow
 
-from neuralls.domain.benchmarking.costs import seconds
+from neuralls.domain.benchmarking.costs import amortized_online_seconds
 from neuralls.domain.solver.cost_metrics import (
     peak_memory_per_dof,
     setup_time_per_dof,
@@ -19,20 +19,11 @@ from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
 from neuralls.domain.solver.models.plot_style import PlotStyleMaps, plot_style_maps
 from neuralls.domain.solver.models.presentation import GroupPresentation
-from neuralls.domain.solver.models.projection import ProjectedComparisonResult
 from neuralls.domain.solver.models.result import ComparisonResult
-from neuralls.domain.solver.models.statistics import (
-    AlwaysCheaper,
-    BreakEvenAt,
-    CheaperOnlyBelow,
-    MethodComparison,
-    NeverCheaper,
-    PairedComparison,
-)
+from neuralls.domain.solver.models.statistics import MethodComparison, PairedComparison
 from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
-from neuralls.platform.reporting.artifacts import write_projected_toml
 from neuralls.platform.reporting.outcome_plots import (
     GroupStyle,
     plot_ecdf_profile,
@@ -41,9 +32,8 @@ from neuralls.platform.reporting.outcome_plots import (
     plot_speedup_cdf,
     plot_time_scatter,
 )
-from neuralls.platform.reporting.plots import plot_projected_scaling_law
 from neuralls.platform.tracking.mlflow import ensure_experiment, sanitize_metric_key_segment
-from neuralls.shared.types import GroupId
+from neuralls.shared.types import GroupId, PreconditionerName
 
 
 def setup_comparison_tracking(
@@ -137,12 +127,12 @@ def log_comparison_result_metrics(
         mlflow.log_param("best_preconditioner", result.recommendations.overall_best.label)
 
 
-def _projected_metric_key(metric: str, group_id: GroupId, preconditioner_name: str) -> str:
-    """Build a projected-metric key, namespaced by comparison group and preconditioner.
+def _group_metric_key(metric: str, group_id: GroupId, preconditioner_name: str) -> str:
+    """Build a metric key namespaced by comparison group and method.
 
     Mirrors ``parent_run_metric_key``'s single-``"/"``-separator convention,
     with one more segment: a case config can have several comparison groups,
-    so the group id disambiguates which group a projection came from.
+    so the group id disambiguates which report group produced the metric.
     """
     return (
         f"{metric}/{sanitize_metric_key_segment(group_id)}"
@@ -150,82 +140,17 @@ def _projected_metric_key(metric: str, group_id: GroupId, preconditioner_name: s
     )
 
 
-def log_projected_metrics(
-    group_id: GroupId, projected: Mapping[str, ProjectedComparisonResult]
-) -> None:
-    """Log one comparison group's scaling-law projection to the open MLflow run.
-
-    Logged onto whatever run is currently active (the session parent, since
-    a projection aggregates across several sibling systems' own child
-    runs, not any single one of them) — never opens a new run itself.
-
-    Args:
-        group_id: The comparison group's rendered id, used to namespace
-            metric keys when a case has more than one group.
-        projected: One `ProjectedComparisonResult` per preconditioner name,
-            as `domain.solver.reporting.aggregation.report_level` returns.
-    """
-    for name, result in projected.items():
-        mlflow.log_metric(_projected_metric_key("n_systems", group_id, name), result.n_systems)
-        mlflow.log_metric(
-            _projected_metric_key("avg_setup_cost_s", group_id, name),
-            result.avg_setup_cost_seconds,
-        )
-        if result.avg_generation_cost_seconds is not None:
-            mlflow.log_metric(
-                _projected_metric_key("avg_generation_cost_s", group_id, name),
-                result.avg_generation_cost_seconds,
-            )
-        mlflow.log_metric(
-            _projected_metric_key("avg_solve_time_per_system_s", group_id, name),
-            result.avg_solve_time_per_system_seconds,
-        )
-        mlflow.log_metric(
-            _projected_metric_key("avg_solve_time_per_solved_system_s", group_id, name),
-            result.avg_solve_time_per_solved_system_seconds,
-        )
-        if result.avg_iteration_time_seconds is not None:
-            mlflow.log_metric(
-                _projected_metric_key("avg_iteration_time_s", group_id, name),
-                result.avg_iteration_time_seconds,
-            )
-        mlflow.log_param(
-            _projected_metric_key("share_setup", group_id, name),
-            str(result.setup_sharing.share_setup),
-        )
-        mlflow.log_param(
-            _projected_metric_key("share_generation", group_id, name),
-            str(result.setup_sharing.share_generation),
-        )
-
-
 def log_convergence_metrics(
-    group_id: GroupId, convergence: Mapping[str, ConvergenceSummary]
+    group_id: GroupId, convergence: Mapping[PreconditionerName, ConvergenceSummary]
 ) -> None:
-    """Log each preconditioner's success rate and ERT beside its projected averages.
-
-    ``avg_solve_time_per_system_s`` averages every run, failed ones at their
-    measured cost, while ``avg_solve_time_per_solved_system_s`` divides the same
-    total by the successes; the success rate belongs beside both. ERT
-    (Hansen et al. 2016, arXiv:1605.03560) and its bootstrap interval are
-    logged only when defined, as are the iteration statistics over converged runs.
-    """
+    """Log explicit planned, attempted, and converged counts."""
     for name, summary in convergence.items():
-        mlflow.log_metric(_projected_metric_key("n_converged", group_id, name), summary.n_converged)
+        mlflow.log_metric(_group_metric_key("n_planned_rhs", group_id, name), summary.n_planned_rhs)
         mlflow.log_metric(
-            _projected_metric_key("success_rate", group_id, name), summary.success_rate
+            _group_metric_key("n_attempted_rhs", group_id, name), summary.n_attempted_rhs
         )
-        if summary.ert_seconds is not None:
-            mlflow.log_metric(_projected_metric_key("ert_s", group_id, name), summary.ert_seconds)
-        if summary.ert_interval is not None:
-            _log_optional_metrics(
-                group_id,
-                name,
-                {
-                    "ert_ci_low": summary.ert_interval.low,
-                    "ert_ci_high": summary.ert_interval.high,
-                },
-            )
+        mlflow.log_metric(_group_metric_key("n_converged", group_id, name), summary.n_converged)
+        mlflow.log_metric(_group_metric_key("success_rate", group_id, name), summary.success_rate)
         if summary.iterations is not None:
             _log_optional_metrics(
                 group_id,
@@ -244,84 +169,48 @@ def _log_optional_metrics(
     """Log each defined (non-`None`) metric under the group/preconditioner-namespaced key."""
     for metric, value in metrics.items():
         if value is not None:
-            mlflow.log_metric(_projected_metric_key(metric, group_id, preconditioner_name), value)
+            mlflow.log_metric(_group_metric_key(metric, group_id, preconditioner_name), value)
 
 
-def _break_even_metrics(comparison: MethodComparison) -> dict[str, float | None]:
-    """`break_even_n` for a finite break-even; the other outcomes have no count to log."""
-    match comparison.break_even:
-        case BreakEvenAt(n_systems=n_systems):
-            return {"break_even_n": n_systems}
-        case AlwaysCheaper() | NeverCheaper() | CheaperOnlyBelow():
-            return {}
-
-
-def _paired_metrics(paired: PairedComparison | None) -> dict[str, float | None]:
-    """Median speedup, its interval and the Wilcoxon p-value of a paired comparison."""
-    if paired is None:
-        return {}
-    interval = paired.median_speedup_ci
+def _paired_metrics(paired: PairedComparison) -> dict[str, float | None]:
+    """Failure counts, median ratio, interval, and paired Wilcoxon p-value."""
+    interval = paired.median_speed_ratio_ci
     return {
-        "speedup_median": paired.median_speedup,
-        "speedup_ci_low": interval.low if interval is not None else None,
-        "speedup_ci_high": interval.high if interval is not None else None,
+        "n_both_solved": float(paired.n_both_solved),
+        "n_reference_only": float(paired.n_reference_only),
+        "n_method_only": float(paired.n_method_only),
+        "speed_ratio_median": paired.median_speed_ratio,
+        "speed_ratio_ci_low": interval.low if interval is not None else None,
+        "speed_ratio_ci_high": interval.high if interval is not None else None,
         "wilcoxon_p": paired.wilcoxon_p,
     }
 
 
-def log_comparison_metrics(group_id: GroupId, comparisons: Mapping[str, MethodComparison]) -> None:
-    """Log each method's break-even count, speedup over the reference and Wilcoxon p-value.
-
-    Every metric is logged only when defined; the break-even count exists only
-    for a finite crossing (`BreakEvenAt`). Speedup is reference time over method
-    time, so values above 1 mean the method was faster.
-    """
+def log_comparison_metrics(
+    group_id: GroupId, comparisons: Mapping[PreconditionerName, MethodComparison]
+) -> None:
+    """Log each method's failure-aware reference/method speed ratios."""
     for name, comparison in comparisons.items():
         _log_optional_metrics(
             group_id,
             name,
-            {**_break_even_metrics(comparison), **_paired_metrics(comparison.paired)},
+            _paired_metrics(comparison.paired),
         )
 
 
 class MLflowGroupReportSink:
-    """``GroupReportSink`` that logs a group's projection into the open MLflow run.
-
-    Logs the projected metrics, then uploads the scaling-law plot and its
-    TOML numbers under ``projected_scaling_law``. Requires an open run: the
-    composition layer only calls ``report`` when a projection exists, which
-    only happens in a batch that executed something.
-    """
+    """Temporary event-group sink retained until method-level reporting lands."""
 
     def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
-        """Log metrics, scaling plot, TOML numbers and per-system scatter for one group."""
+        """Log explicit counts and the supported failure-aware plots."""
         group_id = outcome.group_id
-        log_projected_metrics(group_id, outcome.projected)
         log_convergence_metrics(group_id, outcome.convergence)
         log_comparison_metrics(group_id, outcome.comparisons)
-        style = plot_style_maps(presentation.plot_styles)
         with tempfile.TemporaryDirectory() as tmp:
-            # Group ids contain `/`, a path separator in artifact names.
             file_key = sanitize_metric_key_segment(group_id)
-            stem = f"projected_scaling_law_{file_key}"
-            plot_path = Path(tmp) / f"{stem}.png"
-            toml_path = Path(tmp) / f"{stem}.toml"
-            plot_projected_scaling_law(
-                outcome.projected,
-                save_path=plot_path,
-                title=f"Projected cost per system vs. N — {presentation.subject}",
-                subtitle=presentation.subtitle,
-                labels=style.labels,
-                families=style.families,
-                color_keys=style.color_keys,
-                marker_keys=style.marker_keys,
-            )
-            write_projected_toml(
-                outcome.projected, outcome.convergence, outcome.comparisons, toml_path
-            )
             outcome_plots = _write_outcome_plots(outcome, presentation, Path(tmp), file_key)
-            for artifact in (plot_path, toml_path, *outcome_plots):
-                mlflow.log_artifact(str(artifact), artifact_path=PROJECTED_ARTIFACT_DIR)
+            for artifact in outcome_plots:
+                mlflow.log_artifact(str(artifact), artifact_path=GROUP_REPORT_ARTIFACT_DIR)
 
 
 def _group_style(
@@ -339,14 +228,10 @@ def _group_style(
 
 
 def _paired_by_method(
-    comparisons: Mapping[str, MethodComparison],
-) -> dict[str, PairedComparison]:
+    comparisons: Mapping[PreconditionerName, MethodComparison],
+) -> dict[PreconditionerName, PairedComparison]:
     """The paired comparisons of the methods that had any system solved alongside the reference."""
-    return {
-        name: comparison.paired
-        for name, comparison in comparisons.items()
-        if comparison.paired is not None
-    }
+    return {name: comparison.paired for name, comparison in comparisons.items()}
 
 
 def _write_profile_plots(
@@ -368,8 +253,8 @@ def _write_profile_plots(
         plot_ecdf_profile(
             outcome.outcomes,
             style=_group_style("ECDF (time)", presentation, plot_style),
-            cost=seconds,
-            xlabel="Recurring time per system: solve + per-system setup/generation [s]",
+            cost=amortized_online_seconds,
+            xlabel="Amortized online time per system [s]",
             save_path=directory / f"ecdf_time_{file_key}.png",
         ),
     ]
@@ -410,8 +295,7 @@ def _write_outcome_plots(
     return tuple(path for path in drawn if path is not None)
 
 
-PROJECTED_ARTIFACT_DIR = "projected_scaling_law"
-"""MLflow artifact directory holding every group's projected scaling-law files."""
+GROUP_REPORT_ARTIFACT_DIR = "group_reports"
 
 
 class MLflowCostRecorder:

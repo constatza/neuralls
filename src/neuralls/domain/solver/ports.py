@@ -43,15 +43,8 @@ class CostRecorder(Protocol):
 
 
 class GroupReportSink(Protocol):
-    """Receives one aggregated report group and records it.
-
-    The composition layer decides *which* groups produce a projection; the
-    sink decides *where* it goes (MLflow metrics plus plot and TOML artifacts
-    today, `platform/tracking/comparison_tracking.py`'s `MLflowGroupReportSink`).
-    Only ever called when there is a projection to record, so an implementation
-    may assume a destination (e.g. an open MLflow run) exists.
-    """
+    """Receives one event-backed report group and records it."""
 
     def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
-        """Record `outcome`'s projection and per-system points, drawn per `presentation`."""
+        """Record `outcome`'s counts, comparisons, and per-system observations."""
         ...

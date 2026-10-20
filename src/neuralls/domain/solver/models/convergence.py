@@ -4,38 +4,33 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from neuralls.domain.solver.models.statistics import Interval, IterationStats
+from neuralls.domain.solver.models.statistics import IterationStats
 
 
 @dataclass(frozen=True, slots=True)
 class ConvergenceSummary:
-    """How often one preconditioner converged over a report group, and at what cost.
-
-    The success rate is reported beside every conditional statistic; ERT is
-    the pooled cost per solved system of COCO (Hansen et al. 2016,
-    arXiv:1605.03560).
+    """Planned, attempted, and converged counts plus successful iterations.
 
     Attributes:
-        n_systems: Systems of the group the preconditioner was run on.
-        n_converged: Of those, the runs that reached the tolerance within the
+        n_planned_rhs: Systems planned for the report group.
+        n_attempted_rhs: Systems with a recorded solve attempt.
+        n_converged: Attempts that reached the tolerance within the
             iteration cap.
-        ert_seconds: Expected running time (COCO): the one-time shared cost
-            plus the recurring time of every run, failed ones included,
-            divided by `n_converged`. `None` when
-            nothing converged or a run's time is incomparable.
         iterations: Iteration statistics over the converged runs, `None` when
             nothing converged.
-        ert_interval: Bootstrap interval of `ert_seconds` over systems, `None`
-            when ERT is undefined or there are too few systems.
     """
 
-    n_systems: int
+    n_planned_rhs: int
+    n_attempted_rhs: int
     n_converged: int
-    ert_seconds: float | None
     iterations: IterationStats | None = None
-    ert_interval: Interval | None = None
+
+    def __post_init__(self) -> None:
+        """Reject contradictory workload counts."""
+        if not 0 <= self.n_converged <= self.n_attempted_rhs <= self.n_planned_rhs:
+            raise ValueError("counts must satisfy converged <= attempted <= planned")
 
     @property
     def success_rate(self) -> float:
         """Fraction of systems that converged."""
-        return self.n_converged / self.n_systems
+        return self.n_converged / self.n_planned_rhs if self.n_planned_rhs else 0.0

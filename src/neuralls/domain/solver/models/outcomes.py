@@ -1,38 +1,53 @@
-"""Per-system outcome of one run: solved with a recurring cost, or failed."""
+"""Failure-aware per-system outcomes derived from benchmark events."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from math import isfinite
+
+from neuralls.shared.types import MatrixId, PreconditionerName, SystemId
 
 
 @dataclass(frozen=True, slots=True)
 class Solved:
-    """A run that reached the tolerance within the iteration cap.
+    """A run that converged, with both supported per-system time scenarios."""
 
-    Attributes:
-        iterations: Iterations taken.
-        recurring_time_s: Generation + setup + solve wall time minus any
-            one-time shared cost (a shared setup or generation is charged once,
-            in ERT, the projection and break-even, not per system), or `None`
-            when an unavailable cost makes it incomparable.
-    """
-
+    matrix_id: MatrixId
     iterations: int
-    recurring_time_s: float | None
+    solve_s: float
+    amortized_online_s: float
+
+    def __post_init__(self) -> None:
+        """Reject impossible profile observations."""
+        if self.iterations < 0:
+            raise ValueError("iterations must be non-negative")
+        if any(
+            not isfinite(value) or value < 0 for value in (self.solve_s, self.amortized_online_s)
+        ):
+            raise ValueError("outcome times must be finite and non-negative")
 
 
 @dataclass(frozen=True, slots=True)
 class Failed:
     """A run stopped by the iteration cap or a breakdown: a right-censored observation.
 
-    Carries no cost on purpose. What a failed run cost is the cap, not the
-    price of a solution, and profiles keep it as unsolved rather than as a number.
+    Its measured attempt time remains in the raw event/frame for workload
+    totals. It carries no profile cost, so profiles keep it right-censored.
     """
+
+    matrix_id: MatrixId
+    iterations: int
+    reason: str
+
+    def __post_init__(self) -> None:
+        """Reject an impossible failed-attempt iteration count."""
+        if self.iterations < 0:
+            raise ValueError("iterations must be non-negative")
 
 
 type SystemOutcome = Solved | Failed
 
 
-type Outcomes = Mapping[str, Mapping[str, SystemOutcome]]
+type Outcomes = Mapping[PreconditionerName, Mapping[SystemId, SystemOutcome]]
 """Preconditioner name -> {system id -> outcome}."""

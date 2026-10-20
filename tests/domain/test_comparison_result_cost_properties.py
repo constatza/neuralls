@@ -5,18 +5,17 @@ from __future__ import annotations
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 
 
-def test_total_time_sums_setup_and_solve(
+def test_diagnostic_result_exposes_solve_time_without_online_aggregation(
     comparison_result_with_cost_data: CGComparisonResult,
 ) -> None:
-    assert comparison_result_with_cost_data.total_time_seconds == 2.0 + 1.0
+    assert comparison_result_with_cost_data.solve_time_seconds == 1.0
+    assert not hasattr(comparison_result_with_cost_data, "total_time_seconds")
 
 
-def test_total_time_is_zero_when_nothing_else_measured(
-    comparison_result_without_cost_data: CGComparisonResult,
+def test_historical_generation_time_is_explicitly_offline(
+    comparison_result_with_generation_cost: CGComparisonResult,
 ) -> None:
-    """``setup_cost`` is always measured (0.0 default), so ``total_time_seconds``
-    is never ``None`` — it is 0.0 when generation/solve were never measured."""
-    assert comparison_result_without_cost_data.total_time_seconds == 0.0
+    assert comparison_result_with_generation_cost.offline_generation_time_seconds == 5.0
 
 
 def test_avg_iteration_time_divides_solve_time_by_iterations(

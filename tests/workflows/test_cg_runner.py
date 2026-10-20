@@ -447,4 +447,4 @@ def test_summarize_best_combinations_ranks_by_time_not_final_residual(
 
     assert [entry.label for entry in summary.ranked] == ["identity", "jacobi"]
     assert summary.overall_best is not None
-    assert summary.overall_best.total_time_seconds == pytest.approx(1.0)
+    assert summary.overall_best.solve_time_seconds == pytest.approx(1.0)

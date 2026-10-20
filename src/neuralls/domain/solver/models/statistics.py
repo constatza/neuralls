@@ -1,15 +1,16 @@
-"""Leaf value types for uncertainty, paired comparison and break-even results.
+"""Leaf value types for uncertainty and paired comparisons.
 
 Imports nothing from the solver models, so `result.py` can hold them in its
 group outcomes without a cycle. References: percentile bootstrap intervals
-(Efron & Tibshirani 1993, "An Introduction to the Bootstrap"), the Wilcoxon
-signed-rank test on paired differences (Wilcoxon 1945), and the cost-per-success
-view of ERT (Hansen et al. 2016, "COCO: Performance Assessment", arXiv:1605.03560).
+(Efron & Tibshirani 1993, "An Introduction to the Bootstrap") and the Wilcoxon
+signed-rank test on paired differences (Wilcoxon 1945).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from neuralls.shared.types import PreconditionerName
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,50 +44,27 @@ class IterationStats:
 
 
 @dataclass(frozen=True, slots=True)
-class BreakEvenAt:
-    """The method becomes cheaper than the reference beyond this many solved systems."""
-
-    n_systems: float
-
-
-@dataclass(frozen=True, slots=True)
-class AlwaysCheaper:
-    """The method is cheaper than the reference at every number of solved systems."""
-
-
-@dataclass(frozen=True, slots=True)
-class NeverCheaper:
-    """The method is never cheaper than the reference."""
-
-
-@dataclass(frozen=True, slots=True)
-class CheaperOnlyBelow:
-    """The method is cheaper only for fewer solved systems than this (a lower setup, a higher rate)."""
-
-    n_systems: float
-
-
-type BreakEven = BreakEvenAt | AlwaysCheaper | NeverCheaper | CheaperOnlyBelow
-
-
-@dataclass(frozen=True, slots=True)
 class PairedComparison:
     """A method against the reference on the systems both solved.
 
     Attributes:
-        n_both_solved: Systems solved by both with comparable times.
-        speedups: Per system, reference time divided by method time (above 1: the
+        speed_ratios: Per system, reference time divided by method time (above 1: the
             method was faster).
-        median_speedup: Median of `speedups`.
-        median_speedup_ci: Bootstrap interval of the median, `None` below two pairs.
-        wilcoxon_p: Two-sided Wilcoxon signed-rank p-value of the log speedups
+        median_speed_ratio: Median ratio, or `None` without a both-solved pair.
+        median_speed_ratio_ci: Matrix-cluster interval, `None` below two matrices.
+        n_both_solved: Systems solved by both.
+        n_reference_only: Systems solved only by the reference.
+        n_method_only: Systems solved only by the method.
+        wilcoxon_p: Two-sided Wilcoxon signed-rank p-value of the log ratios
             against zero, `None` with too few non-zero differences.
     """
 
+    speed_ratios: tuple[float, ...]
+    median_speed_ratio: float | None
+    median_speed_ratio_ci: Interval | None
     n_both_solved: int
-    speedups: tuple[float, ...]
-    median_speedup: float
-    median_speedup_ci: Interval | None
+    n_reference_only: int
+    n_method_only: int
     wilcoxon_p: float | None
 
 
@@ -94,6 +72,5 @@ class PairedComparison:
 class MethodComparison:
     """One method's comparison with the group's reference method."""
 
-    reference: str
-    break_even: BreakEven
-    paired: PairedComparison | None
+    reference: PreconditionerName
+    paired: PairedComparison

@@ -1,127 +1,110 @@
-"""Paired comparison against a reference (``domain.benchmarking.paired``)."""
+"""Matrix-clustered paired comparisons against a reference."""
 
 from __future__ import annotations
 
 import pytest
 
-from neuralls.domain.benchmarking.paired import PairedPoints, compare_paired, paired_points
+from neuralls.domain.benchmarking.paired import compare_paired, paired_points
 from neuralls.domain.solver.models.outcomes import Failed, Solved, SystemOutcome
+from neuralls.shared.types import MatrixId
 
 SEED = 7
 
 
-def _solved(times: list[float]) -> dict[str, SystemOutcome]:
-    return {f"s{i}": Solved(1, t) for i, t in enumerate(times)}
+def _solved(matrix: int, time: float, iterations: int = 1) -> Solved:
+    return Solved(MatrixId(matrix), iterations, solve_s=time, amortized_online_s=time)
 
 
 @pytest.fixture
 def reference() -> dict[str, SystemOutcome]:
-    """s0, s1 solved; s2 failed; s3 failed; s4 solved with incomparable time; s5 solved."""
     return {
-        "s0": Solved(1, 4.0),
-        "s1": Solved(1, 6.0),
-        "s2": Failed(),
-        "s3": Failed(),
-        "s4": Solved(1, None),
-        "s5": Solved(1, 9.0),
+        "s0": _solved(10, 4.0),
+        "s1": _solved(10, 6.0),
+        "s2": Failed(MatrixId(20), 100, "limit"),
+        "s3": Failed(MatrixId(20), 3, "breakdown"),
+        "s4": _solved(30, 9.0),
     }
 
 
 @pytest.fixture
 def method() -> dict[str, SystemOutcome]:
     return {
-        "s0": Solved(1, 2.0),
-        "s1": Solved(1, 3.0),
-        "s2": Solved(1, 5.0),
-        "s3": Failed(),
-        "s4": Solved(1, 1.0),
-        "s5": Failed(),
+        "s0": _solved(10, 2.0),
+        "s1": _solved(10, 3.0),
+        "s2": _solved(20, 5.0),
+        "s3": Failed(MatrixId(20), 3, "breakdown"),
+        "s4": Failed(MatrixId(30), 100, "limit"),
     }
 
 
 def test_points_split_pairs_method_only_and_reference_only(reference, method) -> None:
     points = paired_points(reference, method)
 
-    assert points.both == ((4.0, 2.0), (6.0, 3.0))
-    assert points.method_only == (5.0,)
-    assert points.reference_only == (9.0,)
+    assert tuple(
+        (ref.amortized_online_s, candidate.amortized_online_s) for ref, candidate in points.both
+    ) == (
+        (4.0, 2.0),
+        (6.0, 3.0),
+    )
+    assert tuple(point.amortized_online_s for point in points.method_only) == (5.0,)
+    assert tuple(point.amortized_online_s for point in points.reference_only) == (9.0,)
 
 
-def test_incomparable_time_and_double_failure_are_skipped(reference, method) -> None:
-    points = paired_points(reference, method)
+def test_speed_ratio_fields_and_asymmetric_counts(reference, method) -> None:
+    result = compare_paired(paired_points(reference, method), seed=SEED)
 
-    assert 1.0 not in points.method_only  # s4: reference solved without a time
-    assert len(points.both) + len(points.method_only) + len(points.reference_only) == 4
-
-
-def test_compare_paired_without_pairs_is_none() -> None:
-    assert compare_paired(PairedPoints((), (1.0,), ()), seed=SEED) is None
+    assert result.speed_ratios == (2.0, 2.0)
+    assert result.median_speed_ratio == pytest.approx(2.0)
+    assert (result.n_both_solved, result.n_reference_only, result.n_method_only) == (2, 1, 1)
 
 
-def test_speedup_is_reference_over_method_time() -> None:
-    result = compare_paired(PairedPoints(((4.0, 2.0), (6.0, 12.0)), (), ()), seed=SEED)
+def test_asymmetric_failures_survive_without_any_pair() -> None:
+    reference = {"s0": Failed(MatrixId(1), 10, "limit")}
+    method = {"s0": _solved(1, 1.0)}
 
-    assert result is not None
-    assert result.speedups == (2.0, 0.5)
-    assert result.median_speedup == pytest.approx(1.25)
-    assert result.n_both_solved == 2
+    result = compare_paired(paired_points(reference, method), seed=SEED)
+
+    assert result.speed_ratios == ()
+    assert result.median_speed_ratio is None
+    assert result.n_method_only == 1
 
 
-def test_wilcoxon_is_none_below_the_minimum_pair_count() -> None:
-    points = PairedPoints(tuple((10.0 + i, 1.0) for i in range(5)), (), ())
+def test_ratio_interval_resamples_matrix_clusters() -> None:
+    reference = {
+        "a0": _solved(10, 2.0),
+        "a1": _solved(10, 4.0),
+        "a2": _solved(10, 6.0),
+        "b0": _solved(20, 100.0),
+    }
+    method = {
+        system_id: _solved(outcome.matrix_id, 1.0) for system_id, outcome in reference.items()
+    }
 
-    result = compare_paired(points, seed=SEED)
+    result = compare_paired(paired_points(reference, method), seed=SEED)
 
-    assert result is not None
+    assert result.median_speed_ratio_ci is not None
+    assert result == compare_paired(paired_points(reference, method), seed=SEED)
+
+
+def test_wilcoxon_is_none_below_minimum_pair_count(reference, method) -> None:
+    result = compare_paired(paired_points(reference, method), seed=SEED)
+
     assert result.wilcoxon_p is None
 
 
-def test_wilcoxon_is_none_when_every_difference_is_zero() -> None:
-    result = compare_paired(PairedPoints(tuple((2.0, 2.0) for _ in range(6)), (), ()), seed=SEED)
+def test_wilcoxon_p_is_exact_for_six_pairs_in_one_direction() -> None:
+    reference = {f"s{i}": _solved(i // 2, 10.0 + 2 * i) for i in range(6)}
+    method = {f"s{i}": _solved(i // 2, 1.0 + i) for i in range(6)}
 
-    assert result is not None
-    assert result.wilcoxon_p is None
+    result = compare_paired(paired_points(reference, method), seed=SEED)
 
-
-def test_wilcoxon_p_is_exact_for_six_pairs_all_in_one_direction() -> None:
-    reference_times = [10.0, 12.0, 14.0, 16.0, 18.0, 20.0]
-    method_times = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
-    points = PairedPoints(tuple(zip(reference_times, method_times, strict=True)), (), ())
-
-    result = compare_paired(points, seed=SEED)
-
-    assert result is not None
-    assert result.wilcoxon_p == pytest.approx(2 / 2**6)  # two-sided exact: 2 / 64
+    assert result.wilcoxon_p == pytest.approx(2 / 2**6)
 
 
-def test_median_interval_is_deterministic_for_a_fixed_seed() -> None:
-    points = PairedPoints(tuple((float(t), 1.0) for t in (2, 3, 5, 8, 13, 21)), (), ())
+def test_non_positive_time_is_not_turned_into_infinite_ratio() -> None:
+    reference = {"s0": _solved(1, 1.0), "s1": _solved(1, 2.0)}
+    method = {"s0": _solved(1, 0.0), "s1": _solved(1, 1.0)}
 
-    first = compare_paired(points, seed=SEED)
-    second = compare_paired(points, seed=SEED)
+    result = compare_paired(paired_points(reference, method), seed=SEED)
 
-    assert first is not None
-    assert first.median_speedup_ci is not None
-    assert first == second
-
-
-def test_wilcoxon_tests_log_ratios_not_raw_differences() -> None:
-    """Five 10x speedups, one tiny slowdown and one tie: huge raw differences must not drive p."""
-    pairs = tuple((10.0, 1.0) for _ in range(5)) + ((1.0, 1.2), (1.0, 1.0))
-
-    result = compare_paired(PairedPoints(pairs, (), ()), seed=SEED)
-
-    assert result is not None
-    assert result.median_speedup == pytest.approx(10.0)
-    # Signed-rank on log ratios: ranks of |log| are 1 (the 1.2 slowdown) and 2..6, so the
-    # smaller signed sum is 1 and the two-sided exact p over 6 non-zero pairs is 4 / 64.
-    assert result.wilcoxon_p == pytest.approx(4 / 2**6)
-
-
-def test_non_positive_time_is_incomparable_not_an_infinite_speedup() -> None:
-    reference = {"s0": Solved(1, 1.0), "s1": Solved(1, 2.0)}
-    method = {"s0": Solved(1, 0.0), "s1": Solved(1, 1.0)}
-
-    points = paired_points(reference, method)
-
-    assert points.both == ((2.0, 1.0),)
+    assert result.speed_ratios == (2.0,)

@@ -13,12 +13,8 @@ stays an unsolved system. Nothing is averaged and no penalty is invented:
   compared. (Moré & Wild's 2009 data profile additionally divides the budget by
   n_p + 1; this one does not.)
 
-Seconds are the recurring time per system (solve plus per-system setup or
-generation); one-time shared costs such as a checkpoint load are not in them
-and are charged once in ERT, the projection and break-even.
-
 Gould & Scott (2016, ACM TOMS 43) caution that a profile is not an estimate of
-expected performance, so these are shown beside the success rate and ERT.
+expected performance, so these are shown beside explicit success counts.
 """
 
 from __future__ import annotations
@@ -50,8 +46,8 @@ class Profile:
         return bisect.bisect_right(self.solved_at, x) / self.n_systems
 
 
-def _cost_of(outcome: SystemOutcome, cost: Cost) -> float | Failed | None:
-    """A run's cost, `Failed` for a failure, `None` when incomparable.
+def _cost_of(outcome: SystemOutcome, cost: Cost) -> float | Failed:
+    """A run's numeric cost, or its censored failure state.
 
     Zero is a valid cost (a run converged at the initial guess takes 0
     iterations); `performance_profiles` skips systems whose best cost is zero
@@ -61,27 +57,14 @@ def _cost_of(outcome: SystemOutcome, cost: Cost) -> float | Failed | None:
         case Failed():
             return outcome
         case Solved():
-            value = cost(outcome)
-            return value
+            return cost(outcome)
 
 
-def _comparable_costs(outcomes: Outcomes, cost: Cost) -> dict[str, dict[str, float | Failed]]:
-    """Each run's cost, or `Failed`, on the systems comparable for every method.
-
-    A system where any method's cost is incomparable is dropped for all
-    methods, so every method is scored on the same systems and plateaus are
-    success rates over one common set.
-    """
-    raw = {
+def _costs(outcomes: Outcomes, cost: Cost) -> dict[str, dict[str, float | Failed]]:
+    """Each solved cost or censored failure, preserving every observation."""
+    return {
         name: {sid: _cost_of(outcome, cost) for sid, outcome in per_system.items()}
         for name, per_system in outcomes.items()
-    }
-    incomparable = {
-        sid for per_system in raw.values() for sid, v in per_system.items() if v is None
-    }
-    return {
-        name: {sid: v for sid, v in per_system.items() if sid not in incomparable and v is not None}
-        for name, per_system in raw.items()
     }
 
 
@@ -98,7 +81,7 @@ def ecdf_profiles(outcomes: Outcomes, cost: Cost) -> dict[str, Profile]:
             n_systems=len(per_system),
             solved_at=tuple(sorted(v for v in per_system.values() if not isinstance(v, Failed))),
         )
-        for name, per_system in _comparable_costs(outcomes, cost).items()
+        for name, per_system in _costs(outcomes, cost).items()
         if per_system
     }
 
@@ -109,7 +92,7 @@ def performance_profiles(outcomes: Outcomes, cost: Cost) -> dict[str, Profile]:
     Only systems that at least one method solved have a best cost; the others
     are excluded for every method, as Dolan & Moré do.
     """
-    costs = _comparable_costs(outcomes, cost)
+    costs = _costs(outcomes, cost)
     best = _best_cost_by_system(costs)
     profiles: dict[str, Profile] = {}
     for name, per_system in costs.items():

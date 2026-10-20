@@ -25,8 +25,17 @@ from neuralls.platform.reporting.outcome_plots import (
     plot_time_scatter,
 )
 from neuralls.platform.reporting.plots import finish_group_figure
+from neuralls.shared.types import MatrixId
 
 type Outcomes = dict[str, dict[str, SystemOutcome]]
+
+
+def _solved(iterations: int, seconds: float) -> Solved:
+    return Solved(MatrixId(7), iterations, solve_s=seconds, amortized_online_s=seconds)
+
+
+def _failed() -> Failed:
+    return Failed(MatrixId(7), iterations=100, reason="iteration limit")
 
 
 @pytest.fixture
@@ -45,17 +54,17 @@ def figures(monkeypatch: pytest.MonkeyPatch) -> list[Figure]:
 @pytest.fixture
 def outcomes() -> Outcomes:
     return {
-        "amg": {"s0": Solved(5, 1.0), "s1": Solved(6, 2.0), "s2": Solved(7, 4.0)},
-        "jacobi": {"s0": Solved(50, 2.0), "s1": Failed(), "s2": Failed()},
+        "amg": {"s0": _solved(5, 1.0), "s1": _solved(6, 2.0), "s2": _solved(7, 4.0)},
+        "jacobi": {"s0": _solved(50, 2.0), "s1": _failed(), "s2": _failed()},
     }
 
 
 @pytest.fixture
-def incomparable_reference_outcomes() -> Outcomes:
-    """The reference solved s1 without a comparable time, while the method solved it."""
+def zero_cost_reference_outcomes() -> Outcomes:
+    """A zero-time reference observation is not a comparable positive ratio."""
     return {
-        "amg": {"s0": Solved(5, 1.0), "s1": Solved(6, None), "s2": Solved(7, 4.0)},
-        "jacobi": {"s0": Solved(50, 2.0), "s1": Solved(9, 3.0), "s2": Failed()},
+        "amg": {"s0": _solved(5, 1.0), "s1": _solved(6, 0.0), "s2": _solved(7, 4.0)},
+        "jacobi": {"s0": _solved(50, 2.0), "s1": _solved(9, 3.0), "s2": _failed()},
     }
 
 
@@ -116,7 +125,7 @@ def test_performance_profile_plateaus_at_the_success_rate(
 def test_profile_of_a_method_that_solved_nothing_is_a_flat_zero_line(
     tmp_path: Path, style: GroupStyle, figures: list[Figure]
 ) -> None:
-    all_failed: Outcomes = {"jacobi": {"s0": Failed(), "s1": Failed()}}
+    all_failed: Outcomes = {"jacobi": {"s0": _failed(), "s1": _failed()}}
 
     path = plot_ecdf_profile(all_failed, style=style, save_path=tmp_path / "e.png")
 
@@ -137,7 +146,9 @@ def test_time_scatter_handles_a_group_where_nothing_was_solved(
     tmp_path: Path, style: GroupStyle
 ) -> None:
     path = plot_time_scatter(
-        {"jacobi": {"s0": Failed(), "s1": Failed()}}, style=style, save_path=tmp_path / "s.png"
+        {"jacobi": {"s0": _failed(), "s1": _failed()}},
+        style=style,
+        save_path=tmp_path / "s.png",
     )
 
     assert path is not None and path.exists()
@@ -151,17 +162,6 @@ def test_time_scatter_saves_a_decodable_png(
 
     assert path is not None
     assert path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
-
-
-def test_time_scatter_draws_nothing_when_solved_systems_have_no_recorded_time(
-    tmp_path: Path, style: GroupStyle
-) -> None:
-    path = plot_time_scatter(
-        {"identity": {"s0": Solved(2, None)}}, style=style, save_path=tmp_path / "s.png"
-    )
-
-    assert path is None
-    assert not (tmp_path / "s.png").exists()
 
 
 def test_paired_scatter_marks_the_reference_runs_the_method_failed(
@@ -178,14 +178,14 @@ def test_paired_scatter_marks_the_reference_runs_the_method_failed(
     assert filled == [[[1.0, 2.0]]]
 
 
-def test_paired_scatter_does_not_mark_an_incomparable_reference_run_as_failed(
+def test_paired_scatter_does_not_mark_a_zero_cost_reference_run_as_failed(
     tmp_path: Path,
-    incomparable_reference_outcomes: Outcomes,
+    zero_cost_reference_outcomes: Outcomes,
     style: GroupStyle,
     figures: list[Figure],
 ) -> None:
     plot_paired_time_scatter(
-        incomparable_reference_outcomes, style=style, save_path=tmp_path / "p.png"
+        zero_cost_reference_outcomes, style=style, save_path=tmp_path / "p.png"
     )
 
     edge = 4.0 * outcome_plots._FAILED_AXIS_MARGIN
@@ -196,7 +196,7 @@ def test_paired_scatter_draws_nothing_for_a_single_method(
     tmp_path: Path, style: GroupStyle
 ) -> None:
     path = plot_paired_time_scatter(
-        {"amg": {"s0": Solved(5, 1.0)}}, style=style, save_path=tmp_path / "p.png"
+        {"amg": {"s0": _solved(5, 1.0)}}, style=style, save_path=tmp_path / "p.png"
     )
 
     assert path is None and not (tmp_path / "p.png").exists()
@@ -206,10 +206,12 @@ def test_paired_scatter_draws_nothing_for_a_single_method(
 def comparisons() -> dict[str, PairedComparison]:
     return {
         "jacobi": PairedComparison(
+            speed_ratios=(0.5, 2.0, 4.0),
+            median_speed_ratio=2.0,
+            median_speed_ratio_ci=Interval(0.5, 4.0, 0.95),
             n_both_solved=3,
-            speedups=(0.5, 2.0, 4.0),
-            median_speedup=2.0,
-            median_speedup_ci=Interval(0.5, 4.0, 0.95),
+            n_reference_only=0,
+            n_method_only=0,
             wilcoxon_p=None,
         )
     }

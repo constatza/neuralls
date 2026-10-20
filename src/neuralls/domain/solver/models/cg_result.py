@@ -145,23 +145,14 @@ class CGComparisonResult:
     order. Empty when the solve was not measured."""
 
     @property
-    def total_time_seconds(self) -> float | None:
-        """Setup + generation + solve wall time, or None if nothing could be summed.
-
-        ``setup_cost`` is always a real measured number, so it is always
-        included. ``generation_cost`` excludes an UNAVAILABLE-provenance
-        component — an unavailable cost is a real, unrecorded cost, and
-        counting it as 0.0 would silently understate the total.
-        """
-        parts = [self.setup_cost]
+    def offline_generation_time_seconds(self) -> float | None:
+        """Historical generation time, kept separate from online benchmark costs."""
         if (
-            self.generation_cost is not None
-            and self.generation_cost.provenance is not CostProvenance.UNAVAILABLE
+            self.generation_cost is None
+            or self.generation_cost.provenance is CostProvenance.UNAVAILABLE
         ):
-            parts.append(self.generation_cost.wall_time_seconds)
-        if self.solve_time_seconds is not None:
-            parts.append(self.solve_time_seconds)
-        return sum(parts) if parts else None
+            return None
+        return self.generation_cost.wall_time_seconds
 
     @property
     def has_unavailable_cost(self) -> bool:
@@ -178,27 +169,11 @@ class CGComparisonResult:
     def avg_iteration_time_seconds(self) -> float | None:
         """Solve time divided by iteration count — the averaged per-iteration solve cost.
 
-        Does NOT include generation/setup overhead; see total_cost_per_iteration_seconds
-        for amortized full cost.
+        Does not include generation or setup overhead.
         """
         if self.solve_time_seconds is None or self.iterations <= 0:
             return None
         return self.solve_time_seconds / self.iterations
-
-    @property
-    def total_cost_per_iteration_seconds(self) -> float | None:
-        """Full pipeline cost amortized per iteration: (generation + setup + solve) / iterations.
-
-        Includes one-time setup and generation costs spread across all iterations,
-        so its ratio to `avg_iteration_time_seconds` shows how much one-time cost
-        inflates a method's effective iteration cost. A diagnostic, not a ranking
-        criterion: it depends on the stopping tolerance through the iteration count.
-        Rank by `total_time_seconds` (time-to-solution) instead.
-        """
-        total = self.total_time_seconds
-        if total is None or self.iterations <= 0:
-            return None
-        return total / self.iterations
 
     @property
     def peak_memory_bytes(self) -> int | None:

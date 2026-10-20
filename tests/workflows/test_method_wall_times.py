@@ -35,11 +35,12 @@ def result() -> CGComparisonResult:
     )
 
 
-def test_curve_starts_at_setup_and_ends_at_total_time(result: CGComparisonResult) -> None:
+def test_curve_starts_at_setup_and_ends_after_the_solve(result: CGComparisonResult) -> None:
     times = _method_wall_times(result, len(result.residual_history_rel))
 
     assert times[0] == SETUP_SECONDS
-    assert times[-1] == pytest.approx(result.total_time_seconds)
+    assert result.solve_time_seconds is not None
+    assert times[-1] == pytest.approx(SETUP_SECONDS + result.solve_time_seconds)
     assert np.all(np.diff(times) > 0)
 
 

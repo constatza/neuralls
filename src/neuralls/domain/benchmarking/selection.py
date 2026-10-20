@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from neuralls.domain.benchmarking.costs import seconds
+from neuralls.domain.benchmarking.costs import amortized_online_seconds
 from neuralls.domain.solver.models.outcomes import Outcomes, Solved, SystemOutcome
+from neuralls.shared.types import PreconditionerName, SystemId
 
 
-def reference_preconditioner(outcomes: Outcomes) -> str | None:
+def reference_preconditioner(outcomes: Outcomes) -> PreconditionerName | None:
     """The method that solved the most systems, or `None` for an empty group.
 
-    Ties go to the lowest summed recurring time over the method's solved
-    systems with a comparable time, then to plan order. A configuration-free
+    Ties go to the lowest summed amortized online time over solved systems,
+    then to plan order. A configuration-free
     baseline for paired comparisons: the most robust method, so the systems it
     fails on are the informative ones.
     """
@@ -23,16 +24,15 @@ def reference_preconditioner(outcomes: Outcomes) -> str | None:
     return min(ranked, key=ranked.__getitem__, default=None)
 
 
-def _n_solved(per_system: Mapping[str, SystemOutcome]) -> int:
+def _n_solved(per_system: Mapping[SystemId, SystemOutcome]) -> int:
     return sum(isinstance(o, Solved) for o in per_system.values())
 
 
-def _total_seconds(per_system: Mapping[str, SystemOutcome]) -> float:
-    times = (seconds(o) for o in per_system.values() if isinstance(o, Solved))
-    return sum(t for t in times if t is not None)
+def _total_seconds(per_system: Mapping[SystemId, SystemOutcome]) -> float:
+    return sum(amortized_online_seconds(o) for o in per_system.values() if isinstance(o, Solved))
 
 
-def systems_solved_by_all(outcomes: Outcomes) -> frozenset[str]:
+def systems_solved_by_all(outcomes: Outcomes) -> frozenset[SystemId]:
     """Systems on which every method converged.
 
     Conditional means over a method's own converged systems favour methods that
