@@ -13,6 +13,7 @@ import pytest
 import tomli_w
 
 from neuralls.composition.assignments.comparison_batch import (
+    _project_setup_measurements,
     _resolve_comparison_topology,
     _resolve_neural_preconditioners,
     _run_comparison_from_config,
@@ -34,6 +35,12 @@ from neuralls.composition.comparison.models import (
     ResolvedMethod,
 )
 from neuralls.domain.identity import StageIdentity
+from neuralls.domain.solver.models.benchmark_events import (
+    MatrixSetupEvent,
+    MeasuredPeakMemory,
+    SetupCompleted,
+    SystemTag,
+)
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
 from neuralls.domain.solver.models.plot_paths import PlotPaths
@@ -76,7 +83,14 @@ from neuralls.platform.tracking.comparison_tracking import (
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description import NotationPolicy
-from neuralls.shared.types import ComparisonRhsSourceKind, MatrixId, RowKind
+from neuralls.shared.types import (
+    ComparisonRhsSourceKind,
+    DatasetId,
+    MatrixId,
+    RowKind,
+    SetupEventId,
+    SystemId,
+)
 from tests.workflows.comparison_support import (
     LOG_COMPARISON_ARTIFACTS,
     SETUP_TRACKING,
@@ -1372,6 +1386,57 @@ def test_log_comparison_metrics_logs_cost_metrics_when_measured(
     assert metric_calls["time_per_dof_per_iteration/identity"] == pytest.approx(0.5 / 100)
     assert metric_calls["setup_time_per_dof/identity"] == pytest.approx(2.0 / 100)
     assert metric_calls["peak_memory_per_dof/identity"] == pytest.approx(2000 / 100)
+
+
+def test_compatibility_projection_carries_canonical_setup_measurement(
+    tmp_path: Path, fake_mlflow: MagicMock
+) -> None:
+    """Legacy diagnostics retain setup timing copied from the canonical event."""
+    tag = SystemTag(
+        dataset=DatasetId("dataset"),
+        recipe="gaussian",
+        matrix_id=MatrixId(3),
+        rhs_ordinal=0,
+        system_id=SystemId("system-3-0"),
+    )
+    workload = CompletedMethodWorkload(
+        method="identity",
+        planned=(tag,),
+        setup_events=(
+            MatrixSetupEvent(
+                event_id=SetupEventId("identity:dataset:3"),
+                dataset=tag.dataset,
+                matrix_id=tag.matrix_id,
+                method="identity",
+                setup_s=1.25,
+                samples_s=(1.0, 1.25, 1.5),
+                peak_memory=MeasuredPeakMemory(128),
+                outcome=SetupCompleted(),
+            ),
+        ),
+        solve_attempts=(),
+        diagnostics=(),
+        offline_costs=(),
+        workload_peak_memory=MeasuredPeakMemory(128),
+    )
+    projected = _project_setup_measurements(
+        workload,
+        str(tag.system_id),
+        _typed_comparison_result(tmp_path / "conv.png").results["identity"],
+    )
+
+    assert projected.setup_cost == 1.25
+    assert projected.setup_time_samples == (1.0, 1.25, 1.5)
+    assert projected.setup_peak_memory_bytes == 128
+
+    result = replace(
+        _typed_comparison_result(tmp_path / "conv-result.png"),
+        results={"identity": projected},
+        matrix_shape=(2, 2),
+    )
+    log_comparison_result_metrics(result, child_run_tags={"identity": {}})
+    metric_calls = {call.args[0]: call.args[1] for call in fake_mlflow.log_metric.call_args_list}
+    assert metric_calls["setup_time_s/identity"] == 1.25
 
 
 def test_log_comparison_metrics_omits_unmeasured_cost_metrics(

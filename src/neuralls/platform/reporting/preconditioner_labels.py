@@ -63,7 +63,10 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerConfig,
     StandardPreconditionerConfig,
 )
-from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
+from neuralls.platform.config.models.preconditioner_family import (
+    PreconditionerFamilyKey,
+    preconditioner_family,
+)
 from neuralls.platform.dlkit.predictor_adapter import DLKitNeuralPreconditioner
 from neuralls.shared.scientific_description import (
     ALGEBRAIC_DISTANCE_THRESHOLD,
@@ -96,6 +99,7 @@ from neuralls.shared.scientific_description import (
 )
 
 __all__ = [
+    "build_configured_preconditioner_label",
     "build_preconditioner_labels",
     "coarsening_facts",
     "configured_facts",
@@ -349,6 +353,22 @@ def preconditioner_label(
     facts = (*configured_facts(cfg), *realized_facts(precond))
     ordered = tuple(sorted(facts, key=lambda fact: fact.importance is _VARIANT))
     description = ScientificDescription(base_name=family.abbreviation(), facts=ordered)
+    return render(description, _PRECONDITIONER_LEGEND, _default_policy(policy))
+
+
+def build_configured_preconditioner_label(
+    cfg: PreconditionerConfig, *, policy: NotationPolicy | None = None
+) -> str:
+    """Render a compatibility label from config facts without rebuilding a preconditioner.
+
+    This is used when a retained report is projected after method-major execution
+    has released the prepared objects. Realized runtime facts are unavailable in
+    that boundary; configured facts, family identity, and notation remain stable.
+    """
+    family = preconditioner_family(cfg)
+    description = ScientificDescription(
+        base_name=family.abbreviation(), facts=configured_facts(cfg)
+    )
     return render(description, _PRECONDITIONER_LEGEND, _default_policy(policy))
 
 

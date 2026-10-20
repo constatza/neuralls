@@ -22,6 +22,8 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
+from neuralls.platform.reporting.preconditioner_labels import build_configured_preconditioner_label
+from neuralls.shared.scientific_description import NotationPolicy, RenderTarget
 
 
 @pytest.fixture
@@ -79,3 +81,18 @@ def test_pod2g_style_keys_non_pod_config_falls_back_to_none(
 ) -> None:
     """A non-POD-2G config yields (None, None), falling back to family-based styling."""
     assert _pod2g_style_keys(jacobi_config) == (None, None)
+
+
+def test_configured_pod_label_honours_notation_without_building(
+    pod2g_config_with_power_norm_weighting: AMGPreconditionerConfig,
+) -> None:
+    """Compatibility labels retain POD family and notation from config-only facts."""
+    config = pod2g_config_with_power_norm_weighting.model_copy(update={"pre_smoothing_steps": 3})
+
+    label = build_configured_preconditioner_label(
+        config,
+        policy=NotationPolicy.default(RenderTarget.MATHTEXT),
+    )
+
+    assert label.startswith("POD-2G")
+    assert r"\nu_1=3" in label

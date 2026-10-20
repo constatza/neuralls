@@ -104,3 +104,34 @@ Self-review: method-major solver execution remains the sole source of measured
 diagnostics; the retained public result/artifact projection performs no solve
 and all its I/O/reporting occurs after online timing. Rejection is explicit for
 semantics or membership that cannot be represented by one method workload.
+
+## Fix Round 2
+
+The re-review's three accepted findings are resolved:
+
+- Compatibility `CGComparisonResult` projections now copy the linked canonical
+  `MatrixSetupEvent` representative setup seconds, repeat samples, and measured
+  setup peak. Canonical aggregation remains event-backed; the copied fields are
+  only for the retained per-comparison payload and MLflow compatibility sink.
+- `_load_matrix_workloads` delegates each bundle to a helper scope. Prepared
+  linear-system temporaries therefore die before the generator resumes to load
+  the next matrix; a weak-reference regression proves the first prepared object
+  is collectible before that next load starts.
+- Compatibility figure styles now use config/family labels, the configured
+  notation policy, existing POD dataset/weighting keys, and provenance
+  contextualization without reconstructing or solving a preconditioner. A POD
+  mathtext regression covers both label notation and style metadata.
+
+Fix Round 2 verification:
+
+- Focused Task 4/cache/lifecycle/group/setup/checkpoint/style suite: 48 passed.
+- Retained SQLite MLflow artifact integration: 1 passed.
+- Adjacent comparison workflow/run/session/scoping suite: 52 passed.
+- Targeted Ruff, format, and `ty` checks pass; architecture, collection/import
+  smoke, and `git diff --check` are rerun before commit.
+
+Self-review: setup values are copied only after canonical event production and
+never used to derive group aggregates; lazy producer locals no longer overlap
+matrix loads; projected labels intentionally expose stable configured facts
+when released runtime objects cannot provide realized facts. Generation remains
+the sole offline cost and checkpoint/data I/O remains untracked and untimed.

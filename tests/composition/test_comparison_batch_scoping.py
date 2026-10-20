@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import weakref
 from collections.abc import Sequence
 from inspect import isgeneratorfunction
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+import torch
 
 from neuralls.composition.assignments import comparison_batch
 from neuralls.composition.assignments.comparison_batch import (
@@ -23,7 +26,7 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
-from neuralls.shared.types import MatrixId
+from neuralls.shared.types import DatasetId, MatrixId
 
 
 def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
@@ -121,6 +124,59 @@ def test_method_schedule_rejects_different_method_membership_on_siblings() -> No
 
 def test_matrix_workloads_are_loaded_lazily_per_method_matrix() -> None:
     assert isgeneratorfunction(comparison_batch._load_matrix_workloads)
+
+
+def test_matrix_loader_releases_prepared_system_before_next_matrix_load(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The producer helper must not retain its prior prepared system at ``next()``."""
+    first = _system("ds", 0, "r0")
+    second = _system("ds", 1, "r1")
+    for system, matrix_id in ((first, 0), (second, 1)):
+        system.cfg.general.data.matrix_path = tmp_path / f"matrix-{matrix_id}"
+        system.cfg.general.data.matrix_index = 0
+        system.cfg.general.data.require_non_residual_rhs = True
+        system.cfg.general.data.selection_seed = None
+        system.cfg.general.data.rhs_source_kind = "gaussian"
+        system.cfg.general.data.rhs_source_params = {}
+        system.entry.rhs_source.recipe_label = "gaussian"
+        system.planned.entry = system.entry
+        system.planned.matrix.matrix_id = MatrixId(matrix_id)
+        system.planned.rhs_ordinal = 0
+        system.resolved.specs = [StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)]
+
+    prepared_refs: list[weakref.ReferenceType[object]] = []
+    load_count = 0
+
+    class PreparedSystem:
+        def __init__(self) -> None:
+            self.matrix = torch.eye(2)
+            self.rhs = torch.ones(2)
+
+    def resolve(**_: object) -> object:
+        nonlocal load_count
+        load_count += 1
+        if load_count == 2:
+            assert prepared_refs[0]() is None
+        return object()
+
+    def prepare(*_: object) -> PreparedSystem:
+        prepared = PreparedSystem()
+        prepared_refs.append(weakref.ref(prepared))
+        return prepared
+
+    monkeypatch.setattr(comparison_batch, "resolve_comparison_input", resolve)
+    monkeypatch.setattr(comparison_batch, "prepare_resolved_linear_system", prepare)
+    matrices = (
+        ((DatasetId("ds"), MatrixId(0)), (first,)),
+        ((DatasetId("ds"), MatrixId(1)), (second,)),
+    )
+    bundles = comparison_batch._load_matrix_workloads(matrices)
+
+    first_bundle = next(bundles)
+    assert prepared_refs[0]() is None
+    second_bundle = next(bundles)
+    assert first_bundle.matrix.shape == second_bundle.matrix.shape
 
 
 @pytest.fixture

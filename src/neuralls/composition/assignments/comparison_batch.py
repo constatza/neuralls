@@ -68,6 +68,7 @@ from neuralls.composition.tracking.run_specs import (
     build_session_run_spec,
 )
 from neuralls.domain.identity import StageIdentity
+from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory, SetupCompleted
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.ports import CostRecorder
@@ -1199,6 +1200,62 @@ def _method_major_schedule(
     )
 
 
+def _load_one_matrix_workload(
+    dataset: DatasetId,
+    matrix_id: MatrixId,
+    systems: tuple[_PreparedComparisonExecution, ...],
+) -> MatrixWorkload:
+    """Build one bundle in a helper scope so producer temporaries die before the next load."""
+    first_prepared = systems[0]
+    first_cfg = first_prepared.cfg
+    first_resolved = resolve_comparison_input(
+        matrix_path=Path(first_cfg.general.data.matrix_path),
+        matrix_dataset_id=first_prepared.entry.matrix_dataset,
+        matrix_index=first_cfg.general.data.matrix_index,
+        matrix_provenance=first_prepared.planned.provenance,
+        require_non_residual_rhs=first_cfg.general.data.require_non_residual_rhs,
+        seed=first_cfg.general.data.selection_seed,
+        rhs_source_kind=_require_rhs_source_kind(first_cfg),
+        rhs_source_params=first_cfg.general.data.rhs_source_params,
+    )
+    first_system = prepare_resolved_linear_system(
+        first_resolved, first_cfg.general.data.normalize_system
+    )
+    members = [
+        MatrixWorkloadMember(
+            tag=system_tag(first_prepared.planned),
+            rhs=first_system.rhs.numpy(),
+        )
+    ]
+    for prepared in systems[1:]:
+        cfg = prepared.cfg
+        resolved = resolve_comparison_input(
+            matrix_path=Path(cfg.general.data.matrix_path),
+            matrix_dataset_id=prepared.entry.matrix_dataset,
+            matrix_index=cfg.general.data.matrix_index,
+            matrix_provenance=prepared.planned.provenance,
+            require_non_residual_rhs=cfg.general.data.require_non_residual_rhs,
+            seed=cfg.general.data.selection_seed,
+            rhs_source_kind=_require_rhs_source_kind(cfg),
+            rhs_source_params=cfg.general.data.rhs_source_params,
+        )
+        system = prepare_resolved_linear_system(resolved, cfg.general.data.normalize_system)
+        members.append(
+            MatrixWorkloadMember(
+                tag=system_tag(prepared.planned),
+                rhs=system.rhs.numpy(),
+            )
+        )
+    return MatrixWorkload(
+        dataset=dataset,
+        matrix_id=matrix_id,
+        matrix=first_system.matrix.numpy(),
+        matrix_path=Path(first_cfg.general.data.matrix_path),
+        matrix_index=first_cfg.general.data.matrix_index,
+        members=tuple(members),
+    )
+
+
 def _load_matrix_workloads(
     matrices: Sequence[
         tuple[
@@ -1209,54 +1266,7 @@ def _load_matrix_workloads(
 ) -> Iterator[MatrixWorkload]:
     """Yield one method matrix/RHS bundle at a time before online timing begins."""
     for (dataset, matrix_id), systems in matrices:
-        first_prepared = systems[0]
-        first_cfg = first_prepared.cfg
-        first_resolved = resolve_comparison_input(
-            matrix_path=Path(first_cfg.general.data.matrix_path),
-            matrix_dataset_id=first_prepared.entry.matrix_dataset,
-            matrix_index=first_cfg.general.data.matrix_index,
-            matrix_provenance=first_prepared.planned.provenance,
-            require_non_residual_rhs=first_cfg.general.data.require_non_residual_rhs,
-            seed=first_cfg.general.data.selection_seed,
-            rhs_source_kind=_require_rhs_source_kind(first_cfg),
-            rhs_source_params=first_cfg.general.data.rhs_source_params,
-        )
-        first_system = prepare_resolved_linear_system(
-            first_resolved, first_cfg.general.data.normalize_system
-        )
-        members = [
-            MatrixWorkloadMember(
-                tag=system_tag(first_prepared.planned),
-                rhs=first_system.rhs.numpy(),
-            )
-        ]
-        for prepared in systems[1:]:
-            cfg = prepared.cfg
-            resolved = resolve_comparison_input(
-                matrix_path=Path(cfg.general.data.matrix_path),
-                matrix_dataset_id=prepared.entry.matrix_dataset,
-                matrix_index=cfg.general.data.matrix_index,
-                matrix_provenance=prepared.planned.provenance,
-                require_non_residual_rhs=cfg.general.data.require_non_residual_rhs,
-                seed=cfg.general.data.selection_seed,
-                rhs_source_kind=_require_rhs_source_kind(cfg),
-                rhs_source_params=cfg.general.data.rhs_source_params,
-            )
-            system = prepare_resolved_linear_system(resolved, cfg.general.data.normalize_system)
-            members.append(
-                MatrixWorkloadMember(
-                    tag=system_tag(prepared.planned),
-                    rhs=system.rhs.numpy(),
-                )
-            )
-        yield MatrixWorkload(
-            dataset=dataset,
-            matrix_id=matrix_id,
-            matrix=first_system.matrix.numpy(),
-            matrix_path=Path(first_cfg.general.data.matrix_path),
-            matrix_index=first_cfg.general.data.matrix_index,
-            members=tuple(members),
-        )
+        yield _load_one_matrix_workload(dataset, matrix_id, systems)
 
 
 def _persist_projected_comparison(
@@ -1333,6 +1343,7 @@ def _outcomes_from_workloads(
     diagnostics: dict[str, dict[str, CGComparisonResult]] = {}
     for workload in workloads:
         for system_id, result in workload.diagnostics:
+            result = _project_setup_measurements(workload, system_id, result)
             diagnostics.setdefault(str(system_id), {})[str(workload.method)] = result
 
     outcomes: list[ComparisonOutcome] = []
@@ -1390,6 +1401,32 @@ def _outcomes_from_workloads(
             )
         )
     return outcomes
+
+
+def _project_setup_measurements(
+    workload: CompletedMethodWorkload,
+    system_id: str,
+    result: CGComparisonResult,
+) -> CGComparisonResult:
+    """Copy the linked setup event into a temporary legacy result projection."""
+    tag = next(tag for tag in workload.planned if str(tag.system_id) == system_id)
+    setup_event = next(
+        event
+        for event in workload.setup_events
+        if event.dataset == tag.dataset and event.matrix_id == tag.matrix_id
+    )
+    if not isinstance(setup_event.outcome, SetupCompleted):
+        return result
+    return replace(
+        result,
+        setup_cost=setup_event.setup_s,
+        setup_time_samples=setup_event.samples_s,
+        setup_peak_memory_bytes=(
+            setup_event.peak_memory.bytes
+            if isinstance(setup_event.peak_memory, MeasuredPeakMemory)
+            else None
+        ),
+    )
 
 
 def _execute_all(

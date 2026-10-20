@@ -72,6 +72,7 @@ from neuralls.platform.config.models.preconditioner_family import preconditioner
 from neuralls.platform.config.resolution import resolve_user_path
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.preconditioner_labels import (
+    build_configured_preconditioner_label,
     build_preconditioner_labels,
     contextualize_preconditioner_label,
 )
@@ -610,14 +611,21 @@ def build_comparison_result_from_diagnostics(
     )
     _ensure_comparison_directories(paths)
     context = build_comparison_source_context(paths, resolved_input)
-    plot_styles = {
-        config.name: PreconditionerPlotStyle(
-            label=config.name,
+    plot_styles = {}
+    for config in preconditioner_configs:
+        if config.name not in results:
+            continue
+        color_key, marker_key = _pod2g_style_keys(config)
+        dataset_label = Path(color_key).name if color_key is not None else None
+        plot_styles[config.name] = PreconditionerPlotStyle(
+            label=contextualize_preconditioner_label(
+                build_configured_preconditioner_label(config, policy=notation_policy),
+                dataset_label,
+            ),
             family=preconditioner_family(config),
+            color_key=color_key,
+            marker_key=marker_key,
         )
-        for config in preconditioner_configs
-        if config.name in results
-    }
     styles = plot_style_maps(plot_styles)
     plot_paths = _generate_comparison_plots(
         results,

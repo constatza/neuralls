@@ -69,6 +69,9 @@ used as result identity, so duplicate display text cannot overwrite curves;
 composition disambiguates such text with the stable result key. Horizontal
 metric plots place the first result at the top, matching convergence-legend and
 configuration order while keeping each value paired with the same result key.
+When method-major execution projects compatibility figures after releasing
+prepared objects, the same family/configured-fact, notation, and POD provenance
+helpers render the stable configured portion of each label without rebuilding.
 Every comparison run writes two convergence figures with identical styling:
 relative residual `||r||/||b||` (`plot_convergence_comparison`) and relative
 energy-norm error `||e_k||_A/||e_0||_A` (`plot_error_convergence_comparison`,
