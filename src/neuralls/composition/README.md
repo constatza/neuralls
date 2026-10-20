@@ -431,32 +431,20 @@ converged counts, converged-iteration statistics, and failure-aware per-system
 outcomes. A setup failure therefore remains a zero-attempt incomplete method,
 not an artificially cheap empty result.
 
-The legacy system-major batch cannot reconstruct these events without copying
-one matrix setup into every sibling RHS row. `group_reporting.py` therefore
-does not emit aggregate output from `CGComparisonResult`; method-major
-execution supplies the canonical event workload at this boundary.
-
-**Setup cache.** Independent of the report levels.
-`_preconditioner_setup.DatasetPreconditionerCache` is constructed lazily per
-`matrix_dataset` by `run_comparison_batch`; each system reads and writes it
-through `cache.for_system(matrix_key(planned))`, a `SystemPreconditionerCache`
-bound to the system's matrix, and passes that into
-`compare_preconditioners(..., cache=...)`. Whether a build is reused is a fact
-about the *built* `torchalg.Preconditioner`: a `StaticSetupPreconditioner`
-(setup never reads the matrix, e.g. a checkpoint-backed `NeuralPreconditioner`)
-is shared by every system of the dataset; a `MatrixSetupPreconditioner`
-(Jacobi, IC0, every AMG variant) is stored per `MatrixId` (`matrix_key`) and served only to
-systems on that same matrix. A cache hit skips the rebuild and
-copies forward the real measured `setup_cost`/peak memory — never a misleading
-0.0. `shared_names()` reports which built entries the cache can safely reuse:
-a static-setup name always, a matrix-setup name only when every system solved
-on one matrix.
+`comparison_batch._method_major_schedule` groups execution as method, matrix,
+then ordered RHS members. `comparison_run.execute_method_workload` emits one
+`MatrixSetupEvent` per matrix and one linked `SolveAttempt` per attempted RHS;
+`group_reporting.py` reduces only these completed workloads. Prepared method
+state, including an Identity/no-op setup, is reused across sibling RHS values
+but never across matrices. This makes every matrix setup visible instead of
+copying it onto RHS rows or treating a cross-matrix static-state reuse as a
+missing setup event.
 
 **Checkpoint loading and memory.** Loading a checkpoint is file I/O that a
 deployment pays once, not algorithmic setup cost, so no kind's measured setup
-includes it (`_run_preconditioner`'s docstring is the contract). Before a
-cache-miss build, `PreconditionerService.preload` loads every checkpoint the
-config depends on into the dataset's `CheckpointStore`
+includes it (`execute_method_workload` is the contract). Before each matrix
+setup, `PreconditionerService.preload` ensures every checkpoint the
+config depends on into the method's `CheckpointStore`
 (`preconditioners/checkpoint_store.py`); the timed build then only borrows the
 loaded object. Which checkpoints a config needs comes from the
 `CheckpointRefBearing` protocol, and how each kind loads is the mapping in
@@ -468,34 +456,20 @@ predictors and builds only borrow them: torchalg's `NeuralPreconditioner` takes 
 already-loaded predictor and never releases it, so a discarded timing repeat cannot
 unload a model the kept build still uses. A neural preconditioner built without a
 preload loads its own predictor and owns it
-(`OwningDLKitNeuralPreconditioner`). The time spent loading is
-reported as the session metric `checkpoint_load_s`, not hidden. The device is
+(`OwningDLKitNeuralPreconditioner`). Checkpoint and data loading are
+excluded from benchmark cost metrics. The device is
 also warmed once per process before the first system (`shared.device.warm_up_device`),
 so no preconditioner's timing absorbs CUDA/cuSPARSE first-call costs; this is
 separate from the per-run `timing.warmup`, which stays opt-in.
 
-Lifetimes keep memory bounded without changing the one-MLflow-run-per-system
-order. `_execute_all` gives each dataset a `DatasetScope` (preconditioner cache
-plus checkpoint store). After the last system on a matrix, that matrix's
-matrix-dependent builds (AMG hierarchies, factorizations) are evicted; after the
-last system of a dataset the whole scope is released. Only static-setup builds
-(neural) and the store stay resident for a dataset, since their reuse across its
-systems is the speedup.
-
-*Worked example.* One dataset with 3 matrices, each with 3 right-hand sides, is 9
-systems; each runs classical (matrix-setup), fitted POD-2G (matrix-setup) and
-neural (static-setup), 27 runs. With `timing.repeats = 2`:
-
-| Preconditioner | Cache misses | Timed `setup()` runs | Checkpoint loads |
-|---|---|---|---|
-| neural | 1 (system 1; 8 hit) | 2 (bind only, ~0 s) | 1 |
-| POD-2G | 3 (first RHS per matrix; 6 hit) | 6 (coarse operator per matrix) | 1 |
-| classical | 3 | 6 | 0 |
-
-That is 14 setup runs instead of 54 without the cache, and 2 loads instead of 36;
-all 27 solves are timed twice on the built objects without calling `setup()`
-again. Across three separate datasets the neural cache and store are per
-dataset, so neural loads 3 times; the RHS count never changes any count.
+The method-owned checkpoint store spans its matrices, so loaded weights are
+shared without sharing a matrix setup event. Each matrix's tensors and prepared
+state are dropped after its last RHS; the checkpoint store is released before
+the next method starts. `WorkloadMemoryObserver` combines operation peaks over
+that lifetime without resetting CUDA peak counters around an already-timed
+setup or solve. CPU `ru_maxrss` is process-wide and monotonic, so a method's CPU
+peak is documented and reported as a lower bound when an earlier workload set a
+higher process high-water mark.
 
 One check runs before anything executes:
 `spec_consistency.validate_dataset_specs_consistent` rejects a dataset whose
@@ -505,16 +479,10 @@ schedule-wrapped build would be wrongly served to the other system).
 
 Multi-matrix and single-matrix cases answer genuinely different questions;
 `[[comparison_sweeps]]` addresses the former and `[[comparisons]]` the latter,
-and the planner enforces that split per dataset. A multi-matrix case (e.g.
-`configs/cases/45x15randomE/default.toml`) shows each preconditioner's
-true per-matrix setup cost — AMG/POD-2G's line stays flat (never fully
-amortizes; a fresh coarse-operator assembly is unavoidable per matrix) but
-sits below classical AMG's, since checkpoint-backed POD-2G skips the
-expensive basis-fit step classical aggregation redoes from scratch every
-time. A single-matrix case is the one scenario where AMG/POD-2G's whole
-hierarchy — not just the basis — is shareable (every system solves on the
-same matrix, so `DatasetPreconditionerCache.shared_names()` includes it), so
-its line visibly flattens toward the pure-solve floor as N grows.
+and the planner enforces that split per dataset. Every distinct matrix incurs
+one measured setup. Increasing sibling RHS count amortizes that matrix setup;
+cross-matrix reuse is limited to method-owned checkpoint objects, never the
+prepared hierarchy or factorization.
 
 Comparison input preflight also stays out of composition. Workflow code invokes
 platform-owned validation for matrix/RHS inputs rather than inspecting dataset

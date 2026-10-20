@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import tempfile
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -24,22 +24,30 @@ from neuralls.composition.assignments.model_resolution import (
     resolve_preconditioner_models_with_warnings,
 )
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
+from neuralls.composition.comparison._linear_system import prepare_resolved_linear_system
 from neuralls.composition.comparison._preconditioner_setup import (
-    DatasetPreconditionerCache,
-    DatasetScope,
     SystemPreconditionerCache,
     matrix_key,
 )
-from neuralls.composition.comparison.comparison_run import compare_preconditioners
+from neuralls.composition.comparison.comparison_run import (
+    compare_preconditioners,
+    execute_method_workload,
+)
 from neuralls.composition.comparison.config_assembler import resolve_comparison_config
 from neuralls.composition.comparison.group_reporting import report_all_levels
 from neuralls.composition.comparison.input_gate import require_current_inputs
 from neuralls.composition.comparison.models import (
     ComparisonOutcome,
     ComparisonParams,
+    CompletedMethodWorkload,
+    MatrixWorkload,
+    MatrixWorkloadMember,
     PlannedSystem,
+    ResolvedComparisonInput,
+    ResolvedMethod,
 )
 from neuralls.composition.comparison.plan import plan_comparisons
+from neuralls.composition.comparison.recipes import system_tag
 from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
 from neuralls.composition.comparison.source_handlers import (
     ComparisonSourceSpec,
@@ -59,6 +67,12 @@ from neuralls.composition.tracking.run_specs import (
     build_session_run_spec,
 )
 from neuralls.domain.identity import StageIdentity
+from neuralls.domain.solver.comparison_summary import (
+    format_results_summary,
+    summarize_best_combinations,
+)
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.loaders import load_data_config
@@ -79,6 +93,7 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     TrainedAssignmentRefConfig,
 )
+from neuralls.platform.config.models.preconditioner_family import preconditioner_family
 from neuralls.platform.config.registry import get_assignment_binding, resolve_assignment_binding
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.platform.reporting.artifacts import write_comparison_artifacts
@@ -147,10 +162,6 @@ def _resolve_neural_preconditioners(
 ) -> list[PreconditionerConfig]:
     """Validate neural preconditioners and return unchanged specs."""
     return [_resolve_preconditioner(spec) for spec in solver_specs]
-
-
-CHECKPOINT_LOAD_METRIC = "checkpoint_load_s"
-"""Session metric: seconds spent loading checkpoints, which are outside every measured setup time."""
 
 
 def _iter_checkpoint_refs(
@@ -1120,18 +1131,6 @@ def _identities_by_entry_id(
     }
 
 
-def _last_positions[K](
-    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
-    key: Callable[[_PreparedComparisonExecution], K],
-) -> dict[K, int]:
-    """Position in ``pending`` of the last system to execute under each ``key``."""
-    return {
-        key(p): position
-        for position, p in enumerate(pending)
-        if isinstance(p, _PreparedComparisonExecution)
-    }
-
-
 def _dataset_of(prepared: _PreparedComparisonExecution) -> DatasetId:
     return DatasetId(prepared.entry.matrix_dataset)
 
@@ -1140,55 +1139,171 @@ def _matrix_of(prepared: _PreparedComparisonExecution) -> tuple[DatasetId, Matri
     return _dataset_of(prepared), matrix_key(prepared.planned)
 
 
+def _method_major_schedule(
+    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+) -> tuple[
+    tuple[
+        ResolvedMethod,
+        tuple[
+            tuple[
+                tuple[DatasetId, MatrixId],
+                tuple[_PreparedComparisonExecution, ...],
+            ],
+            ...,
+        ],
+    ],
+    ...,
+]:
+    """Group executable systems as method -> matrix -> ordered RHS members."""
+    methods: dict[tuple[str, Digest], ResolvedMethod] = {}
+    grouped: dict[
+        tuple[str, Digest],
+        dict[tuple[DatasetId, MatrixId], list[_PreparedComparisonExecution]],
+    ] = {}
+    for item in pending:
+        if not isinstance(item, _PreparedComparisonExecution):
+            continue
+        identities = preconditioner_identities(
+            item.resolved.specs, item.resolved.checkpoint_digests
+        )
+        for config in item.resolved.specs:
+            method_key = config.name, identities[config.name]
+            methods.setdefault(method_key, ResolvedMethod(config))
+            grouped.setdefault(method_key, {}).setdefault(_matrix_of(item), []).append(item)
+    return tuple(
+        (
+            method,
+            tuple((matrix, tuple(systems)) for matrix, systems in grouped[key].items()),
+        )
+        for key, method in methods.items()
+    )
+
+
+def _load_matrix_workloads(
+    matrices: Sequence[
+        tuple[
+            tuple[DatasetId, MatrixId],
+            tuple[_PreparedComparisonExecution, ...],
+        ]
+    ],
+) -> tuple[MatrixWorkload, ...]:
+    """Read one method's matrices/RHS values before online timing begins."""
+    bundles: list[MatrixWorkload] = []
+    for (dataset, matrix_id), systems in matrices:
+        loaded: list[tuple[_PreparedComparisonExecution, ResolvedComparisonInput]] = []
+        for prepared in systems:
+            cfg = prepared.cfg
+            resolved = resolve_comparison_input(
+                matrix_path=Path(cfg.general.data.matrix_path),
+                matrix_dataset_id=prepared.entry.matrix_dataset,
+                matrix_index=cfg.general.data.matrix_index,
+                matrix_provenance=prepared.planned.provenance,
+                require_non_residual_rhs=cfg.general.data.require_non_residual_rhs,
+                seed=cfg.general.data.selection_seed,
+                rhs_source_kind=_require_rhs_source_kind(cfg),
+                rhs_source_params=cfg.general.data.rhs_source_params,
+            )
+            system = prepare_resolved_linear_system(resolved, cfg.general.data.normalize_system)
+            loaded.append(
+                (
+                    prepared,
+                    replace(
+                        resolved,
+                        matrix=system.matrix.numpy(),
+                        rhs=system.rhs.numpy(),
+                    ),
+                )
+            )
+        first_prepared, first_input = loaded[0]
+        bundles.append(
+            MatrixWorkload(
+                dataset=dataset,
+                matrix_id=matrix_id,
+                matrix=first_input.matrix,
+                matrix_path=Path(first_prepared.cfg.general.data.matrix_path),
+                matrix_index=first_prepared.cfg.general.data.matrix_index,
+                members=tuple(
+                    MatrixWorkloadMember(
+                        tag=system_tag(prepared.planned),
+                        rhs=resolved.rhs,
+                    )
+                    for prepared, resolved in loaded
+                ),
+            )
+        )
+    return tuple(bundles)
+
+
+def _outcomes_from_workloads(
+    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+    workloads: Sequence[CompletedMethodWorkload],
+) -> list[ComparisonOutcome]:
+    """Project canonical diagnostics back into the retained per-system API."""
+    diagnostics: dict[str, dict[str, CGComparisonResult]] = {}
+    for workload in workloads:
+        for system_id, result in workload.diagnostics:
+            diagnostics.setdefault(str(system_id), {})[str(workload.method)] = result
+
+    outcomes: list[ComparisonOutcome] = []
+    for item in pending:
+        if isinstance(item, ComparisonOutcome):
+            outcomes.append(item)
+            continue
+        results = diagnostics.get(item.entry.id, {})
+        if not results:
+            outcomes.append(
+                _comparison_failure_outcome(
+                    item.entry, RuntimeError("method workload produced no diagnostics")
+                )
+            )
+            continue
+        typed_results = dict(results)
+        styles = {
+            config.name: PreconditionerPlotStyle(
+                label=config.name,
+                family=preconditioner_family(config),
+            )
+            for config in item.resolved.specs
+            if config.name in typed_results
+        }
+        outcomes.append(
+            _comparison_outcome(
+                item.entry,
+                success=True,
+                warnings=item.resolved.warnings,
+                payload=ComparisonResult(
+                    results=typed_results,
+                    summary=format_results_summary(typed_results),
+                    solver_params=item.cfg.general,
+                    preconditioners=tuple(typed_results),
+                    recommendations=summarize_best_combinations(typed_results),
+                    rhs_source_kind=item.cfg.general.data.rhs_source_kind,
+                    plot_styles=styles,
+                ),
+            )
+        )
+    return outcomes
+
+
 def _execute_all(
     pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
-) -> tuple[list[ComparisonOutcome], dict[DatasetId, DatasetPreconditionerCache]]:
-    """Execute every pending system in plan order, bounding what stays in memory.
-
-    Each dataset gets one `DatasetScope` (preconditioner cache plus the checkpoint
-    store its builds borrow from). A matrix's matrix-dependent builds are evicted
-    after the last system on that matrix, and a dataset's scope is released after
-    its last system, so only the datasets and matrices still to be visited keep
-    models resident. The device is warmed once before the first system, so no
-    preconditioner's timing absorbs first-call costs.
-
-    Returns:
-        One outcome per pending entry, in order, plus each executed dataset's
-        preconditioner cache (the group report reads its `shared_names`).
-    """
+) -> tuple[list[ComparisonOutcome], tuple[CompletedMethodWorkload, ...]]:
+    """Execute pending systems in method -> matrix -> ordered RHS order."""
     warm_up_device(resolve_device())
-    last_of_dataset = _last_positions(pending, _dataset_of)
-    last_of_matrix = _last_positions(pending, _matrix_of)
-    scopes: dict[DatasetId, DatasetScope] = {}
-    caches: dict[DatasetId, DatasetPreconditionerCache] = {}
-    outcomes: list[ComparisonOutcome] = []
-    load_seconds = 0.0
-    for position, p in enumerate(pending):
-        if not isinstance(p, _PreparedComparisonExecution):
-            outcomes.append(p)
-            continue
-        dataset_id, matrix_id = _matrix_of(p)
-        scope = scopes.setdefault(dataset_id, DatasetScope())
-        caches[dataset_id] = scope.cache
-        outcomes.append(_execute_prepared_comparison(p, cache=scope.for_system(matrix_id)))
-        if last_of_matrix[(dataset_id, matrix_id)] == position:
-            scope.cache.evict_matrix(matrix_id)
-        if last_of_dataset[dataset_id] == position:
-            load_seconds += scope.checkpoints.load_seconds
-            scope.release()
-            del scopes[dataset_id]
-            release_device_memory()
-    mlflow.log_metric(CHECKPOINT_LOAD_METRIC, load_seconds)
-    return outcomes, caches
-
-
-def _specs_by_entry_id(
-    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
-) -> dict[str, list[PreconditionerConfig]]:
-    """Resolved preconditioner definitions of every entry that will execute."""
-    return {
-        p.entry.id: p.resolved.specs for p in pending if isinstance(p, _PreparedComparisonExecution)
-    }
+    workloads: list[CompletedMethodWorkload] = []
+    for method, matrices in _method_major_schedule(pending):
+        bundles = _load_matrix_workloads(matrices)
+        first = matrices[0][1][0]
+        workload = execute_method_workload(
+            method,
+            bundles,
+            params=first.cfg.general.params,
+            settings=first.settings,
+            notation_policy=first.cfg.notation_policy,
+        )
+        workloads.append(workload)
+        release_device_memory()
+    return _outcomes_from_workloads(pending, workloads), tuple(workloads)
 
 
 def run_comparison_batch(
@@ -1237,7 +1352,7 @@ def run_comparison_batch(
 
     with contextlib.ExitStack() as stack:
         stack.enter_context(digest_memo())
-        pending, planned_systems = _prepare_all_comparisons(
+        pending, _planned_systems = _prepare_all_comparisons(
             master_cfg,
             topology,
             case_config_path,
@@ -1249,16 +1364,10 @@ def run_comparison_batch(
 
         if not any(isinstance(p, _PreparedComparisonExecution) for p in pending):
             outcomes = [p for p in pending if isinstance(p, ComparisonOutcome)]
-            report_all_levels(outcomes, planned_systems, {}, {}, MLflowGroupReportSink())
+            report_all_levels((), MLflowGroupReportSink())
             return outcomes
 
         with mlflow.start_run(run_name=session_run_name, tags=session_tags.as_mlflow_tags()):
-            outcomes, dataset_caches = _execute_all(pending)
-            report_all_levels(
-                outcomes,
-                planned_systems,
-                _specs_by_entry_id(pending),
-                dataset_caches,
-                MLflowGroupReportSink(),
-            )
+            outcomes, workloads = _execute_all(pending)
+            report_all_levels(workloads, MLflowGroupReportSink())
             return outcomes

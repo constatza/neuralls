@@ -14,6 +14,10 @@ implementations are delegated to `torchalg`.
 - peak memory is either measured or explicitly unknown;
 - representative seconds and every repeat sample are retained separately.
 
+`run_cg_comparison` uses the failure-aware repeat timer, so a solver exception
+still yields a measured failed attempt with its representative duration,
+samples, and peak memory rather than an unmeasured zero-cost row.
+
 Online time is setup plus solve only. Checkpoint and dataset reads, reference
 solves, staging, plotting, persistence, MLflow calls, and historical generation
 or training remain outside it. Required computation after I/O belongs to a

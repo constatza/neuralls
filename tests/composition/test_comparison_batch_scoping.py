@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from unittest.mock import MagicMock
 
 import pytest
@@ -10,23 +11,76 @@ from neuralls.composition.assignments import comparison_batch
 from neuralls.composition.assignments.comparison_batch import (
     _ComparisonResolutionContext,
     _execute_all,
+    _method_major_schedule,
     _prepare_comparison_entry,
     _PreparedComparisonExecution,
 )
-from neuralls.composition.comparison._preconditioner_setup import (
-    DatasetPreconditionerCache,
-    DatasetScope,
+from neuralls.composition.comparison.models import CompletedMethodWorkload, ResolvedMethod
+from neuralls.domain.solver.models import MeasuredPeakMemory
+from neuralls.platform.config.models.preconditioner import (
+    PreconditionerType,
+    StandardPreconditionerConfig,
 )
 from neuralls.shared.types import MatrixId
 
 
-def _system(dataset: str, matrix: int) -> MagicMock:
+def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
     system = MagicMock(spec=_PreparedComparisonExecution)
     system.entry = MagicMock()
     system.planned = MagicMock()
     system.entry.matrix_dataset = dataset
+    system.entry.id = entry_id
     system.planned.matrix.matrix_id = MatrixId(matrix)
+    system.__dict__["resolved"] = MagicMock()
+    system.resolved.checkpoint_digests = {}
+    system.__dict__["cfg"] = MagicMock()
+    system.__dict__["settings"] = MagicMock()
     return system
+
+
+def test_method_major_schedule_nests_matrix_and_rhs_in_plan_order() -> None:
+    identity = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
+    jacobi = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
+    pending = [
+        _system("ds", 1, "m1-r0"),
+        _system("ds", 1, "m1-r1"),
+        _system("ds", 2, "m2-r0"),
+        _system("ds", 2, "m2-r1"),
+    ]
+    for system in pending:
+        system.resolved.specs = [identity, jacobi]
+
+    schedule = _method_major_schedule(pending)
+    trace = [
+        (method.name, matrix_id, tuple(system.entry.id for system in systems))
+        for method, matrices in schedule
+        for (_, matrix_id), systems in matrices
+    ]
+
+    assert trace == [
+        ("identity", MatrixId(1), ("m1-r0", "m1-r1")),
+        ("identity", MatrixId(2), ("m2-r0", "m2-r1")),
+        ("jacobi", MatrixId(1), ("m1-r0", "m1-r1")),
+        ("jacobi", MatrixId(2), ("m2-r0", "m2-r1")),
+    ]
+
+
+def test_method_schedule_does_not_share_same_name_with_different_identity() -> None:
+    first = _system("a", 0, "a-0")
+    second = _system("b", 0, "b-0")
+    first.resolved.specs = [StandardPreconditionerConfig(type=PreconditionerType.JACOBI)]
+    second.resolved.specs = [
+        StandardPreconditionerConfig(type=PreconditionerType.JACOBI, start_iter=5)
+    ]
+
+    schedule = _method_major_schedule((first, second))
+
+    assert len(schedule) == 2
+    assert [method.config.start_iter for method, _ in schedule] == [0, 5]
+    assert [[dataset for (dataset, _), _ in matrices] for _, matrices in schedule] == [
+        ["a"],
+        ["b"],
+    ]
 
 
 @pytest.fixture
@@ -36,48 +90,67 @@ def events(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr(comparison_batch, "release_device_memory", lambda: None)
     monkeypatch.setattr(comparison_batch.mlflow, "log_metric", lambda *a, **k: None)
 
-    def execute(prepared: MagicMock, *, cache: object) -> str:
-        recorded.append(
-            f"run:{prepared.entry.matrix_dataset}:{int(prepared.planned.matrix.matrix_id)}"
+    monkeypatch.setattr(
+        comparison_batch,
+        "_load_matrix_workloads",
+        lambda matrices: tuple(matrix for matrix, _ in matrices),
+    )
+
+    def execute(
+        method: ResolvedMethod,
+        bundles: Sequence[tuple[object, MatrixId]],
+        **kwargs: object,
+    ) -> CompletedMethodWorkload:
+        del kwargs
+        name = method.name
+        recorded.append(f"method:{name}")
+        recorded.extend(f"matrix:{name}:{int(matrix_id)}" for _, matrix_id in bundles)
+        recorded.append(f"release:{name}")
+        return CompletedMethodWorkload(
+            method=name,
+            planned=(),
+            setup_events=(),
+            solve_attempts=(),
+            diagnostics=(),
+            offline_costs=(),
+            workload_peak_memory=MeasuredPeakMemory(0),
         )
-        return "outcome"
 
-    monkeypatch.setattr(comparison_batch, "_execute_prepared_comparison", execute)
-    evict = DatasetPreconditionerCache.evict_matrix
-    release = DatasetScope.release
-
-    def spy_evict(self: DatasetPreconditionerCache, matrix: MatrixId) -> None:
-        recorded.append(f"evict:{int(matrix)}")
-        evict(self, matrix)
-
-    def spy_release(self: DatasetScope) -> None:
-        recorded.append("release")
-        release(self)
-
-    monkeypatch.setattr(DatasetPreconditionerCache, "evict_matrix", spy_evict)
-    monkeypatch.setattr(DatasetScope, "release", spy_release)
+    monkeypatch.setattr(comparison_batch, "execute_method_workload", execute)
     return recorded
 
 
-def test_device_is_warmed_once_and_state_is_dropped_after_each_last_use(events: list[str]) -> None:
-    pending = [_system("a", 0), _system("a", 0), _system("a", 1), _system("b", 0)]
+def test_device_is_warmed_once_and_each_method_releases_before_the_next(
+    events: list[str],
+) -> None:
+    identity = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
+    jacobi = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
+    pending = [
+        _system("a", 0, "a-0-0"),
+        _system("a", 0, "a-0-1"),
+        _system("a", 1, "a-1-0"),
+        _system("b", 0, "b-0-0"),
+    ]
+    for system in pending:
+        system.resolved.specs = [identity, jacobi]
 
-    outcomes, caches = _execute_all(pending)
+    outcomes, workloads = _execute_all(pending)
 
     assert events == [
         "warm",
-        "run:a:0",
-        "run:a:0",
-        "evict:0",
-        "run:a:1",
-        "evict:1",
-        "release",
-        "run:b:0",
-        "evict:0",
-        "release",
+        "method:identity",
+        "matrix:identity:0",
+        "matrix:identity:1",
+        "matrix:identity:0",
+        "release:identity",
+        "method:jacobi",
+        "matrix:jacobi:0",
+        "matrix:jacobi:1",
+        "matrix:jacobi:0",
+        "release:jacobi",
     ]
-    assert outcomes == ["outcome"] * 4
-    assert set(caches) == {"a", "b"}
+    assert len(outcomes) == 4
+    assert len(workloads) == 2
 
 
 def test_every_entry_of_a_sweep_shares_the_one_lease_manager(

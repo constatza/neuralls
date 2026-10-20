@@ -8,7 +8,14 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from neuralls.domain.solver.models.benchmark_events import (
+    MatrixSetupEvent,
+    PeakMemory,
+    SolveAttempt,
+    SystemTag,
+)
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.cost import StageCost
 from neuralls.domain.solver.models.provenance import (
     HeldOutMatrix,
     MatrixProvenance,
@@ -17,10 +24,18 @@ from neuralls.domain.solver.models.provenance import (
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.platform.config.models.comparison import RHS_SOURCE_MODEL_BY_KIND
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
+from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.storage.manifest import DatasetNormalization
-from neuralls.shared.types import ComparisonRhsSourceKind, MatrixId, RowKind
+from neuralls.shared.types import (
+    ComparisonRhsSourceKind,
+    DatasetId,
+    MatrixId,
+    PreconditionerName,
+    RowKind,
+    SystemId,
+)
 
 __all__ = [
     "ComparisonOutcome",
@@ -28,12 +43,76 @@ __all__ = [
     "ComparisonPaths",
     "ComparisonResult",
     "ComparisonSpec",
+    "CompletedMethodWorkload",
     "LinearSystem",
     "MatrixRef",
+    "MatrixWorkload",
+    "MatrixWorkloadMember",
     "PlannedSystem",
     "PreconditionerComparisonEntry",
     "ResolvedComparisonInput",
+    "ResolvedMethod",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedMethod:
+    """One resolved candidate method configuration."""
+
+    config: PreconditionerConfig
+
+    @property
+    def name(self) -> PreconditionerName:
+        """The stable result identifier derived by the config model."""
+        return PreconditionerName(self.config.name)
+
+
+@dataclass(frozen=True, slots=True)
+class MatrixWorkloadMember:
+    """One planned RHS member, already read but not moved to the solver device."""
+
+    tag: SystemTag
+    rhs: np.ndarray
+
+
+@dataclass(frozen=True, slots=True)
+class MatrixWorkload:
+    """One matrix identity and its ordered planned RHS members."""
+
+    dataset: DatasetId
+    matrix_id: MatrixId
+    matrix: np.ndarray
+    matrix_path: Path
+    matrix_index: int
+    members: tuple[MatrixWorkloadMember, ...]
+
+    def __post_init__(self) -> None:
+        """Keep membership tied to the bundle identity."""
+        if not self.members:
+            raise ValueError("a matrix workload must contain at least one planned RHS")
+        if any(
+            member.tag.dataset != self.dataset or member.tag.matrix_id != self.matrix_id
+            for member in self.members
+        ):
+            raise ValueError("matrix workload members must match the bundle identity")
+
+
+@dataclass(frozen=True, slots=True)
+class CompletedMethodWorkload:
+    """Canonical raw events and diagnostics produced by one method workload.
+
+    ``offline_costs`` contains only the optional historical generation cost;
+    checkpoint and data loading are I/O outside the benchmark cost model.
+    Generation never contributes to setup, solve, or workload-online totals.
+    """
+
+    method: PreconditionerName
+    planned: tuple[SystemTag, ...]
+    setup_events: tuple[MatrixSetupEvent, ...]
+    solve_attempts: tuple[SolveAttempt, ...]
+    diagnostics: tuple[tuple[SystemId, CGComparisonResult], ...]
+    offline_costs: tuple[StageCost, ...]
+    workload_peak_memory: PeakMemory
 
 
 @dataclass(frozen=True)

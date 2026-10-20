@@ -2,7 +2,7 @@
 
 Includes regression tests for two bugs:
 1. ``_collect_extra_name_positions`` must preserve declaration order, not sort.
-2. ``_load_and_bind_extra_inputs`` must bind the correct parameter file to
+2. staged loading plus ``_bind_extra_inputs`` must bind the correct parameter file to
    each name when the declared names are in non-alphabetical order.
 """
 
@@ -16,8 +16,9 @@ import torch
 from torchalg.preconditioners.base import BindableInputs, Preconditioner
 
 from neuralls.composition.comparison._preconditioner_setup import (
+    _bind_extra_inputs,
     _collect_extra_name_positions,
-    _load_and_bind_extra_inputs,
+    _load_extra_inputs,
 )
 from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
@@ -189,7 +190,7 @@ def test_collect_extra_name_positions_excludes_matrix() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Fixtures for _load_and_bind_extra_inputs regression (Bug 2)
+# Fixtures for staged extra-input loading/binding regression (Bug 2)
 # ---------------------------------------------------------------------------
 
 
@@ -222,7 +223,7 @@ def stub_bindable_non_alpha() -> _StubBindable:
 
 
 # ---------------------------------------------------------------------------
-# Regression tests for _load_and_bind_extra_inputs (Bug 2)
+# Regression tests for staged extra-input loading/binding (Bug 2)
 # ---------------------------------------------------------------------------
 
 
@@ -239,12 +240,8 @@ def test_load_and_bind_binds_zebra_from_position_0(
     matrix = torch.as_tensor(_MATRIX, dtype=torch.float64)
     preconditioners: dict[str, Preconditioner] = {"model": stub_bindable_non_alpha}
 
-    _load_and_bind_extra_inputs(
-        preconditioners,
-        matrix,
-        dataset_with_two_params,
-        _SAMPLE_INDEX,
-    )
+    staged = _load_extra_inputs(dataset_with_two_params, _SAMPLE_INDEX)
+    _bind_extra_inputs(preconditioners, matrix, staged)
 
     assert "zebra" in stub_bindable_non_alpha.bound_inputs, (
         "'zebra' was not bound at all — positions were not resolved."
@@ -267,12 +264,8 @@ def test_load_and_bind_binds_apple_from_position_1(
     matrix = torch.as_tensor(_MATRIX, dtype=torch.float64)
     preconditioners: dict[str, Preconditioner] = {"model": stub_bindable_non_alpha}
 
-    _load_and_bind_extra_inputs(
-        preconditioners,
-        matrix,
-        dataset_with_two_params,
-        _SAMPLE_INDEX,
-    )
+    staged = _load_extra_inputs(dataset_with_two_params, _SAMPLE_INDEX)
+    _bind_extra_inputs(preconditioners, matrix, staged)
 
     assert "apple" in stub_bindable_non_alpha.bound_inputs, "'apple' was not bound at all."
     np.testing.assert_allclose(
@@ -298,12 +291,8 @@ def test_load_and_bind_does_not_swap_arrays_for_non_alpha_names(
     matrix = torch.as_tensor(_MATRIX, dtype=torch.float64)
     preconditioners: dict[str, Preconditioner] = {"model": stub_bindable_non_alpha}
 
-    _load_and_bind_extra_inputs(
-        preconditioners,
-        matrix,
-        dataset_with_two_params,
-        _SAMPLE_INDEX,
-    )
+    staged = _load_extra_inputs(dataset_with_two_params, _SAMPLE_INDEX)
+    _bind_extra_inputs(preconditioners, matrix, staged)
 
     bound = stub_bindable_non_alpha.bound_inputs
     zebra_val = float(bound["zebra"][0])

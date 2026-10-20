@@ -258,18 +258,53 @@ def _load_linear_system(
         )
     else:
         A, b = resolved_input.matrix, resolved_input.rhs
-    A, b = _normalize_linear_system(
+    return _prepare_linear_system(
         A,
         b,
         normalize_system,
         rhs_source_kind=resolved_input.rhs_source_kind if resolved_input else None,
         matrix_normalization=resolved_input.matrix_normalization if resolved_input else None,
+        lhs=resolved_input.lhs if resolved_input else None,
     )
-    validate_matrix(A)
-    validate_rhs_vector(b, A)
-    if resolved_input is not None and resolved_input.lhs is not None:
-        validate_ax_equals_b(A, b, resolved_input.lhs)
+
+
+def prepare_resolved_linear_system(
+    resolved_input: ResolvedComparisonInput,
+    normalize_system: str,
+) -> LinearSystem:
+    """Normalize and validate an already-resolved comparison input."""
+    return _prepare_linear_system(
+        resolved_input.matrix,
+        resolved_input.rhs,
+        normalize_system,
+        rhs_source_kind=resolved_input.rhs_source_kind,
+        matrix_normalization=resolved_input.matrix_normalization,
+        lhs=resolved_input.lhs,
+    )
+
+
+def _prepare_linear_system(
+    matrix: SystemMatrix,
+    rhs: np.ndarray,
+    normalize_system: str,
+    *,
+    rhs_source_kind: ComparisonRhsSourceKind | None,
+    matrix_normalization: DatasetNormalization | None,
+    lhs: np.ndarray | None,
+) -> LinearSystem:
+    """Apply comparison normalization and validation to in-memory arrays."""
+    matrix, rhs = _normalize_linear_system(
+        matrix,
+        rhs,
+        normalize_system,
+        rhs_source_kind=rhs_source_kind,
+        matrix_normalization=matrix_normalization,
+    )
+    validate_matrix(matrix)
+    validate_rhs_vector(rhs, matrix)
+    if lhs is not None:
+        validate_ax_equals_b(matrix, rhs, lhs)
     return LinearSystem(
-        matrix=torch.tensor(A, dtype=torch.float64),
-        rhs=torch.tensor(b, dtype=torch.float64),
+        matrix=torch.tensor(matrix, dtype=torch.float64),
+        rhs=torch.tensor(rhs, dtype=torch.float64),
     )

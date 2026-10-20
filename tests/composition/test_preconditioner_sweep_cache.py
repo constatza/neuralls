@@ -1,10 +1,8 @@
 """Tests for `DatasetPreconditionerCache` reuse through `_run_preconditioner`.
 
-Covers the cases the cache must tell apart:
-- A matrix-agnostic preconditioner (Identity, a `StaticSetupPreconditioner`)
-  is reused across *different* matrices of a dataset.
-- A matrix-dependent preconditioner (Jacobi) is reused only for the same matrix.
-- A matrix-dependent preconditioner is rebuilt for a *different* matrix.
+Covers the matrix-bundle lifetime used by method-major execution: prepared
+state is reused across sibling RHS values and never across matrices. Loaded
+checkpoint weights have their own method-owned store and are not tested here.
 """
 
 from __future__ import annotations
@@ -76,10 +74,10 @@ def _run(
     )
 
 
-def test_static_setup_preconditioner_is_reused_across_different_matrices(
+def test_static_setup_preconditioner_is_rebuilt_for_each_matrix(
     neuralls_settings: NeurallsSettings,
 ) -> None:
-    """Identity is matrix-agnostic, so it is shareable even across different matrices."""
+    """Identity still receives one measured setup event per distinct matrix."""
     cfg = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
     dataset_cache = DatasetPreconditionerCache()
     cache_a = dataset_cache.for_system(MatrixId(0))
@@ -91,9 +89,14 @@ def test_static_setup_preconditioner_is_reused_across_different_matrices(
     first = _run(cfg, matrix=matrix_a, rhs=rhs, settings=neuralls_settings, cache=cache_a)
     second = _run(cfg, matrix=matrix_b, rhs=rhs, settings=neuralls_settings, cache=cache_b)
 
-    assert dataset_cache.shared_names() == frozenset({"identity"})
-    assert cache_b.get("identity") is cache_a.get("identity")
-    assert first.result.setup_cost == second.result.setup_cost
+    built_for_a = cache_a.get("identity")
+    built_for_b = cache_b.get("identity")
+    assert built_for_a is not None
+    assert built_for_b is not None
+    assert built_for_a.preconditioner is not built_for_b.preconditioner
+    assert dataset_cache.shared_names() == frozenset()
+    assert first.result.setup_time_samples
+    assert second.result.setup_time_samples
 
 
 def test_matrix_setup_preconditioner_is_reused_only_for_the_same_matrix(

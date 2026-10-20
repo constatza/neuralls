@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import torch
-from torchalg.preconditioners.base import BindableInputs, Preconditioner, StaticSetupPreconditioner
+from torchalg.preconditioners.base import BindableInputs, Preconditioner
 
 from neuralls.composition.comparison.models import PlannedSystem
 from neuralls.composition.preconditioners.checkpoint_store import NO_PRELOADED, CheckpointStore
@@ -92,15 +92,12 @@ def matrix_key(system: PlannedSystem) -> MatrixId:
 
 
 class DatasetPreconditionerCache:
-    """Cache of already-built-and-setup preconditioners for one matrix dataset.
+    """Legacy cache of prepared preconditioners, always scoped by matrix.
 
-    Reuse is correct by construction from `torchalg`'s own role interface:
-
-    - A `StaticSetupPreconditioner`'s `setup()` never reads the matrix (e.g. a
-      checkpoint-backed neural preconditioner), so one build serves every
-      system of the dataset.
-    - A `MatrixSetupPreconditioner`'s build depends on the matrix, so it is
-      stored per `MatrixId` and only served to systems on that same matrix.
+    Static and matrix-dependent methods both receive a distinct measured setup
+    event on every matrix.  This cache therefore shares prepared state only
+    among sibling RHS systems with the same `MatrixId`; checkpoint objects use
+    the separate method-owned `CheckpointStore`.
 
     A preconditioner name must mean one preconditioner within a dataset
     (`validate_dataset_specs_consistent`), which is what makes serving by name
@@ -108,7 +105,6 @@ class DatasetPreconditionerCache:
     """
 
     def __init__(self) -> None:
-        self._static: dict[str, _CachedPreconditioner] = {}
         self._by_matrix: dict[MatrixId, dict[str, _CachedPreconditioner]] = {}
         self._matrices_seen: set[MatrixId] = set()
         self._released_shared_names: frozenset[str] | None = None
@@ -127,36 +123,28 @@ class DatasetPreconditionerCache:
         return SystemPreconditionerCache(self, matrix, checkpoints)
 
     def evict_matrix(self, matrix: MatrixId) -> None:
-        """Drop the matrix-dependent builds for ``matrix`` (reusable only on that matrix).
+        """Drop every prepared build for ``matrix``.
 
         Called after the matrix's last system executed, so a dataset with many
-        matrices never keeps every matrix's AMG hierarchy or factorization
-        resident. Static-setup entries are kept: they serve the whole dataset.
+        matrices never keeps every hierarchy or factorization resident.
         """
         self._by_matrix.pop(matrix, None)
 
     def lookup(self, name: str, matrix: MatrixId) -> _CachedPreconditioner | None:
-        cached = self._static.get(name)
-        return cached if cached is not None else self._by_matrix.get(matrix, {}).get(name)
+        return self._by_matrix.get(matrix, {}).get(name)
 
     def store(self, name: str, matrix: MatrixId, cached: _CachedPreconditioner) -> None:
-        if isinstance(cached.preconditioner, StaticSetupPreconditioner):
-            self._static[name] = cached
-        else:
-            self._by_matrix.setdefault(matrix, {})[name] = cached
+        self._by_matrix.setdefault(matrix, {})[name] = cached
 
     def shared_names(self) -> frozenset[str]:
         """Names whose setup this cache shares across every system it served.
 
-        A static-setup name is shared dataset-wide. A matrix-setup name is
-        shared across all systems only when they all solved on one matrix;
-        with several matrices it is rebuilt per matrix, so its setup recurs
-        and projecting it as a one-off would understate its cost. Used after
-        execution to determine safe prepared-state reuse.
+        A name is shared across every system only when the cache served one
+        matrix.  With several matrices every method is rebuilt per matrix.
         """
         if self._released_shared_names is not None:
             return self._released_shared_names
-        shared = set(self._static)
+        shared: set[str] = set()
         if len(self._matrices_seen) == 1:
             shared.update(name for names in self._by_matrix.values() for name in names)
         return frozenset(shared)
@@ -170,7 +158,6 @@ class DatasetPreconditionerCache:
         report reads it after execution; any later lookup is a miss.
         """
         self._released_shared_names = self.shared_names()
-        self._static.clear()
         self._by_matrix.clear()
 
 
@@ -345,53 +332,46 @@ def _collect_extra_name_positions(
     return positions
 
 
-def _load_extra_data(
-    matrix_path: Path,
-    name_to_position: dict[str, int],
-    matrix_index: int,
-) -> dict[str, torch.Tensor]:
-    """Load named extra arrays from a dataset dir using declaration-order positions.
+def _load_extra_inputs(matrix_path: Path, matrix_index: int) -> tuple[torch.Tensor, ...]:
+    """Read every parameter array for one matrix outside online timing.
 
     Args:
         matrix_path: Dataset directory containing ``parameters_N`` array files.
-        name_to_position: Mapping from semantic name to its positional index.
         matrix_index: Sample index to extract from each parameter array.
 
     Returns:
-        Dict mapping names to loaded arrays (entries whose position exceeds the
-        available parameter count are silently skipped).
+        Parameter tensors in manifest order. Device/dtype conversion and
+        semantic binding deliberately happen later, inside setup timing.
     """
-    arrays = load_training_arrays(matrix_path)
-    return {
-        name: torch.tensor(load_array_source_sample(arrays.parameter_sources[pos], matrix_index))
-        for name, pos in name_to_position.items()
-        if pos < len(arrays.parameter_sources)
-    }
+    if not matrix_path.is_dir():
+        return ()
+    try:
+        arrays = load_training_arrays(matrix_path)
+    except FileNotFoundError:
+        return ()
+    return tuple(
+        torch.tensor(load_array_source_sample(source, matrix_index))
+        for source in arrays.parameter_sources
+    )
 
 
-def _load_and_bind_extra_inputs(
+def _bind_extra_inputs(
     scheduled_preconditioners: dict[str, Preconditioner],
     matrix: torch.Tensor,
-    matrix_path: Path,
-    matrix_index: int,
+    staged_inputs: tuple[torch.Tensor, ...],
 ) -> None:
-    """Load extra parameter arrays and bind them alongside the system matrix.
+    """Convert staged parameter arrays and bind them inside setup timing.
 
     Args:
         scheduled_preconditioners: Preconditioners to inspect and bind.
         matrix: System matrix — always bound as ``"matrix"``.
-        matrix_path: Dataset directory; loading is skipped when not a directory.
-        matrix_index: Sample index used when extracting from parameter arrays.
+        staged_inputs: Parameter tensors read before setup, in manifest order.
     """
     name_to_position = _collect_extra_name_positions(scheduled_preconditioners)
-    extra_data = (
-        _load_extra_data(matrix_path, name_to_position, matrix_index)
-        if name_to_position and matrix_path.is_dir()
-        else {}
-    )
     extra_data = {
-        name: value.to(dtype=matrix.dtype, device=matrix.device)
-        for name, value in extra_data.items()
+        name: staged_inputs[position].to(dtype=matrix.dtype, device=matrix.device)
+        for name, position in name_to_position.items()
+        if position < len(staged_inputs)
     }
     _bind_system_inputs(scheduled_preconditioners, {"matrix": matrix, **extra_data})
 

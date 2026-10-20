@@ -11,7 +11,6 @@ inference predictor) releases on exit, and gets a non-owning view.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,16 +84,14 @@ class CheckpointStore:
 
     Loaders are injected callables, so this class knows nothing about torch
     checkpoints or DLKit. Each ``load_*`` is idempotent: a key already loaded is
-    never loaded again, which is what makes the second matrix of a dataset (and
-    every timing repeat) free. Time spent in loaders accumulates in
-    ``load_seconds`` so the cost stays reported although it is outside the timer.
+    never loaded again, which is what makes the second matrix of a method (and
+    every timing repeat) free.
     """
 
     def __init__(self) -> None:
         self._pod_bases: dict[PodBasisKey, torch.nn.Module] = {}
         self._predictors: dict[PredictorKey, ExtraInputPredictorPort] = {}
         self._inference_predictors: dict[PredictorKey, InferencePredictorPort] = {}
-        self.load_seconds = 0.0
 
     def __enter__(self) -> Self:
         """Enter the store's scope; leaving it releases everything loaded."""
@@ -153,11 +150,8 @@ class CheckpointStore:
         self._inference_predictors.clear()
 
     def _timed[T](self, path: Path, loader: Callable[[], T]) -> T:
-        start = time.perf_counter()
         loaded = loader()
-        elapsed = time.perf_counter() - start
-        self.load_seconds += elapsed
-        logger.info("Preloaded checkpoint '{}' in {:.3f}s.", path, elapsed)
+        logger.info("Preloaded checkpoint '{}'.", path)
         return loaded
 
 

@@ -179,11 +179,129 @@ class TimedRuns[T]:
     peak_memory_bytes: int
 
 
+@dataclass(frozen=True, slots=True)
+class FailedTimedRuns:
+    """A timed execution that raised after still producing resource data."""
+
+    error: Exception
+    seconds: float
+    samples_seconds: tuple[float, ...]
+    peak_memory_bytes: int
+
+
+type TimedOutcome[T] = TimedRuns[T] | FailedTimedRuns
+
+
+@dataclass(slots=True)
+class WorkloadMemoryObserver:
+    """Observe a method lifetime without resetting per-operation CUDA peaks.
+
+    CUDA operation timers keep ownership of ``reset_peak_memory_stats``.  The
+    observer combines their exact peaks with allocator snapshots between
+    operations, avoiding nested resets.  POSIX ``ru_maxrss`` (and Windows
+    ``peak_wset``) is process-wide and monotonic, so the CPU result is only a
+    lower bound when an earlier workload established a higher process peak.
+    """
+
+    device: torch.device
+    _baseline_rss_kib: int | None
+    _peak_memory_bytes: int
+
+    @classmethod
+    def start(cls, device: torch.device) -> WorkloadMemoryObserver:
+        """Begin observation without changing allocator counters."""
+        if device.type == "cuda":
+            return cls(device, None, torch.cuda.memory_allocated(device))
+        return cls(device, _sample_peak_rss_kib(), 0)
+
+    def observe_operation(self, peak_memory_bytes: int) -> None:
+        """Include one independently measured setup or solve peak."""
+        self._peak_memory_bytes = max(self._peak_memory_bytes, peak_memory_bytes)
+        if self.device.type == "cuda":
+            self._peak_memory_bytes = max(
+                self._peak_memory_bytes, torch.cuda.memory_allocated(self.device)
+            )
+
+    def finish(self) -> int:
+        """Return the best available method-lifetime peak in bytes."""
+        if self.device.type == "cuda":
+            return max(self._peak_memory_bytes, torch.cuda.memory_allocated(self.device))
+        current = _sample_peak_rss_kib()
+        process_delta = max(current - (self._baseline_rss_kib or 0), 0) * 1024
+        return max(self._peak_memory_bytes, process_delta)
+
+
 def _measure[T](run: Callable[[], T], device: torch.device) -> tuple[T, ResourceUsage]:
     """One GPU-synchronised execution of `run` and its resource usage."""
     with track_resource_usage(device) as usage:
         value = run()
     return value, usage()
+
+
+def _measure_outcome[T](
+    run: Callable[[], T], device: torch.device
+) -> tuple[T | Exception, ResourceUsage]:
+    """Measure one execution while retaining resource data on ordinary failure."""
+    result: T | Exception = RuntimeError("timed execution did not run")
+    with track_resource_usage(device) as usage:
+        try:
+            result = run()
+        except Exception as exc:  # noqa: BLE001 - the caller models failure as data
+            result = exc
+    return result, usage()
+
+
+def repeat_timed_outcome[T](
+    run: Callable[[], T],
+    policy: TimingRepeatPolicy,
+    *,
+    device: torch.device,
+    fingerprint: Callable[[T], Hashable] | None = None,
+) -> TimedOutcome[T]:
+    """Repeat ``run`` like :func:`repeat_timed`, preserving a timed failure."""
+    for _ in range(policy.warmup):
+        warmup_value, warmup_usage = _measure_outcome(run, device)
+        if isinstance(warmup_value, Exception):
+            return FailedTimedRuns(
+                warmup_value,
+                warmup_usage.wall_time_seconds,
+                (warmup_usage.wall_time_seconds,),
+                warmup_usage.peak_memory_bytes,
+            )
+
+    first_value, first_usage = _measure_outcome(run, device)
+    samples = [first_usage.wall_time_seconds]
+    if isinstance(first_value, Exception):
+        return FailedTimedRuns(
+            first_value,
+            policy.statistic.reduce(samples),
+            tuple(samples),
+            first_usage.peak_memory_bytes,
+        )
+    reference = fingerprint(first_value) if fingerprint is not None else None
+    for repeat in range(1, policy.repeats):
+        value, usage = _measure_outcome(run, device)
+        samples.append(usage.wall_time_seconds)
+        if isinstance(value, Exception):
+            return FailedTimedRuns(
+                value,
+                policy.statistic.reduce(samples),
+                tuple(samples),
+                max(first_usage.peak_memory_bytes, usage.peak_memory_bytes),
+            )
+        if fingerprint is not None and fingerprint(value) != reference:
+            logger.warning(
+                "Timed repeat {} differs from the first ({} != {}); its timing is not comparable.",
+                repeat + 1,
+                fingerprint(value),
+                reference,
+            )
+    return TimedRuns(
+        value=first_value,
+        seconds=policy.statistic.reduce(samples),
+        samples_seconds=tuple(samples),
+        peak_memory_bytes=first_usage.peak_memory_bytes,
+    )
 
 
 def repeat_timed[T](

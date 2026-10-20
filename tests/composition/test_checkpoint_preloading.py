@@ -204,7 +204,6 @@ def test_preload_is_a_no_op_for_configs_without_checkpoints(
     )
 
     assert adapter.created == []
-    assert store.load_seconds == 0.0
 
 
 def test_a_fitted_pod_basis_is_read_once_and_shared_by_every_matrix(

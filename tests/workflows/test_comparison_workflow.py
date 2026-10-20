@@ -21,18 +21,27 @@ from neuralls.composition.assignments.comparison_batch import (
     run_comparison_batch,
 )
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
+from neuralls.composition.comparison.comparison_run import execute_method_workload
 from neuralls.composition.comparison.config_assembler import resolve_comparison_config
 from neuralls.composition.comparison.models import (
     ComparisonOutcome,
     ComparisonParams,
+    CompletedMethodWorkload,
     MatrixRef,
+    MatrixWorkload,
     PlannedSystem,
+    ResolvedComparisonInput,
+    ResolvedMethod,
 )
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
 from neuralls.domain.solver.models.plot_paths import PlotPaths
-from neuralls.domain.solver.models.provenance import HeldOutMatrix, SharedSingleMatrix
+from neuralls.domain.solver.models.provenance import (
+    HeldOutMatrix,
+    MatrixProvenance,
+    SharedSingleMatrix,
+)
 from neuralls.domain.solver.models.recommendations import (
     ComparisonRecommendations,
     RankedRecommendation,
@@ -66,6 +75,7 @@ from neuralls.platform.tracking.comparison_tracking import (
 )
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
 from neuralls.shared.digest import canonical_digest
+from neuralls.shared.scientific_description import NotationPolicy
 from neuralls.shared.types import ComparisonRhsSourceKind, MatrixId, RowKind
 from tests.workflows.comparison_support import (
     LOG_COMPARISON_ARTIFACTS,
@@ -1462,7 +1472,6 @@ def test_log_comparison_result_metrics_logs_child_scalar_metrics(
 )
 def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
     tmp_path: Path,
-    stub_comparison_result: ComparisonResult,
     sparse_id_dataset: Path,
     pin_test_fold: Callable[[Path, tuple[int, ...]], None],
 ) -> None:
@@ -1507,8 +1516,59 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
     with experiments_config.open("wb") as fh:
         tomli_w.dump(payload, fh)
 
+    inputs: list[ResolvedComparisonInput] = []
+    bundles_seen: list[MatrixWorkload] = []
+
+    def capture_resolved_input(
+        *,
+        matrix_path: Path,
+        matrix_dataset_id: str,
+        matrix_index: int,
+        matrix_provenance: MatrixProvenance,
+        require_non_residual_rhs: bool,
+        seed: int | None,
+        rhs_source_kind: ComparisonRhsSourceKind | str,
+        rhs_source_params: dict[str, object] | None,
+    ) -> ResolvedComparisonInput:
+        resolved = resolve_comparison_input(
+            matrix_path=matrix_path,
+            matrix_dataset_id=matrix_dataset_id,
+            matrix_index=matrix_index,
+            matrix_provenance=matrix_provenance,
+            require_non_residual_rhs=require_non_residual_rhs,
+            seed=seed,
+            rhs_source_kind=rhs_source_kind,
+            rhs_source_params=rhs_source_params,
+        )
+        inputs.append(resolved)
+        return resolved
+
+    def capture_workload(
+        method: ResolvedMethod,
+        bundles: tuple[MatrixWorkload, ...],
+        *,
+        params: SolverParams,
+        settings: NeurallsSettings,
+        notation_policy: NotationPolicy,
+    ) -> CompletedMethodWorkload:
+        bundles_seen.extend(bundles)
+        return execute_method_workload(
+            method,
+            bundles,
+            params=params,
+            settings=settings,
+            notation_policy=notation_policy,
+        )
+
     with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result) as mock_compare,
+        patch(
+            "neuralls.composition.assignments.comparison_batch.resolve_comparison_input",
+            side_effect=capture_resolved_input,
+        ),
+        patch(
+            "neuralls.composition.assignments.comparison_batch.execute_method_workload",
+            side_effect=capture_workload,
+        ),
     ):
         outcomes = run_comparison_batch(experiments_config, ComparisonParams(), settings)
 
@@ -1519,7 +1579,6 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
         "sweep-9-0",
         "sweep-9-1",
     ]
-    inputs = [call.kwargs["resolved_input"] for call in mock_compare.call_args_list]
     assert [i.matrix_provenance for i in inputs] == [
         HeldOutMatrix(matrix_id=MatrixId(5), raw_matrix_index=0),
         HeldOutMatrix(matrix_id=MatrixId(5), raw_matrix_index=0),
@@ -1527,6 +1586,11 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
         HeldOutMatrix(matrix_id=MatrixId(9), raw_matrix_index=2),
     ]
     assert [float(i.matrix[0, 0]) for i in inputs] == [5.0, 5.0, 9.0, 9.0]
+    # The comparison config's matrix normalization is applied while staging
+    # each bundle, so the diagonal 2x2 matrices have spectral norm 1/sqrt(2).
+    assert [
+        float(np.linalg.norm(bundle.matrix, ord=2)) for bundle in bundles_seen
+    ] == pytest.approx([1 / np.sqrt(2), 1 / np.sqrt(2)])
     # Each system draws its own RHS, so no two vectors coincide.
     assert len({tuple(i.rhs) for i in inputs}) == 4
 
@@ -1536,7 +1600,6 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
 )
 def test_an_external_rhs_of_the_wrong_length_fails_only_its_own_system(
     tmp_path: Path,
-    stub_comparison_result: ComparisonResult,
     single_matrix_dataset: Path,
     pin_test_fold: Callable[[Path, tuple[int, ...]], None],
 ) -> None:
@@ -1580,13 +1643,9 @@ def test_an_external_rhs_of_the_wrong_length_fails_only_its_own_system(
     with experiments_config.open("wb") as fh:
         tomli_w.dump(payload, fh)
 
-    with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result) as mock_compare,
-    ):
-        outcomes = run_comparison_batch(experiments_config, ComparisonParams(), settings)
+    outcomes = run_comparison_batch(experiments_config, ComparisonParams(), settings)
 
     by_id = {outcome.comparison_id: outcome for outcome in outcomes}
     assert by_id["fits"].success is True
     assert by_id["too-long"].success is False
     assert "rhs-of-length-3.npy" in (by_id["too-long"].error or "")
-    assert mock_compare.call_count == 1

@@ -19,14 +19,18 @@ from neuralls.composition.comparison._plots import _generate_comparison_plots
 from neuralls.composition.comparison._preconditioner_setup import (
     PreconditionerService,
     SystemPreconditionerCache,
+    _bind_extra_inputs,
     _create_scheduled_preconditioners,
-    _load_and_bind_extra_inputs,
+    _load_extra_inputs,
 )
 from neuralls.composition.comparison._presentation import build_comparison_source_context
 from neuralls.composition.comparison.models import (
     ComparisonPaths,
+    CompletedMethodWorkload,
+    MatrixWorkload,
     PreconditionerComparisonEntry,
     ResolvedComparisonInput,
+    ResolvedMethod,
 )
 from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
 from neuralls.composition.preconditioners.checkpoint_store import CheckpointStore
@@ -36,6 +40,16 @@ from neuralls.domain.solver.comparison import (
     run_cg_comparison,
 )
 from neuralls.domain.solver.comparison_summary import format_results_summary
+from neuralls.domain.solver.models.benchmark_events import (
+    MatrixSetupEvent,
+    MeasuredPeakMemory,
+    SetupCompleted,
+    SetupFailed,
+    SolveAttempt,
+    SolveConverged,
+    SolveFailed,
+    UnknownPeakMemory,
+)
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle, plot_style_maps
@@ -56,8 +70,15 @@ from neuralls.platform.reporting.preconditioner_labels import (
     contextualize_preconditioner_label,
 )
 from neuralls.platform.storage.filesystem import ensure_dir
-from neuralls.shared.device import release_device_memory, repeat_timed
+from neuralls.shared.device import (
+    FailedTimedRuns,
+    WorkloadMemoryObserver,
+    release_device_memory,
+    repeat_timed,
+    repeat_timed_outcome,
+)
 from neuralls.shared.scientific_description import NotationPolicy
+from neuralls.shared.types import PreconditionerName, SetupEventId, SystemId
 
 type PreconditionerEvaluationMapper = Callable[
     [
@@ -229,6 +250,18 @@ def _build_scheduled(
     )
 
 
+def _build_scheduled_and_bind(
+    service: PreconditionerService,
+    matrix: torch.Tensor,
+    cfg: PreconditionerConfig,
+    staged_inputs: tuple[torch.Tensor, ...],
+) -> dict[str, Preconditioner]:
+    """Build one method and perform required conversion/binding in setup time."""
+    scheduled = _build_scheduled(service, matrix, cfg)
+    _bind_extra_inputs(scheduled, matrix, staged_inputs)
+    return scheduled
+
+
 def _run_preconditioner(
     cfg: PreconditionerConfig,
     *,
@@ -263,11 +296,10 @@ def _run_preconditioner(
     neural POD-2G's predictor), and so outside `setup_peak_memory_bytes`
     too: it is file I/O that a deployment pays once, not algorithmic setup
     cost. `PreconditionerService.preload` loads each checkpoint once per
-    dataset (the store lives as long as the dataset's cache), and the timed
+    method (the store lives as long as the method workload), and the timed
     build only borrows the loaded object. A neural preconditioner's setup is
     matrix-independent, so its setup cost is therefore near zero by design; the
-    time spent loading is still reported (`CheckpointStore.load_seconds`,
-    logged as the `checkpoint_load_s` session metric). Download and hashing are
+    checkpoint and data loading are excluded from the benchmark cost model. Download and hashing are
     outside the measurement as well (they run in the prepare phase, before any
     MLflow run opens). A service built without a store loads inside the build,
     and then inside the timer.
@@ -280,6 +312,7 @@ def _run_preconditioner(
     sibling's result should keep showing its true size.
     """
     family = preconditioner_family(cfg)
+    staged_inputs = _load_extra_inputs(matrix_path, matrix_index)
     cached = cache.get(cfg.name) if cache is not None else None
     if cached is not None:
         scheduled: dict[str, Preconditioner] = {cfg.name: cached.preconditioner}
@@ -289,7 +322,7 @@ def _run_preconditioner(
     else:
         service.preload(matrix, cfg)
         timed_setup = repeat_timed(
-            lambda: _build_scheduled(service, matrix, cfg),
+            lambda: _build_scheduled_and_bind(service, matrix, cfg, staged_inputs),
             params.timing,
             device=matrix.device,
         )
@@ -304,9 +337,8 @@ def _run_preconditioner(
                 setup_cost_seconds=setup_cost_seconds,
                 setup_peak_memory_bytes=setup_peak_memory_bytes,
             )
-    _load_and_bind_extra_inputs(
-        scheduled, matrix=matrix, matrix_path=matrix_path, matrix_index=matrix_index
-    )
+    if cached is not None:
+        _bind_extra_inputs(scheduled, matrix, staged_inputs)
     base_label = build_preconditioner_labels(
         scheduled, {cfg.name: family}, {cfg.name: cfg}, policy=notation_policy
     )[cfg.name]
@@ -339,6 +371,144 @@ def _run_preconditioner(
         family=family,
         color_key=color_key,
         marker_key=marker_key,
+    )
+
+
+def execute_method_workload(
+    method: ResolvedMethod,
+    bundles: Sequence[MatrixWorkload],
+    *,
+    params: SolverParams,
+    settings: NeurallsSettings,
+    notation_policy: NotationPolicy,
+) -> CompletedMethodWorkload:
+    """Execute one method over matrix bundles, keeping matrix state RHS-local.
+
+    Dataset/checkpoint reads, reference solves, and reporting are outside the
+    setup/solve timers.  Each matrix receives one fresh prepared method object;
+    sibling RHS solves share that exact object.  The method-owned checkpoint
+    store spans matrices and is released before this function returns.
+    """
+    del notation_policy  # Labels are rendered later from completed diagnostics.
+    device = resolve_device()
+    observer = WorkloadMemoryObserver.start(device)
+    planned = tuple(member.tag for bundle in bundles for member in bundle.members)
+    setup_events: list[MatrixSetupEvent] = []
+    attempts: list[SolveAttempt] = []
+    diagnostics: list[tuple[SystemId, CGComparisonResult]] = []
+    offline_cost = resolve_generation_cost(method.config, settings=settings)
+
+    with CheckpointStore() as checkpoints:
+        service = PreconditionerService(checkpoints=checkpoints)
+        for bundle in bundles:
+            matrix = torch.as_tensor(bundle.matrix).to(device)
+            staged_inputs = _load_extra_inputs(bundle.matrix_path, bundle.matrix_index)
+            service.preload(matrix, method.config)
+            event_id = SetupEventId(f"{method.name}:{bundle.dataset}:{int(bundle.matrix_id)}")
+            timed_setup = repeat_timed_outcome(
+                lambda matrix=matrix, staged_inputs=staged_inputs: _build_scheduled_and_bind(
+                    service, matrix, method.config, staged_inputs
+                ),
+                params.timing,
+                device=device,
+            )
+            observer.observe_operation(timed_setup.peak_memory_bytes)
+            if isinstance(timed_setup, FailedTimedRuns):
+                setup_events.append(
+                    MatrixSetupEvent(
+                        event_id=event_id,
+                        dataset=bundle.dataset,
+                        matrix_id=bundle.matrix_id,
+                        method=method.name,
+                        setup_s=timed_setup.seconds,
+                        samples_s=timed_setup.samples_seconds,
+                        peak_memory=MeasuredPeakMemory(timed_setup.peak_memory_bytes),
+                        outcome=SetupFailed(
+                            f"{type(timed_setup.error).__name__}: {timed_setup.error}"
+                        ),
+                    )
+                )
+                del matrix, staged_inputs
+                release_device_memory()
+                continue
+
+            scheduled = timed_setup.value
+            setup_events.append(
+                MatrixSetupEvent(
+                    event_id=event_id,
+                    dataset=bundle.dataset,
+                    matrix_id=bundle.matrix_id,
+                    method=method.name,
+                    setup_s=timed_setup.seconds,
+                    samples_s=timed_setup.samples_seconds,
+                    peak_memory=MeasuredPeakMemory(timed_setup.peak_memory_bytes),
+                    outcome=SetupCompleted(),
+                )
+            )
+
+            for member in bundle.members:
+                rhs = torch.as_tensor(member.rhs).to(device=device, dtype=matrix.dtype)
+                x_exact = compute_reference_solution(
+                    matrix,
+                    rhs,
+                    rtol=params.rtol,
+                    margin=params.reference_precision_margin,
+                )
+                result = run_cg_comparison(
+                    matrix,
+                    rhs,
+                    preconditioners=scheduled,
+                    x_exact=x_exact,
+                    rtol=params.rtol,
+                    atol=params.atol,
+                    maxiter=params.max_iterations,
+                    m_max=params.m_max,
+                    reference_precision_margin=params.reference_precision_margin,
+                    timing=params.timing,
+                )[method.config.name]
+                if offline_cost is not None:
+                    result = replace(result, generation_cost=offline_cost)
+                diagnostics.append((member.tag.system_id, result))
+                solve_peak = result.solve_peak_memory_bytes
+                if solve_peak is not None:
+                    observer.observe_operation(solve_peak)
+                outcome = (
+                    SolveConverged(result.iterations, result.residual)
+                    if result.converged
+                    else SolveFailed(result.iterations, result.error or "solver did not converge")
+                )
+                attempts.append(
+                    SolveAttempt(
+                        setup_event_id=event_id,
+                        system_id=member.tag.system_id,
+                        dataset=bundle.dataset,
+                        recipe=member.tag.recipe,
+                        matrix_id=bundle.matrix_id,
+                        rhs_ordinal=member.tag.rhs_ordinal,
+                        method=method.name,
+                        solve_s=result.solve_time_seconds or 0.0,
+                        samples_s=result.solve_time_samples,
+                        peak_memory=(
+                            MeasuredPeakMemory(solve_peak)
+                            if solve_peak is not None
+                            else UnknownPeakMemory()
+                        ),
+                        outcome=outcome,
+                    )
+                )
+                del rhs, x_exact
+
+            del scheduled, matrix, staged_inputs
+            release_device_memory()
+
+    return CompletedMethodWorkload(
+        method=PreconditionerName(method.name),
+        planned=planned,
+        setup_events=tuple(setup_events),
+        solve_attempts=tuple(attempts),
+        diagnostics=tuple(diagnostics),
+        offline_costs=((offline_cost,) if offline_cost is not None else ()),
+        workload_peak_memory=MeasuredPeakMemory(observer.finish()),
     )
 
 

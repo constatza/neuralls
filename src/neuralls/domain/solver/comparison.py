@@ -22,7 +22,7 @@ from neuralls.domain.solver.error_metrics import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
-from neuralls.shared.device import release_device_memory, repeat_timed
+from neuralls.shared.device import FailedTimedRuns, release_device_memory, repeat_timed_outcome
 from neuralls.shared.timing import TimingRepeatPolicy
 
 
@@ -112,18 +112,16 @@ def run_cg_comparison(
     results: dict[str, CGComparisonResult] = {}
 
     for precond_name, precond in preconditioners.items():
-        try:
-            timed = repeat_timed(
-                lambda precond=precond: _solve_one(
-                    A, b, x0, precond, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
-                    x_exact=x_exact,
-                ),
-                timing,
-                device=A.device,
-                fingerprint=lambda solved: solved[1].iterations,
-            )  # fmt: skip
-            x_sol, info = timed.value
-        except (ValueError, RuntimeError) as solver_exc:
+        timed = repeat_timed_outcome(
+            lambda precond=precond: _solve_one(
+                A, b, x0, precond, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
+                x_exact=x_exact,
+            ),
+            timing,
+            device=A.device,
+            fingerprint=lambda solved: solved[1].iterations,
+        )  # fmt: skip
+        if isinstance(timed, FailedTimedRuns):
             result = CGComparisonResult(
                 x=_to_numpy(x0_base),
                 converged=False,
@@ -137,9 +135,13 @@ def run_cg_comparison(
                 exact_error=None,
                 rhs_norm=float(torch.linalg.vector_norm(b)),
                 breakdown=False,
-                error=f"CG solver failed: {solver_exc}",
+                error=f"CG solver failed: {timed.error}",
+                solve_time_seconds=timed.seconds,
+                solve_peak_memory_bytes=timed.peak_memory_bytes,
+                solve_time_samples=timed.samples_seconds,
             )
         else:
+            x_sol, info = timed.value
             exact_error = relative_exact_error(x_sol, x_exact) if x_exact is not None else None
             error_history, error_bound = _safe_extract_energy_error(info)
 
