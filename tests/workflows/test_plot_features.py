@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 import numpy as np
@@ -466,24 +467,29 @@ def test_plot_time_breakdown_barplot_hatches_only_the_unavailable_segment(
     assert generation_hatches_by_label["unavailable"] is not None
 
 
-def test_plot_work_precision_skips_results_with_unavailable_cost(
+def test_plot_work_precision_uses_solve_time_even_when_generation_is_unavailable(
     two_result_entries_with_identical_generation_time_different_provenance: dict[
         str, CGComparisonResult
     ],
 ) -> None:
-    """A result with `has_unavailable_cost=True` must not appear on the
-    work-precision diagram -- plotting it would misleadingly position it at
-    a load/assembly artifact's time, not its real (unknown) cost.
-    """
+    """Work precision plots measured solve time without an offline-cost gate."""
     with patch("neuralls.platform.reporting.plots.plt.close"):
         plot_work_precision(two_result_entries_with_identical_generation_time_different_provenance)
         fig = reporting_plots.plt.gcf()
         ax = fig.axes[0]
         legend = ax.get_legend()
         plotted_labels = [text.get_text() for text in legend.get_texts()] if legend else []
+        x_values = [
+            float(offset[0])
+            for collection in ax.collections
+            for offset in cast(np.ndarray, collection.get_offsets())
+        ]
+        x_label = ax.get_xlabel()
     reporting_plots.plt.close(fig)
 
-    assert plotted_labels == ["measured"]
+    assert plotted_labels == ["measured", "unavailable"]
+    assert x_values == [0.1, 0.1]
+    assert x_label == "Solve time (s)"
 
 
 # ---------------------------------------------------------------------------

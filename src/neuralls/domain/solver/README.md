@@ -61,8 +61,8 @@ only in the raw event/frame and workload totals.
 - Dolan–Moré performance profiles and absolute ECDFs that retain failures in
   their denominators;
 - explicit `solve_seconds` and `amortized_online_seconds` cost scenarios;
-- paired reference/method ratios using only both-solved systems while retaining
-  reference-only and method-only counts;
+- paired reference/method ratios using only positive-time both-solved systems
+  while retaining all both-solved, reference-only, and method-only counts;
 - percentile intervals that resample whole matrix clusters with every sibling
   RHS observation.
 

@@ -108,3 +108,31 @@ def test_non_positive_time_is_not_turned_into_infinite_ratio() -> None:
     result = compare_paired(paired_points(reference, method), seed=SEED)
 
     assert result.speed_ratios == (2.0,)
+
+
+def test_zero_time_both_solved_counts_both_without_ratio() -> None:
+    reference = {"s0": _solved(1, 1.0)}
+    method = {"s0": _solved(1, 0.0)}
+
+    result = compare_paired(paired_points(reference, method), seed=SEED)
+
+    assert (result.n_both_solved, result.n_reference_only, result.n_method_only) == (1, 0, 0)
+    assert result.speed_ratios == ()
+
+
+def test_zero_time_reference_only_counts_reference_success() -> None:
+    reference = {"s0": _solved(1, 0.0)}
+    method = {"s0": Failed(MatrixId(1), 1, "limit")}
+
+    result = compare_paired(paired_points(reference, method), seed=SEED)
+
+    assert (result.n_both_solved, result.n_reference_only, result.n_method_only) == (0, 1, 0)
+
+
+def test_zero_time_method_only_counts_method_success() -> None:
+    reference = {"s0": Failed(MatrixId(1), 1, "limit")}
+    method = {"s0": _solved(1, 0.0)}
+
+    result = compare_paired(paired_points(reference, method), seed=SEED)
+
+    assert (result.n_both_solved, result.n_reference_only, result.n_method_only) == (0, 0, 1)

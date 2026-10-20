@@ -106,6 +106,10 @@ than the config name and append explicit success counts. The per-run convergence
 takes the aggregated group plus a `GroupPresentation` and names artifacts by the
 sanitized group id.
 
+The per-run work-precision diagram is solve-only: its x-axis is measured
+`solve_time_seconds`, independent of whether historical offline generation cost
+is available.
+
 `outcome_plots.py` draws the per-system outcome plots from
 `domain.benchmarking.profiles` and `domain.benchmarking.paired`; every function takes a
 required `save_path` and returns it, or `None` when nothing was drawn, and a

@@ -21,12 +21,10 @@ class PlotPaths:
         setup_time_barplot: Horizontal bar chart of preconditioner setup times.
         solve_time_barplot: Horizontal bar chart of CG solve times.
         avg_iteration_time_barplot: Horizontal bar chart of solve time per iteration.
-        total_cost_per_iteration_barplot: Horizontal bar chart of total amortized cost
-            (generation + setup + solve) per iteration.
         peak_memory_barplot: Horizontal bar chart of peak memory usage.
         time_breakdown_barplot: Stacked horizontal bar chart of generation vs.
             setup vs. solve time per method.
-        work_precision: Work-precision diagram (final precision vs. total cost).
+        work_precision: Work-precision diagram (final precision vs. solve time).
         residual_vs_time: Residual vs wall time (generation + setup + solve).
         error_vs_time: Energy-norm error vs wall time (when available).
         residual_vs_solve_time: Residual vs solve time only; every curve starts at t=0.
@@ -42,7 +40,6 @@ class PlotPaths:
     setup_time_barplot: Path | None = None
     solve_time_barplot: Path | None = None
     avg_iteration_time_barplot: Path | None = None
-    total_cost_per_iteration_barplot: Path | None = None
     peak_memory_barplot: Path | None = None
     time_breakdown_barplot: Path | None = None
     work_precision: Path | None = None

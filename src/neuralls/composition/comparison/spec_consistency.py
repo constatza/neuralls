@@ -1,8 +1,8 @@
 """Up-front check that a preconditioner name means one preconditioner per dataset.
 
-Setup sharing and scaling-law aggregation are both keyed on the preconditioner
-name, so the same name used for different preconditioners would silently serve
-or average unrelated builds. Nothing here reads a dataset or runs a comparison.
+The prepared-state cache is keyed by dataset and method identity, so the same
+name used for different preconditioners would silently serve the wrong cached
+build. Nothing here reads a dataset or runs a comparison.
 """
 
 from __future__ import annotations

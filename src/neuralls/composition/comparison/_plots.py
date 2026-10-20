@@ -65,9 +65,6 @@ COST_PLOT_STYLE: Mapping[str, CostPlotStyle] = {
     "avg_iteration_time_seconds": CostPlotStyle(
         "Solve Time Per Iteration (s)", "avg_iteration_time"
     ),
-    "total_cost_per_iteration_seconds": CostPlotStyle(
-        "Total Cost Per Iteration [Gen+Setup+Solve] (s)", "total_cost_per_iteration"
-    ),
     "peak_memory_bytes": CostPlotStyle("Peak Memory (bytes)", "peak_memory"),
 }
 """Presentation of each `COST_FIELD_REGISTRY` entry, keyed by its `field_name`."""
@@ -241,7 +238,6 @@ def _generate_comparison_plots(
         setup_time_barplot=cost_plot_paths["setup_time_seconds"],
         solve_time_barplot=cost_plot_paths["solve_time_seconds"],
         avg_iteration_time_barplot=cost_plot_paths["avg_iteration_time_seconds"],
-        total_cost_per_iteration_barplot=cost_plot_paths["total_cost_per_iteration_seconds"],
         peak_memory_barplot=cost_plot_paths["peak_memory_bytes"],
         time_breakdown_barplot=time_breakdown_path,
         work_precision=work_precision_path,

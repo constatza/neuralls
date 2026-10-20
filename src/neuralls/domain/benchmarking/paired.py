@@ -43,20 +43,11 @@ def paired_points(
         method_outcome = method.get(system_id)
         if method_outcome is None:
             continue
-        ref_time = _positive_time(ref_outcome)
-        method_time = _positive_time(method_outcome)
-        if (
-            ref_time is not None
-            and method_time is not None
-            and isinstance(ref_outcome, Solved)
-            and isinstance(method_outcome, Solved)
-        ):
+        if isinstance(ref_outcome, Solved) and isinstance(method_outcome, Solved):
             both.append((ref_outcome, method_outcome))
-        elif method_time is not None and isinstance(ref_outcome, Failed):
-            assert isinstance(method_outcome, Solved)
+        elif isinstance(ref_outcome, Failed) and isinstance(method_outcome, Solved):
             method_only.append(method_outcome)
-        elif ref_time is not None and isinstance(method_outcome, Failed):
-            assert isinstance(ref_outcome, Solved)
+        elif isinstance(ref_outcome, Solved) and isinstance(method_outcome, Failed):
             reference_only.append(ref_outcome)
     return PairedPoints(tuple(both), tuple(method_only), tuple(reference_only))
 
@@ -70,12 +61,17 @@ def _wilcoxon_p(log_ratios: np.ndarray) -> float | None:
 
 def compare_paired(points: PairedPoints, *, seed: int) -> PairedComparison:
     """Summarize paired ratios and asymmetric successes without failure penalties."""
+    positive_pairs = tuple(
+        (reference, method)
+        for reference, method in points.both
+        if _positive_time(reference) is not None and _positive_time(method) is not None
+    )
     ratios = tuple(
         amortized_online_seconds(reference) / amortized_online_seconds(method)
-        for reference, method in points.both
+        for reference, method in positive_pairs
     )
     ratios_by_matrix: dict[MatrixId, list[float]] = {}
-    for (reference, _), ratio in zip(points.both, ratios, strict=True):
+    for (reference, _), ratio in zip(positive_pairs, ratios, strict=True):
         ratios_by_matrix.setdefault(reference.matrix_id, []).append(ratio)
     values = np.asarray(ratios, dtype=np.float64)
     return PairedComparison(

@@ -464,13 +464,13 @@ def plot_work_precision(
     title: str | None = None,
     marker_size: float = DEFAULT_SCATTER_MARKER_AREA,
 ) -> None:
-    """Work-precision diagram: final achieved precision vs. total wall time.
+    """Work-precision diagram: final achieved precision vs. solve time.
 
     The standard cost/accuracy tradeoff plot from the iterative-solver
     benchmarking literature (log-log, one point per method) — distinct from
     ``plot_convergence_comparison``, which plots precision against iteration
-    *index* rather than actual cost. A preconditioner with fewer iterations
-    can still lose here if each iteration (or its setup) is expensive enough.
+    *index* rather than measured solve time. Offline generation and setup costs
+    are intentionally excluded from this solve-only diagnostic.
 
     Args:
         results: Dictionary of method results.
@@ -489,12 +489,6 @@ def plot_work_precision(
     line_styles = _resolve_styles(families, color_keys, marker_keys) if families else {}
 
     for method_name, result in results.items():
-        if result.has_unavailable_cost:
-            logger.warning(
-                f"Method '{method_name}' has an unavailable generation/setup cost — "
-                "skipping on work-precision to avoid a misleading time position."
-            )
-            continue
         solve_time = result.solve_time_seconds
         if solve_time is None or solve_time <= 0 or result.residual <= 0:
             logger.warning(f"Method '{method_name}' has no cost data to plot on work-precision.")
@@ -520,9 +514,12 @@ def plot_work_precision(
 
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel("Total wall time (generation + setup + solve) [s]")
+    ax.set_xlabel("Solve time (s)")
     ax.set_ylabel("Final Relative Residual $\\|r\\| / \\|b\\|$")
-    fig.suptitle(title or "Work-Precision Diagram", fontsize=13, fontweight="bold")
+    plot_title = (
+        f"{title}\nSolve-Time Work-Precision" if title else "Solve-Time Work-Precision Diagram"
+    )
+    fig.suptitle(plot_title, fontsize=13, fontweight="bold")
     ax.grid(True, which="both", alpha=0.3)
     ax.legend(loc="upper right", fontsize=8)
 
