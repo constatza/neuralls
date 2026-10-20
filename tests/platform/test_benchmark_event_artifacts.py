@@ -99,7 +99,7 @@ def workload() -> CompletedMethodWorkload:
         solve_attempts=attempts,
         diagnostics=(),
         generation_cost=None,
-        workload_peak_memory=MeasuredPeakMemory(256),
+        workload_peak_memory=MeasuredPeakMemory(512),
         config_digest="sha256:" + "a" * 64,
     )
 
@@ -250,7 +250,12 @@ def test_summary_is_reconciled_from_canonical_frames_and_versioned(
         "workload_s": workload_total,
         "per_attempted_rhs_s": workload_total / attempted,
     }
-    assert payload["memory"] == {"peak_bytes": max(measured_peaks), "status": "measured"}
+    assert max(measured_peaks) == 256
+    assert isinstance(summary.workload_peak_memory, MeasuredPeakMemory)
+    assert payload["memory"] == {
+        "peak_bytes": summary.workload_peak_memory.bytes,
+        "status": "measured",
+    }
     assert "generation_s" not in payload
 
 
@@ -376,6 +381,52 @@ def test_failed_setup_outcome_round_trips_without_inventing_attempts(
     )
     zero_payload = tomllib.loads((zero_root / zero_artifacts.summary).read_text(encoding="utf-8"))
     assert "per_attempted_rhs_s" not in zero_payload["online"]
+
+
+def test_incomplete_summary_preserves_planned_membership_and_missing_ids(
+    tmp_path: Path, workload: CompletedMethodWorkload
+) -> None:
+    failed_tag = SystemTag(DatasetId("dataset"), "gaussian", MatrixId(1), 0, SystemId("s2"))
+    failed_setup = MatrixSetupEvent(
+        SetupEventId("setup-1"),
+        DatasetId("dataset"),
+        MatrixId(1),
+        workload.method,
+        0.5,
+        (0.5,),
+        UnknownPeakMemory(),
+        SetupFailed("assembly failed"),
+    )
+    incomplete_workload = replace(
+        workload,
+        planned=(*workload.planned, failed_tag),
+        setup_events=(*workload.setup_events, failed_setup),
+    )
+    incomplete_summary = summarize_method_workload(
+        incomplete_workload.method,
+        incomplete_workload.planned,
+        incomplete_workload.setup_events,
+        incomplete_workload.solve_attempts,
+        incomplete_workload.workload_peak_memory,
+    )
+    artifacts = write_method_benchmark_artifacts(
+        workload=incomplete_workload, summary=incomplete_summary, root=tmp_path
+    )
+    setup = read_setup_events(tmp_path / artifacts.setup_events)
+    solves = read_solve_attempts(tmp_path / artifacts.solve_attempts)
+    payload = tomllib.loads((tmp_path / artifacts.summary).read_text(encoding="utf-8"))
+
+    # Event frames are canonical for realized events; planned membership and
+    # the method-lifetime peak remain canonical in the Task 2 summary.
+    assert setup.height == 2
+    assert solves.height == 2
+    assert solves.filter(pl.col("solve_status") == "converged").height == 1
+    assert payload["counts"] == {
+        "planned_rhs": 3,
+        "attempted_rhs": 2,
+        "converged": 1,
+        "missing_system_ids": ["s2"],
+    }
 
 
 def test_readers_reject_missing_or_wrong_schema_and_corrupt_links(

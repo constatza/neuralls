@@ -145,6 +145,8 @@ def _validate_unique_setup_ids(frame: pl.DataFrame) -> None:
 def _write_summary(
     workload: CompletedMethodWorkload, summary: MethodWorkloadSummary, path: Path
 ) -> None:
+    # The reducer's lifetime peak is intentionally not reconstructed from the
+    # setup/solve frame maxima; those frames contain only per-event peaks.
     peak_bytes, peak_status = _memory_fields(summary.workload_peak_memory)
     payload: dict[str, Any] = {
         "schema_version": BENCHMARK_EVENT_SCHEMA_VERSION,

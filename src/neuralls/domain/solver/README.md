@@ -40,6 +40,13 @@ solve links to exactly one completed setup with matching dataset, matrix, and
 method identity. Platform Parquet readers call the same validator before an
 artifact can be reused.
 
+The setup and solve Parquet frames are canonical for realized event timing,
+repeat samples, outcomes, per-event memory, and attempted/converged counts.
+They intentionally do not persist the planned `SystemTag` sequence or the
+method-lifetime peak observed by the Task 2 reducer. `summary.toml` is therefore
+canonical for planned membership, missing system IDs, and workload-lifetime
+memory; those values cannot be reconstructed from only the two event frames.
+
 `reporting/aggregation.py` validates planned identities and solve-to-setup
 links before deriving costs. Planned RHS membership is counted by
 `(dataset, matrix_id)` before attempts are joined:

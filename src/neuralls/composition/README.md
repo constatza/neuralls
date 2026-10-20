@@ -448,6 +448,11 @@ reconciled from the Task 2 reducers and records the method name/config digest,
 planned/attempted/converged counts, setup/solve/online timings, attempted-RHS
 average, and workload peak memory. If an offline value is present, it is named
 `generation_s`; checkpoint and data I/O are not serialized as costs or metrics.
+The frames remain canonical for realized setup/solve events and their timing,
+outcomes, repeats, per-event memory, and attempted/converged counts. The
+summary remains canonical for planned membership, missing system IDs, and the
+method-lifetime peak, which are not reconstructible from only those event
+frames.
 
 **Checkpoint loading and memory.** Loading a checkpoint is file I/O that a
 deployment pays once, not algorithmic setup cost, so no kind's measured setup

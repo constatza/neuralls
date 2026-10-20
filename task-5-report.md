@@ -43,6 +43,47 @@ serialized, derived, measured, or named.
 Task 6 tracking-topology wiring is intentionally not included. The serializer
 is available as a platform API and does not alter MLflow run ownership.
 
+## Fix round 2
+
+### RED/GREEN evidence
+
+- RED: after restoring the fixture's independent 512-byte workload-lifetime
+  peak, the focused suite reported 10 passed and 1 failed because the test
+  still expected the per-event frame maximum of 256 bytes.
+- GREEN: the focused artifact suite now passes with 11 tests. It asserts the
+  TOML memory value equals the Task 2 summary's 512-byte lifetime peak while
+  every returned event-frame peak is at most 256 bytes.
+- GREEN: the incomplete-workload regression preserves
+  `planned_rhs=3`, `attempted_rhs=2`, `converged=1`, and exactly
+  `missing_system_ids=["s2"]`; realized setup/solve rows and converged counts
+  are separately checked from the returned Parquet frames.
+- Adjacent artifact/domain/lifecycle/composition tests pass with 64 tests and
+  one existing Python 3.14 `torch.jit` future warning.
+- Targeted `ty`, Ruff lint, Ruff format, `tach check`, and `git diff --check`
+  pass.
+
+### Files and boundary clarification
+
+- Restored a deliberately distinct workload-lifetime peak in the canonical
+  fixture and pinned summary memory to the reducer-provided value rather than
+  a frame maximum.
+- Added incomplete planned-membership reconciliation with exact missing-ID
+  ordering.
+- Documented the intentional split: setup/solve Parquet is canonical for
+  realized event timing, outcomes, repeats, per-event memory, and
+  attempted/converged rows; the Task 2-derived TOML summary is canonical for
+  planned membership, missing IDs, and method-lifetime peak because those
+  facts cannot be reconstructed from only the two event frames.
+- Added an implementation comment at the summary boundary to keep the
+  lifetime peak from being replaced by a per-event maximum.
+
+### Self-review and concerns
+
+The round remains limited to setup/solve Parquet plus `summary.toml`; no new
+artifact type or Task 6 tracking topology was introduced. The only optional
+offline representation remains explicitly generation-named. No checkpoint or
+data-I/O cost is serialized, derived, measured, or represented.
+
 ## Fix round 1
 
 ### RED/GREEN evidence
