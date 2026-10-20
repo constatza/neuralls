@@ -101,6 +101,7 @@ def workload() -> CompletedMethodWorkload:
         generation_cost=None,
         workload_peak_memory=MeasuredPeakMemory(512),
         config_digest="sha256:" + "a" * 64,
+        method_config={"name": str(method)},
     )
 
 

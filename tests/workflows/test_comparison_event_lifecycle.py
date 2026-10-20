@@ -125,6 +125,7 @@ def test_workload_models_are_frozen_and_slotted(one_system_bundle: MatrixWorkloa
         generation_cost=None,
         workload_peak_memory=MeasuredPeakMemory(0),
         config_digest="sha256:" + "0" * 64,
+        method_config={"name": str(method.name)},
     )
 
     for value in (one_system_bundle.members[0], one_system_bundle, method, completed):

@@ -211,6 +211,7 @@ def events(monkeypatch: pytest.MonkeyPatch) -> list[str]:
             generation_cost=None,
             workload_peak_memory=MeasuredPeakMemory(0),
             config_digest="sha256:" + "0" * 64,
+            method_config={"name": str(name)},
         )
 
     monkeypatch.setattr(comparison_batch, "execute_method_workload", execute)

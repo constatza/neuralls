@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isclose, isfinite
 from sys import float_info
+from typing import Protocol
 
-from neuralls.domain.solver.models.benchmark_events import PeakMemory
+from neuralls.domain.solver.models.benchmark_events import (
+    MatrixSetupEvent,
+    PeakMemory,
+    SolveAttempt,
+    SystemTag,
+)
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.cost import StageCost
+from neuralls.shared.digest import Digest, Json
 from neuralls.shared.types import PreconditionerName, SystemId
 
 _DERIVED_SECONDS_REL_TOLERANCE = 4 * float_info.epsilon
@@ -62,6 +72,37 @@ class IncompleteWorkloadSummary:
 
 type MethodWorkloadSummary = CompleteWorkloadSummary | IncompleteWorkloadSummary
 """The complete or explicitly incomplete summary of one method workload."""
+
+
+class MethodWorkload(Protocol):
+    """Domain-facing record required by the method persistence port."""
+
+    @property
+    def method(self) -> PreconditionerName: ...
+
+    @property
+    def planned(self) -> tuple[SystemTag, ...]: ...
+
+    @property
+    def setup_events(self) -> tuple[MatrixSetupEvent, ...]: ...
+
+    @property
+    def solve_attempts(self) -> tuple[SolveAttempt, ...]: ...
+
+    @property
+    def generation_cost(self) -> StageCost | None: ...
+
+    @property
+    def workload_peak_memory(self) -> PeakMemory: ...
+
+    @property
+    def config_digest(self) -> Digest: ...
+
+    @property
+    def method_config(self) -> Mapping[str, Json]: ...
+
+    @property
+    def diagnostics(self) -> tuple[tuple[SystemId, CGComparisonResult], ...]: ...
 
 
 def _validate_summary_fields(summary: MethodWorkloadSummary) -> None:

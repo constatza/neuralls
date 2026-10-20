@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
+from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.models.experiments import AssignmentEntry, ComparisonRegistryEntry
 from neuralls.platform.config.resolution import MlflowPaths
+from neuralls.platform.reporting.benchmark_events import BENCHMARK_EVENT_SCHEMA_VERSION
 from neuralls.platform.tracking.mlflow import MlflowRunConfig
+from neuralls.shared.digest import Digest, canonical_digest
 
 
 def iso_timestamp(dt: datetime | None = None) -> str:
@@ -113,6 +117,57 @@ class ChildComparisonRunTags:
     def as_mlflow_tags(self) -> dict[str, str]:
         """Serialize to MLflow-compatible string tag dict."""
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class BenchmarkMethodRunTags:
+    """Identity and schema tags for one direct method child of a session."""
+
+    phase: Literal["comparison_method"]
+    method: str
+    benchmark_event_schema_version: str
+    method_config_digest: Digest
+    workload_membership_digest: Digest
+    required_artifacts: str
+    identity_key: Digest
+    identity_components: str
+
+    def as_mlflow_tags(self) -> dict[str, str]:
+        """Serialize method-child tags for MLflow."""
+        tags = asdict(self)
+        tags["neuralls.identity.stage"] = self.phase
+        tags["neuralls.identity.key"] = self.identity_key
+        tags["neuralls.identity.components"] = self.identity_components
+        return tags
+
+
+def build_benchmark_method_run_spec(
+    *, method: str, config_digest: Digest, system_ids: tuple[str, ...]
+) -> tuple[str, BenchmarkMethodRunTags]:
+    """Build a deterministic method-child name and reusable-workload identity."""
+    membership = canonical_digest(tuple(system_ids))
+    identity = StageIdentity.build(
+        "comparison_method",
+        {
+            "schema": canonical_digest(BENCHMARK_EVENT_SCHEMA_VERSION),
+            "method_config": config_digest,
+            "workload_membership": membership,
+        },
+    )
+    tags = BenchmarkMethodRunTags(
+        phase="comparison_method",
+        method=method,
+        benchmark_event_schema_version=str(BENCHMARK_EVENT_SCHEMA_VERSION),
+        method_config_digest=config_digest,
+        workload_membership_digest=membership,
+        required_artifacts=(
+            "setup_events.parquet,solve_attempts.parquet,summary.toml,"
+            "method_config.toml,method_diagnostics.json"
+        ),
+        identity_key=identity.key,
+        identity_components=json.dumps(dict(identity.components), sort_keys=True),
+    )
+    return f"method | {method}", tags
 
 
 @dataclass(frozen=True)

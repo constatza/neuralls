@@ -454,6 +454,20 @@ summary remains canonical for planned membership, missing system IDs, and the
 method-lifetime peak, which are not reconstructible from only those event
 frames.
 
+The comparison batch opens one `session_comparison` parent and one direct
+`comparison_method` child per executed `CompletedMethodWorkload`. The batch,
+not the platform sink, owns those MLflow contexts. A method child owns its
+required configuration, the two canonical Parquet event files, `summary.toml`,
+method histories, and method diagnostic figures; the session parent owns shared
+provenance and cross-method figures. No matrix/RHS system runs or method
+grandchildren are created. Method reuse is accepted only for schema-v1 children
+whose identity contains the method config/checkpoint digest and complete
+workload membership and whose required raw artifacts pass schema/link and
+summary validation. Reuse also compares the canonical method config (checkpoint
+inputs are content digests, not lease-local paths), checks
+diagnostic membership and event-frame methods, and reconciles summary totals
+with the frames; an older no-schema comparison run is not a cache hit.
+
 **Checkpoint loading and memory.** Loading a checkpoint is file I/O that a
 deployment pays once, not algorithmic setup cost, so no kind's measured setup
 includes it (`execute_method_workload` is the contract). Before each matrix

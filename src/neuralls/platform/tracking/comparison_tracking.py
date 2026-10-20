@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -21,9 +22,14 @@ from neuralls.domain.solver.models.plot_style import PlotStyleMaps, plot_style_m
 from neuralls.domain.solver.models.presentation import GroupPresentation
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.models.statistics import MethodComparison, PairedComparison
+from neuralls.domain.solver.models.workload import MethodWorkload, MethodWorkloadSummary
 from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
+from neuralls.platform.reporting.benchmark_events import (
+    BENCHMARK_EVENT_SCHEMA_VERSION,
+    write_method_benchmark_artifacts,
+)
 from neuralls.platform.reporting.outcome_plots import (
     GroupStyle,
     plot_ecdf_profile,
@@ -31,6 +37,10 @@ from neuralls.platform.reporting.outcome_plots import (
     plot_performance_profile,
     plot_speedup_cdf,
     plot_time_scatter,
+)
+from neuralls.platform.reporting.plots import (
+    plot_convergence_comparison,
+    plot_error_convergence_comparison,
 )
 from neuralls.platform.tracking.mlflow import ensure_experiment, sanitize_metric_key_segment
 from neuralls.shared.types import GroupId, PreconditionerName
@@ -211,6 +221,153 @@ class MLflowGroupReportSink:
             outcome_plots = _write_outcome_plots(outcome, presentation, Path(tmp), file_key)
             for artifact in outcome_plots:
                 mlflow.log_artifact(str(artifact), artifact_path=GROUP_REPORT_ARTIFACT_DIR)
+
+
+METHOD_ARTIFACT_DIR = "method_workload"
+BENCHMARK_METHOD_SCHEMA_VERSION = BENCHMARK_EVENT_SCHEMA_VERSION
+
+
+class MLflowBenchmarkMethodSink:
+    """Write one reduced method workload into the already-active child run.
+
+    Run ownership deliberately stays in ``comparison_batch``.  Calling this
+    sink while no run is active is a caller error, just like calling
+    ``mlflow.log_metric`` directly; the sink never silently creates a nested
+    system or preconditioner run.
+    """
+
+    def record_method(
+        self,
+        workload: MethodWorkload,
+        summary: MethodWorkloadSummary,
+        *,
+        root: Path | None = None,
+    ) -> None:
+        """Persist canonical event artifacts and one copy of each selected scalar."""
+        temporary: tempfile.TemporaryDirectory[str] | None = None
+        if root is None:
+            temporary = tempfile.TemporaryDirectory(prefix="neuralls-method-")
+            root = Path(temporary.name)
+        try:
+            artifacts = write_method_benchmark_artifacts(workload, summary, root)
+            self._log_method_metadata(workload, summary)
+            for relative in (artifacts.setup_events, artifacts.solve_attempts, artifacts.summary):
+                mlflow.log_artifact(str(root / relative), artifact_path=METHOD_ARTIFACT_DIR)
+            config_path = _write_method_config(root, workload.method_config)
+            mlflow.log_artifact(str(config_path), artifact_path=METHOD_ARTIFACT_DIR)
+            for diagnostics_path in _write_method_diagnostics(root, workload):
+                artifact_path = METHOD_ARTIFACT_DIR
+                if diagnostics_path.parent.name == "figures":
+                    artifact_path = f"{METHOD_ARTIFACT_DIR}/figures"
+                mlflow.log_artifact(str(diagnostics_path), artifact_path=artifact_path)
+        finally:
+            if temporary is not None:
+                temporary.cleanup()
+
+    @staticmethod
+    def _log_method_metadata(workload: MethodWorkload, summary: MethodWorkloadSummary) -> None:
+        """Log only reducer-owned searchable scalars, never event-loop aggregates."""
+        mlflow.log_param("benchmark_event_schema_version", str(BENCHMARK_METHOD_SCHEMA_VERSION))
+        mlflow.log_param("method", str(workload.method))
+        mlflow.log_param("method_config_digest", str(workload.config_digest))
+        metrics = {
+            "n_planned_rhs": float(summary.n_planned_rhs),
+            "n_attempted_rhs": float(summary.n_attempted_rhs),
+            "n_converged": float(summary.n_converged),
+            "success_rate": (
+                summary.n_converged / summary.n_planned_rhs if summary.n_planned_rhs else 0.0
+            ),
+            "setup_total_s": summary.setup_total_s,
+            "solve_total_s": summary.solve_total_s,
+            "workload_online_s": summary.workload_online_s,
+        }
+        if summary.online_s_per_attempted_rhs is not None:
+            metrics["online_s_per_attempted_rhs"] = summary.online_s_per_attempted_rhs
+        from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory
+
+        if isinstance(summary.workload_peak_memory, MeasuredPeakMemory):
+            metrics["workload_peak_memory_bytes"] = float(summary.workload_peak_memory.bytes)
+        if workload.generation_cost is not None:
+            metrics["generation_s"] = workload.generation_cost.wall_time_seconds
+        for key, value in metrics.items():
+            mlflow.log_metric(key, value)
+
+
+def _write_method_config(root: Path, config: Mapping[str, object]) -> Path:
+    """Stage a method config without making config serialization part of timing."""
+    path = root / "method_config.toml"
+    import tomli_w
+
+    path.write_bytes(tomli_w.dumps(_exclude_none(config)).encode("utf-8"))
+    return path
+
+
+def _exclude_none(config: Mapping[str, object]) -> dict[str, object]:
+    """Recursively remove unset model fields before TOML serialization."""
+    return {key: _exclude_none_value(value) for key, value in config.items() if value is not None}
+
+
+def _exclude_none_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return _exclude_none(value)
+    if isinstance(value, list):
+        return [_exclude_none_value(item) for item in value]
+    return value
+
+
+def _write_method_diagnostics(root: Path, workload: MethodWorkload) -> tuple[Path, ...]:
+    """Stage histories and method figures without creating child runs."""
+    diagnostics = {str(system_id): result for system_id, result in workload.diagnostics}
+    path = root / "method_diagnostics.json"
+    payload = [
+        {
+            "system_id": str(system_id),
+            "method": str(workload.method),
+            "iterations": result.iterations,
+            "converged": result.converged,
+            "solve_s": result.solve_time_seconds,
+            "residual_history_rel": list(result.residual_history_rel),
+            "error_history_a_rel": (
+                list(result.error_history_a_rel) if result.error_history_a_rel is not None else None
+            ),
+        }
+        for system_id, result in workload.diagnostics
+    ]
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    residuals_path = root / "residual_histories.json"
+    residuals_path.write_text(
+        json.dumps(
+            {name: list(result.residual_history_rel) for name, result in diagnostics.items()},
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    energies_path = root / "energy_histories.json"
+    energies_path.write_text(
+        json.dumps(
+            {
+                name: (
+                    list(result.error_history_a_rel)
+                    if result.error_history_a_rel is not None
+                    else None
+                )
+                for name, result in diagnostics.items()
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    figures = root / "figures"
+    figures.mkdir(exist_ok=True)
+    residual_figure = figures / "residual_history.png"
+    plot_convergence_comparison(diagnostics, save_path=residual_figure, title=str(workload.method))
+    energy_figure = figures / "energy_history.png"
+    plot_error_convergence_comparison(
+        diagnostics, save_path=energy_figure, title=str(workload.method)
+    )
+    return path, residuals_path, energies_path, residual_figure, energy_figure
 
 
 def _group_style(

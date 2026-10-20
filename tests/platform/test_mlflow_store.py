@@ -2,15 +2,39 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import tomli_w
 from mlflow.tracking import MlflowClient
 
+from neuralls.composition.comparison.models import (
+    CompletedMethodWorkload,
+    canonical_method_config,
+)
+from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
 from neuralls.domain.identity import IdentityTag, Reused, StageIdentity
-from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
+from neuralls.domain.solver.models import (
+    MatrixSetupEvent,
+    MeasuredPeakMemory,
+    SetupCompleted,
+    SolveAttempt,
+    SolveConverged,
+    SystemTag,
+)
+from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
+from neuralls.platform.config.models.preconditioner import NeuralPreconditionerConfig
+from neuralls.platform.reporting.benchmark_events import write_method_benchmark_artifacts
+from neuralls.platform.tracking.mlflow_store import (
+    MlflowIdentityStore,
+    _validate_method_artifacts,
+    find_reusable_benchmark_method,
+)
 from neuralls.shared.digest import canonical_digest
+from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 
 EXPERIMENT = "Train-Case"
 
@@ -135,3 +159,234 @@ def test_walk_is_not_capped_by_page_size(
 def test_identity_tags_use_the_shared_enum(identity: StageIdentity) -> None:
     """Written tag names are exactly the enum members the store filters on."""
     assert {IdentityTag.STAGE, IdentityTag.KEY, IdentityTag.COMPONENTS} == set(identity.tags())
+
+
+@pytest.fixture
+def method_artifacts(tmp_path: Path) -> tuple[dict[str, str], tuple[str, ...]]:
+    """Create one complete method artifact set for content-validation tests."""
+    method = PreconditionerName("jacobi")
+    planned = (SystemTag(DatasetId("ds"), "recipe", MatrixId(0), 0, SystemId("s0")),)
+    setup = MatrixSetupEvent(
+        SetupEventId("setup-0"),
+        DatasetId("ds"),
+        MatrixId(0),
+        method,
+        1.0,
+        (1.0,),
+        MeasuredPeakMemory(1),
+        SetupCompleted(),
+    )
+    attempt = SolveAttempt(
+        SetupEventId("setup-0"),
+        SystemId("s0"),
+        DatasetId("ds"),
+        "recipe",
+        MatrixId(0),
+        0,
+        method,
+        2.0,
+        (2.0,),
+        MeasuredPeakMemory(1),
+        SolveConverged(2, 1e-8),
+    )
+    workload = CompletedMethodWorkload(
+        method=method,
+        planned=planned,
+        setup_events=(setup,),
+        solve_attempts=(attempt,),
+        diagnostics=(),
+        generation_cost=None,
+        workload_peak_memory=MeasuredPeakMemory(2),
+        config_digest="sha256:" + "a" * 64,
+        method_config={"name": "jacobi"},
+    )
+    summary = summarize_method_workload(
+        workload.method,
+        workload.planned,
+        workload.setup_events,
+        workload.solve_attempts,
+        workload.workload_peak_memory,
+    )
+    write_method_benchmark_artifacts(workload, summary, tmp_path)
+    (tmp_path / "method_config.toml").write_bytes(
+        tomli_w.dumps(workload.method_config).encode("utf-8")
+    )
+    (tmp_path / "method_diagnostics.json").write_text(
+        json.dumps([{"system_id": "s0", "method": "jacobi"}]), encoding="utf-8"
+    )
+    paths = {
+        name: str(tmp_path / name)
+        for name in (
+            "setup_events.parquet",
+            "solve_attempts.parquet",
+            "summary.toml",
+            "method_config.toml",
+            "method_diagnostics.json",
+        )
+    }
+    return paths, ("s0",)
+
+
+def test_reuse_rejects_corrupt_required_diagnostics(
+    method_artifacts: tuple[dict[str, str], tuple[str, ...]],
+) -> None:
+    paths, system_ids = method_artifacts
+    Path(paths["method_diagnostics.json"]).write_text("{", encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        _validate_method_artifacts(
+            paths,
+            method="jacobi",
+            config_digest="sha256:" + "a" * 64,
+            system_ids=system_ids,
+            method_config={"name": "jacobi"},
+        )
+
+
+def test_reuse_accepts_valid_required_artifact_contents(
+    method_artifacts: tuple[dict[str, str], tuple[str, ...]],
+) -> None:
+    paths, system_ids = method_artifacts
+
+    _validate_method_artifacts(
+        paths,
+        method="jacobi",
+        config_digest="sha256:" + "a" * 64,
+        system_ids=system_ids,
+        method_config={"name": "jacobi"},
+    )
+
+
+def test_reuse_ignores_checkpoint_lease_path_but_rejects_changed_content(
+    tmp_path: Path,
+    client: MlflowClient,
+) -> None:
+    """Equivalent checkpoint leases reuse one child; changed bytes miss."""
+    first_path = tmp_path / "lease-a" / "model.pt"
+    second_path = tmp_path / "lease-b" / "model.pt"
+    changed_path = tmp_path / "lease-c" / "model.pt"
+    for path in (first_path, second_path, changed_path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    first_path.write_bytes(b"weights-v1")
+    second_path.write_bytes(b"weights-v1")
+    changed_path.write_bytes(b"weights-v2")
+    first_config = NeuralPreconditionerConfig(checkpoint_path=first_path)
+    second_config = NeuralPreconditionerConfig(checkpoint_path=second_path)
+    changed_config = NeuralPreconditionerConfig(checkpoint_path=changed_path)
+    assert canonical_method_config(first_config) == canonical_method_config(second_config)
+    assert canonical_method_config(first_config) != canonical_method_config(changed_config)
+    config_digest = canonical_digest(first_config)
+
+    method_artifacts = tmp_path / "fixture-artifacts"
+    method_artifacts.mkdir()
+    method = PreconditionerName("jacobi")
+    planned = (SystemTag(DatasetId("ds"), "recipe", MatrixId(0), 0, SystemId("s0")),)
+    setup = MatrixSetupEvent(
+        SetupEventId("setup-0"),
+        DatasetId("ds"),
+        MatrixId(0),
+        method,
+        1.0,
+        (1.0,),
+        MeasuredPeakMemory(1),
+        SetupCompleted(),
+    )
+    attempt = SolveAttempt(
+        SetupEventId("setup-0"),
+        SystemId("s0"),
+        DatasetId("ds"),
+        "recipe",
+        MatrixId(0),
+        0,
+        method,
+        2.0,
+        (2.0,),
+        MeasuredPeakMemory(1),
+        SolveConverged(2, 1e-8),
+    )
+    workload = CompletedMethodWorkload(
+        method=method,
+        planned=planned,
+        setup_events=(setup,),
+        solve_attempts=(attempt,),
+        diagnostics=(),
+        generation_cost=None,
+        workload_peak_memory=MeasuredPeakMemory(2),
+        config_digest=config_digest,
+        method_config={"name": "jacobi"},
+    )
+    summary = summarize_method_workload(
+        workload.method,
+        workload.planned,
+        workload.setup_events,
+        workload.solve_attempts,
+        workload.workload_peak_memory,
+    )
+    write_method_benchmark_artifacts(workload, summary, method_artifacts)
+    (method_artifacts / "method_config.toml").write_bytes(
+        tomli_w.dumps(canonical_method_config(first_config)).encode("utf-8")
+    )
+    (method_artifacts / "method_diagnostics.json").write_text(
+        json.dumps([{"system_id": "s0", "method": "jacobi"}]), encoding="utf-8"
+    )
+    experiment = client.get_experiment_by_name(EXPERIMENT)
+    experiment_id = experiment.experiment_id if experiment else client.create_experiment(EXPERIMENT)
+    _, tags = build_benchmark_method_run_spec(
+        method="jacobi", config_digest=config_digest, system_ids=("s0",)
+    )
+    run = client.create_run(experiment_id, tags=tags.as_mlflow_tags())
+    for artifact in (
+        "setup_events.parquet",
+        "solve_attempts.parquet",
+        "summary.toml",
+        "method_config.toml",
+        "method_diagnostics.json",
+    ):
+        client.log_artifact(
+            run.info.run_id, str(method_artifacts / artifact), artifact_path="method_workload"
+        )
+    client.set_terminated(run.info.run_id, status="FINISHED")
+
+    first_hit = find_reusable_benchmark_method(
+        tracking_uri=client.tracking_uri,
+        experiment=EXPERIMENT,
+        method="jacobi",
+        config_digest=config_digest,
+        system_ids=("s0",),
+        method_config=canonical_method_config(first_config),
+    )
+    second_hit = find_reusable_benchmark_method(
+        tracking_uri=client.tracking_uri,
+        experiment=EXPERIMENT,
+        method="jacobi",
+        config_digest=canonical_digest(second_config),
+        system_ids=("s0",),
+        method_config=canonical_method_config(second_config),
+    )
+    changed_miss = find_reusable_benchmark_method(
+        tracking_uri=client.tracking_uri,
+        experiment=EXPERIMENT,
+        method="jacobi",
+        config_digest=canonical_digest(changed_config),
+        system_ids=("s0",),
+        method_config=canonical_method_config(changed_config),
+    )
+    assert first_hit == second_hit
+    assert first_hit is not None
+    assert changed_miss is None
+
+
+def test_reuse_rejects_wrong_required_config_contents(
+    method_artifacts: tuple[dict[str, str], tuple[str, ...]],
+) -> None:
+    paths, system_ids = method_artifacts
+    Path(paths["method_config.toml"]).write_text('name = "other"\n', encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        _validate_method_artifacts(
+            paths,
+            method="jacobi",
+            config_digest="sha256:" + "a" * 64,
+            system_ids=system_ids,
+            method_config={"name": "jacobi"},
+        )

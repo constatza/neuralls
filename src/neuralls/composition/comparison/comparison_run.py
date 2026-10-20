@@ -32,6 +32,7 @@ from neuralls.composition.comparison.models import (
     PreconditionerComparisonEntry,
     ResolvedComparisonInput,
     ResolvedMethod,
+    canonical_method_config,
 )
 from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
 from neuralls.composition.preconditioners.checkpoint_store import CheckpointStore
@@ -588,7 +589,8 @@ def execute_method_workload(
         diagnostics=tuple(diagnostics),
         generation_cost=offline_cost,
         workload_peak_memory=MeasuredPeakMemory(observer.finish()),
-        config_digest=canonical_digest(method.config),
+        config_digest=method.identity_digest or canonical_digest(method.config),
+        method_config=canonical_method_config(method.config),
     )
 
 

@@ -12,6 +12,7 @@ from typing import Protocol, runtime_checkable
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
 from neuralls.domain.solver.models.presentation import GroupPresentation
 from neuralls.domain.solver.models.result import ComparisonResult
+from neuralls.domain.solver.models.workload import MethodWorkload, MethodWorkloadSummary
 
 
 @runtime_checkable
@@ -39,6 +40,25 @@ class CostRecorder(Protocol):
             child_run_tags: Per-preconditioner nested-run tags, keyed by
                 preconditioner name.
         """
+        ...
+
+
+@runtime_checkable
+class BenchmarkMethodSink(Protocol):
+    """Persist one completed method workload after it has been reduced.
+
+    The batch owns MLflow run lifetimes.  Implementations write to the active
+    method child but never create a run themselves; this keeps raw event
+    emission free of aggregate metric side effects and makes the method the
+    smallest reusable benchmark unit.
+    """
+
+    def record_method(
+        self,
+        workload: MethodWorkload,
+        summary: MethodWorkloadSummary,
+    ) -> None:
+        """Persist canonical events and selected post-aggregation scalars."""
         ...
 
 

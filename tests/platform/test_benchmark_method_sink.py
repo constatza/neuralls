@@ -1,0 +1,178 @@
+"""Method-workload MLflow ownership and artifact identity."""
+
+from __future__ import annotations
+
+import tomllib
+from pathlib import Path
+
+import pytest
+
+from neuralls.composition.comparison.models import CompletedMethodWorkload, canonical_method_config
+from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
+from neuralls.domain.solver.models import (
+    MatrixSetupEvent,
+    MeasuredPeakMemory,
+    SetupCompleted,
+    SolveAttempt,
+    SolveConverged,
+    SystemTag,
+)
+from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
+from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
+from neuralls.platform.config.models.preconditioner import (
+    AggregationCoarseningConfig,
+    AMGPreconditionerConfig,
+    NeuralPreconditionerConfig,
+)
+from neuralls.platform.tracking.comparison_tracking import (
+    MLflowBenchmarkMethodSink,
+    _write_method_config,
+)
+from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
+
+
+@pytest.fixture
+def method_workload() -> CompletedMethodWorkload:
+    method = PreconditionerName("jacobi")
+    planned = tuple(
+        SystemTag(DatasetId("ds"), "gaussian", MatrixId(0), i, SystemId(f"s{i}")) for i in range(2)
+    )
+    setup = MatrixSetupEvent(
+        SetupEventId("setup-0"),
+        DatasetId("ds"),
+        MatrixId(0),
+        method,
+        1.0,
+        (1.0,),
+        MeasuredPeakMemory(1),
+        SetupCompleted(),
+    )
+    attempts = tuple(
+        SolveAttempt(
+            SetupEventId("setup-0"),
+            tag.system_id,
+            tag.dataset,
+            tag.recipe,
+            tag.matrix_id,
+            tag.rhs_ordinal,
+            method,
+            2.0 + tag.rhs_ordinal,
+            (2.0 + tag.rhs_ordinal,),
+            MeasuredPeakMemory(1),
+            SolveConverged(2, 1e-8),
+        )
+        for tag in planned
+    )
+    return CompletedMethodWorkload(
+        method=method,
+        planned=planned,
+        setup_events=(setup,),
+        solve_attempts=attempts,
+        diagnostics=(),
+        generation_cost=None,
+        workload_peak_memory=MeasuredPeakMemory(2),
+        config_digest="sha256:" + "a" * 64,
+        method_config={"name": str(method)},
+    )
+
+
+@pytest.fixture
+def method_summary(method_workload: CompletedMethodWorkload) -> CompleteWorkloadSummary:
+    summary = summarize_method_workload(
+        method_workload.method,
+        method_workload.planned,
+        method_workload.setup_events,
+        method_workload.solve_attempts,
+        method_workload.workload_peak_memory,
+    )
+    assert isinstance(summary, CompleteWorkloadSummary)
+    return summary
+
+
+def test_method_sink_records_aggregates_without_opening_a_run(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    method_workload: CompletedMethodWorkload,
+    method_summary: CompleteWorkloadSummary,
+) -> None:
+    metrics: list[tuple[str, float]] = []
+    artifacts: list[str] = []
+    monkeypatch.setattr(
+        "neuralls.platform.tracking.comparison_tracking.mlflow.start_run",
+        lambda *args, **kwargs: pytest.fail("method sink must not open MLflow runs"),
+    )
+    monkeypatch.setattr(
+        "neuralls.platform.tracking.comparison_tracking.mlflow.log_metric",
+        lambda key, value, **kwargs: metrics.append((key, value)),
+    )
+    monkeypatch.setattr(
+        "neuralls.platform.tracking.comparison_tracking.mlflow.log_param",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "neuralls.platform.tracking.comparison_tracking.mlflow.log_artifact",
+        lambda path, **kwargs: artifacts.append(Path(path).name),
+    )
+
+    sink = MLflowBenchmarkMethodSink()
+    sink.record_method(method_workload, method_summary, root=tmp_path)
+
+    assert [key for key, _ in metrics] == [
+        "n_planned_rhs",
+        "n_attempted_rhs",
+        "n_converged",
+        "success_rate",
+        "setup_total_s",
+        "solve_total_s",
+        "workload_online_s",
+        "online_s_per_attempted_rhs",
+        "workload_peak_memory_bytes",
+    ]
+    assert set(artifacts) >= {
+        "setup_events.parquet",
+        "solve_attempts.parquet",
+        "summary.toml",
+        "method_config.toml",
+        "method_diagnostics.json",
+        "residual_histories.json",
+        "energy_histories.json",
+        "residual_history.png",
+        "energy_history.png",
+    }
+
+
+def test_method_child_tags_include_schema_identity_and_required_raw_artifacts() -> None:
+    _, tags = build_benchmark_method_run_spec(
+        method="jacobi",
+        config_digest="sha256:" + "a" * 64,
+        system_ids=("s0", "s1"),
+    )
+    values = tags.as_mlflow_tags()
+
+    assert values["phase"] == "comparison_method"
+    assert values["benchmark_event_schema_version"] == "1"
+    assert values["method_config_digest"] == "sha256:" + "a" * 64
+    assert values["workload_membership_digest"].startswith("sha256:")
+    assert "setup_events.parquet" in values["required_artifacts"]
+    assert "method_config.toml" in values["required_artifacts"]
+    assert '"schema": "sha256:' in values["identity_components"]
+    assert "0000000000000000" not in values["identity_components"]
+    assert values["neuralls.identity.stage"] == "comparison_method"
+
+
+@pytest.mark.parametrize("config_kind", ("amg", "checkpoint"))
+def test_method_config_serialization_is_canonical_and_omits_unset_optionals(
+    tmp_path: Path, config_kind: str
+) -> None:
+    """Supported configs with unset optional values remain TOML serializable."""
+    if config_kind == "amg":
+        config = AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig())
+    else:
+        checkpoint = tmp_path / "checkpoint.pt"
+        checkpoint.write_bytes(b"weights")
+        config = NeuralPreconditionerConfig(checkpoint_path=checkpoint)
+    expected = canonical_method_config(config)
+
+    path = _write_method_config(tmp_path, canonical_method_config(config))
+
+    assert tomllib.loads(path.read_text(encoding="utf-8")) == expected

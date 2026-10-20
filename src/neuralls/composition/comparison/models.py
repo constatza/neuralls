@@ -28,7 +28,7 @@ from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.storage.manifest import DatasetNormalization
-from neuralls.shared.digest import Digest
+from neuralls.shared.digest import Digest, Json, canonical
 from neuralls.shared.types import (
     ComparisonRhsSourceKind,
     DatasetId,
@@ -53,7 +53,36 @@ __all__ = [
     "PreconditionerComparisonEntry",
     "ResolvedComparisonInput",
     "ResolvedMethod",
+    "canonical_method_config",
 ]
+
+
+def canonical_method_config(config: PreconditionerConfig) -> dict[str, Json]:
+    """Return the stable config payload persisted with a method workload.
+
+    Pydantic's JSON dump contains resolved lease-local checkpoint paths. The
+    shared canonicalizer instead applies the config field markers: checkpoint
+    inputs become content digests and cosmetic/runtime fields are omitted.
+    The derived method name remains useful artifact metadata.
+    """
+    payload = canonical(config)
+    if not isinstance(payload, dict):
+        raise TypeError("preconditioner config must canonicalize to an object")
+    payload["name"] = config.name
+    return _without_none(payload)
+
+
+def _without_none(value: dict[str, Json]) -> dict[str, Json]:
+    """Remove unset optional fields from a canonical JSON object recursively."""
+    return {key: _without_none_value(item) for key, item in value.items() if item is not None}
+
+
+def _without_none_value(value: Json) -> Json:
+    if isinstance(value, dict):
+        return _without_none(value)
+    if isinstance(value, list):
+        return [_without_none_value(item) for item in value]
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +90,7 @@ class ResolvedMethod:
     """One resolved candidate method configuration."""
 
     config: PreconditionerConfig
+    identity_digest: Digest | None = None
 
     @property
     def name(self) -> PreconditionerName:
@@ -115,6 +145,7 @@ class CompletedMethodWorkload:
     generation_cost: StageCost | None
     workload_peak_memory: PeakMemory
     config_digest: Digest
+    method_config: dict[str, Json]
 
 
 @dataclass(frozen=True)

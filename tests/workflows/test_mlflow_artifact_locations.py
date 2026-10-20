@@ -254,6 +254,8 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
         name="Comparisons",
         artifact_root=artifact_root,
     )
+    legacy = client.create_run(experiment_id, tags={"phase": "comparison"})
+    client.set_terminated(legacy.info.run_id, status="FINISHED")
 
     outcomes = run_comparison_batch(
         case_config_path=experiments_config,
@@ -262,27 +264,74 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
 
     assert outcomes and outcomes[0].success is True
 
-    # Select the comparison run by phase tag: the real workflow also opens a
-    # session parent above it and one child run per preconditioner below it.
+    # The session owns cross-method reports and has one direct method child.
     runs = client.search_runs(
         experiment_ids=[experiment_id],
-        filter_string="tags.phase = 'comparison'",
+        filter_string="tags.phase = 'session_comparison'",
         max_results=1,
     )
     assert runs
-    run_id = runs[0].info.run_id
+    session_id = runs[0].info.run_id
+    method_runs = client.search_runs(
+        experiment_ids=[experiment_id],
+        filter_string=f"tags.mlflow.parentRunId = '{session_id}' and tags.phase = 'comparison_method'",
+    )
+    assert len(method_runs) == 1
+    method_run = method_runs[0]
+    assert not client.search_runs(
+        experiment_ids=[experiment_id],
+        filter_string=f"tags.mlflow.parentRunId = '{method_run.info.run_id}'",
+    )
 
-    root_artifacts = client.list_artifacts(run_id)
-    root_paths = {item.path for item in root_artifacts}
-    assert "comparison.toml" in root_paths
-    assert "figures" in root_paths
-    # Solver config is logged under config/ subdirectory, not at root
-    assert "config" in root_paths
-    config_artifacts = client.list_artifacts(run_id, path="config")
-    config_names = {Path(item.path).name for item in config_artifacts}
-    assert method_config.name in config_names
+    method_artifacts = client.list_artifacts(method_run.info.run_id, path="method_workload")
+    method_names = {Path(item.path).name for item in method_artifacts}
+    assert {"setup_events.parquet", "solve_attempts.parquet", "summary.toml"}.issubset(method_names)
+    assert {
+        "method_config.toml",
+        "method_diagnostics.json",
+        "residual_histories.json",
+        "energy_histories.json",
+    }.issubset(method_names)
+    method_figures = client.list_artifacts(method_run.info.run_id, path="method_workload/figures")
+    assert {Path(item.path).name for item in method_figures} == {
+        "residual_history.png",
+        "energy_history.png",
+    }
 
-    figure_artifacts = client.list_artifacts(run_id, path="figures")
+    session_artifacts = client.list_artifacts(session_id, path="group_reports")
     assert any(
-        item.path.endswith("preconditioner_iterations_benchmark.png") for item in figure_artifacts
+        Path(item.path).name.startswith("system_time_scatter_") for item in session_artifacts
+    )
+    legacy_runs = client.search_runs(
+        experiment_ids=[experiment_id], filter_string="tags.phase = 'comparison'"
+    )
+    assert [run.info.run_id for run in legacy_runs] == [legacy.info.run_id]
+
+    session_count = len(
+        client.search_runs(
+            experiment_ids=[experiment_id], filter_string="tags.phase = 'session_comparison'"
+        )
+    )
+    reused = run_comparison_batch(case_config_path=experiments_config, params=ComparisonParams())
+    assert reused and reused[0].success is True
+    assert (
+        len(
+            client.search_runs(
+                experiment_ids=[experiment_id], filter_string="tags.phase = 'session_comparison'"
+            )
+        )
+        == session_count
+    )
+
+    forced = run_comparison_batch(
+        case_config_path=experiments_config, params=ComparisonParams(force=True)
+    )
+    assert forced and forced[0].success is True
+    assert (
+        len(
+            client.search_runs(
+                experiment_ids=[experiment_id], filter_string="tags.phase = 'session_comparison'"
+            )
+        )
+        == session_count + 1
     )

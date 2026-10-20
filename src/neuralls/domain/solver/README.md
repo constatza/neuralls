@@ -101,6 +101,14 @@ iterations; workload ranking uses complete event summaries.
 
 ## Boundary rule
 
+`BenchmarkMethodSink` is the narrow persistence port for a completed method
+workload. Its domain-owned `MethodWorkload` payload carries the validated
+method configuration and diagnostics as required data alongside canonical
+events; the port
+accepts only `(workload, summary)`. Metric calls are forbidden during event
+emission. MLflow run ownership stays in composition, so the domain port cannot
+create system runs or method grandchildren.
+
 Composition maps typed configuration and loaded tensors to `torchalg` runtime
 objects. Platform code persists and plots returned domain payloads. Domain code
 does not parse TOML, open MLflow runs, resolve filesystem layout, or write

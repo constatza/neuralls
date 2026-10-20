@@ -44,8 +44,8 @@ from neuralls.composition.comparison.models import (
     MatrixWorkload,
     MatrixWorkloadMember,
     PlannedSystem,
-    ResolvedComparisonInput,
     ResolvedMethod,
+    canonical_method_config,
 )
 from neuralls.composition.comparison.plan import plan_comparisons
 from neuralls.composition.comparison.recipes import system_tag
@@ -63,6 +63,7 @@ from neuralls.composition.identity.gate import gate_reuse
 from neuralls.composition.identity.training import training_identity
 from neuralls.composition.tracking.run_specs import (
     ComparisonRunTags,
+    build_benchmark_method_run_spec,
     build_child_comparison_tags,
     build_comparison_run_spec,
     build_session_run_spec,
@@ -71,7 +72,8 @@ from neuralls.domain.identity import StageIdentity
 from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory, SetupCompleted
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.result import ComparisonResult
-from neuralls.domain.solver.ports import CostRecorder
+from neuralls.domain.solver.ports import BenchmarkMethodSink, CostRecorder
+from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
@@ -102,6 +104,7 @@ from neuralls.platform.tracking.artifact_access import (
     MlflowArtifactLeaseManager,
 )
 from neuralls.platform.tracking.comparison_tracking import (
+    MLflowBenchmarkMethodSink,
     MLflowGroupReportSink,
     create_cost_recorder,
     log_comparison_artifact_uri,
@@ -114,10 +117,13 @@ from neuralls.platform.tracking.comparison_tracking import (
 from neuralls.platform.tracking.extra_features import fetch_extra_feature_names
 from neuralls.platform.tracking.mlflow import build_workflow_environment
 from neuralls.platform.tracking.mlflow_client import log_comparison_artifacts_to_mlflow
-from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
+from neuralls.platform.tracking.mlflow_store import (
+    MlflowIdentityStore,
+    find_reusable_benchmark_method,
+)
 from neuralls.platform.tracking.model_registry import build_registered_model_name
 from neuralls.shared.device import release_device_memory, warm_up_device
-from neuralls.shared.digest import Digest, content_digest, digest_memo
+from neuralls.shared.digest import Digest, canonical_digest, content_digest, digest_memo
 from neuralls.shared.errors import StageInputsStale
 from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, MatrixId
 
@@ -489,6 +495,7 @@ class _ComparisonResolutionContext:
     settings: NeurallsSettings
     master_cfg: CaseConfig | None = None
     artifact_leases: MlflowArtifactLeaseManager | None = None
+    reuse_comparisons: bool = True
 
 
 @dataclass(frozen=True)
@@ -931,23 +938,30 @@ def _prepare_comparison_entry(
         identity = comparison_identity(cfg, resolved.specs, resolved.checkpoint_digests)
         logger.info("Comparison '{}': built identity {}.", entry.id, identity.key)
         logger.info("Comparison '{}': checking MLflow for a reusable run.", entry.id)
-        reused = gate_reuse(
-            MlflowIdentityStore(
-                tracking_uri=context.topology.tracking_uri,
-                experiment=context.topology.experiment_name,
-            ),
-            identity,
-            force=force,
-            label=entry.id,
-        )
-        if reused is not None:
-            logger.info(
-                "Comparison '{}': reuse lookup selected run {}.",
-                entry.id,
-                reused.run_id,
+        if context.reuse_comparisons:
+            reused = gate_reuse(
+                MlflowIdentityStore(
+                    tracking_uri=context.topology.tracking_uri,
+                    experiment=context.topology.experiment_name,
+                ),
+                identity,
+                force=force,
+                label=entry.id,
             )
-            return _comparison_outcome(entry, success=True)
-        logger.info("Comparison '{}': no reusable run selected; execution is required.", entry.id)
+            if reused is not None:
+                logger.info(
+                    "Comparison '{}': reuse lookup selected run {}.",
+                    entry.id,
+                    reused.run_id,
+                )
+                return _comparison_outcome(entry, success=True)
+            logger.info(
+                "Comparison '{}': no reusable run selected; execution is required.", entry.id
+            )
+        else:
+            logger.info(
+                "Comparison '{}': per-system reuse is disabled for batch execution.", entry.id
+            )
 
         # Needs real execution: detach the lease manager's cleanup from this
         # function's scope-exit and hand it to the caller instead.
@@ -1050,6 +1064,7 @@ def _prepare_all_comparisons(
     stack: contextlib.ExitStack,
     *,
     force: bool,
+    reuse_comparisons: bool = True,
 ) -> tuple[list[ComparisonOutcome | _PreparedComparisonExecution], tuple[PlannedSystem, ...]]:
     """Plan, resolve and reuse-check every system of the case.
 
@@ -1083,6 +1098,7 @@ def _prepare_all_comparisons(
                 client=MlflowClient(tracking_uri=topology.model_store_tracking_uri)
             )
         ),
+        reuse_comparisons=reuse_comparisons,
     )
     pending: list[ComparisonOutcome | _PreparedComparisonExecution] = []
     planned_systems = plan_comparisons(master_cfg, config_dir, settings)
@@ -1189,7 +1205,7 @@ def _method_major_schedule(
                     "within one comparison workload"
                 )
             method_key = config.name, identities[config.name]
-            methods.setdefault(method_key, ResolvedMethod(config))
+            methods.setdefault(method_key, ResolvedMethod(config, identity_digest=identity))
             grouped.setdefault(method_key, {}).setdefault(_matrix_of(item), []).append(item)
     return tuple(
         (
@@ -1269,72 +1285,6 @@ def _load_matrix_workloads(
         yield _load_one_matrix_workload(dataset, matrix_id, systems)
 
 
-def _persist_projected_comparison(
-    prepared: _PreparedComparisonExecution,
-    result: ComparisonResult,
-    resolved_input: ResolvedComparisonInput,
-) -> None:
-    """Persist one method-major diagnostic projection under the legacy run contract."""
-    run_name, comp_tags = build_comparison_run_spec(entry=prepared.entry, include_timestamp=False)
-    with mlflow.start_run(
-        run_name=run_name,
-        nested=True,
-        tags={**comp_tags.as_mlflow_tags(), **prepared.identity.tags()},
-    ) as comp_run:
-        comp_run_id = comp_run.info.run_id
-        log_comparison_artifact_uri()
-        with tempfile.TemporaryDirectory() as tmp:
-            work_root = Path(tmp)
-            staged_input_dir = stage_comparison_inputs(
-                work_root,
-                ComparisonInputArtifacts(
-                    matrix=resolved_input.matrix,
-                    rhs=resolved_input.rhs,
-                    matrix_dataset_id=resolved_input.matrix_dataset_id,
-                    matrix_index=resolved_input.matrix_index,
-                    rhs_source_type=resolved_input.rhs_source_type,
-                    lhs=resolved_input.lhs,
-                    rhs_dataset_id=resolved_input.rhs_dataset_id,
-                    rhs_sample_index=resolved_input.rhs_sample_index,
-                    row_kind=resolved_input.row_kind,
-                    rhs_source_kind=resolved_input.rhs_source_kind,
-                    rhs_source_params=resolved_input.rhs_source_params,
-                    matrix_provenance=resolved_input.matrix_provenance,
-                ),
-            )
-            write_comparison_artifacts(
-                result=result,
-                work_root=work_root,
-                comparison_config=prepared.entry.method,
-            )
-            log_comparison_input_artifacts(staged_input_dir)
-            log_comparison_artifacts_to_mlflow(
-                tracking_uri=prepared.topology.tracking_uri,
-                run_id=comp_run_id,
-                work_root=work_root,
-            )
-        log_skipped_preconditioners(prepared.resolved.warnings)
-        create_cost_recorder().record(
-            result,
-            child_run_tags=_build_child_run_tags(
-                result,
-                comparison_id=prepared.entry.id,
-                parent_run_name=run_name,
-            ),
-        )
-        log_linear_system_params(result)
-        log_comparison_run_params(
-            comp_run_id=comp_run_id,
-            comparison_id=prepared.entry.id,
-            comparison_display_name=prepared.entry.effective_display_name,
-            comparison_config=(
-                prepared.entry.method.stem
-                if prepared.entry.method is not None
-                else prepared.entry.id
-            ),
-        )
-
-
 def _outcomes_from_workloads(
     pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
     workloads: Sequence[CompletedMethodWorkload],
@@ -1388,7 +1338,6 @@ def _outcomes_from_workloads(
                     display_name=item.entry.effective_display_name,
                     notation_policy=item.cfg.notation_policy,
                 )
-                _persist_projected_comparison(item, result, resolved)
         except (ValueError, RuntimeError, KeyError, IndexError) as exc:
             outcomes.append(_comparison_failure_outcome(item.entry, exc))
             continue
@@ -1433,9 +1382,11 @@ def _execute_all(
     pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
 ) -> tuple[list[ComparisonOutcome], tuple[CompletedMethodWorkload, ...]]:
     """Execute pending systems in method -> matrix -> ordered RHS order."""
+    schedule = _method_major_schedule(pending)
+
     warm_up_device(resolve_device())
     workloads: list[CompletedMethodWorkload] = []
-    for method, matrices in _method_major_schedule(pending):
+    for method, matrices in schedule:
         bundles = _load_matrix_workloads(matrices)
         first = matrices[0][1][0]
         workload = execute_method_workload(
@@ -1450,6 +1401,61 @@ def _execute_all(
     return _outcomes_from_workloads(pending, workloads), tuple(workloads)
 
 
+def _all_method_workloads_reusable(
+    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+    topology: ComparisonTopology,
+    *,
+    force: bool,
+) -> bool:
+    """Check complete method children before opening the session parent."""
+    if force:
+        return False
+    schedule = _method_major_schedule(pending)
+    if not schedule:
+        return False
+    for method, matrices in schedule:
+        system_ids = tuple(str(system.entry.id) for _, systems in matrices for system in systems)
+        if (
+            find_reusable_benchmark_method(
+                tracking_uri=topology.tracking_uri,
+                experiment=topology.experiment_name,
+                method=str(method.name),
+                config_digest=method.identity_digest or canonical_digest(method.config),
+                method_config=canonical_method_config(method.config),
+                system_ids=system_ids,
+            )
+            is None
+        ):
+            return False
+    return True
+
+
+def _persist_method_workloads(
+    workloads: Sequence[CompletedMethodWorkload],
+    sink: BenchmarkMethodSink,
+) -> None:
+    """Open one direct child per method and persist only its reduced workload."""
+    for workload in workloads:
+        summary = summarize_method_workload(
+            workload.method,
+            workload.planned,
+            workload.setup_events,
+            workload.solve_attempts,
+            workload.workload_peak_memory,
+        )
+        method_ids = tuple(str(tag.system_id) for tag in workload.planned)
+        run_name, tags = build_benchmark_method_run_spec(
+            method=str(workload.method),
+            config_digest=workload.config_digest,
+            system_ids=method_ids,
+        )
+        with mlflow.start_run(run_name=run_name, nested=True, tags=tags.as_mlflow_tags()):
+            sink.record_method(
+                workload,
+                summary,
+            )
+
+
 def run_comparison_batch(
     case_config_path: Path,
     params: ComparisonParams,
@@ -1460,10 +1466,9 @@ def run_comparison_batch(
     Every entry is resolved and reuse-checked first, with no MLflow run
     opened yet. Only if at least one entry genuinely needs execution does
     this open one MLflow session parent run for the whole batch — named
-    ``"<case-name> | <timestamp>"``, mirroring training's session parent — so
-    every executing entry's own run nests underneath it as a "subrun", with
-    each entry's per-preconditioner runs nested one level further. If every
-    entry is a cache hit, no MLflow run is created at all.
+    ``"<case-name> | <timestamp>"``, mirroring training's session parent —
+    with one direct method child per executing workload. If every entry is a
+    cache hit, no MLflow run is created at all.
 
     Args:
         case_config_path: Path to the case config TOML.
@@ -1504,14 +1509,23 @@ def run_comparison_batch(
             mlflow_client,
             stack,
             force=params.force,
+            reuse_comparisons=False,
         )
 
         if not any(isinstance(p, _PreparedComparisonExecution) for p in pending):
             outcomes = [p for p in pending if isinstance(p, ComparisonOutcome)]
-            report_all_levels((), MLflowGroupReportSink())
             return outcomes
+
+        if _all_method_workloads_reusable(pending, topology, force=params.force):
+            return [
+                item
+                if isinstance(item, ComparisonOutcome)
+                else _comparison_outcome(item.entry, success=True)
+                for item in pending
+            ]
 
         with mlflow.start_run(run_name=session_run_name, tags=session_tags.as_mlflow_tags()):
             outcomes, workloads = _execute_all(pending)
+            _persist_method_workloads(workloads, MLflowBenchmarkMethodSink())
             report_all_levels(workloads, MLflowGroupReportSink())
             return outcomes

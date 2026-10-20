@@ -5,22 +5,19 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
 import polars as pl
 import pyarrow.parquet as pq
 import tomli_w
 
 from neuralls.domain.solver.models.benchmark_events import (
-    MatrixSetupEvent,
     MeasuredPeakMemory,
     PeakMemory,
-    SolveAttempt,
-    SystemTag,
 )
-from neuralls.domain.solver.models.cost import StageCost
 from neuralls.domain.solver.models.workload import (
     IncompleteWorkloadSummary,
+    MethodWorkload,
     MethodWorkloadSummary,
 )
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
@@ -31,29 +28,11 @@ from neuralls.domain.solver.reporting.event_frames import (
     build_solve_frame,
     validate_setup_solve_frame_links,
 )
-from neuralls.shared.digest import Digest
-from neuralls.shared.types import PreconditionerName
+from neuralls.shared.digest import Digest, canonical_digest
 
 BENCHMARK_EVENT_SCHEMA_VERSION = 1
 _SCHEMA_METADATA_KEY = b"neuralls.benchmark_event_schema_version"
 _PUBLIC_SCHEMA_METADATA_KEY = b"schema_version"
-
-
-class CompletedMethodWorkload(Protocol):
-    """Structural input contract for the platform serializer.
-
-    The concrete orchestration DTO remains in composition; this boundary only
-    requires its persisted fields and therefore does not create an upward
-    platform-to-composition dependency.
-    """
-
-    method: PreconditionerName
-    planned: tuple[SystemTag, ...]
-    setup_events: tuple[MatrixSetupEvent, ...]
-    solve_attempts: tuple[SolveAttempt, ...]
-    generation_cost: StageCost | None
-    workload_peak_memory: PeakMemory
-    config_digest: Digest
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +45,7 @@ class MethodBenchmarkArtifacts:
 
 
 def write_method_benchmark_artifacts(
-    workload: CompletedMethodWorkload, summary: MethodWorkloadSummary, root: Path
+    workload: MethodWorkload, summary: MethodWorkloadSummary, root: Path
 ) -> MethodBenchmarkArtifacts:
     """Write canonical event frames and a summary derived from their reducers."""
     _validate_config_digest(workload.config_digest)
@@ -142,9 +121,7 @@ def _validate_unique_setup_ids(frame: pl.DataFrame) -> None:
         raise ValueError("duplicate setup event ID")
 
 
-def _write_summary(
-    workload: CompletedMethodWorkload, summary: MethodWorkloadSummary, path: Path
-) -> None:
+def _write_summary(workload: MethodWorkload, summary: MethodWorkloadSummary, path: Path) -> None:
     # The reducer's lifetime peak is intentionally not reconstructed from the
     # setup/solve frame maxima; those frames contain only per-event peaks.
     peak_bytes, peak_status = _memory_fields(summary.workload_peak_memory)
@@ -153,6 +130,12 @@ def _write_summary(
         "method": {
             "name": str(workload.method),
             "config_digest": workload.config_digest,
+        },
+        "workload": {
+            "membership_digest": canonical_digest(
+                tuple(str(tag.system_id) for tag in workload.planned)
+            ),
+            "system_ids": [str(tag.system_id) for tag in workload.planned],
         },
         "counts": {
             "planned_rhs": summary.n_planned_rhs,

@@ -142,6 +142,22 @@ default to empty). A failed run is never given a time:
 failure-aware paired fields. Raw benchmark events and method summaries become
 the persistence source of truth; the removed scaling-law TOML is not emitted.
 
+`MLflowBenchmarkMethodSink` persists one completed method workload into the
+already-active method child. It writes `setup_events.parquet`,
+`solve_attempts.parquet`, `summary.toml`, the required method configuration,
+residual/energy histories, and diagnostic figures, then logs reducer-owned
+scalars exactly once. The sink never opens an MLflow run;
+`comparison_batch` owns the session parent and its one direct child per method.
+The parent receives only shared provenance and cross-method reports, while raw
+method artifacts remain on the child. Reuse requires phase
+`comparison_method`, event schema version 1, the method config/checkpoint
+digest, complete workload membership, and all canonical raw artifacts; legacy
+runs without a schema marker are executed again. Reuse parses the required
+configuration and diagnostics and reconciles event methods, membership, and
+summary totals before accepting a hit. The persisted configuration is the
+canonical identity representation: checkpoint inputs are content digests and
+runtime lease paths are omitted.
+
 The DLKit dataset bridge stays generic. Platform helpers construct and patch
 DLKit-native dataset entries with the names supplied by composition, but
 platform does not own the canonical runtime naming policy itself. Storage-layer
