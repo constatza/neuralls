@@ -12,7 +12,11 @@ from collections.abc import Sequence
 from loguru import logger
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload
-from neuralls.domain.benchmarking.selection import systems_solved_by_all
+from neuralls.domain.benchmarking.selection import (
+    NoReferenceConfigured,
+    ReferenceSelection,
+    systems_solved_by_all,
+)
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated, GroupSkippedAllCacheHit
 from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLabel, MediumLabel
 from neuralls.domain.solver.models.presentation import GroupPresentation
@@ -24,6 +28,7 @@ from neuralls.domain.solver.reporting.report_levels import (
     MediumLevel,
     ReportLevel,
 )
+from neuralls.shared.types import SystemId
 
 __all__ = ["REPORT_LEVELS", "report_all_levels"]
 
@@ -76,14 +81,17 @@ def _never_converged_note(outcome: GroupAggregated) -> str:
 def report_all_levels(
     workloads: Sequence[CompletedMethodWorkload],
     sink: GroupReportSink,
+    *,
+    reference_selection: ReferenceSelection | dict[SystemId, ReferenceSelection] | None = None,
 ) -> None:
     """Reduce completed method workloads and report every canonical level."""
+    selected = reference_selection if reference_selection is not None else NoReferenceConfigured()
     planned_by_id = {tag.system_id: tag for workload in workloads for tag in workload.planned}
     planned = tuple(planned_by_id.values())
     setup_events = tuple(event for workload in workloads for event in workload.setup_events)
     attempts = tuple(attempt for workload in workloads for attempt in workload.solve_attempts)
     for level in REPORT_LEVELS:
-        for classified in classify_level(planned, setup_events, attempts, level):
+        for classified in classify_level(planned, setup_events, attempts, level, selected):
             match classified:
                 case GroupAggregated() as aggregated:
                     sink.report(

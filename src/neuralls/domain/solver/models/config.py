@@ -9,7 +9,7 @@ from torchalg.monitoring import TraceMode
 from neuralls.domain.solver.error_metrics import REFERENCE_PRECISION_MARGIN
 from neuralls.shared.digest import Cosmetic
 from neuralls.shared.timing import TimingRepeatPolicy
-from neuralls.shared.types import ComparisonRhsSourceKind
+from neuralls.shared.types import ComparisonRhsSourceKind, PreconditionerName
 
 
 @dataclass(frozen=True)
@@ -110,3 +110,4 @@ class ComparisonGeneral:
 
     params: SolverParams
     data: ComparisonData
+    reference_preconditioner: PreconditionerName | None = None

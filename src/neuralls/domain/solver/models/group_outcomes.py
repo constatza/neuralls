@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from neuralls.domain.benchmarking.selection import NoReferenceConfigured, ReferenceSelection
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.models.labels import GroupLabel
 from neuralls.domain.solver.models.outcomes import SystemOutcome
@@ -40,6 +41,7 @@ class GroupAggregated:
         default_factory=dict
     )
     comparisons: Mapping[PreconditionerName, MethodComparison] = field(default_factory=dict)
+    reference_selection: ReferenceSelection = field(default_factory=NoReferenceConfigured)
 
 
 @dataclass(frozen=True, slots=True)

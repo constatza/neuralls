@@ -1,10 +1,11 @@
-"""Temporary observed-reference comparison until explicit configuration lands."""
+"""Explicit reference comparison."""
 
 from __future__ import annotations
 
 import pytest
 
 from neuralls.domain.benchmarking.reference_comparison import compare_to_reference
+from neuralls.domain.benchmarking.selection import ConfiguredReference, NoReferenceConfigured
 from neuralls.domain.solver.models.outcomes import Failed, Solved, SystemOutcome
 from neuralls.shared.types import MatrixId
 
@@ -33,7 +34,7 @@ def outcomes() -> dict[str, dict[str, SystemOutcome]]:
 
 
 def test_reference_is_skipped_but_every_other_method_is_compared(outcomes) -> None:
-    comparisons = compare_to_reference(outcomes, seed=SEED)
+    comparisons = compare_to_reference(outcomes, selection=ConfiguredReference("amg"), seed=SEED)
 
     assert set(comparisons) == {"jacobi", "never"}
     assert comparisons["jacobi"].reference == "amg"
@@ -41,10 +42,12 @@ def test_reference_is_skipped_but_every_other_method_is_compared(outcomes) -> No
 
 
 def test_paired_part_uses_reference_over_method_ratio(outcomes) -> None:
-    comparison = compare_to_reference(outcomes, seed=SEED)["jacobi"]
+    comparison = compare_to_reference(outcomes, selection=ConfiguredReference("amg"), seed=SEED)[
+        "jacobi"
+    ]
 
     assert comparison.paired.speed_ratios == (2.0, 2.0)
 
 
 def test_empty_group_yields_no_comparisons() -> None:
-    assert compare_to_reference({}, seed=SEED) == {}
+    assert compare_to_reference({}, selection=NoReferenceConfigured(), seed=SEED) == {}

@@ -33,7 +33,7 @@ from neuralls.shared.constants import (
 from neuralls.shared.digest import Cosmetic, InputData
 from neuralls.shared.scientific_description import NotationPolicy
 from neuralls.shared.timing import TimingRepeatPolicy
-from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
+from neuralls.shared.types import ComparisonRhsSourceKind, PreconditionerName, RowKind
 
 type NormalizeSystem = Literal["none", "matrix", "rhs", "both"]
 
@@ -91,6 +91,7 @@ class ComparisonDataModel(BaseModel):
 class _ComparisonGeneralModel(BaseModel):
     params: _SolverParamsModel | None = None
     data: ComparisonDataModel = Field(default_factory=ComparisonDataModel)
+    reference_preconditioner: str | None = None
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
@@ -416,6 +417,12 @@ def parse_comparison_config(
         general=ComparisonGeneral(
             params=SolverParams(**dict(params)),
             data=ComparisonData(**data.model_dump()),
+            reference_preconditioner=(
+                PreconditionerName(parsed.general.reference_preconditioner)
+                if parsed.general.reference_preconditioner is not None
+                and "reference_preconditioner" in parsed.general.model_fields_set
+                else None
+            ),
         ),
         preconditioners=tuple(parsed.preconditioners),
         notation_policy=(parsed.presentation or ScientificLabelsConfig()).notation_policy(),

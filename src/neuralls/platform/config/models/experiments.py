@@ -203,6 +203,8 @@ class ComparisonBaseline(BaseModel):
         normalize_system: Normalization applied to the test system.
         preconditioners: Classical preconditioner list (neural preconditioners are
             auto-generated from case assignments at runtime).
+        reference_preconditioner: Optional explicit method used as the paired
+            comparison reference; omitted means no paired reference report.
         presentation: Scientific-label notation for this case's preconditioner
             comparison plots (target: plain/mathtext/latex, symbol overrides).
             Complete defaults, so no case needs a ``[comparison_baseline.presentation]``
@@ -221,6 +223,7 @@ class ComparisonBaseline(BaseModel):
     m_max: int = Field(default=DEFAULT_M_MAX, ge=-1)
     normalize_system: Literal["none", "matrix", "rhs", "both"] = "matrix"
     preconditioners: list[PreconditionerConfig] = Field(default_factory=list)
+    reference_preconditioner: str | None = None
     presentation: ScientificLabelsConfig = Field(default_factory=ScientificLabelsConfig)
     timing: TimingRepeatPolicy = Field(default_factory=TimingRepeatPolicy)
     model_config = ConfigDict(extra="forbid", frozen=True)

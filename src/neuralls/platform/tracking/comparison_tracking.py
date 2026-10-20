@@ -35,7 +35,7 @@ from neuralls.platform.reporting.outcome_plots import (
     plot_ecdf_profile,
     plot_paired_time_scatter,
     plot_performance_profile,
-    plot_speedup_cdf,
+    plot_speed_ratio_cdf,
     plot_time_scatter,
 )
 from neuralls.platform.reporting.plots import (
@@ -420,7 +420,7 @@ def _write_profile_plots(
 def _write_system_plots(
     outcome: GroupAggregated, presentation: GroupPresentation, directory: Path, file_key: str
 ) -> list[Path | None]:
-    """Draw the per-system scatter, the paired scatter and the speedup CDF of one group."""
+    """Draw per-system timing, paired timing, and reference/method ratio plots."""
     plot_style = plot_style_maps(presentation.plot_styles)
     return [
         plot_time_scatter(
@@ -430,13 +430,14 @@ def _write_system_plots(
         ),
         plot_paired_time_scatter(
             outcome.outcomes,
+            selection=outcome.reference_selection,
             style=_group_style("Time to solution vs reference", presentation, plot_style),
             save_path=directory / f"paired_time_scatter_{file_key}.png",
         ),
-        plot_speedup_cdf(
+        plot_speed_ratio_cdf(
             _paired_by_method(outcome.comparisons),
-            style=_group_style("Speedup over the reference", presentation, plot_style),
-            save_path=directory / f"speedup_cdf_{file_key}.png",
+            style=_group_style("Reference/method speed ratio", presentation, plot_style),
+            save_path=directory / f"speed_ratio_cdf_{file_key}.png",
         ),
     ]
 

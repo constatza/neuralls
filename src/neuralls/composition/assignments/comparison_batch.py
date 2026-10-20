@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import tempfile
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +68,12 @@ from neuralls.composition.tracking.run_specs import (
     build_comparison_run_spec,
     build_session_run_spec,
 )
+from neuralls.domain.benchmarking.selection import (
+    NoReferenceConfigured,
+    ReferenceSelection,
+    resolve_reference_selection,
+    validate_reference_preconditioner,
+)
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory, SetupCompleted
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
@@ -125,7 +131,7 @@ from neuralls.platform.tracking.model_registry import build_registered_model_nam
 from neuralls.shared.device import release_device_memory, warm_up_device
 from neuralls.shared.digest import Digest, canonical_digest, content_digest, digest_memo
 from neuralls.shared.errors import StageInputsStale
-from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, MatrixId
+from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, MatrixId, SystemId
 
 
 @dataclass(frozen=True)
@@ -863,6 +869,7 @@ class _PreparedComparisonExecution:
     resolved: ResolvedComparisonSpecs
     identity: StageIdentity
     settings: NeurallsSettings
+    reference_selection: ReferenceSelection = field(default_factory=NoReferenceConfigured)
 
     @property
     def entry(self) -> ComparisonRegistryEntry:
@@ -912,6 +919,13 @@ def _prepare_comparison_entry(
     except (FileNotFoundError, ValueError) as exc:
         return _comparison_failure_outcome(entry, exc)
     logger.info("Comparison '{}': input-source validation complete.", entry.id)
+    configured_reference = cfg.general.reference_preconditioner
+    if not isinstance(configured_reference, str):
+        configured_reference = None
+    validate_reference_preconditioner(
+        configured_reference,
+        tuple(spec.name for spec in cfg.preconditioners),
+    )
 
     with contextlib.ExitStack() as local_stack:
         artifact_leases = context.artifact_leases or local_stack.enter_context(
@@ -929,6 +943,21 @@ def _prepare_comparison_entry(
             entry.id,
             len(resolved.specs),
             len(resolved.warnings),
+        )
+        skipped_reference = (
+            {
+                str(configured_reference): next(
+                    warning for warning in resolved.warnings if configured_reference in warning
+                )
+            }
+            if configured_reference is not None
+            and any(configured_reference in warning for warning in resolved.warnings)
+            else {}
+        )
+        reference_selection = resolve_reference_selection(
+            configured_reference,
+            tuple(spec.name for spec in resolved.specs),
+            skipped=skipped_reference,
         )
 
         logger.info(
@@ -973,6 +1002,7 @@ def _prepare_comparison_entry(
             resolved=resolved,
             identity=identity,
             settings=context.settings,
+            reference_selection=reference_selection,
         )
 
 
@@ -1527,5 +1557,22 @@ def run_comparison_batch(
         with mlflow.start_run(run_name=session_run_name, tags=session_tags.as_mlflow_tags()):
             outcomes, workloads = _execute_all(pending)
             _persist_method_workloads(workloads, MLflowBenchmarkMethodSink())
-            report_all_levels(workloads, MLflowGroupReportSink())
+            selection = _batch_reference_selections(pending)
+            report_all_levels(
+                workloads,
+                MLflowGroupReportSink(),
+                reference_selection=selection,
+            )
             return outcomes
+
+
+def _batch_reference_selections(
+    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+) -> dict[SystemId, ReferenceSelection]:
+    """Return explicit reference state for each planned system."""
+    return {
+        SystemId(str(tag.system_id)): item.reference_selection
+        for item in pending
+        if isinstance(item, _PreparedComparisonExecution)
+        for tag in (system_tag(item.planned),)
+    }

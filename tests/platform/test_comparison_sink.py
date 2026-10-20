@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from neuralls.domain.benchmarking.selection import ConfiguredReference
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
 from neuralls.domain.solver.models.labels import FineLabel, render_group_id
@@ -115,6 +116,7 @@ def group() -> GroupAggregated:
                 ),
             )
         },
+        reference_selection=ConfiguredReference(PreconditionerName("amg")),
     )
 
 
@@ -180,7 +182,7 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
         for stem in (
             "system_time_scatter",
             "paired_time_scatter",
-            "speedup_cdf",
+            "speed_ratio_cdf",
             "performance_profile",
             "ecdf_iterations",
             "ecdf_time",
@@ -199,5 +201,5 @@ def test_sink_skips_the_ratio_cdf_without_comparisons(
 ) -> None:
     MLflowGroupReportSink().report(replace(group, comparisons={}), presentation=presentation)
 
-    assert not [name for name in logged_artifacts if name.startswith("speedup_cdf")]
+    assert not [name for name in logged_artifacts if name.startswith("speed_ratio_cdf")]
     assert not [key for key in logged_metrics if key.startswith("speed_ratio")]

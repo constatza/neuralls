@@ -12,7 +12,7 @@ from neuralls.domain.benchmarking.costs import (
     solve_seconds,
 )
 from neuralls.domain.benchmarking.profiles import ecdf_profiles, performance_profiles
-from neuralls.domain.benchmarking.selection import reference_preconditioner, systems_solved_by_all
+from neuralls.domain.benchmarking.selection import systems_solved_by_all
 from neuralls.domain.solver.models.outcomes import Failed, Solved, SystemOutcome
 from neuralls.shared.types import MatrixId
 
@@ -92,28 +92,6 @@ def test_fastest_method_is_selected_per_problem_not_globally(outcomes, time_cost
     assert profiles["jacobi"].fraction_solved(1.0) == pytest.approx(
         0.25 if time_cost is solve_seconds else 0.0
     )
-
-
-def test_reference_tie_uses_amortized_cost_then_plan_order() -> None:
-    slow = {
-        "s0": Solved(MatrixId(1), 1, solve_s=1.0, amortized_online_s=5.0),
-        "s1": Failed(MatrixId(2), 3, "limit"),
-    }
-    fast = {
-        "s0": Solved(MatrixId(1), 1, solve_s=1.0, amortized_online_s=1.0),
-        "s1": Failed(MatrixId(2), 3, "limit"),
-    }
-
-    assert reference_preconditioner({"slow": slow, "fast": fast}) == "fast"
-    assert reference_preconditioner({"first": fast, "second": dict(fast)}) == "first"
-
-
-def test_reference_is_the_method_that_solved_the_most_systems(outcomes) -> None:
-    assert reference_preconditioner(outcomes) == "amg"
-
-
-def test_reference_of_an_empty_group_is_none() -> None:
-    assert reference_preconditioner({}) is None
 
 
 def test_systems_solved_by_all_is_the_intersection_of_solved_sets(outcomes) -> None:

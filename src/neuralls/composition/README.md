@@ -20,6 +20,17 @@ models, ports, and runtime collaborators together, it belongs here. If it
 starts doing reusable numerical work, it belongs in `domain`. If it starts
 owning concrete IO or MLflow mechanics, that code belongs in `platform`.
 
+Comparison references are explicit configuration. The case
+`[comparison_baseline].reference_preconditioner` is inherited by each entry;
+an override may set `general.reference_preconditioner`, including `null` to
+clear the baseline. Composition validates that value against the final method
+tuple after assignment filters and auto-generated methods are applied. If
+runtime checkpoint resolution skips that configured method, reporting keeps
+`ReferenceUnavailable` with the resolution reason and never chooses a fallback
+from observed outcomes. Paired outputs use the reference/method speed ratio;
+performance profiles still normalize independently by the fastest method on
+each problem.
+
 ## Matrix format dispatch
 
 `preconditioners/factory.py` selects a builder by `(PreconditionerType,

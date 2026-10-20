@@ -133,7 +133,7 @@ default to empty). A failed run is never given a time:
   over an absolute budget (Hansen et al. 2016, COCO), not the n_p+1-normalised
   Moré-Wild data profile. Step curves share one right edge so each plateau is
   its success rate.
-- `plot_speedup_cdf` (`speedup_cdf_*`): ECDF of per-system reference/method
+- `plot_speed_ratio_cdf` (`speed_ratio_cdf_*`): ECDF of per-system reference/method
   ratios with a line at 1; the legend gives the median, its matrix-clustered
   interval, the Wilcoxon p-value and the both-solved count. Reference-only and
   method-only counts remain available separately.

@@ -26,7 +26,10 @@ from matplotlib.axes import Axes
 from neuralls.domain.benchmarking.costs import Cost, amortized_online_seconds, iterations
 from neuralls.domain.benchmarking.paired import PairedPoints, paired_points
 from neuralls.domain.benchmarking.profiles import Profile, ecdf_profiles, performance_profiles
-from neuralls.domain.benchmarking.selection import reference_preconditioner
+from neuralls.domain.benchmarking.selection import (
+    ConfiguredReference,
+    ReferenceSelection,
+)
 from neuralls.domain.solver.models.outcomes import Failed, Outcomes, Solved, SystemOutcome
 from neuralls.domain.solver.models.statistics import PairedComparison
 from neuralls.platform.reporting.plots import finish_group_figure, group_series_styles
@@ -303,21 +306,23 @@ def _positive_paired_points(points: PairedPoints) -> PairedPoints:
 def plot_paired_time_scatter(
     outcomes: Outcomes,
     *,
+    selection: ReferenceSelection | None = None,
     style: GroupStyle,
     save_path: Path,
 ) -> Path | None:
     """Time of each method against the reference method's time, system by system.
 
-    The reference is the method that solved the most systems
-    (`reference_preconditioner`). A point below the diagonal is a system on
+    The reference is the method explicitly selected in configuration. A point below the diagonal is a system on
     which the method beat the reference. Where only one of the two failed the
     point sits on the failing axis's edge as a hollow marker; where both
     failed, or a solved run has no comparable time, there is nothing to
     compare and the system is not drawn. Both axes use amortized online time:
     solve plus the system's planned share of matrix setup.
     """
-    reference = reference_preconditioner(outcomes)
-    if reference is None:
+    if not isinstance(selection, ConfiguredReference):
+        return None
+    reference = selection.name
+    if reference not in outcomes:
         return None
     others = [name for name in outcomes if name != reference]
     raw_points = {name: paired_points(outcomes[reference], outcomes[name]) for name in others}
@@ -377,8 +382,8 @@ def plot_paired_time_scatter(
     return save_path
 
 
-def _speedup_legend(label: str, comparison: PairedComparison) -> str:
-    """Legend text: median speedup with its interval, Wilcoxon p-value and pair count."""
+def _speed_ratio_legend(label: str, comparison: PairedComparison) -> str:
+    """Legend text: median speed ratio with its interval and pair count."""
     median = comparison.median_speed_ratio
     text = f"{label}: median {median:.2f}" if median is not None else f"{label}: no paired ratio"
     if comparison.median_speed_ratio_ci is not None:
@@ -389,24 +394,24 @@ def _speedup_legend(label: str, comparison: PairedComparison) -> str:
     return f"{text}, n={comparison.n_both_solved}"
 
 
-def _speedup_curve(comparison: PairedComparison) -> tuple[np.ndarray, np.ndarray]:
-    """Sorted speedups and the fraction of paired systems at or below each."""
+def _speed_ratio_curve(comparison: PairedComparison) -> tuple[np.ndarray, np.ndarray]:
+    """Sorted reference/method ratios and their cumulative fractions."""
     ratios = np.sort(np.asarray(comparison.speed_ratios, dtype=np.float64))
     fractions = np.arange(1, len(ratios) + 1) / len(ratios) if len(ratios) else np.asarray([])
     return ratios, fractions
 
 
-def plot_speedup_cdf(
+def plot_speed_ratio_cdf(
     comparisons: Mapping[PreconditionerName, PairedComparison],
     *,
     style: GroupStyle,
     save_path: Path,
 ) -> Path | None:
-    """ECDF of per-system speedups (reference time / method time) against the reference.
+    """ECDF of per-system reference/method speed ratios.
 
-    Only systems both methods solved enter. The median speedup carries a
+    Only systems both methods solved enter. The median speed ratio carries a
     percentile-bootstrap interval (Efron & Tibshirani 1993) and the Wilcoxon
-    signed-rank p-value (Wilcoxon 1945) tests the log speedups against zero. The
+    signed-rank p-value (Wilcoxon 1945) tests the log ratios against zero. The
     vertical line at 1 separates systems where the method was slower (left)
     from faster (right).
     """
@@ -416,19 +421,19 @@ def plot_speedup_cdf(
     styles = _series_styles(names, style)
     fig, ax = plt.subplots(figsize=(8, 5))
     for name in names:
-        xs, ys = _speedup_curve(comparisons[name])
+        xs, ys = _speed_ratio_curve(comparisons[name])
         ax.step(
             xs,
             ys,
             where="post",
             color=styles[name]["color"],
             linestyle=styles[name]["linestyle"],
-            label=_speedup_legend(style.labels.get(name, name), comparisons[name]),
+            label=_speed_ratio_legend(style.labels.get(name, name), comparisons[name]),
         )
     ax.axvline(1.0, color="gray", linewidth=1, linestyle="--")
     ax.set_xscale("log")
     ax.set_ylim(0.0, 1.02)
-    ax.set_xlabel("Speedup over the reference (reference time / method time)")
+    ax.set_xlabel("Reference/method speed ratio")
     ax.set_ylabel("Fraction of paired systems")
     ax.grid(True, which="both", alpha=0.3)
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), fontsize=8)
@@ -439,6 +444,6 @@ def plot_speedup_cdf(
         subtitle=style.subtitle,
         save_path=save_path,
         show=False,
-        saved_message="Saved speedup CDF to",
+        saved_message="Saved speed ratio CDF to",
     )
     return save_path

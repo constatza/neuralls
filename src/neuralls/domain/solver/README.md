@@ -83,7 +83,10 @@ only in the raw event/frame and workload totals.
   RHS observation.
 
 Performance profiles normalize by the fastest method on each problem. A
-failed attempt remains censored rather than receiving a penalty time.
+failed attempt remains censored rather than receiving a penalty time. Paired
+comparisons require a `ConfiguredReference`; `NoReferenceConfigured` and
+`ReferenceUnavailable` produce no ratios, and no observed outcome can select a
+fallback reference.
 
 ## Diagnostic solver results
 

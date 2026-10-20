@@ -14,6 +14,7 @@ import pytest
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
+from neuralls.domain.benchmarking.selection import ConfiguredReference
 from neuralls.domain.solver.models.outcomes import Failed, Solved, SystemOutcome
 from neuralls.domain.solver.models.statistics import Interval, PairedComparison
 from neuralls.platform.reporting import outcome_plots
@@ -22,7 +23,7 @@ from neuralls.platform.reporting.outcome_plots import (
     plot_ecdf_profile,
     plot_paired_time_scatter,
     plot_performance_profile,
-    plot_speedup_cdf,
+    plot_speed_ratio_cdf,
     plot_time_scatter,
 )
 from neuralls.platform.reporting.plots import finish_group_figure
@@ -91,7 +92,12 @@ def test_every_outcome_plot_returns_its_saved_file(
         plot_performance_profile(outcomes, style=style, save_path=tmp_path / "perf.png"),
         plot_ecdf_profile(outcomes, style=style, save_path=tmp_path / "ecdf.png"),
         plot_time_scatter(outcomes, style=style, save_path=tmp_path / "scatter.png"),
-        plot_paired_time_scatter(outcomes, style=style, save_path=tmp_path / "paired.png"),
+        plot_paired_time_scatter(
+            outcomes,
+            selection=ConfiguredReference("amg"),
+            style=style,
+            save_path=tmp_path / "paired.png",
+        ),
     ]
 
     assert [p.name for p in paths if p is not None] == [
@@ -168,7 +174,9 @@ def test_time_scatter_saves_a_decodable_png(
 def test_paired_scatter_marks_the_reference_runs_the_method_failed(
     tmp_path: Path, outcomes: Outcomes, style: GroupStyle, figures: list[Figure]
 ) -> None:
-    plot_paired_time_scatter(outcomes, style=style, save_path=tmp_path / "p.png")
+    plot_paired_time_scatter(
+        outcomes, selection=ConfiguredReference("amg"), style=style, save_path=tmp_path / "p.png"
+    )
 
     ax = _axes(figures)
     edge = 4.0 * outcome_plots._FAILED_AXIS_MARGIN
@@ -188,7 +196,10 @@ def test_paired_scatter_does_not_mark_a_zero_cost_reference_run_as_failed(
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         plot_paired_time_scatter(
-            zero_cost_reference_outcomes, style=style, save_path=tmp_path / "p.png"
+            zero_cost_reference_outcomes,
+            selection=ConfiguredReference("amg"),
+            style=style,
+            save_path=tmp_path / "p.png",
         )
 
     ax = _axes(figures)
@@ -211,7 +222,9 @@ def test_paired_scatter_returns_none_when_all_solved_times_are_zero(
         "jacobi": {"s0": _solved(6, 0.0)},
     }
 
-    path = plot_paired_time_scatter(outcomes, style=style, save_path=tmp_path / "p.png")
+    path = plot_paired_time_scatter(
+        outcomes, selection=ConfiguredReference("amg"), style=style, save_path=tmp_path / "p.png"
+    )
 
     assert path is None and not (tmp_path / "p.png").exists()
 
@@ -220,7 +233,10 @@ def test_paired_scatter_draws_nothing_for_a_single_method(
     tmp_path: Path, style: GroupStyle
 ) -> None:
     path = plot_paired_time_scatter(
-        {"amg": {"s0": _solved(5, 1.0)}}, style=style, save_path=tmp_path / "p.png"
+        {"amg": {"s0": _solved(5, 1.0)}},
+        selection=ConfiguredReference("amg"),
+        style=style,
+        save_path=tmp_path / "p.png",
     )
 
     assert path is None and not (tmp_path / "p.png").exists()
@@ -241,10 +257,10 @@ def comparisons() -> dict[str, PairedComparison]:
     }
 
 
-def test_speedup_cdf_has_the_sorted_speedups_and_a_line_at_one(
+def test_speed_ratio_cdf_has_sorted_ratios_and_a_line_at_one(
     tmp_path: Path, comparisons, style: GroupStyle, figures: list[Figure]
 ) -> None:
-    path = plot_speedup_cdf(comparisons, style=style, save_path=tmp_path / "c.png")
+    path = plot_speed_ratio_cdf(comparisons, style=style, save_path=tmp_path / "c.png")
 
     ax = _axes(figures)
     curve, unity = ax.lines
@@ -257,5 +273,7 @@ def test_speedup_cdf_has_the_sorted_speedups_and_a_line_at_one(
     assert legend.get_texts()[0].get_text() == "jacobi: median 2.00 [0.50, 4.00], n=3"
 
 
-def test_speedup_cdf_draws_nothing_without_comparisons(tmp_path: Path, style: GroupStyle) -> None:
-    assert plot_speedup_cdf({}, style=style, save_path=tmp_path / "c.png") is None
+def test_speed_ratio_cdf_draws_nothing_without_comparisons(
+    tmp_path: Path, style: GroupStyle
+) -> None:
+    assert plot_speed_ratio_cdf({}, style=style, save_path=tmp_path / "c.png") is None

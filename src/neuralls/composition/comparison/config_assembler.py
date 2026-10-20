@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from neuralls.composition.comparison.models import PlannedSystem
+from neuralls.domain.benchmarking.selection import validate_reference_preconditioner
 from neuralls.domain.solver.models.config import (
     ComparisonData,
     ComparisonGeneral,
@@ -25,7 +26,7 @@ from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.registry import resolve_dataset_config_path
 from neuralls.platform.config.resolution import resolve_registry_path
 from neuralls.platform.config.settings import NeurallsSettings
-from neuralls.shared.types import ComparisonRhsSourceKind
+from neuralls.shared.types import ComparisonRhsSourceKind, PreconditionerName
 
 
 def resolve_dataset_dir(
@@ -89,6 +90,7 @@ def resolve_comparison_config(
         )
 
     preconditioners: list[PreconditionerConfig] = list(baseline.preconditioners)
+    reference_preconditioner = baseline.reference_preconditioner
     normalize_system = baseline.normalize_system
     presentation = baseline.presentation
     params_override: dict[str, Any] | None = None
@@ -100,6 +102,13 @@ def resolve_comparison_config(
         override = parse_comparison_method_override(raw, ctx)
         if override.preconditioners:
             preconditioners = list(override.preconditioners)
+        if "reference_preconditioner" in override.general.model_fields_set:
+            reference_preconditioner = override.general.reference_preconditioner
+        if override.preconditioners:
+            validate_reference_preconditioner(
+                reference_preconditioner,
+                tuple(spec.name for spec in preconditioners),
+            )
         if "normalize_system" in override.general.data.model_fields_set:
             normalize_system = override.general.data.normalize_system
         if override.general.params is not None:
@@ -131,6 +140,11 @@ def resolve_comparison_config(
                 selection_seed=entry.seed,
                 rhs_source_kind=ComparisonRhsSourceKind(entry.rhs_source.kind),
                 rhs_source_params=_rhs_source_params(planned),
+            ),
+            reference_preconditioner=(
+                None
+                if reference_preconditioner is None
+                else PreconditionerName(reference_preconditioner)
             ),
         ),
         preconditioners=tuple(preconditioners),
