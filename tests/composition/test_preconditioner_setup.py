@@ -241,6 +241,7 @@ def test_load_and_bind_binds_zebra_from_position_0(
     preconditioners: dict[str, Preconditioner] = {"model": stub_bindable_non_alpha}
 
     staged = _load_extra_inputs(dataset_with_two_params, _SAMPLE_INDEX)
+    assert all(isinstance(value, np.ndarray) for value in staged)
     _bind_extra_inputs(preconditioners, matrix, staged)
 
     assert "zebra" in stub_bindable_non_alpha.bound_inputs, (

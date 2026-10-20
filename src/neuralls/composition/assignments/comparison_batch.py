@@ -30,6 +30,7 @@ from neuralls.composition.comparison._preconditioner_setup import (
     matrix_key,
 )
 from neuralls.composition.comparison.comparison_run import (
+    build_comparison_result_from_diagnostics,
     compare_preconditioners,
     execute_method_workload,
 )
@@ -67,12 +68,7 @@ from neuralls.composition.tracking.run_specs import (
     build_session_run_spec,
 )
 from neuralls.domain.identity import StageIdentity
-from neuralls.domain.solver.comparison_summary import (
-    format_results_summary,
-    summarize_best_combinations,
-)
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.loaders import load_data_config
@@ -93,7 +89,6 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     TrainedAssignmentRefConfig,
 )
-from neuralls.platform.config.models.preconditioner_family import preconditioner_family
 from neuralls.platform.config.registry import get_assignment_binding, resolve_assignment_binding
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.platform.reporting.artifacts import write_comparison_artifacts
@@ -1156,6 +1151,9 @@ def _method_major_schedule(
 ]:
     """Group executable systems as method -> matrix -> ordered RHS members."""
     methods: dict[tuple[str, Digest], ResolvedMethod] = {}
+    identities_by_name: dict[str, Digest] = {}
+    semantics_by_name: dict[str, tuple[object, object]] = {}
+    expected_method_names: frozenset[str] | None = None
     grouped: dict[
         tuple[str, Digest],
         dict[tuple[DatasetId, MatrixId], list[_PreparedComparisonExecution]],
@@ -1163,10 +1161,32 @@ def _method_major_schedule(
     for item in pending:
         if not isinstance(item, _PreparedComparisonExecution):
             continue
+        method_names = frozenset(config.name for config in item.resolved.specs)
+        if expected_method_names is None:
+            expected_method_names = method_names
+        elif method_names != expected_method_names:
+            raise ValueError(
+                "comparison entries have different method membership; "
+                "method-major workloads require the same methods for every planned RHS"
+            )
         identities = preconditioner_identities(
             item.resolved.specs, item.resolved.checkpoint_digests
         )
         for config in item.resolved.specs:
+            identity = identities[config.name]
+            previous_identity = identities_by_name.setdefault(config.name, identity)
+            if previous_identity != identity:
+                raise ValueError(
+                    f"method {config.name!r} has different configuration identities "
+                    "within one comparison workload"
+                )
+            semantics = (item.cfg.general.data.normalize_system, item.cfg.general.params)
+            previous_semantics = semantics_by_name.setdefault(config.name, semantics)
+            if previous_semantics != semantics:
+                raise ValueError(
+                    f"method {config.name!r} has incompatible matrix/solver semantics "
+                    "within one comparison workload"
+                )
             method_key = config.name, identities[config.name]
             methods.setdefault(method_key, ResolvedMethod(config))
             grouped.setdefault(method_key, {}).setdefault(_matrix_of(item), []).append(item)
@@ -1186,12 +1206,31 @@ def _load_matrix_workloads(
             tuple[_PreparedComparisonExecution, ...],
         ]
     ],
-) -> tuple[MatrixWorkload, ...]:
-    """Read one method's matrices/RHS values before online timing begins."""
-    bundles: list[MatrixWorkload] = []
+) -> Iterator[MatrixWorkload]:
+    """Yield one method matrix/RHS bundle at a time before online timing begins."""
     for (dataset, matrix_id), systems in matrices:
-        loaded: list[tuple[_PreparedComparisonExecution, ResolvedComparisonInput]] = []
-        for prepared in systems:
+        first_prepared = systems[0]
+        first_cfg = first_prepared.cfg
+        first_resolved = resolve_comparison_input(
+            matrix_path=Path(first_cfg.general.data.matrix_path),
+            matrix_dataset_id=first_prepared.entry.matrix_dataset,
+            matrix_index=first_cfg.general.data.matrix_index,
+            matrix_provenance=first_prepared.planned.provenance,
+            require_non_residual_rhs=first_cfg.general.data.require_non_residual_rhs,
+            seed=first_cfg.general.data.selection_seed,
+            rhs_source_kind=_require_rhs_source_kind(first_cfg),
+            rhs_source_params=first_cfg.general.data.rhs_source_params,
+        )
+        first_system = prepare_resolved_linear_system(
+            first_resolved, first_cfg.general.data.normalize_system
+        )
+        members = [
+            MatrixWorkloadMember(
+                tag=system_tag(first_prepared.planned),
+                rhs=first_system.rhs.numpy(),
+            )
+        ]
+        for prepared in systems[1:]:
             cfg = prepared.cfg
             resolved = resolve_comparison_input(
                 matrix_path=Path(cfg.general.data.matrix_path),
@@ -1204,34 +1243,86 @@ def _load_matrix_workloads(
                 rhs_source_params=cfg.general.data.rhs_source_params,
             )
             system = prepare_resolved_linear_system(resolved, cfg.general.data.normalize_system)
-            loaded.append(
-                (
-                    prepared,
-                    replace(
-                        resolved,
-                        matrix=system.matrix.numpy(),
-                        rhs=system.rhs.numpy(),
-                    ),
+            members.append(
+                MatrixWorkloadMember(
+                    tag=system_tag(prepared.planned),
+                    rhs=system.rhs.numpy(),
                 )
             )
-        first_prepared, first_input = loaded[0]
-        bundles.append(
-            MatrixWorkload(
-                dataset=dataset,
-                matrix_id=matrix_id,
-                matrix=first_input.matrix,
-                matrix_path=Path(first_prepared.cfg.general.data.matrix_path),
-                matrix_index=first_prepared.cfg.general.data.matrix_index,
-                members=tuple(
-                    MatrixWorkloadMember(
-                        tag=system_tag(prepared.planned),
-                        rhs=resolved.rhs,
-                    )
-                    for prepared, resolved in loaded
+        yield MatrixWorkload(
+            dataset=dataset,
+            matrix_id=matrix_id,
+            matrix=first_system.matrix.numpy(),
+            matrix_path=Path(first_cfg.general.data.matrix_path),
+            matrix_index=first_cfg.general.data.matrix_index,
+            members=tuple(members),
+        )
+
+
+def _persist_projected_comparison(
+    prepared: _PreparedComparisonExecution,
+    result: ComparisonResult,
+    resolved_input: ResolvedComparisonInput,
+) -> None:
+    """Persist one method-major diagnostic projection under the legacy run contract."""
+    run_name, comp_tags = build_comparison_run_spec(entry=prepared.entry, include_timestamp=False)
+    with mlflow.start_run(
+        run_name=run_name,
+        nested=True,
+        tags={**comp_tags.as_mlflow_tags(), **prepared.identity.tags()},
+    ) as comp_run:
+        comp_run_id = comp_run.info.run_id
+        log_comparison_artifact_uri()
+        with tempfile.TemporaryDirectory() as tmp:
+            work_root = Path(tmp)
+            staged_input_dir = stage_comparison_inputs(
+                work_root,
+                ComparisonInputArtifacts(
+                    matrix=resolved_input.matrix,
+                    rhs=resolved_input.rhs,
+                    matrix_dataset_id=resolved_input.matrix_dataset_id,
+                    matrix_index=resolved_input.matrix_index,
+                    rhs_source_type=resolved_input.rhs_source_type,
+                    lhs=resolved_input.lhs,
+                    rhs_dataset_id=resolved_input.rhs_dataset_id,
+                    rhs_sample_index=resolved_input.rhs_sample_index,
+                    row_kind=resolved_input.row_kind,
+                    rhs_source_kind=resolved_input.rhs_source_kind,
+                    rhs_source_params=resolved_input.rhs_source_params,
+                    matrix_provenance=resolved_input.matrix_provenance,
                 ),
             )
+            write_comparison_artifacts(
+                result=result,
+                work_root=work_root,
+                comparison_config=prepared.entry.method,
+            )
+            log_comparison_input_artifacts(staged_input_dir)
+            log_comparison_artifacts_to_mlflow(
+                tracking_uri=prepared.topology.tracking_uri,
+                run_id=comp_run_id,
+                work_root=work_root,
+            )
+        log_skipped_preconditioners(prepared.resolved.warnings)
+        create_cost_recorder().record(
+            result,
+            child_run_tags=_build_child_run_tags(
+                result,
+                comparison_id=prepared.entry.id,
+                parent_run_name=run_name,
+            ),
         )
-    return tuple(bundles)
+        log_linear_system_params(result)
+        log_comparison_run_params(
+            comp_run_id=comp_run_id,
+            comparison_id=prepared.entry.id,
+            comparison_display_name=prepared.entry.effective_display_name,
+            comparison_config=(
+                prepared.entry.method.stem
+                if prepared.entry.method is not None
+                else prepared.entry.id
+            ),
+        )
 
 
 def _outcomes_from_workloads(
@@ -1257,29 +1348,45 @@ def _outcomes_from_workloads(
                 )
             )
             continue
-        typed_results = dict(results)
-        styles = {
-            config.name: PreconditionerPlotStyle(
-                label=config.name,
-                family=preconditioner_family(config),
+        try:
+            resolved = resolve_comparison_input(
+                matrix_path=Path(item.cfg.general.data.matrix_path),
+                matrix_dataset_id=item.entry.matrix_dataset,
+                matrix_index=item.cfg.general.data.matrix_index,
+                matrix_provenance=item.planned.provenance,
+                require_non_residual_rhs=item.cfg.general.data.require_non_residual_rhs,
+                seed=item.cfg.general.data.selection_seed,
+                rhs_source_kind=_require_rhs_source_kind(item.cfg),
+                rhs_source_params=item.cfg.general.data.rhs_source_params,
             )
-            for config in item.resolved.specs
-            if config.name in typed_results
-        }
+            system = prepare_resolved_linear_system(
+                resolved, item.cfg.general.data.normalize_system
+            )
+            resolved = replace(
+                resolved,
+                matrix=system.matrix.numpy(),
+                rhs=system.rhs.numpy(),
+            )
+            with tempfile.TemporaryDirectory() as projection_root:
+                result = build_comparison_result_from_diagnostics(
+                    general_params=item.cfg.general,
+                    preconditioner_configs=item.resolved.specs,
+                    resolved_input=resolved,
+                    results=dict(results),
+                    output_root=Path(projection_root),
+                    display_name=item.entry.effective_display_name,
+                    notation_policy=item.cfg.notation_policy,
+                )
+                _persist_projected_comparison(item, result, resolved)
+        except (ValueError, RuntimeError, KeyError, IndexError) as exc:
+            outcomes.append(_comparison_failure_outcome(item.entry, exc))
+            continue
         outcomes.append(
             _comparison_outcome(
                 item.entry,
                 success=True,
                 warnings=item.resolved.warnings,
-                payload=ComparisonResult(
-                    results=typed_results,
-                    summary=format_results_summary(typed_results),
-                    solver_params=item.cfg.general,
-                    preconditioners=tuple(typed_results),
-                    recommendations=summarize_best_combinations(typed_results),
-                    rhs_source_kind=item.cfg.general.data.rhs_source_kind,
-                    plot_styles=styles,
-                ),
+                payload=result,
             )
         )
     return outcomes

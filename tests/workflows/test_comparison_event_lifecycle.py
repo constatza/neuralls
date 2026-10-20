@@ -163,6 +163,11 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
     assert failed_setup.samples_s
     assert workload.solve_attempts == ()
     assert workload.planned == (one_system_bundle.members[0].tag,)
+    assert len(workload.diagnostics) == 1
+    failed_diagnostic = workload.diagnostics[0][1]
+    assert failed_diagnostic.preconditioner == method.name
+    assert failed_diagnostic.converged is False
+    assert "setup broke" in (failed_diagnostic.error or "")
     summary = summarize_method_workload(
         method.name,
         workload.planned,
@@ -188,7 +193,7 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
     """Static and matrix-dependent methods both get fresh state per matrix."""
     from neuralls.composition.comparison import comparison_run
 
-    state_ids: list[int] = []
+    states: list[object] = []
 
     def solve(
         matrix: torch.Tensor,
@@ -199,7 +204,7 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
     ) -> dict[str, CGComparisonResult]:
         del matrix, rhs, kwargs
         name, state = next(iter(preconditioners.items()))
-        state_ids.append(id(state))
+        states.append(state)
         return {name: _solved_result(name)}
 
     monkeypatch.setattr(comparison_run, "run_cg_comparison", solve)
@@ -217,9 +222,9 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
     assert len(workload.setup_events) == 2
     assert all(isinstance(event.outcome, SetupCompleted) for event in workload.setup_events)
     assert len(workload.solve_attempts) == 4
-    assert state_ids[0] == state_ids[1]
-    assert state_ids[2] == state_ids[3]
-    assert state_ids[0] != state_ids[2]
+    assert states[0] is states[1]
+    assert states[2] is states[3]
+    assert states[0] is not states[2]
 
 
 def test_repeat_samples_are_retained_but_totals_use_one_representative(

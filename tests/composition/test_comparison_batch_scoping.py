@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from inspect import isgeneratorfunction
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,6 +18,7 @@ from neuralls.composition.assignments.comparison_batch import (
 )
 from neuralls.composition.comparison.models import CompletedMethodWorkload, ResolvedMethod
 from neuralls.domain.solver.models import MeasuredPeakMemory
+from neuralls.domain.solver.models.config import SolverParams
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
@@ -34,6 +36,14 @@ def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
     system.__dict__["resolved"] = MagicMock()
     system.resolved.checkpoint_digests = {}
     system.__dict__["cfg"] = MagicMock()
+    system.cfg.general.params = SolverParams(
+        rtol=1e-6,
+        atol=1e-10,
+        max_iterations=20,
+        stopping_criterion="residual_norm",
+        m_max=5,
+    )
+    system.cfg.general.data.normalize_system = "matrix"
     system.__dict__["settings"] = MagicMock()
     return system
 
@@ -73,14 +83,44 @@ def test_method_schedule_does_not_share_same_name_with_different_identity() -> N
         StandardPreconditionerConfig(type=PreconditionerType.JACOBI, start_iter=5)
     ]
 
-    schedule = _method_major_schedule((first, second))
+    with pytest.raises(ValueError, match="different configuration identities"):
+        _method_major_schedule((first, second))
 
-    assert len(schedule) == 2
-    assert [method.config.start_iter for method, _ in schedule] == [0, 5]
-    assert [[dataset for (dataset, _), _ in matrices] for _, matrices in schedule] == [
-        ["a"],
-        ["b"],
-    ]
+
+def test_method_schedule_rejects_mixed_matrix_and_solver_semantics() -> None:
+    first = _system("ds", 0, "r0")
+    second = _system("ds", 0, "r1")
+    config = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
+    for system in (first, second):
+        system.resolved.specs = [config]
+        system.cfg.general.params = SolverParams(
+            rtol=1e-6,
+            atol=1e-10,
+            max_iterations=20,
+            stopping_criterion="residual_norm",
+            m_max=5,
+        )
+        system.cfg.general.data.normalize_system = "matrix"
+    second.cfg.general.data.normalize_system = "rhs"
+
+    with pytest.raises(ValueError, match="incompatible matrix/solver semantics"):
+        _method_major_schedule((first, second))
+
+
+def test_method_schedule_rejects_different_method_membership_on_siblings() -> None:
+    first = _system("ds", 0, "r0")
+    second = _system("ds", 0, "r1")
+    identity = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
+    jacobi = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
+    first.resolved.specs = [identity, jacobi]
+    second.resolved.specs = [identity]
+
+    with pytest.raises(ValueError, match="different method membership"):
+        _method_major_schedule((first, second))
+
+
+def test_matrix_workloads_are_loaded_lazily_per_method_matrix() -> None:
+    assert isgeneratorfunction(comparison_batch._load_matrix_workloads)
 
 
 @pytest.fixture

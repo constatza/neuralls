@@ -58,8 +58,49 @@ Task 4 consumes.
 The comparison workflow regression also verifies the production staged matrix
 normalization and preserves distinct RHS draws for each planned system.
 
-## Remaining scope
+## Scope boundary
 
-This report covers Task 4 execution and its required adjacent verification.
-Later artifact persistence, method-level MLflow topology, and report-level
-figure migrations remain separate tasks.
+Method-level MLflow topology and report-level figure migrations remain later
+tasks; this task preserves the existing per-comparison persistence contract
+while method-major execution supplies its canonical diagnostics.
+
+## Fix Round 1
+
+The review's seven findings were addressed with focused RED/GREEN tests and
+minimal production changes:
+
+- Mixed same-name configuration identities, matrix normalization, solver/timing
+  parameters, and sibling method membership are rejected before scheduling;
+  this prevents sharing transformed matrices or first-entry solve semantics.
+- Method-major execution now projects its canonical diagnostics back through
+  the retained nested comparison run, input/config/figure artifacts, run
+  parameters, child runs, and cost recorder. The SQLite artifact integration
+  test runs the production workflow and verifies the comparison phase run.
+- Setup failure creates a breakdown diagnostic for every planned RHS, while
+  retaining the canonical failed setup event and zero solve attempts.
+- Matrix bundles are yielded lazily and each bundle is released in a
+  ``finally`` block; host arrays are not retained for the rest of a method.
+- Parameter arrays are staged as copied NumPy values outside setup timing;
+  Torch construction, device/dtype conversion, and binding occur in the timed
+  setup callback.
+- Checkpoint-store implementation and tests describe the method-workload
+  lifetime. Checkpoint/data I/O remains untracked; generation is the only
+  offline cost.
+
+The initial focused RED characterization had 6 failures and 17 passing tests.
+After the fixes, the focused lifecycle/scoping/group suite passes 21 tests;
+the collection smoke reports 23 tests. Adjacent comparison workflow, run,
+session-gating, and scoping tests pass 50 tests. The retained SQLite MLflow
+artifact test passes, and the inherited domain/checkpoint/MLflow suite passes
+75 tests with one integration deselection.
+
+Additional verification passes: targeted ``ty``, Ruff lint and format,
+``tach check``, import smoke, and ``git diff --check``. The compatibility
+workflow spy now materializes the lazy iterator only inside the spy, leaving
+production bundle lifetime bounded while preserving the original provenance
+and RHS assertions.
+
+Self-review: method-major solver execution remains the sole source of measured
+diagnostics; the retained public result/artifact projection performs no solve
+and all its I/O/reporting occurs after online timing. Rejection is explicit for
+semantics or membership that cannot be represented by one method workload.

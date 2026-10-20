@@ -1,4 +1,4 @@
-"""Checkpoints are loaded once per dataset, before the timed build, and borrowed by builds."""
+"""Checkpoints are loaded once per method workload, before timed builds, and borrowed by builds."""
 
 from __future__ import annotations
 

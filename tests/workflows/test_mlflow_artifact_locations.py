@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
 import mlflow
 import numpy as np
@@ -23,13 +22,6 @@ from neuralls.composition.assignments.runtime_dataset_contract import (
 from neuralls.composition.comparison.models import ComparisonParams
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
-from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.domain.solver.models.config import ComparisonGeneral
-from neuralls.domain.solver.models.recommendations import (
-    ComparisonRecommendations,
-    RankedRecommendation,
-)
-from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.reporting.training_diagnostics import compute_diagnostics
 from neuralls.platform.tracking.mlflow_client import log_diagnostics_to_mlflow
@@ -263,51 +255,10 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
         artifact_root=artifact_root,
     )
 
-    def _fake_compare_preconditioners(
-        *, general_params: ComparisonGeneral, output_root: Path, **_: object
-    ) -> ComparisonResult:
-        figures_dir = output_root / "figures"
-        figures_dir.mkdir(parents=True, exist_ok=True)
-        (figures_dir / "comparison_plot.png").write_text("placeholder", encoding="utf-8")
-        return ComparisonResult(
-            results={
-                "identity": CGComparisonResult(
-                    x=np.zeros(2),
-                    converged=True,
-                    iterations=2,
-                    residual=1.0e-8,
-                    residual_abs=1.0e-8,
-                    residual_history_rel=[1.0, 1.0e-8],
-                    residual_history_abs=[1.0, 1.0e-8],
-                    preconditioner="identity",
-                    initial_guess=np.zeros(2),
-                    exact_error=None,
-                    rhs_norm=1.0,
-                    breakdown=False,
-                )
-            },
-            summary="ok",
-            solver_params=general_params,
-            preconditioners=("identity",),
-            recommendations=ComparisonRecommendations(
-                overall_best=RankedRecommendation(
-                    label="identity",
-                    iterations=2,
-                    residual=1.0e-8,
-                    residual_abs=1.0e-8,
-                    breakdown=False,
-                )
-            ),
-        )
-
-    with patch(
-        "neuralls.composition.assignments.comparison_batch.compare_preconditioners",
-        side_effect=_fake_compare_preconditioners,
-    ):
-        outcomes = run_comparison_batch(
-            case_config_path=experiments_config,
-            params=ComparisonParams(),
-        )
+    outcomes = run_comparison_batch(
+        case_config_path=experiments_config,
+        params=ComparisonParams(),
+    )
 
     assert outcomes and outcomes[0].success is True
 
@@ -332,4 +283,6 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
     assert method_config.name in config_names
 
     figure_artifacts = client.list_artifacts(run_id, path="figures")
-    assert any(item.path.endswith("comparison_plot.png") for item in figure_artifacts)
+    assert any(
+        item.path.endswith("preconditioner_iterations_benchmark.png") for item in figure_artifacts
+    )

@@ -1,7 +1,7 @@
 """Loaded checkpoints shared across builds: typed keys, the read/write split, and the adapters.
 
-A checkpoint is loaded once per dataset, *before* a preconditioner's timed
-build, and every build then borrows the loaded object. Builders see only the
+A checkpoint is loaded once per method workload, *before* a preconditioner's
+timed build, and every build then borrows the loaded object. Builders see only the
 read side (`PreloadedCheckpoints`); `CheckpointStore` owns the objects and is the
 only place that releases them. torchalg's `NeuralPreconditioner` and neural
 coarsening never release a predictor they were given, so borrowing is safe; only
@@ -112,7 +112,7 @@ class CheckpointStore:
     ) -> torch.nn.Module:
         """Load (once) the POD module for ``key``."""
         if key not in self._pod_bases:
-            self._pod_bases[key] = self._timed(key.path, loader)
+            self._pod_bases[key] = self._load(key.path, loader)
         return self._pod_bases[key]
 
     def load_predictor(
@@ -120,7 +120,7 @@ class CheckpointStore:
     ) -> ExtraInputPredictorPort:
         """Load (once) the adapter-style predictor for ``key``."""
         if key not in self._predictors:
-            self._predictors[key] = self._timed(key.path, loader)
+            self._predictors[key] = self._load(key.path, loader)
         return self._predictors[key]
 
     def load_inference_predictor(
@@ -128,7 +128,7 @@ class CheckpointStore:
     ) -> InferencePredictorPort:
         """Load (once) the batch-inference predictor for ``key``."""
         if key not in self._inference_predictors:
-            self._inference_predictors[key] = self._timed(key.path, loader)
+            self._inference_predictors[key] = self._load(key.path, loader)
         return self._inference_predictors[key]
 
     def pod_basis(self, key: PodBasisKey) -> torch.nn.Module | None:
@@ -149,7 +149,7 @@ class CheckpointStore:
         self._predictors.clear()
         self._inference_predictors.clear()
 
-    def _timed[T](self, path: Path, loader: Callable[[], T]) -> T:
+    def _load[T](self, path: Path, loader: Callable[[], T]) -> T:
         loaded = loader()
         logger.info("Preloaded checkpoint '{}'.", path)
         return loaded

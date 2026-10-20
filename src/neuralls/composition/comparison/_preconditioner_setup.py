@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import numpy as np
 import torch
 from torchalg.preconditioners.base import BindableInputs, Preconditioner
 
@@ -246,7 +247,7 @@ class PreconditionerService:
 
         Loading a checkpoint is file I/O, not part of a preconditioner's
         algorithmic setup cost, and a checkpoint can serve many builds (every
-        matrix of a dataset, every timing repeat); so it is loaded once, here,
+        matrix of this method workload, every timing repeat); so it is loaded once, here,
         before the timed build, and the build borrows the loaded object. A
         no-op for configs without checkpoints and for a service built without a
         store.
@@ -332,7 +333,7 @@ def _collect_extra_name_positions(
     return positions
 
 
-def _load_extra_inputs(matrix_path: Path, matrix_index: int) -> tuple[torch.Tensor, ...]:
+def _load_extra_inputs(matrix_path: Path, matrix_index: int) -> tuple[np.ndarray, ...]:
     """Read every parameter array for one matrix outside online timing.
 
     Args:
@@ -340,8 +341,9 @@ def _load_extra_inputs(matrix_path: Path, matrix_index: int) -> tuple[torch.Tens
         matrix_index: Sample index to extract from each parameter array.
 
     Returns:
-        Parameter tensors in manifest order. Device/dtype conversion and
-        semantic binding deliberately happen later, inside setup timing.
+        Parameter arrays in manifest order. Torch tensor construction,
+        device/dtype conversion and semantic binding deliberately happen
+        later, inside setup timing.
     """
     if not matrix_path.is_dir():
         return ()
@@ -350,7 +352,7 @@ def _load_extra_inputs(matrix_path: Path, matrix_index: int) -> tuple[torch.Tens
     except FileNotFoundError:
         return ()
     return tuple(
-        torch.tensor(load_array_source_sample(source, matrix_index))
+        np.array(load_array_source_sample(source, matrix_index), copy=True)
         for source in arrays.parameter_sources
     )
 
@@ -358,18 +360,18 @@ def _load_extra_inputs(matrix_path: Path, matrix_index: int) -> tuple[torch.Tens
 def _bind_extra_inputs(
     scheduled_preconditioners: dict[str, Preconditioner],
     matrix: torch.Tensor,
-    staged_inputs: tuple[torch.Tensor, ...],
+    staged_inputs: tuple[np.ndarray, ...],
 ) -> None:
     """Convert staged parameter arrays and bind them inside setup timing.
 
     Args:
         scheduled_preconditioners: Preconditioners to inspect and bind.
         matrix: System matrix — always bound as ``"matrix"``.
-        staged_inputs: Parameter tensors read before setup, in manifest order.
+        staged_inputs: Parameter arrays read before setup, in manifest order.
     """
     name_to_position = _collect_extra_name_positions(scheduled_preconditioners)
     extra_data = {
-        name: staged_inputs[position].to(dtype=matrix.dtype, device=matrix.device)
+        name: torch.as_tensor(staged_inputs[position], dtype=matrix.dtype, device=matrix.device)
         for name, position in name_to_position.items()
         if position < len(staged_inputs)
     }

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -1545,16 +1545,17 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
 
     def capture_workload(
         method: ResolvedMethod,
-        bundles: tuple[MatrixWorkload, ...],
+        bundles: Iterable[MatrixWorkload],
         *,
         params: SolverParams,
         settings: NeurallsSettings,
         notation_policy: NotationPolicy,
     ) -> CompletedMethodWorkload:
-        bundles_seen.extend(bundles)
+        bundle_sequence = tuple(bundles)
+        bundles_seen.extend(bundle_sequence)
         return execute_method_workload(
             method,
-            bundles,
+            bundle_sequence,
             params=params,
             settings=settings,
             notation_policy=notation_policy,
@@ -1579,13 +1580,14 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
         "sweep-9-0",
         "sweep-9-1",
     ]
-    assert [i.matrix_provenance for i in inputs] == [
+    expected_provenance = [
         HeldOutMatrix(matrix_id=MatrixId(5), raw_matrix_index=0),
         HeldOutMatrix(matrix_id=MatrixId(5), raw_matrix_index=0),
         HeldOutMatrix(matrix_id=MatrixId(9), raw_matrix_index=2),
         HeldOutMatrix(matrix_id=MatrixId(9), raw_matrix_index=2),
     ]
-    assert [float(i.matrix[0, 0]) for i in inputs] == [5.0, 5.0, 9.0, 9.0]
+    assert [i.matrix_provenance for i in inputs] == expected_provenance * 2
+    assert [float(i.matrix[0, 0]) for i in inputs] == [5.0, 5.0, 9.0, 9.0] * 2
     # The comparison config's matrix normalization is applied while staging
     # each bundle, so the diagonal 2x2 matrices have spectral norm 1/sqrt(2).
     assert [
