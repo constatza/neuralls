@@ -440,6 +440,15 @@ but never across matrices. This makes every matrix setup visible instead of
 copying it onto RHS rows or treating a cross-matrix static-state reuse as a
 missing setup event.
 
+Completed method workloads are persisted by
+`platform.reporting.benchmark_events.write_method_benchmark_artifacts` as the
+versioned, artifact-relative `setup_events.parquet`, `solve_attempts.parquet`,
+and `summary.toml` files. The Parquet frames are canonical; the TOML summary is
+reconciled from the Task 2 reducers and records the method name/config digest,
+planned/attempted/converged counts, setup/solve/online timings, attempted-RHS
+average, and workload peak memory. If an offline value is present, it is named
+`generation_s`; checkpoint and data I/O are not serialized as costs or metrics.
+
 **Checkpoint loading and memory.** Loading a checkpoint is file I/O that a
 deployment pays once, not algorithmic setup cost, so no kind's measured setup
 includes it (`execute_method_workload` is the contract). Before each matrix

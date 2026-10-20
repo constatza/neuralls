@@ -113,6 +113,7 @@ class CompletedMethodWorkload:
     diagnostics: tuple[tuple[SystemId, CGComparisonResult], ...]
     offline_costs: tuple[StageCost, ...]
     workload_peak_memory: PeakMemory
+    config_digest: str = ""
 
 
 @dataclass(frozen=True)

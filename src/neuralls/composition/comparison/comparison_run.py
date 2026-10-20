@@ -84,6 +84,7 @@ from neuralls.shared.device import (
     repeat_timed,
     repeat_timed_outcome,
 )
+from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description import NotationPolicy
 from neuralls.shared.types import PreconditionerName, SetupEventId, SystemId
 
@@ -587,6 +588,7 @@ def execute_method_workload(
         diagnostics=tuple(diagnostics),
         offline_costs=((offline_cost,) if offline_cost is not None else ()),
         workload_peak_memory=MeasuredPeakMemory(observer.finish()),
+        config_digest=canonical_digest(method.config),
     )
 
 
