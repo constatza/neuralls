@@ -586,7 +586,7 @@ def execute_method_workload(
         setup_events=tuple(setup_events),
         solve_attempts=tuple(attempts),
         diagnostics=tuple(diagnostics),
-        offline_costs=((offline_cost,) if offline_cost is not None else ()),
+        generation_cost=offline_cost,
         workload_peak_memory=MeasuredPeakMemory(observer.finish()),
         config_digest=canonical_digest(method.config),
     )

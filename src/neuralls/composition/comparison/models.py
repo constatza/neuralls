@@ -28,6 +28,7 @@ from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.storage.manifest import DatasetNormalization
+from neuralls.shared.digest import Digest
 from neuralls.shared.types import (
     ComparisonRhsSourceKind,
     DatasetId,
@@ -101,9 +102,9 @@ class MatrixWorkload:
 class CompletedMethodWorkload:
     """Canonical raw events and diagnostics produced by one method workload.
 
-    ``offline_costs`` contains only the optional historical generation cost;
-    checkpoint and data loading are I/O outside the benchmark cost model.
-    Generation never contributes to setup, solve, or workload-online totals.
+    ``generation_cost`` is the optional historical generation cost; checkpoint
+    and data loading are I/O outside the benchmark cost model. Generation
+    never contributes to setup, solve, or workload-online totals.
     """
 
     method: PreconditionerName
@@ -111,9 +112,9 @@ class CompletedMethodWorkload:
     setup_events: tuple[MatrixSetupEvent, ...]
     solve_attempts: tuple[SolveAttempt, ...]
     diagnostics: tuple[tuple[SystemId, CGComparisonResult], ...]
-    offline_costs: tuple[StageCost, ...]
+    generation_cost: StageCost | None
     workload_peak_memory: PeakMemory
-    config_digest: str = ""
+    config_digest: Digest
 
 
 @dataclass(frozen=True)

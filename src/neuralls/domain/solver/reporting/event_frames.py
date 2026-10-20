@@ -106,6 +106,31 @@ def build_solve_frame(attempts: Collection[SolveAttempt]) -> pl.DataFrame:
     return pl.DataFrame(rows, schema=SOLVE_ATTEMPT_SCHEMA)
 
 
+def validate_setup_solve_frame_links(setup_frame: pl.DataFrame, solve_frame: pl.DataFrame) -> None:
+    """Validate setup identity and outcome for every linked solve row.
+
+    This is shared by in-memory reporting and platform artifact reuse so a
+    schema-valid Parquet row cannot associate a solve with the wrong matrix,
+    dataset, method, or an unsuccessful setup.
+    """
+    setups = setup_frame.to_dicts()
+    by_id: dict[str, list[dict[str, object]]] = {}
+    for row in setups:
+        by_id.setdefault(str(row["setup_event_id"]), []).append(row)
+    for row in solve_frame.to_dicts():
+        event_id = str(row["setup_event_id"])
+        matches = by_id.get(event_id, [])
+        if not matches:
+            raise ValueError(f"solve attempt references unknown setup event {event_id!r}")
+        if len(matches) != 1:
+            raise ValueError(f"solve attempt must reference exactly one setup event {event_id!r}")
+        setup = matches[0]
+        if setup["setup_status"] != "completed":
+            raise ValueError(f"solve attempt references failed setup {event_id!r}")
+        if any(row[field] != setup[field] for field in ("dataset", "matrix_id", "method")):
+            raise ValueError(f"solve attempt/setup identity mismatch for {event_id!r}")
+
+
 def _memory_fields(memory: PeakMemory) -> tuple[int | None, str]:
     match memory:
         case MeasuredPeakMemory(bytes=peak_memory_bytes):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -28,7 +29,9 @@ from neuralls.domain.solver.reporting.event_frames import (
     SOLVE_ATTEMPT_SCHEMA,
     build_setup_frame,
     build_solve_frame,
+    validate_setup_solve_frame_links,
 )
+from neuralls.shared.digest import Digest
 from neuralls.shared.types import PreconditionerName
 
 BENCHMARK_EVENT_SCHEMA_VERSION = 1
@@ -48,9 +51,9 @@ class CompletedMethodWorkload(Protocol):
     planned: tuple[SystemTag, ...]
     setup_events: tuple[MatrixSetupEvent, ...]
     solve_attempts: tuple[SolveAttempt, ...]
-    offline_costs: tuple[StageCost, ...]
+    generation_cost: StageCost | None
     workload_peak_memory: PeakMemory
-    config_digest: str
+    config_digest: Digest
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +69,7 @@ def write_method_benchmark_artifacts(
     workload: CompletedMethodWorkload, summary: MethodWorkloadSummary, root: Path
 ) -> MethodBenchmarkArtifacts:
     """Write canonical event frames and a summary derived from their reducers."""
+    _validate_config_digest(workload.config_digest)
     canonical_summary = summarize_method_workload(
         workload.method,
         workload.planned,
@@ -96,11 +100,8 @@ def read_solve_attempts(path: Path, *, setup_events_path: Path | None = None) ->
     frame = _read_frame(path, SOLVE_ATTEMPT_SCHEMA)
     setup_path = setup_events_path or path.with_name("setup_events.parquet")
     if setup_events_path is not None or setup_path.exists():
-        setup_ids = set(read_setup_events(setup_path).get_column("setup_event_id").to_list())
-        links = set(frame.get_column("setup_event_id").to_list())
-        missing = sorted(links - setup_ids)
-        if missing:
-            raise ValueError(f"solve attempt references unknown setup event {missing[0]!r}")
+        setup_frame = read_setup_events(setup_path)
+        validate_setup_solve_frame_links(setup_frame, frame)
     return frame
 
 
@@ -161,17 +162,21 @@ def _write_summary(
             "solve_s": summary.solve_total_s,
             "workload_s": summary.workload_online_s,
         },
-        "memory": {"peak_bytes": peak_bytes, "status": peak_status},
+        "memory": {"status": peak_status},
     }
     if summary.online_s_per_attempted_rhs is not None:
         payload["online"]["per_attempted_rhs_s"] = summary.online_s_per_attempted_rhs
+    if peak_bytes is not None:
+        memory = cast(dict[str, Any], dict(payload["memory"]))
+        memory["peak_bytes"] = peak_bytes
+        payload["memory"] = memory
     if isinstance(summary, IncompleteWorkloadSummary):
         counts = cast(dict[str, Any], dict(payload["counts"]))
         counts["missing_system_ids"] = list(summary.missing_system_ids)
         payload["counts"] = counts
-    if workload.offline_costs:
+    if workload.generation_cost is not None:
         # Generation is intentionally the only offline cost in this artifact.
-        generation = workload.offline_costs[0]
+        generation = workload.generation_cost
         payload["generation_s"] = generation.wall_time_seconds
         payload["generation_source"] = generation.provenance.value
     path.write_bytes(tomli_w.dumps(payload).encode("utf-8"))
@@ -181,3 +186,8 @@ def _memory_fields(memory: PeakMemory) -> tuple[int | None, str]:
     if isinstance(memory, MeasuredPeakMemory):
         return memory.bytes, "measured"
     return None, "unknown"
+
+
+def _validate_config_digest(digest: Digest) -> None:
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
+        raise ValueError("config digest must match sha256:<64 lowercase hexadecimal characters>")

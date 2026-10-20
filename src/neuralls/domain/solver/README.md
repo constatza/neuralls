@@ -35,6 +35,11 @@ unattempted systems and cannot be ranked.
 columns encode closed event variants only in normalized frames; core domain
 objects remain variant-based.
 
+`validate_setup_solve_frame_links` is the shared frame-level reuse check: each
+solve links to exactly one completed setup with matching dataset, matrix, and
+method identity. Platform Parquet readers call the same validator before an
+artifact can be reused.
+
 `reporting/aggregation.py` validates planned identities and solve-to-setup
 links before deriving costs. Planned RHS membership is counted by
 `(dataset, matrix_id)` before attempts are joined:

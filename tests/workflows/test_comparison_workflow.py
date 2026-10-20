@@ -1416,8 +1416,9 @@ def test_compatibility_projection_carries_canonical_setup_measurement(
         ),
         solve_attempts=(),
         diagnostics=(),
-        offline_costs=(),
+        generation_cost=None,
         workload_peak_memory=MeasuredPeakMemory(128),
+        config_digest="sha256:" + "0" * 64,
     )
     projected = _project_setup_measurements(
         workload,

@@ -69,8 +69,9 @@ def test_group_reporting_reduces_completed_workload_events() -> None:
             ),
         ),
         diagnostics=(),
-        offline_costs=(),
+        generation_cost=None,
         workload_peak_memory=MeasuredPeakMemory(20),
+        config_digest="sha256:" + "0" * 64,
     )
     sink = RecordingSink()
 

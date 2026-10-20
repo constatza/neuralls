@@ -20,6 +20,7 @@ from neuralls.domain.solver.models import (
     SystemTag,
     UnknownPeakMemory,
 )
+from neuralls.domain.solver.models.cost import StageCost
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.platform.reporting.benchmark_events import (
@@ -28,7 +29,20 @@ from neuralls.platform.reporting.benchmark_events import (
     read_solve_attempts,
     write_method_benchmark_artifacts,
 )
-from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
+from neuralls.shared.types import (
+    CostProvenance,
+    DatasetId,
+    MatrixId,
+    PreconditionerName,
+    SetupEventId,
+    SystemId,
+)
+
+
+def _rewrite_frame(path: Path, frame: pl.DataFrame) -> None:
+    """Rewrite a test artifact while preserving its version metadata."""
+    metadata = pq.read_schema(path).metadata
+    pq.write_table(frame.to_arrow().replace_schema_metadata(metadata), path)
 
 
 @pytest.fixture
@@ -84,8 +98,8 @@ def workload() -> CompletedMethodWorkload:
         setup_events=setup,
         solve_attempts=attempts,
         diagnostics=(),
-        offline_costs=(),
-        workload_peak_memory=MeasuredPeakMemory(512),
+        generation_cost=None,
+        workload_peak_memory=MeasuredPeakMemory(256),
         config_digest="sha256:" + "a" * 64,
     )
 
@@ -116,62 +130,197 @@ def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_vari
     setup = read_setup_events(tmp_path / artifacts.setup_events)
     solves = read_solve_attempts(tmp_path / artifacts.solve_attempts)
 
-    assert setup.columns == [
-        "setup_event_id",
-        "dataset",
-        "matrix_id",
-        "method",
-        "setup_s",
-        "samples_s",
-        "peak_memory_bytes",
-        "memory_status",
-        "setup_status",
-        "failure_reason",
+    assert setup.schema == pl.Schema(
+        {
+            "setup_event_id": pl.String,
+            "dataset": pl.String,
+            "matrix_id": pl.Int64,
+            "method": pl.String,
+            "setup_s": pl.Float64,
+            "samples_s": pl.List(pl.Float64),
+            "peak_memory_bytes": pl.Int64,
+            "memory_status": pl.String,
+            "setup_status": pl.String,
+            "failure_reason": pl.String,
+        }
+    )
+    assert solves.schema == pl.Schema(
+        {
+            "setup_event_id": pl.String,
+            "system_id": pl.String,
+            "dataset": pl.String,
+            "recipe": pl.String,
+            "matrix_id": pl.Int64,
+            "rhs_ordinal": pl.Int64,
+            "method": pl.String,
+            "solve_s": pl.Float64,
+            "samples_s": pl.List(pl.Float64),
+            "peak_memory_bytes": pl.Int64,
+            "memory_status": pl.String,
+            "solve_status": pl.String,
+            "iterations": pl.Int64,
+            "final_relative_residual": pl.Float64,
+            "failure_reason": pl.String,
+        }
+    )
+    assert setup.to_dicts() == [
+        {
+            "setup_event_id": "setup-0",
+            "dataset": "dataset",
+            "matrix_id": 0,
+            "method": "jacobi",
+            "setup_s": 1.25,
+            "samples_s": [1.0, 1.5, 1.25],
+            "peak_memory_bytes": 128,
+            "memory_status": "measured",
+            "setup_status": "completed",
+            "failure_reason": None,
+        }
     ]
-    assert solves.columns == [
-        "setup_event_id",
-        "system_id",
-        "dataset",
-        "recipe",
-        "matrix_id",
-        "rhs_ordinal",
-        "method",
-        "solve_s",
-        "samples_s",
-        "peak_memory_bytes",
-        "memory_status",
-        "solve_status",
-        "iterations",
-        "final_relative_residual",
-        "failure_reason",
+    assert solves.to_dicts() == [
+        {
+            "setup_event_id": "setup-0",
+            "system_id": "s0",
+            "dataset": "dataset",
+            "recipe": "gaussian",
+            "matrix_id": 0,
+            "rhs_ordinal": 0,
+            "method": "jacobi",
+            "solve_s": 2.5,
+            "samples_s": [2.0, 2.5, 3.0],
+            "peak_memory_bytes": None,
+            "memory_status": "unknown",
+            "solve_status": "converged",
+            "iterations": 4,
+            "final_relative_residual": 1e-8,
+            "failure_reason": None,
+        },
+        {
+            "setup_event_id": "setup-0",
+            "system_id": "s1",
+            "dataset": "dataset",
+            "recipe": "gaussian",
+            "matrix_id": 0,
+            "rhs_ordinal": 1,
+            "method": "jacobi",
+            "solve_s": 0.75,
+            "samples_s": [0.75],
+            "peak_memory_bytes": 256,
+            "memory_status": "measured",
+            "solve_status": "failed",
+            "iterations": 7,
+            "final_relative_residual": None,
+            "failure_reason": "breakdown",
+        },
     ]
-    assert setup.get_column("setup_event_id").to_list() == ["setup-0"]
-    assert setup.get_column("samples_s").to_list() == [[1.0, 1.5, 1.25]]
-    assert setup.get_column("memory_status").to_list() == ["measured"]
-    assert solves.get_column("system_id").to_list() == ["s0", "s1"]
-    assert solves.get_column("setup_event_id").to_list() == ["setup-0", "setup-0"]
-    assert solves.get_column("samples_s").to_list() == [[2.0, 2.5, 3.0], [0.75]]
-    assert solves.get_column("solve_status").to_list() == ["converged", "failed"]
-    assert solves.get_column("memory_status").to_list() == ["unknown", "measured"]
 
 
 def test_summary_is_reconciled_from_canonical_frames_and_versioned(
-    tmp_path: Path, workload, summary
+    tmp_path: Path, workload: CompletedMethodWorkload, summary: CompleteWorkloadSummary
 ) -> None:
     artifacts = write_method_benchmark_artifacts(workload=workload, summary=summary, root=tmp_path)
+    setup = read_setup_events(tmp_path / artifacts.setup_events)
+    solves = read_solve_attempts(tmp_path / artifacts.solve_attempts)
     payload = tomllib.loads((tmp_path / artifacts.summary).read_text(encoding="utf-8"))
+
+    setup_total = sum(setup.get_column("setup_s").to_list())
+    solve_total = sum(solves.get_column("solve_s").to_list())
+    attempted = solves.height
+    converged = solves.filter(pl.col("solve_status") == "converged").height
+    measured_peaks = [
+        value
+        for value in (
+            *setup.get_column("peak_memory_bytes").to_list(),
+            *solves.get_column("peak_memory_bytes").to_list(),
+        )
+        if value is not None
+    ]
+    workload_total = setup_total + solve_total
 
     assert payload["schema_version"] == BENCHMARK_EVENT_SCHEMA_VERSION
     assert payload["method"] == {"name": "jacobi", "config_digest": "sha256:" + "a" * 64}
-    assert payload["counts"] == {"planned_rhs": 2, "attempted_rhs": 2, "converged": 1}
-    assert payload["online"] == {
-        "setup_s": 1.25,
-        "solve_s": 3.25,
-        "workload_s": 4.5,
-        "per_attempted_rhs_s": 2.25,
+    assert payload["counts"] == {
+        "planned_rhs": attempted,
+        "attempted_rhs": attempted,
+        "converged": converged,
     }
-    assert payload["memory"] == {"peak_bytes": 512, "status": "measured"}
+    assert payload["online"] == {
+        "setup_s": setup_total,
+        "solve_s": solve_total,
+        "workload_s": workload_total,
+        "per_attempted_rhs_s": workload_total / attempted,
+    }
+    assert payload["memory"] == {"peak_bytes": max(measured_peaks), "status": "measured"}
     assert "generation_s" not in payload
+
+
+def test_unknown_workload_memory_writes_status_without_toml_null(
+    tmp_path: Path, workload: CompletedMethodWorkload
+) -> None:
+    unknown_workload = replace(workload, workload_peak_memory=UnknownPeakMemory())
+    unknown_summary = summarize_method_workload(
+        unknown_workload.method,
+        unknown_workload.planned,
+        unknown_workload.setup_events,
+        unknown_workload.solve_attempts,
+        unknown_workload.workload_peak_memory,
+    )
+    artifacts = write_method_benchmark_artifacts(
+        workload=unknown_workload, summary=unknown_summary, root=tmp_path
+    )
+    memory = tomllib.loads((tmp_path / artifacts.summary).read_text(encoding="utf-8"))["memory"]
+    assert memory == {"status": "unknown"}
+
+
+def test_generation_cost_is_explicitly_named_and_only_cost_persisted(
+    tmp_path: Path, workload: CompletedMethodWorkload, summary: CompleteWorkloadSummary
+) -> None:
+    with_generation = replace(
+        workload,
+        generation_cost=StageCost(8.5, 1024, CostProvenance.HISTORICAL),
+    )
+    artifacts = write_method_benchmark_artifacts(
+        workload=with_generation, summary=summary, root=tmp_path
+    )
+    payload = tomllib.loads((tmp_path / artifacts.summary).read_text(encoding="utf-8"))
+    assert payload["generation_s"] == 8.5
+    assert payload["generation_source"] == "historical"
+    assert "offline" not in payload
+
+
+@pytest.mark.parametrize("digest", ["", "sha256:short", "sha256:" + "G" * 64])
+def test_writer_rejects_empty_or_malformed_config_digest(
+    tmp_path: Path,
+    workload: CompletedMethodWorkload,
+    summary: CompleteWorkloadSummary,
+    digest: str,
+) -> None:
+    with pytest.raises(ValueError, match="config digest"):
+        write_method_benchmark_artifacts(
+            workload=replace(workload, config_digest=digest), summary=summary, root=tmp_path
+        )
+
+
+def test_reader_rejects_same_id_identity_mismatch_and_failed_setup(
+    tmp_path: Path, workload: CompletedMethodWorkload, summary: CompleteWorkloadSummary
+) -> None:
+    artifacts = write_method_benchmark_artifacts(workload, summary, tmp_path / "identity")
+    solve_path = tmp_path / "identity" / artifacts.solve_attempts
+    solves = pl.read_parquet(solve_path).with_columns(pl.lit("other").alias("dataset"))
+    _rewrite_frame(solve_path, solves)
+    with pytest.raises(ValueError, match="identity"):
+        read_solve_attempts(
+            solve_path, setup_events_path=tmp_path / "identity" / artifacts.setup_events
+        )
+
+    artifacts = write_method_benchmark_artifacts(workload, summary, tmp_path / "failed")
+    setup_path = tmp_path / "failed" / artifacts.setup_events
+    setup = pl.read_parquet(setup_path).with_columns(pl.lit("failed").alias("setup_status"))
+    _rewrite_frame(setup_path, setup)
+    with pytest.raises(ValueError, match="failed setup"):
+        read_solve_attempts(
+            tmp_path / "failed" / artifacts.solve_attempts, setup_events_path=setup_path
+        )
 
 
 def test_failed_setup_outcome_round_trips_without_inventing_attempts(

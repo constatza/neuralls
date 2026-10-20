@@ -42,3 +42,41 @@ serialized, derived, measured, or named.
 
 Task 6 tracking-topology wiring is intentionally not included. The serializer
 is available as a platform API and does not alter MLflow run ownership.
+
+## Fix round 1
+
+### RED/GREEN evidence
+
+- RED: after adding the five review regressions, the focused suite produced 10
+  fixture errors because `CompletedMethodWorkload` did not yet expose the
+  required `generation_cost` field.
+- GREEN: focused artifact tests pass with 10 tests; the adjacent artifact,
+  domain, lifecycle, and composition suites pass with 60 tests.
+- Targeted `ty`, Ruff lint, Ruff format, `tach check`, and `git diff --check`
+  pass.
+
+### Files and fixes
+
+- `CompletedMethodWorkload` now requires a typed `Digest` and an explicit
+  `generation_cost: StageCost | None`; all constructors and execution wiring
+  use that field, eliminating generic offline-cost relabeling.
+- Unknown workload memory writes only `memory.status = "unknown"`; measured
+  workload memory writes `peak_bytes`.
+- `validate_setup_solve_frame_links` is shared by domain frame validation and
+  Parquet readers. It enforces one setup per link, matching dataset/matrix/
+  method identity, and completed setup status.
+- The writer rejects empty or malformed config digests (`sha256:` plus 64
+  lowercase hexadecimal characters).
+- Artifact tests now pin literal Polars schemas and complete ordered rows, and
+  recompute summary counts, setup/solve/online totals, attempted average, and
+  peak memory from the returned frames.
+- Documentation now describes the shared frame-link validator and explicit
+  generation cost boundary.
+
+### Self-review and concerns
+
+No checkpoint/data-I/O cost shape exists on the workload or serializer. The
+only persisted optional cost is explicitly `generation_s`/`generation_source`.
+The reader validates setup links when the sibling or explicit setup artifact is
+provided, as required for artifact reuse. Task 6 tracking topology remains out
+of scope.
