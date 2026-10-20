@@ -121,6 +121,8 @@ default to empty). A failed run is never given a time:
 - `plot_paired_time_scatter` (`paired_time_scatter_*`): amortized online times of each method against the
   reference; hollow markers sit on the axis of the run that failed, and a
   reference run that solved without a comparable time is not drawn as failed.
+  Only strictly positive solved times enter this logarithmic scatter; if none
+  remain, no figure is emitted.
 - `plot_performance_profile` (`performance_profile_*`): Dolan-Moré profile
   (Math. Program. 91, 2002).
 - `plot_ecdf_profile` (`ecdf_iterations_*`, `ecdf_time_*`): unnormalised ECDF

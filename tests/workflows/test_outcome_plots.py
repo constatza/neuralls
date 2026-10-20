@@ -6,6 +6,7 @@ plot that saves a file but draws the wrong points fails.
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -184,12 +185,35 @@ def test_paired_scatter_does_not_mark_a_zero_cost_reference_run_as_failed(
     style: GroupStyle,
     figures: list[Figure],
 ) -> None:
-    plot_paired_time_scatter(
-        zero_cost_reference_outcomes, style=style, save_path=tmp_path / "p.png"
-    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        plot_paired_time_scatter(
+            zero_cost_reference_outcomes, style=style, save_path=tmp_path / "p.png"
+        )
 
+    ax = _axes(figures)
     edge = 4.0 * outcome_plots._FAILED_AXIS_MARGIN
-    assert _hollow_offsets(_axes(figures)).tolist() == [[4.0, edge]]
+    assert _hollow_offsets(ax).tolist() == [[4.0, edge]]
+    filled = [
+        np.asarray(c.get_offsets()).tolist() for c in ax.collections if len(c.get_facecolor())
+    ]
+    assert filled == [[[1.0, 2.0]]]
+    assert ax.get_xlim()[0] > 0
+    assert ax.get_ylim()[0] > 0
+    assert not any("non-positive" in str(item.message) for item in caught)
+
+
+def test_paired_scatter_returns_none_when_all_solved_times_are_zero(
+    tmp_path: Path, style: GroupStyle
+) -> None:
+    outcomes: Outcomes = {
+        "amg": {"s0": _solved(5, 0.0)},
+        "jacobi": {"s0": _solved(6, 0.0)},
+    }
+
+    path = plot_paired_time_scatter(outcomes, style=style, save_path=tmp_path / "p.png")
+
+    assert path is None and not (tmp_path / "p.png").exists()
 
 
 def test_paired_scatter_draws_nothing_for_a_single_method(

@@ -281,7 +281,23 @@ def _all_paired_times(points: Mapping[PreconditionerName, PairedPoints]) -> list
             *(x.amortized_online_s for x in p.method_only),
             *(x.amortized_online_s for x in p.reference_only),
         )
+        if t > 0
     ]
+
+
+def _positive_paired_points(points: PairedPoints) -> PairedPoints:
+    """Keep only solved coordinates that are valid inputs to logarithmic axes."""
+    return PairedPoints(
+        both=tuple(
+            (reference, method)
+            for reference, method in points.both
+            if reference.amortized_online_s > 0 and method.amortized_online_s > 0
+        ),
+        method_only=tuple(point for point in points.method_only if point.amortized_online_s > 0),
+        reference_only=tuple(
+            point for point in points.reference_only if point.amortized_online_s > 0
+        ),
+    )
 
 
 def plot_paired_time_scatter(
@@ -304,7 +320,8 @@ def plot_paired_time_scatter(
     if reference is None:
         return None
     others = [name for name in outcomes if name != reference]
-    points = {name: paired_points(outcomes[reference], outcomes[name]) for name in others}
+    raw_points = {name: paired_points(outcomes[reference], outcomes[name]) for name in others}
+    points = {name: _positive_paired_points(point) for name, point in raw_points.items()}
     all_times = _all_paired_times(points)
     if not all_times:
         return None
@@ -315,12 +332,13 @@ def plot_paired_time_scatter(
     ax.plot([low, high], [low, high], color="gray", linewidth=1, linestyle="--")
     for name in others:
         p = points[name]
+        raw_p = raw_points[name]
         color, marker = styles[name]["color"], styles[name]["marker"]
         ax.scatter(
             [ref.amortized_online_s for ref, _ in p.both],
             [own.amortized_online_s for _, own in p.both],
             color=color, marker=marker, s=28,
-            label=f"{style.labels.get(name, name)} ({len(p.both) + len(p.method_only)} solved)",
+            label=f"{style.labels.get(name, name)} ({len(raw_p.both) + len(raw_p.method_only)} solved)",
         )  # fmt: skip
         _hollow(
             ax,
