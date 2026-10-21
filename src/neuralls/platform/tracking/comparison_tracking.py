@@ -11,7 +11,7 @@ from pathlib import Path
 import mlflow
 
 from neuralls.domain.benchmarking.costs import amortized_online_seconds
-from neuralls.domain.benchmarking.selection import ConfiguredReference
+from neuralls.domain.benchmarking.selection import ConfiguredReference, ReferenceUnavailable
 from neuralls.domain.solver.cost_metrics import (
     peak_memory_per_dof,
     setup_time_per_dof,
@@ -261,8 +261,11 @@ class MLflowGroupReportSink:
                         n_matrices=outcome.n_matrices,
                         n_planned_rhs=outcome.n_planned_rhs,
                         reference_selection=(
-                            ReferenceSelectionKind.CONFIGURED
-                            if isinstance(outcome.reference_selection, ConfiguredReference)
+                            outcome.reference_selection
+                            if isinstance(
+                                outcome.reference_selection,
+                                ConfiguredReference | ReferenceUnavailable,
+                            )
                             else ReferenceSelectionKind.NONE
                         ),
                         failure_treatment=FailureTreatment.CENSORED,
