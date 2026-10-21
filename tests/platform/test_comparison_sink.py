@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from neuralls.domain.benchmarking.selection import ConfiguredReference
+from neuralls.domain.solver.models.benchmark_events import UnknownPeakMemory
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.models.group_outcomes import (
     GroupAggregated,
@@ -24,6 +25,7 @@ from neuralls.domain.solver.models.statistics import (
     MethodComparison,
     PairedComparison,
 )
+from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
 from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.platform.tracking import comparison_tracking
 from neuralls.platform.tracking.comparison_tracking import (
@@ -120,6 +122,19 @@ def group() -> GroupAggregated:
                 ),
             )
         },
+        summaries=(
+            CompleteWorkloadSummary(
+                method=PreconditionerName("amg"),
+                n_planned_rhs=4,
+                n_attempted_rhs=4,
+                n_converged=3,
+                setup_total_s=2.0,
+                solve_total_s=7.0,
+                workload_online_s=9.0,
+                online_s_per_attempted_rhs=2.25,
+                workload_peak_memory=UnknownPeakMemory(),
+            ),
+        ),
         reference_selection=ConfiguredReference(PreconditionerName("amg")),
     )
 
@@ -155,6 +170,7 @@ def _report_variant(group: GroupAggregated, report_type: type[GroupAggregated]) 
         convergence=group.convergence,
         outcomes=group.outcomes,
         comparisons=group.comparisons,
+        summaries=group.summaries,
         reference_selection=group.reference_selection,
         recipe_membership=membership,
     )
@@ -231,7 +247,8 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
     expected = {
         f"{stem}_{key}.png"
         for stem in (
-            "system_time_scatter",
+            "solve_time_bars",
+            "online_time_bars",
             "paired_time_scatter",
             "speed_ratio_cdf",
             "performance_profile",

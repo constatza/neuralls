@@ -6,7 +6,12 @@ from collections.abc import Collection, Mapping, Sequence
 
 from neuralls.domain.benchmarking.reference_comparison import compare_to_reference
 from neuralls.domain.benchmarking.selection import NoReferenceConfigured, ReferenceSelection
-from neuralls.domain.solver.models.benchmark_events import MatrixSetupEvent, SolveAttempt, SystemTag
+from neuralls.domain.solver.models.benchmark_events import (
+    MatrixSetupEvent,
+    SolveAttempt,
+    SystemTag,
+    UnknownPeakMemory,
+)
 from neuralls.domain.solver.models.group_outcomes import (
     ComparisonGroupOutcome,
     GroupSkippedAllCacheHit,
@@ -19,7 +24,11 @@ from neuralls.domain.solver.models.labels import (
     MediumLabel,
     render_group_id,
 )
-from neuralls.domain.solver.reporting.aggregation import convergence_by_level, outcomes_by_system
+from neuralls.domain.solver.reporting.aggregation import (
+    convergence_by_level,
+    outcomes_by_system,
+    summarize_method_workload,
+)
 from neuralls.domain.solver.reporting.report_levels import ReportLevel, label_for_tags, report_key
 from neuralls.shared.constants import DEFAULT_RANDOM_SEED
 from neuralls.shared.types import SystemId
@@ -62,6 +71,27 @@ def classify_level(
         comparisons = compare_to_reference(
             group_outcomes, selection=selected, seed=DEFAULT_RANDOM_SEED
         )
+        methods = tuple(convergence_by_method)
+        group_matrices = {(tag.dataset, tag.matrix_id) for tag in tags}
+        group_systems = {tag.system_id for tag in tags}
+        summaries = tuple(
+            summarize_method_workload(
+                method,
+                tags,
+                tuple(
+                    event
+                    for event in setup_events
+                    if event.method == method and (event.dataset, event.matrix_id) in group_matrices
+                ),
+                tuple(
+                    attempt
+                    for attempt in attempts
+                    if attempt.method == method and attempt.system_id in group_systems
+                ),
+                UnknownPeakMemory(),
+            )
+            for method in methods
+        )
         match label:
             case FineLabel():
                 classified.append(
@@ -73,6 +103,7 @@ def classify_level(
                         convergence=convergence_by_method,
                         outcomes=group_outcomes,
                         comparisons=comparisons,
+                        summaries=summaries,
                         reference_selection=selected,
                         recipe_membership=recipe_membership,
                     )
@@ -87,6 +118,7 @@ def classify_level(
                         convergence=convergence_by_method,
                         outcomes=group_outcomes,
                         comparisons=comparisons,
+                        summaries=summaries,
                         reference_selection=selected,
                         recipe_membership=recipe_membership,
                     )

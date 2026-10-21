@@ -8,23 +8,27 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 
 from neuralls.domain.benchmarking.selection import ConfiguredReference
+from neuralls.domain.solver.models.benchmark_events import UnknownPeakMemory
 from neuralls.domain.solver.models.outcomes import Failed, Solved, SystemOutcome
 from neuralls.domain.solver.models.statistics import Interval, PairedComparison
+from neuralls.domain.solver.models.workload import IncompleteWorkloadSummary
 from neuralls.platform.reporting import outcome_plots
 from neuralls.platform.reporting.outcome_plots import (
     GroupStyle,
     plot_ecdf_profile,
+    plot_online_time_bars,
     plot_paired_time_scatter,
     plot_performance_profile,
     plot_speed_ratio_cdf,
-    plot_time_scatter,
 )
 from neuralls.platform.reporting.plots import finish_group_figure
 from neuralls.shared.types import MatrixId
@@ -91,17 +95,16 @@ def test_every_outcome_plot_returns_its_saved_file(
     paths = [
         plot_performance_profile(outcomes, style=style, save_path=tmp_path / "perf.png"),
         plot_ecdf_profile(outcomes, style=style, save_path=tmp_path / "ecdf.png"),
-        plot_time_scatter(outcomes, style=style, save_path=tmp_path / "scatter.png"),
         plot_paired_time_scatter(
             outcomes,
-            selection=ConfiguredReference("amg"),
+            reference=ConfiguredReference("amg"),
             style=style,
             save_path=tmp_path / "paired.png",
         ),
     ]
 
     assert [p.name for p in paths if p is not None] == [
-        "perf.png", "ecdf.png", "scatter.png", "paired.png"
+        "perf.png", "ecdf.png", "paired.png"
     ]  # fmt: skip
     assert all(p.exists() for p in paths if p is not None)
 
@@ -140,42 +143,35 @@ def test_profile_of_a_method_that_solved_nothing_is_a_flat_zero_line(
     assert path is not None and list(line.get_ydata()) == [0.0, 0.0]
 
 
-def test_time_scatter_puts_failures_at_the_top_edge(
-    tmp_path: Path, outcomes: Outcomes, style: GroupStyle, figures: list[Figure]
+def test_online_bars_use_reducer_totals_and_mark_incomplete_methods(
+    tmp_path: Path, style: GroupStyle, figures: list[Figure]
 ) -> None:
-    plot_time_scatter(outcomes, style=style, save_path=tmp_path / "s.png")
-
-    edge = 4.0 * outcome_plots._FAILED_AXIS_MARGIN
-    assert _hollow_offsets(_axes(figures)).tolist() == [[1, edge], [2, edge]]
-
-
-def test_time_scatter_handles_a_group_where_nothing_was_solved(
-    tmp_path: Path, style: GroupStyle
-) -> None:
-    path = plot_time_scatter(
-        {"jacobi": {"s0": _failed(), "s1": _failed()}},
-        style=style,
-        save_path=tmp_path / "s.png",
+    summary = IncompleteWorkloadSummary(
+        method="jacobi",
+        n_planned_rhs=3,
+        n_attempted_rhs=2,
+        n_converged=1,
+        setup_total_s=2.0,
+        solve_total_s=4.0,
+        workload_online_s=6.0,
+        online_s_per_attempted_rhs=3.0,
+        workload_peak_memory=UnknownPeakMemory(),
+        missing_system_ids=("s2",),
     )
-
+    path = plot_online_time_bars(
+        [summary], scenario="online", style=style, save_path=tmp_path / "bars.png"
+    )
+    ax = _axes(figures)
     assert path is not None and path.exists()
-
-
-@pytest.mark.real_render
-def test_time_scatter_saves_a_decodable_png(
-    tmp_path: Path, style: GroupStyle, outcomes: Outcomes
-) -> None:
-    path = plot_time_scatter(outcomes, style=style, save_path=tmp_path / "s.png")
-
-    assert path is not None
-    assert path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    assert [cast(Rectangle, bar).get_width() for bar in ax.patches] == [6.0]
+    assert ax.texts[0].get_text() == " 1/3 (incomplete)"
 
 
 def test_paired_scatter_marks_the_reference_runs_the_method_failed(
     tmp_path: Path, outcomes: Outcomes, style: GroupStyle, figures: list[Figure]
 ) -> None:
     plot_paired_time_scatter(
-        outcomes, selection=ConfiguredReference("amg"), style=style, save_path=tmp_path / "p.png"
+        outcomes, reference=ConfiguredReference("amg"), style=style, save_path=tmp_path / "p.png"
     )
 
     ax = _axes(figures)
@@ -197,7 +193,7 @@ def test_paired_scatter_does_not_mark_a_zero_cost_reference_run_as_failed(
         warnings.simplefilter("always")
         plot_paired_time_scatter(
             zero_cost_reference_outcomes,
-            selection=ConfiguredReference("amg"),
+            reference=ConfiguredReference("amg"),
             style=style,
             save_path=tmp_path / "p.png",
         )
@@ -209,8 +205,8 @@ def test_paired_scatter_does_not_mark_a_zero_cost_reference_run_as_failed(
         np.asarray(c.get_offsets()).tolist() for c in ax.collections if len(c.get_facecolor())
     ]
     assert filled == [[[1.0, 2.0]]]
-    assert ax.get_xlim()[0] > 0
-    assert ax.get_ylim()[0] > 0
+    assert ax.get_xlim()[0] == 0
+    assert ax.get_ylim()[0] == 0
     assert not any("non-positive" in str(item.message) for item in caught)
 
 
@@ -223,7 +219,7 @@ def test_paired_scatter_returns_none_when_all_solved_times_are_zero(
     }
 
     path = plot_paired_time_scatter(
-        outcomes, selection=ConfiguredReference("amg"), style=style, save_path=tmp_path / "p.png"
+        outcomes, reference=ConfiguredReference("amg"), style=style, save_path=tmp_path / "p.png"
     )
 
     assert path is None and not (tmp_path / "p.png").exists()
@@ -234,7 +230,7 @@ def test_paired_scatter_draws_nothing_for_a_single_method(
 ) -> None:
     path = plot_paired_time_scatter(
         {"amg": {"s0": _solved(5, 1.0)}},
-        selection=ConfiguredReference("amg"),
+        reference=ConfiguredReference("amg"),
         style=style,
         save_path=tmp_path / "p.png",
     )
@@ -270,7 +266,10 @@ def test_speed_ratio_cdf_has_sorted_ratios_and_a_line_at_one(
     assert list(unity.get_xdata()) == [1.0, 1.0]
     legend = ax.get_legend()
     assert legend is not None
-    assert legend.get_texts()[0].get_text() == "jacobi: median 2.00 [0.50, 4.00], n=3"
+    assert (
+        legend.get_texts()[0].get_text()
+        == "jacobi: median 2.00 [0.50, 4.00], n=3 (reference / method)"
+    )
 
 
 def test_speed_ratio_cdf_draws_nothing_without_comparisons(

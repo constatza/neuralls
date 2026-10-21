@@ -26,15 +26,13 @@ from matplotlib.axes import Axes
 from neuralls.domain.benchmarking.costs import Cost, amortized_online_seconds, iterations
 from neuralls.domain.benchmarking.paired import PairedPoints, paired_points
 from neuralls.domain.benchmarking.profiles import Profile, ecdf_profiles, performance_profiles
-from neuralls.domain.benchmarking.selection import (
-    ConfiguredReference,
-    ReferenceSelection,
-)
+from neuralls.domain.benchmarking.selection import ConfiguredReference
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
-from neuralls.domain.solver.models.outcomes import Failed, Outcomes, Solved, SystemOutcome
+from neuralls.domain.solver.models.outcomes import Outcomes
 from neuralls.domain.solver.models.statistics import PairedComparison
+from neuralls.domain.solver.models.workload import MethodWorkloadSummary
 from neuralls.platform.reporting.plots import finish_group_figure, group_series_styles
-from neuralls.shared.types import PreconditionerName, SystemId
+from neuralls.shared.types import PreconditionerName
 
 _FAILED_AXIS_MARGIN = 1.6
 """Factor above the slowest solved run at which failures are drawn; a position on the
@@ -226,70 +224,37 @@ def plot_ecdf_profile(
     )
 
 
-def _solved_times(per_system: Mapping[SystemId, SystemOutcome]) -> dict[SystemId, float]:
-    return {
-        sid: outcome.amortized_online_s
-        for sid, outcome in per_system.items()
-        if isinstance(outcome, Solved)
-    }
-
-
-def plot_time_scatter(
-    outcomes: Outcomes,
+def plot_online_time_bars(
+    summaries: Sequence[MethodWorkloadSummary],
     *,
+    scenario: str,
     style: GroupStyle,
     save_path: Path,
 ) -> Path | None:
-    """Per-system amortized online time, failures as hollow markers on the top edge.
-
-    Unlike a median bar, every system stays a point, so a method that is fast
-    only because it fails is visible as a row of hollow markers. The y value is
-    solve time plus the system's planned share of matrix setup.
-    Returns `None` when there is nothing to place: no solved system has a recorded time
-    and none failed (a log axis cannot be drawn without data).
-    """
-    if not outcomes:
+    """Draw reducer-owned solve or amortized-online workload totals."""
+    if not summaries:
         return None
-    names = list(outcomes)
-    styles = _series_styles(names, style)
-    system_ids = list(dict.fromkeys(sid for per_system in outcomes.values() for sid in per_system))
-    position = {sid: i for i, sid in enumerate(system_ids)}
-    all_times = [t for per_system in outcomes.values() for t in _solved_times(per_system).values()]
-    any_failed = any(
-        isinstance(outcome, Failed)
-        for per_system in outcomes.values()
-        for outcome in per_system.values()
-    )
-    if not all_times and not any_failed:
-        return None
-    failed_y = _FAILED_AXIS_MARGIN * max(all_times) if all_times else 1.0
-
-    fig, ax = plt.subplots(figsize=(9, 5))
-    for name in names:
-        per_system = outcomes[name]
-        solved = _solved_times(per_system)
-        failed = [sid for sid, outcome in per_system.items() if isinstance(outcome, Failed)]
-        color, marker = styles[name]["color"], styles[name]["marker"]
-        ax.scatter(
-            [position[sid] for sid in solved],
-            list(solved.values()),
-            color=color,
-            marker=marker,
-            s=28,
-            label=f"{style.labels.get(name, name)} ({len(solved)}/{len(per_system)} solved)",
+    if scenario not in {"solve", "online"}:
+        raise ValueError("scenario must be 'solve' or 'online'")
+    names = [str(summary.method) for summary in summaries]
+    values = [
+        summary.solve_total_s if scenario == "solve" else summary.workload_online_s
+        for summary in summaries
+    ]
+    fig, ax = plt.subplots(figsize=(8, 5))
+    bars = ax.barh(names, values)
+    for bar, summary in zip(bars, summaries, strict=True):
+        incomplete = getattr(summary, "missing_system_ids", ())
+        suffix = " (incomplete)" if incomplete else ""
+        ax.text(
+            bar.get_width(),
+            bar.get_y() + bar.get_height() / 2,
+            f" {summary.n_converged}/{summary.n_planned_rhs}{suffix}",
+            va="center",
         )
-        _hollow(
-            ax,
-            [position[sid] for sid in failed],
-            [failed_y] * len(failed),
-            color=color,
-            marker=marker,
-        )
-    ax.set_yscale("log")
-    ax.set_xlabel("System (plan order)\nhollow markers: did not converge")
-    ax.set_ylabel("Amortized online time: solve + allocated matrix setup [s]")
-    ax.grid(True, which="both", alpha=0.3)
-    _legend_outside(ax)
+    ax.set_xlabel("Solve time [s]" if scenario == "solve" else "Amortized online workload time [s]")
+    ax.set_ylabel("Method")
+    ax.grid(True, axis="x", alpha=0.3)
     finish_group_figure(
         fig,
         ax,
@@ -297,15 +262,16 @@ def plot_time_scatter(
         subtitle=style.subtitle,
         save_path=save_path,
         show=False,
-        saved_message="Saved per-system time scatter to",
+        saved_message="Saved online time bars to",
     )
     return save_path
 
 
 def _paired_axes_limits(times: Sequence[float]) -> tuple[float, float, float]:
-    """Axis (low, high, failure position) for a paired scatter, failures beyond the slowest run."""
-    low, high = min(times), max(times)
-    return low / _FAILED_AXIS_MARGIN, high * _FAILED_AXIS_MARGIN**2, high * _FAILED_AXIS_MARGIN
+    """Linear non-negative shared axis and its failure-marker position."""
+    high = max(times)
+    upper = high * _FAILED_AXIS_MARGIN if high > 0 else 1.0
+    return 0.0, upper, upper
 
 
 def _all_paired_times(points: Mapping[PreconditionerName, PairedPoints]) -> list[float]:
@@ -340,7 +306,7 @@ def _positive_paired_points(points: PairedPoints) -> PairedPoints:
 def plot_paired_time_scatter(
     outcomes: Outcomes,
     *,
-    selection: ReferenceSelection | None = None,
+    reference: ConfiguredReference,
     style: GroupStyle,
     save_path: Path,
 ) -> Path | None:
@@ -353,13 +319,11 @@ def plot_paired_time_scatter(
     compare and the system is not drawn. Both axes use amortized online time:
     solve plus the system's planned share of matrix setup.
     """
-    if not isinstance(selection, ConfiguredReference):
+    reference_name = reference.name
+    if reference_name not in outcomes:
         return None
-    reference = selection.name
-    if reference not in outcomes:
-        return None
-    others = [name for name in outcomes if name != reference]
-    raw_points = {name: paired_points(outcomes[reference], outcomes[name]) for name in others}
+    others = [name for name in outcomes if name != reference_name]
+    raw_points = {name: paired_points(outcomes[reference_name], outcomes[name]) for name in others}
     points = {name: _positive_paired_points(point) for name, point in raw_points.items()}
     all_times = _all_paired_times(points)
     if not all_times:
@@ -393,12 +357,11 @@ def plot_paired_time_scatter(
             color=color,
             marker=marker,
         )
-    ax.set_xscale("log")
-    ax.set_yscale("log")
+    ax.set_aspect("equal", adjustable="box")
     ax.set_xlim(low, high)
     ax.set_ylim(low, high)
     ax.set_xlabel(
-        f"{style.labels.get(reference, reference)} (reference): amortized online time [s]"
+        f"{style.labels.get(reference_name, reference_name)} (reference): amortized online time [s]"
         "\nhollow markers: the other axis's run did not converge"
     )
     ax.set_ylabel("Method: amortized online time [s]")
@@ -425,7 +388,7 @@ def _speed_ratio_legend(label: str, comparison: PairedComparison) -> str:
         text += f" [{ci.low:.2f}, {ci.high:.2f}]"
     if comparison.wilcoxon_p is not None:
         text += f", Wilcoxon p={comparison.wilcoxon_p:.3g}"
-    return f"{text}, n={comparison.n_both_solved}"
+    return f"{text}, n={comparison.n_both_solved} (reference / method)"
 
 
 def _speed_ratio_curve(comparison: PairedComparison) -> tuple[np.ndarray, np.ndarray]:
@@ -467,7 +430,7 @@ def plot_speed_ratio_cdf(
     ax.axvline(1.0, color="gray", linewidth=1, linestyle="--")
     ax.set_xscale("log")
     ax.set_ylim(0.0, 1.02)
-    ax.set_xlabel("Reference/method speed ratio")
+    ax.set_xlabel("Reference / method speed ratio (slower < 1, faster > 1)")
     ax.set_ylabel("Fraction of paired systems")
     ax.grid(True, which="both", alpha=0.3)
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), fontsize=8)
