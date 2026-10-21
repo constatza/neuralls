@@ -1429,7 +1429,10 @@ def _execute_all(
         workload = replace(
             workload,
             workload_identities=tuple(
-                system.identity.key for _, systems in matrices for system in systems
+                system.identity.key
+                for _, systems in matrices
+                for system in systems
+                if getattr(system, "identity", None) is not None
             ),
         )
         workloads.append(workload)

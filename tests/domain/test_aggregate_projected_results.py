@@ -68,9 +68,15 @@ def test_outcomes_use_system_cost_frame_allocation() -> None:
     result = outcomes_by_system(planned, (_setup(method),), attempts, GlobalLevel())
 
     assert result[GlobalLabel(("gauss",))][method] == {
-        planned[0].system_id: Solved(MatrixId(7), 2, solve_s=1.0, amortized_online_s=3.0),
-        planned[1].system_id: Solved(MatrixId(7), 3, solve_s=2.0, amortized_online_s=4.0),
-        planned[2].system_id: Solved(MatrixId(7), 4, solve_s=3.0, amortized_online_s=5.0),
+        planned[0].system_id: Solved(
+            MatrixId(7), 2, solve_s=1.0, amortized_online_s=3.0, dataset="ds"
+        ),
+        planned[1].system_id: Solved(
+            MatrixId(7), 3, solve_s=2.0, amortized_online_s=4.0, dataset="ds"
+        ),
+        planned[2].system_id: Solved(
+            MatrixId(7), 4, solve_s=3.0, amortized_online_s=5.0, dataset="ds"
+        ),
     }
 
 

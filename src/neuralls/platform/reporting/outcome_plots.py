@@ -61,9 +61,11 @@ def plot_aggregate_bars(
     if not outcome.convergence:
         return None
     names = list(outcome.convergence)
+    styles = _series_styles(names, style)
+    labels = [style.labels.get(name, name) for name in names]
     fig, ax = plt.subplots(figsize=(8, 5))
     values = [outcome.convergence[name].n_converged for name in names]
-    bars = ax.barh(names, values)
+    bars = ax.barh(labels, values, color=[styles[name]["color"] for name in names])
     ax.set_xlim(0, max(1, outcome.n_planned_rhs))
     ax.set_xlabel("Converged RHS (of planned RHS)")
     ax.set_ylabel("Method")
@@ -237,12 +239,14 @@ def plot_online_time_bars(
     if scenario not in {"solve", "online"}:
         raise ValueError("scenario must be 'solve' or 'online'")
     names = [str(summary.method) for summary in summaries]
+    styles = _series_styles(names, style)
+    labels = [style.labels.get(name, name) for name in names]
     values = [
         summary.solve_total_s if scenario == "solve" else summary.workload_online_s
         for summary in summaries
     ]
     fig, ax = plt.subplots(figsize=(8, 5))
-    bars = ax.barh(names, values)
+    bars = ax.barh(labels, values, color=[styles[name]["color"] for name in names])
     for bar, summary in zip(bars, summaries, strict=True):
         incomplete = getattr(summary, "missing_system_ids", ())
         suffix = " (incomplete)" if incomplete else ""
@@ -284,23 +288,13 @@ def _all_paired_times(points: Mapping[PreconditionerName, PairedPoints]) -> list
             *(x.amortized_online_s for x in p.method_only),
             *(x.amortized_online_s for x in p.reference_only),
         )
-        if t > 0
+        if t >= 0
     ]
 
 
-def _positive_paired_points(points: PairedPoints) -> PairedPoints:
-    """Keep only solved coordinates that are valid inputs to logarithmic axes."""
-    return PairedPoints(
-        both=tuple(
-            (reference, method)
-            for reference, method in points.both
-            if reference.amortized_online_s > 0 and method.amortized_online_s > 0
-        ),
-        method_only=tuple(point for point in points.method_only if point.amortized_online_s > 0),
-        reference_only=tuple(
-            point for point in points.reference_only if point.amortized_online_s > 0
-        ),
-    )
+def _linear_paired_points(points: PairedPoints) -> PairedPoints:
+    """Retain every solved coordinate; paired axes are linear and include zero."""
+    return points
 
 
 def plot_paired_time_scatter(
@@ -324,7 +318,7 @@ def plot_paired_time_scatter(
         return None
     others = [name for name in outcomes if name != reference_name]
     raw_points = {name: paired_points(outcomes[reference_name], outcomes[name]) for name in others}
-    points = {name: _positive_paired_points(point) for name, point in raw_points.items()}
+    points = {name: _linear_paired_points(point) for name, point in raw_points.items()}
     all_times = _all_paired_times(points)
     if not all_times:
         return None
@@ -386,8 +380,6 @@ def _speed_ratio_legend(label: str, comparison: PairedComparison) -> str:
     if comparison.median_speed_ratio_ci is not None:
         ci = comparison.median_speed_ratio_ci
         text += f" [{ci.low:.2f}, {ci.high:.2f}]"
-    if comparison.wilcoxon_p is not None:
-        text += f", Wilcoxon p={comparison.wilcoxon_p:.3g}"
     return f"{text}, n={comparison.n_both_solved} (reference / method)"
 
 

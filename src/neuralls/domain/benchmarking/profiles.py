@@ -89,20 +89,22 @@ def ecdf_profiles(outcomes: Outcomes, cost: Cost) -> dict[str, Profile]:
 def performance_profiles(outcomes: Outcomes, cost: Cost) -> dict[str, Profile]:
     """Per method, the fraction of systems within each factor of the best method's cost.
 
-    Only systems that at least one method solved have a best cost; the others
-    are excluded for every method, as Dolan & Moré do.
+    Systems on which every method failed remain in every denominator as
+    censored observations. They contribute no ratio, so the profile plateaus
+    below one even when no method solved that system.
     """
     costs = _costs(outcomes, cost)
     best = _best_cost_by_system(costs)
     profiles: dict[str, Profile] = {}
     for name, per_system in costs.items():
-        scored = {sid: v for sid, v in per_system.items() if best.get(sid, 0.0) > 0.0}
-        if not scored:
+        if not per_system:
             continue
         ratios = sorted(
-            value / best[sid] for sid, value in scored.items() if not isinstance(value, Failed)
+            value / best[sid]
+            for sid, value in per_system.items()
+            if sid in best and best[sid] > 0.0 and not isinstance(value, Failed)
         )
-        profiles[name] = Profile(n_systems=len(scored), solved_at=tuple(ratios))
+        profiles[name] = Profile(n_systems=len(per_system), solved_at=tuple(ratios))
     return profiles
 
 

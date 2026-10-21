@@ -10,11 +10,13 @@ from neuralls.domain.solver.models.statistics import Interval
 from neuralls.shared.constants import BOOTSTRAP_RESAMPLES, CONFIDENCE_LEVEL
 from neuralls.shared.types import MatrixId
 
+type MatrixCluster = MatrixId | tuple[str | None, MatrixId]
+
 _MIN_MATRICES = 2
 
 
 def matrix_cluster_median_interval(
-    samples_by_matrix: Mapping[MatrixId, Sequence[float]], *, seed: int
+    samples_by_matrix: Mapping[MatrixCluster, Sequence[float]], *, seed: int
 ) -> Interval | None:
     """Median interval resampling matrices with all their sibling RHS values."""
     if len(samples_by_matrix) < _MIN_MATRICES:

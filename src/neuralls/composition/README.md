@@ -595,9 +595,10 @@ matrix setup once across its planned RHS values. Success rate is converged
 attempts over planned systems, so failures stay visible without a synthetic
 penalty.
 
-Fine-level profiles use one recipe. ECDFs show absolute-budget fractions;
-Dolan--Moré profiles show fractions within a factor of the per-system fastest
-method. Medium and global outputs are workload mixtures, not pooled profiles.
+Fine-level profiles use one recipe. Solve-only and amortized-online ECDFs and
+Dolan--Moré profiles show their respective absolute budgets and fastest-method
+ratios. Medium and global outputs are workload mixtures and emit bars only,
+not pooled per-system profiles or paired distributions.
 Paired time and reference/method speed ratios use only the same matrix/RHS
 systems and only a `reference_preconditioner` explicitly configured by the
 user. Missing or failed sides remain counted but do not produce a ratio.

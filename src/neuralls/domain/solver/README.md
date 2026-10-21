@@ -59,8 +59,10 @@ workload_online_s = sum(matrix_online_s)
 ```
 
 One matrix setup is therefore charged once even when sibling RHS values belong
-to different recipes. Workload totals use `math.fsum` over representative event
-values; warmups and individual repeat samples are never added to totals.
+to different recipes. Fine recipe summaries allocate that setup using the
+complete matrix membership; medium/global summaries retain the whole setup
+once. Workload totals use `math.fsum` over representative event values;
+warmups and individual repeat samples are never added to totals.
 
 `reporting/classification.py` consumes planned tags, setup events, solve
 attempts, and a report level. A `ConvergenceSummary` keeps planned, attempted,
@@ -96,7 +98,8 @@ A **paired time** comparison uses the same matrix/RHS system for a configured
 reference and method. Its **speed ratio** is reference time divided by method
 time, so values above one favor the method. Pair counts retain both-solved,
 reference-only, and method-only failures. Uncertainty resamples whole
-**matrix clusters**, preserving dependence among sibling RHS observations.
+**(dataset, matrix) clusters**, preserving dependence among sibling RHS
+observations.
 The reference is always the explicitly configured
 `reference_preconditioner`; no observed result may select a fallback. If the
 reference is absent or unavailable, paired ratios are omitted.
@@ -114,11 +117,12 @@ distribution and stopping rule.
 - explicit `solve_seconds` and `amortized_online_seconds` cost scenarios;
 - paired reference/method ratios using only positive-time both-solved systems
   while retaining all both-solved, reference-only, and method-only counts;
-- percentile intervals that resample whole matrix clusters with every sibling
-  RHS observation.
+- percentile intervals that resample whole `(dataset, matrix_id)` clusters with
+  every sibling RHS observation; paired Wilcoxon p-values are not reported.
 
 Performance profiles normalize by the fastest method on each problem. A
-failed attempt remains censored rather than receiving a penalty time. Paired
+failed attempt remains censored rather than receiving a penalty time, and
+all-failed systems remain in every profile denominator. Paired
 comparisons require a `ConfiguredReference`; `NoReferenceConfigured` and
 `ReferenceUnavailable` produce no ratios, and no observed outcome can select a
 fallback reference.

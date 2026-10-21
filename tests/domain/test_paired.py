@@ -86,19 +86,34 @@ def test_ratio_interval_resamples_matrix_clusters() -> None:
     assert result == compare_paired(paired_points(reference, method), seed=SEED)
 
 
+def test_ratio_interval_clusters_same_matrix_id_separately_by_dataset() -> None:
+    reference = {
+        "a": Solved(MatrixId(1), 1, 2.0, 2.0, dataset="ds-a"),
+        "b": Solved(MatrixId(1), 1, 4.0, 4.0, dataset="ds-b"),
+    }
+    method = {
+        "a": Solved(MatrixId(1), 1, 1.0, 1.0, dataset="ds-a"),
+        "b": Solved(MatrixId(1), 1, 1.0, 1.0, dataset="ds-b"),
+    }
+
+    result = compare_paired(paired_points(reference, method), seed=SEED)
+
+    assert result.median_speed_ratio_ci is not None
+
+
 def test_wilcoxon_is_none_below_minimum_pair_count(reference, method) -> None:
     result = compare_paired(paired_points(reference, method), seed=SEED)
 
-    assert result.wilcoxon_p is None
+    assert not hasattr(result, "wilcoxon_p")
 
 
-def test_wilcoxon_p_is_exact_for_six_pairs_in_one_direction() -> None:
+def test_sibling_rhs_duplication_does_not_create_wilcoxon_evidence() -> None:
     reference = {f"s{i}": _solved(i // 2, 10.0 + 2 * i) for i in range(6)}
     method = {f"s{i}": _solved(i // 2, 1.0 + i) for i in range(6)}
 
     result = compare_paired(paired_points(reference, method), seed=SEED)
 
-    assert result.wilcoxon_p == pytest.approx(2 / 2**6)
+    assert not hasattr(result, "wilcoxon_p")
 
 
 def test_non_positive_time_is_not_turned_into_infinite_ratio() -> None:

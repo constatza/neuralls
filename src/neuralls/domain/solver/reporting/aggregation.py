@@ -62,10 +62,19 @@ def build_matrix_bundle_frame(
     planned: Sequence[SystemTag],
     setup_events: Collection[MatrixSetupEvent],
     attempts: Collection[SolveAttempt],
+    *,
+    allocation_planned: Sequence[SystemTag] | None = None,
 ) -> pl.DataFrame:
-    """Build one setup-aware online-cost row per method and matrix."""
+    """Build one setup-aware online-cost row per method and matrix.
+
+    ``planned`` selects the report membership; ``allocation_planned`` keeps a
+    fine recipe's setup share tied to the complete matrix RHS bundle.
+    """
     _validate_event_links(planned, setup_events, attempts)
     planned_counts = _planned_matrix_counts(planned)
+    allocation_counts = _planned_matrix_counts(allocation_planned or planned).rename(
+        {"planned_rhs_count": "allocation_rhs_count"}
+    )
     solve_totals = (
         build_solve_frame(attempts)
         .group_by("setup_event_id")
@@ -77,6 +86,7 @@ def build_matrix_bundle_frame(
     )
     return (
         build_setup_frame(setup_events)
+        .join(allocation_counts, on=["dataset", "matrix_id"], how="left", validate="m:1")
         .join(planned_counts, on=["dataset", "matrix_id"], how="left", validate="m:1")
         .join(solve_totals, on="setup_event_id", how="left", validate="1:1")
         .with_columns(
@@ -84,7 +94,12 @@ def build_matrix_bundle_frame(
             pl.col("converged_rhs_count").fill_null(0),
             pl.col("solve_total_s").fill_null(0.0),
         )
-        .with_columns(matrix_online_s=pl.col("setup_s") + pl.col("solve_total_s"))
+        .with_columns(
+            allocated_setup_s=pl.col("setup_s")
+            * pl.col("planned_rhs_count")
+            / pl.col("allocation_rhs_count"),
+            matrix_online_s=pl.col("setup_s") + pl.col("solve_total_s"),
+        )
     )
 
 
@@ -94,16 +109,28 @@ def summarize_method_workload(
     setup_events: Collection[MatrixSetupEvent],
     attempts: Collection[SolveAttempt],
     workload_peak_memory: PeakMemory,
+    *,
+    allocation_planned: Sequence[SystemTag] | None = None,
 ) -> MethodWorkloadSummary:
     """Derive one complete or explicitly incomplete summary for ``method``."""
     method_setups = tuple(event for event in setup_events if event.method == method)
     method_attempts = tuple(attempt for attempt in attempts if attempt.method == method)
-    bundles = build_matrix_bundle_frame(planned, method_setups, method_attempts)
+    bundles = build_matrix_bundle_frame(
+        planned,
+        method_setups,
+        method_attempts,
+        allocation_planned=allocation_planned,
+    )
     attempted_ids = {attempt.system_id for attempt in method_attempts}
     missing_ids = tuple(tag.system_id for tag in planned if tag.system_id not in attempted_ids)
-    setup_total_s = fsum(bundles["setup_s"])
+    setup_total_s = fsum(bundles["allocated_setup_s"])
     solve_total_s = fsum(bundles["solve_total_s"])
-    workload_online_s = fsum(bundles["matrix_online_s"])
+    workload_online_s = fsum(
+        setup_s + solve_s
+        for setup_s, solve_s in zip(
+            bundles["allocated_setup_s"], bundles["solve_total_s"], strict=True
+        )
+    )
     n_attempted_rhs = len(method_attempts)
     n_converged = sum(isinstance(attempt.outcome, SolveConverged) for attempt in method_attempts)
     online_s_per_attempted_rhs = (
@@ -190,31 +217,63 @@ def outcomes_by_system(
     attempts: Collection[SolveAttempt],
     level: ReportLevel,
 ) -> dict[GroupLabel, dict[PreconditionerName, dict[SystemId, SystemOutcome]]]:
-    """Build profile outcomes from allocated system costs, censoring failures."""
-    costs = build_system_cost_frame(planned, setup_events, attempts)
-    tags_by_id = {tag.system_id: tag for tag in planned}
+    """Build one censored outcome for every planned method/system pair."""
+    _validate_event_links(planned, setup_events, attempts)
+    planned_counts = {
+        (row["dataset"], MatrixId(row["matrix_id"])): int(row["planned_rhs_count"])
+        for row in _planned_matrix_counts(planned).iter_rows(named=True)
+    }
+    setups = {(event.dataset, event.matrix_id, event.method): event for event in setup_events}
+    attempts_by_key = {(attempt.system_id, attempt.method): attempt for attempt in attempts}
     groups = _tags_by_report_key(planned, level)
     labels = {key: label_for_tags(level, tags) for key, tags in groups.items()}
     report: dict[GroupLabel, dict[PreconditionerName, dict[SystemId, SystemOutcome]]] = {}
-    for row in costs.iter_rows(named=True):
-        system_id = SystemId(row["system_id"])
-        label = labels[report_key(level, tags_by_id[system_id])]
-        method = PreconditionerName(row["method"])
-        outcome: SystemOutcome
-        if row["solve_status"] == "converged":
-            outcome = Solved(
-                matrix_id=MatrixId(row["matrix_id"]),
-                iterations=row["iterations"],
-                solve_s=row["solve_s"],
-                amortized_online_s=row["amortized_online_s"],
+    for key, tags in groups.items():
+        label = labels[key]
+        matrices = {(tag.dataset, tag.matrix_id) for tag in tags}
+        methods = tuple(
+            dict.fromkeys(
+                event.method
+                for event in setup_events
+                if (event.dataset, event.matrix_id) in matrices
             )
-        else:
-            outcome = Failed(
-                matrix_id=MatrixId(row["matrix_id"]),
-                iterations=row["iterations"],
-                reason=row["failure_reason"],
-            )
-        report.setdefault(label, {}).setdefault(method, {})[system_id] = outcome
+        )
+        for method in methods:
+            method_outcomes = report.setdefault(label, {}).setdefault(method, {})
+            for tag in tags:
+                attempt = attempts_by_key.get((tag.system_id, method))
+                setup = setups.get((tag.dataset, tag.matrix_id, method))
+                if attempt is None:
+                    reason = (
+                        setup.outcome.reason
+                        if setup is not None and isinstance(setup.outcome, SetupFailed)
+                        else "setup not recorded"
+                        if setup is None
+                        else "not attempted"
+                    )
+                    method_outcomes[tag.system_id] = Failed(
+                        matrix_id=tag.matrix_id, iterations=0, reason=reason
+                    )
+                    continue
+                if isinstance(attempt.outcome, SolveConverged):
+                    if setup is None:
+                        raise ValueError("solved attempt is missing its setup event")
+                    method_outcomes[tag.system_id] = Solved(
+                        matrix_id=attempt.matrix_id,
+                        iterations=attempt.outcome.iterations,
+                        solve_s=attempt.solve_s,
+                        amortized_online_s=(
+                            attempt.solve_s
+                            + setup.setup_s / planned_counts[(tag.dataset, tag.matrix_id)]
+                        ),
+                        dataset=tag.dataset,
+                    )
+                else:
+                    method_outcomes[tag.system_id] = Failed(
+                        matrix_id=attempt.matrix_id,
+                        iterations=attempt.outcome.iterations,
+                        reason=attempt.outcome.reason,
+                    )
     return report
 
 

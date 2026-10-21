@@ -1,10 +1,4 @@
-"""Leaf value types for uncertainty and paired comparisons.
-
-Imports nothing from the solver models, so `result.py` can hold them in its
-group outcomes without a cycle. References: percentile bootstrap intervals
-(Efron & Tibshirani 1993, "An Introduction to the Bootstrap") and the Wilcoxon
-signed-rank test on paired differences (Wilcoxon 1945).
-"""
+"""Leaf value types for uncertainty and paired comparisons."""
 
 from __future__ import annotations
 
@@ -55,8 +49,6 @@ class PairedComparison:
         n_both_solved: Systems solved by both.
         n_reference_only: Systems solved only by the reference.
         n_method_only: Systems solved only by the method.
-        wilcoxon_p: Two-sided Wilcoxon signed-rank p-value of the log ratios
-            against zero, `None` with too few non-zero differences.
     """
 
     speed_ratios: tuple[float, ...]
@@ -65,7 +57,6 @@ class PairedComparison:
     n_both_solved: int
     n_reference_only: int
     n_method_only: int
-    wilcoxon_p: float | None
 
 
 @dataclass(frozen=True, slots=True)

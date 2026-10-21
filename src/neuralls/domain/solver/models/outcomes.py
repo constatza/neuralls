@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
 
-from neuralls.shared.types import MatrixId, PreconditionerName, SystemId
+from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SystemId
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +17,7 @@ class Solved:
     iterations: int
     solve_s: float
     amortized_online_s: float
+    dataset: DatasetId | None = None
 
     def __post_init__(self) -> None:
         """Reject impossible profile observations."""

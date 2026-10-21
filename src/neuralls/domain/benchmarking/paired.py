@@ -6,14 +6,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.stats import wilcoxon
 
 from neuralls.domain.benchmarking.costs import amortized_online_seconds
-from neuralls.domain.benchmarking.uncertainty import matrix_cluster_median_interval
+from neuralls.domain.benchmarking.uncertainty import MatrixCluster, matrix_cluster_median_interval
 from neuralls.domain.solver.models.outcomes import Failed, Solved, SystemOutcome
 from neuralls.domain.solver.models.statistics import PairedComparison
-from neuralls.shared.constants import MIN_PAIRED_SYSTEMS
-from neuralls.shared.types import MatrixId, SystemId
+from neuralls.shared.types import SystemId
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,13 +50,6 @@ def paired_points(
     return PairedPoints(tuple(both), tuple(method_only), tuple(reference_only))
 
 
-def _wilcoxon_p(log_ratios: np.ndarray) -> float | None:
-    """Two-sided signed-rank p-value of log(reference / method) ratios."""
-    if np.count_nonzero(log_ratios) < MIN_PAIRED_SYSTEMS:
-        return None
-    return float(wilcoxon(log_ratios).pvalue)
-
-
 def compare_paired(points: PairedPoints, *, seed: int) -> PairedComparison:
     """Summarize paired ratios and asymmetric successes without failure penalties."""
     positive_pairs = tuple(
@@ -70,9 +61,9 @@ def compare_paired(points: PairedPoints, *, seed: int) -> PairedComparison:
         amortized_online_seconds(reference) / amortized_online_seconds(method)
         for reference, method in positive_pairs
     )
-    ratios_by_matrix: dict[MatrixId, list[float]] = {}
+    ratios_by_matrix: dict[MatrixCluster, list[float]] = {}
     for (reference, _), ratio in zip(positive_pairs, ratios, strict=True):
-        ratios_by_matrix.setdefault(reference.matrix_id, []).append(ratio)
+        ratios_by_matrix.setdefault((reference.dataset, reference.matrix_id), []).append(ratio)
     values = np.asarray(ratios, dtype=np.float64)
     return PairedComparison(
         speed_ratios=ratios,
@@ -81,5 +72,4 @@ def compare_paired(points: PairedPoints, *, seed: int) -> PairedComparison:
         n_both_solved=len(points.both),
         n_reference_only=len(points.reference_only),
         n_method_only=len(points.method_only),
-        wilcoxon_p=_wilcoxon_p(np.log(values)) if ratios else None,
     )

@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import pytest
 
+from neuralls.domain.benchmarking.selection import ConfiguredReference
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
     SetupCompleted,
@@ -114,7 +115,9 @@ def test_system_cost_rows_become_explicit_solved_and_failed_outcomes(method) -> 
 
     assert isinstance(group, GroupAggregated)
     assert group.outcomes[method] == {
-        tags[0].system_id: Solved(MatrixId(0), 3, solve_s=0.5, amortized_online_s=1.5),
+        tags[0].system_id: Solved(
+            MatrixId(0), 3, solve_s=0.5, amortized_online_s=1.5, dataset=DatasetId("ds")
+        ),
         tags[1].system_id: Failed(MatrixId(0), 100, "iteration limit"),
     }
 
@@ -129,7 +132,41 @@ def test_setup_failure_is_reported_as_zero_attempts_not_zero_planned(method) -> 
     summary = group.convergence[method]
     assert (summary.n_planned_rhs, summary.n_attempted_rhs, summary.n_converged) == (2, 0, 0)
     assert summary.iterations is None
-    assert group.outcomes[method] == {}
+    assert set(group.outcomes[method]) == {tag.system_id for tag in tags}
+    assert all(isinstance(outcome, Failed) for outcome in group.outcomes[method].values())
+
+
+def test_fine_summary_allocates_setup_using_complete_matrix_membership(method) -> None:
+    tags = (_tag(0, recipe="gauss"), _tag(1, recipe="sine"))
+    setup = _setup(method)
+    attempts = tuple(_attempt(tag, method) for tag in tags)
+
+    reports = classify_level(tags, (setup,), attempts, FineLevel())
+    assert all(isinstance(report, RecipeProfileReport) for report in reports)
+
+    fine_reports = [report for report in reports if isinstance(report, RecipeProfileReport)]
+    assert [report.summaries[0].setup_total_s for report in fine_reports] == [1.0, 1.0]
+    assert sum(report.summaries[0].setup_total_s for report in fine_reports) == pytest.approx(2.0)
+
+
+def test_setup_failure_creates_asymmetric_censored_outcomes(method) -> None:
+    tags = (_tag(0), _tag(1))
+    reference = _setup(method)
+    failed = replace(_setup(PreconditionerName("amg")), outcome=SetupFailed("failed"))
+    attempts = tuple(_attempt(tag, method) for tag in tags)
+
+    (group,) = classify_level(
+        tags,
+        (reference, failed),
+        attempts,
+        GlobalLevel(),
+        ConfiguredReference(method),
+    )
+
+    assert isinstance(group, GroupAggregated)
+    comparison = group.comparisons[PreconditionerName("amg")].paired
+    assert comparison.n_reference_only == 2
+    assert comparison.n_method_only == 0
 
 
 def test_unmeasured_group_retains_planned_membership(method) -> None:

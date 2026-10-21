@@ -125,18 +125,17 @@ default to empty). A failed run is never given a time:
 - `plot_paired_time_scatter` (`paired_time_scatter_*`): amortized online times of each method against the
   reference; hollow markers sit on the axis of the run that failed, and a
   reference run that solved without a comparable time is not drawn as failed.
-  Only strictly positive solved times enter this logarithmic scatter; if none
-  remain, no figure is emitted.
-- `plot_performance_profile` (`performance_profile_*`): Dolan-Moré profile
+  Zero-time solved coordinates remain valid on these linear axes.
+- `plot_performance_profile` (`performance_profile_solve_*`, `performance_profile_online_*`): Dolan-Moré profiles for solve-only and amortized-online time
   (Math. Program. 91, 2002).
-- `plot_ecdf_profile` (`ecdf_iterations_*`, `ecdf_time_*`): unnormalised ECDF
+- `plot_ecdf_profile` (`ecdf_iterations_*`, `ecdf_time_solve_*`, `ecdf_time_online_*`): unnormalised iteration, solve-only, and amortized-online ECDFs
   over an absolute budget (Hansen et al. 2016, COCO), not the n_p+1-normalised
   Moré-Wild data profile. Step curves share one right edge so each plateau is
   its success rate.
 - `plot_speed_ratio_cdf` (`speed_ratio_cdf_*`): ECDF of per-system reference/method
   ratios with a line at 1; the legend gives the median, its matrix-clustered
-  interval, the Wilcoxon p-value and the both-solved count. Reference-only and
-  method-only counts remain available separately.
+  interval, and the both-solved count. Reference-only and method-only counts
+  remain available separately; no Wilcoxon p-value is reported.
 
 `MLflowGroupReportSink` logs planned, attempted, and converged counts plus the
 failure-aware paired fields. Raw benchmark events and method summaries become

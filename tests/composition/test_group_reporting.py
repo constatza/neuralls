@@ -15,7 +15,9 @@ from neuralls.domain.solver.models import (
     SystemTag,
 )
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
+from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.domain.solver.models.presentation import GroupPresentation
+from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.shared.types import (
     DatasetId,
     MatrixId,
@@ -79,3 +81,46 @@ def test_group_reporting_reduces_completed_workload_events() -> None:
     report_all_levels((workload,), sink)
 
     assert [outcome.n_planned_rhs for outcome in sink.outcomes] == [1, 1, 1]
+
+
+def test_group_reporting_propagates_method_plot_styles() -> None:
+    method = PreconditionerName("identity")
+    tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("styled"))
+    event_id = SetupEventId("identity:ds:1")
+    style = PreconditionerPlotStyle("Configured Identity", PreconditionerType.IDENTITY)
+    workload = CompletedMethodWorkload(
+        method=method,
+        planned=(tag,),
+        setup_events=(
+            MatrixSetupEvent(
+                event_id,
+                tag.dataset,
+                tag.matrix_id,
+                method,
+                1.0,
+                (1.0,),
+                MeasuredPeakMemory(10),
+                SetupCompleted(),
+            ),
+        ),
+        solve_attempts=(),
+        diagnostics=(),
+        generation_cost=None,
+        workload_peak_memory=MeasuredPeakMemory(10),
+        config_digest="sha256:" + "1" * 64,
+        method_config={"name": "identity"},
+        plot_styles={str(method): style},
+    )
+
+    class PresentationSink:
+        def __init__(self) -> None:
+            self.presentations: list[GroupPresentation] = []
+
+        def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
+            del outcome
+            self.presentations.append(presentation)
+
+    sink = PresentationSink()
+    report_all_levels((workload,), sink)
+
+    assert sink.presentations[0].plot_styles[str(method)] == style

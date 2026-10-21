@@ -167,6 +167,28 @@ def test_online_bars_use_reducer_totals_and_mark_incomplete_methods(
     assert ax.texts[0].get_text() == " 1/3 (incomplete)"
 
 
+def test_online_bars_use_configured_method_labels(tmp_path: Path, figures: list[Figure]) -> None:
+    labelled = GroupStyle(title="group", labels={"jacobi": "Jacobi ($\\rho=0.1$)"})
+    from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
+
+    complete = CompleteWorkloadSummary(
+        method="jacobi",
+        n_planned_rhs=1,
+        n_attempted_rhs=1,
+        n_converged=1,
+        setup_total_s=0.0,
+        solve_total_s=1.0,
+        workload_online_s=1.0,
+        online_s_per_attempted_rhs=1.0,
+        workload_peak_memory=UnknownPeakMemory(),
+    )
+    plot_online_time_bars(
+        [complete], scenario="online", style=labelled, save_path=tmp_path / "bars.png"
+    )
+
+    assert _axes(figures).get_yticklabels()[0].get_text() == "Jacobi ($\\rho=0.1$)"
+
+
 def test_paired_scatter_marks_the_reference_runs_the_method_failed(
     tmp_path: Path, outcomes: Outcomes, style: GroupStyle, figures: list[Figure]
 ) -> None:
@@ -204,14 +226,14 @@ def test_paired_scatter_does_not_mark_a_zero_cost_reference_run_as_failed(
     filled = [
         np.asarray(c.get_offsets()).tolist() for c in ax.collections if len(c.get_facecolor())
     ]
-    assert filled == [[[1.0, 2.0]]]
+    assert filled == [[[1.0, 2.0], [0.0, 3.0]]]
     assert ax.get_xlim()[0] == 0
     assert ax.get_ylim()[0] == 0
     assert not any("non-positive" in str(item.message) for item in caught)
 
 
-def test_paired_scatter_returns_none_when_all_solved_times_are_zero(
-    tmp_path: Path, style: GroupStyle
+def test_paired_scatter_retains_all_zero_solved_coordinates(
+    tmp_path: Path, style: GroupStyle, figures: list[Figure]
 ) -> None:
     outcomes: Outcomes = {
         "amg": {"s0": _solved(5, 0.0)},
@@ -222,7 +244,12 @@ def test_paired_scatter_returns_none_when_all_solved_times_are_zero(
         outcomes, reference=ConfiguredReference("amg"), style=style, save_path=tmp_path / "p.png"
     )
 
-    assert path is None and not (tmp_path / "p.png").exists()
+    assert path is not None and (tmp_path / "p.png").exists()
+    ax = _axes(figures)
+    filled = [
+        np.asarray(c.get_offsets()).tolist() for c in ax.collections if len(c.get_facecolor())
+    ]
+    assert filled == [[[0.0, 0.0]]]
 
 
 def test_paired_scatter_draws_nothing_for_a_single_method(
@@ -248,7 +275,6 @@ def comparisons() -> dict[str, PairedComparison]:
             n_both_solved=3,
             n_reference_only=0,
             n_method_only=0,
-            wilcoxon_p=None,
         )
     }
 

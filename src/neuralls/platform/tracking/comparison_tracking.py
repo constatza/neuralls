@@ -10,7 +10,7 @@ from pathlib import Path
 
 import mlflow
 
-from neuralls.domain.benchmarking.costs import amortized_online_seconds
+from neuralls.domain.benchmarking.costs import amortized_online_seconds, solve_seconds
 from neuralls.domain.benchmarking.selection import ConfiguredReference, ReferenceUnavailable
 from neuralls.domain.solver.cost_metrics import (
     peak_memory_per_dof,
@@ -199,7 +199,7 @@ def _log_optional_metrics(
 
 
 def _paired_metrics(paired: PairedComparison) -> dict[str, float | None]:
-    """Failure counts, median ratio, interval, and paired Wilcoxon p-value."""
+    """Failure counts, median ratio, and matrix-cluster interval."""
     interval = paired.median_speed_ratio_ci
     return {
         "n_both_solved": float(paired.n_both_solved),
@@ -208,7 +208,6 @@ def _paired_metrics(paired: PairedComparison) -> dict[str, float | None]:
         "speed_ratio_median": paired.median_speed_ratio,
         "speed_ratio_ci_low": interval.low if interval is not None else None,
         "speed_ratio_ci_high": interval.high if interval is not None else None,
-        "wilcoxon_p": paired.wilcoxon_p,
     }
 
 
@@ -246,18 +245,25 @@ class MLflowGroupReportSink:
             outcome_plots = _write_outcome_plots(outcome, presentation, Path(tmp), file_key)
             for artifact in outcome_plots:
                 mlflow.log_artifact(str(artifact), artifact_path=GROUP_REPORT_ARTIFACT_DIR)
+                scenario = (
+                    TimingScenario.SOLVE
+                    if "_solve_" in artifact.name or artifact.name.startswith("solve_time")
+                    else TimingScenario.ONLINE
+                    if "_online_" in artifact.name or artifact.name.startswith("online_time")
+                    else None
+                )
                 self.manifest.add(
                     artifact.name,
                     FigureMetadata(
                         kind=_figure_kind(artifact.name),
                         metric_definition=artifact.stem.split("_")[0],
-                        scenario=TimingScenario.ONLINE if "online" in artifact.name else None,
+                        scenario=scenario,
                         report_level="fine"
                         if isinstance(outcome, RecipeProfileReport)
                         else "mixture",
                         scope=presentation.subject,
                         datasets=(),
-                        recipes=(),
+                        recipes=outcome.recipe_membership,
                         n_matrices=outcome.n_matrices,
                         n_planned_rhs=outcome.n_planned_rhs,
                         reference_selection=(
@@ -445,8 +451,12 @@ def _group_style(
     """The shared concise title and per-preconditioner styling of one plot."""
     titles = {
         "Performance profile (time)": "Performance Profile",
+        "Performance profile (solve)": "Performance Profile",
+        "Performance profile (online)": "Performance Profile",
         "ECDF (iterations)": "Iterations",
         "ECDF (time)": "Online Time",
+        "ECDF (solve time)": "Solve Time",
+        "ECDF (online time)": "Online Time",
         "Time to solution vs reference": "Online Time",
         "Solve time": "Solve Time",
         "Online time": "Online Time",
@@ -473,13 +483,20 @@ def _paired_by_method(
 def _write_profile_plots(
     outcome: GroupAggregated, presentation: GroupPresentation, directory: Path, file_key: str
 ) -> list[Path | None]:
-    """Draw the performance profile and the iteration and time ECDFs of one group."""
+    """Draw fine-only iteration and separate solve/online time profiles."""
     plot_style = plot_style_maps(presentation.plot_styles)
     return [
         plot_performance_profile(
             outcome.outcomes,
-            style=_group_style("Performance profile (time)", presentation, plot_style),
-            save_path=directory / f"performance_profile_{file_key}.png",
+            style=_group_style("Performance profile (solve)", presentation, plot_style),
+            cost=solve_seconds,
+            save_path=directory / f"performance_profile_solve_{file_key}.png",
+        ),
+        plot_performance_profile(
+            outcome.outcomes,
+            style=_group_style("Performance profile (online)", presentation, plot_style),
+            cost=amortized_online_seconds,
+            save_path=directory / f"performance_profile_online_{file_key}.png",
         ),
         plot_ecdf_profile(
             outcome.outcomes,
@@ -488,10 +505,17 @@ def _write_profile_plots(
         ),
         plot_ecdf_profile(
             outcome.outcomes,
-            style=_group_style("ECDF (time)", presentation, plot_style),
+            style=_group_style("ECDF (solve time)", presentation, plot_style),
+            cost=solve_seconds,
+            xlabel="Solve time per system [s]",
+            save_path=directory / f"ecdf_time_solve_{file_key}.png",
+        ),
+        plot_ecdf_profile(
+            outcome.outcomes,
+            style=_group_style("ECDF (online time)", presentation, plot_style),
             cost=amortized_online_seconds,
             xlabel="Amortized online time per system [s]",
-            save_path=directory / f"ecdf_time_{file_key}.png",
+            save_path=directory / f"ecdf_time_online_{file_key}.png",
         ),
     ]
 
@@ -567,7 +591,25 @@ def _write_outcome_plots(
                 ),
                 save_path=aggregate_path,
             )
-            drawn = [aggregate, *_write_system_plots(outcome, presentation, directory, file_key)]
+            drawn = [
+                aggregate,
+                plot_online_time_bars(
+                    outcome.summaries,
+                    scenario="solve",
+                    style=_group_style(
+                        "Solve time", presentation, plot_style_maps(presentation.plot_styles)
+                    ),
+                    save_path=directory / f"solve_time_bars_{file_key}.png",
+                ),
+                plot_online_time_bars(
+                    outcome.summaries,
+                    scenario="online",
+                    style=_group_style(
+                        "Online time", presentation, plot_style_maps(presentation.plot_styles)
+                    ),
+                    save_path=directory / f"online_time_bars_{file_key}.png",
+                ),
+            ]
         case GroupAggregated():
             drawn = _write_system_plots(outcome, presentation, directory, file_key)
             drawn.extend(_write_profile_plots(outcome, presentation, directory, file_key))

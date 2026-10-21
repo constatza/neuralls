@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +16,7 @@ from neuralls.domain.solver.models.benchmark_events import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.domain.solver.models.provenance import (
     HeldOutMatrix,
     MatrixProvenance,
@@ -147,6 +148,7 @@ class CompletedMethodWorkload:
     config_digest: Digest
     method_config: dict[str, Json]
     workload_identities: tuple[Digest, ...] = ()
+    plot_styles: dict[str, PreconditionerPlotStyle] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

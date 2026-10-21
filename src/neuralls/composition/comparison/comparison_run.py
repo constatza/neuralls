@@ -554,7 +554,6 @@ def execute_method_workload(
     sibling RHS solves share that exact object.  The method-owned checkpoint
     store spans matrices and is released before this function returns.
     """
-    del notation_policy  # Labels are rendered later from completed diagnostics.
     device = resolve_device()
     observer = WorkloadMemoryObserver.start(device)
     planned_list: list[SystemTag] = []
@@ -581,6 +580,7 @@ def execute_method_workload(
             )
             del bundle
 
+    color_key, marker_key = _pod2g_style_keys(method.config)
     return CompletedMethodWorkload(
         method=PreconditionerName(method.name),
         planned=tuple(planned_list),
@@ -591,6 +591,17 @@ def execute_method_workload(
         workload_peak_memory=MeasuredPeakMemory(observer.finish()),
         config_digest=method.identity_digest or canonical_digest(method.config),
         method_config=canonical_method_config(method.config),
+        plot_styles={
+            str(method.name): PreconditionerPlotStyle(
+                label=contextualize_preconditioner_label(
+                    build_configured_preconditioner_label(method.config, policy=notation_policy),
+                    Path(color_key).name if color_key is not None else None,
+                ),
+                family=preconditioner_family(method.config),
+                color_key=color_key,
+                marker_key=marker_key,
+            )
+        },
     )
 
 

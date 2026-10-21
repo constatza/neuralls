@@ -89,6 +89,7 @@ def classify_level(
                     if attempt.method == method and attempt.system_id in group_systems
                 ),
                 UnknownPeakMemory(),
+                allocation_planned=planned,
             )
             for method in methods
         )

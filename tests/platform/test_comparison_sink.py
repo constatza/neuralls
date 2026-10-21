@@ -118,7 +118,6 @@ def group() -> GroupAggregated:
                     n_both_solved=3,
                     n_reference_only=0,
                     n_method_only=0,
-                    wilcoxon_p=0.25,
                 ),
             )
         },
@@ -187,7 +186,11 @@ def test_mixture_sink_omits_profiles_but_keeps_aggregate_bars(
 
     key = comparison_tracking.sanitize_metric_key_segment(group.group_id)
     assert f"aggregate_bars_{key}.png" in logged_artifacts
-    assert not any(name.startswith(("performance_profile", "ecdf_")) for name in logged_artifacts)
+    assert set(logged_artifacts) == {
+        f"aggregate_bars_{key}.png",
+        f"solve_time_bars_{key}.png",
+        f"online_time_bars_{key}.png",
+    }
 
 
 def test_recipe_profile_sink_keeps_profile_ecdf_and_aggregate_bars(
@@ -201,7 +204,8 @@ def test_recipe_profile_sink_keeps_profile_ecdf_and_aggregate_bars(
 
     key = comparison_tracking.sanitize_metric_key_segment(group.group_id)
     assert f"aggregate_bars_{key}.png" in logged_artifacts
-    assert f"performance_profile_{key}.png" in logged_artifacts
+    assert f"performance_profile_solve_{key}.png" in logged_artifacts
+    assert f"performance_profile_online_{key}.png" in logged_artifacts
 
 
 def test_sink_logs_explicit_counts_and_ratio_metrics(
@@ -220,7 +224,7 @@ def test_sink_logs_explicit_counts_and_ratio_metrics(
     assert logged_metrics[_key("n_both_solved", group, "jacobi")] == 3
     assert logged_metrics[_key("speed_ratio_median", group, "jacobi")] == 0.4
     assert logged_metrics[_key("speed_ratio_ci_high", group, "jacobi")] == 0.5
-    assert logged_metrics[_key("wilcoxon_p", group, "jacobi")] == 0.25
+    assert not any("wilcoxon" in key for key in logged_metrics)
 
 
 def test_never_converged_method_logs_only_counts(
@@ -251,9 +255,11 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
             "online_time_bars",
             "paired_time_scatter",
             "speed_ratio_cdf",
-            "performance_profile",
+            "performance_profile_solve",
+            "performance_profile_online",
             "ecdf_iterations",
-            "ecdf_time",
+            "ecdf_time_solve",
+            "ecdf_time_online",
         )
     }
     assert set(logged_artifacts) == expected

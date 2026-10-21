@@ -51,7 +51,7 @@ def test_performance_profile_scores_failures_as_unsolved(outcomes, time_cost) ->
     assert profiles["jacobi"].fraction_solved(1e9) == pytest.approx(0.5)
 
 
-def test_systems_no_method_solved_are_excluded_from_performance_profiles(time_cost) -> None:
+def test_systems_no_method_solved_remain_in_performance_profile_denominator(time_cost) -> None:
     outcomes = {
         "a": {
             "s0": Solved(MatrixId(1), 1, 1.0, 1.5),
@@ -65,7 +65,20 @@ def test_systems_no_method_solved_are_excluded_from_performance_profiles(time_co
 
     profiles = performance_profiles(outcomes, time_cost)
 
-    assert profiles["a"].n_systems == profiles["b"].n_systems == 1
+    assert profiles["a"].n_systems == profiles["b"].n_systems == 2
+    assert profiles["a"].fraction_solved(1e9) == pytest.approx(0.5)
+
+
+def test_all_failed_methods_still_have_zero_profile_plateaus(time_cost) -> None:
+    outcomes = {
+        "a": {"s0": Failed(MatrixId(1), 3, "setup failed")},
+        "b": {"s0": Failed(MatrixId(1), 3, "interrupted")},
+    }
+
+    profiles = performance_profiles(outcomes, time_cost)
+
+    assert set(profiles) == {"a", "b"}
+    assert all(profile.n_systems == 1 and not profile.solved_at for profile in profiles.values())
 
 
 def test_ecdf_counts_failures_in_the_denominator(outcomes, time_cost) -> None:

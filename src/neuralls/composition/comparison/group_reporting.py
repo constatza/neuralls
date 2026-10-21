@@ -51,10 +51,10 @@ def _subject(report: RecipeProfileReport | WorkloadMixtureReport) -> str:
     match report:
         case RecipeProfileReport(label=label):
             return f"Dataset {label.dataset} - {label.recipe}"
-        case WorkloadMixtureReport(label=MediumLabel(dataset=dataset)):
-            return f"Dataset {dataset}"
-        case WorkloadMixtureReport(label=GlobalLabel()):
-            return "All datasets"
+        case WorkloadMixtureReport(label=MediumLabel(dataset=dataset)) as mixture:
+            return f"Dataset {dataset} - {_mixture_text(mixture.recipe_membership)}"
+        case WorkloadMixtureReport(label=GlobalLabel()) as mixture:
+            return f"All datasets - {_mixture_text(mixture.recipe_membership)}"
         case _ as unreachable:
             assert_never(cast(Never, unreachable))
 
@@ -64,10 +64,10 @@ def _subtitle(outcome: RecipeProfileReport | WorkloadMixtureReport) -> str:
     match outcome:
         case RecipeProfileReport(label=label):
             scope = f"Dataset {label.dataset} - {label.recipe}"
-        case WorkloadMixtureReport(label=MediumLabel(dataset=dataset)):
-            scope = f"Dataset {dataset}"
-        case WorkloadMixtureReport(label=GlobalLabel()):
-            scope = "All datasets"
+        case WorkloadMixtureReport(label=MediumLabel(dataset=dataset)) as mixture:
+            scope = f"Dataset {dataset} - {_mixture_text(mixture.recipe_membership)}"
+        case WorkloadMixtureReport(label=GlobalLabel()) as mixture:
+            scope = f"All datasets - {_mixture_text(mixture.recipe_membership)}"
         case _ as unreachable:
             assert_never(cast(Never, unreachable))
     return scope
@@ -97,6 +97,9 @@ def report_all_levels(
     planned = tuple(planned_by_id.values())
     setup_events = tuple(event for workload in workloads for event in workload.setup_events)
     attempts = tuple(attempt for workload in workloads for attempt in workload.solve_attempts)
+    plot_styles = {
+        name: style for workload in workloads for name, style in workload.plot_styles.items()
+    }
     for level in REPORT_LEVELS:
         for classified in classify_level(planned, setup_events, attempts, level, selected):
             match classified:
@@ -106,7 +109,7 @@ def report_all_levels(
                         presentation=GroupPresentation(
                             subject=_subject(aggregated),
                             subtitle=_subtitle(aggregated),
-                            plot_styles={},
+                            plot_styles=plot_styles,
                         ),
                     )
                 case GroupSkippedAllCacheHit(group_id=group_id, n_planned_rhs=n_total):
