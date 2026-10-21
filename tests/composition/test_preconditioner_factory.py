@@ -463,6 +463,35 @@ def test_factory_creates_amg_preconditioner_with_pod_coarsening(
     assert isinstance(precond, AMGPreconditioner)
 
 
+def test_pod_fit_arrays_are_staged_before_factory_build(
+    monkeypatch: pytest.MonkeyPatch,
+    well_conditioned_matrix: torch.Tensor,
+    tmp_path: Path,
+) -> None:
+    """Inline POD setup consumes staged fit arrays without reading its dataset."""
+    from neuralls.composition.comparison._preconditioner_setup import PreconditionerService
+
+    dataset_dir = tmp_path / "fit-data-not-read-during-build"
+    config = AMGPreconditionerConfig(
+        coarsening=PODCoarseningConfig(dataset_dir=dataset_dir, rank=2)
+    )
+    snapshots = np.eye(4, well_conditioned_matrix.shape[0], dtype=np.float64)
+    service = PreconditionerService()
+    monkeypatch.setattr(
+        "neuralls.composition.comparison._preconditioner_setup.load_dense_training_arrays",
+        lambda path: (np.empty((4, 1)), snapshots),
+    )
+    service.preload(well_conditioned_matrix, config)
+    monkeypatch.setattr(
+        "neuralls.composition.preconditioners.coarsening.load_dense_training_arrays",
+        lambda path: pytest.fail("fit data must be staged before setup timing"),
+    )
+
+    precond = service.create_preconditioner(well_conditioned_matrix, config)
+
+    assert isinstance(precond, AMGPreconditioner)
+
+
 @pytest.fixture
 def fitted_pod_checkpoint(tmp_path: Path, well_conditioned_matrix: torch.Tensor) -> Path:
     """A real dlkit-shaped checkpoint for an already-fitted `PODCoarseningStrategy`.
@@ -843,6 +872,31 @@ def test_create_scheduled_preconditioner_delayed_schedule_uses_fallback_before_s
         result.apply(residual_vector, active_ctx),
         torch.tensor([0.25, 2 / 3, 1.5, 2.0], dtype=torch.float64),
     )
+
+
+def test_scheduled_wrapper_does_not_setup_an_already_ready_primary(
+    monkeypatch: pytest.MonkeyPatch,
+    well_conditioned_matrix: torch.Tensor,
+) -> None:
+    """A scheduled build owns exactly one setup of a matrix-dependent primary."""
+    primary = JacobiPreconditioner()
+    calls = 0
+    original_setup = primary.setup
+
+    def setup(matrix: torch.Tensor, *args: object, **kwargs: object) -> object:
+        nonlocal calls
+        calls += 1
+        return original_setup(matrix, *args, **kwargs)
+
+    monkeypatch.setattr(primary, "setup", setup)
+    primary.setup(well_conditioned_matrix)
+    create_scheduled_preconditioner(
+        primary,
+        PreconditionerScheduleConfig(limit_iters=2),
+        matrix=well_conditioned_matrix,
+    )
+
+    assert calls == 1
 
 
 def test_create_scheduled_preconditioner_default_fallback() -> None:

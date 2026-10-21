@@ -1426,6 +1426,12 @@ def _execute_all(
             settings=first.settings,
             notation_policy=first.cfg.notation_policy,
         )
+        workload = replace(
+            workload,
+            workload_identities=tuple(
+                system.identity.key for _, systems in matrices for system in systems
+            ),
+        )
         workloads.append(workload)
         release_device_memory()
     return _outcomes_from_workloads(pending, workloads), tuple(workloads)
@@ -1445,6 +1451,9 @@ def _all_method_workloads_reusable(
         return False
     for method, matrices in schedule:
         system_ids = tuple(str(system.entry.id) for _, systems in matrices for system in systems)
+        system_identities = tuple(
+            system.identity.key for _, systems in matrices for system in systems
+        )
         if (
             find_reusable_benchmark_method(
                 tracking_uri=topology.tracking_uri,
@@ -1453,6 +1462,7 @@ def _all_method_workloads_reusable(
                 config_digest=method.identity_digest or canonical_digest(method.config),
                 method_config=canonical_method_config(method.config),
                 system_ids=system_ids,
+                system_identities=system_identities,
             )
             is None
         ):
@@ -1474,10 +1484,12 @@ def _persist_method_workloads(
             workload.workload_peak_memory,
         )
         method_ids = tuple(str(tag.system_id) for tag in workload.planned)
+        method_identities = workload.workload_identities or None
         run_name, tags = build_benchmark_method_run_spec(
             method=str(workload.method),
             config_digest=workload.config_digest,
             system_ids=method_ids,
+            system_identities=method_identities,
         )
         with mlflow.start_run(run_name=run_name, nested=True, tags=tags.as_mlflow_tags()):
             sink.record_method(

@@ -19,7 +19,16 @@ from neuralls.composition.preconditioners.schedule import (
     PreconditionerScheduleConfig,
     create_scheduled_preconditioner,
 )
-from neuralls.platform.config.models.preconditioner import PreconditionerConfig
+from neuralls.platform.config.models.preconditioner import (
+    AMGPreconditionerConfig,
+    NeuralPODCoarseningConfig,
+    PODCoarseningConfig,
+    PreconditionerConfig,
+)
+from neuralls.platform.storage.dataset_readers import (
+    load_dense_training_arrays,
+    load_parameter_arrays,
+)
 from neuralls.platform.storage.training_artifacts import (
     load_array_source_sample,
     load_training_arrays,
@@ -241,6 +250,7 @@ class PreconditionerService:
     ) -> None:
         self._adapter = adapter
         self._checkpoints = checkpoints
+        self._staged_fit_data: dict[str, tuple[np.ndarray, ...]] = {}
 
     def preload(self, matrix: torch.Tensor, config: PreconditionerConfig) -> None:
         """Load the checkpoints ``config`` depends on, outside any timed region.
@@ -256,11 +266,23 @@ class PreconditionerService:
             matrix: System matrix; a fitted POD basis is moved to its dtype/device.
             config: Preconditioner configuration.
         """
-        if self._checkpoints is None:
-            return
-        preload_checkpoints(
-            config, matrix, self._checkpoints, CheckpointLoaders.default(self._adapter)
-        )
+        if self._checkpoints is not None:
+            preload_checkpoints(
+                config, matrix, self._checkpoints, CheckpointLoaders.default(self._adapter)
+            )
+        if isinstance(config, AMGPreconditionerConfig):
+            coarsening = config.coarsening
+            if (
+                isinstance(coarsening, PODCoarseningConfig)
+                and coarsening.active_checkpoint_path is None
+            ):
+                self._staged_fit_data.setdefault(
+                    config.name, tuple(load_dense_training_arrays(coarsening.dataset_dir))
+                )
+            elif isinstance(coarsening, NeuralPODCoarseningConfig):
+                self._staged_fit_data.setdefault(
+                    config.name, tuple(load_parameter_arrays(coarsening.dataset_dir))
+                )
 
     def create_preconditioner(
         self,
@@ -277,7 +299,13 @@ class PreconditionerService:
             Preconditioner instance.
         """
         preloaded = self._checkpoints if self._checkpoints is not None else NO_PRELOADED
-        return create_preconditioner(matrix, config, adapter=self._adapter, preloaded=preloaded)
+        return create_preconditioner(
+            matrix,
+            config,
+            adapter=self._adapter,
+            preloaded=preloaded,
+            staged_fit_data=self._staged_fit_data.get(config.name),
+        )
 
 
 def _create_scheduled_preconditioners(

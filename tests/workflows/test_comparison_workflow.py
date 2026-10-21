@@ -493,6 +493,42 @@ def test_resolve_comparison_config_presentation_override_replaces_case_default(
     assert resolved.notation_policy.target is RenderTarget.MATHTEXT
 
 
+def test_reference_validation_waits_for_assignment_methods(
+    tmp_path: Path,
+) -> None:
+    """A reference supplied by later assignment expansion is not rejected early."""
+    datasets_dir = tmp_path / "datasets"
+    datasets_dir.mkdir()
+    write_dataset_config(datasets_dir / "matrix.toml", "matrix")
+    method_path = tmp_path / "method.toml"
+    method_path.write_text(
+        tomli_w.dumps(
+            {
+                "general": {"reference_preconditioner": "assignment-model"},
+                "preconditioners": [{"type": "identity"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings = make_settings(tmp_path)
+    case_cfg = CaseConfig.model_validate(
+        {
+            "datasets": [{"id": "matrix", "path": "datasets/matrix.toml"}],
+            "comparison_baseline": {"preconditioners": [{"type": "identity"}]},
+        }
+    )
+    entry = ComparisonRegistryEntry(
+        id="with-assignment-reference",
+        matrix_dataset="matrix",
+        method=method_path,
+        rhs_source={"kind": "gaussian"},
+    )
+
+    resolved = resolve_comparison_config(case_cfg, tmp_path, _planned(entry), settings)
+
+    assert resolved.general.reference_preconditioner == "assignment-model"
+
+
 def test_resolve_comparison_config_carries_generated_rhs_without_rhs_path(
     tmp_path: Path,
 ) -> None:

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+import numpy as np
 import torch
 from loguru import logger
 from torchalg.multigrid import AMGPreconditioner as MultigridAMGPreconditioner
@@ -86,6 +87,7 @@ class _BuildDeps:
     adapter: PredictorAdapter | None
     inference_predictor_factory: PredictorFactory | None
     preloaded: PreloadedCheckpoints = NO_PRELOADED
+    staged_fit_data: tuple[np.ndarray, ...] | None = None
 
 
 type PreconditionerBuilder = Callable[
@@ -183,7 +185,12 @@ def _build_sparse_amg(
             None,
         )
     coarsening = _build_amg_coarsening(
-        matrix, config, deps.inference_predictor_factory, sparse=True, preloaded=deps.preloaded
+        matrix,
+        config,
+        deps.inference_predictor_factory,
+        sparse=True,
+        preloaded=deps.preloaded,
+        staged_fit_data=deps.staged_fit_data,
     )
     cycle = MultigridVCycle(
         resolve_jacobi_default(None, config.smoother_omega),
@@ -202,6 +209,7 @@ def _build_amg(
     config: AMGPreconditionerConfig,
     inference_predictor_factory: PredictorFactory | None = None,
     preloaded: PreloadedCheckpoints = NO_PRELOADED,
+    staged_fit_data: tuple[np.ndarray, ...] | None = None,
 ) -> tuple[Preconditioner, CoarseningStrategy]:
     """Assemble an `AMGPreconditioner` and return it alongside its coarsening strategy.
 
@@ -225,7 +233,11 @@ def _build_amg(
         The assembled preconditioner and the coarsening strategy used to build it.
     """
     coarsening = _build_amg_coarsening(
-        matrix, config, inference_predictor_factory, preloaded=preloaded
+        matrix,
+        config,
+        inference_predictor_factory,
+        preloaded=preloaded,
+        staged_fit_data=staged_fit_data,
     )
     smoother = JacobiSmoother(omega=config.smoother_omega)
     cycle = VCycle(
@@ -245,7 +257,13 @@ def _build_dense_amg(
     """Dense AMG: the one builder whose coarsening is exposed in its return."""
     if not isinstance(config, AMGPreconditionerConfig):
         raise TypeError(f"AMG type requires AMGPreconditionerConfig, got {type(config)}")
-    return _build_amg(matrix, config, deps.inference_predictor_factory, deps.preloaded)
+    return _build_amg(
+        matrix,
+        config,
+        deps.inference_predictor_factory,
+        deps.preloaded,
+        deps.staged_fit_data,
+    )
 
 
 def _build_adaptive_sa(

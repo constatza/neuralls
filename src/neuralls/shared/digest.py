@@ -144,6 +144,23 @@ def canonical_digest(*parts: object) -> Digest:
     return _format(hashlib.sha256(text.encode("ascii")).hexdigest())
 
 
+def ordered_workload_digest(
+    system_ids: tuple[str, ...], system_identities: tuple[Digest, ...] | None = None
+) -> Digest:
+    """Digest ordered workload IDs together with comprehensive system identities."""
+    if system_identities is not None and len(system_identities) != len(system_ids):
+        raise ValueError("system identities must match ordered system IDs")
+    payload = (
+        tuple(
+            {"system_id": system_id, "identity": identity}
+            for system_id, identity in zip(system_ids, system_identities, strict=True)
+        )
+        if system_identities is not None
+        else tuple(system_ids)
+    )
+    return canonical_digest(payload)
+
+
 @singledispatch
 def canonical(obj: object) -> Json:
     """Return a JSON-able canonical form of ``obj``.

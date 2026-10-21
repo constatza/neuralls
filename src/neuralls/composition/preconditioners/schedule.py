@@ -97,9 +97,16 @@ def create_scheduled_preconditioner(
     else:
         raise ValueError(f"Unsupported fallback type: {schedule.fallback}")
 
-    return ScheduledPreconditioner(
+    scheduled = ScheduledPreconditioner(
         primary=primary,
         fallback=fallback_precond,
         limit_iters=None if schedule.limit_iters < 0 else schedule.limit_iters,
         start_iter=schedule.start_iter,
-    ).setup(matrix)
+    )
+    # Builders return ready matrix-dependent primaries.  The wrapper still owns
+    # fallback setup, but must not prepare the same primary a second time.
+    if getattr(primary, "_is_ready", False):
+        fallback_precond.setup(None)
+        scheduled._mark_ready()
+        return scheduled
+    return scheduled.setup(matrix)

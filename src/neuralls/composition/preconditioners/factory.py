@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import numpy as np
 import torch
 from torchalg.preconditioners.base import Preconditioner
 
@@ -45,6 +46,7 @@ def create_preconditioner(
     inference_predictor_factory: PredictorFactory | None = None,
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
     preloaded: PreloadedCheckpoints = NO_PRELOADED,
+    staged_fit_data: tuple[np.ndarray, ...] | None = None,
 ) -> Preconditioner:
     """Create a preconditioner from configuration for a matrix in the given format.
 
@@ -68,7 +70,13 @@ def create_preconditioner(
         ValueError: If no builder is registered for the (type, format) pair.
     """
     preconditioner, _ = create_preconditioner_with_coarsening(
-        matrix, config, adapter, inference_predictor_factory, matrix_format, preloaded
+        matrix,
+        config,
+        adapter,
+        inference_predictor_factory,
+        matrix_format,
+        preloaded,
+        staged_fit_data,
     )
     return preconditioner
 
@@ -80,6 +88,7 @@ def create_preconditioner_with_coarsening(
     inference_predictor_factory: PredictorFactory | None = None,
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
     preloaded: PreloadedCheckpoints = NO_PRELOADED,
+    staged_fit_data: tuple[np.ndarray, ...] | None = None,
 ) -> tuple[Preconditioner, CoarseningStrategy | None]:
     """Create a preconditioner, also returning its coarsening strategy when it has one.
 
@@ -114,6 +123,7 @@ def create_preconditioner_with_coarsening(
         adapter=adapter,
         inference_predictor_factory=inference_predictor_factory,
         preloaded=preloaded,
+        staged_fit_data=staged_fit_data,
     )
     operator, resolved_format = _resolve_format_input(matrix, config.type, matrix_format)
     builder = _lookup_builder(config.type, resolved_format)

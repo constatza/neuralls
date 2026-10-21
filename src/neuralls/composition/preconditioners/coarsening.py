@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
 import torch
 from dlkit.engine.inference.model_builder import build_model_from_checkpoint
 from torchalg.preconditioners.implementations.amg import (
@@ -127,6 +128,7 @@ def _pod_coarsening(
     matrix: torch.Tensor,
     pod_cls: type[PODStrategy],
     preloaded: PreloadedCheckpoints,
+    staged_fit_data: tuple[np.ndarray, ...] | None = None,
 ) -> PODStrategy:
     """POD-2G basis: reconstructed from a fitted checkpoint, or fit inline from snapshots.
 
@@ -139,7 +141,12 @@ def _pod_coarsening(
         # composition/assignments/comparison_batch.py); the basis is loaded, not refit.
         return _load_fitted_pod_coarsening(ckpt, matrix, pod_cls, preloaded)
 
-    _, solutions = load_dense_training_arrays(cfg.dataset_dir)
+    if staged_fit_data is None:
+        _, solutions = load_dense_training_arrays(cfg.dataset_dir)
+    elif len(staged_fit_data) == 2:
+        _, solutions = staged_fit_data
+    else:
+        raise ValueError("POD fit data must contain parameter and solution arrays")
     if cfg.n_snapshots != -1:
         solutions = solutions[: cfg.n_snapshots]
     snapshots = torch.as_tensor(solutions, dtype=matrix.dtype, device=matrix.device)
@@ -155,6 +162,7 @@ def _neural_pod_coarsening(
     inference_predictor_factory: PredictorFactory | None,
     pod_cls: type[PODStrategy],
     preloaded: PreloadedCheckpoints,
+    staged_fit_data: tuple[np.ndarray, ...] | None = None,
 ) -> PODStrategy:
     """POD-2G basis fit on a neural model's predictions over the parameter samples."""
     ckpt = cfg.active_checkpoint_path
@@ -166,7 +174,9 @@ def _neural_pod_coarsening(
         inference_predictor_factory or create_inference_predictor, preloaded
     )
 
-    param_arrays = load_parameter_arrays(cfg.dataset_dir)
+    param_arrays = (
+        load_parameter_arrays(cfg.dataset_dir) if staged_fit_data is None else staged_fit_data
+    )
     input_names = cfg.input_names
     if len(input_names) != len(param_arrays):
         raise ValueError(
@@ -194,6 +204,7 @@ def _build_amg_coarsening(
     *,
     sparse: bool = False,
     preloaded: PreloadedCheckpoints = NO_PRELOADED,
+    staged_fit_data: tuple[np.ndarray, ...] | None = None,
 ) -> CoarseningStrategy:
     """Build the coarsening strategy selected by an AMG config's ``coarsening`` field.
 
@@ -222,10 +233,15 @@ def _build_amg_coarsening(
                 raise TypeError("Sparse AMG has no target-dimension coarsening.")
             return _target_dim_coarsening(target_dim)
         case PODCoarseningConfig() as pod:
-            return _pod_coarsening(pod, matrix, pod_cls, preloaded)
+            return _pod_coarsening(pod, matrix, pod_cls, preloaded, staged_fit_data)
         case NeuralPODCoarseningConfig() as neural_pod:
             return _neural_pod_coarsening(
-                neural_pod, matrix, inference_predictor_factory, pod_cls, preloaded
+                neural_pod,
+                matrix,
+                inference_predictor_factory,
+                pod_cls,
+                preloaded,
+                staged_fit_data,
             )
         case AggregationCoarseningConfig() as aggregation:
             if sparse:

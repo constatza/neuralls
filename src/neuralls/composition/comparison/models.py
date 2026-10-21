@@ -146,6 +146,7 @@ class CompletedMethodWorkload:
     workload_peak_memory: PeakMemory
     config_digest: Digest
     method_config: dict[str, Json]
+    workload_identities: tuple[Digest, ...] = ()
 
 
 @dataclass(frozen=True)

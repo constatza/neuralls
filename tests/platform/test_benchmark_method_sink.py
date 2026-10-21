@@ -160,6 +160,24 @@ def test_method_child_tags_include_schema_identity_and_required_raw_artifacts() 
     assert values["neuralls.identity.stage"] == "comparison_method"
 
 
+def test_method_membership_digest_includes_ordered_system_identities() -> None:
+    """Changing solver/data identity cannot reuse the same visible system IDs."""
+    _, first = build_benchmark_method_run_spec(
+        method="jacobi",
+        config_digest="sha256:" + "a" * 64,
+        system_ids=("s0", "s1"),
+        system_identities=("sha256:" + "1" * 64, "sha256:" + "2" * 64),
+    )
+    _, changed = build_benchmark_method_run_spec(
+        method="jacobi",
+        config_digest="sha256:" + "a" * 64,
+        system_ids=("s0", "s1"),
+        system_identities=("sha256:" + "1" * 64, "sha256:" + "3" * 64),
+    )
+
+    assert first.workload_membership_digest != changed.workload_membership_digest
+
+
 @pytest.mark.parametrize("config_kind", ("amg", "checkpoint"))
 def test_method_config_serialization_is_canonical_and_omits_unset_optionals(
     tmp_path: Path, config_kind: str

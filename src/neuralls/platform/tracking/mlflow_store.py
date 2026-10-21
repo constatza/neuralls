@@ -23,7 +23,7 @@ from neuralls.platform.reporting.benchmark_events import (
     read_solve_attempts,
 )
 from neuralls.platform.tracking.mlflow import quote_filter_value
-from neuralls.shared.digest import Digest, Json, canonical_digest
+from neuralls.shared.digest import Digest, Json, ordered_workload_digest
 
 _PAGE_SIZE = 50
 _NEWEST_FIRST = ["attributes.start_time DESC", "attributes.run_id ASC"]
@@ -119,6 +119,7 @@ def find_reusable_benchmark_method(
     config_digest: Digest,
     system_ids: tuple[str, ...],
     method_config: Mapping[str, Json],
+    system_identities: tuple[Digest, ...] | None = None,
 ) -> Reused | None:
     """Find a complete schema-v1 method child, ignoring legacy system runs.
 
@@ -131,7 +132,7 @@ def find_reusable_benchmark_method(
     experiment_obj = client.get_experiment_by_name(experiment)
     if experiment_obj is None:
         return None
-    membership = canonical_digest(tuple(system_ids))
+    membership = ordered_workload_digest(system_ids, system_identities)
     escaped_method = method.replace("'", "''")
     clauses = [
         "attributes.status = 'FINISHED'",
@@ -168,6 +169,7 @@ def find_reusable_benchmark_method(
                     method=method,
                     config_digest=config_digest,
                     system_ids=system_ids,
+                    system_identities=system_identities,
                     method_config=method_config,
                 )
             except OSError, ValueError, TypeError, KeyError, tomllib.TOMLDecodeError:
@@ -183,6 +185,7 @@ def _validate_method_artifacts(
     config_digest: Digest,
     system_ids: tuple[str, ...],
     method_config: Mapping[str, Json],
+    system_identities: tuple[Digest, ...] | None = None,
 ) -> None:
     """Validate the canonical Task 5 artifacts before accepting a cache hit."""
     setup_path = Path(paths["setup_events.parquet"])
@@ -206,7 +209,9 @@ def _validate_method_artifacts(
         raise TypeError("method summary is missing identity fields")
     if method_summary.get("name") != method or method_summary.get("config_digest") != config_digest:
         raise ValueError("method summary identity does not match requested workload")
-    if workload_summary.get("membership_digest") != canonical_digest(tuple(system_ids)):
+    if workload_summary.get("membership_digest") != ordered_workload_digest(
+        system_ids, system_identities
+    ):
         raise ValueError("method summary membership does not match requested workload")
     if workload_summary.get("system_ids") != expected_ids:
         raise ValueError("method summary system membership does not match requested workload")
@@ -257,6 +262,8 @@ def _validate_summary(
     if not isinstance(counts, dict) or not isinstance(online, dict):
         raise TypeError("method summary is missing counts or online totals")
     expected_missing = [system_id for system_id in expected_ids if system_id not in solved_ids]
+    if expected_missing:
+        raise ValueError("incomplete method workload is not reusable")
     if counts.get("planned_rhs") != len(expected_ids):
         raise ValueError("summary planned count does not match workload membership")
     if counts.get("attempted_rhs") != len(solved_ids):
@@ -264,10 +271,7 @@ def _validate_summary(
     converged = sum(value == "converged" for value in solve.get_column("solve_status").to_list())
     if counts.get("converged") != converged:
         raise ValueError("summary converged count does not match solve events")
-    if expected_missing:
-        if counts.get("missing_system_ids") != expected_missing:
-            raise ValueError("summary missing membership does not match solve events")
-    elif "missing_system_ids" in counts:
+    if "missing_system_ids" in counts:
         raise ValueError("complete summary must not declare missing systems")
 
     setup_total = math.fsum(float(value) for value in setup.get_column("setup_s").to_list())

@@ -28,7 +28,7 @@ from neuralls.domain.solver.reporting.event_frames import (
     build_solve_frame,
     validate_setup_solve_frame_links,
 )
-from neuralls.shared.digest import Digest, canonical_digest
+from neuralls.shared.digest import Digest, ordered_workload_digest
 
 BENCHMARK_EVENT_SCHEMA_VERSION = 1
 _SCHEMA_METADATA_KEY = b"neuralls.benchmark_event_schema_version"
@@ -132,8 +132,9 @@ def _write_summary(workload: MethodWorkload, summary: MethodWorkloadSummary, pat
             "config_digest": workload.config_digest,
         },
         "workload": {
-            "membership_digest": canonical_digest(
-                tuple(str(tag.system_id) for tag in workload.planned)
+            "membership_digest": ordered_workload_digest(
+                tuple(str(tag.system_id) for tag in workload.planned),
+                tuple(getattr(workload, "workload_identities", ())) or None,
             ),
             "system_ids": [str(tag.system_id) for tag in workload.planned],
         },

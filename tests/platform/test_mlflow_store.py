@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tomllib
 from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import patch
@@ -381,6 +382,26 @@ def test_reuse_rejects_wrong_required_config_contents(
 ) -> None:
     paths, system_ids = method_artifacts
     Path(paths["method_config.toml"]).write_text('name = "other"\n', encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        _validate_method_artifacts(
+            paths,
+            method="jacobi",
+            config_digest="sha256:" + "a" * 64,
+            system_ids=system_ids,
+            method_config={"name": "jacobi"},
+        )
+
+
+def test_reuse_rejects_incomplete_missing_attempts(
+    method_artifacts: tuple[dict[str, str], tuple[str, ...]],
+) -> None:
+    """A setup failure remains diagnostic-only and never qualifies as reusable."""
+    paths, system_ids = method_artifacts
+    summary = tomllib.loads(Path(paths["summary.toml"]).read_text(encoding="utf-8"))
+    summary["counts"]["missing_system_ids"] = [system_ids[0]]
+    summary["counts"]["attempted_rhs"] = len(system_ids) - 1
+    Path(paths["summary.toml"]).write_bytes(tomli_w.dumps(summary).encode("utf-8"))
 
     with pytest.raises(ValueError):
         _validate_method_artifacts(

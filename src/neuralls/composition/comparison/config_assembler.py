@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from neuralls.composition.comparison.models import PlannedSystem
-from neuralls.domain.benchmarking.selection import validate_reference_preconditioner
 from neuralls.domain.solver.models.config import (
     ComparisonData,
     ComparisonGeneral,
@@ -104,11 +103,6 @@ def resolve_comparison_config(
             preconditioners = list(override.preconditioners)
         if "reference_preconditioner" in override.general.model_fields_set:
             reference_preconditioner = override.general.reference_preconditioner
-        if override.preconditioners:
-            validate_reference_preconditioner(
-                reference_preconditioner,
-                tuple(spec.name for spec in preconditioners),
-            )
         if "normalize_system" in override.general.data.model_fields_set:
             normalize_system = override.general.data.normalize_system
         if override.general.params is not None:

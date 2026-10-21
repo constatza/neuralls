@@ -13,7 +13,7 @@ from neuralls.platform.config.models.experiments import AssignmentEntry, Compari
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.reporting.benchmark_events import BENCHMARK_EVENT_SCHEMA_VERSION
 from neuralls.platform.tracking.mlflow import MlflowRunConfig
-from neuralls.shared.digest import Digest, canonical_digest
+from neuralls.shared.digest import Digest, canonical_digest, ordered_workload_digest
 
 
 def iso_timestamp(dt: datetime | None = None) -> str:
@@ -142,10 +142,19 @@ class BenchmarkMethodRunTags:
 
 
 def build_benchmark_method_run_spec(
-    *, method: str, config_digest: Digest, system_ids: tuple[str, ...]
+    *,
+    method: str,
+    config_digest: Digest,
+    system_ids: tuple[str, ...],
+    system_identities: tuple[Digest, ...] | None = None,
 ) -> tuple[str, BenchmarkMethodRunTags]:
-    """Build a deterministic method-child name and reusable-workload identity."""
-    membership = canonical_digest(tuple(system_ids))
+    """Build a deterministic method-child name and reusable-workload identity.
+
+    ``system_ids`` are user-facing labels, not enough to identify the work.  A
+    prepared system identity is therefore paired with each ID when available;
+    callers that only have legacy IDs retain the old compatibility identity.
+    """
+    membership = ordered_workload_digest(system_ids, system_identities)
     identity = StageIdentity.build(
         "comparison_method",
         {
