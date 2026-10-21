@@ -584,6 +584,28 @@ be resolved; it must be re-registered. Registration itself is a deliberate,
 manual action (e.g. called ad hoc or via the MLflow UI for alias management)
 — not an automatic side effect of training.
 
+## Benchmark timing and references
+
+Comparison reports use **generation** for offline dataset/training work,
+**setup** for preparing a method for one matrix, and **solve** for one RHS
+attempt. Checkpoint and data loading, reference-only diagnostics, staging,
+plotting, persistence, and MLflow calls are excluded from online timing.
+Workload online time is setup plus solve; amortized online/RHS time charges a
+matrix setup once across its planned RHS values. Success rate is converged
+attempts over planned systems, so failures stay visible without a synthetic
+penalty.
+
+Fine-level profiles use one recipe. ECDFs show absolute-budget fractions;
+Dolan--Moré profiles show fractions within a factor of the per-system fastest
+method. Medium and global outputs are workload mixtures, not pooled profiles.
+Paired time and reference/method speed ratios use only the same matrix/RHS
+systems and only a `reference_preconditioner` explicitly configured by the
+user. Missing or failed sides remain counted but do not produce a ratio.
+Intervals resample matrix clusters to preserve dependence among sibling RHSs.
+These deterministic heterogeneous sweeps are not COCO restart experiments,
+so ordinary reports do not define ERT; that statistic belongs only to a future
+restart protocol with an explicit success distribution.
+
 ## Full case pipeline: three stage functions, one orchestrator above them
 
 There are exactly three pipeline-stage functions, each independently

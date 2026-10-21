@@ -279,6 +279,21 @@ Additional guidance:
 
 ## Outputs
 
+## Comparison metrics
+
+Comparison artifacts distinguish offline generation from online workload
+timing. Online time contains only per-matrix setup and RHS solve events;
+checkpoint/data loading, reference-only work, plotting, persistence, and
+MLflow calls are excluded. Workload online time sums those events, while
+amortized online/RHS time charges setup across planned RHSs. Success rate is
+converged attempts divided by planned systems. ECDFs use absolute time
+budgets, and Dolan--Moré profiles use per-system ratios to the fastest method.
+Paired time and reference/method speed ratios require an explicitly configured
+`reference_preconditioner`; no automatic reference is inferred. Failures are
+retained as censored outcomes, and uncertainty resamples matrix clusters.
+Because ordinary sweeps contain heterogeneous deterministic systems rather
+than COCO restarts, they do not report ERT.
+
 Two roots matter operationally:
 
 - `processed_dir`: generated datasets used by training and comparison

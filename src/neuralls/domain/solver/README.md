@@ -72,6 +72,41 @@ only in the raw event/frame and workload totals.
 
 ## Benchmarking statistics
 
+### Comparison vocabulary
+
+The benchmark separates costs by when they are paid. **Generation** is the
+offline construction of a dataset or training artifact; it is reported only
+when a measured historical value is available. Checkpoint and input-data
+loading, validation, staging, plotting, persistence, and MLflow work are
+excluded from online timing. **Setup** is method preparation for one matrix;
+**solve** is one attempted RHS. **Workload online time** is the sum of setup
+and solve events for the workload. **Amortized online time per RHS** is solve
+time plus that matrix setup divided by the planned RHS count. Thus no
+checkpoint or data-read cost is silently charged to a method.
+
+The **success rate** is converged attempts divided by planned RHS systems;
+failures remain in the denominator and are never assigned a penalty time. An
+**empirical cumulative distribution function (ECDF)** shows the fraction of
+planned systems solved within an absolute time budget. A **Dolan--Moré
+performance profile** instead shows the fraction within a factor of the
+fastest method on each system. Profiles are emitted only for one homogeneous
+recipe; heterogeneous recipes are reported as workload mixtures.
+
+A **paired time** comparison uses the same matrix/RHS system for a configured
+reference and method. Its **speed ratio** is reference time divided by method
+time, so values above one favor the method. Pair counts retain both-solved,
+reference-only, and method-only failures. Uncertainty resamples whole
+**matrix clusters**, preserving dependence among sibling RHS observations.
+The reference is always the explicitly configured
+`reference_preconditioner`; no observed result may select a fallback. If the
+reference is absent or unavailable, paired ratios are omitted.
+
+These are deterministic heterogeneous systems, not repeated COCO-style
+restarts of one stochastic problem, so ordinary benchmark sweeps do not have
+a meaningful expected running time (ERT). ERT would be appropriate only for
+a separately designed restart experiment with a specified success
+distribution and stopping rule.
+
 `domain/benchmarking/` provides:
 
 - Dolan–Moré performance profiles and absolute ECDFs that retain failures in
