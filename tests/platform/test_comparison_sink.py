@@ -9,7 +9,11 @@ import pytest
 
 from neuralls.domain.benchmarking.selection import ConfiguredReference
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
-from neuralls.domain.solver.models.group_outcomes import GroupAggregated
+from neuralls.domain.solver.models.group_outcomes import (
+    GroupAggregated,
+    RecipeProfileReport,
+    WorkloadMixtureReport,
+)
 from neuralls.domain.solver.models.labels import FineLabel, render_group_id
 from neuralls.domain.solver.models.outcomes import Failed, Solved
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
@@ -135,6 +139,53 @@ def presentation() -> GroupPresentation:
 
 def _key(metric: str, group: GroupAggregated, name: str) -> str:
     return comparison_tracking._group_metric_key(metric, group.group_id, name)
+
+
+def _report_variant(group: GroupAggregated, report_type: type[GroupAggregated]) -> GroupAggregated:
+    membership = (
+        ("gaussian",)
+        if report_type is RecipeProfileReport
+        else ("gaussian", "sinusoidal ω=6.28319")
+    )
+    return report_type(
+        group_id=group.group_id,
+        label=group.label,
+        n_matrices=group.n_matrices,
+        n_planned_rhs=group.n_planned_rhs,
+        convergence=group.convergence,
+        outcomes=group.outcomes,
+        comparisons=group.comparisons,
+        reference_selection=group.reference_selection,
+        recipe_membership=membership,
+    )
+
+
+def test_mixture_sink_omits_profiles_but_keeps_aggregate_bars(
+    group: GroupAggregated,
+    presentation: GroupPresentation,
+    logged_metrics: LoggedMetrics,
+    logged_artifacts: dict[str, tuple[str, bool]],
+) -> None:
+    mixture = _report_variant(group, WorkloadMixtureReport)
+    MLflowGroupReportSink().report(mixture, presentation=presentation)
+
+    key = comparison_tracking.sanitize_metric_key_segment(group.group_id)
+    assert f"aggregate_bars_{key}.png" in logged_artifacts
+    assert not any(name.startswith(("performance_profile", "ecdf_")) for name in logged_artifacts)
+
+
+def test_recipe_profile_sink_keeps_profile_ecdf_and_aggregate_bars(
+    group: GroupAggregated,
+    presentation: GroupPresentation,
+    logged_metrics: LoggedMetrics,
+    logged_artifacts: dict[str, tuple[str, bool]],
+) -> None:
+    profile = _report_variant(group, RecipeProfileReport)
+    MLflowGroupReportSink().report(profile, presentation=presentation)
+
+    key = comparison_tracking.sanitize_metric_key_segment(group.group_id)
+    assert f"aggregate_bars_{key}.png" in logged_artifacts
+    assert f"performance_profile_{key}.png" in logged_artifacts
 
 
 def test_sink_logs_explicit_counts_and_ratio_metrics(

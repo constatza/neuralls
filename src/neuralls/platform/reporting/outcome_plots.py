@@ -30,6 +30,7 @@ from neuralls.domain.benchmarking.selection import (
     ConfiguredReference,
     ReferenceSelection,
 )
+from neuralls.domain.solver.models.group_outcomes import GroupAggregated
 from neuralls.domain.solver.models.outcomes import Failed, Outcomes, Solved, SystemOutcome
 from neuralls.domain.solver.models.statistics import PairedComparison
 from neuralls.platform.reporting.plots import finish_group_figure, group_series_styles
@@ -50,6 +51,39 @@ class GroupStyle:
     families: Mapping[str, Hashable] = field(default_factory=dict)
     color_keys: Mapping[str, Hashable] = field(default_factory=dict)
     marker_keys: Mapping[str, Hashable] = field(default_factory=dict)
+
+
+def plot_aggregate_bars(
+    outcome: GroupAggregated,
+    *,
+    style: GroupStyle,
+    save_path: Path,
+) -> Path | None:
+    """Plot explicit convergence counts for every method in a report group."""
+    if not outcome.convergence:
+        return None
+    names = list(outcome.convergence)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    values = [outcome.convergence[name].n_converged for name in names]
+    bars = ax.barh(names, values)
+    ax.set_xlim(0, max(1, outcome.n_planned_rhs))
+    ax.set_xlabel("Converged RHS (of planned RHS)")
+    ax.set_ylabel("Method")
+    ax.grid(True, axis="x", alpha=0.3)
+    for bar, name in zip(bars, names):
+        summary = outcome.convergence[name]
+        bar_label = f"{summary.n_converged}/{summary.n_attempted_rhs}/{summary.n_planned_rhs}"
+        ax.text(bar.get_width(), bar.get_y() + bar.get_height() / 2, f" {bar_label}", va="center")
+    finish_group_figure(
+        fig,
+        ax,
+        title=style.title,
+        subtitle=style.subtitle,
+        save_path=save_path,
+        show=False,
+        saved_message="Saved aggregate bars to",
+    )
+    return save_path
 
 
 def _series_styles(names: Sequence[str], style: GroupStyle) -> dict[str, dict[str, Any]]:

@@ -434,6 +434,15 @@ the level chooses the other columns:
 | `MediumLevel` | dataset | `medium/<dataset>` |
 | `GlobalLevel` | none | `global` |
 
+Classification returns two closed report variants. `RecipeProfileReport` is
+fine-level and names exactly one recipe; only it emits performance-profile and
+ECDF data. `WorkloadMixtureReport` is used at medium and global levels and
+retains the complete ordered recipe membership as explicit mixture metadata.
+Both variants carry distinct matrix, planned-RHS, attempted-RHS, and
+converged counts for each method. Aggregate convergence bars are emitted for
+all levels, while mixture reports never imply that heterogeneous recipes form
+one profile population.
+
 `classify_level(planned, setup_events, solve_attempts, level)` returns
 `GroupAggregated` when at least one method has a setup event and
 `GroupSkippedAllCacheHit` when the group has no benchmark event. Aggregated

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from neuralls.domain.benchmarking.selection import NoReferenceConfigured, ReferenceSelection
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
-from neuralls.domain.solver.models.labels import GroupLabel
+from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLabel, MediumLabel
 from neuralls.domain.solver.models.outcomes import SystemOutcome
 from neuralls.domain.solver.models.statistics import MethodComparison
 from neuralls.shared.types import GroupId, PreconditionerName, SystemId
@@ -42,6 +42,33 @@ class GroupAggregated:
     )
     comparisons: Mapping[PreconditionerName, MethodComparison] = field(default_factory=dict)
     reference_selection: ReferenceSelection = field(default_factory=NoReferenceConfigured)
+    recipe_membership: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RecipeProfileReport(GroupAggregated):
+    """Fine-level report for one recipe; profile and ECDF data are valid here."""
+
+    label: FineLabel
+
+    def __post_init__(self) -> None:
+        """Require exactly the recipe named by the fine-level label."""
+        if self.recipe_membership != (self.label.recipe,):
+            raise ValueError("a recipe profile must contain exactly its recipe")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkloadMixtureReport(GroupAggregated):
+    """Medium/global report whose recipes are explicitly named as a mixture."""
+
+    label: MediumLabel | GlobalLabel
+
+    def __post_init__(self) -> None:
+        """Require complete, ordered, duplicate-free mixture membership."""
+        if not self.recipe_membership:
+            raise ValueError("a workload mixture must name every recipe it contains")
+        if tuple(dict.fromkeys(self.recipe_membership)) != self.recipe_membership:
+            raise ValueError("recipe membership must be ordered and unique")
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +85,7 @@ class GroupSkippedAllCacheHit:
     n_matrices: int
 
 
-type ComparisonGroupOutcome = GroupAggregated | GroupSkippedAllCacheHit
+type ComparisonGroupOutcome = RecipeProfileReport | WorkloadMixtureReport | GroupSkippedAllCacheHit
 """The outcome of attempting to aggregate one comparison group's results.
 
 Two variants because there are exactly two cases that call for different

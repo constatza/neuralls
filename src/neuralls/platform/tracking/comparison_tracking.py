@@ -17,7 +17,11 @@ from neuralls.domain.solver.cost_metrics import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
-from neuralls.domain.solver.models.group_outcomes import GroupAggregated
+from neuralls.domain.solver.models.group_outcomes import (
+    GroupAggregated,
+    RecipeProfileReport,
+    WorkloadMixtureReport,
+)
 from neuralls.domain.solver.models.plot_style import PlotStyleMaps, plot_style_maps
 from neuralls.domain.solver.models.presentation import GroupPresentation
 from neuralls.domain.solver.models.result import ComparisonResult
@@ -32,6 +36,7 @@ from neuralls.platform.reporting.benchmark_events import (
 )
 from neuralls.platform.reporting.outcome_plots import (
     GroupStyle,
+    plot_aggregate_bars,
     plot_ecdf_profile,
     plot_paired_time_scatter,
     plot_performance_profile,
@@ -443,13 +448,44 @@ def _write_system_plots(
 
 
 def _write_outcome_plots(
-    outcome: GroupAggregated, presentation: GroupPresentation, directory: Path, file_key: str
+    outcome: GroupAggregated | RecipeProfileReport | WorkloadMixtureReport,
+    presentation: GroupPresentation,
+    directory: Path,
+    file_key: str,
 ) -> tuple[Path, ...]:
-    """Draw every per-system outcome plot of one group and return the files that were drawn."""
-    drawn = [
-        *_write_system_plots(outcome, presentation, directory, file_key),
-        *_write_profile_plots(outcome, presentation, directory, file_key),
-    ]
+    """Draw plots allowed by the typed report variant."""
+    from typing import assert_never
+
+    match outcome:
+        case RecipeProfileReport():
+            aggregate_path = directory / f"aggregate_bars_{file_key}.png"
+            aggregate = plot_aggregate_bars(
+                outcome,
+                style=_group_style(
+                    "Aggregate convergence", presentation, plot_style_maps(presentation.plot_styles)
+                ),
+                save_path=aggregate_path,
+            )
+            drawn = [
+                aggregate,
+                *_write_system_plots(outcome, presentation, directory, file_key),
+                *_write_profile_plots(outcome, presentation, directory, file_key),
+            ]
+        case WorkloadMixtureReport():
+            aggregate_path = directory / f"aggregate_bars_{file_key}.png"
+            aggregate = plot_aggregate_bars(
+                outcome,
+                style=_group_style(
+                    "Aggregate convergence", presentation, plot_style_maps(presentation.plot_styles)
+                ),
+                save_path=aggregate_path,
+            )
+            drawn = [aggregate, *_write_system_plots(outcome, presentation, directory, file_key)]
+        case GroupAggregated():
+            drawn = _write_system_plots(outcome, presentation, directory, file_key)
+            drawn.extend(_write_profile_plots(outcome, presentation, directory, file_key))
+        case _ as unreachable:
+            assert_never(unreachable)
     return tuple(path for path in drawn if path is not None)
 
 

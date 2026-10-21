@@ -9,10 +9,16 @@ from neuralls.domain.benchmarking.selection import NoReferenceConfigured, Refere
 from neuralls.domain.solver.models.benchmark_events import MatrixSetupEvent, SolveAttempt, SystemTag
 from neuralls.domain.solver.models.group_outcomes import (
     ComparisonGroupOutcome,
-    GroupAggregated,
     GroupSkippedAllCacheHit,
+    RecipeProfileReport,
+    WorkloadMixtureReport,
 )
-from neuralls.domain.solver.models.labels import render_group_id
+from neuralls.domain.solver.models.labels import (
+    FineLabel,
+    GlobalLabel,
+    MediumLabel,
+    render_group_id,
+)
 from neuralls.domain.solver.reporting.aggregation import convergence_by_level, outcomes_by_system
 from neuralls.domain.solver.reporting.report_levels import ReportLevel, label_for_tags, report_key
 from neuralls.shared.constants import DEFAULT_RANDOM_SEED
@@ -52,20 +58,39 @@ def classify_level(
         group_outcomes = {
             method: outcomes.get(label, {}).get(method, {}) for method in convergence_by_method
         }
-        classified.append(
-            GroupAggregated(
-                group_id=render_group_id(label),
-                label=label,
-                n_matrices=n_matrices,
-                n_planned_rhs=len(tags),
-                convergence=convergence_by_method,
-                outcomes=group_outcomes,
-                comparisons=compare_to_reference(
-                    group_outcomes, selection=selected, seed=DEFAULT_RANDOM_SEED
-                ),
-                reference_selection=selected,
-            )
+        recipe_membership = tuple(dict.fromkeys(tag.recipe for tag in tags))
+        comparisons = compare_to_reference(
+            group_outcomes, selection=selected, seed=DEFAULT_RANDOM_SEED
         )
+        match label:
+            case FineLabel():
+                classified.append(
+                    RecipeProfileReport(
+                        group_id=render_group_id(label),
+                        label=label,
+                        n_matrices=n_matrices,
+                        n_planned_rhs=len(tags),
+                        convergence=convergence_by_method,
+                        outcomes=group_outcomes,
+                        comparisons=comparisons,
+                        reference_selection=selected,
+                        recipe_membership=recipe_membership,
+                    )
+                )
+            case MediumLabel() | GlobalLabel():
+                classified.append(
+                    WorkloadMixtureReport(
+                        group_id=render_group_id(label),
+                        label=label,
+                        n_matrices=n_matrices,
+                        n_planned_rhs=len(tags),
+                        convergence=convergence_by_method,
+                        outcomes=group_outcomes,
+                        comparisons=comparisons,
+                        reference_selection=selected,
+                        recipe_membership=recipe_membership,
+                    )
+                )
     return tuple(classified)
 
 

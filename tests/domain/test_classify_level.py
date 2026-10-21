@@ -16,7 +16,12 @@ from neuralls.domain.solver.models.benchmark_events import (
     SystemTag,
     UnknownPeakMemory,
 )
-from neuralls.domain.solver.models.group_outcomes import GroupAggregated, GroupSkippedAllCacheHit
+from neuralls.domain.solver.models.group_outcomes import (
+    GroupAggregated,
+    GroupSkippedAllCacheHit,
+    RecipeProfileReport,
+    WorkloadMixtureReport,
+)
 from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, MediumLabel
 from neuralls.domain.solver.models.outcomes import Failed, Solved
 from neuralls.domain.solver.reporting.classification import classify_level
@@ -170,6 +175,18 @@ def test_fine_and_medium_labels_preserve_recipe_membership(method) -> None:
         MediumLabel(DatasetId("ds"), ("gauss", "sine")),
         MediumLabel(DatasetId("other"), ("gauss",)),
     ]
+    assert all(isinstance(group, RecipeProfileReport) for group in fine)
+    assert [
+        group.recipe_membership for group in fine if isinstance(group, RecipeProfileReport)
+    ] == [
+        ("gauss",),
+        ("sine",),
+        ("gauss",),
+    ]
+    assert all(isinstance(group, WorkloadMixtureReport) for group in medium)
+    assert [
+        group.recipe_membership for group in medium if isinstance(group, WorkloadMixtureReport)
+    ] == [("gauss", "sine"), ("gauss",)]
 
 
 def test_removed_cost_models_are_absent_from_event_classification(method) -> None:

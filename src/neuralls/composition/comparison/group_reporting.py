@@ -8,6 +8,7 @@ converted back into timing events because that would duplicate matrix setup.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Never, assert_never, cast
 
 from loguru import logger
 
@@ -17,8 +18,13 @@ from neuralls.domain.benchmarking.selection import (
     ReferenceSelection,
     systems_solved_by_all,
 )
-from neuralls.domain.solver.models.group_outcomes import GroupAggregated, GroupSkippedAllCacheHit
-from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLabel, MediumLabel
+from neuralls.domain.solver.models.group_outcomes import (
+    GroupAggregated,
+    GroupSkippedAllCacheHit,
+    RecipeProfileReport,
+    WorkloadMixtureReport,
+)
+from neuralls.domain.solver.models.labels import GlobalLabel, MediumLabel
 from neuralls.domain.solver.models.presentation import GroupPresentation
 from neuralls.domain.solver.ports import GroupReportSink
 from neuralls.domain.solver.reporting.classification import classify_level
@@ -40,26 +46,30 @@ def _mixture_text(mixture: Sequence[str]) -> str:
     return f"mixture of {', '.join(mixture)}"
 
 
-def _subject(label: GroupLabel) -> str:
-    """What a group is, for plot titles: medium and global say they mix recipes."""
-    match label:
-        case FineLabel(dataset=dataset, recipe=recipe):
-            return f"{dataset}, {recipe}"
-        case MediumLabel(dataset=dataset, mixture_of=mixture):
-            return f"{dataset}, {_mixture_text(mixture)}"
-        case GlobalLabel(mixture_of=mixture):
-            return f"all datasets, {_mixture_text(mixture)}"
+def _subject(report: RecipeProfileReport | WorkloadMixtureReport) -> str:
+    """What a report is, keeping mixture semantics in its typed variant."""
+    match report:
+        case RecipeProfileReport(label=label):
+            return f"{label.dataset}, {label.recipe}"
+        case WorkloadMixtureReport(label=MediumLabel(dataset=dataset)):
+            return f"{dataset}, {_mixture_text(report.recipe_membership)}"
+        case WorkloadMixtureReport(label=GlobalLabel()):
+            return f"all datasets, {_mixture_text(report.recipe_membership)}"
+        case _ as unreachable:
+            assert_never(cast(Never, unreachable))
 
 
-def _subtitle(outcome: GroupAggregated) -> str:
+def _subtitle(outcome: RecipeProfileReport | WorkloadMixtureReport) -> str:
     """Level, keys, recipe (or mixture) and system count of a group, as one line."""
-    match outcome.label:
-        case FineLabel(recipe=recipe):
-            scope = f"Fine level · keys: dataset, recipe · recipe: {recipe}"
-        case MediumLabel(mixture_of=mixture):
-            scope = f"Medium level · keys: dataset · {_mixture_text(mixture)}"
-        case GlobalLabel(mixture_of=mixture):
-            scope = f"Global level · keys: none · {_mixture_text(mixture)}"
+    match outcome:
+        case RecipeProfileReport(label=label):
+            scope = f"Fine level · keys: dataset, recipe · recipe: {label.recipe}"
+        case WorkloadMixtureReport(label=MediumLabel()):
+            scope = f"Medium level · keys: dataset · {_mixture_text(outcome.recipe_membership)}"
+        case WorkloadMixtureReport(label=GlobalLabel()):
+            scope = f"Global level · keys: none · {_mixture_text(outcome.recipe_membership)}"
+        case _ as unreachable:
+            assert_never(cast(Never, unreachable))
     return (
         f"{scope} · planned RHS = {outcome.n_planned_rhs} · matrices = {outcome.n_matrices}"
         f"{_common_solved_note(outcome)}{_never_converged_note(outcome)}"
@@ -97,7 +107,7 @@ def report_all_levels(
                     sink.report(
                         aggregated,
                         presentation=GroupPresentation(
-                            subject=_subject(aggregated.label),
+                            subject=_subject(aggregated),
                             subtitle=_subtitle(aggregated),
                             plot_styles={},
                         ),
