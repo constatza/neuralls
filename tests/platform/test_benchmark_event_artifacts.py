@@ -216,6 +216,18 @@ def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_vari
     ]
 
 
+def test_event_reader_rejects_schema_valid_invalid_measurements(
+    tmp_path: Path, workload: CompletedMethodWorkload, summary: CompleteWorkloadSummary
+) -> None:
+    artifacts = write_method_benchmark_artifacts(workload=workload, summary=summary, root=tmp_path)
+    setup_path = tmp_path / artifacts.setup_events
+    setup = read_setup_events(setup_path).with_columns(pl.lit(-1.0).alias("setup_s"))
+    _rewrite_frame(setup_path, setup)
+
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        read_setup_events(setup_path)
+
+
 def test_summary_is_reconciled_from_canonical_frames_and_versioned(
     tmp_path: Path, workload: CompletedMethodWorkload, summary: CompleteWorkloadSummary
 ) -> None:

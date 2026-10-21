@@ -340,8 +340,8 @@ def test_setup_aware_reporting_reconciles_events_figures_and_mlflow(
     manifest = tomllib.loads(Path(manifest_path).read_text(encoding="utf-8"))
     manifest_names = set(manifest["figures"])
     assert report_names == manifest_names | {"figure_manifest.toml"}
-    assert len([name for name in manifest_names if name.startswith("performance_profile_")]) == 2
-    assert len([name for name in manifest_names if name.startswith("ecdf_")]) == 4
+    assert len([name for name in manifest_names if name.startswith("performance_profile_")]) == 4
+    assert len([name for name in manifest_names if name.startswith("ecdf_")]) == 6
     assert len([name for name in manifest_names if name.startswith("aggregate_bars_")]) == 4
     assert (
         len(
@@ -354,16 +354,13 @@ def test_setup_aware_reporting_reconciles_events_figures_and_mlflow(
         == 2
     )
     for name, metadata in manifest["figures"].items():
-        assert metadata["sources"] == [
-            "setup_events.parquet",
-            "solve_attempts.parquet",
-            "summary.toml",
-        ]
+        assert all("comparison_method[method=" in source for source in metadata["sources"])
+        assert metadata["recipe_weights"]
         assert metadata["reference_selection"] == "configured:jacobi"
         if name.startswith(("performance_profile_", "ecdf_")):
             assert metadata["report_level"] == "fine"
         if name.startswith(("aggregate_bars_medium_", "aggregate_bars_global_")):
-            assert metadata["report_level"] == "mixture"
+            assert metadata["report_level"] in {"medium", "global"}
     assert all(len(title) <= 24 for _, title in captured)
     convergence_figures = [fig for fig, title in captured if title == "Convergence"]
     assert len(convergence_figures) == 4

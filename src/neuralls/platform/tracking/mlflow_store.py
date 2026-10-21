@@ -234,10 +234,32 @@ def _validate_diagnostics(diagnostics: object, *, method: str, system_ids: tuple
             raise ValueError("diagnostic method does not match requested workload")
         if not isinstance(record.get("system_id"), str):
             raise TypeError("diagnostic record is missing system ID")
+        if not isinstance(record.get("converged"), bool):
+            raise TypeError("diagnostic convergence state must be boolean")
+        _validate_non_negative_number(record.get("iterations"), "diagnostic iterations")
+        _validate_non_negative_number(record.get("solve_s"), "diagnostic solve time")
+        _validate_samples(record.get("residual_history_rel"), "residual history")
+        energy = record.get("error_history_a_rel")
+        if energy is not None:
+            _validate_samples(energy, "energy history")
         records.append(record)
     diagnostic_ids = tuple(str(record["system_id"]) for record in records)
     if len(set(diagnostic_ids)) != len(diagnostic_ids) or set(diagnostic_ids) != set(system_ids):
         raise ValueError("diagnostic membership does not match requested workload")
+
+
+def _validate_non_negative_number(value: object, name: str) -> None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise TypeError(f"{name} must be finite and non-negative")
+    if not math.isfinite(float(value)) or value < 0:
+        raise ValueError(f"{name} must be finite and non-negative")
+
+
+def _validate_samples(value: object, name: str) -> None:
+    if not isinstance(value, list):
+        raise TypeError(f"{name} must be a list")
+    for sample in value:
+        _validate_non_negative_number(sample, name)
 
 
 def _validate_event_methods(setup: pl.DataFrame, solve: pl.DataFrame, method: str) -> None:
@@ -261,6 +283,12 @@ def _validate_summary(
     online = summary.get("online")
     if not isinstance(counts, dict) or not isinstance(online, dict):
         raise TypeError("method summary is missing counts or online totals")
+    for key in ("planned_rhs", "attempted_rhs", "converged"):
+        value = counts.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"summary {key} must be a non-negative integer")
+    for key in ("setup_s", "solve_s", "workload_s"):
+        _validate_non_negative_number(online.get(key), f"summary {key}")
     expected_missing = [system_id for system_id in expected_ids if system_id not in solved_ids]
     if expected_missing:
         raise ValueError("incomplete method workload is not reusable")

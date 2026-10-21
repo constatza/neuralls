@@ -7,6 +7,7 @@ from neuralls.platform.reporting.figure_metadata import (
     FigureKind,
     FigureManifest,
     FigureMetadata,
+    FigurePlan,
     ReferenceSelectionKind,
     TimingScenario,
     write_figure_manifest,
@@ -52,3 +53,11 @@ def test_manifest_rejects_duplicate_and_sanitized_collisions() -> None:
         manifest.add("a_b.png", metadata)
     with pytest.raises(ValueError):
         manifest.add("a b.png", metadata)
+
+
+def test_manifest_validates_plans_before_upload() -> None:
+    manifest = FigureManifest()
+    metadata = _metadata()
+    manifest.add_plan(FigurePlan("first.png", "Title", "Scope", metadata))
+    with pytest.raises(ValueError, match="colliding"):
+        manifest.validate_plans((FigurePlan("first.png", "Title", "Scope", metadata),))

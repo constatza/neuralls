@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -26,6 +27,8 @@ class FigureKind(StrEnum):
     ECDF_ITERATIONS = "ecdf_iterations"
     ECDF_TIME = "ecdf_time"
     SPEED_RATIO = "speed_ratio"
+    RESIDUAL_HISTORY = "residual_history"
+    ENERGY_HISTORY = "energy_history"
 
 
 class TimingScenario(StrEnum):
@@ -59,6 +62,8 @@ class FigureMetadata:
     reference_selection: ReferenceSelection | ReferenceSelectionKind
     failure_treatment: FailureTreatment
     timing_policy: str
+    recipe_weights: tuple[float, ...] = ()
+    reference_reason: str | None = None
     sources: tuple[str, ...] = (
         "setup_events.parquet",
         "solve_attempts.parquet",
@@ -95,6 +100,19 @@ class FigureManifest:
         self.entries[filename] = metadata
         return self
 
+    def add_plan(self, plan: FigurePlan) -> FigureManifest:
+        """Register a pre-draw plan after its filename has been reserved."""
+        return self.add(plan.filename, plan.metadata)
+
+    def validate_plans(self, plans: Iterable[FigurePlan]) -> None:
+        """Reject all planned collisions before any artifact is uploaded."""
+        names: dict[str, str] = {}
+        for plan in plans:
+            key = _collision_key(plan.filename)
+            if key in names or any(_collision_key(existing) == key for existing in self.entries):
+                raise ValueError(f"duplicate or colliding figure filename: {plan.filename}")
+            names[key] = plan.filename
+
     def as_dict(self) -> dict[str, object]:
         figures: dict[str, object] = {}
         for filename in sorted(self.entries):
@@ -122,8 +140,11 @@ class FigureManifest:
                 "reference_selection": reference_name,
                 "failure_treatment": metadata.failure_treatment.value,
                 "timing_policy": metadata.timing_policy,
+                "recipe_weights": list(metadata.recipe_weights),
                 "sources": list(metadata.sources),
             }
+            if metadata.reference_reason is not None:
+                entry["reference_reason"] = metadata.reference_reason
             if metadata.scenario is not None:
                 entry["scenario"] = metadata.scenario.value
             figures[filename] = entry
@@ -154,6 +175,8 @@ def make_plan(
         FigureKind.ECDF_ITERATIONS: "Iterations",
         FigureKind.ECDF_TIME: "Online Time",
         FigureKind.SPEED_RATIO: "Speed Ratio",
+        FigureKind.RESIDUAL_HISTORY: "Residual History",
+        FigureKind.ENERGY_HISTORY: "Energy History",
     }
     scenario = f"_{metadata.scenario.value}" if metadata.scenario else ""
     filename = f"{kind.value}_{sanitize_filename(metadata.report_level)}_{sanitize_filename(group_slug)}{scenario}.png"

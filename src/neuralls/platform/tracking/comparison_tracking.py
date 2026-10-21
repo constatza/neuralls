@@ -5,13 +5,16 @@ from __future__ import annotations
 import json
 import tempfile
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import mlflow
 
 from neuralls.domain.benchmarking.costs import amortized_online_seconds, solve_seconds
-from neuralls.domain.benchmarking.selection import ConfiguredReference, ReferenceUnavailable
+from neuralls.domain.benchmarking.selection import (
+    ConfiguredReference,
+    ReferenceUnavailable,
+)
 from neuralls.domain.solver.cost_metrics import (
     peak_memory_per_dof,
     setup_time_per_dof,
@@ -24,6 +27,7 @@ from neuralls.domain.solver.models.group_outcomes import (
     RecipeProfileReport,
     WorkloadMixtureReport,
 )
+from neuralls.domain.solver.models.labels import GlobalLabel, MediumLabel
 from neuralls.domain.solver.models.plot_style import PlotStyleMaps, plot_style_maps
 from neuralls.domain.solver.models.presentation import GroupPresentation
 from neuralls.domain.solver.models.result import ComparisonResult
@@ -41,8 +45,9 @@ from neuralls.platform.reporting.figure_metadata import (
     FigureKind,
     FigureManifest,
     FigureMetadata,
-    ReferenceSelectionKind,
+    FigurePlan,
     TimingScenario,
+    make_plan,
     write_figure_manifest,
 )
 from neuralls.platform.reporting.outcome_plots import (
@@ -242,42 +247,13 @@ class MLflowGroupReportSink:
         log_comparison_metrics(group_id, outcome.comparisons)
         with tempfile.TemporaryDirectory() as tmp:
             file_key = sanitize_metric_key_segment(group_id)
+            plans = _figure_plans(outcome, presentation, file_key)
+            self.manifest.validate_plans(plans)
             outcome_plots = _write_outcome_plots(outcome, presentation, Path(tmp), file_key)
             for artifact in outcome_plots:
+                plan = next(plan for plan in plans if plan.filename == artifact.name)
                 mlflow.log_artifact(str(artifact), artifact_path=GROUP_REPORT_ARTIFACT_DIR)
-                scenario = (
-                    TimingScenario.SOLVE
-                    if "_solve_" in artifact.name or artifact.name.startswith("solve_time")
-                    else TimingScenario.ONLINE
-                    if "_online_" in artifact.name or artifact.name.startswith("online_time")
-                    else None
-                )
-                self.manifest.add(
-                    artifact.name,
-                    FigureMetadata(
-                        kind=_figure_kind(artifact.name),
-                        metric_definition=artifact.stem.split("_")[0],
-                        scenario=scenario,
-                        report_level="fine"
-                        if isinstance(outcome, RecipeProfileReport)
-                        else "mixture",
-                        scope=presentation.subject,
-                        datasets=(),
-                        recipes=outcome.recipe_membership,
-                        n_matrices=outcome.n_matrices,
-                        n_planned_rhs=outcome.n_planned_rhs,
-                        reference_selection=(
-                            outcome.reference_selection
-                            if isinstance(
-                                outcome.reference_selection,
-                                ConfiguredReference | ReferenceUnavailable,
-                            )
-                            else ReferenceSelectionKind.NONE
-                        ),
-                        failure_treatment=FailureTreatment.CENSORED,
-                        timing_policy="planned setup share + solve",
-                    ),
-                )
+                self.manifest.add_plan(plan)
 
     def finalize(self) -> None:
         """Upload exactly one session manifest while the parent run is active."""
@@ -296,6 +272,135 @@ def _figure_kind(filename: str) -> FigureKind:
         if stem.startswith(kind.value + "_"):
             return kind
     raise ValueError(f"unknown figure kind: {filename}")
+
+
+def _figure_plans(
+    outcome: GroupAggregated,
+    presentation: GroupPresentation,
+    file_key: str,
+) -> tuple[FigurePlan, ...]:
+    """Build and reserve every figure's scientific context before drawing."""
+    names = _planned_figure_names(outcome, file_key)
+    plans: list[FigurePlan] = []
+    for name in names:
+        plan = make_plan(
+            _figure_kind(name),
+            _figure_metadata(_figure_kind(name), outcome, presentation, name),
+            group_slug=file_key,
+        )
+        plans.append(replace(plan, filename=name))
+    return tuple(plans)
+
+
+def _planned_figure_names(outcome: GroupAggregated, file_key: str) -> tuple[str, ...]:
+    if isinstance(outcome, RecipeProfileReport):
+        return (
+            f"aggregate_bars_{file_key}.png",
+            f"solve_time_bars_{file_key}.png",
+            f"online_time_bars_{file_key}.png",
+            f"paired_time_scatter_{file_key}.png",
+            f"speed_ratio_cdf_{file_key}.png",
+            f"performance_profile_solve_{file_key}.png",
+            f"performance_profile_online_{file_key}.png",
+            f"ecdf_iterations_{file_key}.png",
+            f"ecdf_time_solve_{file_key}.png",
+            f"ecdf_time_online_{file_key}.png",
+        )
+    if isinstance(outcome, WorkloadMixtureReport):
+        return (
+            f"aggregate_bars_{file_key}.png",
+            f"solve_time_bars_{file_key}.png",
+            f"online_time_bars_{file_key}.png",
+        )
+    return (
+        f"solve_time_bars_{file_key}.png",
+        f"online_time_bars_{file_key}.png",
+        f"paired_time_scatter_{file_key}.png",
+        f"speed_ratio_cdf_{file_key}.png",
+        f"performance_profile_solve_{file_key}.png",
+        f"performance_profile_online_{file_key}.png",
+        f"ecdf_iterations_{file_key}.png",
+        f"ecdf_time_solve_{file_key}.png",
+        f"ecdf_time_online_{file_key}.png",
+    )
+
+
+def _figure_metadata(
+    kind: FigureKind,
+    outcome: GroupAggregated,
+    presentation: GroupPresentation,
+    filename: str,
+) -> FigureMetadata:
+    scenario = (
+        TimingScenario.SOLVE
+        if "solve" in filename
+        else TimingScenario.ONLINE
+        if kind
+        in {
+            FigureKind.ONLINE_TIME,
+            FigureKind.PAIRED_TIME,
+            FigureKind.ECDF_TIME,
+            FigureKind.PERFORMANCE_PROFILE,
+        }
+        else None
+    )
+    report_level = (
+        "fine"
+        if isinstance(outcome, RecipeProfileReport)
+        else "medium"
+        if isinstance(outcome.label, MediumLabel)
+        else "global"
+    )
+    datasets = () if isinstance(outcome.label, GlobalLabel) else (str(outcome.label.dataset),)
+    recipes = outcome.recipe_membership
+    weights = tuple(1.0 / len(recipes) for _ in recipes) if recipes else ()
+    reference = outcome.reference_selection
+    reason = reference.reason if isinstance(reference, ReferenceUnavailable) else None
+    methods = tuple(
+        sorted(
+            {str(name) for name in outcome.outcomes}
+            | {str(summary.method) for summary in outcome.summaries}
+        )
+    )
+    sources = tuple(
+        source
+        for method in methods
+        for source in (
+            f"comparison_method[method={method}]/method_workload/setup_events.parquet",
+            f"comparison_method[method={method}]/method_workload/solve_attempts.parquet",
+            f"comparison_method[method={method}]/method_workload/summary.toml",
+            f"comparison_method[method={method}]/method_workload/method_diagnostics.json",
+            f"comparison_method[method={method}]/method_workload/figures/residual_history.png",
+            f"comparison_method[method={method}]/method_workload/figures/energy_history.png",
+        )
+    )
+    metric = {
+        FigureKind.AGGREGATE_BARS: "converged systems",
+        FigureKind.SOLVE_TIME: "solve seconds",
+        FigureKind.ONLINE_TIME: "amortized online seconds",
+        FigureKind.PAIRED_TIME: "reference/method amortized online seconds",
+        FigureKind.PERFORMANCE_PROFILE: "performance ratio",
+        FigureKind.ECDF_ITERATIONS: "iterations",
+        FigureKind.ECDF_TIME: "time seconds",
+        FigureKind.SPEED_RATIO: "reference/method speed ratio",
+    }.get(kind, kind.value)
+    return FigureMetadata(
+        kind=kind,
+        metric_definition=metric,
+        scenario=scenario,
+        report_level=report_level,
+        scope=presentation.subject,
+        datasets=datasets,
+        recipes=recipes,
+        n_matrices=outcome.n_matrices,
+        n_planned_rhs=outcome.n_planned_rhs,
+        reference_selection=reference,
+        failure_treatment=FailureTreatment.CENSORED,
+        timing_policy="setup once per dataset/matrix + solve per planned RHS",
+        recipe_weights=weights,
+        reference_reason=reason,
+        sources=sources,
+    )
 
 
 METHOD_ARTIFACT_DIR = "method_workload"
@@ -552,6 +657,9 @@ def _write_system_plots(
         plot_speed_ratio_cdf(
             _paired_by_method(outcome.comparisons),
             style=_group_style("Reference/method speed ratio", presentation, plot_style),
+            reference_name=outcome.reference_selection.name
+            if isinstance(outcome.reference_selection, ConfiguredReference)
+            else None,
             save_path=directory / f"speed_ratio_cdf_{file_key}.png",
         ),
     ]

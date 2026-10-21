@@ -26,6 +26,8 @@ from neuralls.domain.solver.reporting.event_frames import (
     SOLVE_ATTEMPT_SCHEMA,
     build_setup_frame,
     build_solve_frame,
+    validate_decoded_setup_frame,
+    validate_decoded_solve_frame,
     validate_setup_solve_frame_links,
 )
 from neuralls.shared.digest import Digest, ordered_workload_digest
@@ -70,6 +72,7 @@ def write_method_benchmark_artifacts(
 def read_setup_events(path: Path) -> pl.DataFrame:
     """Read and schema-check a setup-event Parquet artifact."""
     frame = _read_frame(path, SETUP_EVENT_SCHEMA)
+    validate_decoded_setup_frame(frame)
     _validate_unique_setup_ids(frame)
     return frame
 
@@ -77,6 +80,7 @@ def read_setup_events(path: Path) -> pl.DataFrame:
 def read_solve_attempts(path: Path, *, setup_events_path: Path | None = None) -> pl.DataFrame:
     """Read solve attempts and optionally validate each setup-event link."""
     frame = _read_frame(path, SOLVE_ATTEMPT_SCHEMA)
+    validate_decoded_solve_frame(frame)
     setup_path = setup_events_path or path.with_name("setup_events.parquet")
     if setup_events_path is not None or setup_path.exists():
         setup_frame = read_setup_events(setup_path)

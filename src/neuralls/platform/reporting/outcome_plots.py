@@ -394,6 +394,7 @@ def plot_speed_ratio_cdf(
     comparisons: Mapping[PreconditionerName, PairedComparison],
     *,
     style: GroupStyle,
+    reference_name: PreconditionerName | None = None,
     save_path: Path,
 ) -> Path | None:
     """ECDF of per-system reference/method speed ratios.
@@ -422,7 +423,12 @@ def plot_speed_ratio_cdf(
     ax.axvline(1.0, color="gray", linewidth=1, linestyle="--")
     ax.set_xscale("log")
     ax.set_ylim(0.0, 1.02)
-    ax.set_xlabel("Reference / method speed ratio (slower < 1, faster > 1)")
+    reference_label = (
+        style.labels.get(reference_name, str(reference_name))
+        if reference_name
+        else "configured reference"
+    )
+    ax.set_xlabel(f"{reference_label} reference / method speed ratio (slower < 1, faster > 1)")
     ax.set_ylabel("Fraction of paired systems")
     ax.grid(True, which="both", alpha=0.3)
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), fontsize=8)

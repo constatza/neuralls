@@ -213,7 +213,20 @@ def method_artifacts(tmp_path: Path) -> tuple[dict[str, str], tuple[str, ...]]:
         tomli_w.dumps(workload.method_config).encode("utf-8")
     )
     (tmp_path / "method_diagnostics.json").write_text(
-        json.dumps([{"system_id": "s0", "method": "jacobi"}]), encoding="utf-8"
+        json.dumps(
+            [
+                {
+                    "system_id": "s0",
+                    "method": "jacobi",
+                    "iterations": 2,
+                    "converged": True,
+                    "solve_s": 2.0,
+                    "residual_history_rel": [1.0, 1e-8],
+                    "error_history_a_rel": None,
+                }
+            ]
+        ),
+        encoding="utf-8",
     )
     paths = {
         name: str(tmp_path / name)
@@ -328,7 +341,20 @@ def test_reuse_ignores_checkpoint_lease_path_but_rejects_changed_content(
         tomli_w.dumps(canonical_method_config(first_config)).encode("utf-8")
     )
     (method_artifacts / "method_diagnostics.json").write_text(
-        json.dumps([{"system_id": "s0", "method": "jacobi"}]), encoding="utf-8"
+        json.dumps(
+            [
+                {
+                    "system_id": "s0",
+                    "method": "jacobi",
+                    "iterations": 2,
+                    "converged": True,
+                    "solve_s": 2.0,
+                    "residual_history_rel": [1.0, 1e-8],
+                    "error_history_a_rel": None,
+                }
+            ]
+        ),
+        encoding="utf-8",
     )
     experiment = client.get_experiment_by_name(EXPERIMENT)
     experiment_id = experiment.experiment_id if experiment else client.create_experiment(EXPERIMENT)

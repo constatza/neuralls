@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from math import isfinite
 from typing import assert_never
 
 import polars as pl
@@ -129,6 +130,100 @@ def validate_setup_solve_frame_links(setup_frame: pl.DataFrame, solve_frame: pl.
             raise ValueError(f"solve attempt references failed setup {event_id!r}")
         if any(row[field] != setup[field] for field in ("dataset", "matrix_id", "method")):
             raise ValueError(f"solve attempt/setup identity mismatch for {event_id!r}")
+
+
+def validate_decoded_setup_frame(frame: pl.DataFrame) -> None:
+    """Reapply setup-event invariants after an untrusted frame is decoded."""
+    setup_keys: set[tuple[str, int, str]] = set()
+    for row in frame.to_dicts():
+        event_id = _required_text(row["setup_event_id"], "setup event ID")
+        dataset = _required_text(row["dataset"], "dataset")
+        method = _required_text(row["method"], "method")
+        matrix_id = _required_int(row["matrix_id"], "matrix ID")
+        _finite_non_negative(row["setup_s"], "setup time")
+        _validate_samples(row["samples_s"])
+        _validate_memory(row["peak_memory_bytes"], row["memory_status"])
+        status = _required_text(row["setup_status"], "setup status")
+        reason = row["failure_reason"]
+        if status not in {"completed", "failed"}:
+            raise ValueError(f"unknown setup status: {status!r}")
+        if status == "failed" and not isinstance(reason, str):
+            raise ValueError(f"failed setup {event_id!r} is missing a failure reason")
+        if status == "completed" and reason is not None:
+            raise ValueError(f"completed setup {event_id!r} has a failure reason")
+        key = (dataset, matrix_id, method)
+        if key in setup_keys:
+            raise ValueError("duplicate setup key for dataset, matrix, and method")
+        setup_keys.add(key)
+
+
+def validate_decoded_solve_frame(frame: pl.DataFrame) -> None:
+    """Reapply solve-attempt invariants after an untrusted frame is decoded."""
+    seen_systems: set[str] = set()
+    for row in frame.to_dicts():
+        _required_text(row["setup_event_id"], "setup event ID")
+        system_id = _required_text(row["system_id"], "system ID")
+        _required_text(row["dataset"], "dataset")
+        _required_text(row["recipe"], "recipe")
+        _required_int(row["matrix_id"], "matrix ID")
+        _required_int(row["rhs_ordinal"], "RHS ordinal")
+        _required_text(row["method"], "method")
+        _finite_non_negative(row["solve_s"], "solve time")
+        _validate_samples(row["samples_s"])
+        _validate_memory(row["peak_memory_bytes"], row["memory_status"])
+        status = _required_text(row["solve_status"], "solve status")
+        _required_int(row["iterations"], "iterations")
+        residual = row["final_relative_residual"]
+        reason = row["failure_reason"]
+        if status not in {"converged", "failed"}:
+            raise ValueError(f"unknown solve status: {status!r}")
+        if status == "converged":
+            if residual is None:
+                raise ValueError(f"converged solve {system_id!r} is missing a residual")
+            _finite_non_negative(residual, "final relative residual")
+            if reason is not None:
+                raise ValueError(f"converged solve {system_id!r} has a failure reason")
+        elif not isinstance(reason, str):
+            raise ValueError(f"failed solve {system_id!r} is missing a failure reason")
+        if system_id in seen_systems:
+            raise ValueError(f"duplicate solve system ID: {system_id!r}")
+        seen_systems.add(system_id)
+
+
+def _required_text(value: object, name: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{name} must be a non-empty string")
+    return value
+
+
+def _required_int(value: object, name: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
+    return value
+
+
+def _finite_non_negative(value: object, name: str) -> None:
+    if not isinstance(value, (float, int)) or isinstance(value, bool):
+        raise TypeError(f"{name} must be finite and non-negative")
+    if not isfinite(float(value)) or value < 0:
+        raise ValueError(f"{name} must be finite and non-negative")
+
+
+def _validate_samples(value: object) -> None:
+    if not isinstance(value, list):
+        raise TypeError("timing samples must be a list")
+    for sample in value:
+        _finite_non_negative(sample, "timing sample")
+
+
+def _validate_memory(value: object, status: object) -> None:
+    if status == "unknown":
+        if value is not None:
+            raise ValueError("unknown memory must not carry peak bytes")
+    elif status == "measured":
+        _required_int(value, "peak memory bytes")
+    else:
+        raise ValueError(f"unknown memory status: {status!r}")
 
 
 def _memory_fields(memory: PeakMemory) -> tuple[int | None, str]:
