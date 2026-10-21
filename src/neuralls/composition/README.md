@@ -31,6 +31,13 @@ from observed outcomes. Paired outputs use the reference/method speed ratio;
 performance profiles still normalize independently by the fastest method on
 each problem.
 
+Comparison figures are planned with typed metadata before drawing. Titles stay
+short (for example `Online Time`, `Performance Profile`, and `Speed Ratio`),
+while the session-owned `figure_manifest.toml` carries report scope, counts,
+reference/failure policy, and stable event-artifact sources. One retained
+`MLflowGroupReportSink` finalizes this manifest exactly once on the active
+parent run; sessions with no figures still receive an empty manifest.
+
 ## Matrix format dispatch
 
 `preconditioners/factory.py` selects a builder by `(PreconditionerType,

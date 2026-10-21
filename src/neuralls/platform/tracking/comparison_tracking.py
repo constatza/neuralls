@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import mlflow
@@ -34,6 +35,15 @@ from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.reporting.benchmark_events import (
     BENCHMARK_EVENT_SCHEMA_VERSION,
     write_method_benchmark_artifacts,
+)
+from neuralls.platform.reporting.figure_metadata import (
+    FailureTreatment,
+    FigureKind,
+    FigureManifest,
+    FigureMetadata,
+    ReferenceSelectionKind,
+    TimingScenario,
+    write_figure_manifest,
 )
 from neuralls.platform.reporting.outcome_plots import (
     GroupStyle,
@@ -214,11 +224,20 @@ def log_comparison_metrics(
         )
 
 
+@dataclass(slots=True)
 class MLflowGroupReportSink:
     """Temporary event-group sink retained until method-level reporting lands."""
 
+    manifest: FigureManifest = field(default_factory=FigureManifest)
+    _staging: tempfile.TemporaryDirectory[str] = field(
+        default_factory=lambda: tempfile.TemporaryDirectory(prefix="neuralls-figures-")
+    )
+    _finalized: bool = False
+
     def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
         """Log explicit counts and the supported failure-aware plots."""
+        if self._finalized:
+            raise RuntimeError("cannot report after finalization")
         group_id = outcome.group_id
         log_convergence_metrics(group_id, outcome.convergence)
         log_comparison_metrics(group_id, outcome.comparisons)
@@ -227,6 +246,47 @@ class MLflowGroupReportSink:
             outcome_plots = _write_outcome_plots(outcome, presentation, Path(tmp), file_key)
             for artifact in outcome_plots:
                 mlflow.log_artifact(str(artifact), artifact_path=GROUP_REPORT_ARTIFACT_DIR)
+                self.manifest.add(
+                    artifact.name,
+                    FigureMetadata(
+                        kind=_figure_kind(artifact.name),
+                        metric_definition=artifact.stem.split("_")[0],
+                        scenario=TimingScenario.ONLINE if "online" in artifact.name else None,
+                        report_level="fine"
+                        if isinstance(outcome, RecipeProfileReport)
+                        else "mixture",
+                        scope=presentation.subject,
+                        datasets=(),
+                        recipes=(),
+                        n_matrices=outcome.n_matrices,
+                        n_planned_rhs=outcome.n_planned_rhs,
+                        reference_selection=(
+                            ReferenceSelectionKind.CONFIGURED
+                            if isinstance(outcome.reference_selection, ConfiguredReference)
+                            else ReferenceSelectionKind.NONE
+                        ),
+                        failure_treatment=FailureTreatment.CENSORED,
+                        timing_policy="planned setup share + solve",
+                    ),
+                )
+
+    def finalize(self) -> None:
+        """Upload exactly one session manifest while the parent run is active."""
+        if self._finalized:
+            raise RuntimeError("figure manifest already finalized")
+        path = Path(self._staging.name) / "figure_manifest.toml"
+        write_figure_manifest(path, self.manifest)
+        mlflow.log_artifact(str(path), artifact_path=GROUP_REPORT_ARTIFACT_DIR)
+        self._finalized = True
+        self._staging.cleanup()
+
+
+def _figure_kind(filename: str) -> FigureKind:
+    stem = Path(filename).name
+    for kind in FigureKind:
+        if stem.startswith(kind.value + "_"):
+            return kind
+    raise ValueError(f"unknown figure kind: {filename}")
 
 
 METHOD_ARTIFACT_DIR = "method_workload"
@@ -379,9 +439,19 @@ def _write_method_diagnostics(root: Path, workload: MethodWorkload) -> tuple[Pat
 def _group_style(
     kind: str, presentation: GroupPresentation, plot_style: PlotStyleMaps
 ) -> GroupStyle:
-    """The shared title and per-preconditioner styling of one outcome plot."""
+    """The shared concise title and per-preconditioner styling of one plot."""
+    titles = {
+        "Performance profile (time)": "Performance Profile",
+        "ECDF (iterations)": "Iterations",
+        "ECDF (time)": "Online Time",
+        "Time to solution vs reference": "Online Time",
+        "Solve time": "Solve Time",
+        "Online time": "Online Time",
+        "Reference/method speed ratio": "Speed Ratio",
+        "Aggregate convergence": "Convergence",
+    }
     return GroupStyle(
-        title=f"{kind} — {presentation.subject}",
+        title=titles.get(kind, kind),
         subtitle=presentation.subtitle,
         labels=plot_style.labels,
         families=plot_style.families,

@@ -47,33 +47,30 @@ def _mixture_text(mixture: Sequence[str]) -> str:
 
 
 def _subject(report: RecipeProfileReport | WorkloadMixtureReport) -> str:
-    """What a report is, keeping mixture semantics in its typed variant."""
+    """Concise scope shown beneath a figure title."""
     match report:
         case RecipeProfileReport(label=label):
-            return f"{label.dataset}, {label.recipe}"
+            return f"Dataset {label.dataset} - {label.recipe}"
         case WorkloadMixtureReport(label=MediumLabel(dataset=dataset)):
-            return f"{dataset}, {_mixture_text(report.recipe_membership)}"
+            return f"Dataset {dataset}"
         case WorkloadMixtureReport(label=GlobalLabel()):
-            return f"all datasets, {_mixture_text(report.recipe_membership)}"
+            return "All datasets"
         case _ as unreachable:
             assert_never(cast(Never, unreachable))
 
 
 def _subtitle(outcome: RecipeProfileReport | WorkloadMixtureReport) -> str:
-    """Level, keys, recipe (or mixture) and system count of a group, as one line."""
+    """Return only the concise scope; scientific context belongs in metadata."""
     match outcome:
         case RecipeProfileReport(label=label):
-            scope = f"Fine level · keys: dataset, recipe · recipe: {label.recipe}"
-        case WorkloadMixtureReport(label=MediumLabel()):
-            scope = f"Medium level · keys: dataset · {_mixture_text(outcome.recipe_membership)}"
+            scope = f"Dataset {label.dataset} - {label.recipe}"
+        case WorkloadMixtureReport(label=MediumLabel(dataset=dataset)):
+            scope = f"Dataset {dataset}"
         case WorkloadMixtureReport(label=GlobalLabel()):
-            scope = f"Global level · keys: none · {_mixture_text(outcome.recipe_membership)}"
+            scope = "All datasets"
         case _ as unreachable:
             assert_never(cast(Never, unreachable))
-    return (
-        f"{scope} · planned RHS = {outcome.n_planned_rhs} · matrices = {outcome.n_matrices}"
-        f"{_common_solved_note(outcome)}{_never_converged_note(outcome)}"
-    )
+    return scope
 
 
 def _common_solved_note(outcome: GroupAggregated) -> str:

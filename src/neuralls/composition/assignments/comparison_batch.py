@@ -1558,11 +1558,13 @@ def run_comparison_batch(
             outcomes, workloads = _execute_all(pending)
             _persist_method_workloads(workloads, MLflowBenchmarkMethodSink())
             selection = _batch_reference_selections(pending)
+            report_sink = MLflowGroupReportSink()
             report_all_levels(
                 workloads,
-                MLflowGroupReportSink(),
+                report_sink,
                 reference_selection=selection,
             )
+            report_sink.finalize()
             return outcomes
 
 

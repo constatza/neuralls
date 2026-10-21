@@ -68,3 +68,7 @@ class GroupReportSink(Protocol):
     def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
         """Record `outcome`'s counts, comparisons, and per-system observations."""
         ...
+
+    def finalize(self) -> None:
+        """Flush session-level artifacts while the owning run is active."""
+        ...

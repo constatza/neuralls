@@ -271,3 +271,24 @@ def test_sink_skips_the_ratio_cdf_without_comparisons(
 
     assert not [name for name in logged_artifacts if name.startswith("speed_ratio_cdf")]
     assert not [key for key in logged_metrics if key.startswith("speed_ratio")]
+
+
+def test_sink_finalizes_one_manifest_for_logged_figures(
+    group: GroupAggregated,
+    presentation: GroupPresentation,
+    logged_metrics: LoggedMetrics,
+    logged_artifacts: dict[str, tuple[str, bool]],
+) -> None:
+    sink = MLflowGroupReportSink()
+    sink.report(group, presentation=presentation)
+    sink.report(
+        replace(_report_variant(group, RecipeProfileReport), group_id="other"),
+        presentation=presentation,
+    )
+    sink.finalize()
+
+    assert [name for name in logged_artifacts if name == "figure_manifest.toml"] == [
+        "figure_manifest.toml"
+    ]
+    with pytest.raises(RuntimeError):
+        sink.finalize()
