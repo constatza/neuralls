@@ -13,13 +13,14 @@ come from two places, kept apart on purpose:
   ``functools.singledispatch`` on the object's class, so the most-derived
   registration wins by MRO and a new preconditioner registers its own describer.
 * **Configured facts** come from the config (``configured_facts``): the grid
-  level count, the IC0 drop tolerance, smoothing steps, and the aSA/BAMG
-  settings. torchalg keeps cycles and smoothers private, so the config is the
-  only reliable source, and it covers CSR (sparse) preconditioners too. Anything
-  equal to its config default is omitted, so a default configuration keeps a
-  short legend; the settings that merely distinguish variants are ``VARIANT``
-  and are the first facts dropped when the legend budget is exceeded. Seeds are
-  never shown.
+  level count, aggregation threshold/damping, target coarse dimension, IC0 drop
+  tolerance, smoothing steps, and the aSA/BAMG settings. torchalg keeps cycles
+  and smoothers private, so the config is the only reliable source, and it
+  covers CSR (sparse) preconditioners too. Anything equal to its config default
+  is omitted unless it is the coarsening fact that defines a family variant, so
+  a default configuration keeps a short legend; the settings that merely
+  distinguish variants are ``VARIANT`` and are the first facts dropped when the
+  legend budget is exceeded. Seeds are never shown.
 
 The base display name (``"POD-2G"``, ``"aSA"``, ``"BAMG"``) comes from the
 preconditioner's ``PreconditionerFamilyKey``, not from the config's ``name``:
@@ -52,6 +53,7 @@ from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
 from neuralls.platform.config.models.preconditioner import (
     AdaptiveSAPreconditionerConfig,
+    AggregationCoarseningConfig,
     AMGPreconditionerConfig,
     BootstrapAMGPreconditionerConfig,
     ConcretePreconditionerConfig,
@@ -66,6 +68,7 @@ from neuralls.platform.config.models.preconditioner import (
     RawWeightingConfig,
     SmootherPersistenceWeightingConfig,
     StandardPreconditionerConfig,
+    TargetDimCoarseningConfig,
 )
 from neuralls.platform.config.models.preconditioner_family import (
     PreconditionerFamilyKey,
@@ -89,6 +92,7 @@ from neuralls.shared.scientific_description import (
     RELAXATION_SWEEPS,
     RELAXATION_TEST_VECTORS,
     SMOOTHER_DAMPING,
+    TARGET_COARSE_DIMENSION,
     THRESHOLD,
     DecimalFact,
     FieldImportance,
@@ -315,14 +319,27 @@ def _pod_facts(cfg: PODCoarseningConfig | NeuralPODCoarseningConfig) -> Facts:
     return tuple(facts)
 
 
+def _aggregation_facts(cfg: AggregationCoarseningConfig) -> Facts:
+    facts: list[ScientificFact] = [DecimalFact(THRESHOLD, cfg.theta, _ESSENTIAL)]
+    if cfg.omega is not None:
+        facts.append(DecimalFact(DAMPING, cfg.omega, _ESSENTIAL))
+    return tuple(facts)
+
+
+def _target_dimension_facts(cfg: TargetDimCoarseningConfig) -> Facts:
+    return (IntegerFact(TARGET_COARSE_DIMENSION, cfg.target_coarse_dim, _ESSENTIAL),)
+
+
 def configured_facts(cfg: ConcretePreconditionerConfig) -> Facts:
     """Facts that come from the configuration, with default-valued ones omitted.
 
     Exhaustive over the closed config union, so a new preconditioner type forces
     a decision here. The grid level count is ``ESSENTIAL`` for aggregation-style
     AMG (POD-2G is architecturally single-basis two-grid, so a level count there
-    would be constant noise); everything that only tells variants apart is
-    ``VARIANT``. Seeds are never facts.
+    would be constant noise). Aggregation threshold/damping and target coarse
+    dimension are also essential because they define the configured coarsening
+    variant; everything else that only tells variants apart is ``VARIANT``.
+    Seeds are never facts.
 
     Args:
         cfg (ConcretePreconditionerConfig): The preconditioner's config.
@@ -344,11 +361,13 @@ def configured_facts(cfg: ConcretePreconditionerConfig) -> Facts:
                 if isinstance(cfg.coarsening, PODCoarseningConfig | NeuralPODCoarseningConfig)
                 else (IntegerFact(MULTIGRID_LEVELS, cfg.n_levels, _ESSENTIAL),)
             )
-            coarsening_facts_config: Facts = (
-                _pod_facts(cfg.coarsening)
-                if isinstance(cfg.coarsening, PODCoarseningConfig | NeuralPODCoarseningConfig)
-                else ()
-            )
+            match cfg.coarsening:
+                case PODCoarseningConfig() | NeuralPODCoarseningConfig() as coarsening:
+                    coarsening_facts_config = _pod_facts(coarsening)
+                case AggregationCoarseningConfig() as coarsening:
+                    coarsening_facts_config = _aggregation_facts(coarsening)
+                case TargetDimCoarseningConfig() as coarsening:
+                    coarsening_facts_config = _target_dimension_facts(coarsening)
             return (*levels, *coarsening_facts_config, *_smoothing_facts(cfg))
         case NeuralAMGPreconditionerConfig():
             return (IntegerFact(MULTIGRID_LEVELS, cfg.n_levels, _ESSENTIAL), *_smoothing_facts(cfg))
@@ -413,7 +432,12 @@ def preconditioner_label(
         str: ``"AMG (L=2, θ=0.25, ω=0.67, c=15)"``-style text, within the legend
         budget; ``VARIANT`` facts are dropped first when it would overflow.
     """
-    facts = (*configured_facts(cfg), *realized_facts(precond))
+    configured = configured_facts(cfg)
+    configured_keys = {fact.key for fact in configured}
+    facts = (
+        *configured,
+        *(fact for fact in realized_facts(precond) if fact.key not in configured_keys),
+    )
     ordered = tuple(sorted(facts, key=lambda fact: fact.importance is _VARIANT))
     description = ScientificDescription(base_name=family.abbreviation(), facts=ordered)
     return render(description, _PRECONDITIONER_LEGEND, _default_policy(policy))

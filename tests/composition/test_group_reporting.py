@@ -17,7 +17,12 @@ from neuralls.domain.solver.models import (
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.domain.solver.models.presentation import GroupPresentation, SolverTimingContext
-from neuralls.platform.config.models.preconditioner import PreconditionerType
+from neuralls.platform.config.models.preconditioner import (
+    AggregationCoarseningConfig,
+    AMGPreconditionerConfig,
+    PreconditionerType,
+)
+from neuralls.platform.reporting.preconditioner_labels import build_configured_preconditioner_label
 from neuralls.shared.types import (
     DatasetId,
     MatrixId,
@@ -261,3 +266,46 @@ def test_group_reporting_disambiguates_duplicate_configured_labels() -> None:
 
     assert sink.presentations[0].plot_styles["jacobi_a"].label == "Jacobi [jacobi_a]"
     assert sink.presentations[0].plot_styles["jacobi_b"].label == "Jacobi [jacobi_b]"
+
+
+def test_group_reporting_keeps_aggregation_configuration_in_method_labels() -> None:
+    tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("amg-labels"))
+    configs = {
+        "amg_theta_025": AMGPreconditionerConfig(
+            coarsening=AggregationCoarseningConfig(theta=0.25)
+        ),
+        "amg_theta_05": AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig(theta=0.5)),
+    }
+
+    def workload(name: str) -> CompletedMethodWorkload:
+        method = PreconditionerName(name)
+        return CompletedMethodWorkload(
+            method=method,
+            planned=(tag,),
+            setup_events=(),
+            solve_attempts=(),
+            diagnostics=(),
+            generation_cost=None,
+            workload_peak_memory=MeasuredPeakMemory(1),
+            config_digest="sha256:" + name[-1] * 64,
+            method_config={"name": name},
+            plot_styles={
+                name: PreconditionerPlotStyle(
+                    build_configured_preconditioner_label(configs[name]), PreconditionerType.AMG
+                )
+            },
+        )
+
+    class PresentationSink:
+        def __init__(self) -> None:
+            self.presentations: list[GroupPresentation] = []
+
+        def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
+            del outcome
+            self.presentations.append(presentation)
+
+    sink = PresentationSink()
+    report_all_levels((workload("amg_theta_025"), workload("amg_theta_05")), sink)
+
+    assert sink.presentations[0].plot_styles["amg_theta_025"].label == "AMG (L=2, θ=0.25)"
+    assert sink.presentations[0].plot_styles["amg_theta_05"].label == "AMG (L=2, θ=0.5)"

@@ -42,6 +42,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.dlkit.predictor_adapter import DLKitNeuralPreconditioner, DLKitPredictor
 from neuralls.platform.reporting.preconditioner_labels import (
+    build_configured_preconditioner_label,
     build_preconditioner_labels,
     coarsening_facts,
     configured_facts,
@@ -322,17 +323,34 @@ def test_ic0_non_default_threshold_shows_tau() -> None:
     assert facts == (DecimalFact(DROP_TOLERANCE, 1e-4, FieldImportance.ESSENTIAL),)
 
 
-def test_amg_default_shows_only_the_level_count() -> None:
+def test_amg_default_shows_level_count_and_aggregation_threshold() -> None:
     facts = configured_facts(AMGPreconditionerConfig(coarsening=AGGREGATION))
 
-    assert [fact.key.value for fact in facts] == ["multigrid_levels"]
+    assert [fact.key.value for fact in facts] == ["multigrid_levels", "threshold"]
 
 
 def test_pod_amg_has_no_level_count() -> None:
     """POD-2G is single-basis two-grid, so a level count would be constant noise."""
     cfg = AMGPreconditionerConfig(coarsening=PODCoarseningConfig(dataset_dir=Path("snapshots")))
 
-    assert configured_facts(cfg) == ()
+    facts = configured_facts(cfg)
+
+    assert len(facts) == 1
+    assert facts[0].key.value == "rank"
+    assert facts[0].value == 8
+    assert facts[0].importance is FieldImportance.ESSENTIAL
+
+
+@pytest.mark.parametrize(
+    ("theta", "expected"),
+    [(0.25, "AMG (L=2, θ=0.25)"), (0.5, "AMG (L=2, θ=0.5)")],
+)
+def test_configured_aggregation_threshold_is_visible_in_the_label(
+    theta: float, expected: str
+) -> None:
+    cfg = AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig(theta=theta))
+
+    assert build_configured_preconditioner_label(cfg) == expected
 
 
 def test_amg_smoothing_steps_are_variant_facts_only_when_non_default() -> None:
@@ -486,7 +504,7 @@ def test_pod_label_uses_the_pod2g_abbreviation_and_no_level_count(
 
     label = preconditioner_label(PreconditionerFamily.POD2G, pod_amg_preconditioner, cfg)
 
-    assert label == "POD-2G (c=2)"
+    assert label == "POD-2G (rank=8, c=2)"
 
 
 def test_adaptive_sa_and_bamg_labels_use_their_abbreviations(

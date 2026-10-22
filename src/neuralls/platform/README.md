@@ -63,9 +63,11 @@ Reporting labels (`reporting/preconditioner_labels.py`) combine the method
 abbreviation with realized facts from the constructed preconditioner and
 configured facts from its config, rendered under the case's notation policy and
 the shared legend budget. POD-2G configured labels retain the requested rank
-and other concise coarsening distinctions, including assignment identity for
-checkpoint-backed neural variants. Neural labels retain a configured assignment
-identity alongside the realized architecture, so separate models are visibly distinct.
+and other concise coarsening distinctions; aggregation labels retain threshold
+and explicit damping, and target-dimension labels retain the requested coarse
+dimension. Checkpoint-backed neural variants retain assignment identity. Neural
+labels retain a configured assignment identity alongside the realized
+architecture, so separate models are visibly distinct.
 Workflow provenance is added separately:
 POD-2G labels append the fit-dataset id after ``|`` so equal-rank bases fitted
 on different datasets remain explicit, while the plotting API keeps result
