@@ -31,7 +31,7 @@ from neuralls.domain.solver.reporting.aggregation import (
 )
 from neuralls.domain.solver.reporting.report_levels import ReportLevel, label_for_tags, report_key
 from neuralls.shared.constants import DEFAULT_RANDOM_SEED
-from neuralls.shared.types import SystemId
+from neuralls.shared.types import PreconditionerName, SystemId
 
 
 def classify_level(
@@ -40,10 +40,16 @@ def classify_level(
     attempts: Collection[SolveAttempt],
     level: ReportLevel,
     selection: ReferenceSelection | Mapping[SystemId, ReferenceSelection] | None = None,
+    *,
+    planned_by_method: Mapping[PreconditionerName, Sequence[SystemTag]] | None = None,
 ) -> tuple[ComparisonGroupOutcome, ...]:
     """Classify planned groups from linked setup events and solve attempts."""
-    convergence = convergence_by_level(planned, setup_events, attempts, level)
-    outcomes = outcomes_by_system(planned, setup_events, attempts, level)
+    convergence = convergence_by_level(
+        planned, setup_events, attempts, level, planned_by_method=planned_by_method
+    )
+    outcomes = outcomes_by_system(
+        planned, setup_events, attempts, level, planned_by_method=planned_by_method
+    )
     tags_by_key: dict[tuple[str, ...], list[SystemTag]] = {}
     for tag in planned:
         tags_by_key.setdefault(report_key(level, tag), []).append(tag)
@@ -64,13 +70,12 @@ def classify_level(
                 )
             )
             continue
-        group_outcomes = {
-            method: outcomes.get(label, {}).get(method, {}) for method in convergence_by_method
-        }
         recipe_membership = tuple(dict.fromkeys(tag.recipe for tag in tags))
-        comparisons = compare_to_reference(
-            group_outcomes, selection=selected, seed=DEFAULT_RANDOM_SEED
+        dataset_membership = tuple(dict.fromkeys(tag.dataset for tag in tags))
+        recipe_counts = tuple(
+            sum(tag.recipe == recipe for tag in tags) for recipe in recipe_membership
         )
+        system_ids = tuple(tag.system_id for tag in tags)
         methods = tuple(convergence_by_method)
         group_matrices = {(tag.dataset, tag.matrix_id) for tag in tags}
         group_systems = {tag.system_id for tag in tags}
@@ -95,6 +100,13 @@ def classify_level(
         )
         match label:
             case FineLabel():
+                group_outcomes = {
+                    method: outcomes.get(label, {}).get(method, {})
+                    for method in convergence_by_method
+                }
+                comparisons = compare_to_reference(
+                    group_outcomes, selection=selected, seed=DEFAULT_RANDOM_SEED
+                )
                 classified.append(
                     RecipeProfileReport(
                         group_id=render_group_id(label),
@@ -107,6 +119,9 @@ def classify_level(
                         summaries=summaries,
                         reference_selection=selected,
                         recipe_membership=recipe_membership,
+                        dataset_membership=dataset_membership,
+                        recipe_counts=recipe_counts,
+                        system_ids=system_ids,
                     )
                 )
             case MediumLabel() | GlobalLabel():
@@ -117,11 +132,12 @@ def classify_level(
                         n_matrices=n_matrices,
                         n_planned_rhs=len(tags),
                         convergence=convergence_by_method,
-                        outcomes=group_outcomes,
-                        comparisons=comparisons,
                         summaries=summaries,
                         reference_selection=selected,
                         recipe_membership=recipe_membership,
+                        dataset_membership=dataset_membership,
+                        recipe_counts=recipe_counts,
+                        system_ids=system_ids,
                     )
                 )
     return tuple(classified)

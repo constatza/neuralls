@@ -65,7 +65,9 @@ def plot_aggregate_bars(
     labels = [style.labels.get(name, name) for name in names]
     fig, ax = plt.subplots(figsize=(8, 5))
     values = [outcome.convergence[name].n_converged for name in names]
-    bars = ax.barh(labels, values, color=[styles[name]["color"] for name in names])
+    positions = np.arange(len(names))
+    bars = ax.barh(positions, values, color=[styles[name]["color"] for name in names])
+    ax.set_yticks(positions, labels)
     ax.set_xlim(0, max(1, outcome.n_planned_rhs))
     ax.set_xlabel("Converged RHS (of planned RHS)")
     ax.set_ylabel("Method")
@@ -246,7 +248,9 @@ def plot_online_time_bars(
         for summary in summaries
     ]
     fig, ax = plt.subplots(figsize=(8, 5))
-    bars = ax.barh(labels, values, color=[styles[name]["color"] for name in names])
+    positions = np.arange(len(names))
+    bars = ax.barh(positions, values, color=[styles[name]["color"] for name in names])
+    ax.set_yticks(positions, labels)
     for bar, summary in zip(bars, summaries, strict=True):
         incomplete = getattr(summary, "missing_system_ids", ())
         suffix = " (incomplete)" if incomplete else ""

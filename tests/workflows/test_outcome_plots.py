@@ -189,6 +189,49 @@ def test_online_bars_use_configured_method_labels(tmp_path: Path, figures: list[
     assert _axes(figures).get_yticklabels()[0].get_text() == "Jacobi ($\\rho=0.1$)"
 
 
+def test_bars_keep_distinct_positions_for_descriptive_method_labels(
+    tmp_path: Path, figures: list[Figure]
+) -> None:
+    """Descriptive labels remain paired with distinct numeric bar positions."""
+    from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
+
+    summaries = tuple(
+        CompleteWorkloadSummary(
+            method=name,
+            n_planned_rhs=1,
+            n_attempted_rhs=1,
+            n_converged=1,
+            setup_total_s=0.0,
+            solve_total_s=seconds,
+            workload_online_s=seconds,
+            online_s_per_attempted_rhs=seconds,
+            workload_peak_memory=UnknownPeakMemory(),
+        )
+        for name, seconds in (("network_a", 2.0), ("network_b", 3.0))
+    )
+    style = GroupStyle(
+        title="Online Time",
+        labels={
+            "network_a": "Neural (assignment=network_a)",
+            "network_b": "Neural (assignment=network_b)",
+        },
+    )
+
+    plot_online_time_bars(
+        summaries, scenario="online", style=style, save_path=tmp_path / "bars.png"
+    )
+
+    ax = _axes(figures)
+    centers = [
+        cast(Rectangle, bar).get_y() + cast(Rectangle, bar).get_height() / 2 for bar in ax.patches
+    ]
+    assert centers[0] != centers[1]
+    assert [tick.get_text() for tick in ax.get_yticklabels()] == [
+        "Neural (assignment=network_a)",
+        "Neural (assignment=network_b)",
+    ]
+
+
 def test_paired_scatter_marks_the_reference_runs_the_method_failed(
     tmp_path: Path, outcomes: Outcomes, style: GroupStyle, figures: list[Figure]
 ) -> None:

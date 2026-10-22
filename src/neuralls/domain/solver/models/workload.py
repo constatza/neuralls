@@ -16,6 +16,7 @@ from neuralls.domain.solver.models.benchmark_events import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.shared.digest import Digest, Json
 from neuralls.shared.types import PreconditionerName, SystemId
 
@@ -103,6 +104,9 @@ class MethodWorkload(Protocol):
 
     @property
     def diagnostics(self) -> tuple[tuple[SystemId, CGComparisonResult], ...]: ...
+
+    @property
+    def plot_styles(self) -> Mapping[str, PreconditionerPlotStyle]: ...
 
 
 def _validate_summary_fields(summary: MethodWorkloadSummary) -> None:

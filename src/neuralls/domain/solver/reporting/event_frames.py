@@ -183,8 +183,11 @@ def validate_decoded_solve_frame(frame: pl.DataFrame) -> None:
             _finite_non_negative(residual, "final relative residual")
             if reason is not None:
                 raise ValueError(f"converged solve {system_id!r} has a failure reason")
-        elif not isinstance(reason, str):
-            raise ValueError(f"failed solve {system_id!r} is missing a failure reason")
+        else:
+            if residual is not None:
+                raise ValueError(f"failed solve {system_id!r} has a final relative residual")
+            if not isinstance(reason, str):
+                raise ValueError(f"failed solve {system_id!r} is missing a failure reason")
         if system_id in seen_systems:
             raise ValueError(f"duplicate solve system ID: {system_id!r}")
         seen_systems.add(system_id)

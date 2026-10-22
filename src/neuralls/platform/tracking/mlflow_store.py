@@ -236,7 +236,7 @@ def _validate_diagnostics(diagnostics: object, *, method: str, system_ids: tuple
             raise TypeError("diagnostic record is missing system ID")
         if not isinstance(record.get("converged"), bool):
             raise TypeError("diagnostic convergence state must be boolean")
-        _validate_non_negative_number(record.get("iterations"), "diagnostic iterations")
+        _validate_non_negative_int(record.get("iterations"), "diagnostic iterations")
         _validate_non_negative_number(record.get("solve_s"), "diagnostic solve time")
         _validate_samples(record.get("residual_history_rel"), "residual history")
         energy = record.get("error_history_a_rel")
@@ -253,6 +253,11 @@ def _validate_non_negative_number(value: object, name: str) -> None:
         raise TypeError(f"{name} must be finite and non-negative")
     if not math.isfinite(float(value)) or value < 0:
         raise ValueError(f"{name} must be finite and non-negative")
+
+
+def _validate_non_negative_int(value: object, name: str) -> None:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
 
 
 def _validate_samples(value: object, name: str) -> None:
@@ -283,6 +288,7 @@ def _validate_summary(
     online = summary.get("online")
     if not isinstance(counts, dict) or not isinstance(online, dict):
         raise TypeError("method summary is missing counts or online totals")
+    _validate_summary_memory(summary.get("memory"))
     for key in ("planned_rhs", "attempted_rhs", "converged"):
         value = counts.get(key)
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
@@ -316,6 +322,21 @@ def _validate_summary(
         )
     elif "per_attempted_rhs_s" in online:
         raise ValueError("empty solve membership must not declare an average")
+
+
+def _validate_summary_memory(memory: object) -> None:
+    """Validate the workload-lifetime memory discriminant independently of event peaks."""
+    if not isinstance(memory, dict):
+        raise TypeError("summary memory is missing")
+    status = memory.get("status")
+    peak_bytes = memory.get("peak_bytes")
+    if status == "unknown":
+        if peak_bytes is not None:
+            raise ValueError("unknown summary memory must not carry peak bytes")
+        return
+    if status != "measured":
+        raise ValueError("unknown summary memory status")
+    _validate_non_negative_int(peak_bytes, "summary peak memory bytes")
 
 
 def _require_close(value: object, expected: float, label: str) -> None:

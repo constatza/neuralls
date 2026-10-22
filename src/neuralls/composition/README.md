@@ -34,7 +34,10 @@ each problem.
 Comparison figures are planned with typed metadata before drawing. Titles stay
 short (for example `Online Time`, `Performance Profile`, and `Speed Ratio`),
 while the session-owned `figure_manifest.toml` carries report scope, counts,
-reference/failure policy, and stable event-artifact sources. One retained
+actual dataset/recipe membership and weights, solver tolerances, iteration and
+normalization settings, repeat policy, reference/failure semantics, and stable
+event-artifact sources. Method-child residual and energy figures use unique
+method-qualified names and are registered in that same manifest. One retained
 `MLflowGroupReportSink` finalizes this manifest exactly once on the active
 parent run; sessions with no figures still receive an empty manifest.
 
@@ -700,6 +703,13 @@ change only redoes the affected work:
    outside every measured walltime, and so is checkpoint *loading* for every
    checkpoint-backed kind (see "Checkpoint loading and memory" below), so setup
    costs stay comparable across kinds.
+
+   Completed method children do not by themselves complete the user workflow:
+   the reuse gate also requires that all current method runs share one
+   `FINISHED` comparison-session parent with a readable session figure
+   manifest. If reporting or manifest upload failed after method persistence,
+   the next non-forced invocation runs the bounded workflow again and repairs
+   the missing session report instead of returning a bare method cache hit.
 
 Every key is derived by the pipeline from the inputs themselves (never
 authored in a config or bumped by hand), and user ids stay pure labels. All

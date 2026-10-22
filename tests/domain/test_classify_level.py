@@ -111,9 +111,9 @@ def test_system_cost_rows_become_explicit_solved_and_failed_outcomes(method) -> 
     setup = _setup(method)
     attempts = (_attempt(tags[0], method), _attempt(tags[1], method, converged=False))
 
-    (group,) = classify_level(tags, (setup,), attempts, GlobalLevel())
+    (group,) = classify_level(tags, (setup,), attempts, FineLevel())
 
-    assert isinstance(group, GroupAggregated)
+    assert isinstance(group, RecipeProfileReport)
     assert group.outcomes[method] == {
         tags[0].system_id: Solved(
             MatrixId(0), 3, solve_s=0.5, amortized_online_s=1.5, dataset=DatasetId("ds")
@@ -126,9 +126,9 @@ def test_setup_failure_is_reported_as_zero_attempts_not_zero_planned(method) -> 
     tags = (_tag(0), _tag(1))
     failed_setup = replace(_setup(method), outcome=SetupFailed(reason="factorization failed"))
 
-    (group,) = classify_level(tags, (failed_setup,), (), GlobalLevel())
+    (group,) = classify_level(tags, (failed_setup,), (), FineLevel())
 
-    assert isinstance(group, GroupAggregated)
+    assert isinstance(group, RecipeProfileReport)
     summary = group.convergence[method]
     assert (summary.n_planned_rhs, summary.n_attempted_rhs, summary.n_converged) == (2, 0, 0)
     assert summary.iterations is None
@@ -159,11 +159,11 @@ def test_setup_failure_creates_asymmetric_censored_outcomes(method) -> None:
         tags,
         (reference, failed),
         attempts,
-        GlobalLevel(),
+        FineLevel(),
         ConfiguredReference(method),
     )
 
-    assert isinstance(group, GroupAggregated)
+    assert isinstance(group, RecipeProfileReport)
     comparison = group.comparisons[PreconditionerName("amg")].paired
     assert comparison.n_reference_only == 2
     assert comparison.n_method_only == 0
@@ -176,6 +176,35 @@ def test_unmeasured_group_retains_planned_membership(method) -> None:
 
     assert isinstance(group, GroupSkippedAllCacheHit)
     assert (group.n_planned_rhs, group.n_matrices) == (2, 1)
+
+
+def test_interrupted_method_is_retained_in_a_group_without_its_setup(method) -> None:
+    """The workload plan, rather than observed setup events, defines method population."""
+    reference = PreconditionerName("reference")
+    candidate = PreconditionerName("candidate")
+    tags = (_tag(0, recipe="a", matrix=0), _tag(0, recipe="b", matrix=1))
+    setups = (_setup(reference, 0), _setup(reference, 1), _setup(candidate, 0))
+    attempts = (
+        _attempt(tags[0], reference),
+        _attempt(tags[1], reference),
+        _attempt(tags[0], candidate),
+    )
+
+    reports = classify_level(
+        tags,
+        setups,
+        attempts,
+        FineLevel(),
+        ConfiguredReference(reference),
+        planned_by_method={reference: tags, candidate: tags},
+    )
+
+    by_recipe = {
+        report.label.recipe: report for report in reports if isinstance(report, RecipeProfileReport)
+    }
+    interrupted = by_recipe["b"]
+    assert interrupted.convergence[candidate].n_attempted_rhs == 0
+    assert interrupted.comparisons[candidate].paired.n_reference_only == 1
 
 
 def test_fine_and_medium_labels_preserve_recipe_membership(method) -> None:
@@ -225,16 +254,31 @@ def test_fine_and_medium_labels_preserve_recipe_membership(method) -> None:
         group.recipe_membership for group in medium if isinstance(group, WorkloadMixtureReport)
     ] == [("gauss", "sine"), ("gauss",)]
 
+    global_report = classify_level(tags, setups, attempts, GlobalLevel())[0]
+    assert isinstance(global_report, WorkloadMixtureReport)
+    assert global_report.dataset_membership == (DatasetId("ds"), DatasetId("other"))
+    assert global_report.recipe_counts == (2, 1)
+
 
 def test_removed_cost_models_are_absent_from_event_classification(method) -> None:
     tag = _tag(0)
 
-    (group,) = classify_level((tag,), (_setup(method),), (_attempt(tag, method),), GlobalLevel())
+    (group,) = classify_level((tag,), (_setup(method),), (_attempt(tag, method),), FineLevel())
 
-    assert isinstance(group, GroupAggregated)
+    assert isinstance(group, RecipeProfileReport)
     summary = group.convergence[method]
     solved = group.outcomes[method][tag.system_id]
     for value in (group, summary, solved):
         assert not hasattr(value, "ert_seconds")
         assert not hasattr(value, "recurring_s")
         assert not hasattr(value, "setup_sharing")
+
+
+def test_workload_mixture_exposes_no_profile_or_paired_inputs(method) -> None:
+    tag = _tag(0)
+
+    (group,) = classify_level((tag,), (_setup(method),), (_attempt(tag, method),), GlobalLevel())
+
+    assert isinstance(group, WorkloadMixtureReport)
+    assert not hasattr(group, "outcomes")
+    assert not hasattr(group, "comparisons")

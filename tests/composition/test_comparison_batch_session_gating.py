@@ -111,11 +111,22 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
             return_value=_mock_cfg(),
         ),
         patch(
-            "neuralls.composition.assignments.comparison_batch._execute_prepared_comparison",
-            return_value=ComparisonOutcome(
-                comparison_id="b", comparison_display_name="b", success=True
+            "neuralls.composition.assignments.comparison_batch._has_complete_reusable_session",
+            return_value=False,
+        ),
+        patch(
+            "neuralls.composition.assignments.comparison_batch._execute_all",
+            return_value=(
+                [
+                    ComparisonOutcome(comparison_id="a", comparison_display_name="a", success=True),
+                    ComparisonOutcome(comparison_id="b", comparison_display_name="b", success=True),
+                ],
+                (),
             ),
         ),
+        patch("neuralls.composition.assignments.comparison_batch._persist_method_workloads"),
+        patch("neuralls.composition.assignments.comparison_batch.report_all_levels"),
+        patch("neuralls.composition.assignments.comparison_batch.MLflowGroupReportSink"),
         patch(MLFLOW_MODULE) as mock_mlflow,
     ):
         outcomes = run_comparison_batch(experiments_config, ComparisonParams())

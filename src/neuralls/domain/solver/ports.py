@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Protocol, runtime_checkable
 
-from neuralls.domain.solver.models.group_outcomes import GroupAggregated
+from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport, WorkloadMixtureReport
 from neuralls.domain.solver.models.presentation import GroupPresentation
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.models.workload import MethodWorkload, MethodWorkloadSummary
@@ -65,8 +65,13 @@ class BenchmarkMethodSink(Protocol):
 class GroupReportSink(Protocol):
     """Receives one event-backed report group and records it."""
 
-    def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
-        """Record `outcome`'s counts, comparisons, and per-system observations."""
+    def report(
+        self,
+        outcome: RecipeProfileReport | WorkloadMixtureReport,
+        *,
+        presentation: GroupPresentation,
+    ) -> None:
+        """Record the counts and inputs supported by `outcome`'s report variant."""
         ...
 
     def finalize(self) -> None:

@@ -7,18 +7,24 @@ from pathlib import Path
 
 import pytest
 
+from neuralls.composition.comparison.models import CompletedMethodWorkload
 from neuralls.domain.benchmarking.selection import ConfiguredReference
-from neuralls.domain.solver.models.benchmark_events import UnknownPeakMemory
+from neuralls.domain.solver.models.benchmark_events import SystemTag, UnknownPeakMemory
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.models.group_outcomes import (
     GroupAggregated,
     RecipeProfileReport,
     WorkloadMixtureReport,
 )
-from neuralls.domain.solver.models.labels import FineLabel, render_group_id
+from neuralls.domain.solver.models.labels import (
+    FineLabel,
+    GlobalLabel,
+    MediumLabel,
+    render_group_id,
+)
 from neuralls.domain.solver.models.outcomes import Failed, Solved
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
-from neuralls.domain.solver.models.presentation import GroupPresentation
+from neuralls.domain.solver.models.presentation import GroupPresentation, SolverTimingContext
 from neuralls.domain.solver.models.statistics import (
     Interval,
     IterationStats,
@@ -27,12 +33,14 @@ from neuralls.domain.solver.models.statistics import (
 )
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
 from neuralls.platform.config.models.preconditioner import PreconditionerType
+from neuralls.platform.reporting.figure_metadata import FailureTreatment, TimingScenario
 from neuralls.platform.tracking import comparison_tracking
 from neuralls.platform.tracking.comparison_tracking import (
     GROUP_REPORT_ARTIFACT_DIR,
     MLflowGroupReportSink,
+    _figure_plans,
 )
-from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SystemId
+from neuralls.shared.types import DatasetId, GroupId, MatrixId, PreconditionerName, SystemId
 
 type LoggedMetrics = dict[str, float]
 
@@ -70,7 +78,7 @@ def _failed() -> Failed:
 
 
 @pytest.fixture
-def group() -> GroupAggregated:
+def group() -> RecipeProfileReport:
     label = FineLabel(dataset=DatasetId("ds"), recipe="gaussian")
     amg = {
         SystemId("s0"): _solved(5, 1.0),
@@ -85,7 +93,7 @@ def group() -> GroupAggregated:
         SystemId("s3"): _failed(),
     }
     never = {SystemId(f"s{i}"): _failed() for i in range(4)}
-    return GroupAggregated(
+    return RecipeProfileReport(
         group_id=render_group_id(label),
         label=label,
         n_matrices=1,
@@ -135,6 +143,7 @@ def group() -> GroupAggregated:
             ),
         ),
         reference_selection=ConfiguredReference(PreconditionerName("amg")),
+        recipe_membership=("gaussian",),
     )
 
 
@@ -155,24 +164,36 @@ def _key(metric: str, group: GroupAggregated, name: str) -> str:
     return comparison_tracking._group_metric_key(metric, group.group_id, name)
 
 
-def _report_variant(group: GroupAggregated, report_type: type[GroupAggregated]) -> GroupAggregated:
+def _report_variant(
+    group: RecipeProfileReport,
+    report_type: type[RecipeProfileReport | WorkloadMixtureReport],
+) -> RecipeProfileReport | WorkloadMixtureReport:
     membership = (
         ("gaussian",)
         if report_type is RecipeProfileReport
         else ("gaussian", "sinusoidal ω=6.28319")
     )
-    return report_type(
-        group_id=group.group_id,
-        label=group.label,
-        n_matrices=group.n_matrices,
-        n_planned_rhs=group.n_planned_rhs,
-        convergence=group.convergence,
-        outcomes=group.outcomes,
-        comparisons=group.comparisons,
-        summaries=group.summaries,
-        reference_selection=group.reference_selection,
-        recipe_membership=membership,
-    )
+    common = {
+        "group_id": group.group_id,
+        "label": (
+            group.label
+            if report_type is RecipeProfileReport
+            else MediumLabel(DatasetId("ds"), membership)
+        ),
+        "n_matrices": group.n_matrices,
+        "n_planned_rhs": group.n_planned_rhs,
+        "convergence": group.convergence,
+        "summaries": group.summaries,
+        "reference_selection": group.reference_selection,
+        "recipe_membership": membership,
+    }
+    if report_type is RecipeProfileReport:
+        return RecipeProfileReport(
+            **common,
+            outcomes=group.outcomes,
+            comparisons=group.comparisons,
+        )
+    return WorkloadMixtureReport(**common)
 
 
 def test_mixture_sink_omits_profiles_but_keeps_aggregate_bars(
@@ -191,6 +212,106 @@ def test_mixture_sink_omits_profiles_but_keeps_aggregate_bars(
         f"solve_time_bars_{key}.png",
         f"online_time_bars_{key}.png",
     }
+
+
+def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
+    group: RecipeProfileReport,
+) -> None:
+    mixture = WorkloadMixtureReport(
+        group_id=GroupId("global/dissolved"),
+        label=GlobalLabel(("a", "b")),
+        n_matrices=3,
+        n_planned_rhs=4,
+        convergence=group.convergence,
+        summaries=group.summaries,
+        reference_selection=group.reference_selection,
+        recipe_membership=("a", "b"),
+        dataset_membership=(DatasetId("first"), DatasetId("second")),
+        recipe_counts=(1, 3),
+    )
+    context = SolverTimingContext(
+        rtol=1e-6,
+        atol=1e-14,
+        max_iterations=20,
+        stopping_criterion="residual_norm",
+        m_max=5,
+        reference_precision_margin=2.0,
+        timing_repeats=3,
+        timing_warmup=1,
+        timing_statistic="median",
+        normalization="matrix",
+    )
+    presentation = GroupPresentation(
+        subject="All datasets",
+        subtitle="All datasets",
+        plot_styles={},
+        solver_contexts=(context,),
+    )
+
+    plans = _figure_plans(mixture, presentation, "global_dissolved")
+    online = next(plan for plan in plans if plan.filename.startswith("online_time"))
+    solve = next(plan for plan in plans if plan.filename.startswith("solve_time"))
+
+    assert online.metadata.datasets == ("first", "second")
+    assert online.metadata.recipes == ("a", "b")
+    assert online.metadata.recipe_counts == (1, 3)
+    assert online.metadata.recipe_weights == (0.25, 0.75)
+    assert online.metadata.metric_definition == "workload online seconds (setup + solve total)"
+    assert online.metadata.scenario is TimingScenario.ONLINE
+    assert online.metadata.failure_treatment is FailureTreatment.NONE
+    assert online.metadata.solver_contexts == (context,)
+    assert solve.metadata.metric_definition == "solve seconds (workload total)"
+    assert solve.metadata.scenario is TimingScenario.SOLVE
+
+
+def test_session_manifest_registers_uniquely_owned_method_figures() -> None:
+    method = PreconditionerName("network_a")
+    tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(7), 0, SystemId("s0"))
+    workload = CompletedMethodWorkload(
+        method=method,
+        planned=(tag,),
+        setup_events=(),
+        solve_attempts=(),
+        diagnostics=(),
+        generation_cost=None,
+        workload_peak_memory=UnknownPeakMemory(),
+        config_digest="sha256:" + "a" * 64,
+        method_config={"name": str(method)},
+        plot_styles={
+            str(method): PreconditionerPlotStyle(
+                label="Neural (assignment=network_a)", family=PreconditionerType.NEURAL
+            )
+        },
+    )
+    context = SolverTimingContext(
+        rtol=1e-6,
+        atol=1e-14,
+        max_iterations=20,
+        stopping_criterion="residual_norm",
+        m_max=5,
+        reference_precision_margin=2.0,
+        timing_repeats=1,
+        timing_warmup=0,
+        timing_statistic="median",
+        normalization="none",
+    )
+    sink = MLflowGroupReportSink()
+
+    sink.register_method_figures((workload,), contexts_by_system={tag.system_id: context})
+
+    assert set(sink.manifest.entries) == {
+        "residual_history_network_a.png",
+        "energy_history_network_a.png",
+    }
+    metadata = sink.manifest.entries["residual_history_network_a.png"]
+    assert metadata.scope == "Method Neural (assignment=network_a)"
+    assert metadata.datasets == ("ds",)
+    assert metadata.recipes == ("gaussian",)
+    assert metadata.solver_contexts == (context,)
+    assert metadata.sources == (
+        "comparison_method[method=network_a]/method_workload/method_diagnostics.json",
+        "comparison_method[method=network_a]/method_workload/solve_attempts.parquet",
+    )
 
 
 def test_recipe_profile_sink_keeps_profile_ecdf_and_aggregate_bars(
@@ -251,6 +372,7 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
     expected = {
         f"{stem}_{key}.png"
         for stem in (
+            "aggregate_bars",
             "solve_time_bars",
             "online_time_bars",
             "paired_time_scatter",

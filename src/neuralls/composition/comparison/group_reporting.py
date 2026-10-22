@@ -7,17 +7,15 @@ converted back into timing events because that would duplicate matrix setup.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Never, assert_never, cast
 
 from loguru import logger
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload
-from neuralls.domain.benchmarking.selection import (
-    NoReferenceConfigured,
-    ReferenceSelection,
-    systems_solved_by_all,
-)
+from neuralls.domain.benchmarking.selection import NoReferenceConfigured, ReferenceSelection
 from neuralls.domain.solver.models.group_outcomes import (
     GroupAggregated,
     GroupSkippedAllCacheHit,
@@ -25,7 +23,7 @@ from neuralls.domain.solver.models.group_outcomes import (
     WorkloadMixtureReport,
 )
 from neuralls.domain.solver.models.labels import GlobalLabel, MediumLabel
-from neuralls.domain.solver.models.presentation import GroupPresentation
+from neuralls.domain.solver.models.presentation import GroupPresentation, SolverTimingContext
 from neuralls.domain.solver.ports import GroupReportSink
 from neuralls.domain.solver.reporting.classification import classify_level
 from neuralls.domain.solver.reporting.report_levels import (
@@ -42,19 +40,15 @@ REPORT_LEVELS: tuple[ReportLevel, ...] = (FineLevel(), MediumLevel(), GlobalLeve
 """Every level a batch reports, finest first."""
 
 
-def _mixture_text(mixture: Sequence[str]) -> str:
-    return f"mixture of {', '.join(mixture)}"
-
-
 def _subject(report: RecipeProfileReport | WorkloadMixtureReport) -> str:
     """Concise scope shown beneath a figure title."""
     match report:
         case RecipeProfileReport(label=label):
             return f"Dataset {label.dataset} - {label.recipe}"
-        case WorkloadMixtureReport(label=MediumLabel(dataset=dataset)) as mixture:
-            return f"Dataset {dataset} - {_mixture_text(mixture.recipe_membership)}"
-        case WorkloadMixtureReport(label=GlobalLabel()) as mixture:
-            return f"All datasets - {_mixture_text(mixture.recipe_membership)}"
+        case WorkloadMixtureReport(label=MediumLabel(dataset=dataset)):
+            return f"Dataset {dataset}"
+        case WorkloadMixtureReport(label=GlobalLabel()):
+            return "All datasets"
         case _ as unreachable:
             assert_never(cast(Never, unreachable))
 
@@ -64,25 +58,13 @@ def _subtitle(outcome: RecipeProfileReport | WorkloadMixtureReport) -> str:
     match outcome:
         case RecipeProfileReport(label=label):
             scope = f"Dataset {label.dataset} - {label.recipe}"
-        case WorkloadMixtureReport(label=MediumLabel(dataset=dataset)) as mixture:
-            scope = f"Dataset {dataset} - {_mixture_text(mixture.recipe_membership)}"
-        case WorkloadMixtureReport(label=GlobalLabel()) as mixture:
-            scope = f"All datasets - {_mixture_text(mixture.recipe_membership)}"
+        case WorkloadMixtureReport(label=MediumLabel(dataset=dataset)):
+            scope = f"Dataset {dataset}"
+        case WorkloadMixtureReport(label=GlobalLabel()):
+            scope = "All datasets"
         case _ as unreachable:
             assert_never(cast(Never, unreachable))
     return scope
-
-
-def _common_solved_note(outcome: GroupAggregated) -> str:
-    """How many systems every preconditioner solved, when that is fewer than all of them."""
-    common = len(systems_solved_by_all(outcome.outcomes))
-    return f" · solved by all: {common}" if common < outcome.n_planned_rhs else ""
-
-
-def _never_converged_note(outcome: GroupAggregated) -> str:
-    """Name the preconditioners with no converged system."""
-    names = [name for name, c in outcome.convergence.items() if c.n_converged == 0]
-    return f" · never converged: {', '.join(names)}" if names else ""
 
 
 def report_all_levels(
@@ -90,26 +72,47 @@ def report_all_levels(
     sink: GroupReportSink,
     *,
     reference_selection: ReferenceSelection | dict[SystemId, ReferenceSelection] | None = None,
+    contexts_by_system: Mapping[SystemId, SolverTimingContext] | None = None,
 ) -> None:
     """Reduce completed method workloads and report every canonical level."""
     selected = reference_selection if reference_selection is not None else NoReferenceConfigured()
     planned_by_id = {tag.system_id: tag for workload in workloads for tag in workload.planned}
     planned = tuple(planned_by_id.values())
+    planned_by_method = {workload.method: workload.planned for workload in workloads}
     setup_events = tuple(event for workload in workloads for event in workload.setup_events)
     attempts = tuple(attempt for workload in workloads for attempt in workload.solve_attempts)
     plot_styles = {
         name: style for workload in workloads for name, style in workload.plot_styles.items()
     }
+    label_counts = Counter(style.label for style in plot_styles.values())
+    plot_styles = {
+        name: (
+            replace(style, label=f"{style.label} (config={name})")
+            if label_counts[style.label] > 1
+            else style
+        )
+        for name, style in plot_styles.items()
+    }
     for level in REPORT_LEVELS:
-        for classified in classify_level(planned, setup_events, attempts, level, selected):
+        for classified in classify_level(
+            planned, setup_events, attempts, level, selected, planned_by_method=planned_by_method
+        ):
             match classified:
                 case GroupAggregated() as aggregated:
+                    solver_contexts = tuple(
+                        dict.fromkeys(
+                            contexts_by_system[system_id]
+                            for system_id in aggregated.system_ids
+                            if contexts_by_system is not None and system_id in contexts_by_system
+                        )
+                    )
                     sink.report(
                         aggregated,
                         presentation=GroupPresentation(
                             subject=_subject(aggregated),
                             subtitle=_subtitle(aggregated),
                             plot_styles=plot_styles,
+                            solver_contexts=solver_contexts,
                         ),
                     )
                 case GroupSkippedAllCacheHit(group_id=group_id, n_planned_rhs=n_total):

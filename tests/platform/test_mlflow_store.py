@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import patch
 
+import polars as pl
 import pytest
 import tomli_w
 from mlflow.tracking import MlflowClient
@@ -27,6 +28,7 @@ from neuralls.domain.solver.models import (
     SystemTag,
 )
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
+from neuralls.domain.solver.reporting.event_frames import validate_decoded_solve_frame
 from neuralls.platform.config.models.preconditioner import NeuralPreconditionerConfig
 from neuralls.platform.reporting.benchmark_events import write_method_benchmark_artifacts
 from neuralls.platform.tracking.mlflow_store import (
@@ -430,6 +432,76 @@ def test_reuse_rejects_incomplete_missing_attempts(
     Path(paths["summary.toml"]).write_bytes(tomli_w.dumps(summary).encode("utf-8"))
 
     with pytest.raises(ValueError):
+        _validate_method_artifacts(
+            paths,
+            method="jacobi",
+            config_digest="sha256:" + "a" * 64,
+            system_ids=system_ids,
+            method_config={"name": "jacobi"},
+        )
+
+
+def test_failed_solve_frame_rejects_convergence_only_residual() -> None:
+    frame = pl.DataFrame(
+        {
+            "setup_event_id": ["setup"],
+            "system_id": ["system"],
+            "dataset": ["ds"],
+            "recipe": ["recipe"],
+            "matrix_id": [0],
+            "rhs_ordinal": [0],
+            "method": ["jacobi"],
+            "solve_s": [1.0],
+            "samples_s": [[1.0]],
+            "peak_memory_bytes": [None],
+            "memory_status": ["unknown"],
+            "solve_status": ["failed"],
+            "iterations": [1],
+            "final_relative_residual": [float("nan")],
+            "failure_reason": ["limit"],
+        }
+    )
+
+    with pytest.raises(ValueError, match="residual"):
+        validate_decoded_solve_frame(frame)
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda payload: payload["memory"].update(status="measured", peak_bytes=-1), "peak memory"),
+        (lambda payload: payload["memory"].pop("status"), "memory status"),
+    ],
+)
+def test_reuse_rejects_invalid_summary_memory(
+    method_artifacts: tuple[dict[str, str], tuple[str, ...]],
+    mutate: Callable[[dict[str, object]], None],
+    message: str,
+) -> None:
+    paths, system_ids = method_artifacts
+    summary = tomllib.loads(Path(paths["summary.toml"]).read_text(encoding="utf-8"))
+    mutate(summary)
+    Path(paths["summary.toml"]).write_bytes(tomli_w.dumps(summary).encode("utf-8"))
+
+    with pytest.raises((TypeError, ValueError), match=message):
+        _validate_method_artifacts(
+            paths,
+            method="jacobi",
+            config_digest="sha256:" + "a" * 64,
+            system_ids=system_ids,
+            method_config={"name": "jacobi"},
+        )
+
+
+def test_reuse_rejects_fractional_diagnostic_iterations(
+    method_artifacts: tuple[dict[str, str], tuple[str, ...]],
+) -> None:
+    paths, system_ids = method_artifacts
+    diagnostics = json.loads(Path(paths["method_diagnostics.json"]).read_text(encoding="utf-8"))
+    diagnostics[0]["iterations"] = 0.5
+    Path(paths["method_diagnostics.json"]).write_text(json.dumps(diagnostics), encoding="utf-8")
+
+    with pytest.raises((TypeError, ValueError), match="iterations"):
         _validate_method_artifacts(
             paths,
             method="jacobi",

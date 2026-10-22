@@ -57,6 +57,7 @@ from neuralls.platform.config.models.preconditioner import (
     ConcretePreconditionerConfig,
     IC0PreconditionerConfig,
     NeuralAMGPreconditionerConfig,
+    NeuralCheckpointRef,
     NeuralPODCoarseningConfig,
     NeuralPreconditionerConfig,
     PODCoarseningConfig,
@@ -126,6 +127,8 @@ _PRECONDITIONER_LEGEND = replace(
 )
 """The shared legend profile (55-character budget, VARIANT facts dropped first) with
 the precision the study's plots already use for these quantities."""
+
+ASSIGNMENT = FieldKey("assignment")
 
 
 def _default_policy(policy: NotationPolicy | None) -> NotationPolicy:
@@ -259,6 +262,13 @@ def _smoothing_facts(cfg: AMGPreconditionerConfig | NeuralAMGPreconditionerConfi
     )
 
 
+def _checkpoint_identity_facts(cfg: NeuralCheckpointRef) -> Facts:
+    """Keep a configured neural assignment visible in human-facing labels."""
+    if cfg.assignment is None:
+        return ()
+    return (TextFact(ASSIGNMENT, cfg.assignment, _ESSENTIAL),)
+
+
 def configured_facts(cfg: ConcretePreconditionerConfig) -> Facts:
     """Facts that come from the configuration, with default-valued ones omitted.
 
@@ -272,8 +282,10 @@ def configured_facts(cfg: ConcretePreconditionerConfig) -> Facts:
         cfg (ConcretePreconditionerConfig): The preconditioner's config.
     """
     match cfg:
-        case StandardPreconditionerConfig() | NeuralPreconditionerConfig():
+        case StandardPreconditionerConfig():
             return ()
+        case NeuralPreconditionerConfig():
+            return _checkpoint_identity_facts(cfg)
         case IC0PreconditionerConfig():
             return (
                 (DecimalFact(DROP_TOLERANCE, cfg.threshold, _ESSENTIAL),)

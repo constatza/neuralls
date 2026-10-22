@@ -11,7 +11,7 @@ from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLa
 from neuralls.domain.solver.models.outcomes import SystemOutcome
 from neuralls.domain.solver.models.statistics import MethodComparison
 from neuralls.domain.solver.models.workload import MethodWorkloadSummary
-from neuralls.shared.types import GroupId, PreconditionerName, SystemId
+from neuralls.shared.types import DatasetId, GroupId, PreconditionerName, SystemId
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,10 +27,6 @@ class GroupAggregated:
         n_planned_rhs: Total planned systems in the group.
         convergence: For every preconditioner name run in the group, including
             interrupted methods, its planned, attempted, and converged counts.
-        outcomes: For each preconditioner name, every system's `SystemOutcome`
-            keyed by system id, including censored failures.
-        comparisons: Paired comparisons against the temporary observed
-            reference selection retained until explicit configuration lands.
     """
 
     group_id: GroupId
@@ -38,13 +34,12 @@ class GroupAggregated:
     n_matrices: int
     n_planned_rhs: int
     convergence: Mapping[PreconditionerName, ConvergenceSummary] = field(default_factory=dict)
-    outcomes: Mapping[PreconditionerName, Mapping[SystemId, SystemOutcome]] = field(
-        default_factory=dict
-    )
-    comparisons: Mapping[PreconditionerName, MethodComparison] = field(default_factory=dict)
     summaries: tuple[MethodWorkloadSummary, ...] = ()
     reference_selection: ReferenceSelection = field(default_factory=NoReferenceConfigured)
     recipe_membership: tuple[str, ...] = ()
+    dataset_membership: tuple[DatasetId, ...] = ()
+    recipe_counts: tuple[int, ...] = ()
+    system_ids: tuple[SystemId, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +47,10 @@ class RecipeProfileReport(GroupAggregated):
     """Fine-level report for one recipe; profile and ECDF data are valid here."""
 
     label: FineLabel
+    outcomes: Mapping[PreconditionerName, Mapping[SystemId, SystemOutcome]] = field(
+        default_factory=dict
+    )
+    comparisons: Mapping[PreconditionerName, MethodComparison] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Require exactly the recipe named by the fine-level label."""

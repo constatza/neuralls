@@ -566,7 +566,7 @@ def test_neural_label_names_the_model_architecture() -> None:
 
     label = preconditioner_label(PreconditionerFamily.NEURAL, _neural(_GraphNet()), cfg)
 
-    assert label == "Neural (arch=_GraphNet)"
+    assert label == "Neural (assignment=pod-run, arch=_GraphNet)"
 
 
 def test_two_neural_variants_with_different_architectures_get_distinct_labels() -> None:
@@ -587,7 +587,24 @@ def test_neural_architecture_with_an_underscore_survives_mathtext() -> None:
         PreconditionerFamily.NEURAL, _neural(_GraphNet()), cfg, policy=mathtext
     )
 
+    assert "assignment=pod-run" in label
     assert "\\_GraphNet" in label
+
+
+def test_build_preconditioner_labels_keeps_neural_assignments_distinct() -> None:
+    configs = {
+        "network_a": NeuralPreconditionerConfig(assignment="network_a"),
+        "network_b": NeuralPreconditionerConfig(assignment="network_b"),
+    }
+    preconditioners = {name: _neural(_GraphNet()) for name in configs}
+    families = dict.fromkeys(configs, PreconditionerFamily.NEURAL)
+
+    labels = build_preconditioner_labels(preconditioners, families, configs)
+
+    assert labels == {
+        "network_a": "Neural (assignment=network_a, arch=_GraphNet)",
+        "network_b": "Neural (assignment=network_b, arch=_GraphNet)",
+    }
 
 
 # ==============================================================================

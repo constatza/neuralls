@@ -136,8 +136,8 @@ def test_method_sink_records_aggregates_without_opening_a_run(
         "method_diagnostics.json",
         "residual_histories.json",
         "energy_histories.json",
-        "residual_history.png",
-        "energy_history.png",
+        "residual_history_jacobi.png",
+        "energy_history_jacobi.png",
     }
 
 

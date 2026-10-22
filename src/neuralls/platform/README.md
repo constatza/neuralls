@@ -62,7 +62,9 @@ comparison display names still override the generated label.
 Reporting labels (`reporting/preconditioner_labels.py`) combine the method
 abbreviation with realized facts from the constructed preconditioner and
 configured facts from its config, rendered under the case's notation policy and
-the shared legend budget. Workflow provenance is added separately:
+the shared legend budget. Neural labels retain a configured assignment identity
+alongside the realized architecture, so separate models are visibly distinct.
+Workflow provenance is added separately:
 POD-2G labels append the fit-dataset id after ``|`` so equal-rank bases fitted
 on different datasets remain explicit, while the plotting API keeps result
 keys and display labels as separate mappings. Human-readable labels are never
@@ -120,8 +122,11 @@ required `save_path` and returns it, or `None` when nothing was drawn, and a
 `GroupStyle` (title, subtitle, and label/family/colour/marker mappings that
 default to empty). A failed run is never given a time:
 
-- `plot_time_scatter` (`system_time_scatter_*`): amortized online time per system
-  (solve plus its planned matrix-setup share), failures as hollow markers on the top edge.
+- `plot_online_time_bars` (`solve_time_bars_*`, `online_time_bars_*`): method
+  workload totals with separate solve-only and setup-plus-solve scenarios.
+  Numeric bar positions preserve every method even if a defensive caller
+  supplies colliding display labels; normal reporting disambiguates such labels
+  with concise config identities.
 - `plot_paired_time_scatter` (`paired_time_scatter_*`): amortized online times of each method against the
   reference; hollow markers sit on the axis of the run that failed, and a
   reference run that solved without a comparable time is not drawn as failed.
@@ -138,7 +143,12 @@ default to empty). A failed run is never given a time:
   remain available separately; no Wilcoxon p-value is reported.
 
 `MLflowGroupReportSink` logs planned, attempted, and converged counts plus the
-failure-aware paired fields. Raw benchmark events and method summaries become
+failure-aware paired fields. Its typed plans are also the single source of
+visible title/subtitle text, stable filenames, timing scenarios, and manifest
+metadata. Global metadata retains every dataset, recipe population/weight, and
+the actual solver, normalization, and timing-repeat settings; method-child
+history figures are registered with unique method-qualified ownership. Raw
+benchmark events and method summaries become
 the persistence source of truth; the removed scaling-law TOML is not emitted.
 
 `MLflowBenchmarkMethodSink` persists one completed method workload into the

@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import torch
 from torchalg.preconditioners.implementations import Identity
 
+from neuralls.composition.comparison import _preconditioner_setup
 from neuralls.composition.comparison._preconditioner_setup import (
     DatasetPreconditionerCache,
     PreconditionerService,
@@ -31,6 +33,7 @@ from neuralls.platform.config.models.preconditioner import (
     AggregationCoarseningConfig,
     AMGPreconditionerConfig,
     ConcretePreconditionerConfig,
+    PODCoarseningConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
 )
@@ -48,6 +51,26 @@ _SOLVER_PARAMS = SolverParams(
 
 def _diagonal(values: list[float]) -> torch.Tensor:
     return torch.diag(torch.tensor(values, dtype=torch.float64))
+
+
+def test_inline_pod_staging_reads_arrays_once_per_method(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = AMGPreconditionerConfig(coarsening=PODCoarseningConfig(dataset_dir=tmp_path))
+    calls = 0
+
+    def load_once(_: Path) -> tuple[object, ...]:
+        nonlocal calls
+        calls += 1
+        return ()
+
+    monkeypatch.setattr(_preconditioner_setup, "load_dense_training_arrays", load_once)
+    service = PreconditionerService()
+
+    service.preload(_diagonal([1.0]), config)
+    service.preload(_diagonal([2.0]), config)
+
+    assert calls == 1
 
 
 def _run(

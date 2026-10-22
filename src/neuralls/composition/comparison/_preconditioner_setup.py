@@ -276,12 +276,16 @@ class PreconditionerService:
                 isinstance(coarsening, PODCoarseningConfig)
                 and coarsening.active_checkpoint_path is None
             ):
-                self._staged_fit_data.setdefault(
-                    config.name, tuple(load_dense_training_arrays(coarsening.dataset_dir))
-                )
-            elif isinstance(coarsening, NeuralPODCoarseningConfig):
-                self._staged_fit_data.setdefault(
-                    config.name, tuple(load_parameter_arrays(coarsening.dataset_dir))
+                if config.name not in self._staged_fit_data:
+                    self._staged_fit_data[config.name] = tuple(
+                        load_dense_training_arrays(coarsening.dataset_dir)
+                    )
+            elif (
+                isinstance(coarsening, NeuralPODCoarseningConfig)
+                and config.name not in self._staged_fit_data
+            ):
+                self._staged_fit_data[config.name] = tuple(
+                    load_parameter_arrays(coarsening.dataset_dir)
                 )
 
     def create_preconditioner(

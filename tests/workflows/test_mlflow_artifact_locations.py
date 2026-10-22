@@ -294,8 +294,8 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
     }.issubset(method_names)
     method_figures = client.list_artifacts(method_run.info.run_id, path="method_workload/figures")
     assert {Path(item.path).name for item in method_figures} == {
-        "residual_history.png",
-        "energy_history.png",
+        "residual_history_identity.png",
+        "energy_history_identity.png",
     }
 
     session_artifacts = client.list_artifacts(session_id, path="group_reports")

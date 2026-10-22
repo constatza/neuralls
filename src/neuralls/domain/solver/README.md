@@ -67,7 +67,12 @@ warmups and individual repeat samples are never added to totals.
 `reporting/classification.py` consumes planned tags, setup events, solve
 attempts, and a report level. A `ConvergenceSummary` keeps planned, attempted,
 and converged counts distinct and reports iteration statistics over converged
-attempts only. `Solved` carries matrix identity, iterations, solve seconds, and
+attempts only. Explicit per-method planned membership retains an interrupted
+method in every recipe/dataset group even when execution never reached that
+group's first setup. `RecipeProfileReport` alone carries per-system outcomes
+and paired comparisons; `WorkloadMixtureReport` carries only counts, summaries,
+ordered dataset/recipe membership, and recipe population counts. `Solved`
+carries matrix identity, iterations, solve seconds, and
 amortized-online seconds. `Failed` carries matrix identity, iterations, and a
 reason, but no imputed numeric cost; the measured failed-attempt time remains
 only in the raw event/frame and workload totals.

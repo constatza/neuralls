@@ -13,6 +13,7 @@ import mlflow
 from neuralls.domain.benchmarking.costs import amortized_online_seconds, solve_seconds
 from neuralls.domain.benchmarking.selection import (
     ConfiguredReference,
+    NoReferenceConfigured,
     ReferenceUnavailable,
 )
 from neuralls.domain.solver.cost_metrics import (
@@ -23,13 +24,12 @@ from neuralls.domain.solver.cost_metrics import (
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.models.group_outcomes import (
-    GroupAggregated,
     RecipeProfileReport,
     WorkloadMixtureReport,
 )
-from neuralls.domain.solver.models.labels import GlobalLabel, MediumLabel
+from neuralls.domain.solver.models.labels import MediumLabel
 from neuralls.domain.solver.models.plot_style import PlotStyleMaps, plot_style_maps
-from neuralls.domain.solver.models.presentation import GroupPresentation
+from neuralls.domain.solver.models.presentation import GroupPresentation, SolverTimingContext
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.models.statistics import MethodComparison, PairedComparison
 from neuralls.domain.solver.models.workload import MethodWorkload, MethodWorkloadSummary
@@ -64,7 +64,7 @@ from neuralls.platform.reporting.plots import (
     plot_error_convergence_comparison,
 )
 from neuralls.platform.tracking.mlflow import ensure_experiment, sanitize_metric_key_segment
-from neuralls.shared.types import GroupId, PreconditionerName
+from neuralls.shared.types import GroupId, PreconditionerName, SystemId
 
 
 def setup_comparison_tracking(
@@ -238,18 +238,91 @@ class MLflowGroupReportSink:
     )
     _finalized: bool = False
 
-    def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
+    def register_method_figures(
+        self,
+        workloads: Sequence[MethodWorkload],
+        *,
+        contexts_by_system: Mapping[SystemId, SolverTimingContext] | None = None,
+    ) -> None:
+        """Register method-child histories in the same session manifest."""
+        for workload in workloads:
+            datasets = tuple(dict.fromkeys(str(tag.dataset) for tag in workload.planned))
+            recipes = tuple(dict.fromkeys(tag.recipe for tag in workload.planned))
+            counts = tuple(
+                sum(tag.recipe == recipe for tag in workload.planned) for recipe in recipes
+            )
+            contexts = tuple(
+                dict.fromkeys(
+                    context
+                    for tag in workload.planned
+                    if contexts_by_system is not None
+                    and isinstance(
+                        (context := contexts_by_system.get(tag.system_id)), SolverTimingContext
+                    )
+                )
+            )
+            method = str(workload.method)
+            style = workload.plot_styles.get(method)
+            scope = f"Method {style.label if style is not None else method}"
+            method_slug = sanitize_metric_key_segment(method)
+            n_matrices = len({(tag.dataset, tag.matrix_id) for tag in workload.planned})
+            recipe_weights = tuple(count / len(workload.planned) for count in counts)
+            sources = (
+                f"comparison_method[method={method}]/method_workload/method_diagnostics.json",
+                f"comparison_method[method={method}]/method_workload/solve_attempts.parquet",
+            )
+            for kind, filename, metric in (
+                (
+                    FigureKind.RESIDUAL_HISTORY,
+                    f"residual_history_{method_slug}.png",
+                    "relative residual by iteration",
+                ),
+                (
+                    FigureKind.ENERGY_HISTORY,
+                    f"energy_history_{method_slug}.png",
+                    "relative energy error by iteration",
+                ),
+            ):
+                metadata = FigureMetadata(
+                    kind=kind,
+                    metric_definition=metric,
+                    scenario=None,
+                    report_level="method",
+                    scope=scope,
+                    datasets=datasets,
+                    recipes=recipes,
+                    n_matrices=n_matrices,
+                    n_planned_rhs=len(workload.planned),
+                    reference_selection=NoReferenceConfigured(),
+                    failure_treatment=FailureTreatment.NONE,
+                    timing_policy="diagnostic histories; excluded from online timing",
+                    recipe_counts=counts,
+                    aggregation_rule="one diagnostic history per attempted RHS",
+                    recipe_weights=recipe_weights,
+                    solver_contexts=contexts,
+                    sources=sources,
+                )
+                plan = make_plan(kind, metadata, group_slug=method_slug)
+                self.manifest.add_plan(replace(plan, filename=filename))
+
+    def report(
+        self,
+        outcome: RecipeProfileReport | WorkloadMixtureReport,
+        *,
+        presentation: GroupPresentation,
+    ) -> None:
         """Log explicit counts and the supported failure-aware plots."""
         if self._finalized:
             raise RuntimeError("cannot report after finalization")
         group_id = outcome.group_id
         log_convergence_metrics(group_id, outcome.convergence)
-        log_comparison_metrics(group_id, outcome.comparisons)
+        if isinstance(outcome, RecipeProfileReport):
+            log_comparison_metrics(group_id, outcome.comparisons)
         with tempfile.TemporaryDirectory() as tmp:
             file_key = sanitize_metric_key_segment(group_id)
             plans = _figure_plans(outcome, presentation, file_key)
             self.manifest.validate_plans(plans)
-            outcome_plots = _write_outcome_plots(outcome, presentation, Path(tmp), file_key)
+            outcome_plots = _write_outcome_plots(outcome, presentation, Path(tmp), plans)
             for artifact in outcome_plots:
                 plan = next(plan for plan in plans if plan.filename == artifact.name)
                 mlflow.log_artifact(str(artifact), artifact_path=GROUP_REPORT_ARTIFACT_DIR)
@@ -266,84 +339,87 @@ class MLflowGroupReportSink:
         self._staging.cleanup()
 
 
-def _figure_kind(filename: str) -> FigureKind:
-    stem = Path(filename).name
-    for kind in FigureKind:
-        if stem.startswith(kind.value + "_"):
-            return kind
-    raise ValueError(f"unknown figure kind: {filename}")
+@dataclass(frozen=True, slots=True)
+class _FigureSpec:
+    filename: str
+    kind: FigureKind
+    scenario: TimingScenario | None = None
 
 
 def _figure_plans(
-    outcome: GroupAggregated,
+    outcome: RecipeProfileReport | WorkloadMixtureReport,
     presentation: GroupPresentation,
     file_key: str,
 ) -> tuple[FigurePlan, ...]:
     """Build and reserve every figure's scientific context before drawing."""
-    names = _planned_figure_names(outcome, file_key)
+    specs = _planned_figure_specs(outcome, file_key)
     plans: list[FigurePlan] = []
-    for name in names:
+    for spec in specs:
         plan = make_plan(
-            _figure_kind(name),
-            _figure_metadata(_figure_kind(name), outcome, presentation, name),
+            spec.kind,
+            _figure_metadata(spec.kind, spec.scenario, outcome, presentation),
             group_slug=file_key,
         )
-        plans.append(replace(plan, filename=name))
+        plans.append(replace(plan, filename=spec.filename))
     return tuple(plans)
 
 
-def _planned_figure_names(outcome: GroupAggregated, file_key: str) -> tuple[str, ...]:
+def _planned_figure_specs(
+    outcome: RecipeProfileReport | WorkloadMixtureReport, file_key: str
+) -> tuple[_FigureSpec, ...]:
+    aggregate = _FigureSpec(f"aggregate_bars_{file_key}.png", FigureKind.AGGREGATE_BARS)
+    solve_bar = _FigureSpec(
+        f"solve_time_bars_{file_key}.png", FigureKind.SOLVE_TIME, TimingScenario.SOLVE
+    )
+    online_bar = _FigureSpec(
+        f"online_time_bars_{file_key}.png", FigureKind.ONLINE_TIME, TimingScenario.ONLINE
+    )
     if isinstance(outcome, RecipeProfileReport):
         return (
-            f"aggregate_bars_{file_key}.png",
-            f"solve_time_bars_{file_key}.png",
-            f"online_time_bars_{file_key}.png",
-            f"paired_time_scatter_{file_key}.png",
-            f"speed_ratio_cdf_{file_key}.png",
-            f"performance_profile_solve_{file_key}.png",
-            f"performance_profile_online_{file_key}.png",
-            f"ecdf_iterations_{file_key}.png",
-            f"ecdf_time_solve_{file_key}.png",
-            f"ecdf_time_online_{file_key}.png",
+            aggregate,
+            solve_bar,
+            online_bar,
+            _FigureSpec(
+                f"paired_time_scatter_{file_key}.png",
+                FigureKind.PAIRED_TIME,
+                TimingScenario.ONLINE,
+            ),
+            _FigureSpec(
+                f"speed_ratio_cdf_{file_key}.png",
+                FigureKind.SPEED_RATIO,
+                TimingScenario.ONLINE,
+            ),
+            _FigureSpec(
+                f"performance_profile_solve_{file_key}.png",
+                FigureKind.PERFORMANCE_PROFILE,
+                TimingScenario.SOLVE,
+            ),
+            _FigureSpec(
+                f"performance_profile_online_{file_key}.png",
+                FigureKind.PERFORMANCE_PROFILE,
+                TimingScenario.ONLINE,
+            ),
+            _FigureSpec(f"ecdf_iterations_{file_key}.png", FigureKind.ECDF_ITERATIONS),
+            _FigureSpec(
+                f"ecdf_time_solve_{file_key}.png",
+                FigureKind.ECDF_TIME,
+                TimingScenario.SOLVE,
+            ),
+            _FigureSpec(
+                f"ecdf_time_online_{file_key}.png",
+                FigureKind.ECDF_TIME,
+                TimingScenario.ONLINE,
+            ),
         )
-    if isinstance(outcome, WorkloadMixtureReport):
-        return (
-            f"aggregate_bars_{file_key}.png",
-            f"solve_time_bars_{file_key}.png",
-            f"online_time_bars_{file_key}.png",
-        )
-    return (
-        f"solve_time_bars_{file_key}.png",
-        f"online_time_bars_{file_key}.png",
-        f"paired_time_scatter_{file_key}.png",
-        f"speed_ratio_cdf_{file_key}.png",
-        f"performance_profile_solve_{file_key}.png",
-        f"performance_profile_online_{file_key}.png",
-        f"ecdf_iterations_{file_key}.png",
-        f"ecdf_time_solve_{file_key}.png",
-        f"ecdf_time_online_{file_key}.png",
-    )
+    return (aggregate, solve_bar, online_bar)
 
 
 def _figure_metadata(
     kind: FigureKind,
-    outcome: GroupAggregated,
+    scenario: TimingScenario | None,
+    outcome: RecipeProfileReport | WorkloadMixtureReport,
     presentation: GroupPresentation,
-    filename: str,
 ) -> FigureMetadata:
-    scenario = (
-        TimingScenario.SOLVE
-        if "solve" in filename
-        else TimingScenario.ONLINE
-        if kind
-        in {
-            FigureKind.ONLINE_TIME,
-            FigureKind.PAIRED_TIME,
-            FigureKind.ECDF_TIME,
-            FigureKind.PERFORMANCE_PROFILE,
-        }
-        else None
-    )
     report_level = (
         "fine"
         if isinstance(outcome, RecipeProfileReport)
@@ -351,17 +427,12 @@ def _figure_metadata(
         if isinstance(outcome.label, MediumLabel)
         else "global"
     )
-    datasets = () if isinstance(outcome.label, GlobalLabel) else (str(outcome.label.dataset),)
+    datasets = tuple(str(dataset) for dataset in outcome.dataset_membership)
     recipes = outcome.recipe_membership
-    weights = tuple(1.0 / len(recipes) for _ in recipes) if recipes else ()
+    weights = tuple(count / outcome.n_planned_rhs for count in outcome.recipe_counts)
     reference = outcome.reference_selection
     reason = reference.reason if isinstance(reference, ReferenceUnavailable) else None
-    methods = tuple(
-        sorted(
-            {str(name) for name in outcome.outcomes}
-            | {str(summary.method) for summary in outcome.summaries}
-        )
-    )
+    methods = tuple(sorted({str(summary.method) for summary in outcome.summaries}))
     sources = tuple(
         source
         for method in methods
@@ -369,21 +440,38 @@ def _figure_metadata(
             f"comparison_method[method={method}]/method_workload/setup_events.parquet",
             f"comparison_method[method={method}]/method_workload/solve_attempts.parquet",
             f"comparison_method[method={method}]/method_workload/summary.toml",
-            f"comparison_method[method={method}]/method_workload/method_diagnostics.json",
-            f"comparison_method[method={method}]/method_workload/figures/residual_history.png",
-            f"comparison_method[method={method}]/method_workload/figures/energy_history.png",
         )
     )
     metric = {
         FigureKind.AGGREGATE_BARS: "converged systems",
-        FigureKind.SOLVE_TIME: "solve seconds",
-        FigureKind.ONLINE_TIME: "amortized online seconds",
-        FigureKind.PAIRED_TIME: "reference/method amortized online seconds",
-        FigureKind.PERFORMANCE_PROFILE: "performance ratio",
+        FigureKind.SOLVE_TIME: "solve seconds (workload total)",
+        FigureKind.ONLINE_TIME: "workload online seconds (setup + solve total)",
+        FigureKind.PAIRED_TIME: "amortized online seconds per both-solved RHS",
+        FigureKind.PERFORMANCE_PROFILE: (
+            "solve-seconds performance ratio"
+            if scenario is TimingScenario.SOLVE
+            else "amortized-online-seconds performance ratio"
+        ),
         FigureKind.ECDF_ITERATIONS: "iterations",
-        FigureKind.ECDF_TIME: "time seconds",
-        FigureKind.SPEED_RATIO: "reference/method speed ratio",
+        FigureKind.ECDF_TIME: (
+            "solve seconds per planned RHS"
+            if scenario is TimingScenario.SOLVE
+            else "amortized online seconds per planned RHS"
+        ),
+        FigureKind.SPEED_RATIO: "reference/method amortized-online speed ratio",
     }.get(kind, kind.value)
+    failure_treatment = (
+        FailureTreatment.NONE
+        if kind in {FigureKind.SOLVE_TIME, FigureKind.ONLINE_TIME}
+        else FailureTreatment.OMITTED
+        if kind in {FigureKind.PAIRED_TIME, FigureKind.SPEED_RATIO}
+        else FailureTreatment.CENSORED
+    )
+    aggregation_rule = (
+        "sum observed setup and solve event costs; recipe contributions follow planned RHS membership"
+        if isinstance(outcome, WorkloadMixtureReport)
+        else "one observation per planned (matrix, RHS) system"
+    )
     return FigureMetadata(
         kind=kind,
         metric_definition=metric,
@@ -395,9 +483,12 @@ def _figure_metadata(
         n_matrices=outcome.n_matrices,
         n_planned_rhs=outcome.n_planned_rhs,
         reference_selection=reference,
-        failure_treatment=FailureTreatment.CENSORED,
+        failure_treatment=failure_treatment,
         timing_policy="setup once per dataset/matrix + solve per planned RHS",
+        recipe_counts=outcome.recipe_counts,
+        aggregation_rule=aggregation_rule,
         recipe_weights=weights,
+        solver_contexts=presentation.solver_contexts,
         reference_reason=reason,
         sources=sources,
     )
@@ -541,40 +632,43 @@ def _write_method_diagnostics(root: Path, workload: MethodWorkload) -> tuple[Pat
     )
     figures = root / "figures"
     figures.mkdir(exist_ok=True)
-    residual_figure = figures / "residual_history.png"
-    plot_convergence_comparison(diagnostics, save_path=residual_figure, title=str(workload.method))
-    energy_figure = figures / "energy_history.png"
+    method_slug = sanitize_metric_key_segment(str(workload.method))
+    residual_figure = figures / f"residual_history_{method_slug}.png"
+    plot_convergence_comparison(
+        diagnostics,
+        save_path=residual_figure,
+        title="Residual History",
+        subtitle=f"Method {workload.method}",
+    )
+    energy_figure = figures / f"energy_history_{method_slug}.png"
     plot_error_convergence_comparison(
-        diagnostics, save_path=energy_figure, title=str(workload.method)
+        diagnostics,
+        save_path=energy_figure,
+        title="Energy History",
+        subtitle=f"Method {workload.method}",
     )
     return path, residuals_path, energies_path, residual_figure, energy_figure
 
 
-def _group_style(
-    kind: str, presentation: GroupPresentation, plot_style: PlotStyleMaps
+def _style_for_plan(
+    plan: FigurePlan, presentation: GroupPresentation, plot_style: PlotStyleMaps
 ) -> GroupStyle:
-    """The shared concise title and per-preconditioner styling of one plot."""
-    titles = {
-        "Performance profile (time)": "Performance Profile",
-        "Performance profile (solve)": "Performance Profile",
-        "Performance profile (online)": "Performance Profile",
-        "ECDF (iterations)": "Iterations",
-        "ECDF (time)": "Online Time",
-        "ECDF (solve time)": "Solve Time",
-        "ECDF (online time)": "Online Time",
-        "Time to solution vs reference": "Online Time",
-        "Solve time": "Solve Time",
-        "Online time": "Online Time",
-        "Reference/method speed ratio": "Speed Ratio",
-        "Aggregate convergence": "Convergence",
-    }
+    """Use the pre-draw plan as the only source of visible figure text."""
     return GroupStyle(
-        title=titles.get(kind, kind),
-        subtitle=presentation.subtitle,
+        title=plan.title,
+        subtitle=plan.subtitle,
         labels=plot_style.labels,
         families=plot_style.families,
         color_keys=plot_style.color_keys,
         marker_keys=plot_style.marker_keys,
+    )
+
+
+def _plan_for(
+    plans: Sequence[FigurePlan], kind: FigureKind, scenario: TimingScenario | None = None
+) -> FigurePlan:
+    return next(
+        plan for plan in plans if plan.metadata.kind is kind and plan.metadata.scenario is scenario
     )
 
 
@@ -586,56 +680,71 @@ def _paired_by_method(
 
 
 def _write_profile_plots(
-    outcome: GroupAggregated, presentation: GroupPresentation, directory: Path, file_key: str
+    outcome: RecipeProfileReport,
+    presentation: GroupPresentation,
+    directory: Path,
+    plans: Sequence[FigurePlan],
 ) -> list[Path | None]:
     """Draw fine-only iteration and separate solve/online time profiles."""
     plot_style = plot_style_maps(presentation.plot_styles)
+    performance_solve = _plan_for(plans, FigureKind.PERFORMANCE_PROFILE, TimingScenario.SOLVE)
+    performance_online = _plan_for(plans, FigureKind.PERFORMANCE_PROFILE, TimingScenario.ONLINE)
+    ecdf_iterations = _plan_for(plans, FigureKind.ECDF_ITERATIONS)
+    ecdf_solve = _plan_for(plans, FigureKind.ECDF_TIME, TimingScenario.SOLVE)
+    ecdf_online = _plan_for(plans, FigureKind.ECDF_TIME, TimingScenario.ONLINE)
     return [
         plot_performance_profile(
             outcome.outcomes,
-            style=_group_style("Performance profile (solve)", presentation, plot_style),
+            style=_style_for_plan(performance_solve, presentation, plot_style),
             cost=solve_seconds,
-            save_path=directory / f"performance_profile_solve_{file_key}.png",
+            save_path=directory / performance_solve.filename,
         ),
         plot_performance_profile(
             outcome.outcomes,
-            style=_group_style("Performance profile (online)", presentation, plot_style),
+            style=_style_for_plan(performance_online, presentation, plot_style),
             cost=amortized_online_seconds,
-            save_path=directory / f"performance_profile_online_{file_key}.png",
+            save_path=directory / performance_online.filename,
         ),
         plot_ecdf_profile(
             outcome.outcomes,
-            style=_group_style("ECDF (iterations)", presentation, plot_style),
-            save_path=directory / f"ecdf_iterations_{file_key}.png",
+            style=_style_for_plan(ecdf_iterations, presentation, plot_style),
+            save_path=directory / ecdf_iterations.filename,
         ),
         plot_ecdf_profile(
             outcome.outcomes,
-            style=_group_style("ECDF (solve time)", presentation, plot_style),
+            style=_style_for_plan(ecdf_solve, presentation, plot_style),
             cost=solve_seconds,
             xlabel="Solve time per system [s]",
-            save_path=directory / f"ecdf_time_solve_{file_key}.png",
+            save_path=directory / ecdf_solve.filename,
         ),
         plot_ecdf_profile(
             outcome.outcomes,
-            style=_group_style("ECDF (online time)", presentation, plot_style),
+            style=_style_for_plan(ecdf_online, presentation, plot_style),
             cost=amortized_online_seconds,
             xlabel="Amortized online time per system [s]",
-            save_path=directory / f"ecdf_time_online_{file_key}.png",
+            save_path=directory / ecdf_online.filename,
         ),
     ]
 
 
 def _write_system_plots(
-    outcome: GroupAggregated, presentation: GroupPresentation, directory: Path, file_key: str
+    outcome: RecipeProfileReport,
+    presentation: GroupPresentation,
+    directory: Path,
+    plans: Sequence[FigurePlan],
 ) -> list[Path | None]:
     """Draw setup-aware timing bars, paired timing, and ratio plots."""
     plot_style = plot_style_maps(presentation.plot_styles)
+    paired_plan = _plan_for(plans, FigureKind.PAIRED_TIME, TimingScenario.ONLINE)
+    solve_plan = _plan_for(plans, FigureKind.SOLVE_TIME, TimingScenario.SOLVE)
+    online_plan = _plan_for(plans, FigureKind.ONLINE_TIME, TimingScenario.ONLINE)
+    ratio_plan = _plan_for(plans, FigureKind.SPEED_RATIO, TimingScenario.ONLINE)
     paired = (
         plot_paired_time_scatter(
             outcome.outcomes,
             reference=outcome.reference_selection,
-            style=_group_style("Time to solution vs reference", presentation, plot_style),
-            save_path=directory / f"paired_time_scatter_{file_key}.png",
+            style=_style_for_plan(paired_plan, presentation, plot_style),
+            save_path=directory / paired_plan.filename,
         )
         if isinstance(outcome.reference_selection, ConfiguredReference)
         else None
@@ -644,83 +753,77 @@ def _write_system_plots(
         plot_online_time_bars(
             outcome.summaries,
             scenario="solve",
-            style=_group_style("Solve time", presentation, plot_style),
-            save_path=directory / f"solve_time_bars_{file_key}.png",
+            style=_style_for_plan(solve_plan, presentation, plot_style),
+            save_path=directory / solve_plan.filename,
         ),
         plot_online_time_bars(
             outcome.summaries,
             scenario="online",
-            style=_group_style("Online time", presentation, plot_style),
-            save_path=directory / f"online_time_bars_{file_key}.png",
+            style=_style_for_plan(online_plan, presentation, plot_style),
+            save_path=directory / online_plan.filename,
         ),
         paired,
         plot_speed_ratio_cdf(
             _paired_by_method(outcome.comparisons),
-            style=_group_style("Reference/method speed ratio", presentation, plot_style),
+            style=_style_for_plan(ratio_plan, presentation, plot_style),
             reference_name=outcome.reference_selection.name
             if isinstance(outcome.reference_selection, ConfiguredReference)
             else None,
-            save_path=directory / f"speed_ratio_cdf_{file_key}.png",
+            save_path=directory / ratio_plan.filename,
         ),
     ]
     return plots
 
 
 def _write_outcome_plots(
-    outcome: GroupAggregated | RecipeProfileReport | WorkloadMixtureReport,
+    outcome: RecipeProfileReport | WorkloadMixtureReport,
     presentation: GroupPresentation,
     directory: Path,
-    file_key: str,
+    plans: Sequence[FigurePlan],
 ) -> tuple[Path, ...]:
     """Draw plots allowed by the typed report variant."""
     from typing import assert_never
 
     match outcome:
         case RecipeProfileReport():
-            aggregate_path = directory / f"aggregate_bars_{file_key}.png"
+            aggregate_plan = _plan_for(plans, FigureKind.AGGREGATE_BARS)
             aggregate = plot_aggregate_bars(
                 outcome,
-                style=_group_style(
-                    "Aggregate convergence", presentation, plot_style_maps(presentation.plot_styles)
+                style=_style_for_plan(
+                    aggregate_plan, presentation, plot_style_maps(presentation.plot_styles)
                 ),
-                save_path=aggregate_path,
+                save_path=directory / aggregate_plan.filename,
             )
             drawn = [
                 aggregate,
-                *_write_system_plots(outcome, presentation, directory, file_key),
-                *_write_profile_plots(outcome, presentation, directory, file_key),
+                *_write_system_plots(outcome, presentation, directory, plans),
+                *_write_profile_plots(outcome, presentation, directory, plans),
             ]
         case WorkloadMixtureReport():
-            aggregate_path = directory / f"aggregate_bars_{file_key}.png"
+            aggregate_plan = _plan_for(plans, FigureKind.AGGREGATE_BARS)
+            solve_plan = _plan_for(plans, FigureKind.SOLVE_TIME, TimingScenario.SOLVE)
+            online_plan = _plan_for(plans, FigureKind.ONLINE_TIME, TimingScenario.ONLINE)
+            plot_style = plot_style_maps(presentation.plot_styles)
             aggregate = plot_aggregate_bars(
                 outcome,
-                style=_group_style(
-                    "Aggregate convergence", presentation, plot_style_maps(presentation.plot_styles)
-                ),
-                save_path=aggregate_path,
+                style=_style_for_plan(aggregate_plan, presentation, plot_style),
+                save_path=directory / aggregate_plan.filename,
             )
             drawn = [
                 aggregate,
                 plot_online_time_bars(
                     outcome.summaries,
                     scenario="solve",
-                    style=_group_style(
-                        "Solve time", presentation, plot_style_maps(presentation.plot_styles)
-                    ),
-                    save_path=directory / f"solve_time_bars_{file_key}.png",
+                    style=_style_for_plan(solve_plan, presentation, plot_style),
+                    save_path=directory / solve_plan.filename,
                 ),
                 plot_online_time_bars(
                     outcome.summaries,
                     scenario="online",
-                    style=_group_style(
-                        "Online time", presentation, plot_style_maps(presentation.plot_styles)
-                    ),
-                    save_path=directory / f"online_time_bars_{file_key}.png",
+                    style=_style_for_plan(online_plan, presentation, plot_style),
+                    save_path=directory / online_plan.filename,
                 ),
             ]
-        case GroupAggregated():
-            drawn = _write_system_plots(outcome, presentation, directory, file_key)
-            drawn.extend(_write_profile_plots(outcome, presentation, directory, file_key))
         case _ as unreachable:
             assert_never(unreachable)
     return tuple(path for path in drawn if path is not None)

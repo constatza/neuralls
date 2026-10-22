@@ -305,6 +305,7 @@ def plot_convergence_comparison(
     save_path: str | Path | None = None,
     show: bool = False,
     title: str | None = None,
+    subtitle: str | None = None,
     rtol: float | None = None,
     atol: float | None = None,
     max_iterations: int | None = None,
@@ -324,6 +325,7 @@ def plot_convergence_comparison(
         save_path: Path to save plot
         show: Whether to show plot
         title: Optional title for the plot
+        subtitle: Optional concise scope shown below the core metric title.
         rtol: Optional relative tolerance parameter to display
         atol: Optional absolute tolerance parameter to display
         max_iterations: Optional max iterations parameter to display
@@ -379,7 +381,7 @@ def plot_convergence_comparison(
     ax.set_ylabel(ylabel)
 
     # Build subtitle from non-None parameters
-    subtitle_parts = []
+    subtitle_parts = [subtitle] if subtitle else []
     if rtol is not None:
         subtitle_parts.append(f"rtol={rtol:.0e}")
     if atol is not None:

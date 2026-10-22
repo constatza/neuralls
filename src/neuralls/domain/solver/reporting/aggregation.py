@@ -171,22 +171,17 @@ def convergence_by_level(
     setup_events: Collection[MatrixSetupEvent],
     attempts: Collection[SolveAttempt],
     level: ReportLevel,
+    *,
+    planned_by_method: Mapping[PreconditionerName, Sequence[SystemTag]] | None = None,
 ) -> dict[GroupLabel, dict[PreconditionerName, ConvergenceSummary]]:
-    """Count planned, attempted, and converged RHS values for every observed method."""
+    """Count planned, attempted, and converged RHS values for every planned method."""
     _validate_event_links(planned, setup_events, attempts)
     attempts_by_system = _attempts_by_system(attempts)
     report: dict[GroupLabel, dict[PreconditionerName, ConvergenceSummary]] = {}
     for tags in _tags_by_report_key(planned, level).values():
         label = label_for_tags(level, tags)
         systems = {tag.system_id for tag in tags}
-        matrices = {(tag.dataset, tag.matrix_id) for tag in tags}
-        methods = tuple(
-            dict.fromkeys(
-                event.method
-                for event in setup_events
-                if (event.dataset, event.matrix_id) in matrices
-            )
-        )
+        methods = _group_methods(tags, setup_events, planned_by_method)
         by_method: dict[PreconditionerName, ConvergenceSummary] = {}
         for method in methods:
             method_attempts = [
@@ -216,6 +211,8 @@ def outcomes_by_system(
     setup_events: Collection[MatrixSetupEvent],
     attempts: Collection[SolveAttempt],
     level: ReportLevel,
+    *,
+    planned_by_method: Mapping[PreconditionerName, Sequence[SystemTag]] | None = None,
 ) -> dict[GroupLabel, dict[PreconditionerName, dict[SystemId, SystemOutcome]]]:
     """Build one censored outcome for every planned method/system pair."""
     _validate_event_links(planned, setup_events, attempts)
@@ -230,14 +227,7 @@ def outcomes_by_system(
     report: dict[GroupLabel, dict[PreconditionerName, dict[SystemId, SystemOutcome]]] = {}
     for key, tags in groups.items():
         label = labels[key]
-        matrices = {(tag.dataset, tag.matrix_id) for tag in tags}
-        methods = tuple(
-            dict.fromkeys(
-                event.method
-                for event in setup_events
-                if (event.dataset, event.matrix_id) in matrices
-            )
-        )
+        methods = _group_methods(tags, setup_events, planned_by_method)
         for method in methods:
             method_outcomes = report.setdefault(label, {}).setdefault(method, {})
             for tag in tags:
@@ -275,6 +265,27 @@ def outcomes_by_system(
                         reason=attempt.outcome.reason,
                     )
     return report
+
+
+def _group_methods(
+    tags: Sequence[SystemTag],
+    setup_events: Collection[MatrixSetupEvent],
+    planned_by_method: Mapping[PreconditionerName, Sequence[SystemTag]] | None,
+) -> tuple[PreconditionerName, ...]:
+    """Retain methods planned for this group even when execution never reached setup."""
+    if planned_by_method is not None:
+        group_ids = {tag.system_id for tag in tags}
+        return tuple(
+            method
+            for method, method_planned in planned_by_method.items()
+            if any(tag.system_id in group_ids for tag in method_planned)
+        )
+    matrices = {(tag.dataset, tag.matrix_id) for tag in tags}
+    return tuple(
+        dict.fromkeys(
+            event.method for event in setup_events if (event.dataset, event.matrix_id) in matrices
+        )
+    )
 
 
 def _iteration_stats(converged_iterations: Sequence[int]) -> IterationStats | None:

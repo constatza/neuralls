@@ -719,3 +719,20 @@ def test_generate_comparison_plots_preserves_results_when_labels_collide(
     assert convergence_plot.call_args.kwargs["labels"] == expected_labels
     assert error_plot.call_args.args[0] is two_result_entries
     assert error_plot.call_args.kwargs["labels"] == expected_labels
+
+
+def test_method_history_uses_metric_title_and_concise_method_subtitle(
+    two_result_entries: dict[str, CGComparisonResult],
+) -> None:
+    with patch("neuralls.platform.reporting.plots.plt.close"):
+        plot_convergence_comparison(
+            two_result_entries,
+            title="Residual History",
+            subtitle="Method Neural (assignment=network_a)",
+        )
+        figure = reporting_plots.plt.gcf()
+
+    axes = figure.axes[0]
+    assert figure.get_suptitle() == "Residual History"
+    assert axes.get_title() == "Method Neural (assignment=network_a)"
+    reporting_plots.plt.close(figure)

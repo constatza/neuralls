@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
@@ -16,6 +16,7 @@ from neuralls.domain.benchmarking.selection import (
     ReferenceSelection,
     ReferenceUnavailable,
 )
+from neuralls.domain.solver.models.presentation import SolverTimingContext
 
 
 class FigureKind(StrEnum):
@@ -62,7 +63,10 @@ class FigureMetadata:
     reference_selection: ReferenceSelection | ReferenceSelectionKind
     failure_treatment: FailureTreatment
     timing_policy: str
+    recipe_counts: tuple[int, ...] = ()
+    aggregation_rule: str = ""
     recipe_weights: tuple[float, ...] = ()
+    solver_contexts: tuple[SolverTimingContext, ...] = ()
     reference_reason: str | None = None
     sources: tuple[str, ...] = (
         "setup_events.parquet",
@@ -140,7 +144,10 @@ class FigureManifest:
                 "reference_selection": reference_name,
                 "failure_treatment": metadata.failure_treatment.value,
                 "timing_policy": metadata.timing_policy,
+                "aggregation_rule": metadata.aggregation_rule,
+                "recipe_counts": list(metadata.recipe_counts),
                 "recipe_weights": list(metadata.recipe_weights),
+                "solver_contexts": [asdict(context) for context in metadata.solver_contexts],
                 "sources": list(metadata.sources),
             }
             if metadata.reference_reason is not None:

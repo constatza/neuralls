@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import tempfile
+import tomllib
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -77,6 +78,7 @@ from neuralls.domain.benchmarking.selection import (
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory, SetupCompleted
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.presentation import SolverTimingContext
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.ports import BenchmarkMethodSink, CostRecorder
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
@@ -110,6 +112,7 @@ from neuralls.platform.tracking.artifact_access import (
     MlflowArtifactLeaseManager,
 )
 from neuralls.platform.tracking.comparison_tracking import (
+    GROUP_REPORT_ARTIFACT_DIR,
     MLflowBenchmarkMethodSink,
     MLflowGroupReportSink,
     create_cost_recorder,
@@ -1440,37 +1443,61 @@ def _execute_all(
     return _outcomes_from_workloads(pending, workloads), tuple(workloads)
 
 
-def _all_method_workloads_reusable(
+def _has_complete_reusable_session(
     pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
     topology: ComparisonTopology,
     *,
     force: bool,
 ) -> bool:
-    """Check complete method children before opening the session parent."""
+    """Require current method children under one finished parent with a valid manifest."""
     if force:
         return False
     schedule = _method_major_schedule(pending)
     if not schedule:
         return False
+    client = MlflowClient(tracking_uri=topology.tracking_uri)
+    parent_ids: set[str] = set()
     for method, matrices in schedule:
         system_ids = tuple(str(system.entry.id) for _, systems in matrices for system in systems)
         system_identities = tuple(
             system.identity.key for _, systems in matrices for system in systems
         )
-        if (
-            find_reusable_benchmark_method(
-                tracking_uri=topology.tracking_uri,
-                experiment=topology.experiment_name,
-                method=str(method.name),
-                config_digest=method.identity_digest or canonical_digest(method.config),
-                method_config=canonical_method_config(method.config),
-                system_ids=system_ids,
-                system_identities=system_identities,
-            )
-            is None
-        ):
+        reused = find_reusable_benchmark_method(
+            tracking_uri=topology.tracking_uri,
+            experiment=topology.experiment_name,
+            method=str(method.name),
+            config_digest=method.identity_digest or canonical_digest(method.config),
+            method_config=canonical_method_config(method.config),
+            system_ids=system_ids,
+            system_identities=system_identities,
+        )
+        if reused is None or reused.run_id is None:
             return False
-    return True
+        parent_id = client.get_run(reused.run_id).data.tags.get("mlflow.parentRunId")
+        if parent_id is None:
+            return False
+        parent_ids.add(parent_id)
+    if len(parent_ids) != 1:
+        return False
+    parent_id = parent_ids.pop()
+    parent = client.get_run(parent_id)
+    if parent.info.status != "FINISHED" or parent.data.tags.get("phase") != "session_comparison":
+        return False
+    manifest_artifact = f"{GROUP_REPORT_ARTIFACT_DIR}/figure_manifest.toml"
+    if not any(
+        artifact.path == manifest_artifact
+        for artifact in client.list_artifacts(parent_id, path=GROUP_REPORT_ARTIFACT_DIR)
+    ):
+        return False
+    try:
+        with tempfile.TemporaryDirectory(prefix="neuralls-session-reuse-") as temp_dir:
+            manifest_path = client.download_artifacts(parent_id, manifest_artifact, temp_dir)
+            manifest = tomllib.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    except OSError, tomllib.TOMLDecodeError:
+        return False
+    return manifest.get("schema") == "figure-manifest-v1" and isinstance(
+        manifest.get("figures"), dict
+    )
 
 
 def _persist_method_workloads(
@@ -1561,7 +1588,7 @@ def run_comparison_batch(
             outcomes = [p for p in pending if isinstance(p, ComparisonOutcome)]
             return outcomes
 
-        if _all_method_workloads_reusable(pending, topology, force=params.force):
+        if _has_complete_reusable_session(pending, topology, force=params.force):
             return [
                 item
                 if isinstance(item, ComparisonOutcome)
@@ -1573,11 +1600,14 @@ def run_comparison_batch(
             outcomes, workloads = _execute_all(pending)
             _persist_method_workloads(workloads, MLflowBenchmarkMethodSink())
             selection = _batch_reference_selections(pending)
+            contexts_by_system = _batch_solver_timing_contexts(pending)
             report_sink = MLflowGroupReportSink()
+            report_sink.register_method_figures(workloads, contexts_by_system=contexts_by_system)
             report_all_levels(
                 workloads,
                 report_sink,
                 reference_selection=selection,
+                contexts_by_system=contexts_by_system,
             )
             report_sink.finalize()
             return outcomes
@@ -1593,3 +1623,27 @@ def _batch_reference_selections(
         if isinstance(item, _PreparedComparisonExecution)
         for tag in (system_tag(item.planned),)
     }
+
+
+def _batch_solver_timing_contexts(
+    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+) -> dict[SystemId, SolverTimingContext]:
+    """Preserve the actual per-system solver and timing settings for figure metadata."""
+    contexts: dict[SystemId, SolverTimingContext] = {}
+    for item in pending:
+        if not isinstance(item, _PreparedComparisonExecution):
+            continue
+        params = item.cfg.general.params
+        contexts[SystemId(str(system_tag(item.planned).system_id))] = SolverTimingContext(
+            rtol=params.rtol,
+            atol=params.atol,
+            max_iterations=params.max_iterations,
+            stopping_criterion=params.stopping_criterion,
+            m_max=params.m_max,
+            reference_precision_margin=params.reference_precision_margin,
+            timing_repeats=params.timing.repeats,
+            timing_warmup=params.timing.warmup,
+            timing_statistic=params.timing.statistic.value,
+            normalization=item.cfg.general.data.normalize_system,
+        )
+    return contexts
