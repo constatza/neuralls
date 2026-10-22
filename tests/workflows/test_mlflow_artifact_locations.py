@@ -24,6 +24,7 @@ from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.reporting.training_diagnostics import compute_diagnostics
+from neuralls.platform.tracking.comparison_tracking import GROUP_REPORT_ARTIFACT_DIR
 from neuralls.platform.tracking.mlflow_client import log_diagnostics_to_mlflow
 
 
@@ -298,9 +299,28 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
         "energy_history_identity.png",
     }
 
-    session_artifacts = client.list_artifacts(session_id, path="group_reports")
-    assert any(
-        Path(item.path).name.startswith("system_time_scatter_") for item in session_artifacts
+    session_artifact_names = [
+        Path(item.path).name
+        for item in client.list_artifacts(session_id, path=GROUP_REPORT_ARTIFACT_DIR)
+    ]
+    session_artifacts = set(session_artifact_names)
+    assert session_artifact_names.count("figure_manifest.toml") == 1
+    for level in ("fine_benchmark_gaussian", "medium_benchmark", "global"):
+        assert {
+            f"aggregate_bars_{level}.png",
+            f"solve_time_bars_{level}.png",
+            f"online_time_bars_{level}.png",
+        } <= session_artifacts
+    assert {
+        "performance_profile_solve_fine_benchmark_gaussian.png",
+        "performance_profile_online_fine_benchmark_gaussian.png",
+        "ecdf_iterations_fine_benchmark_gaussian.png",
+        "ecdf_time_solve_fine_benchmark_gaussian.png",
+        "ecdf_time_online_fine_benchmark_gaussian.png",
+    } <= session_artifacts
+    assert not any(
+        name.startswith(("performance_profile_", "ecdf_")) and "_fine_" not in name
+        for name in session_artifacts
     )
     legacy_runs = client.search_runs(
         experiment_ids=[experiment_id], filter_string="tags.phase = 'comparison'"
