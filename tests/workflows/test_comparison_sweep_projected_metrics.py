@@ -1,4 +1,4 @@
-"""End-to-end test: a real `comparison_sweeps` run logs a scaling-law projection.
+"""End-to-end test: a real `comparison_sweeps` run logs group reports.
 
 Unlike the sibling tests in `test_comparison_workflow.py`, this does NOT mock
 `compare_preconditioners` — it lets the real build/setup/solve pipeline run
@@ -20,13 +20,14 @@ import tomli_w
 from neuralls.composition.assignments.comparison_batch import run_comparison_batch
 from neuralls.composition.comparison.models import ComparisonParams
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
+from neuralls.platform.tracking.comparison_tracking import GROUP_REPORT_ARTIFACT_DIR
 from tests.workflows.comparison_support import (
     make_settings,
     write_dataset_config,
 )
 
 _GROUP_IDS = ("fine_solutions_dataset", "medium_solutions", "global")
-_N_SYSTEMS = 4
+_N_PLANNED_RHS = 4
 """2 held-out matrices x `rhs_count` 2."""
 
 
@@ -61,7 +62,7 @@ def _write_sweep_config(path: Path, tmp_path: Path) -> None:
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_log_comparison_artifacts", "stub_setup_tracking")
 @pytest.mark.integration
-def test_real_sweep_execution_logs_projected_metrics_and_scaling_plot(
+def test_real_sweep_execution_logs_group_metrics_and_reports(
     tmp_path: Path,
     sparse_id_dataset: Path,
     pin_test_fold: Callable[[Path, tuple[int, ...]], None],
@@ -77,37 +78,42 @@ def test_real_sweep_execution_logs_projected_metrics_and_scaling_plot(
 
     outcomes = run_comparison_batch(experiments_config, ComparisonParams(), settings)
 
-    # Two held-out matrices with two held-out rows each: 2 x rhs_count=2 systems.
+    # Two held-out matrices with two held-out rows each: 2 x rhs_count=2 RHS.
     assert len(outcomes) == 4
     assert all(outcome.success for outcome in outcomes)
     assert all(outcome.payload is not None for outcome in outcomes)
 
-    # One dataset and one recipe: the fine, medium and global levels each pool
-    # the same 2 matrices x 2 RHS = 4 systems, reported under three distinct ids
-    # (sanitized for MLflow: "/" -> "_").
+    # One dataset and one recipe: every report level sees the same four planned,
+    # attempted, and converged RHS.
     metric_calls = {call.args[0]: call.args[1] for call in fake_mlflow.log_metric.call_args_list}
     for group_id in _GROUP_IDS:
-        assert metric_calls[f"n_systems/{group_id}/identity"] == _N_SYSTEMS
-        assert f"avg_setup_cost_s/{group_id}/identity" in metric_calls
-        assert f"avg_solve_time_per_system_s/{group_id}/identity" in metric_calls
+        assert metric_calls[f"n_planned_rhs/{group_id}/identity"] == _N_PLANNED_RHS
+        assert metric_calls[f"n_attempted_rhs/{group_id}/identity"] == _N_PLANNED_RHS
+        assert metric_calls[f"n_converged/{group_id}/identity"] == _N_PLANNED_RHS
+        assert metric_calls[f"success_rate/{group_id}/identity"] == 1
 
-    param_calls = {call.args[0]: call.args[1] for call in fake_mlflow.log_param.call_args_list}
-    # Identity is a torchalg StaticSetupPreconditioner: setup is shareable
-    # regardless of matrix identity, and this sweep has no fit/train step at all.
-    for group_id in _GROUP_IDS:
-        assert param_calls[f"share_setup/{group_id}/identity"] == "True"
-
-    artifact_calls = fake_mlflow.log_artifact.call_args_list
-    scaling_plot_calls = [
+    group_report_calls = [
         call
-        for call in artifact_calls
-        if call.kwargs.get("artifact_path") == "projected_scaling_law"
+        for call in fake_mlflow.log_artifact.call_args_list
+        if call.kwargs.get("artifact_path") == GROUP_REPORT_ARTIFACT_DIR
     ]
-    # The full per-group artifact set is pinned in tests/platform/test_comparison_sink.py; here
-    # it is enough that every reported level uploads its scaling-law plot and numbers.
-    uploaded = {Path(call.args[0]).name for call in scaling_plot_calls}
-    assert uploaded >= {
-        f"projected_scaling_law_{group_id}{suffix}"
-        for group_id in _GROUP_IDS
-        for suffix in (".png", ".toml")
+    uploaded_names = [Path(call.args[0]).name for call in group_report_calls]
+    uploaded = set(uploaded_names)
+    assert uploaded == {
+        "figure_manifest.toml",
+        "aggregate_bars_fine_solutions_dataset.png",
+        "solve_time_bars_fine_solutions_dataset.png",
+        "online_time_bars_fine_solutions_dataset.png",
+        "performance_profile_solve_fine_solutions_dataset.png",
+        "performance_profile_online_fine_solutions_dataset.png",
+        "ecdf_iterations_fine_solutions_dataset.png",
+        "ecdf_time_solve_fine_solutions_dataset.png",
+        "ecdf_time_online_fine_solutions_dataset.png",
+        "aggregate_bars_medium_solutions.png",
+        "solve_time_bars_medium_solutions.png",
+        "online_time_bars_medium_solutions.png",
+        "aggregate_bars_global.png",
+        "solve_time_bars_global.png",
+        "online_time_bars_global.png",
     }
+    assert uploaded_names.count("figure_manifest.toml") == 1
