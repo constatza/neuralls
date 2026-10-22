@@ -61,7 +61,10 @@ from neuralls.platform.config.models.preconditioner import (
     NeuralPODCoarseningConfig,
     NeuralPreconditionerConfig,
     PODCoarseningConfig,
+    PowerNormWeightingConfig,
     PreconditionerConfig,
+    RawWeightingConfig,
+    SmootherPersistenceWeightingConfig,
     StandardPreconditionerConfig,
 )
 from neuralls.platform.config.models.preconditioner_family import (
@@ -123,12 +126,19 @@ _PRECONDITIONER_LEGEND = replace(
         SMOOTHER_DAMPING: 2,
         ALGEBRAIC_DISTANCE_THRESHOLD: 2,
         DROP_TOLERANCE: 1,
+        FieldKey("rank"): 4,
     },
 )
 """The shared legend profile (55-character budget, VARIANT facts dropped first) with
 the precision the study's plots already use for these quantities."""
 
 ASSIGNMENT = FieldKey("assignment")
+POD_RANK = FieldKey("rank")
+POD_SNAPSHOTS = FieldKey("snapshots")
+POD_WEIGHTING = FieldKey("weighting")
+POD_METRIC = FieldKey("metric")
+POD_BETA = FieldKey("beta")
+POD_STEPS = FieldKey("steps")
 
 
 def _default_policy(policy: NotationPolicy | None) -> NotationPolicy:
@@ -269,6 +279,42 @@ def _checkpoint_identity_facts(cfg: NeuralCheckpointRef) -> Facts:
     return (TextFact(ASSIGNMENT, cfg.assignment, _ESSENTIAL),)
 
 
+def _pod_facts(cfg: PODCoarseningConfig | NeuralPODCoarseningConfig) -> Facts:
+    """Keep configured POD distinctions concise and visible in method labels."""
+    rank_fact: ScientificFact = (
+        IntegerFact(POD_RANK, cfg.rank, _ESSENTIAL)
+        if isinstance(cfg.rank, int)
+        else DecimalFact(POD_RANK, cfg.rank, _ESSENTIAL)
+    )
+    facts: list[ScientificFact] = [
+        rank_fact,
+        *_integer_variant(cfg, "n_snapshots", POD_SNAPSHOTS),
+        *_checkpoint_identity_facts(cfg),
+    ]
+    if isinstance(cfg, PODCoarseningConfig) and not isinstance(cfg.weighting, RawWeightingConfig):
+        weighting = cfg.weighting
+        facts.append(TextFact(POD_WEIGHTING, weighting.method, _VARIANT))
+        if isinstance(weighting, PowerNormWeightingConfig):
+            facts.extend(
+                (
+                    TextFact(POD_METRIC, weighting.metric, _VARIANT),
+                    DecimalFact(POD_BETA, weighting.beta, _VARIANT),
+                )
+            )
+        elif isinstance(weighting, SmootherPersistenceWeightingConfig):
+            facts.extend(
+                (
+                    *_integer_variant(weighting, "steps", POD_STEPS),
+                    *(
+                        (DecimalFact(DAMPING, weighting.omega, _VARIANT),)
+                        if weighting.omega is not None
+                        else ()
+                    ),
+                )
+            )
+    return tuple(facts)
+
+
 def configured_facts(cfg: ConcretePreconditionerConfig) -> Facts:
     """Facts that come from the configuration, with default-valued ones omitted.
 
@@ -298,7 +344,12 @@ def configured_facts(cfg: ConcretePreconditionerConfig) -> Facts:
                 if isinstance(cfg.coarsening, PODCoarseningConfig | NeuralPODCoarseningConfig)
                 else (IntegerFact(MULTIGRID_LEVELS, cfg.n_levels, _ESSENTIAL),)
             )
-            return (*levels, *_smoothing_facts(cfg))
+            coarsening_facts_config: Facts = (
+                _pod_facts(cfg.coarsening)
+                if isinstance(cfg.coarsening, PODCoarseningConfig | NeuralPODCoarseningConfig)
+                else ()
+            )
+            return (*levels, *coarsening_facts_config, *_smoothing_facts(cfg))
         case NeuralAMGPreconditionerConfig():
             return (IntegerFact(MULTIGRID_LEVELS, cfg.n_levels, _ESSENTIAL), *_smoothing_facts(cfg))
         case AdaptiveSAPreconditionerConfig():

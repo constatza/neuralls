@@ -262,8 +262,7 @@ class MLflowGroupReportSink:
                 )
             )
             method = str(workload.method)
-            style = workload.plot_styles.get(method)
-            scope = f"Method {style.label if style is not None else method}"
+            scope = _method_scope(workload)
             method_slug = sanitize_metric_key_segment(method)
             n_matrices = len({(tag.dataset, tag.matrix_id) for tag in workload.planned})
             recipe_weights = tuple(count / len(workload.planned) for count in counts)
@@ -446,7 +445,10 @@ def _figure_metadata(
         FigureKind.AGGREGATE_BARS: "converged systems",
         FigureKind.SOLVE_TIME: "solve seconds (workload total)",
         FigureKind.ONLINE_TIME: "workload online seconds (setup + solve total)",
-        FigureKind.PAIRED_TIME: "amortized online seconds per both-solved RHS",
+        FigureKind.PAIRED_TIME: (
+            "amortized online seconds per paired RHS; asymmetric failures axis-censored; "
+            "both-failed pairs omitted"
+        ),
         FigureKind.PERFORMANCE_PROFILE: (
             "solve-seconds performance ratio"
             if scenario is TimingScenario.SOLVE
@@ -464,7 +466,7 @@ def _figure_metadata(
         FailureTreatment.NONE
         if kind in {FigureKind.SOLVE_TIME, FigureKind.ONLINE_TIME}
         else FailureTreatment.OMITTED
-        if kind in {FigureKind.PAIRED_TIME, FigureKind.SPEED_RATIO}
+        if kind is FigureKind.SPEED_RATIO
         else FailureTreatment.CENSORED
     )
     aggregation_rule = (
@@ -496,6 +498,13 @@ def _figure_metadata(
 
 METHOD_ARTIFACT_DIR = "method_workload"
 BENCHMARK_METHOD_SCHEMA_VERSION = BENCHMARK_EVENT_SCHEMA_VERSION
+
+
+def _method_scope(workload: MethodWorkload) -> str:
+    """Return the concise scientific method scope shared by figures and manifests."""
+    method = str(workload.method)
+    style = workload.plot_styles.get(method)
+    return f"Method {style.label if style is not None else method}"
 
 
 class MLflowBenchmarkMethodSink:
@@ -632,20 +641,21 @@ def _write_method_diagnostics(root: Path, workload: MethodWorkload) -> tuple[Pat
     )
     figures = root / "figures"
     figures.mkdir(exist_ok=True)
+    method_scope = _method_scope(workload)
     method_slug = sanitize_metric_key_segment(str(workload.method))
     residual_figure = figures / f"residual_history_{method_slug}.png"
     plot_convergence_comparison(
         diagnostics,
         save_path=residual_figure,
         title="Residual History",
-        subtitle=f"Method {workload.method}",
+        subtitle=method_scope,
     )
     energy_figure = figures / f"energy_history_{method_slug}.png"
     plot_error_convergence_comparison(
         diagnostics,
         save_path=energy_figure,
         title="Energy History",
-        subtitle=f"Method {workload.method}",
+        subtitle=method_scope,
     )
     return path, residuals_path, energies_path, residual_figure, energy_figure
 

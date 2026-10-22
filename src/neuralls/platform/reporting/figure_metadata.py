@@ -180,7 +180,9 @@ def make_plan(
         FigureKind.PAIRED_TIME: "Online Time",
         FigureKind.PERFORMANCE_PROFILE: "Performance Profile",
         FigureKind.ECDF_ITERATIONS: "Iterations",
-        FigureKind.ECDF_TIME: "Online Time",
+        FigureKind.ECDF_TIME: (
+            "Solve Time" if metadata.scenario is TimingScenario.SOLVE else "Online Time"
+        ),
         FigureKind.SPEED_RATIO: "Speed Ratio",
         FigureKind.RESIDUAL_HISTORY: "Residual History",
         FigureKind.ENERGY_HISTORY: "Energy History",

@@ -259,5 +259,5 @@ def test_group_reporting_disambiguates_duplicate_configured_labels() -> None:
     sink = PresentationSink()
     report_all_levels((workload("jacobi_a"), workload("jacobi_b")), sink)
 
-    assert sink.presentations[0].plot_styles["jacobi_a"].label == "Jacobi (config=jacobi_a)"
-    assert sink.presentations[0].plot_styles["jacobi_b"].label == "Jacobi (config=jacobi_b)"
+    assert sink.presentations[0].plot_styles["jacobi_a"].label == "Jacobi [jacobi_a]"
+    assert sink.presentations[0].plot_styles["jacobi_b"].label == "Jacobi [jacobi_b]"

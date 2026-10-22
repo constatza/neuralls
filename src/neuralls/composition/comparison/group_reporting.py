@@ -87,7 +87,7 @@ def report_all_levels(
     label_counts = Counter(style.label for style in plot_styles.values())
     plot_styles = {
         name: (
-            replace(style, label=f"{style.label} (config={name})")
+            replace(style, label=f"{style.label} [{name}]")
             if label_counts[style.label] > 1
             else style
         )

@@ -160,6 +160,28 @@ def presentation() -> GroupPresentation:
     )
 
 
+@pytest.fixture
+def method_workload() -> CompletedMethodWorkload:
+    """Minimal method workload carrying the scientific label used by its plots."""
+    method = PreconditionerName("network_a")
+    return CompletedMethodWorkload(
+        method=method,
+        planned=(),
+        setup_events=(),
+        solve_attempts=(),
+        diagnostics=(),
+        generation_cost=None,
+        workload_peak_memory=UnknownPeakMemory(),
+        config_digest="sha256:" + "b" * 64,
+        method_config={"name": str(method)},
+        plot_styles={
+            str(method): PreconditionerPlotStyle(
+                label="Neural (assignment=network_a)", family=PreconditionerType.NEURAL
+            )
+        },
+    )
+
+
 def _key(metric: str, group: GroupAggregated, name: str) -> str:
     return comparison_tracking._group_metric_key(metric, group.group_id, name)
 
@@ -264,6 +286,51 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
     assert solve.metadata.scenario is TimingScenario.SOLVE
 
 
+def test_figure_plans_name_solve_and_online_ecdfs_by_scenario(
+    group: RecipeProfileReport,
+) -> None:
+    """ECDF titles describe the explicit timing scenario being plotted."""
+    presentation = GroupPresentation(
+        subject="Dataset ds - gaussian", subtitle="Dataset ds", plot_styles={}
+    )
+    plans = _figure_plans(group, presentation, "fine_ds_gaussian")
+
+    solve = next(
+        plan
+        for plan in plans
+        if plan.metadata.kind.value == "ecdf_time"
+        and plan.metadata.scenario is TimingScenario.SOLVE
+    )
+    online = next(
+        plan
+        for plan in plans
+        if plan.metadata.kind.value == "ecdf_time"
+        and plan.metadata.scenario is TimingScenario.ONLINE
+    )
+
+    assert (solve.title, solve.subtitle) == ("Solve Time", "Dataset ds - gaussian")
+    assert (online.title, online.subtitle) == ("Online Time", "Dataset ds - gaussian")
+
+
+def test_paired_scatter_manifest_describes_axis_censored_pairs(
+    group: RecipeProfileReport,
+) -> None:
+    """Paired scatter metadata covers asymmetric failures, unlike ratio CDFs."""
+    presentation = GroupPresentation(
+        subject="Dataset ds - gaussian", subtitle="Dataset ds", plot_styles={}
+    )
+    plans = _figure_plans(group, presentation, "fine_ds_gaussian")
+    paired = next(plan for plan in plans if plan.metadata.kind.value == "paired_time")
+    ratio = next(plan for plan in plans if plan.metadata.kind.value == "speed_ratio")
+
+    assert paired.metadata.failure_treatment is FailureTreatment.CENSORED
+    assert "asymmetric failures" in paired.metadata.metric_definition
+    assert "both-failed pairs omitted" in paired.metadata.metric_definition
+    assert "both-solved" not in paired.metadata.metric_definition
+    assert ratio.metadata.failure_treatment is FailureTreatment.OMITTED
+    assert ratio.metadata.metric_definition != paired.metadata.metric_definition
+
+
 def test_session_manifest_registers_uniquely_owned_method_figures() -> None:
     method = PreconditionerName("network_a")
     tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(7), 0, SystemId("s0"))
@@ -312,6 +379,32 @@ def test_session_manifest_registers_uniquely_owned_method_figures() -> None:
         "comparison_method[method=network_a]/method_workload/method_diagnostics.json",
         "comparison_method[method=network_a]/method_workload/solve_attempts.parquet",
     )
+
+
+def test_method_diagnostics_use_manifest_method_scope(
+    tmp_path: Path,
+    method_workload: CompletedMethodWorkload,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Production history rendering receives the same concise scope as its manifest."""
+    calls: list[str] = []
+    monkeypatch.setattr(
+        comparison_tracking,
+        "plot_convergence_comparison",
+        lambda *args, **kwargs: calls.append(kwargs["subtitle"]),
+    )
+    monkeypatch.setattr(
+        comparison_tracking,
+        "plot_error_convergence_comparison",
+        lambda *args, **kwargs: calls.append(kwargs["subtitle"]),
+    )
+
+    comparison_tracking._write_method_diagnostics(tmp_path, method_workload)
+
+    assert calls == [
+        "Method Neural (assignment=network_a)",
+        "Method Neural (assignment=network_a)",
+    ]
 
 
 def test_recipe_profile_sink_keeps_profile_ecdf_and_aggregate_bars(

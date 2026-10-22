@@ -276,7 +276,7 @@ facts of two kinds. *Realized* facts come from the *constructed* `torchalg` obje
 (POD-2G's fitted basis rank, an aggregation threshold's realized coarse dimension,
 an adaptive hierarchy's realized levels, a neural model's architecture class name)
 and are never dropped for length. *Configured* facts come from the config (grid
-levels, an IC0 drop tolerance, smoothing steps, aSA/BAMG settings) and cover CSR
+levels, an IC0 drop tolerance, smoothing steps, POD rank/weighting, and aSA/BAMG settings) and cover CSR
 preconditioners too; those that merely tell variants apart are lowest priority and
 dropped first, anything at its config default is omitted, and seeds are never shown.
 Composition supplies only workflow provenance: for POD-2G it appends the fit

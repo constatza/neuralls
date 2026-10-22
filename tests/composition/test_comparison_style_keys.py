@@ -96,3 +96,21 @@ def test_configured_pod_label_honours_notation_without_building(
 
     assert label.startswith("POD-2G")
     assert r"\nu_1=3" in label
+
+
+def test_configured_pod_labels_expose_rank_without_config_slug(pod2g_dataset_dir: Path) -> None:
+    """POD variants remain concise and distinguish their configured ranks."""
+    rank_three = build_configured_preconditioner_label(
+        AMGPreconditionerConfig(
+            coarsening=PODCoarseningConfig(dataset_dir=pod2g_dataset_dir, rank=3)
+        )
+    )
+    rank_five = build_configured_preconditioner_label(
+        AMGPreconditionerConfig(
+            coarsening=PODCoarseningConfig(dataset_dir=pod2g_dataset_dir, rank=5)
+        )
+    )
+
+    assert rank_three == "POD-2G (rank=3)"
+    assert rank_five == "POD-2G (rank=5)"
+    assert "config=" not in rank_three
