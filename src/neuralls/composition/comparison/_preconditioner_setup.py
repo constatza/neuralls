@@ -11,8 +11,9 @@ import numpy as np
 import torch
 from torchalg.preconditioners.base import BindableInputs, Preconditioner
 
-from neuralls.composition.comparison.models import PlannedSystem
+from neuralls.composition.comparison.models import MatrixWorkload, PlannedSystem
 from neuralls.composition.preconditioners.checkpoint_store import NO_PRELOADED, CheckpointStore
+from neuralls.composition.preconditioners.descriptions import describe_realized_preconditioner
 from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.composition.preconditioners.preloading import CheckpointLoaders, preload_checkpoints
 from neuralls.composition.preconditioners.schedule import (
@@ -33,6 +34,7 @@ from neuralls.platform.storage.training_artifacts import (
     load_array_source_sample,
     load_training_arrays,
 )
+from neuralls.shared.scientific_description import SystemRealization
 from neuralls.shared.types import MatrixId
 
 if TYPE_CHECKING:
@@ -310,6 +312,22 @@ class PreconditionerService:
             preloaded=preloaded,
             staged_fit_data=self._staged_fit_data.get(config.name),
         )
+
+
+def capture_system_realizations(
+    preconditioner: Preconditioner, bundle: MatrixWorkload
+) -> tuple[SystemRealization, ...]:
+    """Read the facts only the built object knows, once for the matrix and all its systems.
+
+    Setup already produced ``preconditioner``; reading it adds no setup. Every sibling RHS
+    system shares the object, so they share its facts, and only these plain facts outlive
+    it once the caller releases the preconditioner.
+    """
+    facts = describe_realized_preconditioner(preconditioner)
+    return tuple(
+        SystemRealization(member.tag.system_id, bundle.matrix_id, facts)
+        for member in bundle.members
+    )
 
 
 def _create_scheduled_preconditioners(

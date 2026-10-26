@@ -267,6 +267,8 @@ itself: it delegates metric-key sanitization, comparison-run metric logging, and
 nested child-run writes to `platform.tracking`, while only assembling child tag
 payloads and deciding when the logging happens.
 
+**Realized facts through execution.** `_execute_method_run` passes the method's `PreparedMethodPresentation` (looked up in the first execution's `PreparedComparisonPresentation` by method id) to `execute_method_workload`. Facts only the built object knows are read once per matrix right after its single setup and kept as plain `SystemRealization`s on the returned `CompletedMethodWorkload`, so no preconditioner outlives its matrix for the sake of labeling. Group reporting asks `reduce_realized_facts` for the facts invariant over each group; a method that never completed setup is reported from its prepared state.
+
 **Presentation preflight.** `assignments/presentation_preflight.py` builds each comparison's typed scientific presentation inside `_prepare_comparison_entry`, after checkpoint resolution and before the reuse gate, the session run, or any execution. `describe_method` describes a resolved config through `composition/preconditioners/descriptions.py`; a POD-2G method becomes a `DatasetQualifiedMethodPresentation` whose dataset presentation is read from the fit dataset's manifest, so the dataset appears exactly once and the assignment id never does. `prepare_comparison_presentation` runs the cohort through `domain/solver/presentation_planner.py`, and `compose_comparison_title` yields an explicit `EditorialPresentation` or, absent one, the matrix dataset's presentation, never a registry id. Each `_PreparedComparisonExecution` carries the resulting `PreparedComparisonPresentation` and title. `prepare_comparison_batch` returns a `PreparedComparisonBatch`, the only type session orchestration and `_execute_all` accept. A missing dataset provenance, a neural method without a `display_name`, or two indistinguishable methods raises out of `prepare_comparison_batch`, so no MLflow run opens and no method executes. A neural stub made from an assignment takes its architecture name from the job registry entry's explicit `display_name`; registry-id fallbacks no longer exist in case-config loading (a missing `display_name` stays absent). `effective_display_name` still falls back to the id for the remaining text sinks until they take presentation objects.
 
 Comparison plot legends are a separate concern from that MLflow metric-key
@@ -287,9 +289,9 @@ mapping; it never re-keys results by presentation text. Assignment-generated
 preconditioners use the unique assignment id as that key, never the optional
 display name. The batch boundary rejects duplicate keys before checkpoint
 resolution, and execution rejects missing, duplicate, or unexpected evaluation
-entries as well as a solver result carrying the wrong key. If two constructed
-methods still produce identical legend text, only
-their presentation labels are suffixed with the stable keys. This keeps labels
+entries as well as a solver result carrying the wrong key. Two methods
+whose legend text is identical raise `DuplicateMethodPresentationError` at
+group reporting; no stable key is ever appended to a label. This keeps labels
 truthful to what was built, distinguishes equal-rank bases fitted on different
 datasets, and preserves a one-to-one mapping even when generation/training is
 skipped or one model cannot be resolved.

@@ -1586,6 +1586,7 @@ def _execute_method_run(
                     failure_sink=failure_sink,
                     recorded_exception_ids=recorded_exception_ids,
                 ),
+                prepared=first.presentation.method(method.name),
                 params=first.cfg.general.params,
                 settings=first.settings,
                 notation_policy=first.cfg.notation_policy,

@@ -38,6 +38,7 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, SystemId
+from tests.presentation_support import PreparedMethodFactory
 
 
 @pytest.fixture
@@ -114,7 +115,9 @@ def _solved_result(name: str, *, seconds: float = 2.0) -> CGComparisonResult:
     )
 
 
-def test_workload_models_are_frozen_and_slotted(one_system_bundle: MatrixWorkload) -> None:
+def test_workload_models_are_frozen_and_slotted(
+    one_system_bundle: MatrixWorkload, prepared_method: PreparedMethodFactory
+) -> None:
     method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
     tag = one_system_bundle.members[0].tag
     completed = CompletedMethodWorkload(
@@ -127,6 +130,7 @@ def test_workload_models_are_frozen_and_slotted(one_system_bundle: MatrixWorkloa
         workload_peak_memory=MeasuredPeakMemory(0),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": str(method.name)},
+        presentation=prepared_method(str(method.name)),
     )
 
     for value in (one_system_bundle.members[0], one_system_bundle, method, completed):
@@ -140,6 +144,7 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
     one_system_bundle: MatrixWorkload,
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
 ) -> None:
     """The executor must retain a failed setup without inventing solve attempts."""
     from neuralls.composition.comparison import comparison_run
@@ -159,6 +164,7 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
             (one_system_bundle,),
             params=solver_params,
             settings=neuralls_settings,
+            prepared=prepared_method(str(method.name)),
             notation_policy=NotationPolicy.default(),
         )
     finally:
@@ -198,6 +204,7 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
     preconditioner_type: PreconditionerType,
+    prepared_method: PreparedMethodFactory,
 ) -> None:
     """Static and matrix-dependent methods both get fresh state per matrix."""
     from neuralls.composition.comparison import comparison_run
@@ -225,6 +232,7 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
         two_matrix_bundles,
         params=solver_params,
         settings=neuralls_settings,
+        prepared=prepared_method(str(method.name)),
         notation_policy=NotationPolicy.default(),
     )
 
@@ -241,6 +249,7 @@ def test_repeat_samples_are_retained_but_totals_use_one_representative(
     two_matrix_bundles: tuple[MatrixWorkload, MatrixWorkload],
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
 ) -> None:
     from neuralls.composition.comparison import comparison_run
 
@@ -258,6 +267,7 @@ def test_repeat_samples_are_retained_but_totals_use_one_representative(
         two_matrix_bundles,
         params=solver_params,
         settings=neuralls_settings,
+        prepared=prepared_method(str(method.name)),
         notation_policy=NotationPolicy.default(),
     )
 
@@ -295,6 +305,7 @@ def test_io_reference_and_reporting_stay_outside_online_timers(
     one_system_bundle: MatrixWorkload,
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
 ) -> None:
     """Only preparation/binding and the solver occupy online timer regions."""
     from neuralls.composition.comparison import comparison_run
@@ -350,6 +361,7 @@ def test_io_reference_and_reporting_stay_outside_online_timers(
         (one_system_bundle,),
         params=solver_params,
         settings=neuralls_settings,
+        prepared=prepared_method(str(method.name)),
         notation_policy=NotationPolicy.default(),
     )
 
@@ -371,6 +383,7 @@ def test_solver_failure_retains_measured_attempt(
     one_system_bundle: MatrixWorkload,
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
 ) -> None:
     from neuralls.composition.comparison import comparison_run
     from neuralls.domain.solver import comparison as solver_comparison
@@ -391,6 +404,7 @@ def test_solver_failure_retains_measured_attempt(
             (one_system_bundle,),
             params=solver_params,
             settings=neuralls_settings,
+            prepared=prepared_method(str(method.name)),
             notation_policy=NotationPolicy.default(),
         )
     finally:

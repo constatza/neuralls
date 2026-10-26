@@ -7,6 +7,7 @@ from pathlib import Path
 import polars as pl
 import pyarrow.parquet as pq
 import pytest
+from tests.presentation_support import PreparedMethodFactory
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload
 from neuralls.domain.solver.models import (
@@ -46,7 +47,7 @@ def _rewrite_frame(path: Path, frame: pl.DataFrame) -> None:
 
 
 @pytest.fixture
-def workload() -> CompletedMethodWorkload:
+def workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
     method = PreconditionerName("jacobi")
     planned = (
         SystemTag(DatasetId("dataset"), "gaussian", MatrixId(0), 0, SystemId("s0")),
@@ -102,6 +103,7 @@ def workload() -> CompletedMethodWorkload:
         workload_peak_memory=MeasuredPeakMemory(512),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": str(method)},
+        presentation=prepared_method(str(method)),
     )
 
 

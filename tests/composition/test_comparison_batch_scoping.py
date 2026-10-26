@@ -37,6 +37,7 @@ from neuralls.shared.workflow_failures import (
     ComparisonMatrixPhase,
     ComparisonMethodFailureContext,
 )
+from tests.presentation_support import PreparedMethodFactory
 
 
 def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
@@ -58,6 +59,7 @@ def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
     )
     system.cfg.general.data.normalize_system = "matrix"
     system.__dict__["settings"] = MagicMock()
+    system.__dict__["presentation"] = MagicMock()
     return system
 
 
@@ -197,7 +199,7 @@ def test_matrix_loader_releases_prepared_system_before_next_matrix_load(
 
 
 @pytest.fixture
-def events(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+def events(monkeypatch: pytest.MonkeyPatch, prepared_method: PreparedMethodFactory) -> list[str]:
     recorded: list[str] = []
     monkeypatch.setattr(comparison_batch, "warm_up_device", lambda device: recorded.append("warm"))
     monkeypatch.setattr(comparison_batch, "release_device_memory", lambda: None)
@@ -233,6 +235,7 @@ def events(monkeypatch: pytest.MonkeyPatch) -> list[str]:
             workload_peak_memory=MeasuredPeakMemory(0),
             config_digest="sha256:" + "0" * 64,
             method_config={"name": str(name)},
+            presentation=prepared_method(str(name)),
         )
 
     monkeypatch.setattr(comparison_batch, "execute_method_workload", execute)

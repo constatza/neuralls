@@ -30,6 +30,7 @@ from neuralls.shared.types import (
     SetupEventId,
     SystemId,
 )
+from tests.presentation_support import PreparedMethodFactory
 
 
 @dataclass(slots=True)
@@ -41,7 +42,9 @@ class RecordingSink:
         self.outcomes.append(outcome)
 
 
-def test_group_reporting_reduces_completed_workload_events() -> None:
+def test_group_reporting_reduces_completed_workload_events(
+    prepared_method: PreparedMethodFactory,
+) -> None:
     method = PreconditionerName("identity")
     tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("system"))
     event_id = SetupEventId("identity:ds:1")
@@ -80,6 +83,7 @@ def test_group_reporting_reduces_completed_workload_events() -> None:
         workload_peak_memory=MeasuredPeakMemory(20),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": "identity"},
+        presentation=prepared_method("identity"),
     )
     sink = RecordingSink()
 
@@ -88,7 +92,9 @@ def test_group_reporting_reduces_completed_workload_events() -> None:
     assert [outcome.n_planned_rhs for outcome in sink.outcomes] == [1, 1, 1]
 
 
-def test_group_reporting_propagates_method_plot_styles() -> None:
+def test_group_reporting_propagates_method_plot_styles(
+    prepared_method: PreparedMethodFactory,
+) -> None:
     method = PreconditionerName("identity")
     tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("styled"))
     event_id = SetupEventId("identity:ds:1")
@@ -114,6 +120,7 @@ def test_group_reporting_propagates_method_plot_styles() -> None:
         workload_peak_memory=MeasuredPeakMemory(10),
         config_digest="sha256:" + "1" * 64,
         method_config={"name": "identity"},
+        presentation=prepared_method("identity"),
         plot_styles={str(method): style},
     )
 
@@ -131,7 +138,9 @@ def test_group_reporting_propagates_method_plot_styles() -> None:
     assert sink.presentations[0].plot_styles[str(method)] == style
 
 
-def test_mixture_presentations_keep_only_the_short_scope() -> None:
+def test_mixture_presentations_keep_only_the_short_scope(
+    prepared_method: PreparedMethodFactory,
+) -> None:
     method = PreconditionerName("identity")
     tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("scope"))
     event_id = SetupEventId("identity:ds:1")
@@ -170,6 +179,7 @@ def test_mixture_presentations_keep_only_the_short_scope() -> None:
         workload_peak_memory=MeasuredPeakMemory(1),
         config_digest="sha256:" + "2" * 64,
         method_config={"name": "identity"},
+        presentation=prepared_method("identity"),
     )
 
     class PresentationSink:
@@ -190,7 +200,9 @@ def test_mixture_presentations_keep_only_the_short_scope() -> None:
     ]
 
 
-def test_group_reporting_propagates_actual_solver_timing_context() -> None:
+def test_group_reporting_propagates_actual_solver_timing_context(
+    prepared_method: PreparedMethodFactory,
+) -> None:
     method = PreconditionerName("identity")
     tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("context"))
     workload = CompletedMethodWorkload(
@@ -203,6 +215,7 @@ def test_group_reporting_propagates_actual_solver_timing_context() -> None:
         workload_peak_memory=MeasuredPeakMemory(1),
         config_digest="sha256:" + "3" * 64,
         method_config={"name": "identity"},
+        presentation=prepared_method("identity"),
     )
     context = SolverTimingContext(
         rtol=1e-6,
@@ -235,40 +248,9 @@ def test_group_reporting_propagates_actual_solver_timing_context() -> None:
     ]
 
 
-def test_group_reporting_disambiguates_duplicate_configured_labels() -> None:
-    tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("labels"))
-
-    def workload(name: str) -> CompletedMethodWorkload:
-        method = PreconditionerName(name)
-        return CompletedMethodWorkload(
-            method=method,
-            planned=(tag,),
-            setup_events=(),
-            solve_attempts=(),
-            diagnostics=(),
-            generation_cost=None,
-            workload_peak_memory=MeasuredPeakMemory(1),
-            config_digest="sha256:" + name[-1] * 64,
-            method_config={"name": name},
-            plot_styles={name: PreconditionerPlotStyle("Jacobi", PreconditionerType.JACOBI)},
-        )
-
-    class PresentationSink:
-        def __init__(self) -> None:
-            self.presentations: list[GroupPresentation] = []
-
-        def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
-            del outcome
-            self.presentations.append(presentation)
-
-    sink = PresentationSink()
-    report_all_levels((workload("jacobi_a"), workload("jacobi_b")), sink)
-
-    assert sink.presentations[0].plot_styles["jacobi_a"].label == "Jacobi [jacobi_a]"
-    assert sink.presentations[0].plot_styles["jacobi_b"].label == "Jacobi [jacobi_b]"
-
-
-def test_group_reporting_keeps_aggregation_configuration_in_method_labels() -> None:
+def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
+    prepared_method: PreparedMethodFactory,
+) -> None:
     tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("amg-labels"))
     configs = {
         "amg_theta_025": AMGPreconditionerConfig(
@@ -289,6 +271,7 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels() -> N
             workload_peak_memory=MeasuredPeakMemory(1),
             config_digest="sha256:" + name[-1] * 64,
             method_config={"name": name},
+            presentation=prepared_method(name),
             plot_styles={
                 name: PreconditionerPlotStyle(
                     build_configured_preconditioner_label(configs[name]), PreconditionerType.AMG

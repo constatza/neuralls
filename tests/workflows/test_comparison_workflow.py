@@ -85,7 +85,7 @@ from neuralls.platform.tracking.comparison_tracking import (
 )
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
 from neuralls.shared.digest import canonical_digest
-from neuralls.shared.scientific_description import NotationPolicy
+from neuralls.shared.scientific_description import NotationPolicy, PreparedMethodPresentation
 from neuralls.shared.types import (
     ComparisonRhsSourceKind,
     DatasetId,
@@ -94,6 +94,7 @@ from neuralls.shared.types import (
     SetupEventId,
     SystemId,
 )
+from tests.presentation_support import PreparedMethodFactory
 from tests.workflows.comparison_support import (
     LOG_COMPARISON_ARTIFACTS,
     SETUP_TRACKING,
@@ -1421,7 +1422,7 @@ def test_log_comparison_metrics_logs_cost_metrics_when_measured(
 
 
 def test_compatibility_projection_carries_canonical_setup_measurement(
-    tmp_path: Path, fake_mlflow: MagicMock
+    tmp_path: Path, fake_mlflow: MagicMock, prepared_method: PreparedMethodFactory
 ) -> None:
     """Legacy diagnostics retain setup timing copied from the canonical event."""
     tag = SystemTag(
@@ -1452,6 +1453,7 @@ def test_compatibility_projection_carries_canonical_setup_measurement(
         workload_peak_memory=MeasuredPeakMemory(128),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": "identity"},
+        presentation=prepared_method("identity"),
     )
     projected = _project_setup_measurements(
         workload,
@@ -1646,6 +1648,7 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
         method: ResolvedMethod,
         bundles: Iterable[MatrixWorkload],
         *,
+        prepared: PreparedMethodPresentation,
         params: SolverParams,
         settings: NeurallsSettings,
         notation_policy: NotationPolicy,
@@ -1655,6 +1658,7 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
         return execute_method_workload(
             method,
             bundle_sequence,
+            prepared=prepared,
             params=params,
             settings=settings,
             notation_policy=notation_policy,

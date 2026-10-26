@@ -7,6 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from tests.presentation_support import PreparedMethodFactory
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload, canonical_method_config
 from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
@@ -38,7 +39,7 @@ from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, Setup
 
 
 @pytest.fixture
-def method_workload() -> CompletedMethodWorkload:
+def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
     method = PreconditionerName("jacobi")
     planned = tuple(
         SystemTag(DatasetId("ds"), "gaussian", MatrixId(0), i, SystemId(f"s{i}")) for i in range(2)
@@ -79,6 +80,7 @@ def method_workload() -> CompletedMethodWorkload:
         workload_peak_memory=MeasuredPeakMemory(2),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": str(method)},
+        presentation=prepared_method(str(method)),
     )
 
 

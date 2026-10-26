@@ -31,6 +31,7 @@ from neuralls.shared.scientific_description import (
     IntegerFact,
     MethodPresentationCandidate,
     PreparedComparisonPresentation,
+    PreparedMethodPresentation,
     ScientificDescription,
     StandaloneMethodPresentation,
     StrategyProvenance,
@@ -545,6 +546,29 @@ def prepared_presentation(
             scope=ComparisonScopePresentation(dataset_presentation),
         )
     )
+
+
+@pytest.fixture
+def prepared_method(
+    dataset_presentation: DatasetPresentation,
+) -> Callable[[str], PreparedMethodPresentation]:
+    """Build the validated presentation of a single standalone method by its id."""
+
+    def build(method_id: str) -> PreparedMethodPresentation:
+        cohort = prepare_presentations(
+            UnvalidatedComparisonPresentation(
+                methods=(
+                    MethodPresentationCandidate(
+                        PreconditionerName(method_id),
+                        StandaloneMethodPresentation(ScientificDescription("Jacobi")),
+                    ),
+                ),
+                scope=ComparisonScopePresentation(dataset_presentation),
+            )
+        )
+        return cohort.methods[0]
+
+    return build
 
 
 @pytest.fixture

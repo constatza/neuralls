@@ -8,11 +8,13 @@ each system after setup. Both operate on structured facts and never render text.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import assert_never
 
 from neuralls.shared.scientific_description.catalog import FactVisibility, fact_definition
 from neuralls.shared.scientific_description.models import FieldKey, ScientificFact
 from neuralls.shared.scientific_description.presentation import (
     DuplicateMethodPresentationError,
+    ExecutedMethodPresentation,
     MethodPresentationCandidate,
     PreparedComparisonPresentation,
     PreparedMethodPresentation,
@@ -26,6 +28,8 @@ from neuralls.shared.scientific_description.presentation import (
 __all__ = [
     "DuplicateMethodPresentationError",
     "prepare_presentations",
+    "prepared_of",
+    "realizations_of",
     "realize_method",
     "reduce_realized_facts",
 ]
@@ -57,6 +61,28 @@ def realize_method(
 ) -> RealizedMethodPresentation:
     """Attach per-system realized facts to a prepared method."""
     return RealizedMethodPresentation(prepared=prepared, systems=systems)
+
+
+def prepared_of(executed: ExecutedMethodPresentation) -> PreparedMethodPresentation:
+    """The prepared presentation underlying either execution outcome."""
+    match executed:
+        case RealizedMethodPresentation(prepared=prepared):
+            return prepared
+        case PreparedMethodPresentation() as prepared:
+            return prepared
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def realizations_of(executed: ExecutedMethodPresentation) -> tuple[SystemRealization, ...]:
+    """The per-system facts captured after setup; empty when no setup succeeded."""
+    match executed:
+        case RealizedMethodPresentation(systems=systems):
+            return systems
+        case PreparedMethodPresentation():
+            return ()
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def reduce_realized_facts(

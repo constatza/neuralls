@@ -7,9 +7,7 @@ converted back into timing events because that would duplicate matrix setup.
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
 from typing import Never, assert_never, cast
 
 from loguru import logger
@@ -23,8 +21,18 @@ from neuralls.domain.solver.models.group_outcomes import (
     WorkloadMixtureReport,
 )
 from neuralls.domain.solver.models.labels import GlobalLabel, MediumLabel
-from neuralls.domain.solver.models.presentation import GroupPresentation, SolverTimingContext
+from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
+from neuralls.domain.solver.models.presentation import (
+    GroupMethodPresentation,
+    GroupPresentation,
+    SolverTimingContext,
+)
 from neuralls.domain.solver.ports import GroupReportSink
+from neuralls.domain.solver.presentation_planner import (
+    prepared_of,
+    realizations_of,
+    reduce_realized_facts,
+)
 from neuralls.domain.solver.reporting.classification import classify_level
 from neuralls.domain.solver.reporting.report_levels import (
     FineLevel,
@@ -32,7 +40,8 @@ from neuralls.domain.solver.reporting.report_levels import (
     MediumLevel,
     ReportLevel,
 )
-from neuralls.shared.types import SystemId
+from neuralls.shared.scientific_description import DuplicateMethodPresentationError
+from neuralls.shared.types import PreconditionerName, SystemId
 
 __all__ = ["REPORT_LEVELS", "report_all_levels"]
 
@@ -67,6 +76,40 @@ def _subtitle(outcome: RecipeProfileReport | WorkloadMixtureReport) -> str:
     return scope
 
 
+def _require_distinct_labels(plot_styles: Mapping[str, PreconditionerPlotStyle]) -> None:
+    """Refuse two methods that would be drawn under one legend entry.
+
+    A shared label means the methods' scientific presentations do not distinguish them;
+    appending an internal key would hide that, so it is an error.
+    """
+    names_by_label: dict[str, list[PreconditionerName]] = {}
+    for name, style in plot_styles.items():
+        names_by_label.setdefault(style.label, []).append(PreconditionerName(name))
+    for names in names_by_label.values():
+        if len(names) > 1:
+            raise DuplicateMethodPresentationError(tuple(names))
+
+
+def _group_methods(
+    workloads: Sequence[CompletedMethodWorkload], system_ids: tuple[SystemId, ...]
+) -> dict[PreconditionerName, GroupMethodPresentation]:
+    """Describe each method with only the realized facts invariant over this group's systems."""
+    members = frozenset(system_ids)
+    return {
+        workload.method: GroupMethodPresentation(
+            prepared=prepared_of(workload.presentation),
+            invariant_facts=reduce_realized_facts(
+                tuple(
+                    system
+                    for system in realizations_of(workload.presentation)
+                    if system.system_id in members
+                )
+            ),
+        )
+        for workload in workloads
+    }
+
+
 def report_all_levels(
     workloads: Sequence[CompletedMethodWorkload],
     sink: GroupReportSink,
@@ -84,15 +127,7 @@ def report_all_levels(
     plot_styles = {
         name: style for workload in workloads for name, style in workload.plot_styles.items()
     }
-    label_counts = Counter(style.label for style in plot_styles.values())
-    plot_styles = {
-        name: (
-            replace(style, label=f"{style.label} [{name}]")
-            if label_counts[style.label] > 1
-            else style
-        )
-        for name, style in plot_styles.items()
-    }
+    _require_distinct_labels(plot_styles)
     for level in REPORT_LEVELS:
         for classified in classify_level(
             planned, setup_events, attempts, level, selected, planned_by_method=planned_by_method
@@ -112,6 +147,7 @@ def report_all_levels(
                             subject=_subject(aggregated),
                             subtitle=_subtitle(aggregated),
                             plot_styles=plot_styles,
+                            methods=_group_methods(workloads, aggregated.system_ids),
                             solver_contexts=solver_contexts,
                         ),
                     )

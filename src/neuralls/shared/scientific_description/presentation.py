@@ -240,6 +240,13 @@ class PreparedComparisonPresentation:
             if len(colliding) > 1:
                 raise DuplicateMethodPresentationError(tuple(colliding))
 
+    def method(self, method_id: PreconditionerName) -> PreparedMethodPresentation:
+        """Return the prepared presentation of ``method_id``; an unknown id is a caller bug."""
+        for candidate in self.methods:
+            if candidate.method_id == method_id:
+                return candidate
+        raise KeyError(f"no prepared presentation for method {method_id!r}")
+
 
 @dataclass(frozen=True, slots=True)
 class SystemRealization:
@@ -270,6 +277,15 @@ class RealizedMethodPresentation:
         ids = [system.system_id for system in self.systems]
         if len(ids) != len(set(ids)):
             raise ValueError("RealizedMethodPresentation system ids must be unique")
+
+
+type ExecutedMethodPresentation = RealizedMethodPresentation | PreparedMethodPresentation
+"""What a finished method workload reports from.
+
+A method that completed setup on at least one system carries the realized state. A
+method whose every setup failed has no realized facts, so it stays in the prepared
+state its legend and run name were chosen from.
+"""
 
 
 def strategy_base_name(kind: GenerationStrategyKind) -> str:
@@ -351,6 +367,7 @@ __all__ = [
     "DatasetSourceProvenance",
     "DuplicateMethodPresentationError",
     "EditorialPresentation",
+    "ExecutedMethodPresentation",
     "MethodPresentationCandidate",
     "PreparedComparisonPresentation",
     "PreparedMethodPresentation",

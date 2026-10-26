@@ -23,6 +23,7 @@ from neuralls.composition.comparison._preconditioner_setup import (
     _bind_extra_inputs,
     _create_scheduled_preconditioners,
     _load_extra_inputs,
+    capture_system_realizations,
 )
 from neuralls.composition.comparison._presentation import build_comparison_source_context
 from neuralls.composition.comparison.models import (
@@ -67,6 +68,7 @@ from neuralls.domain.solver.models.cost import StageCost
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle, plot_style_maps
 from neuralls.domain.solver.models.recommendations import ComparisonRecommendations
 from neuralls.domain.solver.models.result import ComparisonResult
+from neuralls.domain.solver.presentation_planner import realize_method
 from neuralls.platform.config.models.comparison import ComparisonGeneral
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
@@ -86,7 +88,12 @@ from neuralls.shared.device import (
     repeat_timed_outcome,
 )
 from neuralls.shared.digest import canonical_digest
-from neuralls.shared.scientific_description import NotationPolicy
+from neuralls.shared.scientific_description import (
+    ExecutedMethodPresentation,
+    NotationPolicy,
+    PreparedMethodPresentation,
+    SystemRealization,
+)
 from neuralls.shared.types import PreconditionerName, SetupEventId, SystemId
 
 type PreconditionerEvaluationMapper = Callable[
@@ -395,8 +402,13 @@ def _execute_matrix_bundle(
     setup_events: list[MatrixSetupEvent],
     attempts: list[SolveAttempt],
     diagnostics: list[tuple[SystemId, CGComparisonResult]],
+    realizations: list[SystemRealization],
 ) -> None:
-    """Execute one matrix and release all device state on every exit path."""
+    """Execute one matrix and release all device state on every exit path.
+
+    Realized facts are read from the built preconditioner right after its one setup and
+    appended to ``realizations``; only those plain facts outlive the release below.
+    """
     matrix: torch.Tensor | None = None
     staged_inputs: tuple[np.ndarray, ...] = ()
     scheduled: dict[str, Preconditioner] | None = None
@@ -482,6 +494,7 @@ def _execute_matrix_bundle(
             return
 
         scheduled = timed_setup.value
+        realizations.extend(capture_system_realizations(scheduled[method.name], bundle))
         setup_events.append(
             MatrixSetupEvent(
                 event_id=event_id,
@@ -566,10 +579,18 @@ def _execute_matrix_bundle(
         release_device_memory()
 
 
+def _executed_presentation(
+    prepared: PreparedMethodPresentation, realizations: tuple[SystemRealization, ...]
+) -> ExecutedMethodPresentation:
+    """Upgrade to the realized state only when some setup produced facts to retain."""
+    return realize_method(prepared, realizations) if realizations else prepared
+
+
 def execute_method_workload(
     method: ResolvedMethod,
     bundles: Iterable[MatrixWorkload],
     *,
+    prepared: PreparedMethodPresentation,
     params: SolverParams,
     settings: NeurallsSettings,
     notation_policy: NotationPolicy,
@@ -580,13 +601,22 @@ def execute_method_workload(
     setup/solve timers.  Each matrix receives one fresh prepared method object;
     sibling RHS solves share that exact object.  The method-owned checkpoint
     store spans matrices and is released before this function returns.
+
+    The workload reports from ``prepared`` until a setup succeeds; facts read from the
+    built preconditioner then upgrade it to the realized state. ``prepared`` must belong
+    to ``method``.
     """
+    if prepared.method_id != method.name:
+        raise ValueError(
+            f"prepared presentation belongs to method {prepared.method_id!r}, not {method.name!r}"
+        )
     device = resolve_device()
     observer = WorkloadMemoryObserver.start(device)
     planned_list: list[SystemTag] = []
     setup_events: list[MatrixSetupEvent] = []
     attempts: list[SolveAttempt] = []
     diagnostics: list[tuple[SystemId, CGComparisonResult]] = []
+    realizations: list[SystemRealization] = []
     offline_cost = resolve_generation_cost(method.config, settings=settings)
 
     with CheckpointStore() as checkpoints:
@@ -604,6 +634,7 @@ def execute_method_workload(
                 setup_events=setup_events,
                 attempts=attempts,
                 diagnostics=diagnostics,
+                realizations=realizations,
             )
             del bundle
 
@@ -618,6 +649,7 @@ def execute_method_workload(
         workload_peak_memory=MeasuredPeakMemory(observer.finish()),
         config_digest=method.identity_digest or canonical_digest(method.config),
         method_config=canonical_method_config(method.config),
+        presentation=_executed_presentation(prepared, tuple(realizations)),
         plot_styles={
             str(method.name): PreconditionerPlotStyle(
                 label=contextualize_preconditioner_label(

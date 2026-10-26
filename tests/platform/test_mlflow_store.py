@@ -12,6 +12,7 @@ import polars as pl
 import pytest
 import tomli_w
 from mlflow.tracking import MlflowClient
+from tests.presentation_support import PreparedMethodFactory
 
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
@@ -165,7 +166,9 @@ def test_identity_tags_use_the_shared_enum(identity: StageIdentity) -> None:
 
 
 @pytest.fixture
-def method_artifacts(tmp_path: Path) -> tuple[dict[str, str], tuple[str, ...]]:
+def method_artifacts(
+    tmp_path: Path, prepared_method: PreparedMethodFactory
+) -> tuple[dict[str, str], tuple[str, ...]]:
     """Create one complete method artifact set for content-validation tests."""
     method = PreconditionerName("jacobi")
     planned = (SystemTag(DatasetId("ds"), "recipe", MatrixId(0), 0, SystemId("s0")),)
@@ -202,6 +205,7 @@ def method_artifacts(tmp_path: Path) -> tuple[dict[str, str], tuple[str, ...]]:
         workload_peak_memory=MeasuredPeakMemory(2),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": "jacobi"},
+        presentation=prepared_method(str(method)),
     )
     summary = summarize_method_workload(
         workload.method,
@@ -276,6 +280,7 @@ def test_reuse_accepts_valid_required_artifact_contents(
 def test_reuse_ignores_checkpoint_lease_path_but_rejects_changed_content(
     tmp_path: Path,
     client: MlflowClient,
+    prepared_method: PreparedMethodFactory,
 ) -> None:
     """Equivalent checkpoint leases reuse one child; changed bytes miss."""
     first_path = tmp_path / "lease-a" / "model.pt"
@@ -330,6 +335,7 @@ def test_reuse_ignores_checkpoint_lease_path_but_rejects_changed_content(
         workload_peak_memory=MeasuredPeakMemory(2),
         config_digest=config_digest,
         method_config={"name": "jacobi"},
+        presentation=prepared_method(str(method)),
     )
     summary = summarize_method_workload(
         workload.method,

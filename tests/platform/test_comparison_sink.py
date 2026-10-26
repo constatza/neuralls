@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from tests.presentation_support import PreparedMethodFactory
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload
 from neuralls.domain.benchmarking.selection import ConfiguredReference
@@ -157,11 +158,12 @@ def presentation() -> GroupPresentation:
             "jacobi": PreconditionerPlotStyle(label="Jacobi", family=PreconditionerType.JACOBI),
             "never": PreconditionerPlotStyle(label="None", family=PreconditionerType.IDENTITY),
         },
+        methods={},
     )
 
 
 @pytest.fixture
-def method_workload() -> CompletedMethodWorkload:
+def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
     """Minimal method workload carrying the scientific label used by its plots."""
     method = PreconditionerName("network_a")
     return CompletedMethodWorkload(
@@ -174,6 +176,7 @@ def method_workload() -> CompletedMethodWorkload:
         workload_peak_memory=UnknownPeakMemory(),
         config_digest="sha256:" + "b" * 64,
         method_config={"name": str(method)},
+        presentation=prepared_method(str(method)),
         plot_styles={
             str(method): PreconditionerPlotStyle(
                 label="Neural (assignment=network_a)", family=PreconditionerType.NEURAL
@@ -267,6 +270,7 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
         subject="All datasets",
         subtitle="All datasets",
         plot_styles={},
+        methods={},
         solver_contexts=(context,),
     )
 
@@ -291,7 +295,7 @@ def test_figure_plans_name_solve_and_online_ecdfs_by_scenario(
 ) -> None:
     """ECDF titles describe the explicit timing scenario being plotted."""
     presentation = GroupPresentation(
-        subject="Dataset ds - gaussian", subtitle="Dataset ds", plot_styles={}
+        subject="Dataset ds - gaussian", subtitle="Dataset ds", plot_styles={}, methods={}
     )
     plans = _figure_plans(group, presentation, "fine_ds_gaussian")
 
@@ -317,7 +321,7 @@ def test_paired_scatter_manifest_describes_axis_censored_pairs(
 ) -> None:
     """Paired scatter metadata covers asymmetric failures, unlike ratio CDFs."""
     presentation = GroupPresentation(
-        subject="Dataset ds - gaussian", subtitle="Dataset ds", plot_styles={}
+        subject="Dataset ds - gaussian", subtitle="Dataset ds", plot_styles={}, methods={}
     )
     plans = _figure_plans(group, presentation, "fine_ds_gaussian")
     paired = next(plan for plan in plans if plan.metadata.kind.value == "paired_time")
@@ -328,7 +332,9 @@ def test_paired_scatter_manifest_describes_axis_censored_pairs(
     assert ratio.metadata.metric_definition != paired.metadata.metric_definition
 
 
-def test_session_manifest_registers_uniquely_owned_method_figures() -> None:
+def test_session_manifest_registers_uniquely_owned_method_figures(
+    prepared_method: PreparedMethodFactory,
+) -> None:
     method = PreconditionerName("network_a")
     tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(7), 0, SystemId("s0"))
     workload = CompletedMethodWorkload(
@@ -341,6 +347,7 @@ def test_session_manifest_registers_uniquely_owned_method_figures() -> None:
         workload_peak_memory=UnknownPeakMemory(),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": str(method)},
+        presentation=prepared_method(str(method)),
         plot_styles={
             str(method): PreconditionerPlotStyle(
                 label="Neural (assignment=network_a)", family=PreconditionerType.NEURAL
