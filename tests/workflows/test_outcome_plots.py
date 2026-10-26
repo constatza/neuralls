@@ -254,8 +254,8 @@ def test_paired_scatter_does_not_mark_a_zero_cost_reference_run_as_failed(
     style: GroupStyle,
     figures: list[Figure],
 ) -> None:
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         plot_paired_time_scatter(
             zero_cost_reference_outcomes,
             reference=ConfiguredReference("amg"),
@@ -272,7 +272,6 @@ def test_paired_scatter_does_not_mark_a_zero_cost_reference_run_as_failed(
     assert filled == [[[1.0, 2.0], [0.0, 3.0]]]
     assert ax.get_xlim()[0] == 0
     assert ax.get_ylim()[0] == 0
-    assert not any("non-positive" in str(item.message) for item in caught)
 
 
 def test_paired_scatter_retains_all_zero_solved_coordinates(

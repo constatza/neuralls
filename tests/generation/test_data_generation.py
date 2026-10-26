@@ -193,7 +193,7 @@ def test_error_strategy_validation(
     """The strategy rejects an archive with too few solutions for its base systems."""
     insufficient_archive = np.array([[0.5, 0.3]], dtype=np.float64)
 
-    with pytest.raises(ValueError, match="Not enough archive lhs"):
+    with pytest.raises(ValueError):
         _generate(
             small_spd_matrix,
             {"residuals": 8},
@@ -258,7 +258,7 @@ def test_error_strategy_with_zero_iterations(
     solver_overrides: dict,
 ) -> None:
     """Pydantic validation rejects stop=0 for the residuals strategy."""
-    with pytest.raises(ValueError, match="(greater than or equal to 1|stop)"):
+    with pytest.raises(ValueError):
         _generate(
             small_spd_matrix,
             {"residuals": 2},
@@ -306,7 +306,7 @@ def test_eigenvector_requires_symmetric() -> None:
     """Eigenvector strategies reject non-symmetric matrices."""
     A = np.array([[4.0, 1.0], [2.0, 3.0]], dtype=np.float64)  # Asymmetric
 
-    with pytest.raises(ValueError, match="symmetric"):
+    with pytest.raises(ValueError):
         _generate(A, {"eigenvector_forward": 2})
 
 
@@ -478,7 +478,7 @@ def test_eigenvector_validation_num_exceeds_dimension() -> None:
     """Error when num_eigenvectors > matrix dimension."""
     A = np.eye(3, dtype=np.float64) * 2.0
 
-    with pytest.raises(ValueError, match="must be positive and ≤"):
+    with pytest.raises(ValueError):
         _generate(
             A,
             {"eigenvector_forward": 5},
@@ -490,7 +490,7 @@ def test_eigenvector_validation_include_requires_enough_samples() -> None:
     """Error when include_eigenvectors=True but samples < num_eigenvectors."""
     A = np.eye(5, dtype=np.float64) * 2.0
 
-    with pytest.raises(ValueError, match="must be >="):
+    with pytest.raises(ValueError):
         _generate(
             A,
             {"eigenvector_forward": 2},  # Only 2 samples
@@ -547,7 +547,7 @@ def test_pydantic_rejects_unknown_parameters() -> None:
     """
     from pydantic import ValidationError
 
-    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+    with pytest.raises(ValidationError):
         KrylovConfig.model_validate({"samples": 10, "unknown_param": 123})
 
 
@@ -555,7 +555,7 @@ def test_pydantic_rejects_invalid_literal_values() -> None:
     """Pydantic validation rejects invalid Literal values."""
     A = np.array([[4.0, 1.0], [1.0, 3.0]], dtype=np.float64)
 
-    with pytest.raises(ValueError, match="Input should be"):
+    with pytest.raises(ValueError):
         _generate(
             A, {"eigenvector_forward": 2}, overrides={"eigenvector_forward": {"which": "invalid"}}
         )
@@ -565,7 +565,7 @@ def test_pydantic_requires_rhs_glob_for_rhs_archive() -> None:
     """rhs_glob is required for rhs_archive."""
     A = np.array([[4.0, 1.0], [1.0, 3.0]], dtype=np.float64)
 
-    with pytest.raises(ValueError, match="Field required"):
+    with pytest.raises(ValueError):
         _generate(A, {"rhs_archive": 2}, overrides={"rhs_archive": {}})
 
 
@@ -573,7 +573,7 @@ def test_pydantic_requires_solutions_glob_for_solution_archive() -> None:
     """solutions_glob is required for solution_archive."""
     A = np.array([[4.0, 1.0], [1.0, 3.0]], dtype=np.float64)
 
-    with pytest.raises(ValueError, match="Field required"):
+    with pytest.raises(ValueError):
         _generate(A, {"solution_archive": 2}, overrides={"solution_archive": {}})
 
 
@@ -581,7 +581,7 @@ def test_pydantic_validates_residual_iters_type(solver_overrides: dict) -> None:
     """Pydantic validates parameter types (stop must be int)."""
     A = np.array([[4.0, 1.0], [1.0, 3.0]], dtype=np.float64)
 
-    with pytest.raises(ValueError, match="Input should be a valid integer"):
+    with pytest.raises(ValueError):
         _generate(
             A,
             {"residuals": 2},

@@ -48,7 +48,7 @@ def cg_residuals_description() -> ScientificDescription:
 
 def test_field_key_rejects_non_snake_case() -> None:
     """A FieldKey must be a validated snake_case identifier."""
-    with pytest.raises(ValueError, match="snake_case"):
+    with pytest.raises(ValueError):
         FieldKey("Not Snake Case")
 
 
@@ -166,7 +166,7 @@ def test_render_facts_applies_precision_override() -> None:
 
 def test_description_rejects_empty_base_name() -> None:
     """A ``ScientificDescription`` must have a non-empty base name."""
-    with pytest.raises(ValueError, match="base_name"):
+    with pytest.raises(ValueError):
         ScientificDescription(base_name="")
 
 

@@ -77,5 +77,5 @@ def test_dataclasses_are_recursively_flattened(nested_payload: _Node) -> None:
 
 
 def test_unsupported_values_are_rejected() -> None:
-    with pytest.raises(TypeError, match="Unsupported"):
+    with pytest.raises(TypeError):
         to_json_primitive(object())

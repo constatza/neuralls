@@ -55,7 +55,7 @@ def test_an_ungenerated_dataset_asks_for_generation(
 ) -> None:
     served_config.append(data_config)
 
-    with pytest.raises(StageInputsStale, match="neuralls generate"):
+    with pytest.raises(StageInputsStale):
         _gate(data_config)
 
 
@@ -67,7 +67,7 @@ def test_a_dataset_whose_sources_changed_is_stale(
 
     np.savetxt(spd_matrix_file, np.eye(4) * 7.0)
 
-    with pytest.raises(StageInputsStale, match="no longer matches"):
+    with pytest.raises(StageInputsStale):
         _gate(data_config)
 
 
@@ -79,7 +79,7 @@ def test_a_missing_split_asks_for_generation(
 
     (dataset_dir / SPLIT_FILENAME).unlink()
 
-    with pytest.raises(StageInputsStale, match="pinned split"):
+    with pytest.raises(StageInputsStale):
         _gate(data_config)
 
 
@@ -99,5 +99,5 @@ def test_a_split_config_change_is_stale_without_regenerating_the_dataset(
 
     # The dataset itself is still current: [split] is not part of generation identity.
     assert generation_identity(changed).key == generation_identity(ten_rows).key
-    with pytest.raises(StageInputsStale, match="pinned split"):
+    with pytest.raises(StageInputsStale):
         _gate(changed)

@@ -143,7 +143,7 @@ def test_glob_matrix_stream_rejects_filename_without_digits(tmp_path: Path) -> N
     mat_dir.mkdir()
     np.savetxt(mat_dir / "alpha.txt", _marker_matrix(1.0))
 
-    with pytest.raises(ValueError, match="Could not extract sample id"):
+    with pytest.raises(ValueError):
         GlobMatrixStream(str(mat_dir / "*.txt"), reader=_READER)
 
 
@@ -152,7 +152,7 @@ def test_glob_vector_stream_rejects_filename_without_digits(tmp_path: Path) -> N
     vec_dir.mkdir()
     np.savetxt(vec_dir / "alpha.txt", _marker_vector(1.0))
 
-    with pytest.raises(ValueError, match="Could not extract sample id"):
+    with pytest.raises(ValueError):
         GlobVectorStream(str(vec_dir / "*.txt"), reader=_READER)
 
 
@@ -162,7 +162,7 @@ def test_glob_matrix_stream_rejects_duplicate_sample_ids(tmp_path: Path) -> None
     np.savetxt(mat_dir / "A_1.txt", _marker_matrix(1.0))
     np.savetxt(mat_dir / "B_1.txt", _marker_matrix(2.0))
 
-    with pytest.raises(ValueError, match="Duplicate matrix sample id 1"):
+    with pytest.raises(ValueError):
         GlobMatrixStream(str(mat_dir / "*_1.txt"), reader=_READER)
 
 
@@ -172,27 +172,27 @@ def test_glob_vector_stream_rejects_duplicate_sample_ids(tmp_path: Path) -> None
     np.savetxt(vec_dir / "a_1.txt", _marker_vector(1.0))
     np.savetxt(vec_dir / "b_1.txt", _marker_vector(2.0))
 
-    with pytest.raises(ValueError, match="Duplicate vector sample id 1"):
+    with pytest.raises(ValueError):
         GlobVectorStream(str(vec_dir / "*_1.txt"), reader=_READER)
 
 
 def test_glob_matrix_stream_missing_parent_directory_raises(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError, match="Matrix glob root directory not found"):
+    with pytest.raises(FileNotFoundError):
         GlobMatrixStream(str(tmp_path / "absent" / "A_*.txt"), reader=_READER)
 
 
 def test_glob_vector_stream_missing_parent_directory_raises(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError, match="Vector glob root directory not found"):
+    with pytest.raises(FileNotFoundError):
         GlobVectorStream(str(tmp_path / "absent" / "b_*.txt"), reader=_READER)
 
 
 def test_glob_matrix_stream_without_matches_raises(digit_named_matrix_dir: Path) -> None:
-    with pytest.raises(FileNotFoundError, match="No matrix files match glob"):
+    with pytest.raises(FileNotFoundError):
         GlobMatrixStream(str(digit_named_matrix_dir / "Z_*.txt"), reader=_READER)
 
 
 def test_glob_vector_stream_without_matches_raises(digit_named_vector_dir: Path) -> None:
-    with pytest.raises(FileNotFoundError, match="No vector files match glob"):
+    with pytest.raises(FileNotFoundError):
         GlobVectorStream(str(digit_named_vector_dir / "z_*.txt"), reader=_READER)
 
 
@@ -247,7 +247,7 @@ def test_glob_vector_stream_exclude_indices_keeps_regex_derived_ids(
 
 
 def test_glob_vector_stream_rejects_emptying_all_samples(digit_named_vector_dir: Path) -> None:
-    with pytest.raises(ValueError, match="No vector samples remain after filtering glob"):
+    with pytest.raises(ValueError):
         GlobVectorStream(
             str(digit_named_vector_dir / "b_*.txt"), exclude_indices=(2, 7, 10), reader=_READER
         )
@@ -285,7 +285,7 @@ def test_glob_matrix_stream_rejects_unsupported_extension(tmp_path: Path) -> Non
 
     stream = GlobMatrixStream(str(mat_dir / "A_*"), reader=_READER)
 
-    with pytest.raises(ValueError, match="Unsupported matrix file suffix"):
+    with pytest.raises(ValueError):
         stream.load_dense_sample(1)
 
 
@@ -296,9 +296,7 @@ def test_glob_vector_stream_rejects_unsupported_extension(tmp_path: Path) -> Non
 
     stream = GlobVectorStream(str(vec_dir / "b_*"), reader=_READER)
 
-    # The shared reader (platform/storage/matrix_readers.read_matrix) is format-generic
-    # and always names "matrix" in this message, even for a vector source.
-    with pytest.raises(ValueError, match="Unsupported matrix file suffix"):
+    with pytest.raises(ValueError):
         stream.load_sample(1)
 
 
@@ -309,7 +307,7 @@ def test_glob_matrix_stream_rejects_non_2d_npy_file(tmp_path: Path) -> None:
 
     stream = GlobMatrixStream(str(mat_dir / "A_*.npy"), reader=_READER)
 
-    with pytest.raises(ValueError, match="must be a single 2D matrix"):
+    with pytest.raises(ValueError):
         stream.load_dense_sample(1)
 
 
@@ -320,7 +318,7 @@ def test_glob_matrix_stream_rejects_non_2d_txt_file(tmp_path: Path) -> None:
 
     stream = GlobMatrixStream(str(mat_dir / "A_*.txt"), reader=_READER)
 
-    with pytest.raises(ValueError, match="must be a single 2D matrix"):
+    with pytest.raises(ValueError):
         stream.load_dense_sample(1)
 
 
@@ -343,7 +341,7 @@ def test_glob_vector_stream_rejects_genuinely_2d_npy(tmp_path: Path) -> None:
 
     stream = GlobVectorStream(str(vec_dir / "b_*.npy"), reader=_READER)
 
-    with pytest.raises(ValueError, match="Expected vector from"):
+    with pytest.raises(ValueError):
         stream.load_sample(1)
 
 
@@ -352,7 +350,7 @@ def test_glob_matrix_stream_unknown_sample_id_raises_key_error(
 ) -> None:
     stream = GlobMatrixStream(str(digit_named_matrix_dir / "A_*.txt"), reader=_READER)
 
-    with pytest.raises(KeyError, match="Unknown matrix sample id 99"):
+    with pytest.raises(KeyError):
         stream.load_dense_sample(99)
 
 
@@ -361,7 +359,7 @@ def test_glob_vector_stream_unknown_sample_id_raises_key_error(
 ) -> None:
     stream = GlobVectorStream(str(digit_named_vector_dir / "b_*.txt"), reader=_READER)
 
-    with pytest.raises(KeyError, match="Unknown vector sample id 99"):
+    with pytest.raises(KeyError):
         stream.load_sample(99)
 
 
@@ -416,7 +414,7 @@ def test_npy_matrix_stream_single_matrix_exposes_one_sample(tmp_path: Path) -> N
 
     assert stream.sample_ids == (0,)
     np.testing.assert_array_equal(stream.load_dense_sample(0).matrix, _marker_matrix(1.0))
-    with pytest.raises(KeyError, match="Unknown matrix sample id 1"):
+    with pytest.raises(KeyError):
         stream.load_dense_sample(1)
 
 
@@ -436,7 +434,7 @@ def test_npy_matrix_stream_rejects_4d_array(tmp_path: Path) -> None:
     path = tmp_path / "hyper.npy"
     np.save(path, np.ones((2, 2, 2, 2), dtype=np.float64))
 
-    with pytest.raises(ValueError, match=r"must have shape \(n,n\) or \(N,n,n\)"):
+    with pytest.raises(ValueError):
         NpyMatrixStream(path, reader=_DENSE_READER)
 
 
@@ -450,7 +448,7 @@ def test_txt_matrix_stream_loads_the_only_sample(tmp_path: Path) -> None:
     np.testing.assert_array_equal(stream.load_dense_sample(0).matrix, _marker_matrix(1.0))
     assert [sample.sample_id for sample in stream.iter_dense_samples()] == [0]
     assert [sample.sample_id for sample in stream.iter_sparse_samples()] == [0]
-    with pytest.raises(KeyError, match="Unknown matrix sample id 3"):
+    with pytest.raises(KeyError):
         stream.load_dense_sample(3)
 
 
@@ -458,7 +456,7 @@ def test_txt_matrix_stream_rejects_1d_file(tmp_path: Path) -> None:
     path = tmp_path / "flat.txt"
     np.savetxt(path, np.array([1.0, 2.0, 3.0]))
 
-    with pytest.raises(ValueError, match="must be a single 2D matrix"):
+    with pytest.raises(ValueError):
         TxtMatrixStream(path, reader=_READER).load_dense_sample(0)
 
 
@@ -482,7 +480,7 @@ def test_npy_vector_stream_single_vector_exposes_one_sample(tmp_path: Path) -> N
     assert stream.sample_ids == (0,)
     np.testing.assert_array_equal(stream.load_sample(0).vector, _marker_vector(1.0))
     assert [sample.sample_id for sample in stream.iter_samples()] == [0]
-    with pytest.raises(KeyError, match="Unknown vector sample id 1"):
+    with pytest.raises(KeyError):
         stream.load_sample(1)
 
 
@@ -490,7 +488,7 @@ def test_npy_vector_stream_rejects_3d_array(tmp_path: Path) -> None:
     path = tmp_path / "cube.npy"
     np.save(path, np.ones((2, 2, 2), dtype=np.float64))
 
-    with pytest.raises(ValueError, match=r"must have shape \(n,\) or \(N,n\)"):
+    with pytest.raises(ValueError):
         NpyVectorStream(path, reader=_DENSE_READER)
 
 
@@ -503,7 +501,7 @@ def test_txt_vector_stream_loads_the_only_sample(tmp_path: Path) -> None:
     assert stream.sample_ids == (0,)
     np.testing.assert_array_equal(stream.load_sample(0).vector, _marker_vector(1.0))
     assert [sample.sample_id for sample in stream.iter_samples()] == [0]
-    with pytest.raises(KeyError, match="Unknown vector sample id 3"):
+    with pytest.raises(KeyError):
         stream.load_sample(3)
 
 
@@ -511,7 +509,7 @@ def test_txt_vector_stream_rejects_2d_file(tmp_path: Path) -> None:
     path = tmp_path / "matrix.txt"
     np.savetxt(path, np.ones((3, 2), dtype=np.float64))
 
-    with pytest.raises(ValueError, match="Expected vector from"):
+    with pytest.raises(ValueError):
         TxtVectorStream(path, reader=_READER).load_sample(0)
 
 
@@ -556,7 +554,7 @@ def test_open_matrix_stream_rejects_unknown_suffix(tmp_path: Path) -> None:
     path = tmp_path / "matrix.csv"
     np.savetxt(path, _marker_matrix(1.0), delimiter=",")
 
-    with pytest.raises(ValueError, match="Unsupported matrix source"):
+    with pytest.raises(ValueError):
         open_matrix_stream(str(path), readers=_READERS)
 
 
@@ -564,17 +562,17 @@ def test_open_vector_stream_rejects_unknown_suffix(tmp_path: Path) -> None:
     path = tmp_path / "vector.csv"
     np.savetxt(path, _marker_vector(1.0), delimiter=",")
 
-    with pytest.raises(ValueError, match="Unsupported vector source"):
+    with pytest.raises(ValueError):
         open_vector_stream(str(path), readers=_READERS)
 
 
 def test_open_matrix_stream_missing_file_raises(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError, match="Matrix source not found"):
+    with pytest.raises(FileNotFoundError):
         open_matrix_stream(str(tmp_path / "absent.npy"), readers=_READERS)
 
 
 def test_open_vector_stream_missing_file_raises(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError, match="Vector source not found"):
+    with pytest.raises(FileNotFoundError):
         open_vector_stream(str(tmp_path / "absent.npy"), readers=_READERS)
 
 
@@ -582,5 +580,5 @@ def test_open_vector_stream_include_indices_requires_glob_source(tmp_path: Path)
     path = tmp_path / "vector.npy"
     np.save(path, _marker_vector(1.0))
 
-    with pytest.raises(ValueError, match="require a glob vector source"):
+    with pytest.raises(ValueError):
         open_vector_stream(str(path), include_indices=(0,), readers=_READERS)

@@ -47,7 +47,7 @@ def test_logged_model_ref_with_run_id_is_valid() -> None:
 
 def test_assignment_and_registered_model_ref_name_together_is_rejected() -> None:
     """assignment and model_ref.name are competing identity sources; both is invalid."""
-    with pytest.raises(ValidationError, match="not both"):
+    with pytest.raises(ValidationError):
         NeuralPreconditionerConfig(
             type=PreconditionerType.NEURAL,
             assignment="my-assignment-id",

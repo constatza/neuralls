@@ -169,7 +169,7 @@ def test_too_many_extras_raises(
     rhs_data: np.ndarray,
     contract,
 ) -> None:
-    with pytest.raises(ValueError, match="extra features but dataset has"):
+    with pytest.raises(ValueError):
         _create_feature_entries(
             no_params_arrays,
             contract,

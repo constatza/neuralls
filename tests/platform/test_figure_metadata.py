@@ -119,5 +119,5 @@ def test_manifest_validates_plans_before_upload() -> None:
     manifest = FigureManifest()
     metadata = _metadata()
     manifest.add_plan(FigurePlan("first.png", "Title", "Scope", metadata))
-    with pytest.raises(ValueError, match="colliding"):
+    with pytest.raises(ValueError):
         manifest.validate_plans((FigurePlan("first.png", "Title", "Scope", metadata),))

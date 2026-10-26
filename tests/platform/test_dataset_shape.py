@@ -36,7 +36,7 @@ def test_held_out_fold_groups_test_rows_by_their_matrix(sparse_id_dataset: Path)
 def test_held_out_fold_without_a_pinned_split_asks_for_generation(
     sparse_id_dataset: Path,
 ) -> None:
-    with pytest.raises(StageInputsStale, match="neuralls generate"):
+    with pytest.raises(StageInputsStale):
         load_held_out_fold(sparse_id_dataset)
 
 

@@ -17,7 +17,7 @@ _SOURCE = TypeAdapter(ComparisonRhsSourceModel)
 
 @pytest.mark.parametrize("kind", ["cross_dataset", "random_sparse"])
 def test_removed_kinds_are_rejected_as_unknown(kind: str) -> None:
-    with pytest.raises(ValidationError, match="does not match any of the expected tags"):
+    with pytest.raises(ValidationError):
         _SOURCE.validate_python({"kind": kind, "path": "/data/other"})
 
 

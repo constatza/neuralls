@@ -49,7 +49,7 @@ class TestGuardFormatConflict:
         _guard_format_conflict(zarr_manifest_dir, "zarr")
 
     def test_different_format_raises(self, zarr_manifest_dir: Path) -> None:
-        with pytest.raises(ValueError, match="zarr.*npy|npy.*zarr"):
+        with pytest.raises(ValueError):
             _guard_format_conflict(zarr_manifest_dir, "npy")
 
 

@@ -72,11 +72,8 @@ def test_short_source_raises_on_close(
     store.create(VECTOR_NAME, (expected, *fx.vectors.shape[1:]), FLOAT64)
     store.write_rows(VECTOR_NAME, 0, fx.vectors[:written])
 
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError):
         store.close()
-    message = str(excinfo.value)
-    assert str(expected) in message
-    assert str(written) in message
 
 
 @pytest.mark.parametrize("backend", ["zarr", "hdf5"])

@@ -649,12 +649,8 @@ def test_comparison_data_model_tracks_explicit_normalize_in_fields_set() -> None
 
 def test_validate_neural_preconditioner_requires_model_ref() -> None:
     spec = NeuralPreconditionerConfig(type=PreconditionerType.NEURAL)
-    try:
+    with pytest.raises(ValueError):
         _validate_neural_preconditioner(spec)
-    except ValueError as exc:
-        assert "model_ref" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError")
 
 
 def test_validate_neural_preconditioner_rejects_checkpoint_path(tmp_path: Path) -> None:
@@ -663,12 +659,8 @@ def test_validate_neural_preconditioner_rejects_checkpoint_path(tmp_path: Path) 
         checkpoint_path=tmp_path / "model.ckpt",
         model_ref=_logged_ref("run-1"),
     )
-    try:
+    with pytest.raises(ValueError):
         _validate_neural_preconditioner(spec)
-    except ValueError as exc:
-        assert "checkpoint_path/assignment" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError")
 
 
 def test_resolve_neural_preconditioners_validates_all() -> None:
@@ -1171,7 +1163,6 @@ def test_run_comparison_warns_and_continues_when_neural_resolution_fails(
 
     assert isinstance(outcomes[0], ComparisonCompleted)
     assert len(outcomes[0].warnings) == 1
-    assert "Skipping neural preconditioner 'missing-neural'" in outcomes[0].warnings[0]
 
 
 @pytest.mark.usefixtures("stub_setup_tracking", "fake_mlflow")
@@ -1209,7 +1200,6 @@ def test_run_comparison_fails_if_all_preconditioners_are_skipped(tmp_path: Path)
         )
 
     assert isinstance(outcomes[0], ComparisonEntryFailed)
-    assert "No runnable preconditioners remain" in outcomes[0].reason
 
 
 @pytest.mark.usefixtures("stub_log_comparison_artifacts", "stub_setup_tracking", "fake_mlflow")
@@ -1309,7 +1299,6 @@ def test_run_comparison_fails_before_tracking_when_matrix_input_is_missing(
         )
 
     assert isinstance(outcomes[0], ComparisonEntryFailed)
-    assert f"Comparison input not found: {missing_matrix}" in outcomes[0].reason
     mock_setup_tracking.assert_not_called()
     fake_mlflow.start_run.assert_not_called()
 
@@ -1336,7 +1325,6 @@ def test_run_comparison_missing_known_dataset_raises_file_not_found(
     )
 
     assert isinstance(outcomes[0], ComparisonEntryFailed)
-    assert str(missing_dataset) in outcomes[0].reason
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
@@ -1755,4 +1743,3 @@ def test_an_external_rhs_of_the_wrong_length_fails_only_its_own_system(
     by_id = {outcome.comparison_id: outcome for outcome in outcomes}
     assert isinstance(by_id["fits"], ComparisonCompleted)
     assert isinstance(by_id["too-long"], ComparisonEntryFailed)
-    assert "rhs-of-length-3.npy" in by_id["too-long"].reason

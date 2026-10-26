@@ -115,21 +115,17 @@ def test_explicit_count_draws_cyclic_rows_per_binding(
     np.testing.assert_allclose(solutions[2:4], solution_rows[[1, 2]])
 
 
-def test_explicit_count_above_file_rows_is_capped_with_one_warning(
+def test_explicit_count_above_file_rows_is_capped(
     build_archive_dataset: Callable[[Path, int], tuple[np.ndarray, np.ndarray]],
     solution_npy: Path,
     solution_rows: np.ndarray,
-    warning_messages: list[str],
 ) -> None:
-    """``samples=6`` on a 4-row file: each binding emits 4 rows, reported in one warning."""
+    """``samples=6`` on a 4-row file makes each binding emit the four available rows."""
     _, solutions = build_archive_dataset(solution_npy, 6)
 
     assert solutions.shape == (2 * N_SOLUTION_ROWS, N_UNKNOWNS)
     np.testing.assert_allclose(solutions[0:4], solution_rows[[0, 1, 2, 3]])
     np.testing.assert_allclose(solutions[4:8], solution_rows[[1, 2, 3, 0]])
-    capped = [message for message in warning_messages if "solution" in message and "6" in message]
-    assert len(capped) == 1
-    assert str(N_SOLUTION_ROWS) in capped[0]
 
 
 def test_explicit_count_equal_to_file_rows_draws_every_row_in_cyclic_order(

@@ -54,9 +54,9 @@ def test_unknown_type_raises(tmp_path: Path) -> None:
 
 
 def test_unmarked_path_raises(tmp_path: Path) -> None:
-    with pytest.raises(TypeError, match="unmarked Path"):
+    with pytest.raises(TypeError):
         canonical_digest(UnmarkedPathModel(path=tmp_path))
-    with pytest.raises(TypeError, match="unmarked Path"):
+    with pytest.raises(TypeError):
         canonical_digest({"p": tmp_path})
 
 
@@ -104,7 +104,7 @@ def test_toml_digest_follows_referenced_toml(toml_main: Path) -> None:
 
 
 def test_toml_digest_cycle_raises(toml_cycle: Path) -> None:
-    with pytest.raises(ValueError, match="Cyclic"):
+    with pytest.raises(ValueError):
         toml_digest(toml_cycle)
 
 

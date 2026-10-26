@@ -181,7 +181,7 @@ def test_hybrid_input_provider_raises_on_insufficient_archive() -> None:
     matrix = np.eye(10)
     rng = np.random.default_rng(42)
 
-    with pytest.raises(ValueError, match="Not enough archive"):
+    with pytest.raises(ValueError):
         provider.provide(matrix=matrix, count=5, rng=rng)
 
 

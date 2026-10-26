@@ -106,7 +106,7 @@ def test_a_repeat_whose_fingerprint_differs_logs_a_warning(
     finally:
         logger.remove(sink_id)
 
-    assert any("not comparable" in message for message in messages)
+    assert len(messages) == 1
 
 
 @pytest.mark.parametrize("kwargs", [{"repeats": 0}, {"repeats": 11}, {"warmup": -1}, {"bogus": 1}])

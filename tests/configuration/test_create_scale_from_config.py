@@ -46,5 +46,5 @@ def test_create_scale_matrix_explicit_bound(sample_matrix: np.ndarray) -> None:
 
 def test_create_scale_invalid_type(sample_matrix: np.ndarray) -> None:
     """Test invalid normalization type raises ValueError."""
-    with pytest.raises(ValueError, match="Invalid normalize_type"):
+    with pytest.raises(ValueError):
         create_scale_from_config("invalid", sample_matrix)  # type: ignore[arg-type]

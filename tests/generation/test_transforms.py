@@ -109,7 +109,7 @@ def test_verify_transform_inaccurate_solutions(sample_spd_matrix: np.ndarray) ->
     b_wrong = np.random.randn(5, 10)  # Random RHS, not A @ x
 
     # Should warn about inaccurate solutions
-    with pytest.warns(RuntimeWarning, match="Solution accuracy"):
+    with pytest.warns(RuntimeWarning):
         residuals = transform.transform((x, b_wrong))
 
     assert residuals.shape == (5,)

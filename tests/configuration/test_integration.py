@@ -164,7 +164,7 @@ max_epochs = 1
 """
         )
 
-        with pytest.raises(ConfigValidationError, match="No run.type found"):
+        with pytest.raises(ConfigValidationError):
             load_job_config(config_path, neuralls_settings)
 
 

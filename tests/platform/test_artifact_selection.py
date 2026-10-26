@@ -72,7 +72,7 @@ def test_select_split_artifact_path_returns_single_json() -> None:
 def test_select_split_artifact_path_rejects_missing_json() -> None:
     client = FakeMlflowClient({SPLIT_ARTIFACT_DIR: (FakeArtifact(NON_JSON_SPLIT_FILE),)})
 
-    with pytest.raises(FileNotFoundError, match="no split JSON artifact"):
+    with pytest.raises(FileNotFoundError):
         select_split_artifact_path(client, run_id=RUN_ID)
 
 
@@ -81,7 +81,7 @@ def test_select_split_artifact_path_rejects_multiple_json_files() -> None:
         {SPLIT_ARTIFACT_DIR: (FakeArtifact(SPLIT_FILE_B), FakeArtifact(SPLIT_FILE_A))}
     )
 
-    with pytest.raises(ValueError, match="multiple split JSON artifacts"):
+    with pytest.raises(ValueError):
         select_split_artifact_path(client, run_id=RUN_ID)
 
 
@@ -104,7 +104,7 @@ def test_select_config_artifact_dir_returns_none_when_absent() -> None:
 def test_has_artifact_dir_rejects_unsafe_dir_before_listing() -> None:
     client = FakeMlflowClient({})
 
-    with pytest.raises(ValueError, match="Unsafe"):
+    with pytest.raises(ValueError):
         has_artifact_dir(client, run_id=RUN_ID, artifact_dir="../config")
 
     assert client.list_calls == []

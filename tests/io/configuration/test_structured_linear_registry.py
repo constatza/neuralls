@@ -6,6 +6,7 @@ import importlib.util
 from pathlib import Path
 
 import pytest
+from dlkit.common.errors import ConfigValidationError
 
 from neuralls.composition.assignments.assembler import (
     AssignmentIdentity,
@@ -148,7 +149,7 @@ def test_legacy_model_workflow_toml_is_rejected(tmp_path: Path, neuralls_setting
         '[SESSION]\nseed = 42\nworkflow = "train"\n\n[MODEL]\nname = "NormScaledSymmetricLinear"\n\n[TRAINING]\n[TRAINING.trainer]\nmax_epochs = 1\n\n[OPTIMIZATION]\n\n[[OPTIMIZATION.stages]]\n[OPTIMIZATION.stages.optimizer]\nname = "AdamW"\nlr = 1e-3'
     )
 
-    with pytest.raises(Exception, match="run.type"):
+    with pytest.raises(ConfigValidationError):
         load_job_config(bad_config, neuralls_settings)
 
 

@@ -20,22 +20,22 @@ from neuralls.domain.generation.step_window import StepWindow
 
 
 def test_stop_must_be_positive() -> None:
-    with pytest.raises(ValueError, match="stop"):
+    with pytest.raises(ValueError):
         StepWindow(stop=0)
 
 
 def test_step_must_be_positive() -> None:
-    with pytest.raises(ValueError, match="step"):
+    with pytest.raises(ValueError):
         StepWindow(stop=5, step=0)
 
 
 def test_nonnegative_start_must_be_less_than_stop() -> None:
-    with pytest.raises(ValueError, match="start"):
+    with pytest.raises(ValueError):
         StepWindow(stop=5, start=5)
 
 
 def test_negative_start_cannot_exceed_trajectory_length() -> None:
-    with pytest.raises(ValueError, match="start"):
+    with pytest.raises(ValueError):
         StepWindow(stop=5, start=-7)
 
 

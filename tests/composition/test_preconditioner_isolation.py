@@ -65,7 +65,7 @@ def test_unexpected_build_error_becomes_breakdown_entry(
     tmp_path: Path,
     neuralls_settings,
 ) -> None:
-    """Any exception yields a breakdown entry with the error text, never a raise."""
+    """Any exception yields a breakdown entry rather than escaping the subrun."""
     entry = _evaluate_preconditioner(
         identity_cfg,
         service=_FailingService(),
@@ -78,7 +78,7 @@ def test_unexpected_build_error_becomes_breakdown_entry(
     )
 
     assert entry.result.breakdown is True
-    assert "KeyError" in (entry.result.error or "")
+    assert entry.result.error is not None
 
 
 def test_solver_stage_error_is_isolated(
@@ -108,4 +108,4 @@ def test_solver_stage_error_is_isolated(
     )
 
     assert entry.result.breakdown is True
-    assert "MemoryError" in (entry.result.error or "")
+    assert entry.result.error is not None

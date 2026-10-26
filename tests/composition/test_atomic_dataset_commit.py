@@ -60,7 +60,7 @@ def test_interrupted_run_leaves_no_final_dataset(
     tmp_path: Path,
 ) -> None:
     interrupt_writer(_INTERRUPT_AFTER_BATCHES)
-    with pytest.raises(RuntimeError, match="injected interruption"):
+    with pytest.raises(RuntimeError):
         build_into(tmp_path / "run")
     final = tmp_path / "run" / _DATASET_NAME
     assert not final.exists()

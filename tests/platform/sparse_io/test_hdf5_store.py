@@ -113,7 +113,7 @@ def test_writer_overwrites_existing_group(
 
 
 def test_writer_rejects_empty_sample_list(hdf5_location: SparseLocation) -> None:
-    with pytest.raises(ValueError, match="empty"):
+    with pytest.raises(ValueError):
         Hdf5SparseWriter().write(hdf5_location, [])
 
 

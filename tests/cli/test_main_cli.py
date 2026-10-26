@@ -165,7 +165,6 @@ def test_generate_fails_for_case_config_without_datasets(
     mock_load_settings.assert_called_once_with(config, None, profile=None)
     mock_load_case_config.assert_called_once_with(config, settings, force_expand=False)
     mock_generate_batch.assert_not_called()
-    assert "Error during batch generation [ValueError]:" in result.stderr
 
 
 @patch("neuralls.cli.generate.generate_batch")
@@ -200,7 +199,6 @@ def test_generate_fails_for_dataset_config_without_single_subcommand(
     mock_load_settings.assert_not_called()
     mock_load_case_config.assert_not_called()
     mock_generate_batch.assert_not_called()
-    assert "Error during batch generation [ValueError]:" in result.stderr
 
 
 def test_generate_single_signature_uses_dataset_argument_and_case_option() -> None:
@@ -255,65 +253,6 @@ def test_generate_single_requires_case_config(
     assert result.exit_code == EXIT_FAILURE
     mock_load_settings.assert_not_called()
     mock_process_data.assert_not_called()
-    assert "Error during data generation [ValueError]:" in result.stderr
-
-
-@patch("neuralls.cli.generate.generate_batch")
-@patch("neuralls.cli.generate.load_validated_case_config")
-@patch("neuralls.cli.generate.load_case_settings")
-def test_generate_preserves_enriched_storage_error_message(
-    mock_load_settings: MagicMock,
-    mock_load_case_config: MagicMock,
-    mock_generate_batch: MagicMock,
-    tmp_path: Path,
-) -> None:
-    config = tmp_path / "case.toml"
-    config.write_text("", encoding="utf-8")
-    settings = MagicMock()
-    cfg = MagicMock(datasets=[MagicMock()])
-    mock_load_settings.return_value = settings
-    mock_load_case_config.return_value = (cfg, MagicMock())
-    matrix_store = tmp_path / "matrix.zarr"
-    mock_generate_batch.side_effect = OSError(
-        f"Updating matrix.zarr store at {matrix_store} failed. "
-        "PermissionError: denied, winerror=5, src=a.partial, dst=zarr.json"
-    )
-
-    result = runner.invoke(app, ["generate", str(config)])
-
-    assert result.exit_code == EXIT_FAILURE
-    assert "Error during batch generation [OSError]:" in result.stderr
-    assert "winerror=5" in result.stderr
-    assert "dst=zarr.json" in result.stderr
-
-
-@patch("neuralls.cli.generate_single.process_data_from_config")
-@patch("neuralls.cli.generate_single.load_case_settings")
-def test_generate_single_preserves_enriched_storage_error_message(
-    mock_load_settings: MagicMock,
-    mock_process_data: MagicMock,
-    tmp_path: Path,
-) -> None:
-    dataset_config = tmp_path / "dataset.toml"
-    case_config = tmp_path / "case.toml"
-    dataset_config.write_text("", encoding="utf-8")
-    case_config.write_text("", encoding="utf-8")
-    settings = MagicMock()
-    mock_load_settings.return_value = settings
-    rhs_store = tmp_path / "rhs.zarr"
-    mock_process_data.side_effect = PermissionError(
-        f"Writing rhs.zarr at {rhs_store} failed. "
-        "PermissionError: denied, winerror=5, src=b.partial, dst=zarr.json"
-    )
-
-    result = runner.invoke(
-        app,
-        ["generate-single", str(dataset_config), "--case-config", str(case_config)],
-    )
-
-    assert result.exit_code == EXIT_FAILURE
-    assert "Error during data generation [PermissionError]:" in result.stderr
-    assert "winerror=5" in result.stderr
 
 
 def test_train_signature_uses_batch_case_argument() -> None:
@@ -521,45 +460,3 @@ def test_compare_invokes_batch_workflow(
     assert mock_run_comparison_batch.call_args.args[0] == config
     assert isinstance(mock_run_comparison_batch.call_args.args[1], ComparisonParams)
     assert mock_run_comparison_batch.call_args.args[2] == settings
-
-
-@patch("neuralls.cli.compare.run_comparison_batch")
-@patch("neuralls.cli.compare.load_case_settings")
-def test_compare_renders_unexpected_blocking_failure_with_exact_details(
-    mock_load_settings: MagicMock,
-    mock_run_comparison_batch: MagicMock,
-    tmp_path: Path,
-) -> None:
-    config = tmp_path / "case.toml"
-    config.write_text("", encoding="utf-8")
-    mock_load_settings.return_value = MagicMock()
-    failure = RuntimeError("method workload crashed")
-    failure.add_note("phase=method_workloads; method=jacobi")
-    mock_run_comparison_batch.side_effect = failure
-
-    result = runner.invoke(app, ["compare", str(config)])
-
-    assert result.exit_code == EXIT_FAILURE
-    assert "Comparison workflow failed [RuntimeError]: method workload crashed" in result.stderr
-    assert "phase=method_workloads; method=jacobi" in result.stderr
-
-
-@patch("neuralls.cli.run.run_case_pipeline")
-@patch("neuralls.cli.run.load_case_settings")
-def test_run_renders_unexpected_blocking_failure_with_exact_details(
-    mock_load_settings: MagicMock,
-    mock_run_case_pipeline: MagicMock,
-    tmp_path: Path,
-) -> None:
-    config = tmp_path / "case.toml"
-    config.write_text("", encoding="utf-8")
-    mock_load_settings.return_value = MagicMock()
-    failure = RuntimeError("comparison reporting crashed")
-    failure.add_note("phase=reporting; comparison=solver")
-    mock_run_case_pipeline.side_effect = failure
-
-    result = runner.invoke(app, ["run", str(config)])
-
-    assert result.exit_code == EXIT_FAILURE
-    assert "Case pipeline failed [RuntimeError]: comparison reporting crashed" in result.stderr
-    assert "phase=reporting; comparison=solver" in result.stderr

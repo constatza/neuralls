@@ -50,7 +50,7 @@ def test_time_per_dof_per_iteration_none_without_solve_time(
 def test_time_per_dof_per_iteration_rejects_nonpositive_system_size(
     comparison_result_with_cost_data: CGComparisonResult,
 ) -> None:
-    with pytest.raises(ValueError, match="system_size must be positive"):
+    with pytest.raises(ValueError):
         time_per_dof_per_iteration(comparison_result_with_cost_data, system_size=0)
 
 

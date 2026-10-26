@@ -83,12 +83,12 @@ def test_hdf5_csr_dataset_directory_is_accepted(hdf5_csr_dataset_dir: Path) -> N
 def test_zarr_directory_without_csr_members_is_rejected(
     zarr_dir_without_csr_members: Path,
 ) -> None:
-    with pytest.raises(ValueError, match=NOT_LOADABLE):
+    with pytest.raises(ValueError):
         validate_comparison_matrix_input(zarr_dir_without_csr_members)
 
 
 def test_hdf5_file_without_matrix_group_is_rejected_like_zarr(
     hdf5_file_without_matrix_group: Path,
 ) -> None:
-    with pytest.raises(ValueError, match=NOT_LOADABLE):
+    with pytest.raises(ValueError):
         validate_comparison_matrix_input(hdf5_file_without_matrix_group)

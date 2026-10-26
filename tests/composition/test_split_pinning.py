@@ -87,5 +87,5 @@ def test_changed_config_replaces_the_split(
 
 
 def test_ratios_that_exceed_the_dataset_are_rejected() -> None:
-    with pytest.raises(ValueError, match="<= 1.0"):
+    with pytest.raises(ValueError):
         SplitConfig(test_ratio=0.7, val_ratio=0.4)

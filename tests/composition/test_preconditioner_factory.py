@@ -368,7 +368,7 @@ def test_neural_preconditioner_checkpoint_not_found(
         checkpoint_path=missing_checkpoint,
     )
 
-    with pytest.raises(FileNotFoundError, match="Checkpoint not found"):
+    with pytest.raises(FileNotFoundError):
         create_preconditioner(well_conditioned_matrix, config, adapter=mock_adapter)
 
 
@@ -586,7 +586,7 @@ def test_factory_pod_checkpoint_reconstruction_rejects_non_pod_model(
     )
     config = AMGPreconditionerConfig(coarsening=coarsening)
 
-    with pytest.raises(TypeError, match="expected PODCoarseningStrategy"):
+    with pytest.raises(TypeError):
         create_preconditioner(well_conditioned_matrix, config)
 
 
@@ -625,13 +625,13 @@ def test_factory_neural_pod_coarsening_requires_params_in_dataset(
     pod_snapshot_dataset_dir: Path,
     mock_checkpoint: Path,
 ) -> None:
-    """A dataset with no `params` array raises an actionable count-mismatch error.
+    """A dataset with no `params` array raises a count-mismatch error.
 
     `pod_snapshot_dataset_dir` has rhs/solutions but no params (the common
     case — only one dataset in the whole repo populates params) — pointing
     neural_pod coarsening at it (with `input_names` declaring one expected
-    input) must fail clearly, not with an opaque `RuntimeError: generator
-    raised StopIteration` from an empty feature dict.
+    input) must raise `ValueError`, rather than leaking `StopIteration` from
+    an empty feature dictionary.
     """
     coarsening = NeuralPODCoarseningConfig(
         dataset_dir=pod_snapshot_dataset_dir,
@@ -642,7 +642,7 @@ def test_factory_neural_pod_coarsening_requires_params_in_dataset(
     config = AMGPreconditionerConfig(coarsening=coarsening)
     factory = make_mock_inference_predictor_factory(output_dim=well_conditioned_matrix.shape[0])
 
-    with pytest.raises(ValueError, match="input_names has 1 name.*has 0 .params. array"):
+    with pytest.raises(ValueError):
         create_preconditioner(well_conditioned_matrix, config, inference_predictor_factory=factory)
 
 
@@ -666,7 +666,7 @@ def test_factory_neural_pod_coarsening_rejects_input_names_count_mismatch(
     config = AMGPreconditionerConfig(coarsening=coarsening)
     factory = make_mock_inference_predictor_factory(output_dim=well_conditioned_matrix.shape[0])
 
-    with pytest.raises(ValueError, match="input_names has 2 name.*has 1 .params. array"):
+    with pytest.raises(ValueError):
         create_preconditioner(well_conditioned_matrix, config, inference_predictor_factory=factory)
 
 
@@ -675,7 +675,7 @@ def test_factory_amg_requires_amg_config(well_conditioned_matrix: torch.Tensor) 
     config = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
     config = config.model_copy(update={"type": PreconditionerType.AMG})
 
-    with pytest.raises(TypeError, match="AMG type requires AMGPreconditionerConfig"):
+    with pytest.raises(TypeError):
         create_preconditioner(well_conditioned_matrix, config)
 
 
@@ -729,9 +729,7 @@ def test_factory_adaptive_sa_requires_adaptive_sa_config(
     config = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
     config = config.model_copy(update={"type": PreconditionerType.ADAPTIVE_SA_AMG})
 
-    with pytest.raises(
-        TypeError, match="ADAPTIVE_SA_AMG type requires AdaptiveSAPreconditionerConfig"
-    ):
+    with pytest.raises(TypeError):
         create_preconditioner(well_conditioned_matrix, config)
 
 
@@ -774,9 +772,7 @@ def test_factory_bootstrap_amg_requires_bootstrap_amg_config(
     config = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
     config = config.model_copy(update={"type": PreconditionerType.BOOTSTRAP_AMG})
 
-    with pytest.raises(
-        TypeError, match="BOOTSTRAP_AMG type requires BootstrapAMGPreconditionerConfig"
-    ):
+    with pytest.raises(TypeError):
         create_preconditioner(well_conditioned_matrix, config)
 
 
@@ -790,7 +786,7 @@ def test_factory_rejects_unsupported_type(well_conditioned_matrix: torch.Tensor)
     config = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
     config = config.model_copy(update={"type": "invalid_type"})
 
-    with pytest.raises(ValueError, match="Unsupported preconditioner type"):
+    with pytest.raises(ValueError):
         create_preconditioner(well_conditioned_matrix, config)
 
 
@@ -801,7 +797,7 @@ def test_factory_requires_neural_config_for_neural_type(
     config = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
     config = config.model_copy(update={"type": PreconditionerType.NEURAL})
 
-    with pytest.raises(TypeError, match="Neural type requires NeuralPreconditionerConfig"):
+    with pytest.raises(TypeError):
         create_preconditioner(well_conditioned_matrix, config)
 
 

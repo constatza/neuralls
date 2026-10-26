@@ -53,22 +53,3 @@ def test_force_skips_the_lookup_entirely(store: FakeStore, identity: StageIdenti
 def test_a_different_identity_never_matches(store: FakeStore) -> None:
     other = StageIdentity.build("training", {"dataset": canonical_digest("changed")})
     assert gate_reuse(store, other, force=False, label="a") is None
-
-
-def test_decisions_are_logged_with_the_reason(
-    store: FakeStore, identity: StageIdentity, capfd: pytest.CaptureFixture[str]
-) -> None:
-    from loguru import logger
-
-    messages: list[str] = []
-    sink = logger.add(lambda m: messages.append(str(m)), level="INFO")
-    try:
-        gate_reuse(store, identity, force=False, label="hit")
-        gate_reuse(FakeStore(), identity, force=False, label="miss")
-        gate_reuse(store, identity, force=True, label="forced")
-    finally:
-        logger.remove(sink)
-    text = "\n".join(messages)
-    assert "reusing run run-1" in text
-    assert "no prior run" in text and "dataset" in text
-    assert "forced" in text

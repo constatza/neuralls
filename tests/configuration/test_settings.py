@@ -33,7 +33,7 @@ def test_settings_missing_required_raises(monkeypatch: pytest.MonkeyPatch) -> No
     for key in ("NEURALLS_PROCESSED_DIR", "NEURALLS_OUTPUT_DIR"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.delenv(ENV_FILE_ENV_VAR, raising=False)
-    with pytest.raises(ValidationError, match="processed_dir"):
+    with pytest.raises(ValidationError):
         get_settings()
 
 

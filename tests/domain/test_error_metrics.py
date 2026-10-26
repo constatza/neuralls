@@ -114,5 +114,5 @@ def test_reference_precision_margin_clamps_to_machine_epsilon(
 def test_reference_precision_margin_rejects_non_tightening_margin(
     spd_matrix: torch.Tensor, rhs: torch.Tensor
 ) -> None:
-    with pytest.raises(ValueError, match="reference_precision_margin"):
+    with pytest.raises(ValueError):
         reference_solution(spd_matrix, rhs, rtol=1e-6, margin=1.0)

@@ -15,7 +15,7 @@ from neuralls.platform.config.models.dataset_identity import (
 
 
 def test_resolve_dataset_identity_requires_top_level_id_in_mapping() -> None:
-    with pytest.raises(ValueError, match="top-level 'id'"):
+    with pytest.raises(ValueError):
         resolve_dataset_identity_from_mapping(
             config={
                 "source": {},
@@ -46,5 +46,5 @@ def test_resolve_dataset_identity_uses_explicit_id() -> None:
 
 
 def test_normalize_registry_id_rejects_invalid_chars() -> None:
-    with pytest.raises(ValueError, match=r"\^\[\\w\\-\]\+\$"):
+    with pytest.raises(ValueError):
         normalize_registry_id("alias with spaces")

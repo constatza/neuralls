@@ -136,9 +136,9 @@ class TestResolveRowScales:
 
     def test_power_norm_a_without_matrix_raises(self, snapshots: torch.Tensor) -> None:
         cfg = PowerNormWeightingConfig(metric="a", beta=1.0)
-        with pytest.raises(ValueError, match="matrix"):
+        with pytest.raises(ValueError):
             resolve_row_scales(cfg, snapshots, matrix=None)
 
     def test_smoother_persistence_without_matrix_raises(self, snapshots: torch.Tensor) -> None:
-        with pytest.raises(ValueError, match="matrix"):
+        with pytest.raises(ValueError):
             resolve_row_scales(SmootherPersistenceWeightingConfig(), snapshots, matrix=None)

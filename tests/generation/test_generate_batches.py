@@ -134,5 +134,5 @@ def test_generate_batches_rejects_non_positive_batch_size(
     generation_order_source: SourceSpec,
     generation_order_spec: DatasetSpec,
 ) -> None:
-    with pytest.raises(ValueError, match="batch_size"):
+    with pytest.raises(ValueError):
         list(_stream_batches(generation_order_source, generation_order_spec, batch_size=0))

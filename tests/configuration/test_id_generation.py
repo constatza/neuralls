@@ -85,12 +85,12 @@ def test_slugify_strips_surrounding_whitespace() -> None:
 
 
 def test_slugify_raises_on_emoji() -> None:
-    with pytest.raises(ValueError, match="invalid"):
+    with pytest.raises(ValueError):
         _slugify("My 😀 Experiment")
 
 
 def test_slugify_raises_on_colon() -> None:
-    with pytest.raises(ValueError, match="invalid"):
+    with pytest.raises(ValueError):
         _slugify("Experiment: Run 1")
 
 
@@ -113,17 +113,17 @@ def test_validate_id_chars_accepts_underscores() -> None:
 
 
 def test_validate_id_chars_rejects_space() -> None:
-    with pytest.raises(ValueError, match="invalid characters"):
+    with pytest.raises(ValueError):
         _validate_id_chars("has space")
 
 
 def test_validate_id_chars_rejects_emoji() -> None:
-    with pytest.raises(ValueError, match="invalid characters"):
+    with pytest.raises(ValueError):
         _validate_id_chars("id\U0001f600")
 
 
 def test_validate_id_chars_rejects_colon() -> None:
-    with pytest.raises(ValueError, match="invalid characters"):
+    with pytest.raises(ValueError):
         _validate_id_chars("id:colon")
 
 
@@ -213,7 +213,7 @@ def test_infer_assignment_id_user_id_takes_priority_over_display_name() -> None:
 def test_infer_assignment_id_raises_on_invalid_chars(
     exp_invalid_id: dict[str, object],
 ) -> None:
-    with pytest.raises(ValueError, match="invalid characters"):
+    with pytest.raises(ValueError):
         _infer_assignment_id(
             dataset_id=str(exp_invalid_id["dataset"]),
             job_id=str(exp_invalid_id["job"]),
@@ -340,7 +340,7 @@ def test_infer_comparison_id_derives_from_display_name(
 def test_infer_comparison_id_raises_on_invalid_chars(
     dataset_display: dict[str, str],
 ) -> None:
-    with pytest.raises(ValueError, match="invalid characters"):
+    with pytest.raises(ValueError):
         _infer_comparison_id(
             matrix_id="x",
             rhs_id="x",

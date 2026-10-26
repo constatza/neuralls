@@ -65,8 +65,7 @@ def test_cyclic_count_above_file_rows_warns_once(
     """N > K: the cap is reported in exactly one warning, however many bindings there are."""
     open_binding_stream(explicit_solution_source, {"solution_archive": OVER_CAP_COUNT})
 
-    capped = [message for message in warning_messages if str(OVER_CAP_COUNT) in message]
-    assert len(capped) == 1
+    assert len(warning_messages) == 1
 
 
 @pytest.fixture

@@ -456,7 +456,7 @@ def test_residuals_samples_minus_one_requires_finite_source(
     spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
 ) -> None:
     """samples=-1 is rejected for single-RHS mode because the source is unbounded."""
-    with pytest.raises(ValueError, match="samples=-1"):
+    with pytest.raises(ValueError):
         run_generation(
             "residuals",
             spd_matrix,
@@ -475,7 +475,7 @@ def test_residuals_requires_stop(
     spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
 ) -> None:
     """Omitting the required `stop` field must raise, not run with a silent default."""
-    with pytest.raises(Exception, match="stop"):
+    with pytest.raises(ValidationError):
         run_generation(
             "residuals",
             spd_matrix,

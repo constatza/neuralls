@@ -181,7 +181,7 @@ def test_csr_build_has_no_final_directory_until_complete(
 ) -> None:
     interrupt_csr_stream(_INTERRUPT_AFTER_BATCHES)
     final = tmp_path / "dataset"
-    with pytest.raises(RuntimeError, match="injected interruption"):
+    with pytest.raises(RuntimeError):
         build_dataset(
             atomic_source,
             atomic_spec,

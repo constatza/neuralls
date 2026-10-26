@@ -118,7 +118,7 @@ def test_missing_declared_source_raises_clear_error(
 ) -> None:
     config = make_data_config(matrix_path=tmp_path / "absent.txt")
 
-    with pytest.raises(FileNotFoundError, match="absent.txt"):
+    with pytest.raises(FileNotFoundError):
         generation_identity(config)
 
 

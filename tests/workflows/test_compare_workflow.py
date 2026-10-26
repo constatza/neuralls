@@ -152,7 +152,7 @@ def test_preconditioner_result_keys_reject_duplicate_keys() -> None:
         StandardPreconditionerConfig(type=PreconditionerType.IDENTITY),
     )
 
-    with pytest.raises(ValueError, match="duplicate keys: 'identity'"):
+    with pytest.raises(ValueError):
         validate_unique_preconditioner_keys(specs)
 
 

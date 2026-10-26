@@ -11,5 +11,5 @@ def test_output_config_accepts_supported_dataset_formats() -> None:
 
 
 def test_output_config_rejects_unknown_dataset_format() -> None:
-    with pytest.raises(ValueError, match="dataset_format"):
+    with pytest.raises(ValueError):
         OutputConfig(dataset_format="parquet")

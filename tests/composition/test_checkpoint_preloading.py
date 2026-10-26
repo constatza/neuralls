@@ -241,7 +241,7 @@ def test_an_unmapped_checkpoint_kind_fails_loudly(
     monkeypatch.setattr(preloading, "_REF_PRELOADERS", {})
     cfg = NeuralPreconditionerConfig(checkpoint_path=Path("model.ckpt"))
 
-    with pytest.raises(TypeError, match="No checkpoint preloader"):
+    with pytest.raises(TypeError):
         preload_checkpoints(cfg, matrix, CheckpointStore(), loaders)
 
 

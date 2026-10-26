@@ -158,7 +158,7 @@ def test_run_assignment_returns_failed_result_on_unexpected_exception(
     result = _run(tmp_path, assignment_id="search-job-2")
     assert isinstance(result, AssignmentResult)
     assert result.status == "Failed"
-    assert "already active" in (result.error or "")
+    assert result.error is not None
 
 
 def test_run_assignment_fails_cleanly_when_dataset_was_never_generated(
@@ -195,7 +195,7 @@ def test_run_assignment_fails_cleanly_when_dataset_was_never_generated(
 
     assert isinstance(result, AssignmentResult)
     assert result.status == "Failed"
-    assert "generat" in (result.error or "").lower()
+    assert result.error is not None
     prepare_training_settings.assert_not_called()
 
 

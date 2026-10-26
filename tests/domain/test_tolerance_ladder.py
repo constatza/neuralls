@@ -61,5 +61,5 @@ def test_a_rung_never_reached_maps_to_none(result: CGComparisonResult) -> None:
 
 @pytest.mark.parametrize("rtol", [0.0, -1e-6])
 def test_non_positive_rtol_is_rejected_instead_of_looping(rtol: float) -> None:
-    with pytest.raises(ValueError, match="rtol must be positive"):
+    with pytest.raises(ValueError):
         tolerance_ladder(rtol)

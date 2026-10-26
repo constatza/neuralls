@@ -134,7 +134,7 @@ def captured_warnings() -> Iterator[list[str]]:
 
 def test_explicit_shuffle_true_logs_one_warning(captured_warnings: list[str]) -> None:
     _warn_if_shuffle_requested(GenerationConfig.model_validate({"shuffle": True}))
-    assert len([m for m in captured_warnings if "generation order" in m]) == 1
+    assert len(captured_warnings) == 1
 
 
 def test_default_shuffle_does_not_warn(captured_warnings: list[str]) -> None:

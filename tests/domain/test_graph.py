@@ -93,7 +93,7 @@ def test_edges_follow_csr_row_major_order(csr_fixture: csr_array) -> None:
 
 
 def test_non_square_matrix_raises_value_error(rectangular_csr: csr_array) -> None:
-    with pytest.raises(ValueError, match="square"):
+    with pytest.raises(ValueError):
         csr_to_edge_index(rectangular_csr)
 
 

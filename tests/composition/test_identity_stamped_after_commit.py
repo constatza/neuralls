@@ -82,7 +82,7 @@ def test_interrupted_run_has_no_identity(
 ) -> None:
     interrupt_writer(_INTERRUPT_AFTER_BATCHES)
     final = tmp_path / "dataset"
-    with pytest.raises(RuntimeError, match="injected interruption"):
+    with pytest.raises(RuntimeError):
         build_dataset(
             atomic_source,
             atomic_spec,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from neuralls.domain.generation import run_generation
 
@@ -79,13 +80,13 @@ def test_smoother_filtered_probes_requires_stop(spd_matrix: np.ndarray) -> None:
     """Omitting the required 'stop' field must raise a validation error, not run with a silent default."""
     cfg = {"samples": 3, "seed": 0}
 
-    with pytest.raises(Exception, match="stop"):
+    with pytest.raises(ValidationError):
         run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg)
 
 
 def test_smoother_filtered_probes_samples_minus_one_rejected(spd_matrix: np.ndarray) -> None:
     """samples=-1 is rejected at config construction (SOLID finding 2: no archive source exists)."""
-    with pytest.raises(Exception, match="samples"):
+    with pytest.raises(ValidationError):
         run_generation(
             "smoother_filtered_probes",
             spd_matrix,

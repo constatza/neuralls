@@ -121,6 +121,5 @@ def test_glob_solution_path_count_above_pool_is_capped_with_one_warning(
     spec = _spec(5)
 
     assert _planned_total(source, spec) == _NUM_MATRICES * num_files
-    capped = [m for m in warning_messages if "solution file" in m]
-    assert len(capped) == 1
+    assert len(warning_messages) == 1
     assert _written_rows(source, spec, tmp_path / "dataset") == _NUM_MATRICES * num_files

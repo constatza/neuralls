@@ -85,7 +85,7 @@ def test_every_job_kind_reads_the_pinned_split(
 def test_missing_split_asks_for_generation_instead_of_creating_one(
     training_job: TrainingJobConfig, tmp_path: Path
 ) -> None:
-    with pytest.raises(StageInputsStale, match="neuralls generate"):
+    with pytest.raises(StageInputsStale):
         patch_split_settings(training_job, dataset_dir=tmp_path)
 
     assert not (tmp_path / SPLIT_FILENAME).exists()

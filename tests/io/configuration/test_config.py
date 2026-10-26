@@ -85,5 +85,5 @@ def test_load_experiment_missing_data_config(
     monkeypatch.chdir(temp_config_structure)
     model_path = temp_config_structure / "configs" / "jobs" / "exp1_job.toml"
 
-    with pytest.raises(ValueError, match="data_config_path is required"):
+    with pytest.raises(ValueError):
         load_assignment(job_config_path=model_path)

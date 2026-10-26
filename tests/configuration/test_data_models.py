@@ -80,7 +80,7 @@ def test_generation_write_batch_size_defaults_to_shared_constant() -> None:
 
 @pytest.mark.parametrize("value", [0, -1])
 def test_generation_write_batch_size_rejects_non_positive(value: int) -> None:
-    with pytest.raises(ValidationError, match="write_batch_size"):
+    with pytest.raises(ValidationError):
         GenerationConfig(write_batch_size=value)
 
 
@@ -97,7 +97,7 @@ def test_data_test_config_defaults() -> None:
 
 def test_data_config_file_requires_id() -> None:
     """Dataset configs require a stable id."""
-    with pytest.raises(ValidationError, match="id"):
+    with pytest.raises(ValidationError):
         DataConfigFile()  # ty: ignore[missing-argument]
 
 

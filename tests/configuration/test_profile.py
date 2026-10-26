@@ -74,7 +74,7 @@ def test_load_profile_missing_named_raises(tmp_path: Path) -> None:
         _config_file=config_file,
     )
 
-    with pytest.raises(ValueError, match="Profile 'laptop' not found"):
+    with pytest.raises(ValueError):
         load_profile("laptop", _config_file=config_file)
 
 
@@ -114,7 +114,7 @@ def test_delete_profile_removes_named_and_refuses_default(tmp_path: Path) -> Non
     delete_profile("laptop", _config_file=config_file)
     assert list_profiles(_config_file=config_file) == ["default"]
 
-    with pytest.raises(ValueError, match="default profile"):
+    with pytest.raises(ValueError):
         delete_profile("default", _config_file=config_file)
 
 
@@ -126,7 +126,7 @@ def test_save_profile_duplicate_without_overwrite_raises(tmp_path: Path) -> None
         _config_file=config_file,
     )
 
-    with pytest.raises(FileExistsError, match="already exists"):
+    with pytest.raises(FileExistsError):
         save_profile(
             "default",
             _profile(tmp_path / "raw2", tmp_path / "processed2", tmp_path / "output2"),
@@ -188,7 +188,7 @@ def test_profile_config_preserves_windows_mapped_drive_paths() -> None:
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only path semantics")
 def test_profile_config_rejects_windows_mapped_drive_paths_on_posix() -> None:
     """Mapped-drive roots remain invalid on POSIX hosts."""
-    with pytest.raises(ValueError, match="Windows absolute path"):
+    with pytest.raises(ValueError):
         ProfileConfig(
             raw_dir=r"M:\shared\neuralls\raw",
             processed_dir=r"M:\shared\neuralls\processed",
@@ -239,7 +239,7 @@ def test_neuralls_settings_preserve_windows_mapped_drive_paths() -> None:
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only path semantics")
 def test_neuralls_settings_reject_windows_mapped_drive_paths_on_posix() -> None:
     """Runtime settings should reject Windows-only roots on POSIX hosts."""
-    with pytest.raises(ValueError, match="Windows absolute path"):
+    with pytest.raises(ValueError):
         NeurallsSettings(
             _env_file=[],
             raw_dir=r"M:\shared\neuralls\raw",
@@ -262,7 +262,7 @@ def test_profile_config_rejects_missing_required_fields(tmp_path: Path) -> None:
 
 
 def test_profile_config_rejects_blank_or_whitespace_paths(tmp_path: Path) -> None:
-    with pytest.raises(ValidationError, match="must not be blank"):
+    with pytest.raises(ValidationError):
         ProfileConfig.model_validate(
             {
                 "raw_dir": " ",

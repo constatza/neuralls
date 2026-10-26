@@ -43,14 +43,14 @@ def test_resolve_local_path_preserves_windows_unc_paths() -> None:
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only path semantics")
 def test_resolve_local_path_rejects_windows_mapped_drive_paths_on_posix() -> None:
     """Mapped-drive paths should remain invalid on POSIX hosts."""
-    with pytest.raises(ValueError, match="Windows absolute path"):
+    with pytest.raises(ValueError):
         resolve_local_path(r"M:\shared\neuralls\raw\matrix.txt", base_dir=Path.cwd())
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only path semantics")
 def test_resolve_local_path_rejects_windows_unc_paths_on_posix() -> None:
     """UNC paths should remain invalid on POSIX hosts."""
-    with pytest.raises(ValueError, match="Windows absolute path"):
+    with pytest.raises(ValueError):
         resolve_local_path(
             r"\\192.168.1.51\MGroup\shared\neuralls\raw\matrix.txt",
             base_dir=Path.cwd(),

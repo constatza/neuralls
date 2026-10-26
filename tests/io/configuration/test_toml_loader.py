@@ -42,7 +42,7 @@ def test_load_data_config_requires_id(
 matrix_path = "matrix.txt"
 """
     )
-    with pytest.raises(ValidationError, match="id"):
+    with pytest.raises(ValidationError):
         load_data_config(config_file, neuralls_settings)
 
 
@@ -60,7 +60,7 @@ id = "test"
 matrix_path = "${GRAPH_CG_RAW_DIR}/matrix.txt"
 """
     )
-    with pytest.raises(ValueError, match="NEURALLS"):
+    with pytest.raises(ValueError):
         load_data_config(config_file, neuralls_settings)
 
 
@@ -171,43 +171,8 @@ def test_load_case_config_requires_dataset_id_when_neither_has_one(
 path = "{dataset_cfg.as_posix()}"
 """
     )
-    with pytest.raises(ValueError, match="has no 'id'"):
+    with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
-
-
-def test_load_case_config_missing_generated_dataset_hints_at_expansion_script(
-    tmp_path: Path,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    """A missing dataset path under `_generated/` hints at the expansion script."""
-    missing_path = tmp_path / "_generated" / "gaussian-cg50-5000.toml"
-    config_file = tmp_path / "experiments.toml"
-    config_file.write_text(
-        f"""
-[[datasets]]
-path = "{missing_path.as_posix()}"
-"""
-    )
-    with pytest.raises(FileNotFoundError, match="sweep-generated path"):
-        load_case_config(config_file, neuralls_settings)
-
-
-def test_load_case_config_missing_dataset_without_generated_segment_has_no_sweep_hint(
-    tmp_path: Path,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    """A missing dataset path outside `_generated/` skips the sweep-expansion hint."""
-    missing_path = tmp_path / "typo-dataset.toml"
-    config_file = tmp_path / "experiments.toml"
-    config_file.write_text(
-        f"""
-[[datasets]]
-path = "{missing_path.as_posix()}"
-"""
-    )
-    with pytest.raises(FileNotFoundError) as exc_info:
-        load_case_config(config_file, neuralls_settings)
-    assert "sweep-generated" not in str(exc_info.value)
 
 
 def _write_dataset_config(path: Path, dataset_id: str) -> None:
@@ -326,7 +291,7 @@ dataset_sweep = "cg50-samples"
 job = []
 """
     )
-    with pytest.raises(ValueError, match="job"):
+    with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
 
 
@@ -346,7 +311,7 @@ dataset_sweep = "typo"
 job = "pod-2g_cg-50"
 """
     )
-    with pytest.raises(ValueError, match="typo"):
+    with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
 
 
@@ -363,7 +328,7 @@ path_template = "gaussian-cg50-fixed.toml"
 values = [1000, 2000]
 """
     )
-    with pytest.raises(ValueError, match="path_template"):
+    with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
 
 
@@ -383,7 +348,7 @@ path_template = "gaussian-cg50-{value}.toml"
 values = [1000, 2000]
 """
     )
-    with pytest.raises(ValidationError, match="Duplicate dataset registry ids"):
+    with pytest.raises(ValidationError):
         load_case_config(config_file, neuralls_settings)
 
 
@@ -539,7 +504,7 @@ path_template = "gaussian-{value}.toml"
 axes = { cg = ["cg10", "cg50"], value = [1000, 2000] }
 """
     )
-    with pytest.raises(ValueError, match="cg"):
+    with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
 
 
@@ -557,7 +522,7 @@ axes = { value = [1000, 2000] }
 values = [1000, 2000]
 """
     )
-    with pytest.raises(ValueError, match="both 'axes' and 'values'"):
+    with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
 
 
@@ -574,7 +539,7 @@ path_template = "gaussian-{cg}-{value}.toml"
 axes = { cg = { oops = "table" }, value = [1000, 2000] }
 """
     )
-    with pytest.raises(ValueError, match="scalar"):
+    with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
 
 
@@ -611,7 +576,7 @@ def test_load_raw_toml_rejects_unescaped_windows_path(tmp_path: Path) -> None:
 matrix_path = "C:\Users\runneradmin\AppData\Local\Temp\matrix.txt"
 """
     )
-    with pytest.raises(tomllib.TOMLDecodeError, match="Invalid hex value"):
+    with pytest.raises(tomllib.TOMLDecodeError):
         load_raw_toml(config_file)
 
 

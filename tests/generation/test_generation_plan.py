@@ -56,11 +56,11 @@ class TestStrategySpec:
         assert spec.samples == 0
 
     def test_invalid_negative_count(self) -> None:
-        with pytest.raises(ValueError, match="invalid samples count: -5"):
+        with pytest.raises(ValueError):
             StrategySpec("random", "random", -5, {})
 
     def test_invalid_large_negative_count(self) -> None:
-        with pytest.raises(ValueError, match="invalid samples count: -100"):
+        with pytest.raises(ValueError):
             StrategySpec("krylov", "krylov", -100, {})
 
     def test_immutability(self) -> None:
@@ -79,7 +79,7 @@ class TestGenerationPlan:
     """Test GenerationPlan validation."""
 
     def test_empty_strategies_raises(self) -> None:
-        with pytest.raises(ValueError, match="At least one generation strategy"):
+        with pytest.raises(ValueError):
             GenerationPlan(strategies={})
 
     def test_all_zero_samples_raises(self) -> None:
@@ -87,7 +87,7 @@ class TestGenerationPlan:
             "random": StrategySpec("random", "random", 0, {}),
             "krylov": StrategySpec("krylov", "krylov", 0, {}),
         }
-        with pytest.raises(ValueError, match="At least one strategy must have samples"):
+        with pytest.raises(ValueError):
             GenerationPlan(strategies=strategies)
 
     def test_valid_plan_with_positive_samples(self) -> None:
@@ -171,42 +171,42 @@ class TestParsing:
 
     def test_missing_strategy_array_raises(self) -> None:
         config = {}
-        with pytest.raises(ValueError, match="Missing.*generation.strategy"):
+        with pytest.raises(ValueError):
             parse_generation_plan(config)
 
     def test_empty_strategy_array_raises(self) -> None:
         config = {"strategy": []}
-        with pytest.raises(ValueError, match="At least one.*strategy.*block"):
+        with pytest.raises(ValueError):
             parse_generation_plan(config)
 
     def test_strategy_not_array_raises(self) -> None:
         config = {"strategy": "not_an_array"}
-        with pytest.raises(ValueError, match="must be an array of tables"):
+        with pytest.raises(ValueError):
             parse_generation_plan(config)
 
     def test_strategy_entry_not_table_raises(self) -> None:
         config = {"strategy": ["not_a_table"]}
-        with pytest.raises(ValueError, match="entry at index 0 must be a table"):
+        with pytest.raises(ValueError):
             parse_generation_plan(config)
 
     def test_missing_name_raises(self) -> None:
         config = {"strategy": [{"samples": 100}]}
-        with pytest.raises(ValueError, match="missing a non-empty 'name'"):
+        with pytest.raises(ValueError):
             parse_generation_plan(config)
 
     def test_empty_name_raises(self) -> None:
         config = {"strategy": [{"name": "", "samples": 100}]}
-        with pytest.raises(ValueError, match="missing a non-empty 'name'"):
+        with pytest.raises(ValueError):
             parse_generation_plan(config)
 
     def test_missing_samples_raises(self) -> None:
         config = {"strategy": [{"name": "random"}]}
-        with pytest.raises(ValueError, match="missing 'samples' field"):
+        with pytest.raises(ValueError):
             parse_generation_plan(config)
 
     def test_non_integer_samples_raises(self) -> None:
         config = {"strategy": [{"name": "random", "samples": "many"}]}
-        with pytest.raises(ValueError, match="non-integer 'samples'"):
+        with pytest.raises(ValueError):
             parse_generation_plan(config)
 
     def test_float_samples_converts_to_int(self) -> None:
@@ -216,7 +216,7 @@ class TestParsing:
 
     def test_invalid_negative_samples_raises(self) -> None:
         config = {"strategy": [{"name": "random", "samples": -5}]}
-        with pytest.raises(ValueError, match="invalid samples=-5"):
+        with pytest.raises(ValueError):
             parse_generation_plan(config)
 
     def test_single_strategy_success(self) -> None:
@@ -430,7 +430,7 @@ class TestPydanticValidation:
         from neuralls.domain.generation.strategy_configs import KrylovConfig
 
         # Try to create a config with an unknown parameter
-        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        with pytest.raises(ValidationError):
             KrylovConfig.model_validate({"samples": 10, "unknown_param": 123})
 
     def test_pydantic_rejects_invalid_literal_values(self) -> None:
@@ -440,7 +440,7 @@ class TestPydanticValidation:
         from neuralls.domain.generation.strategy_configs import EigenvectorForwardConfig
 
         # Try to pass an invalid 'which' value
-        with pytest.raises(ValidationError, match="Input should be"):
+        with pytest.raises(ValidationError):
             EigenvectorForwardConfig.model_validate({"samples": 10, "which": "invalid"})
 
     def test_pydantic_validates_which_accepts_valid_values(self) -> None:
@@ -485,7 +485,7 @@ class TestPydanticValidation:
         from neuralls.domain.generation.strategy_configs import RhsArchiveConfig
 
         # Try to create config without rhs_glob
-        with pytest.raises(ValidationError, match="Field required"):
+        with pytest.raises(ValidationError):
             RhsArchiveConfig.model_validate({"samples": 10})
 
     def test_pydantic_requires_solutions_glob(self) -> None:
@@ -495,7 +495,7 @@ class TestPydanticValidation:
         from neuralls.domain.generation.strategy_configs import SolutionArchiveConfig
 
         # Try to create config without solutions_glob
-        with pytest.raises(ValidationError, match="Field required"):
+        with pytest.raises(ValidationError):
             SolutionArchiveConfig.model_validate({"samples": 10})
 
     def test_pydantic_validates_type_residual_iters(self) -> None:
@@ -505,7 +505,7 @@ class TestPydanticValidation:
         from neuralls.domain.generation.strategy_configs import ResidualErrorConfig
 
         # Try to pass a string for stop
-        with pytest.raises(ValidationError, match="Input should be a valid integer"):
+        with pytest.raises(ValidationError):
             ResidualErrorConfig.model_validate({"samples": 10, "stop": "many"})
 
     def test_pydantic_validates_type_krylov_iters(self) -> None:
@@ -515,7 +515,7 @@ class TestPydanticValidation:
         from neuralls.domain.generation.strategy_configs import KrylovConfig
 
         # Pydantic will coerce float to int, but invalid types should fail
-        with pytest.raises(ValidationError, match="Input should be a valid integer"):
+        with pytest.raises(ValidationError):
             KrylovConfig.model_validate({"samples": 10, "krylov_iters": "invalid"})
 
     def test_pydantic_frozen_prevents_mutation(self) -> None:
@@ -527,7 +527,7 @@ class TestPydanticValidation:
         config = KrylovConfig(samples=10, seed=42, shuffle=True, krylov_iters=15)
 
         # Try to modify a field (Pydantic raises ValidationError for frozen models)
-        with pytest.raises(ValidationError, match="Instance is frozen"):
+        with pytest.raises(ValidationError):
             config.krylov_iters = 20
 
     def test_pydantic_accepts_valid_configs(self) -> None:

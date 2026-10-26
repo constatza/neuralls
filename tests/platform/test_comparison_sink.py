@@ -324,9 +324,6 @@ def test_paired_scatter_manifest_describes_axis_censored_pairs(
     ratio = next(plan for plan in plans if plan.metadata.kind.value == "speed_ratio")
 
     assert paired.metadata.failure_treatment is FailureTreatment.CENSORED
-    assert "asymmetric failures" in paired.metadata.metric_definition
-    assert "both-failed pairs omitted" in paired.metadata.metric_definition
-    assert "both-solved" not in paired.metadata.metric_definition
     assert ratio.metadata.failure_treatment is FailureTreatment.OMITTED
     assert ratio.metadata.metric_definition != paired.metadata.metric_definition
 

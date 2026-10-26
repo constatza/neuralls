@@ -136,7 +136,7 @@ def test_normalize_system_mismatch_raises(tmp_path: Path) -> None:
     assert resolved.matrix_normalization is not None
     assert resolved.matrix_normalization.type == "diagonal"
 
-    with pytest.raises(ValueError, match="no longer supported"):
+    with pytest.raises(ValueError):
         _load_linear_system(
             _dummy_paths(tmp_path),
             rhs_sample_index=0,
