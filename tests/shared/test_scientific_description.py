@@ -32,7 +32,7 @@ WEIGHTING = FieldKey("weighting")
 
 @pytest.fixture
 def cg_residuals_description() -> ScientificDescription:
-    """``CG Residuals (k=15, N=500)`` with one dropped-first context fact."""
+    """``CG Residuals`` with one always-visible algorithmic context fact."""
     return ScientificDescription(
         base_name="CG Residuals",
         facts=(
@@ -57,18 +57,26 @@ def test_renders_default_plain_label(cg_residuals_description: ScientificDescrip
     assert rendered.text == "CG Residuals (k=15, N=500, w=uniform)"
 
 
-def test_legend_profile_excludes_context(cg_residuals_description: ScientificDescription) -> None:
-    """``include_context=False`` drops context facts entirely."""
+def test_legend_profile_retains_always_visible_algorithmic_context(
+    cg_residuals_description: ScientificDescription,
+) -> None:
+    """Compact profiles cannot hide algorithmic facts marked always-visible."""
     rendered = render(cg_residuals_description, LEGEND_PROFILE, NotationPolicy.default())
-    assert rendered.text == "CG Residuals (k=15, N=500)"
+    assert rendered.text == "CG Residuals (k=15, N=500, w=uniform)"
 
 
 @pytest.mark.parametrize(
     ("target", "expected"),
     [
-        (RenderTarget.PLAIN, "CG Residuals (k=15, N=500)"),
-        (RenderTarget.MATHTEXT, "CG Residuals ($k=15$, $N=500$)"),
-        (RenderTarget.LATEX, "CG Residuals ($k=15$, $N=500$)"),
+        (RenderTarget.PLAIN, "CG Residuals (k=15, N=500, w=uniform)"),
+        (
+            RenderTarget.MATHTEXT,
+            "CG Residuals ($k=15$, $N=500$, $w=\\mathrm{uniform}$)",
+        ),
+        (
+            RenderTarget.LATEX,
+            "CG Residuals ($k=15$, $N=500$, $w=\\mathrm{uniform}$)",
+        ),
     ],
 )
 def test_supports_all_render_targets(
@@ -85,7 +93,7 @@ def test_symbol_override(cg_residuals_description: ScientificDescription) -> Non
         {ITERATION_COUNT: SymbolSpec(plain="k_CG", math="k_{\\mathrm{CG}}")}
     )
     rendered = render(cg_residuals_description, LEGEND_PROFILE, policy)
-    assert rendered.text == "CG Residuals (k_CG=15, N=500)"
+    assert rendered.text == "CG Residuals (k_CG=15, N=500, w=uniform)"
 
 
 def test_field_order_override(cg_residuals_description: ScientificDescription) -> None:
@@ -94,7 +102,7 @@ def test_field_order_override(cg_residuals_description: ScientificDescription) -
         name="legend", include_context=False, field_order=(SAMPLE_COUNT, ITERATION_COUNT)
     )
     rendered = render(cg_residuals_description, profile, NotationPolicy.default())
-    assert rendered.text == "CG Residuals (N=500, k=15)"
+    assert rendered.text == "CG Residuals (N=500, k=15, w=uniform)"
 
 
 def test_precision_override() -> None:

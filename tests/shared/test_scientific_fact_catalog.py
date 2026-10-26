@@ -335,6 +335,8 @@ def test_every_controlled_fact_renders_without_its_python_field_name(
     for definition in catalog.FACT_DEFINITIONS:
         if definition.visibility_policy.value == "never":
             continue
+        if definition.key == catalog.MODEL_ARCHITECTURE:
+            continue
         if definition.categorical_formatter is not None:
             fact = TextFact(
                 definition.key,
@@ -355,6 +357,8 @@ def test_mathtext_uses_catalog_markup_not_raw_identifiers(catalog: ModuleType) -
     """MathText underscores come from controlled notation, never Python identifiers."""
     for definition in catalog.FACT_DEFINITIONS:
         if definition.visibility_policy.value == "never":
+            continue
+        if definition.key == catalog.MODEL_ARCHITECTURE:
             continue
         if definition.categorical_formatter is not None:
             fact = TextFact(
@@ -389,6 +393,34 @@ def test_unknown_categorical_value_is_rejected(catalog: ModuleType) -> None:
     fact = TextFact(catalog.WEIGHTING, "unknown_weighting", FieldImportance.ESSENTIAL)
 
     with pytest.raises(catalog.UnknownCategoricalValueError):
+        render_facts((fact,), NotationPolicy.default())
+
+
+def test_identity_only_fact_is_excluded_by_both_rendering_entry_points(
+    catalog: ModuleType,
+) -> None:
+    """A NEVER-visible machine identity cannot leak through either public renderer."""
+    fact = TextFact(catalog.ASSIGNMENT, "machine_assignment_123", FieldImportance.ESSENTIAL)
+    description = ScientificDescription(base_name="Neural", facts=(fact,))
+
+    assert render(description, LEGEND_PROFILE, NotationPolicy.default()).text == "Neural"
+    assert render_facts((fact,), NotationPolicy.default()) == ""
+
+
+def test_uncontrolled_model_architecture_text_is_rejected_by_both_rendering_entry_points(
+    catalog: ModuleType,
+) -> None:
+    """An arbitrary Python class name is not validated scientific presentation text."""
+    fact = TextFact(
+        catalog.MODEL_ARCHITECTURE,
+        "unknown_python_class",
+        FieldImportance.ESSENTIAL,
+    )
+    description = ScientificDescription(base_name="Neural", facts=(fact,))
+
+    with pytest.raises(ValueError, match="controlled formatter"):
+        render(description, LEGEND_PROFILE, NotationPolicy.default())
+    with pytest.raises(ValueError, match="controlled formatter"):
         render_facts((fact,), NotationPolicy.default())
 
 

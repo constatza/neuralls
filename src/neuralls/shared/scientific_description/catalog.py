@@ -60,6 +60,17 @@ class UnknownCategoricalValueError(ValueError):
         super().__init__(f"Unsupported categorical value {value!r} for {key.value!r}")
 
 
+class UncontrolledTextFactError(ValueError):
+    """A text fact has no catalog-owned formatter or validated representation."""
+
+    def __init__(self, key: FieldKey) -> None:
+        self.key = key
+        super().__init__(
+            f"Text fact {key.value!r} requires a controlled formatter or validated "
+            "semantic text representation"
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class CategoricalValue:
     """One semantic category and its controlled plain/MathText spellings."""

@@ -9,7 +9,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
-from neuralls.shared.scientific_description.catalog import fact_definition
+from neuralls.shared.scientific_description.catalog import (
+    FactVisibility,
+    UncontrolledTextFactError,
+    fact_definition,
+)
 from neuralls.shared.scientific_description.models import (
     DecimalFact,
     FieldKey,
@@ -69,19 +73,33 @@ def render_facts(
     profile = RenderProfile(
         name=_INLINE_PROFILE_NAME, include_context=False, precision=precision or {}
     )
-    return ", ".join(_format_fact(fact, profile, policy) for fact in facts)
+    return ", ".join(
+        _format_fact(fact, profile, policy) for fact in facts if _is_absolutely_visible(fact)
+    )
 
 
 def _select_facts(
     description: ScientificDescription, profile: RenderProfile
 ) -> list[ScientificFact]:
-    facts = list(description.facts)
-    if profile.include_context:
-        facts += list(description.context_facts)
+    facts = [fact for fact in description.facts if _is_absolutely_visible(fact)]
+    facts.extend(
+        fact
+        for fact in description.context_facts
+        if _is_absolutely_visible(fact)
+        and (
+            profile.include_context
+            or fact_definition(fact.key).visibility_policy is FactVisibility.ALWAYS
+        )
+    )
     if profile.field_order is not None:
         order_index = {key: index for index, key in enumerate(profile.field_order)}
         facts.sort(key=lambda fact: order_index.get(fact.key, len(order_index)))
     return facts
+
+
+def _is_absolutely_visible(fact: ScientificFact) -> bool:
+    """Apply catalog policies that no rendering profile may override."""
+    return fact_definition(fact.key).visibility_policy is not FactVisibility.NEVER
 
 
 def _compose(
@@ -102,11 +120,6 @@ def _compose(
     return f"{prefix}{', '.join(formatted)})", tuple(boundaries)
 
 
-_MATH_TEXT_SPECIALS = str.maketrans({"_": "\\_", "%": "\\%", "#": "\\#", "&": "\\&", "$": "\\$"})
-"""Characters that break a mathtext/LaTeX fragment when they appear in a text value
-(e.g. an underscore in a class name)."""
-
-
 def _format_fact(fact: ScientificFact, profile: RenderProfile, policy: NotationPolicy) -> str:
     definition = fact_definition(fact.key)
     symbol = policy.symbol_for(fact.key)
@@ -114,8 +127,6 @@ def _format_fact(fact: ScientificFact, profile: RenderProfile, policy: NotationP
     value_str = _format_value(fact, precision, policy.target)
     if policy.target is RenderTarget.PLAIN:
         return f"{symbol.plain}={value_str}"
-    if isinstance(fact, TextFact) and definition.categorical_formatter is None:
-        value_str = value_str.translate(_MATH_TEXT_SPECIALS)
     return f"${symbol.math}={value_str}$"
 
 
@@ -133,7 +144,7 @@ def _format_value(
         case TextFact(value=value):
             formatter = fact_definition(fact.key).categorical_formatter
             if formatter is None:
-                return value
+                raise UncontrolledTextFactError(fact.key)
             if target is RenderTarget.PLAIN:
                 return formatter.plain(fact.key, value)
             return formatter.mathtext(fact.key, value)
