@@ -232,6 +232,26 @@ def expected_definitions() -> tuple[ExpectedFactDefinition, ...]:
             "s",
             visibility="when_distinguishing",
         ),
+        ExpectedFactDefinition(
+            "start_iteration",
+            "scheduling",
+            "configured",
+            410,
+            None,
+            "k₀",
+            "k_0",
+            visibility="when_non_default",
+        ),
+        ExpectedFactDefinition(
+            "iteration_limit",
+            "scheduling",
+            "configured",
+            420,
+            None,
+            "kₘₐₓ",
+            "k_{\\max}",
+            visibility="when_non_default",
+        ),
     )
 
 

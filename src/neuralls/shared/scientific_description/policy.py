@@ -1,10 +1,7 @@
 """Notation and render-profile policy for scientific descriptions.
 
-Pure configuration types only; still standard-library only (see
-``docs/plan.md``, "Rendering and notation configuration"). The Pydantic
-boundary that lets TOML override these defaults is a separate, later
-addition and is not required for this package to be useful and testable on
-its own.
+Pure configuration types only. A Pydantic boundary that lets TOML override
+these defaults is a separate concern and is not required here.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Tests for the pure scientific-description core (``docs/plan.md`` Phase 1)."""
+"""Tests for the pure scientific-description core."""
 
 from __future__ import annotations
 

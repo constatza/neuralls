@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from neuralls.shared.types import NormalizeType
 
-# Type for normalization methods
-NormalizeType = Literal["none", "matrix", "rhs"]
+__all__ = ["NormalizeType"]

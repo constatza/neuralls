@@ -2,7 +2,7 @@
 
 No dependency outside the standard library: this module must stay importable
 without strategies, preconditioners, Pydantic, Matplotlib, Loguru, MLflow, or
-storage code (see ``docs/plan.md``, "Decoupled scientific-description core").
+storage code.
 """
 
 from __future__ import annotations

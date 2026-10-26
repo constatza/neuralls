@@ -175,6 +175,8 @@ COARSENING_STRATEGY = _key("coarsening_strategy")
 MODEL_ARCHITECTURE = _key("model_architecture")
 ASSIGNMENT = _key("assignment")
 SEED = _key("seed")
+START_ITERATION = _key("start_iteration")
+ITERATION_LIMIT = _key("iteration_limit")
 
 
 def _categories(*values: tuple[str, str, str]) -> CategoricalFormatter:
@@ -361,6 +363,26 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         "s",
         "s",
         visibility=FactVisibility.WHEN_DISTINGUISHING,
+    ),
+    _definition(
+        START_ITERATION,
+        FactRole.SCHEDULING,
+        _C,
+        410,
+        None,
+        "k₀",
+        "k_0",
+        visibility=FactVisibility.WHEN_NON_DEFAULT,
+    ),
+    _definition(
+        ITERATION_LIMIT,
+        FactRole.SCHEDULING,
+        _C,
+        420,
+        None,
+        "kₘₐₓ",
+        "k_{\\max}",
+        visibility=FactVisibility.WHEN_NON_DEFAULT,
     ),
 )
 

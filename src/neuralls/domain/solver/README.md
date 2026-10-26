@@ -146,6 +146,10 @@ diagnostics remain available for artifacts and single-run plots. Comparison
 recommendations rank converged diagnostic results by measured solve time, then
 iterations; workload ranking uses complete event summaries.
 
+## Presentation planning
+
+`presentation_planner.py` holds the pure transitions between method-presentation states; it is presentation logic, not solver logic, and depends only on `shared/scientific_description`. `prepare_presentations` turns an `UnvalidatedComparisonPresentation` into the `PreparedComparisonPresentation` that execution and tracking require. It keeps every algorithmic fact, keeps scheduling facts (describers emit them only when non-default), and keeps a reproducibility fact such as a seed only when its value differs between methods of the same family. Collisions are decided on the structured compact facts plus the dataset qualifier, never on rendered text, and raise `DuplicateMethodPresentationError` before any run opens; the error carries machine IDs as diagnostic fields only. `realize_method` attaches per-system realized facts to one prepared method. `reduce_realized_facts` returns only facts equal on every system of the selected population, so a group label never claims a matrix-varying value.
+
 ## Boundary rule
 
 `BenchmarkMethodSink` is the narrow persistence port for a completed method

@@ -1,7 +1,7 @@
-"""Standard-library-only scientific description and rendering core.
+"""Scientific description, presentation-state, and rendering core.
 
-See ``docs/plan.md`` for the full vocabulary redesign this package is the
-pure foundation of.
+Free of infrastructure dependencies: facts, their controlled notation, the
+configured/prepared/realized presentation states, and pure rendering.
 """
 
 from __future__ import annotations
@@ -43,7 +43,25 @@ from neuralls.shared.scientific_description.policy import (
     RenderTarget,
     SymbolSpec,
 )
-from neuralls.shared.scientific_description.render import render, render_facts
+from neuralls.shared.scientific_description.presentation import (
+    ComparisonScopePresentation,
+    ConfiguredMethodPresentation,
+    DatasetGenerationProvenance,
+    DatasetPresentation,
+    DatasetQualifiedMethodPresentation,
+    DatasetSourceProvenance,
+    DuplicateMethodPresentationError,
+    EditorialPresentation,
+    MethodPresentationCandidate,
+    PreparedComparisonPresentation,
+    PreparedMethodPresentation,
+    RealizedMethodPresentation,
+    StandaloneMethodPresentation,
+    StrategyProvenance,
+    SystemRealization,
+    UnvalidatedComparisonPresentation,
+)
+from neuralls.shared.scientific_description.render import render, render_facts, render_method
 
 __all__ = [
     "ALGEBRAIC_DISTANCE_THRESHOLD",
@@ -68,17 +86,34 @@ __all__ = [
     "TARGET_COARSE_DIMENSION",
     "THRESHOLD",
     "TITLE_PROFILE",
+    "ComparisonScopePresentation",
+    "ConfiguredMethodPresentation",
+    "DatasetGenerationProvenance",
+    "DatasetPresentation",
+    "DatasetQualifiedMethodPresentation",
+    "DatasetSourceProvenance",
     "DecimalFact",
+    "DuplicateMethodPresentationError",
+    "EditorialPresentation",
     "FieldImportance",
     "FieldKey",
     "IntegerFact",
+    "MethodPresentationCandidate",
     "NotationPolicy",
+    "PreparedComparisonPresentation",
+    "PreparedMethodPresentation",
+    "RealizedMethodPresentation",
     "RenderProfile",
     "RenderTarget",
     "ScientificDescription",
     "ScientificFact",
+    "StandaloneMethodPresentation",
+    "StrategyProvenance",
     "SymbolSpec",
+    "SystemRealization",
     "TextFact",
+    "UnvalidatedComparisonPresentation",
     "render",
     "render_facts",
+    "render_method",
 ]

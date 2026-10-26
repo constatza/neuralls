@@ -18,6 +18,9 @@ from scipy.sparse import csr_array
 DatasetFormat = Literal["zarr", "npy", "hdf5"]
 """Supported dataset storage families for generated datasets."""
 
+NormalizeType = Literal["none", "matrix", "rhs"]
+"""Normalization applied to generated systems; shared because dataset provenance records it."""
+
 TestPosition = NewType("TestPosition", int)
 """A 0-indexed position within a pinned split's `test` fold — never a raw row
 or matrix index, so it can never resolve to a training sample by construction."""

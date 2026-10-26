@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from typing import assert_never
 
 from neuralls.shared.scientific_description.catalog import (
     FactVisibility,
@@ -26,6 +27,12 @@ from neuralls.shared.scientific_description.policy import (
     NotationPolicy,
     RenderProfile,
     RenderTarget,
+)
+from neuralls.shared.scientific_description.presentation import (
+    ConfiguredMethodPresentation,
+    DatasetQualifiedMethodPresentation,
+    StandaloneMethodPresentation,
+    dataset_qualifier,
 )
 
 _DEFAULT_DECIMAL_PRECISION = 3
@@ -55,6 +62,42 @@ def render(
         text=text,
         preferred_wrap_boundaries=boundaries if should_wrap else (),
     )
+
+
+_QUALIFIER_SEPARATOR = " | "
+_STRATEGY_SEPARATOR = " + "
+
+
+def render_method(
+    configured: ConfiguredMethodPresentation,
+    profile: RenderProfile,
+    policy: NotationPolicy,
+) -> RenderedScientificDescription:
+    """Render a method, appending its training dataset exactly once when it has one."""
+    match configured:
+        case StandaloneMethodPresentation(method=method):
+            return render(method, profile, policy)
+        case DatasetQualifiedMethodPresentation(method=method, dataset=dataset):
+            parts = (method, *dataset_qualifier(dataset))
+            unbounded = replace(profile, max_length=None)
+            plain = replace(policy, target=RenderTarget.PLAIN)
+            head, *tail = (render(part, unbounded, policy) for part in parts)
+            plain_head, *plain_tail = (render(part, unbounded, plain).text for part in parts)
+            visible = plain_head + _QUALIFIER_SEPARATOR + _STRATEGY_SEPARATOR.join(plain_tail)
+            text = head.text
+            boundaries = list(head.preferred_wrap_boundaries)
+            for index, part in enumerate(tail):
+                separator = _QUALIFIER_SEPARATOR if index == 0 else _STRATEGY_SEPARATOR
+                start = len(text) + len(separator)
+                boundaries.append(start)
+                boundaries.extend(start + offset for offset in part.preferred_wrap_boundaries)
+                text += separator + part.text
+            should_wrap = profile.max_length is not None and len(visible) > profile.max_length
+            return RenderedScientificDescription(
+                text=text, preferred_wrap_boundaries=tuple(boundaries) if should_wrap else ()
+            )
+        case _:
+            assert_never(configured)
 
 
 def render_facts(
