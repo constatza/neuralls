@@ -49,12 +49,6 @@ num_candidates = 3
 theta = 0.05
 
 [[comparison_baseline.preconditioners]]
-name = "asa-more-candidates"
-type = "adaptive_sa_amg"
-num_candidates = 7
-theta = 0.05
-
-[[comparison_baseline.preconditioners]]
 name = "bamg"
 type = "bootstrap_amg"
 
