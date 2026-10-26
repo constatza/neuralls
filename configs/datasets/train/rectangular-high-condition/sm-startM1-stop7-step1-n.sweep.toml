@@ -3,6 +3,7 @@ id_template = "rhc-sm-startM1-stop7-step1-n{value}"
 filename_template = "sm-startM1-stop7-step1-n{value}.toml"
 
 [source]
+problem = "Rectangular high condition"
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
 
 [generation]

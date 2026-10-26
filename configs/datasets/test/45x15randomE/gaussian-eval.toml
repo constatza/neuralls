@@ -4,6 +4,7 @@ id = "gaussian-eval-45x15randomE"
 # (last 15 by enumerate_by="name" order). Never seen by DeepONet training or by the
 # pod2g-* POD-2G snapshot datasets — used here so comparisons run against unseen matrices.
 [source]
+problem = "45x15 random E"
 matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/45x15randomE/stiffness/*_subdomain_1_Kaa.txt"
 enumerate_by = "name"
 parameters_paths = [

@@ -210,7 +210,7 @@ class PreparedMethodPresentation:
             case StandaloneMethodPresentation():
                 return (base.base_name, facts)
             case DatasetQualifiedMethodPresentation(dataset=dataset):
-                return (base.base_name, facts, dataset)
+                return (base.base_name, facts, dataset_qualifier(dataset))
             case _:
                 assert_never(self.configured)
 
@@ -272,53 +272,67 @@ def strategy_base_name(kind: GenerationStrategyKind) -> str:
     """Return the controlled display name of a generation strategy."""
     match kind:
         case GenerationStrategyKind.RANDOM | GenerationStrategyKind.NORMAL:
-            return "Gaussian LHS"
+            return "Random Normal Solutions"
         case GenerationStrategyKind.KRYLOV:
-            return "Krylov Combinations"
+            return "Krylov Subspace Solutions"
         case GenerationStrategyKind.RHS_ARCHIVE:
-            return "RHS Archive"
+            return "Archived RHS Solves"
         case GenerationStrategyKind.SOLUTION_ARCHIVE:
-            return "Solution Archive"
+            return "Archived Solutions"
         case GenerationStrategyKind.VALIDATED_ARCHIVE:
-            return "Validated Archive"
+            return "Validated Archive Pairs"
         case GenerationStrategyKind.SCALED_SOLUTIONS:
-            return "Scaled Solutions"
+            return "Scaled Archived Solutions"
         case GenerationStrategyKind.SPARSE_RHS:
-            return "Sparse RHS"
+            return "Sparse RHS Solves"
         case GenerationStrategyKind.RESIDUALS:
             return "CG Residuals"
         case GenerationStrategyKind.GAUSSIAN_RESIDUALS:
             return "Gaussian CG Residuals"
         case GenerationStrategyKind.EIGENVECTOR_FORWARD:
-            return "Eigenvector Forward"
+            return "Eigenvector Solutions"
         case GenerationStrategyKind.EIGENVECTOR_INVERSE:
-            return "Eigenvector Inverse"
+            return "Eigenvector RHS Solves"
         case GenerationStrategyKind.GAUSSIAN_FORWARD:
-            return "Gaussian Forward"
+            return "Gaussian Solutions"
         case GenerationStrategyKind.GAUSSIAN_INVERSE:
-            return "Gaussian Inverse"
+            return "Gaussian RHS Solves"
         case GenerationStrategyKind.UNIFORM_FORWARD:
-            return "Uniform Forward"
+            return "Uniform Solutions"
         case GenerationStrategyKind.UNIFORM_INVERSE:
-            return "Uniform Inverse"
+            return "Uniform RHS Solves"
         case GenerationStrategyKind.CONSTANT_FORWARD:
-            return "Constant Forward"
+            return "Constant Solutions"
         case GenerationStrategyKind.CONSTANT_INVERSE:
-            return "Constant Inverse"
+            return "Constant RHS Solves"
         case GenerationStrategyKind.NEUTRAL_ONES:
-            return "Neutral Ones"
+            return "Ones Solutions"
         case GenerationStrategyKind.SMOOTHER_FILTERED_PROBES:
-            return "Smoother-Filtered Probes"
+            return "Jacobi-Filtered Probes"
         case GenerationStrategyKind.SINUSOIDAL_FIELD:
-            return "Sinusoidal Field"
+            return "Sinusoidal RHS Solves"
         case _:
             assert_never(kind)
 
 
+_QUALIFIER_VISIBILITY = frozenset({FactVisibility.ALWAYS, FactVisibility.WHEN_NON_DEFAULT})
+
+
 def dataset_qualifier(dataset: DatasetPresentation) -> tuple[ScientificDescription, ...]:
-    """Describe the dataset by its generation strategies, one description each."""
+    """Describe the dataset by its generation strategies, one description each.
+
+    Reproducibility facts such as seeds stay in the structured provenance only; a
+    qualifier shows what generated the data, not how it was seeded.
+    """
     return tuple(
-        ScientificDescription(base_name=strategy_base_name(strategy.kind), facts=strategy.facts)
+        ScientificDescription(
+            base_name=strategy_base_name(strategy.kind),
+            facts=tuple(
+                fact
+                for fact in strategy.facts
+                if fact_definition(fact.key).visibility_policy in _QUALIFIER_VISIBILITY
+            ),
+        )
         for strategy in dataset.generation.strategies
     )
 

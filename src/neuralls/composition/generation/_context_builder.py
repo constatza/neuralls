@@ -20,6 +20,8 @@ from neuralls.domain.generation.specs import SourceSpec
 from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.models.data_models import DataConfigFile, GenerationConfig
 from neuralls.shared.constants import DEFAULT_WRITE_BATCH_SIZE
+from neuralls.shared.scientific_description import ScientificDescription, ValidatedLabel
+from neuralls.shared.scientific_description.presentation import DatasetSourceProvenance
 from neuralls.shared.types import DatasetFormat
 
 
@@ -45,6 +47,8 @@ class DataGenerationContext:
         dataset_format: Storage format family for persisted dataset artifacts.
         identity: Generation identity used for reuse and stamped into the manifest.
         write_batch_size: Rows generated and written per batch.
+        source_provenance: Scientific description of the source problem, from
+            ``[source] problem``; None means the dataset is written without provenance.
     """
 
     matrix_path: str
@@ -64,6 +68,7 @@ class DataGenerationContext:
     dataset_format: DatasetFormat = "hdf5"
     identity: StageIdentity | None = None
     write_batch_size: int = DEFAULT_WRITE_BATCH_SIZE
+    source_provenance: DatasetSourceProvenance | None = None
 
     def source_spec(self, *, rhs_path: str | None = None) -> SourceSpec:
         """Project the source-side fields into the domain's SourceSpec.
@@ -164,6 +169,7 @@ def _build_context(
 
     plan = _plan_from_generation_config(config.generation)
     _warn_if_shuffle_requested(config.generation)
+    source_provenance = _source_provenance(config)
 
     return DataGenerationContext(
         matrix_path=matrix_path,
@@ -182,7 +188,21 @@ def _build_context(
         parameters_paths=config.source.parameters_paths,
         dataset_format=config.output.dataset_format,
         write_batch_size=config.generation.write_batch_size,
+        source_provenance=source_provenance,
     ), plan
+
+
+def _source_provenance(config: DataConfigFile) -> DatasetSourceProvenance | None:
+    """Describe the source problem, warning once when the config names none."""
+    if config.source.problem is None:
+        logger.warning(
+            f"Dataset '{config.id}' has no '[source] problem' name; it will be written without "
+            "scientific provenance and cannot be trained on or compared until regenerated."
+        )
+        return None
+    return DatasetSourceProvenance(
+        ScientificDescription(base_name=ValidatedLabel(config.source.problem).text)
+    )
 
 
 def _warn_if_shuffle_requested(generation: GenerationConfig) -> None:

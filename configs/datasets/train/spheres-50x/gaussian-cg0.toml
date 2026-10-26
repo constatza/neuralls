@@ -1,6 +1,7 @@
 id = "gaussian-cg0-spheres-50x"
 
 [source]
+problem = "Spheres 50x"
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/spheres-50x.txt"
 
 [generation]

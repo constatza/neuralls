@@ -1,6 +1,7 @@
 id = "rhc-sm-startM7-stop7-step2"
 
 [source]
+problem = "Rectangular high condition"
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
 
 [generation]

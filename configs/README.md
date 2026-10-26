@@ -165,6 +165,14 @@ backs comparisons. Every randomE dataset uses the matrix glob
 `45x15randomE/stiffness/*_subdomain_1_Kaa.txt`, `enumerate_by = "name"`, and
 the matching Young-modulus parameter glob.
 
+Every dataset config names its source in `[source] problem` (for example
+`problem = "Spectral 3D field"`; letters, digits, spaces, and hyphens only). The
+name is recorded in the dataset's scientific provenance together with every
+generation strategy's parameters, and it is the only source of the problem name
+shown in labels: it is never derived from a path or directory name. A dataset
+generated without it has no provenance and must be regenerated before it can be
+trained on or compared.
+
 **45x15randomE train/eval matrix split**: because the same ~100-matrix family
 would otherwise back both training and POD-2G snapshot-input datasets
 and the comparisons, every train dataset in `datasets/train/45x15randomE/` sets

@@ -32,6 +32,7 @@ from neuralls.shared.constants import (
     DEFAULT_WRITE_BATCH_SIZE,
 )
 from neuralls.shared.digest import Cosmetic
+from neuralls.shared.scientific_description import ValidatedLabel
 from neuralls.shared.types import DatasetFormat, EigenvectorSelection, MatrixFormat, SparsityPattern
 
 
@@ -61,6 +62,14 @@ class SourceConfig(BaseModel):
             "'<raw_root>/*/K_ff.mtx' for a directory-per-sample layout with a constant "
             "leaf filename — the sample id is then derived from the matched directory "
             "name instead of the filename (see sample_id_regex)."
+        ),
+    )
+    problem: Annotated[str | None, Cosmetic()] = Field(
+        default=None,
+        description=(
+            "Short human-readable name of the problem the matrices come from, e.g. "
+            "'Spectral 3D field'. Recorded in the dataset's scientific provenance and shown "
+            "in labels; never derived from paths. Letters, digits, spaces, and hyphens only."
         ),
     )
     rhs_path: Annotated[str | None, Cosmetic()] = Field(
@@ -135,6 +144,14 @@ class SourceConfig(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @field_validator("problem")
+    @classmethod
+    def _validate_problem_name(cls, value: str | None) -> str | None:
+        """Reject a problem name that is not a plain human-readable label."""
+        if value is not None:
+            ValidatedLabel(value)
+        return value
 
     @model_validator(mode="after")
     def _check_id_strategy_exclusivity(self) -> SourceConfig:

@@ -28,52 +28,48 @@ def test_gaussian_residuals_strategy_uses_distinct_base_name() -> None:
     assert rendered.text == "Gaussian CG Residuals (k=10, N=250)"
 
 
-def test_unknown_strategy_name_falls_back_to_raw_name() -> None:
-    """An unrecognized strategy name is used verbatim rather than raising."""
-    description = describe_residual_trace("future_strategy", iteration_count=1, sample_count=1)
-    assert description.base_name == "future_strategy"
+def test_unknown_residual_trace_name_is_rejected() -> None:
+    """An unrecognized strategy name never becomes a base name."""
+    with pytest.raises(ValueError, match="Unsupported generation strategy"):
+        describe_residual_trace("future_strategy", iteration_count=1, sample_count=1)
 
 
 @pytest.mark.parametrize(
     ("strategy_name", "expected"),
     [
-        ("krylov", "Krylov Combinations (N=1000)"),
-        ("rhs_archive", "RHS Archive (N=1000)"),
-        ("solution_archive", "Solution Archive (N=1000)"),
-        ("validated_archive", "Validated Archive (N=1000)"),
-        ("scaled_solutions", "Scaled Solutions (N=1000)"),
-        ("sparse_rhs", "Sparse RHS (N=1000)"),
-        ("eigenvector_forward", "Eigenvector Forward (N=1000)"),
-        ("eigenvector_inverse", "Eigenvector Inverse (N=1000)"),
-        ("gaussian_forward", "Gaussian Forward (N=1000)"),
-        ("gaussian_inverse", "Gaussian Inverse (N=1000)"),
-        ("uniform_forward", "Uniform Forward (N=1000)"),
-        ("uniform_inverse", "Uniform Inverse (N=1000)"),
-        ("constant_forward", "Constant Forward (N=1000)"),
-        ("constant_inverse", "Constant Inverse (N=1000)"),
-        ("neutral_ones", "Neutral Ones (N=1000)"),
-        ("smoother_filtered_probes", "Smoother-Filtered Probes (N=1000)"),
-        ("sinusoidal_field", "Sinusoidal Field (N=1000)"),
-        ("random", "Gaussian LHS (N=1000)"),
-        ("normal", "Gaussian LHS (N=1000)"),
+        ("krylov", "Krylov Subspace Solutions (N=1000)"),
+        ("rhs_archive", "Archived RHS Solves (N=1000)"),
+        ("solution_archive", "Archived Solutions (N=1000)"),
+        ("validated_archive", "Validated Archive Pairs (N=1000)"),
+        ("scaled_solutions", "Scaled Archived Solutions (N=1000)"),
+        ("sparse_rhs", "Sparse RHS Solves (N=1000)"),
+        ("eigenvector_forward", "Eigenvector Solutions (N=1000)"),
+        ("eigenvector_inverse", "Eigenvector RHS Solves (N=1000)"),
+        ("gaussian_forward", "Gaussian Solutions (N=1000)"),
+        ("gaussian_inverse", "Gaussian RHS Solves (N=1000)"),
+        ("uniform_forward", "Uniform Solutions (N=1000)"),
+        ("uniform_inverse", "Uniform RHS Solves (N=1000)"),
+        ("constant_forward", "Constant Solutions (N=1000)"),
+        ("constant_inverse", "Constant RHS Solves (N=1000)"),
+        ("neutral_ones", "Ones Solutions (N=1000)"),
+        ("smoother_filtered_probes", "Jacobi-Filtered Probes (N=1000)"),
+        ("sinusoidal_field", "Sinusoidal RHS Solves (N=1000)"),
+        ("random", "Random Normal Solutions (N=1000)"),
+        ("normal", "Random Normal Solutions (N=1000)"),
     ],
 )
 def test_describe_generation_result_covers_every_registered_strategy(
     strategy_name: str, expected: str
 ) -> None:
-    """Every non-residual-trace strategy renders its own base name plus the realized N.
-
-    Matches the user's own worked example shape, e.g. ``"Error Traces (N=1000)"``.
-    """
+    """Every non-residual-trace strategy renders a name that says what it generates."""
     description = describe_generation_result(strategy_name, sample_count=1000)
     assert render(description, LOG_PROFILE, NotationPolicy.default()).text == expected
 
 
-def test_describe_generation_result_falls_back_for_unknown_strategy() -> None:
-    """A future strategy added without updating the base-name table still renders, not raises."""
-    description = describe_generation_result("future_strategy", sample_count=5)
-    rendered = render(description, LOG_PROFILE, NotationPolicy.default())
-    assert rendered.text == "future_strategy (N=5)"
+def test_describe_generation_result_rejects_unknown_strategy() -> None:
+    """A strategy without a controlled name fails instead of echoing its identifier."""
+    with pytest.raises(ValueError, match="Unsupported generation strategy"):
+        describe_generation_result("future_strategy", sample_count=5)
 
 
 def test_residual_trace_strategy_names_are_excluded_from_generic_dispatch() -> None:

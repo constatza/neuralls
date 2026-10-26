@@ -1,6 +1,7 @@
 id = "gaussian-cg10-45x15randomE"
 
 [source]
+problem = "45x15 random E"
 matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/45x15randomE/stiffness/*_subdomain_1_Kaa.txt"
 enumerate_by = "name"
 parameters_paths = ["${NEURALLS_RAW_DIR}/SpectralData/45x15randomE/stiffness/*_YoungModuli_E1_E2_E3_E4.txt"]

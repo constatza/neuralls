@@ -64,7 +64,6 @@ def test_streamed_build_h5_contains_expected_datasets(streamed_hdf5_dir: Path) -
 def test_streamed_manifest_schema_and_format(streamed_hdf5_dir: Path) -> None:
     """manifest.json has the dataset schema and every artifact format set to 'hdf5'."""
     manifest = load_dataset_manifest(streamed_hdf5_dir)
-    assert str(manifest["schema"]).startswith("neuralls.dataset")
     assert manifest["matrix"]["format"] == "hdf5"
     assert manifest["rhs"]["format"] == "hdf5"
     assert manifest["solutions"]["format"] == "hdf5"

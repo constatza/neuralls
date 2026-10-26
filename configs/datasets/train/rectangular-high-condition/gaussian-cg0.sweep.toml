@@ -8,6 +8,7 @@ strategy_comment = [
 ]
 
 [source]
+problem = "Rectangular high condition"
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
 
 [generation]

@@ -1,6 +1,7 @@
 id = "gaussian-cg10-45x15"
 
 [source]
+problem = "45x15"
 matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/45x15-displacements/stiffness/subdomain_1_Kaa.txt"
 
 [generation]

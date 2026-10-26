@@ -20,6 +20,7 @@ from .interfaces import (
     SingleRhsGenerationStrategy,
     TracingSolverCallable,
 )
+from .strategy_configs import BaseStrategyConfig
 
 RowsPerBaseSystem = Callable[[Mapping[str, Any]], int]
 """Maps a strategy's raw config to K_rows, the trajectory rows one base system yields."""
@@ -155,6 +156,15 @@ def rows_per_base_system(strategy_name: str, cfg: Mapping[str, Any]) -> int:
         KeyError: If the strategy name is unknown.
     """
     return _registry.get(strategy_name).rows_per_base_system(cfg)
+
+
+def registered_config_type(strategy_name: str) -> type[BaseStrategyConfig]:
+    """Return the validated config class a registered strategy parses its options with.
+
+    Raises:
+        KeyError: If the strategy name is unknown.
+    """
+    return cast(type[BaseStrategyConfig], _registry.get(strategy_name).strategy.ConfigType)
 
 
 def run_generation(

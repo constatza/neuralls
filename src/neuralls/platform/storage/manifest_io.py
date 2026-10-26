@@ -8,14 +8,19 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from neuralls.platform.storage.facts_codec import (
+    decode_dataset_presentation,
+    encode_dataset_presentation,
+)
 from neuralls.platform.storage.manifest import (
-    _DATASET_SCHEMA,
     DatasetArtifact,
     DatasetManifest,
     DatasetNormalization,
+    MissingDatasetProvenanceError,
     manifest_path_for,
 )
 from neuralls.shared.digest import Digest
+from neuralls.shared.scientific_description.presentation import DatasetPresentation
 from neuralls.shared.types import LayoutType, MatrixFormat
 
 
@@ -34,6 +39,9 @@ def manifest_to_dict(manifest: DatasetManifest) -> dict[str, Any]:
         JSON-compatible dictionary representation.
     """
     payload = asdict(manifest)
+    payload.pop("provenance")
+    if manifest.provenance is not None:
+        payload["provenance"] = encode_dataset_presentation(manifest.provenance)
     payload["matrix"]["shape"] = list(manifest.matrix.shape)
     payload["rhs"]["shape"] = list(manifest.rhs.shape)
     payload["solutions"]["shape"] = list(manifest.solutions.shape)
@@ -83,7 +91,7 @@ def save_dataset_manifest(dataset_dir: str | Path, manifest: DatasetManifest) ->
 
 @lru_cache(maxsize=128)
 def load_dataset_manifest(dataset_dir: str | Path) -> dict[str, Any]:
-    """Load the raw manifest dictionary and validate the schema marker.
+    """Load the raw manifest dictionary.
 
     Args:
         dataset_dir: Directory containing the manifest file.
@@ -93,16 +101,14 @@ def load_dataset_manifest(dataset_dir: str | Path) -> dict[str, Any]:
 
     Raises:
         FileNotFoundError: If the manifest file does not exist.
-        ValueError: If the manifest does not have the expected schema marker.
+        TypeError: If the file is not a JSON object.
     """
     path = manifest_path_for(dataset_dir)
     if not path.exists():
         raise FileNotFoundError(f"Dataset manifest not found: {path}")
     manifest = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(manifest, dict) or not str(manifest.get("schema", "")).startswith(
-        "neuralls.dataset"
-    ):
-        raise ValueError(f"Invalid dataset manifest schema in {path}")
+    if not isinstance(manifest, dict):
+        raise TypeError(f"Invalid dataset manifest in {path}")
     return manifest
 
 
@@ -117,7 +123,7 @@ def read_dataset_manifest(dataset_dir: str | Path) -> DatasetManifest:
 
     Raises:
         FileNotFoundError: If the manifest file does not exist.
-        ValueError: If the manifest schema is invalid.
+        ValueError: If the manifest is invalid.
     """
     raw = load_dataset_manifest(dataset_dir)
 
@@ -151,7 +157,6 @@ def read_dataset_manifest(dataset_dir: str | Path) -> DatasetManifest:
     params_raw = raw.get("params") or []
     normalization_raw = raw["normalization"]
     return DatasetManifest(
-        schema=str(raw.get("schema", _DATASET_SCHEMA)),
         matrix=_artifact(raw["matrix"]),
         rhs=_artifact(raw["rhs"]),
         solutions=_artifact(raw["solutions"]),
@@ -186,7 +191,24 @@ def read_dataset_manifest(dataset_dir: str | Path) -> DatasetManifest:
             if raw.get("generation_peak_memory_bytes") is not None
             else None
         ),
+        provenance=(
+            decode_dataset_presentation(raw["provenance"])
+            if raw.get("provenance") is not None
+            else None
+        ),
     )
+
+
+def load_dataset_presentation(dataset_dir: str | Path) -> DatasetPresentation:
+    """Return the dataset's scientific presentation.
+
+    Raises:
+        MissingDatasetProvenanceError: If the dataset was written without provenance.
+    """
+    provenance = read_dataset_manifest(dataset_dir).provenance
+    if provenance is None:
+        raise MissingDatasetProvenanceError(dataset_dir)
+    return provenance
 
 
 def make_dataset_manifest(
@@ -204,8 +226,9 @@ def make_dataset_manifest(
     identity_components: dict[str, str] | None = None,
     generation_duration_seconds: float | None = None,
     generation_peak_memory_bytes: int | None = None,
+    provenance: DatasetPresentation | None = None,
 ) -> DatasetManifest:
-    """Construct a typed dataset manifest with the repo schema marker.
+    """Construct a typed dataset manifest.
 
     Args:
         matrix: Matrix artifact descriptor.
@@ -223,12 +246,12 @@ def make_dataset_manifest(
         generation_duration_seconds: Optional wall time of the generation
             that produced this dataset, stamped after writing.
         generation_peak_memory_bytes: Optional peak memory of that generation.
+        provenance: Optional scientific provenance, stamped after writing.
 
     Returns:
         Immutable DatasetManifest.
     """
     return DatasetManifest(
-        schema=_DATASET_SCHEMA,
         matrix=matrix,
         rhs=rhs,
         solutions=solutions,
@@ -242,4 +265,5 @@ def make_dataset_manifest(
         identity_components=identity_components,
         generation_duration_seconds=generation_duration_seconds,
         generation_peak_memory_bytes=generation_peak_memory_bytes,
+        provenance=provenance,
     )

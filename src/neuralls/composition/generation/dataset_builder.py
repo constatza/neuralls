@@ -14,6 +14,7 @@ from loguru import logger
 from neuralls.composition.generation.csr_streaming import write_csr_streamed
 from neuralls.composition.generation.default_services import make_solver
 from neuralls.composition.generation.dense_streaming import write_dense_streamed
+from neuralls.domain.generation.provenance import describe_dataset_generation
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.domain.identity import StageIdentity
 from neuralls.platform.storage.dataset_digest import (
@@ -25,6 +26,10 @@ from neuralls.platform.storage.dense_stream import STREAMED_DENSE_FORMATS
 from neuralls.platform.storage.manifest_io import read_dataset_manifest, save_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.device import ResourceUsage, track_resource_usage
+from neuralls.shared.scientific_description.presentation import (
+    DatasetPresentation,
+    DatasetSourceProvenance,
+)
 from neuralls.shared.types import DatasetFormat, MatrixFormat, SparsityPattern
 
 _GENERATION_DEVICE = torch.device("cpu")
@@ -67,7 +72,11 @@ def _guard_format_conflict(dataset_dir: Path, intended: DatasetFormat) -> None:
 
 
 def _stamp_dataset_identity(
-    dataset_dir: Path, identity: StageIdentity | None, *, generation_usage: ResourceUsage | None
+    dataset_dir: Path,
+    identity: StageIdentity | None,
+    *,
+    generation_usage: ResourceUsage | None,
+    provenance: Callable[[int], DatasetPresentation] | None = None,
 ) -> None:
     """Record digests (and identity, when known) of the freshly written dataset.
 
@@ -82,10 +91,14 @@ def _stamp_dataset_identity(
             produced this dataset — stamped so a later consumer that skips
             regeneration can still charge this cost (see
             ``DatasetManifest.generation_duration_seconds``).
+        provenance: Builds the dataset's scientific presentation from the realized row
+            count, or None when the caller supplied no source description.
     """
     manifest = read_dataset_manifest(dataset_dir)
+    rows = manifest.matrix.logical_sample_count
     stamped = replace(
         manifest,
+        provenance=provenance(rows) if provenance is not None and rows is not None else None,
         content_digest=dataset_content_digest(dataset_dir),
         stat_digest=stat_digest(dataset_dir),
         identity_key=identity.key if identity is not None else None,
@@ -159,6 +172,7 @@ def build_dataset(
     identity: StageIdentity | None = None,
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
     sparsity_pattern: SparsityPattern = SparsityPattern.RAGGED,
+    source_provenance: DatasetSourceProvenance | None = None,
 ) -> str:
     """Build a persisted dataset by streaming batches from the generator to storage.
 
@@ -179,6 +193,9 @@ def build_dataset(
         identity: Generation identity used for reuse and stamped into the manifest.
         matrix_format: Storage format of the system matrices (``[output].matrix_format``).
         sparsity_pattern: Stored CSR layout (``[output].sparsity_pattern``); CSR only.
+        source_provenance: Scientific description of the source problem. When given, the
+            manifest also records every generation strategy's parameters; without it the
+            dataset carries no scientific provenance and cannot be described later.
 
     Returns:
         The `dataset_dir` that now holds the dataset.
@@ -200,5 +217,16 @@ def build_dataset(
     with track_resource_usage(_GENERATION_DEVICE) as usage:
         streamed_writer(source, _with_default_solvers(spec), dataset_path, dataset_format)
     # Stamped only after the commit rename: an interrupted run never gets an identity.
-    _stamp_dataset_identity(dataset_path, identity, generation_usage=usage())
+    _stamp_dataset_identity(
+        dataset_path,
+        identity,
+        generation_usage=usage(),
+        provenance=(
+            None
+            if source_provenance is None
+            else lambda rows: DatasetPresentation(
+                source=source_provenance, generation=describe_dataset_generation(spec, rows)
+            )
+        ),
+    )
     return dataset_dir

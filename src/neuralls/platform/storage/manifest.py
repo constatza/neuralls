@@ -8,9 +8,8 @@ from typing import Any
 
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.digest import Digest
+from neuralls.shared.scientific_description.presentation import DatasetPresentation
 from neuralls.shared.types import LayoutType, MatrixFormat
-
-_DATASET_SCHEMA = "neuralls.dataset.v2"
 
 
 @dataclass(frozen=True)
@@ -65,9 +64,12 @@ class DatasetManifest:
             since the skip path never rewrites the manifest.
         generation_peak_memory_bytes: Peak memory during that generation,
             alongside `generation_duration_seconds`.
+        provenance: Structured scientific description of the dataset (its source
+            problem and every generation strategy), stamped after writing like the
+            digests. None means the dataset has no scientific provenance and must be
+            regenerated before it can be trained on, compared, or labelled.
     """
 
-    schema: str
     matrix: DatasetArtifact
     rhs: DatasetArtifact
     solutions: DatasetArtifact
@@ -81,6 +83,18 @@ class DatasetManifest:
     identity_components: dict[str, str] | None = None
     generation_duration_seconds: float | None = None
     generation_peak_memory_bytes: int | None = None
+    provenance: DatasetPresentation | None = None
+
+
+class MissingDatasetProvenanceError(ValueError):
+    """A dataset has no scientific provenance, so it cannot be described."""
+
+    def __init__(self, dataset_dir: str | Path) -> None:
+        self.dataset_dir = Path(dataset_dir)
+        super().__init__(
+            f"Dataset at '{dataset_dir}' has no scientific provenance. Regenerate it with a "
+            "'[source] problem' name so its source and generation parameters are recorded."
+        )
 
 
 def manifest_path_for(dataset_dir: str | Path) -> Path:

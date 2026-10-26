@@ -54,7 +54,10 @@ def test_render_dataset_toml_matches_committed_gaussian_residuals_file(
     """A gaussian_residuals-shaped render matches the real gaussian-cg50-1000.toml exactly."""
     content = dataset_sweep_module._render_dataset_toml(
         id_="gaussian-cg50-rectangular-high-condition-1000",
-        source={"matrix_path": "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"},
+        source={
+            "problem": "Rectangular high condition",
+            "matrix_path": "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt",
+        },
         generation_header={"normalize": "matrix", "shuffle": True, "seed": 42},
         strategy={"name": "gaussian_residuals", "samples": 1000, "stop": 50},
         strategy_comment=None,
@@ -79,7 +82,10 @@ def test_render_dataset_toml_matches_committed_gaussian_forward_file(
     ]
     content = dataset_sweep_module._render_dataset_toml(
         id_="gaussian-cg0-rectangular-high-condition-1000",
-        source={"matrix_path": "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"},
+        source={
+            "problem": "Rectangular high condition",
+            "matrix_path": "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt",
+        },
         generation_header={"normalize": "matrix", "shuffle": True, "seed": 42},
         strategy={"name": "gaussian_forward", "samples": 1000},
         strategy_comment=comment,
@@ -122,7 +128,10 @@ def test_expand_sweep_writes_one_file_per_value(
 ) -> None:
     spec = {
         "id": "gaussian-cg50-rectangular-high-condition",
-        "source": {"matrix_path": "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"},
+        "source": {
+            "problem": "Rectangular high condition",
+            "matrix_path": "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt",
+        },
         "generation": {
             "normalize": "matrix",
             "shuffle": True,

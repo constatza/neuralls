@@ -179,6 +179,22 @@ START_ITERATION = _key("start_iteration")
 ITERATION_LIMIT = _key("iteration_limit")
 FALLBACK = _key("fallback")
 REALIZED_LEVELS = _key("realized_levels")
+WINDOW_START = _key("window_start")
+WINDOW_STRIDE = _key("window_stride")
+EIGENVALUE_SELECTION = _key("eigenvalue_selection")
+EIGENVECTOR_COUNT = _key("eigenvector_count")
+EIGENVECTOR_INCLUSION = _key("eigenvector_inclusion")
+SOLVER_KIND = _key("solver_kind")
+SOLVER_RELATIVE_TOLERANCE = _key("solver_relative_tolerance")
+SOLVER_ABSOLUTE_TOLERANCE = _key("solver_absolute_tolerance")
+SOLVER_MAX_ITERATIONS = _key("solver_max_iterations")
+SOLVER_POSITIVE_DEFINITE = _key("solver_positive_definite")
+CONSTANT_VALUE = _key("constant_value")
+FREQUENCY = _key("frequency")
+RHS_SCALE = _key("rhs_scale")
+SOLUTION_SCALE = _key("solution_scale")
+VERIFICATION_TOLERANCE = _key("verification_tolerance")
+SPARSE_SUPPORT = _key("sparse_support")
 
 
 def _categories(*values: tuple[str, str, str]) -> CategoricalFormatter:
@@ -408,6 +424,167 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         visibility=FactVisibility.WHEN_NON_DEFAULT,
     ),
     _definition(REALIZED_LEVELS, _A, _R, 440, None, "Lᵣ", "L_r"),
+    _definition(
+        WINDOW_START,
+        _A,
+        _C,
+        450,
+        None,
+        "kₛ",
+        "k_s",
+    ),
+    _definition(
+        WINDOW_STRIDE,
+        _A,
+        _C,
+        460,
+        None,
+        "Δk",
+        "\\Delta k",
+    ),
+    _definition(
+        EIGENVALUE_SELECTION,
+        _A,
+        _C,
+        470,
+        None,
+        "λ",
+        "\\lambda",
+        categories=_categories(
+            ("smallest", "min", "\\mathrm{min}"),
+            ("largest", "max", "\\mathrm{max}"),
+            ("random", "rand", "\\mathrm{rand}"),
+        ),
+    ),
+    _definition(
+        EIGENVECTOR_COUNT,
+        _A,
+        _C,
+        480,
+        None,
+        "nₑ",
+        "n_e",
+    ),
+    _definition(
+        EIGENVECTOR_INCLUSION,
+        _A,
+        _C,
+        490,
+        None,
+        "EV",
+        "\\mathrm{EV}",
+        categories=_categories(
+            ("off", "off", "\\mathrm{off}"),
+            ("on", "on", "\\mathrm{on}"),
+        ),
+    ),
+    _definition(
+        SOLVER_KIND,
+        _A,
+        _C,
+        500,
+        None,
+        "S",
+        "S",
+        categories=_categories(
+            ("direct", "direct", "\\mathrm{direct}"),
+            ("cg", "CG", "\\mathrm{CG}"),
+        ),
+    ),
+    _definition(
+        SOLVER_RELATIVE_TOLERANCE,
+        _A,
+        _C,
+        510,
+        3,
+        "εᵣ",
+        "\\epsilon_r",
+    ),
+    _definition(
+        SOLVER_ABSOLUTE_TOLERANCE,
+        _A,
+        _C,
+        520,
+        3,
+        "εₐ",
+        "\\epsilon_a",
+    ),
+    _definition(
+        SOLVER_MAX_ITERATIONS,
+        _A,
+        _C,
+        530,
+        None,
+        "Kₘₐₓ",
+        "K_{\\max}",
+    ),
+    _definition(
+        SOLVER_POSITIVE_DEFINITE,
+        _A,
+        _C,
+        540,
+        None,
+        "SPD",
+        "\\mathrm{SPD}",
+        categories=_categories(
+            ("off", "off", "\\mathrm{off}"),
+            ("on", "on", "\\mathrm{on}"),
+        ),
+    ),
+    _definition(
+        CONSTANT_VALUE,
+        _A,
+        _C,
+        550,
+        3,
+        "v",
+        "v",
+    ),
+    _definition(
+        FREQUENCY,
+        _A,
+        _C,
+        560,
+        3,
+        "ω",
+        "\\omega",
+    ),
+    _definition(
+        RHS_SCALE,
+        _A,
+        _C,
+        570,
+        3,
+        "‖b‖",
+        "\\Vert b\\Vert",
+    ),
+    _definition(
+        SOLUTION_SCALE,
+        _A,
+        _C,
+        580,
+        3,
+        "α",
+        "\\alpha",
+    ),
+    _definition(
+        VERIFICATION_TOLERANCE,
+        _A,
+        _C,
+        590,
+        3,
+        "εᵥ",
+        "\\epsilon_v",
+    ),
+    _definition(
+        SPARSE_SUPPORT,
+        _A,
+        _C,
+        600,
+        None,
+        "nnz",
+        "\\mathrm{nnz}",
+    ),
 )
 
 _FACTS_BY_KEY: Mapping[FieldKey, FactDefinition] = MappingProxyType(

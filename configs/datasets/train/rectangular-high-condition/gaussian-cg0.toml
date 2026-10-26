@@ -1,6 +1,7 @@
 id = "gaussian-cg0-rectangular-high-condition"
 
 [source]
+problem = "Rectangular high condition"
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
 
 [generation]
