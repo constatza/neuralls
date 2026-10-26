@@ -242,4 +242,4 @@ def _log_generation_result(strategy_name: str, result: GeneratedSamples) -> None
     description = describe_generation_result(
         strategy_name, sample_count=_realized_row_count(result)
     )
-    logger.info(render(description, LOG_PROFILE, NotationPolicy.default()))
+    logger.info(render(description, LOG_PROFILE, NotationPolicy.default()).text)

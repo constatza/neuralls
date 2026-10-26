@@ -15,9 +15,8 @@ from neuralls.shared.scientific_description import LOG_PROFILE, NotationPolicy, 
 def test_residuals_strategy_renders_canonical_example() -> None:
     """Matches the plan's own worked example exactly."""
     description = describe_residual_trace("residuals", iteration_count=15, sample_count=500)
-    assert (
-        render(description, LOG_PROFILE, NotationPolicy.default()) == "CG Residuals (k=15, N=500)"
-    )
+    rendered = render(description, LOG_PROFILE, NotationPolicy.default())
+    assert rendered.text == "CG Residuals (k=15, N=500)"
 
 
 def test_gaussian_residuals_strategy_uses_distinct_base_name() -> None:
@@ -26,7 +25,7 @@ def test_gaussian_residuals_strategy_uses_distinct_base_name() -> None:
         "gaussian_residuals", iteration_count=10, sample_count=250
     )
     rendered = render(description, LOG_PROFILE, NotationPolicy.default())
-    assert rendered == "Gaussian CG Residuals (k=10, N=250)"
+    assert rendered.text == "Gaussian CG Residuals (k=10, N=250)"
 
 
 def test_unknown_strategy_name_falls_back_to_raw_name() -> None:
@@ -67,13 +66,14 @@ def test_describe_generation_result_covers_every_registered_strategy(
     Matches the user's own worked example shape, e.g. ``"Error Traces (N=1000)"``.
     """
     description = describe_generation_result(strategy_name, sample_count=1000)
-    assert render(description, LOG_PROFILE, NotationPolicy.default()) == expected
+    assert render(description, LOG_PROFILE, NotationPolicy.default()).text == expected
 
 
 def test_describe_generation_result_falls_back_for_unknown_strategy() -> None:
     """A future strategy added without updating the base-name table still renders, not raises."""
     description = describe_generation_result("future_strategy", sample_count=5)
-    assert render(description, LOG_PROFILE, NotationPolicy.default()) == "future_strategy (N=5)"
+    rendered = render(description, LOG_PROFILE, NotationPolicy.default())
+    assert rendered.text == "future_strategy (N=5)"
 
 
 def test_residual_trace_strategy_names_are_excluded_from_generic_dispatch() -> None:

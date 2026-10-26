@@ -440,7 +440,7 @@ def preconditioner_label(
     )
     ordered = tuple(sorted(facts, key=lambda fact: fact.importance is _VARIANT))
     description = ScientificDescription(base_name=family.abbreviation(), facts=ordered)
-    return render(description, _PRECONDITIONER_LEGEND, _default_policy(policy))
+    return render(description, _PRECONDITIONER_LEGEND, _default_policy(policy)).text
 
 
 def build_configured_preconditioner_label(
@@ -456,7 +456,7 @@ def build_configured_preconditioner_label(
     description = ScientificDescription(
         base_name=family.abbreviation(), facts=configured_facts(cfg)
     )
-    return render(description, _PRECONDITIONER_LEGEND, _default_policy(policy))
+    return render(description, _PRECONDITIONER_LEGEND, _default_policy(policy)).text
 
 
 def contextualize_preconditioner_label(label: str, context: str | None) -> str:

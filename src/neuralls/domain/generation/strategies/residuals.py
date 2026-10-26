@@ -241,7 +241,7 @@ class _BaseResidualsStrategy:
                 ),
                 LOG_PROFILE,
                 NotationPolicy.default(),
-            )
+            ).text
         )
 
         return GeneratedSamples(
