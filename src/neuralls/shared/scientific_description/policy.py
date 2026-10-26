@@ -12,8 +12,71 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
+from types import MappingProxyType
 
+from neuralls.shared.scientific_description.catalog import (
+    ALGEBRAIC_DISTANCE_THRESHOLD,
+    BOOTSTRAP_CYCLES,
+    CANDIDATE_COUNT,
+    CANDIDATE_ITERATIONS,
+    COARSE_DIMENSION,
+    COARSENING_STRATEGY,
+    DAMPING,
+    DROP_TOLERANCE,
+    FACT_DEFINITIONS,
+    ITERATION_COUNT,
+    KRYLOV_DIMENSION,
+    MEAN,
+    MODEL_ARCHITECTURE,
+    MULTIGRID_LEVELS,
+    POST_SMOOTHING_STEPS,
+    PRE_SMOOTHING_STEPS,
+    RELAXATION_SWEEPS,
+    RELAXATION_TEST_VECTORS,
+    SAMPLE_COUNT,
+    SMOOTHER_DAMPING,
+    STANDARD_DEVIATION,
+    SYSTEM_DIMENSION,
+    TARGET_COARSE_DIMENSION,
+    THRESHOLD,
+    fact_definition,
+)
 from neuralls.shared.scientific_description.models import FieldKey
+
+__all__ = [
+    "ALGEBRAIC_DISTANCE_THRESHOLD",
+    "BOOTSTRAP_CYCLES",
+    "CANDIDATE_COUNT",
+    "CANDIDATE_ITERATIONS",
+    "COARSENING_STRATEGY",
+    "COARSE_DIMENSION",
+    "DAMPING",
+    "DEFAULT_SYMBOLS",
+    "DETAILED_PROFILE",
+    "DROP_TOLERANCE",
+    "ITERATION_COUNT",
+    "KRYLOV_DIMENSION",
+    "LEGEND_PROFILE",
+    "LOG_PROFILE",
+    "MEAN",
+    "MODEL_ARCHITECTURE",
+    "MULTIGRID_LEVELS",
+    "POST_SMOOTHING_STEPS",
+    "PRE_SMOOTHING_STEPS",
+    "RELAXATION_SWEEPS",
+    "RELAXATION_TEST_VECTORS",
+    "SAMPLE_COUNT",
+    "SMOOTHER_DAMPING",
+    "STANDARD_DEVIATION",
+    "SYSTEM_DIMENSION",
+    "TARGET_COARSE_DIMENSION",
+    "THRESHOLD",
+    "TITLE_PROFILE",
+    "NotationPolicy",
+    "RenderProfile",
+    "RenderTarget",
+    "SymbolSpec",
+]
 
 
 class RenderTarget(StrEnum):
@@ -35,59 +98,15 @@ class SymbolSpec:
     math: str
 
 
-def _key(name: str) -> FieldKey:
-    return FieldKey(name)
-
-
-SAMPLE_COUNT = _key("sample_count")
-SYSTEM_DIMENSION = _key("system_dimension")
-ITERATION_COUNT = _key("iteration_count")
-KRYLOV_DIMENSION = _key("krylov_dimension")
-COARSE_DIMENSION = _key("coarse_dimension")
-TARGET_COARSE_DIMENSION = _key("target_coarse_dimension")
-MULTIGRID_LEVELS = _key("multigrid_levels")
-THRESHOLD = _key("threshold")
-DAMPING = _key("damping")
-MEAN = _key("mean")
-STANDARD_DEVIATION = _key("standard_deviation")
-DROP_TOLERANCE = _key("drop_tolerance")
-PRE_SMOOTHING_STEPS = _key("pre_smoothing_steps")
-POST_SMOOTHING_STEPS = _key("post_smoothing_steps")
-SMOOTHER_DAMPING = _key("smoother_damping")
-CANDIDATE_COUNT = _key("candidate_count")
-CANDIDATE_ITERATIONS = _key("candidate_iterations")
-RELAXATION_TEST_VECTORS = _key("relaxation_test_vectors")
-RELAXATION_SWEEPS = _key("relaxation_sweeps")
-BOOTSTRAP_CYCLES = _key("bootstrap_cycles")
-ALGEBRAIC_DISTANCE_THRESHOLD = _key("algebraic_distance_threshold")
-COARSENING_STRATEGY = _key("coarsening_strategy")
-MODEL_ARCHITECTURE = _key("model_architecture")
-
-DEFAULT_SYMBOLS: Mapping[FieldKey, SymbolSpec] = {
-    SAMPLE_COUNT: SymbolSpec(plain="N", math="N"),
-    SYSTEM_DIMENSION: SymbolSpec(plain="n", math="n"),
-    ITERATION_COUNT: SymbolSpec(plain="k", math="k"),
-    KRYLOV_DIMENSION: SymbolSpec(plain="m", math="m"),
-    COARSE_DIMENSION: SymbolSpec(plain="c", math="c"),
-    TARGET_COARSE_DIMENSION: SymbolSpec(plain="c_t", math="c_t"),
-    MULTIGRID_LEVELS: SymbolSpec(plain="L", math="L"),
-    THRESHOLD: SymbolSpec(plain="θ", math="\\theta"),
-    DAMPING: SymbolSpec(plain="ω", math="\\omega"),
-    MEAN: SymbolSpec(plain="μ", math="\\mu"),
-    STANDARD_DEVIATION: SymbolSpec(plain="σ", math="\\sigma"),
-    DROP_TOLERANCE: SymbolSpec(plain="τ", math="\\tau"),
-    PRE_SMOOTHING_STEPS: SymbolSpec(plain="ν1", math="\\nu_1"),
-    POST_SMOOTHING_STEPS: SymbolSpec(plain="ν2", math="\\nu_2"),
-    SMOOTHER_DAMPING: SymbolSpec(plain="ω_s", math="\\omega_s"),
-    CANDIDATE_COUNT: SymbolSpec(plain="k", math="k"),
-    CANDIDATE_ITERATIONS: SymbolSpec(plain="n_it", math="n_{it}"),
-    RELAXATION_TEST_VECTORS: SymbolSpec(plain="k_r", math="k_r"),
-    RELAXATION_SWEEPS: SymbolSpec(plain="η", math="\\eta"),
-    BOOTSTRAP_CYCLES: SymbolSpec(plain="n_b", math="n_b"),
-    ALGEBRAIC_DISTANCE_THRESHOLD: SymbolSpec(plain="θ_ad", math="\\theta_{ad}"),
-    COARSENING_STRATEGY: SymbolSpec(plain="coarsening", math="\\mathrm{coarsening}"),
-    MODEL_ARCHITECTURE: SymbolSpec(plain="arch", math="\\mathrm{arch}"),
-}
+DEFAULT_SYMBOLS: Mapping[FieldKey, SymbolSpec] = MappingProxyType(
+    {
+        definition.key: SymbolSpec(
+            plain=definition.plain_symbol,
+            math=definition.mathtext_symbol,
+        )
+        for definition in FACT_DEFINITIONS
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,16 +123,22 @@ class NotationPolicy:
 
     def with_overrides(self, overrides: Mapping[FieldKey, SymbolSpec]) -> NotationPolicy:
         """Return a copy with ``overrides`` merged on top of the current symbols."""
+        for key in overrides:
+            fact_definition(key)
         return NotationPolicy(target=self.target, symbols={**self.symbols, **overrides})
 
     def symbol_for(self, key: FieldKey) -> SymbolSpec:
-        """Return the symbol for ``key``, falling back to its raw name if unknown."""
-        return self.symbols.get(key, SymbolSpec(plain=key.value, math=key.value))
+        """Return the controlled symbol for ``key`` or reject an unknown key."""
+        definition = fact_definition(key)
+        return self.symbols.get(
+            key,
+            SymbolSpec(plain=definition.plain_symbol, math=definition.mathtext_symbol),
+        )
 
 
 @dataclass(frozen=True, slots=True)
 class RenderProfile:
-    """Controls field visibility, order, precision, and length for one render call."""
+    """Controls field visibility, order, precision, and preferred line length."""
 
     name: str
     include_context: bool

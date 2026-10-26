@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import StrEnum
+from math import isfinite
 
 _FIELD_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -31,10 +32,9 @@ class FieldKey:
 
 
 class FieldImportance(StrEnum):
-    """Priority of a fact within ``ScientificDescription.facts``.
+    """Semantic selection hint for presentation planning.
 
-    Drives deterministic length-budget reduction: ``VARIANT`` facts are
-    dropped before ``ESSENTIAL`` ones, never the other way around.
+    The renderer never uses importance to delete a selected fact.
     """
 
     ESSENTIAL = "essential"
@@ -57,6 +57,11 @@ class DecimalFact:
     key: FieldKey
     value: float
     importance: FieldImportance
+
+    def __post_init__(self) -> None:
+        """Reject values with no finite scientific representation."""
+        if not isfinite(self.value):
+            raise ValueError(f"DecimalFact value must be finite, got {self.value!r}")
 
 
 @dataclass(frozen=True, slots=True)

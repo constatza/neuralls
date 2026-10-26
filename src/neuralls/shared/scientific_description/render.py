@@ -7,8 +7,9 @@ a strategy/preconditioner/storage object to produce a label.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
+from neuralls.shared.scientific_description.catalog import fact_definition
 from neuralls.shared.scientific_description.models import (
     DecimalFact,
     FieldKey,
@@ -27,25 +28,29 @@ _DEFAULT_DECIMAL_PRECISION = 3
 _INLINE_PROFILE_NAME = "_inline"
 
 
+@dataclass(frozen=True, slots=True)
+class RenderedScientificDescription:
+    """Rendered text plus safe boundaries a sink may use for wrapping."""
+
+    text: str
+    preferred_wrap_boundaries: tuple[int, ...] = ()
+
+
 def render(
     description: ScientificDescription,
     profile: RenderProfile,
     policy: NotationPolicy,
-) -> str:
-    """Render ``description`` under ``profile`` using ``policy``'s notation."""
+) -> RenderedScientificDescription:
+    """Render all selected facts and return non-destructive layout hints."""
     selected = _select_facts(description, profile)
-    # The budget is about what a reader sees, so it is measured on the plain
-    # spelling for every target: `$\\theta=0.25$` is markup, not extra width.
     visible_policy = replace(policy, target=RenderTarget.PLAIN)
-    while profile.max_length is not None and (
-        len(_compose(description.base_name, selected, profile, visible_policy)) > profile.max_length
-    ):
-        droppable = [fact for fact in selected if _drop_priority(fact, description) > 0]
-        if not droppable:
-            break
-        to_drop = max(droppable, key=lambda fact: _drop_priority(fact, description))
-        selected = [fact for fact in selected if fact is not to_drop]
-    return _compose(description.base_name, selected, profile, policy)
+    visible_text, _ = _compose(description.base_name, selected, profile, visible_policy)
+    text, boundaries = _compose(description.base_name, selected, profile, policy)
+    should_wrap = profile.max_length is not None and len(visible_text) > profile.max_length
+    return RenderedScientificDescription(
+        text=text,
+        preferred_wrap_boundaries=boundaries if should_wrap else (),
+    )
 
 
 def render_facts(
@@ -79,24 +84,22 @@ def _select_facts(
     return facts
 
 
-def _drop_priority(fact: ScientificFact, description: ScientificDescription) -> int:
-    if fact in description.context_facts:
-        return 2
-    if fact.importance.value == "variant":
-        return 1
-    return 0
-
-
 def _compose(
     base_name: str,
     facts: list[ScientificFact],
     profile: RenderProfile,
     policy: NotationPolicy,
-) -> str:
+) -> tuple[str, tuple[int, ...]]:
     if not facts:
-        return base_name
-    formatted = ", ".join(_format_fact(fact, profile, policy) for fact in facts)
-    return f"{base_name} ({formatted})"
+        return base_name, ()
+    formatted = tuple(_format_fact(fact, profile, policy) for fact in facts)
+    prefix = f"{base_name} ("
+    cursor = len(prefix)
+    boundaries: list[int] = []
+    for fragment in formatted[:-1]:
+        cursor += len(fragment) + len(", ")
+        boundaries.append(cursor)
+    return f"{prefix}{', '.join(formatted)})", tuple(boundaries)
 
 
 _MATH_TEXT_SPECIALS = str.maketrans({"_": "\\_", "%": "\\%", "#": "\\#", "&": "\\&", "$": "\\$"})
@@ -105,16 +108,22 @@ _MATH_TEXT_SPECIALS = str.maketrans({"_": "\\_", "%": "\\%", "#": "\\#", "&": "\
 
 
 def _format_fact(fact: ScientificFact, profile: RenderProfile, policy: NotationPolicy) -> str:
+    definition = fact_definition(fact.key)
     symbol = policy.symbol_for(fact.key)
-    value_str = _format_value(fact, profile.precision.get(fact.key))
+    precision = profile.precision.get(fact.key, definition.precision)
+    value_str = _format_value(fact, precision, policy.target)
     if policy.target is RenderTarget.PLAIN:
         return f"{symbol.plain}={value_str}"
-    if isinstance(fact, TextFact):
+    if isinstance(fact, TextFact) and definition.categorical_formatter is None:
         value_str = value_str.translate(_MATH_TEXT_SPECIALS)
     return f"${symbol.math}={value_str}$"
 
 
-def _format_value(fact: ScientificFact, precision: int | None) -> str:
+def _format_value(
+    fact: ScientificFact,
+    precision: int | None,
+    target: RenderTarget,
+) -> str:
     match fact:
         case IntegerFact(value=value):
             return str(value)
@@ -122,4 +131,9 @@ def _format_value(fact: ScientificFact, precision: int | None) -> str:
             digits = precision if precision is not None else _DEFAULT_DECIMAL_PRECISION
             return f"{value:.{digits}g}"
         case TextFact(value=value):
-            return value
+            formatter = fact_definition(fact.key).categorical_formatter
+            if formatter is None:
+                return value
+            if target is RenderTarget.PLAIN:
+                return formatter.plain(fact.key, value)
+            return formatter.mathtext(fact.key, value)
