@@ -41,7 +41,6 @@ from neuralls.shared.scientific_description.catalog import (
     CANDIDATE_COUNT,
     COARSE_DIMENSION,
     ITERATION_COUNT,
-    MODEL_ARCHITECTURE,
     MULTIGRID_LEVELS,
     RANK,
     SAMPLE_COUNT,
@@ -327,4 +326,4 @@ def test_realize_method_requires_unique_realized_systems(
 def test_system_realization_rejects_configured_facts() -> None:
     with pytest.raises(ValueError, match="not a realized fact"):
         _system(0, _int(RANK, 3))
-    assert _system(0, IntegerFact(MODEL_ARCHITECTURE, 1, ESSENTIAL))
+    assert _system(0, _int(COARSE_DIMENSION, 4))

@@ -13,6 +13,7 @@ from enum import StrEnum
 from math import isfinite
 
 _FIELD_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+_LABEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 \-]*[A-Za-z0-9]$|^[A-Za-z0-9]$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +74,34 @@ class TextFact:
     importance: FieldImportance
 
 
-type ScientificFact = IntegerFact | DecimalFact | TextFact
+@dataclass(frozen=True, slots=True)
+class ValidatedLabel:
+    """A short human-authored name that is safe to show in every render target.
+
+    Letters, digits, single spaces, and hyphens only: no underscores, so an
+    identifier or class name cannot pass, and nothing needs escaping in MathText.
+    """
+
+    text: str
+
+    def __post_init__(self) -> None:
+        """Reject text that is not a plain human-readable name."""
+        if not _LABEL_PATTERN.fullmatch(self.text) or "  " in self.text:
+            raise ValueError(
+                f"ValidatedLabel must be a plain human-readable name, got {self.text!r}"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class DisplayTextFact:
+    """A text fact whose value is a validated, human-authored name (e.g. a model name)."""
+
+    key: FieldKey
+    value: ValidatedLabel
+    importance: FieldImportance
+
+
+type ScientificFact = IntegerFact | DecimalFact | TextFact | DisplayTextFact
 
 
 @dataclass(frozen=True, slots=True)

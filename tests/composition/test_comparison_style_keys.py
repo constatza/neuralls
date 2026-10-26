@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from neuralls.composition.comparison.comparison_run import _pod2g_style_keys
+from neuralls.composition.preconditioners.labels import build_configured_preconditioner_label
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     NeuralPODCoarseningConfig,
@@ -22,7 +23,6 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
-from neuralls.platform.reporting.preconditioner_labels import build_configured_preconditioner_label
 from neuralls.shared.scientific_description import NotationPolicy, RenderTarget
 
 
@@ -111,6 +111,6 @@ def test_configured_pod_labels_expose_rank_without_config_slug(pod2g_dataset_dir
         )
     )
 
-    assert rank_three == "POD-2G (rank=3)"
-    assert rank_five == "POD-2G (rank=5)"
+    assert rank_three == "POD-2G (r=3, ν₁=2, ν₂=2, ωₛ=auto)"
+    assert rank_five == "POD-2G (r=5, ν₁=2, ν₂=2, ωₛ=auto)"
     assert "config=" not in rank_three

@@ -14,6 +14,7 @@ from torchalg.preconditioners.implementations import Identity, JacobiPreconditio
 
 from neuralls.composition.comparison._plots import _generate_comparison_plots
 from neuralls.composition.comparison.models import ComparisonPaths
+from neuralls.composition.preconditioners.labels import build_preconditioner_labels
 from neuralls.domain.analysis.spectra import plot_condition_numbers
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.cost import StageCost
@@ -30,7 +31,6 @@ from neuralls.platform.reporting.plots import (
     plot_time_breakdown_barplot,
     plot_work_precision,
 )
-from neuralls.platform.reporting.preconditioner_labels import build_preconditioner_labels
 from neuralls.shared.types import CostProvenance
 
 # TODO: Keep one real save per public plotter; mock the render/save boundary in
@@ -617,9 +617,7 @@ def test_generate_comparison_plots_includes_iterations_barplot(
         two_preconditioner_families: Family key per name, from fixture.
         two_preconditioner_configs: Config per name, from fixture.
     """
-    labels = build_preconditioner_labels(
-        two_preconditioners, two_preconditioner_families, two_preconditioner_configs
-    )
+    labels = build_preconditioner_labels(two_preconditioners, two_preconditioner_configs)
 
     with (
         patch(
@@ -665,9 +663,7 @@ def test_generate_comparison_plots_includes_time_breakdown_barplot_when_measured
         two_preconditioner_families: Family key per name, from fixture.
         two_preconditioner_configs: Config per name, from fixture.
     """
-    labels = build_preconditioner_labels(
-        two_preconditioners, two_preconditioner_families, two_preconditioner_configs
-    )
+    labels = build_preconditioner_labels(two_preconditioners, two_preconditioner_configs)
 
     with (
         patch("neuralls.composition.comparison._plots.plot_convergence_comparison"),

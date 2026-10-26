@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from neuralls.composition.comparison.group_reporting import report_all_levels
 from neuralls.composition.comparison.models import CompletedMethodWorkload
+from neuralls.composition.preconditioners.labels import build_configured_preconditioner_label
 from neuralls.domain.solver.models import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -22,7 +23,6 @@ from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     PreconditionerType,
 )
-from neuralls.platform.reporting.preconditioner_labels import build_configured_preconditioner_label
 from neuralls.shared.types import (
     DatasetId,
     MatrixId,
@@ -307,5 +307,11 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels() -> N
     sink = PresentationSink()
     report_all_levels((workload("amg_theta_025"), workload("amg_theta_05")), sink)
 
-    assert sink.presentations[0].plot_styles["amg_theta_025"].label == "AMG (L=2, θ=0.25)"
-    assert sink.presentations[0].plot_styles["amg_theta_05"].label == "AMG (L=2, θ=0.5)"
+    assert (
+        sink.presentations[0].plot_styles["amg_theta_025"].label
+        == "AMG (L=2, θ=0.25, ν₁=2, ν₂=2, ωₛ=auto)"
+    )
+    assert (
+        sink.presentations[0].plot_styles["amg_theta_05"].label
+        == "AMG (L=2, θ=0.5, ν₁=2, ν₂=2, ωₛ=auto)"
+    )

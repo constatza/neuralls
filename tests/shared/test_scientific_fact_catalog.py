@@ -10,11 +10,13 @@ import pytest
 
 from neuralls.shared.scientific_description.models import (
     DecimalFact,
+    DisplayTextFact,
     FieldImportance,
     FieldKey,
     IntegerFact,
     ScientificDescription,
     TextFact,
+    ValidatedLabel,
 )
 from neuralls.shared.scientific_description.policy import (
     LEGEND_PROFILE,
@@ -210,7 +212,7 @@ def expected_definitions() -> tuple[ExpectedFactDefinition, ...]:
             ),
         ),
         ExpectedFactDefinition(
-            "model_architecture", "algorithmic", "realized", 380, None, "arch", "\\mathrm{arch}"
+            "model_architecture", "algorithmic", "configured", 380, None, "arch", "\\mathrm{arch}"
         ),
         ExpectedFactDefinition(
             "assignment",
@@ -251,6 +253,30 @@ def expected_definitions() -> tuple[ExpectedFactDefinition, ...]:
             "kₘₐₓ",
             "k_{\\max}",
             visibility="when_non_default",
+        ),
+        ExpectedFactDefinition(
+            "fallback",
+            "scheduling",
+            "configured",
+            430,
+            None,
+            "fb",
+            "\\mathrm{fb}",
+            categories=(
+                ("identity", "Identity", "\\mathrm{Identity}"),
+                ("jacobi", "Jacobi", "\\mathrm{Jacobi}"),
+                ("ilu", "ILU", "\\mathrm{ILU}"),
+                ("ic0", "IC(0)", "\\mathrm{IC(0)}"),
+                ("neural", "Neural", "\\mathrm{Neural}"),
+                ("amg", "AMG", "\\mathrm{AMG}"),
+                ("neural_amg", "Neural AMG", "\\mathrm{Neural\\ AMG}"),
+                ("adaptive_sa_amg", "aSA", "\\mathrm{aSA}"),
+                ("bootstrap_amg", "BAMG", "\\mathrm{BAMG}"),
+            ),
+            visibility="when_non_default",
+        ),
+        ExpectedFactDefinition(
+            "realized_levels", "algorithmic", "realized", 440, None, "Lᵣ", "L_r"
         ),
     )
 
@@ -479,3 +505,25 @@ def test_legacy_length_budget_keeps_every_bamg_fact_and_returns_layout_hints(
     assert all(
         rendered.text[index - 2 : index] == ", " for index in rendered.preferred_wrap_boundaries
     )
+
+
+def test_display_text_fact_renders_validated_label_in_every_target(catalog: ModuleType) -> None:
+    """A validated human-authored name renders without escaping or identifier text."""
+    fact = DisplayTextFact(
+        catalog.MODEL_ARCHITECTURE, ValidatedLabel("Graph Net"), FieldImportance.ESSENTIAL
+    )
+
+    assert render_facts((fact,), NotationPolicy.default(RenderTarget.PLAIN)) == "arch=Graph Net"
+    assert (
+        render_facts((fact,), NotationPolicy.default(RenderTarget.MATHTEXT))
+        == "$\\mathrm{arch}=\\mathrm{Graph\\ Net}$"
+    )
+
+
+@pytest.mark.parametrize(
+    "text", ["", " lead", "trail ", "snake_case", "Two  spaces", "Net$", "a\nb"]
+)
+def test_validated_label_rejects_non_human_text(text: str) -> None:
+    """Identifiers, markup characters, and control characters cannot become labels."""
+    with pytest.raises(ValueError):
+        ValidatedLabel(text)

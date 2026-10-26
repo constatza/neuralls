@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from neuralls.shared.scientific_description.models import (
     DecimalFact,
+    DisplayTextFact,
     FieldImportance,
     FieldKey,
     IntegerFact,
     ScientificDescription,
     ScientificFact,
     TextFact,
+    ValidatedLabel,
 )
 from neuralls.shared.scientific_description.policy import (
     ALGEBRAIC_DISTANCE_THRESHOLD,
@@ -93,6 +95,7 @@ __all__ = [
     "DatasetQualifiedMethodPresentation",
     "DatasetSourceProvenance",
     "DecimalFact",
+    "DisplayTextFact",
     "DuplicateMethodPresentationError",
     "EditorialPresentation",
     "FieldImportance",
@@ -113,6 +116,7 @@ __all__ = [
     "SystemRealization",
     "TextFact",
     "UnvalidatedComparisonPresentation",
+    "ValidatedLabel",
     "render",
     "render_facts",
     "render_method",

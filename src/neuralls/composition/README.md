@@ -268,18 +268,16 @@ nested child-run writes to `platform.tracking`, while only assembling child tag
 payloads and deciding when the logging happens.
 
 Comparison plot legends are a separate concern from that MLflow metric-key
-policy. `platform.reporting.preconditioner_labels` builds a display name as a
-`ScientificDescription` rendered under the shared `LEGEND_PROFILE` and the case's
+policy. `composition.preconditioners.descriptions` builds each display name as a
+`ScientificDescription`: the family abbreviation plus *configured* facts (every
+algorithmic parameter with defaults included, seeds for aSA/BAMG, scheduling
+controls only when non-default, a neural model's validated `display_name`) and
+*realized* facts read from the constructed `torchalg` object (the realized coarse
+dimension and, for aSA/BAMG, the realized level count). No fact is dropped for
+length; `composition.preconditioners.labels` renders the text under the case's
 `notation_policy` (`[comparison_baseline.presentation]`, threaded from
-`ComparisonConfig` through `compare_preconditioners`): the family abbreviation plus
-facts of two kinds. *Realized* facts come from the *constructed* `torchalg` object
-(POD-2G's fitted basis rank, an aggregation threshold's realized coarse dimension,
-an adaptive hierarchy's realized levels, a neural model's architecture class name)
-and are never dropped for length. *Configured* facts come from the config (grid
-levels, an IC0 drop tolerance, smoothing steps, POD rank/weighting, and aSA/BAMG settings) and cover CSR
-preconditioners too; those that merely tell variants apart are lowest priority and
-dropped first, anything at its config default is omitted, and seeds are never shown.
-Composition supplies only workflow provenance: for POD-2G it appends the fit
+`ComparisonConfig` through `compare_preconditioners`) for the workflow until
+plots and tracking consume the structured objects directly. Composition supplies only workflow provenance: for POD-2G it appends the fit
 dataset id, producing labels such as ``POD-2G (c=10) | gaussian-cg10-...``.
 `composition.comparison._plots` keeps solver results and style metadata keyed by
 their original preconditioner key and passes display labels in a separate

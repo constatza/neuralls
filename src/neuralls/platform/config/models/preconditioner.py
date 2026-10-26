@@ -409,6 +409,14 @@ class NeuralPreconditionerConfig(BasePreconditionerConfig, NeuralCheckpointRef):
     """
 
     type: Literal[PreconditionerType.NEURAL] = PreconditionerType.NEURAL
+    display_name: Annotated[str | None, Cosmetic()] = Field(
+        default=None,
+        description=(
+            "Short human-readable architecture name shown in labels, e.g. 'Graph Net'. "
+            "Required to describe the method; never read from a class name. Cosmetic, "
+            "so it does not change the preconditioner's identity digest."
+        ),
+    )
     extra_input_names: tuple[str, ...] = Field(
         default=(),
         description=(
@@ -1211,8 +1219,8 @@ def preconditioner_slug(cfg: PreconditionerConfig) -> str:
     duplicate, correctly rejected by
     ``result_keys.validate_unique_preconditioner_keys``); any differing
     field changes the slug. Never carries the Greek/space/paren notation
-    of the human-readable render (see ``platform.reporting
-    .preconditioner_labels.describe_preconditioner``) — that would break
+    of the human-readable render (see ``composition.preconditioners
+    .descriptions``) — that would break
     MLflow metric-key stability across runs.
     """
     match cfg:

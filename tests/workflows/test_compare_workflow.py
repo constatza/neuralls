@@ -234,7 +234,7 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
     monkeypatch.setattr(
         comparison_run,
         "build_preconditioner_labels",
-        lambda preconditioners, families, configs, *, policy=None: (
+        lambda preconditioners, configs, *, policy=None: (
             seen_policies.append(policy) or {name: name for name in preconditioners}
         ),
     )

@@ -17,6 +17,7 @@ from neuralls.shared.scientific_description.catalog import (
 )
 from neuralls.shared.scientific_description.models import (
     DecimalFact,
+    DisplayTextFact,
     FieldKey,
     IntegerFact,
     ScientificDescription,
@@ -184,6 +185,10 @@ def _format_value(
         case DecimalFact(value=value):
             digits = precision if precision is not None else _DEFAULT_DECIMAL_PRECISION
             return f"{value:.{digits}g}"
+        case DisplayTextFact(value=label):
+            if target is RenderTarget.PLAIN:
+                return label.text
+            return "\\mathrm{" + label.text.replace(" ", "\\ ") + "}"
         case TextFact(value=value):
             formatter = fact_definition(fact.key).categorical_formatter
             if formatter is None:

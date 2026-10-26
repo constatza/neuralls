@@ -59,16 +59,11 @@ Auto-generated comparison display names stay dataset-defined: they resolve to
 the matrix dataset label alone when matrix and RHS come from the same dataset,
 or to `{matrix_label} | {rhs_label}` when they differ. Explicitly configured
 comparison display names still override the generated label.
-Reporting labels (`reporting/preconditioner_labels.py`) combine the method
-abbreviation with realized facts from the constructed preconditioner and
-configured facts from its config, rendered under the case's notation policy and
-the shared legend budget. POD-2G configured labels retain the requested rank
-and other concise coarsening distinctions; aggregation labels retain threshold
-and explicit damping, and target-dimension labels retain the requested coarse
-dimension. Checkpoint-backed neural variants retain assignment identity. Neural
-labels retain a configured assignment identity alongside the realized
-architecture, so separate models are visibly distinct.
-Workflow provenance is added separately:
+Preconditioner labels are rendered from the structured descriptions in
+`composition/preconditioners/descriptions.py` (see the composition README):
+every algorithmic parameter is shown, including defaults, and neural variants
+are distinguished by a validated `display_name`, never by assignment identity or
+class name. Workflow provenance is added separately:
 POD-2G labels append the fit-dataset id after ``|`` so equal-rank bases fitted
 on different datasets remain explicit, while the plotting API keeps result
 keys and display labels as separate mappings. Human-readable labels are never

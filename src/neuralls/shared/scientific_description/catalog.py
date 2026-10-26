@@ -177,6 +177,8 @@ ASSIGNMENT = _key("assignment")
 SEED = _key("seed")
 START_ITERATION = _key("start_iteration")
 ITERATION_LIMIT = _key("iteration_limit")
+FALLBACK = _key("fallback")
+REALIZED_LEVELS = _key("realized_levels")
 
 
 def _categories(*values: tuple[str, str, str]) -> CategoricalFormatter:
@@ -343,7 +345,7 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
             ("target_dim", "target-c", "\\mathrm{target-c}"),
         ),
     ),
-    _definition(MODEL_ARCHITECTURE, _A, _R, 380, None, "arch", "\\mathrm{arch}"),
+    _definition(MODEL_ARCHITECTURE, _A, _C, 380, None, "arch", "\\mathrm{arch}"),
     _definition(
         ASSIGNMENT,
         FactRole.IDENTITY,
@@ -384,6 +386,28 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         "k_{\\max}",
         visibility=FactVisibility.WHEN_NON_DEFAULT,
     ),
+    _definition(
+        FALLBACK,
+        FactRole.SCHEDULING,
+        _C,
+        430,
+        None,
+        "fb",
+        "\\mathrm{fb}",
+        categories=_categories(
+            ("identity", "Identity", "\\mathrm{Identity}"),
+            ("jacobi", "Jacobi", "\\mathrm{Jacobi}"),
+            ("ilu", "ILU", "\\mathrm{ILU}"),
+            ("ic0", "IC(0)", "\\mathrm{IC(0)}"),
+            ("neural", "Neural", "\\mathrm{Neural}"),
+            ("amg", "AMG", "\\mathrm{AMG}"),
+            ("neural_amg", "Neural AMG", "\\mathrm{Neural\\ AMG}"),
+            ("adaptive_sa_amg", "aSA", "\\mathrm{aSA}"),
+            ("bootstrap_amg", "BAMG", "\\mathrm{BAMG}"),
+        ),
+        visibility=FactVisibility.WHEN_NON_DEFAULT,
+    ),
+    _definition(REALIZED_LEVELS, _A, _R, 440, None, "Lᵣ", "L_r"),
 )
 
 _FACTS_BY_KEY: Mapping[FieldKey, FactDefinition] = MappingProxyType(

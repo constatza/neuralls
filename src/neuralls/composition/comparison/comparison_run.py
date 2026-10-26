@@ -36,6 +36,11 @@ from neuralls.composition.comparison.models import (
 )
 from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
 from neuralls.composition.preconditioners.checkpoint_store import CheckpointStore
+from neuralls.composition.preconditioners.labels import (
+    build_configured_preconditioner_label,
+    build_preconditioner_labels,
+    contextualize_preconditioner_label,
+)
 from neuralls.domain.solver.comparison import (
     _to_numpy,
     compute_reference_solution,
@@ -72,11 +77,6 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.config.models.preconditioner_family import preconditioner_family
 from neuralls.platform.config.resolution import resolve_user_path
 from neuralls.platform.config.settings import NeurallsSettings
-from neuralls.platform.reporting.preconditioner_labels import (
-    build_configured_preconditioner_label,
-    build_preconditioner_labels,
-    contextualize_preconditioner_label,
-)
 from neuralls.platform.storage.filesystem import ensure_dir
 from neuralls.shared.device import (
     FailedTimedRuns,
@@ -348,9 +348,9 @@ def _run_preconditioner(
             )
     if cached is not None:
         _bind_extra_inputs(scheduled, matrix, staged_inputs)
-    base_label = build_preconditioner_labels(
-        scheduled, {cfg.name: family}, {cfg.name: cfg}, policy=notation_policy
-    )[cfg.name]
+    base_label = build_preconditioner_labels(scheduled, {cfg.name: cfg}, policy=notation_policy)[
+        cfg.name
+    ]
     dataset_label = Path(color_key).name if color_key is not None else None
     label = contextualize_preconditioner_label(base_label, dataset_label)
     result = run_cg_comparison(
