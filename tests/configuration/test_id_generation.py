@@ -5,32 +5,11 @@ from __future__ import annotations
 import pytest
 
 from neuralls.platform.config.models.id_generation import (
-    _build_display_lookup,
-    _infer_assignment_display_name,
     _infer_assignment_id,
-    _infer_comparison_display_name,
     _infer_comparison_id,
     _slugify,
     _validate_id_chars,
 )
-
-
-@pytest.fixture
-def dataset_display() -> dict[str, str]:
-    """Display-name lookup for test datasets."""
-    return {
-        "gaussian-cg0-45x15": "Gaussian CG-1 45x15",
-        "solutions-45x15": "Solutions 45x15",
-    }
-
-
-@pytest.fixture
-def model_display() -> dict[str, str]:
-    """Display-name lookup for test jobs."""
-    return {
-        "ffnn-standard": "FFNN Standard",
-        "ffnn-large": "FFNN Large",
-    }
 
 
 @pytest.fixture
@@ -128,44 +107,6 @@ def test_validate_id_chars_rejects_colon() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _build_display_lookup
-# ---------------------------------------------------------------------------
-
-
-def test_build_display_lookup_returns_display_name_when_present() -> None:
-    entries: list[object] = [{"id": "ds1", "display_name": "Dataset One"}]
-    assert _build_display_lookup(entries) == {"ds1": "Dataset One"}
-
-
-def test_build_display_lookup_falls_back_to_id_when_no_display_name() -> None:
-    entries: list[object] = [{"id": "ds1"}]
-    assert _build_display_lookup(entries) == {"ds1": "ds1"}
-
-
-def test_build_display_lookup_falls_back_to_id_when_display_name_blank() -> None:
-    entries: list[object] = [{"id": "ds1", "display_name": "  "}]
-    assert _build_display_lookup(entries) == {"ds1": "ds1"}
-
-
-def test_build_display_lookup_ignores_non_dict_entries() -> None:
-    entries: list[object] = ["not-a-dict", None, 42]
-    assert _build_display_lookup(entries) == {}
-
-
-def test_build_display_lookup_handles_mixed_entries() -> None:
-    entries: list[object] = [
-        {"id": "ds1", "display_name": "Dataset One"},
-        {"id": "ds2"},
-        {"id": "ds3", "display_name": "  "},
-    ]
-    assert _build_display_lookup(entries) == {
-        "ds1": "Dataset One",
-        "ds2": "ds2",
-        "ds3": "ds3",
-    }
-
-
-# ---------------------------------------------------------------------------
 # _infer_assignment_id
 # ---------------------------------------------------------------------------
 
@@ -235,68 +176,6 @@ def test_infer_assignment_id_falls_back_to_raw_id_when_not_in_registry(
 
 
 # ---------------------------------------------------------------------------
-# _infer_assignment_display_name
-# ---------------------------------------------------------------------------
-
-
-def test_infer_assignment_display_name_auto_from_registry(
-    dataset_display: dict[str, str],
-    model_display: dict[str, str],
-) -> None:
-    result = _infer_assignment_display_name(
-        dataset_id="gaussian-cg0-45x15",
-        job_id="ffnn-standard",
-        user_dn=None,
-        dataset_display=dataset_display,
-        model_display=model_display,
-    )
-    assert result == "FFNN Standard | Gaussian CG-1 45x15"
-
-
-def test_infer_assignment_display_name_uses_explicit_user_dn(
-    dataset_display: dict[str, str],
-    model_display: dict[str, str],
-) -> None:
-    result = _infer_assignment_display_name(
-        dataset_id="gaussian-cg0-45x15",
-        job_id="ffnn-standard",
-        user_dn="My Experiment",
-        dataset_display=dataset_display,
-        model_display=model_display,
-    )
-    assert result == "My Experiment"
-
-
-def test_infer_assignment_display_name_falls_back_to_raw_id_when_not_in_registry(
-    exp_unknown_registry: dict[str, object],
-    dataset_display: dict[str, str],
-    model_display: dict[str, str],
-) -> None:
-    result = _infer_assignment_display_name(
-        dataset_id=str(exp_unknown_registry["dataset"]),
-        job_id=str(exp_unknown_registry["job"]),
-        user_dn=None,
-        dataset_display=dataset_display,
-        model_display=model_display,
-    )
-    assert result == "unknown-job | unknown-ds"
-
-
-def test_infer_assignment_display_name_auto_when_only_id_given(
-    dataset_display: dict[str, str],
-    model_display: dict[str, str],
-) -> None:
-    result = _infer_assignment_display_name(
-        dataset_id="gaussian-cg0-45x15",
-        job_id="ffnn-standard",
-        user_dn=None,
-        dataset_display=dataset_display,
-        model_display=model_display,
-    )
-    assert result == "FFNN Standard | Gaussian CG-1 45x15"
-
-
-# ---------------------------------------------------------------------------
 # _infer_comparison_id
 # ---------------------------------------------------------------------------
 
@@ -337,9 +216,7 @@ def test_infer_comparison_id_derives_from_display_name(
     assert result == "gaussian-test"
 
 
-def test_infer_comparison_id_raises_on_invalid_chars(
-    dataset_display: dict[str, str],
-) -> None:
+def test_infer_comparison_id_raises_on_invalid_chars() -> None:
     with pytest.raises(ValueError):
         _infer_comparison_id(
             matrix_id="x",
@@ -347,60 +224,3 @@ def test_infer_comparison_id_raises_on_invalid_chars(
             user_id="bad id!",
             user_dn=None,
         )
-
-
-# ---------------------------------------------------------------------------
-# _infer_comparison_display_name
-# ---------------------------------------------------------------------------
-
-
-def test_infer_comparison_display_name_when_same_datasets(
-    comp_same_display_name_test_data: dict[str, object],
-    dataset_display: dict[str, str],
-) -> None:
-    result = _infer_comparison_display_name(
-        matrix_id=str(comp_same_display_name_test_data["matrix_dataset"]),
-        rhs_id=str(comp_same_display_name_test_data["rhs_source"]),
-        user_dn=None,
-        dataset_display=dataset_display,
-    )
-    assert result == "Gaussian CG-1 45x15"
-
-
-def test_infer_comparison_display_name_when_datasets_differ(
-    comp_diff_datasets: dict[str, object],
-    dataset_display: dict[str, str],
-) -> None:
-    result = _infer_comparison_display_name(
-        matrix_id=str(comp_diff_datasets["matrix_dataset"]),
-        rhs_id=str(comp_diff_datasets["rhs_source"]),
-        user_dn=None,
-        dataset_display=dataset_display,
-    )
-    assert result == "Gaussian CG-1 45x15 | Solutions 45x15"
-
-
-def test_infer_comparison_display_name_uses_explicit_user_dn(
-    comp_same_datasets: dict[str, object],
-    dataset_display: dict[str, str],
-) -> None:
-    result = _infer_comparison_display_name(
-        matrix_id=str(comp_same_datasets["matrix_dataset"]),
-        rhs_id=str(comp_same_datasets["rhs_source"]),
-        user_dn="Gaussian Test",
-        dataset_display=dataset_display,
-    )
-    assert result == "Gaussian Test"
-
-
-def test_infer_comparison_display_name_is_dataset_only(
-    comp_diff_datasets: dict[str, object],
-    dataset_display: dict[str, str],
-) -> None:
-    result = _infer_comparison_display_name(
-        matrix_id=str(comp_diff_datasets["matrix_dataset"]),
-        rhs_id=str(comp_diff_datasets["rhs_source"]),
-        user_dn=None,
-        dataset_display=dataset_display,
-    )
-    assert result == "Gaussian CG-1 45x15 | Solutions 45x15"

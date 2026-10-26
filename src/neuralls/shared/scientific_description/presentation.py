@@ -109,6 +109,10 @@ class ComparisonScopePresentation:
     dataset: DatasetPresentation
 
 
+type ComparisonTitle = EditorialPresentation | ComparisonScopePresentation
+"""A case/comparison title: an explicit editorial name, or the dataset it ran on."""
+
+
 @dataclass(frozen=True, slots=True)
 class StandaloneMethodPresentation:
     """A method that does not depend on a training dataset."""
@@ -339,6 +343,7 @@ def dataset_qualifier(dataset: DatasetPresentation) -> tuple[ScientificDescripti
 
 __all__ = [
     "ComparisonScopePresentation",
+    "ComparisonTitle",
     "ConfiguredMethodPresentation",
     "DatasetGenerationProvenance",
     "DatasetPresentation",

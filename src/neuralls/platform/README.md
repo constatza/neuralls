@@ -52,13 +52,11 @@ helpers read job/model metadata from one job plus its referenced model
 profile, and storage/tracking code reuse that single reader instead of
 duplicating TOML traversal logic in multiple modules.
 
-Case-config auto naming also lives at this boundary. Auto-generated assignment
-ids are job-first (`{job_id}-{dataset_id}`), and auto-generated assignment
-display names follow the same order (`{job_label} | {dataset_label}`).
-Auto-generated comparison display names stay dataset-defined: they resolve to
-the matrix dataset label alone when matrix and RHS come from the same dataset,
-or to `{matrix_label} | {rhs_label}` when they differ. Explicitly configured
-comparison display names still override the generated label.
+Case-config auto naming also lives at this boundary, for ids only: auto-generated
+assignment ids are job-first (`{job_id}-{dataset_id}`) and comparison ids derive from
+the dataset ids. A missing `display_name` stays absent; it is an explicit editorial
+title or nothing, and a title is never rebuilt from registry ids (composition
+composes it from the dataset's recorded presentation instead).
 Preconditioner labels are rendered from the structured descriptions in
 `composition/preconditioners/descriptions.py` (see the composition README):
 every algorithmic parameter is shown, including defaults, and neural variants

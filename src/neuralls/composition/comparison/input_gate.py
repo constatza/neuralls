@@ -22,6 +22,16 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.errors import StageInputsStale
 
 
+def resolve_dataset_dir(
+    case_cfg: CaseConfig, config_dir: Path, settings: NeurallsSettings, dataset_id: str
+) -> Path:
+    """Return the directory generation writes registry dataset ``dataset_id`` to."""
+    data_cfg = load_data_config(
+        resolve_dataset_config_path(case_cfg, config_dir, dataset_id), settings
+    )
+    return (data_cfg.output.data_dir or settings.processed_dir) / data_cfg.id
+
+
 def require_current_inputs(
     case_cfg: CaseConfig,
     config_dir: Path,
@@ -43,7 +53,7 @@ def require_current_inputs(
         data_cfg = load_data_config(
             resolve_dataset_config_path(case_cfg, config_dir, dataset_id), settings
         )
-        dataset_dir = (data_cfg.output.data_dir or settings.processed_dir) / data_cfg.id
+        dataset_dir = resolve_dataset_dir(case_cfg, config_dir, settings, dataset_id)
         if not is_dataset_reusable(dataset_dir, generation_identity(data_cfg)):
             raise StageInputsStale(
                 f"Dataset '{dataset_id}' at '{dataset_dir}' is missing or no longer matches "

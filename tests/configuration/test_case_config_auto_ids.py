@@ -86,7 +86,7 @@ def test_assignment_auto_id_is_job_first(
     ]
     config = CaseConfig.model_validate(raw)
     assert config.assignments[0].id == "ffnn-standard-gaussian-cg0-45x15"
-    assert config.assignments[0].display_name == "FFNN Standard | Gaussian CG-1 45x15"
+    assert config.assignments[0].display_name is None
 
 
 def test_assignment_id_derived_from_display_name(
@@ -110,7 +110,7 @@ def test_assignment_id_derived_from_display_name(
 def test_assignment_display_name_auto_filled_when_only_id_given(
     minimal_case_raw: dict[str, object],
 ) -> None:
-    """Auto-fill display_name from dataset and model labels when only id is given."""
+    """Leave display_name absent when only an id is given: a title is never rebuilt from ids."""
     raw = dict(minimal_case_raw)
     raw["assignments"] = [
         {
@@ -122,7 +122,7 @@ def test_assignment_display_name_auto_filled_when_only_id_given(
     ]
     config = CaseConfig.model_validate(raw)
     assert config.assignments[0].id == "my-id"
-    assert config.assignments[0].display_name == "FFNN Standard | Gaussian CG-1 45x15"
+    assert config.assignments[0].display_name is None
 
 
 def test_assignment_explicit_id_and_display_name_unchanged(
@@ -164,7 +164,7 @@ def test_comparison_auto_id_when_same_datasets(
     raw["assignments"] = [{"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard"}]
     config = CaseConfig.model_validate(raw)
     assert config.comparisons[0].id == "gaussian-cg0-45x15-gaussian"
-    assert config.comparisons[0].display_name == "Gaussian CG-1 45x15 | gaussian"
+    assert config.comparisons[0].display_name is None
 
 
 def test_comparison_auto_id_when_different_datasets(
@@ -183,7 +183,7 @@ def test_comparison_auto_id_when_different_datasets(
     raw["assignments"] = [{"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard"}]
     config = CaseConfig.model_validate(raw)
     assert config.comparisons[0].id == "gaussian-cg0-45x15-dataset"
-    assert config.comparisons[0].display_name == "Gaussian CG-1 45x15 | dataset"
+    assert config.comparisons[0].display_name is None
 
 
 # ============================================================================
@@ -279,10 +279,7 @@ def test_multi_assignment_auto_ids_all_job_first(
         "ffnn-standard-gaussian-cg0-45x15",
         "ffnn-standard-solutions-45x15",
     ]
-    assert [e.display_name for e in config.assignments] == [
-        "FFNN Standard | Gaussian CG-1 45x15",
-        "FFNN Standard | Solutions 45x15",
-    ]
+    assert [e.display_name for e in config.assignments] == [None, None]
 
 
 def test_comparison_display_name_ignores_assignment_filter_for_parent_name(
@@ -314,7 +311,7 @@ def test_comparison_display_name_ignores_assignment_filter_for_parent_name(
 
     config = CaseConfig.model_validate(raw)
 
-    assert config.comparisons[0].display_name == "Gaussian CG-1 45x15 | dataset"
+    assert config.comparisons[0].display_name is None
 
 
 def test_duplicate_auto_ids_raise_validation_error(

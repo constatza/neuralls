@@ -209,9 +209,10 @@ scale-equivariant initialization/gain parameters.
 Three compact cases isolate POD-2G dataset construction and rank effects. Their
 comparison defaults contain no classical preconditioners; the only compared
 preconditioners are the POD-2G artifacts generated from their fit assignments.
-The job entries intentionally omit `display_name`: plot labels read the realized
-POD coarse dimension directly from the constructed preconditioner, so a static
-rank label would duplicate that runtime-derived value.
+The job entries intentionally omit `display_name`: a POD-2G label is built from the
+fitted rank and its fit dataset's recorded provenance, so a static name would
+duplicate them. (A neural job needs a short `display_name` for its architecture;
+without one it cannot be described and the comparison is rejected before it runs.)
 
 - `rectangular-high-condition/win.toml` compares final-state CG snapshots at
   trajectory caps 10 and 30 with four coarsely sampled CG histories: iterations

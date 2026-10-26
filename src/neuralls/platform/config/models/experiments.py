@@ -11,10 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 from neuralls.platform.config.models.comparison import ComparisonRhsSourceModel
 from neuralls.platform.config.models.id_generation import (
-    _build_display_lookup,
-    _infer_assignment_display_name,
     _infer_assignment_id,
-    _infer_comparison_display_name,
     _infer_comparison_id,
 )
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
@@ -447,13 +444,16 @@ class CaseConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _auto_fill_ids_and_display_names(cls, data: object) -> object:
-        """Auto-generate missing ids and display names before child validation.
+        """Auto-generate missing ids before child validation.
+
+        A missing ``display_name`` stays absent: it is an explicit editorial title or
+        nothing, never a label rebuilt from registry ids.
 
         Args:
             data: Raw input dict (or other type, passed through unchanged).
 
         Returns:
-            The mutated dict with any missing id/display_name fields filled in,
+            The mutated dict with any missing id fields filled in,
             or the original data if it is not a dict.
 
         Raises:
@@ -464,13 +464,8 @@ class CaseConfig(BaseModel):
             return data
         raw = cast("dict[str, object]", data)
 
-        datasets: list[object] = cast("list[object]", raw.get("datasets", []))
-        jobs: list[object] = cast("list[object]", raw.get("jobs", []))
         assignments: list[object] = cast("list[object]", raw.get("assignments", []))
         comparisons: list[object] = cast("list[object]", raw.get("comparisons", []))
-
-        dataset_display = _build_display_lookup(datasets)
-        model_display = _build_display_lookup(jobs)
 
         for assignment in assignments:
             if not isinstance(assignment, dict):
@@ -486,11 +481,6 @@ class CaseConfig(BaseModel):
             user_dn = user_dn or None
 
             assignment_dict["id"] = _infer_assignment_id(dataset_id, job_id, user_id, user_dn)
-
-            if not user_dn:
-                assignment_dict["display_name"] = _infer_assignment_display_name(
-                    dataset_id, job_id, user_dn, dataset_display, model_display
-                )
 
         for comp in comparisons:
             if not isinstance(comp, dict):
@@ -513,14 +503,6 @@ class CaseConfig(BaseModel):
             user_dn = user_dn or None
 
             comp_dict["id"] = _infer_comparison_id(matrix_id, rhs_id, user_id, user_dn)
-
-            if not user_dn:
-                comp_dict["display_name"] = _infer_comparison_display_name(
-                    matrix_id,
-                    rhs_id,
-                    user_dn,
-                    dataset_display,
-                )
 
         return data
 

@@ -17,11 +17,27 @@ import pytest
 from loguru import logger
 from mlflow.tracking import MlflowClient
 
+from neuralls.domain.solver.presentation_planner import prepare_presentations
 from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
 from neuralls.shared.enum_codecs import encode_row_kind_array
-from neuralls.shared.types import RowKind
+from neuralls.shared.scientific_description import (
+    ComparisonScopePresentation,
+    DatasetGenerationProvenance,
+    DatasetPresentation,
+    DatasetSourceProvenance,
+    FieldImportance,
+    IntegerFact,
+    MethodPresentationCandidate,
+    PreparedComparisonPresentation,
+    ScientificDescription,
+    StandaloneMethodPresentation,
+    StrategyProvenance,
+    UnvalidatedComparisonPresentation,
+)
+from neuralls.shared.scientific_description.catalog import ITERATION_COUNT, SAMPLE_COUNT
+from neuralls.shared.types import GenerationStrategyKind, PreconditionerName, RowKind
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -490,3 +506,59 @@ def stub_planning(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
     monkeypatch.setattr("neuralls.composition.assignments.comparison_batch.plan_comparisons", _plan)
+
+
+@pytest.fixture
+def dataset_presentation() -> DatasetPresentation:
+    """A small dataset presentation for tests that need one but not its content."""
+    return DatasetPresentation(
+        source=DatasetSourceProvenance(ScientificDescription("Test problem")),
+        generation=DatasetGenerationProvenance(
+            strategies=(
+                StrategyProvenance(
+                    GenerationStrategyKind.GAUSSIAN_RESIDUALS,
+                    (
+                        IntegerFact(ITERATION_COUNT, 20, FieldImportance.ESSENTIAL),
+                        IntegerFact(SAMPLE_COUNT, 100, FieldImportance.ESSENTIAL),
+                    ),
+                ),
+            ),
+            generated_rows=100,
+            normalization="matrix",
+        ),
+    )
+
+
+@pytest.fixture
+def prepared_presentation(
+    dataset_presentation: DatasetPresentation,
+) -> PreparedComparisonPresentation:
+    """A validated one-method cohort for tests that build prepared executions directly."""
+    method = ScientificDescription("Jacobi")
+    return prepare_presentations(
+        UnvalidatedComparisonPresentation(
+            methods=(
+                MethodPresentationCandidate(
+                    PreconditionerName("jacobi"), StandaloneMethodPresentation(method)
+                ),
+            ),
+            scope=ComparisonScopePresentation(dataset_presentation),
+        )
+    )
+
+
+@pytest.fixture
+def stub_matrix_scope(
+    monkeypatch: pytest.MonkeyPatch, dataset_presentation: DatasetPresentation
+) -> ComparisonScopePresentation:
+    """Resolve every comparison's matrix dataset to a fixed presentation.
+
+    The batch reads a dataset manifest through the case registry; tests that mock
+    the registry and the datasets use this to supply the presentation instead.
+    """
+    scope = ComparisonScopePresentation(dataset_presentation)
+    monkeypatch.setattr(
+        "neuralls.composition.assignments.comparison_batch._matrix_scope",
+        lambda planned, context: scope,
+    )
+    return scope

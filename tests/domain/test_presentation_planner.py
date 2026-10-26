@@ -327,3 +327,22 @@ def test_system_realization_rejects_configured_facts() -> None:
     with pytest.raises(ValueError, match="not a realized fact"):
         _system(0, _int(RANK, 3))
     assert _system(0, _int(COARSE_DIMENSION, 4))
+
+
+def test_dataset_and_title_render_the_source_then_each_strategy(
+    dataset: DatasetPresentation,
+) -> None:
+    from neuralls.shared.scientific_description import render_dataset, render_title
+
+    policy = NotationPolicy.default()
+    assert render_dataset(dataset, LEGEND_PROFILE, policy).text == (
+        "Spectral 3D field | Gaussian CG Residuals (k=20, N=5000)"
+    )
+    assert (
+        render_title(ComparisonScopePresentation(dataset), LEGEND_PROFILE, policy).text
+        == "Spectral 3D field | Gaussian CG Residuals (k=20, N=5000)"
+    )
+    assert (
+        render_title(EditorialPresentation("Spectral comparison"), LEGEND_PROFILE, policy).text
+        == "Spectral comparison"
+    )

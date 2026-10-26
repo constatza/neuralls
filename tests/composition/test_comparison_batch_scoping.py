@@ -13,6 +13,7 @@ import torch
 
 from neuralls.composition.assignments import comparison_batch
 from neuralls.composition.assignments.comparison_batch import (
+    PreparedComparisonBatch,
     _ComparisonResolutionContext,
     _execute_all,
     _method_major_schedule,
@@ -58,6 +59,13 @@ def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
     system.cfg.general.data.normalize_system = "matrix"
     system.__dict__["settings"] = MagicMock()
     return system
+
+
+def _batch(systems: list[MagicMock]) -> PreparedComparisonBatch:
+    """Wrap fake prepared executions in the batch type execution requires."""
+    return PreparedComparisonBatch(
+        items=tuple(systems), planned=tuple(MagicMock() for _ in systems)
+    )
 
 
 def test_method_major_schedule_nests_matrix_and_rhs_in_plan_order() -> None:
@@ -247,7 +255,7 @@ def test_device_is_warmed_once_and_each_method_releases_before_the_next(
 
     comparison_batch.warm_up_device(torch.device("cpu"))
     workloads = _execute_all(
-        pending,
+        _batch(pending),
         method_sink=MagicMock(),
         failure_sink=MagicMock(),
     )
@@ -287,7 +295,7 @@ def test_method_child_wraps_execution_and_persistence(
         def record(self, context: object, exc: Exception) -> None:
             raise AssertionError(f"unexpected failure: {context}: {exc}")
 
-    _execute_all(pending, method_sink=MethodSink(), failure_sink=FailureSink())
+    _execute_all(_batch(pending), method_sink=MethodSink(), failure_sink=FailureSink())
 
     assert events.index("child:enter") < events.index("method:identity")
     assert events.index("method:identity") < events.index("persist")
@@ -321,7 +329,7 @@ def test_method_failure_reraises_original_when_failure_sink_also_fails(
 
     with pytest.raises(RuntimeError) as raised:
         _execute_all(
-            pending,
+            _batch(pending),
             method_sink=MethodSink(),
             failure_sink=FailingFailureSink(),
         )
@@ -369,7 +377,7 @@ def test_matrix_loading_failure_records_exact_matrix_context_once_in_child(
 
     with pytest.raises(RuntimeError) as raised:
         _execute_all(
-            pending,
+            _batch(pending),
             method_sink=MethodSink(),
             failure_sink=FailureSink(),
         )

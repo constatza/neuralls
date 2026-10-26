@@ -24,6 +24,10 @@ from neuralls.composition.assignments.model_resolution import (
     TrainingLookup,
     resolve_preconditioner_models_with_warnings,
 )
+from neuralls.composition.assignments.presentation_preflight import (
+    compose_comparison_title,
+    prepare_comparison_presentation,
+)
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
 from neuralls.composition.comparison._linear_system import prepare_resolved_linear_system
 from neuralls.composition.comparison._preconditioner_setup import (
@@ -37,7 +41,7 @@ from neuralls.composition.comparison.comparison_run import (
 )
 from neuralls.composition.comparison.config_assembler import resolve_comparison_config
 from neuralls.composition.comparison.group_reporting import report_all_levels
-from neuralls.composition.comparison.input_gate import require_current_inputs
+from neuralls.composition.comparison.input_gate import require_current_inputs, resolve_dataset_dir
 from neuralls.composition.comparison.models import (
     ComparisonCompleted,
     ComparisonEntryFailed,
@@ -111,6 +115,7 @@ from neuralls.platform.reporting.comparison_inputs import (
     ComparisonInputArtifacts,
     stage_comparison_inputs,
 )
+from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.tracking.artifact_access import (
     ArtifactLeaseManager,
     MlflowArtifactLeaseManager,
@@ -139,6 +144,11 @@ from neuralls.platform.tracking.model_registry import build_registered_model_nam
 from neuralls.shared.device import release_device_memory, warm_up_device
 from neuralls.shared.digest import Digest, canonical_digest, content_digest, digest_memo
 from neuralls.shared.errors import StageInputsStale
+from neuralls.shared.scientific_description import (
+    ComparisonScopePresentation,
+    ComparisonTitle,
+    PreparedComparisonPresentation,
+)
 from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, MatrixId, SystemId
 from neuralls.shared.workflow_failures import (
     ComparisonBatchFailureContext,
@@ -315,6 +325,8 @@ class _AssignmentJobContext:
     job: AnyJobConfig
     dataset_dir: Path
     training: StageIdentity | None
+    architecture_name: str | None
+    """The job registry entry's explicit ``display_name``; None when it sets none."""
 
 
 def _resolve_assignment_job_context(
@@ -338,8 +350,10 @@ def _resolve_assignment_job_context(
         data_cfg=data_cfg,
         config_path=binding.data_config_path,
     ).name
+    job_entry = next(item for item in cfg.jobs if item.id == binding.job_id)
     return _AssignmentJobContext(
         job=job,
+        architecture_name=job_entry.display_name,
         dataset_dir=settings.processed_dir / dataset_id,
         training=_assignment_training_identity(
             job_config_path=binding.job_config_path,
@@ -371,6 +385,7 @@ def _neural_spec_from_assignment(
     entry: AssignmentEntry,
     *,
     extra_input_names: tuple[str, ...],
+    architecture_name: str | None,
 ) -> NeuralPreconditionerConfig:
     """Build an unresolved neural preconditioner stub for a train/search-kind assignment.
 
@@ -390,6 +405,7 @@ def _neural_spec_from_assignment(
         assignment=entry.id,
         model_ref=TrainedAssignmentRefConfig(assignment_id=entry.id),
         extra_input_names=extra_input_names,
+        display_name=architecture_name,
     )
 
 
@@ -484,6 +500,7 @@ def neural_specs_from_assignments(
                         extra_input_names=_extra_input_names_of_training_run(
                             context, experiment=cfg.names.training, client=client
                         ),
+                        architecture_name=context.architecture_name,
                     )
                 )
     return specs
@@ -875,12 +892,51 @@ class _PreparedComparisonExecution:
     resolved: ResolvedComparisonSpecs
     identity: StageIdentity
     settings: NeurallsSettings
+    presentation: PreparedComparisonPresentation
+    """The validated scientific presentation of every method; execution requires it."""
+    title: ComparisonTitle
     reference_selection: ReferenceSelection = field(default_factory=NoReferenceConfigured)
 
     @property
     def entry(self) -> ComparisonRegistryEntry:
         """The planned system's concrete registry entry."""
         return self.planned.entry
+
+
+@dataclass(frozen=True)
+class PreparedComparisonBatch:
+    """Every comparison of a case, resolved and presentation-validated; nothing has run.
+
+    Session tracking and execution accept only this type, so an unvalidated cohort cannot
+    reach MLflow or a numerical kernel. A comparison that is a reuse hit or a failure
+    carries its outcome; one that must execute carries its prepared execution.
+    """
+
+    items: tuple[ComparisonOutcome | _PreparedComparisonExecution, ...]
+    planned: tuple[PlannedSystem, ...]
+
+    def __post_init__(self) -> None:
+        """Require one distinct item per planned system."""
+        if len(self.items) != len(self.planned):
+            raise ValueError("A prepared batch needs exactly one item per planned system")
+
+
+def _matrix_scope(
+    planned: PlannedSystem, context: _ComparisonResolutionContext
+) -> ComparisonScopePresentation:
+    """The presentation of the matrix dataset a comparison runs on, from its manifest."""
+    case_cfg = (
+        context.master_cfg
+        if context.master_cfg is not None
+        else load_validated_case_config(context.case_config_path, context.settings)[0]
+    )
+    dataset_dir = resolve_dataset_dir(
+        case_cfg,
+        context.case_config_path.resolve().parent,
+        context.settings,
+        planned.entry.matrix_dataset,
+    )
+    return ComparisonScopePresentation(load_dataset_presentation(dataset_dir))
 
 
 def _prepare_comparison_entry(
@@ -966,6 +1022,10 @@ def _prepare_comparison_entry(
             skipped=skipped_reference,
         )
 
+        scope = _matrix_scope(planned, context)
+        presentation = prepare_comparison_presentation(resolved.specs, scope)
+        title = compose_comparison_title(entry.display_name, scope.dataset)
+
         logger.info(
             "Comparison '{}': building comparison identity, including matrix/dataset content.",
             entry.id,
@@ -1011,6 +1071,8 @@ def _prepare_comparison_entry(
             resolved=resolved,
             identity=identity,
             settings=context.settings,
+            presentation=presentation,
+            title=title,
             reference_selection=reference_selection,
         )
 
@@ -1094,7 +1156,7 @@ def _validate_comparison_sources(cfg: ComparisonConfig) -> None:
     )
 
 
-def _prepare_all_comparisons(
+def prepare_comparison_batch(
     master_cfg: CaseConfig,
     topology: ComparisonTopology,
     case_config_path: Path,
@@ -1104,8 +1166,8 @@ def _prepare_all_comparisons(
     *,
     force: bool,
     reuse_comparisons: bool = True,
-) -> tuple[list[ComparisonOutcome | _PreparedComparisonExecution], tuple[PlannedSystem, ...]]:
-    """Plan, resolve and reuse-check every system of the case.
+) -> PreparedComparisonBatch:
+    """Plan, resolve, reuse-check and presentation-validate every system of the case.
 
     Opens no MLflow run. `plan_comparisons` turns every `[[comparisons]]` and
     `[[comparison_sweeps]]` entry into concrete systems first, so each is
@@ -1113,9 +1175,12 @@ def _prepare_all_comparisons(
     their cleanup registered onto `stack`, which the caller must keep open
     until after execution.
 
+    A scientific presentation error (a dataset without provenance, a neural method
+    without a display name, two indistinguishable methods) propagates out of this function,
+    so no MLflow run is opened and no method executes for a case that cannot be described.
+
     Returns:
-        One outcome-or-prepared-execution per planned system, in plan order,
-        plus the planned systems themselves.
+        The prepared batch: one outcome-or-prepared-execution per planned system, in plan order.
     """
     config_dir = case_config_path.resolve().parent
     require_current_inputs(
@@ -1168,7 +1233,7 @@ def _prepare_all_comparisons(
             stack.enter_context(prepared.cleanup)
         pending.append(prepared)
     validate_dataset_specs_consistent(planned_systems, _identities_by_entry_id(pending))
-    return pending, planned_systems
+    return PreparedComparisonBatch(items=tuple(pending), planned=planned_systems)
 
 
 def _identities_by_entry_id(
@@ -1546,13 +1611,13 @@ def _execute_method_run(
 
 
 def _execute_all(
-    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+    batch: PreparedComparisonBatch,
     *,
     method_sink: BenchmarkMethodSink,
     failure_sink: WorkflowFailureSink,
 ) -> tuple[CompletedMethodWorkload, ...]:
-    """Execute pending systems in method order, each inside its persisted child run."""
-    schedule = _method_major_schedule(pending)
+    """Execute a prepared batch in method order, each method inside its persisted child run."""
+    schedule = _method_major_schedule(batch.items)
 
     workloads: list[CompletedMethodWorkload] = []
     for method, matrices in schedule:
@@ -1571,7 +1636,7 @@ def _execute_all(
 
 
 def _has_complete_reusable_session(
-    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+    batch: PreparedComparisonBatch,
     topology: ComparisonTopology,
     *,
     force: bool,
@@ -1579,7 +1644,7 @@ def _has_complete_reusable_session(
     """Require current method children under one finished parent with a valid manifest."""
     if force:
         return False
-    schedule = _method_major_schedule(pending)
+    schedule = _method_major_schedule(batch.items)
     if not schedule:
         return False
     client = MlflowClient(tracking_uri=topology.tracking_uri)
@@ -1672,7 +1737,7 @@ def run_comparison_batch(
 
     with contextlib.ExitStack() as stack:
         stack.enter_context(digest_memo())
-        pending, _planned_systems = _prepare_all_comparisons(
+        batch = prepare_comparison_batch(
             master_cfg,
             topology,
             case_config_path,
@@ -1682,12 +1747,13 @@ def run_comparison_batch(
             force=params.force,
             reuse_comparisons=False,
         )
+        pending = batch.items
 
         if not any(isinstance(p, _PreparedComparisonExecution) for p in pending):
             outcomes = [p for p in pending if is_comparison_outcome(p)]
             return outcomes
 
-        if _has_complete_reusable_session(pending, topology, force=params.force):
+        if _has_complete_reusable_session(batch, topology, force=params.force):
             return [
                 item
                 if is_comparison_outcome(item)
@@ -1716,7 +1782,7 @@ def run_comparison_batch(
                 ),
             ):
                 workloads = _execute_all(
-                    pending,
+                    batch,
                     method_sink=MLflowBenchmarkMethodSink(),
                     failure_sink=failure_sink,
                 )

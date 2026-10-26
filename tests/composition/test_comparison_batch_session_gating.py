@@ -29,6 +29,7 @@ from neuralls.composition.comparison.models import (
 )
 from neuralls.domain.identity import StageIdentity
 from neuralls.shared.digest import canonical_digest
+from neuralls.shared.scientific_description import PreparedComparisonPresentation
 from neuralls.shared.workflow_failures import (
     ComparisonBatchFailureContext,
     ComparisonBatchPhase,
@@ -76,6 +77,7 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
 def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
     tmp_path: Path,
+    prepared_presentation: PreparedComparisonPresentation,
 ) -> None:
     experiments_config = tmp_path / "experiments.toml"
     _write_experiments_config(experiments_config, with_comparisons=True)
@@ -102,6 +104,8 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
                 "comparison", {"entry": canonical_digest(planned.entry.id)}
             ),
             settings=context.settings,
+            presentation=prepared_presentation,
+            title=prepared_presentation.scope,
         )
 
     with (
@@ -141,6 +145,7 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
 def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
     tmp_path: Path,
+    prepared_presentation: PreparedComparisonPresentation,
 ) -> None:
     experiments_config = tmp_path / "experiments.toml"
     _write_experiments_config(experiments_config, with_comparisons=True)
@@ -165,6 +170,8 @@ def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
                 "comparison", {"entry": canonical_digest(planned.entry.id)}
             ),
             settings=context.settings,
+            presentation=prepared_presentation,
+            title=prepared_presentation.scope,
         )
 
     with (

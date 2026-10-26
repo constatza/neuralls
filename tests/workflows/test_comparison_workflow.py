@@ -353,6 +353,11 @@ def _typed_comparison_result(plot_path: Path) -> ComparisonResult:
 
 
 @pytest.fixture(autouse=True)
+def _scope(stub_matrix_scope: object) -> None:
+    """These tests mock the case registry, so the matrix dataset's presentation is supplied."""
+
+
+@pytest.fixture(autouse=True)
 def stub_comparison_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     """These tests drive the workflow with mocked configs; identity derivation has its own tests."""
     monkeypatch.setattr(
@@ -1249,6 +1254,7 @@ job = "valid-job"
         preconditioners=[
             NeuralPreconditionerConfig(
                 type=PreconditionerType.NEURAL,
+                display_name="Linear Net",
                 model_ref=_registered_ref(
                     "NormScaledLinearFFNN",
                     "residuals-100",

@@ -47,6 +47,7 @@ from neuralls.shared.scientific_description.policy import (
 )
 from neuralls.shared.scientific_description.presentation import (
     ComparisonScopePresentation,
+    ComparisonTitle,
     ConfiguredMethodPresentation,
     DatasetGenerationProvenance,
     DatasetPresentation,
@@ -63,7 +64,13 @@ from neuralls.shared.scientific_description.presentation import (
     SystemRealization,
     UnvalidatedComparisonPresentation,
 )
-from neuralls.shared.scientific_description.render import render, render_facts, render_method
+from neuralls.shared.scientific_description.render import (
+    render,
+    render_dataset,
+    render_facts,
+    render_method,
+    render_title,
+)
 
 __all__ = [
     "ALGEBRAIC_DISTANCE_THRESHOLD",
@@ -89,6 +96,7 @@ __all__ = [
     "THRESHOLD",
     "TITLE_PROFILE",
     "ComparisonScopePresentation",
+    "ComparisonTitle",
     "ConfiguredMethodPresentation",
     "DatasetGenerationProvenance",
     "DatasetPresentation",
@@ -118,6 +126,8 @@ __all__ = [
     "UnvalidatedComparisonPresentation",
     "ValidatedLabel",
     "render",
+    "render_dataset",
     "render_facts",
     "render_method",
+    "render_title",
 ]
