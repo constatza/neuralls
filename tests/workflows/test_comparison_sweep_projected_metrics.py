@@ -18,7 +18,7 @@ import pytest
 import tomli_w
 
 from neuralls.composition.assignments.comparison_batch import run_comparison_batch
-from neuralls.composition.comparison.models import ComparisonParams
+from neuralls.composition.comparison.models import ComparisonCompleted, ComparisonParams
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.tracking.comparison_tracking import GROUP_REPORT_ARTIFACT_DIR
 from tests.workflows.comparison_support import (
@@ -80,8 +80,7 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
 
     # Two held-out matrices with two held-out rows each: 2 x rhs_count=2 RHS.
     assert len(outcomes) == 4
-    assert all(outcome.success for outcome in outcomes)
-    assert all(outcome.payload is not None for outcome in outcomes)
+    assert all(isinstance(outcome, ComparisonCompleted) for outcome in outcomes)
 
     # One dataset and one recipe: every report level sees the same four planned,
     # attempted, and converged RHS.

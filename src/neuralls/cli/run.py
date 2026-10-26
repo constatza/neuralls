@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import typer
 
+from neuralls.cli.errors import fail_workflow
 from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ProfileOption
 from neuralls.composition.assignments.case_pipeline import run_case_pipeline
+from neuralls.composition.comparison.models import ComparisonEntryFailed
 from neuralls.composition.config import load_case_settings
 from neuralls.shared.constants import EXIT_FAILURE
 
@@ -65,9 +67,8 @@ def run_case_pipeline_command(
             force_compare=force_compare,
             force_expand=force_expand,
         )
-    except (FileNotFoundError, ValueError, OSError, RuntimeError) as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=EXIT_FAILURE) from exc
+    except Exception as exc:  # noqa: BLE001
+        fail_workflow("Case pipeline", exc)
 
     typer.echo("")
     typer.echo("Summary")
@@ -84,11 +85,13 @@ def run_case_pipeline_command(
     if comparison_outcomes:
         typer.echo(f"Completed {len(comparison_outcomes)} comparisons:")
         for outcome in comparison_outcomes:
-            status = "SUCCESS" if outcome.success else "FAILED"
-            detail = f" ({outcome.error})" if outcome.error else ""
+            status = "FAILED" if isinstance(outcome, ComparisonEntryFailed) else "SUCCESS"
+            detail = f" ({outcome.reason})" if isinstance(outcome, ComparisonEntryFailed) else ""
             typer.echo(f"  {status} {outcome.comparison_display_name}{detail}")
 
     failures = [result for result in results if not result.is_success]
-    failed_comparisons = [outcome for outcome in comparison_outcomes if not outcome.success]
+    failed_comparisons = [
+        outcome for outcome in comparison_outcomes if isinstance(outcome, ComparisonEntryFailed)
+    ]
     if failures or failed_comparisons:
         raise typer.Exit(code=EXIT_FAILURE)

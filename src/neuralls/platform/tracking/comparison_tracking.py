@@ -21,6 +21,7 @@ from neuralls.domain.solver.cost_metrics import (
     setup_time_per_dof,
     time_per_dof_per_iteration,
 )
+from neuralls.domain.solver.models.benchmark_events import SetupFailed, SolveFailed
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.models.group_outcomes import (
@@ -550,6 +551,12 @@ class MLflowBenchmarkMethodSink:
         mlflow.log_param("benchmark_event_schema_version", str(BENCHMARK_METHOD_SCHEMA_VERSION))
         mlflow.log_param("method", str(workload.method))
         mlflow.log_param("method_config_digest", str(workload.config_digest))
+        n_setup_failed = sum(
+            isinstance(event.outcome, SetupFailed) for event in workload.setup_events
+        )
+        n_solve_failed = sum(
+            isinstance(attempt.outcome, SolveFailed) for attempt in workload.solve_attempts
+        )
         metrics = {
             "n_planned_rhs": float(summary.n_planned_rhs),
             "n_attempted_rhs": float(summary.n_attempted_rhs),
@@ -560,7 +567,13 @@ class MLflowBenchmarkMethodSink:
             "setup_total_s": summary.setup_total_s,
             "solve_total_s": summary.solve_total_s,
             "workload_online_s": summary.workload_online_s,
+            "n_setup_failed": float(n_setup_failed),
+            "n_solve_failed": float(n_solve_failed),
         }
+        mlflow.set_tag(
+            "workload_outcome",
+            "completed_with_failures" if n_setup_failed or n_solve_failed else "completed",
+        )
         if summary.online_s_per_attempted_rhs is not None:
             metrics["online_s_per_attempted_rhs"] = summary.online_s_per_attempted_rhs
         from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory

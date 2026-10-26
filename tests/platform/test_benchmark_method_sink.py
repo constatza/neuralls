@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tomllib
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -13,11 +14,16 @@ from neuralls.domain.solver.models import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
     SetupCompleted,
+    SetupFailed,
     SolveAttempt,
     SolveConverged,
+    SolveFailed,
     SystemTag,
 )
-from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
+from neuralls.domain.solver.models.workload import (
+    CompleteWorkloadSummary,
+    IncompleteWorkloadSummary,
+)
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.platform.config.models.preconditioner import (
     AggregationCoarseningConfig,
@@ -113,6 +119,10 @@ def test_method_sink_records_aggregates_without_opening_a_run(
         "neuralls.platform.tracking.comparison_tracking.mlflow.log_artifact",
         lambda path, **kwargs: artifacts.append(Path(path).name),
     )
+    monkeypatch.setattr(
+        "neuralls.platform.tracking.comparison_tracking.mlflow.set_tag",
+        lambda *args, **kwargs: None,
+    )
 
     sink = MLflowBenchmarkMethodSink()
     sink.record_method(method_workload, method_summary, root=tmp_path)
@@ -125,6 +135,8 @@ def test_method_sink_records_aggregates_without_opening_a_run(
         "setup_total_s",
         "solve_total_s",
         "workload_online_s",
+        "n_setup_failed",
+        "n_solve_failed",
         "online_s_per_attempted_rhs",
         "workload_peak_memory_bytes",
     ]
@@ -139,6 +151,87 @@ def test_method_sink_records_aggregates_without_opening_a_run(
         "residual_history_jacobi.png",
         "energy_history_jacobi.png",
     }
+
+
+def test_method_sink_marks_recoverable_setup_failures_from_canonical_events(
+    monkeypatch: pytest.MonkeyPatch,
+    method_workload: CompletedMethodWorkload,
+) -> None:
+    failed_setup = replace(method_workload.setup_events[0], outcome=SetupFailed("setup broke"))
+    failed_workload = replace(
+        method_workload,
+        setup_events=(failed_setup,),
+        solve_attempts=(),
+    )
+    summary = summarize_method_workload(
+        failed_workload.method,
+        failed_workload.planned,
+        failed_workload.setup_events,
+        failed_workload.solve_attempts,
+        failed_workload.workload_peak_memory,
+    )
+    assert isinstance(summary, IncompleteWorkloadSummary)
+    metrics: dict[str, float] = {}
+    tags: dict[str, str] = {}
+    monkeypatch.setattr(
+        "neuralls.platform.tracking.comparison_tracking.mlflow.log_param",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "neuralls.platform.tracking.comparison_tracking.mlflow.log_metric",
+        lambda key, value, **kwargs: metrics.__setitem__(key, value),
+    )
+    monkeypatch.setattr(
+        "neuralls.platform.tracking.comparison_tracking.mlflow.set_tag",
+        lambda key, value: tags.__setitem__(key, value),
+    )
+
+    MLflowBenchmarkMethodSink._log_method_metadata(failed_workload, summary)
+
+    assert metrics["n_setup_failed"] == 1.0
+    assert metrics["n_solve_failed"] == 0.0
+    assert tags["workload_outcome"] == "completed_with_failures"
+
+
+def test_method_sink_counts_recoverable_solve_failures_from_canonical_events(
+    monkeypatch: pytest.MonkeyPatch,
+    method_workload: CompletedMethodWorkload,
+) -> None:
+    failed_attempt = replace(
+        method_workload.solve_attempts[0],
+        outcome=SolveFailed(iterations=2, reason="solver broke"),
+    )
+    failed_workload = replace(
+        method_workload,
+        solve_attempts=(failed_attempt, *method_workload.solve_attempts[1:]),
+    )
+    summary = summarize_method_workload(
+        failed_workload.method,
+        failed_workload.planned,
+        failed_workload.setup_events,
+        failed_workload.solve_attempts,
+        failed_workload.workload_peak_memory,
+    )
+    metrics: dict[str, float] = {}
+    tags: dict[str, str] = {}
+    monkeypatch.setattr(
+        "neuralls.platform.tracking.comparison_tracking.mlflow.log_param",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "neuralls.platform.tracking.comparison_tracking.mlflow.log_metric",
+        lambda key, value, **kwargs: metrics.__setitem__(key, value),
+    )
+    monkeypatch.setattr(
+        "neuralls.platform.tracking.comparison_tracking.mlflow.set_tag",
+        lambda key, value: tags.__setitem__(key, value),
+    )
+
+    MLflowBenchmarkMethodSink._log_method_metadata(failed_workload, summary)
+
+    assert metrics["n_setup_failed"] == 0.0
+    assert metrics["n_solve_failed"] == 1.0
+    assert tags["workload_outcome"] == "completed_with_failures"
 
 
 def test_method_child_tags_include_schema_identity_and_required_raw_artifacts() -> None:

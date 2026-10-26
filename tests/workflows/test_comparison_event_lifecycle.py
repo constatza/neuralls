@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from loguru import logger
 
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
@@ -150,13 +151,18 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
     monkeypatch.setattr(comparison_run, "_build_scheduled", fail_setup)
     method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
 
-    workload = execute_method_workload(
-        method,
-        (one_system_bundle,),
-        params=solver_params,
-        settings=neuralls_settings,
-        notation_policy=NotationPolicy.default(),
-    )
+    messages: list[str] = []
+    sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
+    try:
+        workload = execute_method_workload(
+            method,
+            (one_system_bundle,),
+            params=solver_params,
+            settings=neuralls_settings,
+            notation_policy=NotationPolicy.default(),
+        )
+    finally:
+        logger.remove(sink_id)
 
     assert len(workload.setup_events) == 1
     failed_setup = workload.setup_events[0]
@@ -179,6 +185,10 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
     )
     assert isinstance(summary, IncompleteWorkloadSummary)
     assert summary.n_attempted_rhs == 0
+    warning = next(message for message in messages if "setup broke" in message)
+    assert "method 'identity'" in warning
+    assert "dataset 'ds'" in warning
+    assert "matrix 1" in warning
 
 
 @pytest.mark.parametrize(
@@ -376,16 +386,27 @@ def test_solver_failure_retains_measured_attempt(
     monkeypatch.setattr(solver_comparison, "_solve_one", fail_solve)
     method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
 
-    workload = comparison_run.execute_method_workload(
-        method,
-        (one_system_bundle,),
-        params=solver_params,
-        settings=neuralls_settings,
-        notation_policy=NotationPolicy.default(),
-    )
+    messages: list[str] = []
+    sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
+    try:
+        workload = comparison_run.execute_method_workload(
+            method,
+            (one_system_bundle,),
+            params=solver_params,
+            settings=neuralls_settings,
+            notation_policy=NotationPolicy.default(),
+        )
+    finally:
+        logger.remove(sink_id)
 
     assert len(workload.solve_attempts) == 1
     attempt = workload.solve_attempts[0]
     assert isinstance(attempt.outcome, SolveFailed)
     assert isinstance(attempt.peak_memory, MeasuredPeakMemory)
     assert attempt.samples_s
+    warning = next(message for message in messages if "solver broke" in message)
+    assert "method 'identity'" in warning
+    assert "system 'ds-1-0'" in warning
+    assert "dataset 'ds'" in warning
+    assert "matrix 1" in warning
+    assert "RHS 0" in warning

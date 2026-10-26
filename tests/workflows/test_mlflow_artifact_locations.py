@@ -19,7 +19,11 @@ from neuralls.composition.assignments.comparison_batch import run_comparison_bat
 from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
 )
-from neuralls.composition.comparison.models import ComparisonParams
+from neuralls.composition.comparison.models import (
+    ComparisonCompleted,
+    ComparisonParams,
+    ComparisonReused,
+)
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
@@ -263,7 +267,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
         params=ComparisonParams(),
     )
 
-    assert outcomes and outcomes[0].success is True
+    assert outcomes and isinstance(outcomes[0], ComparisonCompleted)
 
     # The session owns cross-method reports and has one direct method child.
     runs = client.search_runs(
@@ -333,7 +337,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
         )
     )
     reused = run_comparison_batch(case_config_path=experiments_config, params=ComparisonParams())
-    assert reused and reused[0].success is True
+    assert reused and isinstance(reused[0], ComparisonReused)
     assert (
         len(
             client.search_runs(
@@ -346,7 +350,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
     forced = run_comparison_batch(
         case_config_path=experiments_config, params=ComparisonParams(force=True)
     )
-    assert forced and forced[0].success is True
+    assert forced and isinstance(forced[0], ComparisonCompleted)
     assert (
         len(
             client.search_runs(

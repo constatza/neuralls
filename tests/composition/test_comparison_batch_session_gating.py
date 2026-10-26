@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import contextlib
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -24,10 +24,15 @@ from neuralls.composition.assignments.comparison_batch import (
 from neuralls.composition.comparison.models import (
     ComparisonOutcome,
     ComparisonParams,
+    ComparisonReused,
     PlannedSystem,
 )
 from neuralls.domain.identity import StageIdentity
 from neuralls.shared.digest import canonical_digest
+from neuralls.shared.workflow_failures import (
+    ComparisonBatchFailureContext,
+    ComparisonBatchPhase,
+)
 from tests.workflows.comparison_support import MLFLOW_MODULE
 from tests.workflows.test_comparison_workflow import _mock_cfg, _write_experiments_config
 
@@ -46,10 +51,9 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
         *,
         force: bool = False,
     ) -> ComparisonOutcome:
-        return ComparisonOutcome(
+        return ComparisonReused(
             comparison_id=planned.entry.id,
             comparison_display_name=planned.entry.effective_display_name,
-            success=True,
         )
 
     with (
@@ -65,7 +69,7 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
     ):
         outcomes = run_comparison_batch(experiments_config, ComparisonParams())
 
-    assert [outcome.success for outcome in outcomes] == [True, True]
+    assert all(isinstance(outcome, ComparisonReused) for outcome in outcomes)
     mock_mlflow.start_run.assert_not_called()
 
 
@@ -84,10 +88,9 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
         force: bool = False,
     ) -> ComparisonOutcome | _PreparedComparisonExecution:
         if planned.entry.id == "a":
-            return ComparisonOutcome(
+            return ComparisonReused(
                 comparison_id=planned.entry.id,
                 comparison_display_name=planned.entry.effective_display_name,
-                success=True,
             )
         return _PreparedComparisonExecution(
             cfg=cfg,
@@ -116,15 +119,15 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
         ),
         patch(
             "neuralls.composition.assignments.comparison_batch._execute_all",
-            return_value=(
-                [
-                    ComparisonOutcome(comparison_id="a", comparison_display_name="a", success=True),
-                    ComparisonOutcome(comparison_id="b", comparison_display_name="b", success=True),
-                ],
-                (),
-            ),
+            return_value=(),
         ),
-        patch("neuralls.composition.assignments.comparison_batch._persist_method_workloads"),
+        patch(
+            "neuralls.composition.assignments.comparison_batch._outcomes_from_workloads",
+            return_value=[
+                ComparisonReused(comparison_id="a", comparison_display_name="a"),
+                ComparisonReused(comparison_id="b", comparison_display_name="b"),
+            ],
+        ),
         patch("neuralls.composition.assignments.comparison_batch.report_all_levels"),
         patch("neuralls.composition.assignments.comparison_batch.MLflowGroupReportSink"),
         patch(MLFLOW_MODULE) as mock_mlflow,
@@ -133,3 +136,68 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
 
     assert [outcome.comparison_id for outcome in outcomes] == ["a", "b"]
     mock_mlflow.start_run.assert_called_once()
+
+
+@pytest.mark.usefixtures("stub_input_gate", "stub_planning")
+def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
+    tmp_path: Path,
+) -> None:
+    experiments_config = tmp_path / "experiments.toml"
+    _write_experiments_config(experiments_config, with_comparisons=True)
+    original = RuntimeError("injected method failure")
+    failure_sink = MagicMock()
+
+    def prepare(
+        cfg: object,
+        planned: PlannedSystem,
+        context: _ComparisonResolutionContext,
+        *,
+        force: bool = False,
+    ) -> _PreparedComparisonExecution:
+        del force
+        return _PreparedComparisonExecution(
+            cfg=cfg,
+            planned=planned,
+            topology=context.topology,
+            cleanup=contextlib.ExitStack(),
+            resolved=ResolvedComparisonSpecs(specs=[], warnings=(), checkpoint_digests={}),
+            identity=StageIdentity.build(
+                "comparison", {"entry": canonical_digest(planned.entry.id)}
+            ),
+            settings=context.settings,
+        )
+
+    with (
+        patch(
+            "neuralls.composition.assignments.comparison_batch._prepare_comparison_entry",
+            side_effect=prepare,
+        ),
+        patch(
+            "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
+            return_value=_mock_cfg(),
+        ),
+        patch(
+            "neuralls.composition.assignments.comparison_batch._has_complete_reusable_session",
+            return_value=False,
+        ),
+        patch(
+            "neuralls.composition.assignments.comparison_batch._execute_all",
+            side_effect=original,
+        ),
+        patch(
+            "neuralls.composition.assignments.comparison_batch.MLflowWorkflowFailureSink",
+            return_value=failure_sink,
+        ),
+        patch(MLFLOW_MODULE) as mock_mlflow,
+        pytest.raises(RuntimeError) as raised,
+    ):
+        mock_mlflow.start_run.return_value.__enter__.return_value = MagicMock()
+        mock_mlflow.start_run.return_value.__exit__.return_value = False
+        run_comparison_batch(experiments_config, ComparisonParams())
+
+    assert raised.value is original
+    context = failure_sink.record.call_args.args[0]
+    assert context == ComparisonBatchFailureContext(
+        phase=ComparisonBatchPhase.METHOD_WORKLOADS,
+        case_config_path=experiments_config.resolve(),
+    )

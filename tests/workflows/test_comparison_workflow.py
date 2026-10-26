@@ -25,8 +25,11 @@ from neuralls.composition.comparison._input_resolution import resolve_comparison
 from neuralls.composition.comparison.comparison_run import execute_method_workload
 from neuralls.composition.comparison.config_assembler import resolve_comparison_config
 from neuralls.composition.comparison.models import (
+    ComparisonCompleted,
+    ComparisonEntryFailed,
     ComparisonOutcome,
     ComparisonParams,
+    ComparisonReused,
     CompletedMethodWorkload,
     MatrixRef,
     MatrixWorkload,
@@ -800,7 +803,7 @@ def test_run_comparison_injects_master_topology(
             cfg, _planned(entry), topology, experiments_config, settings
         )
 
-    assert outcomes[0].success is True
+    assert isinstance(outcomes[0], ComparisonCompleted)
     assert topology.experiment_name == "CustomComparison"
 
 
@@ -889,7 +892,7 @@ def test_run_comparison_loads_the_planned_dataset_row_and_attaches_planner_prove
             cfg, _planned(_make_entry(), rhs_row=1), topology, experiments_config, settings
         )
 
-    assert outcomes[0].success is True
+    assert isinstance(outcomes[0], ComparisonCompleted)
     resolved_input = mock_compare.call_args.kwargs["resolved_input"]
     assert resolved_input.rhs_sample_index == 1
     assert resolved_input.matrix_provenance == SharedSingleMatrix(raw_matrix_index=0)
@@ -918,7 +921,7 @@ def test_run_comparison_attaches_the_planned_held_out_provenance(
         topology = _resolve_comparison_topology(experiments_config, settings)
         outcomes = _run_comparison_from_config(cfg, planned, topology, experiments_config, settings)
 
-    assert outcomes[0].success is True
+    assert isinstance(outcomes[0], ComparisonCompleted)
     resolved_input = mock_compare.call_args.kwargs["resolved_input"]
     assert resolved_input.matrix_provenance == HeldOutMatrix(
         matrix_id=MatrixId(9), raw_matrix_index=0
@@ -950,7 +953,7 @@ def test_run_comparison_generated_rhs_accepts_matrix_only_input(
             cfg, _planned(entry), topology, experiments_config, settings
         )
 
-    assert outcomes[0].success is True
+    assert isinstance(outcomes[0], ComparisonCompleted)
 
 
 def test_resolved_generated_rhs_uses_matrix_source_without_rhs_dataset(tmp_path: Path) -> None:
@@ -1020,7 +1023,7 @@ def test_run_comparison_does_not_require_split_artifacts(
             cfg, _planned(entry), topology, experiments_config, settings
         )
 
-    assert outcomes[0].success is True
+    assert isinstance(outcomes[0], ComparisonCompleted)
 
 
 def test_sanitize_mlflow_metric_segment_replaces_invalid_characters() -> None:
@@ -1121,7 +1124,7 @@ def test_run_comparison_stages_plot_paths_before_logging(tmp_path: Path) -> None
             cfg, _planned(entry), topology, experiments_config, settings
         )
 
-    assert outcomes[0].success is True
+    assert isinstance(outcomes[0], ComparisonCompleted)
     assert "figures/convergence.png" in logged_files
     plot_paths = comparison_json["plot_paths"]
     assert isinstance(plot_paths, dict)
@@ -1166,7 +1169,7 @@ def test_run_comparison_warns_and_continues_when_neural_resolution_fails(
             cfg, _planned(entry), topology, experiments_config, settings
         )
 
-    assert outcomes[0].success is True
+    assert isinstance(outcomes[0], ComparisonCompleted)
     assert len(outcomes[0].warnings) == 1
     assert "Skipping neural preconditioner 'missing-neural'" in outcomes[0].warnings[0]
 
@@ -1205,8 +1208,8 @@ def test_run_comparison_fails_if_all_preconditioners_are_skipped(tmp_path: Path)
             cfg, _planned(entry), topology, experiments_config, settings
         )
 
-    assert outcomes[0].success is False
-    assert "No runnable preconditioners remain" in (outcomes[0].error or "")
+    assert isinstance(outcomes[0], ComparisonEntryFailed)
+    assert "No runnable preconditioners remain" in outcomes[0].reason
 
 
 @pytest.mark.usefixtures("stub_log_comparison_artifacts", "stub_setup_tracking", "fake_mlflow")
@@ -1278,7 +1281,7 @@ job = "valid-job"
             cfg, _planned(entry), topology, experiments_config, settings
         )
 
-    assert outcomes[0].success is True
+    assert isinstance(outcomes[0], ComparisonCompleted)
     assert mock_resolve_specs.call_args.kwargs["assignment_contexts"] is None
 
 
@@ -1305,8 +1308,8 @@ def test_run_comparison_fails_before_tracking_when_matrix_input_is_missing(
             cfg, _planned(entry), topology, experiments_config, settings
         )
 
-    assert outcomes[0].success is False
-    assert f"Comparison input not found: {missing_matrix}" in (outcomes[0].error or "")
+    assert isinstance(outcomes[0], ComparisonEntryFailed)
+    assert f"Comparison input not found: {missing_matrix}" in outcomes[0].reason
     mock_setup_tracking.assert_not_called()
     fake_mlflow.start_run.assert_not_called()
 
@@ -1332,8 +1335,8 @@ def test_run_comparison_missing_known_dataset_raises_file_not_found(
         cfg, _planned(entry), topology, experiments_config, settings
     )
 
-    assert outcomes[0].success is False
-    assert str(missing_dataset) in (outcomes[0].error or "")
+    assert isinstance(outcomes[0], ComparisonEntryFailed)
+    assert str(missing_dataset) in outcomes[0].reason
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
@@ -1356,10 +1359,9 @@ def test_run_comparison_batch_preserves_declared_order(
         *,
         force: bool = False,
     ) -> ComparisonOutcome:
-        return ComparisonOutcome(
+        return ComparisonReused(
             comparison_id=planned.entry.id,
             comparison_display_name=planned.entry.effective_display_name,
-            success=True,
         )
 
     with (
@@ -1540,7 +1542,7 @@ def test_run_comparison_logs_scalar_metrics_to_mlflow(
             cfg, _planned(entry), topology, experiments_config, settings
         )
 
-    assert outcomes[0].success is True
+    assert isinstance(outcomes[0], ComparisonCompleted)
     logged_metric_names = {call.args[0] for call in fake_mlflow.log_metric.call_args_list}
     assert "iterations/identity" in logged_metric_names
     assert "final_residual/identity" in logged_metric_names
@@ -1676,7 +1678,7 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
     ):
         outcomes = run_comparison_batch(experiments_config, ComparisonParams(), settings)
 
-    assert all(outcome.success for outcome in outcomes)
+    assert all(isinstance(outcome, ComparisonCompleted) for outcome in outcomes)
     assert [outcome.comparison_id for outcome in outcomes] == [
         "sweep-5-0",
         "sweep-5-1",
@@ -1751,6 +1753,6 @@ def test_an_external_rhs_of_the_wrong_length_fails_only_its_own_system(
     outcomes = run_comparison_batch(experiments_config, ComparisonParams(), settings)
 
     by_id = {outcome.comparison_id: outcome for outcome in outcomes}
-    assert by_id["fits"].success is True
-    assert by_id["too-long"].success is False
-    assert "rhs-of-length-3.npy" in (by_id["too-long"].error or "")
+    assert isinstance(by_id["fits"], ComparisonCompleted)
+    assert isinstance(by_id["too-long"], ComparisonEntryFailed)
+    assert "rhs-of-length-3.npy" in by_id["too-long"].reason

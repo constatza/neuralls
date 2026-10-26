@@ -22,6 +22,8 @@ The CLI package defines one public executable: `neuralls`.
 - `eval.py`: case-wide checkpoint evaluation and aggregate reporting
 - `run.py`: end-to-end case execution (generate → train → compare via `composition.assignments.case_pipeline.run_case_pipeline`)
 - `compare.py`: case-wide solver benchmarking
+- `errors.py`: the shared top-level failure renderer; blocking workflow exceptions retain
+  their concrete type, message, contextual exception notes, and logged traceback
 - `options.py`: shared option aliases for profile and env-file resolution
 
 ## Boundary
@@ -33,5 +35,8 @@ instantiate platform adapters directly or contain workflow business logic.
 CLI owns argument parsing, top-level option semantics, and user-facing error
 messages. It may resolve the active settings/profile context, but it should not
 contain workflow assembly, filesystem policy, or service-integration logic.
-Generation commands therefore render failures at the CLI boundary, while
-lower layers supply the detailed operation/path context needed for diagnosis.
+Commands render blocking failures at the CLI boundary, while lower layers
+supply the detailed operation/path or workflow-phase context needed for
+diagnosis. A command never catches `BaseException`, but every ordinary
+`Exception` escaping a workflow is printed with its concrete type and exact
+message before the command exits nonzero.

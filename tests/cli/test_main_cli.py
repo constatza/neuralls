@@ -21,7 +21,7 @@ from neuralls.cli.main import app
 from neuralls.cli.run import run_case_pipeline_command
 from neuralls.cli.train import train_case_batch
 from neuralls.composition.comparison.models import (
-    ComparisonOutcome,
+    ComparisonCompleted,
     ComparisonParams,
     ComparisonResult,
 )
@@ -506,10 +506,9 @@ def test_compare_invokes_batch_workflow(
     settings = MagicMock()
     mock_load_settings.return_value = settings
     mock_run_comparison_batch.return_value = [
-        ComparisonOutcome(
+        ComparisonCompleted(
             comparison_id="solver",
             comparison_display_name="solver",
-            success=True,
             payload=_comparison_payload(tmp_path),
         )
     ]
@@ -522,3 +521,45 @@ def test_compare_invokes_batch_workflow(
     assert mock_run_comparison_batch.call_args.args[0] == config
     assert isinstance(mock_run_comparison_batch.call_args.args[1], ComparisonParams)
     assert mock_run_comparison_batch.call_args.args[2] == settings
+
+
+@patch("neuralls.cli.compare.run_comparison_batch")
+@patch("neuralls.cli.compare.load_case_settings")
+def test_compare_renders_unexpected_blocking_failure_with_exact_details(
+    mock_load_settings: MagicMock,
+    mock_run_comparison_batch: MagicMock,
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "case.toml"
+    config.write_text("", encoding="utf-8")
+    mock_load_settings.return_value = MagicMock()
+    failure = RuntimeError("method workload crashed")
+    failure.add_note("phase=method_workloads; method=jacobi")
+    mock_run_comparison_batch.side_effect = failure
+
+    result = runner.invoke(app, ["compare", str(config)])
+
+    assert result.exit_code == EXIT_FAILURE
+    assert "Comparison workflow failed [RuntimeError]: method workload crashed" in result.stderr
+    assert "phase=method_workloads; method=jacobi" in result.stderr
+
+
+@patch("neuralls.cli.run.run_case_pipeline")
+@patch("neuralls.cli.run.load_case_settings")
+def test_run_renders_unexpected_blocking_failure_with_exact_details(
+    mock_load_settings: MagicMock,
+    mock_run_case_pipeline: MagicMock,
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "case.toml"
+    config.write_text("", encoding="utf-8")
+    mock_load_settings.return_value = MagicMock()
+    failure = RuntimeError("comparison reporting crashed")
+    failure.add_note("phase=reporting; comparison=solver")
+    mock_run_case_pipeline.side_effect = failure
+
+    result = runner.invoke(app, ["run", str(config)])
+
+    assert result.exit_code == EXIT_FAILURE
+    assert "Case pipeline failed [RuntimeError]: comparison reporting crashed" in result.stderr
+    assert "phase=reporting; comparison=solver" in result.stderr

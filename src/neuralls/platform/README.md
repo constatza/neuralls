@@ -11,7 +11,7 @@ The platform package isolates external integrations and side-effecting helpers.
 - `storage/errors.py`: `_raise_storage_error`, the OSError translation every storage module shares.
 - `storage/dense_stream.py`: streamed dense persistence for `zarr` and `hdf5`. `open_dense_array_store()` opens the store that the streamed writer fills, and `save_dense_stream_manifest()` writes the manifest last, from the shapes the writer reports.
 - `storage/matrix_readers.py`: suffix-keyed registry `MATRIX_READERS` (`.npy`, `.txt`, `.npz`, `.mtx`, `.mtx.gz`) returning `SystemMatrix` via `read_matrix`; `to_dense` is the explicit densify helper. Unknown suffixes raise; `.npz` must hold a sparse matrix.
-- `tracking/`: MLflow run helpers, naming/query policy, workflow topology resolution, and client adapters
+- `tracking/`: MLflow run helpers, naming/query policy, workflow topology resolution, client adapters, and best-effort blocking-failure diagnostics (`failure_reporting.py`). Failure diagnostics record typed context and the exact traceback in the active run without replacing the workflow exception.
 - `reporting/`: plotting, artifact staging, versioned benchmark-event Parquet
   and summary artifacts, and inference output adapters
 - `dlkit/`: DLKit-backed adapters for solver preconditioners and batch inference

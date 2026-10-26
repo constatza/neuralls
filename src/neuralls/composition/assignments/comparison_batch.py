@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import tempfile
 import tomllib
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Generator, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -39,14 +39,18 @@ from neuralls.composition.comparison.config_assembler import resolve_comparison_
 from neuralls.composition.comparison.group_reporting import report_all_levels
 from neuralls.composition.comparison.input_gate import require_current_inputs
 from neuralls.composition.comparison.models import (
+    ComparisonCompleted,
+    ComparisonEntryFailed,
     ComparisonOutcome,
     ComparisonParams,
+    ComparisonReused,
     CompletedMethodWorkload,
     MatrixWorkload,
     MatrixWorkloadMember,
     PlannedSystem,
     ResolvedMethod,
     canonical_method_config,
+    is_comparison_outcome,
 )
 from neuralls.composition.comparison.plan import plan_comparisons
 from neuralls.composition.comparison.recipes import system_tag
@@ -124,6 +128,7 @@ from neuralls.platform.tracking.comparison_tracking import (
     setup_comparison_tracking,
 )
 from neuralls.platform.tracking.extra_features import fetch_extra_feature_names
+from neuralls.platform.tracking.failure_reporting import MLflowWorkflowFailureSink
 from neuralls.platform.tracking.mlflow import build_workflow_environment
 from neuralls.platform.tracking.mlflow_client import log_comparison_artifacts_to_mlflow
 from neuralls.platform.tracking.mlflow_store import (
@@ -135,6 +140,16 @@ from neuralls.shared.device import release_device_memory, warm_up_device
 from neuralls.shared.digest import Digest, canonical_digest, content_digest, digest_memo
 from neuralls.shared.errors import StageInputsStale
 from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, MatrixId, SystemId
+from neuralls.shared.workflow_failures import (
+    ComparisonBatchFailureContext,
+    ComparisonBatchPhase,
+    ComparisonMatrixFailureContext,
+    ComparisonMatrixPhase,
+    ComparisonMethodFailureContext,
+    ComparisonMethodPhase,
+    WorkflowFailureContext,
+    WorkflowFailureSink,
+)
 
 
 @dataclass(frozen=True)
@@ -805,27 +820,11 @@ def _execute_comparison_in_run(
             comparison_config=entry.method.stem if entry.method is not None else entry.id,
         )
 
-    return _comparison_outcome(
-        entry, success=True, payload=raw_result, warnings=prepared.resolved.warnings
-    )
-
-
-def _comparison_outcome(
-    entry: ComparisonRegistryEntry,
-    *,
-    success: bool,
-    error: str | None = None,
-    payload: ComparisonResult | None = None,
-    warnings: tuple[str, ...] = (),
-) -> ComparisonOutcome:
-    """Build one comparison's outcome DTO — the one place its identity fields are set."""
-    return ComparisonOutcome(
+    return ComparisonCompleted(
         comparison_id=entry.id,
         comparison_display_name=entry.effective_display_name,
-        success=success,
-        error=error,
-        payload=payload,
-        warnings=warnings,
+        payload=raw_result,
+        warnings=prepared.resolved.warnings,
     )
 
 
@@ -853,7 +852,11 @@ def _comparison_failure_outcome(
 ) -> ComparisonOutcome:
     """Shared 'resolve or execute raised' outcome — used by both prepare and execute."""
     logger.error("Comparison '{}' failed: {}", entry.id, exc)
-    return _comparison_outcome(entry, success=False, error=str(exc))
+    return ComparisonEntryFailed(
+        comparison_id=entry.id,
+        comparison_display_name=entry.effective_display_name,
+        reason=str(exc),
+    )
 
 
 @dataclass(frozen=True)
@@ -986,7 +989,10 @@ def _prepare_comparison_entry(
                     entry.id,
                     reused.run_id,
                 )
-                return _comparison_outcome(entry, success=True)
+                return ComparisonReused(
+                    comparison_id=entry.id,
+                    comparison_display_name=entry.effective_display_name,
+                )
             logger.info(
                 "Comparison '{}': no reusable run selected; execution is required.", entry.id
             )
@@ -1066,7 +1072,7 @@ def _run_comparison_from_config(
         topology=topology, case_config_path=case_config_path, settings=settings
     )
     prepared = _prepare_comparison_entry(cfg, planned, context, force=force)
-    if isinstance(prepared, ComparisonOutcome):
+    if is_comparison_outcome(prepared):
         return [prepared]
     with prepared.cleanup:
         return [_execute_prepared_comparison(prepared)]
@@ -1331,7 +1337,7 @@ def _outcomes_from_workloads(
 
     outcomes: list[ComparisonOutcome] = []
     for item in pending:
-        if isinstance(item, ComparisonOutcome):
+        if is_comparison_outcome(item):
             outcomes.append(item)
             continue
         results = diagnostics.get(item.entry.id, {})
@@ -1375,9 +1381,9 @@ def _outcomes_from_workloads(
             outcomes.append(_comparison_failure_outcome(item.entry, exc))
             continue
         outcomes.append(
-            _comparison_outcome(
-                item.entry,
-                success=True,
+            ComparisonCompleted(
+                comparison_id=item.entry.id,
+                comparison_display_name=item.entry.effective_display_name,
                 warnings=item.resolved.warnings,
                 payload=result,
             )
@@ -1411,36 +1417,157 @@ def _project_setup_measurements(
     )
 
 
+@contextlib.contextmanager
+def _failure_boundary(
+    sink: WorkflowFailureSink,
+    context: WorkflowFailureContext,
+    *,
+    recorded_exception_ids: set[int] | None = None,
+) -> Generator[None]:
+    """Record a blocking failure while preserving its exact exception and traceback."""
+    try:
+        yield
+    except Exception as exc:
+        exc.add_note(f"Comparison workflow context: {context!r}")
+        exception_id = id(exc)
+        if recorded_exception_ids is not None and exception_id in recorded_exception_ids:
+            raise
+        if recorded_exception_ids is not None:
+            recorded_exception_ids.add(exception_id)
+        try:
+            sink.record(context, exc)
+        except Exception as diagnostic_exc:  # noqa: BLE001
+            logger.warning(
+                "Failure diagnostics raised while preserving '{}': {}",
+                exc,
+                diagnostic_exc,
+            )
+        raise
+
+
+def _load_matrix_workloads_with_failure_context(
+    method: ResolvedMethod,
+    matrices: Sequence[
+        tuple[
+            tuple[DatasetId, MatrixId],
+            tuple[_PreparedComparisonExecution, ...],
+        ]
+    ],
+    *,
+    failure_sink: WorkflowFailureSink,
+    recorded_exception_ids: set[int],
+) -> Iterator[MatrixWorkload]:
+    """Load lazily while attributing a blocking read to its exact matrix."""
+    for (dataset, matrix_id), systems in matrices:
+        with _failure_boundary(
+            failure_sink,
+            ComparisonMatrixFailureContext(
+                phase=ComparisonMatrixPhase.INPUT_LOADING,
+                method=method.name,
+                dataset=dataset,
+                matrix_id=matrix_id,
+            ),
+            recorded_exception_ids=recorded_exception_ids,
+        ):
+            bundle = next(iter(_load_matrix_workloads((((dataset, matrix_id), systems),))))
+        yield bundle
+
+
+def _execute_method_run(
+    method: ResolvedMethod,
+    matrices: tuple[
+        tuple[tuple[DatasetId, MatrixId], tuple[_PreparedComparisonExecution, ...]], ...
+    ],
+    *,
+    method_sink: BenchmarkMethodSink,
+    failure_sink: WorkflowFailureSink,
+) -> CompletedMethodWorkload:
+    """Execute and persist one method inside the method's own MLflow child."""
+    system_ids = tuple(str(system.entry.id) for _, systems in matrices for system in systems)
+    system_identities = tuple(
+        system.identity.key
+        for _, systems in matrices
+        for system in systems
+        if getattr(system, "identity", None) is not None
+    )
+    config_digest = method.identity_digest or canonical_digest(method.config)
+    run_name, tags = build_benchmark_method_run_spec(
+        method=str(method.name),
+        config_digest=config_digest,
+        system_ids=system_ids,
+        system_identities=system_identities or None,
+    )
+    context_fields = {
+        "method": method.name,
+        "config_digest": config_digest,
+        "system_ids": tuple(SystemId(system_id) for system_id in system_ids),
+    }
+    recorded_exception_ids: set[int] = set()
+    with mlflow.start_run(run_name=run_name, nested=True, tags=tags.as_mlflow_tags()):
+        with _failure_boundary(
+            failure_sink,
+            ComparisonMethodFailureContext(
+                phase=ComparisonMethodPhase.EXECUTION,
+                **context_fields,
+            ),
+            recorded_exception_ids=recorded_exception_ids,
+        ):
+            first = matrices[0][1][0]
+            workload = execute_method_workload(
+                method,
+                _load_matrix_workloads_with_failure_context(
+                    method,
+                    matrices,
+                    failure_sink=failure_sink,
+                    recorded_exception_ids=recorded_exception_ids,
+                ),
+                params=first.cfg.general.params,
+                settings=first.settings,
+                notation_policy=first.cfg.notation_policy,
+            )
+            workload = replace(workload, workload_identities=system_identities)
+        with _failure_boundary(
+            failure_sink,
+            ComparisonMethodFailureContext(
+                phase=ComparisonMethodPhase.PERSISTENCE,
+                **context_fields,
+            ),
+            recorded_exception_ids=recorded_exception_ids,
+        ):
+            summary = summarize_method_workload(
+                workload.method,
+                workload.planned,
+                workload.setup_events,
+                workload.solve_attempts,
+                workload.workload_peak_memory,
+            )
+            method_sink.record_method(workload, summary)
+    return workload
+
+
 def _execute_all(
     pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
-) -> tuple[list[ComparisonOutcome], tuple[CompletedMethodWorkload, ...]]:
-    """Execute pending systems in method -> matrix -> ordered RHS order."""
+    *,
+    method_sink: BenchmarkMethodSink,
+    failure_sink: WorkflowFailureSink,
+) -> tuple[CompletedMethodWorkload, ...]:
+    """Execute pending systems in method order, each inside its persisted child run."""
     schedule = _method_major_schedule(pending)
 
-    warm_up_device(resolve_device())
     workloads: list[CompletedMethodWorkload] = []
     for method, matrices in schedule:
-        bundles = _load_matrix_workloads(matrices)
-        first = matrices[0][1][0]
-        workload = execute_method_workload(
-            method,
-            bundles,
-            params=first.cfg.general.params,
-            settings=first.settings,
-            notation_policy=first.cfg.notation_policy,
-        )
-        workload = replace(
-            workload,
-            workload_identities=tuple(
-                system.identity.key
-                for _, systems in matrices
-                for system in systems
-                if getattr(system, "identity", None) is not None
-            ),
-        )
-        workloads.append(workload)
-        release_device_memory()
-    return _outcomes_from_workloads(pending, workloads), tuple(workloads)
+        try:
+            workloads.append(
+                _execute_method_run(
+                    method,
+                    matrices,
+                    method_sink=method_sink,
+                    failure_sink=failure_sink,
+                )
+            )
+        finally:
+            release_device_memory()
+    return tuple(workloads)
 
 
 def _has_complete_reusable_session(
@@ -1500,34 +1627,6 @@ def _has_complete_reusable_session(
     )
 
 
-def _persist_method_workloads(
-    workloads: Sequence[CompletedMethodWorkload],
-    sink: BenchmarkMethodSink,
-) -> None:
-    """Open one direct child per method and persist only its reduced workload."""
-    for workload in workloads:
-        summary = summarize_method_workload(
-            workload.method,
-            workload.planned,
-            workload.setup_events,
-            workload.solve_attempts,
-            workload.workload_peak_memory,
-        )
-        method_ids = tuple(str(tag.system_id) for tag in workload.planned)
-        method_identities = workload.workload_identities or None
-        run_name, tags = build_benchmark_method_run_spec(
-            method=str(workload.method),
-            config_digest=workload.config_digest,
-            system_ids=method_ids,
-            system_identities=method_identities,
-        )
-        with mlflow.start_run(run_name=run_name, nested=True, tags=tags.as_mlflow_tags()):
-            sink.record_method(
-                workload,
-                summary,
-            )
-
-
 def run_comparison_batch(
     case_config_path: Path,
     params: ComparisonParams,
@@ -1585,31 +1684,77 @@ def run_comparison_batch(
         )
 
         if not any(isinstance(p, _PreparedComparisonExecution) for p in pending):
-            outcomes = [p for p in pending if isinstance(p, ComparisonOutcome)]
+            outcomes = [p for p in pending if is_comparison_outcome(p)]
             return outcomes
 
         if _has_complete_reusable_session(pending, topology, force=params.force):
             return [
                 item
-                if isinstance(item, ComparisonOutcome)
-                else _comparison_outcome(item.entry, success=True)
+                if is_comparison_outcome(item)
+                else ComparisonReused(
+                    comparison_id=item.entry.id,
+                    comparison_display_name=item.entry.effective_display_name,
+                )
                 for item in pending
             ]
 
+        failure_sink = MLflowWorkflowFailureSink()
         with mlflow.start_run(run_name=session_run_name, tags=session_tags.as_mlflow_tags()):
-            outcomes, workloads = _execute_all(pending)
-            _persist_method_workloads(workloads, MLflowBenchmarkMethodSink())
+            with _failure_boundary(
+                failure_sink,
+                ComparisonBatchFailureContext(
+                    phase=ComparisonBatchPhase.WARMUP,
+                    case_config_path=case_config_path.resolve(),
+                ),
+            ):
+                warm_up_device(resolve_device())
+            with _failure_boundary(
+                failure_sink,
+                ComparisonBatchFailureContext(
+                    phase=ComparisonBatchPhase.METHOD_WORKLOADS,
+                    case_config_path=case_config_path.resolve(),
+                ),
+            ):
+                workloads = _execute_all(
+                    pending,
+                    method_sink=MLflowBenchmarkMethodSink(),
+                    failure_sink=failure_sink,
+                )
+            with _failure_boundary(
+                failure_sink,
+                ComparisonBatchFailureContext(
+                    phase=ComparisonBatchPhase.RESULT_PROJECTION,
+                    case_config_path=case_config_path.resolve(),
+                ),
+            ):
+                outcomes = _outcomes_from_workloads(pending, workloads)
             selection = _batch_reference_selections(pending)
             contexts_by_system = _batch_solver_timing_contexts(pending)
             report_sink = MLflowGroupReportSink()
-            report_sink.register_method_figures(workloads, contexts_by_system=contexts_by_system)
-            report_all_levels(
-                workloads,
-                report_sink,
-                reference_selection=selection,
-                contexts_by_system=contexts_by_system,
-            )
-            report_sink.finalize()
+            with _failure_boundary(
+                failure_sink,
+                ComparisonBatchFailureContext(
+                    phase=ComparisonBatchPhase.REPORTING,
+                    case_config_path=case_config_path.resolve(),
+                ),
+            ):
+                report_sink.register_method_figures(
+                    workloads, contexts_by_system=contexts_by_system
+                )
+                report_all_levels(
+                    workloads,
+                    report_sink,
+                    reference_selection=selection,
+                    contexts_by_system=contexts_by_system,
+                )
+            with _failure_boundary(
+                failure_sink,
+                ComparisonBatchFailureContext(
+                    phase=ComparisonBatchPhase.FINALIZATION,
+                    case_config_path=case_config_path.resolve(),
+                ),
+            ):
+                report_sink.finalize()
             return outcomes
 
 

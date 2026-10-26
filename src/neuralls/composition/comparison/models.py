@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypeIs
 
 import numpy as np
 import torch
@@ -40,10 +41,13 @@ from neuralls.shared.types import (
 )
 
 __all__ = [
+    "ComparisonCompleted",
+    "ComparisonEntryFailed",
     "ComparisonOutcome",
     "ComparisonParams",
     "ComparisonPaths",
     "ComparisonResult",
+    "ComparisonReused",
     "ComparisonSpec",
     "CompletedMethodWorkload",
     "LinearSystem",
@@ -55,6 +59,7 @@ __all__ = [
     "ResolvedComparisonInput",
     "ResolvedMethod",
     "canonical_method_config",
+    "is_comparison_outcome",
 ]
 
 
@@ -322,22 +327,39 @@ class PlannedSystem:
     provenance: SharedSingleMatrix | HeldOutMatrix
 
 
-@dataclass(frozen=True)
-class ComparisonOutcome:
-    """Result for a single comparison run.
-
-    Args:
-        comparison_id: Stable identifier for this comparison.
-        comparison_display_name: Human-readable label.
-        success: Whether the comparison completed without error.
-        error: Error message if failed.
-        payload: Full comparison result if successful.
-        warnings: Non-fatal warning messages.
-    """
+@dataclass(frozen=True, slots=True)
+class ComparisonCompleted:
+    """A comparison that executed and produced a new result."""
 
     comparison_id: str
     comparison_display_name: str
-    success: bool
-    error: str | None = None
-    payload: ComparisonResult | None = None
+    payload: ComparisonResult
     warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonReused:
+    """A comparison satisfied by an already-complete reusable run."""
+
+    comparison_id: str
+    comparison_display_name: str
+    warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonEntryFailed:
+    """One comparison entry that failed without blocking sibling entries."""
+
+    comparison_id: str
+    comparison_display_name: str
+    reason: str
+    warnings: tuple[str, ...] = ()
+
+
+type ComparisonOutcome = ComparisonCompleted | ComparisonReused | ComparisonEntryFailed
+"""The closed set of per-entry comparison outcomes."""
+
+
+def is_comparison_outcome(value: object) -> TypeIs[ComparisonOutcome]:
+    """Narrow an orchestration item to one of the closed terminal outcomes."""
+    return isinstance(value, (ComparisonCompleted, ComparisonReused, ComparisonEntryFailed))

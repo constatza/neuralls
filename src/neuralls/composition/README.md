@@ -485,8 +485,13 @@ method-lifetime peak, which are not reconstructible from only those event
 frames.
 
 The comparison batch opens one `session_comparison` parent and one direct
-`comparison_method` child per executed `CompletedMethodWorkload`. The batch,
-not the platform sink, owns those MLflow contexts. A method child owns its
+`comparison_method` child before each method workload executes. Execution and
+persistence happen inside that child, so a blocking method exception leaves a
+failed child with typed context and a traceback instead of only an unexplained
+failed parent. Lazy input-loading failures identify the exact method, dataset,
+and matrix in that child; the method boundary does not overwrite the more
+specific context. The batch, not the platform sink, owns those MLflow contexts.
+A method child owns its
 required configuration, the two canonical Parquet event files, `summary.toml`,
 method histories, and method diagnostic figures; the session parent owns shared
 provenance and cross-method figures. No matrix/RHS system runs or method

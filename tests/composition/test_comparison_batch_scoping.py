@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import weakref
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from inspect import isgeneratorfunction
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -19,14 +19,23 @@ from neuralls.composition.assignments.comparison_batch import (
     _prepare_comparison_entry,
     _PreparedComparisonExecution,
 )
-from neuralls.composition.comparison.models import CompletedMethodWorkload, ResolvedMethod
+from neuralls.composition.comparison.models import (
+    CompletedMethodWorkload,
+    MatrixWorkload,
+    ResolvedMethod,
+)
 from neuralls.domain.solver.models import MeasuredPeakMemory
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
-from neuralls.shared.types import DatasetId, MatrixId
+from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName
+from neuralls.shared.workflow_failures import (
+    ComparisonMatrixFailureContext,
+    ComparisonMatrixPhase,
+    ComparisonMethodFailureContext,
+)
 
 
 def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
@@ -185,6 +194,10 @@ def events(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr(comparison_batch, "warm_up_device", lambda device: recorded.append("warm"))
     monkeypatch.setattr(comparison_batch, "release_device_memory", lambda: None)
     monkeypatch.setattr(comparison_batch.mlflow, "log_metric", lambda *a, **k: None)
+    child_run = MagicMock()
+    child_run.__enter__.return_value = MagicMock()
+    child_run.__exit__.return_value = False
+    monkeypatch.setattr(comparison_batch.mlflow, "start_run", MagicMock(return_value=child_run))
 
     monkeypatch.setattr(
         comparison_batch,
@@ -232,7 +245,12 @@ def test_device_is_warmed_once_and_each_method_releases_before_the_next(
     for system in pending:
         system.resolved.specs = [identity, jacobi]
 
-    outcomes, workloads = _execute_all(pending)
+    comparison_batch.warm_up_device(torch.device("cpu"))
+    workloads = _execute_all(
+        pending,
+        method_sink=MagicMock(),
+        failure_sink=MagicMock(),
+    )
 
     assert events == [
         "warm",
@@ -247,8 +265,124 @@ def test_device_is_warmed_once_and_each_method_releases_before_the_next(
         "matrix:jacobi:0",
         "release:jacobi",
     ]
-    assert len(outcomes) == 4
     assert len(workloads) == 2
+
+
+def test_method_child_wraps_execution_and_persistence(
+    events: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pending = [_system("a", 0, "a-0-0")]
+    pending[0].resolved.specs = [StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)]
+    run = MagicMock()
+    run.__enter__.side_effect = lambda: events.append("child:enter") or MagicMock()
+    run.__exit__.side_effect = lambda *args: events.append("child:exit") or False
+    monkeypatch.setattr(comparison_batch.mlflow, "start_run", MagicMock(return_value=run))
+
+    class MethodSink:
+        def record_method(self, workload: object, summary: object) -> None:
+            del workload, summary
+            events.append("persist")
+
+    class FailureSink:
+        def record(self, context: object, exc: Exception) -> None:
+            raise AssertionError(f"unexpected failure: {context}: {exc}")
+
+    _execute_all(pending, method_sink=MethodSink(), failure_sink=FailureSink())
+
+    assert events.index("child:enter") < events.index("method:identity")
+    assert events.index("method:identity") < events.index("persist")
+    assert events.index("persist") < events.index("child:exit")
+
+
+def test_method_failure_reraises_original_when_failure_sink_also_fails(
+    events: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pending = [_system("a", 0, "a-0-0")]
+    pending[0].resolved.specs = [StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)]
+    original = RuntimeError("method exploded")
+    monkeypatch.setattr(
+        comparison_batch, "execute_method_workload", MagicMock(side_effect=original)
+    )
+    run = MagicMock()
+    run.__enter__.return_value = MagicMock()
+    run.__exit__.return_value = False
+    monkeypatch.setattr(comparison_batch.mlflow, "start_run", MagicMock(return_value=run))
+
+    class MethodSink:
+        def record_method(self, workload: object, summary: object) -> None:
+            raise AssertionError("persistence must not run")
+
+    contexts: list[ComparisonMethodFailureContext] = []
+
+    class FailingFailureSink:
+        def record(self, context: ComparisonMethodFailureContext, exc: Exception) -> None:
+            contexts.append(context)
+            raise RuntimeError("diagnostics unavailable")
+
+    with pytest.raises(RuntimeError) as raised:
+        _execute_all(
+            pending,
+            method_sink=MethodSink(),
+            failure_sink=FailingFailureSink(),
+        )
+
+    assert raised.value is original
+    assert contexts[0].method == "identity"
+    assert contexts[0].phase.value == "execution"
+
+
+def test_matrix_loading_failure_records_exact_matrix_context_once_in_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pending = [_system("dataset-a", 7, "system-7")]
+    pending[0].resolved.specs = [StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)]
+    original = RuntimeError("matrix input broke")
+    monkeypatch.setattr(
+        comparison_batch,
+        "_load_one_matrix_workload",
+        MagicMock(side_effect=original),
+    )
+    monkeypatch.setattr(comparison_batch, "release_device_memory", lambda: None)
+    child_run = MagicMock()
+    child_run.__enter__.return_value = MagicMock()
+    child_run.__exit__.return_value = False
+    monkeypatch.setattr(comparison_batch.mlflow, "start_run", MagicMock(return_value=child_run))
+
+    def consume_bundles(
+        method: ResolvedMethod, bundles: Iterable[MatrixWorkload], **kwargs: object
+    ) -> CompletedMethodWorkload:
+        del method, kwargs
+        tuple(bundles)
+        raise AssertionError("the matrix load should fail first")
+
+    monkeypatch.setattr(comparison_batch, "execute_method_workload", consume_bundles)
+    contexts: list[object] = []
+
+    class MethodSink:
+        def record_method(self, workload: object, summary: object) -> None:
+            raise AssertionError("persistence must not run")
+
+    class FailureSink:
+        def record(self, context: object, exc: Exception) -> None:
+            assert exc is original
+            contexts.append(context)
+
+    with pytest.raises(RuntimeError) as raised:
+        _execute_all(
+            pending,
+            method_sink=MethodSink(),
+            failure_sink=FailureSink(),
+        )
+
+    assert raised.value is original
+    assert contexts == [
+        ComparisonMatrixFailureContext(
+            phase=ComparisonMatrixPhase.INPUT_LOADING,
+            method=PreconditionerName("identity"),
+            dataset=DatasetId("dataset-a"),
+            matrix_id=MatrixId(7),
+        )
+    ]
 
 
 def test_every_entry_of_a_sweep_shares_the_one_lease_manager(

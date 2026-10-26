@@ -407,6 +407,14 @@ def _execute_matrix_bundle(
         try:
             service.preload(matrix, method.config)
         except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Recoverable setup failure for method '{}' on dataset '{}' matrix {}: {}: {}",
+                method.name,
+                bundle.dataset,
+                int(bundle.matrix_id),
+                type(exc).__name__,
+                exc,
+            )
             setup_events.append(
                 MatrixSetupEvent(
                     event_id=event_id,
@@ -440,6 +448,14 @@ def _execute_matrix_bundle(
         )
         observer.observe_operation(timed_setup.peak_memory_bytes)
         if isinstance(timed_setup, FailedTimedRuns):
+            logger.warning(
+                "Recoverable setup failure for method '{}' on dataset '{}' matrix {}: {}: {}",
+                method.name,
+                bundle.dataset,
+                int(bundle.matrix_id),
+                type(timed_setup.error).__name__,
+                timed_setup.error,
+            )
             setup_events.append(
                 MatrixSetupEvent(
                     event_id=event_id,
@@ -510,6 +526,17 @@ def _execute_matrix_bundle(
                 if result.converged
                 else SolveFailed(result.iterations, result.error or "solver did not converge")
             )
+            if isinstance(outcome, SolveFailed):
+                logger.warning(
+                    "Recoverable solve failure for method '{}' on system '{}' "
+                    "(dataset '{}', matrix {}, RHS {}): {}",
+                    method.name,
+                    member.tag.system_id,
+                    bundle.dataset,
+                    int(bundle.matrix_id),
+                    member.tag.rhs_ordinal,
+                    outcome.reason,
+                )
             attempts.append(
                 SolveAttempt(
                     setup_event_id=event_id,
