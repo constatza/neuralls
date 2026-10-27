@@ -148,7 +148,7 @@ iterations; workload ranking uses complete event summaries.
 
 ## Presentation planning
 
-Presentation planning (`prepare_presentations`, `realize_method`, `reduce_realized_facts`) lives in `domain/presentation/planner.py` (see its README). `GroupPresentation.methods` carries a `GroupMethodPresentation` per method: its prepared presentation plus the invariant realized facts of that group (only `ALWAYS`/`WHEN_NON_DEFAULT` facts join the compact view).
+Presentation planning (`prepare_presentations`, `reduce_realized_facts`) lives in `domain/presentation/planner.py` (see its README). `GroupPresentation.methods` carries a `GroupMethodPresentation` per method: its prepared presentation plus the invariant realized facts of that group (only `ALWAYS`/`WHEN_NON_DEFAULT` facts join the compact view).
 
 ## Boundary rule
 

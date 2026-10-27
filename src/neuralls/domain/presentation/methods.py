@@ -2,7 +2,7 @@
 
 A method moves through separate types as its presentation becomes trustworthy:
 configured (standalone or dataset-qualified) -> prepared (cohort validated, compact
-facts chosen) -> realized (per-system facts captured after setup). Prepared and
+facts chosen) -> executed (per-system facts captured after setup). Prepared and
 realized types validate their invariants on construction, so a value of those types
 cannot exist around the transitions that produce them. Rendered text is never stored.
 """
@@ -198,25 +198,18 @@ class SystemRealization:
 
 
 @dataclass(frozen=True, slots=True)
-class RealizedMethodPresentation:
-    """A prepared method plus the facts captured on every system it ran."""
+class ExecutedMethod:
+    """A prepared method plus the facts captured on the systems whose setup succeeded.
+
+    ``systems`` is empty when no setup succeeded (the method is then reported from its
+    prepared state alone); otherwise it holds one realization per system, unique by id.
+    """
 
     prepared: PreparedMethodPresentation
     systems: tuple[SystemRealization, ...]
 
     def __post_init__(self) -> None:
-        """Require at least one system and unique system ids."""
-        if not self.systems:
-            raise ValueError("RealizedMethodPresentation requires at least one system")
+        """Require unique system ids."""
         ids = [system.system_id for system in self.systems]
         if len(ids) != len(set(ids)):
-            raise ValueError("RealizedMethodPresentation system ids must be unique")
-
-
-type ExecutedMethodPresentation = RealizedMethodPresentation | PreparedMethodPresentation
-"""What a finished method workload reports from.
-
-A method that completed setup on at least one system carries the realized state. A
-method whose every setup failed has no realized facts, so it stays in the prepared
-state its legend and run name were chosen from.
-"""
+            raise ValueError("ExecutedMethod system ids must be unique")

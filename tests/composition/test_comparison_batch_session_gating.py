@@ -16,19 +16,23 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from neuralls.composition.assignments.comparison_batch import (
+    PendingComparison,
+    PreparedComparisonExecution,
     ResolvedComparisonSpecs,
     _ComparisonResolutionContext,
-    _PreparedComparisonExecution,
     run_comparison_batch,
 )
 from neuralls.composition.comparison.models import (
-    ComparisonOutcome,
     ComparisonParams,
     ComparisonReused,
     PlannedSystem,
 )
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import PreparedComparisonPresentation
+from neuralls.platform.config.models.preconditioner import (
+    PreconditionerType,
+    StandardPreconditionerConfig,
+)
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.workflow_failures import (
     ComparisonBatchFailureContext,
@@ -54,7 +58,7 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
         context: object,
         *,
         force: bool = False,
-    ) -> ComparisonOutcome:
+    ) -> ComparisonReused:
         return ComparisonReused(
             comparison_id=planned.entry.id,
             comparison_display_name=planned.entry.effective_display_name,
@@ -91,18 +95,22 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
         context: _ComparisonResolutionContext,
         *,
         force: bool = False,
-    ) -> ComparisonOutcome | _PreparedComparisonExecution:
+    ) -> PendingComparison:
         if planned.entry.id == "a":
             return ComparisonReused(
                 comparison_id=planned.entry.id,
                 comparison_display_name=planned.entry.effective_display_name,
             )
-        return _PreparedComparisonExecution(
+        return PreparedComparisonExecution(
             cfg=cfg,
             planned=planned,
             topology=context.topology,
             cleanup=contextlib.ExitStack(),
-            resolved=ResolvedComparisonSpecs(specs=[], warnings=(), checkpoint_digests={}),
+            resolved=ResolvedComparisonSpecs(
+                specs=[StandardPreconditionerConfig(type=PreconditionerType.JACOBI)],
+                warnings=(),
+                checkpoint_digests={},
+            ),
             identity=StageIdentity.build(
                 "comparison", {"entry": canonical_digest(planned.entry.id)}
             ),
@@ -161,14 +169,18 @@ def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
         context: _ComparisonResolutionContext,
         *,
         force: bool = False,
-    ) -> _PreparedComparisonExecution:
+    ) -> PreparedComparisonExecution:
         del force
-        return _PreparedComparisonExecution(
+        return PreparedComparisonExecution(
             cfg=cfg,
             planned=planned,
             topology=context.topology,
             cleanup=contextlib.ExitStack(),
-            resolved=ResolvedComparisonSpecs(specs=[], warnings=(), checkpoint_digests={}),
+            resolved=ResolvedComparisonSpecs(
+                specs=[StandardPreconditionerConfig(type=PreconditionerType.JACOBI)],
+                warnings=(),
+                checkpoint_digests={},
+            ),
             identity=StageIdentity.build(
                 "comparison", {"entry": canonical_digest(planned.entry.id)}
             ),

@@ -10,6 +10,7 @@ from tests.presentation_support import PreparedMethodFactory
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload
 from neuralls.domain.benchmarking.selection import ConfiguredReference
+from neuralls.domain.presentation.methods import ExecutedMethod
 from neuralls.domain.solver.models.benchmark_events import SystemTag, UnknownPeakMemory
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.models.group_outcomes import (
@@ -176,7 +177,7 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
         workload_peak_memory=UnknownPeakMemory(),
         config_digest="sha256:" + "b" * 64,
         method_config={"name": str(method)},
-        presentation=prepared_method(str(method)),
+        presentation=ExecutedMethod(prepared_method(str(method)), ()),
         plot_styles={
             str(method): PreconditionerPlotStyle(
                 label="Neural (assignment=network_a)", family=PreconditionerType.NEURAL
@@ -347,7 +348,7 @@ def test_session_manifest_registers_uniquely_owned_method_figures(
         workload_peak_memory=UnknownPeakMemory(),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": str(method)},
-        presentation=prepared_method(str(method)),
+        presentation=ExecutedMethod(prepared_method(str(method)), ()),
         plot_styles={
             str(method): PreconditionerPlotStyle(
                 label="Neural (assignment=network_a)", family=PreconditionerType.NEURAL

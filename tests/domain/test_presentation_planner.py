@@ -9,17 +9,16 @@ import pytest
 from neuralls.domain.presentation.methods import (
     DatasetQualifiedMethodPresentation,
     DuplicateMethodPresentationError,
+    ExecutedMethod,
     MethodPresentationCandidate,
     PreparedComparisonPresentation,
     PreparedMethodPresentation,
-    RealizedMethodPresentation,
     StandaloneMethodPresentation,
     SystemRealization,
     UnvalidatedComparisonPresentation,
 )
 from neuralls.domain.presentation.planner import (
     prepare_presentations,
-    realize_method,
     reduce_realized_facts,
 )
 from neuralls.domain.presentation.provenance import (
@@ -315,18 +314,15 @@ def test_reduction_keeps_equal_facts_and_drops_varying_ones() -> None:
     assert reduce_realized_facts(()) == ()
 
 
-def test_realize_method_requires_unique_realized_systems(
+def test_executed_method_allows_no_systems_but_requires_unique_system_ids(
     scope: ComparisonScopePresentation,
 ) -> None:
     prepared = prepare_presentations(_cohort(scope, _candidate("a", _asa()))).methods[0]
-    realized = realize_method(prepared, (_system(0), _system(1)))
-    assert isinstance(realized, RealizedMethodPresentation)
-    assert realized.prepared is prepared
 
-    with pytest.raises(ValueError, match="at least one system"):
-        realize_method(prepared, ())
+    assert ExecutedMethod(prepared, ()).systems == ()
+    assert ExecutedMethod(prepared, (_system(0), _system(1))).prepared is prepared
     with pytest.raises(ValueError, match="unique"):
-        realize_method(prepared, (_system(0), _system(0)))
+        ExecutedMethod(prepared, (_system(0), _system(0)))
 
 
 def test_system_realization_rejects_configured_facts() -> None:

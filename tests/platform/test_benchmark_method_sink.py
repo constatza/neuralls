@@ -12,6 +12,7 @@ from tests.presentation_support import PreparedMethodFactory
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload, canonical_method_config
 from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
+from neuralls.domain.presentation.methods import ExecutedMethod
 from neuralls.domain.solver.models import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -81,7 +82,7 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
         workload_peak_memory=MeasuredPeakMemory(2),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": str(method)},
-        presentation=prepared_method(str(method)),
+        presentation=ExecutedMethod(prepared_method(str(method)), ()),
     )
 
 

@@ -17,6 +17,7 @@ from neuralls.composition.comparison.models import (
     MatrixWorkloadMember,
     ResolvedMethod,
 )
+from neuralls.domain.presentation.methods import ExecutedMethod
 from neuralls.domain.solver.models import (
     MeasuredPeakMemory,
     SetupCompleted,
@@ -130,7 +131,7 @@ def test_workload_models_are_frozen_and_slotted(
         workload_peak_memory=MeasuredPeakMemory(0),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": str(method.name)},
-        presentation=prepared_method(str(method.name)),
+        presentation=ExecutedMethod(prepared_method(str(method.name)), ()),
     )
 
     for value in (one_system_bundle.members[0], one_system_bundle, method, completed):

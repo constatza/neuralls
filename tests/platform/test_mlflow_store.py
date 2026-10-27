@@ -20,6 +20,7 @@ from neuralls.composition.comparison.models import (
 )
 from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
 from neuralls.domain.identity import IdentityTag, Reused, StageIdentity
+from neuralls.domain.presentation.methods import ExecutedMethod
 from neuralls.domain.solver.models import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -205,7 +206,7 @@ def method_artifacts(
         workload_peak_memory=MeasuredPeakMemory(2),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": "jacobi"},
-        presentation=prepared_method(str(method)),
+        presentation=ExecutedMethod(prepared_method(str(method)), ()),
     )
     summary = summarize_method_workload(
         workload.method,
@@ -335,7 +336,7 @@ def test_reuse_ignores_checkpoint_lease_path_but_rejects_changed_content(
         workload_peak_memory=MeasuredPeakMemory(2),
         config_digest=config_digest,
         method_config={"name": "jacobi"},
-        presentation=prepared_method(str(method)),
+        presentation=ExecutedMethod(prepared_method(str(method)), ()),
     )
     summary = summarize_method_workload(
         workload.method,

@@ -10,6 +10,7 @@ import pytest
 from tests.presentation_support import PreparedMethodFactory
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload
+from neuralls.domain.presentation.methods import ExecutedMethod
 from neuralls.domain.solver.models import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -102,7 +103,7 @@ def workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
         workload_peak_memory=MeasuredPeakMemory(512),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": str(method)},
-        presentation=prepared_method(str(method)),
+        presentation=ExecutedMethod(prepared_method(str(method)), ()),
     )
 
 

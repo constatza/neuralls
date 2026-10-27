@@ -15,7 +15,7 @@ from loguru import logger
 from neuralls.composition.comparison.models import CompletedMethodWorkload
 from neuralls.domain.benchmarking.selection import NoReferenceConfigured, ReferenceSelection
 from neuralls.domain.presentation.methods import DuplicateMethodPresentationError
-from neuralls.domain.presentation.planner import prepared_of, realizations_of, reduce_realized_facts
+from neuralls.domain.presentation.planner import reduce_realized_facts
 from neuralls.domain.solver.models.group_outcomes import (
     GroupAggregated,
     GroupSkippedAllCacheHit,
@@ -93,11 +93,11 @@ def _group_methods(
     members = frozenset(system_ids)
     return {
         workload.method: GroupMethodPresentation(
-            prepared=prepared_of(workload.presentation),
+            prepared=workload.presentation.prepared,
             invariant_facts=reduce_realized_facts(
                 tuple(
                     system
-                    for system in realizations_of(workload.presentation)
+                    for system in workload.presentation.systems
                     if system.system_id in members
                 )
             ),

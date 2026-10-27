@@ -1,21 +1,18 @@
 """Pure transitions between method-presentation states.
 
 ``prepare_presentations`` turns a configured cohort into the only state that
-execution and tracking accept; ``realize_method`` attaches the facts captured on
+execution and tracking accept; ``reduce_realized_facts`` reduces the facts captured on
 each system after setup. Both operate on structured facts and never render text.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import assert_never
 
 from neuralls.domain.presentation.methods import (
-    ExecutedMethodPresentation,
     MethodPresentationCandidate,
     PreparedComparisonPresentation,
     PreparedMethodPresentation,
-    RealizedMethodPresentation,
     SystemRealization,
     UnvalidatedComparisonPresentation,
     description_facts,
@@ -25,9 +22,6 @@ from neuralls.shared.scientific_description.models import FieldKey, ScientificFa
 
 __all__ = [
     "prepare_presentations",
-    "prepared_of",
-    "realizations_of",
-    "realize_method",
     "reduce_realized_facts",
 ]
 
@@ -51,35 +45,6 @@ def prepare_presentations(
         for candidate in unvalidated.methods
     )
     return PreparedComparisonPresentation(methods=methods, scope=unvalidated.scope)
-
-
-def realize_method(
-    prepared: PreparedMethodPresentation, systems: tuple[SystemRealization, ...]
-) -> RealizedMethodPresentation:
-    """Attach per-system realized facts to a prepared method."""
-    return RealizedMethodPresentation(prepared=prepared, systems=systems)
-
-
-def prepared_of(executed: ExecutedMethodPresentation) -> PreparedMethodPresentation:
-    """The prepared presentation underlying either execution outcome."""
-    match executed:
-        case RealizedMethodPresentation(prepared=prepared):
-            return prepared
-        case PreparedMethodPresentation() as prepared:
-            return prepared
-        case _ as unreachable:
-            assert_never(unreachable)
-
-
-def realizations_of(executed: ExecutedMethodPresentation) -> tuple[SystemRealization, ...]:
-    """The per-system facts captured after setup; empty when no setup succeeded."""
-    match executed:
-        case RealizedMethodPresentation(systems=systems):
-            return systems
-        case PreparedMethodPresentation():
-            return ()
-        case _ as unreachable:
-            assert_never(unreachable)
 
 
 def reduce_realized_facts(

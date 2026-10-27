@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from neuralls.composition.comparison.group_reporting import report_all_levels
 from neuralls.composition.comparison.models import CompletedMethodWorkload
 from neuralls.composition.preconditioners.labels import build_configured_preconditioner_label
+from neuralls.domain.presentation.methods import ExecutedMethod
 from neuralls.domain.solver.models import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -83,7 +84,7 @@ def test_group_reporting_reduces_completed_workload_events(
         workload_peak_memory=MeasuredPeakMemory(20),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": "identity"},
-        presentation=prepared_method("identity"),
+        presentation=ExecutedMethod(prepared_method("identity"), ()),
     )
     sink = RecordingSink()
 
@@ -120,7 +121,7 @@ def test_group_reporting_propagates_method_plot_styles(
         workload_peak_memory=MeasuredPeakMemory(10),
         config_digest="sha256:" + "1" * 64,
         method_config={"name": "identity"},
-        presentation=prepared_method("identity"),
+        presentation=ExecutedMethod(prepared_method("identity"), ()),
         plot_styles={str(method): style},
     )
 
@@ -179,7 +180,7 @@ def test_mixture_presentations_keep_only_the_short_scope(
         workload_peak_memory=MeasuredPeakMemory(1),
         config_digest="sha256:" + "2" * 64,
         method_config={"name": "identity"},
-        presentation=prepared_method("identity"),
+        presentation=ExecutedMethod(prepared_method("identity"), ()),
     )
 
     class PresentationSink:
@@ -215,7 +216,7 @@ def test_group_reporting_propagates_actual_solver_timing_context(
         workload_peak_memory=MeasuredPeakMemory(1),
         config_digest="sha256:" + "3" * 64,
         method_config={"name": "identity"},
-        presentation=prepared_method("identity"),
+        presentation=ExecutedMethod(prepared_method("identity"), ()),
     )
     context = SolverTimingContext(
         rtol=1e-6,
@@ -271,7 +272,7 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
             workload_peak_memory=MeasuredPeakMemory(1),
             config_digest="sha256:" + name[-1] * 64,
             method_config={"name": name},
-            presentation=prepared_method(name),
+            presentation=ExecutedMethod(prepared_method(name), ()),
             plot_styles={
                 name: PreconditionerPlotStyle(
                     build_configured_preconditioner_label(configs[name]), PreconditionerType.AMG

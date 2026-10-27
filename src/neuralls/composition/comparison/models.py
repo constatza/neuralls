@@ -9,7 +9,7 @@ from typing import TypeIs
 import numpy as np
 import torch
 
-from neuralls.domain.presentation.methods import ExecutedMethodPresentation
+from neuralls.domain.presentation.methods import ExecutedMethod
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
     PeakMemory,
@@ -139,9 +139,9 @@ class MatrixWorkload:
 class CompletedMethodWorkload:
     """Canonical raw events and diagnostics produced by one method workload.
 
-    ``presentation`` is the realized scientific state when any setup succeeded and the
-    prepared state otherwise; it is captured during execution so reporting never needs the
-    released preconditioner.
+    ``presentation`` holds the realized facts captured during execution, so reporting never
+    needs the released preconditioner; it has no systems when no setup succeeded. It must
+    belong to ``method``.
 
     ``generation_cost`` is the optional historical generation cost; checkpoint
     and data loading are I/O outside the benchmark cost model. Generation
@@ -157,9 +157,17 @@ class CompletedMethodWorkload:
     workload_peak_memory: PeakMemory
     config_digest: Digest
     method_config: dict[str, Json]
-    presentation: ExecutedMethodPresentation
+    presentation: ExecutedMethod
     workload_identities: tuple[Digest, ...] = ()
     plot_styles: dict[str, PreconditionerPlotStyle] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Require the presentation to describe this workload's own method."""
+        if self.presentation.prepared.method_id != self.method:
+            raise ValueError(
+                f"presentation belongs to method {self.presentation.prepared.method_id!r}, "
+                f"not {self.method!r}"
+            )
 
 
 @dataclass(frozen=True)

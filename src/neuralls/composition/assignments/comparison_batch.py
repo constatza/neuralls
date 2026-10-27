@@ -8,7 +8,7 @@ import tomllib
 from collections.abc import Generator, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, assert_never
 
 import mlflow
 from dlkit.infrastructure.config.job_config import FitJobConfig
@@ -88,7 +88,11 @@ from neuralls.domain.benchmarking.selection import (
 )
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import PreparedComparisonPresentation
-from neuralls.domain.presentation.titles import ComparisonScopePresentation, ComparisonTitle
+from neuralls.domain.presentation.titles import (
+    ComparisonScopePresentation,
+    ComparisonTitle,
+    EditorialPresentation,
+)
 from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory, SetupCompleted
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.presentation import SolverTimingContext
@@ -755,7 +759,7 @@ def _build_child_run_tags(
 
 
 def _run_and_log_comparison(
-    prepared: _PreparedComparisonExecution,
+    prepared: PreparedComparisonExecution,
     *,
     run_name: str,
     comp_run_id: str,
@@ -804,7 +808,7 @@ def _run_and_log_comparison(
 
 
 def _execute_comparison_in_run(
-    prepared: _PreparedComparisonExecution,
+    prepared: PreparedComparisonExecution,
     *,
     run_name: str,
     comp_tags: ComparisonRunTags,
@@ -880,13 +884,16 @@ def _comparison_failure_outcome(
     )
 
 
-@dataclass(frozen=True)
-class _PreparedComparisonExecution:
+@dataclass(frozen=True, slots=True)
+class PreparedComparisonExecution:
     """One entry, resolved and confirmed to need real execution.
 
     `cleanup` owns the entry's artifact-lease lifetime (already resolved into
     `resolved.specs`' baked-in checkpoint paths) — the caller must enter it
     into its own ExitStack (or close it directly) once execution is done.
+
+    The presentation must describe exactly the resolved methods, in order, and a title
+    composed from the dataset scope must be that presentation's own scope.
     """
 
     cfg: ComparisonConfig
@@ -901,28 +908,68 @@ class _PreparedComparisonExecution:
     title: ComparisonTitle
     reference_selection: ReferenceSelection = field(default_factory=NoReferenceConfigured)
 
+    def __post_init__(self) -> None:
+        """Require the presentation and title to describe this execution's own methods."""
+        spec_names = tuple(spec.name for spec in self.resolved.specs)
+        method_ids = tuple(method.method_id for method in self.presentation.methods)
+        if method_ids != spec_names:
+            raise ValueError(
+                f"presentation methods {method_ids!r} differ from the resolved specs "
+                f"{spec_names!r}; they must be the same methods in the same order"
+            )
+        match self.title:
+            case ComparisonScopePresentation() as scope:
+                if scope != self.presentation.scope:
+                    raise ValueError("a scope title must be the presentation's own scope")
+            case EditorialPresentation():
+                pass
+            case _ as unreachable:
+                assert_never(unreachable)
+
     @property
     def entry(self) -> ComparisonRegistryEntry:
         """The planned system's concrete registry entry."""
         return self.planned.entry
 
 
-@dataclass(frozen=True)
+type PendingComparison = ComparisonOutcome | PreparedComparisonExecution
+"""A planned system's state before execution: already decided, or ready to execute."""
+
+
+def _planned_system_matches(item: PendingComparison, planned: PlannedSystem) -> bool:
+    """Whether ``item`` is the state of ``planned`` and not of some other system."""
+    match item:
+        case PreparedComparisonExecution():
+            return item.planned is planned
+        case ComparisonCompleted() | ComparisonReused() | ComparisonEntryFailed():
+            return item.comparison_id == planned.entry.id
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedComparisonBatch:
     """Every comparison of a case, resolved and presentation-validated; nothing has run.
 
     Session tracking and execution accept only this type, so an unvalidated cohort cannot
     reach MLflow or a numerical kernel. A comparison that is a reuse hit or a failure
-    carries its outcome; one that must execute carries its prepared execution.
+    carries its outcome; one that must execute carries its prepared execution. Item ``i``
+    is the state of planned system ``i``.
     """
 
-    items: tuple[ComparisonOutcome | _PreparedComparisonExecution, ...]
+    items: tuple[PendingComparison, ...]
     planned: tuple[PlannedSystem, ...]
 
     def __post_init__(self) -> None:
-        """Require one distinct item per planned system."""
+        """Require item ``i`` to be the state of planned system ``i``."""
         if len(self.items) != len(self.planned):
             raise ValueError("A prepared batch needs exactly one item per planned system")
+        for position, (item, planned) in enumerate(zip(self.items, self.planned, strict=True)):
+            if not _planned_system_matches(item, planned):
+                raise ValueError(
+                    f"A prepared batch item {position} is not the state of its planned system "
+                    f"{planned.entry.id!r}"
+                )
 
 
 def _matrix_scope(
@@ -949,7 +996,7 @@ def _prepare_comparison_entry(
     context: _ComparisonResolutionContext,
     *,
     force: bool = False,
-) -> ComparisonOutcome | _PreparedComparisonExecution:
+) -> PendingComparison:
     """Validate, resolve, and reuse-check one entry. Opens no MLflow run.
 
     Preconditioners are resolved before deciding whether to run at all: if a
@@ -964,7 +1011,7 @@ def _prepare_comparison_entry(
     lives until the sweep ends, cache hits and failures included). Without it,
     the entry owns a private manager: every terminal outcome (validation
     failure, resolution failure, or a cache hit) closes it before returning,
-    and a `_PreparedComparisonExecution` instead detaches that lifetime for the
+    and a `PreparedComparisonExecution` instead detaches that lifetime for the
     caller to keep open through execution.
 
     Args:
@@ -975,7 +1022,7 @@ def _prepare_comparison_entry(
             already completed successfully.
 
     Returns:
-        A cache-hit/failure `ComparisonOutcome`, or a `_PreparedComparisonExecution`
+        A cache-hit/failure `ComparisonOutcome`, or a `PreparedComparisonExecution`
         ready for `_execute_prepared_comparison`.
     """
     entry = planned.entry
@@ -1067,7 +1114,7 @@ def _prepare_comparison_entry(
 
         # Needs real execution: detach the lease manager's cleanup from this
         # function's scope-exit and hand it to the caller instead.
-        return _PreparedComparisonExecution(
+        return PreparedComparisonExecution(
             cfg=cfg,
             planned=planned,
             topology=context.topology,
@@ -1082,7 +1129,7 @@ def _prepare_comparison_entry(
 
 
 def _execute_prepared_comparison(
-    prepared: _PreparedComparisonExecution,
+    prepared: PreparedComparisonExecution,
     *,
     cache: SystemPreconditionerCache | None = None,
 ) -> ComparisonOutcome:
@@ -1208,7 +1255,7 @@ def prepare_comparison_batch(
         ),
         reuse_comparisons=reuse_comparisons,
     )
-    pending: list[ComparisonOutcome | _PreparedComparisonExecution] = []
+    pending: list[PendingComparison] = []
     planned_systems = plan_comparisons(master_cfg, config_dir, settings)
     for planned in planned_systems:
         entry = planned.entry
@@ -1233,7 +1280,7 @@ def prepare_comparison_batch(
         validate_unique_preconditioner_keys(cfg.preconditioners)
 
         prepared = _prepare_comparison_entry(cfg, planned, context, force=force)
-        if isinstance(prepared, _PreparedComparisonExecution):
+        if isinstance(prepared, PreparedComparisonExecution):
             stack.enter_context(prepared.cleanup)
         pending.append(prepared)
     validate_dataset_specs_consistent(planned_systems, _identities_by_entry_id(pending))
@@ -1241,33 +1288,33 @@ def prepare_comparison_batch(
 
 
 def _identities_by_entry_id(
-    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+    pending: Sequence[PendingComparison],
 ) -> dict[str, dict[str, Digest]]:
     """Identity of every preconditioner of every entry that will execute, by name."""
     return {
         p.entry.id: preconditioner_identities(p.resolved.specs, p.resolved.checkpoint_digests)
         for p in pending
-        if isinstance(p, _PreparedComparisonExecution)
+        if isinstance(p, PreparedComparisonExecution)
     }
 
 
-def _dataset_of(prepared: _PreparedComparisonExecution) -> DatasetId:
+def _dataset_of(prepared: PreparedComparisonExecution) -> DatasetId:
     return DatasetId(prepared.entry.matrix_dataset)
 
 
-def _matrix_of(prepared: _PreparedComparisonExecution) -> tuple[DatasetId, MatrixId]:
+def _matrix_of(prepared: PreparedComparisonExecution) -> tuple[DatasetId, MatrixId]:
     return _dataset_of(prepared), matrix_key(prepared.planned)
 
 
 def _method_major_schedule(
-    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+    pending: Sequence[PendingComparison],
 ) -> tuple[
     tuple[
         ResolvedMethod,
         tuple[
             tuple[
                 tuple[DatasetId, MatrixId],
-                tuple[_PreparedComparisonExecution, ...],
+                tuple[PreparedComparisonExecution, ...],
             ],
             ...,
         ],
@@ -1281,10 +1328,10 @@ def _method_major_schedule(
     expected_method_names: frozenset[str] | None = None
     grouped: dict[
         tuple[str, Digest],
-        dict[tuple[DatasetId, MatrixId], list[_PreparedComparisonExecution]],
+        dict[tuple[DatasetId, MatrixId], list[PreparedComparisonExecution]],
     ] = {}
     for item in pending:
-        if not isinstance(item, _PreparedComparisonExecution):
+        if not isinstance(item, PreparedComparisonExecution):
             continue
         method_names = frozenset(config.name for config in item.resolved.specs)
         if expected_method_names is None:
@@ -1327,7 +1374,7 @@ def _method_major_schedule(
 def _load_one_matrix_workload(
     dataset: DatasetId,
     matrix_id: MatrixId,
-    systems: tuple[_PreparedComparisonExecution, ...],
+    systems: tuple[PreparedComparisonExecution, ...],
 ) -> MatrixWorkload:
     """Build one bundle in a helper scope so producer temporaries die before the next load."""
     first_prepared = systems[0]
@@ -1384,7 +1431,7 @@ def _load_matrix_workloads(
     matrices: Sequence[
         tuple[
             tuple[DatasetId, MatrixId],
-            tuple[_PreparedComparisonExecution, ...],
+            tuple[PreparedComparisonExecution, ...],
         ]
     ],
 ) -> Iterator[MatrixWorkload]:
@@ -1394,7 +1441,7 @@ def _load_matrix_workloads(
 
 
 def _outcomes_from_workloads(
-    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+    pending: Sequence[PendingComparison],
     workloads: Sequence[CompletedMethodWorkload],
 ) -> list[ComparisonOutcome]:
     """Project canonical diagnostics back into the retained per-system API."""
@@ -1406,7 +1453,7 @@ def _outcomes_from_workloads(
 
     outcomes: list[ComparisonOutcome] = []
     for item in pending:
-        if is_comparison_outcome(item):
+        if not isinstance(item, PreparedComparisonExecution):
             outcomes.append(item)
             continue
         results = diagnostics.get(item.entry.id, {})
@@ -1519,7 +1566,7 @@ def _load_matrix_workloads_with_failure_context(
     matrices: Sequence[
         tuple[
             tuple[DatasetId, MatrixId],
-            tuple[_PreparedComparisonExecution, ...],
+            tuple[PreparedComparisonExecution, ...],
         ]
     ],
     *,
@@ -1545,7 +1592,7 @@ def _load_matrix_workloads_with_failure_context(
 def _execute_method_run(
     method: ResolvedMethod,
     matrices: tuple[
-        tuple[tuple[DatasetId, MatrixId], tuple[_PreparedComparisonExecution, ...]], ...
+        tuple[tuple[DatasetId, MatrixId], tuple[PreparedComparisonExecution, ...]], ...
     ],
     *,
     method_sink: BenchmarkMethodSink,
@@ -1553,18 +1600,13 @@ def _execute_method_run(
 ) -> CompletedMethodWorkload:
     """Execute and persist one method inside the method's own MLflow child."""
     system_ids = tuple(str(system.entry.id) for _, systems in matrices for system in systems)
-    system_identities = tuple(
-        system.identity.key
-        for _, systems in matrices
-        for system in systems
-        if getattr(system, "identity", None) is not None
-    )
+    system_identities = tuple(system.identity.key for _, systems in matrices for system in systems)
     config_digest = method.identity_digest or canonical_digest(method.config)
     run_name, tags = build_benchmark_method_run_spec(
         method=str(method.name),
         config_digest=config_digest,
         system_ids=system_ids,
-        system_identities=system_identities or None,
+        system_identities=system_identities,
     )
     context_fields = {
         "method": method.name,
@@ -1581,6 +1623,10 @@ def _execute_method_run(
             ),
             recorded_exception_ids=recorded_exception_ids,
         ):
+            # Using the first execution's prepared method is safe: the schedule groups
+            # executions by method name and identity digest and rejects differing
+            # identities or method membership, so every execution here configures the
+            # same method over the same cohort and prepares an equal presentation.
             first = matrices[0][1][0]
             workload = execute_method_workload(
                 method,
@@ -1753,7 +1799,7 @@ def run_comparison_batch(
         )
         pending = batch.items
 
-        if not any(isinstance(p, _PreparedComparisonExecution) for p in pending):
+        if not any(isinstance(p, PreparedComparisonExecution) for p in pending):
             outcomes = [p for p in pending if is_comparison_outcome(p)]
             return outcomes
 
@@ -1829,24 +1875,24 @@ def run_comparison_batch(
 
 
 def _batch_reference_selections(
-    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+    pending: Sequence[PendingComparison],
 ) -> dict[SystemId, ReferenceSelection]:
     """Return explicit reference state for each planned system."""
     return {
         SystemId(str(tag.system_id)): item.reference_selection
         for item in pending
-        if isinstance(item, _PreparedComparisonExecution)
+        if isinstance(item, PreparedComparisonExecution)
         for tag in (system_tag(item.planned),)
     }
 
 
 def _batch_solver_timing_contexts(
-    pending: Sequence[ComparisonOutcome | _PreparedComparisonExecution],
+    pending: Sequence[PendingComparison],
 ) -> dict[SystemId, SolverTimingContext]:
     """Preserve the actual per-system solver and timing settings for figure metadata."""
     contexts: dict[SystemId, SolverTimingContext] = {}
     for item in pending:
-        if not isinstance(item, _PreparedComparisonExecution):
+        if not isinstance(item, PreparedComparisonExecution):
             continue
         params = item.cfg.general.params
         contexts[SystemId(str(system_tag(item.planned).system_id))] = SolverTimingContext(

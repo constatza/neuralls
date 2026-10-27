@@ -38,7 +38,7 @@ from neuralls.composition.comparison.models import (
     ResolvedMethod,
 )
 from neuralls.domain.identity import StageIdentity
-from neuralls.domain.presentation.methods import PreparedMethodPresentation
+from neuralls.domain.presentation.methods import ExecutedMethod, PreparedMethodPresentation
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -1390,7 +1390,7 @@ def test_compatibility_projection_carries_canonical_setup_measurement(
         workload_peak_memory=MeasuredPeakMemory(128),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": "identity"},
-        presentation=prepared_method("identity"),
+        presentation=ExecutedMethod(prepared_method("identity"), ()),
     )
     projected = _project_setup_measurements(
         workload,

@@ -14,23 +14,36 @@ import torch
 from neuralls.composition.assignments import comparison_batch
 from neuralls.composition.assignments.comparison_batch import (
     PreparedComparisonBatch,
+    PreparedComparisonExecution,
     _ComparisonResolutionContext,
     _execute_all,
     _method_major_schedule,
     _prepare_comparison_entry,
-    _PreparedComparisonExecution,
 )
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
     MatrixWorkload,
     ResolvedMethod,
 )
+from neuralls.domain.identity import StageIdentity
+from neuralls.domain.presentation.methods import (
+    ExecutedMethod,
+    MethodPresentationCandidate,
+    PreparedMethodPresentation,
+    StandaloneMethodPresentation,
+    UnvalidatedComparisonPresentation,
+)
+from neuralls.domain.presentation.planner import prepare_presentations
+from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.presentation.titles import ComparisonScopePresentation
 from neuralls.domain.solver.models import MeasuredPeakMemory
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
+from neuralls.shared.digest import canonical_digest
+from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName
 from neuralls.shared.workflow_failures import (
     ComparisonMatrixFailureContext,
@@ -41,7 +54,7 @@ from tests.presentation_support import PreparedMethodFactory
 
 
 def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
-    system = MagicMock(spec=_PreparedComparisonExecution)
+    system = MagicMock(spec=PreparedComparisonExecution)
     system.entry = MagicMock()
     system.planned = MagicMock()
     system.entry.matrix_dataset = dataset
@@ -60,13 +73,16 @@ def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
     system.cfg.general.data.normalize_system = "matrix"
     system.__dict__["settings"] = MagicMock()
     system.__dict__["presentation"] = MagicMock()
+    system.__dict__["identity"] = StageIdentity.build(
+        "comparison", {"entry": canonical_digest(entry_id)}
+    )
     return system
 
 
 def _batch(systems: list[MagicMock]) -> PreparedComparisonBatch:
     """Wrap fake prepared executions in the batch type execution requires."""
     return PreparedComparisonBatch(
-        items=tuple(systems), planned=tuple(MagicMock() for _ in systems)
+        items=tuple(systems), planned=tuple(system.planned for system in systems)
     )
 
 
@@ -235,7 +251,7 @@ def events(monkeypatch: pytest.MonkeyPatch, prepared_method: PreparedMethodFacto
             workload_peak_memory=MeasuredPeakMemory(0),
             config_digest="sha256:" + "0" * 64,
             method_config={"name": str(name)},
-            presentation=prepared_method(str(name)),
+            presentation=ExecutedMethod(prepared_method(str(name)), ()),
         )
 
     monkeypatch.setattr(comparison_batch, "execute_method_workload", execute)
@@ -421,3 +437,60 @@ def test_every_entry_of_a_sweep_shares_the_one_lease_manager(
 
     assert leases_seen == [shared_leases] * 3
     shared_leases.__exit__.assert_not_called()
+
+
+def test_method_run_forwards_the_cohort_presentation_of_its_own_method(
+    events: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    dataset_presentation: DatasetPresentation,
+) -> None:
+    cohort = prepare_presentations(
+        UnvalidatedComparisonPresentation(
+            methods=tuple(
+                MethodPresentationCandidate(
+                    PreconditionerName(name),
+                    StandaloneMethodPresentation(ScientificDescription(base)),
+                )
+                for name, base in (("identity", "Identity"), ("jacobi", "Jacobi"))
+            ),
+            scope=ComparisonScopePresentation(dataset_presentation),
+        )
+    )
+    system = _system("a", 0, "a-0-0")
+    system.resolved.specs = [
+        StandardPreconditionerConfig(type=PreconditionerType.IDENTITY),
+        StandardPreconditionerConfig(type=PreconditionerType.JACOBI),
+    ]
+    system.__dict__["presentation"] = cohort
+    forwarded: dict[str, PreparedMethodPresentation] = {}
+
+    def execute(
+        method: ResolvedMethod,
+        bundles: object,
+        *,
+        prepared: PreparedMethodPresentation,
+        **_: object,
+    ) -> CompletedMethodWorkload:
+        del bundles
+        forwarded[str(method.name)] = prepared
+        return CompletedMethodWorkload(
+            method=method.name,
+            planned=(),
+            setup_events=(),
+            solve_attempts=(),
+            diagnostics=(),
+            generation_cost=None,
+            workload_peak_memory=MeasuredPeakMemory(0),
+            config_digest="sha256:" + "0" * 64,
+            method_config={"name": str(method.name)},
+            presentation=ExecutedMethod(prepared, ()),
+        )
+
+    monkeypatch.setattr(comparison_batch, "execute_method_workload", execute)
+
+    _execute_all(_batch([system]), method_sink=MagicMock(), failure_sink=MagicMock())
+
+    assert forwarded == {
+        "identity": cohort.method(PreconditionerName("identity")),
+        "jacobi": cohort.method(PreconditionerName("jacobi")),
+    }

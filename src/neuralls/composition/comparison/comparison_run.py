@@ -43,11 +43,10 @@ from neuralls.composition.preconditioners.labels import (
     contextualize_preconditioner_label,
 )
 from neuralls.domain.presentation.methods import (
-    ExecutedMethodPresentation,
+    ExecutedMethod,
     PreparedMethodPresentation,
     SystemRealization,
 )
-from neuralls.domain.presentation.planner import realize_method
 from neuralls.domain.solver.comparison import (
     _to_numpy,
     compute_reference_solution,
@@ -579,13 +578,6 @@ def _execute_matrix_bundle(
         release_device_memory()
 
 
-def _executed_presentation(
-    prepared: PreparedMethodPresentation, realizations: tuple[SystemRealization, ...]
-) -> ExecutedMethodPresentation:
-    """Upgrade to the realized state only when some setup produced facts to retain."""
-    return realize_method(prepared, realizations) if realizations else prepared
-
-
 def execute_method_workload(
     method: ResolvedMethod,
     bundles: Iterable[MatrixWorkload],
@@ -602,9 +594,9 @@ def execute_method_workload(
     sibling RHS solves share that exact object.  The method-owned checkpoint
     store spans matrices and is released before this function returns.
 
-    The workload reports from ``prepared`` until a setup succeeds; facts read from the
-    built preconditioner then upgrade it to the realized state. ``prepared`` must belong
-    to ``method``.
+    Facts read from each built preconditioner right after its one setup are kept with
+    ``prepared``, which must belong to ``method``; a method whose every setup failed keeps
+    none.
     """
     if prepared.method_id != method.name:
         raise ValueError(
@@ -649,7 +641,7 @@ def execute_method_workload(
         workload_peak_memory=MeasuredPeakMemory(observer.finish()),
         config_digest=method.identity_digest or canonical_digest(method.config),
         method_config=canonical_method_config(method.config),
-        presentation=_executed_presentation(prepared, tuple(realizations)),
+        presentation=ExecutedMethod(prepared, tuple(realizations)),
         plot_styles={
             str(method.name): PreconditionerPlotStyle(
                 label=contextualize_preconditioner_label(

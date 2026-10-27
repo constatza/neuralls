@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import gc
 import weakref
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -22,12 +22,11 @@ from neuralls.composition.comparison.models import (
 )
 from neuralls.domain.presentation.methods import (
     DuplicateMethodPresentationError,
+    ExecutedMethod,
     PreparedComparisonPresentation,
     PreparedMethodPresentation,
-    RealizedMethodPresentation,
     SystemRealization,
 )
-from neuralls.domain.presentation.planner import realize_method
 from neuralls.domain.solver.models import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -189,7 +188,6 @@ def test_facts_are_captured_once_per_realized_matrix_with_one_setup_each(
 
     assert counters.setups == 2
     assert counters.captures == 2
-    assert isinstance(workload.presentation, RealizedMethodPresentation)
     assert workload.presentation.prepared is prepared
     assert [(s.system_id, s.matrix_id) for s in workload.presentation.systems] == [
         (SystemId("ds-1-0"), MatrixId(1)),
@@ -219,31 +217,7 @@ def test_built_preconditioners_are_released_after_capture(
 
     assert len(counters.built) == 2
     assert all(ref() is None for ref in counters.built)
-    assert workload.presentation is not None
-
-
-def test_reporting_neither_sets_up_nor_captures_after_release(
-    counters: _Counters,
-    method: ResolvedMethod,
-    matrix_bundles: tuple[MatrixWorkload, MatrixWorkload],
-    solver_params: SolverParams,
-    neuralls_settings: NeurallsSettings,
-    prepared_method: PreparedMethodFactory,
-) -> None:
-    workload = _execute(
-        method,
-        matrix_bundles,
-        prepared_method(str(method.name)),
-        solver_params,
-        neuralls_settings,
-    )
-    before = (counters.setups, counters.captures)
-    sink = _RecordingSink()
-
-    report_all_levels((workload,), sink)
-
-    assert (counters.setups, counters.captures) == before
-    assert sink.presentations
+    assert len(workload.presentation.systems) == 4
 
 
 def test_failed_setup_is_reported_from_the_prepared_state(
@@ -262,7 +236,7 @@ def test_failed_setup_is_reported_from_the_prepared_state(
 
     workload = _execute(method, matrix_bundles, prepared, solver_params, neuralls_settings)
 
-    assert workload.presentation is prepared
+    assert workload.presentation == ExecutedMethod(prepared, ())
     sink = _RecordingSink()
     report_all_levels((workload,), sink)
     group_method = sink.presentations[0].methods[method.name]
@@ -332,7 +306,7 @@ def _workload(
         )
         for tag, event in zip(tags, events, strict=True)
     )
-    realized = realize_method(
+    realized = ExecutedMethod(
         prepared,
         tuple(
             SystemRealization(
@@ -382,7 +356,6 @@ def test_group_does_not_claim_a_realized_fact_that_varies_by_matrix(
     group_method = sink.presentations[0].methods[PreconditionerName("jacobi")]
     assert group_method.invariant_facts == ()
     assert all(fact.key != REALIZED_LEVELS for fact in group_method.compact_facts)
-    assert isinstance(workload.presentation, RealizedMethodPresentation)
     assert [s.facts for s in workload.presentation.systems] == [_levels(2), _levels(3)]
 
 
@@ -404,3 +377,12 @@ def test_cohort_returns_the_prepared_presentation_of_a_known_method(
     assert prepared_presentation.method(PreconditionerName("jacobi")).method_id == "jacobi"
     with pytest.raises(KeyError):
         prepared_presentation.method(PreconditionerName("absent"))
+
+
+def test_a_workload_rejects_a_presentation_of_another_method(
+    prepared_method: PreparedMethodFactory,
+) -> None:
+    workload = _workload(prepared_method("jacobi"), {1: 2})
+
+    with pytest.raises(ValueError, match="presentation belongs to method"):
+        replace(workload, presentation=ExecutedMethod(prepared_method("other"), ()))
