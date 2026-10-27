@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import BaseModel
 
-from neuralls.domain.generation.descriptions import FIELD_ROLES, describe_strategy
+from neuralls.domain.generation.descriptions import describe_strategy
 from neuralls.domain.generation.provenance import describe_dataset_generation
 from neuralls.domain.generation.runner import registered_config_type
 from neuralls.domain.generation.sample_writer import StrategyRowCount
@@ -14,6 +13,7 @@ from neuralls.domain.generation.strategy_configs import (
     BaseStrategyConfig,
     KrylovConfig,
     SmootherFilteredProbesConfig,
+    SolveConfig,
 )
 from neuralls.domain.presentation.provenance import (
     DatasetGenerationProvenance,
@@ -25,7 +25,7 @@ from neuralls.domain.presentation.provenance import (
 )
 from neuralls.domain.presentation.qualifier import dataset_qualifier
 from neuralls.domain.presentation.strategy_names import strategy_base_name
-from neuralls.shared.scientific_description.catalog import FactRole
+from neuralls.shared.fact_binding import Fact, unbound_fields
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
 from neuralls.shared.scientific_description.render import render
@@ -138,25 +138,26 @@ def test_only_strategies_that_wrote_rows_are_part_of_the_provenance() -> None:
 
 
 @pytest.mark.parametrize("name", STRATEGY_NAMES)
-def test_every_registered_strategy_field_is_classified(name: str) -> None:
-    """A new strategy-config field fails here until it is explicitly classified."""
+def test_every_registered_strategy_field_is_bound(name: str) -> None:
+    """A new strategy-config field fails here until it states whether it is a fact."""
     import neuralls.domain.generation.strategies  # noqa: F401  (registers every strategy)
 
     try:
         config_type = registered_config_type(name)
     except KeyError:
         pytest.skip(f"{name} is a canonical alias without its own registration")
-    roles = FIELD_ROLES.get(config_type, FIELD_ROLES[BaseStrategyConfig])
-    assert set(roles) == set(config_type.model_fields)
+    assert unbound_fields(config_type) == ()
+    assert unbound_fields(SolveConfig) == ()
 
 
-@pytest.mark.parametrize("model", list(FIELD_ROLES), ids=lambda model: model.__name__)
-def test_field_roles_match_model_fields(model: type[BaseModel]) -> None:
-    assert set(FIELD_ROLES[model]) == set(model.model_fields)
+def test_paths_and_selection_are_never_facts() -> None:
+    import neuralls.domain.generation.strategies  # noqa: F401  (registers every strategy)
 
-
-def test_paths_and_selection_are_never_algorithmic_facts() -> None:
-    for roles in FIELD_ROLES.values():
-        for name in ("solutions_glob", "rhs_glob", "file_indices", "skip"):
-            if name in roles:
-                assert roles[name] in {FactRole.PROVENANCE, FactRole.OPERATIONAL}
+    for name in STRATEGY_NAMES:
+        try:
+            model = registered_config_type(name)
+        except KeyError:
+            continue
+        for field in ("solutions_glob", "rhs_glob", "file_indices", "skip"):
+            if field in model.model_fields:
+                assert not any(isinstance(m, Fact) for m in model.model_fields[field].metadata)

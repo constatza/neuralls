@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -14,9 +14,55 @@ from neuralls.shared.constants import (
     MAX_ITERATIONS_UPPER_LIMIT,
     MIN_TOLERANCE,
 )
+from neuralls.shared.fact_binding import (
+    Fact,
+    Nested,
+    Omitted,
+    Show,
+    auto_if_none,
+    enum_value,
+    on_off,
+)
+from neuralls.shared.scientific_description.catalog import (
+    CONSTANT_VALUE,
+    DAMPING,
+    EIGENVALUE_SELECTION,
+    EIGENVECTOR_COUNT,
+    EIGENVECTOR_INCLUSION,
+    FREQUENCY,
+    ITERATION_COUNT,
+    KRYLOV_DIMENSION,
+    LOWER_BOUND,
+    MEAN,
+    PROBE_DISTRIBUTION,
+    RHS_SCALE,
+    SOLUTION_SCALE,
+    SOLVER_ABSOLUTE_TOLERANCE,
+    SOLVER_KIND,
+    SOLVER_MAX_ITERATIONS,
+    SOLVER_POSITIVE_DEFINITE,
+    SOLVER_RELATIVE_TOLERANCE,
+    SPARSE_SUPPORT,
+    STANDARD_DEVIATION,
+    STEPS,
+    UPPER_BOUND,
+    VERIFICATION_TOLERANCE,
+    WINDOW_START,
+    WINDOW_STRIDE,
+    FactRole,
+)
 from neuralls.shared.types import EigenvectorSelection, MatrixFormat
 
 from .step_window import StepWindow
+
+_OPERATIONAL = Omitted(FactRole.OPERATIONAL)
+_PROVENANCE = Omitted(FactRole.PROVENANCE)
+_REPRODUCIBILITY = Omitted(FactRole.REPRODUCIBILITY)
+
+
+def _is_cg(solve: SolveConfig) -> bool:
+    """Tolerances and the iteration cap only parameterize the iterative solver."""
+    return solve.method == "cg"
 
 
 class SolveConfig(BaseModel):
@@ -42,29 +88,31 @@ class SolveConfig(BaseModel):
         >>> SolveConfig(method="cg", rtol=1e-10, atol=1e-12, max_iters=1000)
     """
 
-    method: Literal["direct", "cg"] = Field(
+    method: Annotated[Literal["direct", "cg"], Fact(SOLVER_KIND)] = Field(
         "direct",
         description="Solving method: 'direct' (O(n³) exact) or 'cg' (O(n²*iters) iterative)",
     )
-    rtol: float = Field(
+    rtol: Annotated[float, Fact(SOLVER_RELATIVE_TOLERANCE, when=_is_cg)] = Field(
         MIN_TOLERANCE,
         description="Relative tolerance for CG solver (ignored for direct solve)",
         ge=0.0,
     )
-    atol: float = Field(
+    atol: Annotated[float, Fact(SOLVER_ABSOLUTE_TOLERANCE, when=_is_cg)] = Field(
         0.0,
         description="Absolute tolerance for CG solver (ignored for direct solve)",
         ge=0.0,
     )
-    max_iters: int = Field(
+    max_iters: Annotated[int, Fact(SOLVER_MAX_ITERATIONS, when=_is_cg)] = Field(
         MAX_ITERATIONS_UPPER_LIMIT,
         description="Maximum CG iterations (ignored for direct solve)",
         ge=1,
         le=MAX_ITERATIONS_UPPER_LIMIT,
     )
-    assume_pos_def: bool = Field(
-        True,
-        description="Assume matrix is positive-definite (for direct solve assume_a='pos')",
+    assume_pos_def: Annotated[bool, Fact(SOLVER_POSITIVE_DEFINITE, convert=on_off, when=_is_cg)] = (
+        Field(
+            True,
+            description="Assume matrix is positive-definite (for direct solve assume_a='pos')",
+        )
     )
 
     model_config = ConfigDict(
@@ -100,13 +148,17 @@ def _default_cg_solve_config() -> SolveConfig:
 
 
 class BaseStrategyConfig(BaseModel):
-    samples: int = Field(
+    samples: Annotated[int, _OPERATIONAL] = Field(
         ...,
         description="Number of samples to generate for this strategy. (0=skip, -1=all, >0=exact count)",
         ge=-1,  # samples can be -1 for all
     )
-    seed: int | None = Field(DEFAULT_RANDOM_SEED, description="Random seed for reproducibility.")
-    shuffle: bool = Field(DEFAULT_SHUFFLE, description="Whether to shuffle the generated samples.")
+    seed: Annotated[int | None, _REPRODUCIBILITY] = Field(
+        DEFAULT_RANDOM_SEED, description="Random seed for reproducibility."
+    )
+    shuffle: Annotated[bool, _OPERATIONAL] = Field(
+        DEFAULT_SHUFFLE, description="Whether to shuffle the generated samples."
+    )
 
     model_config = ConfigDict(
         extra="forbid",  # Forbid extra fields to catch typos
@@ -122,12 +174,12 @@ class _StepWindowFields(BaseModel):
     strategy harvests a trajectory — see `StepWindow` for the semantics.
     """
 
-    stop: int = Field(
+    stop: Annotated[int, Fact(ITERATION_COUNT)] = Field(
         ...,
         description="Iteration/sweep cap — the solver/smoother runs exactly this many steps, never more.",
         ge=1,
     )
-    start: int | None = Field(
+    start: Annotated[int | None, Fact(WINDOW_START, show=Show.NOT_NONE)] = Field(
         None,
         description=(
             "First step kept (inclusive). Omitted (None) means -1: keep only the last "
@@ -137,11 +189,13 @@ class _StepWindowFields(BaseModel):
             "emitted."
         ),
     )
-    step: int = Field(
+    step: Annotated[int, Fact(WINDOW_STRIDE, show=Show.NON_DEFAULT)] = Field(
         1,
         description="Keep every Nth step within [start, stop].",
         ge=1,
     )
+
+    model_config = ConfigDict(frozen=True)
 
     @property
     def window(self) -> StepWindow:
@@ -180,13 +234,15 @@ class NeutralOnesConfig(BaseStrategyConfig):
 
 
 class BaseEigenvectorConfig(BaseStrategyConfig):
-    which: EigenvectorSelection = Field(
+    which: Annotated[EigenvectorSelection, Fact(EIGENVALUE_SELECTION, convert=enum_value)] = Field(
         EigenvectorSelection.SMALLEST, description="Which eigenvalues to compute."
     )
-    include_eigenvectors: bool = Field(
+    num_eigenvectors: Annotated[int, Fact(EIGENVECTOR_COUNT)] = Field(
+        1, description="Number of eigenvectors to include.", ge=1
+    )
+    include_eigenvectors: Annotated[bool, Fact(EIGENVECTOR_INCLUSION, convert=on_off)] = Field(
         True, description="Whether to include eigenvectors in the generated solutions."
     )
-    num_eigenvectors: int = Field(1, description="Number of eigenvectors to include.", ge=1)
 
 
 class EigenvectorForwardConfig(BaseEigenvectorConfig):
@@ -200,14 +256,14 @@ class EigenvectorInverseConfig(BaseEigenvectorConfig):
     Supports both direct solve (O(n³)) and CG solve (O(n² * iters)).
     """
 
-    solve_config: SolveConfig = Field(
+    solve_config: Annotated[SolveConfig, Nested()] = Field(
         default_factory=_default_direct_solve_config,
         description="Configuration for solving linear systems x = A^-1 @ b",
     )
 
 
 class KrylovConfig(BaseStrategyConfig):
-    krylov_iters: int = Field(
+    krylov_iters: Annotated[int, Fact(KRYLOV_DIMENSION)] = Field(
         DEFAULT_KRYLOV_ITERATIONS,
         description="Number of Krylov iterations to perform.",
         ge=1,
@@ -225,14 +281,25 @@ class SmootherFilteredProbesConfig(BaseStrategyConfig, _StepWindowFields):
     explicit `start` selects which damping sweeps are kept.
     """
 
-    samples: int = Field(
+    stop: Annotated[int, Fact(STEPS)] = Field(
+        ...,
+        description="Iteration/sweep cap — the solver/smoother runs exactly this many steps, never more.",
+        ge=1,
+    )
+    samples: Annotated[int, _OPERATIONAL] = Field(
         ...,
         description="Number of probes to generate. (>0=exact count)",
         ge=1,  # narrower than BaseStrategyConfig's ge=-1: no archive/finite
         # source exists for this strategy, so samples=-1 ("all") is never
         # meaningful — reject it at construction, not deep inside generate().
     )
-    omega: float | None = Field(
+    probe_distribution: Annotated[Literal["gaussian", "rademacher"], Fact(PROBE_DISTRIBUTION)] = (
+        Field(
+            "gaussian",
+            description="Distribution the initial, unfiltered probe vectors are drawn from.",
+        )
+    )
+    omega: Annotated[float | None, Fact(DAMPING, convert=auto_if_none)] = Field(
         None,
         description=(
             "Weighted-Jacobi damping factor; auto per-matrix via torchalg's "
@@ -241,14 +308,10 @@ class SmootherFilteredProbesConfig(BaseStrategyConfig, _StepWindowFields):
         ),
         gt=0.0,
     )
-    probe_distribution: Literal["gaussian", "rademacher"] = Field(
-        "gaussian",
-        description="Distribution the initial, unfiltered probe vectors are drawn from.",
-    )
 
 
 class RandomNormalConfig(BaseStrategyConfig):
-    target_rhs_scale: float = Field(
+    target_rhs_scale: Annotated[float, Fact(RHS_SCALE)] = Field(
         1.0,
         description="Target scale for the generated RHS vectors (Euclidean norm).",
         gt=0.0,
@@ -258,8 +321,8 @@ class RandomNormalConfig(BaseStrategyConfig):
 class GaussianForwardConfig(BaseStrategyConfig):
     """Configuration for GaussianForwardStrategy."""
 
-    mu: float = Field(0.0, description="Mean of the Gaussian distribution.")
-    sigma: float = Field(
+    mu: Annotated[float, Fact(MEAN)] = Field(0.0, description="Mean of the Gaussian distribution.")
+    sigma: Annotated[float, Fact(STANDARD_DEVIATION)] = Field(
         1.0,
         description="Standard deviation of the Gaussian distribution.",
         gt=0.0,
@@ -269,7 +332,7 @@ class GaussianForwardConfig(BaseStrategyConfig):
 class GaussianInverseConfig(GaussianForwardConfig):
     """Configuration for GaussianInverseStrategy."""
 
-    solve_config: SolveConfig = Field(
+    solve_config: Annotated[SolveConfig, Nested()] = Field(
         default_factory=_default_direct_solve_config,
         description="Configuration for solving linear systems x = A^-1 @ b",
     )
@@ -278,14 +341,18 @@ class GaussianInverseConfig(GaussianForwardConfig):
 class UniformForwardConfig(BaseStrategyConfig):
     """Configuration for UniformForwardStrategy."""
 
-    a: float = Field(0.0, description="Lower bound of the uniform distribution.")
-    b: float = Field(1.0, description="Upper bound of the uniform distribution.")
+    a: Annotated[float, Fact(LOWER_BOUND)] = Field(
+        0.0, description="Lower bound of the uniform distribution."
+    )
+    b: Annotated[float, Fact(UPPER_BOUND)] = Field(
+        1.0, description="Upper bound of the uniform distribution."
+    )
 
 
 class UniformInverseConfig(UniformForwardConfig):
     """Configuration for UniformInverseStrategy."""
 
-    solve_config: SolveConfig = Field(
+    solve_config: Annotated[SolveConfig, Nested()] = Field(
         default_factory=_default_direct_solve_config,
         description="Configuration for solving linear systems x = A^-1 @ b",
     )
@@ -294,7 +361,7 @@ class UniformInverseConfig(UniformForwardConfig):
 class SinusoidalFieldConfig(BaseStrategyConfig):
     """Configuration for SinusoidalFieldStrategy."""
 
-    omega: float = Field(
+    omega: Annotated[float, Fact(FREQUENCY)] = Field(
         math.tau,
         description=(
             "Total phase (radians) swept across the vector in sin(omega/n * i + phi), "
@@ -302,7 +369,7 @@ class SinusoidalFieldConfig(BaseStrategyConfig):
         ),
         gt=0,
     )
-    solve_config: SolveConfig = Field(
+    solve_config: Annotated[SolveConfig, Nested()] = Field(
         default_factory=_default_direct_solve_config,
         description="Configuration for solving linear systems x = A^-1 @ b",
     )
@@ -311,13 +378,15 @@ class SinusoidalFieldConfig(BaseStrategyConfig):
 class ConstantForwardConfig(BaseStrategyConfig):
     """Configuration for ConstantForwardStrategy."""
 
-    c: float = Field(1.0, description="Constant value for all generated entries.")
+    c: Annotated[float, Fact(CONSTANT_VALUE)] = Field(
+        1.0, description="Constant value for all generated entries."
+    )
 
 
 class ConstantInverseConfig(ConstantForwardConfig):
     """Configuration for ConstantInverseStrategy."""
 
-    solve_config: SolveConfig = Field(
+    solve_config: Annotated[SolveConfig, Nested()] = Field(
         default_factory=_default_direct_solve_config,
         description="Configuration for solving linear systems x = A^-1 @ b",
     )
@@ -332,15 +401,15 @@ class BaseTraceConfig(BaseStrategyConfig, _StepWindowFields):
     would let CG stop early and break the fixed-length trajectory contract.
     """
 
-    solutions_glob: str | None = Field(
+    solutions_glob: Annotated[str | None, _PROVENANCE] = Field(
         None,
         description="Glob pattern for archive solution files to seed generation.",
     )
-    archive_solutions: bool = Field(
+    archive_solutions: Annotated[bool, _OPERATIONAL] = Field(
         False,
         description="Whether to archive intermediate solutions for each iteration step.",
     )
-    archive_rhs: bool = Field(
+    archive_rhs: Annotated[bool, _OPERATIONAL] = Field(
         False,
         description="Whether to archive intermediate RHS vectors for each iteration step.",
     )
@@ -349,7 +418,7 @@ class BaseTraceConfig(BaseStrategyConfig, _StepWindowFields):
 class ResidualErrorConfig(BaseTraceConfig):
     """Configuration for residual-error trace strategies."""
 
-    file_indices: tuple[int, ...] | None = Field(
+    file_indices: Annotated[tuple[int, ...] | None, _OPERATIONAL] = Field(
         None,
         description=(
             "Explicit positions in the solutions pool, set per binding by the orchestrator "
@@ -359,14 +428,14 @@ class ResidualErrorConfig(BaseTraceConfig):
 
 
 class RhsArchiveConfig(BaseStrategyConfig):
-    rhs_glob: str = Field(
+    rhs_glob: Annotated[str, _PROVENANCE] = Field(
         ..., description="Glob pattern for RHS files to load. Overrides source.rhs_path."
     )
-    solve_config: SolveConfig = Field(
+    solve_config: Annotated[SolveConfig, Nested()] = Field(
         default_factory=_default_cg_solve_config,
         description="Configuration for solving linear systems x = A^-1 @ b",
     )
-    file_indices: tuple[int, ...] | None = Field(
+    file_indices: Annotated[tuple[int, ...] | None, _OPERATIONAL] = Field(
         None,
         description=(
             "Explicit positions in the archive pool, set per binding by the orchestrator "
@@ -376,15 +445,15 @@ class RhsArchiveConfig(BaseStrategyConfig):
 
 
 class SolutionArchiveConfig(BaseStrategyConfig):
-    solutions_glob: str = Field(
+    solutions_glob: Annotated[str, _PROVENANCE] = Field(
         ..., description="Glob pattern for solution files to load. Overrides source.solutions_path."
     )
-    skip: int = Field(
+    skip: Annotated[int, _OPERATIONAL] = Field(
         0,
         description="Number of solution files to skip after deterministic ordering/shuffling.",
         ge=0,
     )
-    file_indices: tuple[int, ...] | None = Field(
+    file_indices: Annotated[tuple[int, ...] | None, _OPERATIONAL] = Field(
         None,
         description=(
             "Explicit positions in the archive pool, set per binding by the orchestrator "
@@ -399,26 +468,30 @@ class ValidatedArchiveConfig(BaseStrategyConfig):
     Loads both solutions and RHS from archives, then verifies A @ x = b consistency.
     """
 
-    solutions_glob: str = Field(..., description="Glob pattern for solution files to load.")
-    rhs_glob: str = Field(..., description="Glob pattern for RHS files to load.")
-    skip: int = Field(
+    solutions_glob: Annotated[str, _PROVENANCE] = Field(
+        ..., description="Glob pattern for solution files to load."
+    )
+    rhs_glob: Annotated[str, _PROVENANCE] = Field(
+        ..., description="Glob pattern for RHS files to load."
+    )
+    skip: Annotated[int, _OPERATIONAL] = Field(
         0,
         description="Number of paired archive files to skip after deterministic ordering/shuffling.",
         ge=0,
     )
-    file_indices: tuple[int, ...] | None = Field(
+    file_indices: Annotated[tuple[int, ...] | None, _OPERATIONAL] = Field(
         None,
         description=(
             "Explicit positions in the archive pool, set per binding by the orchestrator "
             "so bindings draw disjoint files. Must match the resolved sample count."
         ),
     )
-    verification_tolerance: float = Field(
+    verification_tolerance: Annotated[float, Fact(VERIFICATION_TOLERANCE)] = Field(
         1e-10,
         description="Maximum relative residual ||A@x - b|| / ||b|| to accept as valid.",
         ge=0.0,
     )
-    fail_on_invalid: bool = Field(
+    fail_on_invalid: Annotated[bool, _OPERATIONAL] = Field(
         True,
         description="Whether to raise error if any pair fails verification.",
     )
@@ -436,18 +509,20 @@ class ScaledSolutionsConfig(BaseStrategyConfig):
         skip: Number of solution files to skip after deterministic ordering/shuffling.
     """
 
-    solutions_glob: str = Field(..., description="Glob pattern for solution files.")
-    scale: float = Field(
+    solutions_glob: Annotated[str, _PROVENANCE] = Field(
+        ..., description="Glob pattern for solution files."
+    )
+    scale: Annotated[float, Fact(SOLUTION_SCALE)] = Field(
         5.0,
         description="Fixed scalar multiplier applied to all (x, b) pairs.",
         gt=0.0,
     )
-    skip: int = Field(
+    skip: Annotated[int, _OPERATIONAL] = Field(
         0,
         description="Number of solution files to skip after deterministic ordering/shuffling.",
         ge=0,
     )
-    file_indices: tuple[int, ...] | None = Field(
+    file_indices: Annotated[tuple[int, ...] | None, _OPERATIONAL] = Field(
         None,
         description=(
             "Explicit positions in the archive pool, set per binding by the orchestrator "
@@ -468,13 +543,13 @@ class SparseRhsConfig(BaseStrategyConfig):
         solve_config: Configuration for solving the linear system.
     """
 
-    indices: list[int] = Field(
+    indices: Annotated[list[int], Fact(SPARSE_SUPPORT, convert=len)] = Field(
         ..., description="Positions of nonzero entries (negative indices supported)."
     )
-    values: list[float] = Field(
+    values: Annotated[list[float], _PROVENANCE] = Field(
         ..., description="Values at the specified positions. Must match len(indices)."
     )
-    solve_config: SolveConfig = Field(
+    solve_config: Annotated[SolveConfig, Nested()] = Field(
         default_factory=_default_direct_solve_config,
         description="Configuration for solving linear systems x = A^-1 @ b",
     )

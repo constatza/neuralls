@@ -5,14 +5,10 @@ from __future__ import annotations
 from importlib import import_module
 
 import pytest
-from pydantic import BaseModel
 
-from neuralls.domain.generation.descriptions import (
-    UndescribedStrategyConfigError,
-    _parameter_facts,
-)
 from neuralls.domain.generation.runner import registered_config_type, registered_strategy_names
 from neuralls.domain.generation.strategy_configs import BaseStrategyConfig
+from neuralls.shared.fact_binding import UnboundFieldError, describe_model
 
 import_module("neuralls.domain.generation.strategies")  # registers every strategy
 
@@ -35,7 +31,7 @@ def test_every_registered_strategy_config_is_described(name: str) -> None:
         {"samples": 3, **_REQUIRED_FIELDS.get(name, {})}
     )
 
-    facts = _parameter_facts(config)
+    facts = describe_model(config)
 
     assert (facts == ()) is (name in _PARAMETERLESS)
 
@@ -44,10 +40,9 @@ def test_registry_holds_the_known_strategies() -> None:
     assert {"neutral_ones", "krylov", "solution_archive"} <= set(registered_strategy_names())
 
 
-def test_an_undescribed_strategy_config_fails() -> None:
+def test_a_strategy_field_without_a_binding_fails() -> None:
     class UnheardOfConfig(BaseStrategyConfig):
-        pass
+        sharpness: float = 1.0
 
-    assert issubclass(UnheardOfConfig, BaseModel)
-    with pytest.raises(UndescribedStrategyConfigError, match="UnheardOfConfig"):
-        _parameter_facts(UnheardOfConfig(samples=1))
+    with pytest.raises(UnboundFieldError, match="sharpness"):
+        describe_model(UnheardOfConfig(samples=1))
