@@ -153,6 +153,24 @@ history figures are registered with unique method-qualified ownership. Raw
 benchmark events and method summaries become
 the persistence source of truth; the removed scaling-law TOML is not emitted.
 
+**Run names.** `tracking/run_names.py::render_run_name` is the only place a typed
+`RunName` (`domain/presentation/run_names.py`) becomes text: plain Unicode under the case's
+notation, one line, no wrapping. `MlflowRunConfig` and `TrackedRun` carry a `NamedRun`; the
+text is produced where MLflow (or dlkit, which opens the training and evaluation runs) is
+handed a name (`run_name_text`), so a run cannot be named from an id, a slug, a path or a
+class name. Tags keep machine ids in `*_id` fields (`method_id`, `assignment_id`,
+`comparison_id`) and rendered text in `*_label` fields (`method_label`,
+`assignment_label`, `comparison_label`); metric keys stay machine-safe and are never labels.
+The method-child tag `method_id` is what reuse queries.
+
+**Fact logging.** `facts_codec.encode_method_parameters` turns a prepared method's configured
+facts into stable parameter names (`method.<field key>`, `training_dataset.strategy_<n>.<field
+key>`) with typed values and no rendered text; `log_configured_method_facts` logs them when
+the method child opens, before it executes. Facts known only after setup are written by
+`MLflowBenchmarkMethodSink` as the `method_workload/realized_facts.json` table, one entry per
+system, because a realized fact can differ between matrices and must never become a run-wide
+parameter.
+
 `MLflowBenchmarkMethodSink` persists one completed method workload into the
 already-active method child. It writes `setup_events.parquet`,
 `solve_attempts.parquet`, `summary.toml`, the required method configuration,
