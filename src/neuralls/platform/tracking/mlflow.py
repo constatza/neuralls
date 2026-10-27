@@ -7,7 +7,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 type SessionRunStatus = Literal["FINISHED", "FAILED"]
 
@@ -16,15 +16,15 @@ from dlkit.infrastructure.io import url_resolver
 from mlflow import ActiveRun
 from mlflow.tracking import MlflowClient
 
+from neuralls.domain.presentation.run_names import NamedRun
 from neuralls.platform.config.loaders import load_tracking_config
 from neuralls.platform.config.resolution import (
     MlflowPaths,
     build_mlflow_environment,
     build_sqlite_tracking_uri,
-    resolve_mlflow_paths,
     to_mlflow_artifact_location,
 )
-from neuralls.shared.constants import DEFAULT_PROJECT_ROOT
+from neuralls.platform.tracking.run_names import run_name_text
 
 
 @dataclass(frozen=True)
@@ -32,7 +32,7 @@ class MlflowRunConfig:
     """Declarative MLflow run settings."""
 
     experiment_name: str
-    run_name: str
+    name: NamedRun
     tags: Mapping[str, str]
     paths: MlflowPaths
     workspace_root: Path
@@ -76,61 +76,6 @@ DEFAULT_ARTIFACT_SUBDIRS: tuple[str, ...] = (
 _MLFLOW_METRIC_SEGMENT_PATTERN = re.compile(r"[^A-Za-z0-9_.-]+")
 _REMOTE_TRACKING_SCHEMES = frozenset({"http", "https"})
 _LOCAL_ARTIFACT_SCHEME = "file"
-
-
-def build_run_config(
-    *,
-    settings: Any,
-    workspace_root: Path,
-    dataset_id: str,
-    model_name: str,
-    session_name: str | None = None,
-    enabled: bool = True,
-) -> MlflowRunConfig | None:
-    """Create a run config when MLflow is enabled."""
-    tracking_cfg = getattr(settings, "tracking", None)
-    backend = getattr(tracking_cfg, "backend", "none") if tracking_cfg is not None else "none"
-    if not enabled or backend != "mlflow":
-        return None
-    output_dir = workspace_root
-    default_tracking_uri = None
-    default_artifact_location = None
-    if output_dir:
-        output_root = Path(output_dir).resolve()
-        default_tracking_uri = build_sqlite_tracking_uri(output_root / "mlruns" / "mlflow.db")
-        default_artifact_location = str((output_root / "mlartifacts").resolve())
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
-    artifact_uri = os.getenv("MLFLOW_ARTIFACT_URI")
-    paths = resolve_mlflow_paths(
-        tracking_uri=tracking_uri,
-        artifact_uri=artifact_uri,
-        project_root=DEFAULT_PROJECT_ROOT,
-        workspace_root=workspace_root,
-        default_tracking_uri=default_tracking_uri,
-        default_artifact_location=default_artifact_location,
-    )
-    experiment_name = dataset_id
-    run_name = model_name
-    tags = make_run_tags(dataset_id, model_name, session_name)
-    return MlflowRunConfig(
-        experiment_name=experiment_name,
-        run_name=run_name,
-        tags=tags,
-        paths=paths,
-        workspace_root=workspace_root,
-    )
-
-
-def make_run_tags(
-    dataset_id: str,
-    model_name: str,
-    session_name: str | None = None,
-) -> dict[str, str]:
-    """Build minimal tag set for run context."""
-    tags = {"dataset": dataset_id, "model": model_name}
-    if session_name:
-        tags["session"] = session_name
-    return tags
 
 
 def sanitize_metric_key_segment(name: str, default: str = "unnamed") -> str:
@@ -322,7 +267,7 @@ def create_session_parent_run(
     *,
     tracking_uri: str,
     artifact_uri: str | None,
-    run_name: str,
+    run: NamedRun,
     tags: Mapping[str, str],
     experiment_name: str,
 ) -> str:
@@ -336,7 +281,7 @@ def create_session_parent_run(
     Args:
         tracking_uri: MLflow tracking URI.
         artifact_uri: Optional artifact location for a newly created experiment.
-        run_name: Display name for the session parent run.
+        run: Typed name of the session parent run, rendered here.
         tags: MLflow tags to attach to the parent run.
         experiment_name: Experiment to create the run under.
 
@@ -350,7 +295,7 @@ def create_session_parent_run(
     client = MlflowClient(tracking_uri=tracking_uri)
     parent_run = client.create_run(
         experiment_id=experiment_id,
-        tags={"mlflow.runName": run_name, **tags},
+        tags={"mlflow.runName": run_name_text(run), **tags},
     )
     return parent_run.info.run_id
 
@@ -378,7 +323,7 @@ def start_run_if_needed(
 def open_run(config: MlflowRunConfig) -> MlflowRunState:
     """Start or reuse a run and return its state."""
     exp_id = ensure_experiment(config.experiment_name, config.paths)
-    run, started = start_run_if_needed(exp_id, config.run_name, config.tags)
+    run, started = start_run_if_needed(exp_id, run_name_text(config.name), config.tags)
     return MlflowRunState(run=run, started=started)
 
 

@@ -31,7 +31,6 @@ class InferenceConfig:
         checkpoint_path: Explicit checkpoint path (optional).
         features_path: Path to features file (optional).
         targets_path: Path to targets file (optional).
-        enable_mlflow: Whether to log to MLflow.
         output_root: Custom output root (optional).
         synthetic_benchmark: Whether to use synthetic benchmark data.
         comparison_config_path: Path to comparison configuration (for synthetic).
@@ -42,7 +41,6 @@ class InferenceConfig:
     checkpoint_path: Path | None = None
     features_path: Path | None = None
     targets_path: Path | None = None
-    enable_mlflow: bool = False
     output_root: Path | None = None
     synthetic_benchmark: bool = False
     comparison_config_path: Path | None = None

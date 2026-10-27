@@ -44,6 +44,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.models import ScientificDescription
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName
 from neuralls.shared.workflow_failures import (
     ComparisonMatrixFailureContext,
@@ -72,7 +73,13 @@ def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
     )
     system.cfg.general.data.normalize_system = "matrix"
     system.__dict__["settings"] = MagicMock()
+    system.cfg.notation_policy = NotationPolicy.default()
     system.__dict__["presentation"] = MagicMock()
+    system.presentation.method.side_effect = lambda name: PreparedMethodPresentation(
+        PreconditionerName(name),
+        StandaloneMethodPresentation(ScientificDescription("Jacobi")),
+        (),
+    )
     system.__dict__["identity"] = StageIdentity.build(
         "comparison", {"entry": canonical_digest(entry_id)}
     )
@@ -212,6 +219,12 @@ def test_matrix_loader_releases_prepared_system_before_next_matrix_load(
     assert prepared_refs[0]() is None
     second_bundle = next(bundles)
     assert first_bundle.matrix.shape == second_bundle.matrix.shape
+
+
+@pytest.fixture(autouse=True)
+def _no_parameter_logging(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests mock the run lifecycle; parameter logging has no run to write to."""
+    monkeypatch.setattr(comparison_batch.mlflow, "log_params", lambda *a, **k: None)
 
 
 @pytest.fixture
@@ -494,3 +507,42 @@ def test_method_run_forwards_the_cohort_presentation_of_its_own_method(
         "identity": cohort.method(PreconditionerName("identity")),
         "jacobi": cohort.method(PreconditionerName("jacobi")),
     }
+
+
+def test_method_child_is_named_by_its_presentation_and_logs_configured_facts_before_executing(
+    events: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pending = [_system("a", 0, "a-0-0")]
+    pending[0].resolved.specs = [StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)]
+    started: list[dict[str, object]] = []
+    run = MagicMock()
+    run.__enter__.return_value = MagicMock()
+    run.__exit__.return_value = False
+
+    def start_run(**kwargs: object) -> MagicMock:
+        started.append(kwargs)
+        events.append("child:enter")
+        return run
+
+    monkeypatch.setattr(comparison_batch.mlflow, "start_run", start_run)
+    monkeypatch.setattr(
+        comparison_batch,
+        "log_configured_method_facts",
+        lambda prepared: events.append(f"facts:{prepared.method_id}"),
+    )
+
+    class MethodSink:
+        def record_method(self, workload: object, summary: object) -> None:
+            del workload, summary
+
+    _execute_all(_batch(pending), method_sink=MethodSink(), failure_sink=MagicMock())
+
+    (call,) = started
+    assert call["run_name"] == "Jacobi"
+    assert not str(call["run_name"]).startswith("method |")
+    tags = call["tags"]
+    assert isinstance(tags, dict)
+    assert tags["method_id"] == "identity"
+    assert tags["method_label"] == "Jacobi"
+    assert events.index("child:enter") < events.index("facts:identity")
+    assert events.index("facts:identity") < events.index("method:identity")

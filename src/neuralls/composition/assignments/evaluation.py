@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import tempfile
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -29,6 +29,10 @@ from neuralls.composition.assignments._registry_lookup import (
     _resolve_config_paths,
 )
 from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
+from neuralls.composition.assignments.assignment_subjects import (
+    case_notation,
+    training_presentations,
+)
 from neuralls.composition.assignments.job_loader import load_experiment_job
 from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
@@ -37,10 +41,13 @@ from neuralls.composition.assignments.runtime_dataset_patcher import patch_runti
 from neuralls.composition.assignments.runtime_workspace_patcher import patch_dataloader_runtime
 from neuralls.composition.identity.training import training_identity
 from neuralls.composition.tracking.run_specs import (
+    build_evaluation_run,
     build_evaluation_tags,
     build_session_run_spec,
 )
 from neuralls.domain.identity import StageIdentity
+from neuralls.domain.presentation.run_names import NamedRun, TrainingPresentation, training_dataset
+from neuralls.domain.presentation.titles import ComparisonScopePresentation, session_title
 from neuralls.platform.config.models.experiments import (
     AssignmentEntry,
     CaseConfig,
@@ -69,6 +76,7 @@ from neuralls.platform.tracking.mlflow_client import (
     log_batch_artifacts_to_mlflow,
 )
 from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
+from neuralls.platform.tracking.run_names import render_training_subject, run_name_text
 
 type MlflowClientFactory = Callable[..., MlflowClient]
 
@@ -130,14 +138,13 @@ class PreparedEvaluation:
 
     inference_settings: InferenceJobConfig
     assignment: AssignmentEntry
-    resolved_assignment_display_name: str
+    presentation: TrainingPresentation
     training_run_id: str
     client: MlflowClient
     split_file: Path
     split_artifact_path: str
     output_root: Path
     label: str
-    run_name: str
 
 
 @dataclass(frozen=True)
@@ -409,7 +416,7 @@ def _tag_evaluation_run(
     client: MlflowClient,
     run_id: str | None,
     assignment_id: str,
-    assignment_display_name: str,
+    presentation: TrainingPresentation,
     training_run_id: str,
     split_artifact_path: str,
 ) -> None:
@@ -418,7 +425,7 @@ def _tag_evaluation_run(
         return
     tags = build_evaluation_tags(
         assignment_id=assignment_id,
-        assignment_display_name=assignment_display_name,
+        presentation=presentation,
         source_training_run_id=training_run_id,
         split_artifact=split_artifact_path,
     ).as_mlflow_tags()
@@ -434,6 +441,7 @@ def prepare_evaluation_settings(
     configs_dir: Path,
     settings: NeurallsSettings,
     assignment: AssignmentEntry,
+    presentation: TrainingPresentation,
     output_root: Path,
     case_config_path: Path,
     tracking_uri: str,
@@ -474,14 +482,13 @@ def prepare_evaluation_settings(
     return PreparedEvaluation(
         inference_settings=inference_settings,
         assignment=assignment,
-        resolved_assignment_display_name=assignment.effective_display_name,
+        presentation=presentation,
         training_run_id=context.training_run_id,
         client=context.client,
         split_file=context.artifacts.split_file,
         split_artifact_path=context.artifacts.split_artifact_path,
         output_root=output_root,
         label=label,
-        run_name=assignment.effective_display_name,
     )
 
 
@@ -489,9 +496,11 @@ def to_eval_run_spec(prepared: PreparedEvaluation) -> RunSpec:
     """Build a dlkit multirun ``RunSpec`` for one already-prepared evaluation."""
     return RunSpec(
         id=prepared.assignment.id,
-        label=prepared.resolved_assignment_display_name,
+        label=render_training_subject(
+            prepared.presentation.subject, prepared.presentation.notation
+        ),
         settings=prepared.inference_settings,
-        run_name=prepared.run_name,
+        run_name=run_name_text(build_evaluation_run(prepared.presentation)),
     )
 
 
@@ -509,14 +518,16 @@ def _finalize_eval_child(
         client=prepared.client,
         run_id=result.mlflow_run_id,
         assignment_id=prepared.assignment.id,
-        assignment_display_name=prepared.resolved_assignment_display_name,
+        presentation=prepared.presentation,
         training_run_id=prepared.training_run_id,
         split_artifact_path=prepared.split_artifact_path,
     )
     return EvaluationRunResult(
         label=prepared.label,
         assignment_id=prepared.assignment.id,
-        assignment_display_name=prepared.resolved_assignment_display_name,
+        assignment_display_name=render_training_subject(
+            prepared.presentation.subject, prepared.presentation.notation
+        ),
         training_run_id=prepared.training_run_id,
         evaluation_run_id=result.mlflow_run_id,
         metrics=dict(result.metrics),
@@ -545,6 +556,7 @@ def _resolve_base_output(
 def _prepare_eval_run_specs(
     *,
     assignments: list[AssignmentEntry],
+    presentations: Mapping[str, TrainingPresentation],
     cfg: CaseConfig,
     configs_dir: Path,
     settings: NeurallsSettings,
@@ -563,6 +575,7 @@ def _prepare_eval_run_specs(
                 configs_dir=configs_dir,
                 settings=settings,
                 assignment=assignment,
+                presentation=presentations[assignment.id],
                 output_root=output_root,
                 case_config_path=case_config_path,
                 tracking_uri=tracking_uri,
@@ -586,7 +599,7 @@ def _run_prepared_eval_sweep(
     *,
     preparation: EvaluationPreparationBatch,
     experiment_name: str,
-    parent_run_name: str,
+    parent_run: NamedRun,
     parent_tags: dict[str, str],
 ) -> tuple[Any | None, list[EvaluationRunResult], bool]:
     if not preparation.run_specs:
@@ -594,7 +607,7 @@ def _run_prepared_eval_sweep(
     sweep_result = run_multirun_spec(
         MultiRunSpec(
             experiment_name=experiment_name,
-            parent_run_name=parent_run_name,
+            parent_run_name=run_name_text(parent_run),
             parent_tags=parent_tags,
             failure_policy="continue",
             children=tuple(preparation.run_specs),
@@ -622,7 +635,7 @@ def _resolve_eval_parent_run(
     sweep_result: Any | None,
     tracking_uri: str,
     artifact_uri: str | None,
-    run_name: str,
+    run: NamedRun,
     tags: dict[str, str],
     experiment_name: str,
 ) -> tuple[str, str]:
@@ -631,7 +644,7 @@ def _resolve_eval_parent_run(
             parent_run_id = create_session_parent_run(
                 tracking_uri=tracking_uri,
                 artifact_uri=artifact_uri,
-                run_name=run_name,
+                run=run,
                 tags=tags,
                 experiment_name=experiment_name,
             )
@@ -663,6 +676,12 @@ def eval_batch(
     if not assignments:
         raise ValueError("No [[assignments]] entries found in case config.")
 
+    presentations = training_presentations(
+        cfg,
+        config_dir=configs_dir,
+        settings=settings,
+        assignment_ids=[assignment.id for assignment in assignments],
+    )
     base_output = _resolve_base_output(cfg, settings, output_root)
     eval_mlflow_env = build_workflow_environment(
         tracking_uri=cfg.mlflow.tracking_uri,
@@ -675,7 +694,14 @@ def eval_batch(
     mlflow_experiment_name = cfg.names.training
 
     with scoped_mlflow_environment(eval_mlflow_env.env):
-        session_run_name, session_tags = build_session_run_spec(
+        session_run, session_tags = build_session_run_spec(
+            title=session_title(
+                [
+                    ComparisonScopePresentation(training_dataset(p.subject))
+                    for p in presentations.values()
+                ]
+            ),
+            notation=case_notation(cfg),
             case_config_path=resolved_case_config_path,
             experiment_name=mlflow_experiment_name,
             phase="session_evaluation",
@@ -686,6 +712,7 @@ def eval_batch(
         with MlflowArtifactLeaseManager(client=lease_client) as artifact_leases:
             preparation = _prepare_eval_run_specs(
                 assignments=assignments,
+                presentations=presentations,
                 cfg=cfg,
                 configs_dir=configs_dir,
                 settings=settings,
@@ -697,7 +724,7 @@ def eval_batch(
             sweep_result, results, any_failed = _run_prepared_eval_sweep(
                 preparation=preparation,
                 experiment_name=mlflow_experiment_name,
-                parent_run_name=session_run_name,
+                parent_run=session_run,
                 parent_tags=session_tag_map,
             )
 
@@ -705,7 +732,7 @@ def eval_batch(
             sweep_result=sweep_result,
             tracking_uri=eval_mlflow_env.tracking_uri,
             artifact_uri=eval_mlflow_env.artifact_uri,
-            run_name=session_run_name,
+            run=session_run,
             tags=session_tag_map,
             experiment_name=mlflow_experiment_name,
         )

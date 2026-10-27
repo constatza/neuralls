@@ -15,8 +15,9 @@ from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments.assembler import AssignmentIdentity
 from neuralls.composition.assignments.runtime_dataset_contract import RuntimeDatasetContract
-from neuralls.composition.tracking.run_specs import build_training_run_spec, format_run_timestamp
-from neuralls.platform.config.models.experiments import AssignmentEntry, ExperimentNamesConfig
+from neuralls.composition.tracking.run_specs import build_training_run_spec, training_run_name
+from neuralls.domain.presentation.run_names import NamedRun, TrainingPresentation
+from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.reporting.training_diagnostics import (
     compute_diagnostics,
 )
@@ -34,6 +35,7 @@ from neuralls.platform.tracking.mlflow_client import (
     log_diagnostics_to_mlflow,
 )
 from neuralls.platform.tracking.model_registry import upload_checkpoint_artifacts
+from neuralls.platform.tracking.run_names import render_training_subject, run_name_text
 
 BEST_CHECKPOINT_ARTIFACT_KEY = "best_checkpoint"
 LAST_CHECKPOINT_ARTIFACT_KEY = "last_checkpoint"
@@ -72,6 +74,7 @@ def _resolve_training_experiment_name(mlflow_experiment_name: str | None) -> str
 def _build_training_run_config(
     *,
     identity: AssignmentIdentity,
+    presentation: TrainingPresentation,
     mlflow_experiment_name: str | None,
     runtime_mlflow_env: Mapping[str, str],
     workspace_root: Path,
@@ -83,7 +86,8 @@ def _build_training_run_config(
         identity: Resolved assignment identity. A run is tagged with the
             structured training tags only when its assignment, dataset, and job
             registry ids are all present; otherwise it falls back to a bare,
-            untagged run named after the assignment's display name.
+            untagged run.
+        presentation: What the run trains and the notation its name is rendered with.
         mlflow_experiment_name: Override for the MLflow experiment bucket name.
         runtime_mlflow_env: MLflow environment variable mapping.
         workspace_root: Root directory for the training workspace.
@@ -96,25 +100,20 @@ def _build_training_run_config(
     """
     experiment_name = _resolve_training_experiment_name(mlflow_experiment_name)
     paths = runtime_paths_from_env(runtime_mlflow_env)
-    display_name = identity.assignment_display_name
     if identity.assignment_id and identity.dataset_registry_id and identity.job_registry_id:
-        entry = AssignmentEntry(
-            id=identity.assignment_id,
-            dataset=identity.dataset_registry_id,
-            job=identity.job_registry_id,
-            display_name=display_name,
-        )
         return build_training_run_spec(
-            entry=entry,
+            assignment_id=identity.assignment_id,
+            dataset_id=identity.dataset_registry_id,
+            job_id=identity.job_registry_id,
+            presentation=presentation,
             experiment_name=experiment_name,
             paths=paths,
             workspace_root=workspace_root,
             include_timestamp=include_timestamp,
         )
-    ts = f" | {format_run_timestamp()}" if include_timestamp else ""
     return MlflowRunConfig(
         experiment_name=experiment_name,
-        run_name=f"{display_name}{ts}",
+        name=training_run_name(presentation, include_timestamp=include_timestamp),
         tags={},
         paths=paths,
         workspace_root=workspace_root,
@@ -126,7 +125,7 @@ def _resolve_mlflow_run_ids(
     training_result: Any,
     fallback_tracking_uri: str | None,
     experiment_name: str,
-    run_name: str,
+    run: NamedRun,
 ) -> MlflowCoordinates | None:
     """Resolve MLflow tracking URI, experiment ID, and run ID for a training run.
 
@@ -134,7 +133,7 @@ def _resolve_mlflow_run_ids(
         training_result: DLKit training result object.
         fallback_tracking_uri: Tracking URI to use when not found in result metrics.
         experiment_name: MLflow experiment name for fallback lookup.
-        run_name: MLflow run name for fallback lookup.
+        run: Typed MLflow run name for fallback lookup.
 
     Returns:
         The run's `MlflowCoordinates`, or None if unresolvable.
@@ -163,7 +162,7 @@ def _resolve_mlflow_run_ids(
     found = find_mlflow_run(
         tracking_uri=tracking_uri,
         experiment_name=experiment_name,
-        run_name=run_name,
+        run_name=run_name_text(run),
     )
     if found is None:
         return None
@@ -176,7 +175,7 @@ def create_fallback_training_run(
     *,
     tracking_uri: str,
     experiment_name: str,
-    run_name: str,
+    run: NamedRun,
     tags: Mapping[str, str],
     checkpoint_path: Path,
 ) -> tuple[str, str]:
@@ -188,12 +187,12 @@ def create_fallback_training_run(
         if experiment is not None
         else client.create_experiment(experiment_name)
     )
-    run = client.create_run(
+    created = client.create_run(
         experiment_id=experiment_id,
-        tags={"mlflow.runName": run_name, **dict(tags)},
+        tags={"mlflow.runName": run_name_text(run), **dict(tags)},
     )
-    upload_checkpoint_artifacts(client, run.info.run_id, checkpoint_path)
-    return experiment_id, run.info.run_id
+    upload_checkpoint_artifacts(client, created.info.run_id, checkpoint_path)
+    return experiment_id, created.info.run_id
 
 
 def _log_training_context(
@@ -201,38 +200,31 @@ def _log_training_context(
     tracking_uri: str,
     run_id: str,
     assignment_id: str | None,
-    assignment_display_name: str | None,
+    presentation: TrainingPresentation,
     resolved_dataset_id: str,
-    dataset_display_name: str,
     dataset_registry_id: str | None,
     job_registry_id: str | None,
-    job_display_name: str,
 ) -> None:
-    """Log stable ids and display names to the training MLflow run.
+    """Log stable ids and the rendered assignment label to the training MLflow run.
 
     Args:
         tracking_uri: MLflow tracking URI.
         run_id: Target MLflow run ID.
         assignment_id: Registry assignment ID, or None.
-        assignment_display_name: Human-readable assignment name, or None.
+        presentation: What the run trains; rendered as the ``assignment_label`` param.
         resolved_dataset_id: Dataset identity resolved from the dataset config's own
             content — not necessarily equal to dataset_registry_id (the [[datasets]]
             lookup key). Logged under the stable "dataset_id" MLflow param key.
-        dataset_display_name: Human-readable dataset name.
         dataset_registry_id: Registry dataset ID, or None.
         job_registry_id: Registry job ID, or None.
-        job_display_name: Human-readable job name.
     """
     client = MlflowClient(tracking_uri=tracking_uri)
     params: dict[str, str] = {
         "dataset_id": resolved_dataset_id,
-        "dataset_display_name": dataset_display_name,
-        "job_display_name": job_display_name,
+        "assignment_label": render_training_subject(presentation.subject, presentation.notation),
     }
     if assignment_id is not None:
         params["assignment_id"] = assignment_id
-    if assignment_display_name is not None:
-        params["assignment_display_name"] = assignment_display_name
     if dataset_registry_id is not None:
         params["dataset_registry_id"] = dataset_registry_id
     if job_registry_id is not None:

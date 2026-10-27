@@ -13,6 +13,7 @@ from typing import Any, assert_never, cast, get_args
 from neuralls.domain.presentation.methods import (
     ConfiguredMethodPresentation,
     DatasetQualifiedMethodPresentation,
+    PreparedMethodPresentation,
     StandaloneMethodPresentation,
 )
 from neuralls.domain.presentation.provenance import (
@@ -54,6 +55,7 @@ __all__ = [
     "encode_dataset_presentation",
     "encode_facts",
     "encode_figure_scope",
+    "encode_method_parameters",
     "encode_method_presentation",
 ]
 
@@ -119,6 +121,39 @@ def _decode_description(payload: Payload) -> ScientificDescription:
         facts=decode_facts(payload["facts"]),
         context_facts=decode_facts(payload["context_facts"]),
     )
+
+
+def _fact_text(fact: ScientificFact) -> str:
+    """A fact's value as the string an MLflow parameter stores."""
+    encoded = _encode_fact(fact)["value"]
+    return str(encoded)
+
+
+def encode_method_parameters(presentation: PreparedMethodPresentation) -> dict[str, str]:
+    """Flat, stable parameter names and values for every configured fact of a method.
+
+    Names are ``method.<field key>`` for the method's own facts and
+    ``training_dataset.strategy_<n>.<field key>`` for the facts of each generation
+    strategy of a dataset-trained method. They carry field keys and typed values only,
+    never rendered text, so notation can change without renaming a parameter.
+    """
+    configured = presentation.configured
+    parameters = {"method.base_name": configured.method.base_name}
+    for fact in presentation.detailed_facts:
+        parameters[f"method.{fact.key.value}"] = _fact_text(fact)
+    match configured:
+        case StandaloneMethodPresentation():
+            pass
+        case DatasetQualifiedMethodPresentation(dataset=dataset):
+            parameters["training_dataset.source"] = dataset.source.source.base_name
+            for number, strategy in enumerate(dataset.generation.strategies):
+                prefix = f"training_dataset.strategy_{number}"
+                parameters[f"{prefix}.kind"] = strategy.kind.value
+                for fact in strategy.facts:
+                    parameters[f"{prefix}.{fact.key.value}"] = _fact_text(fact)
+        case _:
+            assert_never(configured)
+    return parameters
 
 
 def _encode_seed(seed: StrategySeed) -> dict[str, Any]:

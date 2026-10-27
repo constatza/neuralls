@@ -18,6 +18,7 @@ from loguru import logger
 from mlflow.tracking import MlflowClient
 
 from neuralls.domain.presentation.methods import (
+    DatasetQualifiedMethodPresentation,
     MethodPresentationCandidate,
     PreparedComparisonPresentation,
     PreparedMethodPresentation,
@@ -31,6 +32,12 @@ from neuralls.domain.presentation.provenance import (
     DatasetSourceProvenance,
     DerivedSeed,
     StrategyProvenance,
+)
+from neuralls.domain.presentation.run_names import (
+    MethodRunName,
+    NamedRun,
+    TrackedRun,
+    TrainingPresentation,
 )
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
 from neuralls.domain.solver.models.figure_scope import AllDatasetsScope
@@ -668,5 +675,33 @@ def group_style_of(
             color_keys={},
             marker_keys={},
         )
+
+    return build
+
+
+@pytest.fixture
+def training_presentation(dataset_presentation: DatasetPresentation) -> TrainingPresentation:
+    """What a training run trains, for tests that prepare or finalize a training run."""
+    return TrainingPresentation(
+        DatasetQualifiedMethodPresentation(ScientificDescription("POD-2G"), dataset_presentation),
+        NotationPolicy.default(),
+    )
+
+
+@pytest.fixture
+def child_runs_of() -> Callable[..., dict[str, TrackedRun]]:
+    """Build the nested per-method runs of a comparison result, one standalone method each."""
+
+    def build(*result_keys: str) -> dict[str, TrackedRun]:
+        return {
+            key: TrackedRun(
+                NamedRun(
+                    MethodRunName(StandaloneMethodPresentation(ScientificDescription("Jacobi"))),
+                    NotationPolicy.default(),
+                ),
+                {},
+            )
+            for key in result_keys
+        }
 
     return build

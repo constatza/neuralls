@@ -1,8 +1,4 @@
-"""Output saving and MLflow logging for inference workflow.
-
-This module provides functions for saving inference outputs to disk and
-optionally logging them to MLflow for experiment tracking.
-"""
+"""Output saving for the inference workflow."""
 
 from __future__ import annotations
 
@@ -17,23 +13,6 @@ from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.reporting.prediction_csv import save_prediction_samples_to_csv
 from neuralls.platform.reporting.synthetic import save_synthetic_results
 from neuralls.platform.storage.filesystem import derive_model_identifier, sanitize_identifier
-from neuralls.platform.tracking.mlflow import build_run_config, finalize_run, open_run
-
-PREDICTION_ARTIFACTS: tuple[str, ...] = ("figures", "predictions")
-
-
-def get_session_name(settings: Any) -> str | None:
-    """Extract experiment name from settings for tracking labels.
-
-    Args:
-        settings: DLKit workflow settings object
-
-    Returns:
-        Session name or None if not configured
-    """
-    experiment = getattr(settings, "experiment", None)
-    name = getattr(experiment, "name", None) if experiment else None
-    return name if isinstance(name, str) and name else None
 
 
 def derive_run_identifier(
@@ -74,40 +53,6 @@ def derive_run_identifier(
 
     # Fallback to model identifier
     return derive_model_identifier(settings, workspace, config_path)
-
-
-def start_mlflow_run(
-    settings: Any,
-    workspace: AssignmentWorkspace,
-    dataset_id: str,
-    enable_mlflow: bool,
-) -> Any:
-    """Start MLflow run for inference tracking.
-
-    Args:
-        settings: DLKit workflow settings object
-        workspace: Assignment workspace
-        dataset_id: Dataset identifier
-        enable_mlflow: Whether to enable MLflow logging
-
-    Returns:
-        MLflow run state or None if disabled/unavailable
-    """
-    config = build_run_config(
-        settings=settings,
-        workspace_root=workspace.root_dir,
-        dataset_id=dataset_id,
-        model_name=workspace.run_id,
-        session_name=get_session_name(settings),
-        enabled=enable_mlflow,
-    )
-    if config is None:
-        return None
-    try:
-        return open_run(config)
-    except ModuleNotFoundError:
-        logger.info("MLflow not installed; skipping MLflow logging.")
-        return None
 
 
 def save_predictions_csv(
@@ -202,27 +147,4 @@ def save_inference_outputs(
     return InferenceOutputs(
         csv_paths=csv_paths,
         metrics=metrics,
-    )
-
-
-def finalize_mlflow_run(
-    mlflow_state: Any,
-    metrics: dict[str, float],
-    workspace: AssignmentWorkspace,
-) -> None:
-    """Finalize MLflow run with metrics and artifacts.
-
-    Args:
-        mlflow_state: MLflow run state
-        metrics: Metrics to log
-        workspace: Assignment workspace for artifacts
-    """
-    if mlflow_state is None:
-        return
-
-    finalize_run(
-        mlflow_state,
-        metrics=metrics,
-        workspace_root=workspace.root_dir,
-        allowlist=PREDICTION_ARTIFACTS,
     )

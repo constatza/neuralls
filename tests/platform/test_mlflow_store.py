@@ -39,6 +39,7 @@ from neuralls.platform.tracking.mlflow_store import (
     find_reusable_benchmark_method,
 )
 from neuralls.shared.digest import canonical_digest
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 
 EXPERIMENT = "Train-Case"
@@ -368,7 +369,10 @@ def test_reuse_ignores_checkpoint_lease_path_but_rejects_changed_content(
     experiment = client.get_experiment_by_name(EXPERIMENT)
     experiment_id = experiment.experiment_id if experiment else client.create_experiment(EXPERIMENT)
     _, tags = build_benchmark_method_run_spec(
-        method="jacobi", config_digest=config_digest, system_ids=("s0",)
+        prepared=workload.presentation.prepared,
+        notation=NotationPolicy.default(),
+        config_digest=config_digest,
+        system_ids=("s0",),
     )
     run = client.create_run(experiment_id, tags=tags.as_mlflow_tags())
     for artifact in (

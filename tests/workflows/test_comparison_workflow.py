@@ -39,6 +39,7 @@ from neuralls.composition.comparison.models import (
 )
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import ExecutedMethod, PreparedMethodPresentation
+from neuralls.domain.presentation.run_names import TrackedRun
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -970,7 +971,9 @@ def test_sanitize_mlflow_metric_segment_replaces_invalid_characters() -> None:
 
 
 def test_log_comparison_metrics_uses_mlflow_safe_metric_names(
-    tmp_path: Path, fake_mlflow: MagicMock
+    tmp_path: Path,
+    fake_mlflow: MagicMock,
+    child_runs_of: Callable[..., dict[str, TrackedRun]],
 ) -> None:
     result = ComparisonResult(
         results={
@@ -999,9 +1002,9 @@ def test_log_comparison_metrics_uses_mlflow_safe_metric_names(
 
     log_comparison_result_metrics(
         result,
-        child_run_tags={
-            "Residual-Error 50 Gaussian 93x31 | Scale-Equivariant Constant-Width 3000": {}
-        },
+        child_runs=child_runs_of(
+            "Residual-Error 50 Gaussian 93x31 | Scale-Equivariant Constant-Width 3000"
+        ),
     )
 
     logged_names = [call.args[0] for call in fake_mlflow.log_metric.call_args_list[:3]]
@@ -1313,22 +1316,26 @@ def test_run_comparison_batch_preserves_declared_order(
 
 
 def test_log_comparison_metrics_logs_scalar_metrics_per_preconditioner(
-    tmp_path: Path, fake_mlflow: MagicMock
+    tmp_path: Path,
+    fake_mlflow: MagicMock,
+    child_runs_of: Callable[..., dict[str, TrackedRun]],
 ) -> None:
     """_log_comparison_metrics must emit one metric set per preconditioner."""
     result = _typed_comparison_result(tmp_path / "conv.png")
 
-    log_comparison_result_metrics(result, child_run_tags={"identity": {}})
+    log_comparison_result_metrics(result, child_runs=child_runs_of("identity"))
 
     metric_calls = {call.args[0]: call.args[1] for call in fake_mlflow.log_metric.call_args_list}
     assert metric_calls["iterations/identity"] == 2
     assert metric_calls["final_residual/identity"] == pytest.approx(1.0e-8)
     assert metric_calls["converged/identity"] == 1
-    fake_mlflow.log_param.assert_called_once_with("best_preconditioner", "identity")
+    fake_mlflow.log_param.assert_called_once_with("best_method_id", "identity")
 
 
 def test_log_comparison_metrics_logs_cost_metrics_when_measured(
-    tmp_path: Path, fake_mlflow: MagicMock
+    tmp_path: Path,
+    fake_mlflow: MagicMock,
+    child_runs_of: Callable[..., dict[str, TrackedRun]],
 ) -> None:
     """Setup/solve time and size-normalized cost metrics appear once measured."""
     result = replace(
@@ -1345,7 +1352,7 @@ def test_log_comparison_metrics_logs_cost_metrics_when_measured(
         matrix_shape=(100, 100),
     )
 
-    log_comparison_result_metrics(result, child_run_tags={"identity": {}})
+    log_comparison_result_metrics(result, child_runs=child_runs_of("identity"))
 
     metric_calls = {call.args[0]: call.args[1] for call in fake_mlflow.log_metric.call_args_list}
     assert metric_calls["setup_time_s/identity"] == 2.0
@@ -1358,7 +1365,10 @@ def test_log_comparison_metrics_logs_cost_metrics_when_measured(
 
 
 def test_compatibility_projection_carries_canonical_setup_measurement(
-    tmp_path: Path, fake_mlflow: MagicMock, prepared_method: PreparedMethodFactory
+    tmp_path: Path,
+    fake_mlflow: MagicMock,
+    prepared_method: PreparedMethodFactory,
+    child_runs_of: Callable[..., dict[str, TrackedRun]],
 ) -> None:
     """Legacy diagnostics retain setup timing copied from the canonical event."""
     tag = SystemTag(
@@ -1406,20 +1416,22 @@ def test_compatibility_projection_carries_canonical_setup_measurement(
         results={"identity": projected},
         matrix_shape=(2, 2),
     )
-    log_comparison_result_metrics(result, child_run_tags={"identity": {}})
+    log_comparison_result_metrics(result, child_runs=child_runs_of("identity"))
     metric_calls = {call.args[0]: call.args[1] for call in fake_mlflow.log_metric.call_args_list}
     assert metric_calls["setup_time_s/identity"] == 1.25
 
 
 def test_log_comparison_metrics_omits_unmeasured_cost_metrics(
-    tmp_path: Path, fake_mlflow: MagicMock
+    tmp_path: Path,
+    fake_mlflow: MagicMock,
+    child_runs_of: Callable[..., dict[str, TrackedRun]],
 ) -> None:
     """No solve/memory metric keys are logged when a result never measured them
     (e.g. failed build). ``setup_time_s`` is always logged now (0.0 default,
     since ``setup_cost`` is always measured for every real build)."""
     result = _typed_comparison_result(tmp_path / "conv.png")
 
-    log_comparison_result_metrics(result, child_run_tags={"identity": {}})
+    log_comparison_result_metrics(result, child_runs=child_runs_of("identity"))
 
     metric_calls = {call.args[0]: call.args[1] for call in fake_mlflow.log_metric.call_args_list}
     assert metric_calls["setup_time_s/identity"] == 0.0
@@ -1482,7 +1494,9 @@ def test_run_comparison_logs_scalar_metrics_to_mlflow(
 
 
 def test_log_comparison_result_metrics_logs_child_scalar_metrics(
-    tmp_path: Path, fake_mlflow: MagicMock
+    tmp_path: Path,
+    fake_mlflow: MagicMock,
+    child_runs_of: Callable[..., dict[str, TrackedRun]],
 ) -> None:
     """Each child run must log scalar summary metrics for its preconditioner."""
     result = _typed_comparison_result(tmp_path / "conv.png")
@@ -1496,7 +1510,7 @@ def test_log_comparison_result_metrics_logs_child_scalar_metrics(
 
     fake_mlflow.start_run.side_effect = _fake_start_run
     fake_mlflow.log_metric.side_effect = lambda k, v, **kw: captured_metrics.append((k, v))
-    log_comparison_result_metrics(result, child_run_tags={"identity": {}})
+    log_comparison_result_metrics(result, child_runs=child_runs_of("identity"))
 
     metric_map = {k: v for k, v in captured_metrics}
     assert metric_map["iterations"] == 2

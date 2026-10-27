@@ -28,6 +28,14 @@ from neuralls.composition.assignments.training_batch import (
     _ChildTimingTracker,
     run_assignment_sweep,
 )
+from neuralls.domain.presentation.run_names import (
+    NamedRun,
+    RunTimestamp,
+    SessionRunName,
+    TrainingPresentation,
+    training_dataset,
+)
+from neuralls.domain.presentation.titles import ComparisonScopePresentation
 from neuralls.shared.constants import (
     TRAINING_CHILD_DURATION_METRIC_KEY,
     TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY,
@@ -35,7 +43,9 @@ from neuralls.shared.constants import (
 from neuralls.shared.device import ResourceUsage, ResourceUsageToken
 
 
-def _patch_sweep_collaborators(stack: ExitStack, *, child_outcome: MagicMock) -> MagicMock:
+def _patch_sweep_collaborators(
+    stack: ExitStack, *, child_outcome: MagicMock, presentation: TrainingPresentation
+) -> MagicMock:
     """Patch every collaborator `run_assignment_sweep` needs to reach `run_multirun_spec`.
 
     Returns the `run_multirun_spec` mock so the test can inspect how it was called.
@@ -43,7 +53,7 @@ def _patch_sweep_collaborators(stack: ExitStack, *, child_outcome: MagicMock) ->
     assignment = MagicMock(spec=["spec", "workspace"])
     assignment.spec.assignment_id = "assignment-1"
     prepared = MagicMock(spec=PreparedTraining)
-    prepared.resolved_assignment_display_name = "assignment-1"
+    prepared.presentation = presentation
     child_outcome.child_id = "assignment-1"
 
     stack.enter_context(
@@ -76,7 +86,22 @@ def _patch_sweep_collaborators(stack: ExitStack, *, child_outcome: MagicMock) ->
     stack.enter_context(
         patch(
             "neuralls.composition.assignments.training_batch.build_session_run_spec",
-            return_value=("session-name", MagicMock(as_mlflow_tags=dict)),
+            return_value=(
+                NamedRun(
+                    SessionRunName(
+                        ComparisonScopePresentation(training_dataset(presentation.subject)),
+                        RunTimestamp("2026-03-12T12:00:00"),
+                    ),
+                    presentation.notation,
+                ),
+                MagicMock(as_mlflow_tags=dict),
+            ),
+        )
+    )
+    stack.enter_context(
+        patch(
+            "neuralls.composition.assignments.training_batch.training_presentations",
+            return_value={"assignment-1": presentation},
         )
     )
     stack.enter_context(
@@ -108,7 +133,9 @@ def _patch_sweep_collaborators(stack: ExitStack, *, child_outcome: MagicMock) ->
     return run_multirun_spec
 
 
-def test_sweep_registers_child_timing_tracker_as_lifecycle_hooks(tmp_path: Path) -> None:
+def test_sweep_registers_child_timing_tracker_as_lifecycle_hooks(
+    tmp_path: Path, training_presentation: TrainingPresentation
+) -> None:
     """`run_multirun_spec` must receive planned/completed/failed hooks bound to
     one `_ChildTimingTracker` instance — otherwise device memory is never
     released after a child, and no child's duration ever reaches MLflow.
@@ -116,7 +143,9 @@ def test_sweep_registers_child_timing_tracker_as_lifecycle_hooks(tmp_path: Path)
     child_failure = MagicMock(spec=ChildFailure)
     child_failure.message = "boom"
     with ExitStack() as stack:
-        run_multirun_spec = _patch_sweep_collaborators(stack, child_outcome=child_failure)
+        run_multirun_spec = _patch_sweep_collaborators(
+            stack, child_outcome=child_failure, presentation=training_presentation
+        )
         run_assignment_sweep(tmp_path / "case.toml")
 
     hooks = run_multirun_spec.call_args.kwargs["hooks"]

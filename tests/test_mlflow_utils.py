@@ -8,6 +8,8 @@ import pytest
 from dlkit.infrastructure.io import url_resolver
 
 import neuralls.platform.tracking.mlflow as tracking_mlflow
+from neuralls.domain.presentation.methods import StandaloneMethodPresentation
+from neuralls.domain.presentation.run_names import MethodRunName, NamedRun
 from neuralls.platform.config.resolution import MlflowPaths, resolve_mlflow_paths
 from neuralls.platform.tracking.mlflow import (
     DEFAULT_ARTIFACT_SUBDIRS,
@@ -30,6 +32,8 @@ from neuralls.platform.tracking.mlflow_client import (
     log_artifacts_to_mlflow,
     log_batch_artifacts_to_mlflow,
 )
+from neuralls.shared.scientific_description.models import ScientificDescription
+from neuralls.shared.scientific_description.policy import NotationPolicy
 
 
 class DummyRun:
@@ -373,7 +377,10 @@ def test_finalize_run_ends_started_run(
     )
     config = MlflowRunConfig(
         experiment_name="exp",
-        run_name="run",
+        name=NamedRun(
+            MethodRunName(StandaloneMethodPresentation(ScientificDescription("Jacobi"))),
+            NotationPolicy.default(),
+        ),
         tags={},
         paths=paths,
         workspace_root=workspace_root,

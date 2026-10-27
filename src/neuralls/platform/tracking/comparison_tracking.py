@@ -17,8 +17,13 @@ from neuralls.domain.benchmarking.selection import (
     NoReferenceConfigured,
     ReferenceUnavailable,
 )
-from neuralls.domain.presentation.methods import MissingMethodPresentationError
+from neuralls.domain.presentation.methods import (
+    MissingMethodPresentationError,
+    PreparedMethodPresentation,
+)
 from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.presentation.run_names import TrackedRun
+from neuralls.domain.presentation.titles import ComparisonTitle
 from neuralls.domain.solver.cost_metrics import (
     peak_memory_per_dof,
     setup_time_per_dof,
@@ -74,7 +79,9 @@ from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
     plot_error_convergence_comparison,
 )
+from neuralls.platform.storage.facts_codec import encode_facts, encode_method_parameters
 from neuralls.platform.tracking.mlflow import ensure_experiment, sanitize_metric_key_segment
+from neuralls.platform.tracking.run_names import render_session_title, run_name_text
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, GroupId, PreconditionerName, SystemId
 
@@ -136,7 +143,7 @@ def parent_run_metric_key(metric: str, preconditioner_name: str) -> str:
 def log_comparison_result_metrics(
     result: ComparisonResult,
     *,
-    child_run_tags: Mapping[str, Mapping[str, str]],
+    child_runs: Mapping[str, TrackedRun],
 ) -> None:
     """Log parent-run metrics and nested child-run metrics for a comparison result."""
     system_size = result.matrix_shape[0] if result.matrix_shape is not None else None
@@ -153,7 +160,10 @@ def log_comparison_result_metrics(
                 cg.generation_cost.provenance.value,
             )
 
-        with mlflow.start_run(run_name=name, nested=True, tags=dict(child_run_tags[name])):
+        child = child_runs[name]
+        with mlflow.start_run(
+            run_name=run_name_text(child.run), nested=True, tags=dict(child.tags)
+        ):
             for step, residual in enumerate(cg.residual_history_rel):
                 mlflow.log_metric("residual", residual, step=step)
             for step, energy_error in enumerate(cg.error_history_a_rel or []):
@@ -167,7 +177,7 @@ def log_comparison_result_metrics(
                 mlflow.log_param("generation_time_provenance", cg.generation_cost.provenance.value)
 
     if result.recommendations.overall_best is not None:
-        mlflow.log_param("best_preconditioner", result.recommendations.overall_best.label)
+        mlflow.log_param("best_method_id", result.recommendations.overall_best.label)
 
 
 def _group_metric_key(metric: str, group_id: GroupId, preconditioner_name: str) -> str:
@@ -516,6 +526,7 @@ def _figure_metadata(
 
 
 METHOD_ARTIFACT_DIR = "method_workload"
+REALIZED_FACTS_FILENAME = "realized_facts.json"
 
 
 @dataclass(frozen=True, slots=True)
@@ -553,6 +564,8 @@ class MLflowBenchmarkMethodSink:
                 mlflow.log_artifact(str(root / relative), artifact_path=METHOD_ARTIFACT_DIR)
             config_path = _write_method_config(root, workload.method_config)
             mlflow.log_artifact(str(config_path), artifact_path=METHOD_ARTIFACT_DIR)
+            realized_path = _write_realized_facts(root, workload)
+            mlflow.log_artifact(str(realized_path), artifact_path=METHOD_ARTIFACT_DIR)
             for diagnostics_path in _write_method_diagnostics(
                 root, workload, self.notation, self.datasets
             ):
@@ -567,7 +580,7 @@ class MLflowBenchmarkMethodSink:
     @staticmethod
     def _log_method_metadata(workload: MethodWorkload, summary: MethodWorkloadSummary) -> None:
         """Log only reducer-owned searchable scalars, never event-loop aggregates."""
-        mlflow.log_param("method", str(workload.method))
+        mlflow.log_param("method_id", str(workload.method))
         mlflow.log_param("method_config_digest", str(workload.config_digest))
         n_setup_failed = sum(
             isinstance(event.outcome, SetupFailed) for event in workload.setup_events
@@ -610,6 +623,25 @@ def _write_method_config(root: Path, config: Mapping[str, object]) -> Path:
     import tomli_w
 
     path.write_bytes(tomli_w.dumps(_exclude_none(config)).encode("utf-8"))
+    return path
+
+
+def _write_realized_facts(root: Path, workload: MethodWorkload) -> Path:
+    """Stage the facts known only after setup, one entry per system.
+
+    Realized facts can differ between matrices, so they are a table, never a single
+    run-wide parameter.
+    """
+    path = root / REALIZED_FACTS_FILENAME
+    payload = [
+        {
+            "system_id": str(system.system_id),
+            "matrix_id": int(system.matrix_id),
+            "facts": encode_facts(system.facts),
+        }
+        for system in workload.presentation.systems
+    ]
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     return path
 
 
@@ -917,10 +949,10 @@ class MLflowCostRecorder:
         self,
         result: ComparisonResult,
         *,
-        child_run_tags: Mapping[str, Mapping[str, str]],
+        child_runs: Mapping[str, TrackedRun],
     ) -> None:
         """Log ``result``'s cost/outcome metrics into the open MLflow run."""
-        log_comparison_result_metrics(result, child_run_tags=child_run_tags)
+        log_comparison_result_metrics(result, child_runs=child_runs)
 
 
 def create_cost_recorder() -> CostRecorder:
@@ -996,14 +1028,24 @@ def log_comparison_run_params(
     *,
     comp_run_id: str,
     comparison_id: str,
-    comparison_display_name: str,
+    title: ComparisonTitle,
+    notation: NotationPolicy,
     comparison_config: str,
 ) -> None:
-    """Log final metadata params to the active comparison MLflow run."""
+    """Log final metadata params to the active comparison MLflow run.
+
+    The machine ``comparison_id`` and the rendered ``comparison_label`` are separate
+    parameters; the label is never a metric key.
+    """
     mlflow.log_param("comparison_config", comparison_config)
     mlflow.log_param("comparison_id", comparison_id)
-    mlflow.log_param("comparison_display_name", comparison_display_name)
+    mlflow.log_param("comparison_label", render_session_title(title, notation))
     mlflow.log_param("comp_run_id", comp_run_id)
+
+
+def log_configured_method_facts(prepared: PreparedMethodPresentation) -> None:
+    """Log every configured fact of a method as stable parameters, before it executes."""
+    mlflow.log_params(encode_method_parameters(prepared))
 
 
 def log_comparison_input_artifacts(artifact_dir: Path) -> None:

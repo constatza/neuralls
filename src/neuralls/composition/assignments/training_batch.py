@@ -46,6 +46,10 @@ from neuralls.composition.assignments.assembler import (
     load_assignment_batch,
     load_validated_case_config,
 )
+from neuralls.composition.assignments.assignment_subjects import (
+    case_notation,
+    training_presentations,
+)
 from neuralls.composition.assignments.training import (
     PreparedTraining,
     cleanup_prepared_training,
@@ -56,6 +60,8 @@ from neuralls.composition.assignments.training import (
 from neuralls.composition.identity.gate import gate_reuse
 from neuralls.composition.identity.training import dataset_unchanged_since, training_identity
 from neuralls.composition.tracking.run_specs import build_session_run_spec
+from neuralls.domain.presentation.run_names import TrainingPresentation, training_dataset
+from neuralls.domain.presentation.titles import ComparisonScopePresentation, session_title
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
 from neuralls.platform.config.models.workspace import AssignmentSpec
@@ -74,6 +80,7 @@ from neuralls.platform.tracking.mlflow_client import (
     mark_run_failed,
 )
 from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
+from neuralls.platform.tracking.run_names import render_training_subject, run_name_text
 from neuralls.shared.constants import (
     TRAINING_CHILD_DURATION_METRIC_KEY,
     TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY,
@@ -92,6 +99,7 @@ def run_assignment(
     spec: AssignmentSpec,
     output_root: Path,
     force: bool,
+    presentation: TrainingPresentation,
     mlflow_experiment_name: str | None = None,
     tracking_uri: str | None = None,
 ) -> AssignmentResult | PreparedTraining:
@@ -117,6 +125,7 @@ def run_assignment(
         spec: The assignment to run — its config paths and its registry identity.
         output_root: Root directory for all assignment outputs
         force: If True, retrain even if a completed run already exists. If False, reuse it.
+        presentation: What the assignment trains; its run name and labels are rendered from it.
         tracking_uri: MLflow tracking URI used to check for a prior completed run.
 
     Returns:
@@ -208,6 +217,7 @@ def run_assignment(
             settings=settings,
             output_root=output_root,
             identity=AssignmentIdentity.from_spec(spec),
+            presentation=presentation,
             mlflow_experiment_name=mlflow_experiment_name,
             batched=True,
             extra_tags=identity.tags(),
@@ -394,7 +404,13 @@ def run_assignment_sweep(
     # Resolve the case-level MLflow topology once. Every assignment needing
     # training joins one dlkit multirun sweep below — dlkit owns that sweep's
     # parent run's lifecycle and per-child failure isolation natively.
-    cfg, _ = load_validated_case_config(case_config_path, settings)
+    cfg, config_dir = load_validated_case_config(case_config_path, settings)
+    presentations = training_presentations(
+        cfg,
+        config_dir=config_dir,
+        settings=settings,
+        assignment_ids=[assignment.spec.assignment_id for assignment in assignments],
+    )
     training_mlflow_env = build_workflow_environment(
         tracking_uri=cfg.mlflow.tracking_uri,
         artifact_location=cfg.mlflow.artifacts_destination,
@@ -408,7 +424,14 @@ def run_assignment_sweep(
     any_failed = False
 
     with scoped_mlflow_environment(training_mlflow_env.env):
-        session_run_name, session_tags = build_session_run_spec(
+        session_run, session_tags = build_session_run_spec(
+            title=session_title(
+                [
+                    ComparisonScopePresentation(training_dataset(p.subject))
+                    for p in presentations.values()
+                ]
+            ),
+            notation=case_notation(cfg),
             case_config_path=case_config_path.resolve(),
             experiment_name=mlflow_experiment_name,
             phase="session_training",
@@ -432,6 +455,7 @@ def run_assignment_sweep(
                 spec=spec,
                 output_root=batch.output_root,
                 force=force,
+                presentation=presentations[spec.assignment_id],
                 mlflow_experiment_name=mlflow_experiment_name,
                 tracking_uri=training_mlflow_env.tracking_uri,
             )
@@ -451,7 +475,7 @@ def run_assignment_sweep(
             sweep_result = run_multirun_spec(
                 MultiRunSpec(
                     experiment_name=mlflow_experiment_name,
-                    parent_run_name=session_run_name,
+                    parent_run_name=run_name_text(session_run),
                     parent_tags=dict(session_tags.as_mlflow_tags()),
                     failure_policy="continue",
                     children=tuple(run_specs),
@@ -482,7 +506,9 @@ def run_assignment_sweep(
                             )
                             results_by_id[child_outcome.child_id] = AssignmentResult(
                                 assignment_id=child_outcome.child_id,
-                                assignment_display_name=prepared.resolved_assignment_display_name,
+                                assignment_display_name=render_training_subject(
+                                    prepared.presentation.subject, prepared.presentation.notation
+                                ),
                                 status="Failed",
                                 error=child_outcome.message,
                             )

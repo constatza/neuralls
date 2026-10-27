@@ -135,7 +135,7 @@ def find_reusable_benchmark_method(
     clauses = [
         "attributes.status = 'FINISHED'",
         "tags.`phase` = 'comparison_method'",
-        f"tags.`method` = '{escaped_method}'",
+        f"tags.`method_id` = '{escaped_method}'",
         f"tags.`method_config_digest` = '{config_digest}'",
         f"tags.`workload_membership_digest` = '{membership}'",
     ]

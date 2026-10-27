@@ -10,6 +10,7 @@ import tomli_w
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
 MLFLOW_MODULE = "neuralls.composition.assignments.comparison_batch.mlflow"
@@ -105,4 +106,5 @@ def mock_cfg(
         else {"mean": 0.0, "std": 1.0}
     )
     cfg.preconditioners = tuple(preconditioners or [])
+    cfg.notation_policy = NotationPolicy.default()
     return cfg

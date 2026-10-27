@@ -12,8 +12,6 @@ from neuralls.application.inference.models import InferenceConfig
 from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 
-PREDICTION_ARTIFACTS: tuple[str, ...] = ("figures", "predictions")
-
 
 @dataclass(frozen=True)
 class InferenceResult:
@@ -182,7 +180,6 @@ def run_inference(
     checkpoint_path: str | Path | None = None,
     features_path: str | Path | None = None,
     targets_path: str | Path | None = None,
-    enable_mlflow: bool = False,
     output_root: str | Path | None = None,
     synthetic_benchmark: bool = False,
     comparison_config_path: str | Path | None = None,
@@ -198,7 +195,6 @@ def run_inference(
         checkpoint_path: Path to model checkpoint (required)
         features_path: Path to features file (for standard inference)
         targets_path: Path to targets file (for standard inference)
-        enable_mlflow: Whether to log to MLflow
         output_root: Custom output root directory (optional)
         synthetic_benchmark: Use synthetic benchmark data
         comparison_config_path: Path to comparison config (for synthetic)
@@ -212,11 +208,6 @@ def run_inference(
     """
     resolved_case_config_path = Path(case_config_path) if case_config_path else None
     settings = require_settings(settings, case_config_path=resolved_case_config_path)
-    from neuralls.platform.reporting.predictions import (
-        finalize_mlflow_run,
-        start_mlflow_run,
-    )
-
     # Build config object to replace 11 parameters
     config = InferenceConfig(
         config_path=Path(config_path),
@@ -224,7 +215,6 @@ def run_inference(
         data_config_path=Path(data_config_path) if data_config_path else None,
         features_path=Path(features_path) if features_path else None,
         targets_path=Path(targets_path) if targets_path else None,
-        enable_mlflow=enable_mlflow,
         output_root=Path(output_root) if output_root else None,
         synthetic_benchmark=synthetic_benchmark,
         comparison_config_path=Path(comparison_config_path) if comparison_config_path else None,
@@ -240,41 +230,10 @@ def run_inference(
         case_config_path=resolved_case_config_path,
     )
 
-    # 3. Start MLflow run (if enabled)
-    mlflow_state = start_mlflow_run(
-        assignment_settings,
-        workspace,
-        dataset_id,
-        config.enable_mlflow,
+    # 3. Execute inference pipeline
+    predictions, metrics = _execute_inference_pipeline(
+        config, settings, assignment_settings, workspace, dataset_id
     )
 
-    metrics: dict[str, float] | None = None
-    error: Exception | None = None
-
-    try:
-        # 4. Execute inference pipeline
-        predictions, metrics = _execute_inference_pipeline(
-            config, settings, assignment_settings, workspace, dataset_id
-        )
-
-        # 5. Build typed result
-        return _build_inference_result(predictions, metrics)
-
-    except (FileNotFoundError, ValueError, OSError, RuntimeError) as exc:
-        error = exc
-        raise
-    finally:
-        # 6. Finalize MLflow run
-        if mlflow_state is not None and metrics is not None:
-            finalize_mlflow_run(mlflow_state, metrics, workspace)
-        elif mlflow_state is not None:
-            # Cleanup even if metrics weren't set
-            from neuralls.platform.tracking.mlflow import finalize_run
-
-            finalize_run(
-                mlflow_state,
-                metrics={},
-                workspace_root=workspace.root_dir,
-                allowlist=PREDICTION_ARTIFACTS,
-                failed=error is not None,
-            )
+    # 4. Build typed result
+    return _build_inference_result(predictions, metrics)

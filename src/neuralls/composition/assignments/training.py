@@ -41,6 +41,7 @@ from neuralls.composition.assignments.runtime_dataset_contract import (
     RuntimeDatasetContract,
     default_training_dataset_contract,
 )
+from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.config.loaders import load_tracking_config
 from neuralls.platform.config.models.workspace import AssignmentWorkspace, RunnableAssignment
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
@@ -61,6 +62,7 @@ from neuralls.platform.tracking.mlflow_client import (
     mark_run_failed,
 )
 from neuralls.platform.tracking.model_registry import ensure_checkpoint_artifact
+from neuralls.platform.tracking.run_names import render_training_subject, run_name_text
 
 
 @dataclass(frozen=True)
@@ -151,12 +153,10 @@ def _finalize_existing_mlflow_run(
         tracking_uri=tracking_uri,
         run_id=run_id,
         assignment_id=context.assignment.spec.assignment_id,
-        assignment_display_name=context.resolved_assignment_display_name,
+        presentation=context.presentation,
         resolved_dataset_id=context.dataset_id,
-        dataset_display_name=context.resolved_dataset_display_name,
         dataset_registry_id=context.assignment.spec.dataset_id,
         job_registry_id=context.assignment.spec.job_id,
-        job_display_name=context.assignment.spec.job_display_name or context.workspace.run_id,
     )
     log_extra_feature_names_tag(
         tracking_uri,
@@ -205,7 +205,7 @@ def _finalize_fallback_mlflow_run(
         fallback_exp_id, fallback_run_id = create_fallback_training_run(
             tracking_uri=context.fallback_tracking_uri or "",
             experiment_name=context.run_config.experiment_name,
-            run_name=context.run_config.run_name,
+            run=context.run_config.name,
             tags=dict(context.run_config.tags),
             checkpoint_path=checkpoint_path,
         )
@@ -269,9 +269,8 @@ class _TrainingFinalizationContext:
             parameter. Used only in the final error message; may differ from
             ``assignment.spec.assignment_id`` since this can be ``None`` while
             ``load_assignment`` resolves a synthesized id.
-        resolved_assignment_display_name: Human-readable assignment name.
+        presentation: What the run trains, rendered for labels and names.
         dataset_id: Dataset identity resolved from the workspace.
-        resolved_dataset_display_name: Human-readable dataset name.
         workflow_settings: DLKit workflow settings used for this training run.
         contract: Runtime dataset contract for array/key resolution.
         config_path: Path to the job TOML config.
@@ -286,9 +285,8 @@ class _TrainingFinalizationContext:
     workspace: AssignmentWorkspace
     assignment: RunnableAssignment
     assignment_id: str | None
-    resolved_assignment_display_name: str
+    presentation: TrainingPresentation
     dataset_id: str
-    resolved_dataset_display_name: str
     workflow_settings: AnyJobConfig
     contract: RuntimeDatasetContract
     config_path: Path
@@ -312,9 +310,8 @@ class PreparedTraining:
     tmp_path: Path
     workspace: AssignmentWorkspace
     assignment: RunnableAssignment
-    resolved_assignment_display_name: str
+    presentation: TrainingPresentation
     dataset_id: str
-    resolved_dataset_display_name: str
     contract: RuntimeDatasetContract
     config_path: Path
     resolved_data_config_path: Path
@@ -328,6 +325,7 @@ def prepare_training_settings(
     case_config_path: str | Path | None = None,
     output_root: Path | str | None = None,
     identity: AssignmentIdentity,
+    presentation: TrainingPresentation,
     mlflow_experiment_name: str | None = None,
     batched: bool = False,
     extra_tags: Mapping[str, str] | None = None,
@@ -351,6 +349,7 @@ def prepare_training_settings(
         data_config_path: Path to a dataset configuration TOML.
         identity: Registry identity of the assignment being prepared, threaded
             straight through to `load_assignment`.
+        presentation: What the run trains; its name and labels are rendered from it.
         batched: True when this assignment is one child of a batch/sweep —
             omits the run-name timestamp, since the sweep already
             disambiguates children without one.
@@ -386,8 +385,6 @@ def prepare_training_settings(
         workspace = assignment.workspace
         contract = default_training_dataset_contract()
         dataset_id = workspace.dataset_id
-        resolved_assignment_display_name = assignment.spec.assignment_display_name
-        resolved_dataset_display_name = assignment.spec.dataset_display_name or dataset_id
 
         # Step 2: Resolve training dataset artifacts
         arrays, features, targets = _load_and_prepare_data(workflow_settings, workspace, contract)
@@ -396,6 +393,7 @@ def prepare_training_settings(
         # Step 3: Build execute()-time MLflow naming and tags
         run_config = _build_training_run_config(
             identity=AssignmentIdentity.from_spec(assignment.spec),
+            presentation=presentation,
             mlflow_experiment_name=mlflow_experiment_name,
             runtime_mlflow_env=runtime_mlflow_env,
             workspace_root=workspace.root_dir,
@@ -435,9 +433,8 @@ def prepare_training_settings(
         tmp_path=tmp_path,
         workspace=workspace,
         assignment=assignment,
-        resolved_assignment_display_name=resolved_assignment_display_name,
+        presentation=presentation,
         dataset_id=dataset_id,
-        resolved_dataset_display_name=resolved_dataset_display_name,
         contract=contract,
         config_path=config_path,
         resolved_data_config_path=resolved_data_config_path,
@@ -464,9 +461,11 @@ def to_run_spec(prepared: PreparedTraining) -> RunSpec:
     """
     return RunSpec(
         id=prepared.assignment.spec.assignment_id,
-        label=prepared.resolved_assignment_display_name,
+        label=render_training_subject(
+            prepared.presentation.subject, prepared.presentation.notation
+        ),
         settings=prepared.workflow_settings,
-        run_name=prepared.run_config.run_name,
+        run_name=run_name_text(prepared.run_config.name),
         tags=dict(prepared.run_config.tags),
     )
 
@@ -498,9 +497,8 @@ def finalize_prepared_training(
         workspace=prepared.workspace,
         assignment=prepared.assignment,
         assignment_id=prepared.assignment.spec.assignment_id,
-        resolved_assignment_display_name=prepared.resolved_assignment_display_name,
+        presentation=prepared.presentation,
         dataset_id=prepared.dataset_id,
-        resolved_dataset_display_name=prepared.resolved_dataset_display_name,
         workflow_settings=prepared.workflow_settings,
         contract=prepared.contract,
         config_path=prepared.config_path,
@@ -540,7 +538,7 @@ def _finalize_training_run(context: _TrainingFinalizationContext) -> MlflowCoord
             training_result=context.training_result,
             fallback_tracking_uri=context.fallback_tracking_uri,
             experiment_name=context.run_config.experiment_name,
-            run_name=context.run_config.run_name,
+            run=context.run_config.name,
         )
         if mlflow_coords is not None:
             resolved_tracking_uri = mlflow_coords.tracking_uri

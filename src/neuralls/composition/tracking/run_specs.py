@@ -1,4 +1,9 @@
-"""Pure builders for MLflow run specs and structured tag dataclasses."""
+"""Pure builders for MLflow run specs and structured tag dataclasses.
+
+Every run name is a typed ``RunName`` paired with the case's notation (a ``NamedRun``);
+the platform tracking adapter renders it when the run opens. Tags keep machine ids in
+``*_id`` fields and rendered text in ``*_label`` fields.
+"""
 
 from __future__ import annotations
 
@@ -6,13 +11,45 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, assert_never
 
+from neuralls.composition.comparison.models import PlannedSystem
 from neuralls.domain.identity import StageIdentity
-from neuralls.platform.config.models.experiments import AssignmentEntry, ComparisonRegistryEntry
+from neuralls.domain.presentation.methods import PreparedMethodPresentation
+from neuralls.domain.presentation.run_names import (
+    ComparisonRunName,
+    EvaluationRunName,
+    HeldOutMatrixPart,
+    MethodRunName,
+    NamedRun,
+    RhsDrawPart,
+    RunStamp,
+    RunTimestamp,
+    SessionRunName,
+    SystemQualifier,
+    TrainingPresentation,
+    TrainingRunName,
+    TrainingSubject,
+    Untimed,
+)
+from neuralls.domain.presentation.titles import (
+    ComparisonScopePresentation,
+    ComparisonTitle,
+    EditorialPresentation,
+    SessionTitle,
+)
+from neuralls.domain.solver.models.provenance import HeldOutMatrix
+from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.tracking.mlflow import MlflowRunConfig
+from neuralls.platform.tracking.run_names import (
+    render_session_title,
+    render_training_subject,
+    run_name_text,
+)
 from neuralls.shared.digest import Digest, ordered_workload_digest
+from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.types import PreconditionerName
 
 
 def iso_timestamp(dt: datetime | None = None) -> str:
@@ -32,57 +69,107 @@ def format_run_timestamp(dt: datetime | None = None) -> str:
     return (dt or datetime.now()).strftime("%a %d %b %Y - %H:%M:%S")
 
 
-@dataclass(frozen=True)
+def _stamp(timestamp: str | None, *, include_timestamp: bool) -> RunStamp:
+    """The run's stamp: its timestamp, or none when a session parent already carries one."""
+    if not include_timestamp:
+        return Untimed()
+    return RunTimestamp(timestamp or format_run_timestamp())
+
+
+def system_qualifier(planned: PlannedSystem, title: ComparisonTitle) -> SystemQualifier:
+    """What tells ``planned`` apart from its sibling systems in a run name.
+
+    An editorial title is qualified by the planner when it plans siblings, so it needs no
+    further qualifier; a dataset title is shared by every sibling and needs the held-out
+    matrix and the right-hand-side draw.
+    """
+    match title:
+        case EditorialPresentation():
+            return SystemQualifier(())
+        case ComparisonScopePresentation():
+            matrix = (
+                (HeldOutMatrixPart(planned.matrix.matrix_id),)
+                if isinstance(planned.provenance, HeldOutMatrix)
+                else ()
+            )
+            draw = (RhsDrawPart(planned.rhs_ordinal),) if planned.entry.rhs_count > 1 else ()
+            return SystemQualifier((*matrix, *draw))
+        case _:
+            assert_never(title)
+
+
+def training_run_name(
+    presentation: TrainingPresentation,
+    *,
+    timestamp: str | None = None,
+    include_timestamp: bool = True,
+) -> NamedRun:
+    """The typed name of a training run: what it trains, plus a stamp when it runs standalone."""
+    stamp = _stamp(timestamp, include_timestamp=include_timestamp)
+    return NamedRun(TrainingRunName(presentation.subject, stamp), presentation.notation)
+
+
+@dataclass(frozen=True, slots=True)
 class TrainingRunTags:
     """Structured tags for a training run.
 
-    Attributes:
-        phase: Always "training".
-        assignment_id: Stable assignment identifier.
-        dataset_id: Dataset registry id.
-        job_id: Job registry id.
-        assignment_display_name: Human-facing assignment label.
+    ``subject`` is what was trained; its rendered text becomes the ``assignment_label`` tag.
     """
 
     phase: Literal["training"]
     assignment_id: str
     dataset_id: str
     job_id: str
-    assignment_display_name: str
+    subject: TrainingSubject
+    notation: NotationPolicy
 
     def as_mlflow_tags(self) -> dict[str, str]:
         """Serialize to MLflow-compatible string tag dict."""
-        return asdict(self)
+        return {
+            "phase": self.phase,
+            "assignment_id": self.assignment_id,
+            "dataset_id": self.dataset_id,
+            "job_id": self.job_id,
+            "assignment_label": render_training_subject(self.subject, self.notation),
+        }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ComparisonRunTags:
     """Structured tags for a comparison outer run.
 
     Attributes:
         phase: Always "comparison".
         comparison_id: Stable comparison identifier.
-        comparison_display_name: Human-facing comparison label.
+        title: What the comparison ran on; rendered as the ``comparison_label`` tag.
         comparison_config: Stem of comparison config file.
         comparison_path: Full path string.
         started_at: ISO timestamp (local).
-        run_name: Timestamped run name (for child back-linking).
+        run: The run's own typed name; rendered as ``run_name`` for child back-linking.
     """
 
     phase: Literal["comparison"]
     comparison_id: str
-    comparison_display_name: str
+    title: ComparisonTitle
     comparison_config: str
     comparison_path: str
     started_at: str
-    run_name: str
+    run: NamedRun
 
     def as_mlflow_tags(self) -> dict[str, str]:
         """Serialize to MLflow-compatible string tag dict."""
-        return asdict(self)
+        return {
+            "phase": self.phase,
+            "comparison_id": self.comparison_id,
+            "comparison_label": render_session_title(self.title, self.run.notation),
+            "comparison_config": self.comparison_config,
+            "comparison_path": self.comparison_path,
+            "started_at": self.started_at,
+            "run_name": run_name_text(self.run),
+        }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class EvaluationRunTags:
     """Structured tags for an eval-only run."""
 
@@ -90,32 +177,47 @@ class EvaluationRunTags:
     assignment_id: str
     source_training_run_id: str
     split_artifact: str
-    assignment_display_name: str
+    subject: TrainingSubject
+    notation: NotationPolicy
 
     def as_mlflow_tags(self) -> dict[str, str]:
         """Serialize to MLflow-compatible string tag dict."""
-        return asdict(self)
+        return {
+            "phase": self.phase,
+            "assignment_id": self.assignment_id,
+            "source_training_run_id": self.source_training_run_id,
+            "split_artifact": self.split_artifact,
+            "assignment_label": render_training_subject(self.subject, self.notation),
+        }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ChildComparisonRunTags:
     """Structured tags for a per-preconditioner nested CG run.
 
     Attributes:
         phase: Always "preconditioner_run".
-        preconditioner: Preconditioner name.
+        method_id: Machine result key of the preconditioner.
         comparison_id: Parent comparison identifier.
-        parent_run_name: Timestamped parent run name (for back-linking).
+        parent: The parent run's typed name; rendered as ``parent_run_name`` for back-linking.
+        method: The method's compact presentation; rendered as the ``method_label`` tag.
     """
 
     phase: Literal["preconditioner_run"]
-    preconditioner: str
+    method_id: PreconditionerName
     comparison_id: str
-    parent_run_name: str
+    parent: NamedRun
+    method: NamedRun
 
     def as_mlflow_tags(self) -> dict[str, str]:
         """Serialize to MLflow-compatible string tag dict."""
-        return asdict(self)
+        return {
+            "phase": self.phase,
+            "method_id": self.method_id,
+            "method_label": run_name_text(self.method),
+            "comparison_id": self.comparison_id,
+            "parent_run_name": run_name_text(self.parent),
+        }
 
 
 @dataclass(frozen=True)
@@ -123,7 +225,8 @@ class BenchmarkMethodRunTags:
     """Identity tags for one direct method child of a session."""
 
     phase: Literal["comparison_method"]
-    method: str
+    method_id: PreconditionerName
+    method_label: str
     method_config_digest: Digest
     workload_membership_digest: Digest
     required_artifacts: str
@@ -141,16 +244,17 @@ class BenchmarkMethodRunTags:
 
 def build_benchmark_method_run_spec(
     *,
-    method: str,
+    prepared: PreparedMethodPresentation,
+    notation: NotationPolicy,
     config_digest: Digest,
     system_ids: tuple[str, ...],
     system_identities: tuple[Digest, ...] | None = None,
-) -> tuple[str, BenchmarkMethodRunTags]:
+) -> tuple[NamedRun, BenchmarkMethodRunTags]:
     """Build a deterministic method-child name and reusable-workload identity.
 
-    ``system_ids`` are user-facing labels, not enough to identify the work.  A
-    prepared system identity is therefore paired with each ID when available;
-    callers that only have legacy IDs retain the old compatibility identity.
+    The name is the method's own compact presentation, so the plot legend and the run
+    list show the same thing. ``system_ids`` are machine ids, not enough to identify the
+    work: a prepared system identity is paired with each when available.
     """
     membership = ordered_workload_digest(system_ids, system_identities)
     identity = StageIdentity.build(
@@ -160,9 +264,11 @@ def build_benchmark_method_run_spec(
             "workload_membership": membership,
         },
     )
+    named = NamedRun(MethodRunName(prepared.compact), notation)
     tags = BenchmarkMethodRunTags(
         phase="comparison_method",
-        method=method,
+        method_id=prepared.method_id,
+        method_label=run_name_text(named),
         method_config_digest=config_digest,
         workload_membership_digest=membership,
         required_artifacts=(
@@ -172,7 +278,7 @@ def build_benchmark_method_run_spec(
         identity_key=identity.key,
         identity_components=json.dumps(dict(identity.components), sort_keys=True),
     )
-    return f"method | {method}", tags
+    return named, tags
 
 
 @dataclass(frozen=True)
@@ -198,43 +304,12 @@ class SessionRunTags:
         return asdict(self)
 
 
-@dataclass(frozen=True)
-class RegistrationTags:
-    """Structured tags for a registered model version.
-
-    Note: registered_at UTC timestamp is added as an invariant inside
-    register_logged_model() — not here — so callers cannot accidentally omit it.
-
-    Attributes:
-        assignment_id: Stable assignment identifier.
-        dataset_id: Dataset registry id.
-        job_id: Job registry id.
-        assignment_display_name: Human-facing assignment label.
-        model_class: Optional model class name from [MODEL].name.
-    """
-
-    assignment_id: str
-    dataset_id: str
-    job_id: str
-    assignment_display_name: str
-    model_class: str | None = None
-
-    def as_mlflow_tags(self) -> dict[str, str]:
-        """Serialize to MLflow-compatible string tag dict, omitting None values."""
-        tags: dict[str, str] = {
-            "assignment_id": self.assignment_id,
-            "dataset_id": self.dataset_id,
-            "job_id": self.job_id,
-            "assignment_display_name": self.assignment_display_name,
-        }
-        if self.model_class is not None:
-            tags["model_class"] = self.model_class
-        return tags
-
-
 def build_training_run_spec(
     *,
-    entry: AssignmentEntry,
+    assignment_id: str,
+    dataset_id: str,
+    job_id: str,
+    presentation: TrainingPresentation,
     experiment_name: str,
     paths: MlflowPaths,
     workspace_root: Path,
@@ -243,34 +318,22 @@ def build_training_run_spec(
 ) -> MlflowRunConfig:
     """Build complete MlflowRunConfig for a training run.
 
-    Run name format: ``{display_name} | {readable_timestamp}`` when
-    ``include_timestamp`` is True (standalone runs), or just ``{display_name}``
-    when False (batch runs where the session parent already carries the timestamp).
-
-    Args:
-        entry: Assignment registry entry.
-        experiment_name: MLflow experiment name to group runs under.
-        paths: Resolved MLflow tracking/artifact URIs.
-        workspace_root: Workspace root directory.
-        timestamp: Optional fixed timestamp (injectable for tests).
-        include_timestamp: When False, omit the timestamp from the run name.
-
-    Returns:
-        Complete MlflowRunConfig ready for training.
+    The run is named by what it trains (``subject``) plus a timestamp when it runs
+    standalone; batch runs omit the timestamp because the session parent carries it.
     """
-    ts = timestamp or format_run_timestamp()
     tags = TrainingRunTags(
         phase="training",
-        assignment_id=entry.id,
-        dataset_id=entry.dataset_id,
-        job_id=entry.job_id,
-        assignment_display_name=entry.effective_display_name,
+        assignment_id=assignment_id,
+        dataset_id=dataset_id,
+        job_id=job_id,
+        subject=presentation.subject,
+        notation=presentation.notation,
     )
-    display = entry.effective_display_name
-    run_name = f"{display} | {ts}" if include_timestamp else display
     return MlflowRunConfig(
         experiment_name=experiment_name,
-        run_name=run_name,
+        name=training_run_name(
+            presentation, timestamp=timestamp, include_timestamp=include_timestamp
+        ),
         tags=tags.as_mlflow_tags(),
         paths=paths,
         workspace_root=workspace_root,
@@ -280,64 +343,49 @@ def build_training_run_spec(
 def build_comparison_run_spec(
     *,
     entry: ComparisonRegistryEntry,
+    planned: PlannedSystem,
+    title: ComparisonTitle,
+    notation: NotationPolicy,
     timestamp: str | None = None,
     include_timestamp: bool = True,
-) -> tuple[str, ComparisonRunTags]:
-    """Build (run_name, ComparisonRunTags) for a comparison outer run.
+) -> tuple[NamedRun, ComparisonRunTags]:
+    """Build (run, ComparisonRunTags) for a comparison outer run.
 
-    Returns structured tags — caller calls ``.as_mlflow_tags()`` at the MLflow boundary.
-
-    Run name format: ``{display_name} | {timestamp}`` when ``include_timestamp``
-    is True (standalone runs), or just ``{display_name}`` when False (batch runs
-    where the session parent already carries the timestamp).
-
-    Args:
-        entry: Comparison registry entry.
-        timestamp: Optional fixed timestamp (injectable for tests).
-        include_timestamp: When False, omit the timestamp from the run name.
-
-    Returns:
-        Tuple of ``(run_name, ComparisonRunTags)``.
+    Siblings planned from one sweep or one multi-draw entry stay distinguishable through
+    ``system_qualifier``; the tags keep the machine entry id apart from the rendered label.
     """
     ts = timestamp or iso_timestamp()
-    display = entry.effective_display_name
-    run_name = f"{display} | {ts}" if include_timestamp else display
+    stamp = RunTimestamp(ts) if include_timestamp else Untimed()
+    run = NamedRun(ComparisonRunName(title, system_qualifier(planned, title), stamp), notation)
     method_label = entry.method.stem if entry.method is not None else entry.id
     tags = ComparisonRunTags(
         phase="comparison",
         comparison_id=entry.id,
-        comparison_display_name=entry.effective_display_name,
+        title=title,
         comparison_config=method_label,
         comparison_path=entry.method.as_posix() if entry.method is not None else entry.id,
         started_at=ts,
-        run_name=run_name,
+        run=run,
     )
-    return run_name, tags
+    return run, tags
 
 
 def build_session_run_spec(
     *,
+    title: SessionTitle,
+    notation: NotationPolicy,
     case_config_path: Path,
     experiment_name: str,
     phase: Literal["session_training", "session_comparison", "session_evaluation"],
     timestamp: str | None = None,
-) -> tuple[str, SessionRunTags]:
-    """Build (run_name, SessionRunTags) for one batch session invocation.
+) -> tuple[NamedRun, SessionRunTags]:
+    """Build (run, SessionRunTags) for one batch session invocation.
 
-    Shared by training and comparison batches: both wrap their per-entry runs
-    under one ``"{case_config_path.stem} | {timestamp}"`` parent run.
-
-    Args:
-        case_config_path: Path to the case config driving this batch.
-        experiment_name: MLflow experiment the session's child runs belong to.
-        phase: Which batch kind this session wraps.
-        timestamp: Optional fixed timestamp (injectable for tests).
-
-    Returns:
-        Tuple of ``(run_name, SessionRunTags)``.
+    Shared by training, evaluation and comparison batches: all wrap their per-entry runs
+    under one parent run named by what the session ran on, plus the launch time.
     """
     ts = timestamp or iso_timestamp()
-    run_name = f"{case_config_path.stem} | {ts}"
+    run = NamedRun(SessionRunName(title, RunTimestamp(ts)), notation)
     tags = SessionRunTags(
         phase=phase,
         case_config=case_config_path.stem,
@@ -345,13 +393,18 @@ def build_session_run_spec(
         started_at=ts,
         experiment_name=experiment_name,
     )
-    return run_name, tags
+    return run, tags
+
+
+def build_evaluation_run(presentation: TrainingPresentation) -> NamedRun:
+    """The typed name of a checkpoint evaluation run."""
+    return NamedRun(EvaluationRunName(presentation.subject), presentation.notation)
 
 
 def build_evaluation_tags(
     *,
     assignment_id: str,
-    assignment_display_name: str,
+    presentation: TrainingPresentation,
     source_training_run_id: str,
     split_artifact: str,
 ) -> EvaluationRunTags:
@@ -361,52 +414,23 @@ def build_evaluation_tags(
         assignment_id=assignment_id,
         source_training_run_id=source_training_run_id,
         split_artifact=split_artifact,
-        assignment_display_name=assignment_display_name,
+        subject=presentation.subject,
+        notation=presentation.notation,
     )
 
 
 def build_child_comparison_tags(
     *,
-    preconditioner_name: str,
+    prepared: PreparedMethodPresentation,
+    notation: NotationPolicy,
     comparison_id: str,
-    parent_run_name: str,
+    parent: NamedRun,
 ) -> ChildComparisonRunTags:
-    """Build structured tags for a nested per-preconditioner CG run.
-
-    Args:
-        preconditioner_name: Name of the preconditioner.
-        comparison_id: Parent comparison identifier.
-        parent_run_name: Timestamped parent run name for back-linking.
-
-    Returns:
-        ChildComparisonRunTags with all fields set.
-    """
+    """Build structured tags for a nested per-preconditioner CG run."""
     return ChildComparisonRunTags(
         phase="preconditioner_run",
-        preconditioner=preconditioner_name,
+        method_id=prepared.method_id,
         comparison_id=comparison_id,
-        parent_run_name=parent_run_name,
-    )
-
-
-def build_registration_tags(
-    *,
-    entry: AssignmentEntry,
-    model_class: str | None,
-) -> RegistrationTags:
-    """Build structured registration tags for a model version.
-
-    Args:
-        entry: Assignment registry entry.
-        model_class: Optional model class name from [MODEL].name.
-
-    Returns:
-        RegistrationTags with all available fields populated.
-    """
-    return RegistrationTags(
-        assignment_id=entry.id,
-        dataset_id=entry.dataset_id,
-        job_id=entry.job_id,
-        assignment_display_name=entry.effective_display_name,
-        model_class=model_class,
+        parent=parent,
+        method=NamedRun(MethodRunName(prepared.compact), notation),
     )

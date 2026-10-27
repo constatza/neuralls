@@ -18,7 +18,11 @@ from torchalg.utils.device import resolve_device
 
 from neuralls.composition.assignments._job_types import AnyJobConfig
 from neuralls.composition.assignments.assembler import load_validated_case_config
-from neuralls.composition.assignments.job_loader import load_experiment_job
+from neuralls.composition.assignments.assignment_subjects import (
+    neural_spec_from_assignment,
+    pod_fit_spec_from_assignment,
+    resolve_assignment_inputs,
+)
 from neuralls.composition.assignments.model_resolution import (
     AssignmentModelContext,
     TrainingLookup,
@@ -90,10 +94,12 @@ from neuralls.domain.benchmarking.selection import (
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import PreparedComparisonPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.presentation.run_names import NamedRun, TrackedRun
 from neuralls.domain.presentation.titles import (
     ComparisonScopePresentation,
     ComparisonTitle,
     EditorialPresentation,
+    session_title,
 )
 from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory, SetupCompleted
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
@@ -110,16 +116,12 @@ from neuralls.platform.config.models.experiments import (
     ComparisonRegistryEntry,
 )
 from neuralls.platform.config.models.preconditioner import (
-    AMGPreconditionerConfig,
     CheckpointRefBearing,
     NeuralCheckpointRef,
     NeuralPreconditionerConfig,
-    PODCoarseningConfig,
     PreconditionerConfig,
-    PreconditionerType,
-    TrainedAssignmentRefConfig,
 )
-from neuralls.platform.config.registry import get_assignment_binding, resolve_assignment_binding
+from neuralls.platform.config.registry import get_assignment_binding
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.platform.reporting.artifacts import write_comparison_artifacts
 from neuralls.platform.reporting.comparison_inputs import (
@@ -143,6 +145,7 @@ from neuralls.platform.tracking.comparison_tracking import (
     log_comparison_artifact_uri,
     log_comparison_input_artifacts,
     log_comparison_run_params,
+    log_configured_method_facts,
     log_linear_system_params,
     log_skipped_preconditioners,
     setup_comparison_tracking,
@@ -156,12 +159,19 @@ from neuralls.platform.tracking.mlflow_store import (
     find_reusable_benchmark_method,
 )
 from neuralls.platform.tracking.model_registry import build_registered_model_name
+from neuralls.platform.tracking.run_names import run_name_text
 from neuralls.shared.device import release_device_memory, warm_up_device
 from neuralls.shared.digest import Digest, canonical_digest, content_digest, digest_memo
 from neuralls.shared.errors import StageInputsStale
 from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, MatrixId, SystemId
+from neuralls.shared.types import (
+    ComparisonRhsSourceKind,
+    DatasetId,
+    MatrixId,
+    PreconditionerName,
+    SystemId,
+)
 from neuralls.shared.workflow_failures import (
     ComparisonBatchFailureContext,
     ComparisonBatchPhase,
@@ -355,20 +365,14 @@ def _resolve_assignment_job_context(
     dispatch) and, for a `fit`-kind job, to populate the resulting
     `PODCoarseningConfig`'s required `dataset_dir`/`rank` fields.
     """
-    binding = resolve_assignment_binding(cfg, config_dir, entry)
-    job = load_experiment_job(binding.job_config_path, settings)
-    data_cfg = load_data_config(binding.data_config_path, settings)
-    dataset_id = resolve_dataset_identity(
-        data_cfg=data_cfg,
-        config_path=binding.data_config_path,
-    ).name
+    inputs = resolve_assignment_inputs(entry, cfg=cfg, config_dir=config_dir, settings=settings)
     return _AssignmentJobContext(
-        job=job,
-        architecture=binding.architecture,
-        dataset_dir=settings.processed_dir / dataset_id,
+        job=inputs.job,
+        architecture=inputs.binding.architecture,
+        dataset_dir=inputs.dataset_dir,
         training=_assignment_training_identity(
-            job_config_path=binding.job_config_path,
-            data_config_path=binding.data_config_path,
+            job_config_path=inputs.binding.job_config_path,
+            data_config_path=inputs.binding.data_config_path,
             settings=settings,
         ),
     )
@@ -390,70 +394,6 @@ def _extra_input_names_of_training_run(
     if reused is None or reused.run_id is None:
         return ()
     return fetch_extra_feature_names(reused.run_id, client=client)
-
-
-def _neural_spec_from_assignment(
-    entry: AssignmentEntry,
-    *,
-    extra_input_names: tuple[str, ...],
-    architecture: ValidatedLabel | None,
-) -> NeuralPreconditionerConfig:
-    """Build an unresolved neural preconditioner stub for a train/search-kind assignment.
-
-    The result key (`spec.name`) is derived from the config's own fields
-    (`preconditioner.py::preconditioner_slug`), not set here — it always
-    embeds `entry.id` via the `assignment` field below, so it stays
-    traceable to the assignment without needing a separately-chosen name.
-    References the assignment's training run through a strict
-    `TrainedAssignmentRefConfig` (same experiment, FINISHED, checkpoint present,
-    current dataset), rather than a registry entry or a tag search — the
-    registry is reserved for deliberate/manual promotion. Also fetches the
-    ``neuralls.extra_feature_names`` tag from the training run so that FiLM
-    models receive their condition tensor during comparison.
-    """
-    return NeuralPreconditionerConfig(
-        type=PreconditionerType.NEURAL,
-        assignment=entry.id,
-        model_ref=TrainedAssignmentRefConfig(assignment_id=entry.id),
-        extra_input_names=extra_input_names,
-        architecture=None if architecture is None else architecture.text,
-    )
-
-
-def _pod_fit_spec_from_assignment(
-    entry: AssignmentEntry,
-    *,
-    job: FitJobConfig,
-    dataset_dir: Path,
-) -> AMGPreconditionerConfig:
-    """Build an unresolved AMG/POD stub for a `fit`-kind (POD-2G) assignment.
-
-    Mirrors `_neural_spec_from_assignment`'s "derived result key, unresolved
-    stub referencing the assignment's training run" shape, but for
-    `AMGPreconditionerConfig(coarsening=PODCoarseningConfig(...))` instead of
-    `NeuralPreconditionerConfig` — the checkpoint-shaped side of the kind
-    dispatch in `neural_specs_from_assignments`. `dataset_dir`/`rank` are
-    populated from the assignment's own job/dataset so the config stays
-    valid (required fields) even before resolution runs; once
-    `resolved_checkpoint_path` is set by
-    `resolve_preconditioner_models_with_warnings`, the factory reconstructs
-    the fitted basis from the checkpoint and never reads these.
-    """
-    rank = getattr(job.model, "rank", None)
-    if rank is None:
-        raise ValueError(
-            f"Assignment '{entry.id}' job declares run.type='fit' but its model has no "
-            "'rank' hyperparameter — expected a PODCoarseningStrategy-shaped model."
-        )
-    return AMGPreconditionerConfig(
-        type=PreconditionerType.AMG,
-        coarsening=PODCoarseningConfig(
-            dataset_dir=dataset_dir,
-            rank=rank,
-            assignment=entry.id,
-            model_ref=TrainedAssignmentRefConfig(assignment_id=entry.id),
-        ),
-    )
 
 
 def neural_specs_from_assignments(
@@ -500,13 +440,13 @@ def neural_specs_from_assignments(
         match context.job:
             case FitJobConfig():
                 specs.append(
-                    _pod_fit_spec_from_assignment(
+                    pod_fit_spec_from_assignment(
                         entry, job=context.job, dataset_dir=context.dataset_dir
                     )
                 )
             case _:
                 specs.append(
-                    _neural_spec_from_assignment(
+                    neural_spec_from_assignment(
                         entry,
                         extra_input_names=_extra_input_names_of_training_run(
                             context, experiment=cfg.names.training, client=client
@@ -741,31 +681,35 @@ def _run_comparison_with_resolved_specs(
     return raw_result
 
 
-def _build_child_run_tags(
+def _build_child_runs(
     result: ComparisonResult,
     *,
-    comparison_id: str,
-    parent_run_name: str,
-) -> dict[str, dict[str, str]]:
-    """Build the MLflow tag set for each per-preconditioner child run.
+    prepared: PreparedComparisonExecution,
+    parent: NamedRun,
+) -> dict[str, TrackedRun]:
+    """Build the nested run (typed name and tags) of each per-preconditioner child run.
 
-    Pure: derives tags from an already-computed result, touching no MLflow
-    state, so the tag shape can be asserted without an active run.
+    Pure: derives the runs from an already-computed result and the prepared cohort,
+    touching no MLflow state, so the naming can be asserted without an active run. Each
+    child is named after its method's own presentation, never after its result key.
     """
-    return {
-        name: build_child_comparison_tags(
-            preconditioner_name=name,
-            comparison_id=comparison_id,
-            parent_run_name=parent_run_name,
-        ).as_mlflow_tags()
-        for name in result.results
-    }
+    notation = prepared.cfg.notation_policy
+    children: dict[str, TrackedRun] = {}
+    for name in result.results:
+        tags = build_child_comparison_tags(
+            prepared=prepared.presentation.method(PreconditionerName(name)),
+            notation=notation,
+            comparison_id=prepared.entry.id,
+            parent=parent,
+        )
+        children[name] = TrackedRun(tags.method, tags.as_mlflow_tags())
+    return children
 
 
 def _run_and_log_comparison(
     prepared: PreparedComparisonExecution,
     *,
-    run_name: str,
+    run: NamedRun,
     comp_run_id: str,
     cost_recorder: CostRecorder | None = None,
     cache: SystemPreconditionerCache | None = None,
@@ -774,7 +718,7 @@ def _run_and_log_comparison(
 
     Args:
         prepared: The entry, config, topology, and resolved specs to execute.
-        run_name: Display name of the enclosing run, used as the child runs' parent label.
+        run: Typed name of the enclosing run, linked from each child run's tags.
         comp_run_id: Id of the enclosing run that artifacts are uploaded to.
         cost_recorder: Where to record the comparison's cost/outcome metrics
             (DI for testing); defaults to MLflow, logging into the open run.
@@ -804,9 +748,7 @@ def _run_and_log_comparison(
         )
         recorder.record(
             raw_result,
-            child_run_tags=_build_child_run_tags(
-                raw_result, comparison_id=prepared.entry.id, parent_run_name=run_name
-            ),
+            child_runs=_build_child_runs(raw_result, prepared=prepared, parent=run),
         )
         log_linear_system_params(raw_result)
     return raw_result
@@ -815,7 +757,7 @@ def _run_and_log_comparison(
 def _execute_comparison_in_run(
     prepared: PreparedComparisonExecution,
     *,
-    run_name: str,
+    run: NamedRun,
     comp_tags: ComparisonRunTags,
     cache: SystemPreconditionerCache | None = None,
 ) -> ComparisonOutcome:
@@ -824,7 +766,7 @@ def _execute_comparison_in_run(
     Args:
         prepared: Everything resolved ahead of execution — config, registry
             entry, topology, resolved specs, warnings, and dependency hash.
-        run_name: Display name for the MLflow run.
+        run: Typed name of the MLflow run.
         comp_tags: Structured tags applied to the MLflow run.
         cache: Optional per-sweep-group preconditioner cache (see
             `SystemPreconditionerCache`); `None` for a non-sweep entry.
@@ -834,19 +776,20 @@ def _execute_comparison_in_run(
     """
     entry = prepared.entry
     with mlflow.start_run(
-        run_name=run_name,
+        run_name=run_name_text(run),
         nested=True,
         tags={**comp_tags.as_mlflow_tags(), **prepared.identity.tags()},
     ) as comp_run:
         comp_run_id = comp_run.info.run_id
         log_comparison_artifact_uri()
         raw_result = _run_and_log_comparison(
-            prepared, run_name=run_name, comp_run_id=comp_run_id, cache=cache
+            prepared, run=run, comp_run_id=comp_run_id, cache=cache
         )
         log_comparison_run_params(
             comp_run_id=comp_run_id,
             comparison_id=entry.id,
-            comparison_display_name=entry.effective_display_name,
+            title=prepared.title,
+            notation=prepared.cfg.notation_policy,
             comparison_config=entry.method.stem if entry.method is not None else entry.id,
         )
 
@@ -1153,12 +1096,14 @@ def _execute_prepared_comparison(
             `SystemPreconditionerCache`); `None` for a non-sweep entry.
     """
     try:
-        run_name, comp_tags = build_comparison_run_spec(
-            entry=prepared.entry, include_timestamp=False
+        run, comp_tags = build_comparison_run_spec(
+            entry=prepared.entry,
+            planned=prepared.planned,
+            title=prepared.title,
+            notation=prepared.cfg.notation_policy,
+            include_timestamp=False,
         )
-        return _execute_comparison_in_run(
-            prepared, run_name=run_name, comp_tags=comp_tags, cache=cache
-        )
+        return _execute_comparison_in_run(prepared, run=run, comp_tags=comp_tags, cache=cache)
     except (ValueError, RuntimeError, KeyError, IndexError) as exc:
         return _comparison_failure_outcome(prepared.entry, exc)
 
@@ -1613,8 +1558,15 @@ def _execute_method_run(
     system_ids = tuple(str(system.entry.id) for _, systems in matrices for system in systems)
     system_identities = tuple(system.identity.key for _, systems in matrices for system in systems)
     config_digest = method.identity_digest or canonical_digest(method.config)
-    run_name, tags = build_benchmark_method_run_spec(
-        method=str(method.name),
+    # Using the first execution's prepared method is safe: the schedule groups
+    # executions by method name and identity digest and rejects differing
+    # identities or method membership, so every execution here configures the
+    # same method over the same cohort and prepares an equal presentation.
+    first = matrices[0][1][0]
+    prepared_method = first.presentation.method(method.name)
+    run, tags = build_benchmark_method_run_spec(
+        prepared=prepared_method,
+        notation=first.cfg.notation_policy,
         config_digest=config_digest,
         system_ids=system_ids,
         system_identities=system_identities,
@@ -1625,7 +1577,8 @@ def _execute_method_run(
         "system_ids": tuple(SystemId(system_id) for system_id in system_ids),
     }
     recorded_exception_ids: set[int] = set()
-    with mlflow.start_run(run_name=run_name, nested=True, tags=tags.as_mlflow_tags()):
+    with mlflow.start_run(run_name=run_name_text(run), nested=True, tags=tags.as_mlflow_tags()):
+        log_configured_method_facts(prepared_method)
         with _failure_boundary(
             failure_sink,
             ComparisonMethodFailureContext(
@@ -1634,11 +1587,6 @@ def _execute_method_run(
             ),
             recorded_exception_ids=recorded_exception_ids,
         ):
-            # Using the first execution's prepared method is safe: the schedule groups
-            # executions by method name and identity digest and rejects differing
-            # identities or method membership, so every execution here configures the
-            # same method over the same cohort and prepares an equal presentation.
-            first = matrices[0][1][0]
             workload = execute_method_workload(
                 method,
                 _load_matrix_workloads_with_failure_context(
@@ -1647,7 +1595,7 @@ def _execute_method_run(
                     failure_sink=failure_sink,
                     recorded_exception_ids=recorded_exception_ids,
                 ),
-                prepared=first.presentation.method(method.name),
+                prepared=prepared_method,
                 params=first.cfg.general.params,
                 settings=first.settings,
             )
@@ -1789,11 +1737,6 @@ def run_comparison_batch(
         artifact_location=topology.artifact_location,
         experiment_name=topology.experiment_name,
     )
-    session_run_name, session_tags = build_session_run_spec(
-        case_config_path=case_config_path.resolve(),
-        experiment_name=topology.experiment_name,
-        phase="session_comparison",
-    )
 
     with contextlib.ExitStack() as stack:
         stack.enter_context(digest_memo())
@@ -1825,8 +1768,19 @@ def run_comparison_batch(
             ]
 
         notation = _batch_notation_policy(pending)
+        session_run, session_tags = build_session_run_spec(
+            title=session_title(
+                [item.title for item in pending if isinstance(item, PreparedComparisonExecution)]
+            ),
+            notation=notation,
+            case_config_path=case_config_path.resolve(),
+            experiment_name=topology.experiment_name,
+            phase="session_comparison",
+        )
         failure_sink = MLflowWorkflowFailureSink()
-        with mlflow.start_run(run_name=session_run_name, tags=session_tags.as_mlflow_tags()):
+        with mlflow.start_run(
+            run_name=run_name_text(session_run), tags=session_tags.as_mlflow_tags()
+        ):
             with _failure_boundary(
                 failure_sink,
                 ComparisonBatchFailureContext(

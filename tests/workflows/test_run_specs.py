@@ -4,26 +4,90 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from neuralls.composition.comparison.models import MatrixRef, PlannedSystem
 from neuralls.composition.tracking.run_specs import (
     TrainingRunTags,
+    build_benchmark_method_run_spec,
     build_child_comparison_tags,
     build_comparison_run_spec,
-    build_registration_tags,
+    build_evaluation_run,
+    build_evaluation_tags,
     build_session_run_spec,
     build_training_run_spec,
+    system_qualifier,
 )
-from neuralls.platform.config.models.experiments import AssignmentEntry, ComparisonRegistryEntry
+from neuralls.domain.presentation.methods import DatasetQualifiedMethodPresentation
+from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.presentation.run_names import (
+    EditorialTrainingSubject,
+    HeldOutMatrixPart,
+    RhsDrawPart,
+    TrainingPresentation,
+)
+from neuralls.domain.presentation.titles import (
+    ComparisonScopePresentation,
+    EditorialPresentation,
+    session_title,
+)
+from neuralls.domain.solver.models.provenance import HeldOutMatrix, SharedSingleMatrix
+from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.resolution import MlflowPaths, build_sqlite_tracking_uri
+from neuralls.platform.tracking.run_names import run_name_text
+from neuralls.shared.scientific_description.models import ScientificDescription
+from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.types import MatrixId
+from tests.presentation_support import PreparedMethodFactory
+
+PLAIN = NotationPolicy.default()
+STAMP = "Thu 12 Mar 2026 - 12:00:00"
+ISO = "2026-03-12T12:00:00"
+DATASET_TEXT = "Test problem | Gaussian CG Residuals (k=20, N=100)"
 
 
-def test_training_tags_contains_all_fields() -> None:
-    """Training tags serialize all expected fields."""
+@pytest.fixture
+def trained(dataset_presentation: DatasetPresentation) -> TrainingPresentation:
+    """A POD-2G method trained on the test dataset."""
+    return TrainingPresentation(
+        DatasetQualifiedMethodPresentation(ScientificDescription("POD-2G"), dataset_presentation),
+        PLAIN,
+    )
+
+
+def _entry(**kwargs: object) -> ComparisonRegistryEntry:
+    return ComparisonRegistryEntry(
+        id="cmp-1", matrix_dataset="solutions", rhs_source={"kind": "gaussian"}, **kwargs
+    )
+
+
+def _planned(
+    entry: ComparisonRegistryEntry, *, matrix: int | None = None, ordinal: int = 0
+) -> PlannedSystem:
+    provenance = (
+        SharedSingleMatrix(raw_matrix_index=0)
+        if matrix is None
+        else HeldOutMatrix(matrix_id=MatrixId(matrix), raw_matrix_index=0)
+    )
+    return PlannedSystem(
+        entry=entry,
+        matrix=MatrixRef(matrix_id=MatrixId(matrix or 0), row=0),
+        rhs_row=None,
+        rhs_ordinal=ordinal,
+        provenance=provenance,
+    )
+
+
+def test_training_tags_keep_the_id_apart_from_the_rendered_label(
+    trained: TrainingPresentation,
+) -> None:
     tags = TrainingRunTags(
         phase="training",
         assignment_id="exp-1",
         dataset_id="dataset-1",
         job_id="job-1",
-        assignment_display_name="Experiment One",
+        subject=trained.subject,
+        notation=PLAIN,
     )
 
     assert tags.as_mlflow_tags() == {
@@ -31,173 +95,206 @@ def test_training_tags_contains_all_fields() -> None:
         "assignment_id": "exp-1",
         "dataset_id": "dataset-1",
         "job_id": "job-1",
-        "assignment_display_name": "Experiment One",
+        "assignment_label": "POD-2G | Gaussian CG Residuals (k=20, N=100)",
     }
 
 
-def test_training_run_spec_name_has_readable_timestamp() -> None:
-    """Training run specs use the experiment display name plus a readable timestamp."""
-    entry = AssignmentEntry(
-        id="exp-1",
-        dataset="dataset-1",
-        job="job-1",
-        display_name="Experiment One",
-    )
-
-    workspace_root = Path.cwd() / "workspace"
+def test_training_run_spec_is_named_by_what_it_trains(trained: TrainingPresentation) -> None:
     spec = build_training_run_spec(
-        entry=entry,
+        assignment_id="exp-1",
+        dataset_id="dataset-1",
+        job_id="job-1",
+        presentation=trained,
         experiment_name="Train",
-        paths=MlflowPaths(
-            build_sqlite_tracking_uri(Path.cwd() / "mlflow.db"),
-            str((Path.cwd() / "mlartifacts").resolve()),
-        ),
-        workspace_root=workspace_root,
-        timestamp="Thu 12 Mar 2026 - 12:00:00",
+        paths=MlflowPaths(build_sqlite_tracking_uri(Path.cwd() / "mlflow.db"), None),
+        workspace_root=Path.cwd() / "workspace",
+        timestamp=STAMP,
     )
 
     assert spec.experiment_name == "Train"
-    assert spec.run_name == "Experiment One | Thu 12 Mar 2026 - 12:00:00"
-    assert dict(spec.tags) == {
-        "phase": "training",
-        "assignment_id": "exp-1",
-        "dataset_id": "dataset-1",
-        "job_id": "job-1",
-        "assignment_display_name": "Experiment One",
-    }
+    assert run_name_text(spec.name) == "POD-2G | Gaussian CG Residuals (k=20, N=100) | " + STAMP
+    assert spec.tags["assignment_id"] == "exp-1"
+    assert "exp-1" not in run_name_text(spec.name)
 
 
-def test_comparison_run_spec_name_and_tags() -> None:
-    """Comparison runs capture the timestamp, path, and derived config stem."""
-    entry = ComparisonRegistryEntry(
-        id="cmp-1",
-        matrix_dataset="solutions",
-        rhs_source={"kind": "gaussian"},
-        method=Path("configs/compare.toml"),
-        display_name="Comparison One",
+def test_batched_training_run_name_has_no_timestamp(trained: TrainingPresentation) -> None:
+    spec = build_training_run_spec(
+        assignment_id="a",
+        dataset_id="d",
+        job_id="j",
+        presentation=trained,
+        experiment_name="Train",
+        paths=MlflowPaths(build_sqlite_tracking_uri(Path.cwd() / "mlflow.db"), None),
+        workspace_root=Path.cwd(),
+        include_timestamp=False,
+    )
+    assert run_name_text(spec.name) == "POD-2G | Gaussian CG Residuals (k=20, N=100)"
+
+
+def test_comparison_run_spec_name_and_tags(dataset_presentation: DatasetPresentation) -> None:
+    entry = _entry(method=Path("configs/compare.toml"))
+    title = ComparisonScopePresentation(dataset_presentation)
+
+    run, tags = build_comparison_run_spec(
+        entry=entry, planned=_planned(entry), title=title, notation=PLAIN, timestamp=ISO
     )
 
-    run_name, tags = build_comparison_run_spec(
-        entry=entry,
-        timestamp="2026-03-12T12:00:00",
-    )
-
-    assert run_name == "Comparison One | 2026-03-12T12:00:00"
+    assert run_name_text(run) == f"{DATASET_TEXT} | {ISO}"
     assert tags.as_mlflow_tags() == {
         "phase": "comparison",
         "comparison_id": "cmp-1",
-        "comparison_display_name": "Comparison One",
+        "comparison_label": DATASET_TEXT,
         "comparison_config": "compare",
         "comparison_path": "configs/compare.toml",
-        "started_at": "2026-03-12T12:00:00",
-        "run_name": "Comparison One | 2026-03-12T12:00:00",
+        "started_at": ISO,
+        "run_name": f"{DATASET_TEXT} | {ISO}",
     }
 
 
-def test_child_tags_no_timestamp_has_parent_run_name() -> None:
-    """Child comparison tags link back to the named parent run."""
+def test_untimed_comparison_run_is_the_bare_title(
+    dataset_presentation: DatasetPresentation,
+) -> None:
+    entry = _entry()
+    run, _ = build_comparison_run_spec(
+        entry=entry,
+        planned=_planned(entry),
+        title=ComparisonScopePresentation(dataset_presentation),
+        notation=PLAIN,
+        include_timestamp=False,
+    )
+    assert run_name_text(run) == DATASET_TEXT
+
+
+def test_sibling_systems_on_a_dataset_title_get_distinct_run_names(
+    dataset_presentation: DatasetPresentation,
+) -> None:
+    title = ComparisonScopePresentation(dataset_presentation)
+    names = []
+    for matrix in (3, 4):
+        entry = _entry(rhs_count=2)
+        for ordinal in (0, 1):
+            run, _ = build_comparison_run_spec(
+                entry=entry,
+                planned=_planned(entry, matrix=matrix, ordinal=ordinal),
+                title=title,
+                notation=PLAIN,
+                include_timestamp=False,
+            )
+            names.append(run_name_text(run))
+    assert len(set(names)) == 4
+    assert names[0].endswith("matrix 3, RHS 0")
+    assert names[3].endswith("matrix 4, RHS 1")
+
+
+def test_a_single_draw_on_a_shared_matrix_needs_no_qualifier(
+    dataset_presentation: DatasetPresentation,
+) -> None:
+    entry = _entry()
+    qualifier = system_qualifier(_planned(entry), ComparisonScopePresentation(dataset_presentation))
+    assert qualifier.parts == ()
+
+
+def test_a_held_out_matrix_with_several_draws_is_qualified_by_both(
+    dataset_presentation: DatasetPresentation,
+) -> None:
+    entry = _entry(rhs_count=3)
+    qualifier = system_qualifier(
+        _planned(entry, matrix=7, ordinal=2), ComparisonScopePresentation(dataset_presentation)
+    )
+    assert qualifier.parts == (HeldOutMatrixPart(MatrixId(7)), RhsDrawPart(2))
+
+
+def test_an_editorial_title_is_not_qualified_again() -> None:
+    entry = _entry(rhs_count=3)
+    qualifier = system_qualifier(
+        _planned(entry, matrix=7, ordinal=2), EditorialPresentation("Spectral (rhs 2)")
+    )
+    assert qualifier.parts == ()
+
+
+def test_child_tags_link_back_to_the_rendered_parent(
+    dataset_presentation: DatasetPresentation, prepared_method: PreparedMethodFactory
+) -> None:
+    entry = _entry()
+    parent, _ = build_comparison_run_spec(
+        entry=entry,
+        planned=_planned(entry),
+        title=EditorialPresentation("Spectral"),
+        notation=PLAIN,
+        timestamp=ISO,
+    )
+
     tags = build_child_comparison_tags(
-        preconditioner_name="jacobi",
-        comparison_id="cmp-1",
-        parent_run_name="Comparison One | 2026-03-12T12:00:00",
+        prepared=prepared_method("jacobi"), notation=PLAIN, comparison_id="cmp-1", parent=parent
     )
 
     assert tags.as_mlflow_tags() == {
         "phase": "preconditioner_run",
-        "preconditioner": "jacobi",
+        "method_id": "jacobi",
+        "method_label": "Jacobi",
         "comparison_id": "cmp-1",
-        "parent_run_name": "Comparison One | 2026-03-12T12:00:00",
+        "parent_run_name": f"Spectral | {ISO}",
     }
 
 
-def test_training_session_run_spec_name_and_tags(tmp_path: Path) -> None:
-    """Training session parents carry case identity and launch time."""
-    case_config_path = tmp_path / "cases" / "ffnn.toml"
-    run_name, tags = build_session_run_spec(
-        case_config_path=case_config_path,
-        experiment_name="Train",
-        phase="session_training",
-        timestamp="2026-03-12T12:00:00",
+def test_method_run_is_named_by_its_presentation_and_tagged_with_its_id(
+    prepared_method: PreparedMethodFactory,
+) -> None:
+    run, tags = build_benchmark_method_run_spec(
+        prepared=prepared_method("jacobi-1"),
+        notation=PLAIN,
+        config_digest="d" * 64,  # type: ignore[arg-type]
+        system_ids=("s0",),
     )
 
-    assert run_name == "ffnn | 2026-03-12T12:00:00"
-    assert tags.as_mlflow_tags() == {
-        "phase": "session_training",
-        "case_config": "ffnn",
-        "case_config_path": case_config_path.as_posix(),
-        "started_at": "2026-03-12T12:00:00",
-        "experiment_name": "Train",
-    }
+    assert run_name_text(run) == "Jacobi"
+    as_tags = tags.as_mlflow_tags()
+    assert as_tags["method_id"] == "jacobi-1"
+    assert as_tags["method_label"] == "Jacobi"
 
 
-def test_comparison_session_run_spec_name_and_tags(tmp_path: Path) -> None:
-    """Comparison session parents mirror training's case identity and launch time."""
+@pytest.mark.parametrize("phase", ["session_training", "session_comparison", "session_evaluation"])
+def test_session_run_spec_name_and_tags(
+    phase: str, tmp_path: Path, dataset_presentation: DatasetPresentation
+) -> None:
     case_config_path = tmp_path / "cases" / "ffnn.toml"
-    run_name, tags = build_session_run_spec(
+    scope = ComparisonScopePresentation(dataset_presentation)
+
+    run, tags = build_session_run_spec(
+        title=session_title([scope]),
+        notation=PLAIN,
         case_config_path=case_config_path,
         experiment_name="Compare",
-        phase="session_comparison",
-        timestamp="2026-03-12T12:00:00",
+        phase=phase,  # type: ignore[arg-type]
+        timestamp=ISO,
     )
 
-    assert run_name == "ffnn | 2026-03-12T12:00:00"
+    assert run_name_text(run) == f"{DATASET_TEXT} | {ISO}"
     assert tags.as_mlflow_tags() == {
-        "phase": "session_comparison",
+        "phase": phase,
         "case_config": "ffnn",
         "case_config_path": case_config_path.as_posix(),
-        "started_at": "2026-03-12T12:00:00",
+        "started_at": ISO,
         "experiment_name": "Compare",
     }
 
 
-def test_comparison_run_spec_include_timestamp_false_omits_timestamp() -> None:
-    """Comparison subrun names drop their own timestamp when nested under a session parent."""
-    entry = ComparisonRegistryEntry(
-        id="cmp-1",
-        matrix_dataset="solutions",
-        rhs_source={"kind": "gaussian"},
-        method=Path("configs/compare.toml"),
-        display_name="Comparison One",
+def test_evaluation_run_and_tags_use_the_same_subject(
+    dataset_presentation: DatasetPresentation,
+) -> None:
+    presentation = TrainingPresentation(
+        EditorialTrainingSubject(EditorialPresentation("Graph net run"), dataset_presentation),
+        PLAIN,
     )
 
-    run_name, tags = build_comparison_run_spec(
-        entry=entry,
-        timestamp="2026-03-12T12:00:00",
-        include_timestamp=False,
-    )
+    run = build_evaluation_run(presentation)
+    tags = build_evaluation_tags(
+        assignment_id="exp-1",
+        presentation=presentation,
+        source_training_run_id="run-1",
+        split_artifact="splits/split.json",
+    ).as_mlflow_tags()
 
-    assert run_name == "Comparison One"
-    assert tags.run_name == "Comparison One"
-
-
-def test_registration_tags_optional_model_class() -> None:
-    """Registration tags include model_class only when provided."""
-    entry = AssignmentEntry(
-        id="exp-1",
-        dataset="dataset-1",
-        job="job-1",
-        display_name="Experiment One",
-    )
-
-    tags = build_registration_tags(entry=entry, model_class="NormScaledLinearFFNN")
-
-    assert tags.as_mlflow_tags()["model_class"] == "NormScaledLinearFFNN"
-
-
-def test_registration_tags_as_dict_excludes_none() -> None:
-    """Registration tags omit None values from the MLflow payload."""
-    entry = AssignmentEntry(
-        id="exp-1",
-        dataset="dataset-1",
-        job="job-1",
-        display_name="Experiment One",
-    )
-
-    tags = build_registration_tags(entry=entry, model_class=None)
-
-    assert tags.as_mlflow_tags() == {
-        "assignment_id": "exp-1",
-        "dataset_id": "dataset-1",
-        "job_id": "job-1",
-        "assignment_display_name": "Experiment One",
-    }
+    assert run_name_text(run) == f"Graph net run | {DATASET_TEXT}"
+    assert tags["assignment_label"] == f"Graph net run | {DATASET_TEXT}"
+    assert tags["assignment_id"] == "exp-1"

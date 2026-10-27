@@ -12,7 +12,11 @@ from tests.presentation_support import PreparedMethodFactory
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload, canonical_method_config
 from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
-from neuralls.domain.presentation.methods import ExecutedMethod
+from neuralls.domain.presentation.methods import (
+    ExecutedMethod,
+    PreparedMethodPresentation,
+    SystemRealization,
+)
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models import (
     MatrixSetupEvent,
@@ -38,6 +42,7 @@ from neuralls.platform.tracking.comparison_tracking import (
     MLflowBenchmarkMethodSink,
     _write_method_config,
 )
+from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS, make_fact
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 
@@ -158,7 +163,50 @@ def test_method_sink_records_aggregates_without_opening_a_run(
         "energy_histories.json",
         "residual_history_jacobi.png",
         "energy_history_jacobi.png",
+        "realized_facts.json",
     }
+
+
+def test_realized_facts_are_a_per_system_table_not_a_run_wide_scalar(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    method_workload: CompletedMethodWorkload,
+    method_summary: CompleteWorkloadSummary,
+    notation: NotationPolicy,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+) -> None:
+    """A fact that differs between matrices must never be flattened into one parameter."""
+    systems = tuple(
+        SystemRealization(
+            SystemId(f"s{index}"),
+            MatrixId(index),
+            (make_fact(REALIZED_LEVELS, 3 + index),),
+        )
+        for index in range(2)
+    )
+    workload = replace(
+        method_workload,
+        presentation=ExecutedMethod(method_workload.presentation.prepared, systems),
+    )
+    params: dict[str, str] = {}
+    logged: dict[str, Path] = {}
+    prefix = "neuralls.platform.tracking.comparison_tracking.mlflow"
+    monkeypatch.setattr(f"{prefix}.log_param", lambda key, value: params.__setitem__(key, value))
+    monkeypatch.setattr(f"{prefix}.log_metric", lambda *args, **kwargs: None)
+    monkeypatch.setattr(f"{prefix}.set_tag", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        f"{prefix}.log_artifact", lambda path, **kwargs: logged.__setitem__(Path(path).name, path)
+    )
+
+    MLflowBenchmarkMethodSink(notation, group_datasets).record_method(
+        workload, method_summary, root=tmp_path
+    )
+
+    table = json.loads(Path(logged["realized_facts.json"]).read_text(encoding="utf-8"))
+    assert [row["system_id"] for row in table] == ["s0", "s1"]
+    assert [row["facts"][0]["value"] for row in table] == [3, 4]
+    assert not any("realized_levels" in key for key in params)
+    assert params["method_id"] == "jacobi"
 
 
 def test_method_sink_marks_recoverable_setup_failures_from_canonical_events(
@@ -242,9 +290,12 @@ def test_method_sink_counts_recoverable_solve_failures_from_canonical_events(
     assert tags["workload_outcome"] == "completed_with_failures"
 
 
-def test_method_child_tags_include_identity_and_required_raw_artifacts() -> None:
+def test_method_child_tags_include_identity_and_required_raw_artifacts(
+    prepared_method: PreparedMethodFactory,
+) -> None:
     _, tags = build_benchmark_method_run_spec(
-        method="jacobi",
+        prepared=prepared_method("jacobi"),
+        notation=NotationPolicy.default(),
         config_digest="sha256:" + "a" * 64,
         system_ids=("s0", "s1"),
     )
@@ -261,39 +312,51 @@ def test_method_child_tags_include_identity_and_required_raw_artifacts() -> None
     assert values["neuralls.identity.stage"] == "comparison_method"
 
 
-def _identity_components(config_digest: str, system_ids: tuple[str, ...]) -> dict[str, str]:
+def _identity_components(
+    prepared: PreparedMethodPresentation, config_digest: str, system_ids: tuple[str, ...]
+) -> dict[str, str]:
     _, tags = build_benchmark_method_run_spec(
-        method="jacobi", config_digest=config_digest, system_ids=system_ids
+        prepared=prepared,
+        notation=NotationPolicy.default(),
+        config_digest=config_digest,
+        system_ids=system_ids,
     )
     return json.loads(tags.identity_components)
 
 
-def test_method_identity_has_only_real_inputs_and_is_deterministic_and_sensitive() -> None:
+def test_method_identity_has_only_real_inputs_and_is_deterministic_and_sensitive(
+    prepared_method: PreparedMethodFactory,
+) -> None:
     config = "sha256:" + "a" * 64
-    base = _identity_components(config, ("s0", "s1"))
+    jacobi = prepared_method("jacobi")
+    base = _identity_components(jacobi, config, ("s0", "s1"))
 
     assert set(base) == {"method_config", "workload_membership"}
-    assert base == _identity_components(config, ("s0", "s1"))
+    assert base == _identity_components(jacobi, config, ("s0", "s1"))
     assert (
         base["method_config"]
-        != _identity_components("sha256:" + "b" * 64, ("s0", "s1"))["method_config"]
+        != _identity_components(jacobi, "sha256:" + "b" * 64, ("s0", "s1"))["method_config"]
     )
     assert (
         base["workload_membership"]
-        != _identity_components(config, ("s0", "s2"))["workload_membership"]
+        != _identity_components(jacobi, config, ("s0", "s2"))["workload_membership"]
     )
 
 
-def test_method_membership_digest_includes_ordered_system_identities() -> None:
+def test_method_membership_digest_includes_ordered_system_identities(
+    prepared_method: PreparedMethodFactory,
+) -> None:
     """Changing solver/data identity cannot reuse the same visible system IDs."""
     _, first = build_benchmark_method_run_spec(
-        method="jacobi",
+        prepared=prepared_method("jacobi"),
+        notation=NotationPolicy.default(),
         config_digest="sha256:" + "a" * 64,
         system_ids=("s0", "s1"),
         system_identities=("sha256:" + "1" * 64, "sha256:" + "2" * 64),
     )
     _, changed = build_benchmark_method_run_spec(
-        method="jacobi",
+        prepared=prepared_method("jacobi"),
+        notation=NotationPolicy.default(),
         config_digest="sha256:" + "a" * 64,
         system_ids=("s0", "s1"),
         system_identities=("sha256:" + "1" * 64, "sha256:" + "3" * 64),

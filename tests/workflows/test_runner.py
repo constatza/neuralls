@@ -18,10 +18,14 @@ from neuralls.composition.assignments._training_artifacts import MlflowCoordinat
 from neuralls.composition.assignments.training import PreparedTraining
 from neuralls.composition.assignments.training_batch import run_assignment_sweep
 from neuralls.composition.generation.process_data import process_data_from_config
+from neuralls.composition.tracking.run_specs import training_run_name
+from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 
 
-def _fake_prepared_training(tmp_path: Path, assignment_id: str) -> PreparedTraining:
+def _fake_prepared_training(
+    tmp_path: Path, assignment_id: str, presentation: TrainingPresentation
+) -> PreparedTraining:
     """Minimal ``PreparedTraining`` stand-in for these integration tests.
 
     A real ``PreparedTraining`` instance (needed so `run_assignment_sweep`'s
@@ -37,14 +41,15 @@ def _fake_prepared_training(tmp_path: Path, assignment_id: str) -> PreparedTrain
     )
     return PreparedTraining(
         workflow_settings=MagicMock(),
-        run_config=SimpleNamespace(run_name=assignment_id, tags={}),
+        run_config=SimpleNamespace(
+            name=training_run_name(presentation, include_timestamp=False), tags={}
+        ),
         runtime_mlflow_env=None,
         tmp_path=tmp_path / f"{assignment_id}-workspace",
         workspace=None,
         assignment=SimpleNamespace(spec=spec),
-        resolved_assignment_display_name=assignment_id,
+        presentation=presentation,
         dataset_id="ds-1",
-        resolved_dataset_display_name=assignment_id,
         contract=None,
         config_path=tmp_path / f"{assignment_id}-job.toml",
         resolved_data_config_path=tmp_path / f"{assignment_id}-dataset.toml",
@@ -122,6 +127,7 @@ def test_run_assignments_full_flow(
     tmp_path: Path,
     neuralls_settings,
     monkeypatch: pytest.MonkeyPatch,
+    training_presentation: TrainingPresentation,
 ) -> None:
     """Test workflow orchestration without expensive training.
 
@@ -224,7 +230,7 @@ def test_run_assignments_full_flow(
     monkeypatch.setenv("NEURALLS_OUTPUT_DIR", str(data_dir / "output"))
 
     # Mock the dlkit sweep dispatch/finalization to avoid expensive training.
-    prepared = _fake_prepared_training(tmp_path, exp_name)
+    prepared = _fake_prepared_training(tmp_path, exp_name, training_presentation)
     sweep_result = SimpleNamespace(
         parent_run_id="parent-run-1",
         tracking_uri=tracking_uri,
@@ -234,6 +240,10 @@ def test_run_assignments_full_flow(
     )
 
     with (
+        patch(
+            "neuralls.composition.assignments.training_batch.training_presentations",
+            return_value={exp_name: training_presentation},
+        ),
         patch(
             "neuralls.composition.assignments.training_batch.prepare_training_settings",
             return_value=prepared,
@@ -271,6 +281,7 @@ def test_run_assignment_sweep_with_mlflow(
     tmp_path: Path,
     neuralls_settings,
     monkeypatch: pytest.MonkeyPatch,
+    training_presentation: TrainingPresentation,
 ) -> None:
     """Test MLflow integration in workflow without expensive training.
 
@@ -357,7 +368,7 @@ def test_run_assignment_sweep_with_mlflow(
     monkeypatch.setenv("NEURALLS_OUTPUT_DIR", str(data_dir / "output"))
 
     # Mock the dlkit sweep dispatch/finalization to avoid expensive training.
-    prepared = _fake_prepared_training(tmp_path, exp_name)
+    prepared = _fake_prepared_training(tmp_path, exp_name, training_presentation)
     sweep_result = SimpleNamespace(
         parent_run_id="parent-run-1",
         tracking_uri=tracking_uri,
@@ -369,6 +380,10 @@ def test_run_assignment_sweep_with_mlflow(
     )
 
     with (
+        patch(
+            "neuralls.composition.assignments.training_batch.training_presentations",
+            return_value={exp_name: training_presentation},
+        ),
         patch(
             "neuralls.composition.assignments.training_batch.prepare_training_settings",
             return_value=prepared,

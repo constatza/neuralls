@@ -6,9 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.assignments.comparison_batch import (
-    _neural_spec_from_assignment,
-)
+from neuralls.composition.assignments.assignment_subjects import neural_spec_from_assignment
 from neuralls.composition.assignments.presentation_preflight import (
     compose_comparison_title,
     describe_method,
@@ -119,10 +117,10 @@ def test_invalid_editorial_titles_are_rejected(
 
 def test_auto_neural_stub_carries_only_the_explicit_job_architecture() -> None:
     entry = AssignmentEntry(id="a1", dataset="d", job="j", display_name="Search (ReLU, bias)")
-    named = _neural_spec_from_assignment(
+    named = neural_spec_from_assignment(
         entry, extra_input_names=(), architecture=ValidatedLabel("Graph Net")
     )
-    unnamed = _neural_spec_from_assignment(entry, extra_input_names=(), architecture=None)
+    unnamed = neural_spec_from_assignment(entry, extra_input_names=(), architecture=None)
     assert named.architecture == "Graph Net"
     assert unnamed.architecture is None
 

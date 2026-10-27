@@ -32,11 +32,14 @@ from neuralls.composition.assignments.training import (
     _finalize_training_run,
     _TrainingFinalizationContext,
 )
+from neuralls.composition.tracking.run_specs import training_run_name
+from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.tracking.artifact_access import ArtifactLease
 from neuralls.platform.tracking.mlflow import MlflowRunConfig
+from neuralls.platform.tracking.run_names import run_name_text
 
 
 class _CheckpointLeaseManager:
@@ -456,7 +459,9 @@ def test_resolve_tracking_backend_rejects_implicit_local_fallback(
         training_module._resolve_tracking_backend(runtime_environment)
 
 
-def test_prepare_training_settings_builds_explicit_mlflow_run_config(tmp_path: Path) -> None:
+def test_prepare_training_settings_builds_explicit_mlflow_run_config(
+    tmp_path: Path, training_presentation: TrainingPresentation
+) -> None:
     """Registry-backed preparation builds explicit experiment/run names and structured tags.
 
     Targets ``prepare_training_settings()`` directly rather than ``train_model()``
@@ -530,6 +535,7 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(tmp_path: P
                 job_registry_id="job-1",
                 job_display_name="Job One",
             ),
+            presentation=training_presentation,
             mlflow_experiment_name="CustomTrain",
         )
     cleanup_prepared_training(prepared)
@@ -541,20 +547,21 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(tmp_path: P
     run_config = prepared.run_config
     assert run_config.experiment_name == "CustomTrain"
     assert re.match(
-        r"^Experiment One \| [A-Z][a-z]{2} \d{2} [A-Z][a-z]{2} \d{4} - \d{2}:\d{2}:\d{2}$",
-        run_config.run_name,
+        r"^POD-2G \| Gaussian CG Residuals \(k=20, N=100\) \| "
+        r"[A-Z][a-z]{2} \d{2} [A-Z][a-z]{2} \d{4} - \d{2}:\d{2}:\d{2}$",
+        run_name_text(run_config.name),
     )
     assert run_config.tags == {
         "phase": "training",
         "assignment_id": "exp-1",
         "dataset_id": "dataset-1",
         "job_id": "job-1",
-        "assignment_display_name": "Experiment One",
+        "assignment_label": "POD-2G | Gaussian CG Residuals (k=20, N=100)",
     }
 
 
-def test_prepare_training_settings_falls_back_to_dataset_display_name_without_structured_tags(
-    tmp_path: Path,
+def test_prepare_training_settings_without_registry_ids_builds_an_untagged_run(
+    tmp_path: Path, training_presentation: TrainingPresentation
 ) -> None:
     """Legacy callers use the config-model default experiment name and no tags."""
     from neuralls.composition.assignments.training import (
@@ -618,14 +625,16 @@ def test_prepare_training_settings_falls_back_to_dataset_display_name_without_st
                 dataset_registry_id="dataset-legacy",
                 dataset_display_name="Dataset Display",
             ),
+            presentation=training_presentation,
         )
     cleanup_prepared_training(prepared)
 
     run_config = prepared.run_config
     assert run_config.experiment_name == ExperimentNamesConfig().training
     assert re.match(
-        r"^Legacy Experiment \| [A-Z][a-z]{2} \d{2} [A-Z][a-z]{2} \d{4} - \d{2}:\d{2}:\d{2}$",
-        run_config.run_name,
+        r"^POD-2G \| Gaussian CG Residuals \(k=20, N=100\) \| "
+        r"[A-Z][a-z]{2} \d{2} [A-Z][a-z]{2} \d{4} - \d{2}:\d{2}:\d{2}$",
+        run_name_text(run_config.name),
     )
     assert run_config.tags == {}
 
@@ -690,11 +699,13 @@ def finalize_assignment() -> SimpleNamespace:
 
 
 @pytest.fixture
-def finalize_run_config(tmp_path: Path) -> MlflowRunConfig:
+def finalize_run_config(
+    tmp_path: Path, training_presentation: TrainingPresentation
+) -> MlflowRunConfig:
     """MlflowRunConfig for _finalize_training_run tests."""
     return MlflowRunConfig(
         experiment_name="CustomTrain",
-        run_name="Experiment One | run",
+        name=training_run_name(training_presentation, include_timestamp=False),
         tags={},
         paths=MlflowPaths(tracking_uri="sqlite:///unused.db", artifact_uri=None),
         workspace_root=tmp_path / "workspace",
@@ -715,6 +726,7 @@ def finalize_context(
     finalize_assignment: SimpleNamespace,
     finalize_run_config: MlflowRunConfig,
     finalize_config_path: Path,
+    training_presentation: TrainingPresentation,
 ) -> _TrainingFinalizationContext:
     """Bundled context for _finalize_training_run tests, with a resolvable run_id."""
     return _TrainingFinalizationContext(
@@ -723,9 +735,8 @@ def finalize_context(
         workspace=finalize_workspace,
         assignment=finalize_assignment,
         assignment_id="exp-1",
-        resolved_assignment_display_name="Experiment One",
+        presentation=training_presentation,
         dataset_id="dataset-1",
-        resolved_dataset_display_name="Dataset One",
         workflow_settings=SimpleNamespace(data=None),
         contract=default_training_dataset_contract(),
         config_path=finalize_config_path,

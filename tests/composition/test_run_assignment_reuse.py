@@ -17,6 +17,7 @@ from neuralls.application.models import AssignmentResult
 from neuralls.composition.assignments import training_batch
 from neuralls.composition.assignments.training import PreparedTraining
 from neuralls.domain.identity import Reused, StageIdentity
+from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.config.models.workspace import AssignmentSpec
 from neuralls.shared.digest import canonical_digest
 
@@ -85,6 +86,7 @@ def run_assignment_dependencies(
 
 def _run(
     tmp_path: Path,
+    presentation: TrainingPresentation,
     *,
     assignment_id: str = "exp-1",
     force: bool = False,
@@ -95,17 +97,21 @@ def _run(
         spec=_spec(tmp_path, assignment_id=assignment_id),
         output_root=tmp_path,
         force=force,
+        presentation=presentation,
         mlflow_experiment_name="Train",
         tracking_uri=tracking_uri,
     )
 
 
 def test_train_skips_when_an_identical_run_already_exists(
-    run_assignment_dependencies: dict[str, MagicMock], tmp_path: Path, identity: StageIdentity
+    run_assignment_dependencies: dict[str, MagicMock],
+    tmp_path: Path,
+    identity: StageIdentity,
+    training_presentation: TrainingPresentation,
 ) -> None:
     """A FINISHED run carrying this exact identity short-circuits training."""
     run_assignment_dependencies["find"].return_value = Reused(run_id="existing-run-id")
-    result = _run(tmp_path)
+    result = _run(tmp_path, training_presentation)
     run_assignment_dependencies["prepare_training_settings"].assert_not_called()
     run_assignment_dependencies["find"].assert_called_once_with(identity)
     assert isinstance(result, AssignmentResult)
@@ -114,20 +120,25 @@ def test_train_skips_when_an_identical_run_already_exists(
 
 
 def test_lookup_is_scoped_to_the_training_experiment_and_requires_a_checkpoint(
-    run_assignment_dependencies: dict[str, MagicMock], tmp_path: Path
+    run_assignment_dependencies: dict[str, MagicMock],
+    tmp_path: Path,
+    training_presentation: TrainingPresentation,
 ) -> None:
     """Reuse only considers the case's training experiment and real checkpoints."""
-    _run(tmp_path)
+    _run(tmp_path, training_presentation)
     run_assignment_dependencies["store_cls"].assert_called_once_with(
         tracking_uri="sqlite:///tracking.db", experiment="Train", require_checkpoint=True
     )
 
 
 def test_train_runs_and_tags_the_identity_when_no_matching_run_exists(
-    run_assignment_dependencies: dict[str, MagicMock], tmp_path: Path, identity: StageIdentity
+    run_assignment_dependencies: dict[str, MagicMock],
+    tmp_path: Path,
+    identity: StageIdentity,
+    training_presentation: TrainingPresentation,
 ) -> None:
     """A miss prepares training and stamps the derived identity on the new run."""
-    result = _run(tmp_path)
+    result = _run(tmp_path, training_presentation)
     prepare = run_assignment_dependencies["prepare_training_settings"]
     prepare.assert_called_once()
     assert prepare.call_args.kwargs["extra_tags"] == identity.tags()
@@ -135,18 +146,22 @@ def test_train_runs_and_tags_the_identity_when_no_matching_run_exists(
 
 
 def test_force_always_retrains_even_with_a_matching_run(
-    run_assignment_dependencies: dict[str, MagicMock], tmp_path: Path
+    run_assignment_dependencies: dict[str, MagicMock],
+    tmp_path: Path,
+    training_presentation: TrainingPresentation,
 ) -> None:
     """force=True bypasses the reuse check entirely."""
     run_assignment_dependencies["find"].return_value = Reused(run_id="existing-run-id")
-    result = _run(tmp_path, force=True)
+    result = _run(tmp_path, training_presentation, force=True)
     run_assignment_dependencies["prepare_training_settings"].assert_called_once()
     run_assignment_dependencies["find"].assert_not_called()
     assert result is run_assignment_dependencies["prepare_training_settings"].return_value
 
 
 def test_run_assignment_returns_failed_result_on_unexpected_exception(
-    run_assignment_dependencies: dict[str, MagicMock], tmp_path: Path
+    run_assignment_dependencies: dict[str, MagicMock],
+    tmp_path: Path,
+    training_presentation: TrainingPresentation,
 ) -> None:
     """An unexpected exception (e.g. dlkit's leaked-MLflow-run error on a search job)
     must be recorded as a Failed result, not raised — run_assignment_sweep's
@@ -155,7 +170,7 @@ def test_run_assignment_returns_failed_result_on_unexpected_exception(
     run_assignment_dependencies["prepare_training_settings"].side_effect = Exception(
         "Run with UUID abc123 is already active."
     )
-    result = _run(tmp_path, assignment_id="search-job-2")
+    result = _run(tmp_path, training_presentation, assignment_id="search-job-2")
     assert isinstance(result, AssignmentResult)
     assert result.status == "Failed"
     assert result.error is not None
@@ -163,6 +178,7 @@ def test_run_assignment_returns_failed_result_on_unexpected_exception(
 
 def test_run_assignment_fails_cleanly_when_dataset_was_never_generated(
     tmp_path: Path,
+    training_presentation: TrainingPresentation,
 ) -> None:
     """Training must never auto-generate a missing dataset — that's the generate
     stage's exclusive job. If nobody ran `generate` first, run_assignment must
@@ -189,6 +205,7 @@ def test_run_assignment_fails_cleanly_when_dataset_was_never_generated(
             ),
             output_root=tmp_path,
             force=False,
+            presentation=training_presentation,
             mlflow_experiment_name="Train",
             tracking_uri="sqlite:///tracking.db",
         )
@@ -204,12 +221,13 @@ def test_each_assignment_is_looked_up_under_its_own_derived_identity(
     tmp_path: Path,
     identity: StageIdentity,
     other_identity: StageIdentity,
+    training_presentation: TrainingPresentation,
 ) -> None:
     """Two assignments derive and query their own identities, so a run for one
     can never satisfy the other."""
     run_assignment_dependencies["derive"].side_effect = [identity, other_identity]
-    _run(tmp_path, assignment_id="train-job")
-    _run(tmp_path, assignment_id="search-job")
+    _run(tmp_path, training_presentation, assignment_id="train-job")
+    _run(tmp_path, training_presentation, assignment_id="search-job")
 
     queried = [c.args[0] for c in run_assignment_dependencies["find"].call_args_list]
     assert queried == [identity, other_identity]
@@ -262,14 +280,17 @@ def _seed_finished_run(client: MlflowClient, tmp_path: Path, identity: StageIden
 
 
 def test_real_store_reuses_run_with_the_same_identity(
-    real_mlflow: tuple[dict[str, MagicMock], str], tmp_path: Path, identity: StageIdentity
+    real_mlflow: tuple[dict[str, MagicMock], str],
+    tmp_path: Path,
+    identity: StageIdentity,
+    training_presentation: TrainingPresentation,
 ) -> None:
     """A genuinely FINISHED, tagged, checkpointed run in a real MLflow store is reused."""
     deps, tracking_uri = real_mlflow
     deps["derive"].return_value = identity
     run_id = _seed_finished_run(MlflowClient(tracking_uri=tracking_uri), tmp_path, identity)
 
-    result = _run(tmp_path, tracking_uri=tracking_uri)
+    result = _run(tmp_path, training_presentation, tracking_uri=tracking_uri)
 
     assert isinstance(result, AssignmentResult)
     assert result.mlflow_run_id == run_id
@@ -281,13 +302,14 @@ def test_real_store_retrains_when_the_identity_changed(
     tmp_path: Path,
     identity: StageIdentity,
     other_identity: StageIdentity,
+    training_presentation: TrainingPresentation,
 ) -> None:
     """A run keyed on other inputs (e.g. a since-regenerated dataset) is not reused."""
     deps, tracking_uri = real_mlflow
     _seed_finished_run(MlflowClient(tracking_uri=tracking_uri), tmp_path, identity)
     deps["derive"].return_value = other_identity
 
-    result = _run(tmp_path, tracking_uri=tracking_uri)
+    result = _run(tmp_path, training_presentation, tracking_uri=tracking_uri)
 
     deps["prepare_training_settings"].assert_called_once()
     assert result is deps["prepare_training_settings"].return_value

@@ -30,6 +30,7 @@ from neuralls.composition.assignments.evaluation import (
 from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
 )
+from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.config.dataset_entries import entry_from_path
 from neuralls.platform.config.loaders import load_case_config
 from neuralls.platform.config.models.experiments import AssignmentEntry, CaseConfig
@@ -272,7 +273,9 @@ def two_assignment_case_config(tmp_path: Path) -> Path:
     return path
 
 
-def _fake_prepared_evaluation(tmp_path: Path, assignment_id: str) -> PreparedEvaluation:
+def _fake_prepared_evaluation(
+    tmp_path: Path, assignment_id: str, presentation: TrainingPresentation
+) -> PreparedEvaluation:
     """Minimal ``PreparedEvaluation`` stand-in for these integration tests.
 
     Mirrors ``test_runner.py``'s ``_fake_prepared_training``: a real
@@ -284,14 +287,13 @@ def _fake_prepared_evaluation(tmp_path: Path, assignment_id: str) -> PreparedEva
     return PreparedEvaluation(
         inference_settings=MagicMock(),
         assignment=AssignmentEntry(id=assignment_id, dataset="d1", job="j1"),
-        resolved_assignment_display_name=assignment_id,
+        presentation=presentation,
         training_run_id="train-1",
         client=MagicMock(),
         split_file=tmp_path / "split.json",
         split_artifact_path=SPLIT_ARTIFACT_PATH,
         output_root=tmp_path,
         label="1",
-        run_name=assignment_id,
     )
 
 
@@ -299,6 +301,7 @@ def test_eval_batch_continues_after_one_assignment_fails(
     two_assignment_case_config: Path,
     tmp_path: Path,
     neuralls_settings,
+    training_presentation: TrainingPresentation,
 ) -> None:
     """One failing assignment must not discard the rest of the batch's results.
 
@@ -307,7 +310,7 @@ def test_eval_batch_continues_after_one_assignment_fails(
     lose already-completed reporting.
     """
     cfg = load_case_config(two_assignment_case_config, neuralls_settings)
-    prepared_ok = _fake_prepared_evaluation(tmp_path, "assign-ok")
+    prepared_ok = _fake_prepared_evaluation(tmp_path, "assign-ok", training_presentation)
     fake_result = SimpleNamespace(mlflow_run_id="eval-1", metrics={"mae": 0.1}, figures={})
     sweep_result = SimpleNamespace(
         parent_run_id="parent-run-1",
@@ -325,6 +328,13 @@ def test_eval_batch_continues_after_one_assignment_fails(
         return prepared_ok
 
     with (
+        patch(
+            "neuralls.composition.assignments.evaluation.training_presentations",
+            return_value={
+                "assign-ok": training_presentation,
+                "assign-fail": training_presentation,
+            },
+        ),
         patch(
             "neuralls.composition.assignments.evaluation.prepare_evaluation_settings",
             side_effect=_fake_prepare,
@@ -358,6 +368,7 @@ def test_eval_batch_continues_after_one_assignment_fails(
 def test_eval_batch_falls_back_to_own_parent_run_when_every_assignment_fails(
     two_assignment_case_config: Path,
     neuralls_settings,
+    training_presentation: TrainingPresentation,
 ) -> None:
     """No RunSpecs to dispatch still needs one MLflow run for the summary report.
 
@@ -368,6 +379,13 @@ def test_eval_batch_falls_back_to_own_parent_run_when_every_assignment_fails(
     cfg = load_case_config(two_assignment_case_config, neuralls_settings)
 
     with (
+        patch(
+            "neuralls.composition.assignments.evaluation.training_presentations",
+            return_value={
+                "assign-ok": training_presentation,
+                "assign-fail": training_presentation,
+            },
+        ),
         patch(
             "neuralls.composition.assignments.evaluation.prepare_evaluation_settings",
             side_effect=RuntimeError("checkpoint missing"),
@@ -395,34 +413,39 @@ def test_eval_batch_falls_back_to_own_parent_run_when_every_assignment_fails(
     assert mock_finalize.call_args.kwargs["status"] == "FAILED"
 
 
-def test_to_eval_run_spec_builds_run_spec_from_prepared_evaluation(tmp_path: Path) -> None:
+def test_to_eval_run_spec_builds_run_spec_from_prepared_evaluation(
+    tmp_path: Path,
+    training_presentation: TrainingPresentation,
+) -> None:
     """to_eval_run_spec() carries each child's own resolved settings into the sweep."""
     settings_sentinel = object()
     prepared = PreparedEvaluation(
         inference_settings=settings_sentinel,
         assignment=AssignmentEntry(id="assign-ok", dataset="d1", job="j1"),
-        resolved_assignment_display_name="Assign OK",
+        presentation=training_presentation,
         training_run_id="train-1",
         client=MagicMock(),
         split_file=tmp_path / "split.json",
         split_artifact_path=SPLIT_ARTIFACT_PATH,
         output_root=tmp_path,
         label="1",
-        run_name="Assign OK",
     )
 
     run_spec = to_eval_run_spec(prepared)
 
     assert run_spec.id == "assign-ok"
-    assert run_spec.label == "Assign OK"
+    assert run_spec.label == "POD-2G | Gaussian CG Residuals (k=20, N=100)"
     assert run_spec.settings is settings_sentinel
-    assert run_spec.run_name == "Assign OK"
+    assert run_spec.run_name == "POD-2G | Gaussian CG Residuals (k=20, N=100)"
 
 
-def test_finalize_eval_child_saves_outputs_and_tags_run(tmp_path: Path) -> None:
+def test_finalize_eval_child_saves_outputs_and_tags_run(
+    tmp_path: Path,
+    training_presentation: TrainingPresentation,
+) -> None:
     """_finalize_eval_child saves metrics/figures and tags the child's MLflow run."""
     mock_client = MagicMock()
-    prepared = _fake_prepared_evaluation(tmp_path, "assign-ok")
+    prepared = _fake_prepared_evaluation(tmp_path, "assign-ok", training_presentation)
     prepared = replace(prepared, client=mock_client)
     fake_result = SimpleNamespace(mlflow_run_id="eval-1", metrics={"mae": 0.1}, figures={})
 

@@ -37,8 +37,11 @@ from neuralls.composition.assignments.training import (
     _finalize_fallback_mlflow_run,
     _TrainingFinalizationContext,
 )
+from neuralls.composition.tracking.run_specs import training_run_name
+from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.tracking.mlflow import MlflowPaths, MlflowRunConfig
+from neuralls.platform.tracking.run_names import run_name_text
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -100,6 +103,7 @@ def finalization_workspace(tmp_path: Path) -> AssignmentWorkspace:
 @pytest.fixture
 def finalization_context(
     finalization_workspace: AssignmentWorkspace,
+    training_presentation: TrainingPresentation,
     tmp_path: Path,
 ) -> _TrainingFinalizationContext:
     """Minimal finalization context for the two `_finalize_*_mlflow_run` branches."""
@@ -109,7 +113,7 @@ def finalization_context(
         training_result=SimpleNamespace(metrics={}),
         run_config=MlflowRunConfig(
             experiment_name="Training",
-            run_name="Experiment One",
+            name=training_run_name(training_presentation, include_timestamp=False),
             tags={"phase": "training"},
             paths=MlflowPaths(tracking_uri="sqlite:///unused.db", artifact_uri=None),
             workspace_root=finalization_workspace.root_dir,
@@ -124,15 +128,17 @@ def finalization_context(
             )
         ),
         assignment_id="exp-1",
-        resolved_assignment_display_name="Experiment One",
+        presentation=training_presentation,
         dataset_id="dataset-1",
-        resolved_dataset_display_name="Dataset One",
         workflow_settings=SimpleNamespace(data=None),
         contract=default_training_dataset_contract(),
         config_path=config_path,
         resolved_data_config_path=None,
         fallback_tracking_uri="sqlite:///fallback.db",
     )
+
+
+TRAINED_TEXT = "POD-2G | Gaussian CG Residuals (k=20, N=100)"
 
 
 # ---------------------------------------------------------------------------
@@ -142,12 +148,14 @@ def finalization_context(
 
 def test_build_training_run_config_uses_structured_tags_when_all_registry_ids_present(
     registry_identity: AssignmentIdentity,
+    training_presentation: TrainingPresentation,
     runtime_mlflow_env: dict[str, str],
     workspace_root: Path,
 ) -> None:
     """A fully registry-backed identity produces the structured training run spec."""
     config = _build_training_run_config(
         identity=registry_identity,
+        presentation=training_presentation,
         mlflow_experiment_name="CustomTraining",
         runtime_mlflow_env=runtime_mlflow_env,
         workspace_root=workspace_root,
@@ -155,7 +163,7 @@ def test_build_training_run_config_uses_structured_tags_when_all_registry_ids_pr
     )
 
     assert config.experiment_name == "CustomTraining"
-    assert config.run_name == "Experiment One"
+    assert run_name_text(config.name) == TRAINED_TEXT
     assert config.tags["assignment_id"] == "exp-1"
     assert config.tags["dataset_id"] == "dataset-1"
     assert config.tags["job_id"] == "job-1"
@@ -166,37 +174,42 @@ def test_build_training_run_config_uses_structured_tags_when_all_registry_ids_pr
 
 def test_build_training_run_config_appends_timestamp_when_requested(
     registry_identity: AssignmentIdentity,
+    training_presentation: TrainingPresentation,
     runtime_mlflow_env: dict[str, str],
     workspace_root: Path,
 ) -> None:
     """include_timestamp=True suffixes the display name with ' | <timestamp>'."""
     config = _build_training_run_config(
         identity=registry_identity,
+        presentation=training_presentation,
         mlflow_experiment_name=None,
         runtime_mlflow_env=runtime_mlflow_env,
         workspace_root=workspace_root,
         include_timestamp=True,
     )
 
-    assert config.run_name.startswith("Experiment One | ")
-    assert config.run_name != "Experiment One"
+    text = run_name_text(config.name)
+    assert text.startswith(f"{TRAINED_TEXT} | ")
+    assert text != TRAINED_TEXT
 
 
 def test_build_training_run_config_falls_back_to_untagged_spec_without_registry_ids(
     adhoc_identity: AssignmentIdentity,
+    training_presentation: TrainingPresentation,
     runtime_mlflow_env: dict[str, str],
     workspace_root: Path,
 ) -> None:
-    """Missing registry ids drop to a bare, untagged run config named after the display name."""
+    """Missing registry ids drop to a bare, untagged run config named by what it trains."""
     config = _build_training_run_config(
         identity=adhoc_identity,
+        presentation=training_presentation,
         mlflow_experiment_name=None,
         runtime_mlflow_env=runtime_mlflow_env,
         workspace_root=workspace_root,
         include_timestamp=False,
     )
 
-    assert config.run_name == "Ad Hoc Run"
+    assert run_name_text(config.name) == TRAINED_TEXT
     assert dict(config.tags) == {}
     assert config.experiment_name  # config default, not None
 
