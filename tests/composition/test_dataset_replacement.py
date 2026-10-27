@@ -14,11 +14,11 @@ import h5py
 import pytest
 
 from neuralls.composition.generation import dense_streaming
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.storage import staged_commit
 from neuralls.platform.storage.dataset_digest import dataset_content_digest
 from neuralls.shared.types import DatasetFormat
+from tests.dataset_support import build_test_dataset
 
 _DATASET_NAME = "dataset"
 _OLD_SUFFIX = ".old"
@@ -43,7 +43,7 @@ def replace_build(atomic_source: SourceSpec, dense_format: DatasetFormat, root: 
 
     def _build(spec: DatasetSpec) -> Path:
         final = root / _DATASET_NAME
-        build_dataset(atomic_source, spec, str(final), dataset_format=dense_format, force=True)
+        build_test_dataset(atomic_source, spec, str(final), dataset_format=dense_format, force=True)
         return final
 
     return _build

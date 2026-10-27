@@ -24,12 +24,12 @@ from neuralls.composition.comparison.models import (
     ComparisonParams,
     ComparisonReused,
 )
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.reporting.training_diagnostics import compute_diagnostics
 from neuralls.platform.tracking.comparison_tracking import GROUP_REPORT_ARTIFACT_DIR
 from neuralls.platform.tracking.mlflow_client import log_diagnostics_to_mlflow
+from tests.dataset_support import build_test_dataset
 
 
 def _sqlite_tracking_uri(db_path: Path) -> str:
@@ -224,7 +224,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
     dataset_dir = tmp_path / "benchmark"
     matrix_path = tmp_path / "matrix.npy"
     np.save(matrix_path, np.eye(2, dtype=np.float64))
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(matrix_path),
         ),

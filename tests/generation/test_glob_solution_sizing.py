@@ -14,13 +14,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.batch_plan import plan_batches
 from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.orchestration import _prepare_generation_context
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.datasets import load_dense_training_arrays
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
+from tests.dataset_support import build_test_dataset
 
 _READER = partial(read_matrix, lazy=True)
 _READERS = MatrixReaders(generic=_READER, dense=partial(read_dense_npy, lazy=True))
@@ -77,7 +77,7 @@ def _planned_total(source: SourceSpec, spec: DatasetSpec) -> int:
 
 
 def _written_rows(source: SourceSpec, spec: DatasetSpec, dataset_dir: Path) -> int:
-    build_dataset(source, spec, str(dataset_dir))
+    build_test_dataset(source, spec, str(dataset_dir))
     rhs, solutions = load_dense_training_arrays(str(dataset_dir))
     assert rhs.shape == solutions.shape
     return rhs.shape[0]

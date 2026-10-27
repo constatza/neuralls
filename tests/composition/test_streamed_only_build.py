@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.types import DatasetFormat, MatrixFormat
+from tests.dataset_support import build_test_dataset
 
 _STREAMED_FORMATS: tuple[DatasetFormat, ...] = ("zarr", "hdf5")
 _PLANNED_ROWS = 8
@@ -28,7 +28,7 @@ def test_build_uses_only_streamed_path(
     source = SourceSpec(matrix_path=str(atomic_matrix_dir / "A_000.txt"))
     dataset_dir = tmp_path / "ds"
 
-    build_dataset(
+    build_test_dataset(
         source,
         atomic_spec,
         str(dataset_dir),
@@ -48,6 +48,6 @@ def test_streamed_build_stores_exactly_the_planned_rows(
     source = SourceSpec(matrix_path=str(atomic_matrix_dir / "A_000.txt"))
     dataset_dir = tmp_path / "ds"
 
-    build_dataset(source, atomic_spec, str(dataset_dir), dataset_format="zarr")
+    build_test_dataset(source, atomic_spec, str(dataset_dir), dataset_format="zarr")
 
     assert read_dataset_manifest(dataset_dir).rhs.shape[0] == _PLANNED_ROWS

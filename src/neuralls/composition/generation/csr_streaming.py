@@ -14,13 +14,14 @@ from pathlib import Path
 from scipy.sparse import csr_array
 
 from neuralls.composition.generation.streamed_write import (
+    commit_with_rows,
     manifest_facts,
     open_prepared_stream,
     release_after_failure,
 )
 from neuralls.domain.generation.batch import SampleBatch
 from neuralls.domain.generation.orchestration import BatchStream
-from neuralls.domain.generation.sample_writer import SampleWriter
+from neuralls.domain.generation.sample_writer import SampleWriter, StrategyRowCount
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.sparse_io.protocol import SparseStreamWriter
 from neuralls.platform.storage.csr_storage import open_csr_matrix_stream
@@ -29,7 +30,6 @@ from neuralls.platform.storage.dense_stream import (
     open_dense_array_store,
     save_csr_stream_manifest,
 )
-from neuralls.platform.storage.staged_commit import commit_staged_directory
 from neuralls.shared.types import (
     DatasetFormat,
     LayoutType,
@@ -49,7 +49,7 @@ def write_csr_streamed(
     dataset_format: DatasetFormat,
     *,
     sparsity_pattern: SparsityPattern,
-) -> None:
+) -> tuple[StrategyRowCount, ...]:
     """Generate a CSR dataset batch by batch and commit it to ``dataset_dir``.
 
     Same staging and commit as ``write_dense_streamed``: ``dataset_dir`` is created only at
@@ -64,11 +64,14 @@ def write_csr_streamed(
             raises if a matrix's pattern differs from the first; ``ragged`` stores each
             matrix's own pattern.
 
+    Returns:
+        Rows each strategy wrote, as recorded by the sample writer.
+
     Raises:
         ValueError: If the written rows differ from the plan.
         OSError: If the commit rename fails.
     """
-    commit_staged_directory(
+    return commit_with_rows(
         dataset_dir,
         lambda staging: _write_into(source, spec, staging, dataset_format, sparsity_pattern),
     )
@@ -80,7 +83,7 @@ def _write_into(
     staging_dir: Path,
     dataset_format: DatasetFormat,
     sparsity_pattern: SparsityPattern,
-) -> bool:
+) -> tuple[StrategyRowCount, ...]:
     stream = open_prepared_stream(source, spec, matrix_format=MatrixFormat.CSR)
     store = open_dense_array_store(staging_dir, dataset_format)
     try:
@@ -114,7 +117,7 @@ def _write_into(
         manifest_facts(spec, stream.scale.result(), summary.layout),
         summary,
     )
-    return True
+    return artifacts.strategy_rows
 
 
 def _write_batches(

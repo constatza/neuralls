@@ -14,7 +14,6 @@ import pytest
 import torch
 from loguru import logger
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.interfaces import TracingSolverCallable
 from neuralls.domain.generation.orchestration import BatchStream, open_batch_stream
@@ -28,6 +27,7 @@ from neuralls.platform.config.models.data_models import (
 )
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
 from neuralls.shared.types import DatasetFormat, MatrixFormat
+from tests.dataset_support import build_test_dataset
 
 _READER = partial(read_matrix, lazy=True)
 _READERS = MatrixReaders(generic=_READER, dense=partial(read_dense_npy, lazy=True))
@@ -120,7 +120,9 @@ def make_data_config(spd_matrix_file: Path, tmp_path: Path) -> Callable[..., Dat
     ) -> DataConfigFile:
         return DataConfigFile(
             id=dataset_id,
-            source=SourceConfig(matrix_path=str(matrix_path or spd_matrix_file)),
+            source=SourceConfig(
+                matrix_path=str(matrix_path or spd_matrix_file), problem="Test problem"
+            ),
             generation=GenerationConfig(
                 normalize="none",
                 shuffle=False,
@@ -154,7 +156,7 @@ def build_in(
     """Build the fixture dataset into a directory in the given format."""
 
     def _build(target: Path, dataset_format: DatasetFormat) -> Path:
-        build_dataset(source_spec, dataset_spec, str(target), dataset_format=dataset_format)
+        build_test_dataset(source_spec, dataset_spec, str(target), dataset_format=dataset_format)
         return target
 
     return _build

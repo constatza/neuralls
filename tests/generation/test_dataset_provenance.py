@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from neuralls.composition.generation._context_builder import _build_context
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.config.models.data_models import (
     DataConfigFile,
@@ -25,6 +24,7 @@ from neuralls.platform.storage.manifest_io import (
 from neuralls.shared.scientific_description import ScientificDescription
 from neuralls.shared.scientific_description.presentation import DatasetSourceProvenance
 from neuralls.shared.types import GenerationStrategyKind
+from tests.dataset_support import build_test_dataset, strip_provenance
 
 
 @pytest.fixture
@@ -39,7 +39,7 @@ def test_build_records_source_and_every_strategy(
     dataset_spec: DatasetSpec,
     problem: DatasetSourceProvenance,
 ) -> None:
-    dataset_dir = build_dataset(
+    dataset_dir = build_test_dataset(
         source_spec, dataset_spec, str(tmp_path / "ds"), source_provenance=problem
     )
 
@@ -59,7 +59,7 @@ def test_manifest_stores_keys_and_values_not_notation_or_a_version(
     dataset_spec: DatasetSpec,
     problem: DatasetSourceProvenance,
 ) -> None:
-    dataset_dir = build_dataset(
+    dataset_dir = build_test_dataset(
         source_spec, dataset_spec, str(tmp_path / "ds"), source_provenance=problem
     )
 
@@ -67,7 +67,8 @@ def test_manifest_stores_keys_and_values_not_notation_or_a_version(
 
     assert "schema" not in raw
     text = json.dumps(raw["provenance"])
-    assert '"key": "sample_count"' in text
+    assert '"rows": 1' in text
+    assert "sample_count" not in text, "the count is stored once, as rows"
     assert "\\mathrm" not in text
     assert "Spectral 3D field" in text
 
@@ -75,7 +76,8 @@ def test_manifest_stores_keys_and_values_not_notation_or_a_version(
 def test_dataset_without_provenance_is_refused_with_a_regeneration_message(
     tmp_path: Path, source_spec: SourceSpec, dataset_spec: DatasetSpec
 ) -> None:
-    dataset_dir = build_dataset(source_spec, dataset_spec, str(tmp_path / "ds"))
+    dataset_dir = build_test_dataset(source_spec, dataset_spec, str(tmp_path / "ds"))
+    strip_provenance(dataset_dir)
 
     with pytest.raises(MissingDatasetProvenanceError, match="Regenerate"):
         load_dataset_presentation(dataset_dir)
@@ -87,12 +89,14 @@ def test_tampered_provenance_is_rejected_on_load(
     dataset_spec: DatasetSpec,
     problem: DatasetSourceProvenance,
 ) -> None:
-    dataset_dir = build_dataset(
+    dataset_dir = build_test_dataset(
         source_spec, dataset_spec, str(tmp_path / "ds"), source_provenance=problem
     )
     path = manifest_path_for(dataset_dir)
     raw = json.loads(path.read_text(encoding="utf-8"))
-    raw["provenance"]["generation"]["strategies"][0]["facts"][0]["key"] = "not_a_registered_fact"
+    raw["provenance"]["generation"]["strategies"][0]["parameters"].append(
+        {"key": "not_a_registered_fact", "kind": "integer", "value": 1, "importance": "essential"}
+    )
     path.write_text(json.dumps(raw), encoding="utf-8")
     load_dataset_manifest.cache_clear()
 
@@ -124,9 +128,13 @@ def _config(problem: str | None, data_dir: Path) -> DataConfigFile:
 
 def test_context_carries_the_configured_problem_as_provenance(tmp_path: Path) -> None:
     named, _ = _build_context(config=_config("Spectral 3D field", tmp_path))
-    unnamed, _ = _build_context(config=_config(None, tmp_path))
 
     assert named.source_provenance == DatasetSourceProvenance(
         ScientificDescription("Spectral 3D field")
     )
-    assert unnamed.source_provenance is None
+
+
+def test_a_config_without_a_problem_cannot_start_generation(tmp_path: Path) -> None:
+    """Kills: warning and writing a dataset that can never be described."""
+    with pytest.raises(ValueError, match=r"Dataset config 'ds' has no '\[source\] problem'"):
+        _build_context(config=_config(None, tmp_path))

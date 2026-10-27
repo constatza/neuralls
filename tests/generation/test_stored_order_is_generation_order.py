@@ -18,7 +18,6 @@ import pytest
 from loguru import logger
 
 from neuralls.composition.generation._context_builder import _warn_if_shuffle_requested
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.config.models.data_models import GenerationConfig
 from neuralls.platform.storage.dataset_readers import (
@@ -26,6 +25,7 @@ from neuralls.platform.storage.dataset_readers import (
     load_row_kind_codes,
 )
 from neuralls.platform.storage.datasets import load_dense_training_arrays
+from tests.dataset_support import build_test_dataset
 
 _SEED = 1234
 _MATRIX_COUNT = 2
@@ -53,7 +53,7 @@ def _build(
     solver_overrides: dict[str, Any],
     **mixture_kwargs: Any,
 ) -> Path:
-    build_dataset(
+    build_test_dataset(
         SourceSpec(matrix_path=str(matrix_dir / "A_*.txt")),
         DatasetSpec(
             mixture=MixtureSpec(

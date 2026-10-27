@@ -15,6 +15,7 @@ from neuralls.composition.generation.csr_streaming import write_csr_streamed
 from neuralls.composition.generation.default_services import make_solver
 from neuralls.composition.generation.dense_streaming import write_dense_streamed
 from neuralls.domain.generation.provenance import describe_dataset_generation
+from neuralls.domain.generation.sample_writer import StrategyRowCount
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.domain.identity import StageIdentity
 from neuralls.platform.storage.dataset_digest import (
@@ -34,7 +35,9 @@ from neuralls.shared.types import DatasetFormat, MatrixFormat, SparsityPattern
 
 _GENERATION_DEVICE = torch.device("cpu")
 
-type StreamedWriter = Callable[[SourceSpec, DatasetSpec, Path, DatasetFormat], None]
+type StreamedWriter = Callable[
+    [SourceSpec, DatasetSpec, Path, DatasetFormat], tuple[StrategyRowCount, ...]
+]
 
 _DEFAULT_SOLVER = make_solver()
 _DEFAULT_SOLVER_OVERRIDES: dict[str, Any] = {
@@ -71,14 +74,26 @@ def _guard_format_conflict(dataset_dir: Path, intended: DatasetFormat) -> None:
         )
 
 
+class DatasetProvenanceMismatchError(ValueError):
+    """The provenance of a written dataset disagrees with the samples it persisted."""
+
+    def __init__(self, dataset_dir: Path, recorded_rows: int, persisted_rows: int | None) -> None:
+        self.dataset_dir = dataset_dir
+        super().__init__(
+            f"Dataset at '{dataset_dir}' persisted "
+            f"{'an unknown number of' if persisted_rows is None else persisted_rows} samples "
+            f"but its provenance records {recorded_rows}."
+        )
+
+
 def _stamp_dataset_identity(
     dataset_dir: Path,
     identity: StageIdentity | None,
     *,
     generation_usage: ResourceUsage | None,
-    provenance: Callable[[int], DatasetPresentation] | None = None,
+    presentation: DatasetPresentation,
 ) -> None:
-    """Record digests (and identity, when known) of the freshly written dataset.
+    """Record digests, identity (when known) and provenance of the freshly written dataset.
 
     Runs after the storage backend has written both the arrays and the
     manifest. Until this stamp lands the manifest has no ``identity_key``, so a
@@ -91,14 +106,20 @@ def _stamp_dataset_identity(
             produced this dataset — stamped so a later consumer that skips
             regeneration can still charge this cost (see
             ``DatasetManifest.generation_duration_seconds``).
-        provenance: Builds the dataset's scientific presentation from the realized row
-            count, or None when the caller supplied no source description.
+        presentation: The dataset's finished scientific presentation.
+
+    Raises:
+        DatasetProvenanceMismatchError: If the manifest records no sample count or one that
+            differs from the rows the presentation says were generated.
     """
     manifest = read_dataset_manifest(dataset_dir)
-    rows = manifest.matrix.logical_sample_count
+    persisted_rows = manifest.matrix.logical_sample_count
+    recorded_rows = presentation.generation.generated_rows
+    if persisted_rows != recorded_rows:
+        raise DatasetProvenanceMismatchError(dataset_dir, recorded_rows, persisted_rows)
     stamped = replace(
         manifest,
-        provenance=provenance(rows) if provenance is not None and rows is not None else None,
+        provenance=presentation,
         content_digest=dataset_content_digest(dataset_dir),
         stat_digest=stat_digest(dataset_dir),
         identity_key=identity.key if identity is not None else None,
@@ -167,12 +188,12 @@ def build_dataset(
     spec: DatasetSpec,
     dataset_dir: str,
     *,
+    source_provenance: DatasetSourceProvenance,
     dataset_format: DatasetFormat = "hdf5",
     force: bool = False,
     identity: StageIdentity | None = None,
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
     sparsity_pattern: SparsityPattern = SparsityPattern.RAGGED,
-    source_provenance: DatasetSourceProvenance | None = None,
 ) -> str:
     """Build a persisted dataset by streaming batches from the generator to storage.
 
@@ -193,9 +214,8 @@ def build_dataset(
         identity: Generation identity used for reuse and stamped into the manifest.
         matrix_format: Storage format of the system matrices (``[output].matrix_format``).
         sparsity_pattern: Stored CSR layout (``[output].sparsity_pattern``); CSR only.
-        source_provenance: Scientific description of the source problem. When given, the
-            manifest also records every generation strategy's parameters; without it the
-            dataset carries no scientific provenance and cannot be described later.
+        source_provenance: Scientific description of the source problem. The manifest records
+            it with every generation strategy's parameters, seed and realized row count.
 
     Returns:
         The `dataset_dir` that now holds the dataset.
@@ -203,6 +223,8 @@ def build_dataset(
     Raises:
         ValueError: If `dataset_format` is not a generation format, if an existing
             dataset was written in another format, or if a strategy count is open-ended.
+        DatasetProvenanceMismatchError: If the rows the strategies wrote differ from the
+            sample count the storage backend persisted.
     """
     _refuse_non_generation_format(dataset_format)
     dataset_path = Path(dataset_dir)
@@ -215,18 +237,16 @@ def build_dataset(
     # runs on CPU tensors (composition/solvers/torchalg_runner.py), so the
     # measurement must not report CUDA memory for work that never reaches it.
     with track_resource_usage(_GENERATION_DEVICE) as usage:
-        streamed_writer(source, _with_default_solvers(spec), dataset_path, dataset_format)
+        realized = streamed_writer(
+            source, _with_default_solvers(spec), dataset_path, dataset_format
+        )
     # Stamped only after the commit rename: an interrupted run never gets an identity.
     _stamp_dataset_identity(
         dataset_path,
         identity,
         generation_usage=usage(),
-        provenance=(
-            None
-            if source_provenance is None
-            else lambda rows: DatasetPresentation(
-                source=source_provenance, generation=describe_dataset_generation(spec, rows)
-            )
+        presentation=DatasetPresentation(
+            source=source_provenance, generation=describe_dataset_generation(spec, realized)
         ),
     )
     return dataset_dir

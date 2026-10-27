@@ -29,6 +29,7 @@ id = "{dataset_id}"
 
 [source]
 matrix_path = "{matrix_path.as_posix()}"
+problem = "Test problem"
 solutions_path = "{(solutions_dir / "solution_*.txt").as_posix()}"
 
 [generation]
@@ -65,6 +66,7 @@ id = "{dataset_id}"
 
 [source]
 matrix_path = "{(matrices_dir / "*_subdomain_1_Kaa.txt").as_posix()}"
+problem = "Test problem"
 enumerate_by = "name"
 
 [generation]
@@ -95,6 +97,7 @@ id = "{dataset_id}"
 
 [source]
 matrix_path = "{(matrices_dir / "matrix_*.txt").as_posix()}"
+problem = "Test problem"
 enumerate_by = "name"
 
 [generation]

@@ -12,10 +12,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.orchestration import BatchStream
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.datasets import load_dense_training_arrays
+from tests.dataset_support import build_test_dataset
 
 ALL_SAMPLES = -1
 CYCLIC_COUNT = 2
@@ -76,7 +76,9 @@ def build_solution_dataset(
 
     def _build(source: SourceSpec, counts: dict[str, int]) -> tuple[np.ndarray, np.ndarray]:
         dataset_dir = str(tmp_path / "built")
-        build_dataset(source, DatasetSpec(mixture=MixtureSpec(counts=counts, seed=7)), dataset_dir)
+        build_test_dataset(
+            source, DatasetSpec(mixture=MixtureSpec(counts=counts, seed=7)), dataset_dir
+        )
         return load_dense_training_arrays(dataset_dir)
 
     return _build

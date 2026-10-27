@@ -164,6 +164,7 @@ def test_run_assignments_full_flow(
         "source": {
             "matrix_path": str(matrix_path),
             "rhs_path": str(rhs_path),
+            "problem": "Test problem",
         },
         "generation": {
             "normalize": "none",
@@ -310,6 +311,7 @@ def test_run_assignment_sweep_with_mlflow(
         "source": {
             "matrix_path": str(matrix_path),
             "rhs_path": str(rhs_path),
+            "problem": "Test problem",
         },
         "generation": {
             "normalize": "none",

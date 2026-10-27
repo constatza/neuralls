@@ -8,7 +8,7 @@ model validation, so a malformed payload cannot become a presentation object.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, assert_never, cast
 
 from neuralls.shared.scientific_description import (
     DecimalFact,
@@ -26,7 +26,11 @@ from neuralls.shared.scientific_description.presentation import (
     DatasetGenerationProvenance,
     DatasetPresentation,
     DatasetSourceProvenance,
+    DerivedSeed,
+    ExplicitSeed,
+    NoSeed,
     StrategyProvenance,
+    StrategySeed,
 )
 from neuralls.shared.types import GenerationStrategyKind, NormalizeType
 
@@ -104,6 +108,30 @@ def _decode_description(payload: Payload) -> ScientificDescription:
     )
 
 
+def _encode_seed(seed: StrategySeed) -> dict[str, Any]:
+    match seed:
+        case ExplicitSeed(value=value):
+            return {"kind": "explicit", "value": value}
+        case DerivedSeed():
+            return {"kind": "derived"}
+        case NoSeed():
+            return {"kind": "none"}
+        case _:
+            assert_never(seed)
+
+
+def _decode_seed(payload: Payload) -> StrategySeed:
+    match payload["kind"]:
+        case "explicit":
+            return ExplicitSeed(int(payload["value"]))
+        case "derived":
+            return DerivedSeed()
+        case "none":
+            return NoSeed()
+        case other:
+            raise ValueError(f"Unknown strategy seed kind {other!r}")
+
+
 def encode_dataset_presentation(presentation: DatasetPresentation) -> dict[str, Any]:
     """Encode a dataset presentation as JSON-compatible data."""
     generation = presentation.generation
@@ -111,11 +139,17 @@ def encode_dataset_presentation(presentation: DatasetPresentation) -> dict[str, 
         "source": _encode_description(presentation.source.source),
         "generation": {
             "strategies": [
-                {"kind": strategy.kind.value, "facts": encode_facts(strategy.facts)}
+                {
+                    "kind": strategy.kind.value,
+                    "rows": strategy.rows,
+                    "parameters": encode_facts(strategy.parameters),
+                    "seed": _encode_seed(strategy.seed),
+                }
                 for strategy in generation.strategies
             ],
             "generated_rows": generation.generated_rows,
             "normalization": generation.normalization,
+            "root_seed": generation.root_seed,
         },
     }
 
@@ -132,11 +166,14 @@ def decode_dataset_presentation(payload: Payload) -> DatasetPresentation:
             strategies=tuple(
                 StrategyProvenance(
                     kind=GenerationStrategyKind(strategy["kind"]),
-                    facts=decode_facts(strategy["facts"]),
+                    rows=int(strategy["rows"]),
+                    parameters=decode_facts(strategy["parameters"]),
+                    seed=_decode_seed(strategy["seed"]),
                 )
                 for strategy in generation["strategies"]
             ),
             generated_rows=int(generation["generated_rows"]),
             normalization=cast(NormalizeType, normalization),
+            root_seed=int(generation["root_seed"]),
         ),
     )

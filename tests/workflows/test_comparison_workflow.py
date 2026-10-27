@@ -841,15 +841,15 @@ def _build_split_pinned_dataset(root: Path) -> Path:
     from dlkit.infrastructure.io.index import save_split_indices
     from dlkit.infrastructure.types.split import IndexSplit
 
-    from neuralls.composition.generation.dataset_builder import build_dataset
     from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+    from tests.dataset_support import build_test_dataset
 
     root.mkdir(parents=True, exist_ok=True)
     matrix = np.array([[4.0, -1.0], [-1.0, 3.0]], dtype=np.float64)
     matrix_path = root / "matrix.npy"
     np.save(matrix_path, matrix)
     dataset_dir = root / "dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(matrix_path=str(matrix_path)),
         DatasetSpec(
             mixture=MixtureSpec(counts={"neutral_ones": 3}, seed=42, shuffle=False),

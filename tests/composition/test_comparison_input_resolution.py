@@ -8,11 +8,11 @@ import pytest
 
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
 from neuralls.composition.comparison.models import ResolvedComparisonInput
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.source_streams import EnumerateBy
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
+from tests.dataset_support import build_test_dataset
 
 
 def _build_safe_dataset(root: Path, *, residual: bool = False) -> Path:
@@ -21,7 +21,7 @@ def _build_safe_dataset(root: Path, *, residual: bool = False) -> Path:
     matrix_path = root / "matrix.npy"
     np.save(matrix_path, matrix)
     dataset_dir = root / ("residual_dataset" if residual else "safe_dataset")
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(matrix_path),
         ),
@@ -226,7 +226,7 @@ def test_resolve_comparison_input_matrix_index_selects_distinct_matrix_with_one_
     mat_dir = tmp_path / "matrices"
     matrices = _write_distinct_spd_matrices(mat_dir, count=3)
     dataset_dir = tmp_path / "holdout_dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(mat_dir / "matrix_*.txt"),
             enumerate_by=EnumerateBy.NAME,
@@ -269,7 +269,7 @@ def test_resolve_comparison_input_matrix_index_can_collide_when_samples_are_pool
     mat_dir = tmp_path / "matrices"
     matrices = _write_distinct_spd_matrices(mat_dir, count=3)
     dataset_dir = tmp_path / "pooled_dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(mat_dir / "matrix_*.txt"),
             enumerate_by=EnumerateBy.NAME,

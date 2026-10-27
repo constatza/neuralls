@@ -14,7 +14,6 @@ from neuralls.shared.scientific_description import (
     DecimalFact,
     DisplayTextFact,
     FieldImportance,
-    IntegerFact,
     ScientificDescription,
     TextFact,
     ValidatedLabel,
@@ -23,12 +22,14 @@ from neuralls.shared.scientific_description.catalog import (
     BETA,
     MODEL_ARCHITECTURE,
     PROBE_DISTRIBUTION,
-    SAMPLE_COUNT,
 )
 from neuralls.shared.scientific_description.presentation import (
     DatasetGenerationProvenance,
     DatasetPresentation,
     DatasetSourceProvenance,
+    DerivedSeed,
+    ExplicitSeed,
+    NoSeed,
     StrategyProvenance,
 )
 from neuralls.shared.types import GenerationStrategyKind
@@ -50,17 +51,23 @@ def dataset() -> DatasetPresentation:
             strategies=(
                 StrategyProvenance(
                     GenerationStrategyKind.SMOOTHER_FILTERED_PROBES,
-                    (
-                        IntegerFact(SAMPLE_COUNT, 5000, ESSENTIAL),
-                        TextFact(PROBE_DISTRIBUTION, "gaussian", ESSENTIAL),
-                    ),
+                    rows=5000,
+                    parameters=(TextFact(PROBE_DISTRIBUTION, "gaussian", ESSENTIAL),),
+                    seed=ExplicitSeed(7),
                 ),
                 StrategyProvenance(
-                    GenerationStrategyKind.NORMAL, (DecimalFact(BETA, 0.125, ESSENTIAL),)
+                    GenerationStrategyKind.NORMAL,
+                    rows=10,
+                    parameters=(DecimalFact(BETA, 0.125, ESSENTIAL),),
+                    seed=DerivedSeed(),
+                ),
+                StrategyProvenance(
+                    GenerationStrategyKind.KRYLOV, rows=3, parameters=(), seed=NoSeed()
                 ),
             ),
-            generated_rows=5010,
+            generated_rows=5013,
             normalization="rhs",
+            root_seed=99,
         ),
     )
 
@@ -85,4 +92,34 @@ def test_unknown_normalization_is_rejected_on_decode(dataset: DatasetPresentatio
     payload = encode_dataset_presentation(dataset)
     payload["generation"]["normalization"] = "l2"
     with pytest.raises(ValueError, match="normalization"):
+        decode_dataset_presentation(payload)
+
+
+def test_rows_and_seeds_are_stored_once_and_the_count_is_not_a_fact(
+    dataset: DatasetPresentation,
+) -> None:
+    payload = encode_dataset_presentation(dataset)
+    strategies = payload["generation"]["strategies"]
+
+    assert [strategy["rows"] for strategy in strategies] == [5000, 10, 3]
+    assert [strategy["seed"]["kind"] for strategy in strategies] == ["explicit", "derived", "none"]
+    assert strategies[0]["seed"]["value"] == 7
+    assert payload["generation"]["root_seed"] == 99
+    assert "sample_count" not in str(payload)
+
+
+def test_decoding_rejects_rows_that_disagree_with_the_dataset_total(
+    dataset: DatasetPresentation,
+) -> None:
+    """Kills: trusting a stored total over the per-strategy rows."""
+    payload = encode_dataset_presentation(dataset)
+    payload["generation"]["strategies"][0]["rows"] = 4999
+    with pytest.raises(ValueError, match="sum to"):
+        decode_dataset_presentation(payload)
+
+
+def test_unknown_seed_kind_is_rejected_on_decode(dataset: DatasetPresentation) -> None:
+    payload = encode_dataset_presentation(dataset)
+    payload["generation"]["strategies"][0]["seed"] = {"kind": "random"}
+    with pytest.raises(ValueError, match="seed kind"):
         decode_dataset_presentation(payload)

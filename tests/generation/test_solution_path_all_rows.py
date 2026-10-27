@@ -9,13 +9,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.helpers import solution_row_count
 from neuralls.domain.generation.source_streams import open_vector_stream
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.datasets import load_dense_training_arrays
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
+from tests.dataset_support import build_test_dataset
 
 _READER = partial(read_matrix, lazy=True)
 _READERS = MatrixReaders(generic=_READER, dense=partial(read_dense_npy, lazy=True))
@@ -75,7 +75,7 @@ def build_archive_dataset(
 
     def _build(solution_file: Path, samples: int) -> tuple[np.ndarray, np.ndarray]:
         dataset_dir = str(tmp_path / f"dataset_{samples}")
-        build_dataset(
+        build_test_dataset(
             SourceSpec(
                 matrix_path=str(two_spd_matrices / "A_*.txt"),
                 solution_path=str(solution_file),

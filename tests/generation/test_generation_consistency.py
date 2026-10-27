@@ -5,7 +5,7 @@ returned by strategies. Strategies receive a normalized matrix and produce
 normalized data (RHS and solutions). The orchestration layer should NOT apply
 additional normalization to this data.
 
-Regression test for bug where build_dataset() was applying scale.scale_rhs()
+Regression test for bug where build_test_dataset() was applying scale.scale_rhs()
 and scale.scale_solution() to data that was already normalized by strategies.
 """
 
@@ -16,12 +16,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.datasets import (
     load_dense_training_arrays,
     load_matrix_dense_sample,
 )
+from tests.dataset_support import build_test_dataset
 
 
 @pytest.fixture
@@ -89,7 +89,7 @@ def test_solution_archive_consistency(
     tmp_path: Path, matrix_path: str, solutions_glob: str
 ) -> None:
     """Test that solution_archive strategy maintains A @ x = b."""
-    dataset_dir = build_dataset(
+    dataset_dir = build_test_dataset(
         SourceSpec(
             matrix_path=matrix_path,
         ),
@@ -116,7 +116,7 @@ def test_solution_archive_consistency(
 
 def test_eigenvector_forward_consistency(tmp_path: Path, matrix_path: str) -> None:
     """Test that eigenvector_forward strategy maintains A @ x = b."""
-    dataset_dir = build_dataset(
+    dataset_dir = build_test_dataset(
         SourceSpec(
             matrix_path=matrix_path,
         ),
@@ -137,7 +137,7 @@ def test_eigenvector_forward_consistency(tmp_path: Path, matrix_path: str) -> No
 
 def test_eigenvector_inverse_consistency(tmp_path: Path, matrix_path: str) -> None:
     """Test that eigenvector_inverse strategy maintains A @ x = b."""
-    dataset_dir = build_dataset(
+    dataset_dir = build_test_dataset(
         SourceSpec(
             matrix_path=matrix_path,
         ),
@@ -160,7 +160,7 @@ def test_no_normalization_consistency(
     tmp_path: Path, matrix_path: str, solutions_glob: str
 ) -> None:
     """Test that consistency holds with normalize='none'."""
-    dataset_dir = build_dataset(
+    dataset_dir = build_test_dataset(
         SourceSpec(
             matrix_path=matrix_path,
         ),
@@ -193,7 +193,7 @@ def test_mixed_strategies_consistency(
     This verifies that the orchestration correctly handles data from different
     strategies without double-normalization or inconsistencies.
     """
-    dataset_dir = build_dataset(
+    dataset_dir = build_test_dataset(
         SourceSpec(
             matrix_path=matrix_path,
         ),
@@ -234,7 +234,7 @@ def test_mixed_archive_and_synthetic_strategies(
     This is a key use case: combining real solution archives with synthetic
     data generation strategies.
     """
-    dataset_dir = build_dataset(
+    dataset_dir = build_test_dataset(
         SourceSpec(
             matrix_path=matrix_path,
         ),
@@ -270,7 +270,7 @@ def test_large_mixed_dataset_consistency(
     tmp_path: Path, matrix_path: str, solutions_glob: str
 ) -> None:
     """Test a larger mixed dataset to ensure consistency at scale."""
-    dataset_dir = build_dataset(
+    dataset_dir = build_test_dataset(
         SourceSpec(
             matrix_path=matrix_path,
         ),
@@ -311,7 +311,7 @@ def test_mixed_strategies_with_shuffling(
 
     Shuffling should preserve A @ x = b for each individual sample.
     """
-    dataset_dir = build_dataset(
+    dataset_dir = build_test_dataset(
         SourceSpec(
             matrix_path=matrix_path,
         ),

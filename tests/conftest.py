@@ -27,6 +27,7 @@ from neuralls.shared.scientific_description import (
     DatasetGenerationProvenance,
     DatasetPresentation,
     DatasetSourceProvenance,
+    DerivedSeed,
     FieldImportance,
     IntegerFact,
     MethodPresentationCandidate,
@@ -37,7 +38,7 @@ from neuralls.shared.scientific_description import (
     StrategyProvenance,
     UnvalidatedComparisonPresentation,
 )
-from neuralls.shared.scientific_description.catalog import ITERATION_COUNT, SAMPLE_COUNT
+from neuralls.shared.scientific_description.catalog import ITERATION_COUNT
 from neuralls.shared.types import GenerationStrategyKind, PreconditionerName, RowKind
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -421,8 +422,8 @@ def _build_diag_matrix_dataset(
     from scipy.io import mmwrite
     from scipy.sparse import csr_array
 
-    from neuralls.composition.generation.dataset_builder import build_dataset
     from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+    from tests.dataset_support import build_test_dataset
 
     raw = root / "raw"
     for matrix_id in matrix_ids:
@@ -433,7 +434,7 @@ def _build_diag_matrix_dataset(
             csr_array(np.diag([float(matrix_id), *([1.0] * (dimension - 1))])),
         )
     dataset_dir = root / "dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(matrix_path=str(raw / "*" / "K_ff.mtx")),
         DatasetSpec(
             mixture=MixtureSpec(counts={"neutral_ones": rows}, seed=42, shuffle=False),
@@ -518,14 +519,14 @@ def dataset_presentation() -> DatasetPresentation:
             strategies=(
                 StrategyProvenance(
                     GenerationStrategyKind.GAUSSIAN_RESIDUALS,
-                    (
-                        IntegerFact(ITERATION_COUNT, 20, FieldImportance.ESSENTIAL),
-                        IntegerFact(SAMPLE_COUNT, 100, FieldImportance.ESSENTIAL),
-                    ),
+                    rows=100,
+                    parameters=(IntegerFact(ITERATION_COUNT, 20, FieldImportance.ESSENTIAL),),
+                    seed=DerivedSeed(),
                 ),
             ),
             generated_rows=100,
             normalization="matrix",
+            root_seed=42,
         ),
     )
 

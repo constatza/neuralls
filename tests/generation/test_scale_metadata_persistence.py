@@ -5,7 +5,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.scalar_aggregate import BindingScale, ScalarAggregator
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.normalization import MatrixScale, load_scale_from_metadata
@@ -14,6 +13,7 @@ from neuralls.platform.storage.datasets import (
     load_dense_training_arrays,
     load_matrix_dense_sample,
 )
+from tests.dataset_support import build_test_dataset
 
 
 @pytest.fixture
@@ -39,7 +39,7 @@ def test_scale_metadata_saved_with_matrix_normalization(temp_matrix_file: Path, 
     output_dir = tmp_path / "output"
 
     # Build dataset with matrix normalization
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(temp_matrix_file),
             rhs_path=None,
@@ -97,7 +97,7 @@ def test_scale_metadata_not_saved_with_none_normalization(temp_matrix_file: Path
     output_dir = tmp_path / "output_none"
 
     # Build dataset without normalization
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(temp_matrix_file),
             rhs_path=None,

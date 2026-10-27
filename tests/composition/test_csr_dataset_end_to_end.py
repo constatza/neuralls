@@ -14,11 +14,11 @@ import pytest
 from scipy import sparse
 from scipy.io import mmread, mmwrite
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.dataset_readers import load_matrix_sparse_sample
 from neuralls.platform.storage.datasets import load_dense_training_arrays
 from neuralls.shared.types import MatrixFormat
+from tests.dataset_support import build_test_dataset
 
 _SIZE = 6
 _SAMPLES = 3
@@ -43,7 +43,7 @@ def test_csr_generation_stores_the_source_matrix_and_consistent_systems(
     sparse_spd_mtx: Path, tmp_path: Path
 ) -> None:
     out_dir = tmp_path / "dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(matrix_path=str(sparse_spd_mtx)),
         DatasetSpec(
             mixture=MixtureSpec(
@@ -86,10 +86,12 @@ def test_dense_and_csr_builds_generate_the_same_rows(sparse_spd_mtx: Path, tmp_p
     source = SourceSpec(matrix_path=str(sparse_spd_mtx))
     dense_dir = tmp_path / "dense"
     csr_dir = tmp_path / "csr"
-    build_dataset(
+    build_test_dataset(
         source, spec, str(dense_dir), dataset_format="zarr", matrix_format=MatrixFormat.DENSE
     )
-    build_dataset(source, spec, str(csr_dir), dataset_format="zarr", matrix_format=MatrixFormat.CSR)
+    build_test_dataset(
+        source, spec, str(csr_dir), dataset_format="zarr", matrix_format=MatrixFormat.CSR
+    )
 
     dense_rhs, dense_solutions = load_dense_training_arrays(dense_dir)
     csr_rhs, csr_solutions = load_dense_training_arrays(csr_dir)

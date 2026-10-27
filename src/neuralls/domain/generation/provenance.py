@@ -2,52 +2,80 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
-from neuralls.domain.generation.counts import rounded_counts
 from neuralls.domain.generation.descriptions import describe_strategy
 from neuralls.domain.generation.plan import canonicalize_strategy_kind
-from neuralls.domain.generation.runner import registered_config_type, rows_per_base_system
-from neuralls.domain.generation.seeds import derive_strategy_seed
+from neuralls.domain.generation.runner import registered_config_type
+from neuralls.domain.generation.sample_writer import StrategyRowCount
 from neuralls.domain.generation.specs import DatasetSpec
-from neuralls.domain.generation.strategy_configs import BaseStrategyConfig
 from neuralls.shared.scientific_description.presentation import (
     DatasetGenerationProvenance,
+    DerivedSeed,
+    ExplicitSeed,
+    NoSeed,
     StrategyProvenance,
+    StrategySeed,
 )
 
 __all__ = ["describe_dataset_generation"]
 
+_SEED_OPTION = "seed"
+_SOURCE_LOCATION_FIELDS = ("solutions_glob", "rhs_glob")
+"""Config fields that only say where archive files live. Rows fed from a per-binding
+solution or RHS file have no glob, and the location is never a described fact."""
 
-def _resolved_counts(spec: DatasetSpec) -> Mapping[str, int]:
-    mixture = spec.mixture
-    if mixture.counts is not None:
-        return mixture.counts
-    if mixture.mix is not None and mixture.total is not None:
-        return rounded_counts(mixture.total, mixture.mix)
-    raise ValueError("A dataset spec needs explicit counts or a mix with a total")
+
+def _strategy_seed(options: Mapping[str, Any]) -> StrategySeed:
+    """The seed generation gave this strategy's config, as ``_generate_strategy_rows`` does.
+
+    A seed present in the options is used as given, ``None`` included; only an absent seed
+    is derived per binding from the mixture seed.
+    """
+    if _SEED_OPTION not in options:
+        return DerivedSeed()
+    value = options[_SEED_OPTION]
+    return NoSeed() if value is None else ExplicitSeed(int(value))
 
 
 def describe_dataset_generation(
-    spec: DatasetSpec, generated_rows: int
+    spec: DatasetSpec, realized: Sequence[StrategyRowCount]
 ) -> DatasetGenerationProvenance:
-    """Describe every strategy that contributed rows to a dataset, using effective seeds."""
-    counts = {name: count for name, count in _resolved_counts(spec).items() if count != 0}
+    """Describe every strategy that wrote rows, from the rows the writer recorded.
+
+    Counts come from ``realized`` only: the spec's budgets are neither row counts (trace
+    strategies budget rows, archives may be open-ended) nor split between strategies.
+
+    Args:
+        spec: The spec the dataset was generated from; supplies strategy options, the seed
+            root and the normalization.
+        realized: Rows each strategy wrote, from the sample writer.
+
+    Returns:
+        The dataset's generation provenance; its rows are the sum of ``realized``.
+    """
     overrides: Mapping[str, Mapping[str, Any]] = spec.mixture.strategy_overrides or {}
     strategies: list[StrategyProvenance] = []
-    for name, count in counts.items():
-        options = dict(overrides.get(name, {}))
-        options.setdefault("seed", derive_strategy_seed(spec.mixture.seed, name))
-        options["samples"] = count
-        cfg: BaseStrategyConfig = registered_config_type(name)(**options)
-        if count > 0:
-            rows: int | None = count * rows_per_base_system(name, options)
-        else:
-            rows = generated_rows if len(counts) == 1 else None
+    for counted in realized:
+        options = dict(overrides.get(counted.strategy_name, {}))
+        options["samples"] = counted.rows
+        config_type = registered_config_type(counted.strategy_name)
+        for field in _SOURCE_LOCATION_FIELDS:
+            if field in config_type.model_fields and config_type.model_fields[field].is_required():
+                options.setdefault(field, "")
+        config = config_type(**options)
         strategies.append(
-            describe_strategy(canonicalize_strategy_kind(name), cfg, sample_count=rows)
+            describe_strategy(
+                canonicalize_strategy_kind(counted.strategy_name),
+                config,
+                rows=counted.rows,
+                seed=_strategy_seed(options),
+            )
         )
     return DatasetGenerationProvenance(
-        strategies=tuple(strategies), generated_rows=generated_rows, normalization=spec.normalize
+        strategies=tuple(strategies),
+        generated_rows=sum(counted.rows for counted in realized),
+        normalization=spec.normalize,
+        root_seed=spec.mixture.seed,
     )

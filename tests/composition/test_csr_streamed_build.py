@@ -16,7 +16,7 @@ import pytest
 from scipy.sparse import csr_array
 
 from neuralls.composition.generation import dataset_builder
-from neuralls.composition.generation.dataset_builder import build_dataset
+from neuralls.domain.generation.sample_writer import StrategyRowCount
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.domain.identity import StageIdentity
 from neuralls.platform.storage import staged_commit
@@ -27,6 +27,7 @@ from neuralls.platform.storage.dataset_readers import (
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.types import DatasetFormat, LayoutType, MatrixFormat, SparsityPattern
+from tests.dataset_support import build_test_dataset
 
 _INTERRUPT_AFTER_BATCHES = 1
 _RENAME = "rename"
@@ -58,7 +59,7 @@ def streamed_calls(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
         dataset_format: DatasetFormat,
         *,
         sparsity_pattern: SparsityPattern,
-    ) -> None:
+    ) -> tuple[StrategyRowCount, ...]:
         calls.append(dataset_dir)
         return original(
             source, spec, dataset_dir, dataset_format, sparsity_pattern=sparsity_pattern
@@ -136,7 +137,7 @@ def _streamed_digests(source: SourceSpec, spec: DatasetSpec, root: Path) -> dict
     digests: dict[str, str] = {}
     for dataset_format in _CONTENT_FORMATS:
         dataset_dir = root / dataset_format
-        build_dataset(
+        build_test_dataset(
             source,
             spec,
             str(dataset_dir),
@@ -182,7 +183,7 @@ def test_csr_build_has_no_final_directory_until_complete(
     interrupt_csr_stream(_INTERRUPT_AFTER_BATCHES)
     final = tmp_path / "dataset"
     with pytest.raises(RuntimeError):
-        build_dataset(
+        build_test_dataset(
             atomic_source,
             atomic_spec,
             str(final),
@@ -201,7 +202,7 @@ def test_csr_build_identity_stamped_after_commit(
     tmp_path: Path,
 ) -> None:
     final = tmp_path / "dataset"
-    build_dataset(
+    build_test_dataset(
         atomic_source,
         atomic_spec,
         str(final),
@@ -223,14 +224,14 @@ def test_csr_one_and_several_matrices_use_ragged_layout_by_default(
 ) -> None:
     one = tmp_path / "one"
     several = tmp_path / "several"
-    build_dataset(
+    build_test_dataset(
         csr_single_source,
         atomic_spec,
         str(one),
         dataset_format=dense_format,
         matrix_format=MatrixFormat.CSR,
     )
-    build_dataset(
+    build_test_dataset(
         atomic_source,
         atomic_spec,
         str(several),
@@ -252,7 +253,7 @@ def test_csr_streamed_round_trip_returns_the_source_matrix(
     """Reading the stored sparse sample back gives the dense source matrix, in each format."""
     dataset_dir = tmp_path / dataset_format
     unnormalized = replace(atomic_spec, normalize="none")
-    build_dataset(
+    build_test_dataset(
         csr_single_source,
         unnormalized,
         str(dataset_dir),

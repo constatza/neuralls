@@ -22,7 +22,6 @@ import numpy as np
 import pytest
 
 from neuralls.composition.generation import _strategy_executor as executor_module
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.composition.generation.process_data import process_data_from_config
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.dataset_readers import (
@@ -36,6 +35,7 @@ from neuralls.platform.storage.datasets import (
     load_matrix_dense_sample,
 )
 from neuralls.shared.types import MatrixFormat, RowKind
+from tests.dataset_support import build_test_dataset
 
 _FLOAT_DIGEST_DECIMALS = 12
 """Rounding applied before hashing floating arrays, so BLAS/LAPACK builds that
@@ -108,7 +108,7 @@ def multi_matrix_mixture_dataset(
     strategy runner and the per-strategy trace flattening in _generate_strategy_rows.
     """
     out_dir = tmp_path / "dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(spd_matrix_dir / "A_*.txt"),
         ),
@@ -212,7 +212,7 @@ def multi_matrix_archive_dataset(
     indices layered in by _merge_binding_file_overrides.
     """
     out_dir = tmp_path / "dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(spd_matrix_dir / "A_*.txt"),
         ),
@@ -282,7 +282,7 @@ def single_matrix_parameter_stream_dataset(
     vectors that the strategy runner attaches to every batch.
     """
     out_dir = tmp_path / "dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(single_spd_matrix),
             parameters_paths=parameter_files,
@@ -388,6 +388,7 @@ def test_rhs_archive_only_executor_produces_solved_pairs(
         f"""
 [source]
 matrix_path = "{identity_matrix_file.as_posix()}"
+problem = "Test problem"
 rhs_path = "{(rhs_archive_dir / "b_*.txt").as_posix()}"
 
 [generation]
@@ -429,6 +430,7 @@ def test_solution_archive_only_executor_persists_archive_vectors(
         f"""
 [source]
 matrix_path = "{identity_matrix_file.as_posix()}"
+problem = "Test problem"
 solutions_path = "{(solutions_dir / "x_*.txt").as_posix()}"
 
 [generation]
@@ -481,6 +483,7 @@ def test_configured_matrix_format_reaches_build_dataset(
         f"""
 [source]
 matrix_path = "{identity_matrix_file.as_posix()}"
+problem = "Test problem"
 
 [generation]
 normalize = "none"

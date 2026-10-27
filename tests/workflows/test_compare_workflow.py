@@ -13,7 +13,6 @@ from neuralls.composition.comparison.comparison_run import (
 )
 from neuralls.composition.comparison.models import LinearSystem
 from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
@@ -24,6 +23,7 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
 )
 from neuralls.shared.scientific_description import NotationPolicy, RenderTarget
+from tests.dataset_support import build_test_dataset
 
 
 def _assert_under(path: Path, root: Path) -> None:
@@ -34,7 +34,7 @@ def _write_dataset(root: Path, A: np.ndarray) -> None:
     """Stream a one-row generated dataset for ``A`` into ``root`` (hdf5, no zarr in tests)."""
     matrix_path = root / "matrix.npy"
     np.save(matrix_path, A)
-    build_dataset(
+    build_test_dataset(
         SourceSpec(matrix_path=str(matrix_path)),
         DatasetSpec(
             mixture=MixtureSpec(counts={"gaussian_forward": 1}, seed=0, shuffle=False),

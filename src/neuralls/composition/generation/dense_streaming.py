@@ -9,17 +9,17 @@ from numpy.typing import NDArray
 from scipy.sparse import csr_array
 
 from neuralls.composition.generation.streamed_write import (
+    commit_with_rows,
     manifest_facts,
     open_prepared_stream,
     release_after_failure,
 )
-from neuralls.domain.generation.sample_writer import MatrixLookup, SampleWriter
+from neuralls.domain.generation.sample_writer import MatrixLookup, SampleWriter, StrategyRowCount
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.storage.dense_stream import (
     open_dense_array_store,
     save_dense_stream_manifest,
 )
-from neuralls.platform.storage.staged_commit import commit_staged_directory
 from neuralls.shared.types import DatasetFormat, LayoutType, SystemMatrix
 
 
@@ -28,7 +28,7 @@ def write_dense_streamed(
     spec: DatasetSpec,
     dataset_dir: Path,
     dataset_format: DatasetFormat,
-) -> None:
+) -> tuple[StrategyRowCount, ...]:
     """Generate a dense dataset batch by batch and commit it to ``dataset_dir``.
 
     Memory is bounded by ``spec.write_batch_size`` rows plus one matrix, not by the dataset.
@@ -43,12 +43,14 @@ def write_dense_streamed(
         dataset_dir: Final directory of the dataset; it is created only at commit.
         dataset_format: ``zarr`` or ``hdf5``.
 
+    Returns:
+        Rows each strategy wrote, as recorded by the sample writer.
 
     Raises:
         ValueError: If the written rows differ from the plan.
         OSError: If the commit rename fails.
     """
-    commit_staged_directory(
+    return commit_with_rows(
         dataset_dir,
         lambda staging: _write_into(source, spec, staging, dataset_format),
     )
@@ -59,7 +61,7 @@ def _write_into(
     spec: DatasetSpec,
     staging_dir: Path,
     dataset_format: DatasetFormat,
-) -> bool:
+) -> tuple[StrategyRowCount, ...]:
     stream = open_prepared_stream(source, spec)
     store = open_dense_array_store(staging_dir, dataset_format)
     try:
@@ -82,7 +84,7 @@ def _write_into(
         artifacts,
         manifest_facts(spec, stream.scale.result(), layout),
     )
-    return True
+    return artifacts.strategy_rows
 
 
 def _dense_lookup(matrix_for: Callable[[int], SystemMatrix]) -> MatrixLookup:

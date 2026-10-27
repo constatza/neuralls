@@ -8,15 +8,19 @@ exactly those pieces so neither streaming module has to repeat them.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
+from pathlib import Path
 
 from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.orchestration import BatchStream, open_batch_stream
 from neuralls.domain.generation.ports import ArrayStore
+from neuralls.domain.generation.sample_writer import StrategyRowCount
 from neuralls.domain.generation.scalar_aggregate import ScaleSummary
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.storage.dense_stream import StreamedManifestFacts
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
+from neuralls.platform.storage.staged_commit import commit_staged_directory
 from neuralls.shared.types import LayoutType, MatrixFormat
 
 _READERS = MatrixReaders(
@@ -41,6 +45,25 @@ def open_prepared_stream(
     )
     stream.plan.require_exact()
     return stream
+
+
+def commit_with_rows(
+    dataset_dir: Path, write: Callable[[Path], tuple[StrategyRowCount, ...]]
+) -> tuple[StrategyRowCount, ...]:
+    """Commit a staged dataset and return the rows per strategy its writer recorded.
+
+    ``write`` always writes a dataset, so the commit is never declined; the rows it
+    returns are those the committed arrays hold.
+    """
+    realized: tuple[StrategyRowCount, ...] = ()
+
+    def staged(staging: Path) -> bool:
+        nonlocal realized
+        realized = write(staging)
+        return True
+
+    commit_staged_directory(dataset_dir, staged)
+    return realized
 
 
 def release_after_failure(store: ArrayStore) -> None:

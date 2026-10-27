@@ -8,7 +8,6 @@ import pytest
 import zarr
 from pydantic import ValidationError
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.bindings import bind_sources
 from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.sample_ids import _enumerate_files
@@ -20,6 +19,7 @@ from neuralls.domain.generation.source_streams import (
     open_vector_stream,
 )
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
+from tests.dataset_support import build_test_dataset
 
 _READER = partial(read_matrix, lazy=True)
 _READERS = MatrixReaders(generic=_READER, dense=partial(read_dense_npy, lazy=True))
@@ -98,7 +98,7 @@ def test_build_dataset_streams_matrix_stack_without_dense_batch(tmp_path: Path) 
     np.save(matrix_path, matrix_stack)
 
     out_dir = tmp_path / "dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(matrix_path),
         ),
@@ -132,7 +132,7 @@ def test_build_dataset_hdf5_output_holds_the_generated_matrix(tmp_path: Path) ->
     np.save(matrix_path, matrix)
 
     out_dir = tmp_path / "dataset_npy"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(matrix_path),
         ),
@@ -175,7 +175,7 @@ def test_single_matrix_stored_once_in_zarr(tmp_path: Path) -> None:
     np.save(rhs_path, rhs)
 
     out_dir = tmp_path / "dataset_single_matrix"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(matrix_path),
             rhs_path=str(rhs_path),
@@ -211,7 +211,7 @@ def test_build_dataset_persists_residuals_pairs(tmp_path: Path) -> None:
         np.savetxt(tmp_path / f"sol_{idx:03d}.txt", np.array([1.0 + idx, 0.5 + idx]))
 
     out_dir = tmp_path / "residuals_dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(matrix_path),
         ),
@@ -245,7 +245,7 @@ def test_build_dataset_persists_gaussian_residual_pairs(tmp_path: Path) -> None:
     np.save(matrix_path, matrix)
 
     out_dir = tmp_path / "gaussian_residual_dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(matrix_path),
         ),
@@ -273,7 +273,7 @@ def test_build_dataset_persists_row_metadata_artifacts(tmp_path: Path) -> None:
     np.save(matrix_path, matrix)
 
     out_dir = tmp_path / "dataset_meta"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(matrix_path),
         ),
@@ -306,7 +306,7 @@ def test_build_dataset_marks_residual_error_rows_with_kind_codes(tmp_path: Path)
     np.save(matrix_path, matrix)
 
     out_dir = tmp_path / "dataset_residual_meta"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(matrix_path),
         ),
@@ -339,7 +339,7 @@ def test_glob_matrix_gaussian_uses_global_sample_budget(
     total_samples = 4  # not a multiple of three: one matrix gets 2, the others 1 each
     out_dir = tmp_path / "ds_gaussian"
 
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(mat_dir / "A_*.txt"),
         ),
@@ -380,7 +380,7 @@ def test_glob_matrix_solution_archive_uses_global_sample_budget(
         np.savetxt(sol_dir / f"sol_{j:04d}.txt", rng.standard_normal(n))
 
     out_dir = tmp_path / "ds_archive"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(mat_dir / "A_*.txt"),
         ),
@@ -550,7 +550,7 @@ def test_build_dataset_honors_enumerate_by_for_globbed_matrix_files(
     mat_dir, n = subdomain_named_txt_matrices
     out_dir = tmp_path / "enumerated_dataset"
 
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(mat_dir / "*_subdomain_1_Kaa.txt"),
             enumerate_by=EnumerateBy.NAME,
@@ -716,7 +716,7 @@ def test_build_dataset_exclude_indices_removes_matrix_from_generated_dataset(
     mat_dir, _n = subdomain_named_txt_matrices
     out_dir = tmp_path / "train_dataset"
 
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(mat_dir / "*_subdomain_1_Kaa.txt"),
             enumerate_by=EnumerateBy.NAME,
@@ -768,7 +768,7 @@ def test_build_dataset_exclude_indices_keeps_matrix_and_parameters_streams_consi
         np.savetxt(param_dir / f"{stem}_YoungModuli_E1_E2_E3_E4.txt", [e1, e2, e3, e4])
 
     out_dir = tmp_path / "ds_with_params"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(mat_dir / "*_subdomain_1_Kaa.txt"),
             parameters_paths=(str(param_dir / "*_YoungModuli_E1_E2_E3_E4.txt"),),
@@ -810,7 +810,7 @@ def test_build_dataset_include_indices_builds_holdout_dataset(
         np.savetxt(sol_dir / f"sol_{j:03d}.txt", rng.standard_normal(n))
     out_dir = tmp_path / "holdout_dataset"
 
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(mat_dir / "*_subdomain_1_Kaa.txt"),
             enumerate_by=EnumerateBy.NAME,

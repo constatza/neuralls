@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,20 +10,25 @@ import numpy as np
 import pytest
 
 from neuralls.composition.generation.dataset_builder import (
+    DatasetProvenanceMismatchError,
     _guard_format_conflict,
     _stamp_dataset_identity,
-    build_dataset,
     is_dataset_reusable,
+    write_dense_streamed,
 )
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.domain.identity import StageIdentity
 from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
 from neuralls.shared.digest import canonical_digest
+from neuralls.shared.scientific_description.presentation import DatasetPresentation
+from tests.dataset_support import build_test_dataset
 
 
-def _artifact(fmt: str, path: str = "x") -> DatasetArtifact:
-    return DatasetArtifact(path=path, format=fmt, dtype="float64", shape=(1,))
+def _artifact(fmt: str, path: str = "x", *, rows: int | None = None) -> DatasetArtifact:
+    return DatasetArtifact(
+        path=path, format=fmt, dtype="float64", shape=(1,), logical_sample_count=rows
+    )
 
 
 @pytest.fixture
@@ -54,12 +60,13 @@ class TestGuardFormatConflict:
 
 
 @pytest.fixture
-def complete_npy_dataset_dir(tmp_path: Path) -> Path:
+def complete_npy_dataset_dir(tmp_path: Path, dataset_presentation: DatasetPresentation) -> Path:
     """Dataset directory with a manifest whose matrix/rhs/solutions files all exist."""
+    rows = dataset_presentation.generation.generated_rows
     for name in ("matrix.npy", "rhs.npy", "solutions.npy"):
         np.save(tmp_path / name, np.zeros(1))
     manifest = make_dataset_manifest(
-        matrix=_artifact("npy", "matrix.npy"),
+        matrix=_artifact("npy", "matrix.npy", rows=rows),
         rhs=_artifact("npy", "rhs.npy"),
         solutions=_artifact("npy", "solutions.npy"),
         normalization=DatasetNormalization(
@@ -77,9 +84,18 @@ def identity() -> StageIdentity:
 
 
 @pytest.fixture
-def stamped_npy_dataset_dir(complete_npy_dataset_dir: Path, identity: StageIdentity) -> Path:
+def stamped_npy_dataset_dir(
+    complete_npy_dataset_dir: Path,
+    identity: StageIdentity,
+    dataset_presentation: DatasetPresentation,
+) -> Path:
     """Complete dataset whose manifest is stamped with `identity`."""
-    _stamp_dataset_identity(complete_npy_dataset_dir, identity, generation_usage=None)
+    _stamp_dataset_identity(
+        complete_npy_dataset_dir,
+        identity,
+        generation_usage=None,
+        presentation=dataset_presentation,
+    )
     return complete_npy_dataset_dir
 
 
@@ -117,7 +133,9 @@ def stamped_hdf5_dataset_dir(
 ) -> Path:
     """A real hdf5 dataset built under ``identity``, so its manifest is stamped and complete."""
     target = tmp_path / "stamped_hdf5"
-    build_dataset(source_spec, dataset_spec, str(target), dataset_format="hdf5", identity=identity)
+    build_test_dataset(
+        source_spec, dataset_spec, str(target), dataset_format="hdf5", identity=identity
+    )
     return target
 
 
@@ -128,7 +146,7 @@ class TestBuildDatasetSkipByDefault:
         with patch(
             "neuralls.composition.generation.dataset_builder.write_dense_streamed"
         ) as writer:
-            result = build_dataset(
+            result = build_test_dataset(
                 source_spec,
                 DatasetSpec(),
                 str(stamped_hdf5_dataset_dir),
@@ -139,16 +157,65 @@ class TestBuildDatasetSkipByDefault:
         assert result == str(stamped_hdf5_dataset_dir)
 
     def test_force_regenerates_even_when_dataset_already_complete(
-        self, stamped_hdf5_dataset_dir: Path, identity: StageIdentity, source_spec: SourceSpec
+        self,
+        stamped_hdf5_dataset_dir: Path,
+        source_spec: SourceSpec,
+        dataset_spec: DatasetSpec,
     ) -> None:
         with patch(
-            "neuralls.composition.generation.dataset_builder.write_dense_streamed"
+            "neuralls.composition.generation.dataset_builder.write_dense_streamed",
+            wraps=write_dense_streamed,
         ) as writer:
-            build_dataset(
+            build_test_dataset(
                 source_spec,
-                DatasetSpec(),
+                dataset_spec,
                 str(stamped_hdf5_dataset_dir),
                 dataset_format="hdf5",
                 force=True,
             )
         writer.assert_called_once()
+
+
+class TestStampRefusesInconsistentProvenance:
+    def test_rows_recorded_differently_from_the_persisted_count_raise(
+        self,
+        complete_npy_dataset_dir: Path,
+        dataset_presentation: DatasetPresentation,
+    ) -> None:
+        """Kills: stamping provenance whose rows are not the persisted sample count."""
+        generation = replace(
+            dataset_presentation.generation,
+            generated_rows=dataset_presentation.generation.generated_rows + 1,
+            strategies=(
+                replace(
+                    dataset_presentation.generation.strategies[0],
+                    rows=dataset_presentation.generation.generated_rows + 1,
+                ),
+            ),
+        )
+        with pytest.raises(DatasetProvenanceMismatchError, match="persisted 100"):
+            _stamp_dataset_identity(
+                complete_npy_dataset_dir,
+                None,
+                generation_usage=None,
+                presentation=replace(dataset_presentation, generation=generation),
+            )
+
+    def test_a_manifest_without_a_sample_count_raises(
+        self, tmp_path: Path, dataset_presentation: DatasetPresentation
+    ) -> None:
+        """Kills: silently dropping provenance when the manifest has no sample count."""
+        np.save(tmp_path / "x.npy", np.zeros(1))
+        manifest = make_dataset_manifest(
+            matrix=_artifact("npy", "x.npy"),
+            rhs=_artifact("npy", "x.npy"),
+            solutions=_artifact("npy", "x.npy"),
+            normalization=DatasetNormalization(
+                type="matrix", matrix_norm=1.0, matrix_norm_type="spectral", scale={}
+            ),
+        )
+        save_dataset_manifest(tmp_path, manifest)
+        with pytest.raises(DatasetProvenanceMismatchError, match="unknown number"):
+            _stamp_dataset_identity(
+                tmp_path, None, generation_usage=None, presentation=dataset_presentation
+            )

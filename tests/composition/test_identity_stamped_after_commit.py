@@ -12,12 +12,12 @@ from pathlib import Path
 import pytest
 
 from neuralls.composition.generation import dataset_builder
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.domain.identity import StageIdentity
 from neuralls.platform.storage import staged_commit
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.types import DatasetFormat
+from tests.dataset_support import build_test_dataset
 
 _INTERRUPT_AFTER_BATCHES = 1
 _RENAME = "rename"
@@ -58,7 +58,7 @@ def test_identity_stamped_after_rename(
     tmp_path: Path,
 ) -> None:
     final = tmp_path / "dataset"
-    build_dataset(
+    build_test_dataset(
         atomic_source,
         atomic_spec,
         str(final),
@@ -83,7 +83,7 @@ def test_interrupted_run_has_no_identity(
     interrupt_writer(_INTERRUPT_AFTER_BATCHES)
     final = tmp_path / "dataset"
     with pytest.raises(RuntimeError):
-        build_dataset(
+        build_test_dataset(
             atomic_source,
             atomic_spec,
             str(final),

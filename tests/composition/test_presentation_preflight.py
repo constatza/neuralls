@@ -25,7 +25,6 @@ from neuralls.composition.comparison.models import (
     ComparisonParams,
     PlannedSystem,
 )
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.models.experiments import AssignmentEntry
@@ -51,6 +50,7 @@ from neuralls.shared.scientific_description import (
     render_title,
 )
 from neuralls.shared.scientific_description.presentation import DatasetSourceProvenance
+from tests.dataset_support import build_test_dataset, strip_provenance
 from tests.workflows.comparison_support import MLFLOW_MODULE
 from tests.workflows.test_comparison_workflow import _mock_cfg, _write_experiments_config
 
@@ -61,7 +61,7 @@ PLAIN = NotationPolicy.default()
 def pod_dataset_dir(tmp_path: Path, atomic_source: SourceSpec, atomic_spec: DatasetSpec) -> Path:
     """A real generated dataset whose manifest carries scientific provenance."""
     target = tmp_path / "pod-fit"
-    build_dataset(
+    build_test_dataset(
         atomic_source,
         atomic_spec,
         str(target),
@@ -72,9 +72,10 @@ def pod_dataset_dir(tmp_path: Path, atomic_source: SourceSpec, atomic_spec: Data
 
 @pytest.fixture
 def stale_dataset_dir(tmp_path: Path, atomic_source: SourceSpec, atomic_spec: DatasetSpec) -> Path:
-    """A generated dataset written without provenance."""
+    """A generated dataset whose manifest predates provenance."""
     target = tmp_path / "stale"
-    build_dataset(atomic_source, atomic_spec, str(target))
+    build_test_dataset(atomic_source, atomic_spec, str(target))
+    strip_provenance(target)
     return target
 
 
@@ -129,7 +130,7 @@ def test_indistinguishable_methods_are_rejected_before_execution(
     copies = []
     for name in ("copy-a", "copy-b"):
         target = tmp_path / name
-        build_dataset(atomic_source, atomic_spec, str(target), source_provenance=problem)
+        build_test_dataset(atomic_source, atomic_spec, str(target), source_provenance=problem)
         copies.append(_pod(target, 10, assignment=f"fit-{name}"))
 
     with pytest.raises(DuplicateMethodPresentationError) as caught:

@@ -7,9 +7,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.datasets import load_dense_training_arrays
+from tests.dataset_support import build_test_dataset
 
 
 @pytest.fixture
@@ -53,7 +53,7 @@ def test_solution_binding_loads_per_matrix_solution(
     mat_dir, sol_dir, n = two_spd_matrices_with_solutions
     dataset_dir = str(tmp_path / "dataset")
 
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(mat_dir / "A_*.txt"),
             solution_path=str(sol_dir / "x_*.txt"),
@@ -84,7 +84,7 @@ def test_open_ended_solution_archive_is_sized_by_the_matched_files(
     mat_dir, sol_dir, n = two_spd_matrices_with_solutions
     dataset_dir = str(tmp_path / "dataset")
 
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(mat_dir / "A_*.txt"),
             solution_path=str(sol_dir / "x_*.txt"),

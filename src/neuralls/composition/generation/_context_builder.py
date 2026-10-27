@@ -47,8 +47,8 @@ class DataGenerationContext:
         dataset_format: Storage format family for persisted dataset artifacts.
         identity: Generation identity used for reuse and stamped into the manifest.
         write_batch_size: Rows generated and written per batch.
-        source_provenance: Scientific description of the source problem, from
-            ``[source] problem``; None means the dataset is written without provenance.
+        source_provenance: Scientific description of the source problem, from the
+            required ``[source] problem``.
     """
 
     matrix_path: str
@@ -64,11 +64,11 @@ class DataGenerationContext:
     seed: int
     shuffle: bool
     replacement: bool
+    source_provenance: DatasetSourceProvenance
     parameters_paths: tuple[str, ...] = ()
     dataset_format: DatasetFormat = "hdf5"
     identity: StageIdentity | None = None
     write_batch_size: int = DEFAULT_WRITE_BATCH_SIZE
-    source_provenance: DatasetSourceProvenance | None = None
 
     def source_spec(self, *, rhs_path: str | None = None) -> SourceSpec:
         """Project the source-side fields into the domain's SourceSpec.
@@ -192,14 +192,18 @@ def _build_context(
     ), plan
 
 
-def _source_provenance(config: DataConfigFile) -> DatasetSourceProvenance | None:
-    """Describe the source problem, warning once when the config names none."""
+def _source_provenance(config: DataConfigFile) -> DatasetSourceProvenance:
+    """Describe the source problem named by ``[source] problem``.
+
+    Raises:
+        ValueError: If the config names no problem; a dataset without one could never be
+            described in a comparison, so generation refuses to start.
+    """
     if config.source.problem is None:
-        logger.warning(
-            f"Dataset '{config.id}' has no '[source] problem' name; it will be written without "
-            "scientific provenance and cannot be trained on or compared until regenerated."
+        raise ValueError(
+            f"Dataset config '{config.id}' has no '[source] problem' name. Add the plain "
+            "name of the problem the matrices come from; a dataset cannot be generated without it."
         )
-        return None
     return DatasetSourceProvenance(
         ScientificDescription(base_name=ValidatedLabel(config.source.problem).text)
     )

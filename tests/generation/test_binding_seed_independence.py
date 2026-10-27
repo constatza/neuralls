@@ -12,9 +12,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.datasets import load_dense_training_arrays
+from tests.dataset_support import build_test_dataset
 
 _MATRIX_SIZE = 5
 _MIXTURE_SEED = 1234
@@ -34,7 +34,7 @@ def identical_matrix_dir(tmp_path: Path) -> Path:
 
 
 def _build(matrix_dir: Path, out_dir: Path, counts: dict[str, int]) -> Path:
-    build_dataset(
+    build_test_dataset(
         SourceSpec(matrix_path=str(matrix_dir / "A_*.txt")),
         DatasetSpec(mixture=MixtureSpec(counts=counts, seed=_MIXTURE_SEED, shuffle=False)),
         str(out_dir),

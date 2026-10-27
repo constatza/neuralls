@@ -14,6 +14,7 @@ import pytest
 
 from neuralls.composition.generation import dataset_builder
 from neuralls.composition.generation.process_data import process_data_from_config
+from neuralls.domain.generation.sample_writer import StrategyRowCount
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.types import DatasetFormat, SparsityPattern
@@ -38,6 +39,7 @@ id = "{_DATASET_ID}"
 
 [source]
 matrix_path = "{(matrices_dir / "matrix_*.txt").as_posix()}"
+problem = "Test problem"
 enumerate_by = "name"
 
 [generation]
@@ -69,7 +71,7 @@ def recorded_patterns(monkeypatch: pytest.MonkeyPatch) -> list[SparsityPattern]:
         dataset_format: DatasetFormat,
         *,
         sparsity_pattern: SparsityPattern,
-    ) -> None:
+    ) -> tuple[StrategyRowCount, ...]:
         patterns.append(sparsity_pattern)
         return original(
             source, spec, dataset_dir, dataset_format, sparsity_pattern=sparsity_pattern

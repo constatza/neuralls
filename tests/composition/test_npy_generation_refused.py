@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
+from tests.dataset_support import build_test_dataset
 
 
 def test_npy_generation_is_refused_with_supported_formats_named(
@@ -25,6 +25,6 @@ def test_npy_generation_is_refused_with_supported_formats_named(
     dataset_dir = tmp_path / "ds"
 
     with pytest.raises(ValueError):
-        build_dataset(source, atomic_spec, str(dataset_dir), dataset_format="npy")
+        build_test_dataset(source, atomic_spec, str(dataset_dir), dataset_format="npy")
 
     assert not dataset_dir.exists()

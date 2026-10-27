@@ -93,7 +93,17 @@ the supported generation formats (`npy` datasets stay readable).
 - `generation/streamed_write.py` holds what both of the above share: planning the batch
   stream and rejecting an inexact row count (`open_prepared_stream`), closing a
   partially-written store without masking the real error (`release_after_failure`), and
-  building the manifest facts common to both formats except `layout` (`manifest_facts`).
+  building the manifest facts common to both formats except `layout` (`manifest_facts`), and
+  committing the staged directory while returning the rows each strategy wrote
+  (`commit_with_rows`).
+
+Both writers return the per-strategy row counts that `SampleWriter` recorded from the batches it
+actually wrote; `build_dataset` turns them into the dataset's provenance, so nothing is recomputed
+from the spec. `source_provenance` is a required argument, filled from the required
+`[source] problem` (generation refuses to start without it, naming the config). After the commit,
+`_stamp_dataset_identity` receives the finished `DatasetPresentation` and raises
+`DatasetProvenanceMismatchError` when the manifest's persisted sample count is missing or differs
+from the provenance total.
 
 The CSR layout is the configured `[output].sparsity_pattern`, passed through `process_config`,
 `_execute_plan` and the executors into `build_dataset`. `shared` maps to `SHARED_PATTERN` (one

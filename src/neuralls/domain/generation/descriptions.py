@@ -1,7 +1,7 @@
 """Scientific descriptions of generation strategies and of generated datasets.
 
 ``describe_strategy`` turns one validated strategy config into the facts that identify
-its data (every algorithmic parameter, the effective seed as a reproducibility fact).
+its data (every algorithmic parameter, the realized row count and the seed).
 Facts that only say where files live or how rows are stored are deliberately absent.
 ``provenance.py`` assembles them for a whole dataset build. The names
 come from the shared strategy-name table, so logs, manifests, and plots agree.
@@ -61,7 +61,6 @@ from neuralls.shared.scientific_description.catalog import (
     PROBE_DISTRIBUTION,
     RHS_SCALE,
     SAMPLE_COUNT,
-    SEED,
     SOLUTION_SCALE,
     SOLVER_ABSOLUTE_TOLERANCE,
     SOLVER_KIND,
@@ -79,6 +78,7 @@ from neuralls.shared.scientific_description.catalog import (
 )
 from neuralls.shared.scientific_description.presentation import (
     StrategyProvenance,
+    StrategySeed,
     strategy_base_name,
 )
 from neuralls.shared.types import GenerationStrategyKind
@@ -275,25 +275,15 @@ def _eigenvector_facts(cfg: BaseEigenvectorConfig) -> Facts:
 
 
 def describe_strategy(
-    kind: GenerationStrategyKind, cfg: BaseStrategyConfig, *, sample_count: int | None
+    kind: GenerationStrategyKind, cfg: BaseStrategyConfig, *, rows: int, seed: StrategySeed
 ) -> StrategyProvenance:
-    """Describe one strategy: window/parameters, realized rows ``N`` when known, seed.
+    """Describe one strategy: its algorithmic parameters, the rows it produced, its seed.
 
-    ``sample_count`` is the number of rows the strategy produces, or ``None`` when it is
-    open-ended (``samples=-1``) and not known per strategy.
+    ``rows`` is the strategy's realized row count and ``seed`` says whether the
+    configuration fixed the strategy's seed or each binding derived it; neither comes
+    from ``cfg``, whose ``samples`` is a budget and whose ``seed`` has a default.
     """
-    facts = _parameter_facts(cfg)
-    sample_facts: Facts = () if sample_count is None else (_int(SAMPLE_COUNT, sample_count),)
-    # Trajectory strategies read "k=20, N=5000, ..." (the cap, then the count, then the rest);
-    # every other strategy lists its parameters and then the count.
-    leading = (
-        1 if isinstance(cfg, ResidualErrorConfig | SmootherFilteredProbesConfig) else len(facts)
-    )
-    seed_facts: Facts = () if cfg.seed is None else (_int(SEED, cfg.seed),)
-    return StrategyProvenance(
-        kind=kind,
-        facts=(*facts[:leading], *sample_facts, *facts[leading:], *seed_facts),
-    )
+    return StrategyProvenance(kind=kind, rows=rows, parameters=_parameter_facts(cfg), seed=seed)
 
 
 def describe_residual_trace(

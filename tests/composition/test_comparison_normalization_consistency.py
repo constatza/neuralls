@@ -15,10 +15,10 @@ import pytest
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
 from neuralls.composition.comparison._linear_system import _load_linear_system
 from neuralls.composition.comparison.models import ComparisonPaths
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
+from tests.dataset_support import build_test_dataset
 
 
 def _build_normalized_dataset(root: Path) -> Path:
@@ -33,7 +33,7 @@ def _build_normalized_dataset(root: Path) -> Path:
     matrix_path = root / "matrix.npy"
     np.save(matrix_path, matrix)
     dataset_dir = root / "dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(
             matrix_path=str(matrix_path),
         ),

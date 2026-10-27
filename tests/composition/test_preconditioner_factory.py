@@ -36,7 +36,6 @@ from torchalg.preconditioners.implementations.amg import (
 )
 from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAdapter
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.composition.preconditioners.schedule import (
     PreconditionerScheduleConfig,
@@ -58,6 +57,7 @@ from neuralls.platform.config.models.preconditioner import (
     parse_preconditioner_config,
 )
 from neuralls.platform.dlkit.predictor_adapter import OwningDLKitNeuralPreconditioner
+from tests.dataset_support import build_test_dataset
 
 # ==============================================================================
 # Mock Predictor and Adapter for Neural Preconditioner Testing
@@ -203,7 +203,7 @@ def pod_snapshot_dataset_dir(tmp_path: Path, well_conditioned_matrix: torch.Tens
     matrix_path = tmp_path / "matrix.npy"
     np.save(matrix_path, well_conditioned_matrix.numpy())
     dataset_dir = tmp_path / "pod-dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(matrix_path=str(matrix_path)),
         DatasetSpec(
             mixture=MixtureSpec(counts={"gaussian_forward": 4}, seed=0, shuffle=False),

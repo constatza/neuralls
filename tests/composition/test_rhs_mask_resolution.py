@@ -9,10 +9,10 @@ import pytest
 
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
 from neuralls.composition.comparison.models import ResolvedComparisonInput
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
+from tests.dataset_support import build_test_dataset
 
 DIM = 40
 SEED = 17
@@ -40,7 +40,7 @@ def dataset_dir(tmp_path: Path) -> Path:
     matrix_path = tmp_path / "small.npy"
     np.save(matrix_path, np.array([[4.0, -1.0], [-1.0, 3.0]]))
     out = tmp_path / "dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(matrix_path=str(matrix_path)),
         DatasetSpec(
             mixture=MixtureSpec(counts={"neutral_ones": 3}, seed=42, shuffle=False),

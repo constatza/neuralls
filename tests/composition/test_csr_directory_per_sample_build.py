@@ -16,11 +16,11 @@ import pytest
 from scipy import sparse
 from scipy.io import mmwrite
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.dataset_readers import load_matrix_sparse_sample
 from neuralls.platform.storage.datasets import load_dense_training_arrays
 from neuralls.shared.types import MatrixFormat
+from tests.dataset_support import build_test_dataset
 
 _SIZE = 4
 _SEED = 20260610
@@ -53,7 +53,7 @@ def test_directory_per_sample_glob_builds_two_distinct_csr_matrices(
     directory_per_sample_mtx: Path, tmp_path: Path, dataset_format: str
 ) -> None:
     out_dir = tmp_path / f"dataset_{dataset_format}"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(matrix_path=str(directory_per_sample_mtx / "*" / "K_ff.mtx")),
         DatasetSpec(
             mixture=MixtureSpec(

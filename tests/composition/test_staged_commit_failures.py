@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage import staged_commit as finalize
+from tests.dataset_support import build_test_dataset
 
 
 class _CommitFailure(OSError):
@@ -65,7 +65,7 @@ def test_corrupt_manifest_in_target_directory_is_not_overwritten(tmp_path: Path)
     (dataset_dir / "manifest.json").write_text("{not json", encoding="utf-8")
 
     with pytest.raises(ValueError):
-        build_dataset(
+        build_test_dataset(
             SourceSpec(matrix_path=str(tmp_path / "missing.npy")),
             DatasetSpec(
                 mixture=MixtureSpec(counts={"gaussian_forward": 1}, seed=0, shuffle=False),

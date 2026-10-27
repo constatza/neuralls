@@ -12,13 +12,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.dataset_readers import (
     load_dense_training_arrays,
     load_matrix_dense_sample,
     load_matrix_sample_index,
 )
+from tests.dataset_support import build_test_dataset
 from tests.generation.test_orchestration_characterization import spd_matrix_dir  # noqa: F401
 
 RESIDUAL_TOLERANCE = 1e-8
@@ -29,7 +29,7 @@ MIXTURE_SEED = 1234
 def mixture_dataset(spd_matrix_dir: Path, tmp_path: Path) -> Path:  # noqa: F811
     """Three distinct SPD matrices, two strategies, matrix normalization, npy storage."""
     out_dir = tmp_path / "dataset"
-    build_dataset(
+    build_test_dataset(
         SourceSpec(matrix_path=str(spd_matrix_dir / "A_*.txt")),
         DatasetSpec(
             mixture=MixtureSpec(

@@ -18,6 +18,7 @@ from neuralls.shared.scientific_description import (
     DatasetQualifiedMethodPresentation,
     DatasetSourceProvenance,
     DecimalFact,
+    DerivedSeed,
     DuplicateMethodPresentationError,
     EditorialPresentation,
     FieldImportance,
@@ -94,11 +95,14 @@ def dataset() -> DatasetPresentation:
             strategies=(
                 StrategyProvenance(
                     GenerationStrategyKind.GAUSSIAN_RESIDUALS,
-                    (_int(ITERATION_COUNT, 20), _int(SAMPLE_COUNT, 5000)),
+                    rows=5000,
+                    parameters=(_int(ITERATION_COUNT, 20),),
+                    seed=DerivedSeed(),
                 ),
             ),
             generated_rows=5000,
             normalization="matrix",
+            root_seed=42,
         ),
     )
 
@@ -136,12 +140,11 @@ def test_standalone_presentation_has_no_dataset_field() -> None:
     assert {f.name for f in fields(DatasetQualifiedMethodPresentation)} == {"method", "dataset"}
 
 
-def test_dataset_generation_requires_a_strategy_and_rows() -> None:
+def test_dataset_generation_requires_a_strategy() -> None:
     with pytest.raises(ValueError, match="at least one strategy"):
-        DatasetGenerationProvenance(strategies=(), generated_rows=1, normalization="none")
-    strategy = StrategyProvenance(GenerationStrategyKind.NORMAL, ())
-    with pytest.raises(ValueError, match="positive"):
-        DatasetGenerationProvenance((strategy,), generated_rows=0, normalization="none")
+        DatasetGenerationProvenance(
+            strategies=(), generated_rows=1, normalization="none", root_seed=0
+        )
 
 
 @pytest.mark.parametrize("title", ["", " padded ", "two\nlines", "snake_case_title"])
@@ -275,9 +278,14 @@ def test_same_method_on_different_datasets_is_not_a_duplicate(
     other = DatasetPresentation(
         dataset.source,
         DatasetGenerationProvenance(
-            (StrategyProvenance(GenerationStrategyKind.SMOOTHER_FILTERED_PROBES, ()),),
+            (
+                StrategyProvenance(
+                    GenerationStrategyKind.SMOOTHER_FILTERED_PROBES, 10, (), DerivedSeed()
+                ),
+            ),
             generated_rows=10,
             normalization="matrix",
+            root_seed=42,
         ),
     )
     pod = ScientificDescription("POD-2G", facts=(_int(RANK, 10),))

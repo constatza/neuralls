@@ -54,15 +54,31 @@ class StoredArray:
         return self.shape[0]
 
 
+@dataclass(frozen=True, slots=True)
+class StrategyRowCount:
+    """Rows one strategy actually wrote, summed over every binding.
+
+    Attributes:
+        strategy_name: Strategy name as the mixture spelled it.
+        rows: Rows written for the strategy; always positive, since empty batches write nothing.
+    """
+
+    strategy_name: str
+    rows: int
+
+
 @dataclass(frozen=True)
 class DatasetArtifacts:
     """Description of every array the writer persisted.
 
     Attributes:
         arrays: Created arrays in creation order.
+        strategy_rows: Rows written per strategy, in first-written order. They are counted
+            from the batches the writer received, so they sum to the arrays' row count.
     """
 
     arrays: tuple[StoredArray, ...]
+    strategy_rows: tuple[StrategyRowCount, ...]
 
     def get(self, name: str) -> StoredArray | None:
         """Return the named array's description, or None when the writer did not create it."""
@@ -117,6 +133,7 @@ class SampleWriter:
         self._matrix_for = matrix_for
         self._single_matrix = single_matrix
         self._rows_written = 0
+        self._rows_by_strategy: dict[str, int] = {}
         self._created: list[StoredArray] = []
         self._parameter_streams: set[int] = set()
         self._single_matrix_written = False
@@ -152,6 +169,9 @@ class SampleWriter:
         self._write_matrix(batch, start, rows)
         self._write_parameters(batch, start, rows)
         self._rows_written += rows
+        self._rows_by_strategy[batch.strategy_name] = (
+            self._rows_by_strategy.get(batch.strategy_name, 0) + rows
+        )
 
     def finalize(self) -> DatasetArtifacts:
         """Check the written row count against the plan, close the store, and describe it.
@@ -167,7 +187,12 @@ class SampleWriter:
                 f"Written rows {self._rows_written} differ from planned {self._planned_rows}."
             )
         self._store.close()
-        return DatasetArtifacts(arrays=tuple(self._created))
+        return DatasetArtifacts(
+            arrays=tuple(self._created),
+            strategy_rows=tuple(
+                StrategyRowCount(name, rows) for name, rows in self._rows_by_strategy.items()
+            ),
+        )
 
     def _create_arrays(self, batch: SampleBatch) -> None:
         feature_dim = int(batch.rhs.shape[1])
@@ -235,4 +260,5 @@ __all__ = [
     "MatrixLookup",
     "SampleWriter",
     "StoredArray",
+    "StrategyRowCount",
 ]
