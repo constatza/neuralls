@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import get_args
 
 import pytest
 import torch
@@ -24,7 +25,6 @@ from torchalg.preconditioners.implementations.amg import (
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
 from neuralls.composition.preconditioners.descriptions import (
-    FIELD_ROLES,
     MissingArchitectureNameError,
     describe_configured_preconditioner,
     describe_realized_preconditioner,
@@ -34,6 +34,7 @@ from neuralls.platform.config.models.preconditioner import (
     AggregationCoarseningConfig,
     AMGPreconditionerConfig,
     BootstrapAMGPreconditionerConfig,
+    CoarseningConfig,
     ConcretePreconditionerConfig,
     IC0PreconditionerConfig,
     NeuralAMGPreconditionerConfig,
@@ -44,13 +45,14 @@ from neuralls.platform.config.models.preconditioner import (
     PowerNormWeightingConfig,
     PreconditionerType,
     SmootherPersistenceWeightingConfig,
+    SnapshotWeightingConfig,
     StandardPreconditionerConfig,
     TargetDimCoarseningConfig,
 )
+from neuralls.shared.fact_binding import Fact, unbound_fields
 from neuralls.shared.scientific_description.catalog import (
     COARSE_DIMENSION,
     REALIZED_LEVELS,
-    FactRole,
 )
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import (
@@ -251,20 +253,30 @@ def test_neural_pod_and_neural_amg_describe_their_own_parameters(pod_dataset_dir
     assert "ω=0.7" in _plain(describe_configured_preconditioner(amg))
 
 
-# --- every config field has a role --------------------------------------------------
+# --- every config field is bound ----------------------------------------------------
 
 
-@pytest.mark.parametrize("model", list(FIELD_ROLES), ids=lambda model: model.__name__)
-def test_every_config_field_is_classified(model: type[BaseModel]) -> None:
-    """A new field fails here until it is explicitly classified."""
-    assert set(FIELD_ROLES[model]) == set(model.model_fields)
+def _config_models() -> list[type[BaseModel]]:
+    """Every config model a preconditioner description walks, found from the unions."""
+    unions = (
+        ConcretePreconditionerConfig,
+        get_args(CoarseningConfig)[0],
+        get_args(SnapshotWeightingConfig)[0],
+    )
+    return [model for union in unions for model in get_args(union)]
 
 
-def test_identity_and_provenance_fields_are_never_algorithmic() -> None:
-    for roles in FIELD_ROLES.values():
-        for name in ("assignment", "checkpoint_path", "dataset_dir", "model_ref"):
-            if name in roles:
-                assert roles[name] in {FactRole.IDENTITY, FactRole.PROVENANCE}
+@pytest.mark.parametrize("model", _config_models(), ids=lambda model: model.__name__)
+def test_every_config_field_is_bound(model: type[BaseModel]) -> None:
+    """A new field fails here until it states whether it is a fact."""
+    assert unbound_fields(model) == ()
+
+
+@pytest.mark.parametrize("model", _config_models(), ids=lambda model: model.__name__)
+def test_identity_and_provenance_fields_are_never_facts(model: type[BaseModel]) -> None:
+    for name in ("assignment", "checkpoint_path", "dataset_dir", "model_ref"):
+        if name in model.model_fields:
+            assert not any(isinstance(m, Fact) for m in model.model_fields[name].metadata)
 
 
 # --- realized facts ---------------------------------------------------------------

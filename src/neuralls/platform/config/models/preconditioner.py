@@ -22,6 +22,73 @@ from pydantic import (
 )
 
 from neuralls.shared.digest import Cosmetic, InputConfig, InputData
+from neuralls.shared.fact_binding import (
+    AFTER_METHOD_FACTS,
+    Fact,
+    Nested,
+    Omitted,
+    Show,
+    auto_if_none,
+    enum_value,
+    on_off,
+)
+from neuralls.shared.scientific_description.catalog import (
+    ALGEBRAIC_DISTANCE_THRESHOLD,
+    BETA,
+    BOOTSTRAP_CYCLES,
+    CALIBER,
+    CALIBER_GROWTH_PENALTY,
+    CANDIDATE_COUNT,
+    CANDIDATE_ITERATIONS,
+    COMPATIBLE_RELAXATION_SWEEPS,
+    COMPATIBLE_RELAXATION_TOLERANCE,
+    DAMPING,
+    DROP_TOLERANCE,
+    FALLBACK,
+    ITERATION_LIMIT,
+    MAX_COARSE_DIMENSION,
+    METRIC,
+    MODEL_ARCHITECTURE,
+    MULTIGRID_LEVELS,
+    POST_SMOOTHING_STEPS,
+    PRE_SMOOTHING_STEPS,
+    RANK,
+    RELAXATION_SWEEPS,
+    RELAXATION_TEST_VECTORS,
+    SEED,
+    SMOOTHER_DAMPING,
+    SNAPSHOT_COUNT,
+    START_ITERATION,
+    STEPS,
+    TARGET_COARSE_DIMENSION,
+    THRESHOLD,
+    USE_LSR,
+    WEIGHTING,
+    FactRole,
+)
+from neuralls.shared.scientific_description.models import ValidatedLabel
+
+_IDENTITY = Omitted(FactRole.IDENTITY)
+_PROVENANCE = Omitted(FactRole.PROVENANCE)
+_OPERATIONAL = Omitted(FactRole.OPERATIONAL)
+
+
+class MissingArchitectureNameError(ValueError):
+    """A neural preconditioner has no ``architecture`` name."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "A neural preconditioner needs a short 'architecture' name (for example 'Graph Net') "
+            "so its architecture can be described; set it on the neural preconditioner or on "
+            "the training job's [[jobs]] entry. Class names and job titles are never used."
+        )
+
+
+def architecture_label(name: str | None) -> ValidatedLabel:
+    """The architecture name as a display label; a neural method cannot be described without one."""
+    if name is None:
+        raise MissingArchitectureNameError
+    return ValidatedLabel(name)
 
 
 class PreconditionerType(StrEnum):
@@ -249,13 +316,13 @@ class NeuralCheckpointRef(BaseModel):
     directly rather than against a concrete leaf class.
     """
 
-    checkpoint_path: Annotated[Path | None, InputData()] = None
-    assignment: str | None = None
-    config_path: Annotated[Path | None, InputConfig()] = None
-    data_config_path: Annotated[Path | None, InputConfig()] = None
-    model_ref: ModelRefConfig | None = None
-    resolved_checkpoint_path: Annotated[Path | None, Cosmetic()] = None
-    resolved_run_id: Annotated[str | None, Cosmetic()] = None
+    checkpoint_path: Annotated[Path | None, InputData(), _IDENTITY] = None
+    assignment: Annotated[str | None, _IDENTITY] = None
+    config_path: Annotated[Path | None, InputConfig(), _IDENTITY] = None
+    data_config_path: Annotated[Path | None, InputConfig(), _IDENTITY] = None
+    model_ref: Annotated[ModelRefConfig | None, _IDENTITY] = None
+    resolved_checkpoint_path: Annotated[Path | None, Cosmetic(), _IDENTITY] = None
+    resolved_run_id: Annotated[str | None, Cosmetic(), _IDENTITY] = None
     """MLflow run id the checkpoint was resolved from, when resolved via
     `model_ref` (unset for an explicit `checkpoint_path`). Used to detect when
     a comparison's dependency has been retrained since it last ran."""
@@ -319,13 +386,20 @@ class BasePreconditionerConfig(BaseModel):
     Includes scheduling fields shared by all preconditioner variants.
     """
 
-    start_iter: int = Field(
+    start_iter: Annotated[
+        int, Fact(START_ITERATION, show=Show.NON_DEFAULT, order=AFTER_METHOD_FACTS)
+    ] = Field(
         default=0,
         ge=0,
         description="Iteration at which the primary preconditioner becomes active.",
     )
-    limit_iters: int = Field(default=-1, description="Iterations to apply; -1 means unlimited.")
-    fallback: PreconditionerType = Field(
+    limit_iters: Annotated[
+        int, Fact(ITERATION_LIMIT, show=Show.NON_DEFAULT, order=AFTER_METHOD_FACTS)
+    ] = Field(default=-1, description="Iterations to apply; -1 means unlimited.")
+    fallback: Annotated[
+        PreconditionerType,
+        Fact(FALLBACK, convert=enum_value, show=Show.NON_DEFAULT, order=AFTER_METHOD_FACTS),
+    ] = Field(
         default=PreconditionerType.IDENTITY,
         description="Fallback preconditioner type when limited.",
     )
@@ -364,10 +438,13 @@ class StandardPreconditionerConfig(BasePreconditionerConfig):
     counted at runtime).
     """
 
-    type: Literal[
-        PreconditionerType.IDENTITY,
-        PreconditionerType.JACOBI,
-        PreconditionerType.ILU,
+    type: Annotated[
+        Literal[
+            PreconditionerType.IDENTITY,
+            PreconditionerType.JACOBI,
+            PreconditionerType.ILU,
+        ],
+        _IDENTITY,
     ]
 
 
@@ -383,8 +460,8 @@ class IC0PreconditionerConfig(BasePreconditionerConfig):
     .ic0.IC0Preconditioner`` for the derivation.
     """
 
-    type: Literal[PreconditionerType.IC0] = PreconditionerType.IC0
-    threshold: float = Field(
+    type: Annotated[Literal[PreconditionerType.IC0], _IDENTITY] = PreconditionerType.IC0
+    threshold: Annotated[float, Fact(DROP_TOLERANCE)] = Field(
         default=0.0,
         description=(
             "Drop tolerance - entries with |value| <= threshold are treated as zeros. "
@@ -408,8 +485,10 @@ class NeuralPreconditionerConfig(BasePreconditionerConfig, NeuralCheckpointRef):
     the comparison result) rather than assume it.
     """
 
-    type: Literal[PreconditionerType.NEURAL] = PreconditionerType.NEURAL
-    architecture: Annotated[str | None, Cosmetic()] = Field(
+    type: Annotated[Literal[PreconditionerType.NEURAL], _IDENTITY] = PreconditionerType.NEURAL
+    architecture: Annotated[
+        str | None, Cosmetic(), Fact(MODEL_ARCHITECTURE, convert=architecture_label)
+    ] = Field(
         default=None,
         description=(
             "Short human-readable architecture name shown in labels, e.g. 'Graph Net'. "
@@ -417,7 +496,7 @@ class NeuralPreconditionerConfig(BasePreconditionerConfig, NeuralCheckpointRef):
             "so it does not change the preconditioner's identity digest."
         ),
     )
-    extra_input_names: tuple[str, ...] = Field(
+    extra_input_names: Annotated[tuple[str, ...], _OPERATIONAL] = Field(
         default=(),
         description=(
             "Names of extra dataset arrays to bind before CG, beyond the residual. "
@@ -493,14 +572,14 @@ class AggregationCoarseningConfig(BaseModel):
     and scanning the dense strength graph touches every entry.
     """
 
-    method: Literal["aggregation"] = "aggregation"
-    theta: float = Field(
+    method: Annotated[Literal["aggregation"], _IDENTITY] = "aggregation"
+    theta: Annotated[float, Fact(THRESHOLD)] = Field(
         default=0.25,
         gt=0.0,
         lt=1.0,
         description="Strength-of-connection threshold controlling AMG aggregate/coarse-grid size.",
     )
-    omega: float | None = Field(
+    omega: Annotated[float | None, Fact(DAMPING, show=Show.NOT_NONE)] = Field(
         default=None,
         gt=0.0,
         description="Prolongation Jacobi-smoothing damping; auto per-matrix via "
@@ -537,12 +616,20 @@ class TargetDimCoarseningConfig(BaseModel):
     already-built candidates rather than re-paying this multiplier each time.
     """
 
-    method: Literal["target_dim"] = "target_dim"
-    target_coarse_dim: int = Field(gt=0, description="Desired realized coarse dimension.")
-    theta_min: float = Field(default=0.01, gt=0.0, lt=1.0, description="Lower theta search bound.")
-    theta_max: float = Field(default=0.99, gt=0.0, lt=1.0, description="Upper theta search bound.")
-    step: float = Field(default=0.01, gt=0.0, description="Theta search grid spacing.")
-    omega: float | None = Field(
+    method: Annotated[Literal["target_dim"], _IDENTITY] = "target_dim"
+    target_coarse_dim: Annotated[int, Fact(TARGET_COARSE_DIMENSION)] = Field(
+        gt=0, description="Desired realized coarse dimension."
+    )
+    theta_min: Annotated[float, _OPERATIONAL] = Field(
+        default=0.01, gt=0.0, lt=1.0, description="Lower theta search bound."
+    )
+    theta_max: Annotated[float, _OPERATIONAL] = Field(
+        default=0.99, gt=0.0, lt=1.0, description="Upper theta search bound."
+    )
+    step: Annotated[float, _OPERATIONAL] = Field(
+        default=0.01, gt=0.0, description="Theta search grid spacing."
+    )
+    omega: Annotated[float | None, Fact(DAMPING, show=Show.NOT_NONE)] = Field(
         default=None,
         gt=0.0,
         description="Prolongation Jacobi-smoothing damping; auto per-matrix via "
@@ -562,7 +649,7 @@ class RawWeightingConfig(BaseModel):
     behavior POD-2G had before per-snapshot weighting existed.
     """
 
-    method: Literal["raw"] = "raw"
+    method: Annotated[Literal["raw"], _IDENTITY] = "raw"
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
@@ -577,9 +664,11 @@ class PowerNormWeightingConfig(BaseModel):
     which this config resolves to.
     """
 
-    method: Literal["power_norm"] = "power_norm"
-    metric: Literal["l2", "a"] = "l2"
-    beta: float = Field(default=1.0, ge=0.0, description="Normalization exponent.")
+    method: Annotated[Literal["power_norm"], Fact(WEIGHTING)] = "power_norm"
+    metric: Annotated[Literal["l2", "a"], Fact(METRIC)] = "l2"
+    beta: Annotated[float, Fact(BETA)] = Field(
+        default=1.0, ge=0.0, description="Normalization exponent."
+    )
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
@@ -599,14 +688,16 @@ class SmootherPersistenceWeightingConfig(BaseModel):
     which this config resolves to.
     """
 
-    method: Literal["smoother_persistence"] = "smoother_persistence"
-    omega: float | None = Field(
+    method: Annotated[Literal["smoother_persistence"], Fact(WEIGHTING)] = "smoother_persistence"
+    steps: Annotated[int, Fact(STEPS)] = Field(
+        default=5, gt=0, description="Number of damping sweeps."
+    )
+    omega: Annotated[float | None, Fact(DAMPING, show=Show.NOT_NONE)] = Field(
         default=None,
         gt=0.0,
         description="Weighted-Jacobi damping factor; auto per-matrix via "
         "torchalg's spectral-radius rule when unset.",
     )
-    steps: int = Field(default=5, gt=0, description="Number of damping sweeps.")
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
@@ -662,22 +753,22 @@ class PODCoarseningConfig(NeuralCheckpointRef):
     `.basis` for the derivation.
     """
 
-    method: Literal["pod"] = "pod"
-    dataset_dir: Annotated[Path, InputData()] = Field(
+    method: Annotated[Literal["pod"], _IDENTITY] = "pod"
+    dataset_dir: Annotated[Path, InputData(), _PROVENANCE] = Field(
         ...,
         description="Generated dataset directory whose `solutions` array supplies POD-2G snapshots.",
     )
-    n_snapshots: int = Field(
-        default=-1, description="Number of snapshot files to load; -1 means all matched."
-    )
-    rank: int | float = Field(
+    rank: Annotated[int | float, Fact(RANK)] = Field(
         default=8,
         description=(
             "Fixed number of POD modes to retain (int), or minimum cumulative "
             "captured energy to retain (float in (0, 1] — e.g. 0.9999)."
         ),
     )
-    weighting: SnapshotWeightingConfig = Field(
+    n_snapshots: Annotated[int, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
+        default=-1, description="Number of snapshot files to load; -1 means all matched."
+    )
+    weighting: Annotated[SnapshotWeightingConfig, Nested()] = Field(
         default_factory=RawWeightingConfig,
         description=(
             "Per-snapshot row scaling applied before the POD SVD — "
@@ -758,12 +849,12 @@ class NeuralPODCoarseningConfig(NeuralCheckpointRef):
     `O(min(m, n) * m * n)` SVD over the predicted snapshots.
     """
 
-    method: Literal["neural_pod"] = "neural_pod"
-    dataset_dir: Annotated[Path, InputData()] = Field(
+    method: Annotated[Literal["neural_pod"], _IDENTITY] = "neural_pod"
+    dataset_dir: Annotated[Path, InputData(), _PROVENANCE] = Field(
         ...,
         description="Generated dataset directory whose `params` arrays feed the checkpoint.",
     )
-    input_names: tuple[str, ...] = Field(
+    input_names: Annotated[tuple[str, ...], _OPERATIONAL] = Field(
         ...,
         min_length=1,
         description=(
@@ -775,15 +866,15 @@ class NeuralPODCoarseningConfig(NeuralCheckpointRef):
             "explicitly (mirrors NeuralPreconditionerConfig.extra_input_names)."
         ),
     )
-    n_snapshots: int = Field(
-        default=-1, description="Number of predicted snapshots to keep; -1 means all."
-    )
-    rank: int | float = Field(
+    rank: Annotated[int | float, Fact(RANK)] = Field(
         default=8,
         description=(
             "Fixed number of POD modes to retain (int), or minimum cumulative "
             "captured energy to retain (float in (0, 1] — e.g. 0.9999)."
         ),
+    )
+    n_snapshots: Annotated[int, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
+        default=-1, description="Number of predicted snapshots to keep; -1 means all."
     )
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -849,6 +940,11 @@ CoarseningConfig = Annotated[
 ]
 
 
+def _has_algebraic_levels(cfg: AMGPreconditionerConfig) -> bool:
+    """POD-2G is two-grid by construction, so its level count is not a parameter."""
+    return not isinstance(cfg.coarsening, PODCoarseningConfig | NeuralPODCoarseningConfig)
+
+
 class AMGPreconditionerConfig(BasePreconditionerConfig):
     """AMG-family preconditioner configuration (multigrid coarsening + cycle).
 
@@ -878,17 +974,11 @@ class AMGPreconditionerConfig(BasePreconditionerConfig):
     / ``TargetDimCoarseningConfig`` / ``PODCoarseningConfig`` / ``NeuralPODCoarseningConfig``).
     """
 
-    type: Literal[PreconditionerType.AMG] = PreconditionerType.AMG
-    n_levels: int = Field(default=2, ge=2, description="Total number of grid levels.")
-    pre_smoothing_steps: int = Field(default=2, ge=0, description="Pre-smoothing iterations.")
-    post_smoothing_steps: int = Field(default=2, ge=0, description="Post-smoothing iterations.")
-    smoother_omega: float | None = Field(
-        default=None,
-        gt=0.0,
-        description="Weighted Jacobi damping; auto per-matrix via torchalg's "
-        "spectral-radius rule when unset.",
+    type: Annotated[Literal[PreconditionerType.AMG], _IDENTITY] = PreconditionerType.AMG
+    n_levels: Annotated[int, Fact(MULTIGRID_LEVELS, when=_has_algebraic_levels)] = Field(
+        default=2, ge=2, description="Total number of grid levels."
     )
-    coarsening: CoarseningConfig
+    coarsening: Annotated[CoarseningConfig, Nested()]
 
     def checkpoint_refs(self) -> tuple[tuple[str, NeuralCheckpointRef], ...]:
         """Expose the coarsening's checkpoint ref, when it carries one.
@@ -906,6 +996,19 @@ class AMGPreconditionerConfig(BasePreconditionerConfig):
         """Rebuild with a resolved coarsening ref substituted in."""
         _, ref = resolved[0]
         return self.model_copy(update={"coarsening": cast(CoarseningConfig, ref)})
+
+    pre_smoothing_steps: Annotated[int, Fact(PRE_SMOOTHING_STEPS)] = Field(
+        default=2, ge=0, description="Pre-smoothing iterations."
+    )
+    post_smoothing_steps: Annotated[int, Fact(POST_SMOOTHING_STEPS)] = Field(
+        default=2, ge=0, description="Post-smoothing iterations."
+    )
+    smoother_omega: Annotated[float | None, Fact(SMOOTHER_DAMPING, convert=auto_if_none)] = Field(
+        default=None,
+        gt=0.0,
+        description="Weighted Jacobi damping; auto per-matrix via torchalg's "
+        "spectral-radius rule when unset.",
+    )
 
 
 class AdaptiveSAPreconditionerConfig(BasePreconditionerConfig):
@@ -964,34 +1067,36 @@ class AdaptiveSAPreconditionerConfig(BasePreconditionerConfig):
     see `AMGPreconditionerConfig`'s complexity note.
     """
 
-    type: Literal[PreconditionerType.ADAPTIVE_SA_AMG] = PreconditionerType.ADAPTIVE_SA_AMG
-    n_levels: int = Field(
+    type: Annotated[Literal[PreconditionerType.ADAPTIVE_SA_AMG], _IDENTITY] = (
+        PreconditionerType.ADAPTIVE_SA_AMG
+    )
+    n_levels: Annotated[int, Fact(MULTIGRID_LEVELS)] = Field(
         default=2, ge=2, description="Cap on hierarchy depth (torchalg's `max_levels`)."
     )
-    num_candidates: int = Field(
+    num_candidates: Annotated[int, Fact(CANDIDATE_COUNT)] = Field(
         default=3,
         ge=1,
         description="Total near-null-space candidates (including the initial one); "
         "PyAMG's own default is 1, but each extra candidate adds real adaptivity "
         "at the cost of one more DOF per aggregate in the realized coarse dimension.",
     )
-    candidate_iters: int = Field(
+    candidate_iters: Annotated[int, Fact(CANDIDATE_ITERATIONS)] = Field(
         default=5, ge=1, description="Relaxation sweeps/cycles per candidate step."
     )
-    max_coarse: int = Field(
+    max_coarse: Annotated[int, Fact(MAX_COARSE_DIMENSION)] = Field(
         default=10, ge=1, description="Stop coarsening once a level has this many nodes or fewer."
     )
-    theta: float = Field(
+    theta: Annotated[float, Fact(THRESHOLD)] = Field(
         default=0.0,
         ge=0.0,
         lt=1.0,
         description="Strength-of-connection threshold — pick directly, no search; "
         "close to 0 for a small coarse space, ~0.25 for a larger one.",
     )
-    omega: float = Field(
+    omega: Annotated[float, Fact(DAMPING)] = Field(
         default=4.0 / 3.0, gt=0.0, description="Nominal Jacobi prolongator-smoothing damping."
     )
-    seed: int = Field(
+    seed: Annotated[int, Fact(SEED)] = Field(
         default=0, description="Seed for the candidate/spectral-radius random source."
     )
 
@@ -1034,30 +1139,48 @@ class BootstrapAMGPreconditionerConfig(BasePreconditionerConfig):
     built — see `AMGPreconditionerConfig`'s complexity note.
     """
 
-    type: Literal[PreconditionerType.BOOTSTRAP_AMG] = PreconditionerType.BOOTSTRAP_AMG
-    n_levels: int = Field(
+    type: Annotated[Literal[PreconditionerType.BOOTSTRAP_AMG], _IDENTITY] = (
+        PreconditionerType.BOOTSTRAP_AMG
+    )
+    n_levels: Annotated[int, Fact(MULTIGRID_LEVELS)] = Field(
         default=10,
         ge=2,
         description="Ceiling on hierarchy depth (torchalg's `max_levels`); the coarsening "
         "loop actually stops at `max_coarse`, whichever comes first, so this rarely binds.",
     )
-    k_r: int = Field(default=8, ge=1, description="Number of relaxation-derived test vectors.")
-    eta: int = Field(default=4, ge=1, description="Relaxation sweeps per test vector per level.")
-    n_bootstrap_cycles: int = Field(
+    k_r: Annotated[int, Fact(RELAXATION_TEST_VECTORS)] = Field(
+        default=8, ge=1, description="Number of relaxation-derived test vectors."
+    )
+    eta: Annotated[int, Fact(RELAXATION_SWEEPS)] = Field(
+        default=4, ge=1, description="Relaxation sweeps per test vector per level."
+    )
+    n_bootstrap_cycles: Annotated[int, Fact(BOOTSTRAP_CYCLES)] = Field(
         default=2, ge=1, description="Number of bootstrap-cycle passes."
     )
-    nu: int = Field(default=5, ge=1, description="CR sweeps per stage.")
-    delta: float = Field(default=0.7, gt=0.0, description="CR stopping tolerance.")
-    theta_ad: float = Field(
+    nu: Annotated[int, Fact(COMPATIBLE_RELAXATION_SWEEPS)] = Field(
+        default=5, ge=1, description="CR sweeps per stage."
+    )
+    delta: Annotated[float, Fact(COMPATIBLE_RELAXATION_TOLERANCE)] = Field(
+        default=0.7, gt=0.0, description="CR stopping tolerance."
+    )
+    theta_ad: Annotated[float, Fact(ALGEBRAIC_DISTANCE_THRESHOLD)] = Field(
         default=0.5, ge=0.0, description="Algebraic-distance strength threshold."
     )
-    caliber: int = Field(default=4, ge=1, description="Maximum interpolatory-set size.")
-    gamma: float = Field(default=1.5, gt=0.0, description="Caliber-growth penalization exponent.")
-    use_lsr: bool = Field(
+    caliber: Annotated[int, Fact(CALIBER)] = Field(
+        default=4, ge=1, description="Maximum interpolatory-set size."
+    )
+    gamma: Annotated[float, Fact(CALIBER_GROWTH_PENALTY)] = Field(
+        default=1.5, gt=0.0, description="Caliber-growth penalization exponent."
+    )
+    use_lsr: Annotated[bool, Fact(USE_LSR, convert=on_off)] = Field(
         default=True, description="Apply the LSR residual correction before fitting."
     )
-    max_coarse: int = Field(default=10, ge=1, description="Stop coarsening at this many nodes.")
-    seed: int = Field(default=0, description="Seed of the random test-vector source.")
+    max_coarse: Annotated[int, Fact(MAX_COARSE_DIMENSION)] = Field(
+        default=10, ge=1, description="Stop coarsening at this many nodes."
+    )
+    seed: Annotated[int, Fact(SEED)] = Field(
+        default=0, description="Seed of the random test-vector source."
+    )
 
 
 class NeuralTransferConfig(NeuralCheckpointRef):
@@ -1085,14 +1208,22 @@ class NeuralAMGPreconditionerConfig(BasePreconditionerConfig):
     the neural transfer operators' own forward passes cost.
     """
 
-    type: Literal[PreconditionerType.NEURAL_AMG] = PreconditionerType.NEURAL_AMG
-    n_levels: int = Field(default=2, ge=2, description="Total number of grid levels.")
-    pre_smoothing_steps: int = Field(default=2, ge=0)
-    post_smoothing_steps: int = Field(default=2, ge=0)
-    smoother_omega: float | None = Field(default=None, gt=0.0)
-    aggregation_omega: float | None = Field(default=None, gt=0.0)
-    prolongation: NeuralTransferConfig
-    restriction: NeuralTransferConfig | None = None
+    type: Annotated[Literal[PreconditionerType.NEURAL_AMG], _IDENTITY] = (
+        PreconditionerType.NEURAL_AMG
+    )
+    n_levels: Annotated[int, Fact(MULTIGRID_LEVELS)] = Field(
+        default=2, ge=2, description="Total number of grid levels."
+    )
+    aggregation_omega: Annotated[float | None, Fact(DAMPING, show=Show.NOT_NONE)] = Field(
+        default=None, gt=0.0
+    )
+    pre_smoothing_steps: Annotated[int, Fact(PRE_SMOOTHING_STEPS)] = Field(default=2, ge=0)
+    post_smoothing_steps: Annotated[int, Fact(POST_SMOOTHING_STEPS)] = Field(default=2, ge=0)
+    smoother_omega: Annotated[float | None, Fact(SMOOTHER_DAMPING, convert=auto_if_none)] = Field(
+        default=None, gt=0.0
+    )
+    prolongation: Annotated[NeuralTransferConfig, _IDENTITY]
+    restriction: Annotated[NeuralTransferConfig | None, _IDENTITY] = None
 
     def checkpoint_refs(self) -> tuple[tuple[str, NeuralCheckpointRef], ...]:
         """Expose prolongation's ref, plus restriction's when set."""
