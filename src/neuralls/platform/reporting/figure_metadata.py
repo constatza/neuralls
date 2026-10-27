@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 
@@ -16,7 +16,17 @@ from neuralls.domain.benchmarking.selection import (
     ReferenceSelection,
     ReferenceUnavailable,
 )
-from neuralls.domain.solver.models.presentation import SolverTimingContext
+from neuralls.domain.solver.models.figure_scope import FigureScope, render_figure_scope
+from neuralls.domain.solver.models.group_presentation import SolverTimingContext
+from neuralls.platform.storage.facts_codec import encode_figure_scope
+from neuralls.shared.scientific_description.policy import (
+    NotationPolicy,
+    RenderProfile,
+    RenderTarget,
+)
+
+MANIFEST_PROFILE = RenderProfile(name="manifest", include_context=True)
+"""Figure manifests store the scope's full text on one line; wrapping is a drawing concern."""
 
 
 class FigureKind(StrEnum):
@@ -55,7 +65,7 @@ class FigureMetadata:
     metric_definition: str
     scenario: TimingScenario | None
     report_level: str
-    scope: str
+    scope: FigureScope
     datasets: tuple[str, ...]
     recipes: tuple[str, ...]
     n_matrices: int
@@ -77,11 +87,14 @@ class FigureMetadata:
 
 @dataclass(frozen=True, slots=True)
 class FigurePlan:
-    """All presentation and scientific context decided before drawing."""
+    """All presentation and scientific context decided before drawing.
+
+    ``title`` is fixed editorial wording; the subtitle is ``metadata.scope`` rendered
+    when the figure is drawn.
+    """
 
     filename: str
     title: str
-    subtitle: str
     metadata: FigureMetadata
 
 
@@ -117,7 +130,9 @@ class FigureManifest:
                 raise ValueError(f"duplicate or colliding figure filename: {plan.filename}")
             names[key] = plan.filename
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self, notation: NotationPolicy) -> dict[str, object]:
+        """The manifest as TOML-ready data; scopes carry structure and their rendered text."""
+        plain = replace(notation, target=RenderTarget.PLAIN)
         figures: dict[str, object] = {}
         for filename in sorted(self.entries):
             metadata = self.entries[filename]
@@ -136,7 +151,10 @@ class FigureManifest:
                 "kind": metadata.kind.value,
                 "metric_definition": metadata.metric_definition,
                 "report_level": metadata.report_level,
-                "scope": metadata.scope,
+                "scope": {
+                    **encode_figure_scope(metadata.scope),
+                    "display": render_figure_scope(metadata.scope, MANIFEST_PROFILE, plain).text,
+                },
                 "datasets": list(metadata.datasets),
                 "recipes": list(metadata.recipes),
                 "n_matrices": metadata.n_matrices,
@@ -197,10 +215,17 @@ def validate_figure_manifest(payload: Mapping[str, object]) -> None:
             raise InvalidFigureManifestError(
                 f"figure entry {filename!r} is missing fields: {', '.join(missing)}"
             )
+        scope = entry["scope"]
+        if not isinstance(scope, Mapping) or not {"kind", "display"} <= scope.keys():
+            raise InvalidFigureManifestError(
+                f"figure entry {filename!r} scope must be a table with 'kind' and 'display'"
+            )
 
 
-def write_figure_manifest(path: str | Path, manifest: FigureManifest) -> None:
-    Path(path).write_bytes(tomli_w.dumps(manifest.as_dict()).encode("utf-8"))
+def write_figure_manifest(
+    path: str | Path, manifest: FigureManifest, notation: NotationPolicy
+) -> None:
+    Path(path).write_bytes(tomli_w.dumps(manifest.as_dict(notation)).encode("utf-8"))
 
 
 def sanitize_filename(value: str) -> str:
@@ -230,4 +255,4 @@ def make_plan(
     }
     scenario = f"_{metadata.scenario.value}" if metadata.scenario else ""
     filename = f"{kind.value}_{sanitize_filename(metadata.report_level)}_{sanitize_filename(group_slug)}{scenario}.png"
-    return FigurePlan(filename, titles[kind], metadata.scope, metadata)
+    return FigurePlan(filename, titles[kind], metadata)

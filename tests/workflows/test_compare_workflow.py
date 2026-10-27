@@ -7,13 +7,16 @@ import numpy as np
 import pytest
 import torch
 
+from neuralls.composition.assignments.presentation_preflight import prepare_comparison_presentation
 from neuralls.composition.comparison import comparison_run
 from neuralls.composition.comparison.comparison_run import (
     compare_preconditioners,
 )
-from neuralls.composition.comparison.models import LinearSystem
+from neuralls.composition.comparison.models import ComparisonPresentation, LinearSystem
 from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.presentation.titles import ComparisonScopePresentation
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
 from neuralls.domain.solver.models.plot_paths import PlotPaths
@@ -22,7 +25,9 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
+from neuralls.platform.reporting.figure_text import method_legend
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
+from neuralls.shared.types import PreconditionerName
 from tests.dataset_support import build_test_dataset
 
 
@@ -169,10 +174,11 @@ def test_preconditioner_result_keys_differ_when_fields_differ() -> None:
 def test_compare_preconditioners_evaluates_configs_one_at_a_time(
     monkeypatch: pytest.MonkeyPatch,
     neuralls_settings,
+    dataset_presentation: DatasetPresentation,
 ) -> None:
     """Comparison evaluates one preconditioner at a time on the solver device."""
     events: list[str] = []
-    seen_policies: list[NotationPolicy | None] = []
+    plot_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
     active: set[str] = set()
     expected_device = torch.device("meta")
 
@@ -231,18 +237,11 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
     monkeypatch.setattr(comparison_run, "resolve_device", lambda: expected_device)
     monkeypatch.setattr(comparison_run, "compute_reference_solution", lambda *args, **kwargs: None)
     monkeypatch.setattr(comparison_run, "PreconditionerService", TrackedService)
-    monkeypatch.setattr(
-        comparison_run,
-        "build_preconditioner_labels",
-        lambda preconditioners, configs, *, policy=None: (
-            seen_policies.append(policy) or {name: name for name in preconditioners}
-        ),
-    )
     monkeypatch.setattr(comparison_run, "run_cg_comparison", fake_run_cg_comparison)
     monkeypatch.setattr(
         comparison_run,
         "_generate_comparison_plots",
-        lambda *args, **kwargs: PlotPaths(),
+        lambda *args, **kwargs: plot_calls.append((args, kwargs)) or PlotPaths(),
     )
 
     general = ComparisonGeneral(
@@ -263,23 +262,37 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
         StandardPreconditionerConfig(type=PreconditionerType.ILU),
     )
     mathtext = NotationPolicy.default(RenderTarget.MATHTEXT)
+    prepared = prepare_comparison_presentation(
+        specs, ComparisonScopePresentation(dataset_presentation)
+    )
 
     compare_preconditioners(
         general_params=general,
         preconditioner_configs=specs,
         output_root=Path("unused-output"),
         settings=neuralls_settings,
-        notation_policy=mathtext,
+        presentation=ComparisonPresentation(
+            methods=prepared,
+            title=ComparisonScopePresentation(dataset_presentation),
+            notation=mathtext,
+        ),
     )
 
     assert events == ["create:jacobi", "cleanup:jacobi", "create:ilu", "cleanup:ilu"]
-    # The configured presentation must reach the label builder for every preconditioner.
-    assert seen_policies == [mathtext, mathtext]
     assert not active
+    # The prepared presentation, not the configs, names the methods in the figures.
+    legend, title = plot_calls[0][0][2:4]
+    assert legend == method_legend(
+        {spec.name: prepared.method(PreconditionerName(spec.name)).compact for spec in specs},
+        mathtext,
+    )
+    assert title.notation == mathtext
 
 
 @pytest.mark.integration
-def test_compare_preconditioners_workflow(tmp_path: Path, neuralls_settings) -> None:
+def test_compare_preconditioners_workflow(
+    tmp_path: Path, neuralls_settings, dataset_presentation: DatasetPresentation
+) -> None:
     """End-to-end check that compare_preconditioners loads config and data."""
     A = np.array([[4.0, -1.0], [-1.0, 3.0]], dtype=np.float64)
     _write_dataset(tmp_path, A)
@@ -304,6 +317,14 @@ def test_compare_preconditioners_workflow(tmp_path: Path, neuralls_settings) -> 
         preconditioner_configs=comparison_cfg_model.preconditioners,
         output_root=output_root,
         settings=neuralls_settings,
+        presentation=ComparisonPresentation(
+            methods=prepare_comparison_presentation(
+                comparison_cfg_model.preconditioners,
+                ComparisonScopePresentation(dataset_presentation),
+            ),
+            title=ComparisonScopePresentation(dataset_presentation),
+            notation=NotationPolicy.default(RenderTarget.MATHTEXT),
+        ),
     )
 
     # Access typed solver results from ComparisonResult

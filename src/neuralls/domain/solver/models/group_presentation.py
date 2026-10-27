@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from neuralls.domain.presentation.methods import PreparedMethodPresentation
+from neuralls.domain.presentation.methods import (
+    ConfiguredMethodPresentation,
+    PreparedMethodPresentation,
+)
+from neuralls.domain.solver.models.figure_scope import GroupScope
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.shared.scientific_description.catalog import fact_definition, is_compact_by_policy
-from neuralls.shared.scientific_description.models import ScientificFact, require_unique_keys
+from neuralls.shared.scientific_description.models import (
+    ScientificDescription,
+    ScientificFact,
+    require_unique_keys,
+)
 from neuralls.shared.types import PreconditionerName
 
 
@@ -61,23 +69,47 @@ class GroupMethodPresentation:
         """Every configured fact plus every invariant realized fact."""
         return (*self.prepared.detailed_facts, *self.invariant_facts)
 
+    @property
+    def compact(self) -> ConfiguredMethodPresentation:
+        """The configured presentation restricted to the compact facts of the group."""
+        return self._view(self.compact_facts)
+
+    @property
+    def detailed(self) -> ConfiguredMethodPresentation:
+        """The configured presentation with every configured and invariant realized fact."""
+        return self._view(self.detailed_facts)
+
+    def _view(self, facts: tuple[ScientificFact, ...]) -> ConfiguredMethodPresentation:
+        method = self.prepared.configured.method
+        return replace(
+            self.prepared.configured,
+            method=ScientificDescription(base_name=method.base_name, facts=facts),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class GroupPresentation:
     """Everything a sink needs, besides the numbers, to draw one report group.
 
     Attributes:
-        subject: What the group is, for titles (e.g. ``"ds, gaussian"`` or
-            ``"All datasets"``).
-        subtitle: Concise report scope shown below the metric title.
-        plot_styles: Style of each preconditioner of the group, by name.
-        methods: Structured presentation of each method of the group, by name.
+        scope: What the group pools, rendered by the sink in its titles.
+        plot_styles: Style of each preconditioner of the case, by name.
+        methods: Structured presentation of each method of the group, by name. A
+            listed method's plot style carries the same prepared presentation.
         solver_contexts: Distinct solver/timing configurations represented by
             systems in the group.
     """
 
-    subject: str
-    subtitle: str
+    scope: GroupScope
     plot_styles: Mapping[str, PreconditionerPlotStyle]
     methods: Mapping[PreconditionerName, GroupMethodPresentation]
     solver_contexts: tuple[SolverTimingContext, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Require a listed method's plot style, if it has one, to carry its prepared presentation."""
+        for name, method in self.methods.items():
+            style = self.plot_styles.get(name)
+            if style is not None and style.presentation != method.prepared:
+                raise ValueError(
+                    f"the plot style of method {name!r} carries a different presentation"
+                )

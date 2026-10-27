@@ -15,7 +15,7 @@ matrix setup event.
 from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -27,11 +27,14 @@ from neuralls.domain.benchmarking.costs import Cost, amortized_online_seconds, i
 from neuralls.domain.benchmarking.paired import PairedPoints, paired_points
 from neuralls.domain.benchmarking.profiles import Profile, ecdf_profiles, performance_profiles
 from neuralls.domain.benchmarking.selection import ConfiguredReference
+from neuralls.domain.solver.models.figure_scope import FigureScope
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
 from neuralls.domain.solver.models.outcomes import Outcomes
 from neuralls.domain.solver.models.statistics import PairedComparison
 from neuralls.domain.solver.models.workload import MethodWorkloadSummary
+from neuralls.platform.reporting.figure_text import Legend, ScopeSubtitle, draw_legend
 from neuralls.platform.reporting.plots import finish_group_figure, group_series_styles
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import PreconditionerName
 
 _FAILED_AXIS_MARGIN = 1.6
@@ -41,14 +44,24 @@ axis marking "did not converge", not a time."""
 
 @dataclass(frozen=True, slots=True)
 class GroupStyle:
-    """How a group's preconditioners are titled and drawn, shared by every plot here."""
+    """How a group's preconditioners are titled and drawn, shared by every plot here.
+
+    ``title`` is fixed editorial wording; the subtitle is the typed ``scope`` rendered
+    when a figure is drawn, and every series is named by ``legend``.
+    """
 
     title: str
-    subtitle: str | None = None
-    labels: Mapping[str, str] = field(default_factory=dict)
-    families: Mapping[str, Hashable] = field(default_factory=dict)
-    color_keys: Mapping[str, Hashable] = field(default_factory=dict)
-    marker_keys: Mapping[str, Hashable] = field(default_factory=dict)
+    scope: FigureScope
+    notation: NotationPolicy
+    legend: Legend
+    families: Mapping[str, Hashable]
+    color_keys: Mapping[str, Hashable]
+    marker_keys: Mapping[str, Hashable]
+
+    @property
+    def subtitle(self) -> str:
+        """The scope under the title, rendered for this style's notation."""
+        return ScopeSubtitle(self.scope, self.notation).text
 
 
 def plot_aggregate_bars(
@@ -62,7 +75,7 @@ def plot_aggregate_bars(
         return None
     names = list(outcome.convergence)
     styles = _series_styles(names, style)
-    labels = [style.labels.get(name, name) for name in names]
+    labels = [style.legend.label(name) for name in names]
     fig, ax = plt.subplots(figsize=(8, 5))
     values = [outcome.convergence[name].n_converged for name in names]
     positions = np.arange(len(names))
@@ -92,9 +105,9 @@ def _series_styles(names: Sequence[str], style: GroupStyle) -> dict[str, dict[st
     return group_series_styles(names, style.families, style.color_keys, style.marker_keys)
 
 
-def _legend_outside(ax: Axes) -> None:
+def _legend_outside(ax: Axes, legend: Legend) -> None:
     """Place the legend right of the axes so it never covers the points."""
-    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=9)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=9, ncols=legend.layout.columns)
 
 
 def _hollow(ax: Axes, xs: Sequence[float], ys: Sequence[float], *, color: Any, marker: Any) -> None:
@@ -151,8 +164,7 @@ def _step_profile_figure(
             color=styles[name]["color"],
             linestyle=styles[name]["linestyle"],
             label=(
-                f"{style.labels.get(name, name)} "
-                f"({len(profile.solved_at)}/{profile.n_systems} solved)"
+                f"{style.legend.label(name)} ({len(profile.solved_at)}/{profile.n_systems} solved)"
             ),
         )
     if log_x:
@@ -161,7 +173,7 @@ def _step_profile_figure(
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.grid(True, which="both", alpha=0.3)
-    ax.legend(loc="lower right", fontsize=9)
+    draw_legend(ax, style.legend, inside_loc="lower right", fontsize=9)
     finish_group_figure(
         fig,
         ax,
@@ -242,7 +254,7 @@ def plot_online_time_bars(
         raise ValueError("scenario must be 'solve' or 'online'")
     names = [str(summary.method) for summary in summaries]
     styles = _series_styles(names, style)
-    labels = [style.labels.get(name, name) for name in names]
+    labels = [style.legend.label(name) for name in names]
     values = [
         summary.solve_total_s if scenario == "solve" else summary.workload_online_s
         for summary in summaries
@@ -339,7 +351,7 @@ def plot_paired_time_scatter(
             [ref.amortized_online_s for ref, _ in p.both],
             [own.amortized_online_s for _, own in p.both],
             color=color, marker=marker, s=28,
-            label=f"{style.labels.get(name, name)} ({len(raw_p.both) + len(raw_p.method_only)} solved)",
+            label=f"{style.legend.label(name)} ({len(raw_p.both) + len(raw_p.method_only)} solved)",
         )  # fmt: skip
         _hollow(
             ax,
@@ -359,12 +371,12 @@ def plot_paired_time_scatter(
     ax.set_xlim(low, high)
     ax.set_ylim(low, high)
     ax.set_xlabel(
-        f"{style.labels.get(reference_name, reference_name)} (reference): amortized online time [s]"
+        f"{style.legend.label(reference_name)} (reference): amortized online time [s]"
         "\nhollow markers: the other axis's run did not converge"
     )
     ax.set_ylabel("Method: amortized online time [s]")
     ax.grid(True, which="both", alpha=0.3)
-    _legend_outside(ax)
+    _legend_outside(ax, style.legend)
     finish_group_figure(
         fig,
         ax,
@@ -422,15 +434,13 @@ def plot_speed_ratio_cdf(
             where="post",
             color=styles[name]["color"],
             linestyle=styles[name]["linestyle"],
-            label=_speed_ratio_legend(style.labels.get(name, name), comparisons[name]),
+            label=_speed_ratio_legend(style.legend.label(name), comparisons[name]),
         )
     ax.axvline(1.0, color="gray", linewidth=1, linestyle="--")
     ax.set_xscale("log")
     ax.set_ylim(0.0, 1.02)
     reference_label = (
-        style.labels.get(reference_name, str(reference_name))
-        if reference_name
-        else "configured reference"
+        style.legend.label(reference_name) if reference_name else "configured reference"
     )
     ax.set_xlabel(f"{reference_label} reference / method speed ratio (slower < 1, faster > 1)")
     ax.set_ylabel("Fraction of paired systems")

@@ -20,6 +20,13 @@ from loguru import logger
 
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.cost import StageCost
+from neuralls.platform.reporting.figure_text import (
+    FigureTitle,
+    Legend,
+    ScopeSubtitle,
+    draw_legend,
+    title_text,
+)
 from neuralls.shared.types import CostProvenance
 
 DEFAULT_LINE_MARKER_SIZE = 2.0
@@ -304,8 +311,8 @@ def plot_convergence_comparison(
     metadata: Mapping[str, Any] | None = None,
     save_path: str | Path | None = None,
     show: bool = False,
-    title: str | None = None,
-    subtitle: str | None = None,
+    title: FigureTitle | None = None,
+    subtitle: ScopeSubtitle | None = None,
     rtol: float | None = None,
     atol: float | None = None,
     max_iterations: int | None = None,
@@ -315,7 +322,8 @@ def plot_convergence_comparison(
     marker_size: float = DEFAULT_LINE_MARKER_SIZE,
     history_attr: str = "residual_history_rel",
     ylabel: str = "Relative Residual $\\|r\\| / \\|b\\|$",
-    labels: Mapping[str, str] | None = None,
+    *,
+    legend: Legend,
 ) -> None:
     """Plot convergence comparison between preconditioners.
 
@@ -325,7 +333,7 @@ def plot_convergence_comparison(
         save_path: Path to save plot
         show: Whether to show plot
         title: Optional title for the plot
-        subtitle: Optional concise scope shown below the core metric title.
+        subtitle: Optional scope shown below the core metric title, rendered here.
         rtol: Optional relative tolerance parameter to display
         atol: Optional absolute tolerance parameter to display
         max_iterations: Optional max iterations parameter to display
@@ -342,13 +350,12 @@ def plot_convergence_comparison(
         marker_size: Marker diameter for convergence-history points.
         history_attr: Per-iteration history field to plot, read from each result.
         ylabel: Y-axis label matching ``history_attr``.
-        labels: Optional display label per result key. Result identity and style
-            lookup always remain keyed by ``results``; labels are presentation
-            values only and therefore need not be unique.
+        legend: Text of every plotted series, keyed by result key. Result identity and
+            style lookup always remain keyed by ``results``; a result without an entry
+            raises.
     """
     fig, ax = plt.subplots(figsize=(10, 6))
     metadata = dict(metadata or {})
-    labels = labels or {}
     line_styles = _resolve_styles(families, color_keys, marker_keys) if families else {}
 
     for method_name, result in results.items():
@@ -365,8 +372,7 @@ def plot_convergence_comparison(
         if residuals and len(residuals) > 0:
             iterations = range(len(residuals))
 
-            display_name = labels.get(method_name, method_name)
-            label = _build_convergence_label(display_name, metadata.get(method_name))
+            label = _build_convergence_label(legend.label(method_name), metadata.get(method_name))
             style = dict(line_styles.get(method_name, {"marker": "o", "linestyle": "-"}))
             size_scale = style.pop("markersize_scale", 1.0)
 
@@ -381,7 +387,7 @@ def plot_convergence_comparison(
     ax.set_ylabel(ylabel)
 
     # Build subtitle from non-None parameters
-    subtitle_parts = [subtitle] if subtitle else []
+    subtitle_parts = [subtitle.text] if subtitle is not None else []
     if rtol is not None:
         subtitle_parts.append(f"rtol={rtol:.0e}")
     if atol is not None:
@@ -392,16 +398,20 @@ def plot_convergence_comparison(
     if subtitle_parts:
         ax.set_title(", ".join(subtitle_parts), fontsize=9)
 
-    fig.suptitle(title or "Convergence Comparison", fontsize=13, fontweight="bold")
+    fig.suptitle(
+        title_text(title) if title is not None else "Convergence Comparison",
+        fontsize=13,
+        fontweight="bold",
+    )
     ax.grid(True, alpha=0.3)
-    ax.legend(loc="upper right")
+    draw_legend(ax, legend, inside_loc="upper right")
 
     plt.tight_layout()
 
     if save_path is not None:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=200)
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
         print(f"Saved convergence comparison plot to: {save_path}")
 
     if show:
@@ -457,13 +467,13 @@ def plot_error_bound_comparison(
 def plot_work_precision(
     results: Mapping[str, CGComparisonResult],
     *,
-    labels: Mapping[str, str] | None = None,
+    legend: Legend,
     families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
     save_path: str | Path | None = None,
     show: bool = False,
-    title: str | None = None,
+    title: FigureTitle | None = None,
     marker_size: float = DEFAULT_SCATTER_MARKER_AREA,
 ) -> None:
     """Work-precision diagram: final achieved precision vs. solve time.
@@ -476,7 +486,7 @@ def plot_work_precision(
 
     Args:
         results: Dictionary of method results.
-        labels: Optional display label per result key.
+        legend: Text of every plotted series, keyed by result key.
         families: Optional plot-style family per method name — see
             ``plot_convergence_comparison``.
         color_keys: Optional color-axis key per method name.
@@ -487,7 +497,6 @@ def plot_work_precision(
         marker_size: Scatter marker area.
     """
     fig, ax = plt.subplots(figsize=(8, 6))
-    labels = labels or {}
     line_styles = _resolve_styles(families, color_keys, marker_keys) if families else {}
 
     for method_name, result in results.items():
@@ -496,7 +505,6 @@ def plot_work_precision(
             logger.warning(f"Method '{method_name}' has no cost data to plot on work-precision.")
             continue
 
-        display_name = labels.get(method_name, method_name)
         style = dict(
             line_styles.get(method_name, {"marker": "o", "linestyle": "None", "color": None})
         )
@@ -506,7 +514,7 @@ def plot_work_precision(
         ax.scatter(
             [solve_time],
             [result.residual],
-            label=display_name,
+            label=legend.label(method_name),
             s=marker_size * 20 * size_scale,
             marker=style.get("marker", "o"),
             color=style.get("color"),
@@ -519,18 +527,20 @@ def plot_work_precision(
     ax.set_xlabel("Solve time (s)")
     ax.set_ylabel("Final Relative Residual $\\|r\\| / \\|b\\|$")
     plot_title = (
-        f"{title}\nSolve-Time Work-Precision" if title else "Solve-Time Work-Precision Diagram"
+        f"{title_text(title)}\nSolve-Time Work-Precision"
+        if title is not None
+        else "Solve-Time Work-Precision Diagram"
     )
     fig.suptitle(plot_title, fontsize=13, fontweight="bold")
     ax.grid(True, which="both", alpha=0.3)
-    ax.legend(loc="upper right", fontsize=8)
+    draw_legend(ax, legend, inside_loc="upper right", fontsize=8)
 
     plt.tight_layout()
 
     if save_path is not None:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=200)
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
         logger.info(f"Saved work-precision plot to: {save_path}")
 
     if show:
@@ -577,13 +587,13 @@ def _method_wall_times(
 
 def plot_residual_vs_time(
     results: Mapping[str, CGComparisonResult],
-    labels: Mapping[str, str] | None = None,
+    legend: Legend,
     families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
     save_path: str | Path | None = None,
     show: bool = False,
-    title: str | None = None,
+    title: FigureTitle | None = None,
     marker_size: float = DEFAULT_LINE_MARKER_SIZE,
     solve_only: bool = False,
 ) -> None:
@@ -599,7 +609,7 @@ def plot_residual_vs_time(
 
     Args:
         results: Dictionary of method results.
-        labels: Optional display label per result key.
+        legend: Text of every plotted series, keyed by result key.
         families: Optional plot-style family per method name.
         color_keys: Optional color-axis key per method name.
         marker_keys: Optional marker-axis key per method name.
@@ -611,7 +621,6 @@ def plot_residual_vs_time(
             generation and setup time (see ``_method_wall_times``).
     """
     fig, ax = plt.subplots(figsize=(10, 6))
-    labels = labels or {}
     line_styles = _resolve_styles(families, color_keys, marker_keys) if families else {}
 
     for method_name, result in results.items():
@@ -625,14 +634,13 @@ def plot_residual_vs_time(
 
         wall_times = _method_wall_times(result, len(residuals), solve_only=solve_only)
 
-        display_name = labels.get(method_name, method_name)
         style = dict(line_styles.get(method_name, {"marker": "o", "linestyle": "-", "color": None}))
         size_scale = style.pop("markersize_scale", 1.0)
 
         ax.semilogy(
             wall_times,
             residuals,
-            label=display_name,
+            label=legend.label(method_name),
             markersize=marker_size * size_scale,
             **style,
         )
@@ -644,16 +652,20 @@ def plot_residual_vs_time(
         ax.set_xscale("log")
         ax.set_xlabel("Wall time: generation + setup + solve [s]")
     ax.set_ylabel("Relative Residual $\\|r\\| / \\|b\\|$")
-    fig.suptitle(title or "Convergence vs Wall Time", fontsize=13, fontweight="bold")
+    fig.suptitle(
+        title_text(title) if title is not None else "Convergence vs Wall Time",
+        fontsize=13,
+        fontweight="bold",
+    )
     ax.grid(True, alpha=0.3)
-    ax.legend(loc="upper right", fontsize=8)
+    draw_legend(ax, legend, inside_loc="upper right", fontsize=8)
 
     plt.tight_layout()
 
     if save_path is not None:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=200)
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
         logger.info(f"Saved residual vs time plot to: {save_path}")
 
     if show:
@@ -664,13 +676,13 @@ def plot_residual_vs_time(
 
 def plot_error_vs_time(
     results: Mapping[str, CGComparisonResult],
-    labels: Mapping[str, str] | None = None,
+    legend: Legend,
     families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
     save_path: str | Path | None = None,
     show: bool = False,
-    title: str | None = None,
+    title: FigureTitle | None = None,
     marker_size: float = DEFAULT_LINE_MARKER_SIZE,
     solve_only: bool = False,
 ) -> None:
@@ -686,7 +698,7 @@ def plot_error_vs_time(
 
     Args:
         results: Dictionary of method results.
-        labels: Optional display label per result key.
+        legend: Text of every plotted series, keyed by result key.
         families: Optional plot-style family per method name.
         color_keys: Optional color-axis key per method name.
         marker_keys: Optional marker-axis key per method name.
@@ -698,7 +710,6 @@ def plot_error_vs_time(
             generation and setup time (see ``_method_wall_times``).
     """
     fig, ax = plt.subplots(figsize=(10, 6))
-    labels = labels or {}
     line_styles = _resolve_styles(families, color_keys, marker_keys) if families else {}
 
     for method_name, result in results.items():
@@ -714,14 +725,13 @@ def plot_error_vs_time(
 
         wall_times = _method_wall_times(result, len(errors), solve_only=solve_only)
 
-        display_name = labels.get(method_name, method_name)
         style = dict(line_styles.get(method_name, {"marker": "o", "linestyle": "-", "color": None}))
         size_scale = style.pop("markersize_scale", 1.0)
 
         ax.semilogy(
             wall_times,
             errors,
-            label=display_name,
+            label=legend.label(method_name),
             markersize=marker_size * size_scale,
             **style,
         )
@@ -733,16 +743,20 @@ def plot_error_vs_time(
         ax.set_xscale("log")
         ax.set_xlabel("Wall time: generation + setup + solve [s]")
     ax.set_ylabel("Relative Energy-Norm Error $\\|e_k\\|_A / \\|e_0\\|_A$")
-    fig.suptitle(title or "Error Convergence vs Wall Time", fontsize=13, fontweight="bold")
+    fig.suptitle(
+        title_text(title) if title is not None else "Error Convergence vs Wall Time",
+        fontsize=13,
+        fontweight="bold",
+    )
     ax.grid(True, alpha=0.3)
-    ax.legend(loc="upper right", fontsize=8)
+    draw_legend(ax, legend, inside_loc="upper right", fontsize=8)
 
     plt.tight_layout()
 
     if save_path is not None:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=200)
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
         logger.info(f"Saved error vs time plot to: {save_path}")
 
     if show:
@@ -863,8 +877,9 @@ def plot_metric_comparison(
         title: Optional title for the plot. Defaults to "Metric Comparison: {metric_name}".
         horizontal: If True, use horizontal bars (barh) and swap axis labels.
     """
+    label_lines = sum(label.count("\n") + 1 for label in labels)
     if horizontal:
-        fig, ax = plt.subplots(figsize=(5, max(3, len(labels) * 0.6)))
+        fig, ax = plt.subplots(figsize=(5, max(3, label_lines * 0.6)))
     else:
         fig, ax = plt.subplots(figsize=(max(6, len(labels) * 1.2), 5))
 
@@ -928,6 +943,30 @@ def plot_metric_comparison(
         plt.show()
     else:
         plt.close(fig)
+
+
+def plot_method_bars(
+    legend: Legend,
+    names: Sequence[str],
+    values: Sequence[float],
+    *,
+    metric_name: str,
+    title: FigureTitle | None = None,
+    horizontal: bool = False,
+    save_path: Path | None = None,
+) -> None:
+    """Bar chart of one metric per method, each bar labelled by its legend entry.
+
+    The bar labels are rendered from ``legend`` here; a name without an entry raises.
+    """
+    plot_metric_comparison(
+        [legend.label(name) for name in names],
+        list(values),
+        metric_name=metric_name,
+        title=title_text(title) if title is not None else None,
+        horizontal=horizontal,
+        save_path=save_path,
+    )
 
 
 def group_series_styles(
@@ -1034,11 +1073,11 @@ def _stage_segment_style(base_color: str, provenance: CostProvenance | None) -> 
 
 def plot_time_breakdown_barplot(
     results: Mapping[str, CGComparisonResult],
-    labels: Mapping[str, str],
+    legend: Legend,
     *,
     save_path: str | Path | None = None,
     show: bool = False,
-    title: str | None = None,
+    title: FigureTitle | None = None,
 ) -> None:
     """Stacked horizontal bar chart of each method's generation/setup/solve time.
 
@@ -1054,7 +1093,7 @@ def plot_time_breakdown_barplot(
 
     Args:
         results: Dictionary of method results.
-        labels: Display label per result key.
+        legend: Text of every plotted series, keyed by result key.
         save_path: Path to save plot.
         show: Whether to show plot.
         title: Optional title for the plot.
@@ -1086,7 +1125,7 @@ def plot_time_breakdown_barplot(
         generation_seconds, generation_provenance = _stage_parts(result.generation_cost)
         entries.append(
             (
-                labels.get(name, name),
+                legend.label(name),
                 generation_seconds,
                 generation_provenance,
                 result.setup_cost,
@@ -1161,7 +1200,9 @@ def plot_time_breakdown_barplot(
     ax.grid(True, alpha=0.3, axis="x")
     ax.legend(handles=legend_handles, loc="lower right")
     fig.suptitle(
-        title or "Time Breakdown (Generation + Setup + Solve)", fontsize=13, fontweight="bold"
+        title_text(title) if title is not None else "Time Breakdown (Generation + Setup + Solve)",
+        fontsize=13,
+        fontweight="bold",
     )
 
     fig.tight_layout()

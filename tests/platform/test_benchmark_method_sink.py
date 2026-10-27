@@ -13,6 +13,7 @@ from tests.presentation_support import PreparedMethodFactory
 from neuralls.composition.comparison.models import CompletedMethodWorkload, canonical_method_config
 from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
 from neuralls.domain.presentation.methods import ExecutedMethod
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -37,6 +38,7 @@ from neuralls.platform.tracking.comparison_tracking import (
     MLflowBenchmarkMethodSink,
     _write_method_config,
 )
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 
 
@@ -104,6 +106,8 @@ def test_method_sink_records_aggregates_without_opening_a_run(
     tmp_path: Path,
     method_workload: CompletedMethodWorkload,
     method_summary: CompleteWorkloadSummary,
+    notation: NotationPolicy,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     metrics: list[tuple[str, float]] = []
     artifacts: list[str] = []
@@ -128,7 +132,7 @@ def test_method_sink_records_aggregates_without_opening_a_run(
         lambda *args, **kwargs: None,
     )
 
-    sink = MLflowBenchmarkMethodSink()
+    sink = MLflowBenchmarkMethodSink(notation, group_datasets)
     sink.record_method(method_workload, method_summary, root=tmp_path)
 
     assert [key for key, _ in metrics] == [

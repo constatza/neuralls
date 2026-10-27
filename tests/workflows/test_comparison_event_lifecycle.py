@@ -37,7 +37,6 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
 )
 from neuralls.platform.config.settings import NeurallsSettings
-from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, SystemId
 from tests.presentation_support import PreparedMethodFactory
 
@@ -166,7 +165,6 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
             params=solver_params,
             settings=neuralls_settings,
             prepared=prepared_method(str(method.name)),
-            notation_policy=NotationPolicy.default(),
         )
     finally:
         logger.remove(sink_id)
@@ -234,7 +232,6 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
-        notation_policy=NotationPolicy.default(),
     )
 
     assert len(workload.setup_events) == 2
@@ -269,7 +266,6 @@ def test_repeat_samples_are_retained_but_totals_use_one_representative(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
-        notation_policy=NotationPolicy.default(),
     )
 
     assert all(attempt.samples_s == (1.0, 2.0, 3.0) for attempt in workload.solve_attempts)
@@ -363,7 +359,6 @@ def test_io_reference_and_reporting_stay_outside_online_timers(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
-        notation_policy=NotationPolicy.default(),
     )
 
     assert trace == [
@@ -406,7 +401,6 @@ def test_solver_failure_retains_measured_attempt(
             params=solver_params,
             settings=neuralls_settings,
             prepared=prepared_method(str(method.name)),
-            notation_policy=NotationPolicy.default(),
         )
     finally:
         logger.remove(sink_id)

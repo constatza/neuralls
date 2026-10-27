@@ -7,6 +7,7 @@ plot that saves a file but draws the wrong points fails.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -75,8 +76,8 @@ def zero_cost_reference_outcomes() -> Outcomes:
 
 
 @pytest.fixture
-def style() -> GroupStyle:
-    return GroupStyle(title="group", labels={"amg": "AMG"})
+def style(group_style_of: Callable[..., GroupStyle]) -> GroupStyle:
+    return group_style_of("amg", "jacobi")
 
 
 def _axes(figures: list[Figure]) -> Axes:
@@ -167,8 +168,10 @@ def test_online_bars_use_reducer_totals_and_mark_incomplete_methods(
     assert ax.texts[0].get_text() == " 1/3 (incomplete)"
 
 
-def test_online_bars_use_configured_method_labels(tmp_path: Path, figures: list[Figure]) -> None:
-    labelled = GroupStyle(title="group", labels={"jacobi": "Jacobi ($\\rho=0.1$)"})
+def test_online_bars_use_configured_method_labels(
+    tmp_path: Path, figures: list[Figure], group_style_of: Callable[..., GroupStyle]
+) -> None:
+    labelled = group_style_of("jacobi")
     from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
 
     complete = CompleteWorkloadSummary(
@@ -186,11 +189,12 @@ def test_online_bars_use_configured_method_labels(tmp_path: Path, figures: list[
         [complete], scenario="online", style=labelled, save_path=tmp_path / "bars.png"
     )
 
-    assert _axes(figures).get_yticklabels()[0].get_text() == "Jacobi ($\\rho=0.1$)"
+    assert _axes(figures).get_yticklabels()[0].get_text() == labelled.legend.label("jacobi")
+    assert labelled.legend.label("jacobi") == "Method jacobi"
 
 
 def test_bars_keep_distinct_positions_for_descriptive_method_labels(
-    tmp_path: Path, figures: list[Figure]
+    tmp_path: Path, figures: list[Figure], group_style_of: Callable[..., GroupStyle]
 ) -> None:
     """Descriptive labels remain paired with distinct numeric bar positions."""
     from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
@@ -209,13 +213,7 @@ def test_bars_keep_distinct_positions_for_descriptive_method_labels(
         )
         for name, seconds in (("network_a", 2.0), ("network_b", 3.0))
     )
-    style = GroupStyle(
-        title="Online Time",
-        labels={
-            "network_a": "Neural (assignment=network_a)",
-            "network_b": "Neural (assignment=network_b)",
-        },
-    )
+    style = group_style_of("network_a", "network_b", title="Online Time")
 
     plot_online_time_bars(
         summaries, scenario="online", style=style, save_path=tmp_path / "bars.png"
@@ -227,8 +225,8 @@ def test_bars_keep_distinct_positions_for_descriptive_method_labels(
     ]
     assert centers[0] != centers[1]
     assert [tick.get_text() for tick in ax.get_yticklabels()] == [
-        "Neural (assignment=network_a)",
-        "Neural (assignment=network_b)",
+        "Method network a",
+        "Method network b",
     ]
 
 
@@ -336,7 +334,7 @@ def test_speed_ratio_cdf_has_sorted_ratios_and_a_line_at_one(
     assert legend is not None
     assert (
         legend.get_texts()[0].get_text()
-        == "jacobi: median 2.00 [0.50, 4.00], n=3 (reference / method)"
+        == "Method jacobi: median 2.00 [0.50, 4.00], n=3 (reference / method)"
     )
 
 

@@ -2,35 +2,40 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
 import numpy as np
 import pytest
-import torch
-from torchalg.preconditioners.base import Preconditioner
-from torchalg.preconditioners.implementations import Identity, JacobiPreconditioner
 
 from neuralls.composition.comparison._plots import _generate_comparison_plots
 from neuralls.composition.comparison.models import ComparisonPaths
-from neuralls.composition.preconditioners.labels import build_preconditioner_labels
 from neuralls.domain.analysis.spectra import plot_condition_numbers
+from neuralls.domain.presentation.methods import MissingMethodPresentationError
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.figure_scope import AllDatasetsScope
 from neuralls.domain.solver.models.plot_paths import PlotPaths
 from neuralls.platform.config.models.preconditioner import (
-    PreconditionerConfig,
     PreconditionerType,
-    StandardPreconditionerConfig,
 )
 from neuralls.platform.reporting import plots as reporting_plots
+from neuralls.platform.reporting.figure_text import (
+    DID_NOT_CONVERGE_MARK,
+    EditorialTitle,
+    Legend,
+    ScopeSubtitle,
+)
 from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
     plot_metric_comparison,
     plot_time_breakdown_barplot,
     plot_work_precision,
 )
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import CostProvenance
 
 # TODO: Keep one real save per public plotter; mock the render/save boundary in
@@ -166,32 +171,6 @@ def simple_cond_numbers() -> dict[str, float]:
         Mapping from preconditioner name to condition number float.
     """
     return {"identity": 1.0, "jacobi": 5.0}
-
-
-@pytest.fixture
-def two_preconditioners() -> dict[str, Preconditioner]:
-    """Constructed preconditioner instances matching ``two_result_entries``' keys.
-
-    Returns:
-        A dict with two entries: "identity" and "jacobi", holding real
-        constructed preconditioner objects (not config data) so
-        ``_generate_comparison_plots`` can derive descriptive plot labels
-        from them.
-    """
-    matrix = torch.diag(torch.tensor([2.0, 3.0], dtype=torch.float64))
-    return {
-        "identity": Identity(),
-        "jacobi": JacobiPreconditioner().setup(matrix),
-    }
-
-
-@pytest.fixture
-def two_preconditioner_configs() -> dict[str, PreconditionerConfig]:
-    """Config per name, matching ``two_preconditioners``' keys (the label's configured facts)."""
-    return {
-        "identity": StandardPreconditionerConfig(type=PreconditionerType.IDENTITY),
-        "jacobi": StandardPreconditionerConfig(type=PreconditionerType.JACOBI),
-    }
 
 
 @pytest.fixture
@@ -413,6 +392,7 @@ def test_plot_metric_comparison_vertical_sorts_descending_and_rotates_labels(
 def test_plot_time_breakdown_barplot_saves_file_when_times_present(
     tmp_path: Path,
     two_result_entries_with_times: dict[str, CGComparisonResult],
+    legend_of: Callable[..., Legend],
 ) -> None:
     """plot_time_breakdown_barplot writes a PNG when results carry setup/solve times.
 
@@ -421,13 +401,18 @@ def test_plot_time_breakdown_barplot_saves_file_when_times_present(
         two_result_entries_with_times: Two-entry result dict with times set.
     """
     save_path = tmp_path / "breakdown.png"
-    plot_time_breakdown_barplot(two_result_entries_with_times, labels={}, save_path=save_path)
+    plot_time_breakdown_barplot(
+        two_result_entries_with_times,
+        legend_of(*two_result_entries_with_times),
+        save_path=save_path,
+    )
     assert save_path.exists()
 
 
 def test_plot_time_breakdown_barplot_skips_methods_missing_both_times(
     tmp_path: Path,
     two_result_entries: dict[str, CGComparisonResult],
+    legend_of: Callable[..., Legend],
 ) -> None:
     """plot_time_breakdown_barplot still writes a (empty) chart when no times are measured.
 
@@ -436,7 +421,9 @@ def test_plot_time_breakdown_barplot_skips_methods_missing_both_times(
         two_result_entries: Two-entry result dict fixture with no times set.
     """
     save_path = tmp_path / "breakdown.png"
-    plot_time_breakdown_barplot(two_result_entries, labels={}, save_path=save_path)
+    plot_time_breakdown_barplot(
+        two_result_entries, legend_of(*two_result_entries), save_path=save_path
+    )
     assert save_path.exists()
 
 
@@ -444,6 +431,7 @@ def test_plot_time_breakdown_barplot_hatches_only_the_unavailable_segment(
     two_result_entries_with_identical_generation_time_different_provenance: dict[
         str, CGComparisonResult
     ],
+    legend_of: Callable[..., Legend],
 ) -> None:
     """A MEASURED and an UNAVAILABLE generation segment with identical wall time
     must render visually distinct -- only the UNAVAILABLE one is hatched.
@@ -451,7 +439,7 @@ def test_plot_time_breakdown_barplot_hatches_only_the_unavailable_segment(
     with patch("neuralls.platform.reporting.plots.plt.close"):
         plot_time_breakdown_barplot(
             two_result_entries_with_identical_generation_time_different_provenance,
-            labels={"measured": "measured", "unavailable": "unavailable"},
+            legend_of("measured", "unavailable"),
         )
         fig = reporting_plots.plt.gcf()
         ax = fig.axes[0]
@@ -463,18 +451,22 @@ def test_plot_time_breakdown_barplot_hatches_only_the_unavailable_segment(
         }
     reporting_plots.plt.close(fig)
 
-    assert generation_hatches_by_label["measured"] is None
-    assert generation_hatches_by_label["unavailable"] is not None
+    assert generation_hatches_by_label["Method measured"] is None
+    assert generation_hatches_by_label["Method unavailable"] is not None
 
 
 def test_plot_work_precision_uses_solve_time_even_when_generation_is_unavailable(
     two_result_entries_with_identical_generation_time_different_provenance: dict[
         str, CGComparisonResult
     ],
+    legend_of: Callable[..., Legend],
 ) -> None:
     """Work precision plots measured solve time without an offline-cost gate."""
     with patch("neuralls.platform.reporting.plots.plt.close"):
-        plot_work_precision(two_result_entries_with_identical_generation_time_different_provenance)
+        plot_work_precision(
+            two_result_entries_with_identical_generation_time_different_provenance,
+            legend=legend_of("measured", "unavailable"),
+        )
         fig = reporting_plots.plt.gcf()
         ax = fig.axes[0]
         legend = ax.get_legend()
@@ -487,7 +479,7 @@ def test_plot_work_precision_uses_solve_time_even_when_generation_is_unavailable
         x_label = ax.get_xlabel()
     reporting_plots.plt.close(fig)
 
-    assert plotted_labels == ["measured", "unavailable"]
+    assert plotted_labels == ["Method measured", "Method unavailable"]
     assert x_values == [0.1, 0.1]
     assert x_label == "Solve time (s)"
 
@@ -500,6 +492,7 @@ def test_plot_work_precision_uses_solve_time_even_when_generation_is_unavailable
 def test_plot_convergence_comparison_with_title_and_params(
     tmp_path: Path,
     two_result_entries: dict[str, CGComparisonResult],
+    legend_of: Callable[..., Legend],
 ) -> None:
     """plot_convergence_comparison with title/rtol/atol/max_iterations saves file.
 
@@ -510,7 +503,8 @@ def test_plot_convergence_comparison_with_title_and_params(
     save_path = tmp_path / "conv.png"
     plot_convergence_comparison(
         two_result_entries,
-        title="Test",
+        title=EditorialTitle("Test"),
+        legend=legend_of(*two_result_entries),
         rtol=RTOL,
         atol=ATOL,
         max_iterations=MAX_ITERATIONS,
@@ -522,6 +516,7 @@ def test_plot_convergence_comparison_with_title_and_params(
 def test_plot_convergence_comparison_default_title_no_params(
     tmp_path: Path,
     two_result_entries: dict[str, CGComparisonResult],
+    legend_of: Callable[..., Legend],
 ) -> None:
     """plot_convergence_comparison with defaults (no title/tolerances) saves file.
 
@@ -530,26 +525,46 @@ def test_plot_convergence_comparison_default_title_no_params(
         two_result_entries: Two-entry result dict from fixture.
     """
     save_path = tmp_path / "conv_default.png"
-    plot_convergence_comparison(two_result_entries, save_path=save_path)
+    plot_convergence_comparison(
+        two_result_entries, legend=legend_of(*two_result_entries), save_path=save_path
+    )
     assert save_path.exists()
 
 
-def test_plot_convergence_comparison_draws_every_result_when_labels_collide(
-    two_result_entries: dict[str, CGComparisonResult],
+def test_plot_convergence_comparison_draws_every_keyed_result_with_its_legend_entry(
+    two_result_entries: dict[str, CGComparisonResult], legend_of: Callable[..., Legend]
 ) -> None:
-    """Equal display text must not collapse independently keyed result curves."""
-    labels = dict.fromkeys(two_result_entries, "POD-2G (c=10)")
+    """Each independently keyed result gets its own curve and its own legend text."""
+    legend = legend_of(*two_result_entries)
 
     with patch("neuralls.platform.reporting.plots.plt.close"):
-        plot_convergence_comparison(two_result_entries, labels=labels)
+        plot_convergence_comparison(two_result_entries, legend=legend)
         figure = reporting_plots.plt.gcf()
 
     axes = figure.axes[0]
     assert len(axes.lines) == len(two_result_entries)
-    legend = axes.get_legend()
-    assert legend is not None
-    assert [text.get_text() for text in legend.get_texts()] == list(labels.values())
+    drawn = axes.get_legend()
+    assert drawn is not None
+    assert [text.get_text() for text in drawn.get_texts()] == [
+        legend.label(name) for name in two_result_entries
+    ]
     reporting_plots.plt.close(figure)
+
+
+def test_plot_convergence_comparison_without_a_legend_entry_raises(
+    two_result_entries: dict[str, CGComparisonResult], legend_of: Callable[..., Legend]
+) -> None:
+    """A result with no presentation never falls back to its key."""
+    first = next(iter(two_result_entries))
+
+    with (
+        patch("neuralls.platform.reporting.plots.plt.close"),
+        pytest.raises(MissingMethodPresentationError) as raised,
+    ):
+        plot_convergence_comparison(two_result_entries, legend=legend_of(first))
+
+    assert raised.value.method_id in set(two_result_entries) - {first}
+    reporting_plots.plt.close("all")
 
 
 # ---------------------------------------------------------------------------
@@ -601,23 +616,15 @@ def test_plot_condition_numbers_with_title_and_subtitle(
 def test_generate_comparison_plots_includes_iterations_barplot(
     comparison_paths: ComparisonPaths,
     two_result_entries: dict[str, CGComparisonResult],
-    two_preconditioners: dict[str, Preconditioner],
-    two_preconditioner_families: dict[str, PreconditionerType],
-    two_preconditioner_configs: dict[str, PreconditionerConfig],
+    legend_of: Callable[..., Legend],
 ) -> None:
     """_generate_comparison_plots returns PlotPaths with iterations_barplot set.
 
     Plotting functions are patched to avoid file I/O while still exercising the
     orchestration logic that populates PlotPaths.
-
-    Args:
-        comparison_paths: Pytest-managed comparison output paths.
-        two_result_entries: Two-entry result dict from fixture.
-        two_preconditioners: Constructed preconditioner instances from fixture.
-        two_preconditioner_families: Family key per name, from fixture.
-        two_preconditioner_configs: Config per name, from fixture.
     """
-    labels = build_preconditioner_labels(two_preconditioners, two_preconditioner_configs)
+    legend = legend_of(*two_result_entries)
+    title = EditorialTitle("demo")
 
     with (
         patch(
@@ -626,109 +633,81 @@ def test_generate_comparison_plots_includes_iterations_barplot(
         patch(
             "neuralls.composition.comparison._plots.plot_error_convergence_comparison"
         ) as error_plot,
-        patch("neuralls.composition.comparison._plots.plot_metric_comparison") as metric_plot,
+        patch("neuralls.composition.comparison._plots.plot_method_bars") as bars_plot,
     ):
-        result = _generate_comparison_plots(
-            two_result_entries,
-            comparison_paths,
-            labels,
-            comparison_context="matrix=demo-matrix | rhs=gaussian",
-            system_size=1000,
-        )
+        result = _generate_comparison_plots(two_result_entries, comparison_paths, legend, title)
 
     assert result.time_breakdown_barplot is None  # neither entry has setup/solve times
     assert "condition_numbers" not in result.to_mapping()
-    expected_title = "matrix=demo-matrix | rhs=gaussian\nN=1000"
-    assert convergence_plot.call_args.kwargs["title"] == expected_title
+    assert convergence_plot.call_args.kwargs["title"] == title
     assert convergence_plot.call_args.args[0] is two_result_entries
-    assert convergence_plot.call_args.kwargs["labels"] == labels
+    assert convergence_plot.call_args.kwargs["legend"] == legend
     assert error_plot.call_args.args[0] is two_result_entries
-    assert error_plot.call_args.kwargs["labels"] == labels
-    assert metric_plot.call_args.kwargs["title"] == expected_title
+    assert error_plot.call_args.kwargs["legend"] == legend
+    assert bars_plot.call_args.kwargs["title"] == title
 
 
 def test_generate_comparison_plots_includes_time_breakdown_barplot_when_measured(
     comparison_paths: ComparisonPaths,
     two_result_entries_with_times: dict[str, CGComparisonResult],
-    two_preconditioners: dict[str, Preconditioner],
-    two_preconditioner_families: dict[str, PreconditionerType],
-    two_preconditioner_configs: dict[str, PreconditionerConfig],
+    legend_of: Callable[..., Legend],
 ) -> None:
-    """_generate_comparison_plots populates time_breakdown_barplot when times are measured.
-
-    Args:
-        comparison_paths: Pytest-managed comparison output paths.
-        two_result_entries_with_times: Two-entry result dict with setup/solve times set.
-        two_preconditioners: Constructed preconditioner instances from fixture.
-        two_preconditioner_families: Family key per name, from fixture.
-        two_preconditioner_configs: Config per name, from fixture.
-    """
-    labels = build_preconditioner_labels(two_preconditioners, two_preconditioner_configs)
-
+    """_generate_comparison_plots populates time_breakdown_barplot when times are measured."""
     with (
         patch("neuralls.composition.comparison._plots.plot_convergence_comparison"),
         patch("neuralls.composition.comparison._plots.plot_error_convergence_comparison"),
-        patch("neuralls.composition.comparison._plots.plot_metric_comparison"),
+        patch("neuralls.composition.comparison._plots.plot_method_bars"),
     ):
         result = _generate_comparison_plots(
             two_result_entries_with_times,
             comparison_paths,
-            labels,
-            comparison_context="matrix=demo-matrix | rhs=gaussian",
+            legend_of(*two_result_entries_with_times),
+            EditorialTitle("demo"),
         )
         assert result.time_breakdown_barplot is not None
 
     assert result.time_breakdown_barplot.exists()
 
 
-def test_generate_comparison_plots_preserves_results_when_labels_collide(
+def test_generate_comparison_plots_marks_only_the_unconverged_result(
     comparison_paths: ComparisonPaths,
     two_result_entries: dict[str, CGComparisonResult],
-    two_preconditioner_families: dict[str, PreconditionerType],
-    two_preconditioner_configs: dict[str, PreconditionerConfig],
+    legend_of: Callable[..., Legend],
 ) -> None:
-    """Presentation-label collisions must not overwrite distinct solver results."""
-    labels = dict.fromkeys(two_result_entries, "POD-2G (c=10)")
+    """The did-not-converge mark reaches the plots through the legend, never the result key."""
+    failed, kept = list(two_result_entries)
+    results = {**two_result_entries, failed: replace(two_result_entries[failed], converged=False)}
+    legend = legend_of(*results)
 
     with (
         patch(
             "neuralls.composition.comparison._plots.plot_convergence_comparison"
         ) as convergence_plot,
-        patch(
-            "neuralls.composition.comparison._plots.plot_error_convergence_comparison"
-        ) as error_plot,
-        patch("neuralls.composition.comparison._plots.plot_metric_comparison"),
+        patch("neuralls.composition.comparison._plots.plot_error_convergence_comparison"),
+        patch("neuralls.composition.comparison._plots.plot_method_bars"),
     ):
-        _generate_comparison_plots(
-            two_result_entries,
-            comparison_paths,
-            labels,
-            comparison_context="matrix=demo-matrix | rhs=gaussian",
-            families=two_preconditioner_families,
-        )
+        _generate_comparison_plots(results, comparison_paths, legend, EditorialTitle("demo"))
 
-    expected_labels = {
-        "identity": "POD-2G (c=10) [identity]",
-        "jacobi": "POD-2G (c=10) [jacobi]",
-    }
-    assert convergence_plot.call_args.args[0] is two_result_entries
-    assert convergence_plot.call_args.kwargs["labels"] == expected_labels
-    assert error_plot.call_args.args[0] is two_result_entries
-    assert error_plot.call_args.kwargs["labels"] == expected_labels
+    drawn = convergence_plot.call_args.kwargs["legend"]
+    assert drawn.label(kept) == legend.label(kept)
+    assert drawn.label(failed) == f"{legend.label(failed)} {DID_NOT_CONVERGE_MARK}"
 
 
-def test_method_history_uses_metric_title_and_concise_method_subtitle(
+def test_method_history_uses_metric_title_and_rendered_scope_subtitle(
     two_result_entries: dict[str, CGComparisonResult],
+    legend_of: Callable[..., Legend],
+    notation: NotationPolicy,
 ) -> None:
     with patch("neuralls.platform.reporting.plots.plt.close"):
         plot_convergence_comparison(
             two_result_entries,
-            title="Residual History",
-            subtitle="Method Neural (assignment=network_a)",
+            title=EditorialTitle("Residual History"),
+            subtitle=ScopeSubtitle(AllDatasetsScope(), notation),
+            legend=legend_of(*two_result_entries),
         )
         figure = reporting_plots.plt.gcf()
 
     axes = figure.axes[0]
     assert figure.get_suptitle() == "Residual History"
-    assert axes.get_title() == "Method Neural (assignment=network_a)"
+    assert axes.get_title() == "All datasets"
     reporting_plots.plt.close(figure)

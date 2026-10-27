@@ -40,10 +40,3 @@ def build_comparison_source_context(
         else _path_label(paths.matrix)
     )
     return f"matrix={matrix_label} | rhs={_rhs_label(paths, resolved_input)}"
-
-
-def build_comparison_plot_title(context: str, system_size: int | None) -> str:
-    """Add the system size to the canonical comparison context for plot titles."""
-    if system_size is None:
-        return context
-    return f"{context}\nN={system_size}"

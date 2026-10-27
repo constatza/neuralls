@@ -7,6 +7,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import assert_never
 
 import mlflow
 
@@ -16,6 +17,8 @@ from neuralls.domain.benchmarking.selection import (
     NoReferenceConfigured,
     ReferenceUnavailable,
 )
+from neuralls.domain.presentation.methods import MissingMethodPresentationError
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.cost_metrics import (
     peak_memory_per_dof,
     setup_time_per_dof,
@@ -24,13 +27,14 @@ from neuralls.domain.solver.cost_metrics import (
 from neuralls.domain.solver.models.benchmark_events import SetupFailed, SolveFailed
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
+from neuralls.domain.solver.models.figure_scope import MethodScope, RecipeScope
 from neuralls.domain.solver.models.group_outcomes import (
     RecipeProfileReport,
     WorkloadMixtureReport,
 )
+from neuralls.domain.solver.models.group_presentation import GroupPresentation, SolverTimingContext
 from neuralls.domain.solver.models.labels import MediumLabel
-from neuralls.domain.solver.models.plot_style import PlotStyleMaps, plot_style_maps
-from neuralls.domain.solver.models.presentation import GroupPresentation, SolverTimingContext
+from neuralls.domain.solver.models.plot_style import plot_style_maps
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.models.statistics import MethodComparison, PairedComparison
 from neuralls.domain.solver.models.workload import MethodWorkload, MethodWorkloadSummary
@@ -50,6 +54,13 @@ from neuralls.platform.reporting.figure_metadata import (
     make_plan,
     write_figure_manifest,
 )
+from neuralls.platform.reporting.figure_text import (
+    EditorialTitle,
+    Legend,
+    ScopeSubtitle,
+    method_legend,
+    series_legend,
+)
 from neuralls.platform.reporting.outcome_plots import (
     GroupStyle,
     plot_aggregate_bars,
@@ -64,7 +75,8 @@ from neuralls.platform.reporting.plots import (
     plot_error_convergence_comparison,
 )
 from neuralls.platform.tracking.mlflow import ensure_experiment, sanitize_metric_key_segment
-from neuralls.shared.types import GroupId, PreconditionerName, SystemId
+from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.types import DatasetId, GroupId, PreconditionerName, SystemId
 
 
 def setup_comparison_tracking(
@@ -230,8 +242,13 @@ def log_comparison_metrics(
 
 @dataclass(slots=True)
 class MLflowGroupReportSink:
-    """Temporary event-group sink retained until method-level reporting lands."""
+    """Temporary event-group sink retained until method-level reporting lands.
 
+    ``notation`` is the case's symbol policy; every figure and the manifest render their
+    presentation values with it.
+    """
+
+    notation: NotationPolicy
     manifest: FigureManifest = field(default_factory=FigureManifest)
     _staging: tempfile.TemporaryDirectory[str] = field(
         default_factory=lambda: tempfile.TemporaryDirectory(prefix="neuralls-figures-")
@@ -262,7 +279,7 @@ class MLflowGroupReportSink:
                 )
             )
             method = str(workload.method)
-            scope = _method_scope(workload)
+            scope = MethodScope(workload.presentation.prepared.detailed)
             method_slug = sanitize_metric_key_segment(method)
             n_matrices = len({(tag.dataset, tag.matrix_id) for tag in workload.planned})
             recipe_weights = tuple(count / len(workload.planned) for count in counts)
@@ -321,7 +338,9 @@ class MLflowGroupReportSink:
             file_key = sanitize_metric_key_segment(group_id)
             plans = _figure_plans(outcome, presentation, file_key)
             self.manifest.validate_plans(plans)
-            outcome_plots = _write_outcome_plots(outcome, presentation, Path(tmp), plans)
+            outcome_plots = _write_outcome_plots(
+                outcome, _GroupStyler(presentation, self.notation), Path(tmp), plans
+            )
             for artifact in outcome_plots:
                 plan = next(plan for plan in plans if plan.filename == artifact.name)
                 mlflow.log_artifact(str(artifact), artifact_path=GROUP_REPORT_ARTIFACT_DIR)
@@ -332,7 +351,7 @@ class MLflowGroupReportSink:
         if self._finalized:
             raise RuntimeError("figure manifest already finalized")
         path = Path(self._staging.name) / "figure_manifest.toml"
-        write_figure_manifest(path, self.manifest)
+        write_figure_manifest(path, self.manifest, self.notation)
         mlflow.log_artifact(str(path), artifact_path=GROUP_REPORT_ARTIFACT_DIR)
         self._finalized = True
         self._staging.cleanup()
@@ -479,7 +498,7 @@ def _figure_metadata(
         metric_definition=metric,
         scenario=scenario,
         report_level=report_level,
-        scope=presentation.subject,
+        scope=presentation.scope,
         datasets=datasets,
         recipes=recipes,
         n_matrices=outcome.n_matrices,
@@ -499,21 +518,21 @@ def _figure_metadata(
 METHOD_ARTIFACT_DIR = "method_workload"
 
 
-def _method_scope(workload: MethodWorkload) -> str:
-    """Return the concise scientific method scope shared by figures and manifests."""
-    method = str(workload.method)
-    style = workload.plot_styles.get(method)
-    return f"Method {style.label if style is not None else method}"
-
-
+@dataclass(frozen=True, slots=True)
 class MLflowBenchmarkMethodSink:
     """Write one reduced method workload into the already-active child run.
+
+    ``notation`` is the case's symbol policy and ``datasets`` presents each dataset a
+    workload ran on; method figures render both when they are drawn.
 
     Run ownership deliberately stays in ``comparison_batch``.  Calling this
     sink while no run is active is a caller error, just like calling
     ``mlflow.log_metric`` directly; the sink never silently creates a nested
     system or preconditioner run.
     """
+
+    notation: NotationPolicy
+    datasets: Mapping[DatasetId, DatasetPresentation]
 
     def record_method(
         self,
@@ -534,7 +553,9 @@ class MLflowBenchmarkMethodSink:
                 mlflow.log_artifact(str(root / relative), artifact_path=METHOD_ARTIFACT_DIR)
             config_path = _write_method_config(root, workload.method_config)
             mlflow.log_artifact(str(config_path), artifact_path=METHOD_ARTIFACT_DIR)
-            for diagnostics_path in _write_method_diagnostics(root, workload):
+            for diagnostics_path in _write_method_diagnostics(
+                root, workload, self.notation, self.datasets
+            ):
                 artifact_path = METHOD_ARTIFACT_DIR
                 if diagnostics_path.parent.name == "figures":
                     artifact_path = f"{METHOD_ARTIFACT_DIR}/figures"
@@ -605,7 +626,28 @@ def _exclude_none_value(value: object) -> object:
     return value
 
 
-def _write_method_diagnostics(root: Path, workload: MethodWorkload) -> tuple[Path, ...]:
+def _system_legend(
+    workload: MethodWorkload,
+    notation: NotationPolicy,
+    datasets: Mapping[DatasetId, DatasetPresentation],
+) -> Legend:
+    """Name each system of a method workload by its dataset, recipe, matrix and RHS position."""
+    texts: dict[str, str] = {}
+    for tag in workload.planned:
+        dataset = datasets.get(tag.dataset)
+        if dataset is None:
+            raise MissingMethodPresentationError(str(tag.dataset))
+        where = ScopeSubtitle(RecipeScope(dataset, tag.recipe), notation).text
+        texts[str(tag.system_id)] = f"{where}, matrix {int(tag.matrix_id)}, RHS {tag.rhs_ordinal}"
+    return series_legend(texts)
+
+
+def _write_method_diagnostics(
+    root: Path,
+    workload: MethodWorkload,
+    notation: NotationPolicy,
+    datasets: Mapping[DatasetId, DatasetPresentation],
+) -> tuple[Path, ...]:
     """Stage histories and method figures without creating child runs."""
     diagnostics = {str(system_id): result for system_id, result in workload.diagnostics}
     path = root / "method_diagnostics.json"
@@ -651,37 +693,54 @@ def _write_method_diagnostics(root: Path, workload: MethodWorkload) -> tuple[Pat
     )
     figures = root / "figures"
     figures.mkdir(exist_ok=True)
-    method_scope = _method_scope(workload)
+    subtitle = ScopeSubtitle(MethodScope(workload.presentation.prepared.detailed), notation)
+    legend = _system_legend(workload, notation, datasets)
     method_slug = sanitize_metric_key_segment(str(workload.method))
     residual_figure = figures / f"residual_history_{method_slug}.png"
     plot_convergence_comparison(
         diagnostics,
         save_path=residual_figure,
-        title="Residual History",
-        subtitle=method_scope,
+        title=EditorialTitle("Residual History"),
+        subtitle=subtitle,
+        legend=legend,
     )
     energy_figure = figures / f"energy_history_{method_slug}.png"
     plot_error_convergence_comparison(
         diagnostics,
         save_path=energy_figure,
-        title="Energy History",
-        subtitle=method_scope,
+        title=EditorialTitle("Energy History"),
+        subtitle=subtitle,
+        legend=legend,
     )
     return path, residuals_path, energies_path, residual_figure, energy_figure
 
 
-def _style_for_plan(
-    plan: FigurePlan, presentation: GroupPresentation, plot_style: PlotStyleMaps
-) -> GroupStyle:
-    """Use the pre-draw plan as the only source of visible figure text."""
-    return GroupStyle(
-        title=plan.title,
-        subtitle=plan.subtitle,
-        labels=plot_style.labels,
-        families=plot_style.families,
-        color_keys=plot_style.color_keys,
-        marker_keys=plot_style.marker_keys,
-    )
+@dataclass(frozen=True, slots=True)
+class _GroupStyler:
+    """Turns the pre-draw plan of a figure into the style its plot draws with.
+
+    The plan is the only source of a figure's fixed title and scope; the legend names
+    every method of the group from its structured presentation.
+    """
+
+    presentation: GroupPresentation
+    notation: NotationPolicy
+
+    def style(self, plan: FigurePlan) -> GroupStyle:
+        """The style for ``plan``: fixed title, rendered scope, legend and series styling."""
+        maps = plot_style_maps(self.presentation.plot_styles)
+        return GroupStyle(
+            title=plan.title,
+            scope=plan.metadata.scope,
+            notation=self.notation,
+            legend=method_legend(
+                {name: method.compact for name, method in self.presentation.methods.items()},
+                self.notation,
+            ),
+            families=maps.families,
+            color_keys=maps.color_keys,
+            marker_keys=maps.marker_keys,
+        )
 
 
 def _plan_for(
@@ -701,12 +760,11 @@ def _paired_by_method(
 
 def _write_profile_plots(
     outcome: RecipeProfileReport,
-    presentation: GroupPresentation,
+    styler: _GroupStyler,
     directory: Path,
     plans: Sequence[FigurePlan],
 ) -> list[Path | None]:
     """Draw fine-only iteration and separate solve/online time profiles."""
-    plot_style = plot_style_maps(presentation.plot_styles)
     performance_solve = _plan_for(plans, FigureKind.PERFORMANCE_PROFILE, TimingScenario.SOLVE)
     performance_online = _plan_for(plans, FigureKind.PERFORMANCE_PROFILE, TimingScenario.ONLINE)
     ecdf_iterations = _plan_for(plans, FigureKind.ECDF_ITERATIONS)
@@ -715,31 +773,31 @@ def _write_profile_plots(
     return [
         plot_performance_profile(
             outcome.outcomes,
-            style=_style_for_plan(performance_solve, presentation, plot_style),
+            style=styler.style(performance_solve),
             cost=solve_seconds,
             save_path=directory / performance_solve.filename,
         ),
         plot_performance_profile(
             outcome.outcomes,
-            style=_style_for_plan(performance_online, presentation, plot_style),
+            style=styler.style(performance_online),
             cost=amortized_online_seconds,
             save_path=directory / performance_online.filename,
         ),
         plot_ecdf_profile(
             outcome.outcomes,
-            style=_style_for_plan(ecdf_iterations, presentation, plot_style),
+            style=styler.style(ecdf_iterations),
             save_path=directory / ecdf_iterations.filename,
         ),
         plot_ecdf_profile(
             outcome.outcomes,
-            style=_style_for_plan(ecdf_solve, presentation, plot_style),
+            style=styler.style(ecdf_solve),
             cost=solve_seconds,
             xlabel="Solve time per system [s]",
             save_path=directory / ecdf_solve.filename,
         ),
         plot_ecdf_profile(
             outcome.outcomes,
-            style=_style_for_plan(ecdf_online, presentation, plot_style),
+            style=styler.style(ecdf_online),
             cost=amortized_online_seconds,
             xlabel="Amortized online time per system [s]",
             save_path=directory / ecdf_online.filename,
@@ -749,12 +807,11 @@ def _write_profile_plots(
 
 def _write_system_plots(
     outcome: RecipeProfileReport,
-    presentation: GroupPresentation,
+    styler: _GroupStyler,
     directory: Path,
     plans: Sequence[FigurePlan],
 ) -> list[Path | None]:
     """Draw setup-aware timing bars, paired timing, and ratio plots."""
-    plot_style = plot_style_maps(presentation.plot_styles)
     paired_plan = _plan_for(plans, FigureKind.PAIRED_TIME, TimingScenario.ONLINE)
     solve_plan = _plan_for(plans, FigureKind.SOLVE_TIME, TimingScenario.SOLVE)
     online_plan = _plan_for(plans, FigureKind.ONLINE_TIME, TimingScenario.ONLINE)
@@ -763,7 +820,7 @@ def _write_system_plots(
         plot_paired_time_scatter(
             outcome.outcomes,
             reference=outcome.reference_selection,
-            style=_style_for_plan(paired_plan, presentation, plot_style),
+            style=styler.style(paired_plan),
             save_path=directory / paired_plan.filename,
         )
         if isinstance(outcome.reference_selection, ConfiguredReference)
@@ -773,19 +830,19 @@ def _write_system_plots(
         plot_online_time_bars(
             outcome.summaries,
             scenario="solve",
-            style=_style_for_plan(solve_plan, presentation, plot_style),
+            style=styler.style(solve_plan),
             save_path=directory / solve_plan.filename,
         ),
         plot_online_time_bars(
             outcome.summaries,
             scenario="online",
-            style=_style_for_plan(online_plan, presentation, plot_style),
+            style=styler.style(online_plan),
             save_path=directory / online_plan.filename,
         ),
         paired,
         plot_speed_ratio_cdf(
             _paired_by_method(outcome.comparisons),
-            style=_style_for_plan(ratio_plan, presentation, plot_style),
+            style=styler.style(ratio_plan),
             reference_name=outcome.reference_selection.name
             if isinstance(outcome.reference_selection, ConfiguredReference)
             else None,
@@ -797,36 +854,31 @@ def _write_system_plots(
 
 def _write_outcome_plots(
     outcome: RecipeProfileReport | WorkloadMixtureReport,
-    presentation: GroupPresentation,
+    styler: _GroupStyler,
     directory: Path,
     plans: Sequence[FigurePlan],
 ) -> tuple[Path, ...]:
     """Draw plots allowed by the typed report variant."""
-    from typing import assert_never
-
     match outcome:
         case RecipeProfileReport():
             aggregate_plan = _plan_for(plans, FigureKind.AGGREGATE_BARS)
             aggregate = plot_aggregate_bars(
                 outcome,
-                style=_style_for_plan(
-                    aggregate_plan, presentation, plot_style_maps(presentation.plot_styles)
-                ),
+                style=styler.style(aggregate_plan),
                 save_path=directory / aggregate_plan.filename,
             )
             drawn = [
                 aggregate,
-                *_write_system_plots(outcome, presentation, directory, plans),
-                *_write_profile_plots(outcome, presentation, directory, plans),
+                *_write_system_plots(outcome, styler, directory, plans),
+                *_write_profile_plots(outcome, styler, directory, plans),
             ]
         case WorkloadMixtureReport():
             aggregate_plan = _plan_for(plans, FigureKind.AGGREGATE_BARS)
             solve_plan = _plan_for(plans, FigureKind.SOLVE_TIME, TimingScenario.SOLVE)
             online_plan = _plan_for(plans, FigureKind.ONLINE_TIME, TimingScenario.ONLINE)
-            plot_style = plot_style_maps(presentation.plot_styles)
             aggregate = plot_aggregate_bars(
                 outcome,
-                style=_style_for_plan(aggregate_plan, presentation, plot_style),
+                style=styler.style(aggregate_plan),
                 save_path=directory / aggregate_plan.filename,
             )
             drawn = [
@@ -834,13 +886,13 @@ def _write_outcome_plots(
                 plot_online_time_bars(
                     outcome.summaries,
                     scenario="solve",
-                    style=_style_for_plan(solve_plan, presentation, plot_style),
+                    style=styler.style(solve_plan),
                     save_path=directory / solve_plan.filename,
                 ),
                 plot_online_time_bars(
                     outcome.summaries,
                     scenario="online",
-                    style=_style_for_plan(online_plan, presentation, plot_style),
+                    style=styler.style(online_plan),
                     save_path=directory / online_plan.filename,
                 ),
             ]

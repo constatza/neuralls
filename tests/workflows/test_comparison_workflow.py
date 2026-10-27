@@ -85,7 +85,6 @@ from neuralls.platform.tracking.comparison_tracking import (
 )
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
 from neuralls.shared.digest import canonical_digest
-from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import (
     ComparisonRhsSourceKind,
     DatasetId,
@@ -1588,7 +1587,6 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
         prepared: PreparedMethodPresentation,
         params: SolverParams,
         settings: NeurallsSettings,
-        notation_policy: NotationPolicy,
     ) -> CompletedMethodWorkload:
         bundle_sequence = tuple(bundles)
         bundles_seen.extend(bundle_sequence)
@@ -1598,7 +1596,6 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
             prepared=prepared,
             params=params,
             settings=settings,
-            notation_policy=notation_policy,
         )
 
     with (

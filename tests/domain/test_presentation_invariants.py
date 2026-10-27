@@ -18,7 +18,7 @@ from neuralls.domain.presentation.provenance import (
     StrategyProvenance,
 )
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
-from neuralls.domain.solver.models.presentation import GroupMethodPresentation
+from neuralls.domain.solver.models.group_presentation import GroupMethodPresentation
 from neuralls.shared.scientific_description.catalog import (
     COARSE_DIMENSION,
     ITERATION_COUNT,

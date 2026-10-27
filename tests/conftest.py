@@ -33,15 +33,19 @@ from neuralls.domain.presentation.provenance import (
     StrategyProvenance,
 )
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
+from neuralls.domain.solver.models.figure_scope import AllDatasetsScope
 from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.platform.reporting.figure_text import Legend, method_legend
+from neuralls.platform.reporting.outcome_plots import GroupStyle
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
 from neuralls.shared.enum_codecs import encode_row_kind_array
 from neuralls.shared.scientific_description.catalog import ITERATION_COUNT, make_fact
 from neuralls.shared.scientific_description.models import (
     ScientificDescription,
 )
-from neuralls.shared.types import GenerationStrategyKind, PreconditionerName, RowKind
+from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
+from neuralls.shared.types import DatasetId, GenerationStrategyKind, PreconditionerName, RowKind
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -589,3 +593,80 @@ def stub_matrix_scope(
         lambda planned, context: scope,
     )
     return scope
+
+
+@pytest.fixture
+def notation() -> NotationPolicy:
+    """The default MathText notation plots render with."""
+    return NotationPolicy.default(RenderTarget.MATHTEXT)
+
+
+@pytest.fixture
+def legend_of(notation: NotationPolicy) -> Callable[..., Legend]:
+    """Build a legend naming each given series ``Method <name>`` (distinct, standalone)."""
+
+    def build(*names: str) -> Legend:
+        return method_legend(
+            {
+                name: StandaloneMethodPresentation(
+                    ScientificDescription(f"Method {name.replace('_', ' ')}")
+                )
+                for name in names
+            },
+            notation,
+        )
+
+    return build
+
+
+@pytest.fixture
+def prepared_cohort(
+    dataset_presentation: DatasetPresentation,
+) -> Callable[..., PreparedComparisonPresentation]:
+    """Build a validated cohort of standalone methods, one per id, each named ``Method <id>``."""
+
+    def build(*method_ids: str) -> PreparedComparisonPresentation:
+        return prepare_presentations(
+            UnvalidatedComparisonPresentation(
+                methods=tuple(
+                    MethodPresentationCandidate(
+                        PreconditionerName(method_id),
+                        StandaloneMethodPresentation(
+                            ScientificDescription(f"Method {method_id.replace('_', ' ')}")
+                        ),
+                    )
+                    for method_id in method_ids
+                ),
+                scope=ComparisonScopePresentation(dataset_presentation),
+            )
+        )
+
+    return build
+
+
+@pytest.fixture
+def group_datasets(
+    dataset_presentation: DatasetPresentation,
+) -> dict[DatasetId, DatasetPresentation]:
+    """The dataset presentations a report batch over dataset ``ds`` supplies."""
+    return {DatasetId("ds"): dataset_presentation}
+
+
+@pytest.fixture
+def group_style_of(
+    notation: NotationPolicy, legend_of: Callable[..., Legend]
+) -> Callable[..., GroupStyle]:
+    """Build the style of a group figure whose series are the given method names."""
+
+    def build(*names: str, title: str = "group") -> GroupStyle:
+        return GroupStyle(
+            title=title,
+            scope=AllDatasetsScope(),
+            notation=notation,
+            legend=legend_of(*names),
+            families={},
+            color_keys={},
+            marker_keys={},
+        )
+
+    return build

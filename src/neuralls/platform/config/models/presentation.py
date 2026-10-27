@@ -31,7 +31,6 @@ class ScientificLabelsConfig(BaseModel):
 
         [scientific_labels]
         rendering = "latex"
-        max_legend_length = 55
 
         [scientific_labels.symbols.sample_count]
         plain = "N_train"
@@ -41,7 +40,6 @@ class ScientificLabelsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     rendering: RenderTarget = RenderTarget.MATHTEXT
-    max_legend_length: int | None = None
     symbols: dict[str, SymbolOverride] = Field(default_factory=dict)
 
     def notation_policy(self) -> NotationPolicy:

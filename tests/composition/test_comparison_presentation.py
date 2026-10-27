@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 
 from neuralls.composition.comparison._presentation import (
-    build_comparison_plot_title,
     build_comparison_source_context,
 )
 from neuralls.composition.comparison.models import ComparisonPaths, ResolvedComparisonInput
@@ -40,18 +39,14 @@ def gaussian_comparison_input() -> ResolvedComparisonInput:
     )
 
 
-def test_context_is_shared_by_logs_and_plot_titles(
+def test_context_names_matrix_and_rhs_for_logs(
     comparison_paths: ComparisonPaths,
     gaussian_comparison_input: ResolvedComparisonInput,
 ) -> None:
-    """The canonical context is explicit and the plot title adds only system size."""
+    """The log context states the matrix dataset and the RHS source."""
     context = build_comparison_source_context(
         comparison_paths,
         gaussian_comparison_input,
     )
 
     assert context == "matrix=gaussian-cg10-spheres-1000x | rhs=gaussian"
-    assert (
-        build_comparison_plot_title(context, 1000)
-        == "matrix=gaussian-cg10-spheres-1000x | rhs=gaussian\nN=1000"
-    )

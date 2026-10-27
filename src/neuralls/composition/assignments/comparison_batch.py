@@ -50,6 +50,7 @@ from neuralls.composition.comparison.models import (
     ComparisonEntryFailed,
     ComparisonOutcome,
     ComparisonParams,
+    ComparisonPresentation,
     ComparisonReused,
     CompletedMethodWorkload,
     MatrixWorkload,
@@ -88,6 +89,7 @@ from neuralls.domain.benchmarking.selection import (
 )
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import PreparedComparisonPresentation
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.titles import (
     ComparisonScopePresentation,
     ComparisonTitle,
@@ -95,7 +97,7 @@ from neuralls.domain.presentation.titles import (
 )
 from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory, SetupCompleted
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.domain.solver.models.presentation import SolverTimingContext
+from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.ports import BenchmarkMethodSink, CostRecorder
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
@@ -158,6 +160,7 @@ from neuralls.shared.device import release_device_memory, warm_up_device
 from neuralls.shared.digest import Digest, canonical_digest, content_digest, digest_memo
 from neuralls.shared.errors import StageInputsStale
 from neuralls.shared.scientific_description.models import ValidatedLabel
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, MatrixId, SystemId
 from neuralls.shared.workflow_failures import (
     ComparisonBatchFailureContext,
@@ -681,6 +684,7 @@ def _run_comparison_with_resolved_specs(
     work_root: Path,
     resolved_specs: list[PreconditionerConfig],
     settings: NeurallsSettings,
+    presentation: ComparisonPresentation,
     cache: SystemPreconditionerCache | None = None,
 ) -> ComparisonResult:
     """Run comparison with already-resolved preconditioner checkpoint paths.
@@ -726,7 +730,7 @@ def _run_comparison_with_resolved_specs(
         resolved_input=resolved_input,
         settings=settings,
         cache=cache,
-        notation_policy=cfg.notation_policy,
+        presentation=presentation,
     )
     write_comparison_artifacts(
         result=raw_result,
@@ -789,6 +793,7 @@ def _run_and_log_comparison(
             work_root=work_root,
             resolved_specs=prepared.resolved.specs,
             settings=prepared.settings,
+            presentation=prepared.comparison_presentation,
             cache=cache,
         )
         log_skipped_preconditioners(prepared.resolved.warnings)
@@ -930,6 +935,13 @@ class PreparedComparisonExecution:
     def entry(self) -> ComparisonRegistryEntry:
         """The planned system's concrete registry entry."""
         return self.planned.entry
+
+    @property
+    def comparison_presentation(self) -> ComparisonPresentation:
+        """The validated cohort, its title, and the case's notation, for the figures."""
+        return ComparisonPresentation(
+            methods=self.presentation, title=self.title, notation=self.cfg.notation_policy
+        )
 
 
 type PendingComparison = ComparisonOutcome | PreparedComparisonExecution
@@ -1490,8 +1502,7 @@ def _outcomes_from_workloads(
                     resolved_input=resolved,
                     results=dict(results),
                     output_root=Path(projection_root),
-                    display_name=item.entry.effective_display_name,
-                    notation_policy=item.cfg.notation_policy,
+                    presentation=item.comparison_presentation,
                 )
         except (ValueError, RuntimeError, KeyError, IndexError) as exc:
             outcomes.append(_comparison_failure_outcome(item.entry, exc))
@@ -1639,7 +1650,6 @@ def _execute_method_run(
                 prepared=first.presentation.method(method.name),
                 params=first.cfg.general.params,
                 settings=first.settings,
-                notation_policy=first.cfg.notation_policy,
             )
             workload = replace(workload, workload_identities=system_identities)
         with _failure_boundary(
@@ -1814,6 +1824,7 @@ def run_comparison_batch(
                 for item in pending
             ]
 
+        notation = _batch_notation_policy(pending)
         failure_sink = MLflowWorkflowFailureSink()
         with mlflow.start_run(run_name=session_run_name, tags=session_tags.as_mlflow_tags()):
             with _failure_boundary(
@@ -1833,7 +1844,9 @@ def run_comparison_batch(
             ):
                 workloads = _execute_all(
                     batch,
-                    method_sink=MLflowBenchmarkMethodSink(),
+                    method_sink=MLflowBenchmarkMethodSink(
+                        notation, _batch_dataset_presentations(pending)
+                    ),
                     failure_sink=failure_sink,
                 )
             with _failure_boundary(
@@ -1846,7 +1859,7 @@ def run_comparison_batch(
                 outcomes = _outcomes_from_workloads(pending, workloads)
             selection = _batch_reference_selections(pending)
             contexts_by_system = _batch_solver_timing_contexts(pending)
-            report_sink = MLflowGroupReportSink()
+            report_sink = MLflowGroupReportSink(notation)
             with _failure_boundary(
                 failure_sink,
                 ComparisonBatchFailureContext(
@@ -1860,6 +1873,7 @@ def run_comparison_batch(
                 report_all_levels(
                     workloads,
                     report_sink,
+                    datasets=_batch_dataset_presentations(pending),
                     reference_selection=selection,
                     contexts_by_system=contexts_by_system,
                 )
@@ -1872,6 +1886,34 @@ def run_comparison_batch(
             ):
                 report_sink.finalize()
             return outcomes
+
+
+def _batch_notation_policy(pending: Sequence[PendingComparison]) -> NotationPolicy:
+    """The one notation every executed comparison of the batch uses; differing ones are ambiguous."""
+    policies = [
+        item.cfg.notation_policy
+        for item in pending
+        if isinstance(item, PreparedComparisonExecution)
+    ]
+    first, *rest = policies
+    if any(policy != first for policy in rest):
+        raise ValueError("every comparison of a batch must share one notation policy")
+    return first
+
+
+def _batch_dataset_presentations(
+    pending: Sequence[PendingComparison],
+) -> dict[DatasetId, DatasetPresentation]:
+    """The presentation of each matrix dataset the batch runs on, from its manifest."""
+    datasets: dict[DatasetId, DatasetPresentation] = {}
+    for item in pending:
+        if not isinstance(item, PreparedComparisonExecution):
+            continue
+        dataset = DatasetId(item.entry.matrix_dataset)
+        presented = item.presentation.scope.dataset
+        if datasets.setdefault(dataset, presented) != presented:
+            raise ValueError("one dataset must have one scientific presentation in a batch")
+    return datasets
 
 
 def _batch_reference_selections(

@@ -26,6 +26,7 @@ from neuralls.composition.comparison.models import (
     PlannedSystem,
     PreconditionerComparisonEntry,
 )
+from neuralls.domain.presentation.methods import PreparedMethodPresentation
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
@@ -39,6 +40,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.types import MatrixId
+from tests.presentation_support import PreparedMethodFactory
 
 _SOLVER_PARAMS = SolverParams(
     rtol=1e-6,
@@ -80,6 +82,7 @@ def _run(
     rhs: torch.Tensor,
     settings: NeurallsSettings,
     cache: SystemPreconditionerCache,
+    prepared: PreparedMethodPresentation,
 ) -> PreconditionerComparisonEntry:
     return _run_preconditioner(
         cfg,
@@ -94,11 +97,13 @@ def _run(
         x_exact=None,
         settings=settings,
         cache=cache,
+        presentation=prepared,
     )
 
 
 def test_static_setup_preconditioner_is_rebuilt_for_each_matrix(
     neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
 ) -> None:
     """Identity still receives one measured setup event per distinct matrix."""
     cfg = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
@@ -109,8 +114,22 @@ def test_static_setup_preconditioner_is_rebuilt_for_each_matrix(
     matrix_b = _diagonal([1.0, 1.0, 9.0])
     rhs = torch.ones(3, dtype=torch.float64)
 
-    first = _run(cfg, matrix=matrix_a, rhs=rhs, settings=neuralls_settings, cache=cache_a)
-    second = _run(cfg, matrix=matrix_b, rhs=rhs, settings=neuralls_settings, cache=cache_b)
+    first = _run(
+        cfg,
+        matrix=matrix_a,
+        rhs=rhs,
+        settings=neuralls_settings,
+        cache=cache_a,
+        prepared=prepared_method(cfg.name),
+    )
+    second = _run(
+        cfg,
+        matrix=matrix_b,
+        rhs=rhs,
+        settings=neuralls_settings,
+        cache=cache_b,
+        prepared=prepared_method(cfg.name),
+    )
 
     built_for_a = cache_a.get("identity")
     built_for_b = cache_b.get("identity")
@@ -124,6 +143,7 @@ def test_static_setup_preconditioner_is_rebuilt_for_each_matrix(
 
 def test_matrix_setup_preconditioner_is_reused_only_for_the_same_matrix(
     neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
 ) -> None:
     """Jacobi is matrix-dependent; sharing is valid only on the matrix it was built for."""
     cfg = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
@@ -133,12 +153,26 @@ def test_matrix_setup_preconditioner_is_reused_only_for_the_same_matrix(
     rhs_a = torch.ones(3, dtype=torch.float64)
     rhs_b = torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64)
 
-    first = _run(cfg, matrix=matrix, rhs=rhs_a, settings=neuralls_settings, cache=cache)
+    first = _run(
+        cfg,
+        matrix=matrix,
+        rhs=rhs_a,
+        settings=neuralls_settings,
+        cache=cache,
+        prepared=prepared_method(cfg.name),
+    )
     cached_entry = cache.get("jacobi")
     assert cached_entry is not None
     first_preconditioner = cached_entry.preconditioner
 
-    second = _run(cfg, matrix=matrix, rhs=rhs_b, settings=neuralls_settings, cache=cache)
+    second = _run(
+        cfg,
+        matrix=matrix,
+        rhs=rhs_b,
+        settings=neuralls_settings,
+        cache=cache,
+        prepared=prepared_method(cfg.name),
+    )
 
     assert dataset_cache.shared_names() == frozenset({"jacobi"})
     # The second call reused the exact same built object — never rebuilt.
@@ -150,6 +184,7 @@ def test_matrix_setup_preconditioner_is_reused_only_for_the_same_matrix(
 
 def test_matrix_setup_preconditioner_is_rebuilt_for_a_different_matrix(
     neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
 ) -> None:
     """A MatrixSetupPreconditioner built for one matrix is never served to another."""
     cfg = AMGPreconditionerConfig(
@@ -169,8 +204,22 @@ def test_matrix_setup_preconditioner_is_rebuilt_for_a_different_matrix(
     matrix_b = matrix_a * 3.0
     rhs = torch.ones(n, dtype=torch.float64)
 
-    _run(cfg, matrix=matrix_a, rhs=rhs, settings=neuralls_settings, cache=cache_a)
-    _run(cfg, matrix=matrix_b, rhs=rhs, settings=neuralls_settings, cache=cache_b)
+    _run(
+        cfg,
+        matrix=matrix_a,
+        rhs=rhs,
+        settings=neuralls_settings,
+        cache=cache_a,
+        prepared=prepared_method(cfg.name),
+    )
+    _run(
+        cfg,
+        matrix=matrix_b,
+        rhs=rhs,
+        settings=neuralls_settings,
+        cache=cache_b,
+        prepared=prepared_method(cfg.name),
+    )
 
     built_for_a = cache_a.get(cfg.name)
     built_for_b = cache_b.get(cfg.name)

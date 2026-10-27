@@ -8,6 +8,7 @@ from math import isclose, isfinite
 from sys import float_info
 from typing import Protocol
 
+from neuralls.domain.presentation.methods import ExecutedMethod
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
     PeakMemory,
@@ -107,6 +108,9 @@ class MethodWorkload(Protocol):
 
     @property
     def plot_styles(self) -> Mapping[str, PreconditionerPlotStyle]: ...
+
+    @property
+    def presentation(self) -> ExecutedMethod: ...
 
 
 def _validate_summary_fields(summary: MethodWorkloadSummary) -> None:

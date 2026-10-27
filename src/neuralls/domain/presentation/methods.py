@@ -43,6 +43,17 @@ class DuplicateMethodPresentationError(ValueError):
         )
 
 
+class MissingMethodPresentationError(LookupError):
+    """A figure or table needs a method's presentation, and none was supplied.
+
+    The method id is a diagnostic machine identifier only; it never becomes a label.
+    """
+
+    def __init__(self, method_id: str) -> None:
+        self.method_id = method_id
+        super().__init__(f"no scientific presentation for method {method_id!r}")
+
+
 @dataclass(frozen=True, slots=True)
 class StandaloneMethodPresentation:
     """A method that does not depend on a training dataset."""
@@ -174,11 +185,15 @@ class PreparedComparisonPresentation:
                 raise DuplicateMethodPresentationError(tuple(colliding))
 
     def method(self, method_id: PreconditionerName) -> PreparedMethodPresentation:
-        """Return the prepared presentation of ``method_id``; an unknown id is a caller bug."""
+        """Return the prepared presentation of ``method_id``.
+
+        Raises:
+            MissingMethodPresentationError: When ``method_id`` is not in this cohort.
+        """
         for candidate in self.methods:
             if candidate.method_id == method_id:
                 return candidate
-        raise KeyError(f"no prepared presentation for method {method_id!r}")
+        raise MissingMethodPresentationError(method_id)
 
 
 @dataclass(frozen=True, slots=True)

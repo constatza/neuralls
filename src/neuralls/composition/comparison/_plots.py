@@ -2,52 +2,25 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Callable, Hashable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from neuralls.composition.comparison._presentation import build_comparison_plot_title
 from neuralls.composition.comparison.models import ComparisonPaths
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.cost_fields import COST_FIELD_REGISTRY
 from neuralls.domain.solver.models.plot_paths import PlotPaths
+from neuralls.platform.reporting.figure_text import FigureTitle, Legend
 from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
     plot_error_convergence_comparison,
     plot_error_vs_time,
-    plot_metric_comparison,
+    plot_method_bars,
     plot_residual_vs_time,
     plot_time_breakdown_barplot,
     plot_work_precision,
 )
-
-
-def unique_display_labels(
-    result_keys: Mapping[str, object], labels: Mapping[str, str]
-) -> dict[str, str]:
-    """Keep friendly labels, suffixing only collisions with their stable result key."""
-    resolved = {key: labels.get(key, key) for key in result_keys}
-    counts = Counter(resolved.values())
-    return {
-        key: label if counts[label] == 1 else f"{label} [{key}]" for key, label in resolved.items()
-    }
-
-
-DID_NOT_CONVERGE_MARK = "[did not converge]"
-"""Suffix on a failed run's label, so a run stopped by the iteration cap is never read
-as a cheap solve in the cost, iteration and time plots."""
-
-
-def mark_unconverged(
-    results: Mapping[str, CGComparisonResult], labels: Mapping[str, str]
-) -> dict[str, str]:
-    """Suffix the label of every run that did not converge with `DID_NOT_CONVERGE_MARK`."""
-    return {
-        key: label if results[key].converged else f"{label} {DID_NOT_CONVERGE_MARK}"
-        for key, label in labels.items()
-    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,12 +48,11 @@ COST_PLOT_STYLE: Mapping[str, CostPlotStyle] = {
 def _generate_comparison_plots(
     results: dict[str, CGComparisonResult],
     paths: ComparisonPaths,
-    labels: Mapping[str, str],
-    comparison_context: str,
+    legend: Legend,
+    title: FigureTitle,
     families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
-    system_size: int | None = None,
     rtol: float | None = None,
     atol: float | None = None,
     max_iterations: int | None = None,
@@ -90,11 +62,9 @@ def _generate_comparison_plots(
     Args:
         results: CG comparison results keyed by preconditioner name.
         paths: Resolved comparison paths (figures directory used for output).
-        labels: Descriptive display label per preconditioner key (e.g. AMG
-            grid/coarsening detail or POD-2G fitted rank and fit dataset).
-            Labels are passed to reporting separately and are never used as
-            result identity, so they need not be unique.
-        comparison_context: Canonical matrix/RHS context shown on all plots.
+        legend: Text of every preconditioner, rendered from its scientific presentation
+            by the plot functions. A result without an entry raises.
+        title: What was compared and the system size, shown on all plots.
         families: Plot-style family per preconditioner name (see
             ``preconditioner_family.preconditioner_family``), used to give
             same-family convergence lines a shared linestyle.
@@ -102,7 +72,6 @@ def _generate_comparison_plots(
             POD-2G fit dataset); entries missing here fall back to family.
         marker_keys: Optional marker-axis key per preconditioner name (e.g. a
             POD-2G weighting scheme); entries missing here fall back to family.
-        system_size: Optional linear system size ``N`` appended to plot titles.
         rtol: Relative tolerance displayed as a reference line.
         atol: Absolute tolerance displayed as a reference line.
         max_iterations: Maximum iterations displayed as a reference line.
@@ -114,17 +83,18 @@ def _generate_comparison_plots(
         ``None``) if no result in this comparison has that metric measured.
     """
     suffix = paths.matrix.stem or "comparison"
-    labels = mark_unconverged(results, unique_display_labels(results, labels))
+    legend = legend.marking_unconverged(
+        name for name, result in results.items() if not result.converged
+    )
     families = families or {}
     color_keys = color_keys or {}
     marker_keys = marker_keys or {}
-    title = build_comparison_plot_title(comparison_context, system_size)
 
     convergence_path = paths.figures / f"preconditioner_convergence_{suffix}.png"
     plot_convergence_comparison(
         results,
         metadata=None,
-        labels=labels,
+        legend=legend,
         save_path=convergence_path,
         title=title,
         rtol=rtol,
@@ -139,7 +109,7 @@ def _generate_comparison_plots(
     plot_error_convergence_comparison(
         results,
         metadata=None,
-        labels=labels,
+        legend=legend,
         save_path=error_path,
         title=title,
         families=families,
@@ -148,8 +118,9 @@ def _generate_comparison_plots(
     )
 
     iter_path = paths.figures / f"preconditioner_iterations_{suffix}.png"
-    plot_metric_comparison(
-        [labels.get(name, name) for name in results],
+    plot_method_bars(
+        legend,
+        list(results),
         [results[name].iterations for name in results],
         metric_name="CG Iterations",
         title=title,
@@ -160,7 +131,7 @@ def _generate_comparison_plots(
     cost_plot_paths: dict[str, Path | None] = {
         spec.field_name: _plot_cost_barplot(
             results,
-            labels,
+            legend,
             paths.figures
             / f"preconditioner_{COST_PLOT_STYLE[spec.field_name].filename_suffix}_{suffix}.png",
             extract=spec.extractor,
@@ -171,13 +142,13 @@ def _generate_comparison_plots(
     }
 
     time_breakdown_path = _plot_time_breakdown_barplot(
-        results, labels, paths.figures / f"preconditioner_time_breakdown_{suffix}.png", title=title,
+        results, legend, paths.figures / f"preconditioner_time_breakdown_{suffix}.png", title=title,
     )  # fmt: skip
 
     work_precision_path = paths.figures / f"preconditioner_work_precision_{suffix}.png"
     plot_work_precision(
         results,
-        labels=labels,
+        legend=legend,
         families=families,
         color_keys=color_keys,
         marker_keys=marker_keys,
@@ -188,7 +159,7 @@ def _generate_comparison_plots(
     residual_vs_time_path = paths.figures / f"preconditioner_residual_vs_time_{suffix}.png"
     plot_residual_vs_time(
         results,
-        labels=labels,
+        legend=legend,
         families=families,
         color_keys=color_keys,
         marker_keys=marker_keys,
@@ -201,7 +172,7 @@ def _generate_comparison_plots(
     )
     plot_residual_vs_time(
         results,
-        labels=labels,
+        legend=legend,
         families=families,
         color_keys=color_keys,
         marker_keys=marker_keys,
@@ -212,7 +183,7 @@ def _generate_comparison_plots(
 
     error_vs_time_path = _plot_error_vs_time_optional(
         results,
-        labels,
+        legend,
         paths.figures / f"preconditioner_error_vs_time_{suffix}.png",
         families=families,
         color_keys=color_keys,
@@ -221,7 +192,7 @@ def _generate_comparison_plots(
     )
     error_vs_solve_time_path = _plot_error_vs_time_optional(
         results,
-        labels,
+        legend,
         paths.figures / f"preconditioner_error_vs_solve_time_{suffix}.png",
         families=families,
         color_keys=color_keys,
@@ -250,12 +221,12 @@ def _generate_comparison_plots(
 
 def _plot_cost_barplot(
     results: Mapping[str, CGComparisonResult],
-    labels: Mapping[str, str],
+    legend: Legend,
     save_path: Path,
     *,
     extract: Callable[[CGComparisonResult], float | None],
     metric_name: str,
-    title: str,
+    title: FigureTitle,
 ) -> Path | None:
     """Bar chart of one cost value (read via ``extract``), skipping unmeasured entries.
 
@@ -269,8 +240,9 @@ def _plot_cost_barplot(
     present = [name for name in results if extract(results[name]) is not None]
     if not present:
         return None
-    plot_metric_comparison(
-        [labels.get(name, name) for name in present],
+    plot_method_bars(
+        legend,
+        present,
         [cast(float, extract(results[name])) for name in present],
         metric_name=metric_name,
         title=title,
@@ -282,13 +254,13 @@ def _plot_cost_barplot(
 
 def _plot_error_vs_time_optional(
     results: Mapping[str, CGComparisonResult],
-    labels: Mapping[str, str],
+    legend: Legend,
     save_path: Path,
     *,
     families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
-    title: str | None = None,
+    title: FigureTitle | None = None,
     solve_only: bool = False,
 ) -> Path | None:
     """Error vs time plot, skipped if no result has energy-norm error history.
@@ -301,7 +273,7 @@ def _plot_error_vs_time_optional(
         return None
     plot_error_vs_time(
         {name: results[name] for name in present},
-        labels=labels,
+        legend=legend,
         families=families,
         color_keys=color_keys,
         marker_keys=marker_keys,
@@ -314,10 +286,10 @@ def _plot_error_vs_time_optional(
 
 def _plot_time_breakdown_barplot(
     results: Mapping[str, CGComparisonResult],
-    labels: Mapping[str, str],
+    legend: Legend,
     save_path: Path,
     *,
-    title: str,
+    title: FigureTitle,
 ) -> Path | None:
     """Stacked generation/setup/solve time bar chart, skipping if nothing was ever measured.
 
@@ -338,7 +310,7 @@ def _plot_time_breakdown_barplot(
         return None
     plot_time_breakdown_barplot(
         {name: results[name] for name in present},
-        labels,
+        legend,
         title=title,
         save_path=save_path,
     )

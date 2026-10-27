@@ -40,6 +40,7 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.dlkit.predictor_adapter import OwningDLKitNeuralPreconditioner
 from neuralls.shared.timing import TimingRepeatPolicy
 from neuralls.shared.types import MatrixId
+from tests.presentation_support import PreparedMethodFactory
 
 POD_RANK = 2
 SLOW_LOAD_SECONDS = 0.2
@@ -275,7 +276,12 @@ class OrderRecordingService:
         return self._inner.create_preconditioner(matrix, config)
 
 
-def _run(service: OrderRecordingService, settings: NeurallsSettings, repeats: int) -> float:
+def _run(
+    service: OrderRecordingService,
+    settings: NeurallsSettings,
+    repeats: int,
+    prepared_method: PreparedMethodFactory,
+) -> float:
     entry = _run_preconditioner(
         StandardPreconditionerConfig(type=PreconditionerType.JACOBI),
         service=service,  # type: ignore[arg-type]
@@ -295,22 +301,27 @@ def _run(service: OrderRecordingService, settings: NeurallsSettings, repeats: in
         marker_key=None,
         x_exact=None,
         settings=settings,
+        presentation=prepared_method("jacobi"),
     )
     return entry.result.setup_cost
 
 
-def test_preload_runs_once_before_all_timed_builds(neuralls_settings: NeurallsSettings) -> None:
+def test_preload_runs_once_before_all_timed_builds(
+    neuralls_settings: NeurallsSettings, prepared_method: PreparedMethodFactory
+) -> None:
     service = OrderRecordingService()
 
-    _run(service, neuralls_settings, repeats=3)
+    _run(service, neuralls_settings, repeats=3, prepared_method=prepared_method)
 
     assert service.events == ["preload", "build", "build", "build"]
 
 
-def test_setup_cost_excludes_the_preload(neuralls_settings: NeurallsSettings) -> None:
+def test_setup_cost_excludes_the_preload(
+    neuralls_settings: NeurallsSettings, prepared_method: PreparedMethodFactory
+) -> None:
     service = OrderRecordingService(preload_seconds=SLOW_LOAD_SECONDS)
 
-    setup_cost = _run(service, neuralls_settings, repeats=1)
+    setup_cost = _run(service, neuralls_settings, repeats=1, prepared_method=prepared_method)
 
     assert setup_cost < SLOW_LOAD_SECONDS
 

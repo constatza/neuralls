@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from neuralls.composition.assignments.presentation_preflight import prepare_comparison_presentation
 from neuralls.composition.comparison.group_reporting import report_all_levels
 from neuralls.composition.comparison.models import CompletedMethodWorkload
-from neuralls.composition.preconditioners.labels import build_configured_preconditioner_label
 from neuralls.domain.presentation.methods import ExecutedMethod
+from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.presentation.titles import ComparisonScopePresentation
 from neuralls.domain.solver.models import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -16,14 +18,17 @@ from neuralls.domain.solver.models import (
     SolveConverged,
     SystemTag,
 )
+from neuralls.domain.solver.models.figure_scope import AllDatasetsScope, DatasetScope, RecipeScope
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
+from neuralls.domain.solver.models.group_presentation import GroupPresentation, SolverTimingContext
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
-from neuralls.domain.solver.models.presentation import GroupPresentation, SolverTimingContext
 from neuralls.platform.config.models.preconditioner import (
     AggregationCoarseningConfig,
     AMGPreconditionerConfig,
     PreconditionerType,
 )
+from neuralls.platform.reporting.figure_text import method_legend
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import (
     DatasetId,
     MatrixId,
@@ -45,6 +50,7 @@ class RecordingSink:
 
 def test_group_reporting_reduces_completed_workload_events(
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     method = PreconditionerName("identity")
     tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("system"))
@@ -88,18 +94,19 @@ def test_group_reporting_reduces_completed_workload_events(
     )
     sink = RecordingSink()
 
-    report_all_levels((workload,), sink)
+    report_all_levels((workload,), sink, datasets=group_datasets)
 
     assert [outcome.n_planned_rhs for outcome in sink.outcomes] == [1, 1, 1]
 
 
 def test_group_reporting_propagates_method_plot_styles(
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     method = PreconditionerName("identity")
     tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("styled"))
     event_id = SetupEventId("identity:ds:1")
-    style = PreconditionerPlotStyle("Configured Identity", PreconditionerType.IDENTITY)
+    style = PreconditionerPlotStyle(prepared_method("identity"), PreconditionerType.IDENTITY)
     workload = CompletedMethodWorkload(
         method=method,
         planned=(tag,),
@@ -134,13 +141,14 @@ def test_group_reporting_propagates_method_plot_styles(
             self.presentations.append(presentation)
 
     sink = PresentationSink()
-    report_all_levels((workload,), sink)
+    report_all_levels((workload,), sink, datasets=group_datasets)
 
     assert sink.presentations[0].plot_styles[str(method)] == style
 
 
 def test_mixture_presentations_keep_only_the_short_scope(
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     method = PreconditionerName("identity")
     tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("scope"))
@@ -192,17 +200,18 @@ def test_mixture_presentations_keep_only_the_short_scope(
             self.presentations.append(presentation)
 
     sink = PresentationSink()
-    report_all_levels((workload,), sink)
+    report_all_levels((workload,), sink, datasets=group_datasets)
 
-    assert [presentation.subtitle for presentation in sink.presentations] == [
-        "Dataset ds - gaussian",
-        "Dataset ds",
-        "All datasets",
+    assert [presentation.scope for presentation in sink.presentations] == [
+        RecipeScope(group_datasets[DatasetId("ds")], "gaussian"),
+        DatasetScope(group_datasets[DatasetId("ds")]),
+        AllDatasetsScope(),
     ]
 
 
 def test_group_reporting_propagates_actual_solver_timing_context(
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     method = PreconditionerName("identity")
     tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("context"))
@@ -240,7 +249,9 @@ def test_group_reporting_propagates_actual_solver_timing_context(
             self.presentations.append(presentation)
 
     sink = PresentationSink()
-    report_all_levels((workload,), sink, contexts_by_system={tag.system_id: context})
+    report_all_levels(
+        (workload,), sink, datasets=group_datasets, contexts_by_system={tag.system_id: context}
+    )
 
     assert [presentation.solver_contexts for presentation in sink.presentations] == [
         (context,),
@@ -250,18 +261,21 @@ def test_group_reporting_propagates_actual_solver_timing_context(
 
 
 def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
-    prepared_method: PreparedMethodFactory,
+    dataset_presentation: DatasetPresentation,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("amg-labels"))
-    configs = {
-        "amg_theta_025": AMGPreconditionerConfig(
-            coarsening=AggregationCoarseningConfig(theta=0.25)
-        ),
-        "amg_theta_05": AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig(theta=0.5)),
-    }
+    configs = [
+        AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig(theta=0.25)),
+        AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig(theta=0.5)),
+    ]
+    cohort = prepare_comparison_presentation(
+        configs, ComparisonScopePresentation(dataset_presentation)
+    )
 
-    def workload(name: str) -> CompletedMethodWorkload:
-        method = PreconditionerName(name)
+    def workload(config: AMGPreconditionerConfig) -> CompletedMethodWorkload:
+        method = PreconditionerName(config.name)
+        prepared = cohort.method(method)
         return CompletedMethodWorkload(
             method=method,
             planned=(tag,),
@@ -270,14 +284,10 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
             diagnostics=(),
             generation_cost=None,
             workload_peak_memory=MeasuredPeakMemory(1),
-            config_digest="sha256:" + name[-1] * 64,
-            method_config={"name": name},
-            presentation=ExecutedMethod(prepared_method(name), ()),
-            plot_styles={
-                name: PreconditionerPlotStyle(
-                    build_configured_preconditioner_label(configs[name]), PreconditionerType.AMG
-                )
-            },
+            config_digest="sha256:" + str(configs.index(config)) * 64,
+            method_config={"name": config.name},
+            presentation=ExecutedMethod(prepared, ()),
+            plot_styles={config.name: PreconditionerPlotStyle(prepared, PreconditionerType.AMG)},
         )
 
     class PresentationSink:
@@ -289,13 +299,13 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
             self.presentations.append(presentation)
 
     sink = PresentationSink()
-    report_all_levels((workload("amg_theta_025"), workload("amg_theta_05")), sink)
+    report_all_levels(tuple(workload(config) for config in configs), sink, datasets=group_datasets)
 
-    assert (
-        sink.presentations[0].plot_styles["amg_theta_025"].label
-        == "AMG (L=2, θ=0.25, ν₁=2, ν₂=2, ωₛ=auto)"
+    legend = method_legend(
+        {name: method.compact for name, method in sink.presentations[0].methods.items()},
+        NotationPolicy.default(),
     )
-    assert (
-        sink.presentations[0].plot_styles["amg_theta_05"].label
-        == "AMG (L=2, θ=0.5, ν₁=2, ν₂=2, ωₛ=auto)"
-    )
+    assert [legend.label(config.name) for config in configs] == [
+        "AMG (L=2, θ=0.25, ν₁=2, ν₂=2, ωₛ=auto)",
+        "AMG (L=2, θ=0.5, ν₁=2, ν₂=2, ωₛ=auto)",
+    ]

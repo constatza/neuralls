@@ -1,11 +1,19 @@
 import tomllib
+from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
-from neuralls.domain.solver.models.presentation import SolverTimingContext
+from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.solver.models.figure_scope import (
+    FigureScope,
+    RecipeScope,
+    render_figure_scope,
+)
+from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.platform.reporting.figure_metadata import (
+    MANIFEST_PROFILE,
     FailureTreatment,
     FigureKind,
     FigureManifest,
@@ -17,15 +25,17 @@ from neuralls.platform.reporting.figure_metadata import (
     validate_figure_manifest,
     write_figure_manifest,
 )
+from neuralls.platform.storage.facts_codec import decode_figure_scope
+from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
 
 
-def _metadata() -> FigureMetadata:
+def _metadata(scope: FigureScope) -> FigureMetadata:
     return FigureMetadata(
         kind=FigureKind.PERFORMANCE_PROFILE,
         metric_definition="amortized online seconds",
         scenario=TimingScenario.ONLINE,
         report_level="fine",
-        scope="Dataset X - sinusoidal omega=6.28319",
+        scope=scope,
         datasets=("Dataset X",),
         recipes=("sinusoidal omega=6.28319",),
         n_matrices=1,
@@ -53,30 +63,64 @@ def _metadata() -> FigureMetadata:
     )
 
 
-def test_manifest_round_trip_is_deterministic(tmp_path: Path) -> None:
+def _entry(manifest: FigureManifest, notation: NotationPolicy) -> dict[str, Any]:
+    figures = cast(dict[str, dict[str, Any]], manifest.as_dict(notation)["figures"])
+    return figures["performance_profile_fine_x_online.png"]
+
+
+@pytest.fixture
+def scope(dataset_presentation: DatasetPresentation) -> RecipeScope:
+    return RecipeScope(dataset_presentation, "sinusoidal omega=6.28319")
+
+
+def test_manifest_round_trip_is_deterministic(
+    tmp_path: Path, scope: RecipeScope, notation: NotationPolicy
+) -> None:
     manifest = FigureManifest()
-    metadata = _metadata()
+    metadata = _metadata(scope)
     manifest.add("performance_profile_fine_x_online.png", metadata)
     path = tmp_path / "figure_manifest.toml"
-    write_figure_manifest(path, manifest)
+    write_figure_manifest(path, manifest, notation)
     first = path.read_text()
-    write_figure_manifest(path, manifest)
+    write_figure_manifest(path, manifest, notation)
     assert path.read_text() == first
     assert "setup_events.parquet" in first
     assert "performance_profile_fine_x_online.png" in first
 
 
-def test_manifest_serializes_literal_population_and_solver_context() -> None:
+def test_manifest_stores_structured_scope_and_its_rendered_text(
+    scope: RecipeScope, notation: NotationPolicy
+) -> None:
     manifest = FigureManifest()
-    manifest.add("performance_profile_fine_x_online.png", _metadata())
+    manifest.add("performance_profile_fine_x_online.png", _metadata(scope))
 
-    assert manifest.as_dict() == {
+    stored = _entry(manifest, notation)["scope"]
+
+    assert decode_figure_scope(stored) == scope
+    expected = render_figure_scope(
+        scope, MANIFEST_PROFILE, replace(notation, target=RenderTarget.PLAIN)
+    ).text
+    assert stored["display"] == expected
+    assert stored["kind"] == "recipe"
+    assert "$" not in stored["display"]
+
+
+def test_manifest_serializes_literal_population_and_solver_context(
+    scope: RecipeScope, notation: NotationPolicy
+) -> None:
+    manifest = FigureManifest()
+    manifest.add("performance_profile_fine_x_online.png", _metadata(scope))
+    payload = manifest.as_dict(notation)
+    figures = cast(dict[str, dict[str, Any]], payload["figures"])
+    scope_table = figures["performance_profile_fine_x_online.png"].pop("scope")
+    assert scope_table["kind"] == "recipe"
+
+    assert payload == {
         "figures": {
             "performance_profile_fine_x_online.png": {
                 "kind": "performance_profile",
                 "metric_definition": "amortized online seconds",
                 "report_level": "fine",
-                "scope": "Dataset X - sinusoidal omega=6.28319",
                 "datasets": ["Dataset X"],
                 "recipes": ["sinusoidal omega=6.28319"],
                 "recipe_counts": [4],
@@ -108,16 +152,20 @@ def test_manifest_serializes_literal_population_and_solver_context() -> None:
     }
 
 
-def _manifest_payload(tmp_path: Path) -> dict[str, Any]:
+def _manifest_payload(
+    tmp_path: Path, scope: RecipeScope, notation: NotationPolicy
+) -> dict[str, Any]:
     manifest = FigureManifest()
-    manifest.add("performance_profile_fine_x_online.png", _metadata())
+    manifest.add("performance_profile_fine_x_online.png", _metadata(scope))
     path = tmp_path / "figure_manifest.toml"
-    write_figure_manifest(path, manifest)
+    write_figure_manifest(path, manifest, notation)
     return tomllib.loads(path.read_text(encoding="utf-8"))
 
 
-def test_written_manifest_passes_validation(tmp_path: Path) -> None:
-    validate_figure_manifest(_manifest_payload(tmp_path))
+def test_written_manifest_passes_validation(
+    tmp_path: Path, scope: RecipeScope, notation: NotationPolicy
+) -> None:
+    validate_figure_manifest(_manifest_payload(tmp_path, scope, notation))
 
 
 def test_manifest_without_figures_table_is_rejected() -> None:
@@ -125,16 +173,27 @@ def test_manifest_without_figures_table_is_rejected() -> None:
         validate_figure_manifest({})
 
 
-def test_manifest_entry_missing_required_field_is_rejected(tmp_path: Path) -> None:
-    payload = _manifest_payload(tmp_path)
+def test_manifest_entry_missing_required_field_is_rejected(
+    tmp_path: Path, scope: RecipeScope, notation: NotationPolicy
+) -> None:
+    payload = _manifest_payload(tmp_path, scope, notation)
     del payload["figures"]["performance_profile_fine_x_online.png"]["solver_contexts"]
     with pytest.raises(InvalidFigureManifestError, match="solver_contexts"):
         validate_figure_manifest(payload)
 
 
-def test_manifest_rejects_duplicate_and_sanitized_collisions() -> None:
+def test_manifest_scope_without_display_text_is_rejected(
+    tmp_path: Path, scope: RecipeScope, notation: NotationPolicy
+) -> None:
+    payload = _manifest_payload(tmp_path, scope, notation)
+    del payload["figures"]["performance_profile_fine_x_online.png"]["scope"]["display"]
+    with pytest.raises(InvalidFigureManifestError, match="scope"):
+        validate_figure_manifest(payload)
+
+
+def test_manifest_rejects_duplicate_and_sanitized_collisions(scope: RecipeScope) -> None:
     manifest = FigureManifest()
-    metadata = _metadata()
+    metadata = _metadata(scope)
     manifest.add("a b.png", metadata)
     with pytest.raises(ValueError):
         manifest.add("a_b.png", metadata)
@@ -142,9 +201,9 @@ def test_manifest_rejects_duplicate_and_sanitized_collisions() -> None:
         manifest.add("a b.png", metadata)
 
 
-def test_manifest_validates_plans_before_upload() -> None:
+def test_manifest_validates_plans_before_upload(scope: RecipeScope) -> None:
     manifest = FigureManifest()
-    metadata = _metadata()
-    manifest.add_plan(FigurePlan("first.png", "Title", "Scope", metadata))
+    metadata = _metadata(scope)
+    manifest.add_plan(FigurePlan("first.png", "Title", metadata))
     with pytest.raises(ValueError):
-        manifest.validate_plans((FigurePlan("first.png", "Title", "Scope", metadata),))
+        manifest.validate_plans((FigurePlan("first.png", "Title", metadata),))

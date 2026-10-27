@@ -10,6 +10,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, assert_never, cast, get_args
 
+from neuralls.domain.presentation.methods import (
+    ConfiguredMethodPresentation,
+    DatasetQualifiedMethodPresentation,
+    StandaloneMethodPresentation,
+)
 from neuralls.domain.presentation.provenance import (
     DatasetGenerationProvenance,
     DatasetPresentation,
@@ -19,6 +24,13 @@ from neuralls.domain.presentation.provenance import (
     NoSeed,
     StrategyProvenance,
     StrategySeed,
+)
+from neuralls.domain.solver.models.figure_scope import (
+    AllDatasetsScope,
+    DatasetScope,
+    FigureScope,
+    MethodScope,
+    RecipeScope,
 )
 from neuralls.shared.scientific_description.catalog import make_fact
 from neuralls.shared.scientific_description.models import (
@@ -37,8 +49,12 @@ from neuralls.shared.types import GenerationStrategyKind, NormalizeType
 __all__ = [
     "decode_dataset_presentation",
     "decode_facts",
+    "decode_figure_scope",
+    "decode_method_presentation",
     "encode_dataset_presentation",
     "encode_facts",
+    "encode_figure_scope",
+    "encode_method_presentation",
 ]
 
 type Payload = Mapping[str, Any]
@@ -174,3 +190,68 @@ def decode_dataset_presentation(payload: Payload) -> DatasetPresentation:
             root_seed=int(generation["root_seed"]),
         ),
     )
+
+
+def encode_method_presentation(presentation: ConfiguredMethodPresentation) -> dict[str, Any]:
+    """Encode a configured method presentation, including its training dataset if it has one."""
+    match presentation:
+        case StandaloneMethodPresentation(method=method):
+            return {"kind": "standalone", "method": _encode_description(method)}
+        case DatasetQualifiedMethodPresentation(method=method, dataset=dataset):
+            return {
+                "kind": "dataset_qualified",
+                "method": _encode_description(method),
+                "dataset": encode_dataset_presentation(dataset),
+            }
+        case _:
+            assert_never(presentation)
+
+
+def decode_method_presentation(payload: Payload) -> ConfiguredMethodPresentation:
+    """Decode and validate a method presentation produced by the encoder."""
+    method = _decode_description(payload["method"])
+    match payload["kind"]:
+        case "standalone":
+            return StandaloneMethodPresentation(method)
+        case "dataset_qualified":
+            return DatasetQualifiedMethodPresentation(
+                method, decode_dataset_presentation(payload["dataset"])
+            )
+        case other:
+            raise ValueError(f"Unknown method presentation kind {other!r}")
+
+
+def encode_figure_scope(scope: FigureScope) -> dict[str, Any]:
+    """Encode what a figure is about as keys and typed values."""
+    match scope:
+        case RecipeScope(dataset=dataset, recipe=recipe):
+            return {
+                "kind": "recipe",
+                "recipe": recipe,
+                "dataset": encode_dataset_presentation(dataset),
+            }
+        case DatasetScope(dataset=dataset):
+            return {"kind": "dataset", "dataset": encode_dataset_presentation(dataset)}
+        case AllDatasetsScope():
+            return {"kind": "all_datasets"}
+        case MethodScope(method=method):
+            return {"kind": "method", "method": encode_method_presentation(method)}
+        case _:
+            assert_never(scope)
+
+
+def decode_figure_scope(payload: Payload) -> FigureScope:
+    """Decode and validate a figure scope produced by the encoder."""
+    match payload["kind"]:
+        case "recipe":
+            return RecipeScope(
+                decode_dataset_presentation(payload["dataset"]), str(payload["recipe"])
+            )
+        case "dataset":
+            return DatasetScope(decode_dataset_presentation(payload["dataset"]))
+        case "all_datasets":
+            return AllDatasetsScope()
+        case "method":
+            return MethodScope(decode_method_presentation(payload["method"]))
+        case other:
+            raise ValueError(f"Unknown figure scope kind {other!r}")

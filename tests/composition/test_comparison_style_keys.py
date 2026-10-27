@@ -14,7 +14,6 @@ from pathlib import Path
 import pytest
 
 from neuralls.composition.comparison.comparison_run import _pod2g_style_keys
-from neuralls.composition.preconditioners.labels import build_configured_preconditioner_label
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     NeuralPODCoarseningConfig,
@@ -23,7 +22,6 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
-from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
 
 
 @pytest.fixture
@@ -81,36 +79,3 @@ def test_pod2g_style_keys_non_pod_config_falls_back_to_none(
 ) -> None:
     """A non-POD-2G config yields (None, None), falling back to family-based styling."""
     assert _pod2g_style_keys(jacobi_config) == (None, None)
-
-
-def test_configured_pod_label_honours_notation_without_building(
-    pod2g_config_with_power_norm_weighting: AMGPreconditionerConfig,
-) -> None:
-    """Compatibility labels retain POD family and notation from config-only facts."""
-    config = pod2g_config_with_power_norm_weighting.model_copy(update={"pre_smoothing_steps": 3})
-
-    label = build_configured_preconditioner_label(
-        config,
-        policy=NotationPolicy.default(RenderTarget.MATHTEXT),
-    )
-
-    assert label.startswith("POD-2G")
-    assert r"\nu_1=3" in label
-
-
-def test_configured_pod_labels_expose_rank_without_config_slug(pod2g_dataset_dir: Path) -> None:
-    """POD variants remain concise and distinguish their configured ranks."""
-    rank_three = build_configured_preconditioner_label(
-        AMGPreconditionerConfig(
-            coarsening=PODCoarseningConfig(dataset_dir=pod2g_dataset_dir, rank=3)
-        )
-    )
-    rank_five = build_configured_preconditioner_label(
-        AMGPreconditionerConfig(
-            coarsening=PODCoarseningConfig(dataset_dir=pod2g_dataset_dir, rank=5)
-        )
-    )
-
-    assert rank_three == "POD-2G (r=3, ν₁=2, ν₂=2, ωₛ=auto)"
-    assert rank_five == "POD-2G (r=5, ν₁=2, ν₂=2, ωₛ=auto)"
-    assert "config=" not in rank_three

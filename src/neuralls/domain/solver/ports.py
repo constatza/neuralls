@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from typing import Protocol, runtime_checkable
 
 from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport, WorkloadMixtureReport
-from neuralls.domain.solver.models.presentation import GroupPresentation
+from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.models.workload import MethodWorkload, MethodWorkloadSummary
 

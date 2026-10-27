@@ -14,21 +14,26 @@ from loguru import logger
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload
 from neuralls.domain.benchmarking.selection import NoReferenceConfigured, ReferenceSelection
-from neuralls.domain.presentation.methods import DuplicateMethodPresentationError
 from neuralls.domain.presentation.planner import reduce_realized_facts
+from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.solver.models.figure_scope import (
+    AllDatasetsScope,
+    DatasetScope,
+    GroupScope,
+    RecipeScope,
+)
 from neuralls.domain.solver.models.group_outcomes import (
     GroupAggregated,
     GroupSkippedAllCacheHit,
     RecipeProfileReport,
     WorkloadMixtureReport,
 )
-from neuralls.domain.solver.models.labels import GlobalLabel, MediumLabel
-from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
-from neuralls.domain.solver.models.presentation import (
+from neuralls.domain.solver.models.group_presentation import (
     GroupMethodPresentation,
     GroupPresentation,
     SolverTimingContext,
 )
+from neuralls.domain.solver.models.labels import GlobalLabel, MediumLabel
 from neuralls.domain.solver.ports import GroupReportSink
 from neuralls.domain.solver.reporting.classification import classify_level
 from neuralls.domain.solver.reporting.report_levels import (
@@ -37,7 +42,7 @@ from neuralls.domain.solver.reporting.report_levels import (
     MediumLevel,
     ReportLevel,
 )
-from neuralls.shared.types import PreconditionerName, SystemId
+from neuralls.shared.types import DatasetId, PreconditionerName, SystemId
 
 __all__ = ["REPORT_LEVELS", "report_all_levels"]
 
@@ -45,45 +50,38 @@ REPORT_LEVELS: tuple[ReportLevel, ...] = (FineLevel(), MediumLevel(), GlobalLeve
 """Every level a batch reports, finest first."""
 
 
-def _subject(report: RecipeProfileReport | WorkloadMixtureReport) -> str:
-    """Concise scope shown beneath a figure title."""
+class MissingDatasetPresentationError(LookupError):
+    """A report group names a dataset whose scientific presentation was not supplied.
+
+    The dataset id is a diagnostic machine identifier only; it never becomes a label.
+    """
+
+    def __init__(self, dataset: DatasetId) -> None:
+        self.dataset = dataset
+        super().__init__(f"no scientific presentation for dataset {dataset!r}")
+
+
+def _scope(
+    report: RecipeProfileReport | WorkloadMixtureReport,
+    datasets: Mapping[DatasetId, DatasetPresentation],
+) -> GroupScope:
+    """What the group pools, as typed values rendered by the sink."""
+
+    def presentation_of(dataset: DatasetId) -> DatasetPresentation:
+        found = datasets.get(dataset)
+        if found is None:
+            raise MissingDatasetPresentationError(dataset)
+        return found
+
     match report:
         case RecipeProfileReport(label=label):
-            return f"Dataset {label.dataset} - {label.recipe}"
+            return RecipeScope(presentation_of(label.dataset), label.recipe)
         case WorkloadMixtureReport(label=MediumLabel(dataset=dataset)):
-            return f"Dataset {dataset}"
+            return DatasetScope(presentation_of(dataset))
         case WorkloadMixtureReport(label=GlobalLabel()):
-            return "All datasets"
+            return AllDatasetsScope()
         case _ as unreachable:
             assert_never(cast(Never, unreachable))
-
-
-def _subtitle(outcome: RecipeProfileReport | WorkloadMixtureReport) -> str:
-    """Return only the concise scope; scientific context belongs in metadata."""
-    match outcome:
-        case RecipeProfileReport(label=label):
-            scope = f"Dataset {label.dataset} - {label.recipe}"
-        case WorkloadMixtureReport(label=MediumLabel(dataset=dataset)):
-            scope = f"Dataset {dataset}"
-        case WorkloadMixtureReport(label=GlobalLabel()):
-            scope = "All datasets"
-        case _ as unreachable:
-            assert_never(cast(Never, unreachable))
-    return scope
-
-
-def _require_distinct_labels(plot_styles: Mapping[str, PreconditionerPlotStyle]) -> None:
-    """Refuse two methods that would be drawn under one legend entry.
-
-    A shared label means the methods' scientific presentations do not distinguish them;
-    appending an internal key would hide that, so it is an error.
-    """
-    names_by_label: dict[str, list[PreconditionerName]] = {}
-    for name, style in plot_styles.items():
-        names_by_label.setdefault(style.label, []).append(PreconditionerName(name))
-    for names in names_by_label.values():
-        if len(names) > 1:
-            raise DuplicateMethodPresentationError(tuple(names))
 
 
 def _group_methods(
@@ -120,10 +118,15 @@ def report_all_levels(
     workloads: Sequence[CompletedMethodWorkload],
     sink: GroupReportSink,
     *,
+    datasets: Mapping[DatasetId, DatasetPresentation],
     reference_selection: ReferenceSelection | dict[SystemId, ReferenceSelection] | None = None,
     contexts_by_system: Mapping[SystemId, SolverTimingContext] | None = None,
 ) -> None:
-    """Reduce completed method workloads and report every canonical level."""
+    """Reduce completed method workloads and report every canonical level.
+
+    ``datasets`` presents each dataset a group names; a group on a dataset without an
+    entry raises before anything is reported for it.
+    """
     selected = reference_selection if reference_selection is not None else NoReferenceConfigured()
     planned_by_id = {tag.system_id: tag for workload in workloads for tag in workload.planned}
     planned = tuple(planned_by_id.values())
@@ -133,7 +136,6 @@ def report_all_levels(
     plot_styles = {
         name: style for workload in workloads for name, style in workload.plot_styles.items()
     }
-    _require_distinct_labels(plot_styles)
     for level in REPORT_LEVELS:
         for classified in classify_level(
             planned, setup_events, attempts, level, selected, planned_by_method=planned_by_method
@@ -150,8 +152,7 @@ def report_all_levels(
                     sink.report(
                         aggregated,
                         presentation=GroupPresentation(
-                            subject=_subject(aggregated),
-                            subtitle=_subtitle(aggregated),
+                            scope=_scope(aggregated, datasets),
                             plot_styles=plot_styles,
                             methods=_group_methods(workloads, aggregated.system_ids),
                             solver_contexts=solver_contexts,

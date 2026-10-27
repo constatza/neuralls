@@ -25,12 +25,13 @@ from neuralls.composition.comparison.models import (
     ResolvedMethod,
 )
 from neuralls.domain.presentation.methods import (
-    DuplicateMethodPresentationError,
     ExecutedMethod,
+    MissingMethodPresentationError,
     PreparedComparisonPresentation,
     PreparedMethodPresentation,
     SystemRealization,
 )
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -41,9 +42,10 @@ from neuralls.domain.solver.models import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
+from neuralls.domain.solver.models.figure_scope import AllDatasetsScope, DatasetScope, RecipeScope
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
+from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
-from neuralls.domain.solver.models.presentation import GroupPresentation
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerConfig,
     PreconditionerType,
@@ -54,7 +56,6 @@ from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS, make
 from neuralls.shared.scientific_description.models import (
     ScientificFact,
 )
-from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 from neuralls.shared.workflow_failures import ComparisonMatrixFailureContext, ComparisonMatrixPhase
 from tests.presentation_support import PreparedMethodFactory
@@ -176,7 +177,6 @@ def _execute(
         prepared=prepared,
         params=params,
         settings=settings,
-        notation_policy=NotationPolicy.default(),
     )
 
 
@@ -233,6 +233,7 @@ def test_failed_setup_is_reported_from_the_prepared_state(
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     def fail(*args: object, **kwargs: object) -> object:
         raise RuntimeError("setup broke")
@@ -244,7 +245,7 @@ def test_failed_setup_is_reported_from_the_prepared_state(
 
     assert workload.presentation == ExecutedMethod(prepared, ())
     sink = _RecordingSink()
-    report_all_levels((workload,), sink)
+    report_all_levels((workload,), sink, datasets=group_datasets)
     group_method = sink.presentations[0].methods[method.name]
     assert group_method.prepared is prepared
     assert group_method.invariant_facts == ()
@@ -275,7 +276,6 @@ def _workload(
     prepared: PreparedMethodPresentation,
     depth_by_matrix: dict[int, int],
     *,
-    label: str = "Jacobi",
     recipe_by_matrix: dict[int, str] | None = None,
     realized_matrices: frozenset[int] | None = None,
 ) -> CompletedMethodWorkload:
@@ -346,17 +346,18 @@ def _workload(
         config_digest="sha256:" + "0" * 64,
         method_config={"name": str(name)},
         presentation=realized,
-        plot_styles={str(name): PreconditionerPlotStyle(label, PreconditionerType.JACOBI)},
+        plot_styles={str(name): PreconditionerPlotStyle(prepared, PreconditionerType.JACOBI)},
     )
 
 
 def test_group_reports_a_realized_fact_shared_by_every_matrix(
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     prepared = prepared_method("jacobi")
     sink = _RecordingSink()
 
-    report_all_levels((_workload(prepared, {1: 2, 2: 2}),), sink)
+    report_all_levels((_workload(prepared, {1: 2, 2: 2}),), sink, datasets=group_datasets)
 
     group_method = sink.presentations[0].methods[PreconditionerName("jacobi")]
     assert group_method.invariant_facts == _levels(2)
@@ -366,12 +367,13 @@ def test_group_reports_a_realized_fact_shared_by_every_matrix(
 
 def test_group_does_not_claim_a_realized_fact_that_varies_by_matrix(
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     prepared = prepared_method("jacobi")
     workload = _workload(prepared, {1: 2, 2: 3})
     sink = _RecordingSink()
 
-    report_all_levels((workload,), sink)
+    report_all_levels((workload,), sink, datasets=group_datasets)
 
     group_method = sink.presentations[0].methods[PreconditionerName("jacobi")]
     assert group_method.invariant_facts == ()
@@ -379,23 +381,11 @@ def test_group_does_not_claim_a_realized_fact_that_varies_by_matrix(
     assert [s.facts for s in workload.presentation.systems] == [_levels(2), _levels(3)]
 
 
-def test_colliding_group_labels_raise_instead_of_appending_a_key(
-    prepared_method: PreparedMethodFactory,
-) -> None:
-    first = _workload(prepared_method("jacobi_a"), {1: 2})
-    second = _workload(prepared_method("jacobi_b"), {1: 2})
-
-    with pytest.raises(DuplicateMethodPresentationError) as raised:
-        report_all_levels((first, second), _RecordingSink())
-
-    assert set(raised.value.method_ids) == {"jacobi_a", "jacobi_b"}
-
-
 def test_cohort_returns_the_prepared_presentation_of_a_known_method(
     prepared_presentation: PreparedComparisonPresentation,
 ) -> None:
     assert prepared_presentation.method(PreconditionerName("jacobi")).method_id == "jacobi"
-    with pytest.raises(KeyError):
+    with pytest.raises(MissingMethodPresentationError):
         prepared_presentation.method(PreconditionerName("absent"))
 
 
@@ -418,6 +408,7 @@ def _depth_shown(group: GroupPresentation, method: str) -> list[int]:
 
 def test_each_group_states_only_facts_invariant_over_its_own_systems(
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     workload = _workload(
         prepared_method("jacobi"),
@@ -426,43 +417,45 @@ def test_each_group_states_only_facts_invariant_over_its_own_systems(
     )
     sink = _RecordingSink()
 
-    report_all_levels((workload,), sink)
+    report_all_levels((workload,), sink, datasets=group_datasets)
 
-    by_subtitle = {group.subtitle: _depth_shown(group, "jacobi") for group in sink.presentations}
-    assert by_subtitle == {
-        "Dataset ds - alpha": [2],
-        "Dataset ds - beta": [3],
-        "Dataset ds": [],
-        "All datasets": [],
-    }
+    dataset = group_datasets[DatasetId("ds")]
+    by_scope = [(group.scope, _depth_shown(group, "jacobi")) for group in sink.presentations]
+    assert by_scope == [
+        (RecipeScope(dataset, "alpha"), [2]),
+        (RecipeScope(dataset, "beta"), [3]),
+        (DatasetScope(dataset), []),
+        (AllDatasetsScope(), []),
+    ]
 
 
 def test_a_group_with_an_unrealized_system_states_no_realized_fact(
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     workload = _workload(prepared_method("jacobi"), {1: 2, 2: 2}, realized_matrices=frozenset({2}))
     sink = _RecordingSink()
 
-    report_all_levels((workload,), sink)
+    report_all_levels((workload,), sink, datasets=group_datasets)
 
     assert all(_depth_shown(group, "jacobi") == [] for group in sink.presentations)
 
 
 def test_group_lists_only_methods_with_systems_in_that_group(
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     alpha = _workload(prepared_method("jacobi_a"), {1: 2}, recipe_by_matrix={1: "alpha"})
-    beta = _workload(
-        prepared_method("jacobi_b"), {2: 2}, recipe_by_matrix={2: "beta"}, label="Jacobi B"
-    )
+    beta = _workload(prepared_method("jacobi_b"), {2: 2}, recipe_by_matrix={2: "beta"})
     sink = _RecordingSink()
 
-    report_all_levels((alpha, beta), sink)
+    report_all_levels((alpha, beta), sink, datasets=group_datasets)
 
-    methods_by_subtitle = {group.subtitle: set(group.methods) for group in sink.presentations}
-    assert methods_by_subtitle["Dataset ds - alpha"] == {"jacobi_a"}
-    assert methods_by_subtitle["Dataset ds - beta"] == {"jacobi_b"}
-    assert methods_by_subtitle["All datasets"] == {"jacobi_a", "jacobi_b"}
+    dataset = group_datasets[DatasetId("ds")]
+    methods_by_scope = {group.scope: set(group.methods) for group in sink.presentations}
+    assert methods_by_scope[RecipeScope(dataset, "alpha")] == {"jacobi_a"}
+    assert methods_by_scope[RecipeScope(dataset, "beta")] == {"jacobi_b"}
+    assert methods_by_scope[AllDatasetsScope()] == {"jacobi_a", "jacobi_b"}
 
 
 def test_partial_setup_failure_keeps_only_the_successful_matrix_systems(

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -28,6 +28,7 @@ from neuralls.composition.comparison._preconditioner_setup import (
 from neuralls.composition.comparison._presentation import build_comparison_source_context
 from neuralls.composition.comparison.models import (
     ComparisonPaths,
+    ComparisonPresentation,
     CompletedMethodWorkload,
     MatrixWorkload,
     PreconditionerComparisonEntry,
@@ -37,13 +38,9 @@ from neuralls.composition.comparison.models import (
 )
 from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
 from neuralls.composition.preconditioners.checkpoint_store import CheckpointStore
-from neuralls.composition.preconditioners.labels import (
-    build_configured_preconditioner_label,
-    build_preconditioner_labels,
-    contextualize_preconditioner_label,
-)
 from neuralls.domain.presentation.methods import (
     ExecutedMethod,
+    PreparedComparisonPresentation,
     PreparedMethodPresentation,
     SystemRealization,
 )
@@ -83,6 +80,7 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.config.models.preconditioner_family import preconditioner_family
 from neuralls.platform.config.resolution import resolve_user_path
 from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.platform.reporting.figure_text import ComparisonFigureTitle, Legend, method_legend
 from neuralls.platform.storage.filesystem import ensure_dir
 from neuralls.shared.device import (
     FailedTimedRuns,
@@ -92,7 +90,6 @@ from neuralls.shared.device import (
     repeat_timed_outcome,
 )
 from neuralls.shared.digest import canonical_digest
-from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import PreconditionerName, SetupEventId, SystemId
 
 type PreconditionerEvaluationMapper = Callable[
@@ -180,7 +177,7 @@ def _evaluate_preconditioner(
     x_exact: torch.Tensor | None = None,
     settings: NeurallsSettings,
     cache: SystemPreconditionerCache | None = None,
-    notation_policy: NotationPolicy | None = None,
+    presentation: PreparedComparisonPresentation,
 ) -> PreconditionerComparisonEntry:
     """Build one preconditioner, run it, and package its evaluation outcome.
 
@@ -209,14 +206,15 @@ def _evaluate_preconditioner(
             when doing so is provably valid (see `SystemPreconditionerCache`).
             `None` (the default) means every call builds fresh, unchanged
             from before this parameter existed.
-        notation_policy: Render target and symbol overrides for the display name
-            (from ``[comparison_baseline.presentation]``); ``None`` is plain text.
+        presentation: The validated presentation of the whole cohort; this method's own
+            is looked up by its name, and a name it lacks raises.
 
     Returns:
         Named result containing the solve outcome and plot metadata for ``cfg``.
     """
     logger.info("Evaluating preconditioner: {}", cfg.name)
     color_key, marker_key = _pod2g_style_keys(cfg)
+    prepared = presentation.method(PreconditionerName(cfg.name))
     try:
         return _run_preconditioner(
             cfg,
@@ -231,7 +229,7 @@ def _evaluate_preconditioner(
             x_exact=x_exact,
             settings=settings,
             cache=cache,
-            notation_policy=notation_policy,
+            presentation=prepared,
         )
     except Exception as exc:  # noqa: BLE001
         # Broad by design: one preconditioner's failure (build, solve, CUDA OOM,
@@ -247,7 +245,7 @@ def _evaluate_preconditioner(
         return PreconditionerComparisonEntry(
             name=cfg.name,
             result=_breakdown_result(cfg.name, rhs=rhs, error=f"{type(exc).__name__}: {exc}"),
-            label=cfg.name,
+            presentation=prepared,
             family=preconditioner_family(cfg),
             color_key=color_key,
             marker_key=marker_key,
@@ -291,7 +289,7 @@ def _run_preconditioner(
     x_exact: torch.Tensor | None = None,
     settings: NeurallsSettings,
     cache: SystemPreconditionerCache | None = None,
-    notation_policy: NotationPolicy | None = None,
+    presentation: PreparedMethodPresentation,
 ) -> PreconditionerComparisonEntry:
     """Build and solve one preconditioner; raises on any failure.
 
@@ -354,11 +352,6 @@ def _run_preconditioner(
             )
     if cached is not None:
         _bind_extra_inputs(scheduled, matrix, staged_inputs)
-    base_label = build_preconditioner_labels(scheduled, {cfg.name: cfg}, policy=notation_policy)[
-        cfg.name
-    ]
-    dataset_label = Path(color_key).name if color_key is not None else None
-    label = contextualize_preconditioner_label(base_label, dataset_label)
     result = run_cg_comparison(
         matrix,
         rhs,
@@ -382,7 +375,7 @@ def _run_preconditioner(
     return PreconditionerComparisonEntry(
         name=cfg.name,
         result=result,
-        label=label,
+        presentation=presentation,
         family=family,
         color_key=color_key,
         marker_key=marker_key,
@@ -589,7 +582,6 @@ def execute_method_workload(
     prepared: PreparedMethodPresentation,
     params: SolverParams,
     settings: NeurallsSettings,
-    notation_policy: NotationPolicy,
 ) -> CompletedMethodWorkload:
     """Execute one method over matrix bundles, keeping matrix state RHS-local.
 
@@ -648,10 +640,7 @@ def execute_method_workload(
         presentation=ExecutedMethod(prepared, tuple(realizations)),
         plot_styles={
             str(method.name): PreconditionerPlotStyle(
-                label=contextualize_preconditioner_label(
-                    build_configured_preconditioner_label(method.config, policy=notation_policy),
-                    Path(color_key).name if color_key is not None else None,
-                ),
+                presentation=prepared,
                 family=preconditioner_family(method.config),
                 color_key=color_key,
                 marker_key=marker_key,
@@ -667,31 +656,26 @@ def build_comparison_result_from_diagnostics(
     resolved_input: ResolvedComparisonInput,
     results: dict[str, CGComparisonResult],
     output_root: Path,
-    display_name: str | None,
-    notation_policy: NotationPolicy,
+    presentation: ComparisonPresentation,
 ) -> ComparisonResult:
     """Build the retained per-system result/artifact payload without re-solving.
 
     Method-major execution owns solver work. This adapter recreates only the
-    public diagnostic envelope (plots, shapes, labels, and summaries) expected
-    by existing nested comparison runs and artifact consumers.
+    public diagnostic envelope (plots, shapes, legends, and summaries) expected
+    by existing nested comparison runs and artifact consumers; every method is
+    presented from ``presentation``, the cohort prepared at preflight.
     """
     paths = _resolve_comparison_paths(
         general_params=general_params, output_root=output_root, figures_root=None
     )
     _ensure_comparison_directories(paths)
-    context = build_comparison_source_context(paths, resolved_input)
     plot_styles = {}
     for config in preconditioner_configs:
         if config.name not in results:
             continue
         color_key, marker_key = _pod2g_style_keys(config)
-        dataset_label = Path(color_key).name if color_key is not None else None
         plot_styles[config.name] = PreconditionerPlotStyle(
-            label=contextualize_preconditioner_label(
-                build_configured_preconditioner_label(config, policy=notation_policy),
-                dataset_label,
-            ),
+            presentation=presentation.methods.method(PreconditionerName(config.name)),
             family=preconditioner_family(config),
             color_key=color_key,
             marker_key=marker_key,
@@ -700,17 +684,17 @@ def build_comparison_result_from_diagnostics(
     plot_paths = _generate_comparison_plots(
         results,
         paths,
-        styles.labels,
-        comparison_context=context,
+        _legend_of(plot_styles, presentation),
+        ComparisonFigureTitle(
+            presentation.title, int(resolved_input.matrix.shape[0]), presentation.notation
+        ),
         families=styles.families,
         color_keys=styles.color_keys,
         marker_keys=styles.marker_keys,
-        system_size=int(resolved_input.matrix.shape[0]),
         rtol=general_params.params.rtol,
         atol=general_params.params.atol,
         max_iterations=general_params.params.max_iterations,
     )
-    del display_name  # kept in the boundary for parity with compare_preconditioners
     return ComparisonResult(
         results=results,
         summary=format_results_summary(results),
@@ -723,6 +707,16 @@ def build_comparison_result_from_diagnostics(
         rhs_shape=tuple(resolved_input.rhs.shape),
         rhs_source_kind=resolved_input.rhs_source_kind,
         plot_styles=plot_styles,
+    )
+
+
+def _legend_of(
+    plot_styles: Mapping[str, PreconditionerPlotStyle], presentation: ComparisonPresentation
+) -> Legend:
+    """The legend of a comparison's methods, each rendered from its own prepared presentation."""
+    return method_legend(
+        {name: style.presentation.compact for name, style in plot_styles.items()},
+        presentation.notation,
     )
 
 
@@ -792,7 +786,7 @@ def compare_preconditioners(
     evaluation_mapper: PreconditionerEvaluationMapper = map,
     settings: NeurallsSettings,
     cache: SystemPreconditionerCache | None = None,
-    notation_policy: NotationPolicy | None = None,
+    presentation: ComparisonPresentation,
 ) -> ComparisonResult:
     """Run CG comparisons and generate diagnostics.
 
@@ -838,9 +832,8 @@ def compare_preconditioners(
             once per method workload; without a cache (or a store on it) this call uses
             a private store released when it returns, so the load is still
             outside the timer.
-        notation_policy: Render target and symbol overrides for preconditioner
-            display names, from ``[comparison_baseline.presentation]``. ``None``
-            (the default) renders plain text with the default symbols.
+        presentation: The cohort's validated scientific presentation, its title, and the
+            case's notation, all prepared at preflight; figures render them when drawn.
 
     Returns:
         ComparisonResult with results, summary, plot paths, and solver metadata.
@@ -860,8 +853,11 @@ def compare_preconditioners(
     )
     _ensure_comparison_directories(paths)
     solver_device = resolve_device()
-    comparison_context = build_comparison_source_context(paths, resolved_input)
-    logger.info("Comparison: {} | device={}", comparison_context, solver_device)
+    logger.info(
+        "Comparison: {} | device={}",
+        build_comparison_source_context(paths, resolved_input),
+        solver_device,
+    )
 
     resolved_matrix_index = general_params.data.matrix_index
 
@@ -902,7 +898,7 @@ def compare_preconditioners(
             x_exact=x_exact,
             settings=settings,
             cache=cache,
-            notation_policy=notation_policy,
+            presentation=presentation.methods,
         )
 
         for entry in evaluation_mapper(evaluate_one, preconditioner_configs):
@@ -922,7 +918,7 @@ def compare_preconditioners(
                 )
             results[entry.name] = entry.result
             plot_styles[entry.name] = PreconditionerPlotStyle(
-                label=entry.label,
+                presentation=entry.presentation,
                 family=entry.family,
                 color_key=entry.color_key,
                 marker_key=entry.marker_key,
@@ -940,12 +936,11 @@ def compare_preconditioners(
     plot_paths = _generate_comparison_plots(
         results,
         paths,
-        style.labels,
-        comparison_context=comparison_context,
+        _legend_of(plot_styles, presentation),
+        ComparisonFigureTitle(presentation.title, int(matrix.shape[0]), presentation.notation),
         families=style.families,
         color_keys=style.color_keys,
         marker_keys=style.marker_keys,
-        system_size=int(matrix.shape[0]),
         rtol=general_params.params.rtol,
         atol=general_params.params.atol,
         max_iterations=general_params.params.max_iterations,

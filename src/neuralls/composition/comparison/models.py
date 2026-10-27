@@ -9,7 +9,12 @@ from typing import TypeIs
 import numpy as np
 import torch
 
-from neuralls.domain.presentation.methods import ExecutedMethod
+from neuralls.domain.presentation.methods import (
+    ExecutedMethod,
+    PreparedComparisonPresentation,
+    PreparedMethodPresentation,
+)
+from neuralls.domain.presentation.titles import ComparisonTitle
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
     PeakMemory,
@@ -32,6 +37,7 @@ from neuralls.platform.config.models.preconditioner_family import Preconditioner
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.storage.manifest import DatasetNormalization
 from neuralls.shared.digest import Digest, Json, canonical
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import (
     ComparisonRhsSourceKind,
     DatasetId,
@@ -47,6 +53,7 @@ __all__ = [
     "ComparisonOutcome",
     "ComparisonParams",
     "ComparisonPaths",
+    "ComparisonPresentation",
     "ComparisonResult",
     "ComparisonReused",
     "ComparisonSpec",
@@ -247,7 +254,8 @@ class PreconditionerComparisonEntry:
     Attributes:
         name: Preconditioner config name.
         result: CG solver outcome for this preconditioner.
-        label: Descriptive plot label built from the constructed preconditioner instance.
+        presentation: The validated scientific presentation of the method; the plot
+            sink renders its legend text.
         family: Plot-style family key (see ``preconditioner_family.preconditioner_family``),
             driving shared linestyle across same-family preconditioners.
         color_key: Optional plot color-axis key (e.g. a POD-2G fit dataset).
@@ -259,10 +267,24 @@ class PreconditionerComparisonEntry:
 
     name: str
     result: CGComparisonResult
-    label: str
+    presentation: PreparedMethodPresentation
     family: PreconditionerFamilyKey
     color_key: str | None = None
     marker_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonPresentation:
+    """Everything a comparison's figures need to name what they show.
+
+    ``methods`` is the validated cohort built once at preflight; ``title`` names what the
+    comparison ran on; ``notation`` is the case's symbol policy. Nothing here is text:
+    the plot sinks render it when they draw.
+    """
+
+    methods: PreparedComparisonPresentation
+    title: ComparisonTitle
+    notation: NotationPolicy
 
 
 @dataclass(frozen=True)

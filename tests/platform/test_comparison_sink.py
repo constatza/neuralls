@@ -2,21 +2,30 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 from tests.presentation_support import PreparedMethodFactory
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload
 from neuralls.domain.benchmarking.selection import ConfiguredReference
-from neuralls.domain.presentation.methods import ExecutedMethod
+from neuralls.domain.presentation.methods import ExecutedMethod, PreparedComparisonPresentation
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.benchmark_events import SystemTag, UnknownPeakMemory
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
+from neuralls.domain.solver.models.figure_scope import AllDatasetsScope, MethodScope, RecipeScope
 from neuralls.domain.solver.models.group_outcomes import (
     GroupAggregated,
     RecipeProfileReport,
     WorkloadMixtureReport,
+)
+from neuralls.domain.solver.models.group_presentation import (
+    GroupMethodPresentation,
+    GroupPresentation,
+    SolverTimingContext,
 )
 from neuralls.domain.solver.models.labels import (
     FineLabel,
@@ -26,7 +35,6 @@ from neuralls.domain.solver.models.labels import (
 )
 from neuralls.domain.solver.models.outcomes import Failed, Solved
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
-from neuralls.domain.solver.models.presentation import GroupPresentation, SolverTimingContext
 from neuralls.domain.solver.models.statistics import (
     Interval,
     IterationStats,
@@ -36,12 +44,14 @@ from neuralls.domain.solver.models.statistics import (
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
 from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.platform.reporting.figure_metadata import FailureTreatment, TimingScenario
+from neuralls.platform.reporting.figure_text import ScopeSubtitle
 from neuralls.platform.tracking import comparison_tracking
 from neuralls.platform.tracking.comparison_tracking import (
     GROUP_REPORT_ARTIFACT_DIR,
     MLflowGroupReportSink,
     _figure_plans,
 )
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, GroupId, MatrixId, PreconditionerName, SystemId
 
 type LoggedMetrics = dict[str, float]
@@ -150,23 +160,36 @@ def group() -> RecipeProfileReport:
 
 
 @pytest.fixture
-def presentation() -> GroupPresentation:
+def presentation(
+    prepared_cohort: Callable[..., PreparedComparisonPresentation],
+    dataset_presentation: DatasetPresentation,
+) -> GroupPresentation:
+    cohort = prepared_cohort("amg", "jacobi", "never")
+    families = {
+        "amg": PreconditionerType.AMG,
+        "jacobi": PreconditionerType.JACOBI,
+        "never": PreconditionerType.IDENTITY,
+    }
     return GroupPresentation(
-        subject="ds, gaussian",
-        subtitle="fine, 4 systems",
+        scope=RecipeScope(dataset_presentation, "gaussian"),
         plot_styles={
-            "amg": PreconditionerPlotStyle(label="AMG", family=PreconditionerType.AMG),
-            "jacobi": PreconditionerPlotStyle(label="Jacobi", family=PreconditionerType.JACOBI),
-            "never": PreconditionerPlotStyle(label="None", family=PreconditionerType.IDENTITY),
+            name: PreconditionerPlotStyle(cohort.method(PreconditionerName(name)), family)
+            for name, family in families.items()
         },
-        methods={},
+        methods={
+            PreconditionerName(name): GroupMethodPresentation(
+                cohort.method(PreconditionerName(name)), ()
+            )
+            for name in families
+        },
     )
 
 
 @pytest.fixture
 def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
-    """Minimal method workload carrying the scientific label used by its plots."""
+    """Minimal method workload carrying the scientific presentation used by its plots."""
     method = PreconditionerName("network_a")
+    prepared = prepared_method(str(method))
     return CompletedMethodWorkload(
         method=method,
         planned=(),
@@ -177,12 +200,8 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
         workload_peak_memory=UnknownPeakMemory(),
         config_digest="sha256:" + "b" * 64,
         method_config={"name": str(method)},
-        presentation=ExecutedMethod(prepared_method(str(method)), ()),
-        plot_styles={
-            str(method): PreconditionerPlotStyle(
-                label="Neural (assignment=network_a)", family=PreconditionerType.NEURAL
-            )
-        },
+        presentation=ExecutedMethod(prepared, ()),
+        plot_styles={str(method): PreconditionerPlotStyle(prepared, PreconditionerType.NEURAL)},
     )
 
 
@@ -227,9 +246,10 @@ def test_mixture_sink_omits_profiles_but_keeps_aggregate_bars(
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
+    notation: NotationPolicy,
 ) -> None:
     mixture = _report_variant(group, WorkloadMixtureReport)
-    MLflowGroupReportSink().report(mixture, presentation=presentation)
+    MLflowGroupReportSink(notation).report(mixture, presentation=presentation)
 
     key = comparison_tracking.sanitize_metric_key_segment(group.group_id)
     assert f"aggregate_bars_{key}.png" in logged_artifacts
@@ -268,8 +288,7 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
         normalization="matrix",
     )
     presentation = GroupPresentation(
-        subject="All datasets",
-        subtitle="All datasets",
+        scope=AllDatasetsScope(),
         plot_styles={},
         methods={},
         solver_contexts=(context,),
@@ -292,11 +311,11 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
 
 
 def test_figure_plans_name_solve_and_online_ecdfs_by_scenario(
-    group: RecipeProfileReport,
+    group: RecipeProfileReport, dataset_presentation: DatasetPresentation
 ) -> None:
     """ECDF titles describe the explicit timing scenario being plotted."""
     presentation = GroupPresentation(
-        subject="Dataset ds - gaussian", subtitle="Dataset ds", plot_styles={}, methods={}
+        scope=RecipeScope(dataset_presentation, "gaussian"), plot_styles={}, methods={}
     )
     plans = _figure_plans(group, presentation, "fine_ds_gaussian")
 
@@ -313,16 +332,17 @@ def test_figure_plans_name_solve_and_online_ecdfs_by_scenario(
         and plan.metadata.scenario is TimingScenario.ONLINE
     )
 
-    assert (solve.title, solve.subtitle) == ("Solve Time", "Dataset ds - gaussian")
-    assert (online.title, online.subtitle) == ("Online Time", "Dataset ds - gaussian")
+    scope = RecipeScope(dataset_presentation, "gaussian")
+    assert (solve.title, solve.metadata.scope) == ("Solve Time", scope)
+    assert (online.title, online.metadata.scope) == ("Online Time", scope)
 
 
 def test_paired_scatter_manifest_describes_axis_censored_pairs(
-    group: RecipeProfileReport,
+    group: RecipeProfileReport, dataset_presentation: DatasetPresentation
 ) -> None:
     """Paired scatter metadata covers asymmetric failures, unlike ratio CDFs."""
     presentation = GroupPresentation(
-        subject="Dataset ds - gaussian", subtitle="Dataset ds", plot_styles={}, methods={}
+        scope=RecipeScope(dataset_presentation, "gaussian"), plot_styles={}, methods={}
     )
     plans = _figure_plans(group, presentation, "fine_ds_gaussian")
     paired = next(plan for plan in plans if plan.metadata.kind.value == "paired_time")
@@ -334,9 +354,10 @@ def test_paired_scatter_manifest_describes_axis_censored_pairs(
 
 
 def test_session_manifest_registers_uniquely_owned_method_figures(
-    prepared_method: PreparedMethodFactory,
+    prepared_method: PreparedMethodFactory, notation: NotationPolicy
 ) -> None:
     method = PreconditionerName("network_a")
+    prepared = prepared_method(str(method))
     tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(7), 0, SystemId("s0"))
     workload = CompletedMethodWorkload(
         method=method,
@@ -348,12 +369,8 @@ def test_session_manifest_registers_uniquely_owned_method_figures(
         workload_peak_memory=UnknownPeakMemory(),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": str(method)},
-        presentation=ExecutedMethod(prepared_method(str(method)), ()),
-        plot_styles={
-            str(method): PreconditionerPlotStyle(
-                label="Neural (assignment=network_a)", family=PreconditionerType.NEURAL
-            )
-        },
+        presentation=ExecutedMethod(prepared, ()),
+        plot_styles={str(method): PreconditionerPlotStyle(prepared, PreconditionerType.NEURAL)},
     )
     context = SolverTimingContext(
         rtol=1e-6,
@@ -367,7 +384,7 @@ def test_session_manifest_registers_uniquely_owned_method_figures(
         timing_statistic="median",
         normalization="none",
     )
-    sink = MLflowGroupReportSink()
+    sink = MLflowGroupReportSink(notation)
 
     sink.register_method_figures((workload,), contexts_by_system={tag.system_id: context})
 
@@ -376,7 +393,7 @@ def test_session_manifest_registers_uniquely_owned_method_figures(
         "energy_history_network_a.png",
     }
     metadata = sink.manifest.entries["residual_history_network_a.png"]
-    assert metadata.scope == "Method Neural (assignment=network_a)"
+    assert metadata.scope == MethodScope(prepared.detailed)
     assert metadata.datasets == ("ds",)
     assert metadata.recipes == ("gaussian",)
     assert metadata.solver_contexts == (context,)
@@ -386,30 +403,37 @@ def test_session_manifest_registers_uniquely_owned_method_figures(
     )
 
 
-def test_method_diagnostics_use_manifest_method_scope(
+def test_method_diagnostics_render_the_manifest_method_scope_and_name_systems_by_position(
     tmp_path: Path,
     method_workload: CompletedMethodWorkload,
+    dataset_presentation: DatasetPresentation,
+    notation: NotationPolicy,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Production history rendering receives the same concise scope as its manifest."""
-    calls: list[str] = []
+    """Method histories share the manifest's scope, and no line is named by a system id."""
+    tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(7), 1, SystemId("sys-id-9"))
+    workload = replace(method_workload, planned=(tag,))
+    calls: list[dict[str, Any]] = []
     monkeypatch.setattr(
         comparison_tracking,
         "plot_convergence_comparison",
-        lambda *args, **kwargs: calls.append(kwargs["subtitle"]),
+        lambda *args, **kwargs: calls.append(kwargs),
     )
     monkeypatch.setattr(
         comparison_tracking,
         "plot_error_convergence_comparison",
-        lambda *args, **kwargs: calls.append(kwargs["subtitle"]),
+        lambda *args, **kwargs: calls.append(kwargs),
     )
 
-    comparison_tracking._write_method_diagnostics(tmp_path, method_workload)
+    comparison_tracking._write_method_diagnostics(
+        tmp_path, workload, notation, {DatasetId("ds"): dataset_presentation}
+    )
 
-    assert calls == [
-        "Method Neural (assignment=network_a)",
-        "Method Neural (assignment=network_a)",
-    ]
+    scope = MethodScope(workload.presentation.prepared.detailed)
+    assert [call["subtitle"] for call in calls] == [ScopeSubtitle(scope, notation)] * 2
+    text = calls[0]["legend"].label("sys-id-9")
+    assert "matrix 7, RHS 1" in text
+    assert "sys-id-9" not in text
 
 
 def test_recipe_profile_sink_keeps_profile_ecdf_and_aggregate_bars(
@@ -417,9 +441,10 @@ def test_recipe_profile_sink_keeps_profile_ecdf_and_aggregate_bars(
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
+    notation: NotationPolicy,
 ) -> None:
     profile = _report_variant(group, RecipeProfileReport)
-    MLflowGroupReportSink().report(profile, presentation=presentation)
+    MLflowGroupReportSink(notation).report(profile, presentation=presentation)
 
     key = comparison_tracking.sanitize_metric_key_segment(group.group_id)
     assert f"aggregate_bars_{key}.png" in logged_artifacts
@@ -432,8 +457,9 @@ def test_sink_logs_explicit_counts_and_ratio_metrics(
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
+    notation: NotationPolicy,
 ) -> None:
-    MLflowGroupReportSink().report(group, presentation=presentation)
+    MLflowGroupReportSink(notation).report(group, presentation=presentation)
 
     assert logged_metrics[_key("n_planned_rhs", group, "amg")] == 4
     assert logged_metrics[_key("n_attempted_rhs", group, "amg")] == 4
@@ -451,8 +477,9 @@ def test_never_converged_method_logs_only_counts(
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
+    notation: NotationPolicy,
 ) -> None:
-    MLflowGroupReportSink().report(group, presentation=presentation)
+    MLflowGroupReportSink(notation).report(group, presentation=presentation)
 
     assert logged_metrics[_key("success_rate", group, "never")] == 0.0
     assert not [key for key in logged_metrics if key.endswith("/never") and "iterations" in key]
@@ -463,8 +490,9 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
+    notation: NotationPolicy,
 ) -> None:
-    MLflowGroupReportSink().report(group, presentation=presentation)
+    MLflowGroupReportSink(notation).report(group, presentation=presentation)
 
     key = comparison_tracking.sanitize_metric_key_segment(group.group_id)
     expected = {
@@ -492,8 +520,11 @@ def test_sink_skips_the_ratio_cdf_without_comparisons(
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
+    notation: NotationPolicy,
 ) -> None:
-    MLflowGroupReportSink().report(replace(group, comparisons={}), presentation=presentation)
+    MLflowGroupReportSink(notation).report(
+        replace(group, comparisons={}), presentation=presentation
+    )
 
     assert not [name for name in logged_artifacts if name.startswith("speed_ratio_cdf")]
     assert not [key for key in logged_metrics if key.startswith("speed_ratio")]
@@ -504,8 +535,9 @@ def test_sink_finalizes_one_manifest_for_logged_figures(
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
+    notation: NotationPolicy,
 ) -> None:
-    sink = MLflowGroupReportSink()
+    sink = MLflowGroupReportSink(notation)
     sink.report(group, presentation=presentation)
     sink.report(
         replace(_report_variant(group, RecipeProfileReport), group_id="other"),
