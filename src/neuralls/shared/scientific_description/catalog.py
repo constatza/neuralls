@@ -270,6 +270,7 @@ RHS_SCALE = _key("rhs_scale")
 SOLUTION_SCALE = _key("solution_scale")
 VERIFICATION_TOLERANCE = _key("verification_tolerance")
 SPARSE_SUPPORT = _key("sparse_support")
+MASK_DENSITY = _key("mask_density")
 
 # ==============================================================================
 # Preconditioner facts
@@ -486,6 +487,7 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         "\\mathrm{nnz}",
         frozenset({FactValueKind.INTEGER}),
     ),
+    _definition(MASK_DENSITY, _A, _C, 610, 3, "ρ", "\\rho", frozenset({FactValueKind.DECIMAL})),
     # --- Preconditioner facts ---
     _definition(COARSE_DIMENSION, _A, _R, 50, None, "c", "c", frozenset({FactValueKind.INTEGER})),
     _definition(

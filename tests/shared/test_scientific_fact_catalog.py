@@ -444,6 +444,15 @@ def expected_definitions() -> tuple[ExpectedFactDefinition, ...]:
             "nnz",
             "\\mathrm{nnz}",
         ),
+        ExpectedFactDefinition(
+            "mask_density",
+            "algorithmic",
+            "configured",
+            610,
+            3,
+            "ρ",
+            "\\rho",
+        ),
     )
 
 
