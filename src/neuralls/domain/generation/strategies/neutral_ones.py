@@ -13,16 +13,8 @@ import numpy as np
 from ..interfaces import ArchiveData, GeneratedSamples
 from ..providers import ConstantInputProvider
 from ..runner import register_strategy
-from ..strategy_configs import BaseStrategyConfig
+from ..strategy_configs import NeutralOnesConfig
 from ..transforms import ComputeRhsTransform
-
-
-class NeutralOnesConfig(BaseStrategyConfig):
-    """Configuration for NeutralOnesStrategy.
-
-    Generates neutral test cases where x = ones and b = A @ x.
-    This provides an unbiased baseline for solver comparison across experiments.
-    """
 
 
 @register_strategy

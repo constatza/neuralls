@@ -82,6 +82,9 @@ class StrategyRegistry:
             rows_per_base_system=rows_per_base_system,
         )
 
+    def names(self) -> tuple[str, ...]:
+        return tuple(self._strategies)
+
     def get(self, name: str) -> StrategyRegistration:
         if name not in self._strategies:
             raise KeyError(f"Unknown generation strategy '{name}'")
@@ -157,6 +160,11 @@ def rows_per_base_system(strategy_name: str, cfg: Mapping[str, Any]) -> int:
         KeyError: If the strategy name is unknown.
     """
     return _registry.get(strategy_name).rows_per_base_system(cfg)
+
+
+def registered_strategy_names() -> tuple[str, ...]:
+    """Return every registered strategy name, aliases included."""
+    return _registry.names()
 
 
 def registered_config_type(strategy_name: str) -> type[BaseStrategyConfig]:

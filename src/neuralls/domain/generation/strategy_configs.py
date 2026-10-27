@@ -170,6 +170,15 @@ class _StepWindowFields(BaseModel):
         return self
 
 
+class NeutralOnesConfig(BaseStrategyConfig):
+    """Configuration for NeutralOnesStrategy.
+
+    Generates neutral test cases where x = ones and b = A @ x.
+    This provides an unbiased baseline for solver comparison across experiments.
+    It has no parameters beyond the base ones.
+    """
+
+
 class BaseEigenvectorConfig(BaseStrategyConfig):
     which: EigenvectorSelection = Field(
         EigenvectorSelection.SMALLEST, description="Which eigenvalues to compute."

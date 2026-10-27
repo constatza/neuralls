@@ -25,6 +25,7 @@ from neuralls.domain.generation.strategy_configs import (
     GaussianForwardConfig,
     GaussianInverseConfig,
     KrylovConfig,
+    NeutralOnesConfig,
     RandomNormalConfig,
     ResidualErrorConfig,
     RhsArchiveConfig,
@@ -80,6 +81,7 @@ from neuralls.shared.types import GenerationStrategyKind
 __all__ = [
     "FIELD_ROLES",
     "RESIDUAL_TRACE_STRATEGY_NAMES",
+    "UndescribedStrategyConfigError",
     "describe_generation_result",
     "describe_residual_trace",
     "describe_strategy",
@@ -91,6 +93,21 @@ RESIDUAL_TRACE_STRATEGY_NAMES = frozenset({"residuals", "gaussian_residuals"})
 already log a richer description themselves from inside ``generate()``."""
 
 type Facts = tuple[ScientificFact, ...]
+
+
+class UndescribedStrategyConfigError(TypeError):
+    """A strategy config class has no description; every strategy must declare one.
+
+    A parameterless strategy declares that explicitly, so a new strategy cannot be
+    generated and recorded in a dataset's provenance without its parameters.
+    """
+
+    def __init__(self, config_type: type[BaseStrategyConfig]) -> None:
+        self.config_type = config_type
+        super().__init__(
+            f"No scientific description is declared for {config_type.__qualname__}; "
+            "describe its parameters (or declare it parameterless) in _parameter_facts"
+        )
 
 
 _A = FactRole.ALGORITHMIC
@@ -245,8 +262,10 @@ def _parameter_facts(cfg: BaseStrategyConfig) -> Facts:
             return (make_fact(SOLUTION_SCALE, cfg.scale),)
         case ValidatedArchiveConfig():
             return (make_fact(VERIFICATION_TOLERANCE, cfg.verification_tolerance),)
-        case _:
+        case NeutralOnesConfig() | SolutionArchiveConfig():
             return ()
+        case _:
+            raise UndescribedStrategyConfigError(type(cfg))
 
 
 def _eigenvector_facts(cfg: BaseEigenvectorConfig) -> Facts:
