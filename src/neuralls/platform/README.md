@@ -60,8 +60,9 @@ composes it from the dataset's recorded presentation instead).
 Preconditioner labels are rendered from the structured descriptions in
 `composition/preconditioners/descriptions.py` (see the composition README):
 every algorithmic parameter is shown, including defaults, and neural variants
-are distinguished by a validated `display_name`, never by assignment identity or
-class name. Workflow provenance is added separately:
+are distinguished by a validated `architecture` name (set on the `[[jobs]]` entry,
+`JobEntry.architecture`, separate from its free-text training `display_name`),
+never by assignment identity, job title or class name. Workflow provenance is added separately:
 POD-2G labels append the fit-dataset id after ``|`` so equal-rank bases fitted
 on different datasets remain explicit, while the plotting API keeps result
 keys and display labels as separate mappings. Human-readable labels are never

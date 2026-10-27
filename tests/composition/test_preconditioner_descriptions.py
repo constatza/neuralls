@@ -218,21 +218,21 @@ def test_target_dimension_coarsening_shows_its_target() -> None:
     assert "cₜ=12" in _plain(describe_configured_preconditioner(cfg))
 
 
-def test_neural_architecture_comes_from_the_display_name_never_a_class_name() -> None:
-    cfg = NeuralPreconditionerConfig(display_name="Graph Net", assignment="job-1")
+def test_neural_architecture_comes_from_the_architecture_name_never_a_class_name() -> None:
+    cfg = NeuralPreconditionerConfig(architecture="Graph Net", assignment="job-1")
     label = _plain(describe_configured_preconditioner(cfg))
     assert label == "Neural (arch=Graph Net)"
     assert "job-1" not in label
 
 
-def test_neural_without_a_display_name_fails_instead_of_guessing() -> None:
+def test_neural_without_an_architecture_name_fails_instead_of_guessing() -> None:
     with pytest.raises(MissingArchitectureNameError):
         describe_configured_preconditioner(NeuralPreconditionerConfig())
 
 
-def test_neural_display_name_must_be_a_plain_name() -> None:
+def test_neural_architecture_must_be_a_plain_name() -> None:
     with pytest.raises(ValueError):
-        describe_configured_preconditioner(NeuralPreconditionerConfig(display_name="graph_net"))
+        describe_configured_preconditioner(NeuralPreconditionerConfig(architecture="graph_net"))
 
 
 def test_neural_pod_and_neural_amg_describe_their_own_parameters(pod_dataset_dir: Path) -> None:

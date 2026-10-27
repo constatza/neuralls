@@ -409,7 +409,7 @@ class NeuralPreconditionerConfig(BasePreconditionerConfig, NeuralCheckpointRef):
     """
 
     type: Literal[PreconditionerType.NEURAL] = PreconditionerType.NEURAL
-    display_name: Annotated[str | None, Cosmetic()] = Field(
+    architecture: Annotated[str | None, Cosmetic()] = Field(
         default=None,
         description=(
             "Short human-readable architecture name shown in labels, e.g. 'Graph Net'. "

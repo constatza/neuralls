@@ -111,12 +111,13 @@ _ALL_SNAPSHOTS = -1
 
 
 class MissingArchitectureNameError(ValueError):
-    """A neural preconditioner has no ``display_name`` to describe its architecture."""
+    """A neural preconditioner has no ``architecture`` name."""
 
     def __init__(self) -> None:
         super().__init__(
-            "A neural preconditioner needs a short 'display_name' (for example 'Graph Net') "
-            "so its architecture can be described; class names are never used."
+            "A neural preconditioner needs a short 'architecture' name (for example 'Graph Net') "
+            "so its architecture can be described; set it on the neural preconditioner or on "
+            "the training job's [[jobs]] entry. Class names and job titles are never used."
         )
 
 
@@ -137,7 +138,7 @@ FIELD_ROLES: Mapping[type[BaseModel], Mapping[str, FactRole]] = MappingProxyType
         NeuralPreconditionerConfig: {
             **_SCHEDULING_ROLES,
             **_CHECKPOINT_ROLES,
-            "display_name": _A,
+            "architecture": _A,
             "extra_input_names": _O,
         },
         AMGPreconditionerConfig: {
@@ -255,9 +256,9 @@ def _smoothing_facts(cfg: AMGPreconditionerConfig | NeuralAMGPreconditionerConfi
 
 
 def _architecture_fact(cfg: NeuralPreconditionerConfig) -> ScientificFact:
-    if cfg.display_name is None:
+    if cfg.architecture is None:
         raise MissingArchitectureNameError
-    return DisplayTextFact(MODEL_ARCHITECTURE, ValidatedLabel(cfg.display_name), _ESSENTIAL)
+    return DisplayTextFact(MODEL_ARCHITECTURE, ValidatedLabel(cfg.architecture), _ESSENTIAL)
 
 
 def _weighting_facts(

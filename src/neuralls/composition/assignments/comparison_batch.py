@@ -151,6 +151,7 @@ from neuralls.shared.scientific_description import (
     ComparisonScopePresentation,
     ComparisonTitle,
     PreparedComparisonPresentation,
+    ValidatedLabel,
 )
 from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, MatrixId, SystemId
 from neuralls.shared.workflow_failures import (
@@ -328,8 +329,8 @@ class _AssignmentJobContext:
     job: AnyJobConfig
     dataset_dir: Path
     training: StageIdentity | None
-    architecture_name: str | None
-    """The job registry entry's explicit ``display_name``; None when it sets none."""
+    architecture: ValidatedLabel | None
+    """The job registry entry's explicit ``architecture``; None when it declares none."""
 
 
 def _resolve_assignment_job_context(
@@ -353,10 +354,9 @@ def _resolve_assignment_job_context(
         data_cfg=data_cfg,
         config_path=binding.data_config_path,
     ).name
-    job_entry = next(item for item in cfg.jobs if item.id == binding.job_id)
     return _AssignmentJobContext(
         job=job,
-        architecture_name=job_entry.display_name,
+        architecture=binding.architecture,
         dataset_dir=settings.processed_dir / dataset_id,
         training=_assignment_training_identity(
             job_config_path=binding.job_config_path,
@@ -388,7 +388,7 @@ def _neural_spec_from_assignment(
     entry: AssignmentEntry,
     *,
     extra_input_names: tuple[str, ...],
-    architecture_name: str | None,
+    architecture: ValidatedLabel | None,
 ) -> NeuralPreconditionerConfig:
     """Build an unresolved neural preconditioner stub for a train/search-kind assignment.
 
@@ -408,7 +408,7 @@ def _neural_spec_from_assignment(
         assignment=entry.id,
         model_ref=TrainedAssignmentRefConfig(assignment_id=entry.id),
         extra_input_names=extra_input_names,
-        display_name=architecture_name,
+        architecture=None if architecture is None else architecture.text,
     )
 
 
@@ -503,7 +503,7 @@ def neural_specs_from_assignments(
                         extra_input_names=_extra_input_names_of_training_run(
                             context, experiment=cfg.names.training, client=client
                         ),
-                        architecture_name=context.architecture_name,
+                        architecture=context.architecture,
                     )
                 )
     return specs

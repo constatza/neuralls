@@ -46,6 +46,7 @@ from neuralls.shared.scientific_description import (
     PreparedComparisonPresentation,
     ScientificDescription,
     StandaloneMethodPresentation,
+    ValidatedLabel,
     render_method,
     render_title,
 )
@@ -165,12 +166,14 @@ def test_invalid_editorial_titles_are_rejected(
         compose_comparison_title(name, dataset_presentation)
 
 
-def test_auto_neural_stub_carries_only_the_explicit_job_display_name() -> None:
-    entry = AssignmentEntry(id="a1", dataset="d", job="j")
-    named = _neural_spec_from_assignment(entry, extra_input_names=(), architecture_name="Graph Net")
-    unnamed = _neural_spec_from_assignment(entry, extra_input_names=(), architecture_name=None)
-    assert named.display_name == "Graph Net"
-    assert unnamed.display_name is None
+def test_auto_neural_stub_carries_only_the_explicit_job_architecture() -> None:
+    entry = AssignmentEntry(id="a1", dataset="d", job="j", display_name="Search (ReLU, bias)")
+    named = _neural_spec_from_assignment(
+        entry, extra_input_names=(), architecture=ValidatedLabel("Graph Net")
+    )
+    unnamed = _neural_spec_from_assignment(entry, extra_input_names=(), architecture=None)
+    assert named.architecture == "Graph Net"
+    assert unnamed.architecture is None
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")

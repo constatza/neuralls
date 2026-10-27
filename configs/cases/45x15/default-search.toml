@@ -46,16 +46,19 @@ display_name = "Gaussian CG-50 45x15"
 id = "scale-equivariant-constant-width-factorized-optuna"
 path = "../../jobs/45x15/scale-equivariant-constant-width-factorized-optuna.toml"
 display_name = "Scale Equivariant Constant Width FFNN Optuna Search"
+architecture = "Constant-Width Scale-Equivariant FFNN"
 
 [[jobs]]
 id = "scale-equivariant-constant-width-factorized-relu-optuna"
 path = "../../jobs/45x15/scale-equivariant-constant-width-factorized-relu-optuna.toml"
 display_name = "Scale Equivariant Constant Width FFNN Optuna Search (ReLU)"
+architecture = "Constant-Width Scale-Equivariant FFNN ReLU"
 
 [[jobs]]
 id = "scale-equivariant-embedded-factorized-optuna"
 path = "../../jobs/45x15/scale-equivariant-embedded-factorized-optuna.toml"
 display_name = "Scale Equivariant Embedded FFNN Optuna Search (GELU, bias)"
+architecture = "Embedded Scale-Equivariant FFNN"
 
 [[comparisons]]
 matrix_dataset = "gaussian-cg50-45x15"

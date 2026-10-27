@@ -17,6 +17,7 @@ from neuralls.platform.config.models.id_generation import (
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.models.presentation import ScientificLabelsConfig
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
+from neuralls.shared.scientific_description import ValidatedLabel
 from neuralls.shared.timing import TimingRepeatPolicy
 
 
@@ -132,6 +133,34 @@ class RegistryEntry(BaseModel):
     def effective_display_name(self) -> str:
         """Return the configured label or fall back to the id."""
         return resolve_display_name(self.id, self.display_name)
+
+
+class JobEntry(RegistryEntry):
+    """A job registry entry; ``display_name`` is its training title, ``architecture`` its model name.
+
+    Attributes:
+        architecture: Short plain name of the network this job trains (e.g. ``"Graph Net"``),
+            shown in comparison labels. Separate from ``display_name`` because a training
+            title ("... Optuna Search (ReLU)") is long and free text, while a label must be
+            a short controlled name. Required only when the job feeds a neural comparison.
+    """
+
+    architecture: str | None = None
+
+    @model_validator(mode="after")
+    def _check_architecture_is_a_plain_name(self) -> JobEntry:
+        """Reject an architecture that could not be shown in every render target."""
+        if self.architecture is not None:
+            try:
+                ValidatedLabel(self.architecture)
+            except ValueError as exc:
+                raise ValueError(f"Job '{self.id}' architecture: {exc}") from exc
+        return self
+
+    @property
+    def architecture_label(self) -> ValidatedLabel | None:
+        """The architecture parsed into its validated form."""
+        return None if self.architecture is None else ValidatedLabel(self.architecture)
 
 
 class AssignmentEntry(BaseModel):
@@ -360,7 +389,7 @@ def _dedupe_assignment_ids(entries: list[AssignmentEntry]) -> None:
         raise ValueError(f"Duplicate assignment ids in case config: {joined}.")
 
 
-def _registry_ids(entries: list[RegistryEntry]) -> set[str]:
+def _registry_ids(entries: Sequence[RegistryEntry]) -> set[str]:
     """Return registry ids for fast membership checks."""
     return {entry.id for entry in entries}
 
@@ -431,7 +460,7 @@ class CaseConfig(BaseModel):
     """
 
     datasets: list[RegistryEntry] = Field(default_factory=list)
-    jobs: list[RegistryEntry] = Field(default_factory=list)
+    jobs: list[JobEntry] = Field(default_factory=list)
     comparisons: list[ComparisonRegistryEntry] = Field(default_factory=list)
     comparison_sweeps: list[ComparisonSweepEntry] = Field(default_factory=list)
     assignments: list[AssignmentEntry] = Field(default_factory=list)

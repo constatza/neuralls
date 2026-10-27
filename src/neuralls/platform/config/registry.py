@@ -12,6 +12,7 @@ from neuralls.platform.config.models.experiments import (
     RegistryEntry,
 )
 from neuralls.platform.config.resolution import resolve_registry_path
+from neuralls.shared.scientific_description import ValidatedLabel
 
 
 @dataclass(frozen=True)
@@ -27,12 +28,14 @@ class ResolvedAssignmentBinding:
     assignment_display_name: str = ""
     dataset_display_name: str = ""
     job_display_name: str = ""
+    architecture: ValidatedLabel | None = None
+    """The job's explicit neural architecture name; never derived from its training title."""
 
 
-def _lookup_registry_entry(
-    entries: Sequence[RegistryEntry],
+def _lookup_registry_entry[Entry: RegistryEntry](
+    entries: Sequence[Entry],
     registry_id: str,
-) -> RegistryEntry | None:
+) -> Entry | None:
     """Find one registry entry by id."""
     for entry in entries:
         if entry.id == registry_id:
@@ -40,14 +43,14 @@ def _lookup_registry_entry(
     return None
 
 
-def _require_registry_entry(
-    entries: Sequence[RegistryEntry],
+def _require_registry_entry[Entry: RegistryEntry](
+    entries: Sequence[Entry],
     *,
     registry_id: str,
     registry_section: str,
     owner_kind: str | None = None,
     owner_id: str | None = None,
-) -> RegistryEntry:
+) -> Entry:
     """Return a registry entry or raise a focused validation error."""
     entry = _lookup_registry_entry(entries, registry_id)
     if entry is not None:
@@ -143,6 +146,7 @@ def resolve_assignment_binding(
         assignment_display_name=entry.effective_display_name,
         dataset_display_name=dataset_entry.effective_display_name,
         job_display_name=job_entry.effective_display_name,
+        architecture=job_entry.architecture_label,
     )
 
 

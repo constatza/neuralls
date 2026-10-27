@@ -1255,7 +1255,7 @@ job = "valid-job"
         preconditioners=[
             NeuralPreconditionerConfig(
                 type=PreconditionerType.NEURAL,
-                display_name="Linear Net",
+                architecture="Linear Net",
                 model_ref=_registered_ref(
                     "NormScaledLinearFFNN",
                     "residuals-100",

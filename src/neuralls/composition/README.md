@@ -285,7 +285,7 @@ Comparison plot legends are a separate concern from that MLflow metric-key
 policy. `composition.preconditioners.descriptions` builds each display name as a
 `ScientificDescription`: the family abbreviation plus *configured* facts (every
 algorithmic parameter with defaults included, seeds for aSA/BAMG, scheduling
-controls only when non-default, a neural model's validated `display_name`) and
+controls only when non-default, a neural model's validated `architecture` name, taken only from the job registry entry's `architecture`, never its `display_name` title) and
 *realized* facts read from the constructed `torchalg` object (the realized coarse
 dimension and, for aSA/BAMG, the realized level count). No fact is dropped for
 length; `composition.preconditioners.labels` renders the text under the case's
