@@ -10,13 +10,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from tests.dataset_support import build_test_dataset
 
 from neuralls.composition.generation import dense_streaming
 from neuralls.domain.generation.sample_writer import SampleWriter
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.storage.dataset_digest import dataset_content_digest
 from neuralls.shared.types import DatasetFormat
-from tests.dataset_support import build_test_dataset
 
 _INTERRUPT_AFTER_BATCHES = 1
 """Fail after the first batch, so some rows are written before the stream dies."""

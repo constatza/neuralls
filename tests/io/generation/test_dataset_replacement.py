@@ -12,13 +12,13 @@ from pathlib import Path
 
 import h5py
 import pytest
+from tests.dataset_support import build_test_dataset
 
 from neuralls.composition.generation import dense_streaming
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.storage import staged_commit
 from neuralls.platform.storage.dataset_digest import dataset_content_digest
 from neuralls.shared.types import DatasetFormat
-from tests.dataset_support import build_test_dataset
 
 _DATASET_NAME = "dataset"
 _OLD_SUFFIX = ".old"

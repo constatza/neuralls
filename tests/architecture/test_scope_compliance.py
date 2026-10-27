@@ -30,7 +30,7 @@ def test_runtime_roots_stay_under_tmp_path(
 
 def test_comparison_fixture_configs_load_from_tests_tree(neuralls_settings) -> None:
     """Comparison loader coverage should use test-owned fixture configs."""
-    comparison_dir = Path(__file__).resolve().parent / "fixtures" / "configs" / "comparison"
+    comparison_dir = Path(__file__).resolve().parents[1] / "fixtures" / "configs" / "comparison"
 
     linear = load_comparison_config(comparison_dir / "linear.toml", neuralls_settings)
     ffnn = load_comparison_config(comparison_dir / "ffnn.toml", neuralls_settings)

@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from scipy.sparse import csr_array
+from tests.dataset_support import build_test_dataset
 
 from neuralls.composition.generation import dataset_builder
 from neuralls.domain.generation.sample_writer import StrategyRowCount
@@ -27,7 +28,6 @@ from neuralls.platform.storage.dataset_readers import (
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.types import DatasetFormat, LayoutType, MatrixFormat, SparsityPattern
-from tests.dataset_support import build_test_dataset
 
 _INTERRUPT_AFTER_BATCHES = 1
 _RENAME = "rename"

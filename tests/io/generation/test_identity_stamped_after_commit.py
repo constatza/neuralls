@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from tests.dataset_support import build_test_dataset
 
 from neuralls.composition.generation import dataset_builder
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
@@ -17,7 +18,6 @@ from neuralls.domain.identity import StageIdentity
 from neuralls.platform.storage import staged_commit
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.types import DatasetFormat
-from tests.dataset_support import build_test_dataset
 
 _INTERRUPT_AFTER_BATCHES = 1
 _RENAME = "rename"

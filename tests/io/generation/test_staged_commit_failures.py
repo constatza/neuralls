@@ -5,10 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from tests.dataset_support import build_test_dataset
 
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage import staged_commit as finalize
-from tests.dataset_support import build_test_dataset
 
 
 class _CommitFailure(OSError):

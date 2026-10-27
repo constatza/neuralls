@@ -5,12 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from tests.dataset_support import build_test_dataset
 
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.types import DatasetFormat, MatrixFormat
-from tests.dataset_support import build_test_dataset
 
 _STREAMED_FORMATS: tuple[DatasetFormat, ...] = ("zarr", "hdf5")
 _PLANNED_ROWS = 8

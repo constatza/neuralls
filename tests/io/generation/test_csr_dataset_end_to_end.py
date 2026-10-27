@@ -13,12 +13,12 @@ import numpy as np
 import pytest
 from scipy import sparse
 from scipy.io import mmread, mmwrite
+from tests.dataset_support import build_test_dataset
 
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.dataset_readers import load_matrix_sparse_sample
 from neuralls.platform.storage.datasets import load_dense_training_arrays
 from neuralls.shared.types import MatrixFormat
-from tests.dataset_support import build_test_dataset
 
 _SIZE = 6
 _SAMPLES = 3

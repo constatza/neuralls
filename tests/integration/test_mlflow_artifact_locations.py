@@ -10,6 +10,7 @@ import pytest
 import tomli_w
 from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
+from tests.dataset_support import build_test_dataset
 
 from neuralls.composition.assignments._training_artifacts import (
     _log_training_evaluation,
@@ -29,7 +30,6 @@ from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.reporting.training_diagnostics import compute_diagnostics
 from neuralls.platform.tracking.comparison_tracking import GROUP_REPORT_ARTIFACT_DIR
 from neuralls.platform.tracking.mlflow_client import log_diagnostics_to_mlflow
-from tests.dataset_support import build_test_dataset
 
 
 def _sqlite_tracking_uri(db_path: Path) -> str:
@@ -215,6 +215,7 @@ def _write_method_config(path: Path) -> None:
 
 @pytest.mark.usefixtures("stub_input_gate")
 @pytest.mark.integration
+@pytest.mark.figure_placeholders
 def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None:
     """Comparison workflow logs figures and diagnostics files under run artifacts."""
     output_root = tmp_path / "output"
