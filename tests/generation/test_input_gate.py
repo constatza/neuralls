@@ -9,14 +9,15 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from neuralls.composition.comparison import input_gate
+from neuralls.composition.comparison import config_assembler, input_gate
 from neuralls.composition.comparison.input_gate import require_current_inputs
 from neuralls.composition.generation.processing import process_config
 from neuralls.composition.generation.split_pinning import pin_dataset_split
 from neuralls.composition.identity.generation import generation_identity
 from neuralls.platform.config.models.data_models import DataConfigFile, SplitConfig, StrategyConfig
-from neuralls.shared.constants import SPLIT_FILENAME
+from neuralls.shared.constants import REGENERATE_DATASETS_COMMAND, SPLIT_FILENAME
 from neuralls.shared.errors import StageInputsStale
+from tests.dataset_support import strip_provenance
 
 type ConfigFactory = Callable[..., DataConfigFile]
 
@@ -25,8 +26,9 @@ type ConfigFactory = Callable[..., DataConfigFile]
 def served_config(monkeypatch: pytest.MonkeyPatch) -> list[DataConfigFile]:
     """The gate reads whichever config this list holds, standing in for the registry."""
     served: list[DataConfigFile] = []
-    monkeypatch.setattr(input_gate, "resolve_dataset_config_path", lambda *_args: Path("ds.toml"))
-    monkeypatch.setattr(input_gate, "load_data_config", lambda *_args: served[0])
+    for module in (input_gate, config_assembler):
+        monkeypatch.setattr(module, "resolve_dataset_config_path", lambda *_args: Path("ds.toml"))
+        monkeypatch.setattr(module, "load_data_config", lambda *_args: served[0])
     return served
 
 
@@ -101,3 +103,17 @@ def test_a_split_config_change_is_stale_without_regenerating_the_dataset(
     assert generation_identity(changed).key == generation_identity(ten_rows).key
     with pytest.raises(StageInputsStale):
         _gate(changed)
+
+
+def test_a_dataset_generated_before_provenance_existed_is_stale_and_names_the_command(
+    data_config: DataConfigFile, served_config: list[DataConfigFile]
+) -> None:
+    served_config.append(data_config)
+    dataset_dir = _generate_and_pin(data_config)
+    strip_provenance(dataset_dir)
+
+    # Identity is unchanged, so generation alone would skip it: only --force regenerates.
+    with pytest.raises(StageInputsStale, match="no scientific provenance") as raised:
+        _gate(data_config)
+    assert REGENERATE_DATASETS_COMMAND in str(raised.value)
+    assert "--force" in REGENERATE_DATASETS_COMMAND

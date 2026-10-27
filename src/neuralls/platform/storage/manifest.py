@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
+from neuralls.shared.constants import DATASET_MANIFEST_FILENAME, REGENERATE_DATASETS_COMMAND
 from neuralls.shared.digest import Digest
 from neuralls.shared.scientific_description.presentation import DatasetPresentation
 from neuralls.shared.types import LayoutType, MatrixFormat
@@ -92,8 +92,9 @@ class MissingDatasetProvenanceError(ValueError):
     def __init__(self, dataset_dir: str | Path) -> None:
         self.dataset_dir = Path(dataset_dir)
         super().__init__(
-            f"Dataset at '{dataset_dir}' has no scientific provenance. Regenerate it with a "
-            "'[source] problem' name so its source and generation parameters are recorded."
+            f"Dataset at '{dataset_dir}' has no scientific provenance. Regenerate it with "
+            f"`{REGENERATE_DATASETS_COMMAND}` (the dataset config needs a '[source] problem' "
+            "name) so its source and generation parameters are recorded."
         )
 
 

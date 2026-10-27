@@ -174,3 +174,6 @@ DEFAULT_RHS_MASK_DENSITY = 0.1
 MAX_RHS_MASK_DENSITY = 0.5
 MASK_STREAM_TAG = 0x4D41534B
 """Spawn key (ASCII "MASK") that separates the mask's random stream from the RHS draw's, both derived from one system seed."""
+
+REGENERATE_DATASETS_COMMAND = "neuralls generate --force <case-config.toml>"
+"""The only command that rewrites an existing dataset: plain ``generate`` skips one whose identity still matches."""

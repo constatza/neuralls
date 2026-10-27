@@ -39,9 +39,12 @@ from neuralls.composition.comparison.comparison_run import (
     compare_preconditioners,
     execute_method_workload,
 )
-from neuralls.composition.comparison.config_assembler import resolve_comparison_config
+from neuralls.composition.comparison.config_assembler import (
+    resolve_comparison_config,
+    resolve_dataset_dir,
+)
 from neuralls.composition.comparison.group_reporting import report_all_levels
-from neuralls.composition.comparison.input_gate import require_current_inputs, resolve_dataset_dir
+from neuralls.composition.comparison.input_gate import require_current_inputs
 from neuralls.composition.comparison.models import (
     ComparisonCompleted,
     ComparisonEntryFailed,
@@ -933,8 +936,8 @@ def _matrix_scope(
     dataset_dir = resolve_dataset_dir(
         case_cfg,
         context.case_config_path.resolve().parent,
-        context.settings,
         planned.entry.matrix_dataset,
+        context.settings,
     )
     return ComparisonScopePresentation(load_dataset_presentation(dataset_dir))
 
