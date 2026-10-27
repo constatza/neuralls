@@ -88,8 +88,7 @@ def test_dataset_trained_method_names_its_dataset_exactly_once(
         ScientificDescription("POD-2G"), dataset_presentation
     )
     text = render_run_name(MethodRunName(method), PLAIN)
-    assert text.startswith("POD-2G | ")
-    assert text.count("Gaussian CG Residuals") == 1
+    assert text == "POD-2G | Gaussian CG Residuals (k=20, N=100)"
 
 
 def test_training_name_of_a_trained_method_carries_its_dataset(
@@ -139,8 +138,9 @@ def test_a_session_over_different_titles_lists_each_once_in_a_stable_order(
         SessionRunName(backward, STAMP), PLAIN
     )
     text = render_run_name(SessionRunName(forward, STAMP), PLAIN)
-    assert text.count("Spectral comparison") == 1
-    assert text.count("Gaussian CG Residuals") == 1
+    assert text == (
+        f"Spectral comparison; Test problem | Gaussian CG Residuals (k=20, N=100) | {STAMP.text}"
+    )
 
 
 def test_a_session_over_one_title_has_that_title(dataset_presentation: DatasetPresentation) -> None:

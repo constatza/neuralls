@@ -147,5 +147,7 @@ def test_a_failed_preconditioner_is_logged_by_its_description_not_its_key(
     finally:
         logger.remove(sink_id)
 
-    assert any(message.startswith("Evaluating Method ") for message in messages)
-    assert any(" failed: " in message and message.startswith("Method ") for message in messages)
+    assert messages == [
+        "Evaluating Method identity",
+        "Method identity failed: KeyError: 'checkpoint key missing'",
+    ]

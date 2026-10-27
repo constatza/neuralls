@@ -182,8 +182,9 @@ def test_build_training_run_config_appends_timestamp_when_requested(
     )
 
     text = run_name_text(config.name)
-    assert text.startswith(f"{TRAINED_TEXT} | ")
-    assert text != TRAINED_TEXT
+    title, _, stamp = text.rpartition(" | ")
+    assert title == TRAINED_TEXT
+    assert stamp != ""
 
 
 def test_build_training_run_config_falls_back_to_untagged_spec_without_registry_ids(

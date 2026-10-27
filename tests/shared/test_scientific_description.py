@@ -187,7 +187,7 @@ def test_length_budget_is_measured_on_visible_width_not_markup() -> None:
 
     plain_rendered = render(description, profile, plain)
     mathtext_rendered = render(description, profile, mathtext)
-    assert "ω" in plain_rendered.text
-    assert "\\omega" in mathtext_rendered.text
+    assert plain_rendered.text == "AMG (θ=0.25, ω=0.67)"
+    assert mathtext_rendered.text == r"AMG ($\theta=0.25$, $\omega=0.67$)"
     assert plain_rendered.preferred_wrap_boundaries == ()
     assert mathtext_rendered.preferred_wrap_boundaries == ()

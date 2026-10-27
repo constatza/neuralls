@@ -160,7 +160,9 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
     method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
 
     messages: list[str] = []
-    sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
+    sink_id = logger.add(
+        lambda message: messages.append(message.record["message"]), level="WARNING"
+    )
     try:
         workload = execute_method_workload(
             method,
@@ -196,11 +198,12 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
     assert isinstance(summary, IncompleteWorkloadSummary)
     assert summary.n_attempted_rhs == 0
     assert len(messages) == 1
-    assert (
-        "setup failure for Jacobi on Test problem | Gaussian CG Residuals (k=20, N=100)"
-        in (messages[0])
-    )
-    assert str(method.name) not in messages[0]
+    assert messages == [
+        (
+            "Recoverable setup failure for Jacobi on Test problem | Gaussian CG Residuals "
+            "(k=20, N=100), matrix 1: RuntimeError: setup broke"
+        )
+    ]
 
 
 @pytest.mark.parametrize(
@@ -413,7 +416,9 @@ def test_solver_failure_retains_measured_attempt(
     method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
 
     messages: list[str] = []
-    sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
+    sink_id = logger.add(
+        lambda message: messages.append(message.record["message"]), level="WARNING"
+    )
     try:
         workload = comparison_run.execute_method_workload(
             method,

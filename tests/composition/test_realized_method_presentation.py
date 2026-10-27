@@ -566,4 +566,8 @@ def test_a_labelling_failure_is_loud_and_names_the_method_and_matrix(
         dataset=DatasetId("ds"),
         matrix_id=MatrixId(1),
     )
-    assert "cannot read hierarchy" in str(raised.value)
+    assert str(raised.value) == (
+        "Realized facts could not be read (ComparisonMatrixFailureContext("
+        "phase=<ComparisonMatrixPhase.REALIZED_FACT_CAPTURE: 'realized_fact_capture'>, "
+        "method='jacobi', dataset='ds', matrix_id=1)): cannot read hierarchy"
+    )

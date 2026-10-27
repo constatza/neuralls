@@ -121,7 +121,7 @@ def test_bars_are_labelled_with_the_rendered_training_presentation_not_the_assig
 
     legend = plot_fn.call_args.args[0]
     assert legend.label("a-17") == render_training_label(alpha.presentation)
-    assert "a-17" not in legend.label("a-17")
+    assert legend.label("a-17") == "Alpha | Gaussian CG Residuals (k=20, N=100)"
 
 
 def test_missing_metric_warning_names_the_assignment_by_its_presentation(
@@ -131,7 +131,9 @@ def test_missing_metric_warning_names_the_assignment_by_its_presentation(
     messages: list[str] = []
     from loguru import logger
 
-    sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
+    sink_id = logger.add(
+        lambda message: messages.append(message.record["message"]), level="WARNING"
+    )
     try:
         with (
             patch(f"{TRAINING}.fetch_mlflow_metrics", return_value={}),
@@ -141,8 +143,9 @@ def test_missing_metric_warning_names_the_assignment_by_its_presentation(
     finally:
         logger.remove(sink_id)
 
-    assert any(render_training_label(missing.presentation) in text for text in messages)
-    assert not any("a-17" in text for text in messages)
+    assert messages == [
+        "Metric 'eval/mae' missing for assignments: Alpha | Gaussian CG Residuals (k=20, N=100)"
+    ]
 
 
 def test_label_map_includes_every_result_regardless_of_metric_presence(

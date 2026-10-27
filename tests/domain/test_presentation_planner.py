@@ -160,8 +160,7 @@ def test_assignment_identity_is_never_rendered(dataset: DatasetPresentation) -> 
         LEGEND_PROFILE,
         NotationPolicy.default(),
     ).text
-    assert "assignment" not in text
-    assert "id=" not in text
+    assert text == "POD-2G (r=10) | Gaussian CG Residuals (k=20, N=5000)"
 
 
 def test_pod_method_composes_with_its_dataset_exactly_once(dataset: DatasetPresentation) -> None:
@@ -172,8 +171,6 @@ def test_pod_method_composes_with_its_dataset_exactly_once(dataset: DatasetPrese
         NotationPolicy.default(),
     )
     assert rendered.text == "POD-2G (r=10) | Gaussian CG Residuals (k=20, N=5000)"
-    assert rendered.text.count("|") == 1
-    assert rendered.text.count("Gaussian CG Residuals") == 1
 
 
 # --- cohort visibility ------------------------------------------------------------
@@ -249,7 +246,10 @@ def test_semantic_duplicates_raise_before_rendering(scope: ComparisonScopePresen
         prepare_presentations(cohort)
 
     assert set(caught.value.method_ids) == {"first", "second"}
-    assert "[" not in str(caught.value)
+    assert str(caught.value) == (
+        "Methods have identical scientific presentations; add or expose a distinguishing fact "
+        "(method ids: first, second)"
+    )
 
 
 def test_prepared_cohort_cannot_be_constructed_around_validation(

@@ -349,4 +349,3 @@ def test_a_skipped_group_is_named_by_its_scope_not_its_group_id(
         "Test problem | Gaussian CG Residuals (k=20, N=100) - gaussian: "
         "no canonical setup events among 3 planned systems."
     )
-    assert "fine/" not in messages[0]

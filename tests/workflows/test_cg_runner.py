@@ -327,17 +327,12 @@ def test_format_results_summary(
         mock_comparison_results, result_methods, NotationPolicy.default()
     )
 
-    assert "CG comparison results:" in summary
-
-    assert "- Jacobi" in summary
-    assert "- Identity" in summary
-    assert "- Broken preconditioner" in summary
-    assert "jacobi" not in summary
-
-    assert "status=ok" in summary  # For converged results
-    assert "status=fail" in summary  # For failed result
-
-    assert "breakdown" in summary
+    assert summary == (
+        "CG comparison results:\n"
+        "- Jacobi             status=ok   iters= 10  rel_res=1.000e-08 (abs=1.000e-09)  exact_err=1.000e-10\n"
+        "- Identity           status=ok   iters= 20  rel_res=1.000e-07 (abs=1.000e-08)  exact_err=5.000e-10\n"
+        "- Broken preconditioner status=fail iters=100  rel_res=5.000e-01 (abs=5.000e-01)  note=breakdown detected  note=breakdown"
+    )
 
 
 def test_format_results_summary_rejects_a_result_without_a_description(

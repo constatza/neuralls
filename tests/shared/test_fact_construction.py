@@ -138,7 +138,7 @@ def test_require_unique_keys_names_the_repeated_key_and_owner() -> None:
     facts = (make_fact(ITERATION_COUNT, 1), make_fact(ITERATION_COUNT, 2))
     with pytest.raises(DuplicateFactKeyError, match="iteration_count") as error:
         require_unique_keys(facts, "SomeCarrier")
-    assert "SomeCarrier" in str(error.value)
+    assert str(error.value) == "SomeCarrier holds fact 'iteration_count' more than once"
 
 
 def test_description_rejects_a_key_repeated_between_facts_and_context_facts() -> None:

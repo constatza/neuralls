@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError, dataclass
 from importlib import import_module
 from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -541,6 +542,16 @@ def test_fact_definitions_are_frozen_and_slotted(catalog: ModuleType) -> None:
         definition.order = 999
 
 
+def _expected_value(definition: Any, *, plain: bool) -> str:
+    """The spelling of the sample value used by the rendering tests, from the catalog alone."""
+    if definition.categorical_formatter is not None:
+        first = definition.categorical_formatter.values[0]
+        return first.plain if plain else first.mathtext
+    if definition.precision is None:
+        return "2"
+    return f"{1.25:.{definition.precision}g}"
+
+
 def test_every_controlled_fact_renders_without_its_python_field_name(
     catalog: ModuleType,
 ) -> None:
@@ -558,8 +569,7 @@ def test_every_controlled_fact_renders_without_its_python_field_name(
             fact = make_fact(definition.key, 2)
 
         rendered = render_facts((fact,), NotationPolicy.default(RenderTarget.PLAIN))
-        assert definition.key.value not in rendered
-        assert "_" not in rendered
+        assert rendered == f"{definition.plain_symbol}={_expected_value(definition, plain=True)}"
 
 
 def test_mathtext_uses_catalog_markup_not_raw_identifiers(catalog: ModuleType) -> None:
@@ -577,9 +587,8 @@ def test_mathtext_uses_catalog_markup_not_raw_identifiers(catalog: ModuleType) -
             fact = make_fact(definition.key, 2)
 
         rendered = render_facts((fact,), NotationPolicy.default(RenderTarget.MATHTEXT))
-        if "_" in definition.key.value:
-            assert definition.key.value not in rendered
-        assert rendered.startswith(f"${definition.mathtext_symbol}=")
+        expected_value = _expected_value(definition, plain=False)
+        assert rendered == f"${definition.mathtext_symbol}={expected_value}$"
 
 
 def test_unknown_fact_key_is_rejected(catalog: ModuleType) -> None:

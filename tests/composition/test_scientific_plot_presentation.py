@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -148,42 +147,57 @@ def _legend_texts(figure: Figure) -> list[str]:
     return [text.get_text() for text in legend.get_texts()]
 
 
-def _flat(text: str) -> str:
-    return text.replace("\n", " ")
+STANDALONE_LEGEND = [
+    "Identity",
+    "Jacobi",
+    "IC0 (τ=0)",
+    "AMG (L=2, θ=0.25, ν₁=2, ν₂=2, ωₛ=auto)",
+    "AMG (L=2, θ=0.5, ν₁=2, ν₂=2, ωₛ=auto)",
+    "aSA (L=2, k=3, nᵢₜ=5, cₘₐₓ=10, θ=0, ω=1.33)",
+    "aSA (L=2, k=7, nᵢₜ=5, cₘₐₓ=10, θ=0, ω=1.33)",
+    "BAMG (L=10, kᵣ=8, η=4, nᵦ=2, ν=5, δ=0.7, θₐd=0.5, q=4,\nγ=1.5, LSR=on, cₘₐₓ=10)",
+]
+POD_LEGEND = [
+    "POD-2G (r=10, ν₁=2, ν₂=2, ωₛ=auto) |\nGaussian Solutions (μ=0, σ=1, N=8)",
+    "POD-2G (r=100, ν₁=2, ν₂=2, ωₛ=auto) |\nGaussian Solutions (μ=0, σ=1, N=8)",
+    "POD-2G (r=10, ν₁=2, ν₂=2, ωₛ=auto) |\nGaussian Solutions (μ=0, σ=1, N=4)",
+    "POD-2G (r=100, ν₁=2, ν₂=2, ωₛ=auto) |\nGaussian Solutions (μ=0, σ=1, N=4)",
+]
+MATHTEXT_LEGEND = [
+    "Identity",
+    "Jacobi",
+    "IC0 ($\\tau=0$)",
+    "AMG ($L=2$, $\\theta=0.25$, $\\nu_1=2$, $\\nu_2=2$, $\\omega_s=\\mathrm{auto}$)",
+    "AMG ($L=2$, $\\theta=0.5$, $\\nu_1=2$, $\\nu_2=2$, $\\omega_s=\\mathrm{auto}$)",
+    "aSA ($L=2$, $k=3$, $n_{\\mathrm{it}}=5$, $c_{\\max}=10$, $\\theta=0$, $\\omega=1.33$)",
+    "aSA ($L=2$, $k=7$, $n_{\\mathrm{it}}=5$, $c_{\\max}=10$, $\\theta=0$, $\\omega=1.33$)",
+    "BAMG ($L=10$, $k_r=8$, $\\eta=4$, $n_b=2$, $\\nu=5$, $\\delta=0.7$, $\\theta_{\\mathrm{ad}}=0.5$, $q=4$,\n$\\gamma=1.5$, $\\mathrm{LSR}=\\mathrm{on}$, $c_{\\max}=10$)",
+    "POD-2G ($r=10$, $\\nu_1=2$, $\\nu_2=2$, $\\omega_s=\\mathrm{auto}$) |\nGaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=8$)",
+    "POD-2G ($r=100$, $\\nu_1=2$, $\\nu_2=2$, $\\omega_s=\\mathrm{auto}$) |\nGaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=8$)",
+    "POD-2G ($r=10$, $\\nu_1=2$, $\\nu_2=2$, $\\omega_s=\\mathrm{auto}$) |\nGaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=4$)",
+    "POD-2G ($r=100$, $\\nu_1=2$, $\\nu_2=2$, $\\omega_s=\\mathrm{auto}$) |\nGaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=4$)",
+]
 
 
 def test_acceptance_legend_shows_symbols_and_numbers_and_no_ids(
     acceptance_cohort: PreparedComparisonPresentation,
 ) -> None:
     figure = _draw(acceptance_cohort, MATHTEXT)
-    texts = [_flat(text) for text in _legend_texts(figure)]
+    texts = _legend_texts(figure)
     plt.close(figure)
 
-    assert len(texts) == len(acceptance_cohort.methods) == 12
-    ids = {method.method_id for method in acceptance_cohort.methods}
-    for text in texts:
-        assert not any(identifier in text for identifier in ids)
-        assert "fit-" not in text and "pod-fit" not in text
-        assert "|" not in text.split("(")[0]
-        assert "(" not in text or re.search(r"\d", text)
-    assert any(r"\theta" in text and "0.25" in text for text in texts)
-    assert any(r"\theta" in text and "0.5" in text for text in texts)
-    assert any("POD-2G" in text and "r=10" in text for text in texts)
-    assert any("POD-2G" in text and "r=100" in text for text in texts)
+    assert len(acceptance_cohort.methods) == 12
+    assert texts == MATHTEXT_LEGEND
 
 
 def test_each_pod_label_names_its_fit_dataset_exactly_once(
     acceptance_cohort: PreparedComparisonPresentation,
 ) -> None:
     figure = _draw(acceptance_cohort, PLAIN)
-    pods = [_flat(text) for text in _legend_texts(figure) if text.startswith("POD-2G")]
+    texts = _legend_texts(figure)
     plt.close(figure)
 
-    assert len(pods) == 4
-    assert len(set(pods)) == 4
-    for text in pods:
-        assert text.count("|") == 1
-        assert text.count("N=8") + text.count("N=4") == 1
+    assert texts[len(STANDALONE_LEGEND) :] == POD_LEGEND
 
 
 def test_adaptive_sa_variants_differ_by_their_facts_without_a_key_suffix(
@@ -193,11 +207,7 @@ def test_adaptive_sa_variants_differ_by_their_facts_without_a_key_suffix(
     texts = _legend_texts(figure)
     plt.close(figure)
 
-    adaptive = [text for text in texts if text.startswith("aSA")]
-    assert len(adaptive) == 2
-    assert any("k=3" in text for text in adaptive)
-    assert any("k=7" in text for text in adaptive)
-    assert not any("[" in text for text in texts)
+    assert texts == [*STANDALONE_LEGEND, *POD_LEGEND]
 
 
 def test_a_method_without_a_presentation_raises_instead_of_using_its_key(
@@ -252,7 +262,7 @@ def test_the_length_limit_wraps_lines_and_never_drops_a_fact(
 
     wrapped = method_legend({"pod": pod.compact}, PLAIN).label("pod")
 
-    assert "\n" in wrapped
+    assert len(wrapped.split("\n")) > 1
     assert wrapped.replace(",\n", ", ").replace("\n", " ") == full
     limit = LEGEND_PROFILE.max_length
     assert limit is not None
@@ -321,4 +331,4 @@ def test_a_standalone_method_label_has_no_dataset_separator(
     texts = _legend_texts(figure)
     plt.close(figure)
 
-    assert all("|" not in text for text in texts if not text.startswith("POD-2G"))
+    assert texts[: len(STANDALONE_LEGEND)] == STANDALONE_LEGEND

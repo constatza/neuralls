@@ -67,11 +67,17 @@ def test_manifest_stores_keys_and_values_not_notation_or_a_version(
     raw = json.loads(manifest_path_for(dataset_dir).read_text(encoding="utf-8"))
 
     assert "schema" not in raw
-    text = json.dumps(raw["provenance"])
-    assert '"rows": 1' in text
-    assert "sample_count" not in text, "the count is stored once, as rows"
-    assert "\\mathrm" not in text
-    assert "Spectral 3D field" in text
+    assert raw["provenance"] == {
+        "source": {"base_name": "Spectral 3D field", "facts": [], "context_facts": []},
+        "generation": {
+            "generated_rows": 1,
+            "normalization": "none",
+            "root_seed": 42,
+            "strategies": [
+                {"kind": "neutral_ones", "rows": 1, "seed": {"kind": "derived"}, "parameters": []}
+            ],
+        },
+    }
 
 
 def test_dataset_without_provenance_is_refused_with_a_regeneration_message(

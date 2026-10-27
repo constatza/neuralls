@@ -432,8 +432,9 @@ def test_method_diagnostics_render_the_manifest_method_scope_and_name_systems_by
     scope = MethodScope(workload.presentation.prepared.detailed)
     assert [call["subtitle"] for call in calls] == [ScopeSubtitle(scope, notation)] * 2
     text = calls[0]["legend"].label("sys-id-9")
-    assert "matrix 7, RHS 1" in text
-    assert "sys-id-9" not in text
+    assert text == (
+        "Test problem | Gaussian CG Residuals ($k=20$, $N=100$) - gaussian, matrix 7, RHS 1"
+    )
 
 
 def test_recipe_profile_sink_keeps_profile_ecdf_and_aggregate_bars(

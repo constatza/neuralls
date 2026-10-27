@@ -8,7 +8,6 @@ underscore identifier blob, and sibling systems stay distinguishable.
 from __future__ import annotations
 
 import contextlib
-import re
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -29,6 +28,7 @@ from neuralls.composition.assignments.presentation_preflight import (
     prepare_comparison_presentation,
 )
 from neuralls.composition.comparison.models import ComparisonParams, MatrixRef, PlannedSystem
+from neuralls.composition.tracking import run_specs
 from neuralls.composition.tracking.run_specs import build_comparison_run_spec
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import PreparedComparisonPresentation
@@ -55,15 +55,8 @@ from tests.presentation_support import pod_spec
 from tests.workflows.comparison_support import MLFLOW_MODULE, mock_cfg, write_experiments_config
 
 PLAIN = NotationPolicy.default()
+STAMP = "2026-01-02T03:04:05"
 DATASET_TEXT = "Test problem | Gaussian CG Residuals (k=20, N=100)"
-IDENTIFIER_BLOB = re.compile(r"[A-Za-z0-9]+_[A-Za-z0-9_]+")
-
-
-def assert_presentable(name: str) -> None:
-    """A run name is neither prefixed, an identifier blob, nor a path."""
-    assert not name.startswith("method |")
-    assert IDENTIFIER_BLOB.search(name) is None, name
-    assert "/" not in name
 
 
 def _execution(
@@ -110,6 +103,7 @@ def _session_run_names(
         patch.object(comparison_batch, "report_all_levels"),
         patch.object(comparison_batch, "MLflowGroupReportSink"),
         patch(MLFLOW_MODULE) as mock_mlflow,
+        patch.object(run_specs, "iso_timestamp", return_value=STAMP),
     ):
         mock_mlflow.start_run.return_value.__enter__.return_value = MagicMock()
         mock_mlflow.start_run.return_value.__exit__.return_value = False
@@ -123,9 +117,7 @@ def test_session_run_is_named_by_the_dataset_not_the_case_file(
 ) -> None:
     (name,) = _session_run_names(tmp_path, prepared_presentation, prepared_presentation.scope)
 
-    assert name.startswith(f"{DATASET_TEXT} | ")
-    assert "case_with_ids" not in name
-    assert_presentable(name.removeprefix(f"{DATASET_TEXT} | ").replace("T", " "))
+    assert name == f"{DATASET_TEXT} | {STAMP}"
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
@@ -136,8 +128,7 @@ def test_session_run_is_named_by_the_editorial_title_when_one_is_configured(
         tmp_path, prepared_presentation, EditorialPresentation("Spectral comparison")
     )
 
-    assert name.startswith("Spectral comparison | ")
-    assert DATASET_TEXT not in name
+    assert name == f"Spectral comparison | {STAMP}"
 
 
 def _planned(entry: ComparisonRegistryEntry, matrix: int, ordinal: int) -> PlannedSystem:
@@ -184,15 +175,15 @@ def test_comparison_parent_runs_of_a_sweep_have_distinct_names_and_no_ids(
                 )
                 _execute_prepared_comparison(prepared)
 
-    names = [name for name, _ in started]
-    assert len(set(names)) == 4
-    for name in names:
-        assert name.startswith(DATASET_TEXT)
-        assert_presentable(name.removeprefix(DATASET_TEXT))
-    for name, tags in started:
-        assert tags["comparison_label"] == DATASET_TEXT
-        assert re.fullmatch(r"sweep_\d_\d", tags["comparison_id"])
-        assert tags["comparison_id"] not in name
+    assert [name for name, _ in started] == [
+        f"{DATASET_TEXT} | matrix {matrix}, RHS {ordinal}"
+        for matrix in (3, 4)
+        for ordinal in (0, 1)
+    ]
+    assert [tags["comparison_id"] for _, tags in started] == [
+        f"sweep_{matrix}_{ordinal}" for matrix in (3, 4) for ordinal in (0, 1)
+    ]
+    assert {tags["comparison_label"] for _, tags in started} == {DATASET_TEXT}
 
 
 def test_child_runs_are_named_after_their_method_presentation_and_carry_ids_in_tags(
@@ -267,13 +258,22 @@ def test_configured_facts_become_stable_parameters_without_rendered_text(
 
     assert parameters["method.base_name"] == "POD-2G"
     assert parameters["method.rank"] == "10"
-    assert any(key.startswith("training_dataset.strategy_0.") for key in parameters)
-    assert all("$" not in value and "|" not in value for value in parameters.values())
-    assert "fit-job" not in " ".join(parameters.values())
+    assert parameters == {
+        "method.base_name": "POD-2G",
+        "method.rank": "10",
+        "method.pre_smoothing_steps": "2",
+        "method.post_smoothing_steps": "2",
+        "method.smoother_damping": "auto",
+        "training_dataset.source": "Atomic test",
+        "training_dataset.strategy_0.kind": "gaussian_forward",
+        "training_dataset.strategy_0.mean": "0.0",
+        "training_dataset.strategy_0.standard_deviation": "1.0",
+        "training_dataset.strategy_0.sample_count": "8",
+    }
 
 
 def test_describing_a_method_yields_a_presentation_with_no_assignment_id(
     pod_dataset_dir: Path,
 ) -> None:
     method = describe_method(pod_spec(pod_dataset_dir, 10, assignment="fit-job"))
-    assert "fit-job" not in repr(method)
+    assert method == describe_method(pod_spec(pod_dataset_dir, 10, assignment="another-job"))

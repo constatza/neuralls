@@ -89,9 +89,7 @@ def test_a_fit_job_is_the_pod_basis_trained_on_its_dataset(
 
     assert isinstance(subject, DatasetQualifiedMethodPresentation)
     text = render_run_name(TrainingRunName(subject, Untimed()), PLAIN)
-    assert text.startswith("POD-2G (r=10, ")
-    assert text.count("|") == 1
-    assert "fit_job_1" not in text
+    assert text == "POD-2G (r=10, ν₁=2, ν₂=2, ωₛ=auto) | Gaussian Solutions (μ=0, σ=1, N=8)"
 
 
 def test_a_neural_job_is_its_architecture_trained_on_its_dataset(
@@ -109,8 +107,7 @@ def test_a_neural_job_is_its_architecture_trained_on_its_dataset(
 
     assert isinstance(subject, DatasetQualifiedMethodPresentation)
     text = render_run_name(TrainingRunName(subject, Untimed()), PLAIN)
-    assert text.startswith("Neural (arch=Graph Net) | ")
-    assert "fit_job_1" not in text
+    assert text == "Neural (arch=Graph Net) | Gaussian Solutions (μ=0, σ=1, N=8)"
 
 
 def test_a_neural_job_without_an_architecture_name_is_rejected(
@@ -130,8 +127,8 @@ def test_an_explicit_display_name_is_an_editorial_title_beside_the_dataset(
     subject = _subject(_entry("  Basis rank ten "))
 
     assert isinstance(subject, EditorialTrainingSubject)
-    assert render_run_name(TrainingRunName(subject, Untimed()), PLAIN).startswith(
-        "Basis rank ten | Atomic test | "
+    assert render_run_name(TrainingRunName(subject, Untimed()), PLAIN) == (
+        "Basis rank ten | Atomic test | Gaussian Solutions (μ=0, σ=1, N=8)"
     )
 
 

@@ -44,6 +44,7 @@ from neuralls.domain.presentation.titles import (
 )
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
 from neuralls.domain.solver.models.recommendations import ComparisonRecommendations
+from neuralls.shared.constants import SYMBOL_CHECKMARK
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import MatrixId
 
@@ -105,6 +106,20 @@ def comparison_payload(tmp_path: Path) -> ComparisonResult:
     )
 
 
+def _banner(title: str) -> list[str]:
+    return ["=" * 80, title, "=" * 80]
+
+
+def _final_summary(total: int, successful: int, failed: int) -> list[str]:
+    return [
+        "",
+        *_banner("FINAL SUMMARY"),
+        f"Total comparisons: {total}",
+        f"Successful: {successful}",
+        f"Failed: {failed}",
+    ]
+
+
 def _invoke_compare(config: Path, outcomes: list[object]) -> list[str]:
     with (
         patch("neuralls.cli.compare.run_comparison_batch", return_value=outcomes),
@@ -126,9 +141,14 @@ def test_compare_logs_the_plain_run_name_with_the_actual_parameters(
 
     _invoke_compare(case_config, [outcome])
 
-    assert f"{DATASET_TEXT} | matrix 3, RHS 1" in logged
-    assert not any(REGISTRY_ID in message for message in logged)
-    assert not any("jacobi" in message for message in logged)
+    assert logged == [
+        *_banner(f"{DATASET_TEXT} | matrix 3, RHS 1"),
+        "=" * 60,
+        comparison_payload.summary,
+        "=" * 60,
+        *_final_summary(total=1, successful=1, failed=0),
+        f"{SYMBOL_CHECKMARK} All comparisons completed successfully!",
+    ]
 
 
 def test_compare_shows_an_editorial_title_as_the_case_title(
@@ -142,8 +162,14 @@ def test_compare_shows_an_editorial_title_as_the_case_title(
 
     _invoke_compare(case_config, [outcome])
 
-    assert f"{EDITORIAL} | matrix 3, RHS 1" in logged
-    assert "CG comparison results:\n- Jacobi  status=ok" in logged
+    assert logged == [
+        *_banner(f"{EDITORIAL} | matrix 3, RHS 1"),
+        "=" * 60,
+        comparison_payload.summary,
+        "=" * 60,
+        *_final_summary(total=1, successful=1, failed=0),
+        f"{SYMBOL_CHECKMARK} All comparisons completed successfully!",
+    ]
 
 
 def test_compare_names_a_failure_by_its_description_and_states_when_it_has_none(
@@ -163,9 +189,17 @@ def test_compare_names_a_failure_by_its_description_and_states_when_it_has_none(
 
     _invoke_compare(case_config, outcomes)
 
-    assert f"  x {DATASET_TEXT} | matrix 3, RHS 1: solver diverged" in logged
-    assert f"  x {UNDESCRIBED_COMPARISON_TEXT}: no checkpoint" in logged
-    assert not any(registry in message for message in logged for registry in (REGISTRY_ID, "cmp-"))
+    assert logged == [
+        *_banner(f"{DATASET_TEXT} | matrix 3, RHS 1"),
+        "Comparison failed: solver diverged",
+        *_banner(UNDESCRIBED_COMPARISON_TEXT),
+        "Comparison failed: no checkpoint",
+        *_banner(f"{DATASET_TEXT} | matrix 3, RHS 1"),
+        "Using existing MLflow comparison result (skipped rerun).",
+        *_final_summary(total=3, successful=1, failed=2),
+        f"  x {DATASET_TEXT} | matrix 3, RHS 1: solver diverged",
+        f"  x {UNDESCRIBED_COMPARISON_TEXT}: no checkpoint",
+    ]
 
 
 def test_run_summary_names_trainings_and_comparisons_by_their_descriptions(
@@ -194,11 +228,17 @@ def test_run_summary_names_trainings_and_comparisons_by_their_descriptions(
     ):
         result = runner.invoke(app, ["run", str(case_config)])
 
-    assert "  SUCCESS POD-2G | Gaussian CG Residuals (k=20, N=100)\n" in result.output
-    assert f"  FAILED {EDITORIAL} | {DATASET_TEXT} (out of memory)\n" in result.output
-    assert f"  SUCCESS {DATASET_TEXT} | matrix 3, RHS 1\n" in result.output
-    assert "asg-" not in result.output
-    assert REGISTRY_ID not in result.output
+    assert result.output.splitlines() == [
+        f"Running case pipeline from: {case_config}",
+        "",
+        "Summary",
+        "=" * 80,
+        "Completed 2 assignments:",
+        "  SUCCESS POD-2G | Gaussian CG Residuals (k=20, N=100)",
+        f"  FAILED {EDITORIAL} | {DATASET_TEXT} (out of memory)",
+        "Completed 1 comparisons:",
+        f"  SUCCESS {DATASET_TEXT} | matrix 3, RHS 1",
+    ]
 
 
 def test_generate_prints_the_dataset_description_beside_where_it_was_written(
@@ -220,5 +260,4 @@ def test_generate_prints_the_dataset_description_beside_where_it_was_written(
         result = runner.invoke(app, ["generate", str(case_config)])
 
     assert result.exit_code == 0
-    assert f"{DATASET_TEXT} -> {tmp_path / 'out'}" in result.output
-    assert "residuals-registry-id" not in result.output
+    assert result.output.splitlines() == [f"{DATASET_TEXT} -> {tmp_path / 'out'}"]

@@ -307,8 +307,10 @@ def test_method_child_tags_include_identity_and_required_raw_artifacts(
     assert values["workload_membership_digest"].startswith("sha256:")
     assert "setup_events.parquet" in values["required_artifacts"]
     assert "method_config.toml" in values["required_artifacts"]
-    assert "schema" not in values["identity_components"]
-    assert "0000000000000000" not in values["identity_components"]
+    assert json.loads(values["identity_components"]) == {
+        "method_config": "sha256:" + "a" * 16,
+        "workload_membership": values["workload_membership_digest"][:23],
+    }
     assert values["neuralls.identity.stage"] == "comparison_method"
 
 

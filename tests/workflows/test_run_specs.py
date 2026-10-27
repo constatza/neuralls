@@ -114,7 +114,6 @@ def test_training_run_spec_is_named_by_what_it_trains(trained: TrainingPresentat
     assert spec.experiment_name == "Train"
     assert run_name_text(spec.name) == "POD-2G | Gaussian CG Residuals (k=20, N=100) | " + STAMP
     assert spec.tags["assignment_id"] == "exp-1"
-    assert "exp-1" not in run_name_text(spec.name)
 
 
 def test_batched_training_run_name_has_no_timestamp(trained: TrainingPresentation) -> None:
@@ -181,9 +180,10 @@ def test_sibling_systems_on_a_dataset_title_get_distinct_run_names(
                 include_timestamp=False,
             )
             names.append(run_name_text(run))
-    assert len(set(names)) == 4
-    assert names[0].endswith("matrix 3, RHS 0")
-    assert names[3].endswith("matrix 4, RHS 1")
+    dataset = "Test problem | Gaussian CG Residuals (k=20, N=100)"
+    assert names == [
+        f"{dataset} | matrix {matrix}, RHS {ordinal}" for matrix in (3, 4) for ordinal in (0, 1)
+    ]
 
 
 def test_a_single_draw_on_a_shared_matrix_needs_no_qualifier(

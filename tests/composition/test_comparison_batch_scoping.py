@@ -539,7 +539,6 @@ def test_method_child_is_named_by_its_presentation_and_logs_configured_facts_bef
 
     (call,) = started
     assert call["run_name"] == "Jacobi"
-    assert not str(call["run_name"]).startswith("method |")
     tags = call["tags"]
     assert isinstance(tags, dict)
     assert tags["method_id"] == "identity"

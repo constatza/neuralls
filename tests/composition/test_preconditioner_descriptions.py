@@ -107,8 +107,6 @@ def test_pod_label_shows_rank_without_dataset_or_identity(pod_dataset_dir: Path)
     )
     label = _plain(describe_configured_preconditioner(cfg))
     assert label == "POD-2G (r=10, ν₁=2, ν₂=2, ωₛ=auto)"
-    assert "fit-a" not in label
-    assert "pod-fit-dataset" not in label
 
 
 @pytest.mark.parametrize(
@@ -129,7 +127,7 @@ def test_parameterless_methods_invent_no_parameters(
 
 def test_ic0_label_shows_drop_tolerance_even_at_its_default() -> None:
     label = _plain(describe_configured_preconditioner(IC0PreconditionerConfig()))
-    assert label.startswith("IC0 (τ=")
+    assert label == "IC0 (τ=0)"
 
 
 # --- explicit-default equals omitted-default; any difference is visible ------------
@@ -187,8 +185,8 @@ def test_scheduling_controls_appear_only_when_non_default() -> None:
             )
         )
     )
-    assert "k₀" not in default and "fb" not in default
-    assert scheduled.endswith("k₀=5, kₘₐₓ=20, fb=Jacobi)")
+    assert default == "AMG (L=2, θ=0.25, ν₁=2, ν₂=2, ωₛ=auto)"
+    assert scheduled == "AMG (L=2, θ=0.25, ν₁=2, ν₂=2, ωₛ=auto, k₀=5, kₘₐₓ=20, fb=Jacobi)"
 
 
 # --- POD, weighting, neural --------------------------------------------------------
@@ -204,7 +202,7 @@ def test_pod_weighting_and_snapshot_controls_are_visible(pod_dataset_dir: Path) 
         )
     )
     label = _plain(describe_configured_preconditioner(cfg))
-    assert "r=0.999" in label and "Nₛ=200" in label and "w=" in label and "p=A" in label
+    assert label == "POD-2G (r=0.999, Nₛ=200, w=PN, p=A, β=1, ν₁=2, ν₂=2, ωₛ=auto)"
 
 
 def test_smoother_persistence_weighting_shows_its_sweeps(pod_dataset_dir: Path) -> None:
@@ -214,20 +212,23 @@ def test_smoother_persistence_weighting_shows_its_sweeps(pod_dataset_dir: Path) 
             weighting=SmootherPersistenceWeightingConfig(steps=7),
         )
     )
-    assert "w=SP" in _plain(describe_configured_preconditioner(cfg))
-    assert "ν=7" in _plain(describe_configured_preconditioner(cfg))
+    assert (
+        _plain(describe_configured_preconditioner(cfg))
+        == "POD-2G (r=8, w=SP, ν=7, ν₁=2, ν₂=2, ωₛ=auto)"
+    )
 
 
 def test_target_dimension_coarsening_shows_its_target() -> None:
     cfg = AMGPreconditionerConfig(coarsening=TargetDimCoarseningConfig(target_coarse_dim=12))
-    assert "cₜ=12" in _plain(describe_configured_preconditioner(cfg))
+    assert (
+        _plain(describe_configured_preconditioner(cfg)) == "AMG (L=2, cₜ=12, ν₁=2, ν₂=2, ωₛ=auto)"
+    )
 
 
 def test_neural_architecture_comes_from_the_architecture_name_never_a_class_name() -> None:
     cfg = NeuralPreconditionerConfig(architecture="Graph Net", assignment="job-1")
     label = _plain(describe_configured_preconditioner(cfg))
     assert label == "Neural (arch=Graph Net)"
-    assert "job-1" not in label
 
 
 def test_neural_without_an_architecture_name_fails_instead_of_guessing() -> None:
@@ -249,8 +250,11 @@ def test_neural_pod_and_neural_amg_describe_their_own_parameters(pod_dataset_dir
     amg = NeuralAMGPreconditionerConfig(
         aggregation_omega=0.7, prolongation=NeuralTransferConfig(assignment="p")
     )
-    assert "r=6" in _plain(describe_configured_preconditioner(pod))
-    assert "ω=0.7" in _plain(describe_configured_preconditioner(amg))
+    assert _plain(describe_configured_preconditioner(pod)) == "POD-2G (r=6, ν₁=2, ν₂=2, ωₛ=auto)"
+    assert (
+        _plain(describe_configured_preconditioner(amg))
+        == "Neural (L=2, ω=0.7, ν₁=2, ν₂=2, ωₛ=auto)"
+    )
 
 
 # --- every config field is bound ----------------------------------------------------

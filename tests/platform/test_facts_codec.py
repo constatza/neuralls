@@ -100,7 +100,11 @@ def test_rows_and_seeds_are_stored_once_and_the_count_is_not_a_fact(
     assert [strategy["seed"]["kind"] for strategy in strategies] == ["explicit", "derived", "none"]
     assert strategies[0]["seed"]["value"] == 7
     assert payload["generation"]["root_seed"] == 99
-    assert "sample_count" not in str(payload)
+    assert [strategy["parameters"] for strategy in strategies] == [
+        [{"key": "probe_distribution", "kind": "text", "value": "gaussian"}],
+        [{"key": "beta", "kind": "decimal", "value": 0.125}],
+        [],
+    ]
 
 
 def test_decoding_rejects_rows_that_disagree_with_the_dataset_total(

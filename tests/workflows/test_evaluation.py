@@ -489,6 +489,6 @@ def test_eval_report_labels_bars_and_label_map_by_training_presentation(
         write_eval_metric_report(batch, metric="mae")
 
     expected = render_training_label(results[0].presentation)
+    assert expected == "Alpha | Gaussian CG Residuals (k=20, N=100)"
     assert plot_fn.call_args.args[0].label("a-17") == expected
     assert batch.label_map["a-17"]["assignment_label"] == expected
-    assert "a-17" not in expected

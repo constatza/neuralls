@@ -115,5 +115,8 @@ def test_a_dataset_generated_before_provenance_existed_is_stale_and_names_the_co
     # Identity is unchanged, so generation alone would skip it: only --force regenerates.
     with pytest.raises(StageInputsStale, match="no scientific provenance") as raised:
         _gate(data_config)
-    assert REGENERATE_DATASETS_COMMAND in str(raised.value)
-    assert "--force" in REGENERATE_DATASETS_COMMAND
+    assert str(raised.value) == (
+        f"Dataset 'ds' at '{dataset_dir}' has no scientific provenance (it was generated before "
+        f"provenance was recorded): run `{REGENERATE_DATASETS_COMMAND}` to rewrite it."
+    )
+    assert REGENERATE_DATASETS_COMMAND == "neuralls generate --force <case-config.toml>"

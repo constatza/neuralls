@@ -65,6 +65,12 @@ def _metadata(scope: FigureScope) -> FigureMetadata:
     )
 
 
+def _manifest_of(metadata: FigureMetadata) -> FigureManifest:
+    manifest = FigureManifest()
+    manifest.add("performance_profile_fine_x_online.png", metadata)
+    return manifest
+
+
 def _entry(manifest: FigureManifest, notation: NotationPolicy) -> dict[str, Any]:
     figures = cast(dict[str, dict[str, Any]], manifest.as_dict(notation)["figures"])
     return figures["performance_profile_fine_x_online.png"]
@@ -104,7 +110,10 @@ def test_manifest_stores_structured_scope_and_its_rendered_text(
     ).text
     assert stored["display"] == expected
     assert stored["kind"] == "recipe"
-    assert "$" not in stored["display"]
+    assert (
+        stored["display"]
+        == "Test problem | Gaussian CG Residuals (k=20, N=100) - sinusoidal omega=6.28319"
+    )
 
 
 def test_manifest_serializes_literal_population_and_solver_context(
@@ -228,4 +237,4 @@ def test_manifest_keeps_machine_ids_in_id_fields_and_the_reference_as_a_kind(
     assert stored["reference_selection"] == "configured"
     assert stored["reference_method_id"] == "jacobi-7"
     assert "datasets" not in stored
-    assert "jacobi-7" not in str(stored["scope"])
+    assert stored["scope"] == _entry(_manifest_of(_metadata(scope)), notation)["scope"]

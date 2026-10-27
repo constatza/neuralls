@@ -223,7 +223,6 @@ def test_a_failed_assignment_is_logged_by_its_training_presentation(
     assert isinstance(result, AssignmentResult)
     assert result.presentation is training_presentation
     assert messages == [f"{render_training_label(training_presentation)} failed: no config"]
-    assert "exp-secret-9" not in messages[0]
 
 
 def test_each_assignment_is_looked_up_under_its_own_derived_identity(
