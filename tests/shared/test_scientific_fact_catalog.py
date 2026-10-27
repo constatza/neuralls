@@ -202,21 +202,6 @@ def expected_definitions() -> tuple[ExpectedFactDefinition, ...]:
             (("gaussian", "𝒩", "\\mathcal{N}"), ("rademacher", "Rad", "\\mathrm{Rad}")),
         ),
         ExpectedFactDefinition(
-            "coarsening_strategy",
-            "algorithmic",
-            "configured",
-            370,
-            None,
-            "C",
-            "C",
-            (
-                ("aggregation", "SA", "\\mathrm{SA}"),
-                ("neural_pod", "Neural-POD", "\\mathrm{Neural-POD}"),
-                ("pod", "POD", "\\mathrm{POD}"),
-                ("target_dim", "target-c", "\\mathrm{target-c}"),
-            ),
-        ),
-        ExpectedFactDefinition(
             "model_architecture", "algorithmic", "configured", 380, None, "arch", "\\mathrm{arch}"
         ),
         ExpectedFactDefinition(

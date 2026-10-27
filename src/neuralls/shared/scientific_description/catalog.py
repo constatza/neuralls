@@ -301,7 +301,6 @@ SNAPSHOT_COUNT = _key("snapshot_count")
 WEIGHTING = _key("weighting")
 METRIC = _key("metric")
 BETA = _key("beta")
-COARSENING_STRATEGY = _key("coarsening_strategy")
 MODEL_ARCHITECTURE = _key("model_architecture")
 REALIZED_LEVELS = _key("realized_levels")
 
@@ -620,22 +619,6 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         categories=_categories(("a", "A", "A"), ("l2", "ℓ₂", "\\ell_2")),
     ),
     _definition(BETA, _A, _C, 340, 3, "β", "\\beta", frozenset({FactValueKind.DECIMAL})),
-    _definition(
-        COARSENING_STRATEGY,
-        _A,
-        _C,
-        370,
-        None,
-        "C",
-        "C",
-        frozenset({FactValueKind.TEXT}),
-        categories=_categories(
-            ("aggregation", "SA", "\\mathrm{SA}"),
-            ("neural_pod", "Neural-POD", "\\mathrm{Neural-POD}"),
-            ("pod", "POD", "\\mathrm{POD}"),
-            ("target_dim", "target-c", "\\mathrm{target-c}"),
-        ),
-    ),
     _definition(
         MODEL_ARCHITECTURE,
         _A,
