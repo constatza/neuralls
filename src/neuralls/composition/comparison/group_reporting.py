@@ -25,15 +25,13 @@ from neuralls.domain.solver.models.figure_scope import (
 from neuralls.domain.solver.models.group_outcomes import (
     GroupAggregated,
     GroupSkippedAllCacheHit,
-    RecipeProfileReport,
-    WorkloadMixtureReport,
 )
 from neuralls.domain.solver.models.group_presentation import (
     GroupMethodPresentation,
     GroupPresentation,
     SolverTimingContext,
 )
-from neuralls.domain.solver.models.labels import GlobalLabel, MediumLabel
+from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLabel, MediumLabel
 from neuralls.domain.solver.ports import GroupReportSink
 from neuralls.domain.solver.reporting.classification import classify_level
 from neuralls.domain.solver.reporting.report_levels import (
@@ -42,6 +40,8 @@ from neuralls.domain.solver.reporting.report_levels import (
     MediumLevel,
     ReportLevel,
 )
+from neuralls.platform.reporting.figure_text import scope_label
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, PreconditionerName, SystemId
 
 __all__ = ["REPORT_LEVELS", "report_all_levels"]
@@ -61,10 +61,7 @@ class MissingDatasetPresentationError(LookupError):
         super().__init__(f"no scientific presentation for dataset {dataset!r}")
 
 
-def _scope(
-    report: RecipeProfileReport | WorkloadMixtureReport,
-    datasets: Mapping[DatasetId, DatasetPresentation],
-) -> GroupScope:
+def _scope(label: GroupLabel, datasets: Mapping[DatasetId, DatasetPresentation]) -> GroupScope:
     """What the group pools, as typed values rendered by the sink."""
 
     def presentation_of(dataset: DatasetId) -> DatasetPresentation:
@@ -73,12 +70,12 @@ def _scope(
             raise MissingDatasetPresentationError(dataset)
         return found
 
-    match report:
-        case RecipeProfileReport(label=label):
-            return RecipeScope(presentation_of(label.dataset), label.recipe)
-        case WorkloadMixtureReport(label=MediumLabel(dataset=dataset)):
+    match label:
+        case FineLabel(dataset=dataset, recipe=recipe):
+            return RecipeScope(presentation_of(dataset), recipe)
+        case MediumLabel(dataset=dataset):
             return DatasetScope(presentation_of(dataset))
-        case WorkloadMixtureReport(label=GlobalLabel()):
+        case GlobalLabel():
             return AllDatasetsScope()
         case _ as unreachable:
             assert_never(cast(Never, unreachable))
@@ -119,13 +116,15 @@ def report_all_levels(
     sink: GroupReportSink,
     *,
     datasets: Mapping[DatasetId, DatasetPresentation],
+    notation: NotationPolicy,
     reference_selection: ReferenceSelection | dict[SystemId, ReferenceSelection] | None = None,
     contexts_by_system: Mapping[SystemId, SolverTimingContext] | None = None,
 ) -> None:
     """Reduce completed method workloads and report every canonical level.
 
     ``datasets`` presents each dataset a group names; a group on a dataset without an
-    entry raises before anything is reported for it.
+    entry raises before anything is reported for it. ``notation`` is the case's symbol
+    policy, used for the text of a skipped group.
     """
     selected = reference_selection if reference_selection is not None else NoReferenceConfigured()
     planned_by_id = {tag.system_id: tag for workload in workloads for tag in workload.planned}
@@ -152,15 +151,15 @@ def report_all_levels(
                     sink.report(
                         aggregated,
                         presentation=GroupPresentation(
-                            scope=_scope(aggregated, datasets),
+                            scope=_scope(aggregated.label, datasets),
                             plot_styles=plot_styles,
                             methods=_group_methods(workloads, aggregated.system_ids),
                             solver_contexts=solver_contexts,
                         ),
                     )
-                case GroupSkippedAllCacheHit(group_id=group_id, n_planned_rhs=n_total):
+                case GroupSkippedAllCacheHit(label=label, n_planned_rhs=n_total):
                     logger.warning(
-                        "Group '{}': no canonical setup events among {} planned systems.",
-                        group_id,
+                        "{}: no canonical setup events among {} planned systems.",
+                        scope_label(_scope(label, datasets), notation),
                         n_total,
                     )

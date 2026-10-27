@@ -29,6 +29,7 @@ from neuralls.composition.comparison.models import (
 )
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import PreparedComparisonPresentation
+from neuralls.domain.presentation.run_names import NamedRun
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
@@ -48,6 +49,7 @@ from tests.workflows.comparison_support import (
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
 def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
     tmp_path: Path,
+    comparison_run: NamedRun,
 ) -> None:
     experiments_config = tmp_path / "experiments.toml"
     write_experiments_config(experiments_config, with_comparisons=True)
@@ -61,7 +63,7 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
     ) -> ComparisonReused:
         return ComparisonReused(
             comparison_id=planned.entry.id,
-            comparison_display_name=planned.entry.effective_display_name,
+            run=comparison_run,
         )
 
     with (
@@ -85,6 +87,7 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
 def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
     tmp_path: Path,
     prepared_presentation: PreparedComparisonPresentation,
+    comparison_run: NamedRun,
 ) -> None:
     experiments_config = tmp_path / "experiments.toml"
     write_experiments_config(experiments_config, with_comparisons=True)
@@ -99,7 +102,7 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
         if planned.entry.id == "a":
             return ComparisonReused(
                 comparison_id=planned.entry.id,
-                comparison_display_name=planned.entry.effective_display_name,
+                run=comparison_run,
             )
         return PreparedComparisonExecution(
             cfg=cfg,
@@ -139,8 +142,8 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
         patch(
             "neuralls.composition.assignments.comparison_batch._outcomes_from_workloads",
             return_value=[
-                ComparisonReused(comparison_id="a", comparison_display_name="a"),
-                ComparisonReused(comparison_id="b", comparison_display_name="b"),
+                ComparisonReused(comparison_id="a", run=comparison_run),
+                ComparisonReused(comparison_id="b", run=comparison_run),
             ],
         ),
         patch("neuralls.composition.assignments.comparison_batch.report_all_levels"),

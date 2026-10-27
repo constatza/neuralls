@@ -494,11 +494,8 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(
         workspace=workspace,
         spec=SimpleNamespace(
             assignment_id="exp-1",
-            assignment_display_name="Experiment One",
             dataset_id="dataset-1",
-            dataset_display_name="Dataset One",
             job_id="job-1",
-            job_display_name="Job One",
         ),
     )
 
@@ -529,11 +526,8 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(
             output_root=tmp_path / "output",
             identity=AssignmentIdentity(
                 assignment_id="exp-1",
-                assignment_display_name="Experiment One",
                 dataset_registry_id="dataset-1",
-                dataset_display_name="Dataset One",
                 job_registry_id="job-1",
-                job_display_name="Job One",
             ),
             presentation=training_presentation,
             mlflow_experiment_name="CustomTrain",
@@ -588,11 +582,8 @@ def test_prepare_training_settings_without_registry_ids_builds_an_untagged_run(
         workspace=workspace,
         spec=SimpleNamespace(
             assignment_id="legacy-exp",
-            assignment_display_name="Legacy Experiment",
             dataset_id="dataset-legacy",
-            dataset_display_name="Dataset Display",
             job_id=None,
-            job_display_name=None,
         ),
     )
 
@@ -621,9 +612,7 @@ def test_prepare_training_settings_without_registry_ids_builds_an_untagged_run(
             output_root=tmp_path / "output",
             identity=AssignmentIdentity(
                 assignment_id="legacy-exp",
-                assignment_display_name="Legacy Experiment",
                 dataset_registry_id="dataset-legacy",
-                dataset_display_name="Dataset Display",
             ),
             presentation=training_presentation,
         )
@@ -693,7 +682,6 @@ def finalize_assignment() -> SimpleNamespace:
             assignment_id="exp-1",
             dataset_id="dataset-1",
             job_id="job-1",
-            job_display_name="Job One",
         )
     )
 

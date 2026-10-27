@@ -66,7 +66,8 @@ from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
 from neuralls.platform.config.models.workspace import AssignmentSpec
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
-from neuralls.platform.reporting.plots import plot_metric_comparison
+from neuralls.platform.reporting.figure_text import Legend, training_legend
+from neuralls.platform.reporting.plots import plot_method_bars
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
 from neuralls.platform.tracking.environment import scoped_mlflow_environment
 from neuralls.platform.tracking.mlflow import (
@@ -80,7 +81,7 @@ from neuralls.platform.tracking.mlflow_client import (
     mark_run_failed,
 )
 from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
-from neuralls.platform.tracking.run_names import render_training_subject, run_name_text
+from neuralls.platform.tracking.run_names import render_training_label, run_name_text
 from neuralls.shared.constants import (
     TRAINING_CHILD_DURATION_METRIC_KEY,
     TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY,
@@ -206,7 +207,7 @@ def run_assignment(
         if existing is not None:
             return AssignmentResult(
                 assignment_id=assignment_id,
-                assignment_display_name=spec.assignment_display_name,
+                presentation=presentation,
                 status="Success",
                 mlflow_run_id=existing.run_id,
             )
@@ -226,10 +227,10 @@ def run_assignment(
         # Broad by design: one assignment's failure (including dlkit-internal
         # errors, e.g. a leaked MLflow run from a prior search job) must never
         # abort the rest of the batch.
-        logger.error(f"Assignment {assignment_id} failed: {exc}")
+        logger.error("{} failed: {}", render_training_label(presentation), exc)
         return AssignmentResult(
             assignment_id=assignment_id,
-            assignment_display_name=spec.assignment_display_name,
+            presentation=presentation,
             status="Failed",
             error=str(exc),
         )
@@ -270,17 +271,17 @@ def _finalize_assignment_child(
                 "the run was marked FAILED. Re-run training."
             )
     except Exception as exc:  # noqa: BLE001
-        logger.error(f"Assignment {spec.assignment_id} failed: {exc}")
+        logger.error("{} failed: {}", render_training_label(prepared.presentation), exc)
         return AssignmentResult(
             assignment_id=spec.assignment_id,
-            assignment_display_name=spec.assignment_display_name,
+            presentation=prepared.presentation,
             status="Failed",
             error=str(exc),
         )
     logger.info(f"Training complete: run {coords.run_id}")
     return AssignmentResult(
         assignment_id=spec.assignment_id,
-        assignment_display_name=spec.assignment_display_name,
+        presentation=prepared.presentation,
         status="Success",
         mlflow_run_id=coords.run_id,
     )
@@ -443,11 +444,7 @@ def run_assignment_sweep(
         for assignment in assignments:
             spec = assignment.spec
             logger.info(f"\n{'=' * 60}")
-            logger.info(f"Assignment: {spec.assignment_display_name}")
-            logger.info(f"  Job: {spec.job_display_name or spec.job_config_path.stem}")
-            logger.info(
-                f"  Dataset: {spec.dataset_display_name or assignment.workspace.dataset_id}"
-            )
+            logger.info("Training: {}", render_training_label(presentations[spec.assignment_id]))
             logger.info(f"{'=' * 60}")
 
             outcome = run_assignment(
@@ -502,13 +499,13 @@ def run_assignment_sweep(
                         case ChildFailure():
                             any_failed = True
                             logger.error(
-                                f"Assignment '{child_outcome.child_id}' failed: {child_outcome.message}"
+                                "{} failed: {}",
+                                render_training_label(prepared.presentation),
+                                child_outcome.message,
                             )
                             results_by_id[child_outcome.child_id] = AssignmentResult(
                                 assignment_id=child_outcome.child_id,
-                                assignment_display_name=render_training_subject(
-                                    prepared.presentation.subject, prepared.presentation.notation
-                                ),
+                                presentation=prepared.presentation,
                                 status="Failed",
                                 error=child_outcome.message,
                             )
@@ -534,11 +531,11 @@ def run_assignment_sweep(
 
 
 def _build_label_map(results: Sequence[AssignmentResult]) -> dict[str, dict[str, str | None]]:
-    """Build a mapping from assignment_id to its full identity, for the batch label map."""
+    """Build a mapping from assignment_id to its identity and rendered label, for the label map."""
     return {
         result.assignment_id: {
             "assignment_id": result.assignment_id,
-            "assignment_display_name": result.assignment_display_name,
+            "assignment_label": render_training_label(result.presentation),
             "mlflow_run_id": result.mlflow_run_id,
         }
         for result in results
@@ -552,14 +549,14 @@ class _MetricReport:
     Attributes:
         labels: Assignment ids that reported the metric, in sweep order.
         values: The reported metric values, aligned with `labels`.
-        legend: Plot legend entry per plotted assignment id.
-        missing: Human-readable descriptions of assignments lacking the metric.
+        legend: Bar label per plotted assignment id, rendered from its training presentation.
+        missing: Rendered descriptions of assignments lacking the metric.
         label_map: Full identity of every assignment, plotted or not.
     """
 
     labels: tuple[str, ...]
     values: tuple[float, ...]
-    legend: dict[str, str]
+    legend: Legend
     missing: tuple[str, ...]
     label_map: dict[str, dict[str, str | None]]
 
@@ -598,17 +595,15 @@ def _build_metric_report(
             labels.append(result.assignment_id)
             values.append(metrics[metric])
             continue
-        missing.append(f"{result.assignment_id} ({result.assignment_display_name})")
+        missing.append(render_training_label(result.presentation))
 
-    legend = {
-        result.assignment_id: (
-            f"{result.assignment_display_name} (run: {result.mlflow_run_id})"
-            if result.mlflow_run_id
-            else result.assignment_display_name
-        )
-        for result in results
-        if result.assignment_id in labels
-    }
+    legend = training_legend(
+        {
+            result.assignment_id: result.presentation
+            for result in results
+            if result.assignment_id in labels
+        }
+    )
     return _MetricReport(
         labels=tuple(labels),
         values=tuple(values),
@@ -630,11 +625,11 @@ def _upload_metric_report(
     with tempfile.TemporaryDirectory() as tmp:
         work_root = Path(tmp)
         if report.has_plot:
-            plot_metric_comparison(
-                labels=list(report.labels),
-                values=list(report.values),
+            plot_method_bars(
+                report.legend,
+                report.labels,
+                report.values,
                 metric_name=metric,
-                legend=report.legend,
                 save_path=work_root / plot_name,
             )
 

@@ -9,7 +9,11 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import assert_never
 
-from neuralls.domain.presentation.methods import DatasetQualifiedMethodPresentation
+from neuralls.domain.presentation.methods import (
+    ConfiguredMethodPresentation,
+    DatasetQualifiedMethodPresentation,
+)
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.render import render_dataset, render_method, render_title
 from neuralls.domain.presentation.run_names import (
     ComparisonRunName,
@@ -23,6 +27,7 @@ from neuralls.domain.presentation.run_names import (
     RunTimestamp,
     SessionRunName,
     SystemQualifier,
+    TrainingPresentation,
     TrainingRunName,
     TrainingSubject,
     Untimed,
@@ -89,6 +94,25 @@ def render_session_title(title: SessionTitle, notation: NotationPolicy) -> str:
 def render_training_subject(subject: TrainingSubject, notation: NotationPolicy) -> str:
     """Render what a training or evaluation run is about, for a ``*_label`` tag."""
     return _subject_text(subject, RUN_NAME_PROFILE, replace(notation, target=RenderTarget.PLAIN))
+
+
+def render_dataset_label(dataset: DatasetPresentation, notation: NotationPolicy) -> str:
+    """Render a dataset as plain text, for logs and summaries."""
+    return render_dataset(
+        dataset, RUN_NAME_PROFILE, replace(notation, target=RenderTarget.PLAIN)
+    ).text
+
+
+def render_method_label(method: ConfiguredMethodPresentation, notation: NotationPolicy) -> str:
+    """Render a configured method as plain text, for logs and summaries."""
+    return render_method(
+        method, RUN_NAME_PROFILE, replace(notation, target=RenderTarget.PLAIN)
+    ).text
+
+
+def render_training_label(presentation: TrainingPresentation) -> str:
+    """Render what a training presentation is about, for logs, summaries and report legends."""
+    return render_training_subject(presentation.subject, presentation.notation)
 
 
 def render_run_name(name: RunName, notation: NotationPolicy) -> str:

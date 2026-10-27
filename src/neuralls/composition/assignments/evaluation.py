@@ -24,10 +24,7 @@ from neuralls.composition.assignments._dataset_assembly import (
     resolve_dataset_format,
 )
 from neuralls.composition.assignments._job_types import AnyJobConfig
-from neuralls.composition.assignments._registry_lookup import (
-    _find_registry_entry,
-    _resolve_config_paths,
-)
+from neuralls.composition.assignments._registry_lookup import _resolve_config_paths
 from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 from neuralls.composition.assignments.assignment_subjects import (
     case_notation,
@@ -57,7 +54,8 @@ from neuralls.platform.config.resolution import (
     is_sqlite_tracking_uri,
 )
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
-from neuralls.platform.reporting.plots import plot_metric_comparison
+from neuralls.platform.reporting.figure_text import training_legend
+from neuralls.platform.reporting.plots import plot_method_bars
 from neuralls.platform.tracking.artifact_access import (
     ArtifactLeaseManager,
     MlflowArtifactLeaseManager,
@@ -76,7 +74,7 @@ from neuralls.platform.tracking.mlflow_client import (
     log_batch_artifacts_to_mlflow,
 )
 from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
-from neuralls.platform.tracking.run_names import render_training_subject, run_name_text
+from neuralls.platform.tracking.run_names import render_training_label, run_name_text
 
 type MlflowClientFactory = Callable[..., MlflowClient]
 
@@ -88,9 +86,8 @@ EVAL_OUTPUT_DIR_NAME = "eval"
 class EvaluationRunResult:
     """Immutable result for one eval-only assignment run."""
 
-    label: str
     assignment_id: str
-    assignment_display_name: str
+    presentation: TrainingPresentation
     training_run_id: str
     evaluation_run_id: str | None
     metrics: dict[str, float]
@@ -128,8 +125,6 @@ class EvaluationAssignmentContext:
     training_run_id: str
     artifacts: TrainingEvaluationArtifacts
     config_paths: EvaluationConfigPaths
-    dataset_display_name: str | None
-    job_display_name: str | None
 
 
 @dataclass(frozen=True)
@@ -144,7 +139,6 @@ class PreparedEvaluation:
     split_file: Path
     split_artifact_path: str
     output_root: Path
-    label: str
 
 
 @dataclass(frozen=True)
@@ -161,26 +155,13 @@ def _sanitize_path_part(value: str) -> str:
     return sanitized or "assignment"
 
 
-def _resolve_display_metadata(
-    entry: AssignmentEntry,
-    cfg: CaseConfig,
-) -> tuple[str | None, str | None]:
-    dataset_entry = _find_registry_entry(cfg.datasets, entry.dataset_id)
-    job_entry = _find_registry_entry(cfg.jobs, entry.job_id)
-    dataset_display = (
-        dataset_entry.effective_display_name if dataset_entry is not None else entry.dataset_id
-    )
-    job_display = job_entry.effective_display_name if job_entry is not None else entry.job_id
-    return dataset_display, job_display
-
-
 def _make_label_map(
     results: Sequence[EvaluationRunResult],
 ) -> dict[str, dict[str, str | None]]:
     return {
-        result.label: {
+        result.assignment_id: {
             "assignment_id": result.assignment_id,
-            "assignment_display_name": result.assignment_display_name,
+            "assignment_label": render_training_label(result.presentation),
             "training_run_id": result.training_run_id,
             "evaluation_run_id": result.evaluation_run_id,
             "split_artifact_path": result.split_artifact_path,
@@ -327,14 +308,11 @@ def _build_eval_context(
         artifacts=artifacts,
         training_run_id=training_run_id,
     )
-    dataset_display_name, job_display_name = _resolve_display_metadata(assignment, cfg)
     return EvaluationAssignmentContext(
         client=client,
         training_run_id=training_run_id,
         artifacts=artifacts,
         config_paths=config_paths,
-        dataset_display_name=dataset_display_name,
-        job_display_name=job_display_name,
     )
 
 
@@ -356,11 +334,8 @@ def _materialize_inference_settings(
         case_config_path=case_config_path,
         identity=AssignmentIdentity(
             assignment_id=assignment.id,
-            assignment_display_name=assignment.effective_display_name,
             dataset_registry_id=assignment.dataset_id,
-            dataset_display_name=context.dataset_display_name,
             job_registry_id=assignment.job_id,
-            job_display_name=context.job_display_name,
         ),
     )
     job_settings = load_experiment_job(context.config_paths.staged_job_config_path, settings)
@@ -445,7 +420,6 @@ def prepare_evaluation_settings(
     output_root: Path,
     case_config_path: Path,
     tracking_uri: str,
-    label: str,
     artifact_leases: ArtifactLeaseManager,
     mlflow_client_factory: MlflowClientFactory = MlflowClient,
 ) -> PreparedEvaluation:
@@ -488,7 +462,6 @@ def prepare_evaluation_settings(
         split_file=context.artifacts.split_file,
         split_artifact_path=context.artifacts.split_artifact_path,
         output_root=output_root,
-        label=label,
     )
 
 
@@ -496,9 +469,7 @@ def to_eval_run_spec(prepared: PreparedEvaluation) -> RunSpec:
     """Build a dlkit multirun ``RunSpec`` for one already-prepared evaluation."""
     return RunSpec(
         id=prepared.assignment.id,
-        label=render_training_subject(
-            prepared.presentation.subject, prepared.presentation.notation
-        ),
+        label=render_training_label(prepared.presentation),
         settings=prepared.inference_settings,
         run_name=run_name_text(build_evaluation_run(prepared.presentation)),
     )
@@ -523,11 +494,8 @@ def _finalize_eval_child(
         split_artifact_path=prepared.split_artifact_path,
     )
     return EvaluationRunResult(
-        label=prepared.label,
         assignment_id=prepared.assignment.id,
-        assignment_display_name=render_training_subject(
-            prepared.presentation.subject, prepared.presentation.notation
-        ),
+        presentation=prepared.presentation,
         training_run_id=prepared.training_run_id,
         evaluation_run_id=result.mlflow_run_id,
         metrics=dict(result.metrics),
@@ -568,7 +536,7 @@ def _prepare_eval_run_specs(
     prepared_by_child_id: dict[str, PreparedEvaluation] = {}
     run_specs: list[RunSpec] = []
     any_failed = False
-    for index, assignment in enumerate(assignments, start=1):
+    for assignment in assignments:
         try:
             prepared = prepare_evaluation_settings(
                 cfg=cfg,
@@ -579,12 +547,11 @@ def _prepare_eval_run_specs(
                 output_root=output_root,
                 case_config_path=case_config_path,
                 tracking_uri=tracking_uri,
-                label=str(index),
                 artifact_leases=artifact_leases,
             )
         except Exception as exc:  # noqa: BLE001
             any_failed = True
-            logger.error("Eval assignment '{}' failed: {}", assignment.id, exc)
+            logger.error("{} failed: {}", render_training_label(presentations[assignment.id]), exc)
             continue
         prepared_by_child_id[assignment.id] = prepared
         run_specs.append(to_eval_run_spec(prepared))
@@ -623,8 +590,8 @@ def _run_prepared_eval_sweep(
             case ChildFailure():
                 any_failed = True
                 logger.error(
-                    "Eval assignment '{}' failed: {}",
-                    child_outcome.child_id,
+                    "{} failed: {}",
+                    render_training_label(prepared.presentation),
                     child_outcome.message,
                 )
     return sweep_result, results, any_failed
@@ -771,39 +738,34 @@ def write_eval_metric_report(
     Returns:
         True if a comparison plot was produced (metric present for >=1 result).
     """
-    labels: list[str] = []
+    plotted_ids: list[str] = []
     values: list[float] = []
     for result in batch.results:
         value = _metric_value(result.metrics, metric)
         if value is None:
             logger.warning(
-                "Metric '{}' missing for eval assignment '{}'.",
-                metric,
-                result.assignment_display_name,
+                "Metric '{}' missing for {}.", metric, render_training_label(result.presentation)
             )
             continue
-        labels.append(result.label)
+        plotted_ids.append(result.assignment_id)
         values.append(value)
 
     plot_name = f"batch_metric_{metric.replace('/', '_')}.png"
     with tempfile.TemporaryDirectory() as tmp:
         work_root = Path(tmp)
-        plotted = bool(labels)
+        plotted = bool(plotted_ids)
         if plotted:
-            legend = {
-                result.label: (
-                    f"{result.assignment_display_name} (run: {result.evaluation_run_id})"
-                    if result.evaluation_run_id
-                    else result.assignment_display_name
-                )
-                for result in batch.results
-                if result.label in labels
-            }
-            plot_metric_comparison(
-                labels=labels,
-                values=values,
+            plot_method_bars(
+                training_legend(
+                    {
+                        result.assignment_id: result.presentation
+                        for result in batch.results
+                        if result.assignment_id in plotted_ids
+                    }
+                ),
+                plotted_ids,
+                values,
                 metric_name=metric,
-                legend=legend,
                 save_path=work_root / plot_name,
             )
 

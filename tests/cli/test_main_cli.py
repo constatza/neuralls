@@ -25,10 +25,14 @@ from neuralls.composition.comparison.models import (
     ComparisonParams,
     ComparisonResult,
 )
+from neuralls.composition.generation.multi_generation import GenerationResult
+from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.presentation.run_names import NamedRun, TrainingPresentation
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
 from neuralls.domain.solver.models.recommendations import ComparisonRecommendations
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.shared.constants import EXIT_FAILURE
+from neuralls.shared.scientific_description.policy import NotationPolicy
 
 runner = CliRunner()
 
@@ -119,6 +123,7 @@ def test_generate_invokes_batch_workflow(
     mock_load_case_config: MagicMock,
     mock_generate_batch: MagicMock,
     tmp_path: Path,
+    dataset_presentation: DatasetPresentation,
 ) -> None:
     config = tmp_path / "case.toml"
     config.write_text("", encoding="utf-8")
@@ -127,7 +132,13 @@ def test_generate_invokes_batch_workflow(
     mock_load_settings.return_value = settings
     mock_load_case_config.return_value = (cfg, MagicMock())
     mock_generate_batch.return_value = [
-        MagicMock(dataset_id="residuals", output_dir=tmp_path / "out")
+        GenerationResult(
+            dataset_id="residuals",
+            config_path=tmp_path / "residuals.toml",
+            output_dir=tmp_path / "out",
+            dataset=dataset_presentation,
+            notation=NotationPolicy.default(),
+        )
     ]
 
     result = runner.invoke(app, ["generate", str(config)])
@@ -351,6 +362,7 @@ def test_run_invokes_batch_workflow(
     mock_load_settings: MagicMock,
     mock_run_case_pipeline: MagicMock,
     tmp_path: Path,
+    training_presentation: TrainingPresentation,
 ) -> None:
     config = tmp_path / "case.toml"
     config.write_text("", encoding="utf-8")
@@ -359,7 +371,7 @@ def test_run_invokes_batch_workflow(
     mock_run_case_pipeline.return_value = (
         [
             AssignmentResult(
-                assignment_id="exp-1", assignment_display_name="exp-1", status="Success"
+                assignment_id="exp-1", presentation=training_presentation, status="Success"
             )
         ],
         [],
@@ -435,6 +447,7 @@ def test_compare_invokes_batch_workflow(
     mock_load_settings: MagicMock,
     mock_run_comparison_batch: MagicMock,
     tmp_path: Path,
+    comparison_run: NamedRun,
 ) -> None:
     config = tmp_path / "case.toml"
     config.write_text(
@@ -447,7 +460,7 @@ def test_compare_invokes_batch_workflow(
     mock_run_comparison_batch.return_value = [
         ComparisonCompleted(
             comparison_id="solver",
-            comparison_display_name="solver",
+            run=comparison_run,
             payload=_comparison_payload(tmp_path),
         )
     ]

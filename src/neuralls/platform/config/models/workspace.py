@@ -20,18 +20,14 @@ class AssignmentSpec(BaseModel):
 
     Attributes:
         assignment_id: Stable assignment identifier.
-        assignment_display_name: Human-facing assignment label.
         job_config_path: Path to job config TOML.
         data_config_path: Path to data config TOML.
         checkpoint_path: Optional explicit checkpoint path.
     """
 
     assignment_id: str = Field(..., description="Stable assignment identifier")
-    assignment_display_name: str = Field(..., description="Human-facing assignment label")
     dataset_id: str | None = Field(default=None, description="Registry dataset identifier")
-    dataset_display_name: str | None = Field(default=None, description="Human-facing dataset label")
     job_id: str | None = Field(default=None, description="Registry job identifier")
-    job_display_name: str | None = Field(default=None, description="Human-facing job label")
     job_config_path: Path = Field(..., description="Path to job config")
     data_config_path: Path = Field(..., description="Path to data config")
     checkpoint_path: Path | None = Field(

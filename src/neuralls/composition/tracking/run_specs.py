@@ -340,6 +340,13 @@ def build_training_run_spec(
     )
 
 
+def comparison_run(
+    planned: PlannedSystem, title: ComparisonTitle, notation: NotationPolicy, stamp: RunStamp
+) -> NamedRun:
+    """The typed name of one planned system's comparison run."""
+    return NamedRun(ComparisonRunName(title, system_qualifier(planned, title), stamp), notation)
+
+
 def build_comparison_run_spec(
     *,
     entry: ComparisonRegistryEntry,
@@ -356,7 +363,7 @@ def build_comparison_run_spec(
     """
     ts = timestamp or iso_timestamp()
     stamp = RunTimestamp(ts) if include_timestamp else Untimed()
-    run = NamedRun(ComparisonRunName(title, system_qualifier(planned, title), stamp), notation)
+    run = comparison_run(planned, title, notation, stamp)
     method_label = entry.method.stem if entry.method is not None else entry.id
     tags = ComparisonRunTags(
         phase="comparison",

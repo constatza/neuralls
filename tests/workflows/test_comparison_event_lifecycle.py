@@ -18,6 +18,7 @@ from neuralls.composition.comparison.models import (
     ResolvedMethod,
 )
 from neuralls.domain.presentation.methods import ExecutedMethod
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models import (
     MeasuredPeakMemory,
     SetupCompleted,
@@ -37,6 +38,7 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
 )
 from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, SystemId
 from tests.presentation_support import PreparedMethodFactory
 
@@ -145,6 +147,7 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     """The executor must retain a failed setup without inventing solve attempts."""
     from neuralls.composition.comparison import comparison_run
@@ -162,6 +165,8 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
         workload = execute_method_workload(
             method,
             (one_system_bundle,),
+            datasets=group_datasets,
+            notation=NotationPolicy.default(),
             params=solver_params,
             settings=neuralls_settings,
             prepared=prepared_method(str(method.name)),
@@ -204,6 +209,7 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
     neuralls_settings: NeurallsSettings,
     preconditioner_type: PreconditionerType,
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     """Static and matrix-dependent methods both get fresh state per matrix."""
     from neuralls.composition.comparison import comparison_run
@@ -229,6 +235,8 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
     workload = comparison_run.execute_method_workload(
         method,
         two_matrix_bundles,
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
@@ -248,6 +256,7 @@ def test_repeat_samples_are_retained_but_totals_use_one_representative(
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     from neuralls.composition.comparison import comparison_run
 
@@ -263,6 +272,8 @@ def test_repeat_samples_are_retained_but_totals_use_one_representative(
     workload = comparison_run.execute_method_workload(
         method,
         two_matrix_bundles,
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
@@ -303,6 +314,7 @@ def test_io_reference_and_reporting_stay_outside_online_timers(
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     """Only preparation/binding and the solver occupy online timer regions."""
     from neuralls.composition.comparison import comparison_run
@@ -356,6 +368,8 @@ def test_io_reference_and_reporting_stay_outside_online_timers(
     comparison_run.execute_method_workload(
         method,
         (one_system_bundle,),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
@@ -380,6 +394,7 @@ def test_solver_failure_retains_measured_attempt(
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     from neuralls.composition.comparison import comparison_run
     from neuralls.domain.solver import comparison as solver_comparison
@@ -398,6 +413,8 @@ def test_solver_failure_retains_measured_attempt(
         workload = comparison_run.execute_method_workload(
             method,
             (one_system_bundle,),
+            datasets=group_datasets,
+            notation=NotationPolicy.default(),
             params=solver_params,
             settings=neuralls_settings,
             prepared=prepared_method(str(method.name)),

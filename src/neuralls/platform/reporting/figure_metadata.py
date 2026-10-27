@@ -66,7 +66,7 @@ class FigureMetadata:
     scenario: TimingScenario | None
     report_level: str
     scope: FigureScope
-    datasets: tuple[str, ...]
+    dataset_ids: tuple[str, ...]
     recipes: tuple[str, ...]
     n_matrices: int
     n_planned_rhs: int
@@ -137,14 +137,16 @@ class FigureManifest:
         for filename in sorted(self.entries):
             metadata = self.entries[filename]
             reference = metadata.reference_selection
+            reference_method_id: str | None = None
             if isinstance(reference, ReferenceSelectionKind):
                 reference_name = reference.value
             elif isinstance(reference, ConfiguredReference):
-                reference_name = f"configured:{reference.name}"
+                reference_name = ReferenceSelectionKind.CONFIGURED.value
+                reference_method_id = str(reference.name)
             elif isinstance(reference, NoReferenceConfigured):
-                reference_name = "none"
+                reference_name = ReferenceSelectionKind.NONE.value
             elif isinstance(reference, ReferenceUnavailable):
-                reference_name = "unavailable"
+                reference_name = ReferenceSelectionKind.UNAVAILABLE.value
             else:
                 raise TypeError(f"unsupported reference selection: {reference!r}")
             entry: dict[str, object] = {
@@ -155,7 +157,7 @@ class FigureManifest:
                     **encode_figure_scope(metadata.scope),
                     "display": render_figure_scope(metadata.scope, MANIFEST_PROFILE, plain).text,
                 },
-                "datasets": list(metadata.datasets),
+                "dataset_ids": list(metadata.dataset_ids),
                 "recipes": list(metadata.recipes),
                 "n_matrices": metadata.n_matrices,
                 "n_planned_rhs": metadata.n_planned_rhs,
@@ -168,6 +170,8 @@ class FigureManifest:
                 "solver_contexts": [asdict(context) for context in metadata.solver_contexts],
                 "sources": list(metadata.sources),
             }
+            if reference_method_id is not None:
+                entry["reference_method_id"] = reference_method_id
             if metadata.reference_reason is not None:
                 entry["reference_reason"] = metadata.reference_reason
             if metadata.scenario is not None:
@@ -182,7 +186,7 @@ REQUIRED_MANIFEST_ENTRY_FIELDS: frozenset[str] = frozenset(
         "metric_definition",
         "report_level",
         "scope",
-        "datasets",
+        "dataset_ids",
         "recipes",
         "n_matrices",
         "n_planned_rhs",

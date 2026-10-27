@@ -34,12 +34,15 @@ from neuralls.domain.presentation.provenance import (
     StrategyProvenance,
 )
 from neuralls.domain.presentation.run_names import (
+    ComparisonRunName,
     MethodRunName,
     NamedRun,
+    SystemQualifier,
     TrackedRun,
     TrainingPresentation,
+    Untimed,
 )
-from neuralls.domain.presentation.titles import ComparisonScopePresentation
+from neuralls.domain.presentation.titles import ComparisonScopePresentation, EditorialPresentation
 from neuralls.domain.solver.models.figure_scope import AllDatasetsScope
 from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.settings import NeurallsSettings
@@ -686,6 +689,32 @@ def training_presentation(dataset_presentation: DatasetPresentation) -> Training
         DatasetQualifiedMethodPresentation(ScientificDescription("POD-2G"), dataset_presentation),
         NotationPolicy.default(),
     )
+
+
+@pytest.fixture
+def comparison_run() -> NamedRun:
+    """The typed name of a comparison run, for outcomes that only need some run."""
+    return NamedRun(
+        ComparisonRunName(EditorialPresentation("Test comparison"), SystemQualifier(()), Untimed()),
+        NotationPolicy.default(),
+    )
+
+
+@pytest.fixture
+def training_presentation_of(
+    dataset_presentation: DatasetPresentation,
+) -> Callable[[str], TrainingPresentation]:
+    """Build the training presentation of a model with the given method name."""
+
+    def build(method_name: str) -> TrainingPresentation:
+        return TrainingPresentation(
+            DatasetQualifiedMethodPresentation(
+                ScientificDescription(method_name), dataset_presentation
+            ),
+            NotationPolicy.default(),
+        )
+
+    return build
 
 
 @pytest.fixture

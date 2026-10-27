@@ -26,6 +26,10 @@ from torchalg.preconditioners.implementations import (
     Identity,
 )
 
+from neuralls.domain.presentation.methods import (
+    MissingMethodPresentationError,
+    StandaloneMethodPresentation,
+)
 from neuralls.domain.solver.comparison import run_cg_comparison
 from neuralls.domain.solver.comparison_summary import (
     format_results_summary,
@@ -33,6 +37,8 @@ from neuralls.domain.solver.comparison_summary import (
 )
 from neuralls.domain.solver.error_metrics import relative_exact_error
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.shared.scientific_description.models import ScientificDescription
+from neuralls.shared.scientific_description.policy import NotationPolicy
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -302,34 +308,57 @@ def test_relative_exact_error_zero_exact_norm_returns_absolute_diff(
 # ==============================================================================
 
 
-def test_format_results_summary(mock_comparison_results: dict[str, CGComparisonResult]) -> None:
-    """Test that format_results_summary produces correct output format."""
-    summary = format_results_summary(mock_comparison_results)
+@pytest.fixture
+def result_methods() -> dict[str, StandaloneMethodPresentation]:
+    """The scientific description of each mock result's method."""
+    return {
+        "jacobi": StandaloneMethodPresentation(ScientificDescription("Jacobi")),
+        "identity": StandaloneMethodPresentation(ScientificDescription("Identity")),
+        "failed": StandaloneMethodPresentation(ScientificDescription("Broken preconditioner")),
+    }
 
-    # Verify header present
+
+def test_format_results_summary(
+    mock_comparison_results: dict[str, CGComparisonResult],
+    result_methods: dict[str, StandaloneMethodPresentation],
+) -> None:
+    """Each summary line is headed by the method's description, never its id."""
+    summary = format_results_summary(
+        mock_comparison_results, result_methods, NotationPolicy.default()
+    )
+
     assert "CG comparison results:" in summary
 
-    # Verify all preconditioners listed
-    assert "jacobi" in summary
-    assert "identity" in summary
-    assert "failed" in summary
+    assert "- Jacobi" in summary
+    assert "- Identity" in summary
+    assert "- Broken preconditioner" in summary
+    assert "jacobi" not in summary
 
-    # Verify status codes
     assert "status=ok" in summary  # For converged results
     assert "status=fail" in summary  # For failed result
 
-    # Verify breakdown note
     assert "breakdown" in summary
+
+
+def test_format_results_summary_rejects_a_result_without_a_description(
+    mock_comparison_results: dict[str, CGComparisonResult],
+    result_methods: dict[str, StandaloneMethodPresentation],
+) -> None:
+    del result_methods["identity"]
+
+    with pytest.raises(MissingMethodPresentationError):
+        format_results_summary(mock_comparison_results, result_methods, NotationPolicy.default())
 
 
 def test_format_results_summary_converged_case(
     mock_comparison_results: dict[str, CGComparisonResult],
+    result_methods: dict[str, StandaloneMethodPresentation],
 ) -> None:
     """Test format_results_summary with converged results."""
     # Keep only converged results
     converged_results = {k: v for k, v in mock_comparison_results.items() if v.converged}
 
-    summary = format_results_summary(converged_results)
+    summary = format_results_summary(converged_results, result_methods, NotationPolicy.default())
 
     # Should only have "ok" status
     assert "status=ok" in summary
@@ -338,12 +367,13 @@ def test_format_results_summary_converged_case(
 
 def test_format_results_summary_non_converged_case(
     mock_comparison_results: dict[str, CGComparisonResult],
+    result_methods: dict[str, StandaloneMethodPresentation],
 ) -> None:
     """Test format_results_summary with non-converged results."""
     # Keep only non-converged results
     non_converged = {k: v for k, v in mock_comparison_results.items() if not v.converged}
 
-    summary = format_results_summary(non_converged)
+    summary = format_results_summary(non_converged, result_methods, NotationPolicy.default())
 
     # Should only have "fail" status
     assert "status=fail" in summary
@@ -366,13 +396,13 @@ def test_summarize_best_combinations(
     assert len(ranked) == 2  # Only jacobi and identity converged
 
     # Equal (zero) cost, so iterations break the tie: jacobi 10 < identity 20
-    assert ranked[0].label == "jacobi"
-    assert ranked[1].label == "identity"
+    assert ranked[0].method_id == "jacobi"
+    assert ranked[1].method_id == "identity"
 
     # Verify overall_best
     best = summary.overall_best
     assert best is not None
-    assert best.label == "jacobi"
+    assert best.method_id == "jacobi"
     assert best.residual == 1e-8
 
 
@@ -427,7 +457,7 @@ def test_summarize_best_combinations_single_converged() -> None:
 
     # Verify single entry
     assert len(summary.ranked) == 1
-    assert summary.overall_best.label == "jacobi"
+    assert summary.overall_best.method_id == "jacobi"
 
 
 def test_summarize_best_combinations_ranks_by_time_not_final_residual(
@@ -445,6 +475,6 @@ def test_summarize_best_combinations_ranks_by_time_not_final_residual(
 
     summary = summarize_best_combinations({"jacobi": slow_but_precise, "identity": fast_but_looser})
 
-    assert [entry.label for entry in summary.ranked] == ["identity", "jacobi"]
+    assert [entry.method_id for entry in summary.ranked] == ["identity", "jacobi"]
     assert summary.overall_best is not None
     assert summary.overall_best.solve_time_seconds == pytest.approx(1.0)

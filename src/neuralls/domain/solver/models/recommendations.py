@@ -10,7 +10,7 @@ class RankedRecommendation:
     """A single ranked entry from a solver comparison.
 
     Args:
-        label: Preconditioner/solver label.
+        method_id: Id of the ranked method; its description comes from its presentation.
         iterations: Iterations to converge.
         residual: Final relative residual.
         residual_abs: Final absolute residual.
@@ -19,7 +19,7 @@ class RankedRecommendation:
             `None` ranks after every measured solve.
     """
 
-    label: str
+    method_id: str
     iterations: int
     residual: float
     residual_abs: float

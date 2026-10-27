@@ -10,6 +10,7 @@ from neuralls.cli.error_messages import format_cli_error
 from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ProfileOption
 from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.composition.config import load_case_settings, load_raw_toml
+from neuralls.composition.display import generation_label
 from neuralls.composition.generation.multi_generation import generate_batch
 from neuralls.shared.constants import EXIT_FAILURE
 
@@ -56,4 +57,4 @@ def generate_case(
         raise typer.Exit(code=EXIT_FAILURE) from exc
 
     for result in results:
-        typer.echo(f"[{result.dataset_id}] -> {result.output_dir}")
+        typer.echo(f"{generation_label(result)} -> {result.output_dir}")

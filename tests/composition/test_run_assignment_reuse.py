@@ -22,16 +22,10 @@ from neuralls.platform.config.models.workspace import AssignmentSpec
 from neuralls.shared.digest import canonical_digest
 
 
-def _spec(
-    tmp_path: Path,
-    *,
-    assignment_id: str = "exp-1",
-    assignment_display_name: str = "Assignment 1",
-) -> AssignmentSpec:
+def _spec(tmp_path: Path, *, assignment_id: str = "exp-1") -> AssignmentSpec:
     """Minimal assignment spec naming the job/data configs run_assignment reads."""
     return AssignmentSpec(
         assignment_id=assignment_id,
-        assignment_display_name=assignment_display_name,
         job_config_path=tmp_path / "job.toml",
         data_config_path=tmp_path / "data.toml",
     )
@@ -198,11 +192,7 @@ def test_run_assignment_fails_cleanly_when_dataset_was_never_generated(
 
         result = training_batch.run_assignment(
             settings=MagicMock(),
-            spec=_spec(
-                tmp_path,
-                assignment_id="exp-1",
-                assignment_display_name="Assignment 1",
-            ),
+            spec=_spec(tmp_path, assignment_id="exp-1"),
             output_root=tmp_path,
             force=False,
             presentation=training_presentation,

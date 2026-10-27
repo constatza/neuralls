@@ -9,6 +9,7 @@ from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ProfileOptio
 from neuralls.composition.assignments.case_pipeline import run_case_pipeline
 from neuralls.composition.comparison.models import ComparisonEntryFailed
 from neuralls.composition.config import load_case_settings
+from neuralls.composition.display import assignment_label, comparison_label
 from neuralls.shared.constants import EXIT_FAILURE
 
 
@@ -77,17 +78,14 @@ def run_case_pipeline_command(
     for result in results:
         status = "SUCCESS" if result.is_success else "FAILED"
         detail = f" ({result.error})" if result.error else ""
-        label = result.assignment_display_name
-        if label != result.assignment_id:
-            label = f"{label} [{result.assignment_id}]"
-        typer.echo(f"  {status} {label}{detail}")
+        typer.echo(f"  {status} {assignment_label(result)}{detail}")
 
     if comparison_outcomes:
         typer.echo(f"Completed {len(comparison_outcomes)} comparisons:")
         for outcome in comparison_outcomes:
             status = "FAILED" if isinstance(outcome, ComparisonEntryFailed) else "SUCCESS"
             detail = f" ({outcome.reason})" if isinstance(outcome, ComparisonEntryFailed) else ""
-            typer.echo(f"  {status} {outcome.comparison_display_name}{detail}")
+            typer.echo(f"  {status} {comparison_label(outcome.run)}{detail}")
 
     failures = [result for result in results if not result.is_success]
     failed_comparisons = [

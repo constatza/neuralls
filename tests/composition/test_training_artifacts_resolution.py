@@ -70,21 +70,15 @@ def registry_identity() -> AssignmentIdentity:
     """Fully registry-backed identity (assignment + dataset + job ids all set)."""
     return AssignmentIdentity(
         assignment_id="exp-1",
-        assignment_display_name="Experiment One",
         dataset_registry_id="dataset-1",
-        dataset_display_name="Dataset One",
         job_registry_id="job-1",
-        job_display_name="Job One",
     )
 
 
 @pytest.fixture
 def adhoc_identity() -> AssignmentIdentity:
     """Ad-hoc identity with no registry ids — the non-structured naming path."""
-    return AssignmentIdentity(
-        assignment_display_name="Ad Hoc Run",
-        dataset_display_name="Dataset One",
-    )
+    return AssignmentIdentity()
 
 
 @pytest.fixture
@@ -124,7 +118,6 @@ def finalization_context(
                 assignment_id="exp-1",
                 dataset_id="dataset-1",
                 job_id="job-1",
-                job_display_name="Job One",
             )
         ),
         assignment_id="exp-1",

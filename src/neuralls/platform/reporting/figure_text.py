@@ -21,10 +21,13 @@ from neuralls.domain.presentation.methods import (
     MissingMethodPresentationError,
 )
 from neuralls.domain.presentation.render import render_distinct_methods, render_title
+from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.domain.presentation.titles import ComparisonTitle
 from neuralls.domain.solver.models.figure_scope import FigureScope, render_figure_scope
+from neuralls.platform.tracking.run_names import render_training_label
 from neuralls.shared.scientific_description.policy import (
     LEGEND_PROFILE,
+    LOG_PROFILE,
     NotationPolicy,
     RenderProfile,
     RenderTarget,
@@ -43,8 +46,10 @@ __all__ = [
     "ScopeSubtitle",
     "draw_legend",
     "method_legend",
+    "scope_label",
     "series_legend",
     "title_text",
+    "training_legend",
     "wrap_at_boundaries",
 ]
 
@@ -199,6 +204,18 @@ def series_legend(texts: Mapping[str, str]) -> Legend:
     return Legend(
         {name: LegendEntry(text, ConvergenceStatus.CONVERGED) for name, text in texts.items()}
     )
+
+
+def training_legend(presentations: Mapping[str, TrainingPresentation]) -> Legend:
+    """Render what each assignment trains; the keys are the machine ids that order the bars."""
+    return series_legend(
+        {key: render_training_label(presentation) for key, presentation in presentations.items()}
+    )
+
+
+def scope_label(scope: FigureScope, notation: NotationPolicy) -> str:
+    """The scope as one plain line, for logs and summaries."""
+    return render_figure_scope(scope, LOG_PROFILE, _plain(notation)).text
 
 
 def draw_legend(

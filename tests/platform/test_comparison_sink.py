@@ -298,7 +298,7 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
     online = next(plan for plan in plans if plan.filename.startswith("online_time"))
     solve = next(plan for plan in plans if plan.filename.startswith("solve_time"))
 
-    assert online.metadata.datasets == ("first", "second")
+    assert online.metadata.dataset_ids == ("first", "second")
     assert online.metadata.recipes == ("a", "b")
     assert online.metadata.recipe_counts == (1, 3)
     assert online.metadata.recipe_weights == (0.25, 0.75)
@@ -394,7 +394,7 @@ def test_session_manifest_registers_uniquely_owned_method_figures(
     }
     metadata = sink.manifest.entries["residual_history_network_a.png"]
     assert metadata.scope == MethodScope(prepared.detailed)
-    assert metadata.datasets == ("ds",)
+    assert metadata.dataset_ids == ("ds",)
     assert metadata.recipes == ("gaussian",)
     assert metadata.solver_contexts == (context,)
     assert metadata.sources == (

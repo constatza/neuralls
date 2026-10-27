@@ -61,6 +61,7 @@ from neuralls.composition.comparison.models import (
     MatrixWorkloadMember,
     PlannedSystem,
     ResolvedMethod,
+    UndescribedComparison,
     canonical_method_config,
     is_comparison_outcome,
 )
@@ -84,6 +85,7 @@ from neuralls.composition.tracking.run_specs import (
     build_child_comparison_tags,
     build_comparison_run_spec,
     build_session_run_spec,
+    comparison_run,
 )
 from neuralls.domain.benchmarking.selection import (
     NoReferenceConfigured,
@@ -94,7 +96,7 @@ from neuralls.domain.benchmarking.selection import (
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import PreparedComparisonPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation
-from neuralls.domain.presentation.run_names import NamedRun, TrackedRun
+from neuralls.domain.presentation.run_names import NamedRun, TrackedRun, Untimed
 from neuralls.domain.presentation.titles import (
     ComparisonScopePresentation,
     ComparisonTitle,
@@ -666,7 +668,6 @@ def _run_comparison_with_resolved_specs(
         general_params=cfg.general,
         preconditioner_configs=resolved_specs,
         output_root=work_root,
-        display_name=entry.effective_display_name,
         resolved_input=resolved_input,
         settings=settings,
         cache=cache,
@@ -795,7 +796,7 @@ def _execute_comparison_in_run(
 
     return ComparisonCompleted(
         comparison_id=entry.id,
-        comparison_display_name=entry.effective_display_name,
+        run=run,
         payload=raw_result,
         warnings=prepared.resolved.warnings,
     )
@@ -820,16 +821,19 @@ def _resolve_comparison_specs(
     return resolved
 
 
-def _comparison_failure_outcome(
-    entry: ComparisonRegistryEntry, exc: Exception
-) -> ComparisonOutcome:
-    """Shared 'resolve or execute raised' outcome — used by both prepare and execute."""
-    logger.error("Comparison '{}' failed: {}", entry.id, exc)
+def _undescribed_failure(entry: ComparisonRegistryEntry, exc: Exception) -> ComparisonOutcome:
+    """The outcome of a comparison that failed before its methods and dataset were resolved."""
+    logger.error("A comparison failed before it could be described: {}", exc)
     return ComparisonEntryFailed(
-        comparison_id=entry.id,
-        comparison_display_name=entry.effective_display_name,
-        reason=str(exc),
+        comparison_id=entry.id, run=UndescribedComparison(), reason=str(exc)
     )
+
+
+def _described_failure(prepared: PreparedComparisonExecution, exc: Exception) -> ComparisonOutcome:
+    """The outcome of a described comparison whose execution raised."""
+    run = prepared.run_name
+    logger.error("{} failed: {}", run_name_text(run), exc)
+    return ComparisonEntryFailed(comparison_id=prepared.entry.id, run=run, reason=str(exc))
 
 
 @dataclass(frozen=True, slots=True)
@@ -878,6 +882,11 @@ class PreparedComparisonExecution:
     def entry(self) -> ComparisonRegistryEntry:
         """The planned system's concrete registry entry."""
         return self.planned.entry
+
+    @property
+    def run_name(self) -> NamedRun:
+        """The typed name of this system's comparison run, as MLflow names it."""
+        return comparison_run(self.planned, self.title, self.cfg.notation_policy, Untimed())
 
     @property
     def comparison_presentation(self) -> ComparisonPresentation:
@@ -985,7 +994,7 @@ def _prepare_comparison_entry(
     try:
         _validate_comparison_sources(cfg)
     except (FileNotFoundError, ValueError) as exc:
-        return _comparison_failure_outcome(entry, exc)
+        return _undescribed_failure(entry, exc)
     logger.info("Comparison '{}': input-source validation complete.", entry.id)
     configured_reference = cfg.general.reference_preconditioner
     if not isinstance(configured_reference, str):
@@ -1005,7 +1014,7 @@ def _prepare_comparison_entry(
         try:
             resolved = _resolve_comparison_specs(cfg, context, artifact_leases)
         except (ValueError, RuntimeError, KeyError, IndexError) as exc:
-            return _comparison_failure_outcome(entry, exc)
+            return _undescribed_failure(entry, exc)
         logger.info(
             "Comparison '{}': resolved {} preconditioners with {} warnings.",
             entry.id,
@@ -1031,14 +1040,13 @@ def _prepare_comparison_entry(
         scope = _matrix_scope(planned, context)
         presentation = prepare_comparison_presentation(resolved.specs, scope)
         title = compose_comparison_title(entry.display_name, scope.dataset)
+        run = comparison_run(planned, title, cfg.notation_policy, Untimed())
+        label = run_name_text(run)
 
-        logger.info(
-            "Comparison '{}': building comparison identity, including matrix/dataset content.",
-            entry.id,
-        )
+        logger.info("{}: building comparison identity, including matrix/dataset content.", label)
         identity = comparison_identity(cfg, resolved.specs, resolved.checkpoint_digests)
-        logger.info("Comparison '{}': built identity {}.", entry.id, identity.key)
-        logger.info("Comparison '{}': checking MLflow for a reusable run.", entry.id)
+        logger.info("{}: built identity {}.", label, identity.key)
+        logger.info("{}: checking MLflow for a reusable run.", label)
         if context.reuse_comparisons:
             reused = gate_reuse(
                 MlflowIdentityStore(
@@ -1047,25 +1055,21 @@ def _prepare_comparison_entry(
                 ),
                 identity,
                 force=force,
-                label=entry.id,
+                label=label,
             )
             if reused is not None:
                 logger.info(
-                    "Comparison '{}': reuse lookup selected run {}.",
-                    entry.id,
+                    "{}: reuse lookup selected run {}.",
+                    label,
                     reused.run_id,
                 )
                 return ComparisonReused(
                     comparison_id=entry.id,
-                    comparison_display_name=entry.effective_display_name,
+                    run=run,
                 )
-            logger.info(
-                "Comparison '{}': no reusable run selected; execution is required.", entry.id
-            )
+            logger.info("{}: no reusable run selected; execution is required.", label)
         else:
-            logger.info(
-                "Comparison '{}': per-system reuse is disabled for batch execution.", entry.id
-            )
+            logger.info("{}: per-system reuse is disabled for batch execution.", label)
 
         # Needs real execution: detach the lease manager's cleanup from this
         # function's scope-exit and hand it to the caller instead.
@@ -1105,7 +1109,7 @@ def _execute_prepared_comparison(
         )
         return _execute_comparison_in_run(prepared, run=run, comp_tags=comp_tags, cache=cache)
     except (ValueError, RuntimeError, KeyError, IndexError) as exc:
-        return _comparison_failure_outcome(prepared.entry, exc)
+        return _described_failure(prepared, exc)
 
 
 def _run_comparison_from_config(
@@ -1216,7 +1220,6 @@ def prepare_comparison_batch(
     planned_systems = plan_comparisons(master_cfg, config_dir, settings)
     for planned in planned_systems:
         entry = planned.entry
-        logger.info(f"Comparison [{entry.id}]: {entry.effective_display_name}")
         assignment_entries: list[AssignmentEntry] = (
             [e for e in master_cfg.assignments if e.id in entry.assignments]
             if entry.assignments
@@ -1416,9 +1419,7 @@ def _outcomes_from_workloads(
         results = diagnostics.get(item.entry.id, {})
         if not results:
             outcomes.append(
-                _comparison_failure_outcome(
-                    item.entry, RuntimeError("method workload produced no diagnostics")
-                )
+                _described_failure(item, RuntimeError("method workload produced no diagnostics"))
             )
             continue
         try:
@@ -1450,12 +1451,12 @@ def _outcomes_from_workloads(
                     presentation=item.comparison_presentation,
                 )
         except (ValueError, RuntimeError, KeyError, IndexError) as exc:
-            outcomes.append(_comparison_failure_outcome(item.entry, exc))
+            outcomes.append(_described_failure(item, exc))
             continue
         outcomes.append(
             ComparisonCompleted(
                 comparison_id=item.entry.id,
-                comparison_display_name=item.entry.effective_display_name,
+                run=item.run_name,
                 warnings=item.resolved.warnings,
                 payload=result,
             )
@@ -1596,6 +1597,12 @@ def _execute_method_run(
                     recorded_exception_ids=recorded_exception_ids,
                 ),
                 prepared=prepared_method,
+                datasets={
+                    dataset: first_of_dataset.presentation.scope.dataset
+                    for (dataset, _), systems in matrices
+                    for first_of_dataset in systems[:1]
+                },
+                notation=first.cfg.notation_policy,
                 params=first.cfg.general.params,
                 settings=first.settings,
             )
@@ -1762,7 +1769,7 @@ def run_comparison_batch(
                 if is_comparison_outcome(item)
                 else ComparisonReused(
                     comparison_id=item.entry.id,
-                    comparison_display_name=item.entry.effective_display_name,
+                    run=item.run_name,
                 )
                 for item in pending
             ]
@@ -1828,6 +1835,7 @@ def run_comparison_batch(
                     workloads,
                     report_sink,
                     datasets=_batch_dataset_presentations(pending),
+                    notation=notation,
                     reference_selection=selection,
                     contexts_by_system=contexts_by_system,
                 )

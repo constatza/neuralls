@@ -14,6 +14,7 @@ from neuralls.domain.presentation.methods import (
     PreparedComparisonPresentation,
     PreparedMethodPresentation,
 )
+from neuralls.domain.presentation.run_names import NamedRun
 from neuralls.domain.presentation.titles import ComparisonTitle
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
@@ -34,7 +35,6 @@ from neuralls.platform.config.models.comparison import RHS_SOURCE_MODEL_BY_KIND
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
-from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.storage.manifest import DatasetNormalization
 from neuralls.shared.digest import Digest, Json, canonical
 from neuralls.shared.scientific_description.policy import NotationPolicy
@@ -56,7 +56,6 @@ __all__ = [
     "ComparisonPresentation",
     "ComparisonResult",
     "ComparisonReused",
-    "ComparisonSpec",
     "CompletedMethodWorkload",
     "LinearSystem",
     "MatrixRef",
@@ -66,6 +65,7 @@ __all__ = [
     "PreconditionerComparisonEntry",
     "ResolvedComparisonInput",
     "ResolvedMethod",
+    "UndescribedComparison",
     "canonical_method_config",
     "is_comparison_outcome",
 ]
@@ -181,40 +181,6 @@ class CompletedMethodWorkload:
                 raise ValueError(
                     f"realization of system {system.system_id!r} which this workload did not plan"
                 )
-
-
-@dataclass(frozen=True)
-class ComparisonSpec:
-    """Inputs needed to run a single comparison.
-
-    Bundles all paths and resolved artifacts required by the comparison
-    orchestrator. Immutable — constructed once by the batch runner.
-
-    Args:
-        comparison_id: Stable identifier for this comparison.
-        comparison_display_name: Human-readable label.
-        model_config: Path to model configuration TOML.
-        data_config: Path to data configuration TOML.
-        comparison_config: Path to comparison configuration TOML.
-        workspace: Resolved assignment workspace.
-        checkpoint: Path to model checkpoint.
-        matrix_override: Optional matrix file override.
-        rhs_override: Optional rhs file override.
-        figures_dir: Optional figures directory override.
-        output_dir: Optional output directory override.
-    """
-
-    comparison_id: str
-    comparison_display_name: str
-    model_config: Path
-    data_config: Path
-    comparison_config: Path
-    workspace: AssignmentWorkspace
-    checkpoint: Path
-    matrix_override: Path | None = None
-    rhs_override: Path | None = None
-    figures_dir: Path | None = None
-    output_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -370,11 +336,23 @@ class PlannedSystem:
 
 
 @dataclass(frozen=True, slots=True)
+class UndescribedComparison:
+    """A comparison that failed before its dataset and methods were resolved.
+
+    Nothing scientific is known yet, so it has no title; the failure reason says why.
+    """
+
+
+@dataclass(frozen=True, slots=True)
 class ComparisonCompleted:
-    """A comparison that executed and produced a new result."""
+    """A comparison that executed and produced a new result.
+
+    ``run`` is the typed name of its MLflow run; the CLI and the logs render it, so
+    they show the text MLflow shows.
+    """
 
     comparison_id: str
-    comparison_display_name: str
+    run: NamedRun
     payload: ComparisonResult
     warnings: tuple[str, ...] = ()
 
@@ -384,7 +362,7 @@ class ComparisonReused:
     """A comparison satisfied by an already-complete reusable run."""
 
     comparison_id: str
-    comparison_display_name: str
+    run: NamedRun
     warnings: tuple[str, ...] = ()
 
 
@@ -393,7 +371,7 @@ class ComparisonEntryFailed:
     """One comparison entry that failed without blocking sibling entries."""
 
     comparison_id: str
-    comparison_display_name: str
+    run: NamedRun | UndescribedComparison
     reason: str
     warnings: tuple[str, ...] = ()
 

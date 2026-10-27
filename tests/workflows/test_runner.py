@@ -36,7 +36,6 @@ def _fake_prepared_training(
     """
     spec = SimpleNamespace(
         assignment_id=assignment_id,
-        assignment_display_name=assignment_id,
         data_config_path=tmp_path / f"{assignment_id}-dataset.toml",
     )
     return PreparedTraining(

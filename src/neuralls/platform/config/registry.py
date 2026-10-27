@@ -25,9 +25,6 @@ class ResolvedAssignmentBinding:
     data_config_path: Path
     job_config_path: Path
     checkpoint_path: Path | None = None
-    assignment_display_name: str = ""
-    dataset_display_name: str = ""
-    job_display_name: str = ""
     architecture: ValidatedLabel | None = None
     """The job's explicit neural architecture name; never derived from its training title."""
 
@@ -108,7 +105,7 @@ def resolve_assignment_binding(
     entry: AssignmentEntry,
 ) -> ResolvedAssignmentBinding:
     """Resolve a single assignment entry into concrete config paths."""
-    dataset_entry = _require_registry_entry(
+    _require_registry_entry(
         cfg.datasets,
         registry_id=entry.dataset_id,
         registry_section="datasets",
@@ -143,9 +140,6 @@ def resolve_assignment_binding(
             if entry.checkpoint_path is not None
             else None
         ),
-        assignment_display_name=entry.effective_display_name,
-        dataset_display_name=dataset_entry.effective_display_name,
-        job_display_name=job_entry.effective_display_name,
         architecture=job_entry.architecture_label,
     )
 

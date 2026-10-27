@@ -20,6 +20,7 @@ from neuralls.composition.comparison.models import (
     ComparisonReused,
 )
 from neuralls.composition.config import load_case_settings
+from neuralls.composition.display import comparison_label
 from neuralls.shared.constants import EXIT_FAILURE, SYMBOL_CHECKMARK
 
 os.environ.setdefault("MPLBACKEND", "Agg")
@@ -44,7 +45,7 @@ def _log_outcomes(outcomes: list[ComparisonOutcome]) -> None:
 
     for outcome in outcomes:
         logger.info("=" * 80)
-        logger.info(f"Comparison: {outcome.comparison_display_name}")
+        logger.info(comparison_label(outcome.run))
         logger.info("=" * 80)
         for warning in outcome.warnings:
             logger.warning(warning)
@@ -67,7 +68,7 @@ def _log_outcomes(outcomes: list[ComparisonOutcome]) -> None:
     logger.info(f"Failed: {len(failed)}")
     if failed:
         for item in failed:
-            logger.error(f"  x {item.comparison_id}: {item.reason}")
+            logger.error(f"  x {comparison_label(item.run)}: {item.reason}")
         raise typer.Exit(code=EXIT_FAILURE)
     if partial:
         logger.warning(

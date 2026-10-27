@@ -94,7 +94,7 @@ def test_group_reporting_reduces_completed_workload_events(
     )
     sink = RecordingSink()
 
-    report_all_levels((workload,), sink, datasets=group_datasets)
+    report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
 
     assert [outcome.n_planned_rhs for outcome in sink.outcomes] == [1, 1, 1]
 
@@ -141,7 +141,7 @@ def test_group_reporting_propagates_method_plot_styles(
             self.presentations.append(presentation)
 
     sink = PresentationSink()
-    report_all_levels((workload,), sink, datasets=group_datasets)
+    report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
 
     assert sink.presentations[0].plot_styles[str(method)] == style
 
@@ -200,7 +200,7 @@ def test_mixture_presentations_keep_only_the_short_scope(
             self.presentations.append(presentation)
 
     sink = PresentationSink()
-    report_all_levels((workload,), sink, datasets=group_datasets)
+    report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
 
     assert [presentation.scope for presentation in sink.presentations] == [
         RecipeScope(group_datasets[DatasetId("ds")], "gaussian"),
@@ -250,7 +250,11 @@ def test_group_reporting_propagates_actual_solver_timing_context(
 
     sink = PresentationSink()
     report_all_levels(
-        (workload,), sink, datasets=group_datasets, contexts_by_system={tag.system_id: context}
+        (workload,),
+        sink,
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+        contexts_by_system={tag.system_id: context},
     )
 
     assert [presentation.solver_contexts for presentation in sink.presentations] == [
@@ -299,7 +303,12 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
             self.presentations.append(presentation)
 
     sink = PresentationSink()
-    report_all_levels(tuple(workload(config) for config in configs), sink, datasets=group_datasets)
+    report_all_levels(
+        tuple(workload(config) for config in configs),
+        sink,
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+    )
 
     legend = method_legend(
         {name: method.compact for name, method in sink.presentations[0].methods.items()},

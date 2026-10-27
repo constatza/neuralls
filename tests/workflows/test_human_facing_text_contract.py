@@ -66,6 +66,8 @@ PATH_AS_NAME = "path-as-name"
 CLASS_NAME = "class-name"
 ID_INTERPOLATION = "id-interpolation"
 RUN_NAME_TEXT = "run-name-text"
+LOG_ID_TEXT = "log-id-text"
+NAME_FALLBACK = "name-fallback"
 
 _HUMAN_CALLS = frozenset(
     {
@@ -81,6 +83,16 @@ _HUMAN_CALLS = frozenset(
 _HUMAN_KEYWORDS = frozenset({"label", "title", "subtitle", "xlabel", "ylabel"})
 _PATHLIKE = re.compile(r"(^|_)(path|dir|file|root)$")
 _IDENTIFIER = re.compile(r"^(?!n_)(.*_)?(method|dataset|assignment|system|name)s?$|_id$")
+
+_EMIT_METHODS = frozenset(
+    {"info", "warning", "error", "debug", "success", "exception", "critical", "echo", "warn"}
+)
+_EMIT_OWNERS = frozenset({"logger", "typer", "warnings", "console"})
+_LOG_IDENTIFIER = re.compile(
+    r"^(id|name)$|(?<!run)(?<!matrix)_id$|(^|_)display_name$|^(dataset|method|assignment|system|comparison)$"
+)
+_DELETED_FALLBACKS = frozenset({"effective_display_name", "resolve_display_name"})
+_LABELLED = re.compile(r"(display|label)")
 
 SCOPES: dict[str, SinkScope] = {
     "mlflow-tracking": SinkScope(
@@ -112,6 +124,62 @@ SCOPES: dict[str, SinkScope] = {
                 "forwards the user's configured run-name lookup filter; it names no new run",
             ),
         ),
+    ),
+    "cli-and-logs": SinkScope(
+        roots=(
+            "cli",
+            "application",
+            "composition/assignments",
+            "composition/comparison",
+            "composition/generation",
+            "composition/display.py",
+            "domain/generation",
+            "domain/solver/comparison_summary.py",
+            "platform/reporting/artifacts.py",
+        ),
+        rules=frozenset({LOG_ID_TEXT, NAME_FALLBACK, LABEL_FALLBACK}),
+        allowed=(
+            Allowed(
+                LOG_ID_TEXT,
+                "composition/assignments/comparison_batch.py",
+                "_checkpoint_digests",
+                "progress lines about hashing a checkpoint file name the preconditioner by its "
+                "configured result key, because they run before any presentation exists",
+            ),
+            Allowed(
+                LOG_ID_TEXT,
+                "composition/assignments/comparison_batch.py",
+                "_prepare_comparison_entry",
+                "the lines before the title exists name the registry entry being prepared; "
+                "a comparison can only be titled after its checkpoints and dataset resolve",
+            ),
+            Allowed(
+                LOG_ID_TEXT,
+                "composition/assignments/model_resolution.py",
+                "_resolve_checkpoint_ref",
+                "checkpoint resolution runs before presentation and a method that fails to "
+                "resolve has no resolved spec to describe, so it is named by its result key",
+            ),
+            Allowed(
+                LOG_ID_TEXT,
+                "domain/generation/strategies/rhs_archive.py",
+                "generate",
+                "names the configured linear-solver algorithm, a closed vocabulary that is "
+                "not a method presentation",
+            ),
+            Allowed(
+                LOG_ID_TEXT,
+                "domain/generation/strategies/sparse_rhs.py",
+                "generate",
+                "names the configured linear-solver algorithm, a closed vocabulary that is "
+                "not a method presentation",
+            ),
+        ),
+    ),
+    "config-and-registry": SinkScope(
+        roots=("platform/config",),
+        rules=frozenset({NAME_FALLBACK}),
+        allowed=(),
     ),
     "reporting-and-plots": SinkScope(
         roots=(
@@ -183,6 +251,12 @@ SCOPES: dict[str, SinkScope] = {
         ),
     ),
 }
+
+
+def _python_files(root: str) -> list[Path]:
+    """The files a scope root names: every module under a directory, or one module."""
+    path = SOURCE_ROOT / root
+    return sorted(path.rglob("*.py")) if path.is_dir() else [path]
 
 
 def _functions(tree: ast.Module) -> Iterator[tuple[str, ast.AST]]:
@@ -303,6 +377,63 @@ def _is_unrendered_run_name(node: ast.AST) -> bool:
     return False
 
 
+def _is_emit_call(call: ast.Call) -> bool:
+    func = call.func
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr in _EMIT_METHODS
+        and isinstance(func.value, ast.Name)
+        and func.value.id in _EMIT_OWNERS
+    )
+
+
+def _mentions_log_identifier(node: ast.AST) -> bool:
+    """Whether an emitted argument interpolates something named like an id."""
+    for inner in ast.walk(node):
+        if isinstance(inner, ast.Call):
+            renderer = _identifier_of(inner.func) or ""
+            if renderer in {"run_name_text", "label"} or renderer.endswith("_label"):
+                return False  # the text comes from a presentation renderer
+    for inner in ast.walk(node):
+        identifier = _identifier_of(inner)
+        if identifier is not None and _LOG_IDENTIFIER.search(identifier):
+            if isinstance(inner, ast.Attribute) and inner.attr == "name":
+                owner = _identifier_of(inner.value)
+                if owner is None or not re.search(r"(^|_)(cfg|spec|entry|preconditioner)$", owner):
+                    continue
+            elif identifier == "name" and isinstance(inner, ast.Name):
+                continue
+            return True
+    return False
+
+
+def _is_log_id_text(call: ast.Call) -> bool:
+    """A log, echo or warning that interpolates an identifier into its human text."""
+    if not _is_emit_call(call):
+        return False
+    return any(
+        _mentions_log_identifier(arg)
+        for arg in (*call.args, *(kw.value for kw in call.keywords))
+        if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str))
+    )
+
+
+def _is_name_fallback(node: ast.AST) -> bool:
+    """An id-fallback display name: the deleted helpers, or ``<name or label> or "<text>"``."""
+    if _identifier_of(node) in _DELETED_FALLBACKS:
+        return True
+    if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or) and len(node.values) == 2:
+        left, right = node.values
+        identifier = _identifier_of(left)
+        return (
+            isinstance(right, ast.Constant)
+            and isinstance(right.value, str)
+            and identifier is not None
+            and bool(_LABELLED.search(identifier))
+        )
+    return False
+
+
 def violations_in(source: str, path: str) -> list[Violation]:
     """Every rule match in ``source``, located by the function that contains it."""
     found: list[Violation] = []
@@ -318,6 +449,10 @@ def violations_in(source: str, path: str) -> list[Violation]:
             rules.append(ID_INTERPOLATION)
         if _is_unrendered_run_name(node):
             rules.append(RUN_NAME_TEXT)
+        if isinstance(node, ast.Call) and _is_log_id_text(node):
+            rules.append(LOG_ID_TEXT)
+        if _is_name_fallback(node):
+            rules.append(NAME_FALLBACK)
         found += [Violation(rule, path, function, getattr(node, "lineno", 0)) for rule in rules]
     return found
 
@@ -331,7 +466,7 @@ def scope_violations(scope: SinkScope) -> list[Violation]:
     allowed = {(a.rule, a.path, a.function) for a in scope.allowed}
     found: list[Violation] = []
     for root in scope.roots:
-        for file in sorted((SOURCE_ROOT / root).rglob("*.py")):
+        for file in _python_files(root):
             relative = file.relative_to(SOURCE_ROOT).as_posix()
             found += [
                 violation
@@ -346,7 +481,7 @@ def stale_allowances(scope: SinkScope) -> list[Allowed]:
     """Allow-list entries that no longer match any code, so exceptions cannot outlive their reason."""
     present: set[tuple[str, str, str]] = set()
     for root in scope.roots:
-        for file in sorted((SOURCE_ROOT / root).rglob("*.py")):
+        for file in _python_files(root):
             relative = file.relative_to(SOURCE_ROOT).as_posix()
             present |= {
                 (v.rule, v.path, v.function)
@@ -389,6 +524,14 @@ def test_every_allowance_states_its_reason(name: str) -> None:
             RUN_NAME_TEXT,
         ),
         ('def f(run_name):\n    return {"mlflow.runName": run_name}\n', RUN_NAME_TEXT),
+        ('def f(entry):\n    logger.info(f"Comparison: {entry.id}")\n', LOG_ID_TEXT),
+        ('def f(spec):\n    logger.info("Training {}", spec.assignment_id)\n', LOG_ID_TEXT),
+        ('def f(result):\n    typer.echo(f"[{result.dataset_id}] done")\n', LOG_ID_TEXT),
+        ("def f(outcome):\n    logger.error(outcome.comparison_display_name)\n", LOG_ID_TEXT),
+        ('def f(cfg):\n    logger.warning("Evaluating {}", cfg.name)\n', LOG_ID_TEXT),
+        ("def f(entry):\n    return entry.effective_display_name\n", NAME_FALLBACK),
+        ("def f(n):\n    return resolve_display_name(n, None)\n", NAME_FALLBACK),
+        ('def f(display_name):\n    return display_name or "unnamed"\n', NAME_FALLBACK),
     ],
 )
 def test_the_checker_detects_each_rule(source: str, rule: str) -> None:
@@ -405,6 +548,10 @@ def test_the_checker_detects_each_rule(source: str, rule: str) -> None:
         "def f(ax, n):\n    ax.set_title(f'N={n}')\n",
         "def f(d):\n    return d.name\n",
         "def f(mlflow, run):\n    mlflow.start_run(run_name=run_name_text(run))\n",
+        'def f(result):\n    logger.info("{}", render_training_label(result.presentation))\n',
+        'def f(run_id):\n    logger.info("Logged to MLflow run {}", run_id)\n',
+        'def f(bundle):\n    logger.info("matrix {}", int(bundle.matrix_id))\n',
+        'def f(base):\n    return base.name or "FlexibleDataset"\n',
         'def f(run):\n    return {"mlflow.runName": run_name_text(run)}\n',
     ],
 )

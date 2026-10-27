@@ -28,6 +28,7 @@ from neuralls.domain.presentation.methods import (
 )
 from neuralls.domain.presentation.planner import prepare_presentations
 from neuralls.domain.presentation.provenance import DatasetPresentation, DatasetSourceProvenance
+from neuralls.domain.presentation.run_names import NamedRun
 from neuralls.domain.presentation.titles import ComparisonScopePresentation, EditorialPresentation
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
@@ -91,10 +92,10 @@ def execution(
 
 
 def test_batch_accepts_executions_and_outcomes_matching_the_plan(
-    planned_system: PlannedFactory, execution: ExecutionFactory
+    planned_system: PlannedFactory, execution: ExecutionFactory, comparison_run: NamedRun
 ) -> None:
     first, second = planned_system("a"), planned_system("b")
-    reused = ComparisonReused(comparison_id="b", comparison_display_name="b")
+    reused = ComparisonReused(comparison_id="b", run=comparison_run)
 
     batch = PreparedComparisonBatch(items=(execution(first), reused), planned=(first, second))
 
@@ -113,10 +114,10 @@ def test_batch_rejects_an_execution_of_a_different_planned_system(
 
 
 def test_batch_rejects_an_outcome_of_a_different_comparison(
-    planned_system: PlannedFactory,
+    planned_system: PlannedFactory, comparison_run: NamedRun
 ) -> None:
     first = planned_system("a")
-    other = ComparisonReused(comparison_id="zzz", comparison_display_name="zzz")
+    other = ComparisonReused(comparison_id="zzz", run=comparison_run)
 
     with pytest.raises(ValueError, match="planned system"):
         PreparedComparisonBatch(items=(other,), planned=(first,))

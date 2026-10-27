@@ -177,7 +177,7 @@ def log_comparison_result_metrics(
                 mlflow.log_param("generation_time_provenance", cg.generation_cost.provenance.value)
 
     if result.recommendations.overall_best is not None:
-        mlflow.log_param("best_method_id", result.recommendations.overall_best.label)
+        mlflow.log_param("best_method_id", result.recommendations.overall_best.method_id)
 
 
 def _group_metric_key(metric: str, group_id: GroupId, preconditioner_name: str) -> str:
@@ -273,7 +273,7 @@ class MLflowGroupReportSink:
     ) -> None:
         """Register method-child histories in the same session manifest."""
         for workload in workloads:
-            datasets = tuple(dict.fromkeys(str(tag.dataset) for tag in workload.planned))
+            dataset_ids = tuple(dict.fromkeys(str(tag.dataset) for tag in workload.planned))
             recipes = tuple(dict.fromkeys(tag.recipe for tag in workload.planned))
             counts = tuple(
                 sum(tag.recipe == recipe for tag in workload.planned) for recipe in recipes
@@ -315,7 +315,7 @@ class MLflowGroupReportSink:
                     scenario=None,
                     report_level="method",
                     scope=scope,
-                    datasets=datasets,
+                    dataset_ids=dataset_ids,
                     recipes=recipes,
                     n_matrices=n_matrices,
                     n_planned_rhs=len(workload.planned),
@@ -455,7 +455,7 @@ def _figure_metadata(
         if isinstance(outcome.label, MediumLabel)
         else "global"
     )
-    datasets = tuple(str(dataset) for dataset in outcome.dataset_membership)
+    dataset_ids = tuple(str(dataset) for dataset in outcome.dataset_membership)
     recipes = outcome.recipe_membership
     weights = tuple(count / outcome.n_planned_rhs for count in outcome.recipe_counts)
     reference = outcome.reference_selection
@@ -509,7 +509,7 @@ def _figure_metadata(
         scenario=scenario,
         report_level=report_level,
         scope=presentation.scope,
-        datasets=datasets,
+        dataset_ids=dataset_ids,
         recipes=recipes,
         n_matrices=outcome.n_matrices,
         n_planned_rhs=outcome.n_planned_rhs,

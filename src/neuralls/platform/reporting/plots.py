@@ -848,7 +848,6 @@ def plot_metric_comparison(
     values: list[float],
     *,
     metric_name: str,
-    legend: Mapping[str, str] | None = None,
     save_path: Path | None = None,
     show: bool = False,
     title: str | None = None,
@@ -856,20 +855,14 @@ def plot_metric_comparison(
 ) -> None:
     """Bar chart comparing a single metric across labelled experiments.
 
-    Experiments are identified by short labels (e.g. "1", "2", "3") on the
-    x-axis or y-axis (when horizontal). When ``legend`` is provided it is embedded
-    below the plot as a text block so the full experiment identity is preserved
-    without cluttering the axis.
+    Each bar is labelled with text the caller rendered from a presentation (see
+    ``plot_method_bars``); the labels must be unique because they key the bar colours.
 
     Args:
-        labels: Short axis labels for each bar (e.g. ``["1", "2", "3"]``). Must
-            be unique — ``legend`` (when given) is keyed by these same values.
+        labels: Rendered bar labels. Must be unique.
         values: Metric value for each corresponding label.
         metric_name: Human-readable metric description used as y-axis label
             and figure title (e.g. ``"Mean Absolute Error (eval/mae)"``).
-        legend: Optional mapping from label to full experiment description
-            (e.g. ``{"1": "ffnn_test_solutions (run: abc123…)"}``) embedded
-            below the chart.
         save_path: Path to save the figure. Parent directories are created
             automatically if they do not exist.
         show: Whether to call ``plt.show()`` (disabled by default for
@@ -916,20 +909,6 @@ def plot_metric_comparison(
         ax.grid(True, alpha=0.3, axis="y")
 
     ax.set_title(title or f"Metric Comparison: {metric_name}", fontsize=13, fontweight="bold")
-
-    if legend:
-        legend_lines = "\n".join(f"  {k}: {v}" for k, v in sorted(legend.items()))
-        legend_text = f"Legend:\n{legend_lines}"
-        fig.text(
-            0.01,
-            -0.05,
-            legend_text,
-            fontsize=8,
-            fontfamily="monospace",
-            va="top",
-            wrap=True,
-        )
-        fig.subplots_adjust(bottom=0.05 + 0.03 * len(legend))
 
     fig.tight_layout()
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -39,7 +39,8 @@ from neuralls.composition.comparison.models import (
 )
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import ExecutedMethod, PreparedMethodPresentation
-from neuralls.domain.presentation.run_names import TrackedRun
+from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.presentation.run_names import NamedRun, TrackedRun
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -86,6 +87,7 @@ from neuralls.platform.tracking.comparison_tracking import (
 )
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
 from neuralls.shared.digest import canonical_digest
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import (
     ComparisonRhsSourceKind,
     DatasetId,
@@ -272,7 +274,7 @@ def _typed_comparison_result(plot_path: Path) -> ComparisonResult:
         recommendations=ComparisonRecommendations(
             ranked=(
                 RankedRecommendation(
-                    label="identity",
+                    method_id="identity",
                     iterations=2,
                     residual=1.0e-8,
                     residual_abs=1.0e-9,
@@ -280,7 +282,7 @@ def _typed_comparison_result(plot_path: Path) -> ComparisonResult:
                 ),
             ),
             overall_best=RankedRecommendation(
-                label="identity",
+                method_id="identity",
                 iterations=2,
                 residual=1.0e-8,
                 residual_abs=1.0e-9,
@@ -1275,7 +1277,7 @@ def test_run_comparison_missing_known_dataset_raises_file_not_found(
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
 def test_run_comparison_batch_preserves_declared_order(
-    tmp_path: Path, fake_mlflow: MagicMock
+    tmp_path: Path, fake_mlflow: MagicMock, comparison_run: NamedRun
 ) -> None:
     """Cache-hit outcomes come back in declared config order.
 
@@ -1293,10 +1295,7 @@ def test_run_comparison_batch_preserves_declared_order(
         *,
         force: bool = False,
     ) -> ComparisonOutcome:
-        return ComparisonReused(
-            comparison_id=planned.entry.id,
-            comparison_display_name=planned.entry.effective_display_name,
-        )
+        return ComparisonReused(comparison_id=planned.entry.id, run=comparison_run)
 
     with (
         patch(
@@ -1599,6 +1598,8 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
         bundles: Iterable[MatrixWorkload],
         *,
         prepared: PreparedMethodPresentation,
+        datasets: Mapping[DatasetId, DatasetPresentation],
+        notation: NotationPolicy,
         params: SolverParams,
         settings: NeurallsSettings,
     ) -> CompletedMethodWorkload:
@@ -1608,6 +1609,8 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
             method,
             bundle_sequence,
             prepared=prepared,
+            datasets=datasets,
+            notation=notation,
             params=params,
             settings=settings,
         )

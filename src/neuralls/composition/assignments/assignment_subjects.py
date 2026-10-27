@@ -8,7 +8,7 @@ described one way everywhere.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,6 +41,7 @@ from neuralls.platform.config.models.presentation import ScientificLabelsConfig
 from neuralls.platform.config.registry import ResolvedAssignmentBinding, resolve_assignment_binding
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
+from neuralls.platform.tracking.run_names import render_training_label
 from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.scientific_description.policy import NotationPolicy
 
@@ -157,9 +158,8 @@ def training_subject(
     """
     inputs = resolve_assignment_inputs(entry, cfg=cfg, config_dir=config_dir, settings=settings)
     dataset = load_dataset_presentation(inputs.dataset_dir)
-    editorial = (entry.display_name or "").strip()
-    if editorial:
-        return EditorialTrainingSubject(EditorialPresentation(editorial), dataset)
+    if entry.display_name is not None and entry.display_name.strip():
+        return EditorialTrainingSubject(EditorialPresentation(entry.display_name.strip()), dataset)
     match inputs.job:
         case FitJobConfig():
             stub = pod_fit_spec_from_assignment(
@@ -198,7 +198,7 @@ def training_presentations(
     """
     entries = {entry.id: entry for entry in cfg.assignments}
     notation = case_notation(cfg)
-    return {
+    presentations = {
         assignment_id: TrainingPresentation(
             training_subject(
                 entries[assignment_id], cfg=cfg, config_dir=config_dir, settings=settings
@@ -207,3 +207,32 @@ def training_presentations(
         )
         for assignment_id in assignment_ids
     }
+    require_distinct_training_labels(presentations)
+    return presentations
+
+
+def require_distinct_training_labels(presentations: Mapping[str, TrainingPresentation]) -> None:
+    """Reject assignments a reader could not tell apart, before any run opens.
+
+    Two assignments that render identically would share a bar label and a run name, so a
+    result could not be traced to the assignment that produced it.
+
+    Raises:
+        IndistinguishableTrainingError: When two assignments render to the same text.
+    """
+    by_text: dict[str, list[str]] = {}
+    for assignment_id, presentation in presentations.items():
+        by_text.setdefault(render_training_label(presentation), []).append(assignment_id)
+    for text, assignment_ids in by_text.items():
+        if len(assignment_ids) > 1:
+            raise IndistinguishableTrainingError(text, tuple(assignment_ids))
+
+
+class IndistinguishableTrainingError(ValueError):
+    """Two assignments of one batch describe the same trained model on the same dataset."""
+
+    def __init__(self, text: str, assignment_ids: tuple[str, ...]) -> None:
+        super().__init__(
+            f"assignments {', '.join(assignment_ids)} are both described as {text!r}; give "
+            "each a distinct architecture name or an explicit display_name"
+        )

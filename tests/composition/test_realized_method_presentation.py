@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 import weakref
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -56,6 +57,7 @@ from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS, make
 from neuralls.shared.scientific_description.models import (
     ScientificFact,
 )
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 from neuralls.shared.workflow_failures import ComparisonMatrixFailureContext, ComparisonMatrixPhase
 from tests.presentation_support import PreparedMethodFactory
@@ -164,20 +166,40 @@ def counters(monkeypatch: pytest.MonkeyPatch, method: ResolvedMethod) -> _Counte
     return counts
 
 
-def _execute(
-    method: ResolvedMethod,
-    bundles: tuple[MatrixWorkload, ...],
-    prepared: PreparedMethodPresentation,
-    params: SolverParams,
-    settings: NeurallsSettings,
-) -> CompletedMethodWorkload:
-    return comparison_run.execute_method_workload(
-        method,
-        bundles,
-        prepared=prepared,
-        params=params,
-        settings=settings,
-    )
+type Executor = Callable[
+    [
+        ResolvedMethod,
+        tuple[MatrixWorkload, ...],
+        PreparedMethodPresentation,
+        SolverParams,
+        NeurallsSettings,
+    ],
+    CompletedMethodWorkload,
+]
+
+
+@pytest.fixture
+def execute(group_datasets: dict[DatasetId, DatasetPresentation]) -> Executor:
+    """Execute one method over bundles, with log text drawn from the shared dataset fixture."""
+
+    def run(
+        method: ResolvedMethod,
+        bundles: tuple[MatrixWorkload, ...],
+        prepared: PreparedMethodPresentation,
+        params: SolverParams,
+        settings: NeurallsSettings,
+    ) -> CompletedMethodWorkload:
+        return comparison_run.execute_method_workload(
+            method,
+            bundles,
+            prepared=prepared,
+            datasets=group_datasets,
+            notation=NotationPolicy.default(),
+            params=params,
+            settings=settings,
+        )
+
+    return run
 
 
 def test_facts_are_captured_once_per_realized_matrix_with_one_setup_each(
@@ -187,10 +209,11 @@ def test_facts_are_captured_once_per_realized_matrix_with_one_setup_each(
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
+    execute: Executor,
 ) -> None:
     prepared = prepared_method(str(method.name))
 
-    workload = _execute(method, matrix_bundles, prepared, solver_params, neuralls_settings)
+    workload = execute(method, matrix_bundles, prepared, solver_params, neuralls_settings)
 
     assert counters.setups == 2
     assert counters.captures == 2
@@ -211,8 +234,9 @@ def test_built_preconditioners_are_released_after_capture(
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
+    execute: Executor,
 ) -> None:
-    workload = _execute(
+    workload = execute(
         method,
         matrix_bundles,
         prepared_method(str(method.name)),
@@ -234,6 +258,7 @@ def test_failed_setup_is_reported_from_the_prepared_state(
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
+    execute: Executor,
 ) -> None:
     def fail(*args: object, **kwargs: object) -> object:
         raise RuntimeError("setup broke")
@@ -241,11 +266,11 @@ def test_failed_setup_is_reported_from_the_prepared_state(
     monkeypatch.setattr(comparison_run, "_build_scheduled", fail)
     prepared = prepared_method(str(method.name))
 
-    workload = _execute(method, matrix_bundles, prepared, solver_params, neuralls_settings)
+    workload = execute(method, matrix_bundles, prepared, solver_params, neuralls_settings)
 
     assert workload.presentation == ExecutedMethod(prepared, ())
     sink = _RecordingSink()
-    report_all_levels((workload,), sink, datasets=group_datasets)
+    report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
     group_method = sink.presentations[0].methods[method.name]
     assert group_method.prepared is prepared
     assert group_method.invariant_facts == ()
@@ -258,9 +283,10 @@ def test_a_method_with_unrelated_prepared_identity_is_rejected(
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
+    execute: Executor,
 ) -> None:
     with pytest.raises(ValueError, match="prepared presentation"):
-        _execute(method, matrix_bundles, prepared_method("other"), solver_params, neuralls_settings)
+        execute(method, matrix_bundles, prepared_method("other"), solver_params, neuralls_settings)
 
 
 @dataclass(slots=True)
@@ -357,7 +383,12 @@ def test_group_reports_a_realized_fact_shared_by_every_matrix(
     prepared = prepared_method("jacobi")
     sink = _RecordingSink()
 
-    report_all_levels((_workload(prepared, {1: 2, 2: 2}),), sink, datasets=group_datasets)
+    report_all_levels(
+        (_workload(prepared, {1: 2, 2: 2}),),
+        sink,
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+    )
 
     group_method = sink.presentations[0].methods[PreconditionerName("jacobi")]
     assert group_method.invariant_facts == _levels(2)
@@ -373,7 +404,7 @@ def test_group_does_not_claim_a_realized_fact_that_varies_by_matrix(
     workload = _workload(prepared, {1: 2, 2: 3})
     sink = _RecordingSink()
 
-    report_all_levels((workload,), sink, datasets=group_datasets)
+    report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
 
     group_method = sink.presentations[0].methods[PreconditionerName("jacobi")]
     assert group_method.invariant_facts == ()
@@ -417,7 +448,7 @@ def test_each_group_states_only_facts_invariant_over_its_own_systems(
     )
     sink = _RecordingSink()
 
-    report_all_levels((workload,), sink, datasets=group_datasets)
+    report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
 
     dataset = group_datasets[DatasetId("ds")]
     by_scope = [(group.scope, _depth_shown(group, "jacobi")) for group in sink.presentations]
@@ -436,7 +467,7 @@ def test_a_group_with_an_unrealized_system_states_no_realized_fact(
     workload = _workload(prepared_method("jacobi"), {1: 2, 2: 2}, realized_matrices=frozenset({2}))
     sink = _RecordingSink()
 
-    report_all_levels((workload,), sink, datasets=group_datasets)
+    report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
 
     assert all(_depth_shown(group, "jacobi") == [] for group in sink.presentations)
 
@@ -449,7 +480,9 @@ def test_group_lists_only_methods_with_systems_in_that_group(
     beta = _workload(prepared_method("jacobi_b"), {2: 2}, recipe_by_matrix={2: "beta"})
     sink = _RecordingSink()
 
-    report_all_levels((alpha, beta), sink, datasets=group_datasets)
+    report_all_levels(
+        (alpha, beta), sink, datasets=group_datasets, notation=NotationPolicy.default()
+    )
 
     dataset = group_datasets[DatasetId("ds")]
     methods_by_scope = {group.scope: set(group.methods) for group in sink.presentations}
@@ -466,6 +499,7 @@ def test_partial_setup_failure_keeps_only_the_successful_matrix_systems(
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
+    execute: Executor,
 ) -> None:
     succeed = comparison_run._build_scheduled
 
@@ -478,7 +512,7 @@ def test_partial_setup_failure_keeps_only_the_successful_matrix_systems(
 
     monkeypatch.setattr(comparison_run, "_build_scheduled", fail_first_matrix)
 
-    workload = _execute(
+    workload = execute(
         method, matrix_bundles, prepared_method(str(method.name)), solver_params, neuralls_settings
     )
 
@@ -507,6 +541,7 @@ def test_a_labelling_failure_is_loud_and_names_the_method_and_matrix(
     solver_params: SolverParams,
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
+    execute: Executor,
 ) -> None:
     boom = RuntimeError("cannot read hierarchy")
 
@@ -516,7 +551,7 @@ def test_a_labelling_failure_is_loud_and_names_the_method_and_matrix(
     monkeypatch.setattr(_preconditioner_setup, "describe_realized_preconditioner", failing)
 
     with pytest.raises(RealizedFactCaptureError) as raised:
-        _execute(
+        execute(
             method,
             matrix_bundles,
             prepared_method(str(method.name)),

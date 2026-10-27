@@ -44,6 +44,7 @@ from neuralls.domain.presentation.methods import (
     PreparedMethodPresentation,
     SystemRealization,
 )
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.comparison import (
     _to_numpy,
     compute_reference_solution,
@@ -82,6 +83,7 @@ from neuralls.platform.config.resolution import resolve_user_path
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.figure_text import ComparisonFigureTitle, Legend, method_legend
 from neuralls.platform.storage.filesystem import ensure_dir
+from neuralls.platform.tracking.run_names import render_dataset_label, render_method_label
 from neuralls.shared.device import (
     FailedTimedRuns,
     WorkloadMemoryObserver,
@@ -90,7 +92,8 @@ from neuralls.shared.device import (
     repeat_timed_outcome,
 )
 from neuralls.shared.digest import canonical_digest
-from neuralls.shared.types import PreconditionerName, SetupEventId, SystemId
+from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.types import DatasetId, PreconditionerName, SetupEventId, SystemId
 
 type PreconditionerEvaluationMapper = Callable[
     [
@@ -173,11 +176,11 @@ def _evaluate_preconditioner(
     matrix_path: Path,
     matrix_index: int,
     params: SolverParams,
-    display_name: str | None = None,
     x_exact: torch.Tensor | None = None,
     settings: NeurallsSettings,
     cache: SystemPreconditionerCache | None = None,
     presentation: PreparedComparisonPresentation,
+    notation: NotationPolicy,
 ) -> PreconditionerComparisonEntry:
     """Build one preconditioner, run it, and package its evaluation outcome.
 
@@ -196,7 +199,6 @@ def _evaluate_preconditioner(
         matrix_path: Dataset directory for extra-input binding (may not be a directory).
         matrix_index: Sample index for extra-input extraction.
         params: Solver tolerances and iteration limits.
-        display_name: Optional human-readable comparison label, for logging.
         x_exact: Reference solution shared across every preconditioner in this
             comparison (see ``compare_preconditioners``), or ``None``.
         settings: Resolved runtime roots, used to resolve any dataset
@@ -212,9 +214,10 @@ def _evaluate_preconditioner(
     Returns:
         Named result containing the solve outcome and plot metadata for ``cfg``.
     """
-    logger.info("Evaluating preconditioner: {}", cfg.name)
     color_key, marker_key = _pod2g_style_keys(cfg)
     prepared = presentation.method(PreconditionerName(cfg.name))
+    method_text = render_method_label(prepared.configured, notation)
+    logger.info("Evaluating {}", method_text)
     try:
         return _run_preconditioner(
             cfg,
@@ -235,9 +238,8 @@ def _evaluate_preconditioner(
         # Broad by design: one preconditioner's failure (build, solve, CUDA OOM,
         # ...) must never abort the rest of the comparison.
         logger.opt(exception=True).warning(
-            "Preconditioner '{}' failed (comparison={}): {}: {}",
-            cfg.name,
-            display_name or "unnamed",
+            "{} failed: {}: {}",
+            method_text,
             type(exc).__name__,
             exc,
         )
@@ -395,6 +397,8 @@ def _execute_matrix_bundle(
     attempts: list[SolveAttempt],
     diagnostics: list[tuple[SystemId, CGComparisonResult]],
     realizations: list[SystemRealization],
+    method_text: str,
+    dataset_text: str,
 ) -> None:
     """Execute one matrix and release all device state on every exit path.
 
@@ -412,9 +416,9 @@ def _execute_matrix_bundle(
             service.preload(matrix, method.config)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "Recoverable setup failure for method '{}' on dataset '{}' matrix {}: {}: {}",
-                method.name,
-                bundle.dataset,
+                "Recoverable setup failure for {} on {}, matrix {}: {}: {}",
+                method_text,
+                dataset_text,
                 int(bundle.matrix_id),
                 type(exc).__name__,
                 exc,
@@ -453,9 +457,9 @@ def _execute_matrix_bundle(
         observer.observe_operation(timed_setup.peak_memory_bytes)
         if isinstance(timed_setup, FailedTimedRuns):
             logger.warning(
-                "Recoverable setup failure for method '{}' on dataset '{}' matrix {}: {}: {}",
-                method.name,
-                bundle.dataset,
+                "Recoverable setup failure for {} on {}, matrix {}: {}: {}",
+                method_text,
+                dataset_text,
                 int(bundle.matrix_id),
                 type(timed_setup.error).__name__,
                 timed_setup.error,
@@ -537,11 +541,9 @@ def _execute_matrix_bundle(
             )
             if isinstance(outcome, SolveFailed):
                 logger.warning(
-                    "Recoverable solve failure for method '{}' on system '{}' "
-                    "(dataset '{}', matrix {}, RHS {}): {}",
-                    method.name,
-                    member.tag.system_id,
-                    bundle.dataset,
+                    "Recoverable solve failure for {} on {}, matrix {}, RHS {}: {}",
+                    method_text,
+                    dataset_text,
                     int(bundle.matrix_id),
                     member.tag.rhs_ordinal,
                     outcome.reason,
@@ -580,6 +582,8 @@ def execute_method_workload(
     bundles: Iterable[MatrixWorkload],
     *,
     prepared: PreparedMethodPresentation,
+    datasets: Mapping[DatasetId, DatasetPresentation],
+    notation: NotationPolicy,
     params: SolverParams,
     settings: NeurallsSettings,
 ) -> CompletedMethodWorkload:
@@ -592,7 +596,7 @@ def execute_method_workload(
 
     Facts read from each built preconditioner right after its one setup are kept with
     ``prepared``, which must belong to ``method``; a method whose every setup failed keeps
-    none.
+    none. ``datasets`` and ``notation`` are what its log lines call each dataset.
     """
     if prepared.method_id != method.name:
         raise ValueError(
@@ -606,6 +610,7 @@ def execute_method_workload(
     diagnostics: list[tuple[SystemId, CGComparisonResult]] = []
     realizations: list[SystemRealization] = []
     offline_cost = resolve_generation_cost(method.config, settings=settings)
+    method_text = render_method_label(prepared.configured, notation)
 
     with CheckpointStore() as checkpoints:
         service = PreconditionerService(checkpoints=checkpoints)
@@ -614,6 +619,8 @@ def execute_method_workload(
             _execute_matrix_bundle(
                 method,
                 bundle,
+                method_text=method_text,
+                dataset_text=render_dataset_label(datasets[bundle.dataset], notation),
                 service=service,
                 params=params,
                 device=device,
@@ -697,7 +704,11 @@ def build_comparison_result_from_diagnostics(
     )
     return ComparisonResult(
         results=results,
-        summary=format_results_summary(results),
+        summary=format_results_summary(
+            results,
+            {name: style.presentation.compact for name, style in plot_styles.items()},
+            presentation.notation,
+        ),
         plot_paths=plot_paths,
         preconditioners=tuple(config.name for config in preconditioner_configs),
         solver_params=general_params,
@@ -781,7 +792,6 @@ def compare_preconditioners(
     preconditioner_configs: Sequence[PreconditionerConfig],
     output_root: Path | None = None,
     figures_root: Path | None = None,
-    display_name: str | None = None,
     resolved_input: ResolvedComparisonInput | None = None,
     evaluation_mapper: PreconditionerEvaluationMapper = map,
     settings: NeurallsSettings,
@@ -809,7 +819,6 @@ def compare_preconditioners(
         preconditioner_configs: Sequence of preconditioner configurations.
         output_root: Optional override for output root directory.
         figures_root: Optional override for figures directory.
-        display_name: Optional human-readable label included in failure logs.
         evaluation_mapper: Strategy for running the per-config evaluations in
             ``preconditioner_configs``. Defaults to the builtin ``map``, i.e.
             sequential execution with exactly one preconditioner resident at a
@@ -894,11 +903,11 @@ def compare_preconditioners(
             matrix_path=paths.matrix,
             matrix_index=resolved_matrix_index,
             params=general_params.params,
-            display_name=display_name,
             x_exact=x_exact,
             settings=settings,
             cache=cache,
             presentation=presentation.methods,
+            notation=presentation.notation,
         )
 
         for entry in evaluation_mapper(evaluate_one, preconditioner_configs):
@@ -948,7 +957,11 @@ def compare_preconditioners(
 
     return ComparisonResult(
         results=results,
-        summary=format_results_summary(results),
+        summary=format_results_summary(
+            results,
+            {name: style.presentation.compact for name, style in plot_styles.items()},
+            presentation.notation,
+        ),
         plot_paths=plot_paths,
         preconditioners=tuple(cfg.name for cfg in preconditioner_configs),
         solver_params=general_params,

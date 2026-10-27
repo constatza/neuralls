@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from neuralls.domain.presentation.run_names import TrainingPresentation
+
 type AssignmentStatus = Literal["Success", "Failed"]
 
 
@@ -34,7 +36,8 @@ class AssignmentResult:
 
     Args:
         assignment_id: Stable assignment identifier.
-        assignment_display_name: Human-readable label.
+        presentation: What the assignment trains and the notation it is described with;
+            every sink renders its own text from it.
         status: "Success" or "Failed".
         tasks: Individual task outcomes.
         error: Top-level error message if failed.
@@ -45,7 +48,7 @@ class AssignmentResult:
     """
 
     assignment_id: str
-    assignment_display_name: str
+    presentation: TrainingPresentation
     status: AssignmentStatus
     tasks: list[TaskResult] = field(default_factory=list)
     error: str | None = None

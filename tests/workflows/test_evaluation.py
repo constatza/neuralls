@@ -118,13 +118,14 @@ def test_eval_materialization_injects_split_file_and_array_datamodule(
     assert [entry.name for entry in inference_job.data.targets] == ["y"]
 
 
-def test_write_eval_metric_report_accepts_plain_and_prefixed_metric(tmp_path: Path) -> None:
+def test_write_eval_metric_report_accepts_plain_and_prefixed_metric(
+    tmp_path: Path, training_presentation: TrainingPresentation
+) -> None:
     batch = EvaluationBatchResult(
         results=[
             EvaluationRunResult(
-                label="1",
                 assignment_id="a1",
-                assignment_display_name="A1",
+                presentation=training_presentation,
                 training_run_id="train-1",
                 evaluation_run_id="eval-1",
                 metrics={"mae": 0.2, "eval/rmse": 0.4},
@@ -218,8 +219,6 @@ def test_materialize_inference_settings_uses_staged_config_paths(
             staged_job_config_path=staged_job,
             staged_data_config_path=staged_data,
         ),
-        dataset_display_name="Dataset",
-        job_display_name="Job",
     )
 
     _materialize_inference_settings(
@@ -293,7 +292,6 @@ def _fake_prepared_evaluation(
         split_file=tmp_path / "split.json",
         split_artifact_path=SPLIT_ARTIFACT_PATH,
         output_root=tmp_path,
-        label="1",
     )
 
 
@@ -428,7 +426,6 @@ def test_to_eval_run_spec_builds_run_spec_from_prepared_evaluation(
         split_file=tmp_path / "split.json",
         split_artifact_path=SPLIT_ARTIFACT_PATH,
         output_root=tmp_path,
-        label="1",
     )
 
     run_spec = to_eval_run_spec(prepared)

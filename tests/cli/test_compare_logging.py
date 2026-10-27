@@ -16,7 +16,6 @@ def test_comparison_outcome_rejects_success_with_an_error() -> None:
     with pytest.raises(TypeError):
         ComparisonOutcome(  # ty: ignore[call-non-callable]
             comparison_id="cmp-1",
-            comparison_display_name="Comparison 1",
             success=True,
             error="contradictory state",
         )

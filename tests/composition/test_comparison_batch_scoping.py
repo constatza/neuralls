@@ -436,7 +436,7 @@ def test_every_entry_of_a_sweep_shares_the_one_lease_manager(
 
     monkeypatch.setattr(comparison_batch, "_validate_comparison_sources", lambda cfg: None)
     monkeypatch.setattr(comparison_batch, "_resolve_comparison_specs", resolve)
-    monkeypatch.setattr(comparison_batch, "_comparison_failure_outcome", lambda entry, exc: exc)
+    monkeypatch.setattr(comparison_batch, "_undescribed_failure", lambda entry, exc: exc)
     shared_leases = MagicMock()
     context = _ComparisonResolutionContext(
         topology=MagicMock(),

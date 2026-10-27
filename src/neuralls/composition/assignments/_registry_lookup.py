@@ -2,23 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from pathlib import Path
 
 from neuralls.platform.config.loaders import missing_dataset_config_hint
-from neuralls.platform.config.models.experiments import AssignmentEntry, CaseConfig, RegistryEntry
+from neuralls.platform.config.models.experiments import AssignmentEntry, CaseConfig
 from neuralls.platform.config.registry import resolve_dataset_config_path, resolve_job_config_path
-
-
-def _find_registry_entry(
-    entries: Sequence[RegistryEntry],
-    registry_id: str,
-) -> RegistryEntry | None:
-    """Look up one registry entry by id."""
-    for entry in entries:
-        if entry.id == registry_id:
-            return entry
-    return None
 
 
 def _resolve_config_paths(

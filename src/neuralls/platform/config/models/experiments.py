@@ -21,14 +21,6 @@ from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.timing import TimingRepeatPolicy
 
 
-def resolve_display_name(entity_id: str, display_name: str | None) -> str:
-    """Return the human-facing label for a registry entry."""
-    if display_name is None:
-        return entity_id
-    stripped = display_name.strip()
-    return stripped or entity_id
-
-
 class MlflowTopologyConfig(BaseModel):
     """MLflow topology configuration.
 
@@ -129,11 +121,6 @@ class RegistryEntry(BaseModel):
 
         return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
 
-    @property
-    def effective_display_name(self) -> str:
-        """Return the configured label or fall back to the id."""
-        return resolve_display_name(self.id, self.display_name)
-
 
 class JobEntry(RegistryEntry):
     """A job registry entry; ``display_name`` is its training title, ``architecture`` its model name.
@@ -202,11 +189,6 @@ class AssignmentEntry(BaseModel):
         from neuralls.platform.config.context import ConfigContext, expand_config_path
 
         return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
-
-    @property
-    def effective_display_name(self) -> str:
-        """Return the configured label or fall back to the id."""
-        return resolve_display_name(self.id, self.display_name)
 
 
 class ComparisonBaseline(BaseModel):
@@ -318,11 +300,6 @@ class ComparisonRegistryEntry(ComparisonDataBinding):
     """
 
     id: str = Field(..., min_length=1)
-
-    @property
-    def effective_display_name(self) -> str:
-        """Return the configured label or fall back to the id."""
-        return resolve_display_name(self.id, self.display_name)
 
 
 class FractionSelector(BaseModel):

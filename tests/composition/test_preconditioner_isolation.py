@@ -14,6 +14,7 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
+from neuralls.shared.scientific_description.policy import NotationPolicy
 
 
 class _FailingService:
@@ -77,6 +78,7 @@ def test_unexpected_build_error_becomes_breakdown_entry(
         params=solver_params,
         settings=neuralls_settings,
         presentation=prepared_cohort(identity_cfg.name),
+        notation=NotationPolicy.default(),
     )
 
     assert entry.result.breakdown is True
@@ -109,6 +111,7 @@ def test_solver_stage_error_is_isolated(
         params=solver_params,
         settings=neuralls_settings,
         presentation=prepared_cohort(identity_cfg.name),
+        notation=NotationPolicy.default(),
     )
 
     assert entry.result.breakdown is True
