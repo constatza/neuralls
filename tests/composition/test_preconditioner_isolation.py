@@ -116,3 +116,36 @@ def test_solver_stage_error_is_isolated(
 
     assert entry.result.breakdown is True
     assert entry.result.error is not None
+
+
+def test_a_failed_preconditioner_is_logged_by_its_description_not_its_key(
+    identity_cfg: StandardPreconditionerConfig,
+    solver_params: SolverParams,
+    system_matrix: torch.Tensor,
+    system_rhs: torch.Tensor,
+    tmp_path: Path,
+    neuralls_settings,
+    prepared_cohort,
+) -> None:
+    from loguru import logger
+
+    messages: list[str] = []
+    sink_id = logger.add(lambda message: messages.append(message.record["message"]), level="INFO")
+    try:
+        _evaluate_preconditioner(
+            identity_cfg,
+            service=_FailingService(),
+            matrix=system_matrix,
+            rhs=system_rhs,
+            matrix_path=tmp_path,
+            matrix_index=0,
+            params=solver_params,
+            settings=neuralls_settings,
+            presentation=prepared_cohort(identity_cfg.name),
+            notation=NotationPolicy.default(),
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert any(message.startswith("Evaluating Method ") for message in messages)
+    assert any(" failed: " in message and message.startswith("Method ") for message in messages)

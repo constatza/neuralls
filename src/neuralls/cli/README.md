@@ -26,6 +26,15 @@ The CLI package defines one public executable: `neuralls`.
   their concrete type, message, contextual exception notes, and logged traceback
 - `options.py`: shared option aliases for profile and env-file resolution
 
+## Printed text
+
+Commands print the plain text of typed presentations through `composition/display.py`
+(`comparison_label`, `assignment_label`, `generation_label`): a comparison line is the same
+text as its MLflow run name, a training line names the model and the dataset it trained on,
+and a dataset line is its stamped scientific description. A command never prints a registry id
+as a name; MLflow run ids and file paths appear only as such. Profile subcommands print the
+user's profile names, which are settings keys rather than scientific entities.
+
 ## Boundary
 
 CLI modules parse user input, print progress, resolve runtime settings at the

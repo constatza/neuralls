@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from loguru import logger
 from mlflow.tracking import MlflowClient
 
 from neuralls.application.models import AssignmentResult
@@ -19,6 +20,7 @@ from neuralls.composition.assignments.training import PreparedTraining
 from neuralls.domain.identity import Reused, StageIdentity
 from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.config.models.workspace import AssignmentSpec
+from neuralls.platform.tracking.run_names import render_training_label
 from neuralls.shared.digest import canonical_digest
 
 
@@ -204,6 +206,24 @@ def test_run_assignment_fails_cleanly_when_dataset_was_never_generated(
     assert result.status == "Failed"
     assert result.error is not None
     prepare_training_settings.assert_not_called()
+
+
+def test_a_failed_assignment_is_logged_by_its_training_presentation(
+    tmp_path: Path, training_presentation: TrainingPresentation
+) -> None:
+    """The failure line and the result both describe what was being trained, not an id."""
+    messages: list[str] = []
+    sink_id = logger.add(lambda message: messages.append(message.record["message"]), level="ERROR")
+    try:
+        with patch.object(training_batch, "load_data_config", side_effect=ValueError("no config")):
+            result = _run(tmp_path, training_presentation, assignment_id="exp-secret-9")
+    finally:
+        logger.remove(sink_id)
+
+    assert isinstance(result, AssignmentResult)
+    assert result.presentation is training_presentation
+    assert messages == [f"{render_training_label(training_presentation)} failed: no config"]
+    assert "exp-secret-9" not in messages[0]
 
 
 def test_each_assignment_is_looked_up_under_its_own_derived_identity(

@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import pytest
+from loguru import logger
+
 from neuralls.composition.assignments.presentation_preflight import prepare_comparison_presentation
+from neuralls.composition.comparison import group_reporting
 from neuralls.composition.comparison.group_reporting import report_all_levels
 from neuralls.composition.comparison.models import CompletedMethodWorkload
 from neuralls.domain.presentation.methods import ExecutedMethod
@@ -19,8 +23,9 @@ from neuralls.domain.solver.models import (
     SystemTag,
 )
 from neuralls.domain.solver.models.figure_scope import AllDatasetsScope, DatasetScope, RecipeScope
-from neuralls.domain.solver.models.group_outcomes import GroupAggregated
+from neuralls.domain.solver.models.group_outcomes import GroupAggregated, GroupSkippedAllCacheHit
 from neuralls.domain.solver.models.group_presentation import GroupPresentation, SolverTimingContext
+from neuralls.domain.solver.models.labels import FineLabel, render_group_id
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.platform.config.models.preconditioner import (
     AggregationCoarseningConfig,
@@ -318,3 +323,30 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
         "AMG (L=2, θ=0.25, ν₁=2, ν₂=2, ωₛ=auto)",
         "AMG (L=2, θ=0.5, ν₁=2, ν₂=2, ωₛ=auto)",
     ]
+
+
+def test_a_skipped_group_is_named_by_its_scope_not_its_group_id(
+    monkeypatch: pytest.MonkeyPatch,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+) -> None:
+    label = FineLabel(dataset=DatasetId("ds"), recipe="gaussian")
+    skipped = GroupSkippedAllCacheHit(
+        group_id=render_group_id(label), label=label, n_planned_rhs=3, n_matrices=1
+    )
+    monkeypatch.setattr(group_reporting, "classify_level", lambda *args, **kwargs: (skipped,))
+    messages: list[str] = []
+    sink_id = logger.add(
+        lambda message: messages.append(message.record["message"]), level="WARNING"
+    )
+    try:
+        report_all_levels(
+            (), RecordingSink(), datasets=group_datasets, notation=NotationPolicy.default()
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert messages[0] == (
+        "Test problem | Gaussian CG Residuals (k=20, N=100) - gaussian: "
+        "no canonical setup events among 3 planned systems."
+    )
+    assert "fine/" not in messages[0]

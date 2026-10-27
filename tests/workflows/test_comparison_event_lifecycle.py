@@ -196,6 +196,11 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
     assert isinstance(summary, IncompleteWorkloadSummary)
     assert summary.n_attempted_rhs == 0
     assert len(messages) == 1
+    assert (
+        "setup failure for Jacobi on Test problem | Gaussian CG Residuals (k=20, N=100)"
+        in (messages[0])
+    )
+    assert str(method.name) not in messages[0]
 
 
 @pytest.mark.parametrize(

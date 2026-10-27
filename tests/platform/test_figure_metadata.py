@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import pytest
 
+from neuralls.domain.benchmarking.selection import ConfiguredReference
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.figure_scope import (
     FigureScope,
@@ -27,6 +28,7 @@ from neuralls.platform.reporting.figure_metadata import (
 )
 from neuralls.platform.storage.facts_codec import decode_figure_scope
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
+from neuralls.shared.types import PreconditionerName
 
 
 def _metadata(scope: FigureScope) -> FigureMetadata:
@@ -207,3 +209,23 @@ def test_manifest_validates_plans_before_upload(scope: RecipeScope) -> None:
     manifest.add_plan(FigurePlan("first.png", "Title", metadata))
     with pytest.raises(ValueError):
         manifest.validate_plans((FigurePlan("first.png", "Title", metadata),))
+
+
+def test_manifest_keeps_machine_ids_in_id_fields_and_the_reference_as_a_kind(
+    scope: RecipeScope, notation: NotationPolicy
+) -> None:
+    from dataclasses import replace
+
+    manifest = FigureManifest()
+    metadata = replace(
+        _metadata(scope), reference_selection=ConfiguredReference(PreconditionerName("jacobi-7"))
+    )
+    manifest.add("performance_profile_fine_x_online.png", metadata)
+
+    stored = _entry(manifest, notation)
+
+    assert stored["dataset_ids"] == ["Dataset X"]
+    assert stored["reference_selection"] == "configured"
+    assert stored["reference_method_id"] == "jacobi-7"
+    assert "datasets" not in stored
+    assert "jacobi-7" not in str(stored["scope"])

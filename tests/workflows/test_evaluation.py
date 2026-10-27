@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +22,7 @@ from neuralls.composition.assignments.evaluation import (
     PreparedEvaluation,
     _as_inference_job,
     _finalize_eval_child,
+    _make_label_map,
     _materialize_inference_settings,
     _with_eval_runtime_dataset,
     eval_batch,
@@ -39,6 +41,7 @@ from neuralls.platform.tracking.evaluation_artifacts import (
     TrainingConfigArtifacts,
     TrainingEvaluationArtifacts,
 )
+from neuralls.platform.tracking.run_names import render_training_label
 
 SPLIT_ARTIFACT_PATH = "splits/split.json"
 
@@ -454,3 +457,38 @@ def test_finalize_eval_child_saves_outputs_and_tags_run(
     metrics_file = tmp_path / "eval" / "assign-ok" / "metrics" / "evaluation_metrics.json"
     assert metrics_file.exists()
     assert mock_client.set_tag.called
+
+
+def test_eval_report_labels_bars_and_label_map_by_training_presentation(
+    tmp_path: Path, training_presentation_of: Callable[[str], TrainingPresentation]
+) -> None:
+    results = [
+        EvaluationRunResult(
+            assignment_id="a-17",
+            presentation=training_presentation_of("Alpha"),
+            training_run_id="train-1",
+            evaluation_run_id="eval-1",
+            metrics={"mae": 0.2},
+            split_file=tmp_path / "split.json",
+            split_artifact_path=SPLIT_ARTIFACT_PATH,
+            figures_dir=tmp_path / "figures",
+        )
+    ]
+    batch = EvaluationBatchResult(
+        results=results,
+        label_map=_make_label_map(results),
+        output_dir=tmp_path,
+        tracking_uri="sqlite:///unused.db",
+        parent_run_id="parent-run-1",
+    )
+
+    with (
+        patch("neuralls.composition.assignments.evaluation.plot_method_bars") as plot_fn,
+        patch("neuralls.composition.assignments.evaluation.log_batch_artifacts_to_mlflow"),
+    ):
+        write_eval_metric_report(batch, metric="mae")
+
+    expected = render_training_label(results[0].presentation)
+    assert plot_fn.call_args.args[0].label("a-17") == expected
+    assert batch.label_map["a-17"]["assignment_label"] == expected
+    assert "a-17" not in expected

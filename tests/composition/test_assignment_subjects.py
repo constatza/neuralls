@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -12,13 +13,16 @@ from dlkit.infrastructure.config.job_config import FitJobConfig, TrainingJobConf
 from neuralls.composition.assignments import assignment_subjects
 from neuralls.composition.assignments.assignment_subjects import (
     AssignmentInputs,
+    IndistinguishableTrainingError,
     case_notation,
+    require_distinct_training_labels,
     training_presentations,
     training_subject,
 )
 from neuralls.domain.presentation.methods import DatasetQualifiedMethodPresentation
 from neuralls.domain.presentation.run_names import (
     EditorialTrainingSubject,
+    TrainingPresentation,
     TrainingRunName,
     Untimed,
 )
@@ -154,3 +158,22 @@ def test_presentations_are_built_for_every_named_assignment_with_the_case_notati
 
     assert set(built) == {"fit_job_1"}
     assert built["fit_job_1"].notation == case_notation(cfg)
+
+
+def test_assignments_that_render_alike_are_rejected_before_any_run_opens(
+    training_presentation_of: Callable[[str], TrainingPresentation],
+) -> None:
+    same = training_presentation_of("POD-2G")
+
+    with pytest.raises(IndistinguishableTrainingError, match="POD-2G"):
+        require_distinct_training_labels(
+            {"first": same, "second": training_presentation_of("POD-2G")}
+        )
+
+
+def test_assignments_with_different_models_are_distinct(
+    training_presentation_of: Callable[[str], TrainingPresentation],
+) -> None:
+    require_distinct_training_labels(
+        {"first": training_presentation_of("POD-2G"), "second": training_presentation_of("FNO")}
+    )

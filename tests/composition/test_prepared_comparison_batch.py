@@ -19,6 +19,7 @@ from neuralls.composition.comparison.models import (
     MatrixRef,
     PlannedSystem,
 )
+from neuralls.composition.tracking.run_specs import build_comparison_run_spec
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import (
     MethodPresentationCandidate,
@@ -37,8 +38,10 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
+from neuralls.platform.tracking.run_names import run_name_text
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.models import ScientificDescription
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import MatrixId, PreconditionerName
 
 type PlannedFactory = Callable[[str], PlannedSystem]
@@ -195,3 +198,21 @@ def test_execution_accepts_an_editorial_title_regardless_of_scope(
     editorial = EditorialPresentation("Spectral study")
 
     assert replace(base, title=editorial).title == editorial
+
+
+def test_the_execution_run_name_is_the_name_mlflow_gives_the_run(
+    planned_system: PlannedFactory, execution: ExecutionFactory
+) -> None:
+    prepared = execution(planned_system("a"))
+    prepared.cfg.notation_policy = NotationPolicy.default()
+
+    opened, _tags = build_comparison_run_spec(
+        entry=prepared.entry,
+        planned=prepared.planned,
+        title=prepared.title,
+        notation=prepared.cfg.notation_policy,
+        include_timestamp=False,
+    )
+
+    assert prepared.run_name == opened
+    assert run_name_text(prepared.run_name) == run_name_text(opened)
