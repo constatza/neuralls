@@ -57,22 +57,28 @@ assignment ids are job-first (`{job_id}-{dataset_id}`) and comparison ids derive
 the dataset ids. A missing `display_name` stays absent; it is an explicit editorial
 title or nothing, and a title is never rebuilt from registry ids (composition
 composes it from the dataset's recorded presentation instead).
-Preconditioner labels are rendered from the structured descriptions in
+Preconditioner descriptions are structured values built in
 `composition/preconditioners/descriptions.py` (see the composition README):
 every algorithmic parameter is shown, including defaults, and neural variants
 are distinguished by a validated `architecture` name (set on the `[[jobs]]` entry,
 `JobEntry.architecture`, separate from its free-text training `display_name`),
-never by assignment identity, job title or class name. Workflow provenance is added separately:
-POD-2G labels append the fit-dataset id after ``|`` so equal-rank bases fitted
-on different datasets remain explicit, while the plotting API keeps result
-keys and display labels as separate mappings. Human-readable labels are never
-used as result identity, so duplicate display text cannot overwrite curves;
-composition disambiguates such text with the stable result key. Horizontal
-metric plots place the first result at the top, matching convergence-legend and
-configuration order while keeping each value paired with the same result key.
-When method-major execution projects compatibility figures after releasing
-prepared objects, the same family/configured-fact, notation, and POD provenance
-helpers render the stable configured portion of each label without rebuilding.
+never by assignment identity, job title or class name. A POD-2G method carries
+its fit dataset's recorded presentation (never an id or path), which the renderer
+appends once after ``|``. The plotting API takes the typed presentation, not
+text: `platform/reporting/figure_text.py` renders legend entries, bar labels,
+titles and subtitles at the moment a figure is drawn. `method_legend` renders
+every method's compact presentation under the case's `NotationPolicy`; methods
+whose texts would collide only because decimals were rounded are re-rendered
+with more digits, and a method with no entry raises
+`MissingMethodPresentationError` instead of falling back to its key. The length
+limit (`LEGEND_PROFILE.max_length`) controls layout only: lines break at the
+renderer's safe boundaries (`wrap_at_boundaries`), and a legend that wraps or has
+more than a handful of entries moves outside the axes in as many columns as its
+lines need (`Legend.layout`); no fact is dropped. Result keys and plot styles stay
+keyed by the stable result key. Horizontal metric plots place the first result
+at the top, matching convergence-legend and configuration order while keeping
+each value paired with the same result key. The non-method-major projection uses
+the `PreparedComparisonPresentation` built at preflight, never the configs again.
 Every comparison run writes two convergence figures with identical styling:
 relative residual `||r||/||b||` (`plot_convergence_comparison`) and relative
 energy-norm error `||e_k||_A/||e_0||_A` (`plot_error_convergence_comparison`,
@@ -104,8 +110,9 @@ The failure-aware functions in `outcome_plots.py` use that same resolution throu
 two public helpers in `plots.py`: `group_series_styles` (per-preconditioner
 colour, marker and linestyle from the recorded families and colour/marker keys)
 and `finish_group_figure` (title, subtitle, save, close). A preconditioner thus
-looks the same in every plot. Their legends use the scientific label rather
-than the config name and append explicit success counts. The per-run convergence plots also come in solve-only variants
+looks the same in every plot. Their legends are rendered from the group's method presentations
+(`GroupStyle.legend`) and append explicit success counts; a `GroupStyle` is the fixed
+title, the typed `scope` (rendered as the subtitle), the legend and the series style maps. The per-run convergence plots also come in solve-only variants
 (`solve_only=True`) whose curves all start at t=0. `MLflowGroupReportSink.report`
 takes the aggregated group plus a `GroupPresentation` and names artifacts by the
 sanitized group id.
@@ -117,14 +124,11 @@ is available.
 `outcome_plots.py` draws the per-system outcome plots from
 `domain.benchmarking.profiles` and `domain.benchmarking.paired`; every function takes a
 required `save_path` and returns it, or `None` when nothing was drawn, and a
-`GroupStyle` (title, subtitle, and label/family/colour/marker mappings that
-default to empty). A failed run is never given a time:
+`GroupStyle` (fixed title, typed scope, notation, legend and the family/colour/marker mappings). A failed run is never given a time:
 
 - `plot_online_time_bars` (`solve_time_bars_*`, `online_time_bars_*`): method
   workload totals with separate solve-only and setup-plus-solve scenarios.
-  Numeric bar positions preserve every method even if a defensive caller
-  supplies colliding display labels; normal reporting disambiguates such labels
-  with concise config identities.
+  Numeric bar positions pair each bar with its method; the legend guarantees distinct texts.
 - `plot_paired_time_scatter` (`paired_time_scatter_*`): amortized online times of each method against the
   reference; hollow markers sit on the axis of the run that failed, and a
   reference run that solved without a comparable time is not drawn as failed.
@@ -141,9 +145,9 @@ default to empty). A failed run is never given a time:
   remain available separately; no Wilcoxon p-value is reported.
 
 `MLflowGroupReportSink` logs planned, attempted, and converged counts plus the
-failure-aware paired fields. Its typed plans are also the single source of
-visible title/subtitle text, stable filenames, timing scenarios, and manifest
-metadata. Global metadata retains every dataset, recipe population/weight, and
+failure-aware paired fields. Its typed plans (`FigurePlan`: editorial title plus the `FigureMetadata` scope) are also the single source of
+figure scope, stable filenames, timing scenarios, and manifest
+metadata. The figure manifest stores each scope as keys and typed values (`facts_codec.encode_figure_scope`) beside its plain rendered `display` text; file names stay machine-safe ids. Global metadata retains every dataset, recipe population/weight, and
 the actual solver, normalization, and timing-repeat settings; method-child
 history figures are registered with unique method-qualified ownership. Raw
 benchmark events and method summaries become

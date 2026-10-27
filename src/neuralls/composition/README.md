@@ -288,20 +288,22 @@ algorithmic parameter with defaults included, seeds for aSA/BAMG, scheduling
 controls only when non-default, a neural model's validated `architecture` name, taken only from the job registry entry's `architecture`, never its `display_name` title) and
 *realized* facts read from the constructed `torchalg` object (the realized coarse
 dimension and, for aSA/BAMG, the realized level count). No fact is dropped for
-length; `composition.preconditioners.labels` renders the text under the case's
-`notation_policy` (`[comparison_baseline.presentation]`, threaded from
-`ComparisonConfig` through `compare_preconditioners`) for the workflow until
-plots and tracking consume the structured objects directly. Composition supplies only workflow provenance: for POD-2G it appends the fit
-dataset id, producing labels such as ``POD-2G (c=10) | gaussian-cg10-...``.
+length. Figures render the structured objects under the case's
+`notation_policy` (`[comparison_baseline.presentation]`, carried to the sinks as
+`ComparisonPresentation.notation` and the sinks' constructor argument), at the
+final Matplotlib call (`platform/reporting/figure_text.py`). Composition supplies
+only workflow provenance: a POD-2G method carries its fit dataset's presentation.
 `composition.comparison._plots` keeps solver results and style metadata keyed by
-their original preconditioner key and passes display labels in a separate
-mapping; it never re-keys results by presentation text. Assignment-generated
+their original preconditioner key and passes a typed `Legend`; it never re-keys
+results by presentation text. Assignment-generated
 preconditioners use the unique assignment id as that key, never the optional
 display name. The batch boundary rejects duplicate keys before checkpoint
 resolution, and execution rejects missing, duplicate, or unexpected evaluation
 entries as well as a solver result carrying the wrong key. Two methods
-whose legend text is identical raise `DuplicateMethodPresentationError` at
-group reporting; no stable key is ever appended to a label. This keeps labels
+with identical compact structured facts raise `DuplicateMethodPresentationError`
+at preflight, before any run opens; no stable key is ever appended to a label.
+Group reporting takes the dataset presentations (`report_all_levels(datasets=...)`)
+and states each group's scope as a typed `GroupScope`. This keeps labels
 truthful to what was built, distinguishes equal-rank bases fitted on different
 datasets, and preserves a one-to-one mapping even when generation/training is
 skipped or one model cannot be resolved.
