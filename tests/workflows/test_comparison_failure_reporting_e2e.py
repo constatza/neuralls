@@ -232,7 +232,7 @@ def test_recoverable_setup_failure_warns_persists_and_allows_later_method(
         [experiment.experiment_id], filter_string="tags.phase = 'comparison_method'"
     )
     assert {run.info.status for run in children} == {"FINISHED"}
-    by_method = {run.data.params["method"]: run for run in children}
+    by_method = {run.data.tags["method_id"]: run for run in children}
     assert by_method["identity"].data.metrics["n_setup_failed"] == 2.0
     assert by_method["identity"].data.tags["workload_outcome"] == "completed_with_failures"
     assert by_method["jacobi"].data.metrics["n_setup_failed"] == 0.0

@@ -309,18 +309,18 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
     ]
     session_artifacts = set(session_artifact_names)
     assert session_artifact_names.count("figure_manifest.toml") == 1
-    for level in ("fine_benchmark_gaussian", "medium_benchmark", "global"):
+    for level in ("fine_benchmark_gaussian_m0.0_s1.0", "medium_benchmark", "global"):
         assert {
             f"aggregate_bars_{level}.png",
             f"solve_time_bars_{level}.png",
             f"online_time_bars_{level}.png",
         } <= session_artifacts
     assert {
-        "performance_profile_solve_fine_benchmark_gaussian.png",
-        "performance_profile_online_fine_benchmark_gaussian.png",
-        "ecdf_iterations_fine_benchmark_gaussian.png",
-        "ecdf_time_solve_fine_benchmark_gaussian.png",
-        "ecdf_time_online_fine_benchmark_gaussian.png",
+        "performance_profile_solve_fine_benchmark_gaussian_m0.0_s1.0.png",
+        "performance_profile_online_fine_benchmark_gaussian_m0.0_s1.0.png",
+        "ecdf_iterations_fine_benchmark_gaussian_m0.0_s1.0.png",
+        "ecdf_time_solve_fine_benchmark_gaussian_m0.0_s1.0.png",
+        "ecdf_time_online_fine_benchmark_gaussian_m0.0_s1.0.png",
     } <= session_artifacts
     assert not any(
         name.startswith(("performance_profile_", "ecdf_")) and "_fine_" not in name
