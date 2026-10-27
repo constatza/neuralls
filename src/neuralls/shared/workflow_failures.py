@@ -32,6 +32,7 @@ class ComparisonMatrixPhase(StrEnum):
     """Blocking phases tied to one method/matrix pair."""
 
     INPUT_LOADING = "input_loading"
+    REALIZED_FACT_CAPTURE = "realized_fact_capture"
 
 
 @dataclass(frozen=True, slots=True)

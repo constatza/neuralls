@@ -13,7 +13,10 @@ import torch
 from torchalg.preconditioners.base import Preconditioner
 
 from neuralls.composition.comparison import _preconditioner_setup, comparison_run
-from neuralls.composition.comparison._preconditioner_setup import PreconditionerService
+from neuralls.composition.comparison._preconditioner_setup import (
+    PreconditionerService,
+    RealizedFactCaptureError,
+)
 from neuralls.composition.comparison.group_reporting import report_all_levels
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
@@ -53,6 +56,7 @@ from neuralls.shared.scientific_description.models import (
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
+from neuralls.shared.workflow_failures import ComparisonMatrixFailureContext, ComparisonMatrixPhase
 from tests.presentation_support import PreparedMethodFactory
 
 
@@ -500,3 +504,38 @@ def test_workload_rejects_realizations_of_systems_it_did_not_plan(
 
     with pytest.raises(ValueError, match="did not plan"):
         replace(workload, presentation=ExecutedMethod(workload.presentation.prepared, (foreign,)))
+
+
+def test_a_labelling_failure_is_loud_and_names_the_method_and_matrix(
+    counters: _Counters,
+    monkeypatch: pytest.MonkeyPatch,
+    method: ResolvedMethod,
+    matrix_bundles: tuple[MatrixWorkload, MatrixWorkload],
+    solver_params: SolverParams,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+) -> None:
+    boom = RuntimeError("cannot read hierarchy")
+
+    def failing(precond: Preconditioner) -> tuple[ScientificFact, ...]:
+        raise boom
+
+    monkeypatch.setattr(_preconditioner_setup, "describe_realized_preconditioner", failing)
+
+    with pytest.raises(RealizedFactCaptureError) as raised:
+        _execute(
+            method,
+            matrix_bundles,
+            prepared_method(str(method.name)),
+            solver_params,
+            neuralls_settings,
+        )
+
+    assert raised.value.__cause__ is boom
+    assert raised.value.context == ComparisonMatrixFailureContext(
+        phase=ComparisonMatrixPhase.REALIZED_FACT_CAPTURE,
+        method=PreconditionerName(str(method.name)),
+        dataset=DatasetId("ds"),
+        matrix_id=MatrixId(1),
+    )
+    assert "cannot read hierarchy" in str(raised.value)

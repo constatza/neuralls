@@ -286,7 +286,7 @@ def aggregation_amg(tridiag_spd_matrix: torch.Tensor) -> AMGPreconditioner:
     cycle = VCycle(smoother=JacobiSmoother(omega=0.67), n_pre=2, n_post=2)
     return AMGPreconditioner(
         tridiag_spd_matrix, coarsening=AggregationCoarsening(omega=0.67), cycle=cycle, n_levels=2
-    )
+    ).setup(tridiag_spd_matrix)
 
 
 @pytest.fixture

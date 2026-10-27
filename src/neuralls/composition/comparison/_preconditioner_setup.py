@@ -35,7 +35,8 @@ from neuralls.platform.storage.training_artifacts import (
     load_array_source_sample,
     load_training_arrays,
 )
-from neuralls.shared.types import MatrixId
+from neuralls.shared.types import MatrixId, PreconditionerName
+from neuralls.shared.workflow_failures import ComparisonMatrixFailureContext, ComparisonMatrixPhase
 
 if TYPE_CHECKING:
     from torchalg.preconditioners.ports import PredictorAdapter
@@ -314,16 +315,43 @@ class PreconditionerService:
         )
 
 
+class RealizedFactCaptureError(RuntimeError):
+    """Reading the realized facts of a built preconditioner failed.
+
+    This is a labelling failure, not a scientific outcome of the method: it is never turned
+    into a setup failure, and it stops the workload rather than letting solves continue
+    under a legend that lacks their realized facts. ``context`` names the method and matrix.
+    """
+
+    def __init__(self, context: ComparisonMatrixFailureContext, cause: Exception) -> None:
+        self.context = context
+        super().__init__(f"Realized facts could not be read ({context!r}): {cause}")
+
+
 def capture_system_realizations(
-    preconditioner: Preconditioner, bundle: MatrixWorkload
+    preconditioner: Preconditioner, method: PreconditionerName, bundle: MatrixWorkload
 ) -> tuple[SystemRealization, ...]:
     """Read the facts only the built object knows, once for the matrix and all its systems.
 
     Setup already produced ``preconditioner``; reading it adds no setup. Every sibling RHS
     system shares the object, so they share its facts, and only these plain facts outlive
     it once the caller releases the preconditioner.
+
+    Raises:
+        RealizedFactCaptureError: If the facts cannot be read, with the method and matrix.
     """
-    facts = describe_realized_preconditioner(preconditioner)
+    try:
+        facts = describe_realized_preconditioner(preconditioner)
+    except Exception as exc:
+        raise RealizedFactCaptureError(
+            ComparisonMatrixFailureContext(
+                phase=ComparisonMatrixPhase.REALIZED_FACT_CAPTURE,
+                method=method,
+                dataset=bundle.dataset,
+                matrix_id=bundle.matrix_id,
+            ),
+            exc,
+        ) from exc
     return tuple(
         SystemRealization(member.tag.system_id, bundle.matrix_id, facts)
         for member in bundle.members

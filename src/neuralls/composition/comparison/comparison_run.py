@@ -493,7 +493,11 @@ def _execute_matrix_bundle(
             return
 
         scheduled = timed_setup.value
-        realizations.extend(capture_system_realizations(scheduled[method.name], bundle))
+        realizations.extend(
+            capture_system_realizations(
+                scheduled[method.name], PreconditionerName(method.name), bundle
+            )
+        )
         setup_events.append(
             MatrixSetupEvent(
                 event_id=event_id,
