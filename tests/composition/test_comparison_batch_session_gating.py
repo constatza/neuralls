@@ -34,8 +34,11 @@ from neuralls.shared.workflow_failures import (
     ComparisonBatchFailureContext,
     ComparisonBatchPhase,
 )
-from tests.workflows.comparison_support import MLFLOW_MODULE
-from tests.workflows.test_comparison_workflow import _mock_cfg, _write_experiments_config
+from tests.workflows.comparison_support import (
+    MLFLOW_MODULE,
+    mock_cfg,
+    write_experiments_config,
+)
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
@@ -43,7 +46,7 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
     tmp_path: Path,
 ) -> None:
     experiments_config = tmp_path / "experiments.toml"
-    _write_experiments_config(experiments_config, with_comparisons=True)
+    write_experiments_config(experiments_config, with_comparisons=True)
 
     def _fake_prepare_entry(
         cfg: object,
@@ -64,7 +67,7 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
         ),
         patch(
             "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
-            return_value=_mock_cfg(),
+            return_value=mock_cfg(),
         ),
         patch(MLFLOW_MODULE) as mock_mlflow,
     ):
@@ -80,7 +83,7 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
     prepared_presentation: PreparedComparisonPresentation,
 ) -> None:
     experiments_config = tmp_path / "experiments.toml"
-    _write_experiments_config(experiments_config, with_comparisons=True)
+    write_experiments_config(experiments_config, with_comparisons=True)
 
     def _fake_prepare_entry(
         cfg: object,
@@ -115,7 +118,7 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
         ),
         patch(
             "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
-            return_value=_mock_cfg(),
+            return_value=mock_cfg(),
         ),
         patch(
             "neuralls.composition.assignments.comparison_batch._has_complete_reusable_session",
@@ -148,7 +151,7 @@ def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
     prepared_presentation: PreparedComparisonPresentation,
 ) -> None:
     experiments_config = tmp_path / "experiments.toml"
-    _write_experiments_config(experiments_config, with_comparisons=True)
+    write_experiments_config(experiments_config, with_comparisons=True)
     original = RuntimeError("injected method failure")
     failure_sink = MagicMock()
 
@@ -181,7 +184,7 @@ def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
         ),
         patch(
             "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
-            return_value=_mock_cfg(),
+            return_value=mock_cfg(),
         ),
         patch(
             "neuralls.composition.assignments.comparison_batch._has_complete_reusable_session",

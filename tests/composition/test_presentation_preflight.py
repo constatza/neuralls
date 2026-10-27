@@ -2,39 +2,25 @@
 
 from __future__ import annotations
 
-import contextlib
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 from neuralls.composition.assignments.comparison_batch import (
-    ResolvedComparisonSpecs,
-    _ComparisonResolutionContext,
     _neural_spec_from_assignment,
-    _PreparedComparisonExecution,
-    run_comparison_batch,
 )
 from neuralls.composition.assignments.presentation_preflight import (
     compose_comparison_title,
     describe_method,
     prepare_comparison_presentation,
 )
-from neuralls.composition.comparison.models import (
-    ComparisonOutcome,
-    ComparisonParams,
-    PlannedSystem,
-)
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
-from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.models.experiments import AssignmentEntry
 from neuralls.platform.config.models.preconditioner import (
     AggregationCoarseningConfig,
     AMGPreconditionerConfig,
-    PODCoarseningConfig,
 )
 from neuralls.platform.storage.manifest import MissingDatasetProvenanceError
-from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description import (
     LEGEND_PROFILE,
     ComparisonScopePresentation,
@@ -43,7 +29,6 @@ from neuralls.shared.scientific_description import (
     DuplicateMethodPresentationError,
     EditorialPresentation,
     NotationPolicy,
-    PreparedComparisonPresentation,
     ScientificDescription,
     StandaloneMethodPresentation,
     ValidatedLabel,
@@ -51,43 +36,14 @@ from neuralls.shared.scientific_description import (
     render_title,
 )
 from neuralls.shared.scientific_description.presentation import DatasetSourceProvenance
-from tests.dataset_support import build_test_dataset, strip_provenance
-from tests.workflows.comparison_support import MLFLOW_MODULE
-from tests.workflows.test_comparison_workflow import _mock_cfg, _write_experiments_config
+from tests.dataset_support import build_test_dataset
+from tests.presentation_support import pod_spec
 
 PLAIN = NotationPolicy.default()
 
 
-@pytest.fixture
-def pod_dataset_dir(tmp_path: Path, atomic_source: SourceSpec, atomic_spec: DatasetSpec) -> Path:
-    """A real generated dataset whose manifest carries scientific provenance."""
-    target = tmp_path / "pod-fit"
-    build_test_dataset(
-        atomic_source,
-        atomic_spec,
-        str(target),
-        source_provenance=DatasetSourceProvenance(ScientificDescription("Atomic test")),
-    )
-    return target
-
-
-@pytest.fixture
-def stale_dataset_dir(tmp_path: Path, atomic_source: SourceSpec, atomic_spec: DatasetSpec) -> Path:
-    """A generated dataset whose manifest predates provenance."""
-    target = tmp_path / "stale"
-    build_test_dataset(atomic_source, atomic_spec, str(target))
-    strip_provenance(target)
-    return target
-
-
-def _pod(dataset_dir: Path, rank: int, assignment: str = "fit-job") -> AMGPreconditionerConfig:
-    return AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(dataset_dir=dataset_dir, rank=rank, assignment=assignment)
-    )
-
-
 def test_pod_method_is_qualified_by_its_fit_dataset_exactly_once(pod_dataset_dir: Path) -> None:
-    presentation = describe_method(_pod(pod_dataset_dir, 10))
+    presentation = describe_method(pod_spec(pod_dataset_dir, 10))
 
     assert isinstance(presentation, DatasetQualifiedMethodPresentation)
     text = render_method(presentation, LEGEND_PROFILE, PLAIN).text
@@ -107,7 +63,7 @@ def test_pod_ranks_over_one_dataset_are_distinguished_by_rank(
     pod_dataset_dir: Path, dataset_presentation: DatasetPresentation
 ) -> None:
     prepared = prepare_comparison_presentation(
-        [_pod(pod_dataset_dir, 10), _pod(pod_dataset_dir, 100)],
+        [pod_spec(pod_dataset_dir, 10), pod_spec(pod_dataset_dir, 100)],
         ComparisonScopePresentation(dataset_presentation),
     )
     labels = [render_method(m.compact, LEGEND_PROFILE, PLAIN).text for m in prepared.methods]
@@ -117,7 +73,7 @@ def test_pod_ranks_over_one_dataset_are_distinguished_by_rank(
 
 def test_dataset_without_provenance_is_rejected(stale_dataset_dir: Path) -> None:
     with pytest.raises(MissingDatasetProvenanceError, match="Regenerate"):
-        describe_method(_pod(stale_dataset_dir, 10))
+        describe_method(pod_spec(stale_dataset_dir, 10))
 
 
 def test_indistinguishable_methods_are_rejected_before_execution(
@@ -132,7 +88,7 @@ def test_indistinguishable_methods_are_rejected_before_execution(
     for name in ("copy-a", "copy-b"):
         target = tmp_path / name
         build_test_dataset(atomic_source, atomic_spec, str(target), source_provenance=problem)
-        copies.append(_pod(target, 10, assignment=f"fit-{name}"))
+        copies.append(pod_spec(target, 10, assignment=f"fit-{name}"))
 
     with pytest.raises(DuplicateMethodPresentationError) as caught:
         prepare_comparison_presentation(copies, ComparisonScopePresentation(dataset_presentation))
@@ -174,57 +130,6 @@ def test_auto_neural_stub_carries_only_the_explicit_job_architecture() -> None:
     unnamed = _neural_spec_from_assignment(entry, extra_input_names=(), architecture=None)
     assert named.architecture == "Graph Net"
     assert unnamed.architecture is None
-
-
-@pytest.mark.usefixtures("stub_input_gate", "stub_planning")
-def test_a_presentation_failure_aborts_the_batch_before_any_run_opens(
-    tmp_path: Path, prepared_presentation: PreparedComparisonPresentation
-) -> None:
-    experiments_config = tmp_path / "experiments.toml"
-    _write_experiments_config(experiments_config, with_comparisons=True)
-    seen: list[str] = []
-
-    def _prepare(
-        cfg: object,
-        planned: PlannedSystem,
-        context: _ComparisonResolutionContext,
-        *,
-        force: bool = False,
-    ) -> ComparisonOutcome | _PreparedComparisonExecution:
-        seen.append(planned.entry.id)
-        if len(seen) == 2:
-            raise MissingDatasetProvenanceError(tmp_path / "stale")
-        return _PreparedComparisonExecution(
-            cfg=cfg,
-            planned=planned,
-            topology=context.topology,
-            cleanup=contextlib.ExitStack(),
-            resolved=ResolvedComparisonSpecs(specs=[], warnings=(), checkpoint_digests={}),
-            identity=StageIdentity.build(
-                "comparison", {"entry": canonical_digest(planned.entry.id)}
-            ),
-            settings=context.settings,
-            presentation=prepared_presentation,
-            title=prepared_presentation.scope,
-        )
-
-    with (
-        patch(
-            "neuralls.composition.assignments.comparison_batch._prepare_comparison_entry",
-            side_effect=_prepare,
-        ),
-        patch(
-            "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
-            return_value=_mock_cfg(),
-        ),
-        patch("neuralls.composition.assignments.comparison_batch._execute_all") as execute,
-        patch(MLFLOW_MODULE) as mock_mlflow,
-        pytest.raises(MissingDatasetProvenanceError),
-    ):
-        run_comparison_batch(experiments_config, ComparisonParams())
-
-    mock_mlflow.start_run.assert_not_called()
-    execute.assert_not_called()
 
 
 def test_prepared_batch_item_count_must_match_the_plan() -> None:

@@ -12,7 +12,10 @@ from neuralls.composition.generation import dense_streaming
 from neuralls.domain.generation.batch import SampleBatch
 from neuralls.domain.generation.sample_writer import SampleWriter
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.shared.scientific_description import ScientificDescription
+from neuralls.shared.scientific_description.presentation import DatasetSourceProvenance
 from neuralls.shared.types import DatasetFormat
+from tests.dataset_support import build_test_dataset, strip_provenance
 
 type JobWriter = Callable[..., Path]
 
@@ -140,3 +143,25 @@ def interrupt_writer(monkeypatch: pytest.MonkeyPatch) -> Callable[[int], None]:
         monkeypatch.setattr(dense_streaming, "SampleWriter", _InterruptedWriter)
 
     return _install
+
+
+@pytest.fixture
+def pod_dataset_dir(tmp_path: Path, atomic_source: SourceSpec, atomic_spec: DatasetSpec) -> Path:
+    """A real generated dataset whose manifest carries scientific provenance."""
+    target = tmp_path / "pod-fit"
+    build_test_dataset(
+        atomic_source,
+        atomic_spec,
+        str(target),
+        source_provenance=DatasetSourceProvenance(ScientificDescription("Atomic test")),
+    )
+    return target
+
+
+@pytest.fixture
+def stale_dataset_dir(tmp_path: Path, atomic_source: SourceSpec, atomic_spec: DatasetSpec) -> Path:
+    """A generated dataset whose manifest predates provenance."""
+    target = tmp_path / "stale"
+    build_test_dataset(atomic_source, atomic_spec, str(target))
+    strip_provenance(target)
+    return target
