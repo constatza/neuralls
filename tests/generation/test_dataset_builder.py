@@ -18,10 +18,10 @@ from neuralls.composition.generation.dataset_builder import (
 )
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.domain.identity import StageIdentity
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
 from neuralls.shared.digest import canonical_digest
-from neuralls.shared.scientific_description.presentation import DatasetPresentation
 from tests.dataset_support import build_test_dataset
 
 

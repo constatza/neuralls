@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME, REGENERATE_DATASETS_COMMAND
 from neuralls.shared.digest import Digest
-from neuralls.shared.scientific_description.presentation import DatasetPresentation
 from neuralls.shared.types import LayoutType, MatrixFormat
 
 

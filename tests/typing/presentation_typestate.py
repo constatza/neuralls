@@ -7,13 +7,13 @@ from __future__ import annotations
 
 from typing import assert_type
 
-from neuralls.domain.solver.presentation_planner import prepare_presentations, realize_method
-from neuralls.shared.scientific_description import (
+from neuralls.domain.presentation.methods import (
     PreparedComparisonPresentation,
     RealizedMethodPresentation,
     SystemRealization,
     UnvalidatedComparisonPresentation,
 )
+from neuralls.domain.presentation.planner import prepare_presentations, realize_method
 
 
 def execute(cohort: PreparedComparisonPresentation) -> None:

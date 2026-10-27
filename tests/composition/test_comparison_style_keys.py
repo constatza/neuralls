@@ -23,7 +23,7 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
-from neuralls.shared.scientific_description import NotationPolicy, RenderTarget
+from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
 
 
 @pytest.fixture

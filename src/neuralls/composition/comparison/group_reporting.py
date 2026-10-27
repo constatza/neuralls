@@ -14,6 +14,8 @@ from loguru import logger
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload
 from neuralls.domain.benchmarking.selection import NoReferenceConfigured, ReferenceSelection
+from neuralls.domain.presentation.methods import DuplicateMethodPresentationError
+from neuralls.domain.presentation.planner import prepared_of, realizations_of, reduce_realized_facts
 from neuralls.domain.solver.models.group_outcomes import (
     GroupAggregated,
     GroupSkippedAllCacheHit,
@@ -28,11 +30,6 @@ from neuralls.domain.solver.models.presentation import (
     SolverTimingContext,
 )
 from neuralls.domain.solver.ports import GroupReportSink
-from neuralls.domain.solver.presentation_planner import (
-    prepared_of,
-    realizations_of,
-    reduce_realized_facts,
-)
 from neuralls.domain.solver.reporting.classification import classify_level
 from neuralls.domain.solver.reporting.report_levels import (
     FineLevel,
@@ -40,7 +37,6 @@ from neuralls.domain.solver.reporting.report_levels import (
     MediumLevel,
     ReportLevel,
 )
-from neuralls.shared.scientific_description import DuplicateMethodPresentationError
 from neuralls.shared.types import PreconditionerName, SystemId
 
 __all__ = ["REPORT_LEVELS", "report_all_levels"]

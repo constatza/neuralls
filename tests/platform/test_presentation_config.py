@@ -6,7 +6,8 @@ import pytest
 from pydantic import ValidationError
 
 from neuralls.platform.config.models.presentation import ScientificLabelsConfig
-from neuralls.shared.scientific_description import FieldKey, RenderTarget
+from neuralls.shared.scientific_description.models import FieldKey
+from neuralls.shared.scientific_description.policy import RenderTarget
 
 
 def test_defaults_require_no_config() -> None:

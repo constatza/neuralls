@@ -1,22 +1,16 @@
 """Pydantic boundary config for scientific-description rendering.
 
 Converts TOML-sourced notation overrides into the pure
-``neuralls.shared.scientific_description`` policy types (``docs/plan.md``,
-"Rendering and notation configuration"). Complete defaults mean an ordinary
-config needs no ``[scientific_labels]`` section at all.
+``neuralls.shared.scientific_description.policy`` types. Complete defaults mean an
+ordinary config needs no ``[scientific_labels]`` section at all.
 """
 
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from neuralls.shared.scientific_description import (
-    DEFAULT_SYMBOLS,
-    FieldKey,
-    NotationPolicy,
-    RenderTarget,
-    SymbolSpec,
-)
+from neuralls.shared.scientific_description.models import FieldKey
+from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget, SymbolSpec
 
 __all__ = ["ScientificLabelsConfig", "SymbolOverride"]
 
@@ -52,12 +46,8 @@ class ScientificLabelsConfig(BaseModel):
 
     def notation_policy(self) -> NotationPolicy:
         """Convert this boundary config into the pure ``NotationPolicy``."""
-        if not self.symbols:
-            return NotationPolicy(target=self.rendering, symbols=DEFAULT_SYMBOLS)
         overrides = {
             FieldKey(name): SymbolSpec(plain=override.plain, math=override.math)
             for name, override in self.symbols.items()
         }
-        return NotationPolicy(target=self.rendering, symbols=DEFAULT_SYMBOLS).with_overrides(
-            overrides
-        )
+        return NotationPolicy.default(self.rendering).with_overrides(overrides)

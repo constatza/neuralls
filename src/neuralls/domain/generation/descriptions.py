@@ -38,18 +38,11 @@ from neuralls.domain.generation.strategy_configs import (
     UniformInverseConfig,
     ValidatedArchiveConfig,
 )
-from neuralls.shared.scientific_description import (
-    DAMPING,
-    DecimalFact,
-    FieldImportance,
-    FieldKey,
-    IntegerFact,
-    ScientificDescription,
-    ScientificFact,
-    TextFact,
-)
+from neuralls.domain.presentation.provenance import StrategyProvenance, StrategySeed
+from neuralls.domain.presentation.strategy_names import strategy_base_name
 from neuralls.shared.scientific_description.catalog import (
     CONSTANT_VALUE,
+    DAMPING,
     EIGENVALUE_SELECTION,
     EIGENVECTOR_COUNT,
     EIGENVECTOR_INCLUSION,
@@ -76,10 +69,14 @@ from neuralls.shared.scientific_description.catalog import (
     WINDOW_STRIDE,
     FactRole,
 )
-from neuralls.shared.scientific_description.presentation import (
-    StrategyProvenance,
-    StrategySeed,
-    strategy_base_name,
+from neuralls.shared.scientific_description.models import (
+    DecimalFact,
+    FieldImportance,
+    FieldKey,
+    IntegerFact,
+    ScientificDescription,
+    ScientificFact,
+    TextFact,
 )
 from neuralls.shared.types import GenerationStrategyKind
 

@@ -8,22 +8,23 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.shared.scientific_description import (
-    LEGEND_PROFILE,
-    LOG_PROFILE,
+from neuralls.shared.scientific_description.models import (
     DecimalFact,
     FieldImportance,
     FieldKey,
     IntegerFact,
+    ScientificDescription,
+    TextFact,
+)
+from neuralls.shared.scientific_description.policy import (
+    LEGEND_PROFILE,
+    LOG_PROFILE,
     NotationPolicy,
     RenderProfile,
     RenderTarget,
-    ScientificDescription,
     SymbolSpec,
-    TextFact,
-    render,
-    render_facts,
 )
+from neuralls.shared.scientific_description.render import render, render_facts
 
 ITERATION_COUNT = FieldKey("iteration_count")
 SAMPLE_COUNT = FieldKey("sample_count")
@@ -96,18 +97,9 @@ def test_symbol_override(cg_residuals_description: ScientificDescription) -> Non
     assert rendered.text == "CG Residuals (k_CG=15, N=500, w=uniform)"
 
 
-def test_field_order_override(cg_residuals_description: ScientificDescription) -> None:
-    """An explicit field order takes priority over the description's own order."""
-    profile = RenderProfile(
-        name="legend", include_context=False, field_order=(SAMPLE_COUNT, ITERATION_COUNT)
-    )
-    rendered = render(cg_residuals_description, profile, NotationPolicy.default())
-    assert rendered.text == "CG Residuals (N=500, k=15, w=uniform)"
-
-
 def test_precision_override() -> None:
     """A per-key precision override controls decimal formatting."""
-    from neuralls.shared.scientific_description import DecimalFact
+    from neuralls.shared.scientific_description.models import DecimalFact
 
     standard_deviation = FieldKey("standard_deviation")
     description = ScientificDescription(
@@ -148,7 +140,7 @@ def test_render_facts_has_no_base_name_or_parens() -> None:
 
 def test_render_facts_applies_precision_override() -> None:
     """``render_facts`` accepts the same per-key precision override as ``render``."""
-    from neuralls.shared.scientific_description import DecimalFact
+    from neuralls.shared.scientific_description.models import DecimalFact
 
     theta = FieldKey("threshold")
     facts = (DecimalFact(key=theta, value=0.25, importance=FieldImportance.ESSENTIAL),)

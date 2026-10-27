@@ -10,7 +10,7 @@ from neuralls.domain.generation.plan import canonicalize_strategy_kind
 from neuralls.domain.generation.runner import registered_config_type
 from neuralls.domain.generation.sample_writer import StrategyRowCount
 from neuralls.domain.generation.specs import DatasetSpec
-from neuralls.shared.scientific_description.presentation import (
+from neuralls.domain.presentation.provenance import (
     DatasetGenerationProvenance,
     DerivedSeed,
     ExplicitSeed,

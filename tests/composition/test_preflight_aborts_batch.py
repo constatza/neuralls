@@ -25,6 +25,9 @@ from neuralls.composition.assignments.comparison_batch import (
 from neuralls.composition.comparison.models import ComparisonParams
 from neuralls.composition.preconditioners.descriptions import MissingArchitectureNameError
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
+from neuralls.domain.presentation.methods import DuplicateMethodPresentationError
+from neuralls.domain.presentation.provenance import DatasetSourceProvenance
+from neuralls.domain.presentation.titles import ComparisonScopePresentation
 from neuralls.platform.config.models.experiments import CaseConfig
 from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
@@ -33,12 +36,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.storage.manifest import MissingDatasetProvenanceError
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
-from neuralls.shared.scientific_description import (
-    ComparisonScopePresentation,
-    DuplicateMethodPresentationError,
-    ScientificDescription,
-)
-from neuralls.shared.scientific_description.presentation import DatasetSourceProvenance
+from neuralls.shared.scientific_description.models import ScientificDescription
 from tests.dataset_support import build_test_dataset, strip_provenance
 from tests.presentation_support import pod_spec
 from tests.workflows.comparison_support import (

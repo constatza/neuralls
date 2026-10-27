@@ -36,7 +36,7 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
 )
 from neuralls.platform.config.settings import NeurallsSettings
-from neuralls.shared.scientific_description import NotationPolicy
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, SystemId
 from tests.presentation_support import PreparedMethodFactory
 

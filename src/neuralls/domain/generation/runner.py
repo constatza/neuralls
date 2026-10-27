@@ -9,7 +9,8 @@ from typing import Any, Literal, cast, overload
 import numpy as np
 from loguru import logger
 
-from neuralls.shared.scientific_description import LOG_PROFILE, NotationPolicy, render
+from neuralls.shared.scientific_description.policy import LOG_PROFILE, NotationPolicy
+from neuralls.shared.scientific_description.render import render
 from neuralls.shared.types import SystemMatrix
 
 from .descriptions import RESIDUAL_TRACE_STRATEGY_NAMES, describe_generation_result

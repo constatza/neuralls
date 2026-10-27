@@ -9,7 +9,8 @@ from neuralls.domain.generation.descriptions import (
     describe_generation_result,
     describe_residual_trace,
 )
-from neuralls.shared.scientific_description import LOG_PROFILE, NotationPolicy, render
+from neuralls.shared.scientific_description.policy import LOG_PROFILE, NotationPolicy
+from neuralls.shared.scientific_description.render import render
 
 
 def test_residuals_strategy_renders_canonical_example() -> None:

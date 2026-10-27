@@ -15,27 +15,22 @@ from neuralls.composition.assignments.presentation_preflight import (
     prepare_comparison_presentation,
 )
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
+from neuralls.domain.presentation.methods import (
+    DatasetQualifiedMethodPresentation,
+    DuplicateMethodPresentationError,
+    StandaloneMethodPresentation,
+)
+from neuralls.domain.presentation.provenance import DatasetPresentation, DatasetSourceProvenance
+from neuralls.domain.presentation.render import render_method, render_title
+from neuralls.domain.presentation.titles import ComparisonScopePresentation, EditorialPresentation
 from neuralls.platform.config.models.experiments import AssignmentEntry
 from neuralls.platform.config.models.preconditioner import (
     AggregationCoarseningConfig,
     AMGPreconditionerConfig,
 )
 from neuralls.platform.storage.manifest import MissingDatasetProvenanceError
-from neuralls.shared.scientific_description import (
-    LEGEND_PROFILE,
-    ComparisonScopePresentation,
-    DatasetPresentation,
-    DatasetQualifiedMethodPresentation,
-    DuplicateMethodPresentationError,
-    EditorialPresentation,
-    NotationPolicy,
-    ScientificDescription,
-    StandaloneMethodPresentation,
-    ValidatedLabel,
-    render_method,
-    render_title,
-)
-from neuralls.shared.scientific_description.presentation import DatasetSourceProvenance
+from neuralls.shared.scientific_description.models import ScientificDescription, ValidatedLabel
+from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
 from tests.dataset_support import build_test_dataset
 from tests.presentation_support import pod_spec
 

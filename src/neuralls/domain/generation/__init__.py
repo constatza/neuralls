@@ -26,12 +26,13 @@ Usage:
 
 from __future__ import annotations
 
+from neuralls.shared.types import NormalizeType
+
 # SOLID Architecture (Phases 1-2 complete)
 # Import strategies to trigger registration
 from . import providers, strategies, transforms
 from .archive_files import select_archive_files
 from .counts import rounded_counts
-from .data_types import NormalizeType
 from .orchestration import open_batch_stream
 from .plan import GenerationPlan, StrategySpec, parse_generation_plan
 from .runner import run_generation

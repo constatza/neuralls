@@ -17,18 +17,17 @@ from neuralls.composition.preconditioners.descriptions import (
     describe_realized_preconditioner,
 )
 from neuralls.platform.config.models.preconditioner import ConcretePreconditionerConfig
-from neuralls.shared.scientific_description import (
+from neuralls.shared.scientific_description.catalog import (
     ALGEBRAIC_DISTANCE_THRESHOLD,
     DAMPING,
     DROP_TOLERANCE,
-    LEGEND_PROFILE,
+    RANK,
     SMOOTHER_DAMPING,
     THRESHOLD,
-    NotationPolicy,
-    ScientificDescription,
-    render,
 )
-from neuralls.shared.scientific_description.catalog import RANK
+from neuralls.shared.scientific_description.models import ScientificDescription
+from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
+from neuralls.shared.scientific_description.render import render
 
 __all__ = [
     "build_configured_preconditioner_label",

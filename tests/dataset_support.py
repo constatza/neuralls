@@ -7,13 +7,13 @@ from functools import partial
 from pathlib import Path
 
 from neuralls.composition.generation.dataset_builder import build_dataset
+from neuralls.domain.presentation.provenance import DatasetSourceProvenance
 from neuralls.platform.storage.manifest_io import (
     load_dataset_manifest,
     read_dataset_manifest,
     save_dataset_manifest,
 )
-from neuralls.shared.scientific_description import ScientificDescription
-from neuralls.shared.scientific_description.presentation import DatasetSourceProvenance
+from neuralls.shared.scientific_description.models import ScientificDescription
 
 DEFAULT_TEST_PROBLEM = DatasetSourceProvenance(ScientificDescription("Test problem"))
 """The source problem stamped on datasets whose tests do not choose one."""

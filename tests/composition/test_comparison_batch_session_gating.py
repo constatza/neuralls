@@ -28,8 +28,8 @@ from neuralls.composition.comparison.models import (
     PlannedSystem,
 )
 from neuralls.domain.identity import StageIdentity
+from neuralls.domain.presentation.methods import PreparedComparisonPresentation
 from neuralls.shared.digest import canonical_digest
-from neuralls.shared.scientific_description import PreparedComparisonPresentation
 from neuralls.shared.workflow_failures import (
     ComparisonBatchFailureContext,
     ComparisonBatchPhase,

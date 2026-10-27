@@ -12,8 +12,8 @@ from neuralls.composition.generation import dense_streaming
 from neuralls.domain.generation.batch import SampleBatch
 from neuralls.domain.generation.sample_writer import SampleWriter
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
-from neuralls.shared.scientific_description import ScientificDescription
-from neuralls.shared.scientific_description.presentation import DatasetSourceProvenance
+from neuralls.domain.presentation.provenance import DatasetSourceProvenance
+from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.types import DatasetFormat
 from tests.dataset_support import build_test_dataset, strip_provenance
 

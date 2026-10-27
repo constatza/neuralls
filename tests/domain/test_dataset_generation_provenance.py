@@ -4,27 +4,28 @@ from __future__ import annotations
 
 import pytest
 
-from neuralls.shared.scientific_description import (
-    LEGEND_PROFILE,
+from neuralls.domain.presentation.provenance import (
     DatasetGenerationProvenance,
     DatasetPresentation,
     DatasetSourceProvenance,
     DerivedSeed,
     ExplicitSeed,
-    FieldImportance,
-    FieldKey,
-    IntegerFact,
-    NotationPolicy,
-    ScientificDescription,
     StrategyProvenance,
-    render_dataset,
 )
+from neuralls.domain.presentation.render import render_dataset
 from neuralls.shared.scientific_description.catalog import (
     ITERATION_COUNT,
     KRYLOV_DIMENSION,
     SAMPLE_COUNT,
     SEED,
 )
+from neuralls.shared.scientific_description.models import (
+    FieldImportance,
+    FieldKey,
+    IntegerFact,
+    ScientificDescription,
+)
+from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
 from neuralls.shared.types import GenerationStrategyKind
 
 ESSENTIAL = FieldImportance.ESSENTIAL

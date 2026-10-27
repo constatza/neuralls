@@ -20,6 +20,7 @@ from neuralls.composition.preconditioners.schedule import (
     PreconditionerScheduleConfig,
     create_scheduled_preconditioner,
 )
+from neuralls.domain.presentation.methods import SystemRealization
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     NeuralPODCoarseningConfig,
@@ -34,7 +35,6 @@ from neuralls.platform.storage.training_artifacts import (
     load_array_source_sample,
     load_training_arrays,
 )
-from neuralls.shared.scientific_description import SystemRealization
 from neuralls.shared.types import MatrixId
 
 if TYPE_CHECKING:

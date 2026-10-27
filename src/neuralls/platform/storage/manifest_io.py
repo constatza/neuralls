@@ -8,6 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.platform.storage.facts_codec import (
     decode_dataset_presentation,
     encode_dataset_presentation,
@@ -20,7 +21,6 @@ from neuralls.platform.storage.manifest import (
     manifest_path_for,
 )
 from neuralls.shared.digest import Digest
-from neuralls.shared.scientific_description.presentation import DatasetPresentation
 from neuralls.shared.types import LayoutType, MatrixFormat
 
 

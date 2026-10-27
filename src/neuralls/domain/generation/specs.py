@@ -19,8 +19,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from neuralls.shared.constants import DEFAULT_WRITE_BATCH_SIZE
+from neuralls.shared.types import NormalizeType
 
-from .data_types import NormalizeType
 from .interfaces import TracingSolverCallable
 from .source_streams import EnumerateBy
 

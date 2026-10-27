@@ -10,6 +10,7 @@ import pytest
 from neuralls.composition.generation._context_builder import _build_context
 from neuralls.composition.generation.processing import process_config
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
+from neuralls.domain.presentation.provenance import DatasetSourceProvenance
 from neuralls.platform.config.models.data_models import (
     DataConfigFile,
     GenerationConfig,
@@ -22,8 +23,7 @@ from neuralls.platform.storage.manifest_io import (
     load_dataset_manifest,
     load_dataset_presentation,
 )
-from neuralls.shared.scientific_description import ScientificDescription
-from neuralls.shared.scientific_description.presentation import DatasetSourceProvenance
+from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.types import GenerationStrategyKind
 from tests.dataset_support import build_test_dataset, strip_provenance
 

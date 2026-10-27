@@ -15,23 +15,20 @@ from neuralls.domain.generation.strategy_configs import (
     KrylovConfig,
     SmootherFilteredProbesConfig,
 )
-from neuralls.shared.scientific_description import (
-    LEGEND_PROFILE,
-    NotationPolicy,
-    ScientificDescription,
-    render,
-)
-from neuralls.shared.scientific_description.catalog import FactRole
-from neuralls.shared.scientific_description.presentation import (
+from neuralls.domain.presentation.provenance import (
     DatasetGenerationProvenance,
     DatasetPresentation,
     DatasetSourceProvenance,
     DerivedSeed,
     ExplicitSeed,
     NoSeed,
-    dataset_qualifier,
-    strategy_base_name,
 )
+from neuralls.domain.presentation.qualifier import dataset_qualifier
+from neuralls.domain.presentation.strategy_names import strategy_base_name
+from neuralls.shared.scientific_description.catalog import FactRole
+from neuralls.shared.scientific_description.models import ScientificDescription
+from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
+from neuralls.shared.scientific_description.render import render
 from neuralls.shared.types import GenerationStrategyKind
 
 STRATEGY_NAMES = [kind.value for kind in GenerationStrategyKind]

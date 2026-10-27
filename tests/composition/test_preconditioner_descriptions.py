@@ -47,15 +47,18 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
     TargetDimCoarseningConfig,
 )
-from neuralls.shared.scientific_description import (
+from neuralls.shared.scientific_description.catalog import (
     COARSE_DIMENSION,
+    REALIZED_LEVELS,
+    FactRole,
+)
+from neuralls.shared.scientific_description.models import ScientificDescription
+from neuralls.shared.scientific_description.policy import (
     NotationPolicy,
     RenderProfile,
     RenderTarget,
-    ScientificDescription,
-    render,
 )
-from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS, FactRole
+from neuralls.shared.scientific_description.render import render
 
 PLAIN = NotationPolicy.default(RenderTarget.PLAIN)
 PROFILE = RenderProfile(name="description", include_context=True)

@@ -6,6 +6,7 @@ The domain package contains the pure computational core of `neuralls`.
 
 - `solver/`: solver/comparison config and reporting DTOs, cost metrics, and comparison orchestration over `torchalg` — CG/PCG/FCG algorithms, monitoring primitives, and preconditioners live in `torchalg`, not here (see `domain/solver/README.md`)
 - `generation/`: strategy-driven dataset payload generation
+- `presentation/`: typed scientific presentation of datasets, methods, and comparison cohorts: provenance, presentation states and their planner, titles, and their rendering (see `domain/presentation/README.md`)
 - `analysis/`: pure numerical diagnostics used by higher layers
 - `linalg.py`: pure linear algebra utilities (matrix norms, normalization scale)
 - `normalization.py`: data scaling helpers and normalization ABC; scales preserve the input format (dense or `csr_array`), and `matrix_norm` dispatches to `np.linalg.norm` or `scipy.sparse.linalg.norm`

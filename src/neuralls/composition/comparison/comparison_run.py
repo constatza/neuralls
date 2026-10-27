@@ -42,6 +42,12 @@ from neuralls.composition.preconditioners.labels import (
     build_preconditioner_labels,
     contextualize_preconditioner_label,
 )
+from neuralls.domain.presentation.methods import (
+    ExecutedMethodPresentation,
+    PreparedMethodPresentation,
+    SystemRealization,
+)
+from neuralls.domain.presentation.planner import realize_method
 from neuralls.domain.solver.comparison import (
     _to_numpy,
     compute_reference_solution,
@@ -68,7 +74,6 @@ from neuralls.domain.solver.models.cost import StageCost
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle, plot_style_maps
 from neuralls.domain.solver.models.recommendations import ComparisonRecommendations
 from neuralls.domain.solver.models.result import ComparisonResult
-from neuralls.domain.solver.presentation_planner import realize_method
 from neuralls.platform.config.models.comparison import ComparisonGeneral
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
@@ -88,12 +93,7 @@ from neuralls.shared.device import (
     repeat_timed_outcome,
 )
 from neuralls.shared.digest import canonical_digest
-from neuralls.shared.scientific_description import (
-    ExecutedMethodPresentation,
-    NotationPolicy,
-    PreparedMethodPresentation,
-    SystemRealization,
-)
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import PreconditionerName, SetupEventId, SystemId
 
 type PreconditionerEvaluationMapper = Callable[

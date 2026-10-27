@@ -12,7 +12,7 @@ from neuralls.platform.config.models.experiments import (
     RegistryEntry,
 )
 from neuralls.platform.config.resolution import resolve_registry_path
-from neuralls.shared.scientific_description import ValidatedLabel
+from neuralls.shared.scientific_description.models import ValidatedLabel
 
 
 @dataclass(frozen=True)

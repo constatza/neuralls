@@ -9,6 +9,7 @@ from typing import TypeIs
 import numpy as np
 import torch
 
+from neuralls.domain.presentation.methods import ExecutedMethodPresentation
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
     PeakMemory,
@@ -31,7 +32,6 @@ from neuralls.platform.config.models.preconditioner_family import Preconditioner
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.storage.manifest import DatasetNormalization
 from neuralls.shared.digest import Digest, Json, canonical
-from neuralls.shared.scientific_description import ExecutedMethodPresentation
 from neuralls.shared.types import (
     ComparisonRhsSourceKind,
     DatasetId,

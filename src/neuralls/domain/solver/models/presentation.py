@@ -5,9 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from neuralls.domain.presentation.methods import PreparedMethodPresentation
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
-from neuralls.shared.scientific_description import PreparedMethodPresentation, ScientificFact
 from neuralls.shared.scientific_description.catalog import FactVisibility, fact_definition
+from neuralls.shared.scientific_description.models import ScientificFact
 from neuralls.shared.types import PreconditionerName
 
 _COMPACT_REALIZED_VISIBILITY = frozenset({FactVisibility.ALWAYS, FactVisibility.WHEN_NON_DEFAULT})

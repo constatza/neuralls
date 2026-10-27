@@ -10,7 +10,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, assert_never, cast
 
-from neuralls.shared.scientific_description import (
+from neuralls.domain.presentation.provenance import (
+    DatasetGenerationProvenance,
+    DatasetPresentation,
+    DatasetSourceProvenance,
+    DerivedSeed,
+    ExplicitSeed,
+    NoSeed,
+    StrategyProvenance,
+    StrategySeed,
+)
+from neuralls.shared.scientific_description.catalog import fact_definition
+from neuralls.shared.scientific_description.models import (
     DecimalFact,
     DisplayTextFact,
     FieldImportance,
@@ -20,17 +31,6 @@ from neuralls.shared.scientific_description import (
     ScientificFact,
     TextFact,
     ValidatedLabel,
-)
-from neuralls.shared.scientific_description.catalog import fact_definition
-from neuralls.shared.scientific_description.presentation import (
-    DatasetGenerationProvenance,
-    DatasetPresentation,
-    DatasetSourceProvenance,
-    DerivedSeed,
-    ExplicitSeed,
-    NoSeed,
-    StrategyProvenance,
-    StrategySeed,
 )
 from neuralls.shared.types import GenerationStrategyKind, NormalizeType
 

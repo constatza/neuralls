@@ -12,7 +12,21 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from neuralls.composition.preconditioners.descriptions import describe_configured_preconditioner
-from neuralls.domain.solver.presentation_planner import prepare_presentations
+from neuralls.domain.presentation.methods import (
+    ConfiguredMethodPresentation,
+    DatasetQualifiedMethodPresentation,
+    MethodPresentationCandidate,
+    PreparedComparisonPresentation,
+    StandaloneMethodPresentation,
+    UnvalidatedComparisonPresentation,
+)
+from neuralls.domain.presentation.planner import prepare_presentations
+from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.presentation.titles import (
+    ComparisonScopePresentation,
+    ComparisonTitle,
+    EditorialPresentation,
+)
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     ConcretePreconditionerConfig,
@@ -20,18 +34,6 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerConfig,
 )
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
-from neuralls.shared.scientific_description import (
-    ComparisonScopePresentation,
-    ComparisonTitle,
-    ConfiguredMethodPresentation,
-    DatasetPresentation,
-    DatasetQualifiedMethodPresentation,
-    EditorialPresentation,
-    MethodPresentationCandidate,
-    PreparedComparisonPresentation,
-    StandaloneMethodPresentation,
-    UnvalidatedComparisonPresentation,
-)
 from neuralls.shared.types import PreconditionerName
 
 __all__ = [

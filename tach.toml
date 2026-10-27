@@ -99,6 +99,7 @@ paths = [
     "neuralls.domain.analysis",
     "neuralls.domain.generation",
     "neuralls.domain.generation.strategies",
+    "neuralls.domain.presentation",
     "neuralls.domain.solver",
     "neuralls.domain.solver.models",
     "neuralls.domain.solver.utils",

@@ -10,9 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import assert_never
 
-from neuralls.shared.scientific_description.catalog import FactVisibility, fact_definition
-from neuralls.shared.scientific_description.models import FieldKey, ScientificFact
-from neuralls.shared.scientific_description.presentation import (
+from neuralls.domain.presentation.methods import (
     DuplicateMethodPresentationError,
     ExecutedMethodPresentation,
     MethodPresentationCandidate,
@@ -24,6 +22,8 @@ from neuralls.shared.scientific_description.presentation import (
     description_facts,
     method_description,
 )
+from neuralls.shared.scientific_description.catalog import FactVisibility, fact_definition
+from neuralls.shared.scientific_description.models import FieldKey, ScientificFact
 
 __all__ = [
     "DuplicateMethodPresentationError",

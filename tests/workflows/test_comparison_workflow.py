@@ -38,6 +38,7 @@ from neuralls.composition.comparison.models import (
     ResolvedMethod,
 )
 from neuralls.domain.identity import StageIdentity
+from neuralls.domain.presentation.methods import PreparedMethodPresentation
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -84,7 +85,7 @@ from neuralls.platform.tracking.comparison_tracking import (
 )
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
 from neuralls.shared.digest import canonical_digest
-from neuralls.shared.scientific_description import NotationPolicy, PreparedMethodPresentation
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import (
     ComparisonRhsSourceKind,
     DatasetId,
@@ -373,7 +374,7 @@ def test_resolve_comparison_config_presentation_falls_back_to_case_default(
     tmp_path: Path,
 ) -> None:
     """With no per-entry method override, the case's `[comparison_baseline.presentation]` applies."""
-    from neuralls.shared.scientific_description import RenderTarget
+    from neuralls.shared.scientific_description.policy import RenderTarget
 
     datasets_dir = tmp_path / "datasets"
     datasets_dir.mkdir()
@@ -407,7 +408,7 @@ def test_resolve_comparison_config_presentation_override_replaces_case_default(
     Matches how `preconditioners`/`normalize_system` already override in
     this same function — a full replace, not a field-level merge.
     """
-    from neuralls.shared.scientific_description import RenderTarget
+    from neuralls.shared.scientific_description.policy import RenderTarget
 
     datasets_dir = tmp_path / "datasets"
     datasets_dir.mkdir()

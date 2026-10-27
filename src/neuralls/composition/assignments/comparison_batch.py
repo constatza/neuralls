@@ -87,6 +87,8 @@ from neuralls.domain.benchmarking.selection import (
     validate_reference_preconditioner,
 )
 from neuralls.domain.identity import StageIdentity
+from neuralls.domain.presentation.methods import PreparedComparisonPresentation
+from neuralls.domain.presentation.titles import ComparisonScopePresentation, ComparisonTitle
 from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory, SetupCompleted
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.presentation import SolverTimingContext
@@ -151,12 +153,7 @@ from neuralls.platform.tracking.model_registry import build_registered_model_nam
 from neuralls.shared.device import release_device_memory, warm_up_device
 from neuralls.shared.digest import Digest, canonical_digest, content_digest, digest_memo
 from neuralls.shared.errors import StageInputsStale
-from neuralls.shared.scientific_description import (
-    ComparisonScopePresentation,
-    ComparisonTitle,
-    PreparedComparisonPresentation,
-    ValidatedLabel,
-)
+from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.types import ComparisonRhsSourceKind, DatasetId, MatrixId, SystemId
 from neuralls.shared.workflow_failures import (
     ComparisonBatchFailureContext,

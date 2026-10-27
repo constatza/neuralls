@@ -31,7 +31,7 @@ from neuralls.shared.constants import (
     MAX_RHS_MASK_DENSITY,
 )
 from neuralls.shared.digest import Cosmetic, InputData
-from neuralls.shared.scientific_description import NotationPolicy
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.timing import TimingRepeatPolicy
 from neuralls.shared.types import ComparisonRhsSourceKind, PreconditionerName, RowKind
 

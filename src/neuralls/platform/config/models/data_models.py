@@ -32,7 +32,7 @@ from neuralls.shared.constants import (
     DEFAULT_WRITE_BATCH_SIZE,
 )
 from neuralls.shared.digest import Cosmetic
-from neuralls.shared.scientific_description import ValidatedLabel
+from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.types import DatasetFormat, EigenvectorSelection, MatrixFormat, SparsityPattern
 
 

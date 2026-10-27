@@ -18,6 +18,7 @@ from neuralls.domain.generation.provenance import describe_dataset_generation
 from neuralls.domain.generation.sample_writer import StrategyRowCount
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.domain.identity import StageIdentity
+from neuralls.domain.presentation.provenance import DatasetPresentation, DatasetSourceProvenance
 from neuralls.platform.storage.dataset_digest import (
     current_dataset_digest,
     dataset_content_digest,
@@ -27,10 +28,6 @@ from neuralls.platform.storage.dense_stream import STREAMED_DENSE_FORMATS
 from neuralls.platform.storage.manifest_io import read_dataset_manifest, save_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.device import ResourceUsage, track_resource_usage
-from neuralls.shared.scientific_description.presentation import (
-    DatasetPresentation,
-    DatasetSourceProvenance,
-)
 from neuralls.shared.types import DatasetFormat, MatrixFormat, SparsityPattern
 
 _GENERATION_DEVICE = torch.device("cpu")

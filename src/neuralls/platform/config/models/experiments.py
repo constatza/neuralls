@@ -17,7 +17,7 @@ from neuralls.platform.config.models.id_generation import (
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.models.presentation import ScientificLabelsConfig
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
-from neuralls.shared.scientific_description import ValidatedLabel
+from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.timing import TimingRepeatPolicy
 
 

@@ -17,28 +17,32 @@ import pytest
 from loguru import logger
 from mlflow.tracking import MlflowClient
 
-from neuralls.domain.solver.presentation_planner import prepare_presentations
-from neuralls.platform.config.context import ConfigContext
-from neuralls.platform.config.settings import NeurallsSettings
-from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
-from neuralls.shared.enum_codecs import encode_row_kind_array
-from neuralls.shared.scientific_description import (
-    ComparisonScopePresentation,
+from neuralls.domain.presentation.methods import (
+    MethodPresentationCandidate,
+    PreparedComparisonPresentation,
+    PreparedMethodPresentation,
+    StandaloneMethodPresentation,
+    UnvalidatedComparisonPresentation,
+)
+from neuralls.domain.presentation.planner import prepare_presentations
+from neuralls.domain.presentation.provenance import (
     DatasetGenerationProvenance,
     DatasetPresentation,
     DatasetSourceProvenance,
     DerivedSeed,
+    StrategyProvenance,
+)
+from neuralls.domain.presentation.titles import ComparisonScopePresentation
+from neuralls.platform.config.context import ConfigContext
+from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
+from neuralls.shared.enum_codecs import encode_row_kind_array
+from neuralls.shared.scientific_description.catalog import ITERATION_COUNT
+from neuralls.shared.scientific_description.models import (
     FieldImportance,
     IntegerFact,
-    MethodPresentationCandidate,
-    PreparedComparisonPresentation,
-    PreparedMethodPresentation,
     ScientificDescription,
-    StandaloneMethodPresentation,
-    StrategyProvenance,
-    UnvalidatedComparisonPresentation,
 )
-from neuralls.shared.scientific_description.catalog import ITERATION_COUNT
 from neuralls.shared.types import GenerationStrategyKind, PreconditionerName, RowKind
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

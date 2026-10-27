@@ -20,6 +20,14 @@ from neuralls.composition.comparison.models import (
     MatrixWorkloadMember,
     ResolvedMethod,
 )
+from neuralls.domain.presentation.methods import (
+    DuplicateMethodPresentationError,
+    PreparedComparisonPresentation,
+    PreparedMethodPresentation,
+    RealizedMethodPresentation,
+    SystemRealization,
+)
+from neuralls.domain.presentation.planner import realize_method
 from neuralls.domain.solver.models import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -33,24 +41,18 @@ from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.domain.solver.models.presentation import GroupPresentation
-from neuralls.domain.solver.presentation_planner import realize_method
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
 from neuralls.platform.config.settings import NeurallsSettings
-from neuralls.shared.scientific_description import (
-    DuplicateMethodPresentationError,
+from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS
+from neuralls.shared.scientific_description.models import (
     FieldImportance,
     IntegerFact,
-    NotationPolicy,
-    PreparedComparisonPresentation,
-    PreparedMethodPresentation,
-    RealizedMethodPresentation,
     ScientificFact,
-    SystemRealization,
 )
-from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 from tests.presentation_support import PreparedMethodFactory
 

@@ -8,7 +8,6 @@ from typing import cast
 
 from loguru import logger
 
-from neuralls.domain.generation.data_types import NormalizeType
 from neuralls.domain.generation.plan import (
     GenerationPlan,
     StrategySpec,
@@ -18,11 +17,11 @@ from neuralls.domain.generation.plan import (
 from neuralls.domain.generation.source_streams import EnumerateBy
 from neuralls.domain.generation.specs import SourceSpec
 from neuralls.domain.identity import StageIdentity
+from neuralls.domain.presentation.provenance import DatasetSourceProvenance
 from neuralls.platform.config.models.data_models import DataConfigFile, GenerationConfig
 from neuralls.shared.constants import DEFAULT_WRITE_BATCH_SIZE
-from neuralls.shared.scientific_description import ScientificDescription, ValidatedLabel
-from neuralls.shared.scientific_description.presentation import DatasetSourceProvenance
-from neuralls.shared.types import DatasetFormat
+from neuralls.shared.scientific_description.models import ScientificDescription, ValidatedLabel
+from neuralls.shared.types import DatasetFormat, NormalizeType
 
 
 @dataclass(frozen=True)

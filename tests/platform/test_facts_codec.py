@@ -4,26 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from neuralls.platform.storage.facts_codec import (
-    decode_dataset_presentation,
-    decode_facts,
-    encode_dataset_presentation,
-    encode_facts,
-)
-from neuralls.shared.scientific_description import (
-    DecimalFact,
-    DisplayTextFact,
-    FieldImportance,
-    ScientificDescription,
-    TextFact,
-    ValidatedLabel,
-)
-from neuralls.shared.scientific_description.catalog import (
-    BETA,
-    MODEL_ARCHITECTURE,
-    PROBE_DISTRIBUTION,
-)
-from neuralls.shared.scientific_description.presentation import (
+from neuralls.domain.presentation.provenance import (
     DatasetGenerationProvenance,
     DatasetPresentation,
     DatasetSourceProvenance,
@@ -31,6 +12,25 @@ from neuralls.shared.scientific_description.presentation import (
     ExplicitSeed,
     NoSeed,
     StrategyProvenance,
+)
+from neuralls.platform.storage.facts_codec import (
+    decode_dataset_presentation,
+    decode_facts,
+    encode_dataset_presentation,
+    encode_facts,
+)
+from neuralls.shared.scientific_description.catalog import (
+    BETA,
+    MODEL_ARCHITECTURE,
+    PROBE_DISTRIBUTION,
+)
+from neuralls.shared.scientific_description.models import (
+    DecimalFact,
+    DisplayTextFact,
+    FieldImportance,
+    ScientificDescription,
+    TextFact,
+    ValidatedLabel,
 )
 from neuralls.shared.types import GenerationStrategyKind
 

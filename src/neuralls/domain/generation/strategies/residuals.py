@@ -19,7 +19,8 @@ import torch
 from loguru import logger
 
 from neuralls.domain.normalization import ErrorTraceSamples
-from neuralls.shared.scientific_description import LOG_PROFILE, NotationPolicy, render
+from neuralls.shared.scientific_description.policy import LOG_PROFILE, NotationPolicy
+from neuralls.shared.scientific_description.render import render
 
 from ..counts import (
     _build_trace_indices,

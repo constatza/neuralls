@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from neuralls.platform.config.models.experiments import CaseConfig, JobEntry
 from neuralls.platform.config.registry import resolve_assignment_binding
-from neuralls.shared.scientific_description import ValidatedLabel
+from neuralls.shared.scientific_description.models import ValidatedLabel
 
 TRAINING_TITLE = "Constant Width FFNN Optuna Search (ReLU, no bias)"
 

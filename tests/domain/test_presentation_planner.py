@@ -6,37 +6,31 @@ from dataclasses import FrozenInstanceError, fields, is_dataclass
 
 import pytest
 
-from neuralls.domain.solver.presentation_planner import (
+from neuralls.domain.presentation.methods import (
+    DatasetQualifiedMethodPresentation,
+    DuplicateMethodPresentationError,
+    MethodPresentationCandidate,
+    PreparedComparisonPresentation,
+    PreparedMethodPresentation,
+    RealizedMethodPresentation,
+    StandaloneMethodPresentation,
+    SystemRealization,
+    UnvalidatedComparisonPresentation,
+)
+from neuralls.domain.presentation.planner import (
     prepare_presentations,
     realize_method,
     reduce_realized_facts,
 )
-from neuralls.shared.scientific_description import (
-    LEGEND_PROFILE,
+from neuralls.domain.presentation.provenance import (
     DatasetGenerationProvenance,
     DatasetPresentation,
-    DatasetQualifiedMethodPresentation,
     DatasetSourceProvenance,
-    DecimalFact,
     DerivedSeed,
-    DuplicateMethodPresentationError,
-    EditorialPresentation,
-    FieldImportance,
-    FieldKey,
-    IntegerFact,
-    MethodPresentationCandidate,
-    NotationPolicy,
-    PreparedComparisonPresentation,
-    PreparedMethodPresentation,
-    RealizedMethodPresentation,
-    ScientificDescription,
-    ScientificFact,
-    StandaloneMethodPresentation,
     StrategyProvenance,
-    SystemRealization,
-    UnvalidatedComparisonPresentation,
-    render_method,
 )
+from neuralls.domain.presentation.render import render_method
+from neuralls.domain.presentation.titles import ComparisonScopePresentation, EditorialPresentation
 from neuralls.shared.scientific_description.catalog import (
     ASSIGNMENT,
     CANDIDATE_COUNT,
@@ -50,7 +44,15 @@ from neuralls.shared.scientific_description.catalog import (
     SYSTEM_DIMENSION,
     THRESHOLD,
 )
-from neuralls.shared.scientific_description.presentation import ComparisonScopePresentation
+from neuralls.shared.scientific_description.models import (
+    DecimalFact,
+    FieldImportance,
+    FieldKey,
+    IntegerFact,
+    ScientificDescription,
+    ScientificFact,
+)
+from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
 from neuralls.shared.types import (
     GenerationStrategyKind,
     MatrixId,
@@ -340,7 +342,7 @@ def test_system_realization_rejects_configured_facts() -> None:
 def test_dataset_and_title_render_the_source_then_each_strategy(
     dataset: DatasetPresentation,
 ) -> None:
-    from neuralls.shared.scientific_description import render_dataset, render_title
+    from neuralls.domain.presentation.render import render_dataset, render_title
 
     policy = NotationPolicy.default()
     assert render_dataset(dataset, LEGEND_PROFILE, policy).text == (
