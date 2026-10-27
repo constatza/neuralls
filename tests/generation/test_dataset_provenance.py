@@ -96,7 +96,7 @@ def test_tampered_provenance_is_rejected_on_load(
     path = manifest_path_for(dataset_dir)
     raw = json.loads(path.read_text(encoding="utf-8"))
     raw["provenance"]["generation"]["strategies"][0]["parameters"].append(
-        {"key": "not_a_registered_fact", "kind": "integer", "value": 1, "importance": "essential"}
+        {"key": "not_a_registered_fact", "kind": "integer", "value": 1}
     )
     path.write_text(json.dumps(raw), encoding="utf-8")
     load_dataset_manifest.cache_clear()

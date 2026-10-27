@@ -18,17 +18,15 @@ from neuralls.shared.scientific_description.catalog import (
     KRYLOV_DIMENSION,
     SAMPLE_COUNT,
     SEED,
+    make_fact,
 )
 from neuralls.shared.scientific_description.models import (
-    FieldImportance,
     FieldKey,
-    IntegerFact,
     ScientificDescription,
 )
 from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
 from neuralls.shared.types import GenerationStrategyKind
 
-ESSENTIAL = FieldImportance.ESSENTIAL
 POLICY = NotationPolicy.default()
 
 
@@ -79,7 +77,7 @@ def test_the_count_and_the_seed_cannot_be_stored_as_parameters(key: FieldKey) ->
         StrategyProvenance(
             GenerationStrategyKind.NORMAL,
             rows=3,
-            parameters=(IntegerFact(key, 1, ESSENTIAL),),
+            parameters=(make_fact(key, 1),),
             seed=DerivedSeed(),
         )
 
@@ -88,7 +86,7 @@ def test_the_count_fact_is_derived_from_rows_after_the_leading_trajectory_cap() 
     trace = StrategyProvenance(
         GenerationStrategyKind.GAUSSIAN_RESIDUALS,
         rows=5000,
-        parameters=(IntegerFact(ITERATION_COUNT, 20, ESSENTIAL),),
+        parameters=(make_fact(ITERATION_COUNT, 20),),
         seed=ExplicitSeed(4),
     )
     assert [fact.key for fact in trace.facts] == [ITERATION_COUNT, SAMPLE_COUNT, SEED]
@@ -96,7 +94,7 @@ def test_the_count_fact_is_derived_from_rows_after_the_leading_trajectory_cap() 
     krylov = StrategyProvenance(
         GenerationStrategyKind.KRYLOV,
         rows=3,
-        parameters=(IntegerFact(KRYLOV_DIMENSION, 2, ESSENTIAL),),
+        parameters=(make_fact(KRYLOV_DIMENSION, 2),),
         seed=DerivedSeed(),
     )
     assert [fact.key for fact in krylov.facts] == [KRYLOV_DIMENSION, SAMPLE_COUNT]

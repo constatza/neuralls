@@ -46,10 +46,8 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
 )
 from neuralls.platform.config.settings import NeurallsSettings
-from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS
+from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS, make_fact
 from neuralls.shared.scientific_description.models import (
-    FieldImportance,
-    IntegerFact,
     ScientificFact,
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy
@@ -58,7 +56,7 @@ from tests.presentation_support import PreparedMethodFactory
 
 
 def _levels(depth: int) -> tuple[ScientificFact, ...]:
-    return (IntegerFact(REALIZED_LEVELS, depth, FieldImportance.ESSENTIAL),)
+    return (make_fact(REALIZED_LEVELS, depth),)
 
 
 class _Built:

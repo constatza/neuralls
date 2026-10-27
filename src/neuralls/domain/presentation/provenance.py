@@ -5,12 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import assert_never
 
-from neuralls.shared.scientific_description.catalog import SAMPLE_COUNT, SEED
+from neuralls.shared.scientific_description.catalog import SAMPLE_COUNT, SEED, make_fact
 from neuralls.shared.scientific_description.models import (
-    FieldImportance,
-    IntegerFact,
     ScientificDescription,
     ScientificFact,
+    require_unique_keys,
 )
 from neuralls.shared.types import GenerationStrategyKind, NormalizeType
 
@@ -70,19 +69,18 @@ class StrategyProvenance:
         """Require the strategy to have produced rows and to carry no count/seed fact."""
         if self.rows < 1:
             raise ValueError(f"StrategyProvenance.rows must be positive, got {self.rows}")
+        require_unique_keys(self.parameters, "StrategyProvenance.parameters")
         if any(fact.key in (SAMPLE_COUNT, SEED) for fact in self.parameters):
             raise ValueError("StrategyProvenance.parameters must not hold the count or the seed")
 
     @property
     def facts(self) -> tuple[ScientificFact, ...]:
         """Parameters in display order with the row count and any explicit seed derived in."""
-        count = IntegerFact(SAMPLE_COUNT, self.rows, FieldImportance.ESSENTIAL)
+        count = make_fact(SAMPLE_COUNT, self.rows)
         leading = 1 if self.kind in _COUNT_AFTER_LEADING_FACT else len(self.parameters)
         match self.seed:
             case ExplicitSeed(value=value):
-                seed: tuple[ScientificFact, ...] = (
-                    IntegerFact(SEED, value, FieldImportance.ESSENTIAL),
-                )
+                seed: tuple[ScientificFact, ...] = (make_fact(SEED, value),)
             case DerivedSeed() | NoSeed():
                 seed = ()
             case _:

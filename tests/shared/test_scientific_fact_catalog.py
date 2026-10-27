@@ -8,10 +8,8 @@ from types import ModuleType
 
 import pytest
 
+from neuralls.shared.scientific_description.catalog import make_fact
 from neuralls.shared.scientific_description.models import (
-    DecimalFact,
-    DisplayTextFact,
-    FieldImportance,
     FieldKey,
     IntegerFact,
     ScientificDescription,
@@ -158,7 +156,9 @@ def expected_definitions() -> tuple[ExpectedFactDefinition, ...]:
             (("off", "off", "\\mathrm{off}"), ("on", "on", "\\mathrm{on}")),
         ),
         ExpectedFactDefinition("rank", "algorithmic", "configured", 300, 4, "r", "r"),
-        ExpectedFactDefinition("snapshots", "algorithmic", "configured", 310, None, "Nₛ", "N_s"),
+        ExpectedFactDefinition(
+            "snapshot_count", "algorithmic", "configured", 310, None, "Nₛ", "N_s"
+        ),
         ExpectedFactDefinition(
             "weighting",
             "algorithmic",
@@ -446,10 +446,12 @@ def test_catalog_is_exhaustive_and_pins_every_definition(
     catalog: ModuleType, expected_definitions: tuple[ExpectedFactDefinition, ...]
 ) -> None:
     """A wrong/missing role, phase, order, symbol, precision, category, or visibility must fail."""
-    actual = catalog.FACT_DEFINITIONS
-    assert len(actual) == len(expected_definitions)
+    actual = {definition.key.value: definition for definition in catalog.FACT_DEFINITIONS}
+    assert len(catalog.FACT_DEFINITIONS) == len(expected_definitions)
+    assert set(actual) == {expected.key for expected in expected_definitions}
 
-    for definition, expected in zip(actual, expected_definitions, strict=True):
+    for expected in expected_definitions:
+        definition = actual[expected.key]
         categories = (
             ()
             if definition.categorical_formatter is None
@@ -545,15 +547,11 @@ def test_every_controlled_fact_renders_without_its_python_field_name(
         if definition.key == catalog.MODEL_ARCHITECTURE:
             continue
         if definition.categorical_formatter is not None:
-            fact = TextFact(
-                definition.key,
-                definition.categorical_formatter.values[0].raw,
-                FieldImportance.ESSENTIAL,
-            )
+            fact = make_fact(definition.key, definition.categorical_formatter.values[0].raw)
         elif definition.precision is not None:
-            fact = DecimalFact(definition.key, 1.25, FieldImportance.ESSENTIAL)
+            fact = make_fact(definition.key, 1.25)
         else:
-            fact = IntegerFact(definition.key, 2, FieldImportance.ESSENTIAL)
+            fact = make_fact(definition.key, 2)
 
         rendered = render_facts((fact,), NotationPolicy.default(RenderTarget.PLAIN))
         assert definition.key.value not in rendered
@@ -568,15 +566,11 @@ def test_mathtext_uses_catalog_markup_not_raw_identifiers(catalog: ModuleType) -
         if definition.key == catalog.MODEL_ARCHITECTURE:
             continue
         if definition.categorical_formatter is not None:
-            fact = TextFact(
-                definition.key,
-                definition.categorical_formatter.values[0].raw,
-                FieldImportance.ESSENTIAL,
-            )
+            fact = make_fact(definition.key, definition.categorical_formatter.values[0].raw)
         elif definition.precision is not None:
-            fact = DecimalFact(definition.key, 1.25, FieldImportance.ESSENTIAL)
+            fact = make_fact(definition.key, 1.25)
         else:
-            fact = IntegerFact(definition.key, 2, FieldImportance.ESSENTIAL)
+            fact = make_fact(definition.key, 2)
 
         rendered = render_facts((fact,), NotationPolicy.default(RenderTarget.MATHTEXT))
         if "_" in definition.key.value:
@@ -587,7 +581,7 @@ def test_mathtext_uses_catalog_markup_not_raw_identifiers(catalog: ModuleType) -
 def test_unknown_fact_key_is_rejected(catalog: ModuleType) -> None:
     """Removing raw-key fallback must turn an unregistered key into an explicit error."""
     key = FieldKey("unregistered_scientific_parameter")
-    fact = IntegerFact(key, 3, FieldImportance.ESSENTIAL)
+    fact = IntegerFact(key, 3)
 
     with pytest.raises(catalog.UnknownScientificFactError):
         catalog.fact_definition(key)
@@ -596,8 +590,8 @@ def test_unknown_fact_key_is_rejected(catalog: ModuleType) -> None:
 
 
 def test_unknown_categorical_value_is_rejected(catalog: ModuleType) -> None:
-    """A category typo must not leak its raw enum spelling into presentation."""
-    fact = TextFact(catalog.WEIGHTING, "unknown_weighting", FieldImportance.ESSENTIAL)
+    """A category typo built around the factory must not leak its raw spelling into presentation."""
+    fact = TextFact(catalog.WEIGHTING, "unknown_weighting")
 
     with pytest.raises(catalog.UnknownCategoricalValueError):
         render_facts((fact,), NotationPolicy.default())
@@ -607,7 +601,7 @@ def test_identity_only_fact_is_excluded_by_both_rendering_entry_points(
     catalog: ModuleType,
 ) -> None:
     """A NEVER-visible machine identity cannot leak through either public renderer."""
-    fact = TextFact(catalog.ASSIGNMENT, "machine_assignment_123", FieldImportance.ESSENTIAL)
+    fact = make_fact(catalog.ASSIGNMENT, 123)
     description = ScientificDescription(base_name="Neural", facts=(fact,))
 
     assert render(description, LEGEND_PROFILE, NotationPolicy.default()).text == "Neural"
@@ -618,11 +612,7 @@ def test_uncontrolled_model_architecture_text_is_rejected_by_both_rendering_entr
     catalog: ModuleType,
 ) -> None:
     """An arbitrary Python class name is not validated scientific presentation text."""
-    fact = TextFact(
-        catalog.MODEL_ARCHITECTURE,
-        "unknown_python_class",
-        FieldImportance.ESSENTIAL,
-    )
+    fact = TextFact(catalog.MODEL_ARCHITECTURE, "unknown_python_class")
     description = ScientificDescription(base_name="Neural", facts=(fact,))
 
     with pytest.raises(ValueError, match="controlled formatter"):
@@ -634,21 +624,20 @@ def test_uncontrolled_model_architecture_text_is_rejected_by_both_rendering_entr
 @pytest.fixture
 def full_bamg_description(catalog: ModuleType) -> ScientificDescription:
     """All configured BAMG algorithm facts from the approved display contract."""
-    essential = FieldImportance.ESSENTIAL
     return ScientificDescription(
         base_name="BAMG",
         facts=(
-            IntegerFact(catalog.MULTIGRID_LEVELS, 10, essential),
-            IntegerFact(catalog.RELAXATION_TEST_VECTORS, 8, essential),
-            IntegerFact(catalog.RELAXATION_SWEEPS, 4, essential),
-            IntegerFact(catalog.BOOTSTRAP_CYCLES, 2, essential),
-            IntegerFact(catalog.COMPATIBLE_RELAXATION_SWEEPS, 5, essential),
-            DecimalFact(catalog.COMPATIBLE_RELAXATION_TOLERANCE, 0.7, essential),
-            DecimalFact(catalog.ALGEBRAIC_DISTANCE_THRESHOLD, 0.5, essential),
-            IntegerFact(catalog.CALIBER, 4, essential),
-            DecimalFact(catalog.CALIBER_GROWTH_PENALTY, 1.5, essential),
-            TextFact(catalog.USE_LSR, "on", essential),
-            IntegerFact(catalog.MAX_COARSE_DIMENSION, 10, essential),
+            make_fact(catalog.MULTIGRID_LEVELS, 10),
+            make_fact(catalog.RELAXATION_TEST_VECTORS, 8),
+            make_fact(catalog.RELAXATION_SWEEPS, 4),
+            make_fact(catalog.BOOTSTRAP_CYCLES, 2),
+            make_fact(catalog.COMPATIBLE_RELAXATION_SWEEPS, 5),
+            make_fact(catalog.COMPATIBLE_RELAXATION_TOLERANCE, 0.7),
+            make_fact(catalog.ALGEBRAIC_DISTANCE_THRESHOLD, 0.5),
+            make_fact(catalog.CALIBER, 4),
+            make_fact(catalog.CALIBER_GROWTH_PENALTY, 1.5),
+            make_fact(catalog.USE_LSR, "on"),
+            make_fact(catalog.MAX_COARSE_DIMENSION, 10),
         ),
     )
 
@@ -670,9 +659,7 @@ def test_legacy_length_budget_keeps_every_bamg_fact_and_returns_layout_hints(
 
 def test_display_text_fact_renders_validated_label_in_every_target(catalog: ModuleType) -> None:
     """A validated human-authored name renders without escaping or identifier text."""
-    fact = DisplayTextFact(
-        catalog.MODEL_ARCHITECTURE, ValidatedLabel("Graph Net"), FieldImportance.ESSENTIAL
-    )
+    fact = make_fact(catalog.MODEL_ARCHITECTURE, ValidatedLabel("Graph Net"))
 
     assert render_facts((fact,), NotationPolicy.default(RenderTarget.PLAIN)) == "arch=Graph Net"
     assert (

@@ -23,18 +23,13 @@ from neuralls.shared.scientific_description.catalog import (
     BETA,
     MODEL_ARCHITECTURE,
     PROBE_DISTRIBUTION,
+    make_fact,
 )
 from neuralls.shared.scientific_description.models import (
-    DecimalFact,
-    DisplayTextFact,
-    FieldImportance,
     ScientificDescription,
-    TextFact,
     ValidatedLabel,
 )
 from neuralls.shared.types import GenerationStrategyKind
-
-ESSENTIAL = FieldImportance.ESSENTIAL
 
 
 @pytest.fixture
@@ -44,7 +39,7 @@ def dataset() -> DatasetPresentation:
         source=DatasetSourceProvenance(
             ScientificDescription(
                 "Spectral 3D field",
-                facts=(DisplayTextFact(MODEL_ARCHITECTURE, ValidatedLabel("Net"), ESSENTIAL),),
+                facts=(make_fact(MODEL_ARCHITECTURE, ValidatedLabel("Net")),),
             )
         ),
         generation=DatasetGenerationProvenance(
@@ -52,13 +47,13 @@ def dataset() -> DatasetPresentation:
                 StrategyProvenance(
                     GenerationStrategyKind.SMOOTHER_FILTERED_PROBES,
                     rows=5000,
-                    parameters=(TextFact(PROBE_DISTRIBUTION, "gaussian", ESSENTIAL),),
+                    parameters=(make_fact(PROBE_DISTRIBUTION, "gaussian"),),
                     seed=ExplicitSeed(7),
                 ),
                 StrategyProvenance(
                     GenerationStrategyKind.NORMAL,
                     rows=10,
-                    parameters=(DecimalFact(BETA, 0.125, ESSENTIAL),),
+                    parameters=(make_fact(BETA, 0.125),),
                     seed=DerivedSeed(),
                 ),
                 StrategyProvenance(
@@ -78,11 +73,11 @@ def test_dataset_presentation_round_trips_exactly(dataset: DatasetPresentation) 
 
 def test_unregistered_fact_key_is_rejected_on_decode() -> None:
     with pytest.raises(KeyError):
-        decode_facts([{"key": "mystery", "kind": "integer", "value": 1, "importance": "essential"}])
+        decode_facts([{"key": "mystery", "kind": "integer", "value": 1}])
 
 
 def test_label_values_are_revalidated_on_decode() -> None:
-    payload = encode_facts((DisplayTextFact(MODEL_ARCHITECTURE, ValidatedLabel("Net"), ESSENTIAL),))
+    payload = encode_facts((make_fact(MODEL_ARCHITECTURE, ValidatedLabel("Net")),))
     payload[0]["value"] = "bad_name"
     with pytest.raises(ValueError):
         decode_facts(payload)

@@ -8,13 +8,11 @@ from pathlib import Path
 
 import pytest
 
+from neuralls.shared.scientific_description.catalog import make_fact
 from neuralls.shared.scientific_description.models import (
     DecimalFact,
-    FieldImportance,
     FieldKey,
-    IntegerFact,
     ScientificDescription,
-    TextFact,
 )
 from neuralls.shared.scientific_description.policy import (
     LEGEND_PROFILE,
@@ -37,12 +35,10 @@ def cg_residuals_description() -> ScientificDescription:
     return ScientificDescription(
         base_name="CG Residuals",
         facts=(
-            IntegerFact(key=ITERATION_COUNT, value=15, importance=FieldImportance.ESSENTIAL),
-            IntegerFact(key=SAMPLE_COUNT, value=500, importance=FieldImportance.ESSENTIAL),
+            make_fact(ITERATION_COUNT, 15),
+            make_fact(SAMPLE_COUNT, 500),
         ),
-        context_facts=(
-            TextFact(key=WEIGHTING, value="uniform", importance=FieldImportance.VARIANT),
-        ),
+        context_facts=(make_fact(WEIGHTING, "uniform"),),
     )
 
 
@@ -99,16 +95,11 @@ def test_symbol_override(cg_residuals_description: ScientificDescription) -> Non
 
 def test_precision_override() -> None:
     """A per-key precision override controls decimal formatting."""
-    from neuralls.shared.scientific_description.models import DecimalFact
 
     standard_deviation = FieldKey("standard_deviation")
     description = ScientificDescription(
         base_name="Gaussian LHS",
-        facts=(
-            DecimalFact(
-                key=standard_deviation, value=0.0123456, importance=FieldImportance.ESSENTIAL
-            ),
-        ),
+        facts=(make_fact(standard_deviation, 0.0123456),),
     )
     profile = RenderProfile(
         name="detailed", include_context=True, precision={standard_deviation: 2}
@@ -132,18 +123,17 @@ def test_length_budget_returns_breakpoints_without_dropping_facts(
 def test_render_facts_has_no_base_name_or_parens() -> None:
     """``render_facts`` joins facts flatly, for callers composing their own base name."""
     facts = (
-        IntegerFact(key=ITERATION_COUNT, value=15, importance=FieldImportance.ESSENTIAL),
-        IntegerFact(key=SAMPLE_COUNT, value=500, importance=FieldImportance.ESSENTIAL),
+        make_fact(ITERATION_COUNT, 15),
+        make_fact(SAMPLE_COUNT, 500),
     )
     assert render_facts(facts, NotationPolicy.default()) == "k=15, N=500"
 
 
 def test_render_facts_applies_precision_override() -> None:
     """``render_facts`` accepts the same per-key precision override as ``render``."""
-    from neuralls.shared.scientific_description.models import DecimalFact
 
     theta = FieldKey("threshold")
-    facts = (DecimalFact(key=theta, value=0.25, importance=FieldImportance.ESSENTIAL),)
+    facts = (make_fact(theta, 0.25),)
     rendered = render_facts(facts, NotationPolicy.default(), precision={theta: 2})
     assert rendered == "θ=0.25"
 
@@ -158,7 +148,7 @@ def test_description_rejects_empty_base_name() -> None:
 def test_decimal_fact_rejects_non_finite_values(value: float) -> None:
     """A non-finite numerical fact cannot enter the semantic model."""
     with pytest.raises(ValueError, match="finite"):
-        DecimalFact(ITERATION_COUNT, value, FieldImportance.ESSENTIAL)
+        DecimalFact(ITERATION_COUNT, value)
 
 
 def test_package_imports_standard_library_only() -> None:
@@ -186,8 +176,8 @@ def test_length_budget_is_measured_on_visible_width_not_markup() -> None:
     description = ScientificDescription(
         base_name="AMG",
         facts=(
-            DecimalFact(key_a, 0.25, FieldImportance.ESSENTIAL),
-            DecimalFact(key_b, 0.67, FieldImportance.VARIANT),
+            make_fact(key_a, 0.25),
+            make_fact(key_b, 0.67),
         ),
     )
     plain = NotationPolicy.default(RenderTarget.PLAIN)

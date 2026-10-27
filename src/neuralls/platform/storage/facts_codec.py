@@ -8,7 +8,7 @@ model validation, so a malformed payload cannot become a presentation object.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, assert_never, cast
+from typing import Any, assert_never, cast, get_args
 
 from neuralls.domain.presentation.provenance import (
     DatasetGenerationProvenance,
@@ -20,11 +20,11 @@ from neuralls.domain.presentation.provenance import (
     StrategyProvenance,
     StrategySeed,
 )
-from neuralls.shared.scientific_description.catalog import fact_definition
+from neuralls.shared.scientific_description.catalog import make_fact
 from neuralls.shared.scientific_description.models import (
     DecimalFact,
     DisplayTextFact,
-    FieldImportance,
+    FactValueKind,
     FieldKey,
     IntegerFact,
     ScientificDescription,
@@ -43,43 +43,40 @@ __all__ = [
 
 type Payload = Mapping[str, Any]
 
-_NORMALIZATIONS: tuple[NormalizeType, ...] = ("none", "matrix", "rhs")
+_NORMALIZATIONS: tuple[str, ...] = get_args(NormalizeType)
 
 
 def _encode_fact(fact: ScientificFact) -> dict[str, Any]:
     match fact:
         case IntegerFact(value=value):
-            kind, encoded = "integer", value
+            kind, encoded = FactValueKind.INTEGER, value
         case DecimalFact(value=value):
-            kind, encoded = "decimal", value
+            kind, encoded = FactValueKind.DECIMAL, value
         case TextFact(value=value):
-            kind, encoded = "text", value
+            kind, encoded = FactValueKind.TEXT, value
         case DisplayTextFact(value=label):
-            kind, encoded = "label", label.text
-    return {
-        "key": fact.key.value,
-        "kind": kind,
-        "value": encoded,
-        "importance": fact.importance.value,
-    }
+            kind, encoded = FactValueKind.LABEL, label.text
+        case _:
+            assert_never(fact)
+    return {"key": fact.key.value, "kind": kind.value, "value": encoded}
 
 
 def _decode_fact(payload: Payload) -> ScientificFact:
+    """Rebuild a fact through the catalog, so key, kind, and category are re-checked."""
     key = FieldKey(str(payload["key"]))
-    fact_definition(key)  # an unregistered key is rejected, never carried along
-    importance = FieldImportance(payload["importance"])
     value = payload["value"]
-    match payload["kind"]:
-        case "integer":
-            return IntegerFact(key, int(value), importance)
-        case "decimal":
-            return DecimalFact(key, float(value), importance)
-        case "text":
-            return TextFact(key, str(value), importance)
-        case "label":
-            return DisplayTextFact(key, ValidatedLabel(str(value)), importance)
-        case other:
-            raise ValueError(f"Unknown fact kind {other!r}")
+    kind = FactValueKind(payload["kind"])
+    match kind:
+        case FactValueKind.INTEGER:
+            return make_fact(key, int(value))
+        case FactValueKind.DECIMAL:
+            return make_fact(key, float(value))
+        case FactValueKind.TEXT:
+            return make_fact(key, str(value))
+        case FactValueKind.LABEL:
+            return make_fact(key, ValidatedLabel(str(value)))
+        case _:
+            assert_never(kind)
 
 
 def encode_facts(facts: tuple[ScientificFact, ...]) -> list[dict[str, Any]]:

@@ -43,12 +43,10 @@ from neuralls.shared.scientific_description.catalog import (
     START_ITERATION,
     SYSTEM_DIMENSION,
     THRESHOLD,
+    make_fact,
 )
 from neuralls.shared.scientific_description.models import (
-    DecimalFact,
-    FieldImportance,
     FieldKey,
-    IntegerFact,
     ScientificDescription,
     ScientificFact,
 )
@@ -60,11 +58,9 @@ from neuralls.shared.types import (
     SystemId,
 )
 
-ESSENTIAL = FieldImportance.ESSENTIAL
 
-
-def _int(key: FieldKey, value: int) -> IntegerFact:
-    return IntegerFact(key, value, ESSENTIAL)
+def _int(key: FieldKey, value: int) -> ScientificFact:
+    return make_fact(key, value)
 
 
 def _asa(
@@ -75,7 +71,7 @@ def _asa(
         facts=(
             _int(MULTIGRID_LEVELS, 2),
             _int(CANDIDATE_COUNT, candidates),
-            DecimalFact(THRESHOLD, 0.05, ESSENTIAL),
+            make_fact(THRESHOLD, 0.05),
             _int(SEED, seed),
             *scheduling,
         ),
@@ -158,7 +154,7 @@ def test_editorial_presentation_rejects_invalid_titles(title: str) -> None:
 def test_assignment_identity_is_never_rendered(dataset: DatasetPresentation) -> None:
     method = ScientificDescription(
         "POD-2G",
-        facts=(_int(RANK, 10), IntegerFact(ASSIGNMENT, 1, ESSENTIAL)),
+        facts=(_int(RANK, 10), make_fact(ASSIGNMENT, 1)),
     )
     text = render_method(
         DatasetQualifiedMethodPresentation(method, dataset),
@@ -224,7 +220,7 @@ def test_non_default_scheduling_facts_are_compact_and_defaults_are_absent(
 def test_detailed_only_and_never_facts_are_not_compact(scope: ComparisonScopePresentation) -> None:
     method = ScientificDescription(
         "Jacobi",
-        facts=(_int(SYSTEM_DIMENSION, 45), IntegerFact(ASSIGNMENT, 1, ESSENTIAL)),
+        facts=(_int(SYSTEM_DIMENSION, 45), make_fact(ASSIGNMENT, 1)),
     )
     prepared = prepare_presentations(_cohort(scope, _candidate("j", method)))
     only = prepared.methods[0]

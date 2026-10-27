@@ -68,15 +68,12 @@ from neuralls.shared.scientific_description.catalog import (
     WINDOW_START,
     WINDOW_STRIDE,
     FactRole,
+    make_fact,
 )
 from neuralls.shared.scientific_description.models import (
-    DecimalFact,
-    FieldImportance,
     FieldKey,
-    IntegerFact,
     ScientificDescription,
     ScientificFact,
-    TextFact,
 )
 from neuralls.shared.types import GenerationStrategyKind
 
@@ -88,7 +85,6 @@ __all__ = [
     "describe_strategy",
 ]
 
-_ESSENTIAL = FieldImportance.ESSENTIAL
 
 RESIDUAL_TRACE_STRATEGY_NAMES = frozenset({"residuals", "gaussian_residuals"})
 """Strategy names ``runner.py`` must not pass to ``describe_generation_result`` — they
@@ -174,26 +170,18 @@ selection only say where rows come from, so they are provenance/operational, not
 a sparse RHS contributes its support size, while the index/value lists stay provenance."""
 
 
-def _int(key: FieldKey, value: int) -> IntegerFact:
-    return IntegerFact(key, value, _ESSENTIAL)
-
-
-def _dec(key: FieldKey, value: float) -> DecimalFact:
-    return DecimalFact(key, value, _ESSENTIAL)
-
-
-def _on_off(key: FieldKey, value: bool) -> TextFact:
-    return TextFact(key, "on" if value else "off", _ESSENTIAL)
+def _on_off(key: FieldKey, value: bool) -> ScientificFact:
+    return make_fact(key, "on" if value else "off")
 
 
 def _solver_facts(solve: SolveConfig) -> Facts:
     if solve.method == "direct":
-        return (TextFact(SOLVER_KIND, "direct", _ESSENTIAL),)
+        return (make_fact(SOLVER_KIND, "direct"),)
     return (
-        TextFact(SOLVER_KIND, "cg", _ESSENTIAL),
-        _dec(SOLVER_RELATIVE_TOLERANCE, solve.rtol),
-        _dec(SOLVER_ABSOLUTE_TOLERANCE, solve.atol),
-        _int(SOLVER_MAX_ITERATIONS, solve.max_iters),
+        make_fact(SOLVER_KIND, "cg"),
+        make_fact(SOLVER_RELATIVE_TOLERANCE, solve.rtol),
+        make_fact(SOLVER_ABSOLUTE_TOLERANCE, solve.atol),
+        make_fact(SOLVER_MAX_ITERATIONS, solve.max_iters),
         _on_off(SOLVER_POSITIVE_DEFINITE, solve.assume_pos_def),
     )
 
@@ -202,9 +190,9 @@ def _window_facts(
     cfg: ResidualErrorConfig | SmootherFilteredProbesConfig, stop_key: FieldKey
 ) -> Facts:
     return (
-        _int(stop_key, cfg.stop),
-        *(() if cfg.start is None else (_int(WINDOW_START, cfg.start),)),
-        *(() if cfg.step == 1 else (_int(WINDOW_STRIDE, cfg.step),)),
+        make_fact(stop_key, cfg.stop),
+        *(() if cfg.start is None else (make_fact(WINDOW_START, cfg.start),)),
+        *(() if cfg.step == 1 else (make_fact(WINDOW_STRIDE, cfg.step),)),
     )
 
 
@@ -212,41 +200,39 @@ def _parameter_facts(cfg: BaseStrategyConfig) -> Facts:
     """Algorithmic facts of ``cfg`` in display order, excluding sample count and seed."""
     match cfg:
         case KrylovConfig():
-            return (_int(KRYLOV_DIMENSION, cfg.krylov_iters),)
+            return (make_fact(KRYLOV_DIMENSION, cfg.krylov_iters),)
         case SmootherFilteredProbesConfig():
             return (
                 *_window_facts(cfg, STEPS),
-                TextFact(PROBE_DISTRIBUTION, cfg.probe_distribution, _ESSENTIAL),
-                TextFact(DAMPING, "auto", _ESSENTIAL)
-                if cfg.omega is None
-                else _dec(DAMPING, cfg.omega),
+                make_fact(PROBE_DISTRIBUTION, cfg.probe_distribution),
+                make_fact(DAMPING, "auto" if cfg.omega is None else cfg.omega),
             )
         case ResidualErrorConfig():
             return _window_facts(cfg, ITERATION_COUNT)
         case RandomNormalConfig():
-            return (_dec(RHS_SCALE, cfg.target_rhs_scale),)
+            return (make_fact(RHS_SCALE, cfg.target_rhs_scale),)
         case GaussianInverseConfig():
             return (
-                _dec(MEAN, cfg.mu),
-                _dec(STANDARD_DEVIATION, cfg.sigma),
+                make_fact(MEAN, cfg.mu),
+                make_fact(STANDARD_DEVIATION, cfg.sigma),
                 *_solver_facts(cfg.solve_config),
             )
         case GaussianForwardConfig():
-            return (_dec(MEAN, cfg.mu), _dec(STANDARD_DEVIATION, cfg.sigma))
+            return (make_fact(MEAN, cfg.mu), make_fact(STANDARD_DEVIATION, cfg.sigma))
         case UniformInverseConfig():
             return (
-                _dec(LOWER_BOUND, cfg.a),
-                _dec(UPPER_BOUND, cfg.b),
+                make_fact(LOWER_BOUND, cfg.a),
+                make_fact(UPPER_BOUND, cfg.b),
                 *_solver_facts(cfg.solve_config),
             )
         case UniformForwardConfig():
-            return (_dec(LOWER_BOUND, cfg.a), _dec(UPPER_BOUND, cfg.b))
+            return (make_fact(LOWER_BOUND, cfg.a), make_fact(UPPER_BOUND, cfg.b))
         case ConstantInverseConfig():
-            return (_dec(CONSTANT_VALUE, cfg.c), *_solver_facts(cfg.solve_config))
+            return (make_fact(CONSTANT_VALUE, cfg.c), *_solver_facts(cfg.solve_config))
         case ConstantForwardConfig():
-            return (_dec(CONSTANT_VALUE, cfg.c),)
+            return (make_fact(CONSTANT_VALUE, cfg.c),)
         case SinusoidalFieldConfig():
-            return (_dec(FREQUENCY, cfg.omega), *_solver_facts(cfg.solve_config))
+            return (make_fact(FREQUENCY, cfg.omega), *_solver_facts(cfg.solve_config))
         case EigenvectorInverseConfig():
             return (*_eigenvector_facts(cfg), *_solver_facts(cfg.solve_config))
         case BaseEigenvectorConfig():
@@ -254,19 +240,19 @@ def _parameter_facts(cfg: BaseStrategyConfig) -> Facts:
         case RhsArchiveConfig():
             return _solver_facts(cfg.solve_config)
         case SparseRhsConfig():
-            return (_int(SPARSE_SUPPORT, len(cfg.indices)), *_solver_facts(cfg.solve_config))
+            return (make_fact(SPARSE_SUPPORT, len(cfg.indices)), *_solver_facts(cfg.solve_config))
         case ScaledSolutionsConfig():
-            return (_dec(SOLUTION_SCALE, cfg.scale),)
+            return (make_fact(SOLUTION_SCALE, cfg.scale),)
         case ValidatedArchiveConfig():
-            return (_dec(VERIFICATION_TOLERANCE, cfg.verification_tolerance),)
+            return (make_fact(VERIFICATION_TOLERANCE, cfg.verification_tolerance),)
         case _:
             return ()
 
 
 def _eigenvector_facts(cfg: BaseEigenvectorConfig) -> Facts:
     return (
-        TextFact(EIGENVALUE_SELECTION, cfg.which.value, _ESSENTIAL),
-        _int(EIGENVECTOR_COUNT, cfg.num_eigenvectors),
+        make_fact(EIGENVALUE_SELECTION, cfg.which.value),
+        make_fact(EIGENVECTOR_COUNT, cfg.num_eigenvectors),
         _on_off(EIGENVECTOR_INCLUSION, cfg.include_eigenvectors),
     )
 
@@ -289,7 +275,7 @@ def describe_residual_trace(
     """Realized description of one residual-trace strategy's generated rows: ``k`` and ``N``."""
     return ScientificDescription(
         base_name=strategy_base_name(canonicalize_strategy_kind(strategy_name)),
-        facts=(_int(ITERATION_COUNT, iteration_count), _int(SAMPLE_COUNT, sample_count)),
+        facts=(make_fact(ITERATION_COUNT, iteration_count), make_fact(SAMPLE_COUNT, sample_count)),
     )
 
 
@@ -301,5 +287,5 @@ def describe_generation_result(strategy_name: str, *, sample_count: int) -> Scie
     """
     return ScientificDescription(
         base_name=strategy_base_name(canonicalize_strategy_kind(strategy_name)),
-        facts=(_int(SAMPLE_COUNT, sample_count),),
+        facts=(make_fact(SAMPLE_COUNT, sample_count),),
     )

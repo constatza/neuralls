@@ -8,10 +8,9 @@ from neuralls.shared.scientific_description.catalog import (
     SAMPLE_COUNT,
     FactVisibility,
     fact_definition,
+    make_fact,
 )
 from neuralls.shared.scientific_description.models import (
-    FieldImportance,
-    IntegerFact,
     ScientificDescription,
 )
 
@@ -43,5 +42,5 @@ def dataset_qualifier(dataset: DatasetPresentation) -> tuple[ScientificDescripti
     )
     if len(strategies) == 1:
         return strategies
-    total = IntegerFact(SAMPLE_COUNT, generation.generated_rows, FieldImportance.ESSENTIAL)
+    total = make_fact(SAMPLE_COUNT, generation.generated_rows)
     return (ScientificDescription(_MIXTURE_BASE_NAME, facts=(total,)), *strategies)

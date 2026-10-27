@@ -37,10 +37,8 @@ from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
 from neuralls.shared.enum_codecs import encode_row_kind_array
-from neuralls.shared.scientific_description.catalog import ITERATION_COUNT
+from neuralls.shared.scientific_description.catalog import ITERATION_COUNT, make_fact
 from neuralls.shared.scientific_description.models import (
-    FieldImportance,
-    IntegerFact,
     ScientificDescription,
 )
 from neuralls.shared.types import GenerationStrategyKind, PreconditionerName, RowKind
@@ -524,7 +522,7 @@ def dataset_presentation() -> DatasetPresentation:
                 StrategyProvenance(
                     GenerationStrategyKind.GAUSSIAN_RESIDUALS,
                     rows=100,
-                    parameters=(IntegerFact(ITERATION_COUNT, 20, FieldImportance.ESSENTIAL),),
+                    parameters=(make_fact(ITERATION_COUNT, 20),),
                     seed=DerivedSeed(),
                 ),
             ),

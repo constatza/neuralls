@@ -20,7 +20,12 @@ from neuralls.shared.scientific_description.catalog import (
     FactVisibility,
     fact_definition,
 )
-from neuralls.shared.scientific_description.models import ScientificDescription, ScientificFact
+from neuralls.shared.scientific_description.models import (
+    DescriptionIdentity,
+    ScientificDescription,
+    ScientificFact,
+    require_unique_keys,
+)
 from neuralls.shared.types import MatrixId, PreconditionerName, SystemId
 
 
@@ -74,18 +79,6 @@ class UnvalidatedComparisonPresentation:
     scope: ComparisonScopePresentation
 
 
-def with_method(
-    configured: ConfiguredMethodPresentation, method: ScientificDescription
-) -> ConfiguredMethodPresentation:
-    """Return ``configured`` with its method description replaced, keeping its variant."""
-    return replace(configured, method=method)
-
-
-def method_description(configured: ConfiguredMethodPresentation) -> ScientificDescription:
-    """Return the method part, which both variants share."""
-    return configured.method
-
-
 def description_facts(description: ScientificDescription) -> tuple[ScientificFact, ...]:
     """Return the facts a catalog policy allows anywhere, in description order."""
     return tuple(
@@ -93,6 +86,18 @@ def description_facts(description: ScientificDescription) -> tuple[ScientificFac
         for fact in (*description.facts, *description.context_facts)
         if fact_definition(fact.key).visibility_policy is not FactVisibility.NEVER
     )
+
+
+@dataclass(frozen=True, slots=True)
+class CompactIdentity:
+    """What makes a prepared method's compact label unique within a cohort.
+
+    ``dataset`` is empty for a standalone method; a dataset-qualified method always has at
+    least one qualifier description, so the two cannot be confused.
+    """
+
+    method: DescriptionIdentity
+    dataset: tuple[DescriptionIdentity, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,42 +109,45 @@ class PreparedMethodPresentation:
     compact_facts: tuple[ScientificFact, ...]
 
     def __post_init__(self) -> None:
-        """Require compact facts to be a visible subset of the configured facts."""
-        available = description_facts(method_description(self.configured))
+        """Require unique compact facts forming an ordered subsequence of the configured facts."""
+        require_unique_keys(self.compact_facts, "PreparedMethodPresentation.compact_facts")
+        remaining = iter(description_facts(self.configured.method))
         for fact in self.compact_facts:
-            if fact not in available:
+            if not any(fact == configured for configured in remaining):
                 raise ValueError(
-                    f"compact fact {fact.key.value!r} is not a configured fact of this method"
+                    f"compact fact {fact.key.value!r} is not a configured fact of this method, "
+                    "or is out of its configured order"
                 )
 
     @property
     def detailed_facts(self) -> tuple[ScientificFact, ...]:
         """Every configured fact; derived so it cannot disagree with ``configured``."""
-        return description_facts(method_description(self.configured))
+        return description_facts(self.configured.method)
 
     @property
     def compact(self) -> ConfiguredMethodPresentation:
         """The configured presentation restricted to compact-label facts."""
-        return with_method(self.configured, self._view(self.compact_facts))
+        return replace(self.configured, method=self._view(self.compact_facts))
 
     @property
     def detailed(self) -> ConfiguredMethodPresentation:
         """The configured presentation with every configured fact."""
-        return with_method(self.configured, self._view(self.detailed_facts))
+        return replace(self.configured, method=self._view(self.detailed_facts))
 
     def _view(self, facts: tuple[ScientificFact, ...]) -> ScientificDescription:
-        base = method_description(self.configured)
-        return ScientificDescription(base_name=base.base_name, facts=facts)
+        return ScientificDescription(base_name=self.configured.method.base_name, facts=facts)
 
-    def compact_identity(self) -> tuple[object, ...]:
+    def compact_identity(self) -> CompactIdentity:
         """Canonical structured identity of the compact label, with no rendered text."""
-        base = method_description(self.configured)
-        facts = tuple((fact.key.value, fact.value) for fact in self.compact_facts)
+        method = self._view(self.compact_facts).identity
         match self.configured:
             case StandaloneMethodPresentation():
-                return (base.base_name, facts)
+                return CompactIdentity(method=method, dataset=())
             case DatasetQualifiedMethodPresentation(dataset=dataset):
-                return (base.base_name, facts, dataset_qualifier(dataset))
+                return CompactIdentity(
+                    method=method,
+                    dataset=tuple(part.identity for part in dataset_qualifier(dataset)),
+                )
             case _:
                 assert_never(self.configured)
 
@@ -158,7 +166,7 @@ class PreparedComparisonPresentation:
         ids = [method.method_id for method in self.methods]
         if len(ids) != len(set(ids)):
             raise ValueError("PreparedComparisonPresentation method ids must be unique")
-        by_identity: dict[tuple[object, ...], list[PreconditionerName]] = {}
+        by_identity: dict[CompactIdentity, list[PreconditionerName]] = {}
         for method in self.methods:
             by_identity.setdefault(method.compact_identity(), []).append(method.method_id)
         for colliding in by_identity.values():
@@ -182,7 +190,8 @@ class SystemRealization:
     facts: tuple[ScientificFact, ...]
 
     def __post_init__(self) -> None:
-        """Allow only facts the catalog defines as known at realization time."""
+        """Allow only unique facts the catalog defines as known at realization time."""
+        require_unique_keys(self.facts, "SystemRealization")
         for fact in self.facts:
             if fact_definition(fact.key).phase is not FactPhase.REALIZED:
                 raise ValueError(f"fact {fact.key.value!r} is not a realized fact")

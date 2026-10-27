@@ -11,7 +11,6 @@ from collections.abc import Mapping
 from typing import assert_never
 
 from neuralls.domain.presentation.methods import (
-    DuplicateMethodPresentationError,
     ExecutedMethodPresentation,
     MethodPresentationCandidate,
     PreparedComparisonPresentation,
@@ -20,13 +19,11 @@ from neuralls.domain.presentation.methods import (
     SystemRealization,
     UnvalidatedComparisonPresentation,
     description_facts,
-    method_description,
 )
 from neuralls.shared.scientific_description.catalog import FactVisibility, fact_definition
 from neuralls.shared.scientific_description.models import FieldKey, ScientificFact
 
 __all__ = [
-    "DuplicateMethodPresentationError",
     "prepare_presentations",
     "prepared_of",
     "realizations_of",
@@ -103,12 +100,11 @@ def _compact_facts(
     candidate: MethodPresentationCandidate,
     cohort: tuple[MethodPresentationCandidate, ...],
 ) -> tuple[ScientificFact, ...]:
-    description = method_description(candidate.presentation)
+    description = candidate.presentation.method
     peers = tuple(
-        method_description(other.presentation)
+        other.presentation.method
         for other in cohort
-        if other is not candidate
-        and method_description(other.presentation).base_name == description.base_name
+        if other is not candidate and other.presentation.method.base_name == description.base_name
     )
     return tuple(
         fact

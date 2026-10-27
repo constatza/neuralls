@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from neuralls.domain.presentation.methods import PreparedMethodPresentation
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.shared.scientific_description.catalog import FactVisibility, fact_definition
-from neuralls.shared.scientific_description.models import ScientificFact
+from neuralls.shared.scientific_description.models import ScientificFact, require_unique_keys
 from neuralls.shared.types import PreconditionerName
 
 _COMPACT_REALIZED_VISIBILITY = frozenset({FactVisibility.ALWAYS, FactVisibility.WHEN_NON_DEFAULT})
@@ -41,6 +41,10 @@ class GroupMethodPresentation:
 
     prepared: PreparedMethodPresentation
     invariant_facts: tuple[ScientificFact, ...]
+
+    def __post_init__(self) -> None:
+        """Require each invariant fact to be stated once."""
+        require_unique_keys(self.invariant_facts, "GroupMethodPresentation.invariant_facts")
 
     @property
     def compact_facts(self) -> tuple[ScientificFact, ...]:

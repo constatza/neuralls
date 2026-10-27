@@ -83,16 +83,12 @@ from neuralls.shared.scientific_description.catalog import (
     USE_LSR,
     WEIGHTING,
     FactRole,
+    make_fact,
 )
 from neuralls.shared.scientific_description.models import (
-    DecimalFact,
-    DisplayTextFact,
-    FieldImportance,
     FieldKey,
-    IntegerFact,
     ScientificDescription,
     ScientificFact,
-    TextFact,
     ValidatedLabel,
 )
 
@@ -105,7 +101,6 @@ __all__ = [
 
 type Facts = tuple[ScientificFact, ...]
 
-_ESSENTIAL = FieldImportance.ESSENTIAL
 _ALL_SNAPSHOTS = -1
 """``n_snapshots`` value meaning every matched snapshot; not a count worth showing."""
 
@@ -219,16 +214,8 @@ classified here, so it cannot silently disappear from labels (algorithmic fields
 them (identity, provenance, operational fields)."""
 
 
-def _int(key: FieldKey, value: int) -> IntegerFact:
-    return IntegerFact(key, value, _ESSENTIAL)
-
-
-def _dec(key: FieldKey, value: float) -> DecimalFact:
-    return DecimalFact(key, value, _ESSENTIAL)
-
-
 def _damping(key: FieldKey, value: float | None) -> ScientificFact:
-    return TextFact(key, "auto", _ESSENTIAL) if value is None else _dec(key, value)
+    return make_fact(key, "auto" if value is None else value)
 
 
 def _default_of(cfg: BaseModel, field_name: str) -> object:
@@ -239,18 +226,18 @@ def _scheduling_facts(cfg: BasePreconditionerConfig) -> Facts:
     """Scheduling controls change the executed method, so only non-default ones appear."""
     facts: list[ScientificFact] = []
     if cfg.start_iter != _default_of(cfg, "start_iter"):
-        facts.append(_int(START_ITERATION, cfg.start_iter))
+        facts.append(make_fact(START_ITERATION, cfg.start_iter))
     if cfg.limit_iters != _default_of(cfg, "limit_iters"):
-        facts.append(_int(ITERATION_LIMIT, cfg.limit_iters))
+        facts.append(make_fact(ITERATION_LIMIT, cfg.limit_iters))
     if cfg.fallback != _default_of(cfg, "fallback"):
-        facts.append(TextFact(FALLBACK, cfg.fallback.value, _ESSENTIAL))
+        facts.append(make_fact(FALLBACK, cfg.fallback.value))
     return tuple(facts)
 
 
 def _smoothing_facts(cfg: AMGPreconditionerConfig | NeuralAMGPreconditionerConfig) -> Facts:
     return (
-        _int(PRE_SMOOTHING_STEPS, cfg.pre_smoothing_steps),
-        _int(POST_SMOOTHING_STEPS, cfg.post_smoothing_steps),
+        make_fact(PRE_SMOOTHING_STEPS, cfg.pre_smoothing_steps),
+        make_fact(POST_SMOOTHING_STEPS, cfg.post_smoothing_steps),
         _damping(SMOOTHER_DAMPING, cfg.smoother_omega),
     )
 
@@ -258,7 +245,7 @@ def _smoothing_facts(cfg: AMGPreconditionerConfig | NeuralAMGPreconditionerConfi
 def _architecture_fact(cfg: NeuralPreconditionerConfig) -> ScientificFact:
     if cfg.architecture is None:
         raise MissingArchitectureNameError
-    return DisplayTextFact(MODEL_ARCHITECTURE, ValidatedLabel(cfg.architecture), _ESSENTIAL)
+    return make_fact(MODEL_ARCHITECTURE, ValidatedLabel(cfg.architecture))
 
 
 def _weighting_facts(
@@ -269,24 +256,24 @@ def _weighting_facts(
             return ()
         case PowerNormWeightingConfig():
             return (
-                TextFact(WEIGHTING, weighting.method, _ESSENTIAL),
-                TextFact(METRIC, weighting.metric, _ESSENTIAL),
-                _dec(BETA, weighting.beta),
+                make_fact(WEIGHTING, weighting.method),
+                make_fact(METRIC, weighting.metric),
+                make_fact(BETA, weighting.beta),
             )
         case SmootherPersistenceWeightingConfig():
             return (
-                TextFact(WEIGHTING, weighting.method, _ESSENTIAL),
-                _int(STEPS, weighting.steps),
-                *(() if weighting.omega is None else (_dec(DAMPING, weighting.omega),)),
+                make_fact(WEIGHTING, weighting.method),
+                make_fact(STEPS, weighting.steps),
+                *(() if weighting.omega is None else (make_fact(DAMPING, weighting.omega),)),
             )
         case _:
             assert_never(weighting)
 
 
 def _pod_facts(cfg: PODCoarseningConfig | NeuralPODCoarseningConfig) -> Facts:
-    rank = _int(RANK, cfg.rank) if isinstance(cfg.rank, int) else _dec(RANK, cfg.rank)
+    rank = make_fact(RANK, cfg.rank)
     snapshots = (
-        () if cfg.n_snapshots == _ALL_SNAPSHOTS else (_int(SNAPSHOT_COUNT, cfg.n_snapshots),)
+        () if cfg.n_snapshots == _ALL_SNAPSHOTS else (make_fact(SNAPSHOT_COUNT, cfg.n_snapshots),)
     )
     weighting = _weighting_facts(cfg.weighting) if isinstance(cfg, PODCoarseningConfig) else ()
     return (rank, *snapshots, *weighting)
@@ -298,16 +285,16 @@ def _amg_facts(cfg: AMGPreconditionerConfig) -> Facts:
             return (*_pod_facts(pod), *_smoothing_facts(cfg))
         case AggregationCoarseningConfig() as aggregation:
             return (
-                _int(MULTIGRID_LEVELS, cfg.n_levels),
-                _dec(THRESHOLD, aggregation.theta),
-                *(() if aggregation.omega is None else (_dec(DAMPING, aggregation.omega),)),
+                make_fact(MULTIGRID_LEVELS, cfg.n_levels),
+                make_fact(THRESHOLD, aggregation.theta),
+                *(() if aggregation.omega is None else (make_fact(DAMPING, aggregation.omega),)),
                 *_smoothing_facts(cfg),
             )
         case TargetDimCoarseningConfig() as target:
             return (
-                _int(MULTIGRID_LEVELS, cfg.n_levels),
-                _int(TARGET_COARSE_DIMENSION, target.target_coarse_dim),
-                *(() if target.omega is None else (_dec(DAMPING, target.omega),)),
+                make_fact(MULTIGRID_LEVELS, cfg.n_levels),
+                make_fact(TARGET_COARSE_DIMENSION, target.target_coarse_dim),
+                *(() if target.omega is None else (make_fact(DAMPING, target.omega),)),
                 *_smoothing_facts(cfg),
             )
         case _:
@@ -319,41 +306,45 @@ def _configured_facts(cfg: ConcretePreconditionerConfig) -> Facts:
         case StandardPreconditionerConfig():
             return ()
         case IC0PreconditionerConfig():
-            return (_dec(DROP_TOLERANCE, cfg.threshold),)
+            return (make_fact(DROP_TOLERANCE, cfg.threshold),)
         case NeuralPreconditionerConfig():
             return (_architecture_fact(cfg),)
         case AMGPreconditionerConfig():
             return _amg_facts(cfg)
         case NeuralAMGPreconditionerConfig():
             return (
-                _int(MULTIGRID_LEVELS, cfg.n_levels),
-                *(() if cfg.aggregation_omega is None else (_dec(DAMPING, cfg.aggregation_omega),)),
+                make_fact(MULTIGRID_LEVELS, cfg.n_levels),
+                *(
+                    ()
+                    if cfg.aggregation_omega is None
+                    else (make_fact(DAMPING, cfg.aggregation_omega),)
+                ),
                 *_smoothing_facts(cfg),
             )
         case AdaptiveSAPreconditionerConfig():
             return (
-                _int(MULTIGRID_LEVELS, cfg.n_levels),
-                _int(CANDIDATE_COUNT, cfg.num_candidates),
-                _int(CANDIDATE_ITERATIONS, cfg.candidate_iters),
-                _int(MAX_COARSE_DIMENSION, cfg.max_coarse),
-                _dec(THRESHOLD, cfg.theta),
-                _dec(DAMPING, cfg.omega),
-                _int(SEED, cfg.seed),
+                make_fact(MULTIGRID_LEVELS, cfg.n_levels),
+                make_fact(CANDIDATE_COUNT, cfg.num_candidates),
+                make_fact(CANDIDATE_ITERATIONS, cfg.candidate_iters),
+                make_fact(MAX_COARSE_DIMENSION, cfg.max_coarse),
+                make_fact(THRESHOLD, cfg.theta),
+                make_fact(DAMPING, cfg.omega),
+                make_fact(SEED, cfg.seed),
             )
         case BootstrapAMGPreconditionerConfig():
             return (
-                _int(MULTIGRID_LEVELS, cfg.n_levels),
-                _int(RELAXATION_TEST_VECTORS, cfg.k_r),
-                _int(RELAXATION_SWEEPS, cfg.eta),
-                _int(BOOTSTRAP_CYCLES, cfg.n_bootstrap_cycles),
-                _int(COMPATIBLE_RELAXATION_SWEEPS, cfg.nu),
-                _dec(COMPATIBLE_RELAXATION_TOLERANCE, cfg.delta),
-                _dec(ALGEBRAIC_DISTANCE_THRESHOLD, cfg.theta_ad),
-                _int(CALIBER, cfg.caliber),
-                _dec(CALIBER_GROWTH_PENALTY, cfg.gamma),
-                TextFact(USE_LSR, "on" if cfg.use_lsr else "off", _ESSENTIAL),
-                _int(MAX_COARSE_DIMENSION, cfg.max_coarse),
-                _int(SEED, cfg.seed),
+                make_fact(MULTIGRID_LEVELS, cfg.n_levels),
+                make_fact(RELAXATION_TEST_VECTORS, cfg.k_r),
+                make_fact(RELAXATION_SWEEPS, cfg.eta),
+                make_fact(BOOTSTRAP_CYCLES, cfg.n_bootstrap_cycles),
+                make_fact(COMPATIBLE_RELAXATION_SWEEPS, cfg.nu),
+                make_fact(COMPATIBLE_RELAXATION_TOLERANCE, cfg.delta),
+                make_fact(ALGEBRAIC_DISTANCE_THRESHOLD, cfg.theta_ad),
+                make_fact(CALIBER, cfg.caliber),
+                make_fact(CALIBER_GROWTH_PENALTY, cfg.gamma),
+                make_fact(USE_LSR, "on" if cfg.use_lsr else "off"),
+                make_fact(MAX_COARSE_DIMENSION, cfg.max_coarse),
+                make_fact(SEED, cfg.seed),
             )
         case _:
             assert_never(cfg)
@@ -379,18 +370,18 @@ def _coarsening_facts(coarsening: CoarseningStrategy, matrix: torch.Tensor) -> F
 
 @_coarsening_facts.register
 def _(coarsening: PODCoarseningStrategy, matrix: torch.Tensor) -> Facts:
-    return (_int(COARSE_DIMENSION, coarsening.rank),)
+    return (make_fact(COARSE_DIMENSION, coarsening.rank),)
 
 
 @_coarsening_facts.register
 def _(coarsening: AggregationCoarsening, matrix: torch.Tensor) -> Facts:
     coarse_matrix, _ = coarsening.build_transfer(matrix)
-    return (_int(COARSE_DIMENSION, coarse_matrix.shape[0]),)
+    return (make_fact(COARSE_DIMENSION, coarse_matrix.shape[0]),)
 
 
 @_coarsening_facts.register
 def _(coarsening: TargetDimensionCoarsening, matrix: torch.Tensor) -> Facts:
-    return (_int(COARSE_DIMENSION, coarsening.realized_coarse_dim(matrix)),)
+    return (make_fact(COARSE_DIMENSION, coarsening.realized_coarse_dim(matrix)),)
 
 
 @singledispatch
@@ -411,8 +402,8 @@ def _(precond: AMGPreconditioner) -> Facts:
 
 def _hierarchy_facts(matrices: list[torch.Tensor]) -> Facts:
     return (
-        _int(REALIZED_LEVELS, len(matrices)),
-        _int(COARSE_DIMENSION, int(matrices[-1].shape[0])),
+        make_fact(REALIZED_LEVELS, len(matrices)),
+        make_fact(COARSE_DIMENSION, int(matrices[-1].shape[0])),
     )
 
 
