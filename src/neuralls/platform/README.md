@@ -157,9 +157,9 @@ scalars exactly once. The sink never opens an MLflow run;
 `comparison_batch` owns the session parent and its one direct child per method.
 The parent receives only shared provenance and cross-method reports, while raw
 method artifacts remain on the child. Reuse requires phase
-`comparison_method`, event schema version 1, the method config/checkpoint
+`comparison_method`, the method config/checkpoint
 digest, complete workload membership, and all canonical raw artifacts; legacy
-runs without a schema marker are executed again. Reuse parses the required
+per-system runs are executed again. Reuse parses the required
 configuration and diagnostics and reconciles event methods, membership, and
 summary totals before accepting a hit. The persisted configuration is the
 canonical identity representation: checkpoint inputs are content digests and

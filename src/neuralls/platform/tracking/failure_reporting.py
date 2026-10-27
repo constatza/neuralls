@@ -17,7 +17,6 @@ from neuralls.shared.workflow_failures import (
 
 FAILURE_CONTEXT_ARTIFACT = "failure/context.json"
 FAILURE_TRACEBACK_ARTIFACT = "failure/traceback.txt"
-FAILURE_SCHEMA = "comparison-workflow-failure-v1"
 
 
 class MLflowWorkflowFailureSink:
@@ -43,7 +42,6 @@ def _failure_record(
     context: WorkflowFailureContext, exc: Exception
 ) -> tuple[dict[str, object], dict[str, str]]:
     common: dict[str, object] = {
-        "schema": FAILURE_SCHEMA,
         "phase": context.phase.value,
         "exception_type": type(exc).__name__,
         "message": str(exc),

@@ -1,4 +1,6 @@
+import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -9,8 +11,10 @@ from neuralls.platform.reporting.figure_metadata import (
     FigureManifest,
     FigureMetadata,
     FigurePlan,
+    InvalidFigureManifestError,
     ReferenceSelectionKind,
     TimingScenario,
+    validate_figure_manifest,
     write_figure_manifest,
 )
 
@@ -67,7 +71,6 @@ def test_manifest_serializes_literal_population_and_solver_context() -> None:
     manifest.add("performance_profile_fine_x_online.png", _metadata())
 
     assert manifest.as_dict() == {
-        "schema": "figure-manifest-v1",
         "figures": {
             "performance_profile_fine_x_online.png": {
                 "kind": "performance_profile",
@@ -103,6 +106,30 @@ def test_manifest_serializes_literal_population_and_solver_context() -> None:
             }
         },
     }
+
+
+def _manifest_payload(tmp_path: Path) -> dict[str, Any]:
+    manifest = FigureManifest()
+    manifest.add("performance_profile_fine_x_online.png", _metadata())
+    path = tmp_path / "figure_manifest.toml"
+    write_figure_manifest(path, manifest)
+    return tomllib.loads(path.read_text(encoding="utf-8"))
+
+
+def test_written_manifest_passes_validation(tmp_path: Path) -> None:
+    validate_figure_manifest(_manifest_payload(tmp_path))
+
+
+def test_manifest_without_figures_table_is_rejected() -> None:
+    with pytest.raises(InvalidFigureManifestError, match="figures"):
+        validate_figure_manifest({})
+
+
+def test_manifest_entry_missing_required_field_is_rejected(tmp_path: Path) -> None:
+    payload = _manifest_payload(tmp_path)
+    del payload["figures"]["performance_profile_fine_x_online.png"]["solver_contexts"]
+    with pytest.raises(InvalidFigureManifestError, match="solver_contexts"):
+        validate_figure_manifest(payload)
 
 
 def test_manifest_rejects_duplicate_and_sanitized_collisions() -> None:

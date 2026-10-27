@@ -118,6 +118,10 @@ from neuralls.platform.reporting.comparison_inputs import (
     ComparisonInputArtifacts,
     stage_comparison_inputs,
 )
+from neuralls.platform.reporting.figure_metadata import (
+    InvalidFigureManifestError,
+    validate_figure_manifest,
+)
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.tracking.artifact_access import (
     ArtifactLeaseManager,
@@ -1689,11 +1693,10 @@ def _has_complete_reusable_session(
         with tempfile.TemporaryDirectory(prefix="neuralls-session-reuse-") as temp_dir:
             manifest_path = client.download_artifacts(parent_id, manifest_artifact, temp_dir)
             manifest = tomllib.loads(Path(manifest_path).read_text(encoding="utf-8"))
-    except OSError, tomllib.TOMLDecodeError:
+        validate_figure_manifest(manifest)
+    except OSError, tomllib.TOMLDecodeError, InvalidFigureManifestError:
         return False
-    return manifest.get("schema") == "figure-manifest-v1" and isinstance(
-        manifest.get("figures"), dict
-    )
+    return True
 
 
 def run_comparison_batch(

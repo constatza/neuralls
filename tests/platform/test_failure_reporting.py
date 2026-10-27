@@ -39,7 +39,7 @@ def test_mlflow_failure_sink_records_exact_context_and_traceback() -> None:
 
     logged_context, context_path = log_dict.call_args.args
     assert context_path == "failure/context.json"
-    assert logged_context["schema"] == "comparison-workflow-failure-v1"
+    assert "schema" not in logged_context
     assert logged_context["scope"] == "method"
     assert logged_context["phase"] == ComparisonMethodPhase.EXECUTION
     assert logged_context["method"] == context.method

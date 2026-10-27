@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -155,7 +155,48 @@ class FigureManifest:
             if metadata.scenario is not None:
                 entry["scenario"] = metadata.scenario.value
             figures[filename] = entry
-        return {"schema": "figure-manifest-v1", "figures": figures}
+        return {"figures": figures}
+
+
+REQUIRED_MANIFEST_ENTRY_FIELDS: frozenset[str] = frozenset(
+    {
+        "kind",
+        "metric_definition",
+        "report_level",
+        "scope",
+        "datasets",
+        "recipes",
+        "n_matrices",
+        "n_planned_rhs",
+        "reference_selection",
+        "failure_treatment",
+        "timing_policy",
+        "aggregation_rule",
+        "recipe_counts",
+        "recipe_weights",
+        "solver_contexts",
+        "sources",
+    }
+)
+
+
+class InvalidFigureManifestError(ValueError):
+    """A payload is not a complete figure manifest."""
+
+
+def validate_figure_manifest(payload: Mapping[str, object]) -> None:
+    """Raise unless ``payload`` has a ``figures`` table of complete entries."""
+    figures = payload.get("figures")
+    if not isinstance(figures, Mapping):
+        raise InvalidFigureManifestError("figure manifest has no 'figures' table")
+    for filename, entry in figures.items():
+        if not isinstance(entry, Mapping):
+            raise InvalidFigureManifestError(f"figure entry {filename!r} is not a table")
+        missing = sorted(REQUIRED_MANIFEST_ENTRY_FIELDS - entry.keys())
+        if missing:
+            raise InvalidFigureManifestError(
+                f"figure entry {filename!r} is missing fields: {', '.join(missing)}"
+            )
 
 
 def write_figure_manifest(path: str | Path, manifest: FigureManifest) -> None:

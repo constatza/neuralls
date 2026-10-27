@@ -11,9 +11,8 @@ from typing import Literal
 from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.models.experiments import AssignmentEntry, ComparisonRegistryEntry
 from neuralls.platform.config.resolution import MlflowPaths
-from neuralls.platform.reporting.benchmark_events import BENCHMARK_EVENT_SCHEMA_VERSION
 from neuralls.platform.tracking.mlflow import MlflowRunConfig
-from neuralls.shared.digest import Digest, canonical_digest, ordered_workload_digest
+from neuralls.shared.digest import Digest, ordered_workload_digest
 
 
 def iso_timestamp(dt: datetime | None = None) -> str:
@@ -121,11 +120,10 @@ class ChildComparisonRunTags:
 
 @dataclass(frozen=True)
 class BenchmarkMethodRunTags:
-    """Identity and schema tags for one direct method child of a session."""
+    """Identity tags for one direct method child of a session."""
 
     phase: Literal["comparison_method"]
     method: str
-    benchmark_event_schema_version: str
     method_config_digest: Digest
     workload_membership_digest: Digest
     required_artifacts: str
@@ -158,7 +156,6 @@ def build_benchmark_method_run_spec(
     identity = StageIdentity.build(
         "comparison_method",
         {
-            "schema": canonical_digest(BENCHMARK_EVENT_SCHEMA_VERSION),
             "method_config": config_digest,
             "workload_membership": membership,
         },
@@ -166,7 +163,6 @@ def build_benchmark_method_run_spec(
     tags = BenchmarkMethodRunTags(
         phase="comparison_method",
         method=method,
-        benchmark_event_schema_version=str(BENCHMARK_EVENT_SCHEMA_VERSION),
         method_config_digest=config_digest,
         workload_membership_digest=membership,
         required_artifacts=(

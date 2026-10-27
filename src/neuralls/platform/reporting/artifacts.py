@@ -21,7 +21,6 @@ from neuralls.domain.solver.models.plot_paths import PlotPaths
 from neuralls.domain.solver.models.recommendations import ComparisonRecommendations
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.platform.reporting.benchmark_events import (
-    BENCHMARK_EVENT_SCHEMA_VERSION,
     MethodBenchmarkArtifacts,
     read_setup_events,
     read_solve_attempts,
@@ -30,7 +29,6 @@ from neuralls.platform.reporting.benchmark_events import (
 from neuralls.platform.reporting.serialization import to_json_primitive
 
 __all__ = [
-    "BENCHMARK_EVENT_SCHEMA_VERSION",
     "MethodBenchmarkArtifacts",
     "read_setup_events",
     "read_solve_attempts",

@@ -32,10 +32,6 @@ from neuralls.domain.solver.reporting.event_frames import (
 )
 from neuralls.shared.digest import Digest, ordered_workload_digest
 
-BENCHMARK_EVENT_SCHEMA_VERSION = 1
-_SCHEMA_METADATA_KEY = b"neuralls.benchmark_event_schema_version"
-_PUBLIC_SCHEMA_METADATA_KEY = b"schema_version"
-
 
 @dataclass(frozen=True, slots=True)
 class MethodBenchmarkArtifacts:
@@ -89,29 +85,14 @@ def read_solve_attempts(path: Path, *, setup_events_path: Path | None = None) ->
 
 
 def _write_frame(frame: pl.DataFrame, path: Path) -> None:
-    """Write a frame with the schema version in Parquet metadata."""
+    """Write a frame to Parquet."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    table = frame.to_arrow()
-    metadata = dict(table.schema.metadata or {})
-    version = str(BENCHMARK_EVENT_SCHEMA_VERSION).encode("ascii")
-    metadata[_SCHEMA_METADATA_KEY] = version
-    metadata[_PUBLIC_SCHEMA_METADATA_KEY] = version
-    pq.write_table(table.replace_schema_metadata(metadata), path)
+    pq.write_table(frame.to_arrow(), path)
 
 
 def _read_frame(path: Path, schema: dict[str, pl.DataType | type[pl.DataType]]) -> pl.DataFrame:
     if not path.exists():
         raise FileNotFoundError(path)
-    metadata = pq.read_schema(path).metadata or {}
-    raw_version = metadata.get(_SCHEMA_METADATA_KEY, metadata.get(_PUBLIC_SCHEMA_METADATA_KEY))
-    if raw_version is None:
-        raise ValueError(f"missing benchmark event schema version in {path}")
-    try:
-        version = int(raw_version.decode("ascii"))
-    except ValueError as exc:
-        raise ValueError(f"invalid benchmark event schema version in {path}") from exc
-    if version != BENCHMARK_EVENT_SCHEMA_VERSION:
-        raise ValueError(f"unsupported benchmark event schema version: {version}")
     frame = pl.read_parquet(path)
     expected = pl.Schema(schema)
     if frame.schema != expected:
@@ -130,7 +111,6 @@ def _write_summary(workload: MethodWorkload, summary: MethodWorkloadSummary, pat
     # setup/solve frame maxima; those frames contain only per-event peaks.
     peak_bytes, peak_status = _memory_fields(summary.workload_peak_memory)
     payload: dict[str, Any] = {
-        "schema_version": BENCHMARK_EVENT_SCHEMA_VERSION,
         "method": {
             "name": str(workload.method),
             "config_digest": workload.config_digest,

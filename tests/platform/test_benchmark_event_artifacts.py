@@ -25,7 +25,6 @@ from neuralls.domain.solver.models.cost import StageCost
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.platform.reporting.benchmark_events import (
-    BENCHMARK_EVENT_SCHEMA_VERSION,
     read_setup_events,
     read_solve_attempts,
     write_method_benchmark_artifacts,
@@ -41,7 +40,7 @@ from neuralls.shared.types import (
 
 
 def _rewrite_frame(path: Path, frame: pl.DataFrame) -> None:
-    """Rewrite a test artifact while preserving its version metadata."""
+    """Rewrite a test artifact while preserving its Parquet metadata."""
     metadata = pq.read_schema(path).metadata
     pq.write_table(frame.to_arrow().replace_schema_metadata(metadata), path)
 
@@ -252,7 +251,7 @@ def test_summary_is_reconciled_from_canonical_frames_and_versioned(
     ]
     workload_total = setup_total + solve_total
 
-    assert payload["schema_version"] == BENCHMARK_EVENT_SCHEMA_VERSION
+    assert "schema_version" not in payload
     assert payload["method"] == {"name": "jacobi", "config_digest": "sha256:" + "a" * 64}
     assert payload["counts"] == {
         "planned_rhs": attempted,
@@ -444,7 +443,7 @@ def test_incomplete_summary_preserves_planned_membership_and_missing_ids(
     }
 
 
-def test_readers_reject_missing_or_wrong_schema_and_corrupt_links(
+def test_readers_reject_wrong_column_schema_and_corrupt_links(
     tmp_path: Path, workload: CompletedMethodWorkload, summary: CompleteWorkloadSummary
 ) -> None:
     artifacts = write_method_benchmark_artifacts(workload=workload, summary=summary, root=tmp_path)
@@ -459,19 +458,10 @@ def test_readers_reject_missing_or_wrong_schema_and_corrupt_links(
         read_solve_attempts(solve_path, setup_events_path=tmp_path / artifacts.setup_events)
 
     setup_path = tmp_path / artifacts.setup_events
-    schema = pq.read_schema(setup_path)
-    pq.write_table(
-        pq.read_table(setup_path).replace_schema_metadata(
-            {**(schema.metadata or {}), b"neuralls.benchmark_event_schema_version": b"999"}
-        ),
-        setup_path,
-    )
-    with pytest.raises(ValueError):
+    setup = pl.read_parquet(setup_path)
+    pq.write_table(setup.drop("setup_event_id").to_arrow(), setup_path)
+    with pytest.raises(ValueError, match="unexpected benchmark event schema"):
         read_setup_events(setup_path)
 
-    pq.write_table(
-        pq.read_table(setup_path).replace_schema_metadata({}),
-        setup_path,
-    )
-    with pytest.raises(ValueError):
-        read_setup_events(setup_path)
+    pq.write_table(setup.to_arrow().replace_schema_metadata({}), setup_path)
+    assert read_setup_events(setup_path).equals(setup)

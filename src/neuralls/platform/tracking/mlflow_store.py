@@ -18,7 +18,6 @@ from mlflow.tracking import MlflowClient
 
 from neuralls.domain.identity import IdentityTag, Reused, StageIdentity
 from neuralls.platform.reporting.benchmark_events import (
-    BENCHMARK_EVENT_SCHEMA_VERSION,
     read_setup_events,
     read_solve_attempts,
 )
@@ -28,7 +27,6 @@ from neuralls.shared.digest import Digest, Json, ordered_workload_digest
 _PAGE_SIZE = 50
 _NEWEST_FIRST = ["attributes.start_time DESC", "attributes.run_id ASC"]
 _METHOD_PHASE = "comparison_method"
-_METHOD_SCHEMA_VERSION = str(BENCHMARK_EVENT_SCHEMA_VERSION)
 _METHOD_ARTIFACTS = frozenset(
     {
         "setup_events.parquet",
@@ -121,12 +119,12 @@ def find_reusable_benchmark_method(
     method_config: Mapping[str, Json],
     system_identities: tuple[Digest, ...] | None = None,
 ) -> Reused | None:
-    """Find a complete schema-v1 method child, ignoring legacy system runs.
+    """Find a complete method child, ignoring legacy system runs.
 
     A matching tag set is insufficient: all canonical raw artifacts must be
     present before a method workload can be reused.  The query deliberately
-    requires ``phase=comparison_method`` and the schema tag, so old
-    comparison runs without a schema marker execute under the new topology.
+    requires ``phase=comparison_method``, so legacy per-system comparison
+    runs execute under the method-child topology.
     """
     client = MlflowClient(tracking_uri=tracking_uri)
     experiment_obj = client.get_experiment_by_name(experiment)
@@ -137,7 +135,6 @@ def find_reusable_benchmark_method(
     clauses = [
         "attributes.status = 'FINISHED'",
         "tags.`phase` = 'comparison_method'",
-        f"tags.`benchmark_event_schema_version` = '{_METHOD_SCHEMA_VERSION}'",
         f"tags.`method` = '{escaped_method}'",
         f"tags.`method_config_digest` = '{config_digest}'",
         f"tags.`workload_membership_digest` = '{membership}'",
@@ -200,8 +197,6 @@ def _validate_method_artifacts(
     if config != dict(method_config):
         raise ValueError("method config artifact does not match requested workload")
     _validate_diagnostics(diagnostics, method=method, system_ids=system_ids)
-    if summary.get("schema_version") != BENCHMARK_EVENT_SCHEMA_VERSION:
-        raise ValueError("unsupported method summary schema")
     method_summary = summary.get("method")
     workload_summary = summary.get("workload")
     expected_ids = list(system_ids)

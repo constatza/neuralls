@@ -38,7 +38,6 @@ from neuralls.domain.solver.ports import CostRecorder
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.reporting.benchmark_events import (
-    BENCHMARK_EVENT_SCHEMA_VERSION,
     write_method_benchmark_artifacts,
 )
 from neuralls.platform.reporting.figure_metadata import (
@@ -498,7 +497,6 @@ def _figure_metadata(
 
 
 METHOD_ARTIFACT_DIR = "method_workload"
-BENCHMARK_METHOD_SCHEMA_VERSION = BENCHMARK_EVENT_SCHEMA_VERSION
 
 
 def _method_scope(workload: MethodWorkload) -> str:
@@ -548,7 +546,6 @@ class MLflowBenchmarkMethodSink:
     @staticmethod
     def _log_method_metadata(workload: MethodWorkload, summary: MethodWorkloadSummary) -> None:
         """Log only reducer-owned searchable scalars, never event-loop aggregates."""
-        mlflow.log_param("benchmark_event_schema_version", str(BENCHMARK_METHOD_SCHEMA_VERSION))
         mlflow.log_param("method", str(workload.method))
         mlflow.log_param("method_config_digest", str(workload.config_digest))
         n_setup_failed = sum(

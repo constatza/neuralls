@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tomllib
 from dataclasses import replace
 from pathlib import Path
@@ -236,7 +237,7 @@ def test_method_sink_counts_recoverable_solve_failures_from_canonical_events(
     assert tags["workload_outcome"] == "completed_with_failures"
 
 
-def test_method_child_tags_include_schema_identity_and_required_raw_artifacts() -> None:
+def test_method_child_tags_include_identity_and_required_raw_artifacts() -> None:
     _, tags = build_benchmark_method_run_spec(
         method="jacobi",
         config_digest="sha256:" + "a" * 64,
@@ -245,14 +246,37 @@ def test_method_child_tags_include_schema_identity_and_required_raw_artifacts() 
     values = tags.as_mlflow_tags()
 
     assert values["phase"] == "comparison_method"
-    assert values["benchmark_event_schema_version"] == "1"
+    assert "benchmark_event_schema_version" not in values
     assert values["method_config_digest"] == "sha256:" + "a" * 64
     assert values["workload_membership_digest"].startswith("sha256:")
     assert "setup_events.parquet" in values["required_artifacts"]
     assert "method_config.toml" in values["required_artifacts"]
-    assert '"schema": "sha256:' in values["identity_components"]
+    assert "schema" not in values["identity_components"]
     assert "0000000000000000" not in values["identity_components"]
     assert values["neuralls.identity.stage"] == "comparison_method"
+
+
+def _identity_components(config_digest: str, system_ids: tuple[str, ...]) -> dict[str, str]:
+    _, tags = build_benchmark_method_run_spec(
+        method="jacobi", config_digest=config_digest, system_ids=system_ids
+    )
+    return json.loads(tags.identity_components)
+
+
+def test_method_identity_has_only_real_inputs_and_is_deterministic_and_sensitive() -> None:
+    config = "sha256:" + "a" * 64
+    base = _identity_components(config, ("s0", "s1"))
+
+    assert set(base) == {"method_config", "workload_membership"}
+    assert base == _identity_components(config, ("s0", "s1"))
+    assert (
+        base["method_config"]
+        != _identity_components("sha256:" + "b" * 64, ("s0", "s1"))["method_config"]
+    )
+    assert (
+        base["workload_membership"]
+        != _identity_components(config, ("s0", "s2"))["workload_membership"]
+    )
 
 
 def test_method_membership_digest_includes_ordered_system_identities() -> None:

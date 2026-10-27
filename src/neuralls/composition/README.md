@@ -507,7 +507,7 @@ A method child owns its
 required configuration, the two canonical Parquet event files, `summary.toml`,
 method histories, and method diagnostic figures; the session parent owns shared
 provenance and cross-method figures. No matrix/RHS system runs or method
-grandchildren are created. Method reuse is accepted only for schema-v1 children
+grandchildren are created. Method reuse is accepted only for children
 whose identity contains the method config/checkpoint digest and complete
 workload membership and whose required raw artifacts pass schema/link and
 summary validation. Reuse also compares the canonical method config (checkpoint
