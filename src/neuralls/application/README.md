@@ -6,7 +6,7 @@ The application package holds use-case logic only.
 
 - `inference/prediction.py`: batch prediction execution over prepared inference data through a domain-owned inference predictor port
 - `inference/models.py`: `InferenceConfig` and `InferenceData` DTOs
-- `models.py`: `AssignmentResult` and `TaskResult` reporting DTOs
+- `models.py`: `AssignmentResult` (carries the assignment's typed `TrainingPresentation`; sinks render its text) and `TaskResult` reporting DTOs
 
 Comparison logic lives directly in `domain/solver/comparison.py` and is called
 from `composition/comparison/`; there is no application-layer redirect for it.

@@ -23,6 +23,8 @@ solves, staging, plotting, persistence, MLflow calls, and historical generation
 or training remain outside it. Required computation after I/O belongs to a
 timed setup or solve event.
 
+`comparison_summary.py::format_results_summary` heads each summary line with the method's description, rendered from the `ConfiguredMethodPresentation` it is given for every result (a result without one raises `MissingMethodPresentationError`); `RankedRecommendation.method_id` names its method by id only.
+
 `models/workload.py` represents a method summary as either complete or
 explicitly incomplete. Both variants retain planned, attempted, and converged
 RHS counts, setup and solve totals, total online workload time, attempted-RHS

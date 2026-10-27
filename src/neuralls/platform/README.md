@@ -66,7 +66,7 @@ never by assignment identity, job title or class name. A POD-2G method carries
 its fit dataset's recorded presentation (never an id or path), which the renderer
 appends once after ``|``. The plotting API takes the typed presentation, not
 text: `platform/reporting/figure_text.py` renders legend entries, bar labels,
-titles and subtitles at the moment a figure is drawn. `method_legend` renders
+titles and subtitles at the moment a figure is drawn. Training and evaluation bar charts label each bar with `training_legend` (the rendered `TrainingPresentation`) through `plot_method_bars`; `plot_metric_comparison` only draws labels its caller rendered. `scope_label` renders a figure scope as one plain line for logs. `method_legend` renders
 every method's compact presentation under the case's `NotationPolicy`; methods
 whose texts would collide only because decimals were rounded are re-rendered
 with more digits, and a method with no entry raises
@@ -147,7 +147,7 @@ required `save_path` and returns it, or `None` when nothing was drawn, and a
 `MLflowGroupReportSink` logs planned, attempted, and converged counts plus the
 failure-aware paired fields. Its typed plans (`FigurePlan`: editorial title plus the `FigureMetadata` scope) are also the single source of
 figure scope, stable filenames, timing scenarios, and manifest
-metadata. The figure manifest stores each scope as keys and typed values (`facts_codec.encode_figure_scope`) beside its plain rendered `display` text; file names stay machine-safe ids. Global metadata retains every dataset, recipe population/weight, and
+metadata. The figure manifest stores each scope as keys and typed values (`facts_codec.encode_figure_scope`) beside its plain rendered `display` text; file names stay machine-safe ids, and machine ids live only in `*_id` fields (`dataset_ids`, `reference_method_id`; `reference_selection` is the kind alone). Global metadata retains every dataset, recipe population/weight, and
 the actual solver, normalization, and timing-repeat settings; method-child
 history figures are registered with unique method-qualified ownership. Raw
 benchmark events and method summaries become
