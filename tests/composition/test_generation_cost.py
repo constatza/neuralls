@@ -35,6 +35,7 @@ from neuralls.platform.storage.manifest_io import save_dataset_manifest
 from neuralls.shared.types import CostProvenance, GenerationRepeatability
 
 _GENERATION_DURATION = 12.5
+WORKSPACE = Path("/workspace")
 
 
 def _write_data_config(path: Path, data_root: Path, *, dataset_id: str = "test-dataset") -> None:
@@ -182,29 +183,29 @@ def test_classical_amg_repeatability_is_not_applicable() -> None:
     assert resolve_generation_repeatability(cfg) is GenerationRepeatability.NOT_APPLICABLE
 
 
-def test_checkpoint_backed_pod2g_repeatability_is_one_time(tmp_path: Path) -> None:
+def test_checkpoint_backed_pod2g_repeatability_is_one_time() -> None:
     """A POD-2G config with an explicit checkpoint_path is a one-time cost."""
     cfg = AMGPreconditionerConfig(
         type=PreconditionerType.AMG,
         coarsening=PODCoarseningConfig(
-            dataset_dir=tmp_path / "pod-dataset", rank=4, checkpoint_path=tmp_path / "pod.ckpt"
+            dataset_dir=WORKSPACE / "pod-dataset", rank=4, checkpoint_path=WORKSPACE / "pod.ckpt"
         ),
     )
     assert resolve_generation_repeatability(cfg) is GenerationRepeatability.ONE_TIME
 
 
-def test_checkpointless_pod2g_repeatability_is_per_system(tmp_path: Path) -> None:
+def test_checkpointless_pod2g_repeatability_is_per_system() -> None:
     """A POD-2G config fit inline from `dataset_dir` (no checkpoint) repeats per system."""
     cfg = AMGPreconditionerConfig(
         type=PreconditionerType.AMG,
-        coarsening=PODCoarseningConfig(dataset_dir=tmp_path / "pod-dataset", rank=4),
+        coarsening=PODCoarseningConfig(dataset_dir=WORKSPACE / "pod-dataset", rank=4),
     )
     assert resolve_generation_repeatability(cfg) is GenerationRepeatability.PER_SYSTEM
 
 
-def test_checkpoint_backed_neural_repeatability_is_one_time(tmp_path: Path) -> None:
+def test_checkpoint_backed_neural_repeatability_is_one_time() -> None:
     """A Neural config with an explicit checkpoint_path is a one-time cost."""
     cfg = NeuralPreconditionerConfig(
-        type=PreconditionerType.NEURAL, checkpoint_path=tmp_path / "model.ckpt"
+        type=PreconditionerType.NEURAL, checkpoint_path=WORKSPACE / "model.ckpt"
     )
     assert resolve_generation_repeatability(cfg) is GenerationRepeatability.ONE_TIME

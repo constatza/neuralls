@@ -21,10 +21,9 @@ from neuralls.shared.constants import DEFAULT_WRITE_BATCH_SIZE
 
 def test_source_config_matrix_path_glob_preserves_wildcard(
     config_context: ConfigContext,
-    tmp_path: Path,
 ) -> None:
     """matrix_path with a glob wildcard must survive validator expansion intact."""
-    glob_expr = str(tmp_path / "A_*.txt")
+    glob_expr = str(Path("/workspace") / "A_*.txt")
     config = SourceConfig.model_validate(
         {"matrix_path": glob_expr},
         context=config_context.as_pydantic_context(),
@@ -36,10 +35,9 @@ def test_source_config_matrix_path_glob_preserves_wildcard(
 
 def test_source_config_matrix_path_plain_still_resolves(
     config_context: ConfigContext,
-    tmp_path: Path,
 ) -> None:
     """matrix_path without wildcards resolves to an absolute path as before."""
-    plain = str(tmp_path / "A.txt")
+    plain = str(Path("/workspace") / "A.txt")
     config = SourceConfig.model_validate(
         {"matrix_path": plain},
         context=config_context.as_pydantic_context(),

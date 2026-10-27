@@ -599,10 +599,10 @@ def test_validate_neural_preconditioner_requires_model_ref() -> None:
         _validate_neural_preconditioner(spec)
 
 
-def test_validate_neural_preconditioner_rejects_checkpoint_path(tmp_path: Path) -> None:
+def test_validate_neural_preconditioner_rejects_checkpoint_path() -> None:
     spec = NeuralPreconditionerConfig(
         type=PreconditionerType.NEURAL,
-        checkpoint_path=tmp_path / "model.ckpt",
+        checkpoint_path=Path("/workspace/model.ckpt"),
         model_ref=_logged_ref("run-1"),
     )
     with pytest.raises(ValueError):
@@ -704,9 +704,9 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
     client.search_experiments.assert_not_called()
 
 
-def test_extract_array_artifacts_detaches_numpy_data(tmp_path: Path) -> None:
+def test_extract_array_artifacts_detaches_numpy_data() -> None:
     payload, array_artifacts = extract_array_artifacts(
-        _typed_comparison_result(tmp_path / "convergence.png")
+        _typed_comparison_result(Path("/workspace/convergence.png"))
     )
     serialized = serialize_comparison_payload(payload)
     assert serialized["results"]["identity"]["iterations"] == 2

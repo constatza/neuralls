@@ -48,16 +48,16 @@ def test_non_finite_float_raises(bad: float) -> None:
         canonical_digest({"x": bad})
 
 
-def test_unknown_type_raises(tmp_path: Path) -> None:
+def test_unknown_type_raises() -> None:
     with pytest.raises(TypeError):
         canonical_digest(Unknown())
 
 
-def test_unmarked_path_raises(tmp_path: Path) -> None:
+def test_unmarked_path_raises() -> None:
     with pytest.raises(TypeError):
-        canonical_digest(UnmarkedPathModel(path=tmp_path))
+        canonical_digest(UnmarkedPathModel(path=Path("/workspace")))
     with pytest.raises(TypeError):
-        canonical_digest({"p": tmp_path})
+        canonical_digest({"p": Path("/workspace")})
 
 
 def test_content_digest_file_path_independent(tmp_path: Path) -> None:

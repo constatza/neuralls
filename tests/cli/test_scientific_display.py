@@ -50,6 +50,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import MatrixId
 
 runner = CliRunner()
+WORKSPACE = Path("/workspace")
 
 DATASET_TEXT = "Test problem | Gaussian CG Residuals (k=20, N=100)"
 REGISTRY_ID = "cmp-secret-17"
@@ -84,7 +85,7 @@ def comparison_run_on() -> Callable[[ComparisonSubject], NamedRun]:
 
 
 @pytest.fixture
-def comparison_payload(tmp_path: Path) -> ComparisonResult:
+def comparison_payload() -> ComparisonResult:
     general = ComparisonGeneral(
         params=SolverParams(
             rtol=1.0e-6,
@@ -94,8 +95,8 @@ def comparison_payload(tmp_path: Path) -> ComparisonResult:
             m_max=5,
         ),
         data=ComparisonData(
-            matrix_path=tmp_path / "matrix.npy",
-            rhs_path=tmp_path / "rhs.npy",
+            matrix_path=WORKSPACE / "matrix.npy",
+            rhs_path=WORKSPACE / "rhs.npy",
         ),
     )
     return ComparisonResult(
@@ -246,12 +247,12 @@ def test_run_summary_names_trainings_and_comparisons_by_their_descriptions(
 
 
 def test_generate_prints_the_dataset_description_beside_where_it_was_written(
-    case_config: Path, tmp_path: Path, dataset_presentation: DatasetPresentation
+    case_config: Path, dataset_presentation: DatasetPresentation
 ) -> None:
     generated = GenerationResult(
         dataset_id="residuals-registry-id",
-        config_path=tmp_path / "residuals.toml",
-        output_dir=tmp_path / "out",
+        config_path=WORKSPACE / "residuals.toml",
+        output_dir=WORKSPACE / "out",
         dataset=dataset_presentation,
         notation=NotationPolicy.default(),
     )
@@ -264,4 +265,4 @@ def test_generate_prints_the_dataset_description_beside_where_it_was_written(
         result = runner.invoke(app, ["generate", str(case_config)])
 
     assert result.exit_code == 0
-    assert result.output.splitlines() == [f"{DATASET_TEXT} -> {tmp_path / 'out'}"]
+    assert result.output.splitlines() == [f"{DATASET_TEXT} -> {WORKSPACE / 'out'}"]

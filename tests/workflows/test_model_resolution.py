@@ -44,10 +44,8 @@ from neuralls.platform.tracking.model_registry import (
 )
 from tests.workflows.conftest import LoggedNamedCheckpointsRunFactory, LoggedRunFactory
 
-
-def _tracking_uri(tmp_path: Path) -> str:
-    """Build an absolute SQLite URI under the test temp directory."""
-    return f"sqlite:///{(tmp_path / 'mlflow.db').as_posix()}"
+# Never opened: every test patches the MLflow-facing collaborators.
+TRACKING_URI = "sqlite:////workspace/mlflow.db"
 
 
 @pytest.fixture
@@ -128,14 +126,13 @@ class _CheckpointLeaseManager:
 
 
 def test_resolve_preconditioner_models_keeps_non_neural_specs(
-    tmp_path: Path,
     noop_artifact_leases: ArtifactLeaseManager,
 ) -> None:
     """Non-neural preconditioners pass through unchanged."""
     jacobi = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
     resolved = resolve_preconditioner_models(
         specs=[jacobi],
-        tracking_uri=_tracking_uri(tmp_path),
+        tracking_uri=TRACKING_URI,
         artifact_leases=noop_artifact_leases,
     )
     assert resolved == [jacobi]
@@ -163,7 +160,7 @@ def test_resolve_preconditioner_models_sets_resolved_checkpoint(
 
     resolved = resolve_preconditioner_models(
         specs=[neural],
-        tracking_uri=_tracking_uri(tmp_path),
+        tracking_uri=TRACKING_URI,
         artifact_leases=noop_artifact_leases,
     )
     assert len(resolved) == 1
@@ -190,7 +187,7 @@ def test_resolve_preconditioner_models_keeps_explicit_checkpoint(
 
     resolved = resolve_preconditioner_models(
         specs=[neural],
-        tracking_uri=_tracking_uri(tmp_path),
+        tracking_uri=TRACKING_URI,
         artifact_leases=noop_artifact_leases,
     )
 
@@ -203,7 +200,6 @@ def test_resolve_preconditioner_models_keeps_explicit_checkpoint(
 
 
 def test_resolve_preconditioner_models_requires_model_source(
-    tmp_path: Path,
     noop_artifact_leases: ArtifactLeaseManager,
 ) -> None:
     """Neural specs without checkpoint_path/model_ref are invalid for resolution."""
@@ -214,7 +210,7 @@ def test_resolve_preconditioner_models_requires_model_source(
     with pytest.raises(ValueError):
         resolve_preconditioner_models(
             specs=[neural],
-            tracking_uri=_tracking_uri(tmp_path),
+            tracking_uri=TRACKING_URI,
             artifact_leases=noop_artifact_leases,
         )
 
@@ -222,7 +218,6 @@ def test_resolve_preconditioner_models_requires_model_source(
 @patch("neuralls.composition.assignments.model_resolution.resolve_model_ref")
 def test_resolve_preconditioner_models_with_warnings_skips_unresolved_neural(
     mock_resolve_model_ref,
-    tmp_path: Path,
     noop_artifact_leases: ArtifactLeaseManager,
 ) -> None:
     """Comparison-specific resolution can skip unresolved neural specs."""
@@ -235,7 +230,7 @@ def test_resolve_preconditioner_models_with_warnings_skips_unresolved_neural(
 
     resolved = resolve_preconditioner_models_with_warnings(
         specs=[jacobi, neural],
-        tracking_uri=_tracking_uri(tmp_path),
+        tracking_uri=TRACKING_URI,
         artifact_leases=noop_artifact_leases,
         skip_unresolved=True,
     )
@@ -250,7 +245,6 @@ def test_resolve_preconditioner_models_with_warnings_skips_unresolved_neural(
 def test_resolve_model_ref_dataset_placeholder_requires_dataset_alias(
     mock_client_cls,
     mock_search_registered_models,
-    tmp_path: Path,
     noop_artifact_leases: ArtifactLeaseManager,
 ) -> None:
     """Using alias=@dataset requires a provided dataset alias context."""
@@ -266,12 +260,12 @@ def test_resolve_model_ref_dataset_placeholder_requires_dataset_alias(
     with pytest.raises(ValueError):
         resolve_model_ref(
             spec=neural,
-            tracking_uri=_tracking_uri(tmp_path),
+            tracking_uri=TRACKING_URI,
             artifact_leases=noop_artifact_leases,
         )
 
 
-def test_resolve_model_ref_rejects_mismatched_artifact_lease_store(tmp_path: Path) -> None:
+def test_resolve_model_ref_rejects_mismatched_artifact_lease_store() -> None:
     """Model metadata and artifact leases must come from the same tracking store."""
 
     class MismatchedLeaseManager(NoopArtifactLeaseManager):
@@ -287,7 +281,7 @@ def test_resolve_model_ref_rejects_mismatched_artifact_lease_store(tmp_path: Pat
     with pytest.raises(ValueError):
         resolve_model_ref(
             spec=neural,
-            tracking_uri=_tracking_uri(tmp_path),
+            tracking_uri=TRACKING_URI,
             artifact_leases=MismatchedLeaseManager(),
         )
 
@@ -317,7 +311,7 @@ def test_resolve_model_ref_normalizes_explicit_at_alias(
     )
     resolve_model_ref(
         spec=neural,
-        tracking_uri=_tracking_uri(tmp_path),
+        tracking_uri=TRACKING_URI,
         artifact_leases=artifact_leases,
     )
 
@@ -543,7 +537,6 @@ def test_resolve_checkpoint_for_run_propagates_ambiguity_raised_by_the_fallback(
 
 
 def test_resolve_registered_ref_latest_picks_highest_version(
-    tmp_path: Path,
     mlflow_tracking_uri: str,
     log_run_with_checkpoint: LoggedRunFactory,
     artifact_leases: ArtifactLeaseManager,
@@ -586,7 +579,6 @@ def test_resolve_registered_ref_latest_picks_highest_version(
 
 
 def test_resolve_logged_ref_latest_picks_most_recently_started_run(
-    tmp_path: Path,
     mlflow_tracking_uri: str,
     mlflow_experiment: str,
     log_run_with_checkpoint: LoggedRunFactory,
@@ -619,7 +611,6 @@ def test_resolve_logged_ref_latest_picks_most_recently_started_run(
 
 
 def test_resolve_preconditioner_models_with_warnings_skips_unresolved_and_continues(
-    tmp_path: Path,
     mlflow_tracking_uri: str,
     log_run_with_checkpoint: LoggedRunFactory,
     artifact_leases: ArtifactLeaseManager,
@@ -684,7 +675,7 @@ def test_skipping_one_pod_case_preserves_each_survivors_dataset_rank_and_checkpo
 
     result = resolve_preconditioner_models_with_warnings(
         specs=list(pod_specs_across_datasets),
-        tracking_uri=_tracking_uri(tmp_path),
+        tracking_uri=TRACKING_URI,
         artifact_leases=noop_artifact_leases,
         skip_unresolved=True,
     )
@@ -758,7 +749,6 @@ def test_resolve_registered_ref_uses_pinned_checkpoint_without_rescanning(
 
 
 def test_resolve_registered_ref_without_pinned_tag_is_rejected(
-    tmp_path: Path,
     mlflow_tracking_uri: str,
     log_run_with_checkpoint: LoggedRunFactory,
     artifact_leases: ArtifactLeaseManager,
@@ -825,7 +815,6 @@ def test_resolve_preconditioner_models_resolves_neural_pod_coarsening_ref(
 
 
 def test_resolve_preconditioner_models_resolves_neural_amg_prolongation_and_restriction(
-    tmp_path: Path,
     mlflow_tracking_uri: str,
     log_run_with_checkpoint: LoggedRunFactory,
     artifact_leases: ArtifactLeaseManager,
@@ -864,7 +853,6 @@ def test_resolve_preconditioner_models_resolves_neural_amg_prolongation_and_rest
 
 
 def test_resolve_preconditioner_models_with_warnings_skips_failed_nested_ref(
-    tmp_path: Path,
     mlflow_tracking_uri: str,
     artifact_leases: ArtifactLeaseManager,
 ) -> None:

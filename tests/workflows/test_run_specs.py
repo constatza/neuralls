@@ -280,9 +280,9 @@ def test_method_run_is_named_by_its_presentation_and_tagged_with_its_id(
 
 @pytest.mark.parametrize("phase", ["session_training", "session_comparison", "session_evaluation"])
 def test_session_run_spec_name_and_tags(
-    phase: str, tmp_path: Path, dataset_presentation: DatasetPresentation
+    phase: str, dataset_presentation: DatasetPresentation
 ) -> None:
-    case_config_path = tmp_path / "cases" / "ffnn.toml"
+    case_config_path = Path("/workspace/cases/ffnn.toml")
     scope = ComparisonScopePresentation(dataset_presentation)
 
     run, tags = build_session_run_spec(

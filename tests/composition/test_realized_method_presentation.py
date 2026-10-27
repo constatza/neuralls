@@ -78,7 +78,7 @@ def solver_params() -> SolverParams:
 
 
 @pytest.fixture
-def matrix_bundles(tmp_path: Path) -> tuple[MatrixWorkload, MatrixWorkload]:
+def matrix_bundles() -> tuple[MatrixWorkload, MatrixWorkload]:
     bundles = []
     for matrix_id in (1, 2):
         members = tuple(
@@ -99,7 +99,7 @@ def matrix_bundles(tmp_path: Path) -> tuple[MatrixWorkload, MatrixWorkload]:
                 dataset=DatasetId("ds"),
                 matrix_id=MatrixId(matrix_id),
                 matrix=np.diag(np.array([2.0, 3.0])) * matrix_id,
-                matrix_path=tmp_path / f"matrix-{matrix_id}",
+                matrix_path=Path("/workspace") / f"matrix-{matrix_id}",
                 matrix_index=matrix_id,
                 members=members,
             )

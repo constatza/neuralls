@@ -11,6 +11,8 @@ from neuralls.application.models import AssignmentSweepResult
 from neuralls.composition.assignments.case_pipeline import run_case_pipeline
 from neuralls.composition.comparison.models import ComparisonParams
 
+CASE_CONFIG_PATH = Path("/workspace/case.toml")
+
 
 @dataclass
 class _PipelineMocks:
@@ -64,8 +66,8 @@ def _patch_pipeline(
     return _PipelineMocks(generate=generate, sweep=sweep, load_cfg=load_cfg, compare=compare)
 
 
-def test_skips_comparison_batch_when_case_config_declares_none(tmp_path: Path) -> None:
-    case_config_path = tmp_path / "case.toml"
+def test_skips_comparison_batch_when_case_config_declares_none() -> None:
+    case_config_path = CASE_CONFIG_PATH
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=False)
@@ -79,8 +81,8 @@ def test_skips_comparison_batch_when_case_config_declares_none(tmp_path: Path) -
     assert comparison_outcomes == []
 
 
-def test_runs_comparison_batch_when_case_config_declares_only_sweeps(tmp_path: Path) -> None:
-    case_config_path = tmp_path / "case.toml"
+def test_runs_comparison_batch_when_case_config_declares_only_sweeps() -> None:
+    case_config_path = CASE_CONFIG_PATH
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=False, has_sweeps=True)
@@ -90,12 +92,12 @@ def test_runs_comparison_batch_when_case_config_declares_only_sweeps(tmp_path: P
     assert comparison_outcomes == ["comparison-outcome"]
 
 
-def test_skips_assignment_sweep_when_case_config_declares_none(tmp_path: Path) -> None:
+def test_skips_assignment_sweep_when_case_config_declares_none() -> None:
     """A comparison-only case config (preconditioners declared inline in
     comparison_baseline, e.g. POD-2G weighting variants) must not hit
     load_assignment_batch's "no assignments" error.
     """
-    case_config_path = tmp_path / "case.toml"
+    case_config_path = CASE_CONFIG_PATH
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=True, has_assignments=False)
@@ -108,8 +110,8 @@ def test_skips_assignment_sweep_when_case_config_declares_none(tmp_path: Path) -
     assert comparison_outcomes == ["comparison-outcome"]
 
 
-def test_runs_comparison_batch_when_case_config_declares_comparisons(tmp_path: Path) -> None:
-    case_config_path = tmp_path / "case.toml"
+def test_runs_comparison_batch_when_case_config_declares_comparisons() -> None:
+    case_config_path = CASE_CONFIG_PATH
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=True)
@@ -121,8 +123,8 @@ def test_runs_comparison_batch_when_case_config_declares_comparisons(tmp_path: P
     assert comparison_outcomes == ["comparison-outcome"]
 
 
-def test_threads_force_flags_to_each_stage(tmp_path: Path) -> None:
-    case_config_path = tmp_path / "case.toml"
+def test_threads_force_flags_to_each_stage() -> None:
+    case_config_path = CASE_CONFIG_PATH
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=True)
@@ -145,15 +147,13 @@ def test_threads_force_flags_to_each_stage(tmp_path: Path) -> None:
     assert compare_params.force is True
 
 
-def test_run_case_pipeline_calls_generate_batch_as_an_explicit_stage(
-    tmp_path: Path,
-) -> None:
+def test_run_case_pipeline_calls_generate_batch_as_an_explicit_stage() -> None:
     """Dataset generation must be run_case_pipeline's own explicit stage-1 call
     — not something delegated back into the training stage — so `run` genuinely
     reuses the same generate-stage function `neuralls generate` uses, instead of
     a second, independent generation trigger buried inside the training step.
     """
-    case_config_path = tmp_path / "case.toml"
+    case_config_path = CASE_CONFIG_PATH
     settings = MagicMock()
     call_order: list[str] = []
     with (
@@ -163,7 +163,7 @@ def test_run_case_pipeline_calls_generate_batch_as_an_explicit_stage(
         ),
         patch(
             "neuralls.composition.assignments.case_pipeline.load_validated_case_config",
-            return_value=(MagicMock(comparisons=(), comparison_sweeps=()), tmp_path),
+            return_value=(MagicMock(comparisons=(), comparison_sweeps=()), CASE_CONFIG_PATH.parent),
         ),
         patch(
             "neuralls.composition.assignments.case_pipeline.generate_batch",
@@ -183,9 +183,9 @@ def test_run_case_pipeline_calls_generate_batch_as_an_explicit_stage(
     assert mock_generate.call_args.kwargs.get("force") is True
 
 
-def test_sweep_runs_before_comparison_batch(tmp_path: Path) -> None:
+def test_sweep_runs_before_comparison_batch() -> None:
     """Comparisons must resolve checkpoints from a sweep that already ran."""
-    case_config_path = tmp_path / "case.toml"
+    case_config_path = CASE_CONFIG_PATH
     settings = MagicMock()
     call_order: list[str] = []
     with (
@@ -215,12 +215,12 @@ def test_sweep_runs_before_comparison_batch(tmp_path: Path) -> None:
     assert call_order == ["sweep", "compare"]
 
 
-def test_releases_device_memory_between_sweep_and_comparison(tmp_path: Path) -> None:
+def test_releases_device_memory_between_sweep_and_comparison() -> None:
     """Training and comparison run in one process with no allocator reset of
     their own — a CUDA-heavy sweep otherwise leaves the caching allocator
     holding blocks that starve the comparison stage that runs right after it.
     """
-    case_config_path = tmp_path / "case.toml"
+    case_config_path = CASE_CONFIG_PATH
     settings = MagicMock()
     call_order: list[str] = []
     with (

@@ -38,28 +38,28 @@ from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.scientific_description.policy import NotationPolicy
 
 PLAIN = NotationPolicy.default()
+WORKSPACE = Path("/workspace")
 
 
-def _binding(tmp_path: Path, architecture: ValidatedLabel | None) -> ResolvedAssignmentBinding:
+def _binding(architecture: ValidatedLabel | None) -> ResolvedAssignmentBinding:
     return ResolvedAssignmentBinding(
         assignment_id="fit_job_1",
         dataset_id="ds_1",
         job_id="job_1",
-        data_config_path=tmp_path / "data.toml",
-        job_config_path=tmp_path / "job.toml",
+        data_config_path=WORKSPACE / "data.toml",
+        job_config_path=WORKSPACE / "job.toml",
         architecture=architecture,
     )
 
 
 def _use_inputs(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
     dataset_dir: Path,
     job: object,
     architecture: ValidatedLabel | None = None,
 ) -> None:
     inputs = AssignmentInputs(
-        binding=_binding(tmp_path, architecture),
+        binding=_binding(architecture),
         job=job,  # type: ignore[arg-type]
         dataset_dir=dataset_dir,
     )
@@ -81,9 +81,9 @@ def _entry(display_name: str | None = None) -> AssignmentEntry:
 
 
 def test_a_fit_job_is_the_pod_basis_trained_on_its_dataset(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, pod_dataset_dir: Path
+    monkeypatch: pytest.MonkeyPatch, pod_dataset_dir: Path
 ) -> None:
-    _use_inputs(monkeypatch, tmp_path, pod_dataset_dir, _fit_job())
+    _use_inputs(monkeypatch, pod_dataset_dir, _fit_job())
 
     subject = _subject(_entry())
 
@@ -93,11 +93,10 @@ def test_a_fit_job_is_the_pod_basis_trained_on_its_dataset(
 
 
 def test_a_neural_job_is_its_architecture_trained_on_its_dataset(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, pod_dataset_dir: Path
+    monkeypatch: pytest.MonkeyPatch, pod_dataset_dir: Path
 ) -> None:
     _use_inputs(
         monkeypatch,
-        tmp_path,
         pod_dataset_dir,
         MagicMock(spec=TrainingJobConfig),
         ValidatedLabel("Graph Net"),
@@ -111,18 +110,18 @@ def test_a_neural_job_is_its_architecture_trained_on_its_dataset(
 
 
 def test_a_neural_job_without_an_architecture_name_is_rejected(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, pod_dataset_dir: Path
+    monkeypatch: pytest.MonkeyPatch, pod_dataset_dir: Path
 ) -> None:
-    _use_inputs(monkeypatch, tmp_path, pod_dataset_dir, MagicMock(spec=TrainingJobConfig))
+    _use_inputs(monkeypatch, pod_dataset_dir, MagicMock(spec=TrainingJobConfig))
 
     with pytest.raises(ValueError, match="architecture"):
         _subject(_entry())
 
 
 def test_an_explicit_display_name_is_an_editorial_title_beside_the_dataset(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, pod_dataset_dir: Path
+    monkeypatch: pytest.MonkeyPatch, pod_dataset_dir: Path
 ) -> None:
-    _use_inputs(monkeypatch, tmp_path, pod_dataset_dir, _fit_job())
+    _use_inputs(monkeypatch, pod_dataset_dir, _fit_job())
 
     subject = _subject(_entry("  Basis rank ten "))
 
@@ -133,24 +132,24 @@ def test_an_explicit_display_name_is_an_editorial_title_beside_the_dataset(
 
 
 def test_a_blank_display_name_is_no_editorial_title(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, pod_dataset_dir: Path
+    monkeypatch: pytest.MonkeyPatch, pod_dataset_dir: Path
 ) -> None:
-    _use_inputs(monkeypatch, tmp_path, pod_dataset_dir, _fit_job())
+    _use_inputs(monkeypatch, pod_dataset_dir, _fit_job())
     assert isinstance(_subject(_entry("   ")), DatasetQualifiedMethodPresentation)
 
 
 def test_presentations_are_built_for_every_named_assignment_with_the_case_notation(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, pod_dataset_dir: Path
+    monkeypatch: pytest.MonkeyPatch, pod_dataset_dir: Path
 ) -> None:
-    _use_inputs(monkeypatch, tmp_path, pod_dataset_dir, _fit_job())
+    _use_inputs(monkeypatch, pod_dataset_dir, _fit_job())
     cfg = CaseConfig(
-        datasets=[RegistryEntry(id="ds_1", path=tmp_path / "data.toml")],
-        jobs=[JobEntry(id="job_1", path=tmp_path / "job.toml")],
+        datasets=[RegistryEntry(id="ds_1", path=WORKSPACE / "data.toml")],
+        jobs=[JobEntry(id="job_1", path=WORKSPACE / "job.toml")],
         assignments=[_entry()],
     )
 
     built = training_presentations(
-        cfg, config_dir=tmp_path, settings=MagicMock(), assignment_ids=["fit_job_1"]
+        cfg, config_dir=WORKSPACE, settings=MagicMock(), assignment_ids=["fit_job_1"]
     )
 
     assert set(built) == {"fit_job_1"}

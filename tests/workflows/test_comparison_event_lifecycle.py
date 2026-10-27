@@ -56,20 +56,20 @@ def solver_params() -> SolverParams:
 
 
 @pytest.fixture
-def one_system_bundle(tmp_path: Path) -> MatrixWorkload:
+def one_system_bundle() -> MatrixWorkload:
     tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(1), 0, SystemId("ds-1-0"))
     return MatrixWorkload(
         dataset=DatasetId("ds"),
         matrix_id=MatrixId(1),
         matrix=np.diag(np.array([2.0, 3.0])),
-        matrix_path=tmp_path / "not-a-dataset",
+        matrix_path=Path("/workspace/not-a-dataset"),
         matrix_index=0,
         members=(MatrixWorkloadMember(tag=tag, rhs=np.ones(2)),),
     )
 
 
 @pytest.fixture
-def two_matrix_bundles(tmp_path: Path) -> tuple[MatrixWorkload, MatrixWorkload]:
+def two_matrix_bundles() -> tuple[MatrixWorkload, MatrixWorkload]:
     bundles: list[MatrixWorkload] = []
     for matrix_id in (1, 2):
         members = tuple(
@@ -90,7 +90,7 @@ def two_matrix_bundles(tmp_path: Path) -> tuple[MatrixWorkload, MatrixWorkload]:
                 dataset=DatasetId("ds"),
                 matrix_id=MatrixId(matrix_id),
                 matrix=np.diag(np.array([2.0, 3.0])) * matrix_id,
-                matrix_path=tmp_path / f"matrix-{matrix_id}",
+                matrix_path=Path("/workspace") / f"matrix-{matrix_id}",
                 matrix_index=matrix_id,
                 members=members,
             )

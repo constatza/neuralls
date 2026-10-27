@@ -15,37 +15,39 @@ from neuralls.platform.config.resolution import (
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.constants import DEFAULT_PROJECT_ROOT
 
+WORKSPACE = Path("/workspace")
 
-def test_path_context_creation(tmp_path: Path) -> None:
+
+def test_path_context_creation() -> None:
     """PathContext is a frozen value object."""
     ctx = PathContext(
-        project_root=tmp_path / "project",
-        output_root=tmp_path / "output",
-        processed_root=tmp_path / "processed",
+        project_root=WORKSPACE / "project",
+        output_root=WORKSPACE / "output",
+        processed_root=WORKSPACE / "processed",
     )
-    assert ctx.project_root == tmp_path / "project"
-    assert ctx.output_root == tmp_path / "output"
-    assert ctx.processed_root == tmp_path / "processed"
+    assert ctx.project_root == WORKSPACE / "project"
+    assert ctx.output_root == WORKSPACE / "output"
+    assert ctx.processed_root == WORKSPACE / "processed"
 
 
-def test_path_context_is_frozen(tmp_path: Path) -> None:
+def test_path_context_is_frozen() -> None:
     """PathContext is immutable."""
     ctx = PathContext(
-        project_root=tmp_path,
-        output_root=tmp_path,
-        processed_root=tmp_path,
+        project_root=WORKSPACE,
+        output_root=WORKSPACE,
+        processed_root=WORKSPACE,
     )
     with pytest.raises(AttributeError):
-        ctx.project_root = tmp_path / "new"
+        ctx.project_root = WORKSPACE / "new"
 
 
-def test_path_context_mlflow_properties(tmp_path: Path) -> None:
+def test_path_context_mlflow_properties() -> None:
     """MLflow paths are derived from output_root."""
-    output_root = tmp_path / "output"
+    output_root = WORKSPACE / "output"
     ctx = PathContext(
-        project_root=tmp_path,
+        project_root=WORKSPACE,
         output_root=output_root,
-        processed_root=tmp_path,
+        processed_root=WORKSPACE,
     )
     assert ctx.mlflow_tracking_uri == build_sqlite_tracking_uri(
         output_root / "mlruns" / "mlflow.db"

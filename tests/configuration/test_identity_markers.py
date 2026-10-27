@@ -126,10 +126,9 @@ def test_comparison_digest_changes_on_identity_field(
 
 
 def test_comparison_digest_ignores_cosmetic(
-    make_comparison: ComparisonFactory, tmp_path: Path
+    make_comparison: ComparisonFactory,
 ) -> None:
-    other_matrix = tmp_path / "other.bin"
-    other_matrix.write_bytes(b"x")
+    other_matrix = Path("/workspace/other.bin")
     base = canonical_digest(make_comparison())
     assert base == canonical_digest(make_comparison(jacobi_name="renamed"))
     assert base == canonical_digest(make_comparison(matrix_path=other_matrix))
@@ -147,8 +146,8 @@ def test_data_config_digest_changes_on_identity_field(
 
 
 def test_data_config_digest_ignores_cosmetic(
-    make_data_config: DataConfigFactory, tmp_path: Path
+    make_data_config: DataConfigFactory,
 ) -> None:
     base = canonical_digest(make_data_config())
     assert base == canonical_digest(make_data_config(dataset_id="renamed"))
-    assert base == canonical_digest(make_data_config(data_dir=tmp_path / "elsewhere"))
+    assert base == canonical_digest(make_data_config(data_dir=Path("/workspace/elsewhere")))

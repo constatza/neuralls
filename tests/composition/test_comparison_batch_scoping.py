@@ -170,13 +170,13 @@ def test_matrix_workloads_are_loaded_lazily_per_method_matrix() -> None:
 
 
 def test_matrix_loader_releases_prepared_system_before_next_matrix_load(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The producer helper must not retain its prior prepared system at ``next()``."""
     first = _system("ds", 0, "r0")
     second = _system("ds", 1, "r1")
     for system, matrix_id in ((first, 0), (second, 1)):
-        system.cfg.general.data.matrix_path = tmp_path / f"matrix-{matrix_id}"
+        system.cfg.general.data.matrix_path = Path("/workspace") / f"matrix-{matrix_id}"
         system.cfg.general.data.matrix_index = 0
         system.cfg.general.data.require_non_residual_rhs = True
         system.cfg.general.data.selection_seed = None

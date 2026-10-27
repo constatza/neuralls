@@ -14,15 +14,17 @@ from neuralls.composition.comparison.models import ComparisonPaths, ResolvedComp
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.shared.types import ComparisonRhsSourceKind
 
+WORKSPACE = Path("/workspace")
+
 
 @pytest.fixture
-def comparison_paths(tmp_path: Path) -> ComparisonPaths:
+def comparison_paths() -> ComparisonPaths:
     """Return resolved paths for one comparison run."""
     return ComparisonPaths(
-        matrix=tmp_path / "gaussian-cg10-spheres-1000x",
-        rhs=tmp_path / "resolved-rhs.npy",
-        output=tmp_path / "output",
-        figures=tmp_path / "output" / "figures",
+        matrix=WORKSPACE / "gaussian-cg10-spheres-1000x",
+        rhs=WORKSPACE / "resolved-rhs.npy",
+        output=WORKSPACE / "output",
+        figures=WORKSPACE / "output" / "figures",
     )
 
 

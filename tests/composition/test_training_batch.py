@@ -134,7 +134,7 @@ def _patch_sweep_collaborators(
 
 
 def test_sweep_registers_child_timing_tracker_as_lifecycle_hooks(
-    tmp_path: Path, training_presentation: TrainingPresentation
+    training_presentation: TrainingPresentation,
 ) -> None:
     """`run_multirun_spec` must receive planned/completed/failed hooks bound to
     one `_ChildTimingTracker` instance — otherwise device memory is never
@@ -146,7 +146,7 @@ def test_sweep_registers_child_timing_tracker_as_lifecycle_hooks(
         run_multirun_spec = _patch_sweep_collaborators(
             stack, child_outcome=child_failure, presentation=training_presentation
         )
-        run_assignment_sweep(tmp_path / "case.toml")
+        run_assignment_sweep(Path("/workspace/case.toml"))
 
     hooks = run_multirun_spec.call_args.kwargs["hooks"]
     assert isinstance(hooks, LifecycleHooks)

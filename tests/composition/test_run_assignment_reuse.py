@@ -24,12 +24,12 @@ from neuralls.platform.tracking.run_names import render_training_label
 from neuralls.shared.digest import canonical_digest
 
 
-def _spec(tmp_path: Path, *, assignment_id: str = "exp-1") -> AssignmentSpec:
+def _spec(*, assignment_id: str = "exp-1") -> AssignmentSpec:
     """Minimal assignment spec naming the job/data configs run_assignment reads."""
     return AssignmentSpec(
         assignment_id=assignment_id,
-        job_config_path=tmp_path / "job.toml",
-        data_config_path=tmp_path / "data.toml",
+        job_config_path=Path("/workspace/job.toml"),
+        data_config_path=Path("/workspace/data.toml"),
     )
 
 
@@ -90,7 +90,7 @@ def _run(
 ) -> AssignmentResult | PreparedTraining:
     return training_batch.run_assignment(
         settings=MagicMock(),
-        spec=_spec(tmp_path, assignment_id=assignment_id),
+        spec=_spec(assignment_id=assignment_id),
         output_root=tmp_path,
         force=force,
         presentation=presentation,
@@ -194,7 +194,7 @@ def test_run_assignment_fails_cleanly_when_dataset_was_never_generated(
 
         result = training_batch.run_assignment(
             settings=MagicMock(),
-            spec=_spec(tmp_path, assignment_id="exp-1"),
+            spec=_spec(assignment_id="exp-1"),
             output_root=tmp_path,
             force=False,
             presentation=training_presentation,

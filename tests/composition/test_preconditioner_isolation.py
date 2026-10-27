@@ -27,6 +27,9 @@ class _FailingService:
         raise KeyError("checkpoint key missing")
 
 
+MATRIX_PATH = Path("/workspace/matrix")
+
+
 @pytest.fixture
 def system_matrix() -> torch.Tensor:
     """Seeded SPD matrix (n=12)."""
@@ -63,7 +66,6 @@ def test_unexpected_build_error_becomes_breakdown_entry(
     solver_params: SolverParams,
     system_matrix: torch.Tensor,
     system_rhs: torch.Tensor,
-    tmp_path: Path,
     neuralls_settings,
     prepared_cohort,
 ) -> None:
@@ -73,7 +75,7 @@ def test_unexpected_build_error_becomes_breakdown_entry(
         service=_FailingService(),
         matrix=system_matrix,
         rhs=system_rhs,
-        matrix_path=tmp_path,
+        matrix_path=MATRIX_PATH,
         matrix_index=0,
         params=solver_params,
         settings=neuralls_settings,
@@ -90,7 +92,6 @@ def test_solver_stage_error_is_isolated(
     solver_params: SolverParams,
     system_matrix: torch.Tensor,
     system_rhs: torch.Tensor,
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     neuralls_settings,
     prepared_cohort,
@@ -106,7 +107,7 @@ def test_solver_stage_error_is_isolated(
         service=comparison_run.PreconditionerService(),
         matrix=system_matrix,
         rhs=system_rhs,
-        matrix_path=tmp_path,
+        matrix_path=MATRIX_PATH,
         matrix_index=0,
         params=solver_params,
         settings=neuralls_settings,
@@ -123,7 +124,6 @@ def test_a_failed_preconditioner_is_logged_by_its_description_not_its_key(
     solver_params: SolverParams,
     system_matrix: torch.Tensor,
     system_rhs: torch.Tensor,
-    tmp_path: Path,
     neuralls_settings,
     prepared_cohort,
 ) -> None:
@@ -137,7 +137,7 @@ def test_a_failed_preconditioner_is_logged_by_its_description_not_its_key(
             service=_FailingService(),
             matrix=system_matrix,
             rhs=system_rhs,
-            matrix_path=tmp_path,
+            matrix_path=MATRIX_PATH,
             matrix_index=0,
             params=solver_params,
             settings=neuralls_settings,

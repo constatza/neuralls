@@ -35,6 +35,9 @@ type NeuralSpecFactory = Callable[..., NeuralPreconditionerConfig]
 type AmgSpecFactory = Callable[..., AMGPreconditionerConfig]
 
 
+WORKSPACE = Path("/workspace")
+
+
 @pytest.fixture
 def identity_spec() -> StandardPreconditionerConfig:
     """A preconditioner that bears no checkpoint ref at all."""
@@ -61,7 +64,7 @@ def make_neural_spec() -> NeuralSpecFactory:
 
 
 @pytest.fixture
-def make_pod_amg_spec(tmp_path: Path) -> AmgSpecFactory:
+def make_pod_amg_spec() -> AmgSpecFactory:
     """Build an AMG spec whose POD coarsening carries optional checkpoint identity."""
 
     def _build(
@@ -73,7 +76,7 @@ def make_pod_amg_spec(tmp_path: Path) -> AmgSpecFactory:
         return AMGPreconditionerConfig(
             type=PreconditionerType.AMG,
             coarsening=PODCoarseningConfig(
-                dataset_dir=tmp_path / "snapshots",
+                dataset_dir=WORKSPACE / "snapshots",
                 rank=4,
                 assignment=assignment,
                 model_ref=model_ref,
@@ -175,24 +178,24 @@ def test_pod_coarsening_with_model_ref_exposes_its_ref(
     assert spec.checkpoint_refs() == (("coarsening", spec.coarsening),)
 
 
-def test_pod_coarsening_with_checkpoint_path_exposes_its_ref(tmp_path: Path) -> None:
+def test_pod_coarsening_with_checkpoint_path_exposes_its_ref() -> None:
     spec = AMGPreconditionerConfig(
         type=PreconditionerType.AMG,
         coarsening=PODCoarseningConfig(
-            dataset_dir=tmp_path / "snapshots",
+            dataset_dir=WORKSPACE / "snapshots",
             rank=4,
-            checkpoint_path=tmp_path / "basis.ckpt",
+            checkpoint_path=WORKSPACE / "basis.ckpt",
         ),
     )
     assert spec.checkpoint_refs() == (("coarsening", spec.coarsening),)
 
 
-def test_neural_pod_coarsening_is_always_checkpoint_backed(tmp_path: Path) -> None:
+def test_neural_pod_coarsening_is_always_checkpoint_backed() -> None:
     """Its snapshot ensemble only exists via a checkpoint, so it needs no identity fields."""
     spec = AMGPreconditionerConfig(
         type=PreconditionerType.AMG,
         coarsening=NeuralPODCoarseningConfig(
-            dataset_dir=tmp_path / "params",
+            dataset_dir=WORKSPACE / "params",
             input_names=("params",),
             rank=4,
         ),

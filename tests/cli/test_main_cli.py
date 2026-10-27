@@ -35,9 +35,10 @@ from neuralls.shared.constants import EXIT_FAILURE
 from neuralls.shared.scientific_description.policy import NotationPolicy
 
 runner = CliRunner()
+WORKSPACE = Path("/workspace")
 
 
-def _solver_params(tmp_path: Path) -> ComparisonGeneral:
+def _solver_params() -> ComparisonGeneral:
     return ComparisonGeneral(
         params=SolverParams(
             rtol=1.0e-6,
@@ -47,17 +48,17 @@ def _solver_params(tmp_path: Path) -> ComparisonGeneral:
             m_max=20,
         ),
         data=ComparisonData(
-            matrix_path=tmp_path / "matrix.npy",
-            rhs_path=tmp_path / "rhs.npy",
+            matrix_path=WORKSPACE / "matrix.npy",
+            rhs_path=WORKSPACE / "rhs.npy",
         ),
     )
 
 
-def _comparison_payload(tmp_path: Path) -> ComparisonResult:
+def _comparison_payload() -> ComparisonResult:
     return ComparisonResult(
         results={},
         summary="ok",
-        solver_params=_solver_params(tmp_path),
+        solver_params=_solver_params(),
         preconditioners=("identity",),
         recommendations=ComparisonRecommendations(),
     )
@@ -134,8 +135,8 @@ def test_generate_invokes_batch_workflow(
     mock_generate_batch.return_value = [
         GenerationResult(
             dataset_id="residuals",
-            config_path=tmp_path / "residuals.toml",
-            output_dir=tmp_path / "out",
+            config_path=WORKSPACE / "residuals.toml",
+            output_dir=WORKSPACE / "out",
             dataset=dataset_presentation,
             notation=NotationPolicy.default(),
         )
@@ -461,7 +462,7 @@ def test_compare_invokes_batch_workflow(
         ComparisonCompleted(
             comparison_id="solver",
             run=comparison_run,
-            payload=_comparison_payload(tmp_path),
+            payload=_comparison_payload(),
         )
     ]
 
