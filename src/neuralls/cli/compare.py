@@ -27,7 +27,6 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 
 
 def _log_comparison_results(result: ComparisonResult) -> None:
-    logger.info(f"Available preconditioners: {result.preconditioners}")
     if result.summary:
         logger.info("=" * 60)
         logger.info(result.summary)
