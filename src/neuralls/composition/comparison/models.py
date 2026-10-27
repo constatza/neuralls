@@ -168,6 +168,12 @@ class CompletedMethodWorkload:
                 f"presentation belongs to method {self.presentation.prepared.method_id!r}, "
                 f"not {self.method!r}"
             )
+        planned_ids = {tag.system_id for tag in self.planned}
+        for system in self.presentation.systems:
+            if system.system_id not in planned_ids:
+                raise ValueError(
+                    f"realization of system {system.system_id!r} which this workload did not plan"
+                )
 
 
 @dataclass(frozen=True)

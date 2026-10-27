@@ -17,8 +17,13 @@ from neuralls.domain.presentation.methods import (
     UnvalidatedComparisonPresentation,
     description_facts,
 )
-from neuralls.shared.scientific_description.catalog import FactVisibility, fact_definition
+from neuralls.shared.scientific_description.catalog import (
+    FactVisibility,
+    fact_definition,
+    is_compact_by_policy,
+)
 from neuralls.shared.scientific_description.models import FieldKey, ScientificFact
+from neuralls.shared.types import SystemId
 
 __all__ = [
     "prepare_presentations",
@@ -48,10 +53,15 @@ def prepare_presentations(
 
 
 def reduce_realized_facts(
-    systems: tuple[SystemRealization, ...],
+    systems: tuple[SystemRealization, ...], population: frozenset[SystemId]
 ) -> tuple[ScientificFact, ...]:
-    """Keep only facts with the same value on every system of the selected population."""
-    if not systems:
+    """Keep only facts with the same value on every system of ``population``.
+
+    A fact is invariant over a population only if every one of its systems was realized;
+    if any system has no realization (its setup failed), nothing is known to hold for the
+    whole population, so no fact is kept.
+    """
+    if not systems or {system.system_id for system in systems} != population:
         return ()
     first, *rest = systems
     return tuple(
@@ -79,13 +89,12 @@ def _compact_facts(
 
 
 def _is_compact(fact: ScientificFact, peer_facts: tuple[tuple[ScientificFact, ...], ...]) -> bool:
-    match fact_definition(fact.key).visibility_policy:
-        case FactVisibility.ALWAYS | FactVisibility.WHEN_NON_DEFAULT:
-            return True
-        case FactVisibility.WHEN_DISTINGUISHING:
-            return any(_value_of(peer, fact.key) != fact.value for peer in peer_facts)
-        case FactVisibility.DETAILED_ONLY | FactVisibility.NEVER:
-            return False
+    visibility = fact_definition(fact.key).visibility_policy
+    if is_compact_by_policy(visibility):
+        return True
+    return visibility is FactVisibility.WHEN_DISTINGUISHING and any(
+        _value_of(peer, fact.key) != fact.value for peer in peer_facts
+    )
 
 
 def _value_of(facts: tuple[ScientificFact, ...], key: FieldKey) -> object | None:

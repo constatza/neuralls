@@ -7,11 +7,9 @@ from dataclasses import dataclass
 
 from neuralls.domain.presentation.methods import PreparedMethodPresentation
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
-from neuralls.shared.scientific_description.catalog import FactVisibility, fact_definition
+from neuralls.shared.scientific_description.catalog import fact_definition, is_compact_by_policy
 from neuralls.shared.scientific_description.models import ScientificFact, require_unique_keys
 from neuralls.shared.types import PreconditionerName
-
-_COMPACT_REALIZED_VISIBILITY = frozenset({FactVisibility.ALWAYS, FactVisibility.WHEN_NON_DEFAULT})
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +52,7 @@ class GroupMethodPresentation:
             *(
                 fact
                 for fact in self.invariant_facts
-                if fact_definition(fact.key).visibility_policy in _COMPACT_REALIZED_VISIBILITY
+                if is_compact_by_policy(fact_definition(fact.key).visibility_policy)
             ),
         )
 

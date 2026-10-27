@@ -20,6 +20,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
+from typing import assert_never
 
 from neuralls.shared.scientific_description.models import (
     DecimalFact,
@@ -59,6 +60,24 @@ class FactVisibility(StrEnum):
     WHEN_NON_DEFAULT = "when_non_default"
     DETAILED_ONLY = "detailed_only"
     NEVER = "never"
+
+
+def is_compact_by_policy(visibility: FactVisibility) -> bool:
+    """Whether a policy puts a fact in compact labels without comparing it to other methods.
+
+    ``WHEN_DISTINGUISHING`` is compact only when the value differs between peers, which
+    only a cohort planner can decide, so it is not compact by policy alone. This is the one
+    place the compact decision for the other policies is made.
+    """
+    match visibility:
+        case FactVisibility.ALWAYS | FactVisibility.WHEN_NON_DEFAULT:
+            return True
+        case (
+            FactVisibility.WHEN_DISTINGUISHING | FactVisibility.DETAILED_ONLY | FactVisibility.NEVER
+        ):
+            return False
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 class UnknownScientificFactError(KeyError):

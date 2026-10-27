@@ -89,21 +89,31 @@ def _require_distinct_labels(plot_styles: Mapping[str, PreconditionerPlotStyle])
 def _group_methods(
     workloads: Sequence[CompletedMethodWorkload], system_ids: tuple[SystemId, ...]
 ) -> dict[PreconditionerName, GroupMethodPresentation]:
-    """Describe each method with only the realized facts invariant over this group's systems."""
+    """Describe each method that has systems in this group, with its invariant realized facts.
+
+    Realized facts are invariant only when every system of the method in this group was
+    realized and they agree; a method with no system in the group is not listed.
+    """
     members = frozenset(system_ids)
-    return {
-        workload.method: GroupMethodPresentation(
+    methods: dict[PreconditionerName, GroupMethodPresentation] = {}
+    for workload in workloads:
+        population = frozenset(
+            tag.system_id for tag in workload.planned if tag.system_id in members
+        )
+        if not population:
+            continue
+        methods[workload.method] = GroupMethodPresentation(
             prepared=workload.presentation.prepared,
             invariant_facts=reduce_realized_facts(
                 tuple(
                     system
                     for system in workload.presentation.systems
-                    if system.system_id in members
-                )
+                    if system.system_id in population
+                ),
+                population,
             ),
         )
-        for workload in workloads
-    }
+    return methods
 
 
 def report_all_levels(

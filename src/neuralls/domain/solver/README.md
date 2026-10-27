@@ -148,7 +148,7 @@ iterations; workload ranking uses complete event summaries.
 
 ## Presentation planning
 
-Presentation planning (`prepare_presentations`, `reduce_realized_facts`) lives in `domain/presentation/planner.py` (see its README). `GroupPresentation.methods` carries a `GroupMethodPresentation` per method: its prepared presentation plus the invariant realized facts of that group (only `ALWAYS`/`WHEN_NON_DEFAULT` facts join the compact view).
+Presentation planning (`prepare_presentations`, `reduce_realized_facts`) lives in `domain/presentation/planner.py` (see its README). `GroupPresentation.methods` carries a `GroupMethodPresentation` for each method that has systems in that group: its prepared presentation plus the realized facts invariant over the method's systems in the group (only facts that `is_compact_by_policy` accepts join the compact view). A realized fact is invariant only if every system of the method in the group was realized and they agree, so a group containing a system whose setup failed states none.
 
 ## Boundary rule
 

@@ -310,8 +310,17 @@ def test_reduction_keeps_equal_facts_and_drops_varying_ones() -> None:
         _system(0, _int(COARSE_DIMENSION, 8), _int(SAMPLE_COUNT, 5)),
         _system(1, _int(COARSE_DIMENSION, 9), _int(SAMPLE_COUNT, 5)),
     )
-    assert reduce_realized_facts(systems) == (_int(SAMPLE_COUNT, 5),)
-    assert reduce_realized_facts(()) == ()
+    population = frozenset({SystemId("s0"), SystemId("s1")})
+    assert reduce_realized_facts(systems, population) == (_int(SAMPLE_COUNT, 5),)
+    assert reduce_realized_facts((), population) == ()
+
+
+def test_reduction_requires_a_realization_for_every_system_of_the_population() -> None:
+    systems = (_system(0, _int(SAMPLE_COUNT, 5)),)
+    population = frozenset({SystemId("s0"), SystemId("s1")})
+
+    assert reduce_realized_facts(systems, population) == ()
+    assert reduce_realized_facts(systems, frozenset({SystemId("s0")})) == (_int(SAMPLE_COUNT, 5),)
 
 
 def test_executed_method_allows_no_systems_but_requires_unique_system_ids(

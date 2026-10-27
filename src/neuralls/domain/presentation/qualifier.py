@@ -6,16 +6,13 @@ from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.strategy_names import strategy_base_name
 from neuralls.shared.scientific_description.catalog import (
     SAMPLE_COUNT,
-    FactVisibility,
     fact_definition,
+    is_compact_by_policy,
     make_fact,
 )
 from neuralls.shared.scientific_description.models import (
     ScientificDescription,
 )
-
-_QUALIFIER_VISIBILITY = frozenset({FactVisibility.ALWAYS, FactVisibility.WHEN_NON_DEFAULT})
-
 
 _MIXTURE_BASE_NAME = "Mixture"
 
@@ -35,7 +32,7 @@ def dataset_qualifier(dataset: DatasetPresentation) -> tuple[ScientificDescripti
             facts=tuple(
                 fact
                 for fact in strategy.facts
-                if fact_definition(fact.key).visibility_policy in _QUALIFIER_VISIBILITY
+                if is_compact_by_policy(fact_definition(fact.key).visibility_policy)
             ),
         )
         for strategy in generation.strategies

@@ -8,7 +8,11 @@ from types import ModuleType
 
 import pytest
 
-from neuralls.shared.scientific_description.catalog import make_fact
+from neuralls.shared.scientific_description.catalog import (
+    FactVisibility,
+    is_compact_by_policy,
+    make_fact,
+)
 from neuralls.shared.scientific_description.models import (
     FieldKey,
     IntegerFact,
@@ -675,3 +679,26 @@ def test_validated_label_rejects_non_human_text(text: str) -> None:
     """Identifiers, markup characters, and control characters cannot become labels."""
     with pytest.raises(ValueError):
         ValidatedLabel(text)
+
+
+@pytest.mark.parametrize(
+    ("visibility", "expected"),
+    [
+        (FactVisibility.ALWAYS, True),
+        (FactVisibility.WHEN_NON_DEFAULT, True),
+        (FactVisibility.WHEN_DISTINGUISHING, False),
+        (FactVisibility.DETAILED_ONLY, False),
+        (FactVisibility.NEVER, False),
+    ],
+)
+def test_compact_by_policy_covers_every_visibility(
+    visibility: FactVisibility, expected: bool
+) -> None:
+    assert is_compact_by_policy(visibility) is expected
+
+
+def test_compact_by_policy_is_pinned_for_every_visibility() -> None:
+    assert {v for v in FactVisibility if is_compact_by_policy(v)} == {
+        FactVisibility.ALWAYS,
+        FactVisibility.WHEN_NON_DEFAULT,
+    }

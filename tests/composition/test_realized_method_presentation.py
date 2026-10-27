@@ -13,6 +13,7 @@ import torch
 from torchalg.preconditioners.base import Preconditioner
 
 from neuralls.composition.comparison import _preconditioner_setup, comparison_run
+from neuralls.composition.comparison._preconditioner_setup import PreconditionerService
 from neuralls.composition.comparison.group_reporting import report_all_levels
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
@@ -41,6 +42,7 @@ from neuralls.domain.solver.models.group_outcomes import GroupAggregated
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.domain.solver.models.presentation import GroupPresentation
 from neuralls.platform.config.models.preconditioner import (
+    PreconditionerConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
 )
@@ -270,11 +272,24 @@ def _workload(
     depth_by_matrix: dict[int, int],
     *,
     label: str = "Jacobi",
+    recipe_by_matrix: dict[int, str] | None = None,
+    realized_matrices: frozenset[int] | None = None,
 ) -> CompletedMethodWorkload:
-    """A completed workload with one system per matrix, realized at the given depths."""
+    """A completed workload with one system per matrix, realized at the given depths.
+
+    ``recipe_by_matrix`` names each matrix's recipe (default ``gaussian``) and
+    ``realized_matrices`` limits which matrices have a realization (default all).
+    """
     name = prepared.method_id
+    recipes = recipe_by_matrix or {}
     tags = tuple(
-        SystemTag(DatasetId("ds"), "gaussian", MatrixId(m), 0, SystemId(f"{name}-{m}"))
+        SystemTag(
+            DatasetId("ds"),
+            recipes.get(m, "gaussian"),
+            MatrixId(m),
+            0,
+            SystemId(f"{name}-{m}"),
+        )
         for m in depth_by_matrix
     )
     events = tuple(
@@ -313,6 +328,7 @@ def _workload(
                 tag.system_id, tag.matrix_id, _levels(depth_by_matrix[int(tag.matrix_id)])
             )
             for tag in tags
+            if realized_matrices is None or int(tag.matrix_id) in realized_matrices
         ),
     )
     return CompletedMethodWorkload(
@@ -386,3 +402,101 @@ def test_a_workload_rejects_a_presentation_of_another_method(
 
     with pytest.raises(ValueError, match="presentation belongs to method"):
         replace(workload, presentation=ExecutedMethod(prepared_method("other"), ()))
+
+
+def _depth_shown(group: GroupPresentation, method: str) -> list[int]:
+    return [
+        int(fact.value)
+        for fact in group.methods[PreconditionerName(method)].invariant_facts
+        if fact.key == REALIZED_LEVELS and isinstance(fact.value, int)
+    ]
+
+
+def test_each_group_states_only_facts_invariant_over_its_own_systems(
+    prepared_method: PreparedMethodFactory,
+) -> None:
+    workload = _workload(
+        prepared_method("jacobi"),
+        {1: 2, 2: 3},
+        recipe_by_matrix={1: "alpha", 2: "beta"},
+    )
+    sink = _RecordingSink()
+
+    report_all_levels((workload,), sink)
+
+    by_subtitle = {group.subtitle: _depth_shown(group, "jacobi") for group in sink.presentations}
+    assert by_subtitle == {
+        "Dataset ds - alpha": [2],
+        "Dataset ds - beta": [3],
+        "Dataset ds": [],
+        "All datasets": [],
+    }
+
+
+def test_a_group_with_an_unrealized_system_states_no_realized_fact(
+    prepared_method: PreparedMethodFactory,
+) -> None:
+    workload = _workload(prepared_method("jacobi"), {1: 2, 2: 2}, realized_matrices=frozenset({2}))
+    sink = _RecordingSink()
+
+    report_all_levels((workload,), sink)
+
+    assert all(_depth_shown(group, "jacobi") == [] for group in sink.presentations)
+
+
+def test_group_lists_only_methods_with_systems_in_that_group(
+    prepared_method: PreparedMethodFactory,
+) -> None:
+    alpha = _workload(prepared_method("jacobi_a"), {1: 2}, recipe_by_matrix={1: "alpha"})
+    beta = _workload(
+        prepared_method("jacobi_b"), {2: 2}, recipe_by_matrix={2: "beta"}, label="Jacobi B"
+    )
+    sink = _RecordingSink()
+
+    report_all_levels((alpha, beta), sink)
+
+    methods_by_subtitle = {group.subtitle: set(group.methods) for group in sink.presentations}
+    assert methods_by_subtitle["Dataset ds - alpha"] == {"jacobi_a"}
+    assert methods_by_subtitle["Dataset ds - beta"] == {"jacobi_b"}
+    assert methods_by_subtitle["All datasets"] == {"jacobi_a", "jacobi_b"}
+
+
+def test_partial_setup_failure_keeps_only_the_successful_matrix_systems(
+    monkeypatch: pytest.MonkeyPatch,
+    counters: _Counters,
+    method: ResolvedMethod,
+    matrix_bundles: tuple[MatrixWorkload, MatrixWorkload],
+    solver_params: SolverParams,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+) -> None:
+    succeed = comparison_run._build_scheduled
+
+    def fail_first_matrix(
+        service: PreconditionerService, matrix: torch.Tensor, cfg: PreconditionerConfig
+    ) -> dict[str, Preconditioner]:
+        if float(matrix[0, 0]) == 2.0:
+            raise RuntimeError("setup broke on matrix 1")
+        return succeed(service, matrix, cfg)
+
+    monkeypatch.setattr(comparison_run, "_build_scheduled", fail_first_matrix)
+
+    workload = _execute(
+        method, matrix_bundles, prepared_method(str(method.name)), solver_params, neuralls_settings
+    )
+
+    assert [(s.system_id, s.matrix_id) for s in workload.presentation.systems] == [
+        (SystemId("ds-2-0"), MatrixId(2)),
+        (SystemId("ds-2-1"), MatrixId(2)),
+    ]
+    assert counters.setups == 1
+
+
+def test_workload_rejects_realizations_of_systems_it_did_not_plan(
+    prepared_method: PreparedMethodFactory,
+) -> None:
+    workload = _workload(prepared_method("jacobi"), {1: 2})
+    foreign = SystemRealization(SystemId("elsewhere"), MatrixId(9), _levels(2))
+
+    with pytest.raises(ValueError, match="did not plan"):
+        replace(workload, presentation=ExecutedMethod(workload.presentation.prepared, (foreign,)))
