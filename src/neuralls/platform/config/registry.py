@@ -15,7 +15,7 @@ from neuralls.platform.config.resolution import resolve_registry_path
 from neuralls.shared.scientific_description.models import ValidatedLabel
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ResolvedAssignmentBinding:
     """Resolved assignment registry entry with concrete config paths."""
 

@@ -42,7 +42,7 @@ def _tag_clause(tag: IdentityTag, value: str) -> str:
     return f"tags.`{tag}` = '{quote_filter_value(value)}'"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MlflowIdentityStore:
     """Finds the newest FINISHED run in one experiment carrying an identity's key.
 

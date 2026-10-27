@@ -18,7 +18,7 @@ _WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
 _WINDOWS_UNC_RE = re.compile(r"^(?:\\\\|//)[^\\/]+[\\/][^\\/]+")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PathContext:
     """Resolved base paths for an experiment."""
 
@@ -37,7 +37,7 @@ class PathContext:
         return str((self.output_root / "mlartifacts").resolve())
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MlflowPaths:
     """Resolved MLflow URIs."""
 

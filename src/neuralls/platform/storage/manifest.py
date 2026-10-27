@@ -12,7 +12,7 @@ from neuralls.shared.digest import Digest
 from neuralls.shared.types import LayoutType, MatrixFormat
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DatasetArtifact:
     """One persisted dataset artifact declared in the manifest."""
 
@@ -30,7 +30,7 @@ class DatasetArtifact:
     """Matrix storage format; None, when the manifest omits it, reads as dense."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DatasetNormalization:
     """Normalization metadata stored in the dataset manifest."""
 
@@ -40,7 +40,7 @@ class DatasetNormalization:
     scale: dict[str, Any]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DatasetManifest:
     """Typed view over the dataset manifest contract.
 

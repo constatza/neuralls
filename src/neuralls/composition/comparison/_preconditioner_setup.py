@@ -85,7 +85,7 @@ def _map_stopping_criterion(name: str) -> StoppingCriterion:
     return criterion
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _CachedPreconditioner:
     """One preconditioner's already-built-and-ready object, plus its real one-time cost.
 

@@ -22,7 +22,7 @@ from neuralls.platform.tracking.run_names import render_dataset_label
 from neuralls.shared.scientific_description.policy import NotationPolicy
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class GenerationResult:
     """Immutable result for a single generated dataset.
 

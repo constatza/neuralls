@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class InferencePredictions:
     """Prediction results from model inference.
 
@@ -28,7 +28,7 @@ class InferencePredictions:
     metadata: dict[str, Any]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class InferenceOutputs:
     """Saved outputs from the inference workflow.
 

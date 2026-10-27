@@ -12,7 +12,7 @@ from typing import Any
 from neuralls.shared.types import GenerationStrategyKind
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _StrategyProperties:
     """Compile-time properties for a known generation strategy.
 

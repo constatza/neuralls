@@ -33,7 +33,7 @@ def _one_row_per_base_system(cfg: Mapping[str, Any]) -> int:
     return 1
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MatrixStrategyRegistration:
     """Registered strategy entry for matrix-only generators."""
 
@@ -42,7 +42,7 @@ class MatrixStrategyRegistration:
     rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SingleRhsStrategyRegistration:
     """Registered strategy entry for single-RHS-capable generators."""
 

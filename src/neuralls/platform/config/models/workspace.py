@@ -38,7 +38,7 @@ class AssignmentSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class AssignmentWorkspace:
     """Resolved filesystem layout for assignment artifacts.
 
@@ -70,7 +70,7 @@ class AssignmentWorkspace:
         return self.root_dir / "predictions"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RunnableAssignment:
     """Fully resolved assignment ready for execution.
 
@@ -91,7 +91,7 @@ class RunnableAssignment:
     mlflow_env: dict[str, str]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class AssignmentBatch:
     """Complete definition of a batch workload.
 

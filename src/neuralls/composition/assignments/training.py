@@ -65,7 +65,7 @@ from neuralls.platform.tracking.model_registry import ensure_checkpoint_artifact
 from neuralls.platform.tracking.run_names import render_training_subject, run_name_text
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TrainingResult:
     """Immutable training result data.
 
@@ -251,7 +251,7 @@ def _resolve_tracking_backend(runtime_environment: MlflowRuntimeEnvironment) -> 
     return backend
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _TrainingFinalizationContext:
     """Everything ``_finalize_training_run`` needs from ``train_model``'s scope.
 
@@ -294,7 +294,7 @@ class _TrainingFinalizationContext:
     fallback_tracking_uri: str | None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PreparedTraining:
     """Fully-resolved training inputs, ready for a single ``execute()`` call.
 

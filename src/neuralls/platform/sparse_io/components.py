@@ -17,7 +17,7 @@ INDEX_DTYPE: Final = np.int64
 VALUE_DTYPE: Final = np.float64
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CsrComponents:
     """Compressed sparse row arrays plus the ``(rows, cols)`` shape of one matrix."""
 

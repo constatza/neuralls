@@ -13,7 +13,7 @@ from neuralls.composition.assignments.assembler import AssignmentIdentity, load_
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class InferenceResult:
     """Local result container for the ``run_inference`` public API.
 

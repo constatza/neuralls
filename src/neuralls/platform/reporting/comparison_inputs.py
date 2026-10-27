@@ -30,7 +30,7 @@ def _matrix_provenance_to_json(provenance: MatrixProvenance) -> dict[str, object
             }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ComparisonInputArtifacts:
     """Platform-owned payload for staging resolved comparison inputs."""
 

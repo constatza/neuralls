@@ -542,7 +542,7 @@ def _build_label_map(results: Sequence[AssignmentResult]) -> dict[str, dict[str,
     }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _MetricReport:
     """Everything the sweep's aggregate report renders, computed but not yet written.
 

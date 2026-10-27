@@ -223,7 +223,7 @@ class ChildComparisonRunTags:
         }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BenchmarkMethodRunTags:
     """Identity tags for one direct method child of a session."""
 
@@ -284,7 +284,7 @@ def build_benchmark_method_run_spec(
     return named, tags
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SessionRunTags:
     """Structured tags for a batch session parent run (training or comparison).
 

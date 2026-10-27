@@ -35,7 +35,7 @@ from .strategy_properties import _explicit_solution_strategies, _is_solution_arc
 from .strategy_rows import _generate_strategy_rows, _StrategyRows
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class OpenedStreams:
     """Every source stream opened for one generation run, plus their bindings.
 
@@ -144,7 +144,7 @@ def _merge_binding_file_overrides(
     return merged
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _GenerationRunContext:
     """Opened streams plus the per-binding budgets resolved against them.
 
@@ -258,7 +258,7 @@ def _solution_archive_rows(
     )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _BindingInputs:
     """Everything one binding contributes to generation, loaded once per binding.
 
@@ -395,7 +395,7 @@ def _make_strategy_runner(
     return run_strategy
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BatchStream:
     """Exact row plan and lazily generated batches of one dense generation run.
 

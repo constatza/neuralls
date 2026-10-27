@@ -25,7 +25,7 @@ from neuralls.shared.enum_codecs import decode_row_kind_array
 from neuralls.shared.types import LayoutType, MatrixFormat, RowKind
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ResolvedDatasetArtifact:
     """Resolved on-disk artifact contract for one dataset array."""
 
@@ -42,7 +42,7 @@ class ResolvedDatasetArtifact:
     matrix_format: MatrixFormat | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DatasetArtifacts:
     """Explicit resolved dataset contract used by storage readers."""
 
@@ -57,7 +57,7 @@ class DatasetArtifacts:
     matrix_sample_index: ResolvedDatasetArtifact | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DatasetPaths:
     """Resolved dataset artifact paths from the manifest."""
 
@@ -69,7 +69,7 @@ class DatasetPaths:
     parameter_paths: tuple[Path, ...]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CanonicalTrainingTriplet:
     """One manifest-backed `(A, b, x)` dataset row with provenance."""
 

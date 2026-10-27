@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SystemBinding:
     """ID-level binding across matrix/rhs/parameters/solution sources."""
 

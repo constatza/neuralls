@@ -25,7 +25,7 @@ from .interfaces import TracingSolverCallable
 from .source_streams import EnumerateBy
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SourceSpec:
     """Where a generation run reads its samples from.
 
@@ -52,7 +52,7 @@ class SourceSpec:
     exclude_indices: tuple[int, ...] = ()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MixtureSpec:
     """Strategy mixing and RNG controls for one mixture generation call.
 
@@ -78,7 +78,7 @@ class MixtureSpec:
     solver_overrides: Mapping[str, TracingSolverCallable] | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DatasetSpec:
     """How a full dataset is assembled from a source.
 

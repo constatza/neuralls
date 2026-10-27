@@ -19,7 +19,7 @@ from neuralls.platform.storage.dataset_readers import (
 from neuralls.shared.types import MatrixFormat
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ZarrArraySource:
     """Array source referenced by a zarr path."""
 
@@ -36,7 +36,7 @@ class ZarrArraySource:
         return np.asarray(arr.oindex[np.asarray(indices)], dtype=np.float64)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class NpyArraySource:
     """Array source referenced by a numpy path."""
 
@@ -54,7 +54,7 @@ class NpyArraySource:
         return np.asarray(arr[np.asarray(indices)], dtype=np.float64)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Hdf5ArraySource:
     """Array source backed by a named dataset inside an HDF5 file."""
 
@@ -76,7 +76,7 @@ class Hdf5ArraySource:
 type ArraySource = NpyArraySource | ZarrArraySource | Hdf5ArraySource
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TrainingArrays:
     """Resolved training dataset artifact sources and metadata."""
 

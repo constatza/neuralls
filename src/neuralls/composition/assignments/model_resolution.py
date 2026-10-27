@@ -37,7 +37,7 @@ from neuralls.platform.tracking.model_registry import CHECKPOINT_ARTIFACT_PATH_T
 _DATASET_ALIAS_PLACEHOLDER = "@dataset"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TrainingLookup:
     """Where and against what data an assignment's training run must be found.
 
@@ -54,7 +54,7 @@ class TrainingLookup:
     identity: StageIdentity | None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class AssignmentModelContext:
     """Per-assignment lookup context for comparison model resolution.
 
@@ -69,7 +69,7 @@ class AssignmentModelContext:
     training: TrainingLookup | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ModelResolution:
     """Immutable model resolution result."""
 
@@ -78,7 +78,7 @@ class ModelResolution:
     checkpoint_path: Path
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PreconditionerResolutionResult:
     """Resolved specs plus any skipped-resolution warnings."""
 
@@ -86,7 +86,7 @@ class PreconditionerResolutionResult:
     warnings: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class LoggedModelSearchResult:
     """Minimal logged-model lookup record for latest-run resolution."""
 
@@ -309,7 +309,7 @@ def _resolve_checkpoint_for_run(
         ) from exc
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _ModelRefRequest:
     """One `model_ref` plus everything needed to resolve it against MLflow.
 

@@ -13,7 +13,7 @@ from neuralls.platform.config.models.data_models import DataConfigFile
 _MLFLOW_ALIAS_PATTERN = re.compile(r"^[\w\-]+$")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DatasetIdentity:
     """Resolved dataset identity with source traceability."""
 

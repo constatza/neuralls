@@ -37,7 +37,7 @@ def _chunks_for(shape: tuple[int, ...]) -> tuple[int, ...]:
 __all__ = ["ArrayStore", "Hdf5ArrayStore", "ZarrArrayStore"]
 
 
-@dataclass
+@dataclass(slots=True)
 class _ArrayLedger:
     """Shape and per-row written flags for one named array."""
 

@@ -94,7 +94,7 @@ def _apply_persisted_matrix_scale(
     return matrix, rhs
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _NormalizationRequest:
     """One matrix/RHS pair plus everything a normalization mode may consult."""
 

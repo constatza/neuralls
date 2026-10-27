@@ -47,7 +47,7 @@ class _FactorKind(StrEnum):
     LU = "lu"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _SparseLUFactor:
     """Sparse LU factorization of a CSR matrix."""
 
@@ -59,7 +59,7 @@ class _SparseLUFactor:
         return np.asarray(self.lu.solve(rhs), dtype=np.float64)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _CholeskyFactor:
     """Cholesky factorization of a dense SPD matrix, as returned by `cho_factor`."""
 
@@ -71,7 +71,7 @@ class _CholeskyFactor:
         return np.asarray(cho_solve(self.factor, rhs), dtype=np.float64)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _LUFactor:
     """LU factorization of a dense general matrix, as returned by `lu_factor`."""
 
@@ -137,7 +137,7 @@ def _factor_kind(matrix_format: MatrixFormat, assume_pos_def: bool) -> _FactorKi
             return _FactorKind.CHOLESKY if assume_pos_def else _FactorKind.LU
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MatrixOperator:
     """Immutable view of one system matrix with cached factorizations.
 

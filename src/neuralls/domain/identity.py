@@ -26,7 +26,7 @@ class IdentityTag(StrEnum):
     ENV = "neuralls.identity.env"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class StageIdentity:
     """Derived identity of one stage's output.
 
@@ -70,7 +70,7 @@ class StageIdentity:
         return {"identity_key": self.key, "identity_components": dict(self.components)}
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Reused:
     """A previously produced artifact whose identity matched.
 

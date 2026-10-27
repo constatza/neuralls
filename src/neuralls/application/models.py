@@ -11,7 +11,7 @@ from neuralls.domain.presentation.run_names import TrainingPresentation
 type AssignmentStatus = Literal["Success", "Failed"]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TaskResult:
     """Outcome of a single task execution (e.g., training, prediction).
 
@@ -30,7 +30,7 @@ class TaskResult:
     error: str | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class AssignmentResult:
     """Final comprehensive report for a single assignment.
 
@@ -60,7 +60,7 @@ class AssignmentResult:
         return self.status == "Success"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class AssignmentSweepResult:
     """Outcome of running every assignment in one case config as a sweep.
 

@@ -38,17 +38,17 @@ type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
 _ALGORITHM = "sha256"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Cosmetic:
     """Marker: the field is excluded from identity (label or location)."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class InputData:
     """Marker: a ``Path`` field hashed as bytes via ``content_digest``."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class InputConfig:
     """Marker: a ``Path`` field hashed semantically via ``toml_digest``."""
 

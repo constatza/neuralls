@@ -19,7 +19,7 @@ from neuralls.platform.sparse_io.components import CsrComponents
 from neuralls.shared.types import LayoutType
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SparseLocation:
     """Where a batch of samples lives: a file or store path, plus an optional member key."""
 
@@ -27,7 +27,7 @@ class SparseLocation:
     key: str | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SparseSummary:
     """Sample count and storage layout of a stored batch."""
 

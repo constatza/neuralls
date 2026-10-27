@@ -36,7 +36,7 @@ __all__ = [
 ]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ArrayArtifact:
     """Reference to a persisted numpy array artifact.
 
@@ -51,7 +51,7 @@ class ArrayArtifact:
     dtype: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ComparisonArtifactManifest:
     """Manifest of files emitted by comparison artifact writing.
 
@@ -74,7 +74,7 @@ class ComparisonArtifactManifest:
     arrays: tuple[ArrayArtifact, ...] = ()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PendingArrayArtifact:
     """In-memory numpy artifact waiting to be saved."""
 
@@ -82,7 +82,7 @@ class PendingArrayArtifact:
     values: NDArray[Any]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SerializedSolverResult:
     """JSON-safe solver result payload.
 
@@ -105,7 +105,7 @@ class SerializedSolverResult:
     initial_guess: ArrayArtifact | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SerializedComparisonPayload:
     """JSON-safe comparison payload without raw numpy arrays."""
 

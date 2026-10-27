@@ -64,7 +64,7 @@ class IScale(ABC):
 # =============================================================================
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MatrixScale(IScale):
     """Matrix normalization: scale by spectral radius bound * sqrt(d).
 
@@ -104,7 +104,7 @@ class MatrixScale(IScale):
 # =============================================================================
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ResidualTraceSamples:
     """Residual → solution trace pairs from CG iterations.
 
@@ -120,7 +120,7 @@ class ResidualTraceSamples:
     search_direction_products: np.ndarray | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ErrorTraceSamples:
     """Error correction traces: r_k → (x* - x_k).
 

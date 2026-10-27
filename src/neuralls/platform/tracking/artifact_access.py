@@ -34,7 +34,7 @@ INVALID_ARTIFACT_PATH_CHARS = frozenset({"\\"})
 REMOTE_ARTIFACT_DOWNLOAD_PREFIX = "neuralls-mlflow-artifacts-"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ArtifactLease:
     """A local path to an MLflow artifact with explicit ownership metadata."""
 

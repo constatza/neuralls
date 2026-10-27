@@ -18,7 +18,7 @@ from .semantics import classify_strategy_row_kind
 from .specs import MixtureSpec
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _StrategyRows:
     """One strategy's training pairs on one system, in generation order.
 

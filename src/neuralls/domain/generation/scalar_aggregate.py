@@ -35,7 +35,7 @@ _METADATA_DISAGREEMENT_WARNING: Final[str] = (
 _NULL_PAYLOAD_KEY: Final[str] = "null"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BindingScale:
     """Scalars one binding reports after normalizing its matrix.
 
@@ -50,7 +50,7 @@ class BindingScale:
     scale_params: ScaleMetadata | None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ScaleSummary:
     """Dataset-level scalars resolved from every binding.
 

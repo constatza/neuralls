@@ -186,7 +186,7 @@ from neuralls.shared.workflow_failures import (
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ComparisonTopology:
     """Shared MLflow topology for comparison execution."""
 
@@ -342,7 +342,7 @@ def _existing_assignment_ids(specs: tuple[PreconditionerConfig, ...]) -> set[str
     return set(_referenced_assignment_ids(specs))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _AssignmentJobContext:
     """One assignment's resolved job settings plus its dataset directory."""
 
@@ -459,7 +459,7 @@ def neural_specs_from_assignments(
     return specs
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _ComparisonResolutionContext:
     """Everything needed to resolve one comparison entry's preconditioners.
 
@@ -492,7 +492,7 @@ class _ComparisonResolutionContext:
     reuse_comparisons: bool = True
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ResolvedComparisonSpecs:
     """One comparison's preconditioners after checkpoint resolution.
 

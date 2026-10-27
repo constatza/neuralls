@@ -65,7 +65,7 @@ def _require_trainable_job(settings: AnyJobConfig) -> TrainableJobConfig:
     )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MlflowTopology:
     """Runtime MLflow topology for a training or inference workflow."""
 
@@ -73,7 +73,7 @@ class MlflowTopology:
     experiment_name: str | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class AssignmentIdentity:
     """The registry keys that bind an assignment, as declared by the case config.
 

@@ -24,7 +24,7 @@ from neuralls.shared.scientific_description.models import ScientificDescription,
 from neuralls.shared.types import DatasetFormat, NormalizeType
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DataGenerationContext:
     """Immutable context assembled from config inputs.
 

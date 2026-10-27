@@ -23,7 +23,7 @@ EIGENVECTOR_SOLUTION_TOLERANCE = 1e-14  # Near machine precision for float64
 # =============================================================================
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class StrategyOutput:
     """Container for samples produced by a generation strategy.
 
@@ -40,7 +40,7 @@ class StrategyOutput:
     error_traces: ErrorTraceSamples | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RawSamples:
     """Container for dataset samples (matrix + RHS/solution pairs).
 

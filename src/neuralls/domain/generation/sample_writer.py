@@ -34,7 +34,7 @@ SINGLE_MATRIX_ROWS: int = 1
 """Physical matrix rows when one shared matrix is broadcast to every sample."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class StoredArray:
     """One array the writer created, with its final shape and dtype.
 
@@ -67,7 +67,7 @@ class StrategyRowCount:
     rows: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DatasetArtifacts:
     """Description of every array the writer persisted.
 

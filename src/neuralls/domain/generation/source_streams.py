@@ -57,7 +57,7 @@ def _dense_to_sparse_components(
     return indices, values, (int(matrix.shape[0]), int(matrix.shape[1]))
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DenseMatrixSample:
     """One dense matrix sample."""
 
@@ -65,7 +65,7 @@ class DenseMatrixSample:
     matrix: np.ndarray
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SparseMatrixSample:
     """One sparse matrix sample as COO payload arrays."""
 
@@ -75,7 +75,7 @@ class SparseMatrixSample:
     size: tuple[int, int]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class VectorSample:
     """One RHS/solution vector sample."""
 

@@ -17,7 +17,7 @@ _NEURALLS_RE = re.compile(r"\$\{NEURALLS_([^}]+)\}")
 _GLOB_CHARS = frozenset("*?[]")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ConfigContext:
     """Immutable context passed to Pydantic model validators via model_validate(context=...).
 

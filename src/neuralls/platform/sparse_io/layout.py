@@ -33,7 +33,7 @@ SHAPE_COLUMNS: Final = 2
 """A matrix shape is (rows, cols)."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PerSamplePack:
     """Flat per-sample arrays for ``LayoutType.MANY_MATRICES``."""
 
@@ -44,7 +44,7 @@ class PerSamplePack:
     shape: NDArray[np.int64]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SharedPatternPack:
     """Shared-pattern arrays for ``LayoutType.SHARED_PATTERN``."""
 

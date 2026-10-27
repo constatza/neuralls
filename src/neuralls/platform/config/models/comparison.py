@@ -37,7 +37,7 @@ from neuralls.shared.types import ComparisonRhsSourceKind, PreconditionerName, R
 type NormalizeSystem = Literal["none", "matrix", "rhs", "both"]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ComparisonConfig:
     """Runtime domain model for comparison config."""
 

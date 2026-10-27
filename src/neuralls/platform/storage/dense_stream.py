@@ -49,7 +49,7 @@ MemberLocator = Callable[[str], ArtifactLocation]
 """Maps an array name to its manifest address inside the format's container."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class StreamedManifestFacts:
     """Run-level values the manifest records that the arrays themselves do not carry.
 

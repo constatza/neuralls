@@ -80,7 +80,7 @@ if TYPE_CHECKING:
     )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _BuildDeps:
     """Injected collaborators shared by every preconditioner builder."""
 

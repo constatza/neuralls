@@ -17,7 +17,7 @@ from neuralls.platform.tracking.artifact_selection import (
 from neuralls.platform.tracking.checkpoint_selection import find_single_checkpoint
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TrainingConfigArtifacts:
     """Resolved config artifacts from a completed training run."""
 
@@ -31,7 +31,7 @@ class TrainingConfigArtifacts:
         return candidate if candidate.exists() else fallback
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TrainingEvaluationArtifacts:
     """Resolved artifacts required to evaluate one completed training run."""
 
@@ -104,7 +104,7 @@ def resolve_training_checkpoint(
     return find_single_checkpoint(checkpoint_root)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TrainingSplitArtifact:
     """Resolved training split file plus its MLflow artifact-relative identity."""
 

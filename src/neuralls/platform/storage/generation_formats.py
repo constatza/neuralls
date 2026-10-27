@@ -19,7 +19,7 @@ from neuralls.shared.types import (
 _HDF5_DEFAULT_CHUNK_ROWS: int = 64
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ArtifactLocation:
     """Manifest-visible address of one persisted dataset artifact.
 
@@ -32,7 +32,7 @@ class ArtifactLocation:
     key: str | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ManifestLocations:
     """Per-format manifest addresses for the artifacts every dataset declares."""
 

@@ -31,7 +31,7 @@ class TracingSolverCallable(Protocol):
     ) -> tuple[NDArray, Any]: ...
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class GeneratedSamples:
     """Container for generated data."""
 
@@ -49,7 +49,7 @@ class ArchiveField(StrEnum):
     RHS = "rhs"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ArchiveData:
     """Container for pre-computed LHS solution and RHS vectors.
 

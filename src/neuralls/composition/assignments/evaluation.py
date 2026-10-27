@@ -82,7 +82,7 @@ DEFAULT_EVAL_BATCH_SIZE = 32
 EVAL_OUTPUT_DIR_NAME = "eval"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class EvaluationRunResult:
     """Immutable result for one eval-only assignment run."""
 
@@ -96,7 +96,7 @@ class EvaluationRunResult:
     figures_dir: Path
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class EvaluationBatchResult:
     """Immutable result for a completed eval-only batch."""
 
@@ -107,7 +107,7 @@ class EvaluationBatchResult:
     parent_run_id: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class EvaluationConfigPaths:
     """Resolved case and staged config paths for one eval assignment."""
 
@@ -117,7 +117,7 @@ class EvaluationConfigPaths:
     staged_data_config_path: Path
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class EvaluationAssignmentContext:
     """Runtime context needed to evaluate one assignment."""
 
@@ -127,7 +127,7 @@ class EvaluationAssignmentContext:
     config_paths: EvaluationConfigPaths
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PreparedEvaluation:
     """One assignment's fully-resolved eval settings, ready for a dlkit RunSpec."""
 
@@ -141,7 +141,7 @@ class PreparedEvaluation:
     output_root: Path
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class EvaluationPreparationBatch:
     """Prepared eval children plus whether any assignment failed during preparation."""
 

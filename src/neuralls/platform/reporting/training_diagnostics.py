@@ -18,7 +18,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PredictionDiagnostics:
     """Immutable container for prediction error metrics.
 

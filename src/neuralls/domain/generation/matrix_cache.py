@@ -15,7 +15,7 @@ from .source_streams import MatrixSampleStream
 from .specs import DatasetSpec
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _CachedMatrix:
     """Immutable cached matrix data for generation.
 

@@ -16,7 +16,7 @@ Its row total is only known after generation, so a plan holding it is not exact.
 """
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BindingAllocation:
     """Per-binding strategy budgets resolved from one global count map.
 
@@ -32,7 +32,7 @@ class BindingAllocation:
     file_indices: tuple[dict[str, tuple[int, ...]], ...]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class StrategyRows:
     """Planned row count of one strategy on one binding.
 
@@ -45,7 +45,7 @@ class StrategyRows:
     rows: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BindingPlan:
     """Planned strategy rows for one binding, in strategy order.
 
@@ -69,7 +69,7 @@ class BindingPlan:
         return sum(strategy.rows for strategy in self.strategies)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BatchPlan:
     """Immutable row budget of one generation run.
 

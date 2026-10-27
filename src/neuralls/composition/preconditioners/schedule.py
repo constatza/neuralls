@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from neuralls.platform.config.models.preconditioner import ConcretePreconditionerConfig
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PreconditionerScheduleConfig:
     """Scheduling parameters for preconditioner switching.
 

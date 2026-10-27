@@ -183,7 +183,7 @@ class CompletedMethodWorkload:
                 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ComparisonPaths:
     """Resolved paths for a single comparison run.
 
@@ -200,7 +200,7 @@ class ComparisonPaths:
     figures: Path
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class LinearSystem:
     """Loaded and validated linear system (A, b) pair.
 
@@ -213,7 +213,7 @@ class LinearSystem:
     rhs: torch.Tensor
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PreconditionerComparisonEntry:
     """Outcome of comparing one preconditioner: solve result and plot metadata.
 
@@ -253,7 +253,7 @@ class ComparisonPresentation:
     notation: NotationPolicy
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ResolvedComparisonInput:
     """Resolved comparison system and provenance used for execution and tracking."""
 
@@ -286,7 +286,7 @@ class ResolvedComparisonInput:
                 return "generated" if RHS_SOURCE_MODEL_BY_KIND[kind].generated else str(kind)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ComparisonParams:
     """Runtime parameters for comparison execution.
 

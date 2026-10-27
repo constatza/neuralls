@@ -53,7 +53,7 @@ def canonicalize_strategy_kind(raw_name: str) -> GenerationStrategyKind:
         raise ValueError(f"Unsupported generation strategy '{raw_name}'.") from exc
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class StrategySpec:
     """Immutable specification for a single generation strategy.
 
@@ -78,7 +78,7 @@ class StrategySpec:
             )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class GenerationPlan:
     """Parsed count-based generation plan.
 

@@ -27,7 +27,7 @@ from neuralls.platform.config.resolution import (
 from neuralls.platform.tracking.run_names import run_name_text
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MlflowRunConfig:
     """Declarative MLflow run settings."""
 
@@ -38,7 +38,7 @@ class MlflowRunConfig:
     workspace_root: Path
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MlflowRunState:
     """Active MLflow run handle."""
 
@@ -46,7 +46,7 @@ class MlflowRunState:
     started: bool
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MlflowRuntimeEnvironment:
     """Resolved MLflow environment values for one workflow.
 

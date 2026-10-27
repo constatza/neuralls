@@ -46,7 +46,7 @@ from neuralls.shared.constants import MASK_STREAM_TAG
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ComparisonSourceSpec:
     """A comparison's declared inputs, before any of them are read.
 
@@ -60,7 +60,7 @@ class ComparisonSourceSpec:
     rhs_source_params: dict[str, object] | None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ComparisonSourceContext:
     """Inputs shared by concrete RHS source handlers."""
 
@@ -159,7 +159,7 @@ def _validate_raw_row_kind(
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class GeneratedSourceHandler:
     """Resolve generated Gaussian or sinusoidal RHS sources."""
 
@@ -197,7 +197,7 @@ class GeneratedSourceHandler:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RawLhsSourceHandler:
     """Resolve raw LHS vectors by computing `b = scale * A @ x`."""
 
@@ -242,7 +242,7 @@ class RawLhsSourceHandler:
         )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RawRhsSourceHandler:
     """Resolve raw RHS vectors directly as `b`."""
 
@@ -302,7 +302,7 @@ class DatasetRowParams(RhsMaskParams):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class DatasetSourceHandler:
     """Resolve canonical manifest-backed dataset triplets from the entry's own dataset."""
 

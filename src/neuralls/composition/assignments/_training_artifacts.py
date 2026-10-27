@@ -42,7 +42,7 @@ LAST_CHECKPOINT_ARTIFACT_KEY = "last_checkpoint"
 RETAINED_CHECKPOINTS_DIR_NAME = "retained-checkpoints"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MlflowCoordinates:
     """The three values that together address one MLflow run.
 

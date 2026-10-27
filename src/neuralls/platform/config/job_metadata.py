@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import cast
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class JobMetadata:
     """Identity fields resolved from one lower-case job and its model profile."""
 

@@ -21,7 +21,7 @@ RESERVED_ALIASES: set[str] = {"latest"}
 CHECKPOINT_ARTIFACT_PATH_TAG = "checkpoint_artifact_path"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RegisteredModelRecord:
     """Immutable record for a registration event."""
 

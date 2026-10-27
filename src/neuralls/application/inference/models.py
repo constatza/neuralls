@@ -18,7 +18,7 @@ __all__ = [
 ]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class InferenceConfig:
     """Configuration for the inference workflow.
 
@@ -46,7 +46,7 @@ class InferenceConfig:
     comparison_config_path: Path | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class InferenceData:
     """Loaded data for inference.
 

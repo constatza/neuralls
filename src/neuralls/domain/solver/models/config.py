@@ -12,7 +12,7 @@ from neuralls.shared.timing import TimingRepeatPolicy
 from neuralls.shared.types import ComparisonRhsSourceKind, PreconditionerName
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SolverConfig:
     """Structured configuration for solver execution.
 
@@ -48,7 +48,7 @@ class SolverConfig:
 type NormalizeSystem = Literal["none", "matrix", "rhs", "both", "diagonal", "spectral"]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SolverParams:
     """Numerical solver parameters for comparison runs.
 
@@ -76,7 +76,7 @@ class SolverParams:
     expensive prior comparison. Pass `--force` to remeasure with a higher setting."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ComparisonData:
     """Input data and normalization context for a comparison run.
 
@@ -99,7 +99,7 @@ class ComparisonData:
     rhs_source_params: dict[str, object] | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ComparisonGeneral:
     """Grouped comparison context: solver params + data spec.
 
