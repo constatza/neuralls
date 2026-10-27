@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from tests.presentation_support import PreparedMethodFactory
+from tests.recipe_support import GAUSSIAN
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload, canonical_method_config
 from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
@@ -51,7 +52,7 @@ from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, Setup
 def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
     method = PreconditionerName("jacobi")
     planned = tuple(
-        SystemTag(DatasetId("ds"), "gaussian", MatrixId(0), i, SystemId(f"s{i}")) for i in range(2)
+        SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(0), i, SystemId(f"s{i}")) for i in range(2)
     )
     setup = MatrixSetupEvent(
         SetupEventId("setup-0"),

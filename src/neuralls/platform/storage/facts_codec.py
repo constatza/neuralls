@@ -33,6 +33,18 @@ from neuralls.domain.solver.models.figure_scope import (
     MethodScope,
     RecipeScope,
 )
+from neuralls.shared.rhs_recipe import (
+    DatasetRecipe,
+    GaussianRecipe,
+    RandomlyMasked,
+    RawLhsRecipe,
+    RawRhsRecipe,
+    RawSourceIdentity,
+    RecipeMask,
+    RhsRecipe,
+    SinusoidalRecipe,
+    Unmasked,
+)
 from neuralls.shared.scientific_description.catalog import make_fact
 from neuralls.shared.scientific_description.models import (
     DecimalFact,
@@ -52,11 +64,13 @@ __all__ = [
     "decode_facts",
     "decode_figure_scope",
     "decode_method_presentation",
+    "decode_recipe",
     "encode_dataset_presentation",
     "encode_facts",
     "encode_figure_scope",
     "encode_method_parameters",
     "encode_method_presentation",
+    "encode_recipe",
 ]
 
 type Payload = Mapping[str, Any]
@@ -256,13 +270,76 @@ def decode_method_presentation(payload: Payload) -> ConfiguredMethodPresentation
             raise ValueError(f"Unknown method presentation kind {other!r}")
 
 
+def encode_recipe(recipe: RhsRecipe) -> dict[str, Any]:
+    """Encode an RHS recipe as its kind, parameters and mask."""
+    match recipe:
+        case GaussianRecipe(mean=mean, std=std, mask=mask):
+            return {"kind": "gaussian", "mean": mean, "std": std, "mask": _encode_mask(mask)}
+        case SinusoidalRecipe(omega=omega, mask=mask):
+            return {"kind": "sinusoidal", "omega": omega, "mask": _encode_mask(mask)}
+        case RawLhsRecipe(source=source, mask=mask):
+            return {"kind": "raw_lhs", **_encode_raw_source(source), "mask": _encode_mask(mask)}
+        case RawRhsRecipe(source=source, mask=mask):
+            return {"kind": "raw_rhs", **_encode_raw_source(source), "mask": _encode_mask(mask)}
+        case DatasetRecipe(mask=mask):
+            return {"kind": "dataset", "mask": _encode_mask(mask)}
+        case _:
+            assert_never(recipe)
+
+
+def decode_recipe(payload: Payload) -> RhsRecipe:
+    """Decode and validate a recipe produced by `encode_recipe`."""
+    mask = _decode_mask(payload["mask"])
+    match payload["kind"]:
+        case "gaussian":
+            return GaussianRecipe(float(payload["mean"]), float(payload["std"]), mask)
+        case "sinusoidal":
+            return SinusoidalRecipe(float(payload["omega"]), mask)
+        case "raw_lhs":
+            return RawLhsRecipe(_decode_raw_source(payload), mask)
+        case "raw_rhs":
+            return RawRhsRecipe(_decode_raw_source(payload), mask)
+        case "dataset":
+            return DatasetRecipe(mask)
+        case other:
+            raise ValueError(f"Unknown recipe kind {other!r}")
+
+
+def _encode_raw_source(source: RawSourceIdentity) -> dict[str, Any]:
+    return {"sample_index": source.sample_index, "fingerprint": source.fingerprint}
+
+
+def _decode_raw_source(payload: Payload) -> RawSourceIdentity:
+    return RawSourceIdentity(int(payload["sample_index"]), str(payload["fingerprint"]))
+
+
+def _encode_mask(mask: RecipeMask) -> dict[str, Any]:
+    match mask:
+        case Unmasked():
+            return {"kind": "none"}
+        case RandomlyMasked(density=density):
+            return {"kind": "random", "density": density}
+        case _:
+            assert_never(mask)
+
+
+def _decode_mask(payload: Payload) -> RecipeMask:
+    match payload["kind"]:
+        case "none":
+            return Unmasked()
+        case "random":
+            return RandomlyMasked(float(payload["density"]))
+        case other:
+            raise ValueError(f"Unknown recipe mask kind {other!r}")
+
+
 def encode_figure_scope(scope: FigureScope) -> dict[str, Any]:
     """Encode what a figure is about as keys and typed values."""
     match scope:
         case RecipeScope(dataset=dataset, recipe=recipe):
             return {
                 "kind": "recipe",
-                "recipe": recipe,
+                "recipe": encode_recipe(recipe),
                 "dataset": encode_dataset_presentation(dataset),
             }
         case DatasetScope(dataset=dataset):
@@ -280,7 +357,7 @@ def decode_figure_scope(payload: Payload) -> FigureScope:
     match payload["kind"]:
         case "recipe":
             return RecipeScope(
-                decode_dataset_presentation(payload["dataset"]), str(payload["recipe"])
+                decode_dataset_presentation(payload["dataset"]), decode_recipe(payload["recipe"])
             )
         case "dataset":
             return DatasetScope(decode_dataset_presentation(payload["dataset"]))

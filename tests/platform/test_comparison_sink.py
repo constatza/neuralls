@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 from tests.presentation_support import PreparedMethodFactory
+from tests.recipe_support import ALPHA, BETA, GAUSSIAN, SINE
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload
 from neuralls.domain.benchmarking.selection import ConfiguredReference
@@ -91,7 +92,7 @@ def _failed() -> Failed:
 
 @pytest.fixture
 def group() -> RecipeProfileReport:
-    label = FineLabel(dataset=DatasetId("ds"), recipe="gaussian")
+    label = FineLabel(dataset=DatasetId("ds"), recipe=GAUSSIAN)
     amg = {
         SystemId("s0"): _solved(5, 1.0),
         SystemId("s1"): _solved(6, 2.0),
@@ -155,7 +156,7 @@ def group() -> RecipeProfileReport:
             ),
         ),
         reference_selection=ConfiguredReference(PreconditionerName("amg")),
-        recipe_membership=("gaussian",),
+        recipe_membership=(GAUSSIAN,),
     )
 
 
@@ -171,7 +172,7 @@ def presentation(
         "never": PreconditionerType.IDENTITY,
     }
     return GroupPresentation(
-        scope=RecipeScope(dataset_presentation, "gaussian"),
+        scope=RecipeScope(dataset_presentation, GAUSSIAN),
         plot_styles={
             name: PreconditionerPlotStyle(cohort.method(PreconditionerName(name)), family)
             for name, family in families.items()
@@ -213,11 +214,7 @@ def _report_variant(
     group: RecipeProfileReport,
     report_type: type[RecipeProfileReport | WorkloadMixtureReport],
 ) -> RecipeProfileReport | WorkloadMixtureReport:
-    membership = (
-        ("gaussian",)
-        if report_type is RecipeProfileReport
-        else ("gaussian", "sinusoidal ω=6.28319")
-    )
+    membership = (GAUSSIAN,) if report_type is RecipeProfileReport else (GAUSSIAN, SINE)
     common = {
         "group_id": group.group_id,
         "label": (
@@ -265,13 +262,13 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
 ) -> None:
     mixture = WorkloadMixtureReport(
         group_id=GroupId("global/dissolved"),
-        label=GlobalLabel(("a", "b")),
+        label=GlobalLabel((ALPHA, BETA)),
         n_matrices=3,
         n_planned_rhs=4,
         convergence=group.convergence,
         summaries=group.summaries,
         reference_selection=group.reference_selection,
-        recipe_membership=("a", "b"),
+        recipe_membership=(ALPHA, BETA),
         dataset_membership=(DatasetId("first"), DatasetId("second")),
         recipe_counts=(1, 3),
     )
@@ -299,7 +296,7 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
     solve = next(plan for plan in plans if plan.filename.startswith("solve_time"))
 
     assert online.metadata.dataset_ids == ("first", "second")
-    assert online.metadata.recipes == ("a", "b")
+    assert online.metadata.recipes == (ALPHA, BETA)
     assert online.metadata.recipe_counts == (1, 3)
     assert online.metadata.recipe_weights == (0.25, 0.75)
     assert online.metadata.metric_definition == "workload online seconds (setup + solve total)"
@@ -315,7 +312,7 @@ def test_figure_plans_name_solve_and_online_ecdfs_by_scenario(
 ) -> None:
     """ECDF titles describe the explicit timing scenario being plotted."""
     presentation = GroupPresentation(
-        scope=RecipeScope(dataset_presentation, "gaussian"), plot_styles={}, methods={}
+        scope=RecipeScope(dataset_presentation, GAUSSIAN), plot_styles={}, methods={}
     )
     plans = _figure_plans(group, presentation, "fine_ds_gaussian")
 
@@ -332,7 +329,7 @@ def test_figure_plans_name_solve_and_online_ecdfs_by_scenario(
         and plan.metadata.scenario is TimingScenario.ONLINE
     )
 
-    scope = RecipeScope(dataset_presentation, "gaussian")
+    scope = RecipeScope(dataset_presentation, GAUSSIAN)
     assert (solve.title, solve.metadata.scope) == ("Solve Time", scope)
     assert (online.title, online.metadata.scope) == ("Online Time", scope)
 
@@ -342,7 +339,7 @@ def test_paired_scatter_manifest_describes_axis_censored_pairs(
 ) -> None:
     """Paired scatter metadata covers asymmetric failures, unlike ratio CDFs."""
     presentation = GroupPresentation(
-        scope=RecipeScope(dataset_presentation, "gaussian"), plot_styles={}, methods={}
+        scope=RecipeScope(dataset_presentation, GAUSSIAN), plot_styles={}, methods={}
     )
     plans = _figure_plans(group, presentation, "fine_ds_gaussian")
     paired = next(plan for plan in plans if plan.metadata.kind.value == "paired_time")
@@ -358,7 +355,7 @@ def test_session_manifest_registers_uniquely_owned_method_figures(
 ) -> None:
     method = PreconditionerName("network_a")
     prepared = prepared_method(str(method))
-    tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(7), 0, SystemId("s0"))
+    tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(7), 0, SystemId("s0"))
     workload = CompletedMethodWorkload(
         method=method,
         planned=(tag,),
@@ -395,7 +392,7 @@ def test_session_manifest_registers_uniquely_owned_method_figures(
     metadata = sink.manifest.entries["residual_history_network_a.png"]
     assert metadata.scope == MethodScope(prepared.detailed)
     assert metadata.dataset_ids == ("ds",)
-    assert metadata.recipes == ("gaussian",)
+    assert metadata.recipes == (GAUSSIAN,)
     assert metadata.solver_contexts == (context,)
     assert metadata.sources == (
         "comparison_method[method=network_a]/method_workload/method_diagnostics.json",
@@ -411,7 +408,7 @@ def test_method_diagnostics_render_the_manifest_method_scope_and_name_systems_by
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Method histories share the manifest's scope, and no line is named by a system id."""
-    tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(7), 1, SystemId("sys-id-9"))
+    tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(7), 1, SystemId("sys-id-9"))
     workload = replace(method_workload, planned=(tag,))
     calls: list[dict[str, Any]] = []
     monkeypatch.setattr(
@@ -433,7 +430,7 @@ def test_method_diagnostics_render_the_manifest_method_scope_and_name_systems_by
     assert [call["subtitle"] for call in calls] == [ScopeSubtitle(scope, notation)] * 2
     text = calls[0]["legend"].label("sys-id-9")
     assert text == (
-        "Test problem | Gaussian CG Residuals ($k=20$, $N=100$) - gaussian, matrix 7, RHS 1"
+        "Test problem | Gaussian CG Residuals ($k=20$, $N=100$) - Gaussian, matrix 7, RHS 1"
     )
 
 

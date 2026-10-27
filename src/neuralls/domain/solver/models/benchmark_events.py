@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import isfinite
 
+from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 
 
@@ -79,7 +80,7 @@ class SystemTag:
     """Where one planned system sits in a dataset, recipe, matrix, and RHS ordinal."""
 
     dataset: DatasetId
-    recipe: str
+    recipe: RhsRecipe
     matrix_id: MatrixId
     rhs_ordinal: int
     system_id: SystemId
@@ -115,7 +116,7 @@ class SolveAttempt:
     setup_event_id: SetupEventId
     system_id: SystemId
     dataset: DatasetId
-    recipe: str
+    recipe: RhsRecipe
     matrix_id: MatrixId
     rhs_ordinal: int
     method: PreconditionerName

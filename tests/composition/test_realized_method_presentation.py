@@ -53,6 +53,7 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
 )
 from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS, make_fact
 from neuralls.shared.scientific_description.models import (
     ScientificFact,
@@ -61,6 +62,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 from neuralls.shared.workflow_failures import ComparisonMatrixFailureContext, ComparisonMatrixPhase
 from tests.presentation_support import PreparedMethodFactory
+from tests.recipe_support import ALPHA, BETA, GAUSSIAN
 
 
 def _levels(depth: int) -> tuple[ScientificFact, ...]:
@@ -93,7 +95,7 @@ def matrix_bundles(tmp_path: Path) -> tuple[MatrixWorkload, MatrixWorkload]:
             MatrixWorkloadMember(
                 tag=SystemTag(
                     DatasetId("ds"),
-                    "gaussian",
+                    GAUSSIAN,
                     MatrixId(matrix_id),
                     ordinal,
                     SystemId(f"ds-{matrix_id}-{ordinal}"),
@@ -302,12 +304,12 @@ def _workload(
     prepared: PreparedMethodPresentation,
     depth_by_matrix: dict[int, int],
     *,
-    recipe_by_matrix: dict[int, str] | None = None,
+    recipe_by_matrix: dict[int, RhsRecipe] | None = None,
     realized_matrices: frozenset[int] | None = None,
 ) -> CompletedMethodWorkload:
     """A completed workload with one system per matrix, realized at the given depths.
 
-    ``recipe_by_matrix`` names each matrix's recipe (default ``gaussian``) and
+    ``recipe_by_matrix`` names each matrix's recipe (default the standard normal) and
     ``realized_matrices`` limits which matrices have a realization (default all).
     """
     name = prepared.method_id
@@ -315,7 +317,7 @@ def _workload(
     tags = tuple(
         SystemTag(
             DatasetId("ds"),
-            recipes.get(m, "gaussian"),
+            recipes.get(m, GAUSSIAN),
             MatrixId(m),
             0,
             SystemId(f"{name}-{m}"),
@@ -444,7 +446,7 @@ def test_each_group_states_only_facts_invariant_over_its_own_systems(
     workload = _workload(
         prepared_method("jacobi"),
         {1: 2, 2: 3},
-        recipe_by_matrix={1: "alpha", 2: "beta"},
+        recipe_by_matrix={1: ALPHA, 2: BETA},
     )
     sink = _RecordingSink()
 
@@ -453,8 +455,8 @@ def test_each_group_states_only_facts_invariant_over_its_own_systems(
     dataset = group_datasets[DatasetId("ds")]
     by_scope = [(group.scope, _depth_shown(group, "jacobi")) for group in sink.presentations]
     assert by_scope == [
-        (RecipeScope(dataset, "alpha"), [2]),
-        (RecipeScope(dataset, "beta"), [3]),
+        (RecipeScope(dataset, ALPHA), [2]),
+        (RecipeScope(dataset, BETA), [3]),
         (DatasetScope(dataset), []),
         (AllDatasetsScope(), []),
     ]
@@ -476,8 +478,8 @@ def test_group_lists_only_methods_with_systems_in_that_group(
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
-    alpha = _workload(prepared_method("jacobi_a"), {1: 2}, recipe_by_matrix={1: "alpha"})
-    beta = _workload(prepared_method("jacobi_b"), {2: 2}, recipe_by_matrix={2: "beta"})
+    alpha = _workload(prepared_method("jacobi_a"), {1: 2}, recipe_by_matrix={1: ALPHA})
+    beta = _workload(prepared_method("jacobi_b"), {2: 2}, recipe_by_matrix={2: BETA})
     sink = _RecordingSink()
 
     report_all_levels(
@@ -486,8 +488,8 @@ def test_group_lists_only_methods_with_systems_in_that_group(
 
     dataset = group_datasets[DatasetId("ds")]
     methods_by_scope = {group.scope: set(group.methods) for group in sink.presentations}
-    assert methods_by_scope[RecipeScope(dataset, "alpha")] == {"jacobi_a"}
-    assert methods_by_scope[RecipeScope(dataset, "beta")] == {"jacobi_b"}
+    assert methods_by_scope[RecipeScope(dataset, ALPHA)] == {"jacobi_a"}
+    assert methods_by_scope[RecipeScope(dataset, BETA)] == {"jacobi_b"}
     assert methods_by_scope[AllDatasetsScope()] == {"jacobi_a", "jacobi_b"}
 
 

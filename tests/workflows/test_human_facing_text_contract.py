@@ -186,6 +186,8 @@ SCOPES: dict[str, SinkScope] = {
             "platform/reporting",
             "composition/comparison",
             "domain/solver/reporting",
+            "domain/solver/models/figure_scope.py",
+            "domain/presentation/recipes.py",
         ),
         allowed=(
             Allowed(

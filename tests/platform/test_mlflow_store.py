@@ -13,6 +13,7 @@ import pytest
 import tomli_w
 from mlflow.tracking import MlflowClient
 from tests.presentation_support import PreparedMethodFactory
+from tests.recipe_support import GAUSSIAN
 
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
@@ -39,6 +40,7 @@ from neuralls.platform.tracking.mlflow_store import (
     find_reusable_benchmark_method,
 )
 from neuralls.shared.digest import canonical_digest
+from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 
@@ -173,7 +175,7 @@ def method_artifacts(
 ) -> tuple[dict[str, str], tuple[str, ...]]:
     """Create one complete method artifact set for content-validation tests."""
     method = PreconditionerName("jacobi")
-    planned = (SystemTag(DatasetId("ds"), "recipe", MatrixId(0), 0, SystemId("s0")),)
+    planned = (SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(0), 0, SystemId("s0")),)
     setup = MatrixSetupEvent(
         SetupEventId("setup-0"),
         DatasetId("ds"),
@@ -188,7 +190,7 @@ def method_artifacts(
         SetupEventId("setup-0"),
         SystemId("s0"),
         DatasetId("ds"),
-        "recipe",
+        GAUSSIAN,
         MatrixId(0),
         0,
         method,
@@ -303,7 +305,7 @@ def test_reuse_ignores_checkpoint_lease_path_but_rejects_changed_content(
     method_artifacts = tmp_path / "fixture-artifacts"
     method_artifacts.mkdir()
     method = PreconditionerName("jacobi")
-    planned = (SystemTag(DatasetId("ds"), "recipe", MatrixId(0), 0, SystemId("s0")),)
+    planned = (SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(0), 0, SystemId("s0")),)
     setup = MatrixSetupEvent(
         SetupEventId("setup-0"),
         DatasetId("ds"),
@@ -318,7 +320,7 @@ def test_reuse_ignores_checkpoint_lease_path_but_rejects_changed_content(
         SetupEventId("setup-0"),
         SystemId("s0"),
         DatasetId("ds"),
-        "recipe",
+        GAUSSIAN,
         MatrixId(0),
         0,
         method,
@@ -458,7 +460,7 @@ def test_failed_solve_frame_rejects_convergence_only_residual() -> None:
             "setup_event_id": ["setup"],
             "system_id": ["system"],
             "dataset": ["ds"],
-            "recipe": ["recipe"],
+            "recipe": [recipe_key(GAUSSIAN)],
             "matrix_id": [0],
             "rhs_ordinal": [0],
             "method": ["jacobi"],

@@ -38,6 +38,7 @@ from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
 from neuralls.domain.solver.models import MeasuredPeakMemory
 from neuralls.domain.solver.models.config import SolverParams
+from neuralls.platform.config.models.comparison import GaussianRhsSourceModel
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
@@ -181,7 +182,7 @@ def test_matrix_loader_releases_prepared_system_before_next_matrix_load(
         system.cfg.general.data.selection_seed = None
         system.cfg.general.data.rhs_source_kind = "gaussian"
         system.cfg.general.data.rhs_source_params = {}
-        system.entry.rhs_source.recipe_label = "gaussian"
+        system.entry.rhs_source = GaussianRhsSourceModel()
         system.planned.entry = system.entry
         system.planned.matrix.matrix_id = MatrixId(matrix_id)
         system.planned.rhs_ordinal = 0

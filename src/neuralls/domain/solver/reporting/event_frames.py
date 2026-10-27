@@ -21,6 +21,7 @@ from neuralls.domain.solver.models.benchmark_events import (
     SolveOutcome,
     UnknownPeakMemory,
 )
+from neuralls.shared.rhs_recipe import parse_recipe_key, recipe_key
 
 SETUP_EVENT_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "setup_event_id": pl.String,
@@ -90,7 +91,7 @@ def build_solve_frame(attempts: Collection[SolveAttempt]) -> pl.DataFrame:
                 "setup_event_id": attempt.setup_event_id,
                 "system_id": attempt.system_id,
                 "dataset": attempt.dataset,
-                "recipe": attempt.recipe,
+                "recipe": recipe_key(attempt.recipe),
                 "matrix_id": attempt.matrix_id,
                 "rhs_ordinal": attempt.rhs_ordinal,
                 "method": attempt.method,
@@ -164,7 +165,7 @@ def validate_decoded_solve_frame(frame: pl.DataFrame) -> None:
         _required_text(row["setup_event_id"], "setup event ID")
         system_id = _required_text(row["system_id"], "system ID")
         _required_text(row["dataset"], "dataset")
-        _required_text(row["recipe"], "recipe")
+        parse_recipe_key(_required_text(row["recipe"], "recipe"))
         _required_int(row["matrix_id"], "matrix ID")
         _required_int(row["rhs_ordinal"], "RHS ordinal")
         _required_text(row["method"], "method")

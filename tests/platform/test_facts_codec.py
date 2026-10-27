@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from neuralls.domain.presentation.provenance import (
@@ -16,8 +18,20 @@ from neuralls.domain.presentation.provenance import (
 from neuralls.platform.storage.facts_codec import (
     decode_dataset_presentation,
     decode_facts,
+    decode_recipe,
     encode_dataset_presentation,
     encode_facts,
+    encode_recipe,
+)
+from neuralls.shared.rhs_recipe import (
+    DatasetRecipe,
+    GaussianRecipe,
+    RandomlyMasked,
+    RawLhsRecipe,
+    RawRhsRecipe,
+    RawSourceIdentity,
+    RhsRecipe,
+    SinusoidalRecipe,
 )
 from neuralls.shared.scientific_description.catalog import (
     BETA,
@@ -122,3 +136,27 @@ def test_unknown_seed_kind_is_rejected_on_decode(dataset: DatasetPresentation) -
     payload["generation"]["strategies"][0]["seed"] = {"kind": "random"}
     with pytest.raises(ValueError, match="seed kind"):
         decode_dataset_presentation(payload)
+
+
+@pytest.mark.parametrize(
+    "recipe",
+    [
+        GaussianRecipe(-1.5, 2e-05, RandomlyMasked(0.1)),
+        SinusoidalRecipe(6.283185307179586),
+        RawLhsRecipe(RawSourceIdentity(3, "0123456789abcdef")),
+        RawRhsRecipe(RawSourceIdentity(0, "ff"), RandomlyMasked(0.5)),
+        DatasetRecipe(),
+    ],
+)
+def test_recipe_round_trips_exactly_through_json(recipe: RhsRecipe) -> None:
+    assert decode_recipe(json.loads(json.dumps(encode_recipe(recipe)))) == recipe
+
+
+def test_unknown_recipe_kind_is_rejected_on_decode() -> None:
+    with pytest.raises(ValueError, match="Unknown recipe kind 'uniform'"):
+        decode_recipe({"kind": "uniform", "mask": {"kind": "none"}})
+
+
+def test_unknown_recipe_mask_is_rejected_on_decode() -> None:
+    with pytest.raises(ValueError, match="Unknown recipe mask kind 'banded'"):
+        decode_recipe({"kind": "dataset", "mask": {"kind": "banded"}})

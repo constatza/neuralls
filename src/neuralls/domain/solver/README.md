@@ -150,7 +150,7 @@ iterations; workload ranking uses complete event summaries.
 
 ## Presentation planning
 
-`GroupPresentation` lives in `models/group_presentation.py` (it shares no name with the shared presentation modules) and carries a typed `scope` (`models/figure_scope.py`: `RecipeScope | DatasetScope | AllDatasetsScope`, plus `MethodScope` for method figures) that sinks render; `PreconditionerPlotStyle` carries the method's `PreparedMethodPresentation` with family and colour/marker keys, never text.
+`GroupPresentation` lives in `models/group_presentation.py` (it shares no name with the shared presentation modules) and carries a typed `scope` (`models/figure_scope.py`: `RecipeScope | DatasetScope | AllDatasetsScope`, plus `MethodScope` for method figures) that sinks render; a `RecipeScope`, a `SystemTag`, a `SolveAttempt` and the report labels hold the typed `RhsRecipe` (`shared/rhs_recipe.py`), whose machine key is the event frames' `recipe` column and the recipe segment of a group id; `PreconditionerPlotStyle` carries the method's `PreparedMethodPresentation` with family and colour/marker keys, never text.
 
 Presentation planning (`prepare_presentations`, `reduce_realized_facts`) lives in `domain/presentation/planner.py` (see its README). `GroupPresentation.methods` carries a `GroupMethodPresentation` for each method that has systems in that group: its prepared presentation plus the realized facts invariant over the method's systems in the group (only facts that `is_compact_by_policy` accepts join the compact view). A realized fact is invariant only if every system of the method in the group was realized and they agree, so a group containing a system whose setup failed states none.
 

@@ -7,7 +7,9 @@ from typing import assert_never
 
 from neuralls.domain.presentation.methods import ConfiguredMethodPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.presentation.recipes import render_recipe
 from neuralls.domain.presentation.render import render_dataset, render_method
+from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderProfile
 from neuralls.shared.scientific_description.render import RenderedScientificDescription
 
@@ -21,7 +23,7 @@ class RecipeScope:
     """One dataset and one right-hand-side recipe: a homogeneous problem family."""
 
     dataset: DatasetPresentation
-    recipe: str
+    recipe: RhsRecipe
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +60,7 @@ def render_figure_scope(
         case RecipeScope(dataset=dataset, recipe=recipe):
             rendered = render_dataset(dataset, profile, policy)
             return RenderedScientificDescription(
-                text=f"{rendered.text}{_RECIPE_SEPARATOR}{recipe}",
+                text=f"{rendered.text}{_RECIPE_SEPARATOR}{render_recipe(recipe, profile, policy)}",
                 preferred_wrap_boundaries=rendered.preferred_wrap_boundaries,
             )
         case DatasetScope(dataset=dataset):

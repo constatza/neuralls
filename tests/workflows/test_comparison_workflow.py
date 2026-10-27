@@ -97,6 +97,7 @@ from neuralls.shared.types import (
     SystemId,
 )
 from tests.presentation_support import PreparedMethodFactory
+from tests.recipe_support import GAUSSIAN
 from tests.workflows.comparison_support import (
     LOG_COMPARISON_ARTIFACTS,
     SETUP_TRACKING,
@@ -1372,7 +1373,7 @@ def test_compatibility_projection_carries_canonical_setup_measurement(
     """Legacy diagnostics retain setup timing copied from the canonical event."""
     tag = SystemTag(
         dataset=DatasetId("dataset"),
-        recipe="gaussian",
+        recipe=GAUSSIAN,
         matrix_id=MatrixId(3),
         rhs_ordinal=0,
         system_id=SystemId("system-3-0"),

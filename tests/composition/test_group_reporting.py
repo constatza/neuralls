@@ -42,6 +42,7 @@ from neuralls.shared.types import (
     SystemId,
 )
 from tests.presentation_support import PreparedMethodFactory
+from tests.recipe_support import GAUSSIAN
 
 
 @dataclass(slots=True)
@@ -58,7 +59,7 @@ def test_group_reporting_reduces_completed_workload_events(
     group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     method = PreconditionerName("identity")
-    tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("system"))
+    tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(1), 0, SystemId("system"))
     event_id = SetupEventId("identity:ds:1")
     workload = CompletedMethodWorkload(
         method=method,
@@ -109,7 +110,7 @@ def test_group_reporting_propagates_method_plot_styles(
     group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     method = PreconditionerName("identity")
-    tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("styled"))
+    tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(1), 0, SystemId("styled"))
     event_id = SetupEventId("identity:ds:1")
     style = PreconditionerPlotStyle(prepared_method("identity"), PreconditionerType.IDENTITY)
     workload = CompletedMethodWorkload(
@@ -156,7 +157,7 @@ def test_mixture_presentations_keep_only_the_short_scope(
     group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     method = PreconditionerName("identity")
-    tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("scope"))
+    tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(1), 0, SystemId("scope"))
     event_id = SetupEventId("identity:ds:1")
     workload = CompletedMethodWorkload(
         method=method,
@@ -208,7 +209,7 @@ def test_mixture_presentations_keep_only_the_short_scope(
     report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
 
     assert [presentation.scope for presentation in sink.presentations] == [
-        RecipeScope(group_datasets[DatasetId("ds")], "gaussian"),
+        RecipeScope(group_datasets[DatasetId("ds")], GAUSSIAN),
         DatasetScope(group_datasets[DatasetId("ds")]),
         AllDatasetsScope(),
     ]
@@ -219,7 +220,7 @@ def test_group_reporting_propagates_actual_solver_timing_context(
     group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
     method = PreconditionerName("identity")
-    tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("context"))
+    tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(1), 0, SystemId("context"))
     workload = CompletedMethodWorkload(
         method=method,
         planned=(tag,),
@@ -273,7 +274,7 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
     dataset_presentation: DatasetPresentation,
     group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
-    tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("amg-labels"))
+    tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(1), 0, SystemId("amg-labels"))
     configs = [
         AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig(theta=0.25)),
         AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig(theta=0.5)),
@@ -329,7 +330,7 @@ def test_a_skipped_group_is_named_by_its_scope_not_its_group_id(
     monkeypatch: pytest.MonkeyPatch,
     group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
-    label = FineLabel(dataset=DatasetId("ds"), recipe="gaussian")
+    label = FineLabel(dataset=DatasetId("ds"), recipe=GAUSSIAN)
     skipped = GroupSkippedAllCacheHit(
         group_id=render_group_id(label), label=label, n_planned_rhs=3, n_matrices=1
     )
@@ -346,6 +347,6 @@ def test_a_skipped_group_is_named_by_its_scope_not_its_group_id(
         logger.remove(sink_id)
 
     assert messages[0] == (
-        "Test problem | Gaussian CG Residuals (k=20, N=100) - gaussian: "
+        "Test problem | Gaussian CG Residuals (k=20, N=100) - Gaussian: "
         "no canonical setup events among 3 planned systems."
     )

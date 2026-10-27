@@ -27,6 +27,7 @@ from neuralls.platform.reporting.figure_metadata import (
     write_figure_manifest,
 )
 from neuralls.platform.storage.facts_codec import decode_figure_scope
+from neuralls.shared.rhs_recipe import SinusoidalRecipe, recipe_key
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
 from neuralls.shared.types import PreconditionerName
 
@@ -39,7 +40,7 @@ def _metadata(scope: FigureScope) -> FigureMetadata:
         report_level="fine",
         scope=scope,
         dataset_ids=("Dataset X",),
-        recipes=("sinusoidal omega=6.28319",),
+        recipes=(SinusoidalRecipe(omega=6.28319),),
         n_matrices=1,
         n_planned_rhs=4,
         reference_selection=ReferenceSelectionKind.CONFIGURED,
@@ -78,7 +79,7 @@ def _entry(manifest: FigureManifest, notation: NotationPolicy) -> dict[str, Any]
 
 @pytest.fixture
 def scope(dataset_presentation: DatasetPresentation) -> RecipeScope:
-    return RecipeScope(dataset_presentation, "sinusoidal omega=6.28319")
+    return RecipeScope(dataset_presentation, SinusoidalRecipe(omega=6.28319))
 
 
 def test_manifest_round_trip_is_deterministic(
@@ -112,7 +113,7 @@ def test_manifest_stores_structured_scope_and_its_rendered_text(
     assert stored["kind"] == "recipe"
     assert (
         stored["display"]
-        == "Test problem | Gaussian CG Residuals (k=20, N=100) - sinusoidal omega=6.28319"
+        == "Test problem | Gaussian CG Residuals (k=20, N=100) - Sinusoidal (ω=6.28319)"
     )
 
 
@@ -133,7 +134,7 @@ def test_manifest_serializes_literal_population_and_solver_context(
                 "metric_definition": "amortized online seconds",
                 "report_level": "fine",
                 "dataset_ids": ["Dataset X"],
-                "recipes": ["sinusoidal omega=6.28319"],
+                "recipes": [recipe_key(SinusoidalRecipe(omega=6.28319))],
                 "recipe_counts": [4],
                 "n_matrices": 1,
                 "n_planned_rhs": 4,

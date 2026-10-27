@@ -5,7 +5,7 @@ The platform package isolates external integrations and side-effecting helpers.
 ## Package Map
 
 - `config/`: settings, config-validation context, registry resolution, TOML loaders, lower-case job metadata readers, and the thin DLKit job loader adapter
-- `config/models/`: Pydantic models for TOML sections. `comparison.py`'s RHS source models share `RhsSourceModelBase`, whose `mask: RhsMask` (`NoMask | RandomMask`, discriminated by `kind`) is available on every kind and part of its `recipe_label`. `OutputConfig.matrix_format` (`MatrixFormat`, default `csr`) selects the storage format of the system matrix for a dataset; it is the single declaration of that default. `OutputConfig.sparsity_pattern` (`SparsityPattern`, `shared` or `ragged`, default `ragged`) selects the CSR layout; it is part of the digest.
+- `config/models/`: Pydantic models for TOML sections. `comparison.py`'s RHS source models share `RhsSourceModelBase`, whose `mask: RhsMask` (`NoMask | RandomMask`, discriminated by `kind`) is available on every kind. The source models only hold configuration; `composition/comparison/recipes.py::rhs_recipe` turns one into its typed `RhsRecipe`. `OutputConfig.matrix_format` (`MatrixFormat`, default `csr`) selects the storage format of the system matrix for a dataset; it is the single declaration of that default. `OutputConfig.sparsity_pattern` (`SparsityPattern`, `shared` or `ragged`, default `ragged`) selects the CSR layout; it is part of the digest.
 - `storage/`: filesystem, workspaces, dataset I/O, and storage validation helpers
 - `storage/array_store.py`: `ZarrArrayStore` and `Hdf5ArrayStore`, the dense backends of the `ArrayStore` protocol (defined in `domain/generation/ports.py`, so the domain depends on it without importing platform). Arrays are created at full shape; `close()` raises `ValueError` naming any array with unwritten rows. A one-dimensional array is a single chunk, so row kinds and matrix indices do not create one file per row.
 - `storage/errors.py`: `_raise_storage_error`, the OSError translation every storage module shares.
@@ -147,7 +147,7 @@ required `save_path` and returns it, or `None` when nothing was drawn, and a
 `MLflowGroupReportSink` logs planned, attempted, and converged counts plus the
 failure-aware paired fields. Its typed plans (`FigurePlan`: editorial title plus the `FigureMetadata` scope) are also the single source of
 figure scope, stable filenames, timing scenarios, and manifest
-metadata. The figure manifest stores each scope as keys and typed values (`facts_codec.encode_figure_scope`) beside its plain rendered `display` text; file names stay machine-safe ids, and machine ids live only in `*_id` fields (`dataset_ids`, `reference_method_id`; `reference_selection` is the kind alone). Global metadata retains every dataset, recipe population/weight, and
+metadata. The figure manifest stores each scope as keys and typed values (`facts_codec.encode_figure_scope`, whose recipe is `encode_recipe`: kind, parameters and mask) beside its plain rendered `display` text; file names stay machine-safe ids, and machine ids live only in `*_id` fields (`dataset_ids`, `recipes` (each recipe's machine key), `reference_method_id`; `reference_selection` is the kind alone). Global metadata retains every dataset, recipe population/weight, and
 the actual solver, normalization, and timing-repeat settings; method-child
 history figures are registered with unique method-qualified ownership. Raw
 benchmark events and method summaries become

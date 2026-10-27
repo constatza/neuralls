@@ -174,10 +174,6 @@ class TestTraitDrivenPlanning:
             seeded: ClassVar[bool] = True
             single_draw: ClassVar[bool] = False
 
-            @property
-            def base_label(self) -> str:
-                return "toy"
-
         class ToyFixedSource(ToySeededSource):
             seeded: ClassVar[bool] = False
 

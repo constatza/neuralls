@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 import polars as pl
 
 from neuralls.domain.solver.models.benchmark_events import SystemTag
 from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLabel, MediumLabel
+from neuralls.shared.rhs_recipe import RhsRecipe, parse_recipe_key, recipe_key
 from neuralls.shared.types import DatasetId
 
 SYSTEM_ID = "system_id"
@@ -36,7 +37,7 @@ def report_key(level: ReportLevel, tag: SystemTag) -> tuple[str, ...]:
     """The values of ``tag`` that select its report group at ``level``."""
     match level:
         case FineLevel():
-            return (tag.dataset, tag.recipe)
+            return (tag.dataset, recipe_key(tag.recipe))
         case MediumLevel():
             return (tag.dataset,)
         case GlobalLevel():
@@ -47,7 +48,7 @@ def label_key(label: GroupLabel) -> tuple[str, ...]:
     """The `report_key` that selects ``label``'s group (mixtures are not part of the key)."""
     match label:
         case FineLabel(dataset=dataset, recipe=recipe):
-            return (dataset, recipe)
+            return (dataset, recipe_key(recipe))
         case MediumLabel(dataset=dataset):
             return (dataset,)
         case GlobalLabel():
@@ -59,7 +60,7 @@ def label_for_tags(level: ReportLevel, tags: Sequence[SystemTag]) -> GroupLabel:
 
     Used for a group nothing was measured in, which `report_level` never sees.
     """
-    mixture = tuple(sorted({tag.recipe for tag in tags}))
+    mixture = sorted_recipes({tag.recipe for tag in tags})
     first = tags[0]
     match level:
         case FineLevel():
@@ -107,13 +108,24 @@ def level_columns(level: ReportLevel) -> list[str]:
             return []
 
 
-def mixtures_by_key(frame: pl.DataFrame, keys: list[str]) -> dict[tuple[str, ...], tuple[str, ...]]:
-    """Recipes pooled by each group of ``keys``, sorted."""
+def sorted_recipes(recipes: Iterable[RhsRecipe]) -> tuple[RhsRecipe, ...]:
+    """The distinct ``recipes`` in machine-key order."""
+    return tuple(sorted(set(recipes), key=recipe_key))
+
+
+def _recipes_of_keys(keys: Iterable[str]) -> tuple[RhsRecipe, ...]:
+    return sorted_recipes(parse_recipe_key(key) for key in keys)
+
+
+def mixtures_by_key(
+    frame: pl.DataFrame, keys: list[str]
+) -> dict[tuple[str, ...], tuple[RhsRecipe, ...]]:
+    """Recipes pooled by each group of ``keys``, in machine-key order."""
     if not keys:
-        return {(): tuple(sorted(frame["recipe"].unique()))}
+        return {(): _recipes_of_keys(frame["recipe"].unique())}
     pooled = frame.group_by(keys, maintain_order=True).agg(mixture=pl.col("recipe").unique().sort())
     return {
-        tuple(row[key] for key in keys): tuple(row["mixture"])
+        tuple(row[key] for key in keys): _recipes_of_keys(row["mixture"])
         for row in pooled.iter_rows(named=True)
     }
 
@@ -121,11 +133,13 @@ def mixtures_by_key(frame: pl.DataFrame, keys: list[str]) -> dict[tuple[str, ...
 def group_label(
     level: ReportLevel,
     row: Mapping[str, object],
-    mixtures: Mapping[tuple[str, ...], tuple[str, ...]],
+    mixtures: Mapping[tuple[str, ...], tuple[RhsRecipe, ...]],
 ) -> GroupLabel:
     match level:
         case FineLevel():
-            return FineLabel(dataset=DatasetId(str(row["dataset"])), recipe=str(row["recipe"]))
+            return FineLabel(
+                dataset=DatasetId(str(row["dataset"])), recipe=parse_recipe_key(str(row["recipe"]))
+            )
         case MediumLevel():
             dataset = str(row["dataset"])
             return MediumLabel(dataset=DatasetId(dataset), mixture_of=mixtures[(dataset,)])

@@ -11,6 +11,7 @@ from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLa
 from neuralls.domain.solver.models.outcomes import SystemOutcome
 from neuralls.domain.solver.models.statistics import MethodComparison
 from neuralls.domain.solver.models.workload import MethodWorkloadSummary
+from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.types import DatasetId, GroupId, PreconditionerName, SystemId
 
 
@@ -36,7 +37,7 @@ class GroupAggregated:
     convergence: Mapping[PreconditionerName, ConvergenceSummary] = field(default_factory=dict)
     summaries: tuple[MethodWorkloadSummary, ...] = ()
     reference_selection: ReferenceSelection = field(default_factory=NoReferenceConfigured)
-    recipe_membership: tuple[str, ...] = ()
+    recipe_membership: tuple[RhsRecipe, ...] = ()
     dataset_membership: tuple[DatasetId, ...] = ()
     recipe_counts: tuple[int, ...] = ()
     system_ids: tuple[SystemId, ...] = ()

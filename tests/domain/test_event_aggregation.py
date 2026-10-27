@@ -32,6 +32,7 @@ from neuralls.domain.solver.reporting.aggregation import (
 )
 from neuralls.domain.solver.reporting.event_frames import build_setup_frame, build_solve_frame
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
+from tests.recipe_support import GAUSSIAN, SINE
 
 
 @pytest.fixture
@@ -99,12 +100,12 @@ def solve_frame_schema() -> pl.Schema:
 def planned_systems() -> tuple[SystemTag, ...]:
     """Two matrices with three planned RHS systems each and mixed recipes."""
     return (
-        SystemTag(DatasetId("ds"), "gaussian", MatrixId(10), 0, SystemId("10-0")),
-        SystemTag(DatasetId("ds"), "sinusoidal", MatrixId(10), 1, SystemId("10-1")),
-        SystemTag(DatasetId("ds"), "sinusoidal", MatrixId(10), 2, SystemId("10-2")),
-        SystemTag(DatasetId("ds"), "gaussian", MatrixId(20), 0, SystemId("20-0")),
-        SystemTag(DatasetId("ds"), "gaussian", MatrixId(20), 1, SystemId("20-1")),
-        SystemTag(DatasetId("ds"), "gaussian", MatrixId(20), 2, SystemId("20-2")),
+        SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(10), 0, SystemId("10-0")),
+        SystemTag(DatasetId("ds"), SINE, MatrixId(10), 1, SystemId("10-1")),
+        SystemTag(DatasetId("ds"), SINE, MatrixId(10), 2, SystemId("10-2")),
+        SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(20), 0, SystemId("20-0")),
+        SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(20), 1, SystemId("20-1")),
+        SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(20), 2, SystemId("20-2")),
     )
 
 
@@ -179,12 +180,12 @@ def incomplete_attempts(solve_attempts: tuple[SolveAttempt, ...]) -> tuple[Solve
 def extreme_planned_systems() -> tuple[SystemTag, ...]:
     """Four planned RHS systems on one matrix and two on another."""
     return (
-        SystemTag(DatasetId("extreme"), "r", MatrixId(10), 0, SystemId("a-0")),
-        SystemTag(DatasetId("extreme"), "r", MatrixId(10), 1, SystemId("a-1")),
-        SystemTag(DatasetId("extreme"), "r", MatrixId(10), 2, SystemId("a-2")),
-        SystemTag(DatasetId("extreme"), "r", MatrixId(10), 3, SystemId("a-3")),
-        SystemTag(DatasetId("extreme"), "r", MatrixId(20), 0, SystemId("b-0")),
-        SystemTag(DatasetId("extreme"), "r", MatrixId(20), 1, SystemId("b-1")),
+        SystemTag(DatasetId("extreme"), GAUSSIAN, MatrixId(10), 0, SystemId("a-0")),
+        SystemTag(DatasetId("extreme"), GAUSSIAN, MatrixId(10), 1, SystemId("a-1")),
+        SystemTag(DatasetId("extreme"), GAUSSIAN, MatrixId(10), 2, SystemId("a-2")),
+        SystemTag(DatasetId("extreme"), GAUSSIAN, MatrixId(10), 3, SystemId("a-3")),
+        SystemTag(DatasetId("extreme"), GAUSSIAN, MatrixId(20), 0, SystemId("b-0")),
+        SystemTag(DatasetId("extreme"), GAUSSIAN, MatrixId(20), 1, SystemId("b-1")),
     )
 
 
@@ -285,7 +286,7 @@ def ten_matrix_planned_systems() -> tuple[SystemTag, ...]:
     return tuple(
         SystemTag(
             DatasetId("ten-matrix"),
-            "r",
+            GAUSSIAN,
             MatrixId(index),
             0,
             SystemId(f"ten-{index}"),

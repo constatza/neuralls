@@ -19,6 +19,7 @@ from neuralls.domain.solver.models.benchmark_events import (
     UnknownPeakMemory,
 )
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
+from tests.recipe_support import GAUSSIAN, SINE
 
 
 @pytest.fixture
@@ -92,7 +93,7 @@ def solve_attempt(
         setup_event_id=setup_event_id,
         system_id=system_id,
         dataset=dataset_id,
-        recipe="sinusoidal ω=6.28",
+        recipe=SINE,
         matrix_id=matrix_id,
         rhs_ordinal=0,
         method=method,
@@ -140,7 +141,7 @@ def test_solve_attempt_retains_the_complete_raw_payload(solve_attempt: SolveAtte
     assert solve_attempt.setup_event_id == SetupEventId("amg:ds:7")
     assert solve_attempt.system_id == SystemId("ds-7-0")
     assert solve_attempt.dataset == DatasetId("ds")
-    assert solve_attempt.recipe == "sinusoidal ω=6.28"
+    assert solve_attempt.recipe == SINE
     assert solve_attempt.matrix_id == MatrixId(7)
     assert solve_attempt.rhs_ordinal == 0
     assert solve_attempt.method == PreconditionerName("amg")
@@ -216,7 +217,7 @@ def test_events_are_frozen_and_slotted(request: pytest.FixtureRequest, event_fix
             {
                 "system_id": SystemId("ds-7-0"),
                 "dataset": DatasetId("ds"),
-                "recipe": "gauss",
+                "recipe": GAUSSIAN,
                 "matrix_id": MatrixId(7),
                 "rhs_ordinal": 0,
                 "method": PreconditionerName("amg"),
@@ -232,7 +233,7 @@ def test_events_are_frozen_and_slotted(request: pytest.FixtureRequest, event_fix
                 "setup_event_id": SetupEventId("amg:ds:7"),
                 "system_id": SystemId("ds-7-0"),
                 "dataset": DatasetId("ds"),
-                "recipe": "gauss",
+                "recipe": GAUSSIAN,
                 "matrix_id": MatrixId(7),
                 "rhs_ordinal": 0,
                 "method": PreconditionerName("amg"),
@@ -247,7 +248,7 @@ def test_events_are_frozen_and_slotted(request: pytest.FixtureRequest, event_fix
                 "setup_event_id": SetupEventId("amg:ds:7"),
                 "system_id": SystemId("ds-7-0"),
                 "dataset": DatasetId("ds"),
-                "recipe": "gauss",
+                "recipe": GAUSSIAN,
                 "matrix_id": MatrixId(7),
                 "rhs_ordinal": 0,
                 "method": PreconditionerName("amg"),
@@ -262,7 +263,7 @@ def test_events_are_frozen_and_slotted(request: pytest.FixtureRequest, event_fix
                 "setup_event_id": SetupEventId("amg:ds:7"),
                 "system_id": SystemId("ds-7-0"),
                 "dataset": DatasetId("ds"),
-                "recipe": "gauss",
+                "recipe": GAUSSIAN,
                 "matrix_id": MatrixId(7),
                 "rhs_ordinal": 0,
                 "method": PreconditionerName("amg"),
@@ -307,7 +308,7 @@ def test_setup_outcomes_are_disjoint() -> None:
         lambda: SolveFailed(iterations=-1, reason="iteration limit"),
         lambda: SystemTag(
             dataset=DatasetId("ds"),
-            recipe="gauss",
+            recipe=GAUSSIAN,
             matrix_id=MatrixId(7),
             rhs_ordinal=-1,
             system_id=SystemId("ds-7-0"),

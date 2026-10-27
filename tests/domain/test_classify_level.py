@@ -27,6 +27,7 @@ from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, MediumL
 from neuralls.domain.solver.models.outcomes import Failed, Solved
 from neuralls.domain.solver.reporting.classification import classify_level
 from neuralls.domain.solver.reporting.report_levels import FineLevel, GlobalLevel, MediumLevel
+from neuralls.shared.rhs_recipe import RhsRecipe, recipe_key
 from neuralls.shared.types import (
     DatasetId,
     GroupId,
@@ -35,6 +36,7 @@ from neuralls.shared.types import (
     SetupEventId,
     SystemId,
 )
+from tests.recipe_support import ALPHA, BETA, GAUSSIAN, SINE
 
 
 @pytest.fixture
@@ -42,13 +44,15 @@ def method() -> PreconditionerName:
     return PreconditionerName("jacobi")
 
 
-def _tag(ordinal: int, *, recipe: str = "gauss", matrix: int = 0, dataset: str = "ds") -> SystemTag:
+def _tag(
+    ordinal: int, *, recipe: RhsRecipe = GAUSSIAN, matrix: int = 0, dataset: str = "ds"
+) -> SystemTag:
     return SystemTag(
         dataset=DatasetId(dataset),
         recipe=recipe,
         matrix_id=MatrixId(matrix),
         rhs_ordinal=ordinal,
-        system_id=SystemId(f"{dataset}-{recipe}-{matrix}-{ordinal}"),
+        system_id=SystemId(f"{dataset}-{recipe_key(recipe)}-{matrix}-{ordinal}"),
     )
 
 
@@ -103,7 +107,7 @@ def test_counts_planned_attempted_converged_and_matrices_independently(method) -
     summary = outcome.convergence[method]
     assert (summary.n_planned_rhs, summary.n_attempted_rhs, summary.n_converged) == (3, 2, 1)
     assert outcome.group_id == GroupId("global")
-    assert outcome.label == GlobalLabel(("gauss",))
+    assert outcome.label == GlobalLabel((GAUSSIAN,))
 
 
 def test_system_cost_rows_become_explicit_solved_and_failed_outcomes(method) -> None:
@@ -137,7 +141,7 @@ def test_setup_failure_is_reported_as_zero_attempts_not_zero_planned(method) -> 
 
 
 def test_fine_summary_allocates_setup_using_complete_matrix_membership(method) -> None:
-    tags = (_tag(0, recipe="gauss"), _tag(1, recipe="sine"))
+    tags = (_tag(0, recipe=GAUSSIAN), _tag(1, recipe=SINE))
     setup = _setup(method)
     attempts = tuple(_attempt(tag, method) for tag in tags)
 
@@ -182,7 +186,7 @@ def test_interrupted_method_is_retained_in_a_group_without_its_setup(method) -> 
     """The workload plan, rather than observed setup events, defines method population."""
     reference = PreconditionerName("reference")
     candidate = PreconditionerName("candidate")
-    tags = (_tag(0, recipe="a", matrix=0), _tag(0, recipe="b", matrix=1))
+    tags = (_tag(0, recipe=ALPHA, matrix=0), _tag(0, recipe=BETA, matrix=1))
     setups = (_setup(reference, 0), _setup(reference, 1), _setup(candidate, 0))
     attempts = (
         _attempt(tags[0], reference),
@@ -202,13 +206,13 @@ def test_interrupted_method_is_retained_in_a_group_without_its_setup(method) -> 
     by_recipe = {
         report.label.recipe: report for report in reports if isinstance(report, RecipeProfileReport)
     }
-    interrupted = by_recipe["b"]
+    interrupted = by_recipe[BETA]
     assert interrupted.convergence[candidate].n_attempted_rhs == 0
     assert interrupted.comparisons[candidate].paired.n_reference_only == 1
 
 
 def test_fine_and_medium_labels_preserve_recipe_membership(method) -> None:
-    tags = (_tag(0), _tag(0, recipe="sine"), _tag(0, dataset="other"))
+    tags = (_tag(0), _tag(0, recipe=SINE), _tag(0, dataset="other"))
     setups = (
         _setup(method),
         replace(
@@ -233,26 +237,26 @@ def test_fine_and_medium_labels_preserve_recipe_membership(method) -> None:
     medium = classify_level(tags, setups, attempts, MediumLevel())
 
     assert [group.label for group in fine] == [
-        FineLabel(DatasetId("ds"), "gauss"),
-        FineLabel(DatasetId("ds"), "sine"),
-        FineLabel(DatasetId("other"), "gauss"),
+        FineLabel(DatasetId("ds"), GAUSSIAN),
+        FineLabel(DatasetId("ds"), SINE),
+        FineLabel(DatasetId("other"), GAUSSIAN),
     ]
     assert [group.label for group in medium] == [
-        MediumLabel(DatasetId("ds"), ("gauss", "sine")),
-        MediumLabel(DatasetId("other"), ("gauss",)),
+        MediumLabel(DatasetId("ds"), (GAUSSIAN, SINE)),
+        MediumLabel(DatasetId("other"), (GAUSSIAN,)),
     ]
     assert all(isinstance(group, RecipeProfileReport) for group in fine)
     assert [
         group.recipe_membership for group in fine if isinstance(group, RecipeProfileReport)
     ] == [
-        ("gauss",),
-        ("sine",),
-        ("gauss",),
+        (GAUSSIAN,),
+        (SINE,),
+        (GAUSSIAN,),
     ]
     assert all(isinstance(group, WorkloadMixtureReport) for group in medium)
     assert [
         group.recipe_membership for group in medium if isinstance(group, WorkloadMixtureReport)
-    ] == [("gauss", "sine"), ("gauss",)]
+    ] == [(GAUSSIAN, SINE), (GAUSSIAN,)]
 
     global_report = classify_level(tags, setups, attempts, GlobalLevel())[0]
     assert isinstance(global_report, WorkloadMixtureReport)

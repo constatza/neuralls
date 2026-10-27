@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from abc import abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -105,10 +104,6 @@ class NoMask(BaseModel):
     def seeded(self) -> bool:
         return False
 
-    @property
-    def label_suffix(self) -> str:
-        return ""
-
 
 class RandomMask(BaseModel):
     """Zero all but a random subset of the RHS entries.
@@ -125,10 +120,6 @@ class RandomMask(BaseModel):
     @property
     def seeded(self) -> bool:
         return True
-
-    @property
-    def label_suffix(self) -> str:
-        return f" · mask ρ={self.density:g}"
 
 
 type RhsMask = Annotated[NoMask | RandomMask, Field(discriminator="kind")]
@@ -158,16 +149,6 @@ class RhsSourceModelBase(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     @property
-    @abstractmethod
-    def base_label(self) -> str:
-        """Short, stable, human-readable label of the kind and the parameters that make problems differ."""
-
-    @property
-    def recipe_label(self) -> str:
-        """`base_label` plus the mask, so masked and unmasked runs of one kind are separate recipes."""
-        return self.base_label + self.mask.label_suffix
-
-    @property
     def needs_own_seed(self) -> bool:
         """Whether each of the ``rhs_count`` draws needs its own derived seed.
 
@@ -188,12 +169,6 @@ class GaussianRhsSourceModel(RhsSourceModelBase):
     mean: float = 0.0
     std: float = Field(default=1.0, gt=0.0)
 
-    @property
-    def base_label(self) -> str:
-        if (self.mean, self.std) == (0.0, 1.0):
-            return ComparisonRhsSourceKind.GAUSSIAN.value
-        return f"{ComparisonRhsSourceKind.GAUSSIAN}[μ={self.mean:g}, σ={self.std:g}]"
-
 
 class SinusoidalRhsSourceModel(RhsSourceModelBase):
     """Direct sinusoidal RHS source for comparison workflows: sin(omega/n * i + phi).
@@ -210,10 +185,6 @@ class SinusoidalRhsSourceModel(RhsSourceModelBase):
 
     kind: Literal["sinusoidal"] = "sinusoidal"
     omega: float = Field(gt=0.0)
-
-    @property
-    def base_label(self) -> str:
-        return f"{ComparisonRhsSourceKind.SINUSOIDAL} ω={self.omega:.6g}"
 
 
 def _parse_row_kind(value: object) -> RowKind | None:
@@ -262,19 +233,11 @@ class RawLhsSourceModel(RawVectorSourceBase):
 
     kind: Literal["raw_lhs"] = "raw_lhs"
 
-    @property
-    def base_label(self) -> str:
-        return ComparisonRhsSourceKind.RAW_LHS.value
-
 
 class RawRhsSourceModel(RawVectorSourceBase):
     """Load a raw vector that is already an RHS."""
 
     kind: Literal["raw_rhs"] = "raw_rhs"
-
-    @property
-    def base_label(self) -> str:
-        return ComparisonRhsSourceKind.RAW_RHS.value
 
 
 class DatasetRhsSourceModel(RhsSourceModelBase):
@@ -289,10 +252,6 @@ class DatasetRhsSourceModel(RhsSourceModelBase):
     single_draw: ClassVar[bool] = False
 
     kind: Literal["dataset"] = "dataset"
-
-    @property
-    def base_label(self) -> str:
-        return ComparisonRhsSourceKind.DATASET.value
 
 
 type ComparisonRhsSourceModel = Annotated[

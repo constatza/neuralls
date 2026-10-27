@@ -41,6 +41,7 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, SystemId
 from tests.presentation_support import PreparedMethodFactory
+from tests.recipe_support import GAUSSIAN
 
 
 @pytest.fixture
@@ -56,7 +57,7 @@ def solver_params() -> SolverParams:
 
 @pytest.fixture
 def one_system_bundle(tmp_path: Path) -> MatrixWorkload:
-    tag = SystemTag(DatasetId("ds"), "gaussian", MatrixId(1), 0, SystemId("ds-1-0"))
+    tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(1), 0, SystemId("ds-1-0"))
     return MatrixWorkload(
         dataset=DatasetId("ds"),
         matrix_id=MatrixId(1),
@@ -75,7 +76,7 @@ def two_matrix_bundles(tmp_path: Path) -> tuple[MatrixWorkload, MatrixWorkload]:
             MatrixWorkloadMember(
                 tag=SystemTag(
                     DatasetId("ds"),
-                    "gaussian",
+                    GAUSSIAN,
                     MatrixId(matrix_id),
                     ordinal,
                     SystemId(f"ds-{matrix_id}-{ordinal}"),

@@ -19,6 +19,7 @@ from neuralls.domain.benchmarking.selection import (
 from neuralls.domain.solver.models.figure_scope import FigureScope, render_figure_scope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.platform.storage.facts_codec import encode_figure_scope
+from neuralls.shared.rhs_recipe import RhsRecipe, recipe_key
 from neuralls.shared.scientific_description.policy import (
     NotationPolicy,
     RenderProfile,
@@ -67,7 +68,7 @@ class FigureMetadata:
     report_level: str
     scope: FigureScope
     dataset_ids: tuple[str, ...]
-    recipes: tuple[str, ...]
+    recipes: tuple[RhsRecipe, ...]
     n_matrices: int
     n_planned_rhs: int
     reference_selection: ReferenceSelection | ReferenceSelectionKind
@@ -158,7 +159,7 @@ class FigureManifest:
                     "display": render_figure_scope(metadata.scope, MANIFEST_PROFILE, plain).text,
                 },
                 "dataset_ids": list(metadata.dataset_ids),
-                "recipes": list(metadata.recipes),
+                "recipes": [recipe_key(recipe) for recipe in metadata.recipes],
                 "n_matrices": metadata.n_matrices,
                 "n_planned_rhs": metadata.n_planned_rhs,
                 "reference_selection": reference_name,

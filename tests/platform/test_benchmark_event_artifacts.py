@@ -8,6 +8,7 @@ import polars as pl
 import pyarrow.parquet as pq
 import pytest
 from tests.presentation_support import PreparedMethodFactory
+from tests.recipe_support import GAUSSIAN
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload
 from neuralls.domain.presentation.methods import ExecutedMethod
@@ -30,6 +31,7 @@ from neuralls.platform.reporting.benchmark_events import (
     read_solve_attempts,
     write_method_benchmark_artifacts,
 )
+from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.types import (
     CostProvenance,
     DatasetId,
@@ -50,8 +52,8 @@ def _rewrite_frame(path: Path, frame: pl.DataFrame) -> None:
 def workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
     method = PreconditionerName("jacobi")
     planned = (
-        SystemTag(DatasetId("dataset"), "gaussian", MatrixId(0), 0, SystemId("s0")),
-        SystemTag(DatasetId("dataset"), "gaussian", MatrixId(0), 1, SystemId("s1")),
+        SystemTag(DatasetId("dataset"), GAUSSIAN, MatrixId(0), 0, SystemId("s0")),
+        SystemTag(DatasetId("dataset"), GAUSSIAN, MatrixId(0), 1, SystemId("s1")),
     )
     setup = (
         MatrixSetupEvent(
@@ -70,7 +72,7 @@ def workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
             SetupEventId("setup-0"),
             SystemId("s0"),
             DatasetId("dataset"),
-            "gaussian",
+            GAUSSIAN,
             MatrixId(0),
             0,
             method,
@@ -83,7 +85,7 @@ def workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
             SetupEventId("setup-0"),
             SystemId("s1"),
             DatasetId("dataset"),
-            "gaussian",
+            GAUSSIAN,
             MatrixId(0),
             1,
             method,
@@ -185,7 +187,7 @@ def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_vari
             "setup_event_id": "setup-0",
             "system_id": "s0",
             "dataset": "dataset",
-            "recipe": "gaussian",
+            "recipe": recipe_key(GAUSSIAN),
             "matrix_id": 0,
             "rhs_ordinal": 0,
             "method": "jacobi",
@@ -202,7 +204,7 @@ def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_vari
             "setup_event_id": "setup-0",
             "system_id": "s1",
             "dataset": "dataset",
-            "recipe": "gaussian",
+            "recipe": recipe_key(GAUSSIAN),
             "matrix_id": 0,
             "rhs_ordinal": 1,
             "method": "jacobi",
@@ -346,7 +348,7 @@ def test_reader_rejects_same_id_identity_mismatch_and_failed_setup(
 def test_failed_setup_outcome_round_trips_without_inventing_attempts(
     tmp_path: Path, workload: CompletedMethodWorkload
 ) -> None:
-    failed_tag = SystemTag(DatasetId("dataset"), "gaussian", MatrixId(1), 0, SystemId("s2"))
+    failed_tag = SystemTag(DatasetId("dataset"), GAUSSIAN, MatrixId(1), 0, SystemId("s2"))
     failed_setup = MatrixSetupEvent(
         SetupEventId("setup-1"),
         DatasetId("dataset"),
@@ -401,7 +403,7 @@ def test_failed_setup_outcome_round_trips_without_inventing_attempts(
 def test_incomplete_summary_preserves_planned_membership_and_missing_ids(
     tmp_path: Path, workload: CompletedMethodWorkload
 ) -> None:
-    failed_tag = SystemTag(DatasetId("dataset"), "gaussian", MatrixId(1), 0, SystemId("s2"))
+    failed_tag = SystemTag(DatasetId("dataset"), GAUSSIAN, MatrixId(1), 0, SystemId("s2"))
     failed_setup = MatrixSetupEvent(
         SetupEventId("setup-1"),
         DatasetId("dataset"),

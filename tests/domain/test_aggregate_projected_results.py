@@ -25,10 +25,11 @@ from neuralls.shared.types import (
     SetupEventId,
     SystemId,
 )
+from tests.recipe_support import GAUSSIAN
 
 
 def _tag(ordinal: int) -> SystemTag:
-    return SystemTag(DatasetId("ds"), "gauss", MatrixId(7), ordinal, SystemId(f"ds-7-{ordinal}"))
+    return SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(7), ordinal, SystemId(f"ds-7-{ordinal}"))
 
 
 def _setup(method: PreconditionerName) -> MatrixSetupEvent:
@@ -67,7 +68,7 @@ def test_outcomes_use_system_cost_frame_allocation() -> None:
 
     result = outcomes_by_system(planned, (_setup(method),), attempts, GlobalLevel())
 
-    assert result[GlobalLabel(("gauss",))][method] == {
+    assert result[GlobalLabel((GAUSSIAN,))][method] == {
         planned[0].system_id: Solved(
             MatrixId(7), 2, solve_s=1.0, amortized_online_s=3.0, dataset="ds"
         ),
@@ -89,7 +90,7 @@ def test_failure_time_remains_raw_but_is_censored_from_outcomes() -> None:
     )
 
     result = outcomes_by_system(planned, (_setup(method),), (failed,), GlobalLevel())
-    outcome = result[GlobalLabel(("gauss",))][method][planned[0].system_id]
+    outcome = result[GlobalLabel((GAUSSIAN,))][method][planned[0].system_id]
 
     assert failed.solve_s == 9.0
     assert outcome == Failed(MatrixId(7), 100, "iteration limit")
@@ -109,7 +110,7 @@ def test_convergence_summary_separates_counts_and_converged_iterations() -> None
     )
 
     result = convergence_by_level(planned, (_setup(method),), attempts, GlobalLevel())
-    summary = result[GlobalLabel(("gauss",))][method]
+    summary = result[GlobalLabel((GAUSSIAN,))][method]
 
     assert (summary.n_planned_rhs, summary.n_attempted_rhs, summary.n_converged) == (4, 3, 2)
     assert summary.iterations == IterationStats(mean=2.5, median=2.5, std=2**-0.5)
