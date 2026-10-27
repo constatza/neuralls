@@ -53,12 +53,19 @@ class SinkScope:
 
     roots: tuple[str, ...]
     allowed: tuple[Allowed, ...]
+    rules: frozenset[str] | None = None
+    """The rules this sink enforces; ``None`` means all of them.
+
+    The path and class-name rules guard text drawn on figures. A tracking sink handles
+    artifact locations, where a path is the data, so it enforces only the rules about names.
+    """
 
 
 LABEL_FALLBACK = "label-fallback"
 PATH_AS_NAME = "path-as-name"
 CLASS_NAME = "class-name"
 ID_INTERPOLATION = "id-interpolation"
+RUN_NAME_TEXT = "run-name-text"
 
 _HUMAN_CALLS = frozenset(
     {
@@ -76,6 +83,36 @@ _PATHLIKE = re.compile(r"(^|_)(path|dir|file|root)$")
 _IDENTIFIER = re.compile(r"^(?!n_)(.*_)?(method|dataset|assignment|system|name)s?$|_id$")
 
 SCOPES: dict[str, SinkScope] = {
+    "mlflow-tracking": SinkScope(
+        roots=(
+            "platform/tracking",
+            "composition/tracking",
+            "composition/assignments",
+        ),
+        rules=frozenset({RUN_NAME_TEXT, LABEL_FALLBACK}),
+        allowed=(
+            Allowed(
+                RUN_NAME_TEXT,
+                "platform/tracking/mlflow.py",
+                "start_run_if_needed",
+                "the low-level starter receives text that open_run already rendered "
+                "from a typed run name",
+            ),
+            Allowed(
+                RUN_NAME_TEXT,
+                "composition/assignments/model_resolution.py",
+                "search_logged_models",
+                "the run name is a lookup filter for an existing run, supplied by the "
+                "user's checkpoint reference, not a name given to a new run",
+            ),
+            Allowed(
+                RUN_NAME_TEXT,
+                "composition/assignments/model_resolution.py",
+                "_resolve_logged_ref",
+                "forwards the user's configured run-name lookup filter; it names no new run",
+            ),
+        ),
+    ),
     "reporting-and-plots": SinkScope(
         roots=(
             "platform/reporting",
@@ -239,6 +276,33 @@ def _is_id_interpolation(call: ast.Call) -> bool:
     return any(isinstance(c, ast.JoinedStr) and _interpolates_identifier(c) for c in candidates)
 
 
+def _is_rendered_run_name(value: ast.AST) -> bool:
+    """Whether ``value`` is the tracking adapter's render of a typed run name."""
+    return (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Name)
+        and value.func.id == "run_name_text"
+    )
+
+
+def _is_unrendered_run_name(node: ast.AST) -> bool:
+    """A run opened under a name that is not ``run_name_text(<typed run>)``.
+
+    Covers a ``run_name=`` keyword and the ``"mlflow.runName"`` tag, the two ways a name
+    reaches MLflow, so a string assembled from an id cannot name a run.
+    """
+    if isinstance(node, ast.keyword):
+        return node.arg == "run_name" and not _is_rendered_run_name(node.value)
+    if isinstance(node, ast.Dict):
+        return any(
+            isinstance(key, ast.Constant)
+            and key.value == "mlflow.runName"
+            and not _is_rendered_run_name(value)
+            for key, value in zip(node.keys, node.values, strict=True)
+        )
+    return False
+
+
 def violations_in(source: str, path: str) -> list[Violation]:
     """Every rule match in ``source``, located by the function that contains it."""
     found: list[Violation] = []
@@ -252,8 +316,14 @@ def violations_in(source: str, path: str) -> list[Violation]:
             rules.append(CLASS_NAME)
         if isinstance(node, ast.Call) and _is_id_interpolation(node):
             rules.append(ID_INTERPOLATION)
+        if _is_unrendered_run_name(node):
+            rules.append(RUN_NAME_TEXT)
         found += [Violation(rule, path, function, getattr(node, "lineno", 0)) for rule in rules]
     return found
+
+
+def _enforced(scope: SinkScope, violation: Violation) -> bool:
+    return scope.rules is None or violation.rule in scope.rules
 
 
 def scope_violations(scope: SinkScope) -> list[Violation]:
@@ -266,7 +336,8 @@ def scope_violations(scope: SinkScope) -> list[Violation]:
             found += [
                 violation
                 for violation in violations_in(file.read_text(encoding="utf-8"), relative)
-                if (violation.rule, violation.path, violation.function) not in allowed
+                if _enforced(scope, violation)
+                and (violation.rule, violation.path, violation.function) not in allowed
             ]
     return found
 
@@ -280,6 +351,7 @@ def stale_allowances(scope: SinkScope) -> list[Allowed]:
             present |= {
                 (v.rule, v.path, v.function)
                 for v in violations_in(file.read_text(encoding="utf-8"), relative)
+                if _enforced(scope, v)
             }
     return [a for a in scope.allowed if (a.rule, a.path, a.function) not in present]
 
@@ -311,6 +383,12 @@ def test_every_allowance_states_its_reason(name: str) -> None:
         ("def f(x):\n    return x.__class__.__name__\n", CLASS_NAME),
         ('def f(ax, method_id):\n    ax.set_title(f"{method_id} results")\n', ID_INTERPOLATION),
         ('def f(ax, dataset):\n    ax.plot(label=f"{dataset} run")\n', ID_INTERPOLATION),
+        ("def f(mlflow, run_name):\n    mlflow.start_run(run_name=run_name)\n", RUN_NAME_TEXT),
+        (
+            'def f(mlflow, entry):\n    mlflow.start_run(run_name=f"{entry.id} | now")\n',
+            RUN_NAME_TEXT,
+        ),
+        ('def f(run_name):\n    return {"mlflow.runName": run_name}\n', RUN_NAME_TEXT),
     ],
 )
 def test_the_checker_detects_each_rule(source: str, rule: str) -> None:
@@ -326,6 +404,8 @@ def test_the_checker_detects_each_rule(source: str, rule: str) -> None:
         "def f(ax, legend, name):\n    ax.set_title(f'{legend.label(name)} runs')\n",
         "def f(ax, n):\n    ax.set_title(f'N={n}')\n",
         "def f(d):\n    return d.name\n",
+        "def f(mlflow, run):\n    mlflow.start_run(run_name=run_name_text(run))\n",
+        'def f(run):\n    return {"mlflow.runName": run_name_text(run)}\n',
     ],
 )
 def test_the_checker_accepts_typed_lookups_and_numeric_text(source: str) -> None:
