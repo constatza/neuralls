@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from neuralls.composition.generation._context_builder import _build_context
+from neuralls.composition.generation.processing import process_config
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.config.models.data_models import (
     DataConfigFile,
@@ -138,3 +139,26 @@ def test_a_config_without_a_problem_cannot_start_generation(tmp_path: Path) -> N
     """Kills: warning and writing a dataset that can never be described."""
     with pytest.raises(ValueError, match=r"Dataset config 'ds' has no '\[source\] problem'"):
         _build_context(config=_config(None, tmp_path))
+
+
+def test_aliases_of_one_strategy_in_a_config_merge_into_one_recorded_strategy(
+    data_config: DataConfigFile,
+) -> None:
+    """Config parsing merges alias spellings before any write, so provenance never sees two."""
+    aliased = data_config.model_copy(
+        update={
+            "generation": data_config.generation.model_copy(
+                update={
+                    "strategy": [
+                        StrategyConfig(name="neutral_ones", samples=1),
+                        StrategyConfig(name="neutral-ones", samples=2),
+                    ]
+                }
+            )
+        }
+    )
+
+    dataset_dir = process_config(aliased)
+
+    strategies = load_dataset_presentation(dataset_dir).generation.strategies
+    assert [(s.kind, s.rows) for s in strategies] == [(GenerationStrategyKind.NEUTRAL_ONES, 3)]
