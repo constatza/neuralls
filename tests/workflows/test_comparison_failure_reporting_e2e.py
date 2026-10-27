@@ -68,8 +68,8 @@ def _write_case(
 
 
 @pytest.mark.integration
-@pytest.mark.real_render
 @pytest.mark.usefixtures("stub_input_gate")
+@pytest.mark.figure_placeholders
 def test_failed_report_finalization_is_retried_on_the_next_call(
     tmp_path: Path,
     mlflow_tracking_uri: str,
@@ -192,6 +192,7 @@ def test_blocking_matrix_load_failure_marks_child_and_parent_with_exact_diagnost
 
 @pytest.mark.integration
 @pytest.mark.usefixtures("stub_input_gate")
+@pytest.mark.figure_placeholders
 def test_recoverable_setup_failure_warns_persists_and_allows_later_method(
     tmp_path: Path,
     mlflow_tracking_uri: str,

@@ -33,58 +33,6 @@ DEFAULT_LINE_MARKER_SIZE = 2.0
 DEFAULT_SCATTER_MARKER_AREA = 4.0
 
 
-def plot_residual_history(
-    results: dict[str, dict[str, Any]],
-    save_path: str | Path | None = None,
-    show: bool = False,
-    marker_size: float = DEFAULT_LINE_MARKER_SIZE,
-) -> None:
-    """Plot residual history for different methods.
-
-    Args:
-        results: Dictionary of method results with 'residuals' key
-        save_path: Path to save plot
-        show: Whether to show plot
-        marker_size: Marker diameter for residual-history points
-    """
-    fig, ax = plt.subplots(figsize=(10, 6))
-
-    for method_name, result in results.items():
-        # Handle both dict and dataclass results
-        residuals = None
-        if hasattr(result, "residual_history_rel"):
-            # getattr, not direct access: result's declared type doesn't
-            # include this attribute (only some dataclass variants have it,
-            # guarded dynamically by hasattr) — direct access defeats ty's
-            # hasattr-narrowing and produces a spurious type error.
-            residuals = getattr(result, "residual_history_rel")  # noqa: B009
-        elif isinstance(result, dict):
-            residuals = result.get("residual_history_rel") or result.get("residuals")
-        else:
-            residuals = None
-
-        if residuals:
-            iterations = range(len(residuals))
-            ax.semilogy(iterations, residuals, "o-", label=method_name, markersize=marker_size)
-
-    ax.set_xlabel("Iteration")
-    ax.set_ylabel("Relative Residual $\\|r\\| / \\|b\\|$")
-    ax.set_title("Convergence History (Relative)")
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc="upper left")
-
-    if save_path is not None:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=200)
-        print(f"Saved residual history plot to: {save_path}")
-
-    if show:
-        plt.show()
-    else:
-        plt.close(fig)
-
-
 def _meta_value(meta: Any, key: str) -> Any:
     """Extract a value from metadata by key, supporting both dicts and objects.
 
@@ -441,29 +389,6 @@ def plot_error_convergence_comparison(
     )
 
 
-def plot_error_bound_comparison(
-    results: Mapping[str, CGComparisonResult | Mapping[str, Any]],
-    **kwargs: Any,
-) -> None:
-    """Plot the Golub-Meurant lower bound on ``||e_k||_A / ||e_0||_A`` per preconditioner.
-
-    Thin wrapper over ``plot_convergence_comparison`` reading
-    ``error_bound_a_rel`` — the fallback energy-error signal used when the exact
-    value (``error_history_a_rel``) is unavailable (no reference solution);
-    accepts the same keyword arguments.
-
-    Args:
-        results (Mapping[str, CGComparisonResult | Mapping[str, Any]]): Results by method name.
-        **kwargs (Any): Forwarded to ``plot_convergence_comparison``.
-    """
-    plot_convergence_comparison(
-        results,
-        history_attr="error_bound_a_rel",
-        ylabel="Energy-error lower bound $\\|e_k\\|_A / \\|e_0\\|_A$ (Golub–Meurant)",
-        **kwargs,
-    )
-
-
 def plot_work_precision(
     results: Mapping[str, CGComparisonResult],
     *,
@@ -758,84 +683,6 @@ def plot_error_vs_time(
         save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=200, bbox_inches="tight")
         logger.info(f"Saved error vs time plot to: {save_path}")
-
-    if show:
-        plt.show()
-    else:
-        plt.close(fig)
-
-
-def _extract_iterations(result: Mapping[str, int]) -> int:
-    """Read `iterations` off one noise-robustness result entry.
-
-    Args:
-        result: One method's result at one noise level.
-
-    Returns:
-        The result's iteration count, or 0 if absent.
-    """
-    return result.get("iterations", 0)
-
-
-def plot_noise_robustness(
-    noise_results: Mapping[str, Mapping[str, Mapping[str, int]]],
-    save_path: str | Path | None = None,
-    show: bool = False,
-    marker_size: float = DEFAULT_LINE_MARKER_SIZE,
-) -> None:
-    """Plot noise robustness analysis results.
-
-    Args:
-        noise_results: Nested mapping: noise_level -> method -> result, each
-            result at minimum carrying an ``"iterations"`` count.
-        save_path: Optional path to save the plot
-        show: Whether to show plot
-        marker_size: Marker diameter for noise-series points
-    """
-    sorted_levels = sorted(noise_results.items(), key=lambda item: float(item[0]))
-    methods: set[str] = set()
-    for level_results in noise_results.values():
-        methods.update(level_results.keys())
-    method_names = sorted(methods)
-
-    # Use matplotlib Set1 colormap for consistent colors
-    colormap = matplotlib.colormaps["Set1"]
-    colors = colormap(np.linspace(0, 1, max(len(method_names), 3)))
-    method_colors = {method: colors[i % len(colors)] for i, method in enumerate(method_names)}
-
-    fig = plt.figure(figsize=(12, 8))
-
-    for method in method_names:
-        iterations = []
-        levels_numeric = []
-
-        for level, level_results in sorted_levels:
-            if method not in level_results:
-                continue
-            iterations.append(_extract_iterations(level_results[method]))
-            levels_numeric.append(float(level))
-
-        if iterations:
-            plt.plot(
-                levels_numeric,
-                iterations,
-                "o-",
-                label=method,
-                color=method_colors[method],
-                linewidth=2,
-                markersize=marker_size,
-            )
-
-    plt.xlabel("Noise Level (%)")
-    plt.ylabel("CG Iterations to Convergence")
-    plt.title("Noise Robustness Analysis")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-
-    if save_path is not None:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        plt.savefig(save_path, dpi=200, bbox_inches="tight")
 
     if show:
         plt.show()

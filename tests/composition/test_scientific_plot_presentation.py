@@ -5,12 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import patch
 
-import matplotlib.pyplot as plt
-import numpy as np
 import pytest
-from matplotlib.figure import Figure
 
 from neuralls.composition.assignments.presentation_preflight import prepare_comparison_presentation
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
@@ -27,7 +23,6 @@ from neuralls.domain.presentation.render import (
     render_distinct_methods,
 )
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
-from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.platform.config.models.preconditioner import (
     AdaptiveSAPreconditionerConfig,
     AggregationCoarseningConfig,
@@ -39,13 +34,11 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
 )
 from neuralls.platform.reporting.figure_text import (
-    EditorialTitle,
     Legend,
     LegendPlacement,
     method_legend,
     wrap_at_boundaries,
 )
-from neuralls.platform.reporting.plots import plot_convergence_comparison
 from neuralls.shared.scientific_description.catalog import DROP_TOLERANCE, make_fact
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import (
@@ -107,44 +100,13 @@ def acceptance_cohort(
     )
 
 
-def _result(name: str) -> CGComparisonResult:
-    return CGComparisonResult(
-        x=np.zeros(2),
-        converged=True,
-        iterations=3,
-        residual=1e-9,
-        residual_abs=1e-9,
-        residual_history_rel=[1.0, 0.1, 1e-9],
-        residual_history_abs=[1.0, 0.1, 1e-9],
-        preconditioner=name,
-        initial_guess=np.zeros(2),
-        exact_error=None,
-        rhs_norm=1.0,
-        breakdown=False,
-        setup_cost=1.0,
-        solve_time_seconds=0.5,
-    )
-
-
 def _legend_of_cohort(cohort: PreparedComparisonPresentation, policy: NotationPolicy) -> Legend:
     return method_legend({m.method_id: m.compact for m in cohort.methods}, policy)
 
 
-def _draw(cohort: PreparedComparisonPresentation, policy: NotationPolicy) -> Figure:
-    results = {m.method_id: _result(m.method_id) for m in cohort.methods}
-    with patch("neuralls.platform.reporting.plots.plt.close"):
-        plot_convergence_comparison(
-            results,
-            legend=_legend_of_cohort(cohort, policy),
-            title=EditorialTitle("Acceptance"),
-        )
-    return plt.gcf()
-
-
-def _legend_texts(figure: Figure) -> list[str]:
-    legend = figure.axes[0].get_legend()
-    assert legend is not None
-    return [text.get_text() for text in legend.get_texts()]
+def _legend_texts(cohort: PreparedComparisonPresentation, policy: NotationPolicy) -> list[str]:
+    legend = _legend_of_cohort(cohort, policy)
+    return [legend.label(m.method_id) for m in cohort.methods]
 
 
 STANDALONE_LEGEND = [
@@ -182,9 +144,7 @@ MATHTEXT_LEGEND = [
 def test_acceptance_legend_shows_symbols_and_numbers_and_no_ids(
     acceptance_cohort: PreparedComparisonPresentation,
 ) -> None:
-    figure = _draw(acceptance_cohort, MATHTEXT)
-    texts = _legend_texts(figure)
-    plt.close(figure)
+    texts = _legend_texts(acceptance_cohort, MATHTEXT)
 
     assert len(acceptance_cohort.methods) == 12
     assert texts == MATHTEXT_LEGEND
@@ -193,9 +153,7 @@ def test_acceptance_legend_shows_symbols_and_numbers_and_no_ids(
 def test_each_pod_label_names_its_fit_dataset_exactly_once(
     acceptance_cohort: PreparedComparisonPresentation,
 ) -> None:
-    figure = _draw(acceptance_cohort, PLAIN)
-    texts = _legend_texts(figure)
-    plt.close(figure)
+    texts = _legend_texts(acceptance_cohort, PLAIN)
 
     assert texts[len(STANDALONE_LEGEND) :] == POD_LEGEND
 
@@ -203,9 +161,7 @@ def test_each_pod_label_names_its_fit_dataset_exactly_once(
 def test_adaptive_sa_variants_differ_by_their_facts_without_a_key_suffix(
     acceptance_cohort: PreparedComparisonPresentation,
 ) -> None:
-    figure = _draw(acceptance_cohort, PLAIN)
-    texts = _legend_texts(figure)
-    plt.close(figure)
+    texts = _legend_texts(acceptance_cohort, PLAIN)
 
     assert texts == [*STANDALONE_LEGEND, *POD_LEGEND]
 
@@ -218,11 +174,8 @@ def test_a_method_without_a_presentation_raises_instead_of_using_its_key(
 
     with pytest.raises(MissingMethodPresentationError) as raised:
         legend.label(stray)
-    with pytest.raises(MissingMethodPresentationError):
-        plot_convergence_comparison({stray: _result(stray)}, legend=legend)
 
     assert raised.value.method_id == stray
-    plt.close("all")
 
 
 def _ilut(tolerance: float) -> ConfiguredMethodPresentation:
@@ -294,11 +247,6 @@ def test_a_long_legend_moves_outside_the_axes_and_keeps_every_fact(
         flat = legend.label(method.method_id).replace(",\n", ", ").replace("\n", " ")
         assert flat == facts_of[method.method_id].text
 
-    figure = _draw(acceptance_cohort, MATHTEXT)
-    drawn = _legend_texts(figure)
-    plt.close(figure)
-    assert drawn == [legend.label(m.method_id) for m in acceptance_cohort.methods]
-
 
 def test_a_short_legend_stays_inside(legend_of: Callable[..., Legend]) -> None:
     layout = legend_of("a", "b").layout
@@ -306,29 +254,9 @@ def test_a_short_legend_stays_inside(legend_of: Callable[..., Legend]) -> None:
     assert layout == replace(layout, placement=LegendPlacement.INSIDE, columns=1)
 
 
-@pytest.mark.real_render
-def test_the_acceptance_figure_encodes_a_real_png(
-    acceptance_cohort: PreparedComparisonPresentation, tmp_path: Path
-) -> None:
-    results = {m.method_id: _result(m.method_id) for m in acceptance_cohort.methods}
-    target = tmp_path / "acceptance.png"
-
-    plot_convergence_comparison(
-        results,
-        legend=_legend_of_cohort(acceptance_cohort, MATHTEXT),
-        title=EditorialTitle("Acceptance"),
-        save_path=target,
-    )
-
-    assert target.read_bytes().startswith(b"\x89PNG")
-    assert target.stat().st_size > 10_000
-
-
 def test_a_standalone_method_label_has_no_dataset_separator(
     acceptance_cohort: PreparedComparisonPresentation,
 ) -> None:
-    figure = _draw(acceptance_cohort, PLAIN)
-    texts = _legend_texts(figure)
-    plt.close(figure)
+    texts = _legend_texts(acceptance_cohort, PLAIN)
 
     assert texts[: len(STANDALONE_LEGEND)] == STANDALONE_LEGEND

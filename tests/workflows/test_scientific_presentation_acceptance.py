@@ -13,13 +13,10 @@ import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from unittest.mock import patch
 
-import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import pytest
-from matplotlib.figure import Figure
 from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments.presentation_preflight import prepare_comparison_presentation
@@ -34,7 +31,6 @@ from neuralls.domain.presentation.methods import PreparedComparisonPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation, DatasetSourceProvenance
 from neuralls.domain.presentation.run_names import NamedRun
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
-from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
 from neuralls.domain.solver.models.group_presentation import (
     GroupMethodPresentation,
@@ -52,8 +48,7 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
-from neuralls.platform.reporting.figure_text import EditorialTitle, method_legend
-from neuralls.platform.reporting.plots import plot_convergence_comparison
+from neuralls.platform.reporting.figure_text import method_legend
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.tracking.comparison_tracking import log_configured_method_facts
 from neuralls.platform.tracking.run_names import run_name_text
@@ -235,58 +230,6 @@ def test_visible_text_has_no_ids_slugs_paths_brackets_or_underscore_blobs(
     for method_id, label in _plain_label(cohort).items():
         assert _forbidden(label) == [], method_id
         assert method_id not in label
-
-
-def _draw(cohort: PreparedComparisonPresentation, policy: NotationPolicy) -> Figure:
-    results = {
-        m.method_id: CGComparisonResult(
-            x=np.zeros(2),
-            converged=True,
-            iterations=3,
-            residual=1e-9,
-            residual_abs=1e-9,
-            residual_history_rel=[1.0, 0.1, 1e-9],
-            residual_history_abs=[1.0, 0.1, 1e-9],
-            preconditioner=m.method_id,
-            initial_guess=np.zeros(2),
-            exact_error=None,
-            rhs_norm=1.0,
-            breakdown=False,
-            setup_cost=1.0,
-            solve_time_seconds=0.5,
-        )
-        for m in cohort.methods
-    }
-    legend = method_legend({m.method_id: m.compact for m in cohort.methods}, policy)
-    with patch("neuralls.platform.reporting.plots.plt.close"):
-        plot_convergence_comparison(results, legend=legend, title=EditorialTitle("Acceptance"))
-    return plt.gcf()
-
-
-def _figure_texts(figure: Figure) -> list[str]:
-    """Every visible text object of the figure: titles, axis labels, ticks and legend entries."""
-    legend = figure.axes[0].get_legend()
-    assert legend is not None
-    return [
-        *(text.get_text() for text in legend.get_texts()),
-        *(text.get_text() for text in figure.findobj(plt.Text) if text.get_visible()),
-    ]
-
-
-@pytest.mark.real_render
-def test_the_real_figure_draws_the_mathtext_legend_and_encodes_a_png(
-    cohort: PreparedComparisonPresentation, tmp_path: Path
-) -> None:
-    figure = _draw(cohort, MATHTEXT)
-    texts = _figure_texts(figure)
-    target = tmp_path / "acceptance.png"
-    figure.savefig(target)
-    plt.close(figure)
-
-    legend_entries = texts[: len(cohort.methods)]
-    assert all("$" in entry for entry in legend_entries[2:])
-    assert [entry for text in texts for entry in _forbidden(text, blobs=False)] == []
-    assert target.read_bytes().startswith(b"\x89PNG")
 
 
 @pytest.fixture

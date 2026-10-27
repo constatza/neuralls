@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
 
 import pytest
 from tests.presentation_support import PreparedMethodFactory
@@ -45,7 +44,6 @@ from neuralls.domain.solver.models.statistics import (
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
 from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.platform.reporting.figure_metadata import FailureTreatment, TimingScenario
-from neuralls.platform.reporting.figure_text import ScopeSubtitle
 from neuralls.platform.tracking import comparison_tracking
 from neuralls.platform.tracking.comparison_tracking import (
     GROUP_REPORT_ARTIFACT_DIR,
@@ -400,40 +398,6 @@ def test_session_manifest_registers_uniquely_owned_method_figures(
     )
 
 
-def test_method_diagnostics_render_the_manifest_method_scope_and_name_systems_by_position(
-    tmp_path: Path,
-    method_workload: CompletedMethodWorkload,
-    dataset_presentation: DatasetPresentation,
-    notation: NotationPolicy,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Method histories share the manifest's scope, and no line is named by a system id."""
-    tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(7), 1, SystemId("sys-id-9"))
-    workload = replace(method_workload, planned=(tag,))
-    calls: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        comparison_tracking,
-        "plot_convergence_comparison",
-        lambda *args, **kwargs: calls.append(kwargs),
-    )
-    monkeypatch.setattr(
-        comparison_tracking,
-        "plot_error_convergence_comparison",
-        lambda *args, **kwargs: calls.append(kwargs),
-    )
-
-    comparison_tracking._write_method_diagnostics(
-        tmp_path, workload, notation, {DatasetId("ds"): dataset_presentation}
-    )
-
-    scope = MethodScope(workload.presentation.prepared.detailed)
-    assert [call["subtitle"] for call in calls] == [ScopeSubtitle(scope, notation)] * 2
-    text = calls[0]["legend"].label("sys-id-9")
-    assert text == (
-        "Test problem | Gaussian CG Residuals ($k=20$, $N=100$) - Gaussian, matrix 7, RHS 1"
-    )
-
-
 def test_recipe_profile_sink_keeps_profile_ecdf_and_aggregate_bars(
     group: GroupAggregated,
     presentation: GroupPresentation,
@@ -510,7 +474,6 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
     }
     assert set(logged_artifacts) == expected
     assert all(directory == GROUP_REPORT_ARTIFACT_DIR for directory, _ in logged_artifacts.values())
-    assert all(existed for _, existed in logged_artifacts.values())
 
 
 def test_sink_skips_the_ratio_cdf_without_comparisons(

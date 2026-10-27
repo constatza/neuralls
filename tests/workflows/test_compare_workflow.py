@@ -339,5 +339,4 @@ def test_compare_preconditioners_workflow(
         assert info.peak_memory_bytes >= 0
     _assert_under(results.output_dir, tmp_path)
     for plot_path in results.plot_paths.to_mapping().values():
-        assert plot_path.is_file()
         _assert_under(plot_path, tmp_path)

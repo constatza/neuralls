@@ -121,11 +121,8 @@ for ``k=1`` that means ``n >= 3`` - trivially covered by
 from __future__ import annotations
 
 from collections.abc import Callable
-from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
 import torch
 from loguru import logger
 from scipy.sparse.linalg import ArpackNoConvergence, LinearOperator, eigs
@@ -287,79 +284,3 @@ def _arnoldi_condition_number(
     if lambda_min_real <= 0:
         raise ValueError(f"non-positive smallest eigenvalue estimate: {lambda_min_real}")
     return lambda_max_real / lambda_min_real
-
-
-def format_scientific(value: float, sig_figs: int = 4) -> str:
-    return f"{value:.{sig_figs}e}"
-
-
-def plot_condition_numbers(
-    cond_numbers: dict[str, float],
-    *,
-    save_dir: Path | None = None,
-    suffix: str = "conditions",
-    title: str | None = None,
-    rtol: float | None = None,
-    atol: float | None = None,
-) -> Path | None:
-    """Plot condition numbers for preconditioners as horizontal bar chart.
-
-    Args:
-        cond_numbers: Dictionary mapping preconditioner names to condition numbers
-        save_dir: Directory to save the plot
-        suffix: Suffix for the output filename
-        title: Optional title for the plot
-        rtol: Optional relative tolerance parameter to display
-        atol: Optional absolute tolerance parameter to display
-
-    Returns:
-        Path to saved plot, or None if no condition numbers provided
-    """
-    if not cond_numbers:
-        return None
-    labels = sorted(cond_numbers, key=lambda name: cond_numbers[name], reverse=True)
-    values = [cond_numbers[name] for name in labels]
-
-    # Dynamic figsize based on number of labels
-    figsize = (9, max(3, len(labels) * 0.6))
-    fig, ax = plt.subplots(figsize=figsize)
-
-    sns.barplot(x=values, y=labels, order=labels, ax=ax)
-    bars = ax.containers[0]
-    ax.set_xscale("log")
-    ax.set_xlabel("Condition number (λ_max/λ_min)")
-
-    # Build subtitle from non-None parameters
-    subtitle_parts = []
-    if rtol is not None:
-        subtitle_parts.append(f"rtol={rtol:.0e}")
-    if atol is not None:
-        subtitle_parts.append(f"atol={atol:.0e}")
-
-    if subtitle_parts:
-        ax.set_title(", ".join(subtitle_parts), fontsize=9)
-
-    fig.suptitle(title or "Condition Numbers by Preconditioner", fontsize=13, fontweight="bold")
-
-    # Annotations on the right side of bars
-    for bar, value in zip(bars, values):
-        ax.text(
-            bar.get_width(),
-            bar.get_y() + bar.get_height() / 2.0,
-            format_scientific(value, sig_figs=4),
-            ha="left",
-            va="center",
-            fontsize=8,
-        )
-
-    fig.tight_layout()
-    cond_path = None
-    if save_dir is not None:
-        save_dir.mkdir(parents=True, exist_ok=True)
-        cond_path = Path(save_dir) / f"preconditioner_condition_numbers_{suffix}.png"
-        fig.savefig(cond_path, dpi=150)
-        logger.info(f"Saved condition number plot to: {cond_path}")
-    else:
-        plt.show()
-    plt.close(fig)
-    return cond_path

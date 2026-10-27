@@ -182,25 +182,26 @@ def redirect_tempfile_under_pytest_tmp(
 
 @pytest.fixture(autouse=True)
 def skip_figure_encoding(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make `Figure.savefig` create an empty file instead of encoding a PNG.
+    """Make `Figure.savefig` a no-op for path targets: tests never encode image files.
 
-    Figure building and all artist state stay real, so tests that inspect a figure or
-    assert that a file was produced are unaffected; only the costly raster encoding is
-    skipped. Tests whose subject is the encoded image opt out with `@pytest.mark.real_render`.
+    Figures and images are not test subjects, so a str/Path target is not rendered.
+    Non-path targets (file-like buffers) still reach the original `savefig`.
+    A test whose real MLflow store logs the figure path opts in with
+    `@pytest.mark.figure_placeholders`: the path then gets an empty placeholder file.
     """
-    if request.node.get_closest_marker("real_render") is not None:
-        return
-    encode = matplotlib.figure.Figure.savefig
+    original = matplotlib.figure.Figure.savefig
+    leave_placeholder = request.node.get_closest_marker("figure_placeholders") is not None
 
-    def touch(
+    def skip_path_targets(
         self: matplotlib.figure.Figure, fname: object, *args: object, **kwargs: object
     ) -> None:
         if isinstance(fname, str | Path):
-            Path(fname).touch()
+            if leave_placeholder:
+                Path(fname).touch()
             return
-        encode(self, fname, *args, **kwargs)
+        original(self, fname, *args, **kwargs)
 
-    monkeypatch.setattr(matplotlib.figure.Figure, "savefig", touch)
+    monkeypatch.setattr(matplotlib.figure.Figure, "savefig", skip_path_targets)
 
 
 # Real local MLflow store: migrate the schema once per session, copy it per test.

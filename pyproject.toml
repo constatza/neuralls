@@ -117,7 +117,7 @@ markers = [
     "slow: tests that take >5 seconds (deselect with '-m \"not slow\"')",
     "benchmark: numerical algorithm benchmarks and exactness tests",
     "integration: integration tests that test full workflows",
-    "real_render: tests whose subject is the encoded image, so Figure.savefig really writes it",
+    "figure_placeholders: real MLflow store logs figure paths, so Figure.savefig leaves an empty placeholder file",
 ]
 
 [tool.uv]
