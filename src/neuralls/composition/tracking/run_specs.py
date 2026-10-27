@@ -16,8 +16,11 @@ from typing import Literal, assert_never
 from neuralls.composition.comparison.models import PlannedSystem
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import PreparedMethodPresentation
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.run_names import (
     ComparisonRunName,
+    ComparisonSubject,
+    EditorialComparison,
     EvaluationRunName,
     HeldOutMatrixPart,
     MethodRunName,
@@ -340,11 +343,31 @@ def build_training_run_spec(
     )
 
 
+def comparison_subject(title: ComparisonTitle, dataset: DatasetPresentation) -> ComparisonSubject:
+    """What a comparison run is about: an editorial title is followed by its dataset."""
+    match title:
+        case EditorialPresentation():
+            return EditorialComparison(title, dataset)
+        case ComparisonScopePresentation():
+            return title
+        case _:
+            assert_never(title)
+
+
 def comparison_run(
-    planned: PlannedSystem, title: ComparisonTitle, notation: NotationPolicy, stamp: RunStamp
+    planned: PlannedSystem,
+    title: ComparisonTitle,
+    dataset: DatasetPresentation,
+    notation: NotationPolicy,
+    stamp: RunStamp,
 ) -> NamedRun:
     """The typed name of one planned system's comparison run."""
-    return NamedRun(ComparisonRunName(title, system_qualifier(planned, title), stamp), notation)
+    return NamedRun(
+        ComparisonRunName(
+            comparison_subject(title, dataset), system_qualifier(planned, title), stamp
+        ),
+        notation,
+    )
 
 
 def build_comparison_run_spec(
@@ -352,6 +375,7 @@ def build_comparison_run_spec(
     entry: ComparisonRegistryEntry,
     planned: PlannedSystem,
     title: ComparisonTitle,
+    dataset: DatasetPresentation,
     notation: NotationPolicy,
     timestamp: str | None = None,
     include_timestamp: bool = True,
@@ -363,7 +387,7 @@ def build_comparison_run_spec(
     """
     ts = timestamp or iso_timestamp()
     stamp = RunTimestamp(ts) if include_timestamp else Untimed()
-    run = comparison_run(planned, title, notation, stamp)
+    run = comparison_run(planned, title, dataset, notation, stamp)
     method_label = entry.method.stem if entry.method is not None else entry.id
     tags = ComparisonRunTags(
         phase="comparison",

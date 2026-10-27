@@ -35,6 +35,7 @@ from neuralls.domain.presentation.provenance import (
 )
 from neuralls.domain.presentation.run_names import (
     ComparisonRunName,
+    EditorialComparison,
     MethodRunName,
     NamedRun,
     SystemQualifier,
@@ -692,10 +693,14 @@ def training_presentation(dataset_presentation: DatasetPresentation) -> Training
 
 
 @pytest.fixture
-def comparison_run() -> NamedRun:
+def comparison_run(dataset_presentation: DatasetPresentation) -> NamedRun:
     """The typed name of a comparison run, for outcomes that only need some run."""
     return NamedRun(
-        ComparisonRunName(EditorialPresentation("Test comparison"), SystemQualifier(()), Untimed()),
+        ComparisonRunName(
+            EditorialComparison(EditorialPresentation("Test comparison"), dataset_presentation),
+            SystemQualifier(()),
+            Untimed(),
+        ),
         NotationPolicy.default(),
     )
 

@@ -212,6 +212,7 @@ def test_child_runs_are_named_after_their_method_presentation_and_carry_ids_in_t
         entry=entry,
         planned=prepared.planned,
         title=prepared.title,
+        dataset=prepared.presentation.scope.dataset,
         notation=PLAIN,
         include_timestamp=False,
     )

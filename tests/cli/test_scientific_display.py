@@ -29,6 +29,8 @@ from neuralls.composition.generation.multi_generation import GenerationResult
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.run_names import (
     ComparisonRunName,
+    ComparisonSubject,
+    EditorialComparison,
     EditorialTrainingSubject,
     HeldOutMatrixPart,
     NamedRun,
@@ -39,7 +41,6 @@ from neuralls.domain.presentation.run_names import (
 )
 from neuralls.domain.presentation.titles import (
     ComparisonScopePresentation,
-    ComparisonTitle,
     EditorialPresentation,
 )
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
@@ -72,12 +73,12 @@ def case_config(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def comparison_run_on() -> Callable[[ComparisonTitle], NamedRun]:
+def comparison_run_on() -> Callable[[ComparisonSubject], NamedRun]:
     """The run of the system on matrix 3, right-hand side 1, under the given title."""
 
-    def build(title: ComparisonTitle) -> NamedRun:
+    def build(subject: ComparisonSubject) -> NamedRun:
         qualifier = SystemQualifier((HeldOutMatrixPart(MatrixId(3)), RhsDrawPart(1)))
-        return NamedRun(ComparisonRunName(title, qualifier, Untimed()), NotationPolicy.default())
+        return NamedRun(ComparisonRunName(subject, qualifier, Untimed()), NotationPolicy.default())
 
     return build
 
@@ -133,7 +134,7 @@ def test_compare_logs_the_plain_run_name_with_the_actual_parameters(
     case_config: Path,
     logged: list[str],
     dataset_presentation: DatasetPresentation,
-    comparison_run_on: Callable[[ComparisonTitle], NamedRun],
+    comparison_run_on: Callable[[ComparisonSubject], NamedRun],
     comparison_payload: ComparisonResult,
 ) -> None:
     run = comparison_run_on(ComparisonScopePresentation(dataset_presentation))
@@ -151,19 +152,22 @@ def test_compare_logs_the_plain_run_name_with_the_actual_parameters(
     ]
 
 
-def test_compare_shows_an_editorial_title_as_the_case_title(
+def test_compare_shows_an_editorial_title_beside_its_dataset(
     case_config: Path,
     logged: list[str],
-    comparison_run_on: Callable[[ComparisonTitle], NamedRun],
+    dataset_presentation: DatasetPresentation,
+    comparison_run_on: Callable[[ComparisonSubject], NamedRun],
     comparison_payload: ComparisonResult,
 ) -> None:
-    run = comparison_run_on(EditorialPresentation(EDITORIAL))
+    run = comparison_run_on(
+        EditorialComparison(EditorialPresentation(EDITORIAL), dataset_presentation)
+    )
     outcome = ComparisonCompleted(comparison_id=REGISTRY_ID, run=run, payload=comparison_payload)
 
     _invoke_compare(case_config, [outcome])
 
     assert logged == [
-        *_banner(f"{EDITORIAL} | matrix 3, RHS 1"),
+        *_banner(f"{EDITORIAL} | {DATASET_TEXT} | matrix 3, RHS 1"),
         "=" * 60,
         comparison_payload.summary,
         "=" * 60,
@@ -176,7 +180,7 @@ def test_compare_names_a_failure_by_its_description_and_states_when_it_has_none(
     case_config: Path,
     logged: list[str],
     dataset_presentation: DatasetPresentation,
-    comparison_run_on: Callable[[ComparisonTitle], NamedRun],
+    comparison_run_on: Callable[[ComparisonSubject], NamedRun],
 ) -> None:
     described = comparison_run_on(ComparisonScopePresentation(dataset_presentation))
     outcomes = [
@@ -206,7 +210,7 @@ def test_run_summary_names_trainings_and_comparisons_by_their_descriptions(
     case_config: Path,
     dataset_presentation: DatasetPresentation,
     training_presentation_of: Callable[[str], TrainingPresentation],
-    comparison_run_on: Callable[[ComparisonTitle], NamedRun],
+    comparison_run_on: Callable[[ComparisonSubject], NamedRun],
 ) -> None:
     editorial = TrainingPresentation(
         EditorialTrainingSubject(EditorialPresentation(EDITORIAL), dataset_presentation),

@@ -17,6 +17,8 @@ from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.render import render_dataset, render_method, render_title
 from neuralls.domain.presentation.run_names import (
     ComparisonRunName,
+    ComparisonSubject,
+    EditorialComparison,
     EditorialTrainingSubject,
     EvaluationRunName,
     HeldOutMatrixPart,
@@ -32,7 +34,11 @@ from neuralls.domain.presentation.run_names import (
     TrainingSubject,
     Untimed,
 )
-from neuralls.domain.presentation.titles import CollectionTitle, SessionTitle
+from neuralls.domain.presentation.titles import (
+    CollectionTitle,
+    ComparisonScopePresentation,
+    SessionTitle,
+)
 from neuralls.shared.scientific_description.policy import (
     NotationPolicy,
     RenderProfile,
@@ -71,6 +77,21 @@ def _qualifier_text(qualifier: SystemQualifier) -> str:
         f"matrix {part.matrix_id}" if isinstance(part, HeldOutMatrixPart) else f"RHS {part.ordinal}"
         for part in qualifier.parts
     )
+
+
+def _comparison_subject_text(
+    subject: ComparisonSubject, profile: RenderProfile, policy: NotationPolicy
+) -> str:
+    """The subject's title: the dataset alone, or an editorial name and its dataset."""
+    match subject:
+        case ComparisonScopePresentation():
+            return render_title(subject, profile, policy).text
+        case EditorialComparison(editorial=editorial, dataset=dataset):
+            return (
+                f"{editorial.title}{_PART_SEPARATOR}{render_dataset(dataset, profile, policy).text}"
+            )
+        case _:
+            assert_never(subject)
 
 
 def _subject_text(subject: TrainingSubject, profile: RenderProfile, policy: NotationPolicy) -> str:
@@ -122,8 +143,8 @@ def render_run_name(name: RunName, notation: NotationPolicy) -> str:
     match name:
         case SessionRunName(title=title, started=started):
             return _stamped(_title_text(title, profile, policy), started)
-        case ComparisonRunName(title=title, system=system, stamp=stamp):
-            text = _title_text(title, profile, policy)
+        case ComparisonRunName(subject=subject, system=system, stamp=stamp):
+            text = _comparison_subject_text(subject, profile, policy)
             if system.parts:
                 text = f"{text}{_PART_SEPARATOR}{_qualifier_text(system)}"
             return _stamped(text, stamp)

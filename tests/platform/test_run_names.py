@@ -11,6 +11,7 @@ from neuralls.domain.presentation.methods import (
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.run_names import (
     ComparisonRunName,
+    EditorialComparison,
     EditorialTrainingSubject,
     EvaluationRunName,
     HeldOutMatrixPart,
@@ -57,6 +58,14 @@ def test_untimed_comparison_name_is_the_bare_title(
     title = ComparisonScopePresentation(dataset_presentation)
     text = render_run_name(ComparisonRunName(title, SOLE, Untimed()), PLAIN)
     assert text == "Test problem | Gaussian CG Residuals (k=20, N=100)"
+
+
+def test_editorial_comparison_name_is_followed_by_its_dataset(
+    dataset_presentation: DatasetPresentation,
+) -> None:
+    subject = EditorialComparison(EditorialPresentation("Spectral study"), dataset_presentation)
+    text = render_run_name(ComparisonRunName(subject, SOLE, Untimed()), PLAIN)
+    assert text == "Spectral study | Test problem | Gaussian CG Residuals (k=20, N=100)"
 
 
 def test_sibling_systems_get_distinct_names(dataset_presentation: DatasetPresentation) -> None:

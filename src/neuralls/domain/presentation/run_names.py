@@ -18,7 +18,7 @@ from neuralls.domain.presentation.methods import (
 )
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.titles import (
-    ComparisonTitle,
+    ComparisonScopePresentation,
     EditorialPresentation,
     SessionTitle,
 )
@@ -112,10 +112,22 @@ class SessionRunName:
 
 
 @dataclass(frozen=True, slots=True)
-class ComparisonRunName:
-    """One comparison system's run: its title, its sibling qualifier, and an optional stamp."""
+class EditorialComparison:
+    """A comparison named by an explicit editorial title, on the dataset it ran on."""
 
-    title: ComparisonTitle
+    editorial: EditorialPresentation
+    dataset: DatasetPresentation
+
+
+type ComparisonSubject = ComparisonScopePresentation | EditorialComparison
+"""What a comparison run is about: the dataset alone, or an editorial name beside its dataset."""
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonRunName:
+    """One comparison system's run: its subject, its sibling qualifier, and an optional stamp."""
+
+    subject: ComparisonSubject
     system: SystemQualifier
     stamp: RunStamp
 

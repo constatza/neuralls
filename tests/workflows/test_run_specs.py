@@ -135,7 +135,12 @@ def test_comparison_run_spec_name_and_tags(dataset_presentation: DatasetPresenta
     title = ComparisonScopePresentation(dataset_presentation)
 
     run, tags = build_comparison_run_spec(
-        entry=entry, planned=_planned(entry), title=title, notation=PLAIN, timestamp=ISO
+        entry=entry,
+        planned=_planned(entry),
+        title=title,
+        dataset=dataset_presentation,
+        notation=PLAIN,
+        timestamp=ISO,
     )
 
     assert run_name_text(run) == f"{DATASET_TEXT} | {ISO}"
@@ -158,10 +163,28 @@ def test_untimed_comparison_run_is_the_bare_title(
         entry=entry,
         planned=_planned(entry),
         title=ComparisonScopePresentation(dataset_presentation),
+        dataset=dataset_presentation,
         notation=PLAIN,
         include_timestamp=False,
     )
     assert run_name_text(run) == DATASET_TEXT
+
+
+def test_editorial_comparison_run_names_its_dataset_after_the_title(
+    dataset_presentation: DatasetPresentation,
+) -> None:
+    entry = _entry()
+    run, tags = build_comparison_run_spec(
+        entry=entry,
+        planned=_planned(entry),
+        title=EditorialPresentation("Spectral"),
+        dataset=dataset_presentation,
+        notation=PLAIN,
+        include_timestamp=False,
+    )
+
+    assert run_name_text(run) == f"Spectral | {DATASET_TEXT}"
+    assert tags.as_mlflow_tags()["comparison_label"] == "Spectral"
 
 
 def test_sibling_systems_on_a_dataset_title_get_distinct_run_names(
@@ -176,6 +199,7 @@ def test_sibling_systems_on_a_dataset_title_get_distinct_run_names(
                 entry=entry,
                 planned=_planned(entry, matrix=matrix, ordinal=ordinal),
                 title=title,
+                dataset=dataset_presentation,
                 notation=PLAIN,
                 include_timestamp=False,
             )
@@ -220,6 +244,7 @@ def test_child_tags_link_back_to_the_rendered_parent(
         entry=entry,
         planned=_planned(entry),
         title=EditorialPresentation("Spectral"),
+        dataset=dataset_presentation,
         notation=PLAIN,
         timestamp=ISO,
     )
@@ -233,7 +258,7 @@ def test_child_tags_link_back_to_the_rendered_parent(
         "method_id": "jacobi",
         "method_label": "Jacobi",
         "comparison_id": "cmp-1",
-        "parent_run_name": f"Spectral | {ISO}",
+        "parent_run_name": f"Spectral | {DATASET_TEXT} | {ISO}",
     }
 
 

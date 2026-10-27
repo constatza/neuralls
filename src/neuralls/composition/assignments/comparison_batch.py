@@ -886,7 +886,13 @@ class PreparedComparisonExecution:
     @property
     def run_name(self) -> NamedRun:
         """The typed name of this system's comparison run, as MLflow names it."""
-        return comparison_run(self.planned, self.title, self.cfg.notation_policy, Untimed())
+        return comparison_run(
+            self.planned,
+            self.title,
+            self.presentation.scope.dataset,
+            self.cfg.notation_policy,
+            Untimed(),
+        )
 
     @property
     def comparison_presentation(self) -> ComparisonPresentation:
@@ -1040,7 +1046,7 @@ def _prepare_comparison_entry(
         scope = _matrix_scope(planned, context)
         presentation = prepare_comparison_presentation(resolved.specs, scope)
         title = compose_comparison_title(entry.display_name, scope.dataset)
-        run = comparison_run(planned, title, cfg.notation_policy, Untimed())
+        run = comparison_run(planned, title, scope.dataset, cfg.notation_policy, Untimed())
         label = run_name_text(run)
 
         logger.info("{}: building comparison identity, including matrix/dataset content.", label)
@@ -1104,6 +1110,7 @@ def _execute_prepared_comparison(
             entry=prepared.entry,
             planned=prepared.planned,
             title=prepared.title,
+            dataset=prepared.presentation.scope.dataset,
             notation=prepared.cfg.notation_policy,
             include_timestamp=False,
         )

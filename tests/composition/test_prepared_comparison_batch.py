@@ -210,6 +210,7 @@ def test_the_execution_run_name_is_the_name_mlflow_gives_the_run(
         entry=prepared.entry,
         planned=prepared.planned,
         title=prepared.title,
+        dataset=prepared.presentation.scope.dataset,
         notation=prepared.cfg.notation_policy,
         include_timestamp=False,
     )
