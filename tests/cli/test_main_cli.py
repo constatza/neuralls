@@ -288,10 +288,8 @@ def test_train_invokes_batch_workflow(
     mock_load_settings: MagicMock,
     mock_run_assignment_sweep: MagicMock,
     mock_write_metric_report: MagicMock,
-    tmp_path: Path,
 ) -> None:
-    config = tmp_path / "case.toml"
-    config.write_text("", encoding="utf-8")
+    config = Path("case.toml")
     settings = MagicMock()
     sweep_result = MagicMock(results=[], parent_run_id="parent-run-1")
     mock_load_settings.return_value = settings
@@ -319,10 +317,8 @@ def test_eval_invokes_batch_workflow(
     mock_load_case_config: MagicMock,
     mock_eval_batch: MagicMock,
     mock_write_metric_report: MagicMock,
-    tmp_path: Path,
 ) -> None:
-    config = tmp_path / "case.toml"
-    config.write_text("", encoding="utf-8")
+    config = Path("case.toml")
     settings = MagicMock()
     cfg = MagicMock()
     batch = MagicMock()
