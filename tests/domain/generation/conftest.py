@@ -44,14 +44,15 @@ def make_mixture() -> Callable[..., MixtureSpec]:
 def make_archive_glob(tmp_path: Path) -> Callable[[int], str]:
     """Create ``num_files`` archive files under ``tmp_path`` and return their glob.
 
-    Only the file names matter to the allocator, which lists the pool before any read.
+    Only the file names matter to the allocator, which lists the pool before any read, so the
+    files are empty. Listing needs a real directory until the archive pool is a port.
     """
 
     def _build(num_files: int) -> str:
         directory = tmp_path / "archive"
         directory.mkdir(exist_ok=True)
         for k in range(num_files):
-            (directory / f"solution_{k:03d}.txt").write_text("0.0\n", encoding="utf-8")
+            (directory / f"solution_{k:03d}.txt").touch()
         return str(directory / "solution_*.txt")
 
     return _build
