@@ -42,7 +42,8 @@ solutions_glob = "{(solutions_dir / "solution_*.txt").as_posix()}"
 
 [output]
 matrix_format = "dense"
-"""
+""",
+        encoding="utf-8",
     )
     return config_path
 
@@ -78,7 +79,8 @@ samples = 1
 
 [output]
 matrix_format = "dense"
-"""
+""",
+        encoding="utf-8",
     )
     return config_path
 
@@ -109,7 +111,8 @@ samples = 5
 
 [output]
 matrix_format = "dense"
-"""
+""",
+        encoding="utf-8",
     )
     return config_path
 

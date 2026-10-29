@@ -424,7 +424,7 @@ def _binding_counts_for_strategy(
         case (int() as rows_total, True, _, _):
             # Binding b draws rows (b + p) mod K, so each binding takes the same count.
             capped = _solution_file_count(strategy_name, count, rows_total)
-            return {binding_idx: capped for binding_idx in range(num_bindings)}, {}
+            return dict.fromkeys(range(num_bindings), capped), {}
         case (_, _, True, _):
             rows_per_system = _rows_per_system_for(strategy_name, strategy_overrides, count)
             counts, files = _allocate_archive_rows(
@@ -456,7 +456,7 @@ def _binding_counts_for_strategy(
             )
         case (int() as rows_total, _, _, True):
             # Every binding receives all rows of the solution source, so no split applies.
-            return {binding_idx: rows_total for binding_idx in range(num_bindings)}, {}
+            return dict.fromkeys(range(num_bindings), rows_total), {}
         case _:
             rows_per_system = _rows_per_system_for(strategy_name, strategy_overrides, count)
             allocations = _split_generated_rows(count, rows_per_system, groups, num_bindings, seed)

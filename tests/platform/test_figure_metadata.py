@@ -90,9 +90,9 @@ def test_manifest_round_trip_is_deterministic(
     manifest.add("performance_profile_fine_x_online.png", metadata)
     path = tmp_path / "figure_manifest.toml"
     write_figure_manifest(path, manifest, notation)
-    first = path.read_text()
+    first = path.read_text(encoding="utf-8")
     write_figure_manifest(path, manifest, notation)
-    assert path.read_text() == first
+    assert path.read_text(encoding="utf-8") == first
     assert "setup_events.parquet" in first
     assert "performance_profile_fine_x_online.png" in first
 

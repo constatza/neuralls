@@ -40,7 +40,8 @@ def test_load_data_config_requires_id(
         """
 [source]
 matrix_path = "matrix.txt"
-"""
+""",
+        encoding="utf-8",
     )
     with pytest.raises(ValidationError):
         load_data_config(config_file, neuralls_settings)
@@ -58,7 +59,8 @@ id = "test"
 
 [source]
 matrix_path = "${GRAPH_CG_RAW_DIR}/matrix.txt"
-"""
+""",
+        encoding="utf-8",
     )
     with pytest.raises(ValueError):
         load_data_config(config_file, neuralls_settings)
@@ -84,7 +86,8 @@ rhs_path = "${NEURALLS_PROCESSED_DIR}/rhs.npy"
 [[preconditioners]]
 name = "jacobi"
 type = "jacobi"
-"""
+""",
+        encoding="utf-8",
     )
     config = load_comparison_config(config_file, neuralls_settings)
     assert (
@@ -101,7 +104,8 @@ def test_load_case_config_returns_typed_model(
     """Case loader returns CaseConfig directly."""
     dataset_cfg = tmp_path / "dataset.toml"
     dataset_cfg.write_text(
-        'id = "dataset"\n[source]\nmatrix_path = "${NEURALLS_PROCESSED_DIR}/matrix.mtx"\n'
+        'id = "dataset"\n[source]\nmatrix_path = "${NEURALLS_PROCESSED_DIR}/matrix.mtx"\n',
+        encoding="utf-8",
     )
     config_file = tmp_path / "experiments.toml"
     config_file.write_text(
@@ -109,7 +113,8 @@ def test_load_case_config_returns_typed_model(
 [[datasets]]
 id = "dataset"
 path = "{dataset_cfg.as_posix()}"
-"""
+""",
+        encoding="utf-8",
     )
     config = load_case_config(config_file, neuralls_settings)
     assert isinstance(config, CaseConfig)
@@ -123,14 +128,16 @@ def test_load_case_config_fills_missing_dataset_id_from_dataset_config(
     """A [[datasets]] entry without an id defaults to the dataset config's own id."""
     dataset_cfg = tmp_path / "dataset.toml"
     dataset_cfg.write_text(
-        'id = "dataset-own-id"\n[source]\nmatrix_path = "${NEURALLS_PROCESSED_DIR}/matrix.mtx"\n'
+        'id = "dataset-own-id"\n[source]\nmatrix_path = "${NEURALLS_PROCESSED_DIR}/matrix.mtx"\n',
+        encoding="utf-8",
     )
     config_file = tmp_path / "experiments.toml"
     config_file.write_text(
         f"""
 [[datasets]]
 path = "{dataset_cfg.as_posix()}"
-"""
+""",
+        encoding="utf-8",
     )
     config = load_case_config(config_file, neuralls_settings)
     assert config.datasets[0].id == "dataset-own-id"
@@ -143,7 +150,8 @@ def test_load_case_config_explicit_dataset_id_wins(
     """An explicit [[datasets]] id is never overridden by the dataset config's own id."""
     dataset_cfg = tmp_path / "dataset.toml"
     dataset_cfg.write_text(
-        'id = "dataset-own-id"\n[source]\nmatrix_path = "${NEURALLS_PROCESSED_DIR}/matrix.mtx"\n'
+        'id = "dataset-own-id"\n[source]\nmatrix_path = "${NEURALLS_PROCESSED_DIR}/matrix.mtx"\n',
+        encoding="utf-8",
     )
     config_file = tmp_path / "experiments.toml"
     config_file.write_text(
@@ -151,7 +159,8 @@ def test_load_case_config_explicit_dataset_id_wins(
 [[datasets]]
 id = "case-local-alias"
 path = "{dataset_cfg.as_posix()}"
-"""
+""",
+        encoding="utf-8",
     )
     config = load_case_config(config_file, neuralls_settings)
     assert config.datasets[0].id == "case-local-alias"
@@ -163,13 +172,16 @@ def test_load_case_config_requires_dataset_id_when_neither_has_one(
 ) -> None:
     """A missing id on both the case entry and the dataset config is a clear error."""
     dataset_cfg = tmp_path / "dataset.toml"
-    dataset_cfg.write_text('[source]\nmatrix_path = "${NEURALLS_PROCESSED_DIR}/matrix.mtx"\n')
+    dataset_cfg.write_text(
+        '[source]\nmatrix_path = "${NEURALLS_PROCESSED_DIR}/matrix.mtx"\n', encoding="utf-8"
+    )
     config_file = tmp_path / "experiments.toml"
     config_file.write_text(
         f"""
 [[datasets]]
 path = "{dataset_cfg.as_posix()}"
-"""
+""",
+        encoding="utf-8",
     )
     with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
@@ -177,7 +189,8 @@ path = "{dataset_cfg.as_posix()}"
 
 def _write_dataset_config(path: Path, dataset_id: str) -> None:
     path.write_text(
-        f'id = "{dataset_id}"\n[source]\nmatrix_path = "${{NEURALLS_PROCESSED_DIR}}/matrix.mtx"\n'
+        f'id = "{dataset_id}"\n[source]\nmatrix_path = "${{NEURALLS_PROCESSED_DIR}}/matrix.mtx"\n',
+        encoding="utf-8",
     )
 
 
@@ -195,7 +208,8 @@ def test_load_case_config_expands_dataset_sweeps(
 label = "cg50-samples"
 path_template = "gaussian-cg50-{value}.toml"
 values = [1000, 2000]
-"""
+""",
+        encoding="utf-8",
     )
     config = load_case_config(config_file, neuralls_settings)
     assert [d.id for d in config.datasets] == [
@@ -226,7 +240,8 @@ path = "jobs/dummy-job.toml"
 [[assignment_sweeps]]
 dataset_sweep = "cg50-samples"
 job = "pod-2g_cg-50"
-"""
+""",
+        encoding="utf-8",
     )
     config = load_case_config(config_file, neuralls_settings)
     assert [a.dataset_id for a in config.assignments] == [
@@ -262,7 +277,8 @@ path = "jobs/dummy-job.toml"
 [[assignment_sweeps]]
 dataset_sweep = "cg50-samples"
 job = ["rank100", "rank200"]
-"""
+""",
+        encoding="utf-8",
     )
     config = load_case_config(config_file, neuralls_settings)
     assert [(a.dataset_id, a.job_id) for a in config.assignments] == [
@@ -289,7 +305,8 @@ values = [1000]
 [[assignment_sweeps]]
 dataset_sweep = "cg50-samples"
 job = []
-"""
+""",
+        encoding="utf-8",
     )
     with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
@@ -309,7 +326,8 @@ path = "jobs/dummy-job.toml"
 [[assignment_sweeps]]
 dataset_sweep = "typo"
 job = "pod-2g_cg-50"
-"""
+""",
+        encoding="utf-8",
     )
     with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
@@ -326,7 +344,8 @@ def test_load_case_config_rejects_dataset_sweep_missing_value_placeholder(
 label = "cg50-samples"
 path_template = "gaussian-cg50-fixed.toml"
 values = [1000, 2000]
-"""
+""",
+        encoding="utf-8",
     )
     with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
@@ -346,7 +365,8 @@ def test_load_case_config_dataset_sweeps_duplicate_id_still_rejected(
 label = "cg50-samples"
 path_template = "gaussian-cg50-{value}.toml"
 values = [1000, 2000]
-"""
+""",
+        encoding="utf-8",
     )
     with pytest.raises(ValidationError):
         load_case_config(config_file, neuralls_settings)
@@ -375,7 +395,8 @@ values = [1000, 2000]
 [[assignment_sweeps]]
 dataset_sweep = "cg50-samples"
 job = "pod-2g_cg-50"
-"""
+""",
+        encoding="utf-8",
     )
     hand_written_config = tmp_path / "hand_written.toml"
     hand_written_config.write_text(
@@ -397,7 +418,8 @@ job = "pod-2g_cg-50"
 [[assignments]]
 dataset = "gaussian-cg50-family-2000"
 job = "pod-2g_cg-50"
-"""
+""",
+        encoding="utf-8",
     )
     swept = load_case_config(swept_config, neuralls_settings)
     hand_written = load_case_config(hand_written_config, neuralls_settings)
@@ -423,7 +445,8 @@ label = "cg-samples"
 path_template = "gaussian-{cg}-{value}.toml"
 axes = { cg = ["cg10", "cg50"], value = [1000, 2000] }
 cart_product = true
-"""
+""",
+        encoding="utf-8",
     )
     config = load_case_config(config_file, neuralls_settings)
     assert [d.id for d in config.datasets] == [
@@ -448,7 +471,8 @@ def test_load_case_config_dataset_sweep_axes_zip_by_default(
 label = "cg-samples"
 path_template = "gaussian-{cg}-{value}.toml"
 axes = { cg = ["cg10", "cg50"], value = [1000, 2000] }
-"""
+""",
+        encoding="utf-8",
     )
     config = load_case_config(config_file, neuralls_settings)
     assert [d.id for d in config.datasets] == ["cg10-1000-id", "cg50-2000-id"]
@@ -465,7 +489,8 @@ def test_load_case_config_dataset_sweep_axes_zip_rejects_unequal_length(
 label = "cg-samples"
 path_template = "gaussian-{cg}-{value}.toml"
 axes = { cg = ["cg10", "cg50"], value = [1000, 2000, 5000] }
-"""
+""",
+        encoding="utf-8",
     )
     with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
@@ -485,7 +510,8 @@ def test_load_case_config_dataset_sweep_axes_scalar_axis_broadcasts(
 label = "cg-samples"
 path_template = "gaussian-{cg}-{value}.toml"
 axes = { cg = "cg50", value = [1000, 2000] }
-"""
+""",
+        encoding="utf-8",
     )
     config = load_case_config(config_file, neuralls_settings)
     assert [d.id for d in config.datasets] == ["cg50-1000-id", "cg50-2000-id"]
@@ -502,7 +528,8 @@ def test_load_case_config_dataset_sweep_rejects_axis_missing_from_template(
 label = "cg-samples"
 path_template = "gaussian-{value}.toml"
 axes = { cg = ["cg10", "cg50"], value = [1000, 2000] }
-"""
+""",
+        encoding="utf-8",
     )
     with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
@@ -520,7 +547,8 @@ label = "cg-samples"
 path_template = "gaussian-{value}.toml"
 axes = { value = [1000, 2000] }
 values = [1000, 2000]
-"""
+""",
+        encoding="utf-8",
     )
     with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
@@ -537,7 +565,8 @@ def test_load_case_config_dataset_sweep_rejects_nested_table_axis_value(
 label = "cg-samples"
 path_template = "gaussian-{cg}-{value}.toml"
 axes = { cg = { oops = "table" }, value = [1000, 2000] }
-"""
+""",
+        encoding="utf-8",
     )
     with pytest.raises(ValueError):
         load_case_config(config_file, neuralls_settings)
@@ -551,7 +580,8 @@ def test_load_raw_toml_success(tmp_path: Path) -> None:
 [section]
 key = "value"
 number = 42
-"""
+""",
+        encoding="utf-8",
     )
     data = load_raw_toml(config_file)
     assert isinstance(data, dict)
@@ -562,7 +592,7 @@ number = 42
 def test_load_raw_toml_invalid_syntax(tmp_path: Path) -> None:
     """Invalid TOML raises the stdlib decode error."""
     config_file = tmp_path / "test.toml"
-    config_file.write_text("invalid [ syntax")
+    config_file.write_text("invalid [ syntax", encoding="utf-8")
     with pytest.raises(tomllib.TOMLDecodeError):
         load_raw_toml(config_file)
 
@@ -574,7 +604,8 @@ def test_load_raw_toml_rejects_unescaped_windows_path(tmp_path: Path) -> None:
         r"""
 [source]
 matrix_path = "C:\Users\runneradmin\AppData\Local\Temp\matrix.txt"
-"""
+""",
+        encoding="utf-8",
     )
     with pytest.raises(tomllib.TOMLDecodeError):
         load_raw_toml(config_file)
@@ -584,6 +615,8 @@ def test_load_raw_toml_accepts_normalized_windows_path(tmp_path: Path) -> None:
     """POSIX-normalized Windows paths remain valid TOML literals everywhere."""
     config_file = tmp_path / "test.toml"
     matrix_path = PureWindowsPath(r"C:\Users\runneradmin\AppData\Local\Temp\matrix.txt")
-    config_file.write_text(f'[source]\nmatrix_path = "{matrix_path.as_posix()}"\n')
+    config_file.write_text(
+        f'[source]\nmatrix_path = "{matrix_path.as_posix()}"\n', encoding="utf-8"
+    )
     data = load_raw_toml(config_file)
     assert data["source"]["matrix_path"] == matrix_path.as_posix()

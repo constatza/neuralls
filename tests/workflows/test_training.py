@@ -395,7 +395,7 @@ def test_resolve_training_checkpoint_leases_mlflow_artifacts(
     checkpoint_root = tmp_path / "mlflow-artifacts" / "checkpoints"
     checkpoint_root.mkdir(parents=True)
     resolved_checkpoint = checkpoint_root / "model.ckpt"
-    resolved_checkpoint.write_text("checkpoint")
+    resolved_checkpoint.write_text("checkpoint", encoding="utf-8")
     artifact_leases = _CheckpointLeaseManager(checkpoint_root)
 
     with patch(
@@ -478,8 +478,8 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(
 
     config_path = tmp_path / "model.toml"
     data_config_path = tmp_path / "data.toml"
-    config_path.write_text("")
-    data_config_path.write_text("")
+    config_path.write_text("", encoding="utf-8")
+    data_config_path.write_text("", encoding="utf-8")
 
     workspace = AssignmentWorkspace(
         dataset_id="dataset-1",
@@ -566,8 +566,8 @@ def test_prepare_training_settings_without_registry_ids_builds_an_untagged_run(
 
     config_path = tmp_path / "model.toml"
     data_config_path = tmp_path / "data.toml"
-    config_path.write_text("")
-    data_config_path.write_text("")
+    config_path.write_text("", encoding="utf-8")
+    data_config_path.write_text("", encoding="utf-8")
 
     workspace = AssignmentWorkspace(
         dataset_id="dataset-legacy",
@@ -704,7 +704,7 @@ def finalize_run_config(
 def finalize_config_path(tmp_path: Path) -> Path:
     """Job config TOML path for _finalize_training_run tests."""
     config_path = tmp_path / "model.toml"
-    config_path.write_text("")
+    config_path.write_text("", encoding="utf-8")
     return config_path
 
 

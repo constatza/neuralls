@@ -108,7 +108,7 @@ def test_stale_old_directory_is_removed_before_replacement(
     replace_build(atomic_spec)
     stale = root / f"{_DATASET_NAME}{_OLD_SUFFIX}"
     stale.mkdir()
-    (stale / "leftover.txt").write_text("from an earlier crash")
+    (stale / "leftover.txt").write_text("from an earlier crash", encoding="utf-8")
 
     final = replace_build(replacement_spec)
 

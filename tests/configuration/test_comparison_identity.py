@@ -104,7 +104,7 @@ def test_two_mask_densities_have_different_keys(make_comparison: ComparisonFacto
 def test_dataset_input_digest_is_computed_once_per_directory_inside_a_memo_scope(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / DATASET_MANIFEST_FILENAME).write_text("{}")
+    (tmp_path / DATASET_MANIFEST_FILENAME).write_text("{}", encoding="utf-8")
     calls: list[Path] = []
 
     def counting(path: Path) -> str:

@@ -276,7 +276,8 @@ matrix_path = "${NEURALLS_PROCESSED_DIR}/matrix.mtx"
 [generation]
 
 [output]
-""".strip()
+""".strip(),
+        encoding="utf-8",
     )
     return config_path
 

@@ -82,7 +82,9 @@ def sample_arrays(tmp_path: Path) -> TrainingArrays:
     np.save(solutions_path, solutions)
     matrix_zarr = tmp_path / "matrix.zarr"
     matrix_zarr.mkdir()
-    (matrix_zarr / "zarr.json").write_text('{"zarr_format": 3, "node_type": "array"}')
+    (matrix_zarr / "zarr.json").write_text(
+        '{"zarr_format": 3, "node_type": "array"}', encoding="utf-8"
+    )
     return TrainingArrays(
         rhs_source=NpyArraySource(path=rhs_path),
         solutions_source=NpyArraySource(path=solutions_path),
@@ -386,7 +388,7 @@ def test_contract_override_drives_injection_and_validation(
     runtime_root = tmp_path / "runtime-run"
     runtime_root.mkdir(parents=True, exist_ok=True)
     (runtime_root / "data").mkdir(parents=True, exist_ok=True)
-    (runtime_root / "data" / "split.json").write_text("{}")
+    (runtime_root / "data" / "split.json").write_text("{}", encoding="utf-8")
     updated, _ = _configure_training_pipeline(
         settings,
         workspace=AssignmentWorkspace(

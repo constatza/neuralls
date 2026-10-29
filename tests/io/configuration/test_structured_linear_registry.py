@@ -36,7 +36,8 @@ name = "FlexibleDataset"
 
 [data.module]
 name = "ArrayDataModule"
-"""
+""",
+        encoding="utf-8",
     )
     path.write_text(
         f"""
@@ -59,7 +60,8 @@ monitor = "val/loss"
 
 [training.optimizer]
 default_optimizer = {{ name = "AdamW", lr = 1e-3 }}
-"""
+""",
+        encoding="utf-8",
     )
     return path
 
@@ -113,7 +115,7 @@ def _write_master_registry(
             ]
         )
 
-    path.write_text("\n".join(lines))
+    path.write_text("\n".join(lines), encoding="utf-8")
     return path
 
 
@@ -146,7 +148,8 @@ def test_legacy_model_workflow_toml_is_rejected(tmp_path: Path, neuralls_setting
     """Legacy uppercase manifests fail fast via DLKit's own [run] validation."""
     bad_config = tmp_path / "bad.toml"
     bad_config.write_text(
-        '[SESSION]\nseed = 42\nworkflow = "train"\n\n[MODEL]\nname = "NormScaledSymmetricLinear"\n\n[TRAINING]\n[TRAINING.trainer]\nmax_epochs = 1\n\n[OPTIMIZATION]\n\n[[OPTIMIZATION.stages]]\n[OPTIMIZATION.stages.optimizer]\nname = "AdamW"\nlr = 1e-3'
+        '[SESSION]\nseed = 42\nworkflow = "train"\n\n[MODEL]\nname = "NormScaledSymmetricLinear"\n\n[TRAINING]\n[TRAINING.trainer]\nmax_epochs = 1\n\n[OPTIMIZATION]\n\n[[OPTIMIZATION.stages]]\n[OPTIMIZATION.stages.optimizer]\nname = "AdamW"\nlr = 1e-3',
+        encoding="utf-8",
     )
 
     with pytest.raises(ConfigValidationError):
@@ -251,7 +254,9 @@ def test_load_experiment_supports_structured_linear_job(
     output_root = tmp_path / "output"
     output_root.mkdir()
     data_config_path = tmp_path / "data.toml"
-    data_config_path.write_text('id = "dummy_dataset"\n[source]\nmatrix_path = "matrix.txt"\n')
+    data_config_path.write_text(
+        'id = "dummy_dataset"\n[source]\nmatrix_path = "matrix.txt"\n', encoding="utf-8"
+    )
     job_config_path = _write_job_config(
         tmp_path / "symmetric.toml",
         model_name="NormScaledSymmetricLinear",

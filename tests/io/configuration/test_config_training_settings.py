@@ -80,7 +80,7 @@ def test_training_sections_round_trip(
 
     # Setup temporary config file
     config_path = tmp_path / "linear.toml"
-    config_path.write_text(config_content)
+    config_path.write_text(config_content, encoding="utf-8")
 
     profile_content = {
         MINIMAL_FFNN_CONFIG: """
@@ -116,7 +116,7 @@ name = "ArrayDataModule"
 """,
     }[config_content_template]
     model_profile = tmp_path / "model-profile.toml"
-    model_profile.write_text(profile_content)
+    model_profile.write_text(profile_content, encoding="utf-8")
 
     with config_path.open("rb") as fh:
         raw_config = tomllib.load(fh)
@@ -131,7 +131,9 @@ name = "ArrayDataModule"
 
     # Create dummy data config
     data_path = tmp_path / "data.toml"
-    data_path.write_text('id="dummy_dataset"\n[source]\nmatrix_path="matrix.txt"\n')
+    data_path.write_text(
+        'id="dummy_dataset"\n[source]\nmatrix_path="matrix.txt"\n', encoding="utf-8"
+    )
 
     experiment = load_assignment(
         config_path,

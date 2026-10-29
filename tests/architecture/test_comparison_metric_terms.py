@@ -13,7 +13,7 @@ DOCUMENTS = (
 
 
 def test_canonical_comparison_terms_are_documented() -> None:
-    text = "\n".join(path.read_text() for path in DOCUMENTS)
+    text = "\n".join(path.read_text(encoding="utf-8") for path in DOCUMENTS)
     for term in (
         "generation",
         "checkpoint",
@@ -33,6 +33,6 @@ def test_canonical_comparison_terms_are_documented() -> None:
 
 
 def test_removed_cost_vocabulary_is_absent_from_user_facing_docs() -> None:
-    text = "\n".join(path.read_text() for path in DOCUMENTS)
+    text = "\n".join(path.read_text(encoding="utf-8") for path in DOCUMENTS)
     for term in ("recurring cost", "shared one-time setup", "recurring_s"):
         assert term not in text

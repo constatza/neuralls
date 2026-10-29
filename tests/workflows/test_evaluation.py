@@ -266,12 +266,15 @@ def two_assignment_case_config(tmp_path: Path) -> Path:
                 'dataset = "test-solutions"',
                 "",
             ]
-        )
+        ),
+        encoding="utf-8",
     )
     (tmp_path / "jobs").mkdir()
-    (tmp_path / "jobs" / "ffnn.toml").write_text("")
+    (tmp_path / "jobs" / "ffnn.toml").write_text("", encoding="utf-8")
     (tmp_path / "datasets").mkdir()
-    (tmp_path / "datasets" / "test-solutions.toml").write_text('id = "test-solutions"\n')
+    (tmp_path / "datasets" / "test-solutions.toml").write_text(
+        'id = "test-solutions"\n', encoding="utf-8"
+    )
     return path
 
 

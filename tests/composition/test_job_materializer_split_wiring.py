@@ -62,7 +62,7 @@ def test_materialize_training_job_invokes_split_patch_stage(
 
     split_path = tmp_path / "data" / "split.json"
     split_path.parent.mkdir(parents=True, exist_ok=True)
-    split_path.write_text("{}")
+    split_path.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(job_materializer, "patch_split_settings", _spy)
 
     root_dir = tmp_path / "root"

@@ -67,7 +67,7 @@ def well_conditioned_matrix() -> torch.Tensor:
 def mock_checkpoint(tmp_path: Path) -> Path:
     """Create mock checkpoint file."""
     checkpoint = tmp_path / "mock_checkpoint.ckpt"
-    checkpoint.write_text("mock checkpoint data")
+    checkpoint.write_text("mock checkpoint data", encoding="utf-8")
     return checkpoint
 
 

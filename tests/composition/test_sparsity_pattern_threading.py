@@ -51,7 +51,8 @@ samples = 2
 
 [output]
 matrix_format = "csr"
-{extra}"""
+{extra}""",
+            encoding="utf-8",
         )
         return config_path
 

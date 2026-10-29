@@ -26,7 +26,9 @@ def minimal_dataset(tmp_path: Path) -> Path:
     for name in ("rhs.zarr", "solutions.zarr", "matrix.zarr"):
         store = tmp_path / name
         store.mkdir()
-        (store / "zarr.json").write_text('{"zarr_format": 3, "node_type": "array"}')
+        (store / "zarr.json").write_text(
+            '{"zarr_format": 3, "node_type": "array"}', encoding="utf-8"
+        )
     save_dataset_manifest(
         tmp_path,
         make_dataset_manifest(
@@ -66,7 +68,9 @@ def two_parameters_zarrs(minimal_dataset: Path) -> Path:
     for i in range(2):
         store = minimal_dataset / f"{PARAMETERS_ZARR_PREFIX}{i}.zarr"
         store.mkdir()
-        (store / "zarr.json").write_text('{"zarr_format": 3, "node_type": "array"}')
+        (store / "zarr.json").write_text(
+            '{"zarr_format": 3, "node_type": "array"}', encoding="utf-8"
+        )
         params.append(
             DatasetArtifact(
                 path=f"{PARAMETERS_ZARR_PREFIX}{i}.zarr",
@@ -139,7 +143,9 @@ def test_load_training_arrays_preserves_npy_rhs_and_solution_paths(tmp_path: Pat
     np.save(tmp_path / "solutions.npy", solutions)
     matrix_store = tmp_path / "matrix.zarr"
     matrix_store.mkdir()
-    (matrix_store / "zarr.json").write_text('{"zarr_format": 3, "node_type": "array"}')
+    (matrix_store / "zarr.json").write_text(
+        '{"zarr_format": 3, "node_type": "array"}', encoding="utf-8"
+    )
     save_dataset_manifest(
         tmp_path,
         make_dataset_manifest(

@@ -25,7 +25,7 @@ def dataset(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, str]:
     state = {"digest": canonical_digest("dataset-v1")}
     dataset_dir = tmp_path / "ds"
     dataset_dir.mkdir()
-    (dataset_dir / SPLIT_FILENAME).write_text('{"split": "v1"}')
+    (dataset_dir / SPLIT_FILENAME).write_text('{"split": "v1"}', encoding="utf-8")
     monkeypatch.setattr(training, "assignment_dataset_dir", lambda *_: dataset_dir)
     monkeypatch.setattr(training, "current_dataset_digest", lambda _dir: state["digest"])
     return state
@@ -90,7 +90,7 @@ def test_dataset_guard_detects_a_dataset_changed_during_training(
 def test_a_changed_split_invalidates(write_job: JobWriter, tmp_path: Path) -> None:
     before = _key(write_job())
 
-    (tmp_path / "ds" / SPLIT_FILENAME).write_text('{"split": "v2"}')
+    (tmp_path / "ds" / SPLIT_FILENAME).write_text('{"split": "v2"}', encoding="utf-8")
 
     assert _key(write_job()) != before
 

@@ -102,7 +102,7 @@ def finalization_context(
 ) -> _TrainingFinalizationContext:
     """Minimal finalization context for the two `_finalize_*_mlflow_run` branches."""
     config_path = tmp_path / "job.toml"
-    config_path.write_text("")
+    config_path.write_text("", encoding="utf-8")
     return _TrainingFinalizationContext(
         training_result=SimpleNamespace(metrics={}),
         run_config=MlflowRunConfig(
@@ -219,10 +219,12 @@ def test_resolve_local_checkpoint_prefers_the_training_results_own_checkpoint_pa
 ) -> None:
     """An existing `checkpoint_path` attribute wins over every other candidate."""
     direct = tmp_path / "direct.ckpt"
-    direct.write_text("direct")
+    direct.write_text("direct", encoding="utf-8")
     best = tmp_path / "best.ckpt"
-    best.write_text("best")
-    (finalization_workspace.checkpoint_dir / "workspace.ckpt").write_text("workspace")
+    best.write_text("best", encoding="utf-8")
+    (finalization_workspace.checkpoint_dir / "workspace.ckpt").write_text(
+        "workspace", encoding="utf-8"
+    )
 
     resolved = _resolve_local_training_checkpoint(
         training_result=SimpleNamespace(
@@ -241,9 +243,9 @@ def test_resolve_local_checkpoint_skips_nonexistent_candidates_in_order(
 ) -> None:
     """Non-existent higher-priority candidates are skipped; 'best' beats 'last'."""
     last = tmp_path / "last.ckpt"
-    last.write_text("last")
+    last.write_text("last", encoding="utf-8")
     best = tmp_path / "best.ckpt"
-    best.write_text("best")
+    best.write_text("best", encoding="utf-8")
 
     resolved = _resolve_local_training_checkpoint(
         training_result=SimpleNamespace(
@@ -264,7 +266,7 @@ def test_resolve_local_checkpoint_falls_back_to_the_workspace_checkpoint_dir(
 ) -> None:
     """With no result-supplied candidates, the workspace checkpoint dir is scanned."""
     workspace_checkpoint = finalization_workspace.checkpoint_dir / "epoch.ckpt"
-    workspace_checkpoint.write_text("workspace")
+    workspace_checkpoint.write_text("workspace", encoding="utf-8")
 
     resolved = _resolve_local_training_checkpoint(
         training_result=SimpleNamespace(checkpoint_path=None, artifacts={}),
@@ -281,7 +283,7 @@ def test_resolve_local_checkpoint_falls_back_to_the_retained_checkpoints_dir(
     retained_dir = finalization_workspace.root_dir / RETAINED_CHECKPOINTS_DIR_NAME
     retained_dir.mkdir(parents=True)
     retained = retained_dir / "retained.ckpt"
-    retained.write_text("retained")
+    retained.write_text("retained", encoding="utf-8")
 
     resolved = _resolve_local_training_checkpoint(
         training_result=SimpleNamespace(checkpoint_path=None, artifacts={}),
@@ -314,7 +316,7 @@ def test_finalize_existing_mlflow_run_returns_the_coordinates_it_was_given(
 ) -> None:
     """The existing-run branch makes the run durable and echoes its own coordinates back."""
     checkpoint_path = tmp_path / "model.ckpt"
-    checkpoint_path.write_text("ckpt")
+    checkpoint_path.write_text("ckpt", encoding="utf-8")
 
     with (
         patch("neuralls.composition.assignments.training._log_training_context") as log_context,
@@ -345,7 +347,7 @@ def test_finalize_fallback_mlflow_run_returns_the_freshly_created_run(
 ) -> None:
     """The fallback branch reports the tracking URI it was configured with, plus the new run."""
     checkpoint_path = tmp_path / "model.ckpt"
-    checkpoint_path.write_text("ckpt")
+    checkpoint_path.write_text("ckpt", encoding="utf-8")
 
     with patch(
         "neuralls.composition.assignments.training.create_fallback_training_run",
@@ -365,7 +367,7 @@ def test_finalize_fallback_mlflow_run_returns_none_when_run_creation_fails(
 ) -> None:
     """A fallback-run creation failure is swallowed into None, never raised."""
     checkpoint_path = tmp_path / "model.ckpt"
-    checkpoint_path.write_text("ckpt")
+    checkpoint_path.write_text("ckpt", encoding="utf-8")
 
     with patch(
         "neuralls.composition.assignments.training.create_fallback_training_run",

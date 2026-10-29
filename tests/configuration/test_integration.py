@@ -33,7 +33,8 @@ batch_size = 64
 
 [data.module]
 name = "ArrayDataModule"
-"""
+""",
+        encoding="utf-8",
     )
     return path
 
@@ -60,7 +61,8 @@ max_epochs = 1
 [training.optimizer.default_optimizer]
 name = "AdamW"
 lr = 1e-3
-"""
+""",
+        encoding="utf-8",
     )
     return path
 
@@ -88,7 +90,8 @@ matrix_path = "{matrix_path.as_posix()}"
 
 [generation]
 normalize = "matrix"
-"""
+""",
+        encoding="utf-8",
     )
     return config_path
 
@@ -112,12 +115,13 @@ class TestJobLoading:
             experiment_name="search-model",
         )
         config_path.write_text(
-            config_path.read_text()
+            config_path.read_text(encoding="utf-8")
             + """
 
 [search]
 space."training.optimizer.default_optimizer.lr" = { type = "float", low = 1e-4, high = 1e-2 }
-"""
+""",
+            encoding="utf-8",
         )
 
         settings = load_job_config(config_path, neuralls_settings)
@@ -161,7 +165,8 @@ name = "TestModel"
 
 [TRAINING.trainer]
 max_epochs = 1
-"""
+""",
+            encoding="utf-8",
         )
 
         with pytest.raises(ConfigValidationError):

@@ -211,7 +211,7 @@ def test_run_assignments_full_flow(
     # 5. Create master config using [[assignments]] registry entries.
     master_config_path = configs_dir / "experiments.toml"
     tracking_uri = build_sqlite_tracking_uri(tmp_path / "mlruns" / "mlflow.db")
-    with open(master_config_path, "w") as f:
+    with open(master_config_path, "w", encoding="utf-8") as f:
         f.write("[mlflow]\n")
         f.write(f'tracking_uri = "{tracking_uri}"\n\n')
         f.write("[[datasets]]\n")
@@ -349,7 +349,7 @@ def test_run_assignment_sweep_with_mlflow(
     # 4. Create Master Experiment Config
     master_config_path = configs_dir / "experiments.toml"
     tracking_uri = build_sqlite_tracking_uri(tmp_path / "mlruns" / "mlflow.db")
-    with open(master_config_path, "w") as f:
+    with open(master_config_path, "w", encoding="utf-8") as f:
         f.write("[mlflow]\n")
         f.write(f'tracking_uri = "{tracking_uri}"\n\n')
         f.write("[[datasets]]\n")

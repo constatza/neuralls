@@ -351,7 +351,9 @@ def test_single_matrix_parameter_stream_manifest_is_stable(
 def _write_config(tmp_path: Path, dataset_id: str, body: str, output_body: str = "") -> Path:
     """Write a data config TOML whose id matches the requested dataset id."""
     config_path = tmp_path / f"{dataset_id}.toml"
-    config_path.write_text(f'id = "{dataset_id}"\n{body}\n[output]\n{output_body}\n')
+    config_path.write_text(
+        f'id = "{dataset_id}"\n{body}\n[output]\n{output_body}\n', encoding="utf-8"
+    )
     return config_path
 
 

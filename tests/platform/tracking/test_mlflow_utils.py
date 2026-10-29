@@ -297,7 +297,7 @@ def test_start_run_and_logging(dummy_mlflow: DummyMlflow, tmp_path: Path) -> Non
     assert run.info.run_id == f"{exp_id}:train"
 
     artifact = tmp_path / "artifact.txt"
-    artifact.write_text("ok")
+    artifact.write_text("ok", encoding="utf-8")
     log_artifacts(run, [artifact])
     log_metrics(run, {"loss": 1.0}, step=2)
 
@@ -425,7 +425,7 @@ def test_log_artifacts_to_mlflow_excludes_checkpoints(tmp_path: Path) -> None:
     for name in ("checkpoints", "figures", "metrics", "predictions", "config"):
         directory = workspace_root / name
         directory.mkdir(parents=True)
-        (directory / f"{name}.txt").write_text(name)
+        (directory / f"{name}.txt").write_text(name, encoding="utf-8")
 
     with patch("mlflow.tracking.MlflowClient") as mock_client_cls:
         client = mock_client_cls.return_value
@@ -446,7 +446,7 @@ def test_log_batch_artifacts_to_mlflow_uploads_only_existing_files(tmp_path: Pat
     """
     work_root = tmp_path / "work"
     work_root.mkdir()
-    (work_root / "batch_eval_labels.json").write_text("{}")
+    (work_root / "batch_eval_labels.json").write_text("{}", encoding="utf-8")
     # "batch_metric_mae.png" intentionally not created.
 
     with patch("mlflow.tracking.MlflowClient") as mock_client_cls:

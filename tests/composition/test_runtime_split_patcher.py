@@ -66,7 +66,7 @@ def fit_job() -> FitJobConfig:
 def pinned_dataset_dir(tmp_path: Path) -> Path:
     dataset_dir = tmp_path / "dataset"
     dataset_dir.mkdir()
-    (dataset_dir / SPLIT_FILENAME).write_text("{}")
+    (dataset_dir / SPLIT_FILENAME).write_text("{}", encoding="utf-8")
     return dataset_dir
 
 

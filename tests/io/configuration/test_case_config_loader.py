@@ -27,12 +27,12 @@ def temp_config_structure(tmp_path: Path) -> Path:
     (project_root / "configs" / "profiles").mkdir()
     matrix_path = project_root / "data" / "matrix.txt"
     matrix_path.parent.mkdir()
-    matrix_path.write_text("1.0\n")
+    matrix_path.write_text("1.0\n", encoding="utf-8")
     matrix2_path = project_root / "data" / "matrix2.txt"
-    matrix2_path.write_text("2.0\n")
+    matrix2_path.write_text("2.0\n", encoding="utf-8")
 
     # Case config uses [[assignments]] registry entries.
-    with open(project_root / "configs" / "experiments.toml", "w") as f:
+    with open(project_root / "configs" / "experiments.toml", "w", encoding="utf-8") as f:
         f.write("[[datasets]]\n")
         f.write('id = "exp1_data"\n')
         f.write('path = "datasets/exp1_data.toml"\n\n')
@@ -60,7 +60,7 @@ def temp_config_structure(tmp_path: Path) -> Path:
         f.write('job = "exp2_job"\n')
 
     # Dataset configs
-    with open(project_root / "configs" / "datasets" / "exp1_data.toml", "w") as f:
+    with open(project_root / "configs" / "datasets" / "exp1_data.toml", "w", encoding="utf-8") as f:
         f.write('id = "exp1_data"\n\n')
         f.write("[source]\n")
         f.write(f'matrix_path = "{matrix_path.as_posix()}"\n\n')
@@ -71,7 +71,7 @@ def temp_config_structure(tmp_path: Path) -> Path:
         f.write("[output]\n")
         f.write(f'data_dir = "{(project_root / "data" / "processed").as_posix()}"\n')
 
-    with open(project_root / "configs" / "datasets" / "exp2_data.toml", "w") as f:
+    with open(project_root / "configs" / "datasets" / "exp2_data.toml", "w", encoding="utf-8") as f:
         f.write('id = "exp2_data"\n\n')
         f.write("[source]\n")
         f.write(f'matrix_path = "{matrix2_path.as_posix()}"\n\n')
@@ -83,7 +83,7 @@ def temp_config_structure(tmp_path: Path) -> Path:
         f.write(f'data_dir = "{(project_root / "data" / "processed").as_posix()}"\n')
 
     # Job configs
-    with open(project_root / "configs" / "models" / "exp1_model.toml", "w") as f:
+    with open(project_root / "configs" / "models" / "exp1_model.toml", "w", encoding="utf-8") as f:
         f.write("[model]\n")
         f.write('name = "TestModel"\n')
         f.write("\n")
@@ -92,7 +92,7 @@ def temp_config_structure(tmp_path: Path) -> Path:
         f.write("[data.module]\n")
         f.write('name = "ArrayDataModule"\n')
 
-    with open(project_root / "configs" / "models" / "exp2_model.toml", "w") as f:
+    with open(project_root / "configs" / "models" / "exp2_model.toml", "w", encoding="utf-8") as f:
         f.write("[model]\n")
         f.write('name = "TestModel2"\n')
         f.write('module_path = "dlkit.domain.nn.graph"\n\n')
@@ -101,11 +101,11 @@ def temp_config_structure(tmp_path: Path) -> Path:
         f.write("[data.module]\n")
         f.write('name = "ArrayDataModule"\n')
 
-    with open(project_root / "configs" / "profiles" / "training.toml", "w") as f:
+    with open(project_root / "configs" / "profiles" / "training.toml", "w", encoding="utf-8") as f:
         f.write("[training.trainer]\n")
         f.write("max_epochs = 1\n")
 
-    with open(project_root / "configs" / "jobs" / "exp1_job.toml", "w") as f:
+    with open(project_root / "configs" / "jobs" / "exp1_job.toml", "w", encoding="utf-8") as f:
         f.write("[run]\n")
         f.write('type = "train"\n')
         f.write("seed = 42\n")
@@ -116,7 +116,7 @@ def temp_config_structure(tmp_path: Path) -> Path:
         f.write("[experiment]\n")
         f.write('name = "exp1_job"\n')
 
-    with open(project_root / "configs" / "jobs" / "exp2_job.toml", "w") as f:
+    with open(project_root / "configs" / "jobs" / "exp2_job.toml", "w", encoding="utf-8") as f:
         f.write("[run]\n")
         f.write('type = "train"\n')
         f.write("seed = 42\n")
@@ -177,7 +177,7 @@ def test_load_assignments_missing_registry_id(
     monkeypatch.chdir(temp_config_structure)
 
     # Create experiments.toml with reference to non-existent dataset
-    with open(temp_config_structure / "configs" / "experiments.toml", "w") as f:
+    with open(temp_config_structure / "configs" / "experiments.toml", "w", encoding="utf-8") as f:
         f.write("[[jobs]]\n")
         f.write('id = "exp1_job"\n')
         f.write('path = "jobs/exp1_job.toml"\n\n')
@@ -198,7 +198,7 @@ def test_load_assignments_rejects_unknown_comparison_assignment_filter(
 ) -> None:
     """Comparison assignments filter cannot reference ids missing from [[assignments]]."""
     monkeypatch.chdir(temp_config_structure)
-    with open(temp_config_structure / "configs" / "experiments.toml", "a") as f:
+    with open(temp_config_structure / "configs" / "experiments.toml", "a", encoding="utf-8") as f:
         f.write("\n[[datasets]]\n")
         f.write('id = "solutions"\n')
         f.write('path = "datasets/exp1_data.toml"\n\n')
@@ -224,7 +224,7 @@ def test_load_assignments_no_assignments(
     monkeypatch.chdir(temp_config_structure)
 
     # Create empty experiments.toml
-    with open(temp_config_structure / "configs" / "experiments.toml", "w") as f:
+    with open(temp_config_structure / "configs" / "experiments.toml", "w", encoding="utf-8") as f:
         f.write("")
 
     with pytest.raises(ValueError):
@@ -239,7 +239,7 @@ def test_case_config_rejects_legacy_models_table(
     """Case configs must use [[jobs]] instead of the removed [[models]] table."""
     monkeypatch.chdir(temp_config_structure)
 
-    with open(temp_config_structure / "configs" / "experiments.toml", "w") as f:
+    with open(temp_config_structure / "configs" / "experiments.toml", "w", encoding="utf-8") as f:
         f.write("[[models]]\n")
         f.write('id = "legacy-model"\n')
         f.write('path = "models/legacy.toml"\n')

@@ -93,13 +93,13 @@ def test_toml_digest_ignores_comments_whitespace_and_order(
 
 def test_toml_digest_changes_on_value_change(simple_toml: Path) -> None:
     before = toml_digest(simple_toml)
-    simple_toml.write_text("x = 2\n")
+    simple_toml.write_text("x = 2\n", encoding="utf-8")
     assert toml_digest(simple_toml) != before
 
 
 def test_toml_digest_follows_referenced_toml(toml_main: Path) -> None:
     before = toml_digest(toml_main)
-    (toml_main.parent / "child.toml").write_text('lr = 0.2\nname = "child"\n')
+    (toml_main.parent / "child.toml").write_text('lr = 0.2\nname = "child"\n', encoding="utf-8")
     assert toml_digest(toml_main) != before
 
 
@@ -135,9 +135,9 @@ def test_input_none_stays_none() -> None:
 
 def test_input_config_hashed_semantically(toml_main: Path) -> None:
     before = canonical_digest(InputModel(config=toml_main))
-    toml_main.write_text('epochs = 3\n\nprofile = "child.toml"  # moved\n')
+    toml_main.write_text('epochs = 3\n\nprofile = "child.toml"  # moved\n', encoding="utf-8")
     assert canonical_digest(InputModel(config=toml_main)) == before
-    toml_main.write_text('profile = "child.toml"\nepochs = 4\n')
+    toml_main.write_text('profile = "child.toml"\nepochs = 4\n', encoding="utf-8")
     assert canonical_digest(InputModel(config=toml_main)) != before
 
 

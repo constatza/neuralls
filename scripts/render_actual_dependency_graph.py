@@ -163,7 +163,7 @@ def main() -> int:
     if len(sys.argv) == 5 and sys.argv[4]:
         context_modules = [item.strip() for item in sys.argv[4].split(",") if item.strip()]
 
-    dep_map = json.loads(input_path.read_text())
+    dep_map = json.loads(input_path.read_text(encoding="utf-8"))
     modules = _all_modules(dep_map)
     direct_children = _direct_children(modules, root_module)
     edges = _build_edges(
@@ -178,7 +178,8 @@ def main() -> int:
             direct_children=direct_children,
             context_modules=context_modules,
             edges=edges,
-        )
+        ),
+        encoding="utf-8",
     )
     return 0
 

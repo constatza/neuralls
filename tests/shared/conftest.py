@@ -92,17 +92,17 @@ def dir_b(tmp_path: Path, tree_files: dict[str, bytes], write_tree: WriteTree) -
 @pytest.fixture
 def toml_main(tmp_path: Path) -> Path:
     """Main TOML file referencing a sibling TOML by relative name."""
-    (tmp_path / "child.toml").write_text('lr = 0.1\nname = "child"\n')
+    (tmp_path / "child.toml").write_text('lr = 0.1\nname = "child"\n', encoding="utf-8")
     main = tmp_path / "main.toml"
-    main.write_text('# comment\nprofile = "child.toml"\nepochs = 3\n')
+    main.write_text('# comment\nprofile = "child.toml"\nepochs = 3\n', encoding="utf-8")
     return main
 
 
 @pytest.fixture
 def toml_cycle(tmp_path: Path) -> Path:
     """Two TOML files referencing each other."""
-    (tmp_path / "x.toml").write_text('next = "y.toml"\n')
-    (tmp_path / "y.toml").write_text('next = "x.toml"\n')
+    (tmp_path / "x.toml").write_text('next = "y.toml"\n', encoding="utf-8")
+    (tmp_path / "y.toml").write_text('next = "x.toml"\n', encoding="utf-8")
     return tmp_path / "x.toml"
 
 
@@ -110,7 +110,7 @@ def toml_cycle(tmp_path: Path) -> Path:
 def simple_toml(tmp_path: Path) -> Path:
     """Small standalone TOML file."""
     path = tmp_path / "simple.toml"
-    path.write_text("x = 1\n")
+    path.write_text("x = 1\n", encoding="utf-8")
     return path
 
 
@@ -119,8 +119,8 @@ def toml_pair(tmp_path: Path) -> tuple[Path, Path]:
     """Two TOML files with equal meaning but different comments, spacing and order."""
     first = tmp_path / "a.toml"
     second = tmp_path / "b.toml"
-    first.write_text("x = 1\ny = [1, 2]\n[t]\nk = 'v'\n")
-    second.write_text("# hello\ny = [ 1,2 ]  # c\nx=1\n\n\n[t]\nk   =   'v'\n")
+    first.write_text("x = 1\ny = [1, 2]\n[t]\nk = 'v'\n", encoding="utf-8")
+    second.write_text("# hello\ny = [ 1,2 ]  # c\nx=1\n\n\n[t]\nk   =   'v'\n", encoding="utf-8")
     return first, second
 
 

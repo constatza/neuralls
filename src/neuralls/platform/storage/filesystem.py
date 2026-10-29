@@ -256,7 +256,7 @@ def save_text_file(content: str, path: str | Path) -> None:
     """
     path = Path(path)
     ensure_dir(path.parent)
-    path.write_text(content)
+    path.write_text(content, encoding="utf-8")
 
 
 def load_text_file(path: str | Path) -> str:
@@ -270,4 +270,4 @@ def load_text_file(path: str | Path) -> str:
     Returns:
         Text content
     """
-    return Path(path).read_text()
+    return Path(path).read_text(encoding="utf-8")

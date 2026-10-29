@@ -215,7 +215,7 @@ def test_dlkit_inference_predictor_reports_unsupported_result_type(
 @pytest.fixture
 def checkpoint_path(tmp_path: Path) -> Path:
     checkpoint = tmp_path / "model.ckpt"
-    checkpoint.write_text("checkpoint")
+    checkpoint.write_text("checkpoint", encoding="utf-8")
     return checkpoint
 
 

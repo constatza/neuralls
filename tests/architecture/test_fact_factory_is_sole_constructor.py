@@ -18,7 +18,7 @@ def test_production_code_builds_facts_only_through_the_catalog_factory() -> None
     for source in package.rglob("*.py"):
         if source in allowed:
             continue
-        for node in ast.walk(ast.parse(source.read_text())):
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Name)

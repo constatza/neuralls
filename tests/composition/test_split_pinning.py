@@ -41,7 +41,7 @@ def test_single_matrix_delegates_to_ratio_split_strategy(
     expected = RatioSplitStrategy(
         num_samples=len(single_matrix_index), test_ratio=0.2, val_ratio=0.2, seed=_CFG.seed
     ).split()
-    actual = json.loads(split_path.read_text())
+    actual = json.loads(split_path.read_text(encoding="utf-8"))
     assert sorted(actual["train"]) == sorted(expected.train)
     assert sorted(actual["validation"]) == sorted(expected.validation)
     assert sorted(actual["test"]) == sorted(expected.test)
@@ -52,11 +52,11 @@ def test_many_matrix_keeps_each_matrixs_rows_together(
 ) -> None:
     _bind(monkeypatch, many_matrix_index)
 
-    actual = json.loads(pin_dataset_split(tmp_path, _CFG).read_text())
+    actual = json.loads(pin_dataset_split(tmp_path, _CFG).read_text(encoding="utf-8"))
 
     fold_by_row = {
         row: fold for fold in ("train", "validation", "test") for row in actual[fold]
-    } | {row: "predict" for row in actual.get("predict") or []}
+    } | dict.fromkeys(actual.get("predict") or [], "predict")
     for matrix_id in np.unique(many_matrix_index):
         rows = np.flatnonzero(many_matrix_index == matrix_id)
         assert len({fold_by_row[int(row)] for row in rows}) == 1

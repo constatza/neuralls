@@ -161,7 +161,7 @@ def test_label_map_includes_every_result_regardless_of_metric_presence(
         del tracking_uri, run_id
         assert "batch_training_labels.json" in flat_files
         captured_label_map.update(
-            json.loads((work_root / "batch_training_labels.json").read_text())
+            json.loads((work_root / "batch_training_labels.json").read_text(encoding="utf-8"))
         )
 
     with (

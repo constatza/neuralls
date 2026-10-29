@@ -26,23 +26,25 @@ def temp_config_structure(tmp_path: Path) -> Path:
     (project_root / "configs" / "models").mkdir()
     (project_root / "configs" / "profiles").mkdir()
 
-    with open(project_root / "configs" / "models" / "exp1_model.toml", "w") as f:
+    with open(project_root / "configs" / "models" / "exp1_model.toml", "w", encoding="utf-8") as f:
         f.write(
             '[model]\nname = "TestModel"\n\n[data]\nname = "FlexibleDataset"\nbatch_size = 2\n\n[data.module]\nname = "ArrayDataModule"'
         )
 
-    with open(project_root / "configs" / "profiles" / "training.toml", "w") as f:
+    with open(project_root / "configs" / "profiles" / "training.toml", "w", encoding="utf-8") as f:
         f.write("[training.trainer]\nmax_epochs = 1")
 
-    with open(project_root / "configs" / "jobs" / "exp1_job.toml", "w") as f:
+    with open(project_root / "configs" / "jobs" / "exp1_job.toml", "w", encoding="utf-8") as f:
         f.write(
             '[run]\ntype = "train"\nseed = 42\nmodel = "../models/exp1_model.toml"\ndata = "../models/exp1_model.toml"\ntraining = "../profiles/training.toml"\n\n[experiment]\nname = "exp1_job"'
         )
 
     # Dataset configs
-    with open(project_root / "configs" / "datasets" / "exp1_data.toml", "w") as f:
+    with open(project_root / "configs" / "datasets" / "exp1_data.toml", "w", encoding="utf-8") as f:
         f.write('id="exp1_data_dataset"\n[source]\nmatrix_path="matrix.txt"\n')
-    with open(project_root / "configs" / "datasets" / "default_data.toml", "w") as f:
+    with open(
+        project_root / "configs" / "datasets" / "default_data.toml", "w", encoding="utf-8"
+    ) as f:
         f.write('id="default_data_dataset"\n[source]\nmatrix_path="matrix.txt"\n')
 
     return project_root

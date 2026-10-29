@@ -63,8 +63,8 @@ def test_render_dataset_toml_matches_committed_gaussian_residuals_file(
         strategy_comment=None,
         output={"data_dir": "${NEURALLS_PROCESSED_DIR}"},
     )
-    assert (
-        content == (rectangular_high_condition_golden_dir / "gaussian-cg50-1000.toml").read_text()
+    assert content == (rectangular_high_condition_golden_dir / "gaussian-cg50-1000.toml").read_text(
+        encoding="utf-8"
     )
 
 
@@ -91,7 +91,9 @@ def test_render_dataset_toml_matches_committed_gaussian_forward_file(
         strategy_comment=comment,
         output={"data_dir": "${NEURALLS_PROCESSED_DIR}"},
     )
-    assert content == (rectangular_high_condition_golden_dir / "gaussian-cg0-1000.toml").read_text()
+    assert content == (rectangular_high_condition_golden_dir / "gaussian-cg0-1000.toml").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_find_swept_field_rejects_no_list_valued_field(dataset_sweep_module: ModuleType) -> None:
@@ -144,12 +146,12 @@ def test_expand_sweep_writes_one_file_per_value(
         spec, output_dir=tmp_path, filename_stem="gaussian-cg50"
     )
     assert [p.name for p in written] == ["gaussian-cg50-1000.toml", "gaussian-cg50-5000.toml"]
-    assert (tmp_path / "gaussian-cg50-1000.toml").read_text() == (
+    assert (tmp_path / "gaussian-cg50-1000.toml").read_text(encoding="utf-8") == (
         rectangular_high_condition_golden_dir / "gaussian-cg50-1000.toml"
-    ).read_text()
-    assert (tmp_path / "gaussian-cg50-5000.toml").read_text() == (
+    ).read_text(encoding="utf-8")
+    assert (tmp_path / "gaussian-cg50-5000.toml").read_text(encoding="utf-8") == (
         rectangular_high_condition_golden_dir / "gaussian-cg50-5000.toml"
-    ).read_text()
+    ).read_text(encoding="utf-8")
 
 
 def test_expand_sweep_id_template_places_value_mid_id(
@@ -176,8 +178,12 @@ def test_expand_sweep_id_template_places_value_mid_id(
     written = dataset_sweep_module.expand_sweep(spec, output_dir=tmp_path, filename_stem="unused")
 
     assert [p.name for p in written] == ["gaussian-cg10.toml", "gaussian-cg50.toml"]
-    assert 'id = "gaussian-cg10-45x15"' in (tmp_path / "gaussian-cg10.toml").read_text()
-    assert 'id = "gaussian-cg50-45x15"' in (tmp_path / "gaussian-cg50.toml").read_text()
+    assert 'id = "gaussian-cg10-45x15"' in (tmp_path / "gaussian-cg10.toml").read_text(
+        encoding="utf-8"
+    )
+    assert 'id = "gaussian-cg50-45x15"' in (tmp_path / "gaussian-cg50.toml").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_expand_sweep_is_generic_across_an_unknown_strategy_and_extra_source_fields(
@@ -205,7 +211,7 @@ def test_expand_sweep_is_generic_across_an_unknown_strategy_and_extra_source_fie
         "output": {"data_dir": "${NEURALLS_PROCESSED_DIR}"},
     }
     written = dataset_sweep_module.expand_sweep(spec, output_dir=tmp_path, filename_stem="made-up")
-    first = (tmp_path / "made-up-5.toml").read_text()
+    first = (tmp_path / "made-up-5.toml").read_text(encoding="utf-8")
     assert 'id = "made-up-dataset-5"' in first
     assert 'rhs_path = "${NEURALLS_RAW_DIR}/rhs/made-up.txt"' in first
     assert 'name = "totally_new_strategy"' in first
@@ -276,8 +282,12 @@ def test_expand_all_writes_each_sweep_files_outputs_under_its_own_generated_dir(
     assert (case_a_generated / "gaussian-cg-50.toml").exists()
     assert (case_b_generated / "gaussian-cg-10.toml").exists()
     assert (case_b_generated / "gaussian-cg-50.toml").exists()
-    assert 'id = "case-a-gaussian-10"' in (case_a_generated / "gaussian-cg-10.toml").read_text()
-    assert 'id = "case-b-gaussian-50"' in (case_b_generated / "gaussian-cg-50.toml").read_text()
+    assert 'id = "case-a-gaussian-10"' in (case_a_generated / "gaussian-cg-10.toml").read_text(
+        encoding="utf-8"
+    )
+    assert 'id = "case-b-gaussian-50"' in (case_b_generated / "gaussian-cg-50.toml").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_expand_all_honors_custom_generated_subdir_name(

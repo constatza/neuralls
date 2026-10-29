@@ -146,7 +146,7 @@ def test_resolve_preconditioner_models_sets_resolved_checkpoint(
 ) -> None:
     """Neural specs receive resolved_checkpoint_path from resolver."""
     checkpoint = tmp_path / "resolved.ckpt"
-    checkpoint.write_text("checkpoint")
+    checkpoint.write_text("checkpoint", encoding="utf-8")
     mock_resolve_model_ref.return_value = ModelResolution(
         model_uri="runs:/run-1/model",
         run_id="run-1",
@@ -179,7 +179,7 @@ def test_resolve_preconditioner_models_keeps_explicit_checkpoint(
 ) -> None:
     """Neural specs with explicit checkpoint_path bypass model_ref resolution."""
     checkpoint = tmp_path / "explicit.ckpt"
-    checkpoint.write_text("checkpoint")
+    checkpoint.write_text("checkpoint", encoding="utf-8")
     neural = NeuralPreconditionerConfig(
         type=PreconditionerType.NEURAL,
         checkpoint_path=checkpoint,
@@ -575,7 +575,7 @@ def test_resolve_registered_ref_latest_picks_highest_version(
     )
 
     assert resolution.run_id == run_a
-    assert resolution.checkpoint_path.read_text() == "marker-a"
+    assert resolution.checkpoint_path.read_text(encoding="utf-8") == "marker-a"
 
 
 def test_resolve_logged_ref_latest_picks_most_recently_started_run(
@@ -607,7 +607,7 @@ def test_resolve_logged_ref_latest_picks_most_recently_started_run(
     )
 
     assert resolution.run_id == run_new
-    assert resolution.checkpoint_path.read_text() == "marker-new"
+    assert resolution.checkpoint_path.read_text(encoding="utf-8") == "marker-new"
 
 
 def test_resolve_preconditioner_models_with_warnings_skips_unresolved_and_continues(
@@ -730,7 +730,7 @@ def test_resolve_registered_ref_uses_pinned_checkpoint_without_rescanning(
     client = MlflowClient(tracking_uri=mlflow_tracking_uri)
     ambiguous_best = tmp_path / "nested" / "best.ckpt"
     ambiguous_best.parent.mkdir(parents=True)
-    ambiguous_best.write_text("ambiguous-best-content")
+    ambiguous_best.write_text("ambiguous-best-content", encoding="utf-8")
     client.log_artifact(run_id, str(ambiguous_best), artifact_path="checkpoints/nested")
 
     spec = NeuralPreconditionerConfig(
@@ -745,7 +745,7 @@ def test_resolve_registered_ref_uses_pinned_checkpoint_without_rescanning(
     )
 
     assert resolution.checkpoint_path.name == "best.ckpt"
-    assert resolution.checkpoint_path.read_text() == "best-content"
+    assert resolution.checkpoint_path.read_text(encoding="utf-8") == "best-content"
 
 
 def test_resolve_registered_ref_without_pinned_tag_is_rejected(
@@ -811,7 +811,10 @@ def test_resolve_preconditioner_models_resolves_neural_pod_coarsening_ref(
     resolved_coarsening = resolved_spec.coarsening
     assert isinstance(resolved_coarsening, NeuralPODCoarseningConfig)
     assert resolved_coarsening.resolved_checkpoint_path is not None
-    assert resolved_coarsening.resolved_checkpoint_path.read_text() == "marker-neural-pod"
+    assert (
+        resolved_coarsening.resolved_checkpoint_path.read_text(encoding="utf-8")
+        == "marker-neural-pod"
+    )
 
 
 def test_resolve_preconditioner_models_resolves_neural_amg_prolongation_and_restriction(
@@ -844,8 +847,14 @@ def test_resolve_preconditioner_models_resolves_neural_amg_prolongation_and_rest
     assert resolved_spec.restriction is not None
     assert resolved_spec.restriction.resolved_checkpoint_path is not None
     assert resolved_spec.prolongation.resolved_checkpoint_path is not None
-    assert resolved_spec.prolongation.resolved_checkpoint_path.read_text() == "marker-prolongation"
-    assert resolved_spec.restriction.resolved_checkpoint_path.read_text() == "marker-restriction"
+    assert (
+        resolved_spec.prolongation.resolved_checkpoint_path.read_text(encoding="utf-8")
+        == "marker-prolongation"
+    )
+    assert (
+        resolved_spec.restriction.resolved_checkpoint_path.read_text(encoding="utf-8")
+        == "marker-restriction"
+    )
     assert (
         resolved_spec.prolongation.resolved_checkpoint_path
         != resolved_spec.restriction.resolved_checkpoint_path

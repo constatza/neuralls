@@ -63,11 +63,15 @@ def write_job(tmp_path: Path) -> JobWriter:
         base = root or tmp_path / "case"
         (base / "jobs").mkdir(parents=True, exist_ok=True)
         (base / "profiles").mkdir(parents=True, exist_ok=True)
-        (base / "profiles" / "data.toml").write_text(_PROFILE.format(batch_size=batch_size))
+        (base / "profiles" / "data.toml").write_text(
+            _PROFILE.format(batch_size=batch_size), encoding="utf-8"
+        )
         experiment = f'[experiment]\nname = "{experiment_name}"\n' if experiment_name else ""
         job = base / "jobs" / "job.toml"
         job.write_text(
-            comment + _JOB.format(profile="../profiles/data.toml", experiment=experiment, rank=rank)
+            comment
+            + _JOB.format(profile="../profiles/data.toml", experiment=experiment, rank=rank),
+            encoding="utf-8",
         )
         return job
 

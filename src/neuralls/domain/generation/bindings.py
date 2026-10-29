@@ -52,9 +52,7 @@ def bind_sources(
 
     if len(matrix_set) == 1:
         matrix_sample_id = next(iter(matrix_set))
-        candidate_ids = (
-            rhs_set if rhs_set else (solution_set if solution_set else {matrix_sample_id})
-        )
+        candidate_ids = rhs_set or (solution_set or {matrix_sample_id})
         bound_ids = sorted(candidate_ids)
         return [
             _binding(sample_id, matrix_sample_id, rhs_set, solution_set, len(param_sets))

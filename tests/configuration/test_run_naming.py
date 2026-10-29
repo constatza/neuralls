@@ -25,7 +25,8 @@ name = "{dataset_name}"
 
 [data.module]
 name = "ArrayDataModule"
-"""
+""",
+        encoding="utf-8",
     )
     return path
 
@@ -51,7 +52,8 @@ max_epochs = 1
 [training.optimizer.default_optimizer]
 name = "AdamW"
 lr = 1e-3{experiment_block}
-"""
+""",
+        encoding="utf-8",
     )
     return path
 
@@ -95,7 +97,8 @@ matrix_path = "{matrix_path.as_posix()}"
 
 [generation]
 normalize = "matrix"
-"""
+""",
+        encoding="utf-8",
     )
     return config_path
 
@@ -221,7 +224,8 @@ name = "FlexibleDataset"
 
 [data.module]
 name = "ArrayDataModule"
-"""
+""",
+            encoding="utf-8",
         )
         bad_config = _write_job_config(
             tmp_path / "bad-model.toml",

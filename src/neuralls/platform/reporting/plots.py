@@ -818,7 +818,7 @@ def group_series_styles(
         dict[str, dict[str, Any]]: Name -> style with ``marker``, ``linestyle``,
         ``color`` and ``markersize_scale``.
     """
-    effective_families = families if families else {name: name for name in names}
+    effective_families = families or {name: name for name in names}
     return _resolve_styles(effective_families, color_keys, marker_keys)
 
 

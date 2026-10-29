@@ -226,7 +226,7 @@ def log_run_with_checkpoint(
         start_time_ms: int | None = None,
     ) -> str:
         checkpoint_file = tmp_path / f"{marker}.ckpt"
-        checkpoint_file.write_text(marker)
+        checkpoint_file.write_text(marker, encoding="utf-8")
         if start_time_ms is not None:
             created = client.create_run(
                 experiment_id=experiment.experiment_id,
@@ -280,7 +280,7 @@ def log_run_with_named_checkpoints(
             run_dir.mkdir(parents=True, exist_ok=True)
             for name, content in checkpoints.items():
                 checkpoint_file = run_dir / name
-                checkpoint_file.write_text(content)
+                checkpoint_file.write_text(content, encoding="utf-8")
                 mlflow.log_artifact(str(checkpoint_file), artifact_path="checkpoints")
             return run.info.run_id
 

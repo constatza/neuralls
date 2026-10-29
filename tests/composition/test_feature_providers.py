@@ -41,7 +41,9 @@ def no_params_arrays(tmp_path: Path) -> TrainingArrays:
     for name in ("rhs.zarr", "solutions.zarr", "matrix.zarr"):
         store = tmp_path / name
         store.mkdir()
-        (store / "zarr.json").write_text('{"zarr_format": 3, "node_type": "array"}')
+        (store / "zarr.json").write_text(
+            '{"zarr_format": 3, "node_type": "array"}', encoding="utf-8"
+        )
     return TrainingArrays(
         rhs_source=ZarrArraySource(path=tmp_path / "rhs.zarr"),
         solutions_source=ZarrArraySource(path=tmp_path / "solutions.zarr"),
@@ -58,10 +60,14 @@ def one_param_arrays(tmp_path: Path) -> TrainingArrays:
     for name in ("rhs.zarr", "solutions.zarr", "matrix.zarr"):
         store = tmp_path / name
         store.mkdir()
-        (store / "zarr.json").write_text('{"zarr_format": 3, "node_type": "array"}')
+        (store / "zarr.json").write_text(
+            '{"zarr_format": 3, "node_type": "array"}', encoding="utf-8"
+        )
     params_path = tmp_path / f"{PARAMETERS_ZARR_PREFIX}0.zarr"
     params_path.mkdir()
-    (params_path / "zarr.json").write_text('{"zarr_format": 3, "node_type": "array"}')
+    (params_path / "zarr.json").write_text(
+        '{"zarr_format": 3, "node_type": "array"}', encoding="utf-8"
+    )
     return TrainingArrays(
         rhs_source=ZarrArraySource(path=tmp_path / "rhs.zarr"),
         solutions_source=ZarrArraySource(path=tmp_path / "solutions.zarr"),
@@ -78,12 +84,14 @@ def two_param_arrays(tmp_path: Path) -> TrainingArrays:
     for name in ("rhs.zarr", "solutions.zarr", "matrix.zarr"):
         store = tmp_path / name
         store.mkdir()
-        (store / "zarr.json").write_text('{"zarr_format": 3, "node_type": "array"}')
+        (store / "zarr.json").write_text(
+            '{"zarr_format": 3, "node_type": "array"}', encoding="utf-8"
+        )
     paths = []
     for i in range(2):
         p = tmp_path / f"{PARAMETERS_ZARR_PREFIX}{i}.zarr"
         p.mkdir()
-        (p / "zarr.json").write_text('{"zarr_format": 3, "node_type": "array"}')
+        (p / "zarr.json").write_text('{"zarr_format": 3, "node_type": "array"}', encoding="utf-8")
         paths.append(p)
     return TrainingArrays(
         rhs_source=ZarrArraySource(path=tmp_path / "rhs.zarr"),

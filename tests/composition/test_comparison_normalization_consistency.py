@@ -119,9 +119,9 @@ def test_normalize_system_mismatch_raises(tmp_path: Path) -> None:
     """A stale dataset with an unsupported persisted normalization type must raise."""
     dataset_dir = _build_normalized_dataset(tmp_path)
     manifest_path = dataset_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["normalization"]["type"] = "diagonal"
-    manifest_path.write_text(json.dumps(manifest))
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     resolved = resolve_comparison_input(
         matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),

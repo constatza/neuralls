@@ -14,7 +14,7 @@ def test_package_imports_standard_library_only() -> None:
     )
     stdlib_names = set(sys.stdlib_module_names) | {"neuralls"}
     for source_file in package_dir.glob("*.py"):
-        tree = ast.parse(source_file.read_text(), filename=str(source_file))
+        tree = ast.parse(source_file.read_text(encoding="utf-8"), filename=str(source_file))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 names = [alias.name.split(".")[0] for alias in node.names]

@@ -46,7 +46,8 @@ def test_settings_env_var_overrides_env_file(
         monkeypatch.delenv(key, raising=False)
     env_file = tmp_path / "custom.env"
     env_file.write_text(
-        "NEURALLS_PROCESSED_DIR=/custom/processed\nNEURALLS_OUTPUT_DIR=/custom/output\n"
+        "NEURALLS_PROCESSED_DIR=/custom/processed\nNEURALLS_OUTPUT_DIR=/custom/output\n",
+        encoding="utf-8",
     )
     monkeypatch.setenv("NEURALLS_OUTPUT_DIR", str(tmp_path / "override-output"))
 
@@ -63,7 +64,8 @@ def test_settings_custom_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.delenv(ENV_FILE_ENV_VAR, raising=False)
     env_file = tmp_path / "custom.env"
     env_file.write_text(
-        "NEURALLS_PROCESSED_DIR=/custom/processed\nNEURALLS_OUTPUT_DIR=/custom/output\n"
+        "NEURALLS_PROCESSED_DIR=/custom/processed\nNEURALLS_OUTPUT_DIR=/custom/output\n",
+        encoding="utf-8",
     )
 
     settings = get_settings(env_file)
@@ -79,7 +81,8 @@ def test_settings_uses_neuralls_env_file_env_var(
     """NEURALLS_ENV_FILE is consulted only when env_file is absent."""
     env_file = tmp_path / "custom.env"
     env_file.write_text(
-        "NEURALLS_PROCESSED_DIR=/custom/processed\nNEURALLS_OUTPUT_DIR=/custom/output\n"
+        "NEURALLS_PROCESSED_DIR=/custom/processed\nNEURALLS_OUTPUT_DIR=/custom/output\n",
+        encoding="utf-8",
     )
     for key in ("NEURALLS_PROCESSED_DIR", "NEURALLS_OUTPUT_DIR"):
         monkeypatch.delenv(key, raising=False)

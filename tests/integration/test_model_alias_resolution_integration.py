@@ -79,7 +79,7 @@ def test_registered_alias_resolution_with_local_sqlite_tracking(tmp_path: Path) 
     mlflow.set_experiment(experiment_name)
 
     checkpoint_file = tmp_path / "dummy.ckpt"
-    checkpoint_file.write_text("dummy-checkpoint")
+    checkpoint_file.write_text("dummy-checkpoint", encoding="utf-8")
     model_code = _write_identity_model(tmp_path / "identity_model.py")
 
     with mlflow.start_run(run_name="tiny-model-run") as run:
@@ -143,7 +143,7 @@ def test_experiment_id_registration_resolves_via_latest(tmp_path: Path) -> None:
     mlflow.set_experiment(experiment_name)
 
     checkpoint_file = tmp_path / "model.ckpt"
-    checkpoint_file.write_text("dummy-checkpoint")
+    checkpoint_file.write_text("dummy-checkpoint", encoding="utf-8")
     model_code = _write_identity_model(tmp_path / "identity_model.py")
 
     with mlflow.start_run(run_name="experiment-id-run") as run:
@@ -202,7 +202,7 @@ def test_two_experiments_same_dataset_no_alias_collision(tmp_path: Path) -> None
 
     model_code = _write_identity_model(tmp_path / "identity_model.py")
     checkpoint_file = tmp_path / "model.ckpt"
-    checkpoint_file.write_text("dummy-checkpoint")
+    checkpoint_file.write_text("dummy-checkpoint", encoding="utf-8")
 
     run_ids: list[str] = []
     for run_name in ("run-linear", "run-linear-normalized"):

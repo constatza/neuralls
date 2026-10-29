@@ -52,7 +52,7 @@ def solution_txt(tmp_path: Path) -> Path:
 def unsized_solution(tmp_path: Path) -> Path:
     """A solution file in a format whose row count is not read cheaply."""
     path = tmp_path / "solutions.csv"
-    path.write_text("1.0,2.0,3.0\n4.0,5.0,6.0\n")
+    path.write_text("1.0,2.0,3.0\n4.0,5.0,6.0\n", encoding="utf-8")
     return path
 
 
