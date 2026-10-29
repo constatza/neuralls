@@ -23,7 +23,7 @@ def test_source_config_matrix_path_glob_preserves_wildcard(
     config_context: ConfigContext,
 ) -> None:
     """matrix_path with a glob wildcard must survive validator expansion intact."""
-    glob_expr = str(Path("/workspace") / "A_*.txt")
+    glob_expr = str(Path("data") / "A_*.txt")
     config = SourceConfig.model_validate(
         {"matrix_path": glob_expr},
         context=config_context.as_pydantic_context(),

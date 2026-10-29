@@ -1,6 +1,6 @@
 # Comparison Failure Observability Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Preserve recoverable setup/solve failures as explicit benchmark outcomes while making every blocking comparison-workflow failure visible in the terminal and in the exact MLflow run where it occurred.
 
