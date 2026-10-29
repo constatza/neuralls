@@ -1,4 +1,3 @@
-import tomllib
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -164,20 +163,14 @@ def test_manifest_serializes_literal_population_and_solver_context(
     }
 
 
-def _manifest_payload(
-    tmp_path: Path, scope: RecipeScope, notation: NotationPolicy
-) -> dict[str, Any]:
+def _manifest_payload(scope: RecipeScope, notation: NotationPolicy) -> dict[str, Any]:
     manifest = FigureManifest()
     manifest.add("performance_profile_fine_x_online.png", _metadata(scope))
-    path = tmp_path / "figure_manifest.toml"
-    write_figure_manifest(path, manifest, notation)
-    return tomllib.loads(path.read_text(encoding="utf-8"))
+    return manifest.as_dict(notation)
 
 
-def test_written_manifest_passes_validation(
-    tmp_path: Path, scope: RecipeScope, notation: NotationPolicy
-) -> None:
-    validate_figure_manifest(_manifest_payload(tmp_path, scope, notation))
+def test_written_manifest_passes_validation(scope: RecipeScope, notation: NotationPolicy) -> None:
+    validate_figure_manifest(_manifest_payload(scope, notation))
 
 
 def test_manifest_without_figures_table_is_rejected() -> None:
@@ -186,18 +179,18 @@ def test_manifest_without_figures_table_is_rejected() -> None:
 
 
 def test_manifest_entry_missing_required_field_is_rejected(
-    tmp_path: Path, scope: RecipeScope, notation: NotationPolicy
+    scope: RecipeScope, notation: NotationPolicy
 ) -> None:
-    payload = _manifest_payload(tmp_path, scope, notation)
+    payload = _manifest_payload(scope, notation)
     del payload["figures"]["performance_profile_fine_x_online.png"]["solver_contexts"]
     with pytest.raises(InvalidFigureManifestError, match="solver_contexts"):
         validate_figure_manifest(payload)
 
 
 def test_manifest_scope_without_display_text_is_rejected(
-    tmp_path: Path, scope: RecipeScope, notation: NotationPolicy
+    scope: RecipeScope, notation: NotationPolicy
 ) -> None:
-    payload = _manifest_payload(tmp_path, scope, notation)
+    payload = _manifest_payload(scope, notation)
     del payload["figures"]["performance_profile_fine_x_online.png"]["scope"]["display"]
     with pytest.raises(InvalidFigureManifestError, match="scope"):
         validate_figure_manifest(payload)

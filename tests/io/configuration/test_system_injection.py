@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 import tomli_w
 
 from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
-
-pytestmark = pytest.mark.deferred_io("config-loading")
 
 
 def test_load_experiment_injects_mlflow_from_case_config(
