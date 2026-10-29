@@ -25,6 +25,14 @@ data_dir = "${NEURALLS_PROCESSED_DIR}"
 """
 
 
+@pytest.fixture(autouse=True)
+def materialized_roots(runtime_root: Path, processed_root: Path, output_root: Path) -> None:
+    """Create the roots and ``case.toml`` that the real loaders require to exist."""
+    for directory in (runtime_root / "raw", processed_root, output_root):
+        directory.mkdir(parents=True, exist_ok=True)
+    (runtime_root / "case.toml").touch()
+
+
 @pytest.fixture
 def sweep_dataset_dir(tmp_path: Path) -> Path:
     """Directory holding one `gaussian-cg.sweep.toml` (samples 10 and 20)."""

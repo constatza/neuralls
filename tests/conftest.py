@@ -236,10 +236,6 @@ def neuralls_settings(
     runtime_root: Path, processed_root: Path, output_root: Path
 ) -> NeurallsSettings:
     """Resolved settings fixture backed by per-test temporary roots."""
-    raw = runtime_root / "raw"
-    for directory in (raw, processed_root, output_root):
-        directory.mkdir(parents=True, exist_ok=True)
-    (runtime_root / "case.toml").touch()
     return NeurallsSettings(
         _env_file=[],
         processed_dir=processed_root,
@@ -250,9 +246,7 @@ def neuralls_settings(
 @pytest.fixture
 def config_context(neuralls_settings: NeurallsSettings, tmp_path: Path) -> ConfigContext:
     """Config context fixture anchored to a temporary config path."""
-    config_path = tmp_path / "config.toml"
-    config_path.touch()
-    return ConfigContext(config_path=config_path, settings=neuralls_settings)
+    return ConfigContext(config_path=tmp_path / "config.toml", settings=neuralls_settings)
 
 
 @pytest.fixture
