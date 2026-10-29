@@ -15,6 +15,7 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from tests.fakes.fit_data import FakeFitData
 
 
 class _FailingService:
@@ -104,7 +105,7 @@ def test_solver_stage_error_is_isolated(
     monkeypatch.setattr(comparison_run, "run_cg_comparison", boom)
     entry = _evaluate_preconditioner(
         identity_cfg,
-        service=comparison_run.PreconditionerService(),
+        service=comparison_run.PreconditionerService(FakeFitData()),
         matrix=system_matrix,
         rhs=system_rhs,
         matrix_path=MATRIX_PATH,

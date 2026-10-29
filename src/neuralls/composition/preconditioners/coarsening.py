@@ -39,10 +39,6 @@ from neuralls.platform.config.models.preconditioner import (
     TargetDimCoarseningConfig,
 )
 from neuralls.platform.dlkit.inference_adapter import create_inference_predictor
-from neuralls.platform.storage.dataset_readers import (
-    load_dense_training_arrays,
-    load_parameter_arrays,
-)
 
 if TYPE_CHECKING:
     from torchalg.preconditioners.implementations.amg.protocols import CoarseningStrategy
@@ -121,8 +117,6 @@ def _target_dim_coarsening(cfg: TargetDimCoarseningConfig) -> CoarseningStrategy
     )
 
 
-# TODO(urgent): Resolve snapshot/parameter arrays at the storage boundary and inject them here;
-# composition must not make POD builders accept, import, and dereference dataset paths.
 def _pod_coarsening(
     cfg: PODCoarseningConfig,
     matrix: torch.Tensor,
@@ -141,12 +135,16 @@ def _pod_coarsening(
         # composition/assignments/comparison_batch.py); the basis is loaded, not refit.
         return _load_fitted_pod_coarsening(ckpt, matrix, pod_cls, preloaded)
 
-    if staged_fit_data is None:
-        _, solutions = load_dense_training_arrays(cfg.dataset_dir)
-    elif len(staged_fit_data) == 2:
-        _, solutions = staged_fit_data
-    else:
-        raise ValueError("POD fit data must contain parameter and solution arrays")
+    match staged_fit_data:
+        case (_, solutions):
+            pass
+        case None:
+            raise ValueError(
+                f"POD fit data for dataset_dir={cfg.dataset_dir!r} was not staged; "
+                "PreconditionerService.preload stages it before the build is timed"
+            )
+        case _:
+            raise ValueError("POD fit data must contain parameter and solution arrays")
     if cfg.n_snapshots != -1:
         solutions = solutions[: cfg.n_snapshots]
     snapshots = torch.as_tensor(solutions, dtype=matrix.dtype, device=matrix.device)
@@ -174,9 +172,12 @@ def _neural_pod_coarsening(
         inference_predictor_factory or create_inference_predictor, preloaded
     )
 
-    param_arrays = (
-        load_parameter_arrays(cfg.dataset_dir) if staged_fit_data is None else staged_fit_data
-    )
+    if staged_fit_data is None:
+        raise ValueError(
+            f"Parameter arrays for dataset_dir={cfg.dataset_dir!r} were not staged; "
+            "PreconditionerService.preload stages them before the build is timed"
+        )
+    param_arrays = staged_fit_data
     input_names = cfg.input_names
     if len(input_names) != len(param_arrays):
         raise ValueError(

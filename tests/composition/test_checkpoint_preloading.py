@@ -40,6 +40,7 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.dlkit.predictor_adapter import OwningDLKitNeuralPreconditioner
 from neuralls.shared.timing import TimingRepeatPolicy
 from neuralls.shared.types import MatrixId
+from tests.fakes.fit_data import FakeFitData
 from tests.presentation_support import PreparedMethodFactory
 
 POD_RANK = 2
@@ -265,7 +266,7 @@ class OrderRecordingService:
     def __init__(self, preload_seconds: float = 0.0) -> None:
         self.events: list[str] = []
         self._preload_seconds = preload_seconds
-        self._inner = PreconditionerService()
+        self._inner = PreconditionerService(FakeFitData())
 
     def preload(self, matrix: torch.Tensor, config: StandardPreconditionerConfig) -> None:
         self.events.append("preload")
@@ -333,7 +334,7 @@ def test_matrix_dependent_builds_are_evicted_but_static_ones_and_checkpoints_sta
     matrix = torch.eye(3, dtype=torch.float64)
     for matrix_id in (first, second):
         view = scope.for_system(matrix_id)
-        service = PreconditionerService(checkpoints=scope.checkpoints)
+        service = PreconditionerService(FakeFitData(), checkpoints=scope.checkpoints)
         view.put(
             "jacobi",
             service.create_preconditioner(matrix, jacobi),

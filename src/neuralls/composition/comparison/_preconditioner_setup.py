@@ -15,6 +15,7 @@ from neuralls.composition.comparison.models import MatrixWorkload, PlannedSystem
 from neuralls.composition.preconditioners.checkpoint_store import NO_PRELOADED, CheckpointStore
 from neuralls.composition.preconditioners.descriptions import describe_realized_preconditioner
 from neuralls.composition.preconditioners.factory import create_preconditioner
+from neuralls.composition.preconditioners.ports import FitDataLoader
 from neuralls.composition.preconditioners.preloading import CheckpointLoaders, preload_checkpoints
 from neuralls.composition.preconditioners.schedule import (
     PreconditionerScheduleConfig,
@@ -26,10 +27,6 @@ from neuralls.platform.config.models.preconditioner import (
     NeuralPODCoarseningConfig,
     PODCoarseningConfig,
     PreconditionerConfig,
-)
-from neuralls.platform.storage.dataset_readers import (
-    load_dense_training_arrays,
-    load_parameter_arrays,
 )
 from neuralls.platform.storage.training_artifacts import (
     load_array_source_sample,
@@ -242,6 +239,8 @@ class PreconditionerService:
     """Service for creating preconditioners via the composition factory.
 
     Args:
+        fit_data: Where the arrays of an inline POD fit are read from; `preload` reads them
+            once per method so the timed build never touches the dataset.
         adapter: Optional adapter for neural preconditioners (dependency injection for testing).
         checkpoints: Where checkpoints are loaded ahead of a build (see `preload`).
             ``None`` means nothing is preloaded: every checkpoint is then read
@@ -249,8 +248,12 @@ class PreconditionerService:
     """
 
     def __init__(
-        self, adapter: PredictorAdapter | None = None, checkpoints: CheckpointStore | None = None
+        self,
+        fit_data: FitDataLoader,
+        adapter: PredictorAdapter | None = None,
+        checkpoints: CheckpointStore | None = None,
     ) -> None:
+        self._fit_data = fit_data
         self._adapter = adapter
         self._checkpoints = checkpoints
         self._staged_fit_data: dict[str, tuple[np.ndarray, ...]] = {}
@@ -281,14 +284,14 @@ class PreconditionerService:
             ):
                 if config.name not in self._staged_fit_data:
                     self._staged_fit_data[config.name] = tuple(
-                        load_dense_training_arrays(coarsening.dataset_dir)
+                        self._fit_data.dense(coarsening.dataset_dir)
                     )
             elif (
                 isinstance(coarsening, NeuralPODCoarseningConfig)
                 and config.name not in self._staged_fit_data
             ):
                 self._staged_fit_data[config.name] = tuple(
-                    load_parameter_arrays(coarsening.dataset_dir)
+                    self._fit_data.parameters(coarsening.dataset_dir)
                 )
 
     def create_preconditioner(

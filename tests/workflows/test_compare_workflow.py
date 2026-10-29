@@ -196,8 +196,8 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
             events.append(f"cleanup:{self.name}")
 
     class TrackedService:
-        def __init__(self, *, checkpoints: object) -> None:
-            del checkpoints
+        def __init__(self, fit_data: object, *, checkpoints: object) -> None:
+            del fit_data, checkpoints
 
         def preload(self, matrix: torch.Tensor, config: StandardPreconditionerConfig) -> None:
             """No checkpoints in this test's preconditioners."""

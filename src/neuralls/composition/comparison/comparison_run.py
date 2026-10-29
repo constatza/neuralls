@@ -38,6 +38,7 @@ from neuralls.composition.comparison.models import (
 )
 from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
 from neuralls.composition.preconditioners.checkpoint_store import CheckpointStore
+from neuralls.composition.preconditioners.default_services import FS_FIT_DATA
 from neuralls.domain.presentation.methods import (
     ExecutedMethod,
     PreparedComparisonPresentation,
@@ -613,7 +614,7 @@ def execute_method_workload(
     method_text = render_method_label(prepared.configured, notation)
 
     with CheckpointStore() as checkpoints:
-        service = PreconditionerService(checkpoints=checkpoints)
+        service = PreconditionerService(FS_FIT_DATA, checkpoints=checkpoints)
         for bundle in bundles:
             planned_list.extend(member.tag for member in bundle.members)
             _execute_matrix_bundle(
@@ -894,7 +895,7 @@ def compare_preconditioners(
     with contextlib.ExitStack() as stack:
         shared_store = cache.checkpoints if cache is not None else None
         store = shared_store if shared_store is not None else stack.enter_context(CheckpointStore())
-        service = PreconditionerService(checkpoints=store)
+        service = PreconditionerService(FS_FIT_DATA, checkpoints=store)
         evaluate_one = partial(
             _evaluate_preconditioner,
             service=service,

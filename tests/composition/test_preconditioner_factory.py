@@ -41,7 +41,6 @@ from neuralls.composition.preconditioners.schedule import (
     PreconditionerScheduleConfig,
     create_scheduled_preconditioner,
 )
-from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.inference_ports import InferencePredictorPort
 from neuralls.platform.config.models.preconditioner import (
     AdaptiveSAPreconditionerConfig,
@@ -57,7 +56,7 @@ from neuralls.platform.config.models.preconditioner import (
     parse_preconditioner_config,
 )
 from neuralls.platform.dlkit.predictor_adapter import OwningDLKitNeuralPreconditioner
-from tests.dataset_support import build_test_dataset
+from tests.fakes.fit_data import FakeFitData
 
 # ==============================================================================
 # Mock Predictor and Adapter for Neural Preconditioner Testing
@@ -192,84 +191,21 @@ def mock_checkpoint(tmp_path: Path) -> Path:
     return checkpoint
 
 
-@pytest.fixture
-def pod_snapshot_dataset_dir(tmp_path: Path, well_conditioned_matrix: torch.Tensor) -> Path:
-    """Streamed-generation dataset supplying POD-2G snapshot solutions for the 4x4 system.
-
-    Built through the same streamed writer as every other generation run, so the
-    manifest and digests match the canonical pipeline. Each stored row solves against
-    the stored matrix, which is the only property the POD fit relies on.
-    """
-    matrix_path = tmp_path / "matrix.npy"
-    np.save(matrix_path, well_conditioned_matrix.numpy())
-    dataset_dir = tmp_path / "pod-dataset"
-    build_test_dataset(
-        SourceSpec(matrix_path=str(matrix_path)),
-        DatasetSpec(
-            mixture=MixtureSpec(counts={"gaussian_forward": 4}, seed=0, shuffle=False),
-            normalize="none",
-        ),
-        str(dataset_dir),
-        dataset_format="hdf5",
-    )
-    return dataset_dir
+FIT_DIR = Path("pod-fit")
 
 
 @pytest.fixture
-def neural_pod_dataset_dir(tmp_path: Path, well_conditioned_matrix: torch.Tensor) -> Path:
-    """Minimal manifest-backed dataset dir supplying one `params` array.
-
-    Unlike `pod_snapshot_dataset_dir`, this dataset carries no meaningful
-    `solutions` — the neural POD-2G branch never reads solutions off disk,
-    it predicts the snapshot ensemble from `params` via a checkpoint. Uses
-    plain `npy` artifacts (not `zarr`) since local zarr stores can hang in
-    the sandboxed test environment. The array's on-disk artifact key is
-    irrelevant to the model call — `NeuralPODCoarseningConfig.input_names`
-    (not any dataset-side key) supplies the checkpoint's kwarg name(s).
-    """
-    from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
-    from neuralls.platform.storage.manifest_io import (
-        make_dataset_manifest,
-        save_dataset_manifest,
-    )
-
+def pod_fit_arrays(well_conditioned_matrix: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
+    """In-memory (rhs, solutions) fit arrays for the 4x4 system, as the service stages them."""
     n = well_conditioned_matrix.shape[0]
-    samples = 4
     rng = np.random.default_rng(0)
-    params = rng.standard_normal((samples, 2))
-
-    np.save(tmp_path / "matrix.npy", well_conditioned_matrix.numpy())
-    np.save(tmp_path / "rhs.npy", np.zeros((samples, n)))
-    np.save(tmp_path / "solutions.npy", np.zeros((samples, n)))
-    np.save(tmp_path / "params.npy", params)
-
-    save_dataset_manifest(
-        tmp_path,
-        make_dataset_manifest(
-            matrix=DatasetArtifact(path="matrix.npy", format="npy", dtype="float64", shape=(n, n)),
-            rhs=DatasetArtifact(path="rhs.npy", format="npy", dtype="float64", shape=(samples, n)),
-            solutions=DatasetArtifact(
-                path="solutions.npy", format="npy", dtype="float64", shape=(samples, n)
-            ),
-            normalization=DatasetNormalization(
-                type="none", matrix_norm=1.0, matrix_norm_type="fro", scale={}
-            ),
-            params=(
-                DatasetArtifact(
-                    path="params.npy",
-                    format="npy",
-                    dtype="float64",
-                    shape=(samples, 2),
-                ),
-            ),
-        ),
-    )
-    return tmp_path
+    return rng.standard_normal((4, n)), rng.standard_normal((4, n))
 
 
-# ==============================================================================
-# Factory Tests - Identity
-# ==============================================================================
+@pytest.fixture
+def parameter_arrays() -> tuple[np.ndarray, ...]:
+    """One in-memory `params` array of four samples with two columns."""
+    return (np.random.default_rng(0).standard_normal((4, 2)),)
 
 
 def test_factory_creates_identity_preconditioner(well_conditioned_matrix: torch.Tensor) -> None:
@@ -448,152 +384,52 @@ def test_factory_creates_amg_preconditioner_with_target_dim_coarsening(
 
 def test_factory_creates_amg_preconditioner_with_pod_coarsening(
     well_conditioned_matrix: torch.Tensor,
-    pod_snapshot_dataset_dir: Path,
+    pod_fit_arrays: tuple[np.ndarray, np.ndarray],
 ) -> None:
     """Factory creates AMGPreconditioner for AMG type with POD-2G coarsening.
 
-    The snapshot ensemble is read from a generated dataset directory (via
-    `load_dense_training_arrays`), not a raw glob — the gap this task closes.
+    The snapshot ensemble arrives staged, as `PreconditionerService.preload` supplies it.
     """
-    coarsening = PODCoarseningConfig(dataset_dir=pod_snapshot_dataset_dir, rank=2)
-    config = AMGPreconditionerConfig(coarsening=coarsening)
+    config = AMGPreconditionerConfig(coarsening=PODCoarseningConfig(dataset_dir=FIT_DIR, rank=2))
 
-    precond = create_preconditioner(well_conditioned_matrix, config)
+    precond = create_preconditioner(well_conditioned_matrix, config, staged_fit_data=pod_fit_arrays)
 
     assert isinstance(precond, AMGPreconditioner)
 
 
-def test_pod_fit_arrays_are_staged_before_factory_build(
-    monkeypatch: pytest.MonkeyPatch,
+def test_inline_pod_coarsening_refuses_to_read_its_dataset_during_the_build(
     well_conditioned_matrix: torch.Tensor,
-    tmp_path: Path,
 ) -> None:
-    """Inline POD setup consumes staged fit arrays without reading its dataset."""
+    """Unstaged fit data is an error, never a hidden read inside the timed build."""
+    config = AMGPreconditionerConfig(coarsening=PODCoarseningConfig(dataset_dir=FIT_DIR, rank=2))
+
+    with pytest.raises(ValueError, match="not staged"):
+        create_preconditioner(well_conditioned_matrix, config)
+
+
+def test_pod_fit_arrays_are_staged_before_factory_build(
+    well_conditioned_matrix: torch.Tensor,
+    pod_fit_arrays: tuple[np.ndarray, np.ndarray],
+) -> None:
+    """The service reads the fit arrays once in `preload`; the build itself reads nothing."""
     from neuralls.composition.comparison._preconditioner_setup import PreconditionerService
 
-    dataset_dir = tmp_path / "fit-data-not-read-during-build"
-    config = AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(dataset_dir=dataset_dir, rank=2)
-    )
-    snapshots = np.eye(4, well_conditioned_matrix.shape[0], dtype=np.float64)
-    service = PreconditionerService()
-    monkeypatch.setattr(
-        "neuralls.composition.comparison._preconditioner_setup.load_dense_training_arrays",
-        lambda path: (np.empty((4, 1)), snapshots),
-    )
+    config = AMGPreconditionerConfig(coarsening=PODCoarseningConfig(dataset_dir=FIT_DIR, rank=2))
+    rhs, solutions = pod_fit_arrays
+    fit_data = FakeFitData(rhs=rhs, solutions=solutions)
+    service = PreconditionerService(fit_data)
     service.preload(well_conditioned_matrix, config)
-    monkeypatch.setattr(
-        "neuralls.composition.preconditioners.coarsening.load_dense_training_arrays",
-        lambda path: pytest.fail("fit data must be staged before setup timing"),
-    )
 
     precond = service.create_preconditioner(well_conditioned_matrix, config)
 
     assert isinstance(precond, AMGPreconditioner)
-
-
-@pytest.fixture
-def fitted_pod_checkpoint(tmp_path: Path, well_conditioned_matrix: torch.Tensor) -> Path:
-    """A real dlkit-shaped checkpoint for an already-fitted `PODCoarseningStrategy`.
-
-    Mirrors exactly the checkpoint dlkit's `OneShotFitExecutor` writes for a
-    `run.type = "fit"` assignment (`state_dict` + `dlkit_metadata.model_settings`),
-    so `build_model_from_checkpoint` reconstructs it the same way the factory's
-    checkpoint-reconstruction branch does at real comparison time.
-    """
-    from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
-
-    rng = np.random.default_rng(0)
-    snapshots = torch.as_tensor(
-        rng.standard_normal((4, well_conditioned_matrix.shape[0])), dtype=torch.float64
-    )
-    model = PODCoarseningStrategy(rank=2)
-    model.fit(snapshots)
-
-    checkpoint = {
-        "state_dict": model.state_dict(),
-        "dlkit_metadata": {
-            "wrapper_type": "PODCoarseningStrategy",
-            "model_settings": {
-                "name": "PODCoarseningStrategy",
-                "module_path": "torchalg.preconditioners.implementations.pod",
-                "hyper_kwargs": {"rank": 2},
-            },
-            "entry_configs": [],
-            "feature_names": [],
-            "forward_arg_map": {},
-            "predict_target_key": "",
-            "model_family": "external",
-            "input_shapes": None,
-            "output_shapes": None,
-        },
-    }
-    checkpoint_path = tmp_path / "pod-fit-checkpoint.ckpt"
-    torch.save(checkpoint, checkpoint_path)
-    return checkpoint_path
-
-
-def test_factory_creates_amg_preconditioner_from_fitted_pod_checkpoint(
-    well_conditioned_matrix: torch.Tensor,
-    residual_vector: torch.Tensor,
-    fitted_pod_checkpoint: Path,
-    tmp_path: Path,
-) -> None:
-    """When `resolved_checkpoint_path` is set, the factory reconstructs the basis
-    from the checkpoint instead of fitting inline from `dataset_dir`.
-
-    `dataset_dir` is set to a non-dataset directory to prove it is never read
-    once a checkpoint resolves — the fallback branch would raise trying to
-    read `tmp_path` as a dataset.
-    """
-    coarsening = PODCoarseningConfig(
-        dataset_dir=tmp_path,
-        rank=2,
-        resolved_checkpoint_path=fitted_pod_checkpoint,
-    )
-    config = AMGPreconditionerConfig(coarsening=coarsening)
-
-    precond = create_preconditioner(well_conditioned_matrix, config)
-
-    assert isinstance(precond, AMGPreconditioner)
-    result = precond.apply(residual_vector)
-    assert result.shape == residual_vector.shape
-
-
-def test_factory_pod_checkpoint_reconstruction_rejects_non_pod_model(
-    well_conditioned_matrix: torch.Tensor,
-    tmp_path: Path,
-) -> None:
-    """A checkpoint reconstructing to a non-POD model raises a clear TypeError."""
-    linear = torch.nn.Linear(2, 2, dtype=torch.float64)
-    checkpoint = {
-        "state_dict": linear.state_dict(),
-        "dlkit_metadata": {
-            "wrapper_type": "Linear",
-            "model_settings": {
-                "name": "Linear",
-                "module_path": "torch.nn",
-                "hyper_kwargs": {"in_features": 2, "out_features": 2},
-            },
-        },
-    }
-    checkpoint_path = tmp_path / "wrong-model-checkpoint.ckpt"
-    torch.save(checkpoint, checkpoint_path)
-    coarsening = PODCoarseningConfig(
-        dataset_dir=tmp_path,
-        rank=2,
-        resolved_checkpoint_path=checkpoint_path,
-    )
-    config = AMGPreconditionerConfig(coarsening=coarsening)
-
-    with pytest.raises(TypeError):
-        create_preconditioner(well_conditioned_matrix, config)
+    assert fit_data.dense_reads == [FIT_DIR]
 
 
 def test_factory_creates_amg_preconditioner_with_neural_pod_coarsening(
     well_conditioned_matrix: torch.Tensor,
     residual_vector: torch.Tensor,
-    neural_pod_dataset_dir: Path,
+    parameter_arrays: tuple[np.ndarray, ...],
     mock_checkpoint: Path,
 ) -> None:
     """Factory creates AMGPreconditioner for AMG type with neural POD-2G coarsening.
@@ -603,7 +439,7 @@ def test_factory_creates_amg_preconditioner_with_neural_pod_coarsening(
     array — the gap this task closes.
     """
     coarsening = NeuralPODCoarseningConfig(
-        dataset_dir=neural_pod_dataset_dir,
+        dataset_dir=FIT_DIR,
         checkpoint_path=mock_checkpoint,
         input_names=("x",),
         rank=2,
@@ -612,7 +448,10 @@ def test_factory_creates_amg_preconditioner_with_neural_pod_coarsening(
     factory = make_mock_inference_predictor_factory(output_dim=well_conditioned_matrix.shape[0])
 
     precond = create_preconditioner(
-        well_conditioned_matrix, config, inference_predictor_factory=factory
+        well_conditioned_matrix,
+        config,
+        inference_predictor_factory=factory,
+        staged_fit_data=parameter_arrays,
     )
 
     assert isinstance(precond, AMGPreconditioner)
@@ -622,19 +461,16 @@ def test_factory_creates_amg_preconditioner_with_neural_pod_coarsening(
 
 def test_factory_neural_pod_coarsening_requires_params_in_dataset(
     well_conditioned_matrix: torch.Tensor,
-    pod_snapshot_dataset_dir: Path,
     mock_checkpoint: Path,
 ) -> None:
     """A dataset with no `params` array raises a count-mismatch error.
 
-    `pod_snapshot_dataset_dir` has rhs/solutions but no params (the common
-    case — only one dataset in the whole repo populates params) — pointing
-    neural_pod coarsening at it (with `input_names` declaring one expected
-    input) must raise `ValueError`, rather than leaking `StopIteration` from
-    an empty feature dictionary.
+    A dataset with rhs/solutions but no params (the common case) staged for neural_pod
+    coarsening (with `input_names` declaring one expected input) must raise `ValueError`,
+    rather than leaking `StopIteration` from an empty feature dictionary.
     """
     coarsening = NeuralPODCoarseningConfig(
-        dataset_dir=pod_snapshot_dataset_dir,
+        dataset_dir=FIT_DIR,
         checkpoint_path=mock_checkpoint,
         input_names=("x",),
         rank=2,
@@ -643,22 +479,27 @@ def test_factory_neural_pod_coarsening_requires_params_in_dataset(
     factory = make_mock_inference_predictor_factory(output_dim=well_conditioned_matrix.shape[0])
 
     with pytest.raises(ValueError):
-        create_preconditioner(well_conditioned_matrix, config, inference_predictor_factory=factory)
+        create_preconditioner(
+            well_conditioned_matrix,
+            config,
+            inference_predictor_factory=factory,
+            staged_fit_data=(),
+        )
 
 
 def test_factory_neural_pod_coarsening_rejects_input_names_count_mismatch(
     well_conditioned_matrix: torch.Tensor,
-    neural_pod_dataset_dir: Path,
+    parameter_arrays: tuple[np.ndarray, ...],
     mock_checkpoint: Path,
 ) -> None:
     """Declaring more/fewer input_names than the dataset has params arrays is rejected.
 
-    `neural_pod_dataset_dir` has exactly one `params` array; declaring two
+    The staged dataset has exactly one `params` array; declaring two
     names must fail with a clear count mismatch, not silently zip-truncate
     or call the checkpoint with a wrong signature.
     """
     coarsening = NeuralPODCoarseningConfig(
-        dataset_dir=neural_pod_dataset_dir,
+        dataset_dir=FIT_DIR,
         checkpoint_path=mock_checkpoint,
         input_names=("young_modulus", "poisson_ratio"),
         rank=2,
@@ -667,7 +508,12 @@ def test_factory_neural_pod_coarsening_rejects_input_names_count_mismatch(
     factory = make_mock_inference_predictor_factory(output_dim=well_conditioned_matrix.shape[0])
 
     with pytest.raises(ValueError):
-        create_preconditioner(well_conditioned_matrix, config, inference_predictor_factory=factory)
+        create_preconditioner(
+            well_conditioned_matrix,
+            config,
+            inference_predictor_factory=factory,
+            staged_fit_data=parameter_arrays,
+        )
 
 
 def test_factory_amg_requires_amg_config(well_conditioned_matrix: torch.Tensor) -> None:
