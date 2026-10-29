@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 
@@ -25,29 +27,50 @@ def select_preferred_checkpoint(checkpoints: list[Path]) -> tuple[str, Path] | N
             return None
 
 
+@dataclass(slots=True, frozen=True)
+class CheckpointCandidate:
+    """One checkpoint file found under a run root, identified by its content digest."""
+
+    path: Path
+    digest: str
+
+
 def find_single_checkpoint(root: Path) -> Path:
     """Find one unambiguous checkpoint under a local artifact directory."""
-    checkpoints = sorted(root.glob("**/*.ckpt"))
-    if not checkpoints:
-        raise FileNotFoundError(f"No checkpoint found under {root}")
+    paths = sorted(root.glob("**/*.ckpt"))
     logger.debug(
         "Checkpoint discovery under {} found candidates: {}",
         root,
-        [path.as_posix() for path in checkpoints],
+        [path.as_posix() for path in paths],
     )
-    if len(checkpoints) == 1:
-        return checkpoints[0]
+    # A lone checkpoint is never ambiguous, so its bytes are not read.
+    candidates = [
+        CheckpointCandidate(path, sha256(path.read_bytes()).hexdigest() if len(paths) > 1 else "")
+        for path in paths
+    ]
+    return choose_checkpoint(root, candidates)
 
-    groups: dict[tuple[str, str], list[Path]] = {}
-    for checkpoint in checkpoints:
-        digest = sha256(checkpoint.read_bytes()).hexdigest()
-        key = (checkpoint.name, digest)
-        groups.setdefault(key, []).append(checkpoint)
 
-    if len(groups) == 1:
-        duplicates = next(iter(groups.values()))
+def choose_checkpoint(root: Path, candidates: Sequence[CheckpointCandidate]) -> Path:
+    """Pick the one checkpoint a run root stands for, from candidates already read.
+
+    Identical copies collapse to the shallowest, alphabetically first path. Among distinct
+    files, exactly one ``best.ckpt`` wins; anything else is ambiguous.
+
+    Raises:
+        FileNotFoundError: There are no candidates.
+        ValueError: Several distinct checkpoints remain and none is the single ``best.ckpt``.
+    """
+    if not candidates:
+        raise FileNotFoundError(f"No checkpoint found under {root}")
+    paths = [candidate.path for candidate in candidates]
+    if len(candidates) == 1:
+        return paths[0]
+
+    distinct = {(candidate.path.name, candidate.digest) for candidate in candidates}
+    if len(distinct) == 1:
         canonical = min(
-            duplicates,
+            paths,
             key=lambda path: (len(path.relative_to(root).parts), path.relative_to(root).as_posix()),
         )
         logger.warning(
@@ -57,7 +80,7 @@ def find_single_checkpoint(root: Path) -> Path:
         )
         return canonical
 
-    match select_preferred_checkpoint(checkpoints):
+    match select_preferred_checkpoint(paths):
         case ("best", best_checkpoint):
             logger.warning(
                 "Multiple distinct checkpoint artifacts found under {}. Using best checkpoint {}.",
@@ -68,5 +91,5 @@ def find_single_checkpoint(root: Path) -> Path:
         case _:
             pass
 
-    candidate_list = ", ".join(path.as_posix() for path in checkpoints)
+    candidate_list = ", ".join(path.as_posix() for path in paths)
     raise ValueError(f"Multiple distinct checkpoints found under {root}: {candidate_list}")

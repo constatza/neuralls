@@ -18,6 +18,7 @@ is real future work, intentionally out of scope here.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 
 from neuralls.domain.solver.models.cost import StageCost
@@ -31,6 +32,7 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerConfig,
 )
 from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.platform.storage.manifest import DatasetManifest
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.types import CostProvenance, GenerationRepeatability
 
@@ -49,19 +51,31 @@ def resolve_generation_cost(
     dataset_dirs = _resolve_generation_dataset_dirs(cfg, settings=settings)
     if not dataset_dirs:
         return None
+    manifests: list[DatasetManifest] = []
+    for dataset_dir in dataset_dirs:
+        try:
+            manifests.append(read_dataset_manifest(dataset_dir))
+        except FileNotFoundError, ValueError:
+            continue
+    return aggregate_generation_cost(manifests)
+
+
+def aggregate_generation_cost(manifests: Iterable[DatasetManifest]) -> StageCost:
+    """Sum the recorded generation times of `manifests`; UNAVAILABLE when none records one.
+
+    Time adds up because every dataset was generated separately; peak memory takes the
+    maximum because the generations never shared a process.
+    """
     total_seconds = 0.0
     total_memory: int | None = None
     found_any = False
-    for dataset_dir in dataset_dirs:
-        try:
-            manifest = read_dataset_manifest(dataset_dir)
-        except FileNotFoundError, ValueError:
+    for manifest in manifests:
+        if manifest.generation_duration_seconds is None:
             continue
-        if manifest.generation_duration_seconds is not None:
-            total_seconds += manifest.generation_duration_seconds
-            if manifest.generation_peak_memory_bytes is not None:
-                total_memory = max(total_memory or 0, manifest.generation_peak_memory_bytes)
-            found_any = True
+        total_seconds += manifest.generation_duration_seconds
+        if manifest.generation_peak_memory_bytes is not None:
+            total_memory = max(total_memory or 0, manifest.generation_peak_memory_bytes)
+        found_any = True
     if not found_any:
         return StageCost(0.0, None, CostProvenance.UNAVAILABLE)
     return StageCost(total_seconds, total_memory, CostProvenance.HISTORICAL)

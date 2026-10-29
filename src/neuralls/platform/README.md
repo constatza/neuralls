@@ -278,6 +278,7 @@ the runs (`StageIdentity.tags()`); platform only owns the MLflow filter/search
 mechanics. Dataset identity lives in `storage/dataset_digest.py`
 (`current_dataset_digest`: O(1) from the manifest while the stat snapshot is
 unchanged, otherwise a recompute of the logical array content).
+Checkpoint choice is pure: `tracking/checkpoint_selection.py::choose_checkpoint` decides over `CheckpointCandidate`s (path plus content digest), and `find_single_checkpoint` is the thin shell that globs and hashes.
 MLflow artifact recovery follows the same boundary. Platform tracking helpers
 resolve and validate checkpoints, split JSON, and staged config artifacts
 through an `ArtifactLeaseManager` protocol with explicit abstract methods.
