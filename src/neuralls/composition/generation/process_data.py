@@ -9,13 +9,22 @@ from loguru import logger
 from pydantic import ValidationError
 
 from neuralls.composition.generation.dataset_builder import is_dataset_reusable
+from neuralls.composition.generation.default_services import FS_SPLIT_STORE
 from neuralls.composition.generation.processing import process_config
-from neuralls.composition.generation.split_pinning import pin_dataset_split
+from neuralls.composition.generation.split_pinning import pin_split, plan_split
 from neuralls.composition.identity.generation import generation_identity
 from neuralls.domain.generation.sample_ids import _is_glob_expression
 from neuralls.platform.config.loaders import load_data_config
+from neuralls.platform.config.models.data_models import DataConfigFile
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.base import load_matrix
+from neuralls.platform.storage.dataset_readers import load_matrix_sample_index
+
+
+def _pin_split(dataset_dir: Path, config: DataConfigFile) -> None:
+    """Pin the split `config` yields for the dataset's matrix bindings."""
+    split = plan_split(load_matrix_sample_index(dataset_dir), config.split)
+    pin_split(dataset_dir, split, config.split, FS_SPLIT_STORE)
 
 
 def process_data_from_config(
@@ -56,7 +65,7 @@ def process_data_from_config(
     dataset_dir = (config.output.data_dir or settings.processed_dir) / config.id
     if not force and is_dataset_reusable(dataset_dir, identity):
         logger.info(f"Dataset already exists at '{dataset_dir}'; skipping regeneration.")
-        pin_dataset_split(dataset_dir, config.split)
+        _pin_split(dataset_dir, config)
         return dataset_dir
 
     # Glob paths fan out to multiple matrix files; GlobMatrixStream handles loading.
@@ -75,5 +84,5 @@ def process_data_from_config(
         )
     except ValidationError as exc:
         raise ValueError(str(exc)) from exc
-    pin_dataset_split(written_dir, config.split)
+    _pin_split(written_dir, config)
     return written_dir

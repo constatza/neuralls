@@ -14,12 +14,14 @@ from pathlib import Path
 
 from neuralls.composition.comparison.config_assembler import resolve_dataset_dir
 from neuralls.composition.generation.dataset_builder import is_dataset_reusable
-from neuralls.composition.generation.split_pinning import split_is_current
+from neuralls.composition.generation.default_services import FS_SPLIT_STORE
+from neuralls.composition.generation.split_pinning import plan_split, split_is_current
 from neuralls.composition.identity.generation import generation_identity
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.experiments import CaseConfig
 from neuralls.platform.config.registry import resolve_dataset_config_path
 from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.platform.storage.dataset_readers import load_matrix_sample_index
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.constants import REGENERATE_DATASETS_COMMAND
 from neuralls.shared.errors import StageInputsStale
@@ -58,7 +60,8 @@ def require_current_inputs(
                 f"was generated before provenance was recorded): run "
                 f"`{REGENERATE_DATASETS_COMMAND}` to rewrite it."
             )
-        if not split_is_current(dataset_dir, data_cfg.split):
+        planned = plan_split(load_matrix_sample_index(dataset_dir), data_cfg.split)
+        if not split_is_current(dataset_dir, planned, FS_SPLIT_STORE):
             raise StageInputsStale(
                 f"Dataset '{dataset_id}' has no pinned split matching its [split] config: "
                 "run `neuralls generate` (or `neuralls run`) first."

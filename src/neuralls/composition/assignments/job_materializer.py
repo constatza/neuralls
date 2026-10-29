@@ -13,6 +13,7 @@ from neuralls.composition.assignments.runtime_workspace_patcher import (
     patch_dataloader_runtime,
     patch_runtime_workspace_for_job,
 )
+from neuralls.composition.generation.ports import SplitStore
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 
 
@@ -24,6 +25,7 @@ def materialize_training_job[T: TrainableJobConfig](
     targets: list[DataEntry],
     contract: RuntimeDatasetContract,
     dataset_format: str,
+    split_store: SplitStore,
 ) -> tuple[T, AssignmentWorkspace]:
     """Apply runtime dataset, split-pinning, and workspace stages in order.
 
@@ -41,7 +43,7 @@ def materialize_training_job[T: TrainableJobConfig](
         targets=targets,
         contract=contract,
     )
-    settings = patch_split_settings(settings, dataset_dir=workspace.data_dir)
+    settings = patch_split_settings(settings, split_file=split_store.require(workspace.data_dir))
     settings = patch_dataloader_runtime(settings, dataset_format=dataset_format)
     settings = patch_runtime_workspace_for_job(
         settings,

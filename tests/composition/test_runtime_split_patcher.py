@@ -18,7 +18,6 @@ from dlkit.infrastructure.config.training_settings import TrainingSettings
 from neuralls.composition.assignments._job_types import TrainableJobConfig
 from neuralls.composition.assignments.runtime_split_patcher import patch_split_settings
 from neuralls.shared.constants import SPLIT_FILENAME
-from neuralls.shared.errors import StageInputsStale
 
 
 def _data_settings() -> DataSettings:
@@ -63,29 +62,20 @@ def fit_job() -> FitJobConfig:
 
 
 @pytest.fixture
-def pinned_dataset_dir(tmp_path: Path) -> Path:
-    dataset_dir = tmp_path / "dataset"
-    dataset_dir.mkdir()
-    (dataset_dir / SPLIT_FILENAME).write_text("{}", encoding="utf-8")
-    return dataset_dir
+def split_file(tmp_path: Path) -> Path:
+    """dlkit validates that the split file exists, so the patcher's target must be real."""
+    path = tmp_path / SPLIT_FILENAME
+    path.write_text("{}", encoding="utf-8")
+    return path
 
 
 @pytest.mark.parametrize("job_fixture", ["training_job", "fit_job"])
 def test_every_job_kind_reads_the_pinned_split(
-    job_fixture: str, pinned_dataset_dir: Path, request: pytest.FixtureRequest
+    job_fixture: str, split_file: Path, request: pytest.FixtureRequest
 ) -> None:
     job: TrainableJobConfig = request.getfixturevalue(job_fixture)
 
-    patched = patch_split_settings(job, dataset_dir=pinned_dataset_dir)
+    patched = patch_split_settings(job, split_file=split_file)
 
     assert patched.data is not None
-    assert str(patched.data.splits.filepath) == str(pinned_dataset_dir / SPLIT_FILENAME)
-
-
-def test_missing_split_asks_for_generation_instead_of_creating_one(
-    training_job: TrainingJobConfig, tmp_path: Path
-) -> None:
-    with pytest.raises(StageInputsStale):
-        patch_split_settings(training_job, dataset_dir=tmp_path)
-
-    assert not (tmp_path / SPLIT_FILENAME).exists()
+    assert str(patched.data.splits.filepath) == str(split_file)

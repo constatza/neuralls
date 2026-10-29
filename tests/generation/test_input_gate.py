@@ -11,10 +11,12 @@ import pytest
 
 from neuralls.composition.comparison import config_assembler, input_gate
 from neuralls.composition.comparison.input_gate import require_current_inputs
+from neuralls.composition.generation.default_services import FS_SPLIT_STORE
 from neuralls.composition.generation.processing import process_config
-from neuralls.composition.generation.split_pinning import pin_dataset_split
+from neuralls.composition.generation.split_pinning import pin_split, plan_split
 from neuralls.composition.identity.generation import generation_identity
 from neuralls.platform.config.models.data_models import DataConfigFile, SplitConfig, StrategyConfig
+from neuralls.platform.storage.dataset_readers import load_matrix_sample_index
 from neuralls.shared.constants import REGENERATE_DATASETS_COMMAND, SPLIT_FILENAME
 from neuralls.shared.errors import StageInputsStale
 from tests.dataset_support import strip_provenance
@@ -39,7 +41,8 @@ def _gate(config: DataConfigFile) -> None:
 def _generate_and_pin(config: DataConfigFile) -> Path:
     matrix = np.loadtxt(config.source.matrix_path)
     dataset_dir = process_config(config, matrix, identity=generation_identity(config))
-    pin_dataset_split(dataset_dir, config.split)
+    split = plan_split(load_matrix_sample_index(dataset_dir), config.split)
+    pin_split(dataset_dir, split, config.split, FS_SPLIT_STORE)
     return dataset_dir
 
 
