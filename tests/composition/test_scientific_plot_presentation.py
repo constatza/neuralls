@@ -8,8 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.assignments.presentation_preflight import prepare_comparison_presentation
-from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
+from neuralls.composition.assignments.presentation_preflight import (
+    DatasetPresentationLoader,
+    prepare_comparison_presentation,
+)
 from neuralls.domain.presentation.methods import (
     ConfiguredMethodPresentation,
     DatasetQualifiedMethodPresentation,
@@ -48,30 +50,32 @@ from neuralls.shared.scientific_description.policy import (
     RenderTarget,
 )
 from neuralls.shared.scientific_description.render import RenderedScientificDescription
-from tests.dataset_support import build_test_dataset
-from tests.presentation_support import pod_spec
+from tests.presentation_support import datasets_by_dir, pod_spec
 
 MATHTEXT = NotationPolicy.default(RenderTarget.MATHTEXT)
 PLAIN = NotationPolicy.default(RenderTarget.PLAIN)
 
 
+FIT_DIRS = (Path("pod-fit"), Path("pod-fit-other"))
+
+
 @pytest.fixture
-def second_pod_dataset_dir(
-    tmp_path: Path, atomic_source: SourceSpec, atomic_spec: DatasetSpec
-) -> Path:
-    """A second fit dataset, generated with fewer samples so its qualifier differs."""
-    target = tmp_path / "pod-fit-other"
-    fewer = replace(
-        atomic_spec, mixture=replace(atomic_spec.mixture, counts={"gaussian_forward": 4})
+def fit_datasets(pod_fit_presentation: DatasetPresentation) -> DatasetPresentationLoader:
+    """Two fit datasets whose qualifier differs: the second was generated with fewer samples."""
+    (first, second) = FIT_DIRS
+    only_four = replace(
+        pod_fit_presentation,
+        generation=replace(
+            pod_fit_presentation.generation,
+            strategies=(replace(pod_fit_presentation.generation.strategies[0], rows=4),),
+            generated_rows=4,
+        ),
     )
-    build_test_dataset(atomic_source, fewer, str(target))
-    return target
+    return datasets_by_dir({first: pod_fit_presentation, second: only_four})
 
 
 @pytest.fixture
-def acceptance_configs(
-    pod_dataset_dir: Path, second_pod_dataset_dir: Path
-) -> tuple[PreconditionerConfig, ...]:
+def acceptance_configs() -> tuple[PreconditionerConfig, ...]:
     """Every method family of the acceptance figure, two variants where a fact separates them."""
     return (
         StandardPreconditionerConfig(type=PreconditionerType.IDENTITY),
@@ -84,7 +88,7 @@ def acceptance_configs(
         BootstrapAMGPreconditionerConfig(),
         *(
             pod_spec(directory, rank, assignment=f"fit-{index}-{rank}")
-            for index, directory in enumerate((pod_dataset_dir, second_pod_dataset_dir))
+            for index, directory in enumerate(FIT_DIRS)
             for rank in (10, 100)
         ),
     )
@@ -94,9 +98,10 @@ def acceptance_configs(
 def acceptance_cohort(
     acceptance_configs: tuple[PreconditionerConfig, ...],
     dataset_presentation: DatasetPresentation,
+    fit_datasets: DatasetPresentationLoader,
 ) -> PreparedComparisonPresentation:
     return prepare_comparison_presentation(
-        acceptance_configs, ComparisonScopePresentation(dataset_presentation)
+        acceptance_configs, ComparisonScopePresentation(dataset_presentation), fit_datasets
     )
 
 

@@ -29,6 +29,7 @@ from neuralls.composition.assignments.model_resolution import (
     resolve_preconditioner_models_with_warnings,
 )
 from neuralls.composition.assignments.presentation_preflight import (
+    DatasetPresentationLoader,
     compose_comparison_title,
     prepare_comparison_presentation,
 )
@@ -471,6 +472,8 @@ class _ComparisonResolutionContext:
     their own loose parameters.
 
     Attributes:
+        load_dataset: Reads a dataset's presentation from its directory, so scope and
+            POD-2G method descriptions never touch a manifest directly.
         master_cfg: The already-loaded case config, when the caller has one
             in scope (the batch path) — avoids reloading it from
             `case_config_path` for every comparison entry. Standalone
@@ -487,6 +490,7 @@ class _ComparisonResolutionContext:
     topology: ComparisonTopology
     case_config_path: Path
     settings: NeurallsSettings
+    load_dataset: DatasetPresentationLoader
     master_cfg: CaseConfig | None = None
     artifact_leases: MlflowArtifactLeaseManager | None = None
     reuse_comparisons: bool = True
@@ -957,7 +961,7 @@ def _matrix_scope(
         planned.entry.matrix_dataset,
         context.settings,
     )
-    return ComparisonScopePresentation(load_dataset_presentation(dataset_dir))
+    return ComparisonScopePresentation(context.load_dataset(dataset_dir))
 
 
 def _prepare_comparison_entry(
@@ -1044,7 +1048,7 @@ def _prepare_comparison_entry(
         )
 
         scope = _matrix_scope(planned, context)
-        presentation = prepare_comparison_presentation(resolved.specs, scope)
+        presentation = prepare_comparison_presentation(resolved.specs, scope, context.load_dataset)
         title = compose_comparison_title(entry.display_name, scope.dataset)
         run = comparison_run(planned, title, scope.dataset, cfg.notation_policy, Untimed())
         label = run_name_text(run)
@@ -1150,7 +1154,10 @@ def _run_comparison_from_config(
         Single-element list with the outcome of the comparison run.
     """
     context = _ComparisonResolutionContext(
-        topology=topology, case_config_path=case_config_path, settings=settings
+        topology=topology,
+        case_config_path=case_config_path,
+        settings=settings,
+        load_dataset=load_dataset_presentation,
     )
     prepared = _prepare_comparison_entry(cfg, planned, context, force=force)
     if is_comparison_outcome(prepared):
@@ -1215,6 +1222,7 @@ def prepare_comparison_batch(
         topology=topology,
         case_config_path=case_config_path,
         settings=settings,
+        load_dataset=load_dataset_presentation,
         master_cfg=master_cfg,
         artifact_leases=stack.enter_context(
             MlflowArtifactLeaseManager(

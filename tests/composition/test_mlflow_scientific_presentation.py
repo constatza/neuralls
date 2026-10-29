@@ -51,10 +51,11 @@ from neuralls.platform.tracking.run_names import render_run_name, run_name_text
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
 from neuralls.shared.types import MatrixId
-from tests.presentation_support import pod_spec
+from tests.presentation_support import NO_DATASET_READS, datasets_by_dir, pod_spec
 from tests.workflows.comparison_support import MLFLOW_MODULE, mock_cfg, write_experiments_config
 
 PLAIN = NotationPolicy.default()
+FIT_DIR = Path("pod-fit")
 STAMP = "2026-01-02T03:04:05"
 DATASET_TEXT = "Test problem | Gaussian CG Residuals (k=20, N=100)"
 
@@ -145,7 +146,10 @@ def test_comparison_parent_runs_of_a_sweep_have_distinct_names_and_no_ids(
     prepared_presentation: PreparedComparisonPresentation, tmp_path: Path
 ) -> None:
     context = _ComparisonResolutionContext(
-        topology=MagicMock(), case_config_path=tmp_path / "case.toml", settings=MagicMock()
+        topology=MagicMock(),
+        case_config_path=tmp_path / "case.toml",
+        settings=MagicMock(),
+        load_dataset=NO_DATASET_READS,
     )
     started: list[tuple[str, dict[str, str]]] = []
     fake_mlflow = MagicMock()
@@ -193,7 +197,10 @@ def test_child_runs_are_named_after_their_method_presentation_and_carry_ids_in_t
         id="cmp_1", matrix_dataset="solutions", rhs_source={"kind": "gaussian"}
     )
     context = _ComparisonResolutionContext(
-        topology=MagicMock(), case_config_path=tmp_path / "case.toml", settings=MagicMock()
+        topology=MagicMock(),
+        case_config_path=tmp_path / "case.toml",
+        settings=MagicMock(),
+        load_dataset=NO_DATASET_READS,
     )
     prepared = _execution(
         mock_cfg(),
@@ -231,10 +238,12 @@ def test_child_runs_are_named_after_their_method_presentation_and_carry_ids_in_t
 
 
 def test_a_method_run_and_a_plot_legend_render_the_same_presentation(
-    pod_dataset_dir: Path, dataset_presentation: DatasetPresentation
+    pod_fit_presentation: DatasetPresentation, dataset_presentation: DatasetPresentation
 ) -> None:
     prepared = prepare_comparison_presentation(
-        [pod_spec(pod_dataset_dir, 10)], ComparisonScopePresentation(dataset_presentation)
+        [pod_spec(FIT_DIR, 10)],
+        ComparisonScopePresentation(dataset_presentation),
+        datasets_by_dir({FIT_DIR: pod_fit_presentation}),
     ).methods[0]
     method = prepared.compact
     name = MethodRunName(method)
@@ -249,10 +258,12 @@ def test_a_method_run_and_a_plot_legend_render_the_same_presentation(
 
 
 def test_configured_facts_become_stable_parameters_without_rendered_text(
-    pod_dataset_dir: Path, dataset_presentation: DatasetPresentation
+    pod_fit_presentation: DatasetPresentation, dataset_presentation: DatasetPresentation
 ) -> None:
     prepared = prepare_comparison_presentation(
-        [pod_spec(pod_dataset_dir, 10)], ComparisonScopePresentation(dataset_presentation)
+        [pod_spec(FIT_DIR, 10)],
+        ComparisonScopePresentation(dataset_presentation),
+        datasets_by_dir({FIT_DIR: pod_fit_presentation}),
     ).methods[0]
 
     parameters = encode_method_parameters(prepared)
@@ -274,7 +285,8 @@ def test_configured_facts_become_stable_parameters_without_rendered_text(
 
 
 def test_describing_a_method_yields_a_presentation_with_no_assignment_id(
-    pod_dataset_dir: Path,
+    pod_fit_presentation: DatasetPresentation,
 ) -> None:
-    method = describe_method(pod_spec(pod_dataset_dir, 10, assignment="fit-job"))
-    assert method == describe_method(pod_spec(pod_dataset_dir, 10, assignment="another-job"))
+    load = datasets_by_dir({FIT_DIR: pod_fit_presentation})
+    method = describe_method(pod_spec(FIT_DIR, 10, assignment="fit-job"), load)
+    assert method == describe_method(pod_spec(FIT_DIR, 10, assignment="another-job"), load)

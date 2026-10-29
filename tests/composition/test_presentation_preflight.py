@@ -12,13 +12,12 @@ from neuralls.composition.assignments.presentation_preflight import (
     describe_method,
     prepare_comparison_presentation,
 )
-from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.domain.presentation.methods import (
     DatasetQualifiedMethodPresentation,
     DuplicateMethodPresentationError,
     StandaloneMethodPresentation,
 )
-from neuralls.domain.presentation.provenance import DatasetPresentation, DatasetSourceProvenance
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.render import render_method, render_title
 from neuralls.domain.presentation.titles import ComparisonScopePresentation, EditorialPresentation
 from neuralls.platform.config.models.experiments import AssignmentEntry
@@ -27,16 +26,20 @@ from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
 )
 from neuralls.platform.storage.manifest import MissingDatasetProvenanceError
-from neuralls.shared.scientific_description.models import ScientificDescription, ValidatedLabel
+from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
-from tests.dataset_support import build_test_dataset
-from tests.presentation_support import pod_spec
+from tests.presentation_support import NO_DATASET_READS, datasets_by_dir, pod_spec
 
 PLAIN = NotationPolicy.default()
+FIT_DIR = Path("pod-fit")
 
 
-def test_pod_method_is_qualified_by_its_fit_dataset_exactly_once(pod_dataset_dir: Path) -> None:
-    presentation = describe_method(pod_spec(pod_dataset_dir, 10))
+def test_pod_method_is_qualified_by_its_fit_dataset_exactly_once(
+    pod_fit_presentation: DatasetPresentation,
+) -> None:
+    presentation = describe_method(
+        pod_spec(FIT_DIR, 10), datasets_by_dir({FIT_DIR: pod_fit_presentation})
+    )
 
     assert isinstance(presentation, DatasetQualifiedMethodPresentation)
     text = render_method(presentation, LEGEND_PROFILE, PLAIN).text
@@ -45,15 +48,16 @@ def test_pod_method_is_qualified_by_its_fit_dataset_exactly_once(pod_dataset_dir
 
 def test_ordinary_methods_are_standalone() -> None:
     cfg = AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig())
-    assert isinstance(describe_method(cfg), StandaloneMethodPresentation)
+    assert isinstance(describe_method(cfg, NO_DATASET_READS), StandaloneMethodPresentation)
 
 
 def test_pod_ranks_over_one_dataset_are_distinguished_by_rank(
-    pod_dataset_dir: Path, dataset_presentation: DatasetPresentation
+    pod_fit_presentation: DatasetPresentation, dataset_presentation: DatasetPresentation
 ) -> None:
     prepared = prepare_comparison_presentation(
-        [pod_spec(pod_dataset_dir, 10), pod_spec(pod_dataset_dir, 100)],
+        [pod_spec(FIT_DIR, 10), pod_spec(FIT_DIR, 100)],
         ComparisonScopePresentation(dataset_presentation),
+        datasets_by_dir({FIT_DIR: pod_fit_presentation}),
     )
     labels = [render_method(m.compact, LEGEND_PROFILE, PLAIN).text for m in prepared.methods]
     assert labels == [
@@ -62,27 +66,30 @@ def test_pod_ranks_over_one_dataset_are_distinguished_by_rank(
     ]
 
 
-def test_dataset_without_provenance_is_rejected(stale_dataset_dir: Path) -> None:
+def test_a_dataset_that_cannot_be_described_is_rejected() -> None:
+    def unprovenanced(directory: Path) -> DatasetPresentation:
+        raise MissingDatasetProvenanceError(directory)
+
     with pytest.raises(MissingDatasetProvenanceError, match="Regenerate"):
-        describe_method(pod_spec(stale_dataset_dir, 10))
+        describe_method(pod_spec(FIT_DIR, 10), unprovenanced)
 
 
 def test_indistinguishable_methods_are_rejected_before_execution(
-    tmp_path: Path,
-    atomic_source: SourceSpec,
-    atomic_spec: DatasetSpec,
-    dataset_presentation: DatasetPresentation,
+    pod_fit_presentation: DatasetPresentation, dataset_presentation: DatasetPresentation
 ) -> None:
     """Two fit assignments over identical datasets have distinct ids but one presentation."""
-    problem = DatasetSourceProvenance(ScientificDescription("Atomic test"))
-    copies = []
-    for name in ("copy-a", "copy-b"):
-        target = tmp_path / name
-        build_test_dataset(atomic_source, atomic_spec, str(target), source_provenance=problem)
-        copies.append(pod_spec(target, 10, assignment=f"fit-{name}"))
+    copy_a, copy_b = Path("copy-a"), Path("copy-b")
+    copies = [
+        pod_spec(copy_a, 10, assignment="fit-copy-a"),
+        pod_spec(copy_b, 10, assignment="fit-copy-b"),
+    ]
 
     with pytest.raises(DuplicateMethodPresentationError) as caught:
-        prepare_comparison_presentation(copies, ComparisonScopePresentation(dataset_presentation))
+        prepare_comparison_presentation(
+            copies,
+            ComparisonScopePresentation(dataset_presentation),
+            datasets_by_dir({copy_a: pod_fit_presentation, copy_b: pod_fit_presentation}),
+        )
 
     assert len(caught.value.method_ids) == 2
 

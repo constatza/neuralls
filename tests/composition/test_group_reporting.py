@@ -41,7 +41,7 @@ from neuralls.shared.types import (
     SetupEventId,
     SystemId,
 )
-from tests.presentation_support import PreparedMethodFactory
+from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 
 
@@ -280,7 +280,7 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
         AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig(theta=0.5)),
     ]
     cohort = prepare_comparison_presentation(
-        configs, ComparisonScopePresentation(dataset_presentation)
+        configs, ComparisonScopePresentation(dataset_presentation), NO_DATASET_READS
     )
 
     def workload(config: AMGPreconditionerConfig) -> CompletedMethodWorkload:

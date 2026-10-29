@@ -51,7 +51,12 @@ from neuralls.platform.reporting.figure_text import Legend, method_legend
 from neuralls.platform.reporting.outcome_plots import GroupStyle
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
 from neuralls.shared.enum_codecs import encode_row_kind_array
-from neuralls.shared.scientific_description.catalog import ITERATION_COUNT, make_fact
+from neuralls.shared.scientific_description.catalog import (
+    ITERATION_COUNT,
+    MEAN,
+    STANDARD_DEVIATION,
+    make_fact,
+)
 from neuralls.shared.scientific_description.models import (
     ScientificDescription,
 )
@@ -540,6 +545,27 @@ def dataset_presentation() -> DatasetPresentation:
             generated_rows=100,
             normalization="matrix",
             root_seed=42,
+        ),
+    )
+
+
+@pytest.fixture
+def pod_fit_presentation() -> DatasetPresentation:
+    """What the manifest of a POD fit dataset (8 Gaussian forward rows) records, in memory."""
+    return DatasetPresentation(
+        source=DatasetSourceProvenance(ScientificDescription("Atomic test")),
+        generation=DatasetGenerationProvenance(
+            strategies=(
+                StrategyProvenance(
+                    GenerationStrategyKind.GAUSSIAN_FORWARD,
+                    rows=8,
+                    parameters=(make_fact(MEAN, 0.0), make_fact(STANDARD_DEVIATION, 1.0)),
+                    seed=DerivedSeed(),
+                ),
+            ),
+            generated_rows=8,
+            normalization="matrix",
+            root_seed=2024,
         ),
     )
 

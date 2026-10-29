@@ -56,6 +56,7 @@ from neuralls.platform.config.resolution import (
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.platform.reporting.figure_text import training_legend
 from neuralls.platform.reporting.plots import plot_method_bars
+from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.tracking.artifact_access import (
     ArtifactLeaseManager,
     MlflowArtifactLeaseManager,
@@ -648,6 +649,7 @@ def eval_batch(
         config_dir=configs_dir,
         settings=settings,
         assignment_ids=[assignment.id for assignment in assignments],
+        load_dataset=load_dataset_presentation,
     )
     base_output = _resolve_base_output(cfg, settings, output_root)
     eval_mlflow_env = build_workflow_environment(

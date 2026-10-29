@@ -16,7 +16,10 @@ from dlkit.infrastructure.config.job_config import FitJobConfig
 
 from neuralls.composition.assignments._job_types import AnyJobConfig
 from neuralls.composition.assignments.job_loader import load_experiment_job
-from neuralls.composition.assignments.presentation_preflight import describe_method
+from neuralls.composition.assignments.presentation_preflight import (
+    DatasetPresentationLoader,
+    describe_method,
+)
 from neuralls.domain.presentation.methods import (
     DatasetQualifiedMethodPresentation,
     StandaloneMethodPresentation,
@@ -40,7 +43,6 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.config.models.presentation import ScientificLabelsConfig
 from neuralls.platform.config.registry import ResolvedAssignmentBinding, resolve_assignment_binding
 from neuralls.platform.config.settings import NeurallsSettings
-from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.tracking.run_names import render_training_label
 from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.scientific_description.policy import NotationPolicy
@@ -145,6 +147,7 @@ def training_subject(
     cfg: CaseConfig,
     config_dir: Path,
     settings: NeurallsSettings,
+    load_dataset: DatasetPresentationLoader,
 ) -> TrainingSubject:
     """What the assignment's training and evaluation runs are about, from typed facts.
 
@@ -157,7 +160,7 @@ def training_subject(
         MissingArchitectureNameError: When a neural job declares no architecture name.
     """
     inputs = resolve_assignment_inputs(entry, cfg=cfg, config_dir=config_dir, settings=settings)
-    dataset = load_dataset_presentation(inputs.dataset_dir)
+    dataset = load_dataset(inputs.dataset_dir)
     if entry.display_name is not None and entry.display_name.strip():
         return EditorialTrainingSubject(EditorialPresentation(entry.display_name.strip()), dataset)
     match inputs.job:
@@ -169,7 +172,7 @@ def training_subject(
             stub = neural_spec_from_assignment(
                 entry, extra_input_names=(), architecture=inputs.binding.architecture
             )
-    described = describe_method(stub)
+    described = describe_method(stub, load_dataset)
     match described:
         case DatasetQualifiedMethodPresentation():
             return described
@@ -190,6 +193,7 @@ def training_presentations(
     config_dir: Path,
     settings: NeurallsSettings,
     assignment_ids: Sequence[str],
+    load_dataset: DatasetPresentationLoader,
 ) -> dict[str, TrainingPresentation]:
     """Describe every named assignment before any run opens, so a bad one aborts the batch.
 
@@ -201,7 +205,11 @@ def training_presentations(
     presentations = {
         assignment_id: TrainingPresentation(
             training_subject(
-                entries[assignment_id], cfg=cfg, config_dir=config_dir, settings=settings
+                entries[assignment_id],
+                cfg=cfg,
+                config_dir=config_dir,
+                settings=settings,
+                load_dataset=load_dataset,
             ),
             notation,
         )

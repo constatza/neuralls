@@ -69,6 +69,7 @@ from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.platform.reporting.figure_text import Legend, training_legend
 from neuralls.platform.reporting.plots import plot_method_bars
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
+from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.tracking.environment import scoped_mlflow_environment
 from neuralls.platform.tracking.mlflow import (
     build_workflow_environment,
@@ -411,6 +412,7 @@ def run_assignment_sweep(
         config_dir=config_dir,
         settings=settings,
         assignment_ids=[assignment.spec.assignment_id for assignment in assignments],
+        load_dataset=load_dataset_presentation,
     )
     training_mlflow_env = build_workflow_environment(
         tracking_uri=cfg.mlflow.tracking_uri,

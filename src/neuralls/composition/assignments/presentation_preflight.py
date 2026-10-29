@@ -9,7 +9,8 @@ opened or any method executes.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from pathlib import Path
 
 from neuralls.composition.preconditioners.descriptions import describe_configured_preconditioner
 from neuralls.domain.presentation.methods import (
@@ -33,17 +34,23 @@ from neuralls.platform.config.models.preconditioner import (
     PODCoarseningConfig,
     PreconditionerConfig,
 )
-from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.shared.types import PreconditionerName
 
 __all__ = [
+    "DatasetPresentationLoader",
     "compose_comparison_title",
     "describe_method",
     "prepare_comparison_presentation",
 ]
 
 
-def describe_method(cfg: PreconditionerConfig) -> ConfiguredMethodPresentation:
+type DatasetPresentationLoader = Callable[[Path], DatasetPresentation]
+"""Reads the presentation of the dataset at a directory; composition wires the manifest reader."""
+
+
+def describe_method(
+    cfg: PreconditionerConfig, load_dataset: DatasetPresentationLoader
+) -> ConfiguredMethodPresentation:
     """Describe ``cfg``; a POD-2G method is qualified by its fit dataset, exactly once.
 
     The assignment and checkpoint identity of a fitted basis never reach the description.
@@ -52,18 +59,22 @@ def describe_method(cfg: PreconditionerConfig) -> ConfiguredMethodPresentation:
     match cfg:
         case AMGPreconditionerConfig(coarsening=PODCoarseningConfig() as pod):
             return DatasetQualifiedMethodPresentation(
-                method=method, dataset=load_dataset_presentation(pod.dataset_dir)
+                method=method, dataset=load_dataset(Path(pod.dataset_dir))
             )
         case _:
             return StandaloneMethodPresentation(method=method)
 
 
 def prepare_comparison_presentation(
-    specs: Sequence[ConcretePreconditionerConfig], scope: ComparisonScopePresentation
+    specs: Sequence[ConcretePreconditionerConfig],
+    scope: ComparisonScopePresentation,
+    load_dataset: DatasetPresentationLoader,
 ) -> PreparedComparisonPresentation:
     """Describe every method of one comparison and validate the whole cohort."""
     candidates = tuple(
-        MethodPresentationCandidate(PreconditionerName(spec.name), describe_method(spec))
+        MethodPresentationCandidate(
+            PreconditionerName(spec.name), describe_method(spec, load_dataset)
+        )
         for spec in specs
     )
     return prepare_presentations(UnvalidatedComparisonPresentation(candidates, scope))

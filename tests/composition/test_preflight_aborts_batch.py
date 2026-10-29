@@ -176,6 +176,7 @@ def _scope_of(tmp_path: Path, cfg: CaseConfig, case_path: Path) -> ComparisonSco
         topology=MagicMock(),
         case_config_path=case_path,
         settings=make_settings(tmp_path),
+        load_dataset=load_dataset_presentation,
         master_cfg=cfg,
     )
     return _matrix_scope(_planned(), context)

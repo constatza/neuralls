@@ -165,7 +165,9 @@ def configs(fit_dirs: tuple[Path, Path]) -> tuple[PreconditionerConfig, ...]:
 def cohort(
     configs: tuple[PreconditionerConfig, ...], spectral_dataset: DatasetPresentation
 ) -> PreparedComparisonPresentation:
-    return prepare_comparison_presentation(configs, ComparisonScopePresentation(spectral_dataset))
+    return prepare_comparison_presentation(
+        configs, ComparisonScopePresentation(spectral_dataset), load_dataset_presentation
+    )
 
 
 def _plain_label(cohort: PreparedComparisonPresentation) -> dict[str, str]:

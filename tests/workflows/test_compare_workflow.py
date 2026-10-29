@@ -29,6 +29,7 @@ from neuralls.platform.reporting.figure_text import method_legend
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
 from neuralls.shared.types import PreconditionerName
 from tests.dataset_support import build_test_dataset
+from tests.presentation_support import NO_DATASET_READS
 
 
 def _assert_under(path: Path, root: Path) -> None:
@@ -263,7 +264,7 @@ def test_compare_preconditioners_evaluates_configs_one_at_a_time(
     )
     mathtext = NotationPolicy.default(RenderTarget.MATHTEXT)
     prepared = prepare_comparison_presentation(
-        specs, ComparisonScopePresentation(dataset_presentation)
+        specs, ComparisonScopePresentation(dataset_presentation), NO_DATASET_READS
     )
 
     compare_preconditioners(
@@ -321,6 +322,7 @@ def test_compare_preconditioners_workflow(
             methods=prepare_comparison_presentation(
                 comparison_cfg_model.preconditioners,
                 ComparisonScopePresentation(dataset_presentation),
+                NO_DATASET_READS,
             ),
             title=ComparisonScopePresentation(dataset_presentation),
             notation=NotationPolicy.default(RenderTarget.MATHTEXT),

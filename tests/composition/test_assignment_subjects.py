@@ -20,6 +20,7 @@ from neuralls.composition.assignments.assignment_subjects import (
     training_subject,
 )
 from neuralls.domain.presentation.methods import DatasetQualifiedMethodPresentation
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.run_names import (
     EditorialTrainingSubject,
     TrainingPresentation,
@@ -36,8 +37,10 @@ from neuralls.platform.config.registry import ResolvedAssignmentBinding
 from neuralls.platform.tracking.run_names import render_run_name
 from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from tests.presentation_support import datasets_by_dir
 
 PLAIN = NotationPolicy.default()
+FIT_DIR = Path("pod-fit")
 WORKSPACE = Path("/workspace")
 
 
@@ -72,8 +75,14 @@ def _fit_job() -> MagicMock:
     return job
 
 
-def _subject(entry: AssignmentEntry) -> object:
-    return training_subject(entry, cfg=MagicMock(), config_dir=Path("."), settings=MagicMock())
+def _subject(entry: AssignmentEntry, fit_presentation: DatasetPresentation) -> object:
+    return training_subject(
+        entry,
+        cfg=MagicMock(),
+        config_dir=Path("."),
+        settings=MagicMock(),
+        load_dataset=datasets_by_dir({FIT_DIR: fit_presentation}),
+    )
 
 
 def _entry(display_name: str | None = None) -> AssignmentEntry:
@@ -81,11 +90,11 @@ def _entry(display_name: str | None = None) -> AssignmentEntry:
 
 
 def test_a_fit_job_is_the_pod_basis_trained_on_its_dataset(
-    monkeypatch: pytest.MonkeyPatch, pod_dataset_dir: Path
+    monkeypatch: pytest.MonkeyPatch, pod_fit_presentation: DatasetPresentation
 ) -> None:
-    _use_inputs(monkeypatch, pod_dataset_dir, _fit_job())
+    _use_inputs(monkeypatch, FIT_DIR, _fit_job())
 
-    subject = _subject(_entry())
+    subject = _subject(_entry(), pod_fit_presentation)
 
     assert isinstance(subject, DatasetQualifiedMethodPresentation)
     text = render_run_name(TrainingRunName(subject, Untimed()), PLAIN)
@@ -93,16 +102,16 @@ def test_a_fit_job_is_the_pod_basis_trained_on_its_dataset(
 
 
 def test_a_neural_job_is_its_architecture_trained_on_its_dataset(
-    monkeypatch: pytest.MonkeyPatch, pod_dataset_dir: Path
+    monkeypatch: pytest.MonkeyPatch, pod_fit_presentation: DatasetPresentation
 ) -> None:
     _use_inputs(
         monkeypatch,
-        pod_dataset_dir,
+        FIT_DIR,
         MagicMock(spec=TrainingJobConfig),
         ValidatedLabel("Graph Net"),
     )
 
-    subject = _subject(_entry())
+    subject = _subject(_entry(), pod_fit_presentation)
 
     assert isinstance(subject, DatasetQualifiedMethodPresentation)
     text = render_run_name(TrainingRunName(subject, Untimed()), PLAIN)
@@ -110,20 +119,20 @@ def test_a_neural_job_is_its_architecture_trained_on_its_dataset(
 
 
 def test_a_neural_job_without_an_architecture_name_is_rejected(
-    monkeypatch: pytest.MonkeyPatch, pod_dataset_dir: Path
+    monkeypatch: pytest.MonkeyPatch, pod_fit_presentation: DatasetPresentation
 ) -> None:
-    _use_inputs(monkeypatch, pod_dataset_dir, MagicMock(spec=TrainingJobConfig))
+    _use_inputs(monkeypatch, FIT_DIR, MagicMock(spec=TrainingJobConfig))
 
     with pytest.raises(ValueError, match="architecture"):
-        _subject(_entry())
+        _subject(_entry(), pod_fit_presentation)
 
 
 def test_an_explicit_display_name_is_an_editorial_title_beside_the_dataset(
-    monkeypatch: pytest.MonkeyPatch, pod_dataset_dir: Path
+    monkeypatch: pytest.MonkeyPatch, pod_fit_presentation: DatasetPresentation
 ) -> None:
-    _use_inputs(monkeypatch, pod_dataset_dir, _fit_job())
+    _use_inputs(monkeypatch, FIT_DIR, _fit_job())
 
-    subject = _subject(_entry("  Basis rank ten "))
+    subject = _subject(_entry("  Basis rank ten "), pod_fit_presentation)
 
     assert isinstance(subject, EditorialTrainingSubject)
     assert render_run_name(TrainingRunName(subject, Untimed()), PLAIN) == (
@@ -132,16 +141,18 @@ def test_an_explicit_display_name_is_an_editorial_title_beside_the_dataset(
 
 
 def test_a_blank_display_name_is_no_editorial_title(
-    monkeypatch: pytest.MonkeyPatch, pod_dataset_dir: Path
+    monkeypatch: pytest.MonkeyPatch, pod_fit_presentation: DatasetPresentation
 ) -> None:
-    _use_inputs(monkeypatch, pod_dataset_dir, _fit_job())
-    assert isinstance(_subject(_entry("   ")), DatasetQualifiedMethodPresentation)
+    _use_inputs(monkeypatch, FIT_DIR, _fit_job())
+    assert isinstance(
+        _subject(_entry("   "), pod_fit_presentation), DatasetQualifiedMethodPresentation
+    )
 
 
 def test_presentations_are_built_for_every_named_assignment_with_the_case_notation(
-    monkeypatch: pytest.MonkeyPatch, pod_dataset_dir: Path
+    monkeypatch: pytest.MonkeyPatch, pod_fit_presentation: DatasetPresentation
 ) -> None:
-    _use_inputs(monkeypatch, pod_dataset_dir, _fit_job())
+    _use_inputs(monkeypatch, FIT_DIR, _fit_job())
     cfg = CaseConfig(
         datasets=[RegistryEntry(id="ds_1", path=WORKSPACE / "data.toml")],
         jobs=[JobEntry(id="job_1", path=WORKSPACE / "job.toml")],
@@ -149,7 +160,11 @@ def test_presentations_are_built_for_every_named_assignment_with_the_case_notati
     )
 
     built = training_presentations(
-        cfg, config_dir=WORKSPACE, settings=MagicMock(), assignment_ids=["fit_job_1"]
+        cfg,
+        config_dir=WORKSPACE,
+        settings=MagicMock(),
+        assignment_ids=["fit_job_1"],
+        load_dataset=datasets_by_dir({FIT_DIR: pod_fit_presentation}),
     )
 
     assert set(built) == {"fit_job_1"}

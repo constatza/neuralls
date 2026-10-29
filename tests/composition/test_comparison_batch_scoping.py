@@ -52,7 +52,7 @@ from neuralls.shared.workflow_failures import (
     ComparisonMatrixPhase,
     ComparisonMethodFailureContext,
 )
-from tests.presentation_support import PreparedMethodFactory
+from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 
 
 def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
@@ -443,6 +443,7 @@ def test_every_entry_of_a_sweep_shares_the_one_lease_manager(
         topology=MagicMock(),
         case_config_path=MagicMock(),
         settings=MagicMock(),
+        load_dataset=NO_DATASET_READS,
         artifact_leases=shared_leases,
     )
 
