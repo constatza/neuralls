@@ -16,6 +16,8 @@ from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAda
 from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.platform.config.models.preconditioner import NeuralPreconditionerConfig
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 # ==============================================================================
 # Mock Predictor and Adapter
 # ==============================================================================

@@ -18,6 +18,8 @@ from neuralls.shared.digest import canonical_digest
 from neuralls.shared.errors import StageInputsStale
 from tests.composition.conftest import JobWriter
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 @pytest.fixture(autouse=True)
 def dataset(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, str]:

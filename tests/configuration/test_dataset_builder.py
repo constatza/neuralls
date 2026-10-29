@@ -18,6 +18,8 @@ from neuralls.platform.config.models.dataset import (
     with_dataset_arrays,
 )
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 
 def _build_training_job(
     tmp_path: Path, *, dataset_name: str = "FlexibleDataset"

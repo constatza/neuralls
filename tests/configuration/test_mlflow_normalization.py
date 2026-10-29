@@ -20,6 +20,8 @@ from neuralls.platform.config.resolution import (
 from neuralls.platform.tracking.environment import scoped_mlflow_environment
 from tests.path_assertions import assert_local_path_eq
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 WORKSPACE = Path("/workspace")
 
 

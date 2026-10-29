@@ -11,6 +11,8 @@ import neuralls.platform.config.profile as profile_module
 from neuralls.platform.config.profile import ProfileConfig, save_profile
 from neuralls.platform.config.settings import get_settings, load_case_settings
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 
 def _write_case_config(path: Path) -> None:
     path.write_text("", encoding="utf-8")

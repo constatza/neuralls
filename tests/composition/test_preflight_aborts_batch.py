@@ -45,6 +45,8 @@ from tests.workflows.comparison_support import (
     write_experiments_config,
 )
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 type ResolvedSpecs = Callable[[list[PreconditionerConfig]], list[int]]
 
 DATASET_ID = "ds"

@@ -54,6 +54,8 @@ from neuralls.shared.types import MatrixId
 from tests.presentation_support import NO_DATASET_READS, datasets_by_dir, pod_spec
 from tests.workflows.comparison_support import MLFLOW_MODULE, mock_cfg, write_experiments_config
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 PLAIN = NotationPolicy.default()
 FIT_DIR = Path("pod-fit")
 STAMP = "2026-01-02T03:04:05"

@@ -24,6 +24,8 @@ from tests.shared.conftest import (
     UnmarkedPathModel,
 )
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 
 def test_digest_format() -> None:
     assert canonical_digest(1).startswith("sha256:")

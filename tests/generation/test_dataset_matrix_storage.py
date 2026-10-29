@@ -21,6 +21,8 @@ from neuralls.platform.storage.dataset_readers import (
 from tests.dataset_support import build_test_dataset
 from tests.generation.test_orchestration_characterization import spd_matrix_dir  # noqa: F401
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 RESIDUAL_TOLERANCE = 1e-8
 MIXTURE_SEED = 1234
 

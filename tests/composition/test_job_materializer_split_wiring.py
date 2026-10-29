@@ -24,6 +24,8 @@ from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.shared.constants import SPLIT_FILENAME
 from tests.fakes.split_store import InMemorySplitStore
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 
 def _settings(tmp_path: Path) -> TrainingJobConfig:
     rng = np.random.default_rng(0)

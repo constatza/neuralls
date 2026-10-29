@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from neuralls.composition.comparison._generation_cost import (
     resolve_generation_cost,
     resolve_generation_repeatability,
@@ -33,6 +35,8 @@ from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormaliza
 from neuralls.platform.storage.manifest_io import make_dataset_manifest as _make_manifest
 from neuralls.platform.storage.manifest_io import save_dataset_manifest
 from neuralls.shared.types import CostProvenance, GenerationRepeatability
+
+pytestmark = pytest.mark.deferred_io("config-loading")
 
 _GENERATION_DURATION = 12.5
 WORKSPACE = Path("/workspace")

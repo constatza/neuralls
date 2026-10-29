@@ -60,6 +60,8 @@ from tests.dataset_support import build_test_dataset
 from tests.presentation_support import pod_spec
 from tests.realized_support import completed_workload
 
+pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
+
 PLAIN = NotationPolicy.default(RenderTarget.PLAIN)
 MATHTEXT = NotationPolicy.default(RenderTarget.MATHTEXT)
 

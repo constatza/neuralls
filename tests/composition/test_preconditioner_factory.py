@@ -58,6 +58,8 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.dlkit.predictor_adapter import OwningDLKitNeuralPreconditioner
 from tests.fakes.fit_data import FakeFitData
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 # ==============================================================================
 # Mock Predictor and Adapter for Neural Preconditioner Testing
 # ==============================================================================

@@ -21,6 +21,8 @@ from neuralls.domain.generation.binding_allocation import (
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 _NUM_MATRICES = 3
 _NUM_FILES = 5
 _ARCHIVE_STRATEGY = "rhs_archive"

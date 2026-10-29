@@ -43,6 +43,8 @@ from neuralls.platform.tracking.evaluation_artifacts import (
 )
 from neuralls.platform.tracking.run_names import render_training_label
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 SPLIT_ARTIFACT_PATH = "splits/split.json"
 
 

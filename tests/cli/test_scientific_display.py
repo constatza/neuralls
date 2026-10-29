@@ -49,6 +49,8 @@ from neuralls.shared.constants import SYMBOL_CHECKMARK
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import MatrixId
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 runner = CliRunner()
 WORKSPACE = Path("/workspace")
 

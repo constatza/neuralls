@@ -19,6 +19,8 @@ from neuralls.composition.assignments._job_types import TrainableJobConfig
 from neuralls.composition.assignments.runtime_split_patcher import patch_split_settings
 from neuralls.shared.constants import SPLIT_FILENAME
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 
 def _data_settings() -> DataSettings:
     rng = np.random.default_rng(0)

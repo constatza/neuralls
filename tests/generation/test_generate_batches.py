@@ -29,6 +29,8 @@ from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpe
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
 from neuralls.shared.types import MatrixFormat
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 _READER = partial(read_matrix, lazy=True)
 _READERS = MatrixReaders(generic=_READER, dense=partial(read_dense_npy, lazy=True))
 

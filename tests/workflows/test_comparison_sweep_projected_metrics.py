@@ -26,6 +26,8 @@ from tests.workflows.comparison_support import (
     write_dataset_config,
 )
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 _GROUP_IDS = ("fine_solutions_dataset", "medium_solutions", "global")
 _N_PLANNED_RHS = 4
 """2 held-out matrices x `rhs_count` 2."""

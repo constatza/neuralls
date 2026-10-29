@@ -45,6 +45,8 @@ from tests.workflows.comparison_support import (
     write_experiments_config,
 )
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
 def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(

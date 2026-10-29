@@ -20,6 +20,8 @@ from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 from tests.dataset_support import build_test_dataset
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 def _build_normalized_dataset(root: Path) -> Path:
     """Build a `normalize="matrix"` dataset with a spectral radius far from 1.

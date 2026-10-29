@@ -44,6 +44,8 @@ from neuralls.platform.tracking.model_registry import (
 )
 from tests.workflows.conftest import LoggedNamedCheckpointsRunFactory, LoggedRunFactory
 
+pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
+
 # Never opened: every test patches the MLflow-facing collaborators.
 TRACKING_URI = "sqlite:////workspace/mlflow.db"
 

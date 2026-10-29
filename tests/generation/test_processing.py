@@ -5,12 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from neuralls.composition.generation.process_data import process_data_from_config
 from neuralls.composition.generation.processing import _build_context, process_config
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.datasets import load_dense_training_arrays
+
+pytestmark = pytest.mark.deferred_io("generation-io")
 
 
 def _write_solution_archive_config(tmp_path: Path, dataset_id: str) -> Path:

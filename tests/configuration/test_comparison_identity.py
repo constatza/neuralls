@@ -13,6 +13,8 @@ from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.digest import canonical_digest, digest_memo
 from tests.configuration.conftest import ComparisonFactory
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 
 def _key(cfg: ComparisonConfig, checkpoints: dict[str, str] | None = None) -> str:
     return comparison_identity(cfg, cfg.preconditioners, checkpoints or {}).key

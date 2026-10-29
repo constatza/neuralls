@@ -22,6 +22,8 @@ from neuralls.composition.generation._archive_resolution import (
     persist_derived_rhs,
 )
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 @pytest.fixture
 def matrix() -> np.ndarray:

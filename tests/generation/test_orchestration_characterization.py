@@ -37,6 +37,8 @@ from neuralls.platform.storage.datasets import (
 from neuralls.shared.types import MatrixFormat, RowKind
 from tests.dataset_support import build_test_dataset
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 _FLOAT_DIGEST_DECIMALS = 12
 """Rounding applied before hashing floating arrays, so BLAS/LAPACK builds that
 round the last bit or two differently across platforms don't flip the digest.

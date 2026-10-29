@@ -23,6 +23,8 @@ from neuralls.platform.config.models.workspace import AssignmentSpec
 from neuralls.platform.tracking.run_names import render_training_label
 from neuralls.shared.digest import canonical_digest
 
+pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
+
 
 def _spec(*, assignment_id: str = "exp-1") -> AssignmentSpec:
     """Minimal assignment spec naming the job/data configs run_assignment reads."""

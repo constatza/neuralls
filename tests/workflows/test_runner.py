@@ -22,6 +22,8 @@ from neuralls.composition.tracking.run_specs import training_run_name
 from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 
+pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
+
 
 def _fake_prepared_training(
     tmp_path: Path, assignment_id: str, presentation: TrainingPresentation

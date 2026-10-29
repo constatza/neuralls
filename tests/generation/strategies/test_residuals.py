@@ -24,6 +24,8 @@ from neuralls.domain.generation.strategy_configs import ResidualErrorConfig
 
 from .conftest import _SolverCallRecorder
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 def _expected_trace_systems(samples: int, rows_per_system: int) -> int:
     return max(1, math.ceil(samples / rows_per_system))

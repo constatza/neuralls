@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, cast, get_args, get_type_hints
 from unittest.mock import MagicMock, patch
 
+import pytest
 from typer.core import TyperGroup as Group
 from typer.main import get_command
 from typer.models import ArgumentInfo
@@ -33,6 +34,8 @@ from neuralls.domain.solver.models.recommendations import ComparisonRecommendati
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.shared.constants import EXIT_FAILURE
 from neuralls.shared.scientific_description.policy import NotationPolicy
+
+pytestmark = pytest.mark.deferred_io("config-loading")
 
 runner = CliRunner()
 WORKSPACE = Path("/workspace")

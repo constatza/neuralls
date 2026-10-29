@@ -27,6 +27,8 @@ from neuralls.platform.storage.dataset_readers import (
 from neuralls.platform.storage.datasets import load_dense_training_arrays
 from tests.dataset_support import build_test_dataset
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 _SEED = 1234
 _MATRIX_COUNT = 2
 _MATRIX_SIZE = 5

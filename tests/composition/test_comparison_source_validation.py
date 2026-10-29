@@ -18,6 +18,8 @@ from neuralls.domain.solver.models.config import ComparisonData, ComparisonGener
 from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 type ConfigFactory = Callable[..., ComparisonConfig]
 
 

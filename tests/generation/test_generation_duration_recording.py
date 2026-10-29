@@ -12,6 +12,8 @@ from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.digest import canonical_digest
 from tests.dataset_support import build_test_dataset
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 @pytest.fixture
 def identity() -> StageIdentity:

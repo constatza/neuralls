@@ -19,6 +19,8 @@ from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.helpers import solution_row_count
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 _SOLUTION_STRATEGY = "solution_archive"
 _NUM_BINDINGS = 2
 _NUM_ROWS = 6

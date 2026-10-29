@@ -15,6 +15,8 @@ from neuralls.platform.config.resolution import (
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.constants import DEFAULT_PROJECT_ROOT
 
+pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
+
 WORKSPACE = Path("/workspace")
 
 

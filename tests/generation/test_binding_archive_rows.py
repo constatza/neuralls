@@ -17,6 +17,8 @@ from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpe
 from neuralls.platform.storage.datasets import load_dense_training_arrays
 from tests.dataset_support import build_test_dataset
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 ALL_SAMPLES = -1
 CYCLIC_COUNT = 2
 OVER_CAP_COUNT = 6

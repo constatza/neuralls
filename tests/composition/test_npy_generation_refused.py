@@ -15,6 +15,8 @@ import pytest
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from tests.dataset_support import build_test_dataset
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 def test_npy_generation_is_refused_with_supported_formats_named(
     atomic_matrix_dir: Path,

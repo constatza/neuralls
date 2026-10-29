@@ -21,6 +21,8 @@ from neuralls.shared.constants import REGENERATE_DATASETS_COMMAND, SPLIT_FILENAM
 from neuralls.shared.errors import StageInputsStale
 from tests.dataset_support import strip_provenance
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 type ConfigFactory = Callable[..., DataConfigFile]
 
 

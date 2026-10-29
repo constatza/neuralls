@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from loguru import logger
 
 from neuralls.composition.assignments.assignment_subjects import case_notation
@@ -12,6 +13,8 @@ from neuralls.composition.generation import multi_generation
 from neuralls.composition.generation.multi_generation import generate_batch
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.platform.config.models.experiments import CaseConfig, RegistryEntry
+
+pytestmark = pytest.mark.deferred_io("config-loading")
 
 
 def test_each_result_carries_the_presentation_stamped_on_its_dataset(

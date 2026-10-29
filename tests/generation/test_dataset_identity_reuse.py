@@ -32,6 +32,8 @@ from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
 from neuralls.platform.storage.manifest_io import read_dataset_manifest, save_dataset_manifest
 from neuralls.shared.types import DatasetFormat
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 type ConfigFactory = Callable[..., DataConfigFile]
 
 

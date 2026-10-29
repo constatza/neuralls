@@ -42,6 +42,8 @@ from neuralls.platform.storage.training_artifacts import (
 )
 from neuralls.shared.types import MatrixFormat
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 def _build_training_job(tmp_path: Path) -> TrainingJobConfig:
     trainer_root = tmp_path / "original-root"

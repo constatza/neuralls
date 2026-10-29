@@ -23,6 +23,8 @@ from neuralls.platform.storage.datasets import (
 )
 from tests.dataset_support import build_test_dataset
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 @pytest.fixture
 def matrix_path(tmp_path: Path) -> str:

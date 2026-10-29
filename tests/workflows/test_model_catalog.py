@@ -18,6 +18,8 @@ from neuralls.platform.tracking.model_registry import (
 )
 from tests.workflows.conftest import LoggedNamedCheckpointsRunFactory, LoggedRunFactory
 
+pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
+
 
 def test_build_registered_model_name_uses_architecture_only() -> None:
     """Model registry name should match architecture identifier exactly."""

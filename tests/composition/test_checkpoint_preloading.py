@@ -43,6 +43,8 @@ from neuralls.shared.types import MatrixId
 from tests.fakes.fit_data import FakeFitData
 from tests.presentation_support import PreparedMethodFactory
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 POD_RANK = 2
 SLOW_LOAD_SECONDS = 0.2
 

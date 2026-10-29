@@ -41,6 +41,8 @@ from neuralls.platform.tracking.artifact_access import ArtifactLease
 from neuralls.platform.tracking.mlflow import MlflowRunConfig
 from neuralls.platform.tracking.run_names import run_name_text
 
+pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
+
 
 class _CheckpointLeaseManager:
     """Minimal artifact lease manager for training checkpoint fallback tests."""

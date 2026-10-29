@@ -25,6 +25,8 @@ from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
 )
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------

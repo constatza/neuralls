@@ -17,6 +17,8 @@ from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpe
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.types import DatasetFormat, LayoutType, SparsityPattern
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 _SEED = 7
 _SIZE = 6
 _MATRIX_SAMPLES = 3

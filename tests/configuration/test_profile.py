@@ -19,6 +19,8 @@ from neuralls.platform.config.profile import (
 )
 from neuralls.platform.config.settings import NeurallsSettings, load_case_settings
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 
 def _configure_profile_path(monkeypatch: pytest.MonkeyPatch, config_file: Path) -> None:
     monkeypatch.setattr(profile_module, "USER_CONFIG_DIR", config_file.parent)

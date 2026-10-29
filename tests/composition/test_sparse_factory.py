@@ -32,6 +32,8 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.dlkit.predictor_adapter import _prepare_model_input
 from neuralls.shared.types import MatrixFormat
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 RELATIVE_REMAINING_BOUND = 0.5
 POD_RANK = 8
 POD_RELATIVE_REMAINING_BOUND = 0.5

@@ -40,6 +40,8 @@ from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 if TYPE_CHECKING:
     from torch import Tensor
 

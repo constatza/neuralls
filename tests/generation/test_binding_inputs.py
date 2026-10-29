@@ -14,6 +14,8 @@ from neuralls.domain.generation.source_streams import _MatrixStream
 from neuralls.domain.generation.specs import SourceSpec
 from neuralls.shared.types import MatrixFormat, SystemMatrix
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 PARAMETER_LENGTH = 4
 NEUTRAL_COUNT = 1
 

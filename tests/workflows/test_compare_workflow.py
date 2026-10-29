@@ -31,6 +31,8 @@ from neuralls.shared.types import PreconditionerName
 from tests.dataset_support import build_test_dataset
 from tests.presentation_support import NO_DATASET_READS
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 def _assert_under(path: Path, root: Path) -> None:
     assert path.resolve().is_relative_to(root.resolve())

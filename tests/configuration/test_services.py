@@ -9,6 +9,8 @@ import pytest
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.storage.workspaces import WorkspaceFactory
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 
 class TestWorkspaceFactory:
     """Tests for WorkspaceFactory class."""

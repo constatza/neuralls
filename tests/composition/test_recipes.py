@@ -28,6 +28,8 @@ from neuralls.shared.rhs_recipe import (
 )
 from neuralls.shared.types import DatasetId, MatrixId, RowKind
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 
 def test_different_omegas_are_different_recipes() -> None:
     assert rhs_recipe(SinusoidalRhsSourceModel(omega=6.283185)) == SinusoidalRecipe(6.283185)

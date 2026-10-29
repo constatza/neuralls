@@ -13,6 +13,8 @@ from neuralls.platform.config.settings import (
     get_settings,
 )
 
+pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
+
 
 def test_settings_loads_from_env_vars(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Direct BaseSettings construction reads NEURALLS_* env vars."""

@@ -13,6 +13,8 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
 )
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 
 @pytest.fixture
 def checkpoint(tmp_path: Path) -> Path:

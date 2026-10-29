@@ -14,6 +14,8 @@ from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 from tests.dataset_support import build_test_dataset
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 def _build_safe_dataset(root: Path, *, residual: bool = False) -> Path:
     root.mkdir(parents=True, exist_ok=True)

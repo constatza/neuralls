@@ -23,6 +23,8 @@ from neuralls.domain.generation.source_streams import GlobMatrixStream
 from neuralls.platform.storage.matrix_readers import read_matrix
 from neuralls.shared.types import MatrixFormat
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 _READER = partial(read_matrix, lazy=True)
 
 

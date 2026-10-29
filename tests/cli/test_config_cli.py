@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
+import pytest
 from typer.core import TyperGroup as Group
 from typer.main import get_command
 from typer.models import OptionInfo
@@ -13,6 +14,8 @@ from typer.testing import CliRunner
 import neuralls.cli.config as config_cli
 import neuralls.platform.config.profile as profile_module
 from neuralls.cli.config import app
+
+pytestmark = pytest.mark.deferred_io("config-loading")
 
 runner = CliRunner()
 

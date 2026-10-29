@@ -23,6 +23,8 @@ from neuralls.platform.storage.training_artifacts import (
 )
 from neuralls.shared.constants import PARAMETERS_ZARR_PREFIX
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

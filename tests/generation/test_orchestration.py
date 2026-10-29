@@ -15,6 +15,8 @@ from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.domain.generation.strategy_rows import _generate_strategy_rows, _StrategyRows
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 def _stack_strategies(matrix: np.ndarray, mixture: MixtureSpec) -> _StrategyRows:
     """Run each strategy for its count and stack rows in mixture order, row kinds included."""

@@ -107,6 +107,8 @@ from tests.workflows.comparison_support import (
     write_experiments_config,
 )
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 def test_resolve_comparison_config_importable_from_composition() -> None:
     """resolve_comparison_config must live in composition, not platform."""

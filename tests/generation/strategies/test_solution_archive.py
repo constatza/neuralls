@@ -11,6 +11,8 @@ from neuralls.domain.generation import run_generation
 from neuralls.domain.generation.runner import MatrixStrategyRegistration
 from neuralls.domain.generation.strategies.solution_archive import SolutionArchiveStrategy
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 @pytest.fixture
 def solution_files(tmp_path: Path, spd_matrix: np.ndarray) -> tuple[list[Path], str]:

@@ -10,6 +10,8 @@ from dlkit.infrastructure.io import url_resolver
 
 from neuralls.platform.config.resolution import resolve_local_path
 
+pytestmark = pytest.mark.deferred_io("config-loading")
+
 
 def test_resolve_local_path_accepts_file_uri(tmp_path: Path) -> None:
     """file:// URIs round-trip through the shared local resolver."""

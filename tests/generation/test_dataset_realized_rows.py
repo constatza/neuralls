@@ -29,6 +29,8 @@ from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
 from neuralls.shared.types import GenerationStrategyKind
 from tests.dataset_support import build_test_dataset
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 _READERS = MatrixReaders(
     generic=partial(read_matrix, lazy=True), dense=partial(read_dense_npy, lazy=True)
 )

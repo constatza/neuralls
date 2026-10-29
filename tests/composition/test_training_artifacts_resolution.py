@@ -43,6 +43,8 @@ from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.tracking.mlflow import MlflowPaths, MlflowRunConfig
 from neuralls.platform.tracking.run_names import run_name_text
 
+pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

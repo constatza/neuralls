@@ -22,6 +22,8 @@ from neuralls.platform.tracking.comparison_tracking import (
 )
 from tests.workflows.comparison_support import make_settings, write_dataset_config
 
+pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
+
 
 def _artifact_names(client: MlflowClient, run_id: str, path: str) -> set[str]:
     return {Path(item.path).name for item in client.list_artifacts(run_id, path=path)}

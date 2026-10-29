@@ -11,6 +11,8 @@ import pytest
 from neuralls.domain.generation.strategies.validated_archive import ValidatedArchiveStrategy
 from neuralls.domain.generation.strategy_configs import ValidatedArchiveConfig
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 @pytest.fixture
 def valid_pairs(tmp_path: Path, sample_matrix: np.ndarray) -> tuple[Path, Path]:

@@ -27,6 +27,8 @@ from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.types import GenerationStrategyKind
 from tests.dataset_support import build_test_dataset, strip_provenance
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 @pytest.fixture
 def problem() -> DatasetSourceProvenance:

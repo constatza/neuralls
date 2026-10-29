@@ -18,6 +18,8 @@ from neuralls.domain.generation.providers import (
     provide_solutions,
 )
 
+pytestmark = pytest.mark.deferred_io("generation-io")
+
 
 @pytest.fixture
 def sample_matrix() -> np.ndarray:
