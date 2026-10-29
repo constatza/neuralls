@@ -5,10 +5,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Self
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments.model_resolution import (
     ModelResolution,
@@ -40,9 +39,8 @@ from neuralls.platform.tracking.artifact_access import (
 from neuralls.platform.tracking.checkpoint_selection import find_single_checkpoint
 from neuralls.platform.tracking.model_registry import (
     CHECKPOINT_ARTIFACT_PATH_TAG,
-    register_logged_model,
 )
-from tests.workflows.conftest import LoggedNamedCheckpointsRunFactory, LoggedRunFactory
+from tests.fakes.mlflow_client import FAKE_EXPERIMENT_NAME, FakeMlflowClient
 
 pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
 
@@ -57,10 +55,15 @@ def noop_artifact_leases() -> ArtifactLeaseManager:
 
 
 @pytest.fixture
-def artifact_leases(mlflow_tracking_uri: str) -> Iterator[ArtifactLeaseManager]:
-    """Lease manager backed by the test MLflow store."""
-    client = MlflowClient(tracking_uri=mlflow_tracking_uri)
-    with MlflowArtifactLeaseManager(client=client) as leases:
+def fake_client(tmp_path: Path) -> FakeMlflowClient:
+    """In-memory MLflow store whose run artifacts live under ``tmp_path``."""
+    return FakeMlflowClient(artifact_root=tmp_path / "artifacts")
+
+
+@pytest.fixture
+def artifact_leases(fake_client: FakeMlflowClient) -> Iterator[ArtifactLeaseManager]:
+    """Real lease manager over the fake store's local artifact directories."""
+    with MlflowArtifactLeaseManager(client=fake_client) as leases:
         yield leases
 
 
@@ -242,16 +245,10 @@ def test_resolve_preconditioner_models_with_warnings_skips_unresolved_neural(
     assert len(resolved.warnings) == 1
 
 
-@patch("neuralls.composition.assignments.model_resolution.MlflowClient")
-@patch("neuralls.composition.assignments.model_resolution.search_registered_models")
 def test_resolve_model_ref_dataset_placeholder_requires_dataset_alias(
-    mock_client_cls,
-    mock_search_registered_models,
     noop_artifact_leases: ArtifactLeaseManager,
 ) -> None:
     """Using alias=@dataset requires a provided dataset alias context."""
-    mock_client_cls.return_value = object()
-    mock_search_registered_models.return_value = [object()]
     neural = NeuralPreconditionerConfig(
         type=PreconditionerType.NEURAL,
         model_ref=RegisteredModelRefConfig(
@@ -264,6 +261,7 @@ def test_resolve_model_ref_dataset_placeholder_requires_dataset_alias(
             spec=neural,
             tracking_uri=TRACKING_URI,
             artifact_leases=noop_artifact_leases,
+            client_factory=MagicMock(),
         )
 
 
@@ -288,16 +286,9 @@ def test_resolve_model_ref_rejects_mismatched_artifact_lease_store() -> None:
         )
 
 
-@patch("neuralls.composition.assignments.model_resolution.search_registered_models")
-@patch("neuralls.composition.assignments.model_resolution.MlflowClient")
-def test_resolve_model_ref_normalizes_explicit_at_alias(
-    mock_client_cls,
-    mock_search_registered_models,
-    tmp_path: Path,
-) -> None:
+def test_resolve_model_ref_normalizes_explicit_at_alias(tmp_path: Path) -> None:
     """Registered alias values strip @ prefix before MLflow lookup."""
-    mock_search_registered_models.return_value = [object()]
-    client = mock_client_cls.return_value
+    client = MagicMock()
     version = client.get_model_version_by_alias.return_value
     version.run_id = "run-1"
     version.version = "1"
@@ -315,6 +306,7 @@ def test_resolve_model_ref_normalizes_explicit_at_alias(
         spec=neural,
         tracking_uri=TRACKING_URI,
         artifact_leases=artifact_leases,
+        client_factory=MagicMock(return_value=client),
     )
 
     client.get_model_version_by_alias.assert_called_once_with(
@@ -539,8 +531,7 @@ def test_resolve_checkpoint_for_run_propagates_ambiguity_raised_by_the_fallback(
 
 
 def test_resolve_registered_ref_latest_picks_highest_version(
-    mlflow_tracking_uri: str,
-    log_run_with_checkpoint: LoggedRunFactory,
+    fake_client: FakeMlflowClient,
     artifact_leases: ArtifactLeaseManager,
 ) -> None:
     """latest=True must select the highest registered version, not run order.
@@ -550,20 +541,15 @@ def test_resolve_registered_ref_latest_picks_highest_version(
     resolver that accidentally selects "most recently created run" instead
     of "highest version number" fails this test.
     """
-    run_a = log_run_with_checkpoint("marker-a")
-    run_b = log_run_with_checkpoint("marker-b")
-    run_c = log_run_with_checkpoint("marker-c")
+    run_a = fake_client.add_run("marker-a")
+    run_b = fake_client.add_run("marker-b")
+    run_c = fake_client.add_run("marker-c")
 
     model_name = "LatestVersionModel"
-    register_logged_model(
-        run_id=run_b, registered_model_name=model_name, tracking_uri=mlflow_tracking_uri
-    )  # v1
-    register_logged_model(
-        run_id=run_c, registered_model_name=model_name, tracking_uri=mlflow_tracking_uri
-    )  # v2
-    register_logged_model(
-        run_id=run_a, registered_model_name=model_name, tracking_uri=mlflow_tracking_uri
-    )  # v3
+    for run_id, marker in ((run_b, "b"), (run_c, "c"), (run_a, "a")):
+        fake_client.register_model_version(
+            model_name, run_id, pinned_path=f"checkpoints/marker-{marker}.ckpt"
+        )
 
     spec = NeuralPreconditionerConfig(
         type=PreconditionerType.NEURAL,
@@ -572,8 +558,9 @@ def test_resolve_registered_ref_latest_picks_highest_version(
 
     resolution = resolve_model_ref(
         spec=spec,
-        tracking_uri=mlflow_tracking_uri,
+        tracking_uri=fake_client.tracking_uri,
         artifact_leases=artifact_leases,
+        client_factory=fake_client,
     )
 
     assert resolution.run_id == run_a
@@ -581,31 +568,30 @@ def test_resolve_registered_ref_latest_picks_highest_version(
 
 
 def test_resolve_logged_ref_latest_picks_most_recently_started_run(
-    mlflow_tracking_uri: str,
-    mlflow_experiment: str,
-    log_run_with_checkpoint: LoggedRunFactory,
+    fake_client: FakeMlflowClient,
     artifact_leases: ArtifactLeaseManager,
 ) -> None:
     """latest=True for a logged-model ref selects the most-recently-started run.
 
-    The "new" run's DB record is created before the "old" one, decoupling
-    start_time ordering from row-insertion ordering, so the test can't pass
-    by accident on insertion order rather than the intended
-    ``attributes.start_time DESC`` ordering.
+    The "new" run is added before the "old" one, decoupling start_time
+    ordering from insertion ordering, so the test can't pass by accident on
+    insertion order rather than the intended ``attributes.start_time DESC``
+    ordering.
     """
-    run_new = log_run_with_checkpoint("marker-new", start_time_ms=5_000)
-    run_old = log_run_with_checkpoint("marker-old", start_time_ms=1_000)
+    run_new = fake_client.add_run("marker-new", start_time_ms=5_000)
+    run_old = fake_client.add_run("marker-old", start_time_ms=1_000)
     assert run_old != run_new
 
     spec = NeuralPreconditionerConfig(
         type=PreconditionerType.NEURAL,
-        model_ref=LoggedModelRefConfig(latest=True, experiment_name=mlflow_experiment),
+        model_ref=LoggedModelRefConfig(latest=True, experiment_name=FAKE_EXPERIMENT_NAME),
     )
 
     resolution = resolve_model_ref(
         spec=spec,
-        tracking_uri=mlflow_tracking_uri,
+        tracking_uri=fake_client.tracking_uri,
         artifact_leases=artifact_leases,
+        client_factory=fake_client,
     )
 
     assert resolution.run_id == run_new
@@ -613,15 +599,14 @@ def test_resolve_logged_ref_latest_picks_most_recently_started_run(
 
 
 def test_resolve_preconditioner_models_with_warnings_skips_unresolved_and_continues(
-    mlflow_tracking_uri: str,
-    log_run_with_checkpoint: LoggedRunFactory,
+    fake_client: FakeMlflowClient,
     artifact_leases: ArtifactLeaseManager,
 ) -> None:
     """skip_unresolved=True keeps a batch going and records one warning per failure.
 
     Without skip_unresolved, the same batch must raise instead.
     """
-    run_id = log_run_with_checkpoint("marker-ok")
+    run_id = fake_client.add_run("marker-ok")
     resolvable = NeuralPreconditionerConfig(
         type=PreconditionerType.NEURAL,
         model_ref=LoggedModelRefConfig(run_id=run_id),
@@ -633,8 +618,9 @@ def test_resolve_preconditioner_models_with_warnings_skips_unresolved_and_contin
 
     result = resolve_preconditioner_models_with_warnings(
         specs=[resolvable, unresolvable],
-        tracking_uri=mlflow_tracking_uri,
+        tracking_uri=fake_client.tracking_uri,
         artifact_leases=artifact_leases,
+        client_factory=fake_client,
         skip_unresolved=True,
     )
 
@@ -648,8 +634,9 @@ def test_resolve_preconditioner_models_with_warnings_skips_unresolved_and_contin
     with pytest.raises(ValueError):
         resolve_preconditioner_models_with_warnings(
             specs=[resolvable, unresolvable],
-            tracking_uri=mlflow_tracking_uri,
+            tracking_uri=fake_client.tracking_uri,
             artifact_leases=artifact_leases,
+            client_factory=fake_client,
         )
 
 
@@ -706,9 +693,7 @@ def test_skipping_one_pod_case_preserves_each_survivors_dataset_rank_and_checkpo
 
 
 def test_resolve_registered_ref_uses_pinned_checkpoint_without_rescanning(
-    tmp_path: Path,
-    mlflow_tracking_uri: str,
-    log_run_with_named_checkpoints: LoggedNamedCheckpointsRunFactory,
+    fake_client: FakeMlflowClient,
     artifact_leases: ArtifactLeaseManager,
 ) -> None:
     """Resolution downloads the pinned artifact directly, ignoring later ambiguity.
@@ -719,31 +704,25 @@ def test_resolve_registered_ref_uses_pinned_checkpoint_without_rescanning(
     succeed and return exactly the originally-pinned file, proving it never
     rescans ``checkpoints/``.
     """
-    run_id = log_run_with_named_checkpoints(
-        {"best.ckpt": "best-content", "last.ckpt": "last-content"}
+    run_id = fake_client.add_run(
+        "pinned", checkpoints={"best.ckpt": "best-content", "last.ckpt": "last-content"}
     )
     model_name = "PinnedNoRescanModel"
-    record = register_logged_model(
-        run_id=run_id,
-        registered_model_name=model_name,
-        tracking_uri=mlflow_tracking_uri,
+    version = fake_client.register_model_version(
+        model_name, run_id, pinned_path="checkpoints/best.ckpt"
     )
-
-    client = MlflowClient(tracking_uri=mlflow_tracking_uri)
-    ambiguous_best = tmp_path / "nested" / "best.ckpt"
-    ambiguous_best.parent.mkdir(parents=True)
-    ambiguous_best.write_text("ambiguous-best-content", encoding="utf-8")
-    client.log_artifact(run_id, str(ambiguous_best), artifact_path="checkpoints/nested")
+    fake_client.add_run_artifact(run_id, "checkpoints/nested/best.ckpt", "ambiguous-best-content")
 
     spec = NeuralPreconditionerConfig(
         type=PreconditionerType.NEURAL,
-        model_ref=RegisteredModelRefConfig(name=model_name, version=record.version),
+        model_ref=RegisteredModelRefConfig(name=model_name, version=version),
     )
 
     resolution = resolve_model_ref(
         spec=spec,
-        tracking_uri=mlflow_tracking_uri,
+        tracking_uri=fake_client.tracking_uri,
         artifact_leases=artifact_leases,
+        client_factory=fake_client,
     )
 
     assert resolution.checkpoint_path.name == "best.ckpt"
@@ -751,16 +730,13 @@ def test_resolve_registered_ref_uses_pinned_checkpoint_without_rescanning(
 
 
 def test_resolve_registered_ref_without_pinned_tag_is_rejected(
-    mlflow_tracking_uri: str,
-    log_run_with_checkpoint: LoggedRunFactory,
+    fake_client: FakeMlflowClient,
     artifact_leases: ArtifactLeaseManager,
 ) -> None:
     """A registered version created before checkpoint pinning cannot be resolved."""
-    run_id = log_run_with_checkpoint("marker-legacy")
+    run_id = fake_client.add_run("marker-legacy")
     model_name = "LegacyUnpinnedModel"
-    client = MlflowClient(tracking_uri=mlflow_tracking_uri)
-    client.create_registered_model(model_name)
-    client.create_model_version(name=model_name, source=f"runs:/{run_id}/model", run_id=run_id)
+    fake_client.register_model_version(model_name, run_id, pinned_path=None)
 
     spec = NeuralPreconditionerConfig(
         type=PreconditionerType.NEURAL,
@@ -770,8 +746,9 @@ def test_resolve_registered_ref_without_pinned_tag_is_rejected(
     with pytest.raises(ValueError):
         resolve_model_ref(
             spec=spec,
-            tracking_uri=mlflow_tracking_uri,
+            tracking_uri=fake_client.tracking_uri,
             artifact_leases=artifact_leases,
+            client_factory=fake_client,
         )
 
 
@@ -782,8 +759,7 @@ def test_resolve_registered_ref_without_pinned_tag_is_rejected(
 
 def test_resolve_preconditioner_models_resolves_neural_pod_coarsening_ref(
     tmp_path: Path,
-    mlflow_tracking_uri: str,
-    log_run_with_checkpoint: LoggedRunFactory,
+    fake_client: FakeMlflowClient,
     artifact_leases: ArtifactLeaseManager,
 ) -> None:
     """A checkpoint ref nested in AMGPreconditionerConfig.coarsening gets resolved.
@@ -792,7 +768,7 @@ def test_resolve_preconditioner_models_resolves_neural_pod_coarsening_ref(
     `type == "neural"` spec was resolved — this is the gap the new
     NeuralPODCoarseningConfig would otherwise fall into.
     """
-    run_id = log_run_with_checkpoint("marker-neural-pod")
+    run_id = fake_client.add_run("marker-neural-pod")
     spec = AMGPreconditionerConfig(
         coarsening=NeuralPODCoarseningConfig(
             dataset_dir=tmp_path / "params-dataset",
@@ -803,8 +779,9 @@ def test_resolve_preconditioner_models_resolves_neural_pod_coarsening_ref(
 
     resolved = resolve_preconditioner_models(
         specs=[spec],
-        tracking_uri=mlflow_tracking_uri,
+        tracking_uri=fake_client.tracking_uri,
         artifact_leases=artifact_leases,
+        client_factory=fake_client,
     )
 
     assert len(resolved) == 1
@@ -820,8 +797,7 @@ def test_resolve_preconditioner_models_resolves_neural_pod_coarsening_ref(
 
 
 def test_resolve_preconditioner_models_resolves_neural_amg_prolongation_and_restriction(
-    mlflow_tracking_uri: str,
-    log_run_with_checkpoint: LoggedRunFactory,
+    fake_client: FakeMlflowClient,
     artifact_leases: ArtifactLeaseManager,
 ) -> None:
     """Prolongation and restriction refs resolve independently to distinct checkpoints.
@@ -830,8 +806,8 @@ def test_resolve_preconditioner_models_resolves_neural_amg_prolongation_and_rest
     the same download directory (a `name`-only download dirname would
     collide, since both refs share one spec name).
     """
-    prolongation_run = log_run_with_checkpoint("marker-prolongation")
-    restriction_run = log_run_with_checkpoint("marker-restriction")
+    prolongation_run = fake_client.add_run("marker-prolongation")
+    restriction_run = fake_client.add_run("marker-restriction")
     spec = NeuralAMGPreconditionerConfig(
         prolongation=NeuralTransferConfig(model_ref=LoggedModelRefConfig(run_id=prolongation_run)),
         restriction=NeuralTransferConfig(model_ref=LoggedModelRefConfig(run_id=restriction_run)),
@@ -839,8 +815,9 @@ def test_resolve_preconditioner_models_resolves_neural_amg_prolongation_and_rest
 
     resolved = resolve_preconditioner_models(
         specs=[spec],
-        tracking_uri=mlflow_tracking_uri,
+        tracking_uri=fake_client.tracking_uri,
         artifact_leases=artifact_leases,
+        client_factory=fake_client,
     )
 
     assert len(resolved) == 1
@@ -864,7 +841,7 @@ def test_resolve_preconditioner_models_resolves_neural_amg_prolongation_and_rest
 
 
 def test_resolve_preconditioner_models_with_warnings_skips_failed_nested_ref(
-    mlflow_tracking_uri: str,
+    fake_client: FakeMlflowClient,
     artifact_leases: ArtifactLeaseManager,
 ) -> None:
     """A failed nested ref's warning names its label, not just the spec name."""
@@ -876,8 +853,9 @@ def test_resolve_preconditioner_models_with_warnings_skips_failed_nested_ref(
 
     result = resolve_preconditioner_models_with_warnings(
         specs=[spec],
-        tracking_uri=mlflow_tracking_uri,
+        tracking_uri=fake_client.tracking_uri,
         artifact_leases=artifact_leases,
+        client_factory=fake_client,
         skip_unresolved=True,
     )
 

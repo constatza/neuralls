@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from mlflow.exceptions import MlflowException
+from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments import model_resolution
 from neuralls.composition.assignments.model_resolution import (
@@ -95,7 +96,10 @@ def test_lookup_is_scoped_to_experiment_and_exact_identity(
         resolution = _resolve(ref, lookup)
 
     store_cls.assert_called_once_with(
-        tracking_uri="sqlite:///unused", experiment="Train-Case", require_checkpoint=True
+        tracking_uri="sqlite:///unused",
+        experiment="Train-Case",
+        require_checkpoint=True,
+        client_factory=MlflowClient,
     )
     store_cls.return_value.find.assert_called_once_with(identity)
     assert (resolution.run_id, resolution.checkpoint_path) == ("run-1", checkpoint)

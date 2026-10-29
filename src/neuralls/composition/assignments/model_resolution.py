@@ -31,6 +31,7 @@ from neuralls.platform.tracking.artifact_selection import (
 )
 from neuralls.platform.tracking.checkpoint_selection import find_single_checkpoint
 from neuralls.platform.tracking.mlflow import quote_filter_value
+from neuralls.platform.tracking.mlflow_client import MlflowClientFactory
 from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
 from neuralls.platform.tracking.model_registry import CHECKPOINT_ARTIFACT_PATH_TAG
 
@@ -114,14 +115,13 @@ def build_registered_model_uri(
     raise ValueError("Registered model URI requires either alias or version.")
 
 
-def search_registered_models(*, model_name: str, tracking_uri: str) -> list[Any]:
+def search_registered_models(*, model_name: str, client: MlflowClient) -> list[Any]:
     """Return matching registered models by exact name.
 
     Only a genuine "no such registered model" response yields an empty list;
     any other MLflow error (auth, connectivity, ...) propagates so callers don't
     mistake a transient failure for a missing model.
     """
-    client = MlflowClient(tracking_uri=tracking_uri)
     try:
         return [client.get_registered_model(model_name)]
     except MlflowException as exc:
@@ -130,16 +130,14 @@ def search_registered_models(*, model_name: str, tracking_uri: str) -> list[Any]
         raise
 
 
-def list_model_versions(model_name: str, *, tracking_uri: str) -> list[int]:
+def list_model_versions(model_name: str, *, client: MlflowClient) -> list[int]:
     """List registered model versions in ascending integer order."""
-    client = MlflowClient(tracking_uri=tracking_uri)
     versions = client.search_model_versions(f"name='{model_name}'")
     return sorted(int(str(version.version)) for version in versions)
 
 
-def get_model_version(*, model_name: str, version: int, tracking_uri: str) -> Any:
+def get_model_version(*, model_name: str, version: int, client: MlflowClient) -> Any:
     """Fetch one registered model version from MLflow."""
-    client = MlflowClient(tracking_uri=tracking_uri)
     return client.get_model_version(model_name, str(version))
 
 
@@ -185,13 +183,12 @@ def search_logged_models(
     experiment_name: str | None,
     experiment_id: str | None,
     run_name: str | None,
-    tracking_uri: str,
+    client: MlflowClient,
     artifact_path: str,
     tags: dict[str, str] | None,
     max_results: int,
 ) -> list[LoggedModelSearchResult]:
     """Resolve candidate logged models from MLflow runs ordered newest first."""
-    client = MlflowClient(tracking_uri=tracking_uri)
     experiment_ids = _resolve_experiment_ids(
         client=client,
         experiment_name=experiment_name,
@@ -321,6 +318,7 @@ class _ModelRefRequest:
         ref: The `model_ref` config being resolved.
         tracking_uri: MLflow tracking URI to read metadata from.
         client: MLflow client bound to `tracking_uri`.
+        client_factory: Builds further clients for collaborators that look up runs.
         artifact_leases: Lease manager owning artifact materialization.
         dataset_alias: Alias substituted for the `@dataset` placeholder.
         model_name: Registered model name supplied by an assignment binding.
@@ -330,6 +328,7 @@ class _ModelRefRequest:
     ref: ModelRefConfig
     tracking_uri: str
     client: MlflowClient
+    client_factory: MlflowClientFactory
     artifact_leases: ArtifactLeaseManager
     dataset_alias: str | None
     model_name: str | None
@@ -340,12 +339,12 @@ def _resolve_registered_version_number(
     *,
     ref: RegisteredModelRefConfig,
     model_name: str,
-    tracking_uri: str,
+    client: MlflowClient,
 ) -> int:
     """Resolve which registered version to use: the pinned one, else the highest."""
     if ref.version is not None:
         return ref.version
-    versions = list_model_versions(model_name, tracking_uri=tracking_uri)
+    versions = list_model_versions(model_name, client=client)
     if not versions:
         raise ValueError(f"Registered model '{model_name}' has no versions")
     return max(versions)
@@ -379,7 +378,7 @@ def _resolve_registered_ref(request: _ModelRefRequest) -> ModelResolution:
         raise ValueError(
             "Registered model_ref.name is required unless supplied by an assignment binding."
         )
-    if not search_registered_models(model_name=model_name, tracking_uri=request.tracking_uri):
+    if not search_registered_models(model_name=model_name, client=request.client):
         raise ValueError(f"Registered model '{model_name}' not found")
 
     if ref.alias is not None:
@@ -390,12 +389,12 @@ def _resolve_registered_ref(request: _ModelRefRequest) -> ModelResolution:
         version_number = _resolve_registered_version_number(
             ref=ref,
             model_name=model_name,
-            tracking_uri=request.tracking_uri,
+            client=request.client,
         )
         version = get_model_version(
             model_name=model_name,
             version=version_number,
-            tracking_uri=request.tracking_uri,
+            client=request.client,
         )
         model_uri = build_registered_model_uri(model_name, version=version_number)
         if version.run_id is None:
@@ -449,7 +448,7 @@ def _resolve_logged_ref(request: _ModelRefRequest) -> ModelResolution:
             experiment_name=ref.experiment_name,
             experiment_id=ref.experiment_id,
             run_name=ref.run_name,
-            tracking_uri=request.tracking_uri,
+            client=request.client,
             artifact_path=ref.artifact_path,
             tags=ref.tags,
             max_results=100,
@@ -504,6 +503,7 @@ def _resolve_trained_assignment_ref(request: _ModelRefRequest) -> ModelResolutio
         tracking_uri=request.tracking_uri,
         experiment=training.experiment,
         require_checkpoint=True,
+        client_factory=request.client_factory,
     ).find(training.identity)
     if reused is None or reused.run_id is None:
         raise ValueError(
@@ -542,6 +542,7 @@ def resolve_model_ref(
     dataset_alias: str | None = None,
     model_name: str | None = None,
     training: TrainingLookup | None = None,
+    client_factory: MlflowClientFactory = MlflowClient,
 ) -> ModelResolution:
     """Resolve one checkpoint ref's `model_ref` to a concrete checkpoint."""
     ref = spec.model_ref
@@ -557,7 +558,8 @@ def resolve_model_ref(
         _ModelRefRequest(
             ref=ref,
             tracking_uri=tracking_uri,
-            client=MlflowClient(tracking_uri=tracking_uri),
+            client=client_factory(tracking_uri=tracking_uri),
+            client_factory=client_factory,
             artifact_leases=artifact_leases,
             dataset_alias=dataset_alias,
             model_name=model_name,
@@ -587,6 +589,7 @@ def resolve_preconditioner_models(
     artifact_leases: ArtifactLeaseManager,
     dataset_alias: str | None = None,
     assignment_contexts: dict[str, AssignmentModelContext] | None = None,
+    client_factory: MlflowClientFactory = MlflowClient,
 ) -> list[PreconditionerConfig]:
     """Resolve all neural preconditioners to concrete checkpoint paths."""
     return resolve_preconditioner_models_with_warnings(
@@ -595,6 +598,7 @@ def resolve_preconditioner_models(
         artifact_leases=artifact_leases,
         dataset_alias=dataset_alias,
         assignment_contexts=assignment_contexts,
+        client_factory=client_factory,
     ).specs
 
 
@@ -608,6 +612,7 @@ def _resolve_checkpoint_ref(
     dataset_alias: str | None,
     assignment_contexts: dict[str, AssignmentModelContext] | None,
     skip_unresolved: bool,
+    client_factory: MlflowClientFactory,
 ) -> tuple[NeuralCheckpointRef, str | None]:
     """Resolve one checkpoint ref to a concrete checkpoint path.
 
@@ -639,6 +644,7 @@ def _resolve_checkpoint_ref(
             dataset_alias=context.dataset_alias if context is not None else dataset_alias,
             model_name=context.model_name if context is not None else None,
             training=context.training if context is not None else None,
+            client_factory=client_factory,
         )
     except (ValueError, FileNotFoundError, RuntimeError, OSError, KeyError, MlflowException) as exc:
         if not skip_unresolved:
@@ -672,6 +678,7 @@ def resolve_preconditioner_models_with_warnings(
     dataset_alias: str | None = None,
     assignment_contexts: dict[str, AssignmentModelContext] | None = None,
     skip_unresolved: bool = False,
+    client_factory: MlflowClientFactory = MlflowClient,
 ) -> PreconditionerResolutionResult:
     """Resolve every checkpoint-bearing preconditioner spec, symmetrically.
 
@@ -702,6 +709,7 @@ def resolve_preconditioner_models_with_warnings(
                 dataset_alias=dataset_alias,
                 assignment_contexts=assignment_contexts,
                 skip_unresolved=skip_unresolved,
+                client_factory=client_factory,
             )
             if warning is not None:
                 warnings.append(warning)

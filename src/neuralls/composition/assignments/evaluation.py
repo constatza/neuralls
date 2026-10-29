@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import tempfile
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -72,12 +72,11 @@ from neuralls.platform.tracking.mlflow import (
     finalize_session_parent_run,
 )
 from neuralls.platform.tracking.mlflow_client import (
+    MlflowClientFactory,
     log_batch_artifacts_to_mlflow,
 )
 from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
 from neuralls.platform.tracking.run_names import render_training_label, run_name_text
-
-type MlflowClientFactory = Callable[..., MlflowClient]
 
 DEFAULT_EVAL_BATCH_SIZE = 32
 EVAL_OUTPUT_DIR_NAME = "eval"

@@ -598,6 +598,13 @@ no fallback to an older or differently-trained
 run: no match raises, and the comparison skips only that model (with a logged
 warning) while the rest run.
 
+Every MLflow lookup in `assignments/model_resolution.py` (registered models,
+versions, aliases, logged-run search, the identity store) goes through one
+injectable `MlflowClientFactory` taken by `resolve_model_ref` and
+`resolve_preconditioner_models*`; batch entry points rely on the default (the
+real `MlflowClient`). The helper lookups take the resulting client, not a
+tracking URI.
+
 Comparison model resolution treats one resolved MLflow `run_id` as the hard
 boundary for checkpoint discovery — but that scan-and-select contract applies
 to run references (`LoggedModelRefConfig` and the strict assignment ref above,

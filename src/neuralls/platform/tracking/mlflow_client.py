@@ -7,10 +7,14 @@ stay free of low-level MLflow plumbing.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from loguru import logger
+from mlflow.tracking import MlflowClient
+
+# Called as ``factory(tracking_uri=...)``; tests substitute a fake client here.
+type MlflowClientFactory = Callable[..., MlflowClient]
 
 _WORKSPACE_ARTIFACT_DIRS: tuple[str, ...] = (
     "config",

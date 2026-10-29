@@ -22,6 +22,7 @@ from neuralls.platform.reporting.benchmark_events import (
     read_solve_attempts,
 )
 from neuralls.platform.tracking.mlflow import quote_filter_value
+from neuralls.platform.tracking.mlflow_client import MlflowClientFactory
 from neuralls.shared.digest import Digest, Json, ordered_workload_digest
 
 _PAGE_SIZE = 50
@@ -53,11 +54,14 @@ class MlflowIdentityStore:
         require_checkpoint (bool): Also require a real checkpoint artifact
             (training runs); a FINISHED run without one is skipped in favour
             of an older run with the same key.
+        client_factory (MlflowClientFactory): Builds the client used for run
+            lookup; defaults to the real ``MlflowClient``.
     """
 
     tracking_uri: str
     experiment: str
     require_checkpoint: bool = False
+    client_factory: MlflowClientFactory = MlflowClient
 
     def find(self, identity: StageIdentity) -> Reused | None:
         """Return the newest matching run, or ``None``.
@@ -66,7 +70,7 @@ class MlflowIdentityStore:
         walks every match, so a pile of newer broken runs cannot hide an older
         good one.
         """
-        client = MlflowClient(tracking_uri=self.tracking_uri)
+        client = self.client_factory(tracking_uri=self.tracking_uri)
         experiment = client.get_experiment_by_name(self.experiment)
         if experiment is None:
             return None

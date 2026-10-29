@@ -273,7 +273,9 @@ Reuse lookup lives here too: `mlflow_store.py::MlflowIdentityStore` (the
 `domain/identity_ports.py::IdentityStore` implementation) finds the newest
 FINISHED run in one experiment carrying a `StageIdentity`'s stage and key tags
 (escaped filters, deterministic newest-first order, paginated, optional
-real-checkpoint check via dlkit). Composition derives the identities and tags
+real-checkpoint check via dlkit). Its client comes from an injectable
+`mlflow_client.py::MlflowClientFactory` (default: the real `MlflowClient`), the
+same factory shape model resolution and evaluation take. Composition derives the identities and tags
 the runs (`StageIdentity.tags()`); platform only owns the MLflow filter/search
 mechanics. Dataset identity lives in `storage/dataset_digest.py`
 (`current_dataset_digest`: O(1) from the manifest while the stat snapshot is
