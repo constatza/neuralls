@@ -103,10 +103,8 @@ def matrix() -> torch.Tensor:
 
 
 @pytest.fixture
-def checkpoint(tmp_path: Path) -> Path:
-    path = tmp_path / "model.ckpt"
-    path.write_bytes(b"placeholder")
-    return path
+def checkpoint() -> Path:
+    return Path("model.ckpt")
 
 
 def test_store_loads_each_key_once_and_releases_each_predictor_once(checkpoint: Path) -> None:

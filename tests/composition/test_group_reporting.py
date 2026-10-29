@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import pytest
-from loguru import logger
 
 from neuralls.composition.assignments.presentation_preflight import prepare_comparison_presentation
 from neuralls.composition.comparison import group_reporting
@@ -43,6 +43,8 @@ from neuralls.shared.types import (
 )
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
+
+type CapturedLog = Callable[[str], list[str]]
 
 
 @dataclass(slots=True)
@@ -329,22 +331,17 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
 def test_a_skipped_group_is_named_by_its_scope_not_its_group_id(
     monkeypatch: pytest.MonkeyPatch,
     group_datasets: dict[DatasetId, DatasetPresentation],
+    captured_log: CapturedLog,
 ) -> None:
     label = FineLabel(dataset=DatasetId("ds"), recipe=GAUSSIAN)
     skipped = GroupSkippedAllCacheHit(
         group_id=render_group_id(label), label=label, n_planned_rhs=3, n_matrices=1
     )
     monkeypatch.setattr(group_reporting, "classify_level", lambda *args, **kwargs: (skipped,))
-    messages: list[str] = []
-    sink_id = logger.add(
-        lambda message: messages.append(message.record["message"]), level="WARNING"
+    messages = captured_log("WARNING")
+    report_all_levels(
+        (), RecordingSink(), datasets=group_datasets, notation=NotationPolicy.default()
     )
-    try:
-        report_all_levels(
-            (), RecordingSink(), datasets=group_datasets, notation=NotationPolicy.default()
-        )
-    finally:
-        logger.remove(sink_id)
 
     assert messages[0] == (
         "Test problem | Gaussian CG Residuals (k=20, N=100) - Gaussian: "

@@ -25,8 +25,6 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.tracking.artifact_access import NoopArtifactLeaseManager
 from neuralls.shared.digest import canonical_digest
 
-pytestmark = pytest.mark.deferred_io("config-loading")
-
 ASSIGNMENT_ID = "pod-2g_rank10"
 
 
@@ -56,11 +54,9 @@ def store_cls():
 
 
 @pytest.fixture
-def checkpoint(tmp_path: Path) -> Path:
-    """A checkpoint path standing in for the leased artifact."""
-    path = tmp_path / "model.ckpt"
-    path.write_bytes(b"")
-    return path
+def checkpoint() -> Path:
+    """A checkpoint path standing in for the leased artifact (never opened)."""
+    return Path("model.ckpt")
 
 
 @pytest.fixture

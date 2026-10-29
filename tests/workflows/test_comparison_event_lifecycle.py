@@ -9,7 +9,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from loguru import logger
 
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
@@ -42,6 +41,8 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, SystemId
 from tests.presentation_support import PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
+
+type CapturedLog = Callable[[str], list[str]]
 
 
 @pytest.fixture
@@ -149,6 +150,7 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
+    captured_log: CapturedLog,
 ) -> None:
     """The executor must retain a failed setup without inventing solve attempts."""
     from neuralls.composition.comparison import comparison_run
@@ -160,22 +162,16 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
     monkeypatch.setattr(comparison_run, "_build_scheduled", fail_setup)
     method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
 
-    messages: list[str] = []
-    sink_id = logger.add(
-        lambda message: messages.append(message.record["message"]), level="WARNING"
+    messages = captured_log("WARNING")
+    workload = execute_method_workload(
+        method,
+        (one_system_bundle,),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+        params=solver_params,
+        settings=neuralls_settings,
+        prepared=prepared_method(str(method.name)),
     )
-    try:
-        workload = execute_method_workload(
-            method,
-            (one_system_bundle,),
-            datasets=group_datasets,
-            notation=NotationPolicy.default(),
-            params=solver_params,
-            settings=neuralls_settings,
-            prepared=prepared_method(str(method.name)),
-        )
-    finally:
-        logger.remove(sink_id)
 
     assert len(workload.setup_events) == 1
     failed_setup = workload.setup_events[0]
@@ -404,6 +400,7 @@ def test_solver_failure_retains_measured_attempt(
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
+    captured_log: CapturedLog,
 ) -> None:
     from neuralls.composition.comparison import comparison_run
     from neuralls.domain.solver import comparison as solver_comparison
@@ -416,22 +413,16 @@ def test_solver_failure_retains_measured_attempt(
     monkeypatch.setattr(solver_comparison, "_solve_one", fail_solve)
     method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
 
-    messages: list[str] = []
-    sink_id = logger.add(
-        lambda message: messages.append(message.record["message"]), level="WARNING"
+    messages = captured_log("WARNING")
+    workload = comparison_run.execute_method_workload(
+        method,
+        (one_system_bundle,),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+        params=solver_params,
+        settings=neuralls_settings,
+        prepared=prepared_method(str(method.name)),
     )
-    try:
-        workload = comparison_run.execute_method_workload(
-            method,
-            (one_system_bundle,),
-            datasets=group_datasets,
-            notation=NotationPolicy.default(),
-            params=solver_params,
-            settings=neuralls_settings,
-            prepared=prepared_method(str(method.name)),
-        )
-    finally:
-        logger.remove(sink_id)
 
     assert len(workload.solve_attempts) == 1
     attempt = workload.solve_attempts[0]

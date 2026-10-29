@@ -6,12 +6,11 @@ a local checkpoint, an assignment label, or another assignment's run.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from loguru import logger
 from mlflow.tracking import MlflowClient
 
 from neuralls.application.models import AssignmentResult
@@ -24,6 +23,8 @@ from neuralls.platform.tracking.run_names import render_training_label
 from neuralls.shared.digest import canonical_digest
 
 pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
+
+type CapturedLog = Callable[[str], list[str]]
 
 
 def _spec(*, assignment_id: str = "exp-1") -> AssignmentSpec:
@@ -211,16 +212,12 @@ def test_run_assignment_fails_cleanly_when_dataset_was_never_generated(
 
 
 def test_a_failed_assignment_is_logged_by_its_training_presentation(
-    tmp_path: Path, training_presentation: TrainingPresentation
+    tmp_path: Path, training_presentation: TrainingPresentation, captured_log: CapturedLog
 ) -> None:
     """The failure line and the result both describe what was being trained, not an id."""
-    messages: list[str] = []
-    sink_id = logger.add(lambda message: messages.append(message.record["message"]), level="ERROR")
-    try:
-        with patch.object(training_batch, "load_data_config", side_effect=ValueError("no config")):
-            result = _run(tmp_path, training_presentation, assignment_id="exp-secret-9")
-    finally:
-        logger.remove(sink_id)
+    messages = captured_log("ERROR")
+    with patch.object(training_batch, "load_data_config", side_effect=ValueError("no config")):
+        result = _run(tmp_path, training_presentation, assignment_id="exp-secret-9")
 
     assert isinstance(result, AssignmentResult)
     assert result.presentation is training_presentation

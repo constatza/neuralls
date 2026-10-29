@@ -90,21 +90,15 @@ def minimal_training_job(tmp_path: Path) -> TrainingJobConfig:
 
 
 @pytest.fixture
-def checkpoint_alpha(tmp_path: Path) -> Path:
-    """Fake checkpoint file for the alpha experiment."""
-    ckpt = tmp_path / "alpha" / "model.ckpt"
-    ckpt.parent.mkdir(parents=True)
-    ckpt.touch()
-    return ckpt
+def checkpoint_alpha() -> Path:
+    """Checkpoint path for the alpha experiment (never opened)."""
+    return Path("alpha/model.ckpt")
 
 
 @pytest.fixture
-def checkpoint_beta(tmp_path: Path) -> Path:
-    """Fake checkpoint file for the beta experiment."""
-    ckpt = tmp_path / "beta" / "model.ckpt"
-    ckpt.parent.mkdir(parents=True)
-    ckpt.touch()
-    return ckpt
+def checkpoint_beta() -> Path:
+    """Checkpoint path for the beta experiment (never opened)."""
+    return Path("beta/model.ckpt")
 
 
 @pytest.fixture

@@ -20,6 +20,8 @@ from neuralls.platform.tracking.run_names import render_training_label
 
 TRAINING = "neuralls.composition.assignments.training_batch"
 
+type CapturedLog = Callable[[str], list[str]]
+
 
 def _sweep_result(
     *results: AssignmentResult,
@@ -125,23 +127,15 @@ def test_bars_are_labelled_with_the_rendered_training_presentation_not_the_assig
 
 
 def test_missing_metric_warning_names_the_assignment_by_its_presentation(
-    result_of: Callable[..., AssignmentResult],
+    result_of: Callable[..., AssignmentResult], captured_log: CapturedLog
 ) -> None:
     missing = result_of("a-17", "Alpha", run="run-a")
-    messages: list[str] = []
-    from loguru import logger
-
-    sink_id = logger.add(
-        lambda message: messages.append(message.record["message"]), level="WARNING"
-    )
-    try:
-        with (
-            patch(f"{TRAINING}.fetch_mlflow_metrics", return_value={}),
-            patch(f"{TRAINING}.log_batch_artifacts_to_mlflow"),
-        ):
-            write_metric_report(_sweep_result(missing), metric="eval/mae")
-    finally:
-        logger.remove(sink_id)
+    messages = captured_log("WARNING")
+    with (
+        patch(f"{TRAINING}.fetch_mlflow_metrics", return_value={}),
+        patch(f"{TRAINING}.log_batch_artifacts_to_mlflow"),
+    ):
+        write_metric_report(_sweep_result(missing), metric="eval/mae")
 
     assert messages == [
         "Metric 'eval/mae' missing for assignments: Alpha | Gaussian CG Residuals (k=20, N=100)"

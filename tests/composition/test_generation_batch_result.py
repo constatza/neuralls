@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from loguru import logger
 
 from neuralls.composition.assignments.assignment_subjects import case_notation
 from neuralls.composition.generation import multi_generation
@@ -16,23 +16,21 @@ from neuralls.platform.config.models.experiments import CaseConfig, RegistryEntr
 
 pytestmark = pytest.mark.deferred_io("config-loading")
 
+type CapturedLog = Callable[[str], list[str]]
+
 
 def test_each_result_carries_the_presentation_stamped_on_its_dataset(
-    tmp_path: Path, dataset_presentation: DatasetPresentation
+    tmp_path: Path, dataset_presentation: DatasetPresentation, captured_log: CapturedLog
 ) -> None:
     cfg = CaseConfig(datasets=[RegistryEntry(id="residuals-registry-id", path=Path("d.toml"))])
-    messages: list[str] = []
-    sink_id = logger.add(lambda message: messages.append(message.record["message"]), level="INFO")
-    try:
-        with (
-            patch.object(multi_generation, "process_data_from_config", return_value=tmp_path),
-            patch.object(
-                multi_generation, "load_dataset_presentation", return_value=dataset_presentation
-            ),
-        ):
-            (result,) = generate_batch(cfg, tmp_path, MagicMock())
-    finally:
-        logger.remove(sink_id)
+    messages = captured_log("INFO")
+    with (
+        patch.object(multi_generation, "process_data_from_config", return_value=tmp_path),
+        patch.object(
+            multi_generation, "load_dataset_presentation", return_value=dataset_presentation
+        ),
+    ):
+        (result,) = generate_batch(cfg, tmp_path, MagicMock())
 
     assert result.dataset is dataset_presentation
     assert result.notation == case_notation(cfg)

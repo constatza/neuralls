@@ -7,12 +7,11 @@ Execution is mocked; the results are built from the shared presentation fixtures
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from loguru import logger
 from typer.testing import CliRunner
 
 from neuralls.application.models import AssignmentResult
@@ -60,12 +59,9 @@ EDITORIAL = "Spectral 3D comparison"
 
 
 @pytest.fixture
-def logged() -> Iterator[list[str]]:
+def logged(captured_log: Callable[[str], list[str]]) -> list[str]:
     """Every message the commands log, captured from loguru."""
-    messages: list[str] = []
-    sink_id = logger.add(lambda message: messages.append(message.record["message"]), level="INFO")
-    yield messages
-    logger.remove(sink_id)
+    return captured_log("INFO")
 
 
 @pytest.fixture

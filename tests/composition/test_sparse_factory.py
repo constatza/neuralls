@@ -32,8 +32,6 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.dlkit.predictor_adapter import _prepare_model_input
 from neuralls.shared.types import MatrixFormat
 
-pytestmark = pytest.mark.deferred_io("config-loading")
-
 RELATIVE_REMAINING_BOUND = 0.5
 POD_RANK = 8
 POD_RELATIVE_REMAINING_BOUND = 0.5
@@ -96,11 +94,9 @@ def stub_adapter() -> PredictorAdapter:
 
 
 @pytest.fixture
-def mock_checkpoint(tmp_path: Path) -> Path:
-    """Existing placeholder checkpoint file for neural config validation."""
-    path = tmp_path / "model.ckpt"
-    path.write_bytes(b"placeholder")
-    return path
+def mock_checkpoint() -> Path:
+    """Placeholder checkpoint path for neural config validation (never opened)."""
+    return Path("model.ckpt")
 
 
 def test_csr_jacobi_request_returns_torchalg_sparse_class(laplacian_csr: csr_array) -> None:
@@ -181,7 +177,7 @@ def test_prepare_model_input_returns_float64_batched_tensor() -> None:
 
 
 def test_dense_fitted_checkpoint_is_rejected_for_a_csr_matrix(
-    laplacian_csr: csr_array, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    laplacian_csr: csr_array, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A checkpoint that rebuilds as the dense POD class cannot back a sparse hierarchy."""
     from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
@@ -194,8 +190,7 @@ def test_dense_fitted_checkpoint_is_rejected_for_a_csr_matrix(
     dense_fitted = PODCoarseningStrategy(rank=POD_RANK)
     monkeypatch.setattr(coarsening.torch, "load", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(coarsening, "build_model_from_checkpoint", lambda _raw: dense_fitted)
-    checkpoint = tmp_path / "pod.ckpt"
-    checkpoint.write_bytes(b"placeholder")
+    checkpoint = Path("pod.ckpt")
 
     with pytest.raises(TypeError):
         coarsening._load_fitted_pod_coarsening(

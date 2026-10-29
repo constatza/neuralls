@@ -761,3 +761,21 @@ def child_runs_of() -> Callable[..., dict[str, TrackedRun]]:
         }
 
     return build
+
+
+@pytest.fixture
+def captured_log() -> Iterator[Callable[[str], list[str]]]:
+    """Capture loguru messages: ``captured_log("WARNING")`` returns the list they fill.
+
+    Sinks are removed at teardown, so a test only declares the level it asserts on.
+    """
+    sink_ids: list[int] = []
+
+    def capture(level: str) -> list[str]:
+        messages: list[str] = []
+        sink_ids.append(logger.add(lambda m: messages.append(m.record["message"]), level=level))
+        return messages
+
+    yield capture
+    for sink_id in sink_ids:
+        logger.remove(sink_id)

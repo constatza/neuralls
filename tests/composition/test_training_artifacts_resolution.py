@@ -103,8 +103,7 @@ def finalization_context(
     tmp_path: Path,
 ) -> _TrainingFinalizationContext:
     """Minimal finalization context for the two `_finalize_*_mlflow_run` branches."""
-    config_path = tmp_path / "job.toml"
-    config_path.write_text("", encoding="utf-8")
+    config_path = Path("job.toml")
     return _TrainingFinalizationContext(
         training_result=SimpleNamespace(metrics={}),
         run_config=MlflowRunConfig(
