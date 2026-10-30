@@ -8,9 +8,9 @@ from dataclasses import dataclass, field
 import pytest
 
 from neuralls.composition.assignments.presentation_preflight import prepare_comparison_presentation
-from neuralls.composition.comparison import group_reporting
-from neuralls.composition.comparison.group_reporting import report_all_levels
 from neuralls.composition.comparison.models import CompletedMethodWorkload
+from neuralls.composition.comparison.postprocessing import group_reporting
+from neuralls.composition.comparison.postprocessing.group_reporting import report_all_levels
 from neuralls.domain.presentation.methods import ExecutedMethod
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.titles import ComparisonScopePresentation

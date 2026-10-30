@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import tempfile
 from collections.abc import Generator, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -44,7 +43,6 @@ from neuralls.composition.comparison.config_assembler import (
     resolve_comparison_config,
     resolve_dataset_dir,
 )
-from neuralls.composition.comparison.group_reporting import report_all_levels
 from neuralls.composition.comparison.input_gate import require_current_inputs
 from neuralls.composition.comparison.models import (
     ComparisonCompleted,
@@ -70,10 +68,6 @@ from neuralls.composition.comparison.source_handlers import (
     validate_comparison_source,
 )
 from neuralls.composition.comparison.spec_consistency import validate_dataset_specs_consistent
-from neuralls.composition.comparison.system_figures import (
-    concat_convergence_frames,
-    write_system_figures,
-)
 from neuralls.composition.identity.comparison import (
     comparison_identity,
     preconditioner_identities,
@@ -133,7 +127,6 @@ from neuralls.platform.tracking.artifact_access import (
 )
 from neuralls.platform.tracking.comparison_tracking import (
     MLflowBenchmarkMethodSink,
-    MLflowGroupReportSink,
     log_configured_method_facts,
     setup_comparison_tracking,
 )
@@ -1421,36 +1414,6 @@ def _has_complete_reusable_session(
     )
 
 
-SYSTEM_FIGURES_ARTIFACT_DIR = "system_figures"
-"""Session-run artifact directory holding one subdirectory of figures per system."""
-
-
-def _log_system_convergence(
-    workloads: Sequence[CompletedMethodWorkload],
-    *,
-    datasets: Mapping[DatasetId, DatasetPresentation],
-    notation: NotationPolicy,
-) -> None:
-    """Upload the merged convergence table and every per-system figure to the session run.
-
-    Runs after every method workload has finished, so no write happens inside a timed region.
-    """
-    frame = concat_convergence_frames(workloads)
-    with tempfile.TemporaryDirectory(prefix="neuralls-system-figures-") as tmp:
-        root = Path(tmp)
-        table = root / "convergence.parquet"
-        frame.write_parquet(table)
-        mlflow.log_artifact(str(table))
-        figures = write_system_figures(
-            workloads, frame, datasets=datasets, notation=notation, root=root / "figures"
-        )
-        for figure in figures:
-            mlflow.log_artifact(
-                str(figure.path),
-                artifact_path=f"{SYSTEM_FIGURES_ARTIFACT_DIR}/{figure.system_slug}",
-            )
-
-
 def run_comparison_batch(
     case_config_path: Path,
     params: ComparisonParams,
@@ -1554,7 +1517,6 @@ def run_comparison_batch(
                 workloads = _execute_all(
                     batch,
                     method_sink=MLflowBenchmarkMethodSink(
-                        notation,
                         _batch_dataset_presentations(pending),
                         contexts_by_system,
                         selection,
@@ -1569,36 +1531,6 @@ def run_comparison_batch(
                 ),
             ):
                 outcomes = _outcomes_from_workloads(pending, workloads)
-            report_sink = MLflowGroupReportSink(notation)
-            with _failure_boundary(
-                failure_sink,
-                ComparisonBatchFailureContext(
-                    phase=ComparisonBatchPhase.REPORTING,
-                    case_config_path=case_config_path.resolve(),
-                ),
-            ):
-                report_sink.register_method_figures(
-                    workloads, contexts_by_system=contexts_by_system
-                )
-                report_all_levels(
-                    workloads,
-                    report_sink,
-                    datasets=_batch_dataset_presentations(pending),
-                    notation=notation,
-                    reference_selection=selection,
-                    contexts_by_system=contexts_by_system,
-                )
-                _log_system_convergence(
-                    workloads, datasets=_batch_dataset_presentations(pending), notation=notation
-                )
-            with _failure_boundary(
-                failure_sink,
-                ComparisonBatchFailureContext(
-                    phase=ComparisonBatchPhase.FINALIZATION,
-                    case_config_path=case_config_path.resolve(),
-                ),
-            ):
-                report_sink.finalize()
             return outcomes
 
 

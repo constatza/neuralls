@@ -1,34 +1,26 @@
-"""Typed figure plans and the session-level figure manifest."""
+"""Typed figure plans: the scientific context every figure is drawn and recorded with."""
 
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
-import tomli_w
+import polars as pl
 
-from neuralls.domain.benchmarking.selection import (
-    ConfiguredReference,
-    NoReferenceConfigured,
-    ReferenceSelection,
-    ReferenceUnavailable,
-)
-from neuralls.domain.solver.models.figure_scope import FigureScope, render_figure_scope
+from neuralls.domain.benchmarking.selection import ReferenceSelection
+from neuralls.domain.presentation.methods import ConfiguredMethodPresentation
+from neuralls.domain.solver.models.figure_scope import FigureScope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
-from neuralls.platform.storage.facts_codec import encode_figure_scope
-from neuralls.shared.rhs_recipe import RhsRecipe, recipe_key
-from neuralls.shared.scientific_description.policy import (
-    NotationPolicy,
-    RenderProfile,
-    RenderTarget,
-)
+from neuralls.platform.reporting.benchmark_events import METHOD_ARTIFACT_DIR
+from neuralls.shared.rhs_recipe import RhsRecipe
+from neuralls.shared.scientific_description.policy import RenderProfile
+from neuralls.shared.types import PreconditionerName
 
-MANIFEST_PROFILE = RenderProfile(name="manifest", include_context=True)
-"""Figure manifests store the scope's full text on one line; wrapping is a drawing concern."""
+CARD_PROFILE = RenderProfile(name="card", include_context=True)
+"""Figure cards store the scope's full text on one line; wrapping is a drawing concern."""
 
 
 class FigureKind(StrEnum):
@@ -42,6 +34,49 @@ class FigureKind(StrEnum):
     SPEED_RATIO = "speed_ratio"
     RESIDUAL_HISTORY = "residual_history"
     ENERGY_HISTORY = "energy_history"
+
+
+GROUP_FIGURE_KINDS: frozenset[FigureKind] = frozenset(FigureKind) - {
+    FigureKind.RESIDUAL_HISTORY,
+    FigureKind.ENERGY_HISTORY,
+}
+"""Kinds drawn from a group outcome; each has a compact plotted table beside it."""
+
+TABLE_SUFFIX = ".parquet"
+"""A plotted table shares its figure's stem and directory; only the suffix differs."""
+
+GROUP_TABLE_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
+    "method_id": pl.String,
+    "n_planned_rhs": pl.Int64,
+    "n_attempted_rhs": pl.Int64,
+    "n_converged": pl.Int64,
+    "setup_total_s": pl.Float64,
+    "solve_total_s": pl.Float64,
+    "workload_online_s": pl.Float64,
+}
+"""The one schema of the plotted table: one row per method drawn, workload totals only."""
+
+
+@dataclass(frozen=True, slots=True)
+class SiblingTable:
+    """The figure has a plotted table with the same stem in the same directory."""
+
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class NoTable:
+    """The figure draws per-iteration histories, which stay in the compare artifacts."""
+
+
+type FigureTable = SiblingTable | NoTable
+
+
+def table_of(figure: str, kind: FigureKind) -> FigureTable:
+    """The plotted table of ``figure`` of ``kind``; the kind alone decides whether one exists."""
+    if kind not in GROUP_FIGURE_KINDS:
+        return NoTable()
+    return SiblingTable(f"{figure.removesuffix('.png')}{TABLE_SUFFIX}")
 
 
 class TimingScenario(StrEnum):
@@ -62,6 +97,33 @@ class ReferenceSelectionKind(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class FigureMethod:
+    """One method a figure draws: its identity, scientific presentation and config digest."""
+
+    method_id: PreconditionerName
+    presentation: ConfiguredMethodPresentation
+    config_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class FigureSource:
+    """The stored artifacts of one method run that a figure was computed from."""
+
+    run_id: str
+    artifact_paths: tuple[str, ...]
+
+
+def method_source(run_id: str, *artifacts: Path) -> FigureSource:
+    """The source of a figure: ``artifacts`` of the method workload logged in ``run_id``."""
+    return FigureSource(
+        run_id=run_id,
+        artifact_paths=tuple(
+            f"{METHOD_ARTIFACT_DIR}/{artifact.as_posix()}" for artifact in artifacts
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class FigureMetadata:
     kind: FigureKind
     metric_definition: str
@@ -72,19 +134,15 @@ class FigureMetadata:
     recipes: tuple[RhsRecipe, ...]
     n_matrices: int
     n_planned_rhs: int
-    reference_selection: ReferenceSelection | ReferenceSelectionKind
+    reference_selection: ReferenceSelection
     failure_treatment: FailureTreatment
     timing_policy: str
+    methods: tuple[FigureMethod, ...]
+    sources: tuple[FigureSource, ...]
     recipe_counts: tuple[int, ...] = ()
     aggregation_rule: str = ""
     recipe_weights: tuple[float, ...] = ()
     solver_contexts: tuple[SolverTimingContext, ...] = ()
-    reference_reason: str | None = None
-    sources: tuple[str, ...] = (
-        "setup_events.parquet",
-        "solve_attempts.parquet",
-        "summary.toml",
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,138 +158,25 @@ class FigurePlan:
     metadata: FigureMetadata
 
 
-def _collision_key(filename: str) -> str:
-    stem = Path(filename).name
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", stem).lower()
+def collision_key(filename: str) -> str:
+    """The case-folded safe spelling of ``filename``; equal keys name the same artifact."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", Path(filename).name).lower()
 
 
 @dataclass(frozen=True, slots=True)
-class FigureManifest:
-    entries: dict[str, FigureMetadata] = field(default_factory=dict)
+class StagedFigure:
+    """A drawn figure file together with the plan that describes it."""
 
-    def add(self, filename: str, metadata: FigureMetadata) -> FigureManifest:
-        """Return a manifest containing ``filename``; reject duplicate safe names."""
-        if not filename or Path(filename).name != filename:
-            raise ValueError("figure filename must be a non-empty basename")
-        key = _collision_key(filename)
-        if any(_collision_key(existing) == key for existing in self.entries):
-            raise ValueError(f"duplicate or colliding figure filename: {filename}")
-        self.entries[filename] = metadata
-        return self
+    plan: FigurePlan
+    path: Path
 
-    def add_plan(self, plan: FigurePlan) -> FigureManifest:
-        """Register a pre-draw plan after its filename has been reserved."""
-        return self.add(plan.filename, plan.metadata)
-
-    def validate_plans(self, plans: Iterable[FigurePlan]) -> None:
-        """Reject all planned collisions before any artifact is uploaded."""
-        names: dict[str, str] = {}
-        for plan in plans:
-            key = _collision_key(plan.filename)
-            if key in names or any(_collision_key(existing) == key for existing in self.entries):
-                raise ValueError(f"duplicate or colliding figure filename: {plan.filename}")
-            names[key] = plan.filename
-
-    def as_dict(self, notation: NotationPolicy) -> dict[str, object]:
-        """The manifest as TOML-ready data; scopes carry structure and their rendered text."""
-        plain = replace(notation, target=RenderTarget.PLAIN)
-        figures: dict[str, object] = {}
-        for filename in sorted(self.entries):
-            metadata = self.entries[filename]
-            reference = metadata.reference_selection
-            reference_method_id: str | None = None
-            if isinstance(reference, ReferenceSelectionKind):
-                reference_name = reference.value
-            elif isinstance(reference, ConfiguredReference):
-                reference_name = ReferenceSelectionKind.CONFIGURED.value
-                reference_method_id = str(reference.name)
-            elif isinstance(reference, NoReferenceConfigured):
-                reference_name = ReferenceSelectionKind.NONE.value
-            elif isinstance(reference, ReferenceUnavailable):
-                reference_name = ReferenceSelectionKind.UNAVAILABLE.value
-            else:
-                raise TypeError(f"unsupported reference selection: {reference!r}")
-            entry: dict[str, object] = {
-                "kind": metadata.kind.value,
-                "metric_definition": metadata.metric_definition,
-                "report_level": metadata.report_level.value,
-                "scope": {
-                    **encode_figure_scope(metadata.scope),
-                    "display": render_figure_scope(metadata.scope, MANIFEST_PROFILE, plain).text,
-                },
-                "dataset_ids": list(metadata.dataset_ids),
-                "recipes": [recipe_key(recipe) for recipe in metadata.recipes],
-                "n_matrices": metadata.n_matrices,
-                "n_planned_rhs": metadata.n_planned_rhs,
-                "reference_selection": reference_name,
-                "failure_treatment": metadata.failure_treatment.value,
-                "timing_policy": metadata.timing_policy,
-                "aggregation_rule": metadata.aggregation_rule,
-                "recipe_counts": list(metadata.recipe_counts),
-                "recipe_weights": list(metadata.recipe_weights),
-                "solver_contexts": [asdict(context) for context in metadata.solver_contexts],
-                "sources": list(metadata.sources),
-            }
-            if reference_method_id is not None:
-                entry["reference_method_id"] = reference_method_id
-            if metadata.reference_reason is not None:
-                entry["reference_reason"] = metadata.reference_reason
-            if metadata.scenario is not None:
-                entry["scenario"] = metadata.scenario.value
-            figures[filename] = entry
-        return {"figures": figures}
-
-
-REQUIRED_MANIFEST_ENTRY_FIELDS: frozenset[str] = frozenset(
-    {
-        "kind",
-        "metric_definition",
-        "report_level",
-        "scope",
-        "dataset_ids",
-        "recipes",
-        "n_matrices",
-        "n_planned_rhs",
-        "reference_selection",
-        "failure_treatment",
-        "timing_policy",
-        "aggregation_rule",
-        "recipe_counts",
-        "recipe_weights",
-        "solver_contexts",
-        "sources",
-    }
-)
-
-
-class InvalidFigureManifestError(ValueError):
-    """A payload is not a complete figure manifest."""
-
-
-def validate_figure_manifest(payload: Mapping[str, object]) -> None:
-    """Raise unless ``payload`` has a ``figures`` table of complete entries."""
-    figures = payload.get("figures")
-    if not isinstance(figures, Mapping):
-        raise InvalidFigureManifestError("figure manifest has no 'figures' table")
-    for filename, entry in figures.items():
-        if not isinstance(entry, Mapping):
-            raise InvalidFigureManifestError(f"figure entry {filename!r} is not a table")
-        missing = sorted(REQUIRED_MANIFEST_ENTRY_FIELDS - entry.keys())
-        if missing:
-            raise InvalidFigureManifestError(
-                f"figure entry {filename!r} is missing fields: {', '.join(missing)}"
+    def __post_init__(self) -> None:
+        """Require the file to carry the planned name."""
+        if self.path.name != self.plan.filename:
+            raise ValueError(
+                f"staged file {self.path.name!r} does not carry the planned name "
+                f"{self.plan.filename!r}"
             )
-        scope = entry["scope"]
-        if not isinstance(scope, Mapping) or not {"kind", "display"} <= scope.keys():
-            raise InvalidFigureManifestError(
-                f"figure entry {filename!r} scope must be a table with 'kind' and 'display'"
-            )
-
-
-def write_figure_manifest(
-    path: str | Path, manifest: FigureManifest, notation: NotationPolicy
-) -> None:
-    Path(path).write_bytes(tomli_w.dumps(manifest.as_dict(notation)).encode("utf-8"))
 
 
 def sanitize_filename(value: str) -> str:

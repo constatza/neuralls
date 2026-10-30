@@ -148,8 +148,6 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
                 ComparisonReused(comparison_id="b", run=comparison_run),
             ],
         ),
-        patch("neuralls.composition.assignments.comparison_batch.report_all_levels"),
-        patch("neuralls.composition.assignments.comparison_batch.MLflowGroupReportSink"),
         patch(MLFLOW_MODULE) as mock_mlflow,
     ):
         outcomes = run_comparison_batch(experiments_config, ComparisonParams())

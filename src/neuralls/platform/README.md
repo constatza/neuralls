@@ -113,7 +113,7 @@ and `finish_group_figure` (title, subtitle, save, close). A preconditioner thus
 looks the same in every plot. Their legends are rendered from the group's method presentations
 (`GroupStyle.legend`) and append explicit success counts; a `GroupStyle` is the fixed
 title, the typed `scope` (rendered as the subtitle), the legend and the series style maps. The per-run convergence plots also come in solve-only variants
-(`solve_only=True`) whose curves all start at t=0. `MLflowGroupReportSink.report`
+(`solve_only=True`) whose curves all start at t=0. `MLflowReportSink.report`
 takes the aggregated group plus a `GroupPresentation` and names artifacts by the
 sanitized group id.
 
@@ -144,10 +144,23 @@ required `save_path` and returns it, or `None` when nothing was drawn, and a
   interval, and the both-solved count. Reference-only and method-only counts
   remain available separately; no Wilcoxon p-value is reported.
 
-`MLflowGroupReportSink` logs planned, attempted, and converged counts plus the
-failure-aware paired fields. Its typed plans (`FigurePlan`: editorial title plus the `FigureMetadata` scope) are also the single source of
-figure scope, stable filenames, timing scenarios, and manifest
-metadata. The figure manifest stores each scope as keys and typed values (`facts_codec.encode_figure_scope`, whose recipe is `encode_recipe`: kind, parameters and mask) beside its plain rendered `display` text; file names are slugs of rendered text, never ids: a group figure `{kind}_{slug}.png` takes `slug` from the plain rendered scope (`scope_label`, e.g. `aggregate_bars_Gaussian_CG_Residuals_k_20_N_100_-_Gaussian.png`) and a method figure `residual_history_{slug}.png` from the rendered method label (`POD-2G (r=10)` becomes `POD-2G_r_10`); `figure_metadata.FigureSlugs` allocates one stem per subject (<= 80 characters) and suffixes `_2`, `_3` in encounter order when two subjects render alike. Machine ids live only in metric keys (`{metric}/{group_id}/{method}`) and in `*_id` fields (`dataset_ids`, `recipes` (each recipe's machine key), `reference_method_id`; `reference_selection` is the kind alone). Global metadata retains every dataset, recipe population/weight, and
+`MLflowReportSink` logs planned, attempted, and converged counts plus the
+failure-aware paired fields, each into the nested run of the group's report scope. Its typed plans (`FigurePlan`: editorial title plus the `FigureMetadata` scope) are also the single source of
+figure scope, stable filenames, timing scenarios, and card
+metadata. Every figure (group, method and system) is uploaded with its **figure card**
+(`reporting/figure_card.py`: `<stem>.toml` beside `<stem>.png`, same run directory, same stem) into the
+run of its own scope; stems only need to be unique inside one run directory, so system figures keep the
+short stems `residual_history` and `energy_history`. A card is the single record of a figure's parameters: `figure`
+(its PNG name), `kind`, `scenario`, `title`, `metric_definition`, `level`, `failure_treatment`,
+`aggregation_rule`, `timing_policy`, `[scope]` (encoded plus `display`), `[[methods]]` (method id, encoded
+presentation, config digest), `[counts]`, `[reference]`, `[[parameters]]` (one table per solver context:
+tolerances, iteration limits, timing repeats, normalization) and `[source]` (the session run id and, per
+method child run, the artifact paths its numbers came from). `FigureCard` is the validated immutable value;
+`write_figure_card`, `read_figure_card` and `validate_figure_card` round-trip it. Group figures (`figure_metadata.GROUP_FIGURE_KINDS`, every kind but the two histories) also carry a **plotted table** `<stem>.parquet` in the same directory (`reporting/figure_table.py`): one row per method drawn with the schema `figure_metadata.GROUP_TABLE_SCHEMA` (`method_id`, `n_planned_rhs`, `n_attempted_rhs`, `n_converged`, `setup_total_s`, `solve_total_s`, `workload_online_s`, taken from the outcome's `summaries`; no histories or per-system series). The card names it in its `table` entry; the kind alone decides whether one exists (`figure_metadata.table_of` returns `SiblingTable` or `NoTable`, so the card cannot disagree), and `verify_figure_records` additionally requires a parquet for exactly the figures whose card names one. `tracking/scope_params.py::scope_params` logs each non-root scope run's identity as MLflow params (`report_level`; `dataset_id` from matrix-set level down; `recipe_key` (the lossless `recipe_key`) from cohort level down; `matrix_id` and `rhs_ordinal` for a system), and the report workflow logs `report_level` on the root run; solver settings and anything else varying between figures of one run stay in the cards. `figure_index.toml`
+(`reporting/figure_index.py`, written once to the root run's artifact root in `finalize`) lists only
+`run_id`, `artifact_path`, `card`, `kind`, `level` and `scope` per figure, derived from the cards; before it is
+written `verify_figure_records` raises unless every uploaded PNG has a same-stem card naming it and the index
+lists exactly the uploaded figures. The card stores each scope as keys and typed values (`facts_codec.encode_figure_scope`, whose recipe is `encode_recipe`: kind, parameters and mask) beside its plain rendered `display` text; file names are slugs of rendered text, never ids: a group figure `{kind}_{slug}.png` takes `slug` from the plain rendered scope (`scope_label`, e.g. `aggregate_bars_Gaussian_CG_Residuals_k_20_N_100_-_Gaussian.png`) and a method figure `residual_history_{slug}.png` from the rendered method label (`POD-2G (r=10)` becomes `POD-2G_r_10`); `figure_metadata.FigureSlugs` allocates one stem per subject (<= 80 characters) and suffixes `_2`, `_3` in encounter order when two subjects render alike. Machine ids live only in metric keys (`{metric}/{method}`, one run per report scope) and in `*_id` fields (`dataset_ids`, encoded `recipes`, `method_id`; `[reference]` holds the selection kind plus the method id and reason when it has them). Card counts retain every dataset, recipe population/weight, and
 the actual solver, normalization, and timing-repeat settings; method-child
 history figures are registered with unique method-qualified ownership. Raw
 benchmark events and method summaries become
@@ -208,7 +221,7 @@ digest, complete workload membership, and all canonical raw artifacts; legacy
 per-system runs are executed again. Reuse parses the required
 configuration, planned systems, presentation and convergence tables and reconciles event
 methods, membership, and summary totals before accepting a hit; the session's figure
-manifest is not part of the gate. The persisted configuration is the
+figure index is not part of the gate. The persisted configuration is the
 canonical identity representation: checkpoint inputs are content digests and
 runtime lease paths are omitted.
 
@@ -216,7 +229,7 @@ A report reads a session back through two modules. `tracking/session_artifacts.p
 the session's FINISHED `comparison_method` children (by `mlflow.parentRunId`), checks each
 holds the full artifact set, and downloads it; the reuse gate lists artifacts through the
 same helper, so run discovery exists once. `reporting/stored_benchmark.py::read_stored_benchmark`
-reads one directory per method into a `StoredBenchmark` of `StoredMethod`s (parsed method
+reads one `MethodDirectory` (local path plus the method child run id that `download_session_methods` returns) per method into a `StoredBenchmark` of `StoredMethod`s (run id, config digest, parsed method
 config, presentation, planned systems, and the setup, solve and convergence tables) and
 rejects anything inconsistent: a presentation of another method, events for systems that
 were not planned, a method stored twice, or datasets presented differently by two methods.

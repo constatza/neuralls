@@ -32,11 +32,21 @@ from neuralls.shared.types import DatasetId, PreconditionerName
 
 
 @dataclass(frozen=True, slots=True)
+class MethodDirectory:
+    """A downloaded method artifact directory and the MLflow run it was logged in."""
+
+    run_id: str
+    path: Path
+
+
+@dataclass(frozen=True, slots=True)
 class StoredMethod:
     """One method's stored workload: its identity, planned systems and raw event tables.
 
     Attributes:
+        run_id: The method child run the artifacts were logged in.
         name: The method's result identifier.
+        config_digest: Digest of the method configuration, as recorded in its summary.
         config: The method configuration as persisted. Checkpoint and dataset inputs hold
             content digests, not the paths used at compute time; it serves plot-style
             derivation, never a rebuild.
@@ -47,7 +57,9 @@ class StoredMethod:
         convergence: Per-iteration convergence table.
     """
 
+    run_id: str
     name: PreconditionerName
+    config_digest: str
     config: PreconditionerConfig
     presentation: ExecutedMethod
     systems: tuple[SystemProvenance, ...]
@@ -65,12 +77,13 @@ class StoredBenchmark:
 
 
 def read_stored_method(
-    directory: Path,
+    source: MethodDirectory,
 ) -> tuple[StoredMethod, Mapping[DatasetId, DatasetPresentation]]:
     """Read and cross-validate one method's artifact directory.
 
     Returns the method and the presentations of the datasets it ran on.
     """
+    directory = source.path
     artifacts = MethodBenchmarkArtifacts()
     setup_path = directory / artifacts.setup_events
     config = parse_preconditioner_config(
@@ -84,7 +97,10 @@ def read_stored_method(
     )
     convergence = read_convergence(directory / artifacts.convergence)
 
+    summary = tomllib.loads((directory / artifacts.summary).read_text(encoding="utf-8"))
     name = PreconditionerName(config.name)
+    if summary["method"]["name"] != str(name):
+        raise ValueError(f"summary in {directory} does not belong to method {name}")
     if stored.method.prepared.method_id != name:
         raise ValueError(f"presentation in {directory} does not belong to method {name}")
     if {system.tag.dataset for system in systems} != set(stored.datasets):
@@ -101,7 +117,9 @@ def read_stored_method(
         if {str(value) for value in frame.get_column("method").to_list()} - {str(name)}:
             raise ValueError(f"{table} in {directory} belong to another method")
     method = StoredMethod(
+        run_id=source.run_id,
         name=name,
+        config_digest=str(summary["method"]["config_digest"]),
         config=config,
         presentation=stored.method,
         systems=systems,
@@ -112,7 +130,7 @@ def read_stored_method(
     return method, stored.datasets
 
 
-def read_stored_benchmark(directories: Sequence[Path]) -> StoredBenchmark:
+def read_stored_benchmark(directories: Sequence[MethodDirectory]) -> StoredBenchmark:
     """Read the artifact directory of every method of a session into one validated benchmark."""
     if not directories:
         raise ValueError("a stored benchmark needs at least one method")

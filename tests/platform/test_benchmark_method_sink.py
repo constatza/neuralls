@@ -54,7 +54,6 @@ from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, Setup
 
 CONVERGED_ITERATIONS = 2
 METHOD_DIR = "method_workload"
-FIGURE_DIR = "method_workload/figures"
 EXPECTED_METRIC_KEYS = [
     "n_planned_rhs",
     "n_attempted_rhs",
@@ -147,7 +146,7 @@ def method_sink(
     references: Mapping[SystemId, ReferenceSelection],
 ) -> MLflowBenchmarkMethodSink:
     """Sink wired to the fixture dataset presentations and per-system provenance."""
-    return MLflowBenchmarkMethodSink(notation, group_datasets, solver_contexts, references)
+    return MLflowBenchmarkMethodSink(group_datasets, solver_contexts, references)
 
 
 @pytest.fixture
@@ -212,7 +211,7 @@ def test_method_sink_logs_total_iterations_of_every_attempt(
     )
 
 
-def test_method_sink_logs_exactly_the_artifact_set_and_two_figures(
+def test_method_sink_logs_exactly_the_artifact_set_and_no_figures(
     tmp_path: Path,
     method_sink: MLflowBenchmarkMethodSink,
     method_workload: CompletedMethodWorkload,
@@ -222,13 +221,8 @@ def test_method_sink_logs_exactly_the_artifact_set_and_two_figures(
     method_sink.record_method(method_workload, method_summary, root=tmp_path)
 
     tables = {path.name for where, path in logged_run.artifacts if where == METHOD_DIR}
-    figures = [path.name for where, path in logged_run.artifacts if where == FIGURE_DIR]
     assert tables == set(MethodBenchmarkArtifacts.file_names())
-    assert sorted(figures) == [
-        "energy_history_Method_Jacobi.png",
-        "residual_history_Method_Jacobi.png",
-    ]
-    assert len(logged_run.artifacts) == len(tables) + len(figures)
+    assert len(logged_run.artifacts) == len(tables)
 
 
 def test_realized_facts_are_a_per_system_table_not_a_run_wide_scalar(

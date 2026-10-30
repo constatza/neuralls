@@ -20,7 +20,7 @@ import pytest
 from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments.presentation_preflight import prepare_comparison_presentation
-from neuralls.composition.comparison.group_reporting import report_all_levels
+from neuralls.composition.comparison.postprocessing.group_reporting import report_all_levels
 from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.presentation.methods import PreparedComparisonPresentation

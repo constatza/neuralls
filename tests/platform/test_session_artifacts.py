@@ -80,14 +80,17 @@ def test_session_methods_download_into_a_readable_benchmark(
     log_method: LogMethod,
 ) -> None:
     session = new_session()
-    log_method(session, PreconditionerType.JACOBI)
-    log_method(session, PreconditionerType.IDENTITY)
+    jacobi_run = log_method(session, PreconditionerType.JACOBI)
+    identity_run = log_method(session, PreconditionerType.IDENTITY)
     log_method(new_session(), PreconditionerType.ILU)
 
     directories = download_session_methods(client, session, tmp_path / "download")
 
     stored = read_stored_benchmark(directories)
-    assert {str(method.name) for method in stored.methods} == {"jacobi", "identity"}
+    assert {str(method.name): method.run_id for method in stored.methods} == {
+        "jacobi": jacobi_run,
+        "identity": identity_run,
+    }
 
 
 def test_only_finished_method_children_of_the_session_are_found(

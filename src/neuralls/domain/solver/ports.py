@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport, WorkloadMixtureReport
-from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.models.workload import MethodWorkload, MethodWorkloadSummary
 
 
@@ -29,21 +27,4 @@ class BenchmarkMethodSink(Protocol):
         summary: MethodWorkloadSummary,
     ) -> None:
         """Persist canonical events and selected post-aggregation scalars."""
-        ...
-
-
-class GroupReportSink(Protocol):
-    """Receives one event-backed report group and records it."""
-
-    def report(
-        self,
-        outcome: RecipeProfileReport | WorkloadMixtureReport,
-        *,
-        presentation: GroupPresentation,
-    ) -> None:
-        """Record the counts and inputs supported by `outcome`'s report variant."""
-        ...
-
-    def finalize(self) -> None:
-        """Flush session-level artifacts while the owning run is active."""
         ...

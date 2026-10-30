@@ -16,6 +16,13 @@ from neuralls.domain.solver.models.labels import (
     MatrixSetLabel,
     MatrixSetRhsTypeLabel,
 )
+from neuralls.domain.solver.models.report_scope import (
+    AllMatrixSets,
+    MatrixSet,
+    MatrixSetRhsType,
+    ReportScope,
+    System,
+)
 from neuralls.shared.rhs_recipe import RhsRecipe, parse_recipe_key, recipe_key
 from neuralls.shared.types import DatasetId
 
@@ -23,7 +30,7 @@ SYSTEM_ID = "system_id"
 
 
 class ReportLevelName(StrEnum):
-    """What a report figure groups by, as persisted in the figure manifest."""
+    """What a report figure groups by, as persisted in a figure card and the figure index."""
 
     MATRIX_SET_RHS_TYPE = "matrix_set_rhs_type"
     MATRIX_SET = "matrix_set"
@@ -70,6 +77,21 @@ def level_name(label: GroupLabel) -> ReportLevelName:
             return ReportLevelName.MATRIX_SET
         case AllMatrixSetsLabel():
             return ReportLevelName.ALL_MATRIX_SETS
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def level_of_scope(scope: ReportScope) -> ReportLevelName:
+    """The persisted name of the level ``scope`` belongs to."""
+    match scope:
+        case AllMatrixSets():
+            return ReportLevelName.ALL_MATRIX_SETS
+        case MatrixSet():
+            return ReportLevelName.MATRIX_SET
+        case MatrixSetRhsType():
+            return ReportLevelName.MATRIX_SET_RHS_TYPE
+        case System():
+            return ReportLevelName.SYSTEM
         case _ as unreachable:
             assert_never(unreachable)
 

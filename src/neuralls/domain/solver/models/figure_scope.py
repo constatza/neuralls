@@ -12,6 +12,7 @@ from neuralls.domain.presentation.render import render_dataset, render_method
 from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderProfile
 from neuralls.shared.scientific_description.render import RenderedScientificDescription
+from neuralls.shared.types import MatrixId
 
 _ALL_DATASETS_TEXT = "All datasets"
 _RECIPE_SEPARATOR = " - "
@@ -45,10 +46,20 @@ class MethodScope:
     method: ConfiguredMethodPresentation
 
 
+@dataclass(frozen=True, slots=True)
+class SystemScope:
+    """One (matrix, RHS) system of a dataset and recipe."""
+
+    dataset: DatasetPresentation
+    recipe: RhsRecipe
+    matrix_id: MatrixId
+    rhs_ordinal: int
+
+
 type GroupScope = RecipeScope | DatasetScope | AllDatasetsScope
 """What one report group pools; matrix-set and all-matrix-sets groups are mixtures."""
 
-type FigureScope = GroupScope | MethodScope
+type FigureScope = GroupScope | MethodScope | SystemScope
 """What a figure is about."""
 
 
@@ -67,6 +78,14 @@ def render_figure_scope(
             return render_dataset(dataset, profile, policy)
         case AllDatasetsScope():
             return RenderedScientificDescription(text=_ALL_DATASETS_TEXT)
+        case SystemScope(
+            dataset=dataset, recipe=recipe, matrix_id=matrix_id, rhs_ordinal=rhs_ordinal
+        ):
+            where = render_figure_scope(RecipeScope(dataset, recipe), profile, policy)
+            return RenderedScientificDescription(
+                text=f"{where.text}, matrix {int(matrix_id)}, RHS {rhs_ordinal}",
+                preferred_wrap_boundaries=where.preferred_wrap_boundaries,
+            )
         case MethodScope(method=method):
             rendered = render_method(method, profile, policy)
             return RenderedScientificDescription(

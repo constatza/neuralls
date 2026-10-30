@@ -7,8 +7,14 @@ from pathlib import Path
 from neuralls.application.models import AssignmentResult
 from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.composition.assignments.comparison_batch import run_comparison_batch
+from neuralls.composition.assignments.comparison_report import run_comparison_report
 from neuralls.composition.assignments.training_batch import run_assignment_sweep
-from neuralls.composition.comparison.models import ComparisonOutcome, ComparisonParams
+from neuralls.composition.comparison.models import (
+    ComparisonCompleted,
+    ComparisonOutcome,
+    ComparisonParams,
+    ComparisonReused,
+)
 from neuralls.composition.generation.multi_generation import generate_batch
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.shared.device import release_device_memory
@@ -83,4 +89,6 @@ def run_case_pipeline(
         ComparisonParams(force=force_compare),
         settings=settings,
     )
+    if any(isinstance(o, (ComparisonCompleted, ComparisonReused)) for o in comparison_outcomes):
+        run_comparison_report(case_config_path, settings=settings)
     return assignment_results, comparison_outcomes

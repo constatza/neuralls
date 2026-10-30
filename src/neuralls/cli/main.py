@@ -9,6 +9,7 @@ from neuralls.cli.config import app as config_app
 from neuralls.cli.eval import eval_case_batch
 from neuralls.cli.generate import generate_case
 from neuralls.cli.generate_single import generate_single
+from neuralls.cli.report import report_case
 from neuralls.cli.run import run_case_pipeline_command
 from neuralls.cli.train import train_case_batch
 
@@ -24,3 +25,4 @@ app.command("train")(train_case_batch)
 app.command("eval")(eval_case_batch)
 app.command("run")(run_case_pipeline_command)
 app.command("compare")(compare_case)
+app.command("report")(report_case)

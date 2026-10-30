@@ -115,18 +115,25 @@ SCOPES: dict[str, SinkScope] = {
         rules=frozenset({RUN_NAME_TEXT, LABEL_FALLBACK, FILE_NAME_ID, TAG_VALUE_ID}),
         allowed=(
             Allowed(
-                FILE_NAME_ID,
-                "platform/tracking/comparison_tracking.py",
-                "_group_metric_key",
-                "builds the MLflow metric key, a machine lookup key that is queried by "
-                "group id and never shown as a file or figure name",
-            ),
-            Allowed(
                 RUN_NAME_TEXT,
                 "platform/tracking/mlflow.py",
                 "start_run_if_needed",
                 "the low-level starter receives text that open_run already rendered "
                 "from a typed run name",
+            ),
+            Allowed(
+                RUN_NAME_TEXT,
+                "platform/tracking/comparison_tracking.py",
+                "_scope_run_id",
+                "the child run is named by _scope_name, which renders the typed report scope "
+                "through the scientific scope renderer",
+            ),
+            Allowed(
+                RUN_NAME_TEXT,
+                "composition/assignments/comparison_report.py",
+                "run_comparison_report",
+                "the report run carries the name its comparison session already rendered "
+                "from a typed run name, so both runs read the same in their experiments",
             ),
             Allowed(
                 RUN_NAME_TEXT,
@@ -210,14 +217,20 @@ SCOPES: dict[str, SinkScope] = {
             Allowed(
                 PATH_AS_NAME,
                 "platform/reporting/figure_metadata.py",
-                "_collision_key",
+                "collision_key",
                 "file-name collision detection compares machine file names",
             ),
             Allowed(
                 PATH_AS_NAME,
                 "platform/reporting/figure_metadata.py",
-                "add",
-                "validates that a figure file name is a bare basename",
+                "__post_init__",
+                "checks a staged file carries its planned machine file name",
+            ),
+            Allowed(
+                PATH_AS_NAME,
+                "platform/reporting/figure_card.py",
+                "__post_init__",
+                "validates that a card names its figure file by a bare basename",
             ),
             Allowed(
                 PATH_AS_NAME,

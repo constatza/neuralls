@@ -96,8 +96,6 @@ def _session_run_names(
         patch.object(comparison_batch, "_has_complete_reusable_session", return_value=False),
         patch.object(comparison_batch, "_execute_all", return_value=()),
         patch.object(comparison_batch, "_outcomes_from_workloads", return_value=[]),
-        patch.object(comparison_batch, "report_all_levels"),
-        patch.object(comparison_batch, "MLflowGroupReportSink"),
         patch(MLFLOW_MODULE) as mock_mlflow,
         patch.object(run_specs, "iso_timestamp", return_value=STAMP),
     ):

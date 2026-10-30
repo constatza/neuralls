@@ -81,10 +81,12 @@ class ExperimentNamesConfig(BaseModel):
     Attributes:
         training: Name for training experiments.
         comparison: Name for comparison experiments.
+        report: Name for the experiment holding reports derived from comparison sessions.
     """
 
     training: str = "Train"
     comparison: str = "Comparisons"
+    report: str = "Reports"
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 

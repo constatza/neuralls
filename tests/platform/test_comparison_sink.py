@@ -1,22 +1,31 @@
-"""`MLflowGroupReportSink`: counts, ratios, and artifacts for one event-backed group."""
+"""`MLflowReportSink`: counts, ratios, and artifacts for one event-backed group."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import tomllib
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 
+import polars as pl
 import pytest
 from tests.presentation_support import PreparedMethodFactory
 from tests.recipe_support import ALPHA, BETA, GAUSSIAN, SINE
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload
-from neuralls.domain.benchmarking.selection import ConfiguredReference
+from neuralls.domain.benchmarking.selection import ConfiguredReference, NoReferenceConfigured
 from neuralls.domain.presentation.methods import ExecutedMethod, PreparedComparisonPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.benchmark_events import SystemTag, UnknownPeakMemory
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
-from neuralls.domain.solver.models.figure_scope import AllDatasetsScope, MethodScope, RecipeScope
+from neuralls.domain.solver.models.figure_scope import (
+    AllDatasetsScope,
+    FigureScope,
+    MethodScope,
+    RecipeScope,
+    SystemScope,
+)
 from neuralls.domain.solver.models.group_outcomes import (
     GroupAggregated,
     RecipeProfileReport,
@@ -35,25 +44,66 @@ from neuralls.domain.solver.models.labels import (
 )
 from neuralls.domain.solver.models.outcomes import Failed, Solved
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
+from neuralls.domain.solver.models.report_scope import System
 from neuralls.domain.solver.models.statistics import (
     Interval,
     IterationStats,
     MethodComparison,
     PairedComparison,
 )
+from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
-from neuralls.platform.config.models.preconditioner import PreconditionerType
-from neuralls.platform.reporting.figure_metadata import FailureTreatment, TimingScenario
+from neuralls.domain.solver.reporting.event_frames import (
+    CONVERGENCE_SCHEMA,
+    SETUP_EVENT_SCHEMA,
+    SOLVE_ATTEMPT_SCHEMA,
+)
+from neuralls.domain.solver.reporting.report_levels import ReportLevelName
+from neuralls.platform.config.models.preconditioner import (
+    PreconditionerType,
+    parse_preconditioner_config,
+)
+from neuralls.platform.reporting.figure_card import FigureCard, decode_figure_card
+from neuralls.platform.reporting.figure_index import (
+    FIGURE_INDEX_FILE,
+    IncompleteFigureRecordsError,
+)
+from neuralls.platform.reporting.figure_metadata import (
+    FailureTreatment,
+    FigureKind,
+    FigureMetadata,
+    FigurePlan,
+    SiblingTable,
+    StagedFigure,
+    TimingScenario,
+)
+from neuralls.platform.reporting.stored_benchmark import StoredMethod
 from neuralls.platform.tracking import comparison_tracking
 from neuralls.platform.tracking.comparison_tracking import (
     GROUP_REPORT_ARTIFACT_DIR,
-    MLflowGroupReportSink,
+    METHOD_FIGURE_ARTIFACT_DIR,
+    DuplicateFigureNameError,
+    MLflowReportSink,
+    UnknownStoredMethodError,
     _figure_plans,
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, GroupId, MatrixId, PreconditionerName, SystemId
 
 type LoggedMetrics = dict[str, float]
+
+_CONTEXT = SolverTimingContext(
+    rtol=1e-6,
+    atol=1e-14,
+    max_iterations=20,
+    stopping_criterion="residual_norm",
+    m_max=5,
+    reference_precision_margin=2.0,
+    timing_repeats=1,
+    timing_warmup=0,
+    timing_statistic="median",
+    normalization="none",
+)
 
 
 @pytest.fixture
@@ -73,6 +123,35 @@ def logged_artifacts(monkeypatch: pytest.MonkeyPatch) -> dict[str, tuple[str, bo
 
     monkeypatch.setattr(comparison_tracking.mlflow, "log_artifact", log_artifact)
     return artifacts
+
+
+@pytest.fixture
+def logged_text(
+    logged_artifacts: dict[str, tuple[str, bool]], monkeypatch: pytest.MonkeyPatch
+) -> dict[str, str]:
+    """Logged TOML artifact file name -> its text when logged (cards and the figure index)."""
+    texts: dict[str, str] = {}
+    inner = comparison_tracking.mlflow.log_artifact
+
+    def log_artifact(local_path: str, artifact_path: str | None = None) -> None:
+        inner(local_path, artifact_path)
+        if local_path.endswith(".toml"):
+            texts[Path(local_path).name] = Path(local_path).read_text(encoding="utf-8")
+
+    monkeypatch.setattr(comparison_tracking.mlflow, "log_artifact", log_artifact)
+    return texts
+
+
+def _cards(logged_text: dict[str, str]) -> dict[str, FigureCard]:
+    return {
+        name: decode_figure_card(tomllib.loads(text))
+        for name, text in logged_text.items()
+        if name != FIGURE_INDEX_FILE
+    }
+
+
+def _figures(logged_artifacts: dict[str, tuple[str, bool]]) -> set[str]:
+    return {name for name in logged_artifacts if name.endswith(".png")}
 
 
 def _solved(iterations: int, solve_s: float) -> Solved:
@@ -185,6 +264,34 @@ def presentation(
 
 
 @pytest.fixture
+def stored_methods(
+    prepared_cohort: Callable[..., PreparedComparisonPresentation],
+) -> tuple[StoredMethod, ...]:
+    """A stored run for each method of the group presentation."""
+    cohort = prepared_cohort("amg", "jacobi", "never")
+    tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(7), 0, SystemId("s0"))
+    return tuple(
+        StoredMethod(
+            run_id=f"run-{name}",
+            name=PreconditionerName(name),
+            config_digest="sha256:" + "d" * 64,
+            config=parse_preconditioner_config({"name": name, "type": "identity"}),
+            presentation=ExecutedMethod(cohort.method(PreconditionerName(name)), ()),
+            systems=(SystemProvenance(tag, _CONTEXT, NoReferenceConfigured()),),
+            setup_events=pl.DataFrame(schema=SETUP_EVENT_SCHEMA),
+            solve_attempts=pl.DataFrame(schema=SOLVE_ATTEMPT_SCHEMA),
+            convergence=pl.DataFrame(schema=CONVERGENCE_SCHEMA),
+        )
+        for name in ("amg", "jacobi", "never")
+    )
+
+
+@pytest.fixture
+def sink(notation: NotationPolicy, stored_methods: tuple[StoredMethod, ...]) -> MLflowReportSink:
+    return MLflowReportSink(notation, "session-run", methods=stored_methods)
+
+
+@pytest.fixture
 def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
     """Minimal method workload carrying the scientific presentation used by its plots."""
     method = PreconditionerName("network_a")
@@ -204,8 +311,25 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
     )
 
 
+@pytest.fixture(autouse=True)
+def _no_system_metrics_logging(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Per-system metrics are covered by the integration tree; none may start a real run here."""
+    monkeypatch.setattr(comparison_tracking.mlflow, "log_metrics", lambda metrics: None)
+
+
+@pytest.fixture(autouse=True)
+def _log_into_the_active_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Scope-to-run nesting is covered by the integration tests; here a scope logs in place."""
+
+    @contextmanager
+    def in_place(sink: MLflowReportSink, scope: object) -> Generator[str]:
+        yield f"run-of-{scope!r}"
+
+    monkeypatch.setattr(MLflowReportSink, "_in_scope", in_place)
+
+
 def _key(metric: str, group: GroupAggregated, name: str) -> str:
-    return comparison_tracking._group_metric_key(metric, group.group_id, name)
+    return comparison_tracking.parent_run_metric_key(metric, name)
 
 
 def _report_variant(
@@ -244,14 +368,13 @@ def test_mixture_sink_omits_profiles_but_keeps_aggregate_bars(
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
-    notation: NotationPolicy,
+    sink: MLflowReportSink,
 ) -> None:
     mixture = _report_variant(group, WorkloadMixtureReport)
-    MLflowGroupReportSink(notation).report(mixture, presentation=presentation)
+    sink.report(mixture, presentation=presentation)
 
     key = _GROUP_FILE_STEM
-    assert f"aggregate_bars_{key}.png" in logged_artifacts
-    assert set(logged_artifacts) == {
+    assert _figures(logged_artifacts) == {
         f"aggregate_bars_{key}.png",
         f"solve_time_bars_{key}.png",
         f"online_time_bars_{key}.png",
@@ -273,18 +396,7 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
         dataset_membership=(DatasetId("first"), DatasetId("second")),
         recipe_counts=(1, 3),
     )
-    context = SolverTimingContext(
-        rtol=1e-6,
-        atol=1e-14,
-        max_iterations=20,
-        stopping_criterion="residual_norm",
-        m_max=5,
-        reference_precision_margin=2.0,
-        timing_repeats=3,
-        timing_warmup=1,
-        timing_statistic="median",
-        normalization="matrix",
-    )
+    context = _CONTEXT
     presentation = GroupPresentation(
         scope=AllDatasetsScope(),
         plot_styles={},
@@ -292,7 +404,7 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
         solver_contexts=(context,),
     )
 
-    plans = _figure_plans(mixture, presentation, "all")
+    plans = _figure_plans(mixture, presentation, "all", {})
     online = next(plan for plan in plans if plan.filename.startswith("online_time"))
     solve = next(plan for plan in plans if plan.filename.startswith("solve_time"))
 
@@ -315,7 +427,7 @@ def test_figure_plans_name_solve_and_online_ecdfs_by_scenario(
     presentation = GroupPresentation(
         scope=RecipeScope(dataset_presentation, GAUSSIAN), plot_styles={}, methods={}
     )
-    plans = _figure_plans(group, presentation, "matrix_set_rhs_ds_gaussian")
+    plans = _figure_plans(group, presentation, "matrix_set_rhs_ds_gaussian", {})
 
     solve = next(
         plan
@@ -342,7 +454,7 @@ def test_paired_scatter_manifest_describes_axis_censored_pairs(
     presentation = GroupPresentation(
         scope=RecipeScope(dataset_presentation, GAUSSIAN), plot_styles={}, methods={}
     )
-    plans = _figure_plans(group, presentation, "matrix_set_rhs_ds_gaussian")
+    plans = _figure_plans(group, presentation, "matrix_set_rhs_ds_gaussian", {})
     paired = next(plan for plan in plans if plan.metadata.kind.value == "paired_time")
     ratio = next(plan for plan in plans if plan.metadata.kind.value == "speed_ratio")
 
@@ -351,54 +463,46 @@ def test_paired_scatter_manifest_describes_axis_censored_pairs(
     assert ratio.metadata.metric_definition != paired.metadata.metric_definition
 
 
-def test_session_manifest_registers_uniquely_owned_method_figures(
-    prepared_method: PreparedMethodFactory, notation: NotationPolicy
+def test_method_figures_are_uploaded_with_cards_naming_their_method_run(
+    stored_methods: tuple[StoredMethod, ...],
+    logged_artifacts: dict[str, tuple[str, bool]],
+    logged_text: dict[str, str],
+    sink: MLflowReportSink,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    method = PreconditionerName("network_a")
-    prepared = prepared_method(str(method))
-    tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(7), 0, SystemId("s0"))
-    workload = CompletedMethodWorkload(
-        method=method,
-        planned=(tag,),
-        setup_events=(),
-        solve_attempts=(),
-        diagnostics=(),
-        generation_cost=None,
-        workload_peak_memory=UnknownPeakMemory(),
-        config_digest="sha256:" + "a" * 64,
-        method_config={"name": str(method)},
-        presentation=ExecutedMethod(prepared, ()),
-        plot_styles={str(method): PreconditionerPlotStyle(prepared, PreconditionerType.NEURAL)},
+    drawn: list[Path] = []
+    monkeypatch.setattr(
+        comparison_tracking, "_draw_method_figure", lambda path, *args: drawn.append(path)
     )
-    context = SolverTimingContext(
-        rtol=1e-6,
-        atol=1e-14,
-        max_iterations=20,
-        stopping_criterion="residual_norm",
-        m_max=5,
-        reference_precision_margin=2.0,
-        timing_repeats=1,
-        timing_warmup=0,
-        timing_statistic="median",
-        normalization="none",
-    )
-    sink = MLflowGroupReportSink(notation)
+    jacobi = next(method for method in stored_methods if str(method.name) == "jacobi")
 
-    sink.register_method_figures((workload,), contexts_by_system={tag.system_id: context})
+    sink.register_method_figures(datasets={})
 
-    assert set(sink.manifest.entries) == {
-        "residual_history_Method_Jacobi.png",
-        "energy_history_Method_Jacobi.png",
+    assert {path.name for path in drawn} == _figures(logged_artifacts)
+    assert {directory for directory, _ in logged_artifacts.values()} == {METHOD_FIGURE_ARTIFACT_DIR}
+    assert {name for name in logged_artifacts if name.endswith(".toml")} == {
+        name.replace(".png", ".toml") for name in _figures(logged_artifacts)
     }
-    metadata = sink.manifest.entries["residual_history_Method_Jacobi.png"]
-    assert metadata.scope == MethodScope(prepared.detailed)
+    card = _cards(logged_text)["residual_history_Method_Method_jacobi.toml"]
+    metadata = card.metadata
+    assert card.figure == "residual_history_Method_Method_jacobi.png"
+    assert card.session_run_id == "session-run"
+    assert metadata.scope == MethodScope(jacobi.presentation.prepared.detailed)
     assert metadata.dataset_ids == ("ds",)
     assert metadata.recipes == (GAUSSIAN,)
-    assert metadata.solver_contexts == (context,)
-    assert metadata.sources == (
-        "comparison_method[method=network_a]/method_workload/convergence.parquet",
-        "comparison_method[method=network_a]/method_workload/solve_attempts.parquet",
-    )
+    assert metadata.solver_contexts == (_CONTEXT,)
+    assert [(m.method_id, m.config_digest) for m in metadata.methods] == [
+        (jacobi.name, jacobi.config_digest)
+    ]
+    assert [(source.run_id, source.artifact_paths) for source in metadata.sources] == [
+        (
+            "run-jacobi",
+            (
+                "method_workload/convergence.parquet",
+                "method_workload/solve_attempts.parquet",
+            ),
+        )
+    ]
 
 
 def test_recipe_profile_sink_keeps_profile_ecdf_and_aggregate_bars(
@@ -406,15 +510,17 @@ def test_recipe_profile_sink_keeps_profile_ecdf_and_aggregate_bars(
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
-    notation: NotationPolicy,
+    sink: MLflowReportSink,
 ) -> None:
     profile = _report_variant(group, RecipeProfileReport)
-    MLflowGroupReportSink(notation).report(profile, presentation=presentation)
+    sink.report(profile, presentation=presentation)
 
     key = _GROUP_FILE_STEM
-    assert f"aggregate_bars_{key}.png" in logged_artifacts
-    assert f"performance_profile_solve_{key}.png" in logged_artifacts
-    assert f"performance_profile_online_{key}.png" in logged_artifacts
+    assert {
+        f"aggregate_bars_{key}.png",
+        f"performance_profile_solve_{key}.png",
+        f"performance_profile_online_{key}.png",
+    } <= _figures(logged_artifacts)
 
 
 def test_sink_logs_explicit_counts_and_ratio_metrics(
@@ -422,9 +528,9 @@ def test_sink_logs_explicit_counts_and_ratio_metrics(
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
-    notation: NotationPolicy,
+    sink: MLflowReportSink,
 ) -> None:
-    MLflowGroupReportSink(notation).report(group, presentation=presentation)
+    sink.report(group, presentation=presentation)
 
     assert logged_metrics[_key("n_planned_rhs", group, "amg")] == 4
     assert logged_metrics[_key("n_attempted_rhs", group, "amg")] == 4
@@ -442,9 +548,9 @@ def test_never_converged_method_logs_only_counts(
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
-    notation: NotationPolicy,
+    sink: MLflowReportSink,
 ) -> None:
-    MLflowGroupReportSink(notation).report(group, presentation=presentation)
+    sink.report(group, presentation=presentation)
 
     assert logged_metrics[_key("success_rate", group, "never")] == 0.0
     assert not [key for key in logged_metrics if key.endswith("/never") and "iterations" in key]
@@ -455,9 +561,9 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
-    notation: NotationPolicy,
+    sink: MLflowReportSink,
 ) -> None:
-    MLflowGroupReportSink(notation).report(group, presentation=presentation)
+    sink.report(group, presentation=presentation)
 
     key = _GROUP_FILE_STEM
     expected = {
@@ -475,7 +581,12 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
             "ecdf_time_online",
         )
     }
-    assert set(logged_artifacts) == expected
+    assert _figures(logged_artifacts) == expected
+    assert set(logged_artifacts) == (
+        expected
+        | {name.replace(".png", ".toml") for name in expected}
+        | {name.replace(".png", ".parquet") for name in expected}
+    )
     assert all(directory == GROUP_REPORT_ARTIFACT_DIR for directory, _ in logged_artifacts.values())
 
 
@@ -484,24 +595,52 @@ def test_sink_skips_the_ratio_cdf_without_comparisons(
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
-    notation: NotationPolicy,
+    sink: MLflowReportSink,
 ) -> None:
-    MLflowGroupReportSink(notation).report(
-        replace(group, comparisons={}), presentation=presentation
-    )
+    sink.report(replace(group, comparisons={}), presentation=presentation)
 
     assert not [name for name in logged_artifacts if name.startswith("speed_ratio_cdf")]
     assert not [key for key in logged_metrics if key.startswith("speed_ratio")]
 
 
-def test_sink_finalizes_one_manifest_for_logged_figures(
+def test_group_figures_carry_cards_with_methods_parameters_and_sources(
+    group: GroupAggregated,
+    presentation: GroupPresentation,
+    logged_metrics: LoggedMetrics,
+    logged_text: dict[str, str],
+    sink: MLflowReportSink,
+) -> None:
+    sink.report(replace(group, comparisons={}), presentation=presentation)
+
+    card = _cards(logged_text)[f"aggregate_bars_{_GROUP_FILE_STEM}.toml"]
+
+    assert card.metadata.report_level.value == "matrix_set_rhs_type"
+    assert [method.method_id for method in card.metadata.methods] == ["amg", "jacobi", "never"]
+    assert [source.run_id for source in card.metadata.sources] == [
+        "run-amg",
+        "run-jacobi",
+        "run-never",
+    ]
+    assert card.session_run_id == "session-run"
+    assert card.table == SiblingTable(f"aggregate_bars_{_GROUP_FILE_STEM}.parquet")
+
+
+@pytest.mark.usefixtures("logged_metrics", "logged_artifacts")
+def test_group_naming_a_method_without_a_stored_run_is_rejected(
+    group: GroupAggregated, presentation: GroupPresentation, notation: NotationPolicy
+) -> None:
+    with pytest.raises(UnknownStoredMethodError):
+        MLflowReportSink(notation, "session-run").report(group, presentation=presentation)
+
+
+def test_sink_finalizes_one_index_listing_exactly_the_logged_figures(
     group: GroupAggregated,
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
-    notation: NotationPolicy,
+    logged_text: dict[str, str],
+    sink: MLflowReportSink,
 ) -> None:
-    sink = MLflowGroupReportSink(notation)
     sink.report(group, presentation=presentation)
     sink.report(
         replace(_report_variant(group, RecipeProfileReport), group_id="other"),
@@ -509,8 +648,83 @@ def test_sink_finalizes_one_manifest_for_logged_figures(
     )
     sink.finalize()
 
-    assert [name for name in logged_artifacts if name == "figure_manifest.toml"] == [
-        "figure_manifest.toml"
-    ]
+    index = tomllib.loads(logged_text[FIGURE_INDEX_FILE])["figures"]
+    assert logged_artifacts[FIGURE_INDEX_FILE] == ("None", True)
+    assert {entry["artifact_path"] for entry in index} == {
+        f"{GROUP_REPORT_ARTIFACT_DIR}/{name}" for name in _figures(logged_artifacts)
+    }
+    assert all(
+        set(entry) == {"run_id", "artifact_path", "card", "kind", "level", "scope"}
+        for entry in index
+    )
     with pytest.raises(RuntimeError):
+        sink.finalize()
+
+
+@pytest.fixture
+def system(dataset_presentation: DatasetPresentation) -> System:
+    return System(DatasetId("ds"), GAUSSIAN, MatrixId(7), 0, SystemId("s0"))
+
+
+@pytest.fixture
+def system_figure(
+    tmp_path: Path,
+    metadata_of: Callable[[FigureScope], FigureMetadata],
+    dataset_presentation: DatasetPresentation,
+    system: System,
+) -> StagedFigure:
+    metadata = replace(
+        metadata_of(SystemScope(dataset_presentation, system.recipe, system.matrix_id, 0)),
+        kind=FigureKind.RESIDUAL_HISTORY,
+        report_level=ReportLevelName.SYSTEM,
+        n_matrices=1,
+        n_planned_rhs=1,
+    )
+    plan = FigurePlan("residual_history.png", "Residual History", metadata)
+    return StagedFigure(plan, tmp_path / plan.filename)
+
+
+def test_system_figures_are_uploaded_with_cards_into_the_run_root(
+    system: System,
+    system_figure: StagedFigure,
+    logged_artifacts: dict[str, tuple[str, bool]],
+    logged_text: dict[str, str],
+    sink: MLflowReportSink,
+    dataset_presentation: DatasetPresentation,
+) -> None:
+    sink.report_system(system, {}, [system_figure])
+
+    assert logged_artifacts == {
+        "residual_history.png": ("None", False),
+        "residual_history.toml": ("None", True),
+    }
+    card = _cards(logged_text)["residual_history.toml"]
+    assert card.metadata.scope == SystemScope(dataset_presentation, GAUSSIAN, MatrixId(7), 0)
+    assert card.metadata.report_level is ReportLevelName.SYSTEM
+
+
+def test_one_stem_may_repeat_across_runs_but_not_within_one(
+    system: System,
+    system_figure: StagedFigure,
+    logged_artifacts: dict[str, tuple[str, bool]],
+    sink: MLflowReportSink,
+) -> None:
+    other = replace(system, matrix_id=MatrixId(8))
+    sink.report_system(system, {}, [system_figure])
+    sink.report_system(other, {}, [system_figure])
+
+    with pytest.raises(DuplicateFigureNameError):
+        sink.report_system(other, {}, [system_figure])
+
+
+def test_finalizing_with_a_figure_missing_its_card_raises(
+    system: System,
+    system_figure: StagedFigure,
+    logged_artifacts: dict[str, tuple[str, bool]],
+    sink: MLflowReportSink,
+) -> None:
+    sink.report_system(system, {}, [system_figure])
+    sink._cards.clear()  # a recorded card lost: the invariant must catch it
+
+    with pytest.raises(IncompleteFigureRecordsError):
         sink.finalize()

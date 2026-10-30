@@ -12,7 +12,8 @@ from typing import Never, assert_never, cast
 
 from loguru import logger
 
-from neuralls.composition.comparison.models import CompletedMethodWorkload
+from neuralls.composition.comparison.postprocessing.ports import ReportSink
+from neuralls.composition.comparison.postprocessing.report_inputs import ReportedMethod
 from neuralls.domain.benchmarking.selection import NoReferenceConfigured, ReferenceSelection
 from neuralls.domain.presentation.planner import reduce_realized_facts
 from neuralls.domain.presentation.provenance import DatasetPresentation
@@ -37,7 +38,6 @@ from neuralls.domain.solver.models.labels import (
     MatrixSetLabel,
     MatrixSetRhsTypeLabel,
 )
-from neuralls.domain.solver.ports import GroupReportSink
 from neuralls.domain.solver.reporting.classification import classify_level
 from neuralls.domain.solver.reporting.report_levels import (
     AllMatrixSetsLevel,
@@ -91,7 +91,7 @@ def _scope(label: GroupLabel, datasets: Mapping[DatasetId, DatasetPresentation])
 
 
 def _group_methods(
-    workloads: Sequence[CompletedMethodWorkload], system_ids: tuple[SystemId, ...]
+    workloads: Sequence[ReportedMethod], system_ids: tuple[SystemId, ...]
 ) -> dict[PreconditionerName, GroupMethodPresentation]:
     """Describe each method that has systems in this group, with its invariant realized facts.
 
@@ -121,8 +121,8 @@ def _group_methods(
 
 
 def report_all_levels(
-    workloads: Sequence[CompletedMethodWorkload],
-    sink: GroupReportSink,
+    workloads: Sequence[ReportedMethod],
+    sink: ReportSink,
     *,
     datasets: Mapping[DatasetId, DatasetPresentation],
     notation: NotationPolicy,

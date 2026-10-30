@@ -32,7 +32,13 @@ from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.shared.rhs_recipe import parse_recipe_key, recipe_key
-from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SystemId
+from neuralls.shared.types import (
+    DatasetId,
+    MatrixId,
+    PreconditionerName,
+    SetupEventId,
+    SystemId,
+)
 
 SETUP_EVENT_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "setup_event_id": pl.String,
@@ -178,6 +184,64 @@ def build_solve_frame(attempts: Collection[SolveAttempt]) -> pl.DataFrame:
             }
         )
     return pl.DataFrame(rows, schema=SOLVE_ATTEMPT_SCHEMA)
+
+
+def decode_setup_frame(frame: pl.DataFrame) -> tuple[MatrixSetupEvent, ...]:
+    """Rebuild the setup events a validated setup frame serializes."""
+    validate_decoded_setup_frame(frame)
+    return tuple(
+        MatrixSetupEvent(
+            event_id=SetupEventId(row["setup_event_id"]),
+            dataset=DatasetId(row["dataset"]),
+            matrix_id=MatrixId(row["matrix_id"]),
+            method=PreconditionerName(row["method"]),
+            setup_s=row["setup_s"],
+            samples_s=tuple(row["samples_s"]),
+            peak_memory=_decode_memory(row["memory_status"], row["peak_memory_bytes"]),
+            outcome=(
+                SetupCompleted()
+                if row["setup_status"] == "completed"
+                else SetupFailed(reason=row["failure_reason"] or "")
+            ),
+        )
+        for row in frame.iter_rows(named=True)
+    )
+
+
+def decode_solve_frame(frame: pl.DataFrame) -> tuple[SolveAttempt, ...]:
+    """Rebuild the solve attempts a validated solve frame serializes."""
+    validate_decoded_solve_frame(frame)
+    return tuple(
+        SolveAttempt(
+            setup_event_id=SetupEventId(row["setup_event_id"]),
+            system_id=SystemId(row["system_id"]),
+            dataset=DatasetId(row["dataset"]),
+            recipe=parse_recipe_key(row["recipe"]),
+            matrix_id=MatrixId(row["matrix_id"]),
+            rhs_ordinal=row["rhs_ordinal"],
+            method=PreconditionerName(row["method"]),
+            solve_s=row["solve_s"],
+            samples_s=tuple(row["samples_s"]),
+            peak_memory=_decode_memory(row["memory_status"], row["peak_memory_bytes"]),
+            outcome=(
+                SolveConverged(
+                    iterations=row["iterations"],
+                    final_relative_residual=row["final_relative_residual"],
+                )
+                if row["solve_status"] == "converged"
+                else SolveFailed(iterations=row["iterations"], reason=row["failure_reason"] or "")
+            ),
+        )
+        for row in frame.iter_rows(named=True)
+    )
+
+
+def _decode_memory(status: str, peak_memory_bytes: int | None) -> PeakMemory:
+    match status:
+        case "measured":
+            return MeasuredPeakMemory(_required_int(peak_memory_bytes, "peak memory bytes"))
+        case _:
+            return UnknownPeakMemory()
 
 
 def build_planned_systems_frame(systems: Collection[SystemProvenance]) -> pl.DataFrame:

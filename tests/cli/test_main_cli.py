@@ -48,6 +48,7 @@ def test_root_help_lists_only_public_commands() -> None:
         "eval",
         "generate",
         "generate-single",
+        "report",
         "run",
         "train",
     ]

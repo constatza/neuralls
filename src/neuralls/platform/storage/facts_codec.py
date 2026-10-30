@@ -34,6 +34,7 @@ from neuralls.domain.solver.models.figure_scope import (
     FigureScope,
     MethodScope,
     RecipeScope,
+    SystemScope,
 )
 from neuralls.shared.rhs_recipe import (
     DatasetRecipe,
@@ -395,6 +396,16 @@ def encode_figure_scope(scope: FigureScope) -> dict[str, Any]:
             return {"kind": "all_datasets"}
         case MethodScope(method=method):
             return {"kind": "method", "method": encode_method_presentation(method)}
+        case SystemScope(
+            dataset=dataset, recipe=recipe, matrix_id=matrix_id, rhs_ordinal=rhs_ordinal
+        ):
+            return {
+                "kind": "system",
+                "recipe": encode_recipe(recipe),
+                "dataset": encode_dataset_presentation(dataset),
+                "matrix_id": int(matrix_id),
+                "rhs_ordinal": rhs_ordinal,
+            }
         case _:
             assert_never(scope)
 
@@ -412,5 +423,12 @@ def decode_figure_scope(payload: Payload) -> FigureScope:
             return AllDatasetsScope()
         case "method":
             return MethodScope(decode_method_presentation(payload["method"]))
+        case "system":
+            return SystemScope(
+                decode_dataset_presentation(payload["dataset"]),
+                decode_recipe(payload["recipe"]),
+                MatrixId(payload["matrix_id"]),
+                payload["rhs_ordinal"],
+            )
         case other:
             raise ValueError(f"Unknown figure scope kind {other!r}")

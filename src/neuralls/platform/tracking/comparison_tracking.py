@@ -3,19 +3,21 @@
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Generator, Iterable, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import assert_never
 
 import mlflow
+import polars as pl
+from mlflow.tracking import MlflowClient
 
 from neuralls.domain.benchmarking.costs import amortized_online_seconds, solve_seconds
 from neuralls.domain.benchmarking.selection import (
     ConfiguredReference,
     NoReferenceConfigured,
     ReferenceSelection,
-    ReferenceUnavailable,
 )
 from neuralls.domain.presentation.methods import (
     MissingMethodPresentationError,
@@ -28,35 +30,71 @@ from neuralls.domain.solver.models.benchmark_events import (
     SolveFailed,
 )
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
-from neuralls.domain.solver.models.figure_scope import MethodScope, RecipeScope
+from neuralls.domain.solver.models.figure_scope import (
+    AllDatasetsScope,
+    DatasetScope,
+    MethodScope,
+    RecipeScope,
+)
 from neuralls.domain.solver.models.group_outcomes import (
     RecipeProfileReport,
     WorkloadMixtureReport,
 )
 from neuralls.domain.solver.models.group_presentation import GroupPresentation, SolverTimingContext
 from neuralls.domain.solver.models.plot_style import plot_style_maps
+from neuralls.domain.solver.models.report_scope import (
+    AllMatrixSets,
+    MatrixSet,
+    MatrixSetRhsType,
+    ReportScope,
+    System,
+    parent_scope,
+    scope_of_label,
+)
 from neuralls.domain.solver.models.statistics import MethodComparison, PairedComparison
 from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.domain.solver.models.workload import MethodWorkload, MethodWorkloadSummary
-from neuralls.domain.solver.reporting.report_levels import ReportLevelName, level_name
+from neuralls.domain.solver.reporting.report_levels import (
+    ReportLevelName,
+    level_name,
+    level_of_scope,
+)
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.reporting.benchmark_events import (
     METHOD_ARTIFACT_DIR,
+    MethodBenchmarkArtifacts,
     write_method_benchmark_artifacts,
+)
+from neuralls.platform.reporting.figure_card import (
+    FigureCard,
+    build_figure_card,
+    card_name,
+    write_figure_card,
+)
+from neuralls.platform.reporting.figure_index import (
+    FIGURE_INDEX_FILE,
+    ArtifactLocation,
+    index_of,
+    verify_figure_records,
+    write_figure_index,
 )
 from neuralls.platform.reporting.figure_metadata import (
     FailureTreatment,
     FigureKind,
-    FigureManifest,
     FigureMetadata,
+    FigureMethod,
     FigurePlan,
     FigureSlugs,
+    NoTable,
+    SiblingTable,
+    StagedFigure,
     TimingScenario,
+    collision_key,
     make_plan,
-    text_slug,
-    write_figure_manifest,
+    method_source,
 )
+from neuralls.platform.reporting.figure_table import build_group_table, write_group_table
 from neuralls.platform.reporting.figure_text import (
     EditorialTitle,
     Legend,
@@ -78,11 +116,14 @@ from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
     plot_error_convergence_comparison,
 )
+from neuralls.platform.reporting.stored_benchmark import StoredMethod
 from neuralls.platform.storage.facts_codec import encode_method_parameters
 from neuralls.platform.tracking.mlflow import ensure_experiment, sanitize_metric_key_segment
+from neuralls.platform.tracking.scope_params import scope_params
+from neuralls.platform.tracking.session_artifacts import PARENT_RUN_TAG
 from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from neuralls.shared.types import DatasetId, GroupId, PreconditionerName, SystemId
+from neuralls.shared.types import DatasetId, PreconditionerName, SystemId
 
 
 def setup_comparison_tracking(
@@ -121,33 +162,15 @@ def parent_run_metric_key(metric: str, preconditioner_name: str) -> str:
     return f"{metric}/{sanitize_metric_key_segment(preconditioner_name)}"
 
 
-def _group_metric_key(metric: str, group_id: GroupId, preconditioner_name: str) -> str:
-    """Build a metric key namespaced by comparison group and method.
-
-    Mirrors ``parent_run_metric_key``'s single-``"/"``-separator convention,
-    with one more segment: a case config can have several comparison groups,
-    so the group id disambiguates which report group produced the metric.
-    """
-    return (
-        f"{metric}/{sanitize_metric_key_segment(group_id)}"
-        f"/{sanitize_metric_key_segment(preconditioner_name)}"
-    )
-
-
-def log_convergence_metrics(
-    group_id: GroupId, convergence: Mapping[PreconditionerName, ConvergenceSummary]
-) -> None:
+def log_convergence_metrics(convergence: Mapping[PreconditionerName, ConvergenceSummary]) -> None:
     """Log explicit planned, attempted, and converged counts."""
     for name, summary in convergence.items():
-        mlflow.log_metric(_group_metric_key("n_planned_rhs", group_id, name), summary.n_planned_rhs)
-        mlflow.log_metric(
-            _group_metric_key("n_attempted_rhs", group_id, name), summary.n_attempted_rhs
-        )
-        mlflow.log_metric(_group_metric_key("n_converged", group_id, name), summary.n_converged)
-        mlflow.log_metric(_group_metric_key("success_rate", group_id, name), summary.success_rate)
+        mlflow.log_metric(parent_run_metric_key("n_planned_rhs", name), summary.n_planned_rhs)
+        mlflow.log_metric(parent_run_metric_key("n_attempted_rhs", name), summary.n_attempted_rhs)
+        mlflow.log_metric(parent_run_metric_key("n_converged", name), summary.n_converged)
+        mlflow.log_metric(parent_run_metric_key("success_rate", name), summary.success_rate)
         if summary.iterations is not None:
             _log_optional_metrics(
-                group_id,
                 name,
                 {
                     "iterations_mean": summary.iterations.mean,
@@ -157,13 +180,11 @@ def log_convergence_metrics(
             )
 
 
-def _log_optional_metrics(
-    group_id: GroupId, preconditioner_name: str, metrics: Mapping[str, float | None]
-) -> None:
-    """Log each defined (non-`None`) metric under the group/preconditioner-namespaced key."""
+def _log_optional_metrics(preconditioner_name: str, metrics: Mapping[str, float | None]) -> None:
+    """Log each defined (non-`None`) metric under the method-namespaced key."""
     for metric, value in metrics.items():
         if value is not None:
-            mlflow.log_metric(_group_metric_key(metric, group_id, preconditioner_name), value)
+            mlflow.log_metric(parent_run_metric_key(metric, preconditioner_name), value)
 
 
 def _paired_metrics(paired: PairedComparison) -> dict[str, float | None]:
@@ -179,99 +200,235 @@ def _paired_metrics(paired: PairedComparison) -> dict[str, float | None]:
     }
 
 
-def log_comparison_metrics(
-    group_id: GroupId, comparisons: Mapping[PreconditionerName, MethodComparison]
-) -> None:
+def log_comparison_metrics(comparisons: Mapping[PreconditionerName, MethodComparison]) -> None:
     """Log each method's failure-aware reference/method speed ratios."""
     for name, comparison in comparisons.items():
-        _log_optional_metrics(
-            group_id,
-            name,
-            _paired_metrics(comparison.paired),
-        )
+        _log_optional_metrics(name, _paired_metrics(comparison.paired))
+
+
+class DuplicateFigureNameError(ValueError):
+    """Two figures of one run directory would share a file name once made filesystem-safe."""
+
+
+class UnknownStoredMethodError(LookupError):
+    """A figure names a method the report has no stored run for."""
 
 
 @dataclass(slots=True)
-class MLflowGroupReportSink:
-    """Temporary event-group sink retained until method-level reporting lands.
+class MLflowReportSink:
+    """Records a report as a tree of nested MLflow runs, one per aggregation scope.
 
-    ``notation`` is the case's symbol policy; every figure and the manifest render their
-    presentation values with it.
+    The run active at the first scope is the root (all matrix sets); every other scope gets
+    a child run of its parent scope, created on first use, so parents always exist before
+    children. ``notation`` is the case's symbol policy and ``datasets`` presents each
+    dataset a scope names; run names and figures render both. ``session_run_id`` and
+    ``methods`` identify the compare session and the stored method runs every figure is
+    computed from.
+
+    Every figure is uploaded with its card (same directory, same stem) into the run of its
+    own scope; file stems only need to be unique inside one run directory. The root run
+    also holds the method figures and, once finalized, the index of all figures.
     """
 
     notation: NotationPolicy
-    manifest: FigureManifest = field(default_factory=FigureManifest)
+    session_run_id: str
+    methods: Sequence[StoredMethod] = ()
+    datasets: Mapping[DatasetId, DatasetPresentation] = field(default_factory=dict)
     _staging: tempfile.TemporaryDirectory[str] = field(
         default_factory=lambda: tempfile.TemporaryDirectory(prefix="neuralls-figures-")
     )
     _slugs: FigureSlugs = field(default_factory=FigureSlugs)
     _finalized: bool = False
+    _run_ids: dict[ReportScope, str] = field(default_factory=dict)
+    _taken: dict[tuple[str, str | None], set[str]] = field(default_factory=dict)
+    _uploaded: list[ArtifactLocation] = field(default_factory=list)
+    _cards: dict[ArtifactLocation, FigureCard] = field(default_factory=dict)
 
-    def register_method_figures(
+    def _scope_run_id(self, scope: ReportScope) -> str:
+        """The run of ``scope``, creating it (and its ancestors) under its parent first."""
+        known = self._run_ids.get(scope)
+        if known is not None:
+            return known
+        parent = parent_scope(scope)
+        active = mlflow.active_run()
+        if parent is None or active is None:
+            raise RuntimeError("a report needs its root run active")
+        client = MlflowClient(tracking_uri=mlflow.get_tracking_uri())
+        parent_id = (
+            active.info.run_id if isinstance(parent, AllMatrixSets) else self._scope_run_id(parent)
+        )
+        run = client.create_run(
+            active.info.experiment_id,
+            tags={
+                PARENT_RUN_TAG: parent_id,
+                "phase": REPORT_SCOPE_PHASE,
+                "report_level": level_of_scope(scope).value,
+            },
+            run_name=self._scope_name(scope),
+        )
+        for key, value in scope_params(scope).items():
+            client.log_param(run.info.run_id, key, value)
+        client.set_terminated(run.info.run_id, status="FINISHED")
+        self._run_ids[scope] = run.info.run_id
+        return run.info.run_id
+
+    def _presentation_of(self, dataset: DatasetId) -> DatasetPresentation:
+        found = self.datasets.get(dataset)
+        if found is None:
+            raise MissingMethodPresentationError(str(dataset))
+        return found
+
+    def _scope_name(self, scope: ReportScope) -> str:
+        """The scientific text naming the run of ``scope``."""
+        match scope:
+            case AllMatrixSets():
+                return scope_label(AllDatasetsScope(), self.notation)
+            case MatrixSet(dataset=dataset):
+                return scope_label(DatasetScope(self._presentation_of(dataset)), self.notation)
+            case MatrixSetRhsType(dataset=dataset, recipe=recipe):
+                return scope_label(
+                    RecipeScope(self._presentation_of(dataset), recipe), self.notation
+                )
+            case System(matrix_id=matrix_id, rhs_ordinal=rhs_ordinal):
+                return f"matrix {int(matrix_id)}, RHS {rhs_ordinal}"
+            case unreachable:
+                assert_never(unreachable)
+
+    @contextmanager
+    def _in_scope(self, scope: ReportScope) -> Generator[str]:
+        """Log into the run of ``scope`` and yield its id; the root run is already active."""
+        if isinstance(scope, AllMatrixSets):
+            active = mlflow.active_run()
+            if active is None:
+                raise RuntimeError("a report needs its root run active")
+            yield active.info.run_id
+            return
+        run_id = self._scope_run_id(scope)
+        with mlflow.start_run(run_id=run_id, nested=True):
+            yield run_id
+
+    def _stored(self, name: PreconditionerName) -> StoredMethod:
+        found = next((method for method in self.methods if method.name == name), None)
+        if found is None:
+            raise UnknownStoredMethodError(f"no stored run for method {name}")
+        return found
+
+    def _check_free(self, run_id: str, directory: str | None, filenames: Iterable[str]) -> None:
+        """Reject names that collide with each other or with a figure already in the directory."""
+        seen = set(self._taken.get((run_id, directory), ()))
+        for filename in filenames:
+            key = collision_key(filename)
+            if key in seen:
+                raise DuplicateFigureNameError(
+                    f"duplicate or colliding figure filename: {filename}"
+                )
+            seen.add(key)
+
+    def _upload_figure(
         self,
-        workloads: Sequence[MethodWorkload],
-        *,
-        contexts_by_system: Mapping[SystemId, SolverTimingContext] | None = None,
+        run_id: str,
+        directory: str | None,
+        staged: StagedFigure,
+        table: pl.DataFrame | None = None,
     ) -> None:
-        """Register method-child histories in the same session manifest."""
-        for workload in workloads:
-            dataset_ids = tuple(dict.fromkeys(str(tag.dataset) for tag in workload.planned))
-            recipes = tuple(dict.fromkeys(tag.recipe for tag in workload.planned))
-            counts = tuple(
-                sum(tag.recipe == recipe for tag in workload.planned) for recipe in recipes
-            )
-            contexts = tuple(
-                dict.fromkeys(
-                    context
-                    for tag in workload.planned
-                    if contexts_by_system is not None
-                    and isinstance(
-                        (context := contexts_by_system.get(tag.system_id)), SolverTimingContext
-                    )
-                )
-            )
-            method = str(workload.method)
-            scope = MethodScope(workload.presentation.prepared.detailed)
-            method_slug = self._slugs.slug(f"method:{method}", scope_label(scope, self.notation))
-            n_matrices = len({(tag.dataset, tag.matrix_id) for tag in workload.planned})
-            recipe_weights = tuple(count / len(workload.planned) for count in counts)
-            sources = (
-                f"comparison_method[method={method}]/method_workload/convergence.parquet",
-                f"comparison_method[method={method}]/method_workload/solve_attempts.parquet",
-            )
-            for kind, filename, metric in (
-                (
-                    FigureKind.RESIDUAL_HISTORY,
-                    f"residual_history_{method_slug}.png",
-                    "relative residual by iteration",
+        """Upload a figure, its card and its plotted table side by side into the active run.
+
+        ``table`` is required exactly for the kinds whose card names one.
+        """
+        self._check_free(run_id, directory, [staged.plan.filename])
+        card = build_figure_card(
+            staged.plan.filename,
+            staged.plan.title,
+            staged.plan.metadata,
+            session_run_id=self.session_run_id,
+            notation=self.notation,
+        )
+        card_path = staged.path.with_name(card_name(staged.plan.filename))
+        write_figure_card(card_path, card)
+        mlflow.log_artifact(str(staged.path), artifact_path=directory)
+        mlflow.log_artifact(str(card_path), artifact_path=directory)
+        prefix = f"{directory}/" if directory else ""
+        match card.table:
+            case SiblingTable(name=name):
+                if table is None:
+                    raise ValueError(f"figure {staged.plan.filename} needs its plotted table")
+                table_path = staged.path.with_name(name)
+                write_group_table(table_path, table)
+                mlflow.log_artifact(str(table_path), artifact_path=directory)
+                self._uploaded.append(ArtifactLocation(run_id, f"{prefix}{name}"))
+            case NoTable():
+                if table is not None:
+                    raise ValueError(f"figure {staged.plan.filename} has no plotted table")
+            case unreachable:
+                assert_never(unreachable)
+        self._taken.setdefault((run_id, directory), set()).add(collision_key(staged.plan.filename))
+        figure_location = ArtifactLocation(run_id, f"{prefix}{staged.plan.filename}")
+        card_location = ArtifactLocation(run_id, f"{prefix}{card_path.name}")
+        self._uploaded.extend((figure_location, card_location))
+        self._cards[card_location] = card
+
+    def register_method_figures(self, *, datasets: Mapping[DatasetId, DatasetPresentation]) -> None:
+        """Draw each method's convergence histories from its stored table and upload them."""
+        with self._in_scope(AllMatrixSets()) as root_id:
+            for method in self.methods:
+                self._register_method(root_id, method, datasets)
+
+    def _register_method(
+        self, root_id: str, method: StoredMethod, datasets: Mapping[DatasetId, DatasetPresentation]
+    ) -> None:
+        tags = tuple(system.tag for system in method.systems)
+        dataset_ids = tuple(dict.fromkeys(str(tag.dataset) for tag in tags))
+        recipes = tuple(dict.fromkeys(tag.recipe for tag in tags))
+        counts = tuple(sum(tag.recipe == recipe for tag in tags) for recipe in recipes)
+        contexts = tuple(dict.fromkeys(system.solver for system in method.systems))
+        name = str(method.name)
+        scope = MethodScope(method.presentation.prepared.detailed)
+        method_slug = self._slugs.slug(f"method:{name}", scope_label(scope, self.notation))
+        n_matrices = len({(tag.dataset, tag.matrix_id) for tag in tags})
+        recipe_weights = tuple(count / len(tags) for count in counts)
+        artifacts = MethodBenchmarkArtifacts()
+        figure_method = FigureMethod(method.name, scope.method, method.config_digest)
+        figures_dir = Path(self._staging.name) / METHOD_FIGURE_ARTIFACT_DIR
+        figures_dir.mkdir(exist_ok=True)
+        for kind, filename, metric in (
+            (
+                FigureKind.RESIDUAL_HISTORY,
+                f"residual_history_{method_slug}.png",
+                "relative residual by iteration",
+            ),
+            (
+                FigureKind.ENERGY_HISTORY,
+                f"energy_history_{method_slug}.png",
+                "relative energy error by iteration",
+            ),
+        ):
+            metadata = FigureMetadata(
+                kind=kind,
+                metric_definition=metric,
+                scenario=None,
+                report_level=ReportLevelName.METHOD,
+                scope=scope,
+                dataset_ids=dataset_ids,
+                recipes=recipes,
+                n_matrices=n_matrices,
+                n_planned_rhs=len(tags),
+                reference_selection=NoReferenceConfigured(),
+                failure_treatment=FailureTreatment.NONE,
+                timing_policy="diagnostic histories; excluded from online timing",
+                methods=(figure_method,),
+                sources=(
+                    method_source(method.run_id, artifacts.convergence, artifacts.solve_attempts),
                 ),
-                (
-                    FigureKind.ENERGY_HISTORY,
-                    f"energy_history_{method_slug}.png",
-                    "relative energy error by iteration",
-                ),
-            ):
-                metadata = FigureMetadata(
-                    kind=kind,
-                    metric_definition=metric,
-                    scenario=None,
-                    report_level=ReportLevelName.METHOD,
-                    scope=scope,
-                    dataset_ids=dataset_ids,
-                    recipes=recipes,
-                    n_matrices=n_matrices,
-                    n_planned_rhs=len(workload.planned),
-                    reference_selection=NoReferenceConfigured(),
-                    failure_treatment=FailureTreatment.NONE,
-                    timing_policy="diagnostic histories; excluded from online timing",
-                    recipe_counts=counts,
-                    aggregation_rule="one diagnostic history per attempted RHS",
-                    recipe_weights=recipe_weights,
-                    solver_contexts=contexts,
-                    sources=sources,
-                )
-                plan = make_plan(kind, metadata, group_slug=method_slug)
-                self.manifest.add_plan(replace(plan, filename=filename))
+                recipe_counts=counts,
+                aggregation_rule="one diagnostic history per attempted RHS",
+                recipe_weights=recipe_weights,
+                solver_contexts=contexts,
+            )
+            plan = replace(make_plan(kind, metadata, group_slug=method_slug), filename=filename)
+            self._check_free(root_id, METHOD_FIGURE_ARTIFACT_DIR, [filename])
+            path = figures_dir / filename
+            _draw_method_figure(path, kind, method, self.notation, datasets)
+            self._upload_figure(root_id, METHOD_FIGURE_ARTIFACT_DIR, StagedFigure(plan, path))
 
     def report(
         self,
@@ -279,34 +436,59 @@ class MLflowGroupReportSink:
         *,
         presentation: GroupPresentation,
     ) -> None:
-        """Log explicit counts and the supported failure-aware plots."""
+        """Log explicit counts and the supported failure-aware plots into the group's run."""
         if self._finalized:
             raise RuntimeError("cannot report after finalization")
         group_id = outcome.group_id
-        log_convergence_metrics(group_id, outcome.convergence)
-        if isinstance(outcome, RecipeProfileReport):
-            log_comparison_metrics(group_id, outcome.comparisons)
-        with tempfile.TemporaryDirectory() as tmp:
+        scope = scope_of_label(outcome.label)
+        with self._in_scope(scope) as run_id, tempfile.TemporaryDirectory() as tmp:
+            log_convergence_metrics(outcome.convergence)
+            if isinstance(outcome, RecipeProfileReport):
+                log_comparison_metrics(outcome.comparisons)
             file_key = self._slugs.slug(
                 f"group:{group_id}", scope_label(presentation.scope, self.notation)
             )
-            plans = _figure_plans(outcome, presentation, file_key)
-            self.manifest.validate_plans(plans)
+            plans = _figure_plans(
+                outcome, presentation, file_key, self._group_methods(presentation)
+            )
+            self._check_free(run_id, GROUP_REPORT_ARTIFACT_DIR, [plan.filename for plan in plans])
             outcome_plots = _write_outcome_plots(
                 outcome, _GroupStyler(presentation, self.notation), Path(tmp), plans
             )
+            table = build_group_table(outcome.summaries)
             for artifact in outcome_plots:
                 plan = next(plan for plan in plans if plan.filename == artifact.name)
-                mlflow.log_artifact(str(artifact), artifact_path=GROUP_REPORT_ARTIFACT_DIR)
-                self.manifest.add_plan(plan)
+                self._upload_figure(
+                    run_id, GROUP_REPORT_ARTIFACT_DIR, StagedFigure(plan, artifact), table
+                )
+
+    def _group_methods(
+        self, presentation: GroupPresentation
+    ) -> dict[PreconditionerName, StoredMethod]:
+        """The stored run of every method the group presents."""
+        return {name: self._stored(name) for name in presentation.methods}
+
+    def report_system(
+        self, scope: System, metrics: Mapping[str, float], figures: Sequence[StagedFigure]
+    ) -> None:
+        """Log one system's per-method metrics and figures, with their cards, into its own run."""
+        if self._finalized:
+            raise RuntimeError("cannot report after finalization")
+        with self._in_scope(scope) as run_id:
+            mlflow.log_metrics(dict(metrics))
+            self._check_free(run_id, None, [staged.plan.filename for staged in figures])
+            for staged in figures:
+                self._upload_figure(run_id, None, staged)
 
     def finalize(self) -> None:
-        """Upload exactly one session manifest while the parent run is active."""
+        """Check every figure has its card, then upload the figure index to the root run."""
         if self._finalized:
-            raise RuntimeError("figure manifest already finalized")
-        path = Path(self._staging.name) / "figure_manifest.toml"
-        write_figure_manifest(path, self.manifest, self.notation)
-        mlflow.log_artifact(str(path), artifact_path=GROUP_REPORT_ARTIFACT_DIR)
+            raise RuntimeError("figure index already finalized")
+        index = index_of(self._cards)
+        verify_figure_records(self._uploaded, self._cards, index)
+        path = Path(self._staging.name) / FIGURE_INDEX_FILE
+        write_figure_index(path, index)
+        mlflow.log_artifact(str(path))
         self._finalized = True
         self._staging.cleanup()
 
@@ -322,14 +504,18 @@ def _figure_plans(
     outcome: RecipeProfileReport | WorkloadMixtureReport,
     presentation: GroupPresentation,
     file_key: str,
+    stored: Mapping[PreconditionerName, StoredMethod],
 ) -> tuple[FigurePlan, ...]:
-    """Build and reserve every figure's scientific context before drawing."""
+    """Build every figure's scientific context before drawing.
+
+    ``stored`` holds the method run of each method ``presentation`` lists.
+    """
     specs = _planned_figure_specs(outcome, file_key)
     plans: list[FigurePlan] = []
     for spec in specs:
         plan = make_plan(
             spec.kind,
-            _figure_metadata(spec.kind, spec.scenario, outcome, presentation),
+            _figure_metadata(spec.kind, spec.scenario, outcome, presentation, stored),
             group_slug=file_key,
         )
         plans.append(replace(plan, filename=spec.filename))
@@ -391,21 +577,23 @@ def _figure_metadata(
     scenario: TimingScenario | None,
     outcome: RecipeProfileReport | WorkloadMixtureReport,
     presentation: GroupPresentation,
+    stored: Mapping[PreconditionerName, StoredMethod],
 ) -> FigureMetadata:
     dataset_ids = tuple(str(dataset) for dataset in outcome.dataset_membership)
     recipes = outcome.recipe_membership
     weights = tuple(count / outcome.n_planned_rhs for count in outcome.recipe_counts)
     reference = outcome.reference_selection
-    reason = reference.reason if isinstance(reference, ReferenceUnavailable) else None
-    methods = tuple(sorted({str(summary.method) for summary in outcome.summaries}))
+    names = sorted(presentation.methods)
+    artifacts = MethodBenchmarkArtifacts()
+    methods = tuple(
+        FigureMethod(name, presentation.methods[name].detailed, stored[name].config_digest)
+        for name in names
+    )
     sources = tuple(
-        source
-        for method in methods
-        for source in (
-            f"comparison_method[method={method}]/method_workload/setup_events.parquet",
-            f"comparison_method[method={method}]/method_workload/solve_attempts.parquet",
-            f"comparison_method[method={method}]/method_workload/summary.toml",
+        method_source(
+            stored[name].run_id, artifacts.setup_events, artifacts.solve_attempts, artifacts.summary
         )
+        for name in names
     )
     metric = {
         FigureKind.AGGREGATE_BARS: "converged systems",
@@ -457,22 +645,25 @@ def _figure_metadata(
         aggregation_rule=aggregation_rule,
         recipe_weights=weights,
         solver_contexts=presentation.solver_contexts,
-        reference_reason=reason,
+        methods=methods,
         sources=sources,
     )
 
 
-FIGURE_ARTIFACT_DIR = f"{METHOD_ARTIFACT_DIR}/figures"
+REPORT_SCOPE_PHASE = "report_scope"
+"""Phase tag of every non-root run of a report tree; the root carries ``report``."""
+
+METHOD_FIGURE_ARTIFACT_DIR = "method_figures"
+"""Report-run artifact directory holding every method's convergence figures."""
 
 
 @dataclass(frozen=True, slots=True)
 class MLflowBenchmarkMethodSink:
     """Write one reduced method workload into the already-active child run.
 
-    ``notation`` is the case's symbol policy and ``datasets`` presents each dataset a
-    workload ran on; method figures render both when they are drawn. ``solver_contexts``
-    and ``references`` give the settings and reference state each planned system was
-    timed under; they are persisted with the raw events.
+    ``datasets`` presents each dataset a workload ran on. ``solver_contexts`` and
+    ``references`` give the settings and reference state each planned system was timed
+    under; they are persisted with the raw events.
 
     Run ownership deliberately stays in ``comparison_batch``.  Calling this
     sink while no run is active is a caller error, just like calling
@@ -480,7 +671,6 @@ class MLflowBenchmarkMethodSink:
     system or preconditioner run.
     """
 
-    notation: NotationPolicy
     datasets: Mapping[DatasetId, DatasetPresentation]
     solver_contexts: Mapping[SystemId, SolverTimingContext]
     references: Mapping[SystemId, ReferenceSelection]
@@ -510,8 +700,6 @@ class MLflowBenchmarkMethodSink:
             self._log_method_metadata(workload, summary)
             for relative in artifacts.paths():
                 mlflow.log_artifact(str(root / relative), artifact_path=METHOD_ARTIFACT_DIR)
-            for figure in _write_method_figures(root, workload, self.notation, self.datasets):
-                mlflow.log_artifact(str(figure), artifact_path=FIGURE_ARTIFACT_DIR)
         finally:
             if temporary is not None:
                 temporary.cleanup()
@@ -558,13 +746,14 @@ class MLflowBenchmarkMethodSink:
 
 
 def _system_legend(
-    workload: MethodWorkload,
+    method: StoredMethod,
     notation: NotationPolicy,
     datasets: Mapping[DatasetId, DatasetPresentation],
 ) -> Legend:
-    """Name each system of a method workload by its dataset, recipe, matrix and RHS position."""
+    """Name each system of a stored method by its dataset, recipe, matrix and RHS position."""
     texts: dict[str, str] = {}
-    for tag in workload.planned:
+    for system in method.systems:
+        tag = system.tag
         dataset = datasets.get(tag.dataset)
         if dataset is None:
             raise MissingMethodPresentationError(str(tag.dataset))
@@ -573,42 +762,49 @@ def _system_legend(
     return series_legend(texts)
 
 
-def _write_method_figures(
-    root: Path,
-    workload: MethodWorkload,
+def _draw_method_figure(
+    path: Path,
+    kind: FigureKind,
+    method: StoredMethod,
     notation: NotationPolicy,
     datasets: Mapping[DatasetId, DatasetPresentation],
-) -> tuple[Path, ...]:
-    """Stage the method's convergence figures without creating child runs."""
-    diagnostics = {str(system_id): result for system_id, result in workload.diagnostics}
-    figures = root / "figures"
-    figures.mkdir(exist_ok=True)
-    subtitle = ScopeSubtitle(MethodScope(workload.presentation.prepared.detailed), notation)
-    legend = _system_legend(workload, notation, datasets)
-    method_slug = text_slug(scope_label(subtitle.scope, notation))
-    recipes = {str(tag.system_id): recipe_key(tag.recipe) for tag in workload.planned}
-    series_recipes = {name: recipes[name] for name in diagnostics}
-    residual_figure = figures / f"residual_history_{method_slug}.png"
-    plot_convergence_comparison(
-        diagnostics,
-        save_path=residual_figure,
-        title=EditorialTitle("Residual History"),
+) -> None:
+    """Draw one method's residual or energy histories, one curve per attempted system."""
+    converged = frozenset(
+        method.solve_attempts.filter(pl.col("solve_status") == "converged")
+        .get_column("system_id")
+        .to_list()
+    )
+    histories: dict[str, dict[str, object]] = {}
+    for (system_id,), rows in method.convergence.sort("iteration").group_by(
+        "system_id", maintain_order=True
+    ):
+        histories[str(system_id)] = {
+            "residual_history_rel": rows.get_column("residual_rel").to_list(),
+            "error_history_a_rel": rows.get_column("energy_error_rel").drop_nulls().to_list(),
+            "converged": str(system_id) in converged,
+        }
+    subtitle = ScopeSubtitle(MethodScope(method.presentation.prepared.detailed), notation)
+    recipes = {
+        str(system.tag.system_id): recipe_key(system.tag.recipe) for system in method.systems
+    }
+    series_recipes = {name: recipes[name] for name in histories}
+    match kind:
+        case FigureKind.RESIDUAL_HISTORY:
+            plot, title = plot_convergence_comparison, "Residual History"
+        case FigureKind.ENERGY_HISTORY:
+            plot, title = plot_error_convergence_comparison, "Energy History"
+        case _:
+            raise ValueError(f"{kind} is not a method figure")
+    plot(
+        histories,
+        save_path=path,
+        title=EditorialTitle(title),
         subtitle=subtitle,
-        legend=legend,
+        legend=_system_legend(method, notation, datasets),
         families=series_recipes,
         color_keys=series_recipes,
     )
-    energy_figure = figures / f"energy_history_{method_slug}.png"
-    plot_error_convergence_comparison(
-        diagnostics,
-        save_path=energy_figure,
-        title=EditorialTitle("Energy History"),
-        subtitle=subtitle,
-        legend=legend,
-        families=series_recipes,
-        color_keys=series_recipes,
-    )
-    return residual_figure, energy_figure
 
 
 @dataclass(frozen=True, slots=True)

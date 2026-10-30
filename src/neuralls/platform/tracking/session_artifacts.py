@@ -15,6 +15,7 @@ from neuralls.platform.reporting.benchmark_events import (
     METHOD_ARTIFACT_DIR,
     MethodBenchmarkArtifacts,
 )
+from neuralls.platform.reporting.stored_benchmark import MethodDirectory
 from neuralls.platform.tracking.mlflow import quote_filter_value
 
 METHOD_PHASE = "comparison_method"
@@ -59,8 +60,8 @@ def session_method_runs(client: MlflowClient, session_run_id: str) -> list[Run]:
 
 def download_session_methods(
     client: MlflowClient, session_run_id: str, destination: Path
-) -> list[Path]:
-    """Download every method child's artifacts; return one local artifact directory per method.
+) -> list[MethodDirectory]:
+    """Download every method child's artifacts; return each local directory with its run id.
 
     Raises:
         ValueError: The session has no FINISHED method child.
@@ -69,7 +70,7 @@ def download_session_methods(
     runs = session_method_runs(client, session_run_id)
     if not runs:
         raise ValueError(f"session {session_run_id} has no finished method runs")
-    directories: list[Path] = []
+    directories: list[MethodDirectory] = []
     for run in runs:
         run_id = run.info.run_id
         paths = method_artifact_paths(client, run_id)
@@ -79,5 +80,35 @@ def download_session_methods(
         local = client.download_artifacts(
             run_id, path=METHOD_ARTIFACT_DIR, dst_path=str(destination / run_id)
         )
-        directories.append(Path(local))
+        directories.append(MethodDirectory(run_id, Path(local)))
     return directories
+
+
+SESSION_PHASE = "session_comparison"
+
+
+def latest_session_run_id(client: MlflowClient, experiment_name: str, case_config_path: str) -> str:
+    """The newest FINISHED comparison session of a case config.
+
+    Raises:
+        ValueError: The experiment or a finished session for the config does not exist.
+    """
+    experiment = client.get_experiment_by_name(experiment_name)
+    if experiment is None:
+        raise ValueError(f"experiment {experiment_name!r} does not exist; run `neuralls compare`")
+    clauses = [
+        "attributes.status = 'FINISHED'",
+        f"tags.`phase` = '{SESSION_PHASE}'",
+        f"tags.`case_config_path` = '{quote_filter_value(case_config_path)}'",
+    ]
+    runs = client.search_runs(
+        experiment_ids=[experiment.experiment_id],
+        filter_string=" and ".join(clauses),
+        order_by=_NEWEST_FIRST,
+        max_results=1,
+    )
+    if not runs:
+        raise ValueError(
+            f"no finished comparison session for {case_config_path}; run `neuralls compare`"
+        )
+    return runs[0].info.run_id

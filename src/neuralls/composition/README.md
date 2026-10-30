@@ -33,13 +33,33 @@ each problem.
 
 Comparison figures are planned with typed metadata before drawing. Titles stay
 short (for example `Online Time`, `Performance Profile`, and `Speed Ratio`),
-while the session-owned `figure_manifest.toml` carries report scope, counts,
-actual dataset/recipe membership and weights, solver tolerances, iteration and
-normalization settings, repeat policy, reference/failure semantics, and stable
-event-artifact sources. Method-child residual and energy figures use unique
-method-qualified names and are registered in that same manifest. One retained
-`MLflowGroupReportSink` finalizes this manifest exactly once on the active
-parent run; sessions with no figures still receive an empty manifest.
+while each figure's card (`<stem>.toml`, uploaded beside the PNG into the run of the figure's
+scope) carries report scope, counts, actual dataset/recipe membership and weights, solver
+tolerances, iteration and normalization settings, repeat policy, reference/failure semantics,
+the methods drawn and the stored method runs and artifacts the figure came from; group figures also get a same-stem `.parquet` of per-method workload totals. Method-child
+residual and energy figures use unique method-qualified names; system figures keep short stems
+because a stem only needs to be unique within one run directory. One `MLflowReportSink`
+finalizes `figure_index.toml` exactly once on the root report run, after checking that every
+uploaded figure has its card; reports with no figures still receive an empty index.
+
+`compare` is compute-only: it times solves and persists each method's raw tables
+(`platform/reporting/benchmark_events.py::MethodBenchmarkArtifacts`) under the
+`Comparisons` experiment. `neuralls report` (`assignments/comparison_report.py::run_comparison_report`)
+reads the newest finished session of the case config back through
+`platform/reporting/stored_benchmark.py::read_stored_benchmark`, rebuilds typed events
+(`comparison/postprocessing/report_inputs.py`), draws every figure and logs every metric
+into a tree of nested runs in the `Reports` experiment (`names.report`), organised by
+aggregation scope (`domain/solver/models/report_scope.py::ReportScope`): the root run
+(all matrix sets, tagged with the source session, the notation digest and the report
+schema version) contains one run per matrix set, each contains one run per RHS type of
+that set, and each of those contains one run per system with its per-method metrics and
+its residual and energy figures (each with its card). Every run's metrics are keyed `{metric}/{method}`; the
+root also holds the method figures and the figure index. `ReportSink.report_system(scope, metrics, figures)`
+takes the system's `StagedFigure`s (a `FigurePlan` plus the drawn file) so system figures carry the same cards. Postprocessing writes only
+through the `ReportSink` Protocol (`postprocessing/ports.py`); `MLflowReportSink` maps a
+scope to its run, creating a scope's ancestors first. Re-running without `--force` reuses
+a finished report with the same tags; a report failure never touches the compute session.
+`run` chains `report` after `compare`.
 
 ## Matrix format dispatch
 
@@ -454,7 +474,7 @@ unmasked run of one kind, or two raw vectors differing in path, row kind, scale 
 and entries with identical parameters share one. A raw recipe carries a `RawSourceIdentity` (row and a
 fingerprint of the path, row kind and scale). `recipe_key` is its lossless, file-name-safe machine form
 (`parse_recipe_key` inverts it): it fills the `recipe` column of the event frames and the recipe segment of
-group ids and figure manifests. People read `domain/presentation/recipes.py::render_recipe`, which spells
+group ids and figure cards. People read `domain/presentation/recipes.py::render_recipe`, which spells
 parameters with the case's `NotationPolicy`.
 `PlannedSystem.rhs_ordinal` is the draw's position among the matrix's
 `rhs_count` draws.
@@ -470,7 +490,7 @@ the level chooses the other columns:
 | `AllMatrixSetsLevel` | none | `all` |
 
 `level_name(label)` maps each label to the `ReportLevelName` persisted as the
-figure manifest's `report_level` (`matrix_set_rhs_type`, `matrix_set`,
+figure card's `level` (`matrix_set_rhs_type`, `matrix_set`,
 `all_matrix_sets`; method figures use `method` and per-system convergence
 figures `system`).
 
@@ -494,7 +514,7 @@ not an artificially cheap empty result.
 `comparison_batch._method_major_schedule` groups execution as method, matrix,
 then ordered RHS members. `comparison_run.execute_method_workload` emits one
 `MatrixSetupEvent` per matrix and one linked `SolveAttempt` per attempted RHS;
-`group_reporting.py` reduces only these completed workloads. Prepared method
+`postprocessing/group_reporting.py` reduces only these stored workloads, rebuilt from the compare artifacts. Prepared method
 state, including an Identity/no-op setup, is reused across sibling RHS values
 but never across matrices. This makes every matrix setup visible instead of
 copying it onto RHS rows or treating a cross-matrix static-state reuse as a
@@ -750,7 +770,7 @@ change only redoes the affected work:
    Completed method children do not by themselves complete the user workflow:
    the reuse gate also requires that all current method runs share one
    `FINISHED` comparison-session parent with a readable session figure
-   manifest. If reporting or manifest upload failed after method persistence,
+   index. If reporting or index upload failed after method persistence,
    the next non-forced invocation runs the bounded workflow again and repairs
    the missing session report instead of returning a bare method cache hit.
 

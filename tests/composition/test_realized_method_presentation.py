@@ -18,13 +18,13 @@ from neuralls.composition.comparison._preconditioner_setup import (
     PreconditionerService,
     RealizedFactCaptureError,
 )
-from neuralls.composition.comparison.group_reporting import report_all_levels
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
     MatrixWorkload,
     MatrixWorkloadMember,
     ResolvedMethod,
 )
+from neuralls.composition.comparison.postprocessing.group_reporting import report_all_levels
 from neuralls.domain.presentation.methods import (
     ExecutedMethod,
     MissingMethodPresentationError,

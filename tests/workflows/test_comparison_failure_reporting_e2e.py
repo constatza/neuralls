@@ -12,20 +12,25 @@ from torchalg.preconditioners.base import Preconditioner
 
 from neuralls.composition.assignments import comparison_batch
 from neuralls.composition.assignments.comparison_batch import run_comparison_batch
+from neuralls.composition.assignments.comparison_report import run_comparison_report
 from neuralls.composition.comparison import comparison_run
 from neuralls.composition.comparison._preconditioner_setup import PreconditionerService
-from neuralls.composition.comparison.models import ComparisonCompleted, ComparisonParams
+from neuralls.composition.comparison.models import (
+    ComparisonCompleted,
+    ComparisonParams,
+    ComparisonReused,
+)
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.tracking.comparison_tracking import (
     GROUP_REPORT_ARTIFACT_DIR,
-    MLflowGroupReportSink,
+    MLflowReportSink,
 )
 from tests.workflows.comparison_support import make_settings, write_dataset_config
 
 pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
 
 
-def _artifact_names(client: MlflowClient, run_id: str, path: str) -> set[str]:
+def _artifact_names(client: MlflowClient, run_id: str, path: str | None) -> set[str]:
     return {Path(item.path).name for item in client.list_artifacts(run_id, path=path)}
 
 
@@ -80,7 +85,7 @@ def test_failed_report_finalization_is_retried_on_the_next_call(
     pin_test_fold: Callable[[Path, tuple[int, ...]], None],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Finished method children do not masquerade as a completed report session."""
+    """A report failure leaves the finished compute session reusable and the report retryable."""
     settings = make_settings(tmp_path)
     dataset_dir = settings.processed_dir / "solutions"
     dataset_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -91,46 +96,44 @@ def test_failed_report_finalization_is_retried_on_the_next_call(
     write_dataset_config(datasets_dir / "solutions.toml", "solutions")
     case_path = tmp_path / "report-recovery.toml"
     _write_case(case_path, tracking_uri=mlflow_tracking_uri, experiment=mlflow_experiment)
-    original_finalize = MLflowGroupReportSink.finalize
+    original_finalize = MLflowReportSink.finalize
     finalizations = 0
 
-    def fail_once(sink: MLflowGroupReportSink) -> None:
+    def fail_once(sink: MLflowReportSink) -> None:
         nonlocal finalizations
         finalizations += 1
         if finalizations == 1:
             raise RuntimeError("injected report finalization failure")
         original_finalize(sink)
 
-    monkeypatch.setattr(MLflowGroupReportSink, "finalize", fail_once)
+    monkeypatch.setattr(MLflowReportSink, "finalize", fail_once)
 
+    computed = run_comparison_batch(case_path, ComparisonParams(), settings)
     with pytest.raises(RuntimeError):
-        run_comparison_batch(case_path, ComparisonParams(), settings)
-    recovered = run_comparison_batch(case_path, ComparisonParams(), settings)
+        run_comparison_report(case_path, settings=settings)
+    recovered = run_comparison_report(case_path, settings=settings)
+    reused = run_comparison_batch(case_path, ComparisonParams(), settings)
 
-    assert recovered and all(isinstance(outcome, ComparisonCompleted) for outcome in recovered)
+    assert all(isinstance(outcome, ComparisonCompleted) for outcome in computed)
+    assert all(isinstance(outcome, ComparisonReused) for outcome in reused)
     client = MlflowClient(tracking_uri=mlflow_tracking_uri)
-    experiment = client.get_experiment_by_name(mlflow_experiment)
-    assert experiment is not None
+    compute = client.get_experiment_by_name(mlflow_experiment)
+    assert compute is not None
     sessions = client.search_runs(
-        [experiment.experiment_id], filter_string="tags.phase = 'session_comparison'"
+        [compute.experiment_id], filter_string="tags.phase = 'session_comparison'"
     )
-    assert sorted(run.info.status for run in sessions) == ["FAILED", "FINISHED"]
-    failed = next(run for run in sessions if run.info.status == "FAILED")
-    failed_children = client.search_runs(
-        [experiment.experiment_id],
-        filter_string=f"tags.mlflow.parentRunId = '{failed.info.run_id}'",
-    )
-    assert failed_children
-    assert all(run.info.status == "FINISHED" for run in failed_children)
+    assert [run.info.status for run in sessions] == ["FINISHED"]
+    reports = client.get_experiment_by_name("Reports")
+    assert reports is not None
+    report_runs = client.search_runs([reports.experiment_id], filter_string="tags.phase = 'report'")
+    assert sorted(run.info.status for run in report_runs) == ["FAILED", "FINISHED"]
+    failed = next(run for run in report_runs if run.info.status == "FAILED")
     assert _artifact_names(client, failed.info.run_id, "failure") == {
         "context.json",
         "traceback.txt",
     }
     assert failed.data.tags["failure.phase"] == "finalization"
-    finished = next(run for run in sessions if run.info.status == "FINISHED")
-    assert "figure_manifest.toml" in _artifact_names(
-        client, finished.info.run_id, GROUP_REPORT_ARTIFACT_DIR
-    )
+    assert "figure_index.toml" in _artifact_names(client, recovered.report_run_id, None)
 
 
 @pytest.mark.integration
