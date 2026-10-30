@@ -229,10 +229,10 @@ A report reads a session back through two modules. `tracking/session_artifacts.p
 the session's FINISHED `comparison_method` children (by `mlflow.parentRunId`), checks each
 holds the full artifact set, and downloads it; the reuse gate lists artifacts through the
 same helper, so run discovery exists once. `reporting/stored_benchmark.py::read_stored_benchmark`
-reads one `MethodDirectory` (local path plus the method child run id that `download_session_methods` returns) per method into a `StoredBenchmark` of `StoredMethod`s (run id, config digest, parsed method
+reads one `MethodDirectory` (local path, the method child run id and its `method_config_digest` tag, as `download_session_methods` returns them) per method into a `StoredBenchmark` of `StoredMethod`s (run id, config digest, parsed method
 config, presentation, planned systems, and the setup, solve and convergence tables) and
 rejects anything inconsistent: a presentation of another method, events for systems that
-were not planned, a method stored twice, or datasets presented differently by two methods.
+were not planned, a summary whose digest differs from the run's tag, a method stored twice, or datasets presented differently by two methods.
 The stored config holds content digests for checkpoint and dataset inputs, so a report-time
 `pod2g_style_keys` colour key groups methods by fit-dataset content, not by path.
 

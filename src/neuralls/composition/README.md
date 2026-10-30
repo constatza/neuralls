@@ -58,7 +58,7 @@ root also holds the method figures and the figure index. `ReportSink.report_syst
 takes the system's `StagedFigure`s (a `FigurePlan` plus the drawn file) so system figures carry the same cards. Postprocessing writes only
 through the `ReportSink` Protocol (`postprocessing/ports.py`); `MLflowReportSink` maps a
 scope to its run, creating a scope's ancestors first. Re-running without `--force` reuses
-a finished report with the same tags; a report failure never touches the compute session.
+a finished report with the same tags and a valid `figure_index.toml`; a report failure never touches the compute session.
 `run` chains `report` after `compare`.
 
 ## Matrix format dispatch

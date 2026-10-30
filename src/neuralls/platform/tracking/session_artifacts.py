@@ -80,7 +80,9 @@ def download_session_methods(
         local = client.download_artifacts(
             run_id, path=METHOD_ARTIFACT_DIR, dst_path=str(destination / run_id)
         )
-        directories.append(MethodDirectory(run_id, Path(local)))
+        directories.append(
+            MethodDirectory(run_id, Path(local), run.data.tags["method_config_digest"])
+        )
     return directories
 
 

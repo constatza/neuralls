@@ -33,10 +33,15 @@ from neuralls.shared.types import DatasetId, PreconditionerName
 
 @dataclass(frozen=True, slots=True)
 class MethodDirectory:
-    """A downloaded method artifact directory and the MLflow run it was logged in."""
+    """A downloaded method artifact directory and the MLflow run it was logged in.
+
+    ``config_digest`` is the digest the run was tagged with; the stored summary must agree, so
+    artifacts copied from or overwritten by another run are rejected.
+    """
 
     run_id: str
     path: Path
+    config_digest: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +104,8 @@ def read_stored_method(
 
     summary = tomllib.loads((directory / artifacts.summary).read_text(encoding="utf-8"))
     name = PreconditionerName(config.name)
+    if str(summary["method"]["config_digest"]) != source.config_digest:
+        raise ValueError(f"summary in {directory} does not match the digest of run {source.run_id}")
     if summary["method"]["name"] != str(name):
         raise ValueError(f"summary in {directory} does not belong to method {name}")
     if stored.method.prepared.method_id != name:

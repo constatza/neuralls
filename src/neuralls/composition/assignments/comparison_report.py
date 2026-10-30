@@ -13,6 +13,7 @@ from pathlib import Path
 
 import mlflow
 from loguru import logger
+from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments.assignment_subjects import case_notation
@@ -31,6 +32,7 @@ from neuralls.composition.comparison.postprocessing.system_figures import write_
 from neuralls.domain.solver.models.benchmark_events import SolveConverged
 from neuralls.domain.solver.models.report_scope import AllMatrixSets, System
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.reporting.figure_index import FIGURE_INDEX_FILE, read_figure_index
 from neuralls.platform.reporting.stored_benchmark import read_stored_benchmark
 from neuralls.platform.tracking.comparison_tracking import (
     MLflowReportSink,
@@ -143,7 +145,7 @@ def run_comparison_report(
 def _finished_report(
     client: MlflowClient, experiment_name: str, tags: dict[str, str]
 ) -> str | None:
-    """The newest FINISHED report run carrying exactly these source tags, if any."""
+    """The newest FINISHED report run carrying exactly these source tags and a valid figure index."""
     experiment = client.get_experiment_by_name(experiment_name)
     if experiment is None:
         return None
@@ -154,9 +156,23 @@ def _finished_report(
         experiment_ids=[experiment.experiment_id],
         filter_string=" and ".join(clauses),
         order_by=["attributes.start_time DESC"],
-        max_results=1,
     )
-    return runs[0].info.run_id if runs else None
+    for run in runs:
+        if _has_valid_figure_index(client, run.info.run_id):
+            return run.info.run_id
+        logger.info("Report {} has no valid {}; not reusable.", run.info.run_id, FIGURE_INDEX_FILE)
+    return None
+
+
+def _has_valid_figure_index(client: MlflowClient, run_id: str) -> bool:
+    """Whether the run's ``figure_index.toml`` exists and parses as a complete index."""
+    with tempfile.TemporaryDirectory(prefix="neuralls-report-index-") as tmp:
+        try:
+            local = client.download_artifacts(run_id, path=FIGURE_INDEX_FILE, dst_path=tmp)
+            read_figure_index(Path(local))
+        except MlflowException, OSError, ValueError:
+            return False
+    return True
 
 
 def _report_systems(sink: ReportSink, inputs: ReportInputs, notation: NotationPolicy) -> None:

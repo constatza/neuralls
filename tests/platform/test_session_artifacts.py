@@ -58,10 +58,15 @@ def log_method(
         status: str = "FINISHED",
     ) -> str:
         source = tmp_path / f"source-{kind}"
-        write_method(kind, source)
+        workload = write_method(kind, source)
         experiment_id = client.get_run(session_run_id).info.experiment_id
         run = client.create_run(
-            experiment_id, tags={"phase": "comparison_method", PARENT_RUN_TAG: session_run_id}
+            experiment_id,
+            tags={
+                "phase": "comparison_method",
+                PARENT_RUN_TAG: session_run_id,
+                "method_config_digest": str(workload.config_digest),
+            },
         )
         for name in names:
             client.log_artifact(
