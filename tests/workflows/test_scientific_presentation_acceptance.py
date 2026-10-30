@@ -83,11 +83,11 @@ EXPECTED_LEGEND = [
     "Identity",
     "Jacobi",
     "IC0 (τ=0)",
-    "AMG (L=2, θ=0.25, ν₁=2, ν₂=2, ωₛ=auto)",
-    "AMG (L=2, θ=0.5, ν₁=2, ν₂=2, ωₛ=auto)",
-    "aSA (L=2, k=3, nᵢₜ=5, cₘₐₓ=10, θ=0, ω=1.33)",
-    "aSA (L=2, k=7, nᵢₜ=5, cₘₐₓ=10, θ=0, ω=1.33)",
-    "BAMG (L=10, kᵣ=8, η=4, nᵦ=2, ν=5, δ=0.7, θₐd=0.5, q=4,\nγ=1.5, LSR=on, cₘₐₓ=10)",
+    "AMG (L=2, θ=0.25)",
+    "AMG (L=2, θ=0.5)",
+    "aSA (L=2, k=3, θ=0)",
+    "aSA (L=2, k=7, θ=0)",
+    "BAMG (L=10)",
 ]
 
 
@@ -208,8 +208,7 @@ def test_plain_legend_distinguishes_every_method_by_its_scientific_facts(
     assert len(set(labels)) == len(labels) == 12
     assert "k=3" in labels[5]
     assert "k=7" in labels[6]
-    for fact in ("L=10", "kᵣ=8", "η=4", "nᵦ=2", "ν=5", "δ=0.7", "θₐd=0.5", "q=4", "γ=1.5"):
-        assert fact in labels[7]
+    assert labels[7] == "BAMG (L=10)"
 
 
 def test_each_pod_label_has_its_rank_and_its_fit_dataset_described_once(
@@ -223,7 +222,7 @@ def test_each_pod_label_has_its_rank_and_its_fit_dataset_described_once(
         strict=True,
     ):
         method, dataset = label.split(" | ")
-        assert method.startswith(f"POD-2G (r={rank},")
+        assert method == f"POD-2G (r={rank})"
         assert dataset.startswith(f"{fit} (")
         assert label.count(fit) == 1
 

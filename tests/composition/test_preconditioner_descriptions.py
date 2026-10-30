@@ -83,24 +83,17 @@ def pod_dataset_dir(tmp_path: Path) -> Path:
 
 def test_amg_label_lists_every_algorithmic_parameter() -> None:
     cfg = AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig(theta=0.05))
-    assert (
-        _plain(describe_configured_preconditioner(cfg)) == "AMG (L=2, θ=0.05, ν₁=2, ν₂=2, ωₛ=auto)"
-    )
+    assert _plain(describe_configured_preconditioner(cfg)) == "AMG (L=2, θ=0.05)"
 
 
 def test_asa_label_includes_candidates_levels_and_coarse_limit() -> None:
     cfg = AdaptiveSAPreconditionerConfig(theta=0.05)
-    assert (
-        _plain(describe_configured_preconditioner(cfg))
-        == "aSA (L=2, k=3, nᵢₜ=5, cₘₐₓ=10, θ=0.05, ω=1.33, s=0)"
-    )
+    assert _plain(describe_configured_preconditioner(cfg)) == "aSA (L=2, k=3, θ=0.05, s=0)"
 
 
 def test_bamg_label_includes_every_numerical_and_categorical_control() -> None:
     cfg = BootstrapAMGPreconditionerConfig(n_levels=10, theta_ad=0.5)
-    assert _plain(describe_configured_preconditioner(cfg)) == (
-        "BAMG (L=10, kᵣ=8, η=4, nᵦ=2, ν=5, δ=0.7, θₐd=0.5, q=4, γ=1.5, LSR=on, cₘₐₓ=10, s=0)"
-    )
+    assert _plain(describe_configured_preconditioner(cfg)) == ("BAMG (L=10, s=0)")
 
 
 def test_pod_label_shows_rank_without_dataset_or_identity(pod_dataset_dir: Path) -> None:
@@ -108,7 +101,7 @@ def test_pod_label_shows_rank_without_dataset_or_identity(pod_dataset_dir: Path)
         coarsening=PODCoarseningConfig(dataset_dir=pod_dataset_dir, rank=10, assignment="fit-a")
     )
     label = _plain(describe_configured_preconditioner(cfg))
-    assert label == "POD-2G (r=10, ν₁=2, ν₂=2, ωₛ=auto)"
+    assert label == "POD-2G (r=10)"
 
 
 @pytest.mark.parametrize(
@@ -187,8 +180,8 @@ def test_scheduling_controls_appear_only_when_non_default() -> None:
             )
         )
     )
-    assert default == "AMG (L=2, θ=0.25, ν₁=2, ν₂=2, ωₛ=auto)"
-    assert scheduled == "AMG (L=2, θ=0.25, ν₁=2, ν₂=2, ωₛ=auto, k₀=5, kₘₐₓ=20, fb=Jacobi)"
+    assert default == "AMG (L=2, θ=0.25)"
+    assert scheduled == "AMG (L=2, θ=0.25, k₀=5, kₘₐₓ=20, fb=Jacobi)"
 
 
 # --- POD, weighting, neural --------------------------------------------------------
@@ -204,7 +197,7 @@ def test_pod_weighting_and_snapshot_controls_are_visible(pod_dataset_dir: Path) 
         )
     )
     label = _plain(describe_configured_preconditioner(cfg))
-    assert label == "POD-2G (r=0.999, Nₛ=200, w=PN, p=A, β=1, ν₁=2, ν₂=2, ωₛ=auto)"
+    assert label == "POD-2G (r=0.999, Nₛ=200, w=PN, p=A, β=1)"
 
 
 def test_smoother_persistence_weighting_shows_its_sweeps(pod_dataset_dir: Path) -> None:
@@ -214,17 +207,12 @@ def test_smoother_persistence_weighting_shows_its_sweeps(pod_dataset_dir: Path) 
             weighting=SmootherPersistenceWeightingConfig(steps=7),
         )
     )
-    assert (
-        _plain(describe_configured_preconditioner(cfg))
-        == "POD-2G (r=8, w=SP, ν=7, ν₁=2, ν₂=2, ωₛ=auto)"
-    )
+    assert _plain(describe_configured_preconditioner(cfg)) == "POD-2G (r=8, w=SP, ν=7)"
 
 
 def test_target_dimension_coarsening_shows_its_target() -> None:
     cfg = AMGPreconditionerConfig(coarsening=TargetDimCoarseningConfig(target_coarse_dim=12))
-    assert (
-        _plain(describe_configured_preconditioner(cfg)) == "AMG (L=2, cₜ=12, ν₁=2, ν₂=2, ωₛ=auto)"
-    )
+    assert _plain(describe_configured_preconditioner(cfg)) == "AMG (L=2, cₜ=12)"
 
 
 def test_neural_architecture_comes_from_the_architecture_name_never_a_class_name() -> None:
@@ -252,11 +240,8 @@ def test_neural_pod_and_neural_amg_describe_their_own_parameters(pod_dataset_dir
     amg = NeuralAMGPreconditionerConfig(
         aggregation_omega=0.7, prolongation=NeuralTransferConfig(assignment="p")
     )
-    assert _plain(describe_configured_preconditioner(pod)) == "POD-2G (r=6, ν₁=2, ν₂=2, ωₛ=auto)"
-    assert (
-        _plain(describe_configured_preconditioner(amg))
-        == "Neural (L=2, ω=0.7, ν₁=2, ν₂=2, ωₛ=auto)"
-    )
+    assert _plain(describe_configured_preconditioner(pod)) == "POD-2G (r=6)"
+    assert _plain(describe_configured_preconditioner(amg)) == "Neural (L=2, ω=0.7)"
 
 
 # --- every config field is bound ----------------------------------------------------

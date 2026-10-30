@@ -35,6 +35,7 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
+from neuralls.platform.reporting import figure_text
 from neuralls.platform.reporting.figure_text import (
     Legend,
     LegendPlacement,
@@ -118,31 +119,31 @@ STANDALONE_LEGEND = [
     "Identity",
     "Jacobi",
     "IC0 (τ=0)",
-    "AMG (L=2, θ=0.25, ν₁=2, ν₂=2, ωₛ=auto)",
-    "AMG (L=2, θ=0.5, ν₁=2, ν₂=2, ωₛ=auto)",
-    "aSA (L=2, k=3, nᵢₜ=5, cₘₐₓ=10, θ=0, ω=1.33)",
-    "aSA (L=2, k=7, nᵢₜ=5, cₘₐₓ=10, θ=0, ω=1.33)",
-    "BAMG (L=10, kᵣ=8, η=4, nᵦ=2, ν=5, δ=0.7, θₐd=0.5, q=4,\nγ=1.5, LSR=on, cₘₐₓ=10)",
+    "AMG (L=2, θ=0.25)",
+    "AMG (L=2, θ=0.5)",
+    "aSA (L=2, k=3, θ=0)",
+    "aSA (L=2, k=7, θ=0)",
+    "BAMG (L=10)",
 ]
 POD_LEGEND = [
-    "POD-2G (r=10, ν₁=2, ν₂=2, ωₛ=auto) |\nGaussian Solutions (μ=0, σ=1, N=8)",
-    "POD-2G (r=100, ν₁=2, ν₂=2, ωₛ=auto) |\nGaussian Solutions (μ=0, σ=1, N=8)",
-    "POD-2G (r=10, ν₁=2, ν₂=2, ωₛ=auto) |\nGaussian Solutions (μ=0, σ=1, N=4)",
-    "POD-2G (r=100, ν₁=2, ν₂=2, ωₛ=auto) |\nGaussian Solutions (μ=0, σ=1, N=4)",
+    "POD-2G (r=10) | Gaussian Solutions (μ=0, σ=1, N=8)",
+    "POD-2G (r=100) | Gaussian Solutions (μ=0, σ=1, N=8)",
+    "POD-2G (r=10) | Gaussian Solutions (μ=0, σ=1, N=4)",
+    "POD-2G (r=100) | Gaussian Solutions (μ=0, σ=1, N=4)",
 ]
 MATHTEXT_LEGEND = [
     "Identity",
     "Jacobi",
     "IC0 ($\\tau=0$)",
-    "AMG ($L=2$, $\\theta=0.25$, $\\nu_1=2$, $\\nu_2=2$, $\\omega_s=\\mathrm{auto}$)",
-    "AMG ($L=2$, $\\theta=0.5$, $\\nu_1=2$, $\\nu_2=2$, $\\omega_s=\\mathrm{auto}$)",
-    "aSA ($L=2$, $k=3$, $n_{\\mathrm{it}}=5$, $c_{\\max}=10$, $\\theta=0$, $\\omega=1.33$)",
-    "aSA ($L=2$, $k=7$, $n_{\\mathrm{it}}=5$, $c_{\\max}=10$, $\\theta=0$, $\\omega=1.33$)",
-    "BAMG ($L=10$, $k_r=8$, $\\eta=4$, $n_b=2$, $\\nu=5$, $\\delta=0.7$, $\\theta_{\\mathrm{ad}}=0.5$, $q=4$,\n$\\gamma=1.5$, $\\mathrm{LSR}=\\mathrm{on}$, $c_{\\max}=10$)",
-    "POD-2G ($r=10$, $\\nu_1=2$, $\\nu_2=2$, $\\omega_s=\\mathrm{auto}$) |\nGaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=8$)",
-    "POD-2G ($r=100$, $\\nu_1=2$, $\\nu_2=2$, $\\omega_s=\\mathrm{auto}$) |\nGaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=8$)",
-    "POD-2G ($r=10$, $\\nu_1=2$, $\\nu_2=2$, $\\omega_s=\\mathrm{auto}$) |\nGaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=4$)",
-    "POD-2G ($r=100$, $\\nu_1=2$, $\\nu_2=2$, $\\omega_s=\\mathrm{auto}$) |\nGaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=4$)",
+    "AMG ($L=2$, $\\theta=0.25$)",
+    "AMG ($L=2$, $\\theta=0.5$)",
+    "aSA ($L=2$, $k=3$, $\\theta=0$)",
+    "aSA ($L=2$, $k=7$, $\\theta=0$)",
+    "BAMG ($L=10$)",
+    "POD-2G ($r=10$) | Gaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=8$)",
+    "POD-2G ($r=100$) | Gaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=8$)",
+    "POD-2G ($r=10$) | Gaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=4$)",
+    "POD-2G ($r=100$) | Gaussian Solutions ($\\mu=0$, $\\sigma=1$, $N=4$)",
 ]
 
 
@@ -208,8 +209,11 @@ def test_values_that_stay_identical_at_full_precision_are_rejected() -> None:
 
 
 def test_the_length_limit_wraps_lines_and_never_drops_a_fact(
+    monkeypatch: pytest.MonkeyPatch,
     acceptance_cohort: PreparedComparisonPresentation,
 ) -> None:
+    narrow = replace(LEGEND_PROFILE, max_length=40)
+    monkeypatch.setattr(figure_text, "LEGEND_PROFILE", narrow)
     pod = next(
         m
         for m in acceptance_cohort.methods
@@ -222,9 +226,8 @@ def test_the_length_limit_wraps_lines_and_never_drops_a_fact(
 
     assert len(wrapped.split("\n")) > 1
     assert wrapped.replace(",\n", ", ").replace("\n", " ") == full
-    limit = LEGEND_PROFILE.max_length
-    assert limit is not None
-    assert all(len(line) <= limit for line in wrapped.split("\n"))
+    assert narrow.max_length is not None
+    assert all(len(line) <= narrow.max_length for line in wrapped.split("\n"))
 
 
 def test_wrapping_breaks_only_at_the_given_boundaries() -> None:

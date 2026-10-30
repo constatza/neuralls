@@ -32,7 +32,12 @@ from neuralls.domain.solver.models.group_outcomes import GroupAggregated
 from neuralls.domain.solver.models.outcomes import Outcomes
 from neuralls.domain.solver.models.statistics import PairedComparison
 from neuralls.domain.solver.models.workload import MethodWorkloadSummary
-from neuralls.platform.reporting.figure_text import Legend, ScopeSubtitle, draw_legend
+from neuralls.platform.reporting.figure_text import (
+    LEGEND_FONT_SIZE,
+    Legend,
+    ScopeSubtitle,
+    draw_legend,
+)
 from neuralls.platform.reporting.plots import finish_group_figure, group_series_styles
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import PreconditionerName
@@ -64,6 +69,26 @@ class GroupStyle:
         return ScopeSubtitle(self.scope, self.notation).text
 
 
+_BAR_AREA_WIDTH_IN = 6.0
+"""Width in inches kept for the bars themselves, however long the method labels are."""
+
+_LABEL_CHAR_WIDTH_IN = 0.055
+"""Width in inches of one legend-size character, used to reserve room for method labels."""
+
+_LABEL_LINE_HEIGHT_IN = 0.3
+"""Height in inches one wrapped label line takes on a bar chart's method axis."""
+
+
+def _bar_figure_size(labels: Sequence[str]) -> tuple[float, float]:
+    """Figure size that leaves the bars their own width and gives every label line its own row."""
+    lines = [line for label in labels for line in label.split("\n")]
+    widest = max((len(line) for line in lines), default=0)
+    return (
+        _BAR_AREA_WIDTH_IN + widest * _LABEL_CHAR_WIDTH_IN,
+        max(5.0, len(lines) * _LABEL_LINE_HEIGHT_IN + 2.0),
+    )
+
+
 def plot_aggregate_bars(
     outcome: GroupAggregated,
     *,
@@ -76,11 +101,11 @@ def plot_aggregate_bars(
     names = list(outcome.convergence)
     styles = _series_styles(names, style)
     labels = [style.legend.label(name) for name in names]
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=_bar_figure_size(labels))
     values = [outcome.convergence[name].n_converged for name in names]
     positions = np.arange(len(names))
     bars = ax.barh(positions, values, color=[styles[name]["color"] for name in names])
-    ax.set_yticks(positions, labels)
+    ax.set_yticks(positions, labels, fontsize=LEGEND_FONT_SIZE)
     ax.set_xlim(0, max(1, outcome.n_planned_rhs))
     ax.set_xlabel("Converged RHS (of planned RHS)")
     ax.set_ylabel("Method")
@@ -107,7 +132,12 @@ def _series_styles(names: Sequence[str], style: GroupStyle) -> dict[str, dict[st
 
 def _legend_outside(ax: Axes, legend: Legend) -> None:
     """Place the legend right of the axes so it never covers the points."""
-    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=9, ncols=legend.layout.columns)
+    ax.legend(
+        loc="upper left",
+        bbox_to_anchor=(1.01, 1.0),
+        fontsize=LEGEND_FONT_SIZE,
+        ncols=legend.layout.columns,
+    )
 
 
 def _hollow(ax: Axes, xs: Sequence[float], ys: Sequence[float], *, color: Any, marker: Any) -> None:
@@ -173,7 +203,7 @@ def _step_profile_figure(
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.grid(True, which="both", alpha=0.3)
-    draw_legend(ax, style.legend, inside_loc="lower right", fontsize=9)
+    draw_legend(ax, style.legend, inside_loc="lower right")
     finish_group_figure(
         fig,
         ax,
@@ -259,10 +289,10 @@ def plot_online_time_bars(
         summary.solve_total_s if scenario == "solve" else summary.workload_online_s
         for summary in summaries
     ]
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=_bar_figure_size(labels))
     positions = np.arange(len(names))
     bars = ax.barh(positions, values, color=[styles[name]["color"] for name in names])
-    ax.set_yticks(positions, labels)
+    ax.set_yticks(positions, labels, fontsize=LEGEND_FONT_SIZE)
     for bar, summary in zip(bars, summaries, strict=True):
         incomplete = getattr(summary, "missing_system_ids", ())
         suffix = " (incomplete)" if incomplete else ""
@@ -445,7 +475,7 @@ def plot_speed_ratio_cdf(
     ax.set_xlabel(f"{reference_label} reference / method speed ratio (slower < 1, faster > 1)")
     ax.set_ylabel("Fraction of paired systems")
     ax.grid(True, which="both", alpha=0.3)
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), fontsize=8)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), fontsize=LEGEND_FONT_SIZE)
     finish_group_figure(
         fig,
         ax,

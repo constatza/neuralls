@@ -997,13 +997,15 @@ class AMGPreconditionerConfig(BasePreconditionerConfig):
         _, ref = resolved[0]
         return self.model_copy(update={"coarsening": cast(CoarseningConfig, ref)})
 
-    pre_smoothing_steps: Annotated[int, Fact(PRE_SMOOTHING_STEPS)] = Field(
+    pre_smoothing_steps: Annotated[int, Fact(PRE_SMOOTHING_STEPS, show=Show.NON_DEFAULT)] = Field(
         default=2, ge=0, description="Pre-smoothing iterations."
     )
-    post_smoothing_steps: Annotated[int, Fact(POST_SMOOTHING_STEPS)] = Field(
+    post_smoothing_steps: Annotated[int, Fact(POST_SMOOTHING_STEPS, show=Show.NON_DEFAULT)] = Field(
         default=2, ge=0, description="Post-smoothing iterations."
     )
-    smoother_omega: Annotated[float | None, Fact(SMOOTHER_DAMPING, convert=auto_if_none)] = Field(
+    smoother_omega: Annotated[
+        float | None, Fact(SMOOTHER_DAMPING, convert=auto_if_none, show=Show.NON_DEFAULT)
+    ] = Field(
         default=None,
         gt=0.0,
         description="Weighted Jacobi damping; auto per-matrix via torchalg's "
@@ -1080,10 +1082,10 @@ class AdaptiveSAPreconditionerConfig(BasePreconditionerConfig):
         "PyAMG's own default is 1, but each extra candidate adds real adaptivity "
         "at the cost of one more DOF per aggregate in the realized coarse dimension.",
     )
-    candidate_iters: Annotated[int, Fact(CANDIDATE_ITERATIONS)] = Field(
+    candidate_iters: Annotated[int, Fact(CANDIDATE_ITERATIONS, show=Show.NON_DEFAULT)] = Field(
         default=5, ge=1, description="Relaxation sweeps/cycles per candidate step."
     )
-    max_coarse: Annotated[int, Fact(MAX_COARSE_DIMENSION)] = Field(
+    max_coarse: Annotated[int, Fact(MAX_COARSE_DIMENSION, show=Show.NON_DEFAULT)] = Field(
         default=10, ge=1, description="Stop coarsening once a level has this many nodes or fewer."
     )
     theta: Annotated[float, Fact(THRESHOLD)] = Field(
@@ -1093,7 +1095,7 @@ class AdaptiveSAPreconditionerConfig(BasePreconditionerConfig):
         description="Strength-of-connection threshold — pick directly, no search; "
         "close to 0 for a small coarse space, ~0.25 for a larger one.",
     )
-    omega: Annotated[float, Fact(DAMPING)] = Field(
+    omega: Annotated[float, Fact(DAMPING, show=Show.NON_DEFAULT)] = Field(
         default=4.0 / 3.0, gt=0.0, description="Nominal Jacobi prolongator-smoothing damping."
     )
     seed: Annotated[int, Fact(SEED)] = Field(
@@ -1148,34 +1150,34 @@ class BootstrapAMGPreconditionerConfig(BasePreconditionerConfig):
         description="Ceiling on hierarchy depth (torchalg's `max_levels`); the coarsening "
         "loop actually stops at `max_coarse`, whichever comes first, so this rarely binds.",
     )
-    k_r: Annotated[int, Fact(RELAXATION_TEST_VECTORS)] = Field(
+    k_r: Annotated[int, Fact(RELAXATION_TEST_VECTORS, show=Show.NON_DEFAULT)] = Field(
         default=8, ge=1, description="Number of relaxation-derived test vectors."
     )
-    eta: Annotated[int, Fact(RELAXATION_SWEEPS)] = Field(
+    eta: Annotated[int, Fact(RELAXATION_SWEEPS, show=Show.NON_DEFAULT)] = Field(
         default=4, ge=1, description="Relaxation sweeps per test vector per level."
     )
-    n_bootstrap_cycles: Annotated[int, Fact(BOOTSTRAP_CYCLES)] = Field(
+    n_bootstrap_cycles: Annotated[int, Fact(BOOTSTRAP_CYCLES, show=Show.NON_DEFAULT)] = Field(
         default=2, ge=1, description="Number of bootstrap-cycle passes."
     )
-    nu: Annotated[int, Fact(COMPATIBLE_RELAXATION_SWEEPS)] = Field(
+    nu: Annotated[int, Fact(COMPATIBLE_RELAXATION_SWEEPS, show=Show.NON_DEFAULT)] = Field(
         default=5, ge=1, description="CR sweeps per stage."
     )
-    delta: Annotated[float, Fact(COMPATIBLE_RELAXATION_TOLERANCE)] = Field(
+    delta: Annotated[float, Fact(COMPATIBLE_RELAXATION_TOLERANCE, show=Show.NON_DEFAULT)] = Field(
         default=0.7, gt=0.0, description="CR stopping tolerance."
     )
-    theta_ad: Annotated[float, Fact(ALGEBRAIC_DISTANCE_THRESHOLD)] = Field(
+    theta_ad: Annotated[float, Fact(ALGEBRAIC_DISTANCE_THRESHOLD, show=Show.NON_DEFAULT)] = Field(
         default=0.5, ge=0.0, description="Algebraic-distance strength threshold."
     )
-    caliber: Annotated[int, Fact(CALIBER)] = Field(
+    caliber: Annotated[int, Fact(CALIBER, show=Show.NON_DEFAULT)] = Field(
         default=4, ge=1, description="Maximum interpolatory-set size."
     )
-    gamma: Annotated[float, Fact(CALIBER_GROWTH_PENALTY)] = Field(
+    gamma: Annotated[float, Fact(CALIBER_GROWTH_PENALTY, show=Show.NON_DEFAULT)] = Field(
         default=1.5, gt=0.0, description="Caliber-growth penalization exponent."
     )
-    use_lsr: Annotated[bool, Fact(USE_LSR, convert=on_off)] = Field(
+    use_lsr: Annotated[bool, Fact(USE_LSR, convert=on_off, show=Show.NON_DEFAULT)] = Field(
         default=True, description="Apply the LSR residual correction before fitting."
     )
-    max_coarse: Annotated[int, Fact(MAX_COARSE_DIMENSION)] = Field(
+    max_coarse: Annotated[int, Fact(MAX_COARSE_DIMENSION, show=Show.NON_DEFAULT)] = Field(
         default=10, ge=1, description="Stop coarsening at this many nodes."
     )
     seed: Annotated[int, Fact(SEED)] = Field(
@@ -1217,11 +1219,15 @@ class NeuralAMGPreconditionerConfig(BasePreconditionerConfig):
     aggregation_omega: Annotated[float | None, Fact(DAMPING, show=Show.NOT_NONE)] = Field(
         default=None, gt=0.0
     )
-    pre_smoothing_steps: Annotated[int, Fact(PRE_SMOOTHING_STEPS)] = Field(default=2, ge=0)
-    post_smoothing_steps: Annotated[int, Fact(POST_SMOOTHING_STEPS)] = Field(default=2, ge=0)
-    smoother_omega: Annotated[float | None, Fact(SMOOTHER_DAMPING, convert=auto_if_none)] = Field(
-        default=None, gt=0.0
+    pre_smoothing_steps: Annotated[int, Fact(PRE_SMOOTHING_STEPS, show=Show.NON_DEFAULT)] = Field(
+        default=2, ge=0
     )
+    post_smoothing_steps: Annotated[int, Fact(POST_SMOOTHING_STEPS, show=Show.NON_DEFAULT)] = Field(
+        default=2, ge=0
+    )
+    smoother_omega: Annotated[
+        float | None, Fact(SMOOTHER_DAMPING, convert=auto_if_none, show=Show.NON_DEFAULT)
+    ] = Field(default=None, gt=0.0)
     prolongation: Annotated[NeuralTransferConfig, _IDENTITY]
     restriction: Annotated[NeuralTransferConfig | None, _IDENTITY] = None
 

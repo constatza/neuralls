@@ -43,7 +43,7 @@ def test_pod_method_is_qualified_by_its_fit_dataset_exactly_once(
 
     assert isinstance(presentation, DatasetQualifiedMethodPresentation)
     text = render_method(presentation, LEGEND_PROFILE, PLAIN).text
-    assert text == "POD-2G (r=10, ν₁=2, ν₂=2, ωₛ=auto) | Gaussian Solutions (μ=0, σ=1, N=8)"
+    assert text == "POD-2G (r=10) | Gaussian Solutions (μ=0, σ=1, N=8)"
 
 
 def test_ordinary_methods_are_standalone() -> None:
@@ -61,8 +61,8 @@ def test_pod_ranks_over_one_dataset_are_distinguished_by_rank(
     )
     labels = [render_method(m.compact, LEGEND_PROFILE, PLAIN).text for m in prepared.methods]
     assert labels == [
-        "POD-2G (r=10, ν₁=2, ν₂=2, ωₛ=auto) | Gaussian Solutions (μ=0, σ=1, N=8)",
-        "POD-2G (r=100, ν₁=2, ν₂=2, ωₛ=auto) | Gaussian Solutions (μ=0, σ=1, N=8)",
+        "POD-2G (r=10) | Gaussian Solutions (μ=0, σ=1, N=8)",
+        "POD-2G (r=100) | Gaussian Solutions (μ=0, σ=1, N=8)",
     ]
 
 

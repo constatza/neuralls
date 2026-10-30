@@ -68,6 +68,9 @@ MAX_LINES_PER_COLUMN = 24
 
 _LEGEND_ANCHOR = (1.02, 1.0)
 
+LEGEND_FONT_SIZE = 7
+"""Point size of every method legend entry and of the method labels on bar-chart axes."""
+
 
 def wrap_at_boundaries(
     drawn: RenderedScientificDescription, visible: RenderedScientificDescription, limit: int
@@ -219,7 +222,11 @@ def scope_label(scope: FigureScope, notation: NotationPolicy) -> str:
 
 
 def draw_legend(
-    ax: Axes, legend: Legend, *, inside_loc: InsideLegendLocation, fontsize: float | None = None
+    ax: Axes,
+    legend: Legend,
+    *,
+    inside_loc: InsideLegendLocation,
+    fontsize: float = LEGEND_FONT_SIZE,
 ) -> None:
     """Draw ``ax``'s legend where ``legend.layout`` says: inside, or outside in columns."""
     layout = legend.layout

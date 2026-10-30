@@ -98,7 +98,7 @@ def test_a_fit_job_is_the_pod_basis_trained_on_its_dataset(
 
     assert isinstance(subject, DatasetQualifiedMethodPresentation)
     text = render_run_name(TrainingRunName(subject, Untimed()), PLAIN)
-    assert text == "POD-2G (r=10, ν₁=2, ν₂=2, ωₛ=auto) | Gaussian Solutions (μ=0, σ=1, N=8)"
+    assert text == "POD-2G (r=10) | Gaussian Solutions (μ=0, σ=1, N=8)"
 
 
 def test_a_neural_job_is_its_architecture_trained_on_its_dataset(
