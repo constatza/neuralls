@@ -11,8 +11,6 @@ import torch
 from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAdapter
 
 from neuralls.composition.comparison._preconditioner_setup import (
-    DatasetPreconditionerCache,
-    DatasetScope,
     PreconditionerService,
 )
 from neuralls.composition.comparison.comparison_run import execute_method_workload
@@ -46,9 +44,8 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.dlkit.predictor_adapter import OwningDLKitNeuralPreconditioner
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.timing import TimingRepeatPolicy
-from neuralls.shared.types import DatasetId, MatrixId
+from neuralls.shared.types import DatasetId
 from tests.composition.workload_support import matrix_bundle
-from tests.fakes.fit_data import FakeFitData
 from tests.presentation_support import PreparedMethodFactory
 
 pytestmark = pytest.mark.deferred_io("config-loading")
@@ -370,37 +367,3 @@ def test_setup_cost_excludes_the_preload(
     )
 
     assert workload.setup_events[0].setup_s < SLOW_LOAD_SECONDS
-
-
-def test_matrix_dependent_builds_are_evicted_but_static_ones_and_checkpoints_stay() -> None:
-    scope = DatasetScope()
-    first, second = MatrixId(0), MatrixId(1)
-    jacobi = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
-    matrix = torch.eye(3, dtype=torch.float64)
-    for matrix_id in (first, second):
-        view = scope.for_system(matrix_id)
-        service = PreconditionerService(FakeFitData(), checkpoints=scope.checkpoints)
-        view.put(
-            "jacobi",
-            service.create_preconditioner(matrix, jacobi),
-            setup_cost_seconds=0.0,
-            setup_peak_memory_bytes=None,
-        )
-    view = scope.for_system(first)
-    scope.checkpoints.load_predictor(
-        PredictorKey(Path("m.ckpt")), lambda: FakePredictor(Path("m.ckpt"))
-    )
-
-    scope.cache.evict_matrix(first)
-
-    assert view.get("jacobi") is None
-    assert scope.for_system(second).get("jacobi") is not None
-    assert scope.checkpoints.predictor(PredictorKey(Path("m.ckpt"))) is not None
-    scope.release()
-    assert scope.checkpoints.predictor(PredictorKey(Path("m.ckpt"))) is None
-
-
-def test_dataset_cache_stays_usable_without_a_checkpoint_store() -> None:
-    cache = DatasetPreconditionerCache().for_system(MatrixId(0))
-
-    assert cache.checkpoints is None

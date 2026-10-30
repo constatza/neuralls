@@ -3,7 +3,7 @@
 Unlike the preparation tests in `test_comparison_workflow.py`, this mocks no
 solver code — it lets the real build/setup/solve pipeline run
 (a trivial `Identity` preconditioner against a tiny 2x2 matrix, so it stays
-fast) so the real `DatasetPreconditionerCache` + `report_all_levels`
+fast) so the real method-major execution + `report_all_levels`
 wiring in `comparison_batch.py` is actually exercised, not just its
 individually-unit-tested pieces in isolation.
 """
