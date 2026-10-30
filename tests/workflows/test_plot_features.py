@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
@@ -11,7 +10,6 @@ import pytest
 
 from neuralls.domain.presentation.methods import MissingMethodPresentationError
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.domain.solver.models.plot_paths import PlotPaths
 from neuralls.platform.reporting import plots as reporting_plots
 from neuralls.platform.reporting.figure_text import (
     Legend,
@@ -97,60 +95,6 @@ def two_result_entries_with_times() -> dict[str, CGComparisonResult]:
         "identity": _make("identity", setup=0.5, solve=0.1),
         "jacobi": _make("jacobi", setup=0.2, solve=2.0),
     }
-
-
-# ---------------------------------------------------------------------------
-# PlotPaths serialization
-# ---------------------------------------------------------------------------
-
-
-def test_plot_paths_iterations_barplot_round_trips_via_mapping() -> None:
-    """PlotPaths with iterations_barplot survives a to_mapping/from_mapping round-trip.
-
-    Verifies that the field is present in the serialised mapping and is
-    reconstructed correctly by from_mapping.
-    """
-    expected_path = Path("out/iters.png")
-    plot_paths = PlotPaths(iterations_barplot=expected_path)
-
-    mapping = plot_paths.to_mapping()
-
-    assert "iterations_barplot" in mapping
-    assert mapping["iterations_barplot"] == expected_path
-
-    reconstructed = PlotPaths.from_mapping(mapping)
-    assert reconstructed.iterations_barplot == expected_path
-
-
-def test_plot_paths_none_iterations_barplot_not_in_mapping() -> None:
-    """PlotPaths without iterations_barplot omits key from to_mapping result.
-
-    Ensures that None-valued fields are not emitted to the sparse mapping dict.
-    """
-    plot_paths = PlotPaths()
-    mapping = plot_paths.to_mapping()
-    assert "iterations_barplot" not in mapping
-
-
-def test_plot_paths_time_breakdown_barplot_round_trips_via_mapping() -> None:
-    """PlotPaths with time_breakdown_barplot survives a to_mapping/from_mapping round-trip."""
-    expected_path = Path("out/time_breakdown.png")
-    plot_paths = PlotPaths(time_breakdown_barplot=expected_path)
-
-    mapping = plot_paths.to_mapping()
-
-    assert "time_breakdown_barplot" in mapping
-    assert mapping["time_breakdown_barplot"] == expected_path
-
-    reconstructed = PlotPaths.from_mapping(mapping)
-    assert reconstructed.time_breakdown_barplot == expected_path
-
-
-def test_plot_paths_none_time_breakdown_barplot_not_in_mapping() -> None:
-    """PlotPaths without time_breakdown_barplot omits key from to_mapping result."""
-    plot_paths = PlotPaths()
-    mapping = plot_paths.to_mapping()
-    assert "time_breakdown_barplot" not in mapping
 
 
 # ---------------------------------------------------------------------------

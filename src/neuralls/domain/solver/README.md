@@ -23,7 +23,7 @@ solves, staging, plotting, persistence, MLflow calls, and historical generation
 or training remain outside it. Required computation after I/O belongs to a
 timed setup or solve event.
 
-`comparison_summary.py::format_results_summary` heads each summary line with the method's description, rendered from the `ConfiguredMethodPresentation` it is given for every result (a result without one raises `MissingMethodPresentationError`); `RankedRecommendation.method_id` names its method by id only.
+`comparison_summary.py::format_results_summary` heads each summary line with the method's description, rendered from the `ConfiguredMethodPresentation` it is given for every result (a result without one raises `MissingMethodPresentationError`).
 
 `models/workload.py` represents a method summary as either complete or
 explicitly incomplete. Both variants retain planned, attempted, and converged
@@ -144,9 +144,8 @@ online total; setup-aware aggregate reporting derives totals only from linked
 benchmark events.
 
 Per-iteration residual and energy-error histories, timing samples, and memory
-diagnostics remain available for artifacts and single-run plots. Comparison
-recommendations rank converged diagnostic results by measured solve time, then
-iterations; workload ranking uses complete event summaries.
+diagnostics remain available for artifacts and single-run plots. Workload
+ranking uses complete event summaries.
 
 ## Presentation planning
 

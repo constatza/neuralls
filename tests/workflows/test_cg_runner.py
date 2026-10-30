@@ -3,7 +3,6 @@
 This module tests the workflow orchestration functions in cg_runner.py:
 - run_cg_comparison(): Core CG comparison orchestration
 - format_results_summary(): Result formatting
-- summarize_best_combinations(): Analysis and ranking
 
 Follows project testing principles:
 - Use fixtures for all test data (no inline data creation)
@@ -33,7 +32,6 @@ from neuralls.domain.presentation.methods import (
 from neuralls.domain.solver.comparison import run_cg_comparison
 from neuralls.domain.solver.comparison_summary import (
     format_results_summary,
-    summarize_best_combinations,
 )
 from neuralls.domain.solver.error_metrics import relative_exact_error
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
@@ -376,103 +374,3 @@ def test_format_results_summary_non_converged_case(
     # Should only have "fail" status
     assert "status=fail" in summary
     assert "status=ok" not in summary
-
-
-# ==============================================================================
-# Tests for summarize_best_combinations()
-# ==============================================================================
-
-
-def test_summarize_best_combinations(
-    mock_comparison_results: dict[str, CGComparisonResult],
-) -> None:
-    """Test summarize_best_combinations ranks results correctly."""
-    summary = summarize_best_combinations(mock_comparison_results)
-
-    # Verify ranking (only converged results)
-    ranked = summary.ranked
-    assert len(ranked) == 2  # Only jacobi and identity converged
-
-    # Equal (zero) cost, so iterations break the tie: jacobi 10 < identity 20
-    assert ranked[0].method_id == "jacobi"
-    assert ranked[1].method_id == "identity"
-
-    # Verify overall_best
-    best = summary.overall_best
-    assert best is not None
-    assert best.method_id == "jacobi"
-    assert best.residual == 1e-8
-
-
-def test_summarize_best_combinations_empty_results() -> None:
-    """Test summarize_best_combinations with no converged results."""
-    # Create all non-converged results
-    non_converged_results = {
-        "failed1": CGComparisonResult(
-            x=np.zeros(3),
-            converged=False,
-            iterations=100,
-            residual=0.5,
-            residual_abs=0.5,
-            residual_history_rel=[],
-            residual_history_abs=[],
-            preconditioner="failed1",
-            initial_guess=np.zeros(3),
-            exact_error=None,
-            rhs_norm=1.0,
-            breakdown=True,
-        ),
-    }
-
-    summary = summarize_best_combinations(non_converged_results)
-
-    # Verify empty ranking
-    assert summary.ranked == ()
-    assert summary.overall_best is None
-
-
-def test_summarize_best_combinations_single_converged() -> None:
-    """Test summarize_best_combinations with single converged result."""
-    single_result = {
-        "jacobi": CGComparisonResult(
-            x=np.array([1.0, 2.0]),
-            converged=True,
-            iterations=10,
-            residual=1e-8,
-            residual_abs=1e-9,
-            residual_history_rel=[],
-            residual_history_abs=[],
-            preconditioner="jacobi",
-            initial_guess=np.zeros(2),
-            exact_error=1e-10,
-            rhs_norm=1.0,
-            breakdown=False,
-        ),
-    }
-
-    summary = summarize_best_combinations(single_result)
-    assert summary.overall_best is not None
-
-    # Verify single entry
-    assert len(summary.ranked) == 1
-    assert summary.overall_best.method_id == "jacobi"
-
-
-def test_summarize_best_combinations_ranks_by_time_not_final_residual(
-    mock_comparison_results: dict[str, CGComparisonResult],
-) -> None:
-    """The lowest residual is not the winner: the faster run wins despite the looser residual."""
-    from dataclasses import replace
-
-    slow_but_precise = replace(
-        mock_comparison_results["jacobi"], solve_time_seconds=9.0, residual=1e-12
-    )
-    fast_but_looser = replace(
-        mock_comparison_results["identity"], solve_time_seconds=1.0, residual=1e-7
-    )
-
-    summary = summarize_best_combinations({"jacobi": slow_but_precise, "identity": fast_but_looser})
-
-    assert [entry.method_id for entry in summary.ranked] == ["identity", "jacobi"]
-    assert summary.overall_best is not None
-    assert summary.overall_best.solve_time_seconds == pytest.approx(1.0)

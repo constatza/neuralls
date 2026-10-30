@@ -11,10 +11,6 @@ from neuralls.domain.presentation.methods import (
 )
 from neuralls.domain.presentation.render import render_distinct_methods
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.domain.solver.models.recommendations import (
-    ComparisonRecommendations,
-    RankedRecommendation,
-)
 from neuralls.shared.scientific_description.policy import (
     LOG_PROFILE,
     NotationPolicy,
@@ -87,44 +83,3 @@ def _format_result_line(label: str, result: CGComparisonResult) -> str:
     if result.breakdown:
         line += "  note=breakdown_post_convergence" if result.converged else "  note=breakdown"
     return line
-
-
-def summarize_best_combinations(
-    results: dict[str, CGComparisonResult],
-) -> ComparisonRecommendations:
-    """Rank converged diagnostic results by measured solve time.
-
-    Every converged run stops just below the tolerance, so its final residual
-    says nothing about quality; what differs is the cost of getting there.
-    Entries are ordered by PCG/FCG solve time, then iterations. Workload-level
-    setup-aware ranking uses canonical benchmark events instead.
-
-    Args:
-        results: CG comparison results.
-
-    Returns:
-        Typed ranked recommendations with an overall best entry.
-    """
-    ranked = sorted(
-        (
-            RankedRecommendation(
-                method_id=method_id,
-                iterations=info.iterations,
-                residual=info.residual,
-                residual_abs=info.residual_abs,
-                breakdown=info.breakdown,
-                solve_time_seconds=info.solve_time_seconds,
-            )
-            for method_id, info in results.items()
-            if info.converged
-        ),
-        key=lambda entry: (
-            entry.solve_time_seconds is None,
-            entry.solve_time_seconds or 0.0,
-            entry.iterations,
-        ),
-    )
-    return ComparisonRecommendations(
-        ranked=tuple(ranked),
-        overall_best=ranked[0] if ranked else None,
-    )

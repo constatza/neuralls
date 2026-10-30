@@ -16,19 +16,14 @@ from .benchmark_events import (
 )
 from .cg_result import CGComparisonResult
 from .config import ComparisonData, ComparisonGeneral, SolverParams
-from .plot_paths import PlotPaths
-from .recommendations import ComparisonRecommendations, RankedRecommendation
 
 __all__ = [
     "CGComparisonResult",
     "ComparisonData",
     "ComparisonGeneral",
-    "ComparisonRecommendations",
     "MatrixSetupEvent",
     "MeasuredPeakMemory",
     "PeakMemory",
-    "PlotPaths",
-    "RankedRecommendation",
     "SetupCompleted",
     "SetupFailed",
     "SetupOutcome",

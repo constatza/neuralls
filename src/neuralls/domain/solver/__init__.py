@@ -12,14 +12,8 @@ from torchalg.monitoring import TraceMode
 from neuralls.domain.solver.comparison import run_cg_comparison
 from neuralls.domain.solver.comparison_summary import (
     format_results_summary,
-    summarize_best_combinations,
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.domain.solver.models.plot_paths import PlotPaths
-from neuralls.domain.solver.models.recommendations import (
-    ComparisonRecommendations,
-    RankedRecommendation,
-)
 
 from .models.config import ComparisonData, ComparisonGeneral, SolverConfig, SolverParams
 
@@ -27,15 +21,11 @@ __all__ = [
     "CGComparisonResult",
     "ComparisonData",
     "ComparisonGeneral",
-    "ComparisonRecommendations",
-    "PlotPaths",
-    "RankedRecommendation",
     "SolverConfig",
     "SolverParams",
     "TraceMode",
     "format_results_summary",
     "run_cg_comparison",
-    "summarize_best_combinations",
 ]
 
 __version__ = "2.0.0"
