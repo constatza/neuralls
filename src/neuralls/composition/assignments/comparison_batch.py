@@ -39,7 +39,6 @@ from neuralls.composition.comparison._preconditioner_setup import (
     matrix_key,
 )
 from neuralls.composition.comparison.comparison_run import (
-    build_comparison_result_from_diagnostics,
     execute_method_workload,
 )
 from neuralls.composition.comparison.config_assembler import (
@@ -94,7 +93,10 @@ from neuralls.domain.benchmarking.selection import (
     validate_reference_preconditioner,
 )
 from neuralls.domain.identity import StageIdentity
-from neuralls.domain.presentation.methods import PreparedComparisonPresentation
+from neuralls.domain.presentation.methods import (
+    MissingMethodPresentationError,
+    PreparedComparisonPresentation,
+)
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.run_names import NamedRun, Untimed
 from neuralls.domain.presentation.titles import (
@@ -103,6 +105,7 @@ from neuralls.domain.presentation.titles import (
     EditorialPresentation,
     summarized_session_title,
 )
+from neuralls.domain.solver.comparison_summary import format_results_summary
 from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory, SetupCompleted
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
@@ -158,6 +161,7 @@ from neuralls.shared.types import (
     ComparisonRhsSourceKind,
     DatasetId,
     MatrixId,
+    PreconditionerName,
     SystemId,
 )
 from neuralls.shared.workflow_failures import (
@@ -1169,35 +1173,17 @@ def _outcomes_from_workloads(
                 _described_failure(item, RuntimeError("method workload produced no diagnostics"))
             )
             continue
+        presentation = item.comparison_presentation
         try:
-            resolved = resolve_comparison_input(
-                matrix_path=Path(item.cfg.general.data.matrix_path),
-                matrix_dataset_id=item.entry.matrix_dataset,
-                matrix_index=item.cfg.general.data.matrix_index,
-                matrix_provenance=item.planned.provenance,
-                require_non_residual_rhs=item.cfg.general.data.require_non_residual_rhs,
-                seed=item.cfg.general.data.selection_seed,
-                rhs_source_kind=_require_rhs_source_kind(item.cfg),
-                rhs_source_params=item.cfg.general.data.rhs_source_params,
+            summary = format_results_summary(
+                results,
+                {
+                    name: presentation.methods.method(PreconditionerName(name)).compact
+                    for name in results
+                },
+                presentation.notation,
             )
-            system = prepare_resolved_linear_system(
-                resolved, item.cfg.general.data.normalize_system
-            )
-            resolved = replace(
-                resolved,
-                matrix=system.matrix.numpy(),
-                rhs=system.rhs.numpy(),
-            )
-            with tempfile.TemporaryDirectory() as projection_root:
-                result = build_comparison_result_from_diagnostics(
-                    general_params=item.cfg.general,
-                    preconditioner_configs=item.resolved.specs,
-                    resolved_input=resolved,
-                    results=dict(results),
-                    output_root=Path(projection_root),
-                    presentation=item.comparison_presentation,
-                )
-        except (ValueError, RuntimeError, KeyError, IndexError) as exc:
+        except (MissingMethodPresentationError, KeyError) as exc:
             outcomes.append(_described_failure(item, exc))
             continue
         outcomes.append(
@@ -1205,7 +1191,7 @@ def _outcomes_from_workloads(
                 comparison_id=item.entry.id,
                 run=item.run_name,
                 warnings=item.resolved.warnings,
-                payload=result,
+                summary=summary,
             )
         )
     return outcomes

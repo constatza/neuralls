@@ -7,7 +7,7 @@ data-generation pipeline produces many sizes) requires normalizing by ``n``
 first. These are pure functions, not stored fields: ``n`` is a property of the
 whole comparison (every preconditioner in one comparison
 shares the same matrix), not of any individual result, so it is passed in
-by the caller (``ComparisonResult.matrix_shape[0]``) rather than duplicated
+by the caller (the system matrix shape) rather than duplicated
 onto every ``CGComparisonResult``.
 """
 

@@ -215,12 +215,6 @@ SCOPES: dict[str, SinkScope] = {
             ),
             Allowed(
                 PATH_AS_NAME,
-                "composition/comparison/comparison_run.py",
-                "_resolve_comparison_paths",
-                "the matrix file stem names the output directory on disk",
-            ),
-            Allowed(
-                PATH_AS_NAME,
                 "platform/reporting/figure_metadata.py",
                 "_collision_key",
                 "file-name collision detection compares machine file names",

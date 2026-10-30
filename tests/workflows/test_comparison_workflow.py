@@ -52,17 +52,11 @@ from neuralls.domain.solver.models.benchmark_events import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
-from neuralls.domain.solver.models.plot_paths import PlotPaths
 from neuralls.domain.solver.models.provenance import (
     HeldOutMatrix,
     MatrixProvenance,
     SharedSingleMatrix,
 )
-from neuralls.domain.solver.models.recommendations import (
-    ComparisonRecommendations,
-    RankedRecommendation,
-)
-from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.platform.config.models.experiments import (
     AssignmentEntry,
@@ -247,46 +241,20 @@ def _registered_ref(name: str, alias: str) -> RegisteredModelRefConfig:
     return RegisteredModelRefConfig(name=name, alias=alias)
 
 
-def _typed_comparison_result(plot_path: Path) -> ComparisonResult:
-    return ComparisonResult(
-        results={
-            "identity": CGComparisonResult(
-                x=np.array([1.0, 2.0]),
-                converged=True,
-                iterations=2,
-                residual=1.0e-8,
-                residual_abs=1.0e-9,
-                residual_history_rel=[1.0, 1.0e-8],
-                residual_history_abs=[1.0, 1.0e-9],
-                preconditioner="identity",
-                initial_guess=np.zeros(2),
-                exact_error=None,
-                rhs_norm=1.0,
-                breakdown=False,
-            )
-        },
-        summary="ok",
-        solver_params=_solver_params(plot_path.parent),
-        plot_paths=PlotPaths(convergence=plot_path),
-        preconditioners=("identity",),
-        recommendations=ComparisonRecommendations(
-            ranked=(
-                RankedRecommendation(
-                    method_id="identity",
-                    iterations=2,
-                    residual=1.0e-8,
-                    residual_abs=1.0e-9,
-                    breakdown=False,
-                ),
-            ),
-            overall_best=RankedRecommendation(
-                method_id="identity",
-                iterations=2,
-                residual=1.0e-8,
-                residual_abs=1.0e-9,
-                breakdown=False,
-            ),
-        ),
+def _identity_cg_result() -> CGComparisonResult:
+    return CGComparisonResult(
+        x=np.array([1.0, 2.0]),
+        converged=True,
+        iterations=2,
+        residual=1.0e-8,
+        residual_abs=1.0e-9,
+        residual_history_rel=[1.0, 1.0e-8],
+        residual_history_abs=[1.0, 1.0e-9],
+        preconditioner="identity",
+        initial_guess=np.zeros(2),
+        exact_error=None,
+        rhs_norm=1.0,
+        breakdown=False,
     )
 
 
@@ -1192,7 +1160,7 @@ def test_compatibility_projection_carries_canonical_setup_measurement(
     projected = _project_setup_measurements(
         workload,
         str(tag.system_id),
-        _typed_comparison_result(tmp_path / "conv.png").results["identity"],
+        _identity_cg_result(),
     )
 
     assert projected.setup_cost == 1.25
@@ -1308,7 +1276,7 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
     ):
         outcomes = run_comparison_batch(experiments_config, ComparisonParams(), settings)
 
-    assert all(isinstance(outcome, ComparisonCompleted) for outcome in outcomes)
+    assert all(isinstance(outcome, ComparisonCompleted) and outcome.summary for outcome in outcomes)
     assert [outcome.comparison_id for outcome in outcomes] == [
         "sweep-5-0",
         "sweep-5-1",
@@ -1321,8 +1289,8 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
         HeldOutMatrix(matrix_id=MatrixId(9), raw_matrix_index=2),
         HeldOutMatrix(matrix_id=MatrixId(9), raw_matrix_index=2),
     ]
-    assert [i.matrix_provenance for i in inputs] == expected_provenance * 2
-    assert [float(i.matrix[0, 0]) for i in inputs] == [5.0, 5.0, 9.0, 9.0] * 2
+    assert [i.matrix_provenance for i in inputs] == expected_provenance
+    assert [float(i.matrix[0, 0]) for i in inputs] == [5.0, 5.0, 9.0, 9.0]
     # The comparison config's matrix normalization is applied while staging
     # each bundle, so the diagonal 2x2 matrices have spectral norm 1/sqrt(2).
     assert [

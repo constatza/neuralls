@@ -30,7 +30,6 @@ from neuralls.domain.solver.models.provenance import (
     MatrixProvenance,
     SharedSingleMatrix,
 )
-from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.platform.config.models.comparison import RHS_SOURCE_MODEL_BY_KIND
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
@@ -52,9 +51,7 @@ __all__ = [
     "ComparisonEntryFailed",
     "ComparisonOutcome",
     "ComparisonParams",
-    "ComparisonPaths",
     "ComparisonPresentation",
-    "ComparisonResult",
     "ComparisonReused",
     "CompletedMethodWorkload",
     "LinearSystem",
@@ -181,23 +178,6 @@ class CompletedMethodWorkload:
                 raise ValueError(
                     f"realization of system {system.system_id!r} which this workload did not plan"
                 )
-
-
-@dataclass(frozen=True, slots=True)
-class ComparisonPaths:
-    """Resolved paths for a single comparison run.
-
-    Attributes:
-        matrix: Path to system matrix file (.txt or .npy).
-        rhs: Path to right-hand side vector file (.txt or .npy).
-        output: Root output directory for comparison results.
-        figures: Directory for diagnostic plots.
-    """
-
-    matrix: Path
-    rhs: Path
-    output: Path
-    figures: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,7 +333,7 @@ class ComparisonCompleted:
 
     comparison_id: str
     run: NamedRun
-    payload: ComparisonResult
+    summary: str
     warnings: tuple[str, ...] = ()
 
 

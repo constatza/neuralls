@@ -16,7 +16,6 @@ from neuralls.composition.comparison.models import (
     ComparisonEntryFailed,
     ComparisonOutcome,
     ComparisonParams,
-    ComparisonResult,
     ComparisonReused,
 )
 from neuralls.composition.config import load_case_settings
@@ -26,10 +25,10 @@ from neuralls.shared.constants import EXIT_FAILURE, SYMBOL_CHECKMARK
 os.environ.setdefault("MPLBACKEND", "Agg")
 
 
-def _log_comparison_results(result: ComparisonResult) -> None:
-    if result.summary:
+def _log_summary(summary: str) -> None:
+    if summary:
         logger.info("=" * 60)
-        logger.info(result.summary)
+        logger.info(summary)
         logger.info("=" * 60)
 
 
@@ -51,8 +50,8 @@ def _log_outcomes(outcomes: list[ComparisonOutcome]) -> None:
         match outcome:
             case ComparisonEntryFailed(reason=reason):
                 logger.error(f"Comparison failed: {reason}")
-            case ComparisonCompleted(payload=payload):
-                _log_comparison_results(payload)
+            case ComparisonCompleted(summary=summary):
+                _log_summary(summary)
             case ComparisonReused():
                 logger.info("Using existing MLflow comparison result (skipped rerun).")
             case unreachable:

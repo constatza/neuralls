@@ -24,13 +24,10 @@ from neuralls.cli.train import train_case_batch
 from neuralls.composition.comparison.models import (
     ComparisonCompleted,
     ComparisonParams,
-    ComparisonResult,
 )
 from neuralls.composition.generation.multi_generation import GenerationResult
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.run_names import NamedRun, TrainingPresentation
-from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
-from neuralls.domain.solver.models.recommendations import ComparisonRecommendations
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.shared.constants import EXIT_FAILURE
 from neuralls.shared.scientific_description.policy import NotationPolicy
@@ -39,32 +36,6 @@ pytestmark = pytest.mark.deferred_io("config-loading")
 
 runner = CliRunner()
 WORKSPACE = Path("/workspace")
-
-
-def _solver_params() -> ComparisonGeneral:
-    return ComparisonGeneral(
-        params=SolverParams(
-            rtol=1.0e-6,
-            atol=1.0e-14,
-            max_iterations=10,
-            stopping_criterion="residual_norm",
-            m_max=20,
-        ),
-        data=ComparisonData(
-            matrix_path=WORKSPACE / "matrix.npy",
-            rhs_path=WORKSPACE / "rhs.npy",
-        ),
-    )
-
-
-def _comparison_payload() -> ComparisonResult:
-    return ComparisonResult(
-        results={},
-        summary="ok",
-        solver_params=_solver_params(),
-        preconditioners=("identity",),
-        recommendations=ComparisonRecommendations(),
-    )
 
 
 def test_root_help_lists_only_public_commands() -> None:
@@ -461,7 +432,7 @@ def test_compare_invokes_batch_workflow(
         ComparisonCompleted(
             comparison_id="solver",
             run=comparison_run,
-            payload=_comparison_payload(),
+            summary="ok",
         )
     ]
 

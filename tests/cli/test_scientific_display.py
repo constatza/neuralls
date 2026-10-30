@@ -19,7 +19,6 @@ from neuralls.cli.main import app
 from neuralls.composition.comparison.models import (
     ComparisonCompleted,
     ComparisonEntryFailed,
-    ComparisonResult,
     ComparisonReused,
     UndescribedComparison,
 )
@@ -42,8 +41,6 @@ from neuralls.domain.presentation.titles import (
     ComparisonScopePresentation,
     EditorialPresentation,
 )
-from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
-from neuralls.domain.solver.models.recommendations import ComparisonRecommendations
 from neuralls.shared.constants import SYMBOL_CHECKMARK
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import MatrixId
@@ -83,27 +80,8 @@ def comparison_run_on() -> Callable[[ComparisonSubject], NamedRun]:
 
 
 @pytest.fixture
-def comparison_payload() -> ComparisonResult:
-    general = ComparisonGeneral(
-        params=SolverParams(
-            rtol=1.0e-6,
-            atol=1.0e-14,
-            max_iterations=10,
-            stopping_criterion="residual_norm",
-            m_max=5,
-        ),
-        data=ComparisonData(
-            matrix_path=WORKSPACE / "matrix.npy",
-            rhs_path=WORKSPACE / "rhs.npy",
-        ),
-    )
-    return ComparisonResult(
-        results={},
-        summary="CG comparison results:\n- Jacobi  status=ok",
-        solver_params=general,
-        preconditioners=("jacobi",),
-        recommendations=ComparisonRecommendations(),
-    )
+def comparison_summary() -> str:
+    return "CG comparison results:\n- Jacobi  status=ok"
 
 
 def _banner(title: str) -> list[str]:
@@ -134,17 +112,17 @@ def test_compare_logs_the_plain_run_name_with_the_actual_parameters(
     logged: list[str],
     dataset_presentation: DatasetPresentation,
     comparison_run_on: Callable[[ComparisonSubject], NamedRun],
-    comparison_payload: ComparisonResult,
+    comparison_summary: str,
 ) -> None:
     run = comparison_run_on(ComparisonScopePresentation(dataset_presentation))
-    outcome = ComparisonCompleted(comparison_id=REGISTRY_ID, run=run, payload=comparison_payload)
+    outcome = ComparisonCompleted(comparison_id=REGISTRY_ID, run=run, summary=comparison_summary)
 
     _invoke_compare(case_config, [outcome])
 
     assert logged == [
         *_banner(f"{DATASET_TEXT} | matrix 3, RHS 1"),
         "=" * 60,
-        comparison_payload.summary,
+        comparison_summary,
         "=" * 60,
         *_final_summary(total=1, successful=1, failed=0),
         f"{SYMBOL_CHECKMARK} All comparisons completed successfully!",
@@ -156,19 +134,19 @@ def test_compare_shows_an_editorial_title_beside_its_dataset(
     logged: list[str],
     dataset_presentation: DatasetPresentation,
     comparison_run_on: Callable[[ComparisonSubject], NamedRun],
-    comparison_payload: ComparisonResult,
+    comparison_summary: str,
 ) -> None:
     run = comparison_run_on(
         EditorialComparison(EditorialPresentation(EDITORIAL), dataset_presentation)
     )
-    outcome = ComparisonCompleted(comparison_id=REGISTRY_ID, run=run, payload=comparison_payload)
+    outcome = ComparisonCompleted(comparison_id=REGISTRY_ID, run=run, summary=comparison_summary)
 
     _invoke_compare(case_config, [outcome])
 
     assert logged == [
         *_banner(f"{EDITORIAL} | {DATASET_TEXT} | matrix 3, RHS 1"),
         "=" * 60,
-        comparison_payload.summary,
+        comparison_summary,
         "=" * 60,
         *_final_summary(total=1, successful=1, failed=0),
         f"{SYMBOL_CHECKMARK} All comparisons completed successfully!",

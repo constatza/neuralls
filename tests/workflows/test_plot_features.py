@@ -3,29 +3,22 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
-from neuralls.composition.comparison._plots import _generate_comparison_plots
-from neuralls.composition.comparison.models import ComparisonPaths
 from neuralls.domain.presentation.methods import MissingMethodPresentationError
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.plot_paths import PlotPaths
 from neuralls.platform.reporting import plots as reporting_plots
 from neuralls.platform.reporting.figure_text import (
-    DID_NOT_CONVERGE_MARK,
-    EditorialTitle,
     Legend,
 )
 from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
 )
-
-pytestmark = pytest.mark.deferred_io("config-loading")
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -104,19 +97,6 @@ def two_result_entries_with_times() -> dict[str, CGComparisonResult]:
         "identity": _make("identity", setup=0.5, solve=0.1),
         "jacobi": _make("jacobi", setup=0.2, solve=2.0),
     }
-
-
-@pytest.fixture
-def comparison_paths(tmp_path: Path) -> ComparisonPaths:
-    """Comparison paths rooted in pytest-managed temporary storage."""
-    figures_dir = tmp_path / "figures"
-    figures_dir.mkdir(parents=True)
-    return ComparisonPaths(
-        matrix=tmp_path / "matrix.npy",
-        rhs=tmp_path / "rhs.npy",
-        output=tmp_path,
-        figures=figures_dir,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -207,86 +187,3 @@ def test_plot_convergence_comparison_without_a_legend_entry_raises(
 # ---------------------------------------------------------------------------
 # plot_condition_numbers — horizontal bars, title, tolerances
 # ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# _generate_comparison_plots — includes iterations_barplot
-# ---------------------------------------------------------------------------
-
-
-def test_generate_comparison_plots_includes_iterations_barplot(
-    comparison_paths: ComparisonPaths,
-    two_result_entries: dict[str, CGComparisonResult],
-    legend_of: Callable[..., Legend],
-) -> None:
-    """_generate_comparison_plots returns PlotPaths with iterations_barplot set.
-
-    Plotting functions are patched to avoid file I/O while still exercising the
-    orchestration logic that populates PlotPaths.
-    """
-    legend = legend_of(*two_result_entries)
-    title = EditorialTitle("demo")
-
-    with (
-        patch(
-            "neuralls.composition.comparison._plots.plot_convergence_comparison"
-        ) as convergence_plot,
-        patch(
-            "neuralls.composition.comparison._plots.plot_error_convergence_comparison"
-        ) as error_plot,
-        patch("neuralls.composition.comparison._plots.plot_method_bars") as bars_plot,
-    ):
-        result = _generate_comparison_plots(two_result_entries, comparison_paths, legend, title)
-
-    assert result.time_breakdown_barplot is None  # neither entry has setup/solve times
-    assert "condition_numbers" not in result.to_mapping()
-    assert convergence_plot.call_args.kwargs["title"] == title
-    assert convergence_plot.call_args.args[0] is two_result_entries
-    assert convergence_plot.call_args.kwargs["legend"] == legend
-    assert error_plot.call_args.args[0] is two_result_entries
-    assert error_plot.call_args.kwargs["legend"] == legend
-    assert bars_plot.call_args.kwargs["title"] == title
-
-
-def test_generate_comparison_plots_includes_time_breakdown_barplot_when_measured(
-    comparison_paths: ComparisonPaths,
-    two_result_entries_with_times: dict[str, CGComparisonResult],
-    legend_of: Callable[..., Legend],
-) -> None:
-    """_generate_comparison_plots populates time_breakdown_barplot when times are measured."""
-    with (
-        patch("neuralls.composition.comparison._plots.plot_convergence_comparison"),
-        patch("neuralls.composition.comparison._plots.plot_error_convergence_comparison"),
-        patch("neuralls.composition.comparison._plots.plot_method_bars"),
-    ):
-        result = _generate_comparison_plots(
-            two_result_entries_with_times,
-            comparison_paths,
-            legend_of(*two_result_entries_with_times),
-            EditorialTitle("demo"),
-        )
-        assert result.time_breakdown_barplot is not None
-
-
-def test_generate_comparison_plots_marks_only_the_unconverged_result(
-    comparison_paths: ComparisonPaths,
-    two_result_entries: dict[str, CGComparisonResult],
-    legend_of: Callable[..., Legend],
-) -> None:
-    """The did-not-converge mark reaches the plots through the legend, never the result key."""
-    failed, kept = list(two_result_entries)
-    results = {**two_result_entries, failed: replace(two_result_entries[failed], converged=False)}
-    legend = legend_of(*results)
-
-    with (
-        patch(
-            "neuralls.composition.comparison._plots.plot_convergence_comparison"
-        ) as convergence_plot,
-        patch("neuralls.composition.comparison._plots.plot_error_convergence_comparison"),
-        patch("neuralls.composition.comparison._plots.plot_method_bars"),
-    ):
-        _generate_comparison_plots(results, comparison_paths, legend, EditorialTitle("demo"))
-
-    drawn = convergence_plot.call_args.kwargs["legend"]
-    assert drawn.label(kept) == legend.label(kept)
-    assert drawn.label(failed) == f"{legend.label(failed)} {DID_NOT_CONVERGE_MARK}"

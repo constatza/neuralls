@@ -20,7 +20,6 @@ from neuralls.domain.solver.models.recommendations import (
     ComparisonRecommendations,
     RankedRecommendation,
 )
-from neuralls.domain.solver.models.result import ComparisonResult
 
 from .models.config import ComparisonData, ComparisonGeneral, SolverConfig, SolverParams
 
@@ -29,7 +28,6 @@ __all__ = [
     "ComparisonData",
     "ComparisonGeneral",
     "ComparisonRecommendations",
-    "ComparisonResult",
     "PlotPaths",
     "RankedRecommendation",
     "SolverConfig",

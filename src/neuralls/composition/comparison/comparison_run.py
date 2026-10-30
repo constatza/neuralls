@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
-from pathlib import Path
 
 import numpy as np
 import torch
@@ -13,7 +12,6 @@ from torchalg.preconditioners.base import Preconditioner
 from torchalg.utils.device import resolve_device
 
 from neuralls.composition.comparison._generation_cost import resolve_generation_cost
-from neuralls.composition.comparison._plots import _generate_comparison_plots
 from neuralls.composition.comparison._preconditioner_setup import (
     PreconditionerService,
     _bind_extra_inputs,
@@ -22,11 +20,8 @@ from neuralls.composition.comparison._preconditioner_setup import (
     capture_system_realizations,
 )
 from neuralls.composition.comparison.models import (
-    ComparisonPaths,
-    ComparisonPresentation,
     CompletedMethodWorkload,
     MatrixWorkload,
-    ResolvedComparisonInput,
     ResolvedMethod,
     canonical_method_config,
 )
@@ -43,10 +38,6 @@ from neuralls.domain.solver.comparison import (
     compute_reference_solution,
     run_cg_comparison,
 )
-from neuralls.domain.solver.comparison_summary import (
-    format_results_summary,
-    summarize_best_combinations,
-)
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -61,9 +52,7 @@ from neuralls.domain.solver.models.benchmark_events import (
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.cost import StageCost
-from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle, plot_style_maps
-from neuralls.domain.solver.models.result import ComparisonResult
-from neuralls.platform.config.models.comparison import ComparisonGeneral
+from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     NeuralPODCoarseningConfig,
@@ -71,10 +60,7 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerConfig,
 )
 from neuralls.platform.config.models.preconditioner_family import preconditioner_family
-from neuralls.platform.config.resolution import resolve_user_path
 from neuralls.platform.config.settings import NeurallsSettings
-from neuralls.platform.reporting.figure_text import ComparisonFigureTitle, Legend, method_legend
-from neuralls.platform.storage.filesystem import ensure_dir
 from neuralls.platform.tracking.run_names import render_dataset_label, render_method_label
 from neuralls.shared.device import (
     FailedTimedRuns,
@@ -443,133 +429,3 @@ def execute_method_workload(
             )
         },
     )
-
-
-def build_comparison_result_from_diagnostics(
-    *,
-    general_params: ComparisonGeneral,
-    preconditioner_configs: Sequence[PreconditionerConfig],
-    resolved_input: ResolvedComparisonInput,
-    results: dict[str, CGComparisonResult],
-    output_root: Path,
-    presentation: ComparisonPresentation,
-) -> ComparisonResult:
-    """Build the retained per-system result/artifact payload without re-solving.
-
-    Method-major execution owns solver work. This adapter recreates only the
-    public diagnostic envelope (plots, shapes, legends, and summaries) expected
-    by existing nested comparison runs and artifact consumers; every method is
-    presented from ``presentation``, the cohort prepared at preflight.
-    """
-    paths = _resolve_comparison_paths(
-        general_params=general_params, output_root=output_root, figures_root=None
-    )
-    _ensure_comparison_directories(paths)
-    plot_styles = {}
-    for config in preconditioner_configs:
-        if config.name not in results:
-            continue
-        color_key, marker_key = _pod2g_style_keys(config)
-        plot_styles[config.name] = PreconditionerPlotStyle(
-            presentation=presentation.methods.method(PreconditionerName(config.name)),
-            family=preconditioner_family(config),
-            color_key=color_key,
-            marker_key=marker_key,
-        )
-    styles = plot_style_maps(plot_styles)
-    plot_paths = _generate_comparison_plots(
-        results,
-        paths,
-        _legend_of(plot_styles, presentation),
-        ComparisonFigureTitle(
-            presentation.title, int(resolved_input.matrix.shape[0]), presentation.notation
-        ),
-        families=styles.families,
-        color_keys=styles.color_keys,
-        marker_keys=styles.marker_keys,
-        rtol=general_params.params.rtol,
-        atol=general_params.params.atol,
-        max_iterations=general_params.params.max_iterations,
-    )
-    return ComparisonResult(
-        results=results,
-        summary=format_results_summary(
-            results,
-            {name: style.presentation.compact for name, style in plot_styles.items()},
-            presentation.notation,
-        ),
-        plot_paths=plot_paths,
-        preconditioners=tuple(config.name for config in preconditioner_configs),
-        solver_params=general_params,
-        recommendations=summarize_best_combinations(results),
-        output_dir=paths.output,
-        matrix_shape=tuple(resolved_input.matrix.shape),
-        rhs_shape=tuple(resolved_input.rhs.shape),
-        rhs_source_kind=resolved_input.rhs_source_kind,
-        plot_styles=plot_styles,
-    )
-
-
-def _legend_of(
-    plot_styles: Mapping[str, PreconditionerPlotStyle], presentation: ComparisonPresentation
-) -> Legend:
-    """The legend of a comparison's methods, each rendered from its own prepared presentation."""
-    return method_legend(
-        {name: style.presentation.compact for name, style in plot_styles.items()},
-        presentation.notation,
-    )
-
-
-def _resolve_comparison_paths(
-    *,
-    general_params: ComparisonGeneral,
-    output_root: Path | None,
-    figures_root: Path | None,
-) -> ComparisonPaths:
-    """Resolve all paths for a comparison run.
-
-    Args:
-        general_params: Comparison general configuration with params+data context.
-        output_root: Optional override for output root directory.
-        figures_root: Optional override for figures directory.
-
-    Returns:
-        ComparisonPaths with all resolved and validated paths.
-
-    Raises:
-        ValueError: If matrix_path or rhs_path are missing.
-    """
-    matrix_file = Path(general_params.data.matrix_path)
-    rhs_file = (
-        Path(general_params.data.rhs_path)
-        if general_params.data.rhs_path is not None
-        else matrix_file
-    )
-
-    if output_root is not None:
-        output_base = resolve_user_path(output_root)
-    else:
-        output_base = (Path.cwd() / "comparison" / matrix_file.stem).resolve()
-
-    figs_base = Path(figures_root) if figures_root else output_base / "figures"
-
-    return ComparisonPaths(
-        matrix=matrix_file,
-        rhs=rhs_file,
-        output=output_base,
-        figures=figs_base,
-    )
-
-
-def _ensure_comparison_directories(paths: ComparisonPaths) -> None:
-    """Ensure the figures directory exists.
-
-    Only the figures subdirectory needs explicit creation; the output root
-    is either caller-supplied or an MLflow-managed artifact directory.
-    mkdir(parents=True) inside ensure_dir creates any intermediate directories
-    (including paths.output) as a side effect.
-
-    Args:
-        paths: Comparison paths with output and figures directories.
-    """
-    ensure_dir(paths.figures)

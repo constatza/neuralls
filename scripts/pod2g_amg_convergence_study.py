@@ -66,7 +66,7 @@ if TYPE_CHECKING:
 
     from torchalg.preconditioners.implementations.amg.protocols import CoarseningStrategy
 
-    from neuralls.domain.solver.models.result import CGComparisonResult
+    from neuralls.domain.solver.models.cg_result import CGComparisonResult
 
 
 def _realized_coarse_dimension(coarsening: CoarseningStrategy, matrix: torch.Tensor) -> int:
