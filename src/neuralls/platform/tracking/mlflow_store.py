@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import math
 import tempfile
 import tomllib
@@ -18,6 +17,11 @@ from mlflow.tracking import MlflowClient
 
 from neuralls.domain.identity import IdentityTag, Reused, StageIdentity
 from neuralls.platform.reporting.benchmark_events import (
+    METHOD_ARTIFACT_DIR,
+    MethodBenchmarkArtifacts,
+    read_convergence,
+    read_planned_systems,
+    read_presentation,
     read_setup_events,
     read_solve_attempts,
 )
@@ -28,15 +32,7 @@ from neuralls.shared.digest import Digest, Json, ordered_workload_digest
 _PAGE_SIZE = 50
 _NEWEST_FIRST = ["attributes.start_time DESC", "attributes.run_id ASC"]
 _METHOD_PHASE = "comparison_method"
-_METHOD_ARTIFACTS = frozenset(
-    {
-        "setup_events.parquet",
-        "solve_attempts.parquet",
-        "summary.toml",
-        "method_config.toml",
-        "method_diagnostics.json",
-    }
-)
+_METHOD_ARTIFACTS = frozenset(MethodBenchmarkArtifacts.file_names())
 
 
 def _tag_clause(tag: IdentityTag, value: str) -> str:
@@ -151,7 +147,7 @@ def find_reusable_benchmark_method(
     for run in runs:
         artifacts = {
             info.path.rsplit("/", 1)[-1]: info.path
-            for info in client.list_artifacts(run.info.run_id, path="method_workload")
+            for info in client.list_artifacts(run.info.run_id, path=METHOD_ARTIFACT_DIR)
             if not info.is_dir
         }
         if not _METHOD_ARTIFACTS.issubset(artifacts):
@@ -189,18 +185,18 @@ def _validate_method_artifacts(
     system_identities: tuple[Digest, ...] | None = None,
 ) -> None:
     """Validate the canonical Task 5 artifacts before accepting a cache hit."""
-    setup_path = Path(paths["setup_events.parquet"])
-    solve_path = Path(paths["solve_attempts.parquet"])
-    summary_path = Path(paths["summary.toml"])
-    config_path = Path(paths["method_config.toml"])
+    artifacts = MethodBenchmarkArtifacts()
+    setup_path = Path(paths[str(artifacts.setup_events)])
+    solve_path = Path(paths[str(artifacts.solve_attempts)])
+    summary_path = Path(paths[str(artifacts.summary)])
+    config_path = Path(paths[str(artifacts.method_config)])
     setup = read_setup_events(setup_path)
     solve = read_solve_attempts(solve_path, setup_events_path=setup_path)
     summary = tomllib.loads(summary_path.read_text(encoding="utf-8"))
     config = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    diagnostics = json.loads(Path(paths["method_diagnostics.json"]).read_text(encoding="utf-8"))
     if config != dict(method_config):
         raise ValueError("method config artifact does not match requested workload")
-    _validate_diagnostics(diagnostics, method=method, system_ids=system_ids)
+    _validate_stored_tables(paths, artifacts, method=method, system_ids=system_ids)
     method_summary = summary.get("method")
     workload_summary = summary.get("workload")
     expected_ids = list(system_ids)
@@ -221,30 +217,27 @@ def _validate_method_artifacts(
     _validate_summary(summary, setup, solve, expected_ids=system_ids, solved_ids=solved_ids)
 
 
-def _validate_diagnostics(diagnostics: object, *, method: str, system_ids: tuple[str, ...]) -> None:
-    """Validate diagnostic JSON membership and method identity."""
-    if not isinstance(diagnostics, list):
-        raise TypeError("method diagnostics must be a JSON list")
-    records: list[dict[str, object]] = []
-    for record in diagnostics:
-        if not isinstance(record, dict):
-            raise TypeError("method diagnostic record must be an object")
-        if record.get("method") != method:
-            raise ValueError("diagnostic method does not match requested workload")
-        if not isinstance(record.get("system_id"), str):
-            raise TypeError("diagnostic record is missing system ID")
-        if not isinstance(record.get("converged"), bool):
-            raise TypeError("diagnostic convergence state must be boolean")
-        _validate_non_negative_int(record.get("iterations"), "diagnostic iterations")
-        _validate_non_negative_number(record.get("solve_s"), "diagnostic solve time")
-        _validate_samples(record.get("residual_history_rel"), "residual history")
-        energy = record.get("error_history_a_rel")
-        if energy is not None:
-            _validate_samples(energy, "energy history")
-        records.append(record)
-    diagnostic_ids = tuple(str(record["system_id"]) for record in records)
-    if len(set(diagnostic_ids)) != len(diagnostic_ids) or set(diagnostic_ids) != set(system_ids):
-        raise ValueError("diagnostic membership does not match requested workload")
+def _validate_stored_tables(
+    paths: Mapping[str, str],
+    artifacts: MethodBenchmarkArtifacts,
+    *,
+    method: str,
+    system_ids: tuple[str, ...],
+) -> None:
+    """Validate the planned systems, presentation and convergence tables of a method run."""
+    planned = read_planned_systems(Path(paths[str(artifacts.planned_systems)]))
+    if tuple(str(system.tag.system_id) for system in planned) != system_ids:
+        raise ValueError("planned systems do not match requested workload")
+    stored = read_presentation(Path(paths[str(artifacts.presentation)]))
+    if str(stored.method.prepared.method_id) != method:
+        raise ValueError("stored presentation does not belong to requested method")
+    if {system.tag.dataset for system in planned} != set(stored.datasets):
+        raise ValueError("stored dataset presentations do not match planned systems")
+    convergence = read_convergence(Path(paths[str(artifacts.convergence)]))
+    if not set(convergence.get_column("system_id").to_list()).issubset(system_ids):
+        raise ValueError("convergence membership does not match requested workload")
+    if {str(value) for value in convergence.get_column("method").to_list()} - {method}:
+        raise ValueError("convergence method does not match requested workload")
 
 
 def _validate_non_negative_number(value: object, name: str) -> None:
@@ -257,13 +250,6 @@ def _validate_non_negative_number(value: object, name: str) -> None:
 def _validate_non_negative_int(value: object, name: str) -> None:
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"{name} must be a non-negative integer")
-
-
-def _validate_samples(value: object, name: str) -> None:
-    if not isinstance(value, list):
-        raise TypeError(f"{name} must be a list")
-    for sample in value:
-        _validate_non_negative_number(sample, name)
 
 
 def _validate_event_methods(setup: pl.DataFrame, solve: pl.DataFrame, method: str) -> None:

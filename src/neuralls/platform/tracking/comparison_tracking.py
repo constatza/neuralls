@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -15,6 +14,7 @@ from neuralls.domain.benchmarking.costs import amortized_online_seconds, solve_s
 from neuralls.domain.benchmarking.selection import (
     ConfiguredReference,
     NoReferenceConfigured,
+    ReferenceSelection,
     ReferenceUnavailable,
 )
 from neuralls.domain.presentation.methods import (
@@ -22,7 +22,11 @@ from neuralls.domain.presentation.methods import (
     PreparedMethodPresentation,
 )
 from neuralls.domain.presentation.provenance import DatasetPresentation
-from neuralls.domain.solver.models.benchmark_events import SetupFailed, SolveFailed
+from neuralls.domain.solver.models.benchmark_events import (
+    MeasuredPeakMemory,
+    SetupFailed,
+    SolveFailed,
+)
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.models.figure_scope import MethodScope, RecipeScope
 from neuralls.domain.solver.models.group_outcomes import (
@@ -32,11 +36,13 @@ from neuralls.domain.solver.models.group_outcomes import (
 from neuralls.domain.solver.models.group_presentation import GroupPresentation, SolverTimingContext
 from neuralls.domain.solver.models.plot_style import plot_style_maps
 from neuralls.domain.solver.models.statistics import MethodComparison, PairedComparison
+from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.domain.solver.models.workload import MethodWorkload, MethodWorkloadSummary
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName, level_name
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.reporting.benchmark_events import (
+    METHOD_ARTIFACT_DIR,
     write_method_benchmark_artifacts,
 )
 from neuralls.platform.reporting.figure_metadata import (
@@ -72,7 +78,7 @@ from neuralls.platform.reporting.plots import (
     plot_convergence_comparison,
     plot_error_convergence_comparison,
 )
-from neuralls.platform.storage.facts_codec import encode_facts, encode_method_parameters
+from neuralls.platform.storage.facts_codec import encode_method_parameters
 from neuralls.platform.tracking.mlflow import ensure_experiment, sanitize_metric_key_segment
 from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.scientific_description.policy import NotationPolicy
@@ -457,8 +463,7 @@ def _figure_metadata(
     )
 
 
-METHOD_ARTIFACT_DIR = "method_workload"
-REALIZED_FACTS_FILENAME = "realized_facts.json"
+FIGURE_ARTIFACT_DIR = f"{METHOD_ARTIFACT_DIR}/figures"
 
 
 @dataclass(frozen=True, slots=True)
@@ -466,7 +471,9 @@ class MLflowBenchmarkMethodSink:
     """Write one reduced method workload into the already-active child run.
 
     ``notation`` is the case's symbol policy and ``datasets`` presents each dataset a
-    workload ran on; method figures render both when they are drawn.
+    workload ran on; method figures render both when they are drawn. ``solver_contexts``
+    and ``references`` give the settings and reference state each planned system was
+    timed under; they are persisted with the raw events.
 
     Run ownership deliberately stays in ``comparison_batch``.  Calling this
     sink while no run is active is a caller error, just like calling
@@ -476,6 +483,8 @@ class MLflowBenchmarkMethodSink:
 
     notation: NotationPolicy
     datasets: Mapping[DatasetId, DatasetPresentation]
+    solver_contexts: Mapping[SystemId, SolverTimingContext]
+    references: Mapping[SystemId, ReferenceSelection]
 
     def record_method(
         self,
@@ -490,26 +499,20 @@ class MLflowBenchmarkMethodSink:
             temporary = tempfile.TemporaryDirectory(prefix="neuralls-method-")
             root = Path(temporary.name)
         try:
-            artifacts = write_method_benchmark_artifacts(workload, summary, root)
+            systems = [
+                SystemProvenance(
+                    tag, self.solver_contexts[tag.system_id], self.references[tag.system_id]
+                )
+                for tag in workload.planned
+            ]
+            artifacts = write_method_benchmark_artifacts(
+                workload, summary, root, systems=systems, datasets=self.datasets
+            )
             self._log_method_metadata(workload, summary)
-            for relative in (
-                artifacts.setup_events,
-                artifacts.solve_attempts,
-                artifacts.convergence,
-                artifacts.summary,
-            ):
+            for relative in artifacts.paths():
                 mlflow.log_artifact(str(root / relative), artifact_path=METHOD_ARTIFACT_DIR)
-            config_path = _write_method_config(root, workload.method_config)
-            mlflow.log_artifact(str(config_path), artifact_path=METHOD_ARTIFACT_DIR)
-            realized_path = _write_realized_facts(root, workload)
-            mlflow.log_artifact(str(realized_path), artifact_path=METHOD_ARTIFACT_DIR)
-            for diagnostics_path in _write_method_diagnostics(
-                root, workload, self.notation, self.datasets
-            ):
-                artifact_path = METHOD_ARTIFACT_DIR
-                if diagnostics_path.parent.name == "figures":
-                    artifact_path = f"{METHOD_ARTIFACT_DIR}/figures"
-                mlflow.log_artifact(str(diagnostics_path), artifact_path=artifact_path)
+            for figure in _write_method_figures(root, workload, self.notation, self.datasets):
+                mlflow.log_artifact(str(figure), artifact_path=FIGURE_ARTIFACT_DIR)
         finally:
             if temporary is not None:
                 temporary.cleanup()
@@ -537,6 +540,9 @@ class MLflowBenchmarkMethodSink:
             "workload_online_s": summary.workload_online_s,
             "n_setup_failed": float(n_setup_failed),
             "n_solve_failed": float(n_solve_failed),
+            "iterations_total": float(
+                sum(attempt.outcome.iterations for attempt in workload.solve_attempts)
+            ),
         }
         mlflow.set_tag(
             "workload_outcome",
@@ -544,55 +550,12 @@ class MLflowBenchmarkMethodSink:
         )
         if summary.online_s_per_attempted_rhs is not None:
             metrics["online_s_per_attempted_rhs"] = summary.online_s_per_attempted_rhs
-        from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory
-
         if isinstance(summary.workload_peak_memory, MeasuredPeakMemory):
             metrics["workload_peak_memory_bytes"] = float(summary.workload_peak_memory.bytes)
         if workload.generation_cost is not None:
             metrics["generation_s"] = workload.generation_cost.wall_time_seconds
         for key, value in metrics.items():
             mlflow.log_metric(key, value)
-
-
-def _write_method_config(root: Path, config: Mapping[str, object]) -> Path:
-    """Stage a method config without making config serialization part of timing."""
-    path = root / "method_config.toml"
-    import tomli_w
-
-    path.write_bytes(tomli_w.dumps(_exclude_none(config)).encode("utf-8"))
-    return path
-
-
-def _write_realized_facts(root: Path, workload: MethodWorkload) -> Path:
-    """Stage the facts known only after setup, one entry per system.
-
-    Realized facts can differ between matrices, so they are a table, never a single
-    run-wide parameter.
-    """
-    path = root / REALIZED_FACTS_FILENAME
-    payload = [
-        {
-            "system_id": str(system.system_id),
-            "matrix_id": int(system.matrix_id),
-            "facts": encode_facts(system.facts),
-        }
-        for system in workload.presentation.systems
-    ]
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    return path
-
-
-def _exclude_none(config: Mapping[str, object]) -> dict[str, object]:
-    """Recursively remove unset model fields before TOML serialization."""
-    return {key: _exclude_none_value(value) for key, value in config.items() if value is not None}
-
-
-def _exclude_none_value(value: object) -> object:
-    if isinstance(value, Mapping):
-        return _exclude_none(value)
-    if isinstance(value, list):
-        return [_exclude_none_value(item) for item in value]
-    return value
 
 
 def _system_legend(
@@ -611,30 +574,14 @@ def _system_legend(
     return series_legend(texts)
 
 
-def _write_method_diagnostics(
+def _write_method_figures(
     root: Path,
     workload: MethodWorkload,
     notation: NotationPolicy,
     datasets: Mapping[DatasetId, DatasetPresentation],
 ) -> tuple[Path, ...]:
-    """Stage histories and method figures without creating child runs."""
+    """Stage the method's convergence figures without creating child runs."""
     diagnostics = {str(system_id): result for system_id, result in workload.diagnostics}
-    path = root / "method_diagnostics.json"
-    payload = [
-        {
-            "system_id": str(system_id),
-            "method": str(workload.method),
-            "iterations": result.iterations,
-            "converged": result.converged,
-            "solve_s": result.solve_time_seconds,
-            "residual_history_rel": list(result.residual_history_rel),
-            "error_history_a_rel": (
-                list(result.error_history_a_rel) if result.error_history_a_rel is not None else None
-            ),
-        }
-        for system_id, result in workload.diagnostics
-    ]
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     figures = root / "figures"
     figures.mkdir(exist_ok=True)
     subtitle = ScopeSubtitle(MethodScope(workload.presentation.prepared.detailed), notation)
@@ -662,7 +609,7 @@ def _write_method_diagnostics(
         families=series_recipes,
         color_keys=series_recipes,
     )
-    return path, residual_figure, energy_figure
+    return residual_figure, energy_figure
 
 
 @dataclass(frozen=True, slots=True)

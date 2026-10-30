@@ -13,8 +13,10 @@ from typing import Any, assert_never, cast, get_args
 from neuralls.domain.presentation.methods import (
     ConfiguredMethodPresentation,
     DatasetQualifiedMethodPresentation,
+    ExecutedMethod,
     PreparedMethodPresentation,
     StandaloneMethodPresentation,
+    SystemRealization,
 )
 from neuralls.domain.presentation.provenance import (
     DatasetGenerationProvenance,
@@ -57,15 +59,23 @@ from neuralls.shared.scientific_description.models import (
     TextFact,
     ValidatedLabel,
 )
-from neuralls.shared.types import GenerationStrategyKind, NormalizeType
+from neuralls.shared.types import (
+    GenerationStrategyKind,
+    MatrixId,
+    NormalizeType,
+    PreconditionerName,
+    SystemId,
+)
 
 __all__ = [
     "decode_dataset_presentation",
+    "decode_executed_method",
     "decode_facts",
     "decode_figure_scope",
     "decode_method_presentation",
     "decode_recipe",
     "encode_dataset_presentation",
+    "encode_executed_method",
     "encode_facts",
     "encode_figure_scope",
     "encode_method_parameters",
@@ -268,6 +278,43 @@ def decode_method_presentation(payload: Payload) -> ConfiguredMethodPresentation
             )
         case other:
             raise ValueError(f"Unknown method presentation kind {other!r}")
+
+
+def encode_executed_method(method: ExecutedMethod) -> dict[str, Any]:
+    """Encode a method's configured presentation, compact fact selection and realized facts."""
+    prepared = method.prepared
+    return {
+        "method_id": str(prepared.method_id),
+        "configured": encode_method_presentation(prepared.configured),
+        "compact_facts": encode_facts(prepared.compact_facts),
+        "systems": [
+            {
+                "system_id": str(system.system_id),
+                "matrix_id": int(system.matrix_id),
+                "facts": encode_facts(system.facts),
+            }
+            for system in method.systems
+        ],
+    }
+
+
+def decode_executed_method(payload: Payload) -> ExecutedMethod:
+    """Decode and validate an executed method produced by `encode_executed_method`."""
+    return ExecutedMethod(
+        PreparedMethodPresentation(
+            method_id=PreconditionerName(str(payload["method_id"])),
+            configured=decode_method_presentation(payload["configured"]),
+            compact_facts=decode_facts(payload["compact_facts"]),
+        ),
+        tuple(
+            SystemRealization(
+                SystemId(str(system["system_id"])),
+                MatrixId(int(system["matrix_id"])),
+                decode_facts(system["facts"]),
+            )
+            for system in payload["systems"]
+        ),
+    )
 
 
 def encode_recipe(recipe: RhsRecipe) -> dict[str, Any]:

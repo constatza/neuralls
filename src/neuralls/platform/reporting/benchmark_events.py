@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+import tomllib
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, cast
 
@@ -11,10 +13,13 @@ import polars as pl
 import pyarrow.parquet as pq
 import tomli_w
 
+from neuralls.domain.presentation.methods import ExecutedMethod, MissingMethodPresentationError
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.benchmark_events import (
     MeasuredPeakMemory,
     PeakMemory,
 )
+from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.domain.solver.models.workload import (
     IncompleteWorkloadSummary,
     MethodWorkload,
@@ -23,33 +28,78 @@ from neuralls.domain.solver.models.workload import (
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.domain.solver.reporting.event_frames import (
     CONVERGENCE_SCHEMA,
+    PLANNED_SYSTEM_SCHEMA,
     SETUP_EVENT_SCHEMA,
     SOLVE_ATTEMPT_SCHEMA,
     build_convergence_frame,
+    build_planned_systems_frame,
     build_setup_frame,
     build_solve_frame,
+    decode_planned_systems_frame,
     validate_decoded_convergence_frame,
     validate_decoded_setup_frame,
     validate_decoded_solve_frame,
     validate_setup_solve_frame_links,
 )
-from neuralls.shared.digest import Digest, ordered_workload_digest
+from neuralls.platform.storage.facts_codec import (
+    decode_dataset_presentation,
+    decode_executed_method,
+    encode_dataset_presentation,
+    encode_executed_method,
+)
+from neuralls.shared.digest import Digest, Json, ordered_workload_digest
+from neuralls.shared.types import DatasetId
+
+METHOD_ARTIFACT_DIR = "method_workload"
 
 
 @dataclass(frozen=True, slots=True)
 class MethodBenchmarkArtifacts:
-    """Stable artifact-relative paths emitted for one method workload."""
+    """The one definition of the artifact set a method workload persists.
+
+    The writer, the reuse gate and the run's ``required_artifacts`` tag all derive
+    from these names, so they cannot disagree about what a complete method run holds.
+    """
 
     setup_events: Path = Path("setup_events.parquet")
     solve_attempts: Path = Path("solve_attempts.parquet")
     convergence: Path = Path("convergence.parquet")
+    planned_systems: Path = Path("planned_systems.parquet")
     summary: Path = Path("summary.toml")
+    method_config: Path = Path("method_config.toml")
+    presentation: Path = Path("presentation.toml")
+
+    @classmethod
+    def file_names(cls) -> tuple[str, ...]:
+        """File names of every artifact of a complete method run, in declaration order."""
+        return tuple(str(getattr(cls(), field.name)) for field in fields(cls))
+
+    def paths(self) -> tuple[Path, ...]:
+        """Relative paths of every artifact."""
+        return tuple(getattr(self, field.name) for field in fields(self))
+
+
+@dataclass(frozen=True, slots=True)
+class StoredMethodPresentation:
+    """A method's stored presentation and the presentation of each dataset it ran on."""
+
+    method: ExecutedMethod
+    datasets: Mapping[DatasetId, DatasetPresentation]
 
 
 def write_method_benchmark_artifacts(
-    workload: MethodWorkload, summary: MethodWorkloadSummary, root: Path
+    workload: MethodWorkload,
+    summary: MethodWorkloadSummary,
+    root: Path,
+    *,
+    systems: Sequence[SystemProvenance],
+    datasets: Mapping[DatasetId, DatasetPresentation],
 ) -> MethodBenchmarkArtifacts:
-    """Write canonical event frames and a summary derived from their reducers."""
+    """Write every artifact of a method workload; the summary is derived from its events.
+
+    ``systems`` carries the solver settings and reference state of each planned system, in
+    plan order; ``datasets`` presents each dataset the workload ran on.
+    """
     _validate_config_digest(workload.config_digest)
     canonical_summary = summarize_method_workload(
         workload.method,
@@ -60,6 +110,8 @@ def write_method_benchmark_artifacts(
     )
     if canonical_summary != summary:
         raise ValueError("provided method summary does not reconcile with canonical events")
+    if tuple(system.tag for system in systems) != workload.planned:
+        raise ValueError("system provenance must describe the planned systems, in plan order")
 
     artifacts = MethodBenchmarkArtifacts()
     root.mkdir(parents=True, exist_ok=True)
@@ -69,8 +121,64 @@ def write_method_benchmark_artifacts(
         build_convergence_frame(workload.method, workload.diagnostics),
         root / artifacts.convergence,
     )
+    _write_frame(build_planned_systems_frame(systems), root / artifacts.planned_systems)
     _write_summary(workload, canonical_summary, root / artifacts.summary)
+    # tomli_w rejects None, so unset model fields are dropped rather than written as null.
+    (root / artifacts.method_config).write_bytes(
+        tomli_w.dumps(_exclude_none(workload.method_config)).encode("utf-8")
+    )
+    _write_presentation(workload, datasets, root / artifacts.presentation)
     return artifacts
+
+
+def read_planned_systems(path: Path) -> tuple[SystemProvenance, ...]:
+    """Read and validate a planned-systems Parquet artifact."""
+    return decode_planned_systems_frame(_read_frame(path, PLANNED_SYSTEM_SCHEMA))
+
+
+def read_presentation(path: Path) -> StoredMethodPresentation:
+    """Read and validate a presentation TOML artifact."""
+    payload = tomllib.loads(path.read_text(encoding="utf-8"))
+    return StoredMethodPresentation(
+        method=decode_executed_method(payload["method"]),
+        datasets={
+            DatasetId(str(entry["id"])): decode_dataset_presentation(entry["presentation"])
+            for entry in payload["datasets"]
+        },
+    )
+
+
+def _write_presentation(
+    workload: MethodWorkload,
+    datasets: Mapping[DatasetId, DatasetPresentation],
+    path: Path,
+) -> None:
+    """Stage the method's presentation with each dataset the workload ran on, as keys and values."""
+    ran_on = dict.fromkeys(tag.dataset for tag in workload.planned)
+    missing = next((dataset for dataset in ran_on if dataset not in datasets), None)
+    if missing is not None:
+        raise MissingMethodPresentationError(str(missing))
+    payload = {
+        "method": encode_executed_method(workload.presentation),
+        "datasets": [
+            {"id": str(dataset), "presentation": encode_dataset_presentation(datasets[dataset])}
+            for dataset in ran_on
+        ],
+    }
+    path.write_bytes(tomli_w.dumps(payload).encode("utf-8"))
+
+
+def _exclude_none(config: Mapping[str, Json]) -> dict[str, Json]:
+    """Recursively remove unset model fields before TOML serialization."""
+    return {key: _exclude_none_value(value) for key, value in config.items() if value is not None}
+
+
+def _exclude_none_value(value: Json) -> Json:
+    if isinstance(value, Mapping):
+        return _exclude_none(value)
+    if isinstance(value, list):
+        return [_exclude_none_value(item) for item in value]
+    return value
 
 
 def read_setup_events(path: Path) -> pl.DataFrame:

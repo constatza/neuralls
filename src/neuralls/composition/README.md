@@ -503,7 +503,8 @@ missing setup event.
 Completed method workloads are persisted by
 `platform.reporting.benchmark_events.write_method_benchmark_artifacts` as the
 versioned, artifact-relative `setup_events.parquet`, `solve_attempts.parquet`,
-`convergence.parquet` and `summary.toml` files. The Parquet frames are canonical; the TOML summary is
+`convergence.parquet`, `planned_systems.parquet`, `summary.toml`, `method_config.toml` and
+`presentation.toml` files (see `platform/README.md`). The Parquet frames are canonical; the TOML summary is
 reconciled from the Task 2 reducers and records the method name/config digest,
 planned/attempted/converged counts, setup/solve/online timings, attempted-RHS
 average, and workload peak memory. If an offline value is present, it is named

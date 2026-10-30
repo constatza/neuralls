@@ -1,18 +1,38 @@
 from __future__ import annotations
 
 import tomllib
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import Protocol
 
 import polars as pl
 import pyarrow.parquet as pq
 import pytest
 from tests.convergence_support import cg_result
 from tests.presentation_support import PreparedMethodFactory
+from tests.provenance_support import datasets_for, provenance_for
+from tests.realized_support import completed_workload
 from tests.recipe_support import GAUSSIAN
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload
-from neuralls.domain.presentation.methods import ExecutedMethod
+from neuralls.domain.benchmarking.selection import (
+    ConfiguredReference,
+    NoReferenceConfigured,
+    ReferenceSelection,
+    ReferenceUnavailable,
+)
+from neuralls.domain.presentation.methods import (
+    DatasetQualifiedMethodPresentation,
+    ExecutedMethod,
+    MethodPresentationCandidate,
+    MissingMethodPresentationError,
+    PreparedMethodPresentation,
+    UnvalidatedComparisonPresentation,
+)
+from neuralls.domain.presentation.planner import prepare_presentations
+from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.presentation.titles import ComparisonScopePresentation
 from neuralls.domain.solver.models import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -25,15 +45,24 @@ from neuralls.domain.solver.models import (
     UnknownPeakMemory,
 )
 from neuralls.domain.solver.models.cost import StageCost
-from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
+from neuralls.domain.solver.models.workload import CompleteWorkloadSummary, MethodWorkloadSummary
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
+from neuralls.domain.solver.reporting.event_frames import (
+    build_planned_systems_frame,
+    decode_planned_systems_frame,
+)
 from neuralls.platform.reporting.benchmark_events import (
+    MethodBenchmarkArtifacts,
+    StoredMethodPresentation,
     read_convergence,
+    read_planned_systems,
+    read_presentation,
     read_setup_events,
     read_solve_attempts,
     write_method_benchmark_artifacts,
 )
 from neuralls.shared.rhs_recipe import recipe_key
+from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.types import (
     CostProvenance,
     DatasetId,
@@ -43,11 +72,55 @@ from neuralls.shared.types import (
     SystemId,
 )
 
+ARTIFACT_FILE_NAMES = (
+    "setup_events.parquet",
+    "solve_attempts.parquet",
+    "convergence.parquet",
+    "planned_systems.parquet",
+    "summary.toml",
+    "method_config.toml",
+    "presentation.toml",
+)
+CONFIGURED_REFERENCE = ConfiguredReference(PreconditionerName("ic0"))
+UNAVAILABLE_REFERENCE = ReferenceUnavailable(PreconditionerName("ic0"), "factorization failed")
+UNKNOWN_KIND = "mystery"
+REALIZED_DEPTHS = {0: 2, 1: 3}
+OTHER_TAG = SystemTag(DatasetId("dataset"), GAUSSIAN, MatrixId(0), 0, SystemId("other"))
+
+
+class WriteArtifacts(Protocol):
+    """Writer bound to default provenance and the shared dataset presentation."""
+
+    def __call__(
+        self,
+        workload: CompletedMethodWorkload,
+        summary: MethodWorkloadSummary,
+        root: Path,
+    ) -> MethodBenchmarkArtifacts: ...
+
 
 def _rewrite_frame(path: Path, frame: pl.DataFrame) -> None:
     """Rewrite a test artifact while preserving its Parquet metadata."""
     metadata = pq.read_schema(path).metadata
     pq.write_table(frame.to_arrow().replace_schema_metadata(metadata), path)
+
+
+@pytest.fixture
+def write(dataset_presentation: DatasetPresentation) -> WriteArtifacts:
+    """The artifact writer with no-reference provenance for every planned system."""
+
+    def _write(
+        workload: CompletedMethodWorkload, summary: MethodWorkloadSummary, root: Path
+    ) -> MethodBenchmarkArtifacts:
+        return write_method_benchmark_artifacts(
+            workload,
+            summary,
+            root,
+            systems=provenance_for(workload.planned),
+            datasets=datasets_for(workload.planned, dataset_presentation),
+        )
+
+    return _write
 
 
 @pytest.fixture
@@ -125,11 +198,12 @@ def summary(workload: CompletedMethodWorkload) -> CompleteWorkloadSummary:
 
 
 def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_variants(
+    write: WriteArtifacts,
     tmp_path: Path,
     workload: CompletedMethodWorkload,
     summary: CompleteWorkloadSummary,
 ) -> None:
-    artifacts = write_method_benchmark_artifacts(workload=workload, summary=summary, root=tmp_path)
+    artifacts = write(workload=workload, summary=summary, root=tmp_path)
 
     assert artifacts.setup_events == Path("setup_events.parquet")
     assert artifacts.solve_attempts == Path("solve_attempts.parquet")
@@ -223,9 +297,12 @@ def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_vari
 
 
 def test_event_reader_rejects_schema_valid_invalid_measurements(
-    tmp_path: Path, workload: CompletedMethodWorkload, summary: CompleteWorkloadSummary
+    write: WriteArtifacts,
+    tmp_path: Path,
+    workload: CompletedMethodWorkload,
+    summary: CompleteWorkloadSummary,
 ) -> None:
-    artifacts = write_method_benchmark_artifacts(workload=workload, summary=summary, root=tmp_path)
+    artifacts = write(workload=workload, summary=summary, root=tmp_path)
     setup_path = tmp_path / artifacts.setup_events
     setup = read_setup_events(setup_path).with_columns(pl.lit(-1.0).alias("setup_s"))
     _rewrite_frame(setup_path, setup)
@@ -235,9 +312,12 @@ def test_event_reader_rejects_schema_valid_invalid_measurements(
 
 
 def test_summary_is_reconciled_from_canonical_frames_and_versioned(
-    tmp_path: Path, workload: CompletedMethodWorkload, summary: CompleteWorkloadSummary
+    write: WriteArtifacts,
+    tmp_path: Path,
+    workload: CompletedMethodWorkload,
+    summary: CompleteWorkloadSummary,
 ) -> None:
-    artifacts = write_method_benchmark_artifacts(workload=workload, summary=summary, root=tmp_path)
+    artifacts = write(workload=workload, summary=summary, root=tmp_path)
     setup = read_setup_events(tmp_path / artifacts.setup_events)
     solves = read_solve_attempts(tmp_path / artifacts.solve_attempts)
     payload = tomllib.loads((tmp_path / artifacts.summary).read_text(encoding="utf-8"))
@@ -279,7 +359,7 @@ def test_summary_is_reconciled_from_canonical_frames_and_versioned(
 
 
 def test_unknown_workload_memory_writes_status_without_toml_null(
-    tmp_path: Path, workload: CompletedMethodWorkload
+    write: WriteArtifacts, tmp_path: Path, workload: CompletedMethodWorkload
 ) -> None:
     unknown_workload = replace(workload, workload_peak_memory=UnknownPeakMemory())
     unknown_summary = summarize_method_workload(
@@ -289,23 +369,22 @@ def test_unknown_workload_memory_writes_status_without_toml_null(
         unknown_workload.solve_attempts,
         unknown_workload.workload_peak_memory,
     )
-    artifacts = write_method_benchmark_artifacts(
-        workload=unknown_workload, summary=unknown_summary, root=tmp_path
-    )
+    artifacts = write(workload=unknown_workload, summary=unknown_summary, root=tmp_path)
     memory = tomllib.loads((tmp_path / artifacts.summary).read_text(encoding="utf-8"))["memory"]
     assert memory == {"status": "unknown"}
 
 
 def test_generation_cost_is_explicitly_named_and_only_cost_persisted(
-    tmp_path: Path, workload: CompletedMethodWorkload, summary: CompleteWorkloadSummary
+    write: WriteArtifacts,
+    tmp_path: Path,
+    workload: CompletedMethodWorkload,
+    summary: CompleteWorkloadSummary,
 ) -> None:
     with_generation = replace(
         workload,
         generation_cost=StageCost(8.5, 1024, CostProvenance.HISTORICAL),
     )
-    artifacts = write_method_benchmark_artifacts(
-        workload=with_generation, summary=summary, root=tmp_path
-    )
+    artifacts = write(workload=with_generation, summary=summary, root=tmp_path)
     payload = tomllib.loads((tmp_path / artifacts.summary).read_text(encoding="utf-8"))
     assert payload["generation_s"] == 8.5
     assert payload["generation_source"] == "historical"
@@ -314,21 +393,23 @@ def test_generation_cost_is_explicitly_named_and_only_cost_persisted(
 
 @pytest.mark.parametrize("digest", ["", "sha256:short", "sha256:" + "G" * 64])
 def test_writer_rejects_empty_or_malformed_config_digest(
+    write: WriteArtifacts,
     tmp_path: Path,
     workload: CompletedMethodWorkload,
     summary: CompleteWorkloadSummary,
     digest: str,
 ) -> None:
     with pytest.raises(ValueError):
-        write_method_benchmark_artifacts(
-            workload=replace(workload, config_digest=digest), summary=summary, root=tmp_path
-        )
+        write(workload=replace(workload, config_digest=digest), summary=summary, root=tmp_path)
 
 
 def test_reader_rejects_same_id_identity_mismatch_and_failed_setup(
-    tmp_path: Path, workload: CompletedMethodWorkload, summary: CompleteWorkloadSummary
+    write: WriteArtifacts,
+    tmp_path: Path,
+    workload: CompletedMethodWorkload,
+    summary: CompleteWorkloadSummary,
 ) -> None:
-    artifacts = write_method_benchmark_artifacts(workload, summary, tmp_path / "identity")
+    artifacts = write(workload, summary, tmp_path / "identity")
     solve_path = tmp_path / "identity" / artifacts.solve_attempts
     solves = pl.read_parquet(solve_path).with_columns(pl.lit("other").alias("dataset"))
     _rewrite_frame(solve_path, solves)
@@ -337,7 +418,7 @@ def test_reader_rejects_same_id_identity_mismatch_and_failed_setup(
             solve_path, setup_events_path=tmp_path / "identity" / artifacts.setup_events
         )
 
-    artifacts = write_method_benchmark_artifacts(workload, summary, tmp_path / "failed")
+    artifacts = write(workload, summary, tmp_path / "failed")
     setup_path = tmp_path / "failed" / artifacts.setup_events
     setup = pl.read_parquet(setup_path).with_columns(pl.lit("failed").alias("setup_status"))
     _rewrite_frame(setup_path, setup)
@@ -348,7 +429,7 @@ def test_reader_rejects_same_id_identity_mismatch_and_failed_setup(
 
 
 def test_failed_setup_outcome_round_trips_without_inventing_attempts(
-    tmp_path: Path, workload: CompletedMethodWorkload
+    write: WriteArtifacts, tmp_path: Path, workload: CompletedMethodWorkload
 ) -> None:
     failed_tag = SystemTag(DatasetId("dataset"), GAUSSIAN, MatrixId(1), 0, SystemId("s2"))
     failed_setup = MatrixSetupEvent(
@@ -373,9 +454,7 @@ def test_failed_setup_outcome_round_trips_without_inventing_attempts(
         failed_workload.solve_attempts,
         failed_workload.workload_peak_memory,
     )
-    artifacts = write_method_benchmark_artifacts(
-        workload=failed_workload, summary=failed_summary, root=tmp_path
-    )
+    artifacts = write(workload=failed_workload, summary=failed_summary, root=tmp_path)
     setup = read_setup_events(tmp_path / artifacts.setup_events)
     assert setup.get_column("setup_status").to_list() == ["completed", "failed"]
     assert setup.get_column("failure_reason").to_list() == [None, "assembly failed"]
@@ -395,7 +474,7 @@ def test_failed_setup_outcome_round_trips_without_inventing_attempts(
         zero_attempt_workload.workload_peak_memory,
     )
     zero_root = tmp_path / "zero-attempt"
-    zero_artifacts = write_method_benchmark_artifacts(
+    zero_artifacts = write(
         workload=zero_attempt_workload, summary=zero_attempt_summary, root=zero_root
     )
     zero_payload = tomllib.loads((zero_root / zero_artifacts.summary).read_text(encoding="utf-8"))
@@ -403,7 +482,7 @@ def test_failed_setup_outcome_round_trips_without_inventing_attempts(
 
 
 def test_incomplete_summary_preserves_planned_membership_and_missing_ids(
-    tmp_path: Path, workload: CompletedMethodWorkload
+    write: WriteArtifacts, tmp_path: Path, workload: CompletedMethodWorkload
 ) -> None:
     failed_tag = SystemTag(DatasetId("dataset"), GAUSSIAN, MatrixId(1), 0, SystemId("s2"))
     failed_setup = MatrixSetupEvent(
@@ -428,9 +507,7 @@ def test_incomplete_summary_preserves_planned_membership_and_missing_ids(
         incomplete_workload.solve_attempts,
         incomplete_workload.workload_peak_memory,
     )
-    artifacts = write_method_benchmark_artifacts(
-        workload=incomplete_workload, summary=incomplete_summary, root=tmp_path
-    )
+    artifacts = write(workload=incomplete_workload, summary=incomplete_summary, root=tmp_path)
     setup = read_setup_events(tmp_path / artifacts.setup_events)
     solves = read_solve_attempts(tmp_path / artifacts.solve_attempts)
     payload = tomllib.loads((tmp_path / artifacts.summary).read_text(encoding="utf-8"))
@@ -449,9 +526,12 @@ def test_incomplete_summary_preserves_planned_membership_and_missing_ids(
 
 
 def test_readers_reject_wrong_column_schema_and_corrupt_links(
-    tmp_path: Path, workload: CompletedMethodWorkload, summary: CompleteWorkloadSummary
+    write: WriteArtifacts,
+    tmp_path: Path,
+    workload: CompletedMethodWorkload,
+    summary: CompleteWorkloadSummary,
 ) -> None:
-    artifacts = write_method_benchmark_artifacts(workload=workload, summary=summary, root=tmp_path)
+    artifacts = write(workload=workload, summary=summary, root=tmp_path)
     solve_path = tmp_path / artifacts.solve_attempts
     solves = pl.read_parquet(solve_path).with_columns(pl.lit("missing").alias("setup_event_id"))
     solve_schema = pq.read_schema(solve_path)
@@ -473,6 +553,7 @@ def test_readers_reject_wrong_column_schema_and_corrupt_links(
 
 
 def test_convergence_table_round_trips_and_rejects_a_duplicated_row(
+    write: WriteArtifacts,
     tmp_path: Path,
     workload: CompletedMethodWorkload,
     summary: CompleteWorkloadSummary,
@@ -482,7 +563,7 @@ def test_convergence_table_round_trips_and_rejects_a_duplicated_row(
         diagnostics=((SystemId("s0"), cg_result([1.0, 0.1], [1.0, 0.3])),),
     )
 
-    artifacts = write_method_benchmark_artifacts(with_history, summary, tmp_path)
+    artifacts = write(with_history, summary, tmp_path)
     path = tmp_path / artifacts.convergence
 
     assert read_convergence(path).rows() == [
@@ -492,3 +573,175 @@ def test_convergence_table_round_trips_and_rejects_a_duplicated_row(
     _rewrite_frame(path, pl.concat([pl.read_parquet(path)] * 2))
     with pytest.raises(ValueError, match="duplicate convergence row"):
         read_convergence(path)
+
+
+@pytest.fixture
+def planned_frame(workload: CompletedMethodWorkload) -> pl.DataFrame:
+    """A valid planned-systems frame to corrupt one column at a time."""
+    return build_planned_systems_frame(provenance_for(workload.planned))
+
+
+@pytest.fixture
+def qualified_method(dataset_presentation: DatasetPresentation) -> PreparedMethodPresentation:
+    """A dataset-trained method prepared in its own validated cohort."""
+    cohort = prepare_presentations(
+        UnvalidatedComparisonPresentation(
+            methods=(
+                MethodPresentationCandidate(
+                    PreconditionerName("pod"),
+                    DatasetQualifiedMethodPresentation(
+                        ScientificDescription("POD-2G"), dataset_presentation
+                    ),
+                ),
+            ),
+            scope=ComparisonScopePresentation(dataset_presentation),
+        )
+    )
+    return cohort.methods[0]
+
+
+@pytest.fixture
+def summarize() -> Callable[[CompletedMethodWorkload], MethodWorkloadSummary]:
+    """The canonical summary of a workload."""
+
+    def build(workload: CompletedMethodWorkload) -> MethodWorkloadSummary:
+        return summarize_method_workload(
+            workload.method,
+            workload.planned,
+            workload.setup_events,
+            workload.solve_attempts,
+            workload.workload_peak_memory,
+        )
+
+    return build
+
+
+@pytest.mark.parametrize(
+    "reference", [NoReferenceConfigured(), CONFIGURED_REFERENCE, UNAVAILABLE_REFERENCE]
+)
+def test_planned_systems_round_trip_each_reference_kind(
+    tmp_path: Path,
+    workload: CompletedMethodWorkload,
+    summary: CompleteWorkloadSummary,
+    dataset_presentation: DatasetPresentation,
+    reference: ReferenceSelection,
+) -> None:
+    systems = provenance_for(workload.planned, reference)
+    artifacts = write_method_benchmark_artifacts(
+        workload,
+        summary,
+        tmp_path,
+        systems=systems,
+        datasets=datasets_for(workload.planned, dataset_presentation),
+    )
+
+    assert read_planned_systems(tmp_path / artifacts.planned_systems) == systems
+
+
+@pytest.mark.parametrize(
+    "columns",
+    [
+        {"reference_kind": UNKNOWN_KIND},
+        {"reference_kind": "none", "reference_method": "ic0"},
+        {"reference_kind": "unavailable", "reference_method": "ic0", "reference_reason": None},
+    ],
+    ids=["unknown-kind", "none-with-method", "unavailable-without-reason"],
+)
+def test_planned_systems_decoder_rejects_inconsistent_reference_columns(
+    planned_frame: pl.DataFrame, columns: dict[str, str | None]
+) -> None:
+    corrupt = planned_frame.with_columns(
+        *(pl.lit(value, dtype=pl.String).alias(name) for name, value in columns.items())
+    )
+
+    with pytest.raises(ValueError):
+        decode_planned_systems_frame(corrupt)
+
+
+def test_planned_systems_decoder_rejects_duplicate_system_id(planned_frame: pl.DataFrame) -> None:
+    with pytest.raises(ValueError, match="duplicate planned system ID"):
+        decode_planned_systems_frame(pl.concat([planned_frame.head(1)] * 2))
+
+
+def test_planned_systems_reader_rejects_malformed_artifact(
+    tmp_path: Path, planned_frame: pl.DataFrame
+) -> None:
+    path = tmp_path / "planned_systems.parquet"
+    pq.write_table(
+        planned_frame.with_columns(pl.lit(UNKNOWN_KIND).alias("reference_kind")).to_arrow(), path
+    )
+
+    with pytest.raises(ValueError, match="unknown reference kind"):
+        read_planned_systems(path)
+
+
+def test_presentation_round_trips_standalone_method_with_realized_facts(
+    tmp_path: Path,
+    prepared_method: PreparedMethodFactory,
+    dataset_presentation: DatasetPresentation,
+    summarize: Callable[[CompletedMethodWorkload], MethodWorkloadSummary],
+    write: WriteArtifacts,
+) -> None:
+    realized = completed_workload(prepared_method("jacobi"), REALIZED_DEPTHS)
+    artifacts = write(realized, summarize(realized), tmp_path)
+
+    assert read_presentation(tmp_path / artifacts.presentation) == StoredMethodPresentation(
+        realized.presentation, datasets_for(realized.planned, dataset_presentation)
+    )
+
+
+def test_presentation_round_trips_dataset_qualified_method(
+    tmp_path: Path,
+    qualified_method: PreparedMethodPresentation,
+    dataset_presentation: DatasetPresentation,
+    summarize: Callable[[CompletedMethodWorkload], MethodWorkloadSummary],
+    write: WriteArtifacts,
+) -> None:
+    realized = completed_workload(qualified_method, REALIZED_DEPTHS)
+    artifacts = write(realized, summarize(realized), tmp_path)
+
+    assert read_presentation(tmp_path / artifacts.presentation) == StoredMethodPresentation(
+        realized.presentation, datasets_for(realized.planned, dataset_presentation)
+    )
+
+
+def test_writer_rejects_systems_that_differ_from_the_plan(
+    tmp_path: Path,
+    workload: CompletedMethodWorkload,
+    summary: CompleteWorkloadSummary,
+    dataset_presentation: DatasetPresentation,
+) -> None:
+    with pytest.raises(ValueError, match="plan order"):
+        write_method_benchmark_artifacts(
+            workload,
+            summary,
+            tmp_path,
+            systems=provenance_for((OTHER_TAG, *workload.planned[1:])),
+            datasets=datasets_for(workload.planned, dataset_presentation),
+        )
+
+
+def test_writer_rejects_a_planned_dataset_without_presentation(
+    tmp_path: Path, workload: CompletedMethodWorkload, summary: CompleteWorkloadSummary
+) -> None:
+    with pytest.raises(MissingMethodPresentationError):
+        write_method_benchmark_artifacts(
+            workload,
+            summary,
+            tmp_path,
+            systems=provenance_for(workload.planned),
+            datasets={},
+        )
+
+
+def test_artifact_set_names_seven_files_and_the_writer_creates_each(
+    tmp_path: Path,
+    workload: CompletedMethodWorkload,
+    summary: CompleteWorkloadSummary,
+    write: WriteArtifacts,
+) -> None:
+    artifacts = write(workload, summary, tmp_path)
+
+    assert MethodBenchmarkArtifacts.file_names() == ARTIFACT_FILE_NAMES
+    assert tuple(str(path) for path in artifacts.paths()) == ARTIFACT_FILE_NAMES
+    assert all((tmp_path / name).is_file() for name in ARTIFACT_FILE_NAMES)

@@ -43,6 +43,7 @@ from neuralls.domain.presentation.titles import (
 )
 from neuralls.domain.solver.models.provenance import HeldOutMatrix
 from neuralls.platform.config.resolution import MlflowPaths
+from neuralls.platform.reporting.benchmark_events import MethodBenchmarkArtifacts
 from neuralls.platform.tracking.mlflow import MlflowRunConfig
 from neuralls.platform.tracking.run_names import (
     render_training_dataset,
@@ -206,10 +207,7 @@ def build_benchmark_method_run_spec(
         method_label=run_name_text(named),
         method_config_digest=config_digest,
         workload_membership_digest=membership,
-        required_artifacts=(
-            "setup_events.parquet,solve_attempts.parquet,summary.toml,"
-            "method_config.toml,method_diagnostics.json"
-        ),
+        required_artifacts=",".join(MethodBenchmarkArtifacts.file_names()),
         identity_key=identity.key,
         identity_components=json.dumps(dict(identity.components), sort_keys=True),
     )

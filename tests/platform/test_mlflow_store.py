@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,6 +13,7 @@ import pytest
 import tomli_w
 from mlflow.tracking import MlflowClient
 from tests.presentation_support import PreparedMethodFactory
+from tests.provenance_support import provenance_for
 from tests.recipe_support import GAUSSIAN
 
 from neuralls.composition.comparison.models import (
@@ -22,6 +23,7 @@ from neuralls.composition.comparison.models import (
 from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
 from neuralls.domain.identity import IdentityTag, Reused, StageIdentity
 from neuralls.domain.presentation.methods import ExecutedMethod
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -33,18 +35,23 @@ from neuralls.domain.solver.models import (
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.domain.solver.reporting.event_frames import validate_decoded_solve_frame
 from neuralls.platform.config.models.preconditioner import NeuralPreconditionerConfig
-from neuralls.platform.reporting.benchmark_events import write_method_benchmark_artifacts
+from neuralls.platform.reporting.benchmark_events import (
+    METHOD_ARTIFACT_DIR,
+    MethodBenchmarkArtifacts,
+    write_method_benchmark_artifacts,
+)
 from neuralls.platform.tracking.mlflow_store import (
     MlflowIdentityStore,
     _validate_method_artifacts,
     find_reusable_benchmark_method,
 )
-from neuralls.shared.digest import canonical_digest
+from neuralls.shared.digest import Json, canonical_digest
 from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 
 EXPERIMENT = "Train-Case"
+CONFIG_DIGEST = "sha256:" + "a" * 64
 
 type RunFactory = Callable[..., str]
 
@@ -170,10 +177,8 @@ def test_identity_tags_use_the_shared_enum(identity: StageIdentity) -> None:
 
 
 @pytest.fixture
-def method_artifacts(
-    tmp_path: Path, prepared_method: PreparedMethodFactory
-) -> tuple[dict[str, str], tuple[str, ...]]:
-    """Create one complete method artifact set for content-validation tests."""
+def reuse_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
+    """A one-system converged jacobi workload on dataset ``ds``."""
     method = PreconditionerName("jacobi")
     planned = (SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(0), 0, SystemId("s0")),)
     setup = MatrixSetupEvent(
@@ -199,7 +204,7 @@ def method_artifacts(
         MeasuredPeakMemory(1),
         SolveConverged(2, 1e-8),
     )
-    workload = CompletedMethodWorkload(
+    return CompletedMethodWorkload(
         method=method,
         planned=planned,
         setup_events=(setup,),
@@ -207,64 +212,81 @@ def method_artifacts(
         diagnostics=(),
         generation_cost=None,
         workload_peak_memory=MeasuredPeakMemory(2),
-        config_digest="sha256:" + "a" * 64,
+        config_digest=CONFIG_DIGEST,
         method_config={"name": "jacobi"},
         presentation=ExecutedMethod(prepared_method(str(method)), ()),
     )
-    summary = summarize_method_workload(
-        workload.method,
-        workload.planned,
-        workload.setup_events,
-        workload.solve_attempts,
-        workload.workload_peak_memory,
-    )
-    write_method_benchmark_artifacts(workload, summary, tmp_path)
-    (tmp_path / "method_config.toml").write_bytes(
-        tomli_w.dumps(workload.method_config).encode("utf-8")
-    )
-    (tmp_path / "method_diagnostics.json").write_text(
-        json.dumps(
-            [
-                {
-                    "system_id": "s0",
-                    "method": "jacobi",
-                    "iterations": 2,
-                    "converged": True,
-                    "solve_s": 2.0,
-                    "residual_history_rel": [1.0, 1e-8],
-                    "error_history_a_rel": None,
-                }
-            ]
-        ),
-        encoding="utf-8",
-    )
-    paths = {
-        name: str(tmp_path / name)
-        for name in (
-            "setup_events.parquet",
-            "solve_attempts.parquet",
-            "summary.toml",
-            "method_config.toml",
-            "method_diagnostics.json",
+
+
+@pytest.fixture
+def write_artifacts(
+    group_datasets: dict[DatasetId, DatasetPresentation],
+) -> Callable[[CompletedMethodWorkload, Path], None]:
+    """Write the complete artifact set of a workload into a directory."""
+
+    def write(workload: CompletedMethodWorkload, root: Path) -> None:
+        summary = summarize_method_workload(
+            workload.method,
+            workload.planned,
+            workload.setup_events,
+            workload.solve_attempts,
+            workload.workload_peak_memory,
         )
-    }
+        write_method_benchmark_artifacts(
+            workload,
+            summary,
+            root,
+            systems=provenance_for(workload.planned),
+            datasets=group_datasets,
+        )
+
+    return write
+
+
+@pytest.fixture
+def method_artifacts(
+    tmp_path: Path,
+    reuse_workload: CompletedMethodWorkload,
+    write_artifacts: Callable[[CompletedMethodWorkload, Path], None],
+) -> tuple[dict[str, str], tuple[str, ...]]:
+    """Create one complete method artifact set for content-validation tests."""
+    write_artifacts(reuse_workload, tmp_path)
+    paths = {name: str(tmp_path / name) for name in MethodBenchmarkArtifacts.file_names()}
     return paths, ("s0",)
 
 
-def test_reuse_rejects_corrupt_required_diagnostics(
-    method_artifacts: tuple[dict[str, str], tuple[str, ...]],
-) -> None:
-    paths, system_ids = method_artifacts
-    Path(paths["method_diagnostics.json"]).write_text("{", encoding="utf-8")
+def _log_method_run(
+    client: MlflowClient,
+    source: Path,
+    *,
+    tags: dict[str, str],
+    names: tuple[str, ...],
+) -> str:
+    """Create a FINISHED method child holding the named artifacts from ``source``."""
+    experiment = client.get_experiment_by_name(EXPERIMENT)
+    experiment_id = experiment.experiment_id if experiment else client.create_experiment(EXPERIMENT)
+    run = client.create_run(experiment_id, tags=tags)
+    for name in names:
+        client.log_artifact(run.info.run_id, str(source / name), artifact_path=METHOD_ARTIFACT_DIR)
+    client.set_terminated(run.info.run_id, status="FINISHED")
+    return run.info.run_id
 
-    with pytest.raises(ValueError):
-        _validate_method_artifacts(
-            paths,
-            method="jacobi",
-            config_digest="sha256:" + "a" * 64,
-            system_ids=system_ids,
-            method_config={"name": "jacobi"},
-        )
+
+def _find_reusable(
+    client: MlflowClient,
+    *,
+    config_digest: str,
+    system_ids: tuple[str, ...],
+    method_config: Mapping[str, Json],
+) -> Reused | None:
+    return find_reusable_benchmark_method(
+        tracking_uri=client.tracking_uri,
+        experiment=EXPERIMENT,
+        method="jacobi",
+        config_digest=config_digest,
+        system_ids=system_ids,
+        method_config=method_config,
+    )
 
 
 def test_reuse_accepts_valid_required_artifact_contents(
@@ -275,16 +297,124 @@ def test_reuse_accepts_valid_required_artifact_contents(
     _validate_method_artifacts(
         paths,
         method="jacobi",
-        config_digest="sha256:" + "a" * 64,
+        config_digest=CONFIG_DIGEST,
         system_ids=system_ids,
         method_config={"name": "jacobi"},
+    )
+
+
+def test_reuse_rejects_planned_systems_differing_from_requested_ids(
+    method_artifacts: tuple[dict[str, str], tuple[str, ...]],
+) -> None:
+    paths, _ = method_artifacts
+
+    with pytest.raises(ValueError, match="planned systems do not match requested workload"):
+        _validate_method_artifacts(
+            paths,
+            method="jacobi",
+            config_digest=CONFIG_DIGEST,
+            system_ids=("s1",),
+            method_config={"name": "jacobi"},
+        )
+
+
+def test_reuse_rejects_corrupt_required_presentation(
+    method_artifacts: tuple[dict[str, str], tuple[str, ...]],
+) -> None:
+    paths, system_ids = method_artifacts
+    Path(paths["presentation.toml"]).write_text("{", encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        _validate_method_artifacts(
+            paths,
+            method="jacobi",
+            config_digest=CONFIG_DIGEST,
+            system_ids=system_ids,
+            method_config={"name": "jacobi"},
+        )
+
+
+def test_reuse_rejects_presentation_of_another_method(
+    method_artifacts: tuple[dict[str, str], tuple[str, ...]],
+) -> None:
+    paths, system_ids = method_artifacts
+
+    with pytest.raises(ValueError, match="stored presentation does not belong to requested method"):
+        _validate_method_artifacts(
+            paths,
+            method="amg",
+            config_digest=CONFIG_DIGEST,
+            system_ids=system_ids,
+            method_config={"name": "jacobi"},
+        )
+
+
+def test_reuse_misses_a_run_with_planned_systems_differing_from_requested_ids(
+    tmp_path: Path,
+    client: MlflowClient,
+    reuse_workload: CompletedMethodWorkload,
+    write_artifacts: Callable[[CompletedMethodWorkload, Path], None],
+) -> None:
+    """Tags claim ``s1`` while the stored planned systems are ``s0``."""
+    write_artifacts(reuse_workload, tmp_path)
+    _, tags = build_benchmark_method_run_spec(
+        prepared=reuse_workload.presentation.prepared,
+        notation=NotationPolicy.default(),
+        config_digest=CONFIG_DIGEST,
+        system_ids=("s1",),
+    )
+    _log_method_run(
+        client,
+        tmp_path,
+        tags=tags.as_mlflow_tags(),
+        names=MethodBenchmarkArtifacts.file_names(),
+    )
+
+    assert (
+        _find_reusable(
+            client,
+            config_digest=CONFIG_DIGEST,
+            system_ids=("s1",),
+            method_config=reuse_workload.method_config,
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("missing", ("planned_systems.parquet", "presentation.toml"))
+def test_reuse_misses_a_run_lacking_a_required_artifact(
+    tmp_path: Path,
+    client: MlflowClient,
+    reuse_workload: CompletedMethodWorkload,
+    write_artifacts: Callable[[CompletedMethodWorkload, Path], None],
+    missing: str,
+) -> None:
+    write_artifacts(reuse_workload, tmp_path)
+    _, tags = build_benchmark_method_run_spec(
+        prepared=reuse_workload.presentation.prepared,
+        notation=NotationPolicy.default(),
+        config_digest=CONFIG_DIGEST,
+        system_ids=("s0",),
+    )
+    present = tuple(name for name in MethodBenchmarkArtifacts.file_names() if name != missing)
+    _log_method_run(client, tmp_path, tags=tags.as_mlflow_tags(), names=present)
+
+    assert (
+        _find_reusable(
+            client,
+            config_digest=CONFIG_DIGEST,
+            system_ids=("s0",),
+            method_config=reuse_workload.method_config,
+        )
+        is None
     )
 
 
 def test_reuse_ignores_checkpoint_lease_path_but_rejects_changed_content(
     tmp_path: Path,
     client: MlflowClient,
-    prepared_method: PreparedMethodFactory,
+    reuse_workload: CompletedMethodWorkload,
+    write_artifacts: Callable[[CompletedMethodWorkload, Path], None],
 ) -> None:
     """Equivalent checkpoint leases reuse one child; changed bytes miss."""
     first_path = tmp_path / "lease-a" / "model.pt"
@@ -302,113 +432,40 @@ def test_reuse_ignores_checkpoint_lease_path_but_rejects_changed_content(
     assert canonical_method_config(first_config) != canonical_method_config(changed_config)
     config_digest = canonical_digest(first_config)
 
-    method_artifacts = tmp_path / "fixture-artifacts"
-    method_artifacts.mkdir()
-    method = PreconditionerName("jacobi")
-    planned = (SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(0), 0, SystemId("s0")),)
-    setup = MatrixSetupEvent(
-        SetupEventId("setup-0"),
-        DatasetId("ds"),
-        MatrixId(0),
-        method,
-        1.0,
-        (1.0,),
-        MeasuredPeakMemory(1),
-        SetupCompleted(),
-    )
-    attempt = SolveAttempt(
-        SetupEventId("setup-0"),
-        SystemId("s0"),
-        DatasetId("ds"),
-        GAUSSIAN,
-        MatrixId(0),
-        0,
-        method,
-        2.0,
-        (2.0,),
-        MeasuredPeakMemory(1),
-        SolveConverged(2, 1e-8),
-    )
-    workload = CompletedMethodWorkload(
-        method=method,
-        planned=planned,
-        setup_events=(setup,),
-        solve_attempts=(attempt,),
-        diagnostics=(),
-        generation_cost=None,
-        workload_peak_memory=MeasuredPeakMemory(2),
+    workload = replace(
+        reuse_workload,
         config_digest=config_digest,
-        method_config={"name": "jacobi"},
-        presentation=ExecutedMethod(prepared_method(str(method)), ()),
+        method_config=canonical_method_config(first_config),
     )
-    summary = summarize_method_workload(
-        workload.method,
-        workload.planned,
-        workload.setup_events,
-        workload.solve_attempts,
-        workload.workload_peak_memory,
-    )
-    write_method_benchmark_artifacts(workload, summary, method_artifacts)
-    (method_artifacts / "method_config.toml").write_bytes(
-        tomli_w.dumps(canonical_method_config(first_config)).encode("utf-8")
-    )
-    (method_artifacts / "method_diagnostics.json").write_text(
-        json.dumps(
-            [
-                {
-                    "system_id": "s0",
-                    "method": "jacobi",
-                    "iterations": 2,
-                    "converged": True,
-                    "solve_s": 2.0,
-                    "residual_history_rel": [1.0, 1e-8],
-                    "error_history_a_rel": None,
-                }
-            ]
-        ),
-        encoding="utf-8",
-    )
-    experiment = client.get_experiment_by_name(EXPERIMENT)
-    experiment_id = experiment.experiment_id if experiment else client.create_experiment(EXPERIMENT)
+    method_artifacts = tmp_path / "fixture-artifacts"
+    write_artifacts(workload, method_artifacts)
     _, tags = build_benchmark_method_run_spec(
         prepared=workload.presentation.prepared,
         notation=NotationPolicy.default(),
         config_digest=config_digest,
         system_ids=("s0",),
     )
-    run = client.create_run(experiment_id, tags=tags.as_mlflow_tags())
-    for artifact in (
-        "setup_events.parquet",
-        "solve_attempts.parquet",
-        "summary.toml",
-        "method_config.toml",
-        "method_diagnostics.json",
-    ):
-        client.log_artifact(
-            run.info.run_id, str(method_artifacts / artifact), artifact_path="method_workload"
-        )
-    client.set_terminated(run.info.run_id, status="FINISHED")
+    _log_method_run(
+        client,
+        method_artifacts,
+        tags=tags.as_mlflow_tags(),
+        names=MethodBenchmarkArtifacts.file_names(),
+    )
 
-    first_hit = find_reusable_benchmark_method(
-        tracking_uri=client.tracking_uri,
-        experiment=EXPERIMENT,
-        method="jacobi",
+    first_hit = _find_reusable(
+        client,
         config_digest=config_digest,
         system_ids=("s0",),
         method_config=canonical_method_config(first_config),
     )
-    second_hit = find_reusable_benchmark_method(
-        tracking_uri=client.tracking_uri,
-        experiment=EXPERIMENT,
-        method="jacobi",
+    second_hit = _find_reusable(
+        client,
         config_digest=canonical_digest(second_config),
         system_ids=("s0",),
         method_config=canonical_method_config(second_config),
     )
-    changed_miss = find_reusable_benchmark_method(
-        tracking_uri=client.tracking_uri,
-        experiment=EXPERIMENT,
-        method="jacobi",
+    changed_miss = _find_reusable(
+        client,
         config_digest=canonical_digest(changed_config),
         system_ids=("s0",),
         method_config=canonical_method_config(changed_config),
@@ -494,24 +551,6 @@ def test_reuse_rejects_invalid_summary_memory(
     summary = tomllib.loads(Path(paths["summary.toml"]).read_text(encoding="utf-8"))
     mutate(summary)
     Path(paths["summary.toml"]).write_bytes(tomli_w.dumps(summary).encode("utf-8"))
-
-    with pytest.raises((TypeError, ValueError)):
-        _validate_method_artifacts(
-            paths,
-            method="jacobi",
-            config_digest="sha256:" + "a" * 64,
-            system_ids=system_ids,
-            method_config={"name": "jacobi"},
-        )
-
-
-def test_reuse_rejects_fractional_diagnostic_iterations(
-    method_artifacts: tuple[dict[str, str], tuple[str, ...]],
-) -> None:
-    paths, system_ids = method_artifacts
-    diagnostics = json.loads(Path(paths["method_diagnostics.json"]).read_text(encoding="utf-8"))
-    diagnostics[0]["iterations"] = 0.5
-    Path(paths["method_diagnostics.json"]).write_text(json.dumps(diagnostics), encoding="utf-8")
 
     with pytest.raises((TypeError, ValueError)):
         _validate_method_artifacts(

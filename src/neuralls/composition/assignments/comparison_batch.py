@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import tempfile
-import tomllib
 from collections.abc import Generator, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -127,17 +126,12 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.config.registry import get_assignment_binding
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
-from neuralls.platform.reporting.figure_metadata import (
-    InvalidFigureManifestError,
-    validate_figure_manifest,
-)
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.tracking.artifact_access import (
     ArtifactLeaseManager,
     MlflowArtifactLeaseManager,
 )
 from neuralls.platform.tracking.comparison_tracking import (
-    GROUP_REPORT_ARTIFACT_DIR,
     MLflowBenchmarkMethodSink,
     MLflowGroupReportSink,
     log_configured_method_facts,
@@ -1390,7 +1384,7 @@ def _has_complete_reusable_session(
     *,
     force: bool,
 ) -> bool:
-    """Require current method children under one finished parent with a valid manifest."""
+    """Require current method children under one finished comparison session parent."""
     if force:
         return False
     schedule = _method_major_schedule(batch.items)
@@ -1422,22 +1416,9 @@ def _has_complete_reusable_session(
         return False
     parent_id = parent_ids.pop()
     parent = client.get_run(parent_id)
-    if parent.info.status != "FINISHED" or parent.data.tags.get("phase") != "session_comparison":
-        return False
-    manifest_artifact = f"{GROUP_REPORT_ARTIFACT_DIR}/figure_manifest.toml"
-    if not any(
-        artifact.path == manifest_artifact
-        for artifact in client.list_artifacts(parent_id, path=GROUP_REPORT_ARTIFACT_DIR)
-    ):
-        return False
-    try:
-        with tempfile.TemporaryDirectory(prefix="neuralls-session-reuse-") as temp_dir:
-            manifest_path = client.download_artifacts(parent_id, manifest_artifact, temp_dir)
-            manifest = tomllib.loads(Path(manifest_path).read_text(encoding="utf-8"))
-        validate_figure_manifest(manifest)
-    except OSError, tomllib.TOMLDecodeError, InvalidFigureManifestError:
-        return False
-    return True
+    return (
+        parent.info.status == "FINISHED" and parent.data.tags.get("phase") == "session_comparison"
+    )
 
 
 SYSTEM_FIGURES_ARTIFACT_DIR = "system_figures"
@@ -1568,10 +1549,15 @@ def run_comparison_batch(
                     case_config_path=case_config_path.resolve(),
                 ),
             ):
+                selection = _batch_reference_selections(pending)
+                contexts_by_system = _batch_solver_timing_contexts(pending)
                 workloads = _execute_all(
                     batch,
                     method_sink=MLflowBenchmarkMethodSink(
-                        notation, _batch_dataset_presentations(pending)
+                        notation,
+                        _batch_dataset_presentations(pending),
+                        contexts_by_system,
+                        selection,
                     ),
                     failure_sink=failure_sink,
                 )
@@ -1583,8 +1569,6 @@ def run_comparison_batch(
                 ),
             ):
                 outcomes = _outcomes_from_workloads(pending, workloads)
-            selection = _batch_reference_selections(pending)
-            contexts_by_system = _batch_solver_timing_contexts(pending)
             report_sink = MLflowGroupReportSink(notation)
             with _failure_boundary(
                 failure_sink,

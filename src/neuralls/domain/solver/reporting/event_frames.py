@@ -8,6 +8,12 @@ from typing import assert_never
 
 import polars as pl
 
+from neuralls.domain.benchmarking.selection import (
+    ConfiguredReference,
+    NoReferenceConfigured,
+    ReferenceSelection,
+    ReferenceUnavailable,
+)
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -19,11 +25,14 @@ from neuralls.domain.solver.models.benchmark_events import (
     SolveConverged,
     SolveFailed,
     SolveOutcome,
+    SystemTag,
     UnknownPeakMemory,
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.group_presentation import SolverTimingContext
+from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.shared.rhs_recipe import parse_recipe_key, recipe_key
-from neuralls.shared.types import PreconditionerName, SystemId
+from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SystemId
 
 SETUP_EVENT_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "setup_event_id": pl.String,
@@ -63,6 +72,31 @@ CONVERGENCE_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "residual_rel": pl.Float64,
     "energy_error_rel": pl.Float64,
 }
+
+PLANNED_SYSTEM_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
+    "system_id": pl.String,
+    "dataset": pl.String,
+    "recipe": pl.String,
+    "matrix_id": pl.Int64,
+    "rhs_ordinal": pl.Int64,
+    "rtol": pl.Float64,
+    "atol": pl.Float64,
+    "max_iterations": pl.Int64,
+    "stopping_criterion": pl.String,
+    "m_max": pl.Int64,
+    "reference_precision_margin": pl.Float64,
+    "timing_repeats": pl.Int64,
+    "timing_warmup": pl.Int64,
+    "timing_statistic": pl.String,
+    "normalization": pl.String,
+    "reference_kind": pl.String,
+    "reference_method": pl.String,
+    "reference_reason": pl.String,
+}
+
+_REFERENCE_CONFIGURED = "configured"
+_REFERENCE_NONE = "none"
+_REFERENCE_UNAVAILABLE = "unavailable"
 
 
 def build_convergence_frame(
@@ -144,6 +178,74 @@ def build_solve_frame(attempts: Collection[SolveAttempt]) -> pl.DataFrame:
             }
         )
     return pl.DataFrame(rows, schema=SOLVE_ATTEMPT_SCHEMA)
+
+
+def build_planned_systems_frame(systems: Collection[SystemProvenance]) -> pl.DataFrame:
+    """One row per planned system: identity, solver settings, and reference state."""
+    rows: list[dict[str, object]] = []
+    for system in systems:
+        reference_kind, reference_method, reference_reason = _reference_fields(system.reference)
+        solver = system.solver
+        rows.append(
+            {
+                "system_id": system.tag.system_id,
+                "dataset": system.tag.dataset,
+                "recipe": recipe_key(system.tag.recipe),
+                "matrix_id": system.tag.matrix_id,
+                "rhs_ordinal": system.tag.rhs_ordinal,
+                "rtol": solver.rtol,
+                "atol": solver.atol,
+                "max_iterations": solver.max_iterations,
+                "stopping_criterion": solver.stopping_criterion,
+                "m_max": solver.m_max,
+                "reference_precision_margin": solver.reference_precision_margin,
+                "timing_repeats": solver.timing_repeats,
+                "timing_warmup": solver.timing_warmup,
+                "timing_statistic": solver.timing_statistic,
+                "normalization": solver.normalization,
+                "reference_kind": reference_kind,
+                "reference_method": reference_method,
+                "reference_reason": reference_reason,
+            }
+        )
+    return pl.DataFrame(rows, schema=PLANNED_SYSTEM_SCHEMA)
+
+
+def decode_planned_systems_frame(frame: pl.DataFrame) -> tuple[SystemProvenance, ...]:
+    """Validate a decoded planned-systems frame and rebuild its typed rows.
+
+    This is the only place the flat reference columns become a ``ReferenceSelection``.
+    """
+    systems: list[SystemProvenance] = []
+    seen: set[str] = set()
+    for row in frame.to_dicts():
+        system_id = _required_text(row["system_id"], "system ID")
+        if system_id in seen:
+            raise ValueError(f"duplicate planned system ID: {system_id!r}")
+        seen.add(system_id)
+        tag = SystemTag(
+            dataset=DatasetId(_required_text(row["dataset"], "dataset")),
+            recipe=parse_recipe_key(_required_text(row["recipe"], "recipe")),
+            matrix_id=MatrixId(_required_int(row["matrix_id"], "matrix ID")),
+            rhs_ordinal=_required_int(row["rhs_ordinal"], "RHS ordinal"),
+            system_id=SystemId(system_id),
+        )
+        solver = SolverTimingContext(
+            rtol=_finite_positive(row["rtol"], "rtol"),
+            atol=_finite_non_negative_float(row["atol"], "atol"),
+            max_iterations=_required_int(row["max_iterations"], "max iterations"),
+            stopping_criterion=_required_text(row["stopping_criterion"], "stopping criterion"),
+            m_max=_required_int(row["m_max"], "m_max"),
+            reference_precision_margin=_finite_non_negative_float(
+                row["reference_precision_margin"], "reference precision margin"
+            ),
+            timing_repeats=_required_int(row["timing_repeats"], "timing repeats"),
+            timing_warmup=_required_int(row["timing_warmup"], "timing warmup"),
+            timing_statistic=_required_text(row["timing_statistic"], "timing statistic"),
+            normalization=_required_text(row["normalization"], "normalization"),
+        )
+        systems.append(SystemProvenance(tag, solver, _decode_reference(row)))
+    return tuple(systems)
 
 
 def validate_setup_solve_frame_links(setup_frame: pl.DataFrame, solve_frame: pl.DataFrame) -> None:
@@ -247,6 +349,62 @@ def validate_decoded_convergence_frame(frame: pl.DataFrame) -> None:
         if key in seen:
             raise ValueError(f"duplicate convergence row: {key!r}")
         seen.add(key)
+
+
+def _decode_reference(row: dict[str, object]) -> ReferenceSelection:
+    kind = _required_text(row["reference_kind"], "reference kind")
+    method = row["reference_method"]
+    reason = row["reference_reason"]
+    match kind:
+        case "none":
+            if method is not None or reason is not None:
+                raise ValueError("a system without a reference must not name a method or reason")
+            return NoReferenceConfigured()
+        case "configured":
+            if reason is not None:
+                raise ValueError("a configured reference must not carry a reason")
+            return ConfiguredReference(
+                PreconditionerName(_required_text(method, "reference method"))
+            )
+        case "unavailable":
+            return ReferenceUnavailable(
+                PreconditionerName(_required_text(method, "reference method")),
+                _required_text(reason, "reference reason"),
+            )
+        case other:
+            raise ValueError(f"unknown reference kind: {other!r}")
+
+
+def _reference_fields(reference: ReferenceSelection) -> tuple[str, str | None, str | None]:
+    match reference:
+        case NoReferenceConfigured():
+            return _REFERENCE_NONE, None, None
+        case ConfiguredReference(name=name):
+            return _REFERENCE_CONFIGURED, name, None
+        case ReferenceUnavailable(name=name, reason=reason):
+            return _REFERENCE_UNAVAILABLE, name, reason
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _finite_number(value: object, name: str) -> float:
+    if not isinstance(value, (float, int)) or isinstance(value, bool) or not isfinite(value):
+        raise ValueError(f"{name} must be a finite number")
+    return float(value)
+
+
+def _finite_positive(value: object, name: str) -> float:
+    number = _finite_number(value, name)
+    if number <= 0:
+        raise ValueError(f"{name} must be positive")
+    return number
+
+
+def _finite_non_negative_float(value: object, name: str) -> float:
+    number = _finite_number(value, name)
+    if number < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return number
 
 
 def _required_text(value: object, name: str) -> str:

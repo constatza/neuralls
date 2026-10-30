@@ -167,25 +167,48 @@ The method-child tag `method_id` is what reuse queries.
 facts into stable parameter names (`method.<field key>`, `training_dataset.strategy_<n>.<field
 key>`) with typed values and no rendered text; `log_configured_method_facts` logs them when
 the method child opens, before it executes. Facts known only after setup are written by
-`MLflowBenchmarkMethodSink` as the `method_workload/realized_facts.json` table, one entry per
-system, because a realized fact can differ between matrices and must never become a run-wide
+`MLflowBenchmarkMethodSink` into `method_workload/presentation.toml`, one entry per system,
+because a realized fact can differ between matrices and must never become a run-wide
 parameter.
 
+**Artifact format rule.** Parquet holds tabular, row-per-entity numerical or categorical data
+that polars aggregates; TOML holds nested per-run documents (identity, configuration,
+presentation); JSON is not used for new artifacts; nothing rendering-specific (colours,
+markers, labels, rendered text) is persisted. Strings in Parquet are identifiers or closed
+categories only.
+
 `MLflowBenchmarkMethodSink` persists one completed method workload into the
-already-active method child. It writes `setup_events.parquet`,
-`solve_attempts.parquet`, `convergence.parquet` (one row per method, system and
-iteration with the relative residual and the nullable relative energy error),
-`summary.toml`, the required method configuration, `method_diagnostics.json`,
-and diagnostic figures, then logs reducer-owned
-scalars exactly once. The sink never opens an MLflow run;
+already-active method child. The artifact set is defined once by
+`benchmark_events.MethodBenchmarkArtifacts`; the writer, the reuse gate and the child's
+`required_artifacts` tag all derive from it:
+
+- `setup_events.parquet`, `solve_attempts.parquet`, and `convergence.parquet` (one row per
+  method, system and iteration with the relative residual and the nullable relative energy
+  error).
+- `planned_systems.parquet`: one row per planned system, including systems whose setup
+  failed, with its dataset, recipe key, matrix and RHS ordinal, the solver and timing
+  settings it ran under, and its reference state as flat `reference_kind`
+  (`configured`/`none`/`unavailable`), `reference_method` and `reference_reason` columns.
+  `event_frames.decode_planned_systems_frame` is the only place those columns become a
+  `ConfiguredReference | NoReferenceConfigured | ReferenceUnavailable`. These are compute
+  provenance: a case config edited later would describe different numerics than the ones
+  timed.
+- `summary.toml`, `method_config.toml` (the reuse identity), and `presentation.toml` (the
+  method's configured presentation, compact fact selection, per-system realized facts, and
+  the presentation of each dataset it ran on, all through `facts_codec`: keys and typed values
+  only).
+
+It also draws the method's residual and energy figures, then logs reducer-owned scalars
+(including `iterations_total`) exactly once. The sink never opens an MLflow run;
 `comparison_batch` owns the session parent and its one direct child per method.
 The parent receives only shared provenance and cross-method reports, while raw
 method artifacts remain on the child. Reuse requires phase
 `comparison_method`, the method config/checkpoint
 digest, complete workload membership, and all canonical raw artifacts; legacy
 per-system runs are executed again. Reuse parses the required
-configuration and diagnostics and reconciles event methods, membership, and
-summary totals before accepting a hit. The persisted configuration is the
+configuration, planned systems, presentation and convergence tables and reconciles event
+methods, membership, and summary totals before accepting a hit; the session's figure
+manifest is not part of the gate. The persisted configuration is the
 canonical identity representation: checkpoint inputs are content digests and
 runtime lease paths are omitted.
 

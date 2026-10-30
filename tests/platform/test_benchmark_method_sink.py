@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import json
 import tomllib
-from dataclasses import replace
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
 from tests.presentation_support import PreparedMethodFactory
+from tests.provenance_support import SOLVER_CONTEXT
 from tests.recipe_support import GAUSSIAN
 
 from neuralls.composition.comparison.models import CompletedMethodWorkload, canonical_method_config
 from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
+from neuralls.domain.benchmarking.selection import NoReferenceConfigured, ReferenceSelection
 from neuralls.domain.presentation.methods import (
     ExecutedMethod,
     PreparedMethodPresentation,
@@ -29,6 +32,7 @@ from neuralls.domain.solver.models import (
     SolveFailed,
     SystemTag,
 )
+from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.models.workload import (
     CompleteWorkloadSummary,
     IncompleteWorkloadSummary,
@@ -39,13 +43,40 @@ from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     NeuralPreconditionerConfig,
 )
-from neuralls.platform.tracking.comparison_tracking import (
-    MLflowBenchmarkMethodSink,
-    _write_method_config,
+from neuralls.platform.reporting.benchmark_events import (
+    MethodBenchmarkArtifacts,
+    read_presentation,
 )
+from neuralls.platform.tracking.comparison_tracking import MLflowBenchmarkMethodSink
 from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS, make_fact
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
+
+CONVERGED_ITERATIONS = 2
+METHOD_DIR = "method_workload"
+FIGURE_DIR = "method_workload/figures"
+EXPECTED_METRIC_KEYS = [
+    "n_planned_rhs",
+    "n_attempted_rhs",
+    "n_converged",
+    "success_rate",
+    "setup_total_s",
+    "solve_total_s",
+    "workload_online_s",
+    "n_setup_failed",
+    "n_solve_failed",
+    "iterations_total",
+    "online_s_per_attempted_rhs",
+    "workload_peak_memory_bytes",
+]
+
+
+@dataclass(slots=True)
+class LoggedRun:
+    """Metrics and ``(artifact_path, file)`` pairs captured from the sink."""
+
+    metrics: dict[str, float]
+    artifacts: list[tuple[str | None, Path]]
 
 
 @pytest.fixture
@@ -76,7 +107,7 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
             2.0 + tag.rhs_ordinal,
             (2.0 + tag.rhs_ordinal,),
             MeasuredPeakMemory(1),
-            SolveConverged(2, 1e-8),
+            SolveConverged(CONVERGED_ITERATIONS, 1e-8),
         )
         for tag in planned
     )
@@ -95,6 +126,54 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
 
 
 @pytest.fixture
+def solver_contexts(
+    method_workload: CompletedMethodWorkload,
+) -> Mapping[SystemId, SolverTimingContext]:
+    """The one solver context every planned system was timed under."""
+    return {tag.system_id: SOLVER_CONTEXT for tag in method_workload.planned}
+
+
+@pytest.fixture
+def references(method_workload: CompletedMethodWorkload) -> Mapping[SystemId, ReferenceSelection]:
+    """No reference is configured for any planned system."""
+    return {tag.system_id: NoReferenceConfigured() for tag in method_workload.planned}
+
+
+@pytest.fixture
+def method_sink(
+    notation: NotationPolicy,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    solver_contexts: Mapping[SystemId, SolverTimingContext],
+    references: Mapping[SystemId, ReferenceSelection],
+) -> MLflowBenchmarkMethodSink:
+    """Sink wired to the fixture dataset presentations and per-system provenance."""
+    return MLflowBenchmarkMethodSink(notation, group_datasets, solver_contexts, references)
+
+
+@pytest.fixture
+def logged_run(monkeypatch: pytest.MonkeyPatch) -> LoggedRun:
+    """Capture everything the sink logs without opening an MLflow run."""
+    run = LoggedRun({}, [])
+    prefix = "neuralls.platform.tracking.comparison_tracking.mlflow"
+    monkeypatch.setattr(
+        f"{prefix}.start_run",
+        lambda *args, **kwargs: pytest.fail("method sink must not open MLflow runs"),
+    )
+    monkeypatch.setattr(f"{prefix}.log_param", lambda *args, **kwargs: None)
+    monkeypatch.setattr(f"{prefix}.set_tag", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        f"{prefix}.log_metric", lambda key, value, **kwargs: run.metrics.__setitem__(key, value)
+    )
+    monkeypatch.setattr(
+        f"{prefix}.log_artifact",
+        lambda path, artifact_path=None, **kwargs: run.artifacts.append(
+            (artifact_path, Path(path))
+        ),
+    )
+    return run
+
+
+@pytest.fixture
 def method_summary(method_workload: CompletedMethodWorkload) -> CompleteWorkloadSummary:
     summary = summarize_method_workload(
         method_workload.method,
@@ -108,72 +187,56 @@ def method_summary(method_workload: CompletedMethodWorkload) -> CompleteWorkload
 
 
 def test_method_sink_records_aggregates_without_opening_a_run(
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    method_sink: MLflowBenchmarkMethodSink,
     method_workload: CompletedMethodWorkload,
     method_summary: CompleteWorkloadSummary,
-    notation: NotationPolicy,
-    group_datasets: dict[DatasetId, DatasetPresentation],
+    logged_run: LoggedRun,
 ) -> None:
-    metrics: list[tuple[str, float]] = []
-    artifacts: list[str] = []
-    monkeypatch.setattr(
-        "neuralls.platform.tracking.comparison_tracking.mlflow.start_run",
-        lambda *args, **kwargs: pytest.fail("method sink must not open MLflow runs"),
-    )
-    monkeypatch.setattr(
-        "neuralls.platform.tracking.comparison_tracking.mlflow.log_metric",
-        lambda key, value, **kwargs: metrics.append((key, value)),
-    )
-    monkeypatch.setattr(
-        "neuralls.platform.tracking.comparison_tracking.mlflow.log_param",
-        lambda *args, **kwargs: None,
-    )
-    monkeypatch.setattr(
-        "neuralls.platform.tracking.comparison_tracking.mlflow.log_artifact",
-        lambda path, **kwargs: artifacts.append(Path(path).name),
-    )
-    monkeypatch.setattr(
-        "neuralls.platform.tracking.comparison_tracking.mlflow.set_tag",
-        lambda *args, **kwargs: None,
+    method_sink.record_method(method_workload, method_summary, root=tmp_path)
+
+    assert list(logged_run.metrics) == EXPECTED_METRIC_KEYS
+
+
+def test_method_sink_logs_total_iterations_of_every_attempt(
+    tmp_path: Path,
+    method_sink: MLflowBenchmarkMethodSink,
+    method_workload: CompletedMethodWorkload,
+    method_summary: CompleteWorkloadSummary,
+    logged_run: LoggedRun,
+) -> None:
+    method_sink.record_method(method_workload, method_summary, root=tmp_path)
+
+    assert logged_run.metrics["iterations_total"] == float(
+        CONVERGED_ITERATIONS * len(method_workload.solve_attempts)
     )
 
-    sink = MLflowBenchmarkMethodSink(notation, group_datasets)
-    sink.record_method(method_workload, method_summary, root=tmp_path)
 
-    assert [key for key, _ in metrics] == [
-        "n_planned_rhs",
-        "n_attempted_rhs",
-        "n_converged",
-        "success_rate",
-        "setup_total_s",
-        "solve_total_s",
-        "workload_online_s",
-        "n_setup_failed",
-        "n_solve_failed",
-        "online_s_per_attempted_rhs",
-        "workload_peak_memory_bytes",
-    ]
-    assert set(artifacts) >= {
-        "setup_events.parquet",
-        "solve_attempts.parquet",
-        "summary.toml",
-        "method_config.toml",
-        "method_diagnostics.json",
-        "convergence.parquet",
-        "residual_history_Method_Jacobi.png",
+def test_method_sink_logs_exactly_the_artifact_set_and_two_figures(
+    tmp_path: Path,
+    method_sink: MLflowBenchmarkMethodSink,
+    method_workload: CompletedMethodWorkload,
+    method_summary: CompleteWorkloadSummary,
+    logged_run: LoggedRun,
+) -> None:
+    method_sink.record_method(method_workload, method_summary, root=tmp_path)
+
+    tables = {path.name for where, path in logged_run.artifacts if where == METHOD_DIR}
+    figures = [path.name for where, path in logged_run.artifacts if where == FIGURE_DIR]
+    assert tables == set(MethodBenchmarkArtifacts.file_names())
+    assert sorted(figures) == [
         "energy_history_Method_Jacobi.png",
-        "realized_facts.json",
-    }
+        "residual_history_Method_Jacobi.png",
+    ]
+    assert len(logged_run.artifacts) == len(tables) + len(figures)
 
 
 def test_realized_facts_are_a_per_system_table_not_a_run_wide_scalar(
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    method_sink: MLflowBenchmarkMethodSink,
     method_workload: CompletedMethodWorkload,
     method_summary: CompleteWorkloadSummary,
-    notation: NotationPolicy,
-    group_datasets: dict[DatasetId, DatasetPresentation],
+    logged_run: LoggedRun,
 ) -> None:
     """A fact that differs between matrices must never be flattened into one parameter."""
     systems = tuple(
@@ -188,25 +251,12 @@ def test_realized_facts_are_a_per_system_table_not_a_run_wide_scalar(
         method_workload,
         presentation=ExecutedMethod(method_workload.presentation.prepared, systems),
     )
-    params: dict[str, str] = {}
-    logged: dict[str, Path] = {}
-    prefix = "neuralls.platform.tracking.comparison_tracking.mlflow"
-    monkeypatch.setattr(f"{prefix}.log_param", lambda key, value: params.__setitem__(key, value))
-    monkeypatch.setattr(f"{prefix}.log_metric", lambda *args, **kwargs: None)
-    monkeypatch.setattr(f"{prefix}.set_tag", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        f"{prefix}.log_artifact", lambda path, **kwargs: logged.__setitem__(Path(path).name, path)
-    )
 
-    MLflowBenchmarkMethodSink(notation, group_datasets).record_method(
-        workload, method_summary, root=tmp_path
-    )
+    method_sink.record_method(workload, method_summary, root=tmp_path)
 
-    table = json.loads(Path(logged["realized_facts.json"]).read_text(encoding="utf-8"))
-    assert [row["system_id"] for row in table] == ["s0", "s1"]
-    assert [row["facts"][0]["value"] for row in table] == [3, 4]
-    assert not any("realized_levels" in key for key in params)
-    assert params["method_id"] == "jacobi"
+    logged = {path.name: path for _, path in logged_run.artifacts}
+    stored = read_presentation(logged["presentation.toml"])
+    assert stored.method.systems == systems
 
 
 def test_method_sink_marks_recoverable_setup_failures_from_canonical_events(
@@ -369,7 +419,12 @@ def test_method_membership_digest_includes_ordered_system_identities(
 
 @pytest.mark.parametrize("config_kind", ("amg", "checkpoint"))
 def test_method_config_serialization_is_canonical_and_omits_unset_optionals(
-    tmp_path: Path, config_kind: str
+    tmp_path: Path,
+    config_kind: str,
+    method_sink: MLflowBenchmarkMethodSink,
+    method_workload: CompletedMethodWorkload,
+    method_summary: CompleteWorkloadSummary,
+    logged_run: LoggedRun,
 ) -> None:
     """Supported configs with unset optional values remain TOML serializable."""
     if config_kind == "amg":
@@ -380,6 +435,9 @@ def test_method_config_serialization_is_canonical_and_omits_unset_optionals(
         config = NeuralPreconditionerConfig(checkpoint_path=checkpoint)
     expected = canonical_method_config(config)
 
-    path = _write_method_config(tmp_path, canonical_method_config(config))
+    workload = replace(method_workload, method_config=expected)
 
-    assert tomllib.loads(path.read_text(encoding="utf-8")) == expected
+    method_sink.record_method(workload, method_summary, root=tmp_path / "out")
+
+    logged = {path.name: path for _, path in logged_run.artifacts}
+    assert tomllib.loads(logged["method_config.toml"].read_text(encoding="utf-8")) == expected
