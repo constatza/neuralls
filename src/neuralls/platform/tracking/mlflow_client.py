@@ -115,16 +115,6 @@ def log_artifacts_to_mlflow(
     )
 
 
-_COMPARISON_ARTIFACT_DIRS: tuple[str, ...] = ("arrays", "figures", "config")
-_COMPARISON_FLAT_FILES: tuple[str, ...] = (
-    "comparison.toml",
-    "comparison.json",
-    "recommendations.json",
-    "summary.txt",
-    "histories.h5",
-)
-
-
 def log_batch_artifacts_to_mlflow(
     tracking_uri: str,
     run_id: str,
@@ -145,31 +135,6 @@ def log_batch_artifacts_to_mlflow(
         root=work_root,
         dirs=(),
         flat_files=flat_files,
-    )
-
-
-def log_comparison_artifacts_to_mlflow(
-    tracking_uri: str,
-    run_id: str,
-    work_root: Path,
-) -> None:
-    """Upload comparison artifacts to an existing MLflow run.
-
-    Uploads only the structured comparison outputs, excluding downloaded model
-    checkpoints that may reside in the same working directory.
-
-    Args:
-        tracking_uri: MLflow tracking URI.
-        run_id: Existing MLflow run to upload into.
-        work_root: Working directory produced by the comparison run.
-    """
-    _log_artifact_paths(
-        tracking_uri=tracking_uri,
-        run_id=run_id,
-        root=work_root,
-        dirs=_COMPARISON_ARTIFACT_DIRS,
-        flat_files=_COMPARISON_FLAT_FILES,
-        artifact_path_per_dir=True,
     )
 
 

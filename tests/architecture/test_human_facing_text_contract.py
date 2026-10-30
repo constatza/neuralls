@@ -153,7 +153,6 @@ SCOPES: dict[str, SinkScope] = {
             "composition/display.py",
             "domain/generation",
             "domain/solver/comparison_summary.py",
-            "platform/reporting/artifacts.py",
         ),
         rules=frozenset({LOG_ID_TEXT, NAME_FALLBACK, LABEL_FALLBACK}),
         allowed=(
@@ -222,12 +221,6 @@ SCOPES: dict[str, SinkScope] = {
             ),
             Allowed(
                 PATH_AS_NAME,
-                "composition/comparison/_presentation.py",
-                "_path_label",
-                "the diagnostic log line names its source files; no figure or table uses it",
-            ),
-            Allowed(
-                PATH_AS_NAME,
                 "platform/reporting/figure_metadata.py",
                 "_collision_key",
                 "file-name collision detection compares machine file names",
@@ -255,12 +248,6 @@ SCOPES: dict[str, SinkScope] = {
                 "composition/comparison/source_handlers.py",
                 "resolve",
                 "records the RHS source location as a machine provenance field, never drawn",
-            ),
-            Allowed(
-                CLASS_NAME,
-                "composition/comparison/comparison_run.py",
-                "_evaluate_preconditioner",
-                "exception class names in a diagnostic log line and a failure record",
             ),
             Allowed(
                 CLASS_NAME,

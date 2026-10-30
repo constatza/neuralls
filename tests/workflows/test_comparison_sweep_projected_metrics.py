@@ -1,7 +1,7 @@
 """End-to-end test: a real `comparison_sweeps` run logs group reports.
 
-Unlike the sibling tests in `test_comparison_workflow.py`, this does NOT mock
-`compare_preconditioners` — it lets the real build/setup/solve pipeline run
+Unlike the preparation tests in `test_comparison_workflow.py`, this mocks no
+solver code — it lets the real build/setup/solve pipeline run
 (a trivial `Identity` preconditioner against a tiny 2x2 matrix, so it stays
 fast) so the real `DatasetPreconditionerCache` + `report_all_levels`
 wiring in `comparison_batch.py` is actually exercised, not just its
@@ -62,7 +62,7 @@ def _write_sweep_config(path: Path, tmp_path: Path) -> None:
         tomli_w.dump(payload, fh)
 
 
-@pytest.mark.usefixtures("stub_input_gate", "stub_log_comparison_artifacts", "stub_setup_tracking")
+@pytest.mark.usefixtures("stub_input_gate", "stub_setup_tracking")
 @pytest.mark.integration
 def test_real_sweep_execution_logs_group_metrics_and_reports(
     tmp_path: Path,

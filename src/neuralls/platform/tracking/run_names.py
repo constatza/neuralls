@@ -120,11 +120,6 @@ def _subject_text(subject: TrainingSubject, profile: RenderProfile, policy: Nota
             assert_never(subject)
 
 
-def render_session_title(title: SessionTitle, notation: NotationPolicy) -> str:
-    """Render a title alone, for a ``*_label`` tag."""
-    return _title_text(title, RUN_NAME_PROFILE, replace(notation, target=RenderTarget.PLAIN))
-
-
 def render_training_subject(subject: TrainingSubject, notation: NotationPolicy) -> str:
     """Render what a training or evaluation run is about, for a ``*_label`` tag."""
     return _subject_text(subject, RUN_NAME_PROFILE, replace(notation, target=RenderTarget.PLAIN))

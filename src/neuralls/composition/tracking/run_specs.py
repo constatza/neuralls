@@ -42,11 +42,9 @@ from neuralls.domain.presentation.titles import (
     SessionTitle,
 )
 from neuralls.domain.solver.models.provenance import HeldOutMatrix
-from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.tracking.mlflow import MlflowRunConfig
 from neuralls.platform.tracking.run_names import (
-    render_session_title,
     render_training_dataset,
     render_training_subject,
     run_name_text,
@@ -135,41 +133,6 @@ class TrainingRunTags:
 
 
 @dataclass(frozen=True, slots=True)
-class ComparisonRunTags:
-    """Structured tags for a comparison outer run.
-
-    Attributes:
-        phase: Always "comparison".
-        comparison_id: Stable comparison identifier.
-        title: What the comparison ran on; rendered as the ``comparison_label`` tag.
-        comparison_config: Stem of comparison config file.
-        comparison_path: Full path string.
-        started_at: ISO timestamp (local).
-        run: The run's own typed name; rendered as ``run_name`` for child back-linking.
-    """
-
-    phase: Literal["comparison"]
-    comparison_id: str
-    title: ComparisonTitle
-    comparison_config: str
-    comparison_path: str
-    started_at: str
-    run: NamedRun
-
-    def as_mlflow_tags(self) -> dict[str, str]:
-        """Serialize to MLflow-compatible string tag dict."""
-        return {
-            "phase": self.phase,
-            "comparison_id": self.comparison_id,
-            "comparison_label": render_session_title(self.title, self.run.notation),
-            "comparison_config": self.comparison_config,
-            "comparison_path": self.comparison_path,
-            "started_at": self.started_at,
-            "run_name": run_name_text(self.run),
-        }
-
-
-@dataclass(frozen=True, slots=True)
 class EvaluationRunTags:
     """Structured tags for an eval-only run."""
 
@@ -189,35 +152,6 @@ class EvaluationRunTags:
             "split_artifact": self.split_artifact,
             "dataset": render_training_dataset(self.subject, self.notation),
             "assignment_label": render_training_subject(self.subject, self.notation),
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class ChildComparisonRunTags:
-    """Structured tags for a per-preconditioner nested CG run.
-
-    Attributes:
-        phase: Always "preconditioner_run".
-        method_id: Machine result key of the preconditioner.
-        comparison_id: Parent comparison identifier.
-        parent: The parent run's typed name; rendered as ``parent_run_name`` for back-linking.
-        method: The method's compact presentation; rendered as the ``method_label`` tag.
-    """
-
-    phase: Literal["preconditioner_run"]
-    method_id: PreconditionerName
-    comparison_id: str
-    parent: NamedRun
-    method: NamedRun
-
-    def as_mlflow_tags(self) -> dict[str, str]:
-        """Serialize to MLflow-compatible string tag dict."""
-        return {
-            "phase": self.phase,
-            "method_id": self.method_id,
-            "method_label": run_name_text(self.method),
-            "comparison_id": self.comparison_id,
-            "parent_run_name": run_name_text(self.parent),
         }
 
 
@@ -366,37 +300,6 @@ def comparison_run(
     )
 
 
-def build_comparison_run_spec(
-    *,
-    entry: ComparisonRegistryEntry,
-    planned: PlannedSystem,
-    title: ComparisonTitle,
-    dataset: DatasetPresentation,
-    notation: NotationPolicy,
-    timestamp: str | None = None,
-    include_timestamp: bool = True,
-) -> tuple[NamedRun, ComparisonRunTags]:
-    """Build (run, ComparisonRunTags) for a comparison outer run.
-
-    Siblings planned from one sweep or one multi-draw entry stay distinguishable through
-    ``system_qualifier``; the tags keep the machine entry id apart from the rendered label.
-    """
-    ts = timestamp or iso_timestamp()
-    stamp = RunTimestamp(ts) if include_timestamp else Untimed()
-    run = comparison_run(planned, title, dataset, notation, stamp)
-    method_label = entry.method.stem if entry.method is not None else entry.id
-    tags = ComparisonRunTags(
-        phase="comparison",
-        comparison_id=entry.id,
-        title=title,
-        comparison_config=method_label,
-        comparison_path=entry.method.as_posix() if entry.method is not None else entry.id,
-        started_at=ts,
-        run=run,
-    )
-    return run, tags
-
-
 def build_session_run_spec(
     *,
     title: SessionTitle,
@@ -443,21 +346,4 @@ def build_evaluation_tags(
         split_artifact=split_artifact,
         subject=presentation.subject,
         notation=presentation.notation,
-    )
-
-
-def build_child_comparison_tags(
-    *,
-    prepared: PreparedMethodPresentation,
-    notation: NotationPolicy,
-    comparison_id: str,
-    parent: NamedRun,
-) -> ChildComparisonRunTags:
-    """Build structured tags for a nested per-preconditioner CG run."""
-    return ChildComparisonRunTags(
-        phase="preconditioner_run",
-        method_id=prepared.method_id,
-        comparison_id=comparison_id,
-        parent=parent,
-        method=NamedRun(MethodRunName(prepared.compact), notation),
     )

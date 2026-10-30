@@ -6,42 +6,11 @@ port for batch inference) — this module is solver/comparison-specific.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Protocol, runtime_checkable
 
-from neuralls.domain.presentation.run_names import TrackedRun
 from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport, WorkloadMixtureReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
-from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.models.workload import MethodWorkload, MethodWorkloadSummary
-
-
-@runtime_checkable
-class CostRecorder(Protocol):
-    """Records a comparison's cost/outcome metrics somewhere durable.
-
-    One method, matching this port's one responsibility: take a finished
-    ``ComparisonResult`` (and the nested runs its per-preconditioner
-    child runs need) and record it. The concrete implementation decides
-    where — MLflow today (``platform/tracking/comparison_tracking.py``'s
-    ``MLflowCostRecorder``), but composition-layer callers depend on this
-    Protocol, not on MLflow directly.
-    """
-
-    def record(
-        self,
-        result: ComparisonResult,
-        *,
-        child_runs: Mapping[str, TrackedRun],
-    ) -> None:
-        """Record ``result``'s cost/outcome metrics.
-
-        Args:
-            result: The finished comparison result to record.
-            child_runs: Each preconditioner's nested run (typed name and tags), keyed by
-                preconditioner name.
-        """
-        ...
 
 
 @runtime_checkable

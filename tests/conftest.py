@@ -36,10 +36,8 @@ from neuralls.domain.presentation.provenance import (
 from neuralls.domain.presentation.run_names import (
     ComparisonRunName,
     EditorialComparison,
-    MethodRunName,
     NamedRun,
     SystemQualifier,
-    TrackedRun,
     TrainingPresentation,
     Untimed,
 )
@@ -740,25 +738,6 @@ def training_presentation_of(
             ),
             NotationPolicy.default(),
         )
-
-    return build
-
-
-@pytest.fixture
-def child_runs_of() -> Callable[..., dict[str, TrackedRun]]:
-    """Build the nested per-method runs of a comparison result, one standalone method each."""
-
-    def build(*result_keys: str) -> dict[str, TrackedRun]:
-        return {
-            key: TrackedRun(
-                NamedRun(
-                    MethodRunName(StandaloneMethodPresentation(ScientificDescription("Jacobi"))),
-                    NotationPolicy.default(),
-                ),
-                {},
-            )
-            for key in result_keys
-        }
 
     return build
 

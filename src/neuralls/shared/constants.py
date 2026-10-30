@@ -38,8 +38,6 @@ DEFAULT_ATOL = 1e-14  # Absolute tolerance for convergence (in addition to relat
 # =============================================================================
 # Comparison Reporting
 # =============================================================================
-TOLERANCE_LADDER_START_DECADE = 3  # First rung of the iterations-to-tolerance table is 1e-3
-TOLERANCE_LADDER_DECADE_STEP = 3  # Decades between consecutive rungs
 
 MAX_TIMING_REPEATS = 10  # Cap on timed (and warm-up) executions per measured region
 

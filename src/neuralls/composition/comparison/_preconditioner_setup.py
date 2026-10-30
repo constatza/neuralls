@@ -101,6 +101,12 @@ def matrix_key(system: PlannedSystem) -> MatrixId:
     return system.matrix.matrix_id
 
 
+# TODO(investigate): `DatasetPreconditionerCache`, `SystemPreconditionerCache` and `DatasetScope`
+# have no consumer outside this module and its tests; only `matrix_key` is used by the live
+# method-major path, which builds once per matrix and shares the build among sibling RHS
+# systems. Decide whether these classes are dead (delete them) or whether the dataset-wide reuse
+# of a `StaticSetupPreconditioner` (e.g. a checkpoint-backed neural preconditioner), which the
+# AGENTS.md setup-cache paragraph still describes, was lost and must be restored.
 class DatasetPreconditionerCache:
     """Legacy cache of prepared preconditioners, always scoped by matrix.
 
@@ -174,8 +180,7 @@ class DatasetPreconditionerCache:
 class SystemPreconditionerCache:
     """One system's view of its dataset's `DatasetPreconditionerCache`.
 
-    Binds the system's matrix so `compare_preconditioners` and the per-
-    preconditioner runner need only a name to read or write an entry.
+    Binds the system's matrix so the per-method workload needs only a name to read or write an entry.
     """
 
     def __init__(

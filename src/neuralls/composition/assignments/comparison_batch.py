@@ -36,12 +36,10 @@ from neuralls.composition.assignments.presentation_preflight import (
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
 from neuralls.composition.comparison._linear_system import prepare_resolved_linear_system
 from neuralls.composition.comparison._preconditioner_setup import (
-    SystemPreconditionerCache,
     matrix_key,
 )
 from neuralls.composition.comparison.comparison_run import (
     build_comparison_result_from_diagnostics,
-    compare_preconditioners,
     execute_method_workload,
 )
 from neuralls.composition.comparison.config_assembler import (
@@ -85,10 +83,7 @@ from neuralls.composition.identity.comparison import (
 from neuralls.composition.identity.gate import gate_reuse
 from neuralls.composition.identity.training import training_identity
 from neuralls.composition.tracking.run_specs import (
-    ComparisonRunTags,
     build_benchmark_method_run_spec,
-    build_child_comparison_tags,
-    build_comparison_run_spec,
     build_session_run_spec,
     comparison_run,
 )
@@ -101,7 +96,7 @@ from neuralls.domain.benchmarking.selection import (
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import PreparedComparisonPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation
-from neuralls.domain.presentation.run_names import NamedRun, TrackedRun, Untimed
+from neuralls.domain.presentation.run_names import NamedRun, Untimed
 from neuralls.domain.presentation.titles import (
     ComparisonScopePresentation,
     ComparisonTitle,
@@ -111,8 +106,7 @@ from neuralls.domain.presentation.titles import (
 from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory, SetupCompleted
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
-from neuralls.domain.solver.models.result import ComparisonResult
-from neuralls.domain.solver.ports import BenchmarkMethodSink, CostRecorder
+from neuralls.domain.solver.ports import BenchmarkMethodSink
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.comparison import ComparisonConfig
@@ -130,11 +124,6 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.config.registry import get_assignment_binding
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
-from neuralls.platform.reporting.artifacts import write_comparison_artifacts
-from neuralls.platform.reporting.comparison_inputs import (
-    ComparisonInputArtifacts,
-    stage_comparison_inputs,
-)
 from neuralls.platform.reporting.figure_metadata import (
     InvalidFigureManifestError,
     validate_figure_manifest,
@@ -148,19 +137,12 @@ from neuralls.platform.tracking.comparison_tracking import (
     GROUP_REPORT_ARTIFACT_DIR,
     MLflowBenchmarkMethodSink,
     MLflowGroupReportSink,
-    create_cost_recorder,
-    log_comparison_artifact_uri,
-    log_comparison_input_artifacts,
-    log_comparison_run_params,
     log_configured_method_facts,
-    log_linear_system_params,
-    log_skipped_preconditioners,
     setup_comparison_tracking,
 )
 from neuralls.platform.tracking.extra_features import fetch_extra_feature_names
 from neuralls.platform.tracking.failure_reporting import MLflowWorkflowFailureSink
 from neuralls.platform.tracking.mlflow import build_workflow_environment
-from neuralls.platform.tracking.mlflow_client import log_comparison_artifacts_to_mlflow
 from neuralls.platform.tracking.mlflow_store import (
     MlflowIdentityStore,
     find_reusable_benchmark_method,
@@ -176,7 +158,6 @@ from neuralls.shared.types import (
     ComparisonRhsSourceKind,
     DatasetId,
     MatrixId,
-    PreconditionerName,
     SystemId,
 )
 from neuralls.shared.workflow_failures import (
@@ -468,8 +449,7 @@ def neural_specs_from_assignments(
 class _ComparisonResolutionContext:
     """Everything needed to resolve one comparison entry's preconditioners.
 
-    One instance is built once per `_run_comparison_from_config`/
-    `_prepare_all_comparisons` call and threaded unchanged through
+    One instance is built once per `prepare_comparison_batch` call and threaded unchanged through
     `_prepare_comparison_entry` -> `_resolve_comparison_specs` ->
     `_resolve_specs`, instead of each of those functions separately
     re-declaring `topology`/`case_config_path`/`settings`/`master_cfg` as
@@ -625,189 +605,6 @@ def _require_rhs_source_kind(cfg: ComparisonConfig) -> ComparisonRhsSourceKind:
     if kind is None:
         raise ValueError("Comparison config must define rhs_source.")
     return kind
-
-
-def _run_comparison_with_resolved_specs(
-    *,
-    cfg: ComparisonConfig,
-    planned: PlannedSystem,
-    work_root: Path,
-    resolved_specs: list[PreconditionerConfig],
-    settings: NeurallsSettings,
-    presentation: ComparisonPresentation,
-    cache: SystemPreconditionerCache | None = None,
-) -> ComparisonResult:
-    """Run comparison with already-resolved preconditioner checkpoint paths.
-
-    `cache`, when given, lets a preconditioner built for an earlier sibling
-    system in the same `comparison_sweeps` group be reused here instead of
-    rebuilt — see `SystemPreconditionerCache`. `None` (the default) means
-    this call builds every preconditioner fresh.
-    """
-    entry = planned.entry
-    resolved_input = resolve_comparison_input(
-        matrix_path=Path(cfg.general.data.matrix_path),
-        matrix_dataset_id=entry.matrix_dataset,
-        matrix_index=cfg.general.data.matrix_index,
-        matrix_provenance=planned.provenance,
-        require_non_residual_rhs=cfg.general.data.require_non_residual_rhs,
-        seed=cfg.general.data.selection_seed,
-        rhs_source_kind=_require_rhs_source_kind(cfg),
-        rhs_source_params=cfg.general.data.rhs_source_params,
-    )
-    staged_input_dir = stage_comparison_inputs(
-        work_root,
-        ComparisonInputArtifacts(
-            matrix=resolved_input.matrix,
-            rhs=resolved_input.rhs,
-            matrix_dataset_id=resolved_input.matrix_dataset_id,
-            matrix_index=resolved_input.matrix_index,
-            rhs_source_type=resolved_input.rhs_source_type,
-            lhs=resolved_input.lhs,
-            rhs_dataset_id=resolved_input.rhs_dataset_id,
-            rhs_sample_index=resolved_input.rhs_sample_index,
-            row_kind=resolved_input.row_kind,
-            rhs_source_kind=resolved_input.rhs_source_kind,
-            rhs_source_params=resolved_input.rhs_source_params,
-            matrix_provenance=resolved_input.matrix_provenance,
-        ),
-    )
-    raw_result = compare_preconditioners(
-        general_params=cfg.general,
-        preconditioner_configs=resolved_specs,
-        output_root=work_root,
-        resolved_input=resolved_input,
-        settings=settings,
-        cache=cache,
-        presentation=presentation,
-    )
-    write_comparison_artifacts(
-        result=raw_result,
-        work_root=work_root,
-        comparison_config=entry.method,
-    )
-    log_comparison_input_artifacts(staged_input_dir)
-    return raw_result
-
-
-def _build_child_runs(
-    result: ComparisonResult,
-    *,
-    prepared: PreparedComparisonExecution,
-    parent: NamedRun,
-) -> dict[str, TrackedRun]:
-    """Build the nested run (typed name and tags) of each per-preconditioner child run.
-
-    Pure: derives the runs from an already-computed result and the prepared cohort,
-    touching no MLflow state, so the naming can be asserted without an active run. Each
-    child is named after its method's own presentation, never after its result key.
-    """
-    notation = prepared.cfg.notation_policy
-    children: dict[str, TrackedRun] = {}
-    for name in result.results:
-        tags = build_child_comparison_tags(
-            prepared=prepared.presentation.method(PreconditionerName(name)),
-            notation=notation,
-            comparison_id=prepared.entry.id,
-            parent=parent,
-        )
-        children[name] = TrackedRun(tags.method, tags.as_mlflow_tags())
-    return children
-
-
-def _run_and_log_comparison(
-    prepared: PreparedComparisonExecution,
-    *,
-    run: NamedRun,
-    comp_run_id: str,
-    cost_recorder: CostRecorder | None = None,
-    cache: SystemPreconditionerCache | None = None,
-) -> ComparisonResult:
-    """Run one comparison in a scratch directory, logging into the open MLflow run.
-
-    Args:
-        prepared: The entry, config, topology, and resolved specs to execute.
-        run: Typed name of the enclosing run, linked from each child run's tags.
-        comp_run_id: Id of the enclosing run that artifacts are uploaded to.
-        cost_recorder: Where to record the comparison's cost/outcome metrics
-            (DI for testing); defaults to MLflow, logging into the open run.
-        cache: Optional per-sweep-group preconditioner cache (see
-            `SystemPreconditionerCache`); `None` for a non-sweep entry.
-
-    Returns:
-        The comparison result, after its artifacts and metrics have been logged.
-    """
-    recorder = cost_recorder if cost_recorder is not None else create_cost_recorder()
-    with tempfile.TemporaryDirectory() as tmp:
-        work_root = Path(tmp)
-        raw_result = _run_comparison_with_resolved_specs(
-            cfg=prepared.cfg,
-            planned=prepared.planned,
-            work_root=work_root,
-            resolved_specs=prepared.resolved.specs,
-            settings=prepared.settings,
-            presentation=prepared.comparison_presentation,
-            cache=cache,
-        )
-        log_skipped_preconditioners(prepared.resolved.warnings)
-        log_comparison_artifacts_to_mlflow(
-            tracking_uri=prepared.topology.tracking_uri,
-            run_id=comp_run_id,
-            work_root=work_root,
-        )
-        recorder.record(
-            raw_result,
-            child_runs=_build_child_runs(raw_result, prepared=prepared, parent=run),
-        )
-        log_linear_system_params(raw_result)
-    return raw_result
-
-
-def _execute_comparison_in_run(
-    prepared: PreparedComparisonExecution,
-    *,
-    run: NamedRun,
-    comp_tags: ComparisonRunTags,
-    cache: SystemPreconditionerCache | None = None,
-) -> ComparisonOutcome:
-    """Open an MLflow run, execute the comparison, upload artifacts, and report the outcome.
-
-    Args:
-        prepared: Everything resolved ahead of execution — config, registry
-            entry, topology, resolved specs, warnings, and dependency hash.
-        run: Typed name of the MLflow run.
-        comp_tags: Structured tags applied to the MLflow run.
-        cache: Optional per-sweep-group preconditioner cache (see
-            `SystemPreconditionerCache`); `None` for a non-sweep entry.
-
-    Returns:
-        The successful ComparisonOutcome for this entry.
-    """
-    entry = prepared.entry
-    with mlflow.start_run(
-        run_name=run_name_text(run),
-        nested=True,
-        tags={**comp_tags.as_mlflow_tags(), **prepared.identity.tags()},
-    ) as comp_run:
-        comp_run_id = comp_run.info.run_id
-        log_comparison_artifact_uri()
-        raw_result = _run_and_log_comparison(
-            prepared, run=run, comp_run_id=comp_run_id, cache=cache
-        )
-        log_comparison_run_params(
-            comp_run_id=comp_run_id,
-            comparison_id=entry.id,
-            title=prepared.title,
-            notation=prepared.cfg.notation_policy,
-            comparison_config=entry.method.stem if entry.method is not None else entry.id,
-        )
-
-    return ComparisonCompleted(
-        comparison_id=entry.id,
-        run=run,
-        payload=raw_result,
-        warnings=prepared.resolved.warnings,
-    )
 
 
 def _resolve_comparison_specs(
@@ -1001,7 +798,7 @@ def _prepare_comparison_entry(
 
     Returns:
         A cache-hit/failure `ComparisonOutcome`, or a `PreparedComparisonExecution`
-        ready for `_execute_prepared_comparison`.
+        ready for execution.
     """
     entry = planned.entry
     logger.info("Preparing comparison '{}': validating input sources.", entry.id)
@@ -1099,75 +896,6 @@ def _prepare_comparison_entry(
             title=title,
             reference_selection=reference_selection,
         )
-
-
-def _execute_prepared_comparison(
-    prepared: PreparedComparisonExecution,
-    *,
-    cache: SystemPreconditionerCache | None = None,
-) -> ComparisonOutcome:
-    """Build the run spec/tags and execute inside an already-active nested MLflow run.
-
-    Args:
-        prepared: Everything resolved ahead of execution.
-        cache: Optional per-sweep-group preconditioner cache (see
-            `SystemPreconditionerCache`); `None` for a non-sweep entry.
-    """
-    try:
-        run, comp_tags = build_comparison_run_spec(
-            entry=prepared.entry,
-            planned=prepared.planned,
-            title=prepared.title,
-            dataset=prepared.presentation.scope.dataset,
-            notation=prepared.cfg.notation_policy,
-            include_timestamp=False,
-        )
-        return _execute_comparison_in_run(prepared, run=run, comp_tags=comp_tags, cache=cache)
-    except (ValueError, RuntimeError, KeyError, IndexError) as exc:
-        return _described_failure(prepared, exc)
-
-
-def _run_comparison_from_config(
-    cfg: ComparisonConfig,
-    planned: PlannedSystem,
-    topology: ComparisonTopology,
-    case_config_path: Path,
-    settings: NeurallsSettings,
-    *,
-    force: bool = False,
-) -> list[ComparisonOutcome]:
-    """Resolve, reuse-check, and execute one comparison, logging results to MLflow.
-
-    Standalone single-entry entry point: runs nested under an already-active
-    MLflow run (the caller's session parent, if any), so this becomes the
-    "subrun" level between the case-wide parent and per-preconditioner leaf
-    runs. `run_comparison_batch` does not call this directly — it composes
-    `_prepare_comparison_entry`/`_execute_prepared_comparison` itself so it
-    can gate the whole batch's session parent run on whether any entry needs
-    real execution.
-
-    Args:
-        cfg: Fully resolved ComparisonConfig with injected data paths and preconditioners.
-        planned: The planned system, whose entry provides display name and method path.
-        topology: Resolved MLflow topology for the whole batch (tracking/experiment).
-        case_config_path: Case config path for model resolution context.
-        settings: Resolved runtime settings.
-        force: Rerun even if a matching comparison already completed successfully.
-
-    Returns:
-        Single-element list with the outcome of the comparison run.
-    """
-    context = _ComparisonResolutionContext(
-        topology=topology,
-        case_config_path=case_config_path,
-        settings=settings,
-        load_dataset=load_dataset_presentation,
-    )
-    prepared = _prepare_comparison_entry(cfg, planned, context, force=force)
-    if is_comparison_outcome(prepared):
-        return [prepared]
-    with prepared.cleanup:
-        return [_execute_prepared_comparison(prepared)]
 
 
 def _validate_comparison_sources(cfg: ComparisonConfig) -> None:

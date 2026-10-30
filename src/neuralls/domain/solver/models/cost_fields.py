@@ -46,7 +46,5 @@ COST_FIELD_REGISTRY: tuple[CostFieldSpec, ...] = (
 )
 """Every scalar cost reported per preconditioner per comparison run.
 
-Iterated by `_plots.py`'s bar-chart generation and by
-`_save_comparison_toml` (`platform/reporting/artifacts.py`) — the one list
-both read from.
+Iterated by `_plots.py`'s bar-chart generation.
 """

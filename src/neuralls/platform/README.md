@@ -155,7 +155,7 @@ the persistence source of truth; the removed scaling-law TOML is not emitted.
 
 **Run names.** `tracking/run_names.py::render_run_name` is the only place a typed
 `RunName` (`domain/presentation/run_names.py`) becomes text: plain Unicode under the case's
-notation, one line, no wrapping. `MlflowRunConfig` and `TrackedRun` carry a `NamedRun`; the
+notation, one line, no wrapping. `MlflowRunConfig` carries a `NamedRun`; the
 text is produced where MLflow (or dlkit, which opens the training and evaluation runs) is
 handed a name (`run_name_text`), so a run cannot be named from an id, a slug, a path or a
 class name. Tags keep machine ids in `*_id` fields (`method_id`, `assignment_id`,

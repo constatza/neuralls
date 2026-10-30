@@ -19,7 +19,7 @@ from neuralls.composition.comparison.models import (
     MatrixRef,
     PlannedSystem,
 )
-from neuralls.composition.tracking.run_specs import build_comparison_run_spec
+from neuralls.composition.tracking.run_specs import comparison_run as comparison_run_name
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import (
     MethodPresentationCandidate,
@@ -29,7 +29,7 @@ from neuralls.domain.presentation.methods import (
 )
 from neuralls.domain.presentation.planner import prepare_presentations
 from neuralls.domain.presentation.provenance import DatasetPresentation, DatasetSourceProvenance
-from neuralls.domain.presentation.run_names import NamedRun
+from neuralls.domain.presentation.run_names import NamedRun, Untimed
 from neuralls.domain.presentation.titles import ComparisonScopePresentation, EditorialPresentation
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
@@ -200,20 +200,19 @@ def test_execution_accepts_an_editorial_title_regardless_of_scope(
     assert replace(base, title=editorial).title == editorial
 
 
-def test_the_execution_run_name_is_the_name_mlflow_gives_the_run(
+def test_the_execution_run_name_is_the_typed_comparison_run_of_its_planned_system(
     planned_system: PlannedFactory, execution: ExecutionFactory
 ) -> None:
     prepared = execution(planned_system("a"))
     prepared.cfg.notation_policy = NotationPolicy.default()
 
-    opened, _tags = build_comparison_run_spec(
-        entry=prepared.entry,
-        planned=prepared.planned,
-        title=prepared.title,
-        dataset=prepared.presentation.scope.dataset,
-        notation=prepared.cfg.notation_policy,
-        include_timestamp=False,
+    expected = comparison_run_name(
+        prepared.planned,
+        prepared.title,
+        prepared.presentation.scope.dataset,
+        prepared.cfg.notation_policy,
+        Untimed(),
     )
 
-    assert prepared.run_name == opened
-    assert run_name_text(prepared.run_name) == run_name_text(opened)
+    assert prepared.run_name == expected
+    assert run_name_text(prepared.run_name) == run_name_text(expected)

@@ -1,43 +1,41 @@
-"""Tests for `DatasetPreconditionerCache` reuse through `_run_preconditioner`.
+"""Setup scoping of method-major execution and the `DatasetPreconditionerCache` primitives.
 
-Covers the matrix-bundle lifetime used by method-major execution: prepared
-state is reused across sibling RHS values and never across matrices. Loaded
-checkpoint weights have their own method-owned store and are not tested here.
+Prepared state is built once per matrix and shared by its sibling RHS values, never
+across matrices. Loaded checkpoint weights have their own method-owned store and are
+tested with the preloading tests.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
+import pytest
 import torch
 from torchalg.preconditioners.implementations import Identity
 
+from neuralls.composition.comparison import comparison_run
 from neuralls.composition.comparison._preconditioner_setup import (
     DatasetPreconditionerCache,
     PreconditionerService,
-    SystemPreconditionerCache,
     matrix_key,
 )
-from neuralls.composition.comparison.comparison_run import _run_preconditioner
-from neuralls.composition.comparison.models import (
-    MatrixRef,
-    PlannedSystem,
-    PreconditionerComparisonEntry,
-)
-from neuralls.domain.presentation.methods import PreparedMethodPresentation
+from neuralls.composition.comparison.comparison_run import execute_method_workload
+from neuralls.composition.comparison.models import MatrixRef, PlannedSystem, ResolvedMethod
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.models.preconditioner import (
-    AggregationCoarseningConfig,
     AMGPreconditionerConfig,
-    ConcretePreconditionerConfig,
     PODCoarseningConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
 )
 from neuralls.platform.config.settings import NeurallsSettings
-from neuralls.shared.types import MatrixId
+from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.types import DatasetId, MatrixId
+from tests.composition.workload_support import matrix_bundle
 from tests.fakes.fit_data import FakeFitData
 from tests.presentation_support import PreparedMethodFactory
 
@@ -65,158 +63,54 @@ def test_inline_pod_staging_reads_arrays_once_per_method() -> None:
     assert fit_data.dense_reads == [Path("pod-fit")]
 
 
-def _run(
-    cfg: ConcretePreconditionerConfig,
-    *,
-    matrix: torch.Tensor,
-    rhs: torch.Tensor,
-    settings: NeurallsSettings,
-    cache: SystemPreconditionerCache,
-    prepared: PreparedMethodPresentation,
-) -> PreconditionerComparisonEntry:
-    return _run_preconditioner(
-        cfg,
-        service=PreconditionerService(FakeFitData()),
-        matrix=matrix,
-        rhs=rhs,
-        matrix_path=Path("/nonexistent"),
-        matrix_index=0,
+@pytest.fixture
+def build_count(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """One entry per matrix a method workload builds (the timed unit of a build)."""
+    builds: list[int] = []
+    real = comparison_run._build_scheduled_and_bind
+
+    def counting(
+        service: PreconditionerService,
+        matrix: torch.Tensor,
+        cfg: StandardPreconditionerConfig,
+        staged: tuple[np.ndarray, ...],
+    ):
+        builds.append(int(matrix[0, 0]))
+        return real(service, matrix, cfg, staged)
+
+    monkeypatch.setattr(comparison_run, "_build_scheduled_and_bind", counting)
+    return builds
+
+
+@pytest.mark.parametrize(
+    "preconditioner_type", [PreconditionerType.IDENTITY, PreconditionerType.JACOBI]
+)
+def test_a_method_is_built_once_per_matrix_whatever_its_setup_role(
+    build_count: list[int],
+    preconditioner_type: PreconditionerType,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+) -> None:
+    """Static and matrix-dependent methods are rebuilt on each matrix, never across them.
+
+    Sibling RHS of one matrix share its single build and single measured setup event.
+    """
+    method = ResolvedMethod(StandardPreconditionerConfig(type=preconditioner_type))
+
+    workload = execute_method_workload(
+        method,
+        (matrix_bundle(1, n_rhs=2), matrix_bundle(2, n_rhs=2)),
+        prepared=prepared_method(str(method.name)),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
         params=_SOLVER_PARAMS,
-        color_key=None,
-        marker_key=None,
-        x_exact=None,
-        settings=settings,
-        cache=cache,
-        presentation=prepared,
-    )
-
-
-def test_static_setup_preconditioner_is_rebuilt_for_each_matrix(
-    neuralls_settings: NeurallsSettings,
-    prepared_method: PreparedMethodFactory,
-) -> None:
-    """Identity still receives one measured setup event per distinct matrix."""
-    cfg = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
-    dataset_cache = DatasetPreconditionerCache()
-    cache_a = dataset_cache.for_system(MatrixId(0))
-    cache_b = dataset_cache.for_system(MatrixId(1))
-    matrix_a = _diagonal([2.0, 4.0, 8.0])
-    matrix_b = _diagonal([1.0, 1.0, 9.0])
-    rhs = torch.ones(3, dtype=torch.float64)
-
-    first = _run(
-        cfg,
-        matrix=matrix_a,
-        rhs=rhs,
         settings=neuralls_settings,
-        cache=cache_a,
-        prepared=prepared_method(cfg.name),
-    )
-    second = _run(
-        cfg,
-        matrix=matrix_b,
-        rhs=rhs,
-        settings=neuralls_settings,
-        cache=cache_b,
-        prepared=prepared_method(cfg.name),
     )
 
-    built_for_a = cache_a.get("identity")
-    built_for_b = cache_b.get("identity")
-    assert built_for_a is not None
-    assert built_for_b is not None
-    assert built_for_a.preconditioner is not built_for_b.preconditioner
-    assert dataset_cache.shared_names() == frozenset()
-    assert first.result.setup_time_samples
-    assert second.result.setup_time_samples
-
-
-def test_matrix_setup_preconditioner_is_reused_only_for_the_same_matrix(
-    neuralls_settings: NeurallsSettings,
-    prepared_method: PreparedMethodFactory,
-) -> None:
-    """Jacobi is matrix-dependent; sharing is valid only on the matrix it was built for."""
-    cfg = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
-    dataset_cache = DatasetPreconditionerCache()
-    cache = dataset_cache.for_system(MatrixId(0))
-    matrix = _diagonal([2.0, 4.0, 8.0])
-    rhs_a = torch.ones(3, dtype=torch.float64)
-    rhs_b = torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64)
-
-    first = _run(
-        cfg,
-        matrix=matrix,
-        rhs=rhs_a,
-        settings=neuralls_settings,
-        cache=cache,
-        prepared=prepared_method(cfg.name),
-    )
-    cached_entry = cache.get("jacobi")
-    assert cached_entry is not None
-    first_preconditioner = cached_entry.preconditioner
-
-    second = _run(
-        cfg,
-        matrix=matrix,
-        rhs=rhs_b,
-        settings=neuralls_settings,
-        cache=cache,
-        prepared=prepared_method(cfg.name),
-    )
-
-    assert dataset_cache.shared_names() == frozenset({"jacobi"})
-    # The second call reused the exact same built object — never rebuilt.
-    reused_entry = cache.get("jacobi")
-    assert reused_entry is not None
-    assert reused_entry.preconditioner is first_preconditioner
-    assert first.result.setup_cost == second.result.setup_cost
-
-
-def test_matrix_setup_preconditioner_is_rebuilt_for_a_different_matrix(
-    neuralls_settings: NeurallsSettings,
-    prepared_method: PreparedMethodFactory,
-) -> None:
-    """A MatrixSetupPreconditioner built for one matrix is never served to another."""
-    cfg = AMGPreconditionerConfig(
-        type=PreconditionerType.AMG,
-        coarsening=AggregationCoarseningConfig(theta=0.25),
-        n_levels=2,
-    )
-    dataset_cache = DatasetPreconditionerCache()
-    cache_a = dataset_cache.for_system(MatrixId(0))
-    cache_b = dataset_cache.for_system(MatrixId(1))
-    n = 50
-    matrix_a = (
-        2 * torch.eye(n, dtype=torch.float64)
-        + torch.diag(-torch.ones(n - 1, dtype=torch.float64), 1)
-        + torch.diag(-torch.ones(n - 1, dtype=torch.float64), -1)
-    )
-    matrix_b = matrix_a * 3.0
-    rhs = torch.ones(n, dtype=torch.float64)
-
-    _run(
-        cfg,
-        matrix=matrix_a,
-        rhs=rhs,
-        settings=neuralls_settings,
-        cache=cache_a,
-        prepared=prepared_method(cfg.name),
-    )
-    _run(
-        cfg,
-        matrix=matrix_b,
-        rhs=rhs,
-        settings=neuralls_settings,
-        cache=cache_b,
-        prepared=prepared_method(cfg.name),
-    )
-
-    built_for_a = cache_a.get(cfg.name)
-    built_for_b = cache_b.get(cfg.name)
-    assert built_for_a is not None
-    assert built_for_b is not None
-    assert built_for_a.preconditioner is not built_for_b.preconditioner
-    assert dataset_cache.shared_names() == frozenset()
+    assert len(build_count) == len(workload.setup_events) == 2
+    assert len(workload.solve_attempts) == 4
+    assert build_count[0] != build_count[1]
 
 
 def _planned(entry_id: str, rhs_source: dict[str, object]) -> PlannedSystem:

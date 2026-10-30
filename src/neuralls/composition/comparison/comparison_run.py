@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import contextlib
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import replace
-from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -15,33 +13,27 @@ from torchalg.preconditioners.base import Preconditioner
 from torchalg.utils.device import resolve_device
 
 from neuralls.composition.comparison._generation_cost import resolve_generation_cost
-from neuralls.composition.comparison._linear_system import _load_linear_system
 from neuralls.composition.comparison._plots import _generate_comparison_plots
 from neuralls.composition.comparison._preconditioner_setup import (
     PreconditionerService,
-    SystemPreconditionerCache,
     _bind_extra_inputs,
     _create_scheduled_preconditioners,
     _load_extra_inputs,
     capture_system_realizations,
 )
-from neuralls.composition.comparison._presentation import build_comparison_source_context
 from neuralls.composition.comparison.models import (
     ComparisonPaths,
     ComparisonPresentation,
     CompletedMethodWorkload,
     MatrixWorkload,
-    PreconditionerComparisonEntry,
     ResolvedComparisonInput,
     ResolvedMethod,
     canonical_method_config,
 )
-from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
 from neuralls.composition.preconditioners.checkpoint_store import CheckpointStore
 from neuralls.composition.preconditioners.default_services import FS_FIT_DATA
 from neuralls.domain.presentation.methods import (
     ExecutedMethod,
-    PreparedComparisonPresentation,
     PreparedMethodPresentation,
     SystemRealization,
 )
@@ -70,7 +62,6 @@ from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.cost import StageCost
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle, plot_style_maps
-from neuralls.domain.solver.models.recommendations import ComparisonRecommendations
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.platform.config.models.comparison import ComparisonGeneral
 from neuralls.platform.config.models.preconditioner import (
@@ -89,20 +80,11 @@ from neuralls.shared.device import (
     FailedTimedRuns,
     WorkloadMemoryObserver,
     release_device_memory,
-    repeat_timed,
     repeat_timed_outcome,
 )
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, PreconditionerName, SetupEventId, SystemId
-
-type PreconditionerEvaluationMapper = Callable[
-    [
-        Callable[[PreconditionerConfig], PreconditionerComparisonEntry],
-        Sequence[PreconditionerConfig],
-    ],
-    Iterable[PreconditionerComparisonEntry],
-]
 
 
 def _pod2g_style_keys(cfg: PreconditionerConfig) -> tuple[str | None, str | None]:
@@ -168,93 +150,6 @@ def _breakdown_result(name: str, *, rhs: torch.Tensor, error: str) -> CGComparis
     )
 
 
-def _evaluate_preconditioner(
-    cfg: PreconditionerConfig,
-    *,
-    service: PreconditionerService,
-    matrix: torch.Tensor,
-    rhs: torch.Tensor,
-    matrix_path: Path,
-    matrix_index: int,
-    params: SolverParams,
-    x_exact: torch.Tensor | None = None,
-    settings: NeurallsSettings,
-    cache: SystemPreconditionerCache | None = None,
-    presentation: PreparedComparisonPresentation,
-    notation: NotationPolicy,
-) -> PreconditionerComparisonEntry:
-    """Build one preconditioner, run it, and package its evaluation outcome.
-
-    The constructed preconditioner (and, for neural preconditioners, its loaded
-    checkpoint) is only referenced by locals in this call — it goes out of scope
-    on return, so the caller's loop never holds more than one model at a time.
-    Exception: a preconditioner `cache` stores reuses it across sibling calls
-    (see `SystemPreconditionerCache`), by design — the caller owns that
-    cache's lifetime, scoped to the whole sweep group, not to this call.
-
-    Args:
-        cfg: Preconditioner configuration to build and evaluate.
-        service: Shared preconditioner factory service.
-        matrix: System matrix (shape: n x n).
-        rhs: Right-hand side vector (shape: n,).
-        matrix_path: Dataset directory for extra-input binding (may not be a directory).
-        matrix_index: Sample index for extra-input extraction.
-        params: Solver tolerances and iteration limits.
-        x_exact: Reference solution shared across every preconditioner in this
-            comparison (see ``compare_preconditioners``), or ``None``.
-        settings: Resolved runtime roots, used to resolve any dataset
-            directory feeding this preconditioner's generation cost.
-        cache: Optional per-sweep-group cache letting a preconditioner built
-            for an earlier sibling system be reused here instead of rebuilt,
-            when doing so is provably valid (see `SystemPreconditionerCache`).
-            `None` (the default) means every call builds fresh, unchanged
-            from before this parameter existed.
-        presentation: The validated presentation of the whole cohort; this method's own
-            is looked up by its name, and a name it lacks raises.
-
-    Returns:
-        Named result containing the solve outcome and plot metadata for ``cfg``.
-    """
-    color_key, marker_key = _pod2g_style_keys(cfg)
-    prepared = presentation.method(PreconditionerName(cfg.name))
-    method_text = render_method_label(prepared.configured, notation)
-    logger.info("Evaluating {}", method_text)
-    try:
-        return _run_preconditioner(
-            cfg,
-            service=service,
-            matrix=matrix,
-            rhs=rhs,
-            matrix_path=matrix_path,
-            matrix_index=matrix_index,
-            params=params,
-            color_key=color_key,
-            marker_key=marker_key,
-            x_exact=x_exact,
-            settings=settings,
-            cache=cache,
-            presentation=prepared,
-        )
-    except Exception as exc:  # noqa: BLE001
-        # Broad by design: one preconditioner's failure (build, solve, CUDA OOM,
-        # ...) must never abort the rest of the comparison.
-        logger.opt(exception=True).warning(
-            "{} failed: {}: {}",
-            method_text,
-            type(exc).__name__,
-            exc,
-        )
-        release_device_memory()
-        return PreconditionerComparisonEntry(
-            name=cfg.name,
-            result=_breakdown_result(cfg.name, rhs=rhs, error=f"{type(exc).__name__}: {exc}"),
-            presentation=prepared,
-            family=preconditioner_family(cfg),
-            color_key=color_key,
-            marker_key=marker_key,
-        )
-
-
 def _build_scheduled(
     service: PreconditionerService, matrix: torch.Tensor, cfg: PreconditionerConfig
 ) -> dict[str, Preconditioner]:
@@ -276,113 +171,6 @@ def _build_scheduled_and_bind(
     scheduled = _build_scheduled(service, matrix, cfg)
     _bind_extra_inputs(scheduled, matrix, staged_inputs)
     return scheduled
-
-
-def _run_preconditioner(
-    cfg: PreconditionerConfig,
-    *,
-    service: PreconditionerService,
-    matrix: torch.Tensor,
-    rhs: torch.Tensor,
-    matrix_path: Path,
-    matrix_index: int,
-    params: SolverParams,
-    color_key: str | None,
-    marker_key: str | None,
-    x_exact: torch.Tensor | None = None,
-    settings: NeurallsSettings,
-    cache: SystemPreconditionerCache | None = None,
-    presentation: PreparedMethodPresentation,
-) -> PreconditionerComparisonEntry:
-    """Build and solve one preconditioner; raises on any failure.
-
-    ``setup_usage`` wraps both the preconditioner's construction+``.setup()``
-    (``PreconditionerService.create_preconditioner`` — every `builders.py`
-    builder calls `.setup(matrix)` before returning) and any scheduling
-    wrapper's own `.setup()` (`_create_scheduled_preconditioners`). Every
-    `torchalg.Preconditioner` requires an explicit `setup(matrix)` call
-    before `apply()`, so this measurement is always the real build cost for
-    every preconditioner kind (IC0/Jacobi's cheap factorization, AMG/POD-2G's
-    hierarchy build, AdaptiveSA/BootstrapAMG's bootstrap cycles) — never a
-    near-zero artifact of timing construction alone while the real work
-    happened lazily inside `apply()`.
-
-    Checkpoint loading is deliberately *outside* the timed region, for every
-    checkpoint-backed kind alike (neural, neural AMG, fitted POD-2G basis,
-    neural POD-2G's predictor), and so outside `setup_peak_memory_bytes`
-    too: it is file I/O that a deployment pays once, not algorithmic setup
-    cost. `PreconditionerService.preload` loads each checkpoint once per
-    method (the store lives as long as the method workload), and the timed
-    build only borrows the loaded object. A neural preconditioner's setup is
-    matrix-independent, so its setup cost is therefore near zero by design; the
-    checkpoint and data loading are excluded from the benchmark cost model. Download and hashing are
-    outside the measurement as well (they run in the prepare phase, before any
-    MLflow run opens). A service built without a store loads inside the build,
-    and then inside the timer.
-
-    On a `cache` hit, none of that rebuilding happens at all: the already-
-    ready object from an earlier sibling system is reused directly, and the
-    *real* measured cost from that earlier build is reported again rather
-    than a fresh (near-zero, misleadingly "free") measurement — the whole
-    point of caching is that this cost is genuinely paid once, so every
-    sibling's result should keep showing its true size.
-    """
-    family = preconditioner_family(cfg)
-    staged_inputs = _load_extra_inputs(matrix_path, matrix_index)
-    cached = cache.get(cfg.name) if cache is not None else None
-    if cached is not None:
-        scheduled: dict[str, Preconditioner] = {cfg.name: cached.preconditioner}
-        setup_cost_seconds = cached.setup_cost_seconds
-        setup_peak_memory_bytes = cached.setup_peak_memory_bytes
-        setup_time_samples = ()
-    else:
-        service.preload(matrix, cfg)
-        timed_setup = repeat_timed(
-            lambda: _build_scheduled_and_bind(service, matrix, cfg, staged_inputs),
-            params.timing,
-            device=matrix.device,
-        )
-        scheduled = timed_setup.value
-        setup_cost_seconds = timed_setup.seconds
-        setup_peak_memory_bytes = timed_setup.peak_memory_bytes
-        setup_time_samples = timed_setup.samples_seconds
-        if cache is not None:
-            cache.put(
-                cfg.name,
-                scheduled[cfg.name],
-                setup_cost_seconds=setup_cost_seconds,
-                setup_peak_memory_bytes=setup_peak_memory_bytes,
-            )
-    if cached is not None:
-        _bind_extra_inputs(scheduled, matrix, staged_inputs)
-    result = run_cg_comparison(
-        matrix,
-        rhs,
-        preconditioners=scheduled,
-        x_exact=x_exact,
-        rtol=params.rtol,
-        atol=params.atol,
-        maxiter=params.max_iterations,
-        m_max=params.m_max,
-        reference_precision_margin=params.reference_precision_margin,
-        timing=params.timing,
-    )[cfg.name]
-    generation_cost = resolve_generation_cost(cfg, settings=settings)
-    result = replace(
-        result,
-        generation_cost=generation_cost,
-        setup_cost=setup_cost_seconds,
-        setup_peak_memory_bytes=setup_peak_memory_bytes,
-        setup_time_samples=setup_time_samples,
-    )
-    return PreconditionerComparisonEntry(
-        name=cfg.name,
-        result=result,
-        presentation=presentation,
-        family=family,
-        color_key=color_key,
-        marker_key=marker_key,
-    )
 
 
 def _execute_matrix_bundle(
@@ -785,191 +573,3 @@ def _ensure_comparison_directories(paths: ComparisonPaths) -> None:
         paths: Comparison paths with output and figures directories.
     """
     ensure_dir(paths.figures)
-
-
-def compare_preconditioners(
-    *,
-    general_params: ComparisonGeneral,
-    preconditioner_configs: Sequence[PreconditionerConfig],
-    output_root: Path | None = None,
-    figures_root: Path | None = None,
-    resolved_input: ResolvedComparisonInput | None = None,
-    evaluation_mapper: PreconditionerEvaluationMapper = map,
-    settings: NeurallsSettings,
-    cache: SystemPreconditionerCache | None = None,
-    presentation: ComparisonPresentation,
-) -> ComparisonResult:
-    """Run CG comparisons and generate diagnostics.
-
-    Orchestrates a 6-step workflow:
-    1. Validate inputs
-    2. Resolve paths (matrix, rhs, output, figures)
-    3. Load, validate, and place the linear system on the solver device
-    4. Evaluate each preconditioner config: build, bind, and solve
-       (one preconditioner resident at a time — see ``evaluation_mapper``)
-    5. Generate diagnostic plots
-    6. Package and return result
-
-    Step 4 evaluates preconditioners one at a time rather than building every
-    config's preconditioner up front: each config's model (including any
-    GPU-resident neural checkpoint) is constructed, used, and released before
-    the next config is built, bounding peak memory to a single model.
-
-    Args:
-        general_params: Comparison general configuration.
-        preconditioner_configs: Sequence of preconditioner configurations.
-        output_root: Optional override for output root directory.
-        figures_root: Optional override for figures directory.
-        evaluation_mapper: Strategy for running the per-config evaluations in
-            ``preconditioner_configs``. Defaults to the builtin ``map``, i.e.
-            sequential execution with exactly one preconditioner resident at a
-            time. Matches the call signature of ``concurrent.futures.Executor.map``,
-            so passing e.g. ``ThreadPoolExecutor(max_workers=n).map`` runs up to
-            ``n`` models concurrently without any other change here — an opt-in
-            left to the caller, who is best placed to judge whether ``n`` models'
-            worth of GPU memory fit at once.
-        settings: Resolved runtime roots, used to resolve any dataset
-            directory feeding a preconditioner's generation cost — see
-            ``_generation_cost.py::resolve_generation_cost``.
-        cache: Optional per-sweep-group cache letting each preconditioner
-            built here be reused by a later sibling system's call to this
-            same function, when doing so is provably valid (see
-            ``SystemPreconditionerCache``). ``None`` (the default) means
-            every call builds every preconditioner fresh, unchanged from
-            before this parameter existed — only a sweep-aware caller
-            passes a real cache, scoped to its own sweep group. A cache also
-            carries its method-workload checkpoint store, so checkpoints are loaded
-            once per method workload; without a cache (or a store on it) this call uses
-            a private store released when it returns, so the load is still
-            outside the timer.
-        presentation: The cohort's validated scientific presentation, its title, and the
-            case's notation, all prepared at preflight; figures render them when drawn.
-
-    Returns:
-        ComparisonResult with results, summary, plot paths, and solver metadata.
-
-    Raises:
-        ValueError: If no preconditioner configs provided or required paths missing.
-        FileNotFoundError: If matrix/rhs files don't exist.
-    """
-    if not preconditioner_configs:
-        raise ValueError("At least one preconditioner config must be provided.")
-    expected_keys = validate_unique_preconditioner_keys(preconditioner_configs)
-
-    paths = _resolve_comparison_paths(
-        general_params=general_params,
-        output_root=output_root,
-        figures_root=figures_root,
-    )
-    _ensure_comparison_directories(paths)
-    solver_device = resolve_device()
-    logger.info(
-        "Comparison: {} | device={}",
-        build_comparison_source_context(paths, resolved_input),
-        solver_device,
-    )
-
-    resolved_matrix_index = general_params.data.matrix_index
-
-    system = _load_linear_system(
-        paths,
-        rhs_sample_index=0,
-        matrix_index=resolved_matrix_index,
-        normalize_system=general_params.data.normalize_system,
-        resolved_input=resolved_input,
-    )
-    matrix = system.matrix.to(solver_device)
-    rhs = system.rhs.to(solver_device)
-    # One A/b pair has one true solution: compute it once on the selected
-    # solver device and share it across every preconditioner below instead of
-    # each one redoing this Jacobi-PCG solve from scratch.
-    x_exact = compute_reference_solution(
-        matrix,
-        rhs,
-        rtol=general_params.params.rtol,
-        margin=general_params.params.reference_precision_margin,
-    )
-
-    results: dict[str, CGComparisonResult] = {}
-    plot_styles: dict[str, PreconditionerPlotStyle] = {}
-    with contextlib.ExitStack() as stack:
-        shared_store = cache.checkpoints if cache is not None else None
-        store = shared_store if shared_store is not None else stack.enter_context(CheckpointStore())
-        service = PreconditionerService(FS_FIT_DATA, checkpoints=store)
-        evaluate_one = partial(
-            _evaluate_preconditioner,
-            service=service,
-            matrix=matrix,
-            rhs=rhs,
-            matrix_path=paths.matrix,
-            matrix_index=resolved_matrix_index,
-            params=general_params.params,
-            x_exact=x_exact,
-            settings=settings,
-            cache=cache,
-            presentation=presentation.methods,
-            notation=presentation.notation,
-        )
-
-        for entry in evaluation_mapper(evaluate_one, preconditioner_configs):
-            if entry.name not in expected_keys:
-                raise RuntimeError(
-                    f"Evaluation returned unexpected preconditioner key {entry.name!r}; "
-                    f"expected one of {expected_keys!r}."
-                )
-            if entry.name in results:
-                raise RuntimeError(
-                    f"Evaluation returned preconditioner key {entry.name!r} more than once."
-                )
-            if entry.result.preconditioner != entry.name:
-                raise RuntimeError(
-                    f"Evaluation result for {entry.name!r} identifies itself as "
-                    f"{entry.result.preconditioner!r}."
-                )
-            results[entry.name] = entry.result
-            plot_styles[entry.name] = PreconditionerPlotStyle(
-                presentation=entry.presentation,
-                family=entry.family,
-                color_key=entry.color_key,
-                marker_key=entry.marker_key,
-            )
-
-        missing_keys = tuple(key for key in expected_keys if key not in results)
-        if missing_keys:
-            raise RuntimeError(
-                f"Evaluation returned no result for preconditioner keys {missing_keys!r}."
-            )
-
-    recommendations = ComparisonRecommendations()
-
-    style = plot_style_maps(plot_styles)
-    plot_paths = _generate_comparison_plots(
-        results,
-        paths,
-        _legend_of(plot_styles, presentation),
-        ComparisonFigureTitle(presentation.title, int(matrix.shape[0]), presentation.notation),
-        families=style.families,
-        color_keys=style.color_keys,
-        marker_keys=style.marker_keys,
-        rtol=general_params.params.rtol,
-        atol=general_params.params.atol,
-        max_iterations=general_params.params.max_iterations,
-    )
-
-    return ComparisonResult(
-        results=results,
-        summary=format_results_summary(
-            results,
-            {name: style.presentation.compact for name, style in plot_styles.items()},
-            presentation.notation,
-        ),
-        plot_paths=plot_paths,
-        preconditioners=tuple(cfg.name for cfg in preconditioner_configs),
-        solver_params=general_params,
-        recommendations=recommendations,
-        output_dir=paths.output,
-        matrix_shape=(matrix.shape[0], matrix.shape[1]),
-        rhs_shape=tuple(rhs.shape),
-        rhs_source_kind=resolved_input.rhs_source_kind if resolved_input is not None else None,
-        plot_styles=plot_styles,
-    )

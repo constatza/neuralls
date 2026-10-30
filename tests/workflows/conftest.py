@@ -21,7 +21,6 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from tests.workflows.comparison_support import (
     COMPARISON_TRACKING_MLFLOW_MODULE,
-    LOG_COMPARISON_ARTIFACTS,
     MLFLOW_MODULE,
     SETUP_TRACKING,
     configure_mock_mlflow,
@@ -305,12 +304,4 @@ def stub_setup_tracking(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     """Skip creating the comparison experiment in a tracking store."""
     stub = MagicMock()
     monkeypatch.setattr(SETUP_TRACKING, stub)
-    return stub
-
-
-@pytest.fixture
-def stub_log_comparison_artifacts(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """Skip uploading the comparison artifact directories to MLflow."""
-    stub = MagicMock()
-    monkeypatch.setattr(LOG_COMPARISON_ARTIFACTS, stub)
     return stub

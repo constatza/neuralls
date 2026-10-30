@@ -16,9 +16,6 @@ from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 MLFLOW_MODULE = "neuralls.composition.assignments.comparison_batch.mlflow"
 COMPARISON_TRACKING_MLFLOW_MODULE = "neuralls.platform.tracking.comparison_tracking.mlflow"
 SETUP_TRACKING = "neuralls.composition.assignments.comparison_batch.setup_comparison_tracking"
-LOG_COMPARISON_ARTIFACTS = (
-    "neuralls.composition.assignments.comparison_batch.log_comparison_artifacts_to_mlflow"
-)
 
 
 def configure_mock_mlflow(mock_mlflow: MagicMock, run_id: str = "comp-run-id") -> None:

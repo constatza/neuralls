@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class ComparisonResult:
-    """Typed result from compare_preconditioners workflow.
+    """Typed result from the comparison workflow.
 
     Args:
         results: Raw CG comparison results keyed by preconditioner name.

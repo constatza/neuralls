@@ -10,7 +10,7 @@ the cohort's structured presentations; the method ids stay machine-only.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,23 +21,16 @@ from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments.presentation_preflight import prepare_comparison_presentation
 from neuralls.composition.comparison.group_reporting import report_all_levels
-from neuralls.composition.comparison.models import MatrixRef, PlannedSystem
-from neuralls.composition.tracking.run_specs import (
-    build_child_comparison_tags,
-    build_comparison_run_spec,
-)
+from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.presentation.methods import PreparedComparisonPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation, DatasetSourceProvenance
-from neuralls.domain.presentation.run_names import NamedRun
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
 from neuralls.domain.solver.models.group_presentation import (
     GroupMethodPresentation,
     GroupPresentation,
 )
-from neuralls.domain.solver.models.provenance import HeldOutMatrix
-from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.models.preconditioner import (
     AdaptiveSAPreconditionerConfig,
     AggregationCoarseningConfig,
@@ -52,10 +45,11 @@ from neuralls.platform.reporting.figure_text import method_legend
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.tracking.comparison_tracking import log_configured_method_facts
 from neuralls.platform.tracking.run_names import run_name_text
+from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
-from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName
+from neuralls.shared.types import DatasetId, PreconditionerName
 from tests.dataset_support import build_test_dataset
 from tests.presentation_support import pod_spec
 from tests.realized_support import completed_workload
@@ -69,6 +63,7 @@ SEED = 2024
 MATRIX_SIZE = 4
 MATRIX_COUNT = 3
 SOURCE_PROBLEM = "Spectral 3D field"
+SYSTEM_ID = "system-0"
 FIT_SWEEPS = 3
 """Jacobi sweeps / CG iterations of the POD fit datasets."""
 POD_RANKS = (10, 100)
@@ -235,47 +230,20 @@ def test_visible_text_has_no_ids_slugs_paths_brackets_or_underscore_blobs(
         assert method_id not in label
 
 
-@pytest.fixture
-def parent_and_entry(
-    cohort: PreparedComparisonPresentation,
-) -> Iterator[tuple[NamedRun, ComparisonRegistryEntry]]:
-    entry = ComparisonRegistryEntry(
-        id="spectral_cmp", matrix_dataset="spectral", rhs_source={"kind": "gaussian"}
-    )
-    planned = PlannedSystem(
-        entry=entry,
-        matrix=MatrixRef(matrix_id=MatrixId(0), row=0),
-        rhs_row=None,
-        rhs_ordinal=0,
-        provenance=HeldOutMatrix(matrix_id=MatrixId(0), raw_matrix_index=0),
-    )
-    parent, _ = build_comparison_run_spec(
-        entry=entry,
-        planned=planned,
-        title=cohort.scope,
-        dataset=cohort.scope.dataset,
-        notation=PLAIN,
-        include_timestamp=False,
-    )
-    yield parent, entry
-
-
 def test_mlflow_runs_share_the_legend_presentation_and_keep_ids_in_tags_and_facts_in_params(
     cohort: PreparedComparisonPresentation,
-    parent_and_entry: tuple[NamedRun, ComparisonRegistryEntry],
     mlflow_experiment: str,
     mlflow_tracking_uri: str,
 ) -> None:
-    parent, entry = parent_and_entry
     plain = _plain_label(cohort)
     for prepared in cohort.methods:
-        child = build_child_comparison_tags(
+        run, tags = build_benchmark_method_run_spec(
             prepared=prepared,
             notation=PLAIN,
-            comparison_id=entry.id,
-            parent=parent,
+            config_digest=canonical_digest(prepared.method_id),
+            system_ids=(SYSTEM_ID,),
         )
-        with mlflow.start_run(run_name=run_name_text(child.method), tags=child.as_mlflow_tags()):
+        with mlflow.start_run(run_name=run_name_text(run), tags=tags.as_mlflow_tags()):
             log_configured_method_facts(prepared)
 
     client = MlflowClient(tracking_uri=mlflow_tracking_uri)
@@ -285,7 +253,6 @@ def test_mlflow_runs_share_the_legend_presentation_and_keep_ids_in_tags_and_fact
 
     assert [run.info.run_name for run in runs] == list(plain.values())
     assert [run.data.tags["method_id"] for run in runs] == list(plain)
-    assert {run.data.tags["comparison_id"] for run in runs} == {entry.id}
     for run in runs:
         visible = [run.info.run_name, run.data.tags["method_label"]]
         assert [leak for text in visible for leak in _forbidden(text)] == []

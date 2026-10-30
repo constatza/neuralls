@@ -15,7 +15,7 @@ Architecture:
        .generate_batch`) — this module assumes it already ran and only reads
        what's on disk. It never generates a dataset itself.
     2. Model training (with checkpoint detection) - dlkit's run_multirun_spec()
-    3. Solver comparison (separate) - compare_preconditioners() from compare module
+    3. Solver comparison (separate) - run_comparison_batch()
 
 Note:
     This orchestrator does NOT handle dataset generation or solver comparisons.
@@ -138,7 +138,7 @@ def run_assignment(
         training sweep in `run_assignment_sweep()`.
 
     Note:
-        For solver comparison, use compare_preconditioners() after training completes.
+        For solver comparison, use run_comparison_batch() after training completes.
         This function only reuse-checks and prepares models for training.
 
     Example:

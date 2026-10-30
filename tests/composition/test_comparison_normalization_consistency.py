@@ -13,8 +13,7 @@ import numpy as np
 import pytest
 
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
-from neuralls.composition.comparison._linear_system import _load_linear_system
-from neuralls.composition.comparison.models import ComparisonPaths
+from neuralls.composition.comparison._linear_system import prepare_resolved_linear_system
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
@@ -53,10 +52,6 @@ def _build_normalized_dataset(root: Path) -> Path:
     return dataset_dir
 
 
-def _dummy_paths(root: Path) -> ComparisonPaths:
-    return ComparisonPaths(matrix=root, rhs=root, output=root / "out", figures=root / "figs")
-
-
 def test_dataset_sourced_comparison_recovers_true_solution(tmp_path: Path) -> None:
     """DATASET-sourced comparison must not double-normalize RHS."""
     dataset_dir = _build_normalized_dataset(tmp_path)
@@ -74,13 +69,7 @@ def test_dataset_sourced_comparison_recovers_true_solution(tmp_path: Path) -> No
     assert resolved.matrix_normalization.type == "matrix"
     assert resolved.lhs is not None
 
-    system = _load_linear_system(
-        _dummy_paths(tmp_path),
-        rhs_sample_index=0,
-        matrix_index=0,
-        normalize_system="matrix",
-        resolved_input=resolved,
-    )
+    system = prepare_resolved_linear_system(resolved, "matrix")
     x_exact = np.linalg.solve(system.matrix, system.rhs)
     np.testing.assert_allclose(x_exact, resolved.lhs, rtol=1e-8, atol=1e-8)
 
@@ -99,20 +88,8 @@ def test_dataset_sourced_comparison_matches_no_renormalization(tmp_path: Path) -
         rhs_source_params={"sample_index": 0},
     )
 
-    system_matrix = _load_linear_system(
-        _dummy_paths(tmp_path),
-        rhs_sample_index=0,
-        matrix_index=0,
-        normalize_system="matrix",
-        resolved_input=resolved,
-    )
-    system_none = _load_linear_system(
-        _dummy_paths(tmp_path),
-        rhs_sample_index=0,
-        matrix_index=0,
-        normalize_system="none",
-        resolved_input=resolved,
-    )
+    system_matrix = prepare_resolved_linear_system(resolved, "matrix")
+    system_none = prepare_resolved_linear_system(resolved, "none")
     np.testing.assert_array_equal(system_matrix.matrix, system_none.matrix)
     np.testing.assert_array_equal(system_matrix.rhs, system_none.rhs)
 
@@ -139,13 +116,7 @@ def test_normalize_system_mismatch_raises(tmp_path: Path) -> None:
     assert resolved.matrix_normalization.type == "diagonal"
 
     with pytest.raises(ValueError):
-        _load_linear_system(
-            _dummy_paths(tmp_path),
-            rhs_sample_index=0,
-            matrix_index=0,
-            normalize_system="matrix",
-            resolved_input=resolved,
-        )
+        prepare_resolved_linear_system(resolved, "matrix")
 
 
 def test_gaussian_rhs_never_rescaled_by_matrix_normalization(tmp_path: Path) -> None:
@@ -163,13 +134,7 @@ def test_gaussian_rhs_never_rescaled_by_matrix_normalization(tmp_path: Path) -> 
     )
     rhs_before = resolved.rhs.copy()
 
-    system = _load_linear_system(
-        _dummy_paths(tmp_path),
-        rhs_sample_index=0,
-        matrix_index=0,
-        normalize_system="matrix",
-        resolved_input=resolved,
-    )
+    system = prepare_resolved_linear_system(resolved, "matrix")
     np.testing.assert_array_equal(system.rhs, rhs_before)
 
 
@@ -197,13 +162,7 @@ def test_raw_lhs_source_satisfies_ax_equals_b(tmp_path: Path) -> None:
         rhs_source_params={"path": solution_path, "row_kind": RowKind.STANDARD, "scale": 3.0},
     )
     assert resolved_raw.matrix_normalization is None
-    system_raw = _load_linear_system(
-        _dummy_paths(tmp_path),
-        rhs_sample_index=0,
-        matrix_index=0,
-        normalize_system="matrix",
-        resolved_input=resolved_raw,
-    )
+    system_raw = prepare_resolved_linear_system(resolved_raw, "matrix")
     np.testing.assert_allclose(system_raw.matrix @ lhs, system_raw.rhs / 3.0, rtol=1e-8, atol=1e-8)
 
     # Case 2: dataset-sourced matrix (already normalized) — matrix/rhs untouched.
@@ -219,13 +178,7 @@ def test_raw_lhs_source_satisfies_ax_equals_b(tmp_path: Path) -> None:
         rhs_source_params={"path": solution_path, "row_kind": RowKind.STANDARD, "scale": 3.0},
     )
     assert resolved_dataset.matrix_normalization is not None
-    system_dataset = _load_linear_system(
-        _dummy_paths(tmp_path),
-        rhs_sample_index=0,
-        matrix_index=0,
-        normalize_system="matrix",
-        resolved_input=resolved_dataset,
-    )
+    system_dataset = prepare_resolved_linear_system(resolved_dataset, "matrix")
     np.testing.assert_allclose(
         system_dataset.matrix @ lhs, system_dataset.rhs / 3.0, rtol=1e-8, atol=1e-8
     )

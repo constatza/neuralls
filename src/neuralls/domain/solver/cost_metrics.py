@@ -5,18 +5,15 @@ are only comparable *within* one comparison run — they all share one system si
 Comparing them across comparisons run on different-sized matrices (the
 data-generation pipeline produces many sizes) requires normalizing by ``n``
 first. These are pure functions, not stored fields: ``n`` is a property of the
-whole comparison (every preconditioner in one ``compare_preconditioners()``
-call shares the same matrix), not of any individual result, so it is passed in
+whole comparison (every preconditioner in one comparison
+shares the same matrix), not of any individual result, so it is passed in
 by the caller (``ComparisonResult.matrix_shape[0]``) rather than duplicated
 onto every ``CGComparisonResult``.
 """
 
 from __future__ import annotations
 
-import math
-
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.shared.constants import TOLERANCE_LADDER_DECADE_STEP, TOLERANCE_LADDER_START_DECADE
 
 
 def iterations_per_second(result: CGComparisonResult) -> float | None:
@@ -32,52 +29,6 @@ def iterations_per_second(result: CGComparisonResult) -> float | None:
     if result.solve_time_seconds is None or result.iterations <= 0:
         return None
     return result.iterations / result.solve_time_seconds
-
-
-def time_per_dof_per_iteration(result: CGComparisonResult, *, system_size: int) -> float | None:
-    """Averaged per-iteration cost, normalized by problem size.
-
-    The metric to compare across matrices of different sizes: a preconditioner
-    that looks "fast" only because it ran on a smaller system collapses back
-    to a comparable number here.
-
-    Args:
-        result: Comparison result to derive normalized cost from.
-        system_size: Number of unknowns ``n`` in the linear system this
-            result was solved on (``ComparisonResult.matrix_shape[0]``).
-
-    Returns:
-        ``avg_iteration_time_seconds / system_size``, or ``None`` if the
-        average iteration time is unavailable.
-
-    Raises:
-        ValueError: If ``system_size`` is not positive.
-    """
-    if system_size <= 0:
-        raise ValueError(f"system_size must be positive, got {system_size}.")
-    avg_iteration_time = result.avg_iteration_time_seconds
-    if avg_iteration_time is None:
-        return None
-    return avg_iteration_time / system_size
-
-
-def setup_time_per_dof(result: CGComparisonResult, *, system_size: int) -> float | None:
-    """Preconditioner construction cost, normalized by problem size.
-
-    Args:
-        result: Comparison result to derive normalized setup cost from.
-        system_size: Number of unknowns ``n`` in the linear system.
-
-    Returns:
-        ``setup_cost / system_size``. ``setup_cost`` is always measured
-        (0.0 only for a placeholder result where no build was attempted).
-
-    Raises:
-        ValueError: If ``system_size`` is not positive.
-    """
-    if system_size <= 0:
-        raise ValueError(f"system_size must be positive, got {system_size}.")
-    return result.setup_cost / system_size
 
 
 def generation_time_per_dof(result: CGComparisonResult, *, system_size: int) -> float | None:
@@ -109,71 +60,3 @@ def generation_time_per_dof(result: CGComparisonResult, *, system_size: int) -> 
     if generation_time_seconds is None:
         return None
     return generation_time_seconds / system_size
-
-
-def peak_memory_per_dof(result: CGComparisonResult, *, system_size: int) -> float | None:
-    """Peak memory usage, normalized by problem size.
-
-    Args:
-        result: Comparison result to derive normalized memory from.
-        system_size: Number of unknowns ``n`` in the linear system.
-
-    Returns:
-        ``peak_memory_bytes / system_size``, or ``None`` if memory was never
-        measured.
-
-    Raises:
-        ValueError: If ``system_size`` is not positive.
-    """
-    if system_size <= 0:
-        raise ValueError(f"system_size must be positive, got {system_size}.")
-    if result.peak_memory_bytes is None:
-        return None
-    return result.peak_memory_bytes / system_size
-
-
-def tolerance_ladder(rtol: float) -> tuple[float, ...]:
-    """Tolerances to report iterations at: every few decades from 1e-3 down to `rtol`.
-
-    Never goes below `rtol` (the solve stops there, so deeper rungs would be
-    unreachable), and `rtol` itself is always the last rung. A loose `rtol`
-    (>= 1e-3) gives just `(rtol,)`.
-
-    Examples:
-        ``rtol=1e-9`` -> (1e-3, 1e-6, 1e-9); ``rtol=1e-8`` -> (1e-3, 1e-6, 1e-8).
-
-    Raises:
-        ValueError: If `rtol` is not positive — rungs shrink toward zero, so a
-            non-positive bound would never be reached.
-    """
-    if rtol <= 0:
-        raise ValueError(f"rtol must be positive, got {rtol}.")
-    rungs: list[float] = []
-    decade = TOLERANCE_LADDER_START_DECADE
-    while (rung := float(f"1e-{decade}")) > rtol and not math.isclose(rung, rtol):
-        rungs.append(rung)
-        decade += TOLERANCE_LADDER_DECADE_STEP
-    return (*rungs, rtol)
-
-
-def iterations_to_tolerances(result: CGComparisonResult, rtol: float) -> dict[float, int | None]:
-    """Iterations needed to first reach each rung of `tolerance_ladder(rtol)`.
-
-    Read off the stored relative-residual history (entry ``k`` is the residual
-    after ``k`` iterations, entry 0 the initial one), so no extra solve is
-    needed. A rung the run never reached maps to ``None`` rather than a
-    sentinel count.
-
-    Args:
-        result: Comparison result carrying ``residual_history_rel``.
-        rtol: The solve's relative tolerance, which caps the ladder.
-
-    Returns:
-        Tolerance -> first iteration index at which the relative residual was
-        at or below it, or ``None``.
-    """
-    history = result.residual_history_rel
-    return {
-        tolerance: next((k for k, value in enumerate(history) if value <= tolerance), None)
-        for tolerance in tolerance_ladder(rtol)
-    }

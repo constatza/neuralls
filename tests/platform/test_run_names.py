@@ -30,7 +30,7 @@ from neuralls.domain.presentation.titles import (
     session_title,
     summarized_session_title,
 )
-from neuralls.platform.tracking.run_names import render_run_name, render_session_title
+from neuralls.platform.tracking.run_names import render_run_name
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import MatrixId
@@ -168,14 +168,6 @@ def test_a_many_system_session_with_one_shared_title_keeps_it_as_head() -> None:
     title = summarized_session_title([shared] * 6, SessionCounts(6, 2, 3))
     assert render_run_name(SessionRunName(title, STAMP), PLAIN) == (
         f"Spectral comparison | 6 systems (2 RHS types x 3 matrices) | {STAMP.text}"
-    )
-
-
-def test_the_session_label_matches_the_summarized_run_name_text() -> None:
-    shared = EditorialPresentation("Spectral comparison")
-    title = summarized_session_title([shared] * 6, SessionCounts(6, 2, 3))
-    assert render_session_title(title, PLAIN) == (
-        "Spectral comparison | 6 systems (2 RHS types x 3 matrices)"
     )
 
 

@@ -8,7 +8,6 @@ string, so no caller can name a run after a registry id.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import assert_never
 
@@ -165,11 +164,3 @@ class NamedRun:
 
     name: RunName
     notation: NotationPolicy
-
-
-@dataclass(frozen=True, slots=True)
-class TrackedRun:
-    """A run to open: its typed name and the machine tags that identify it."""
-
-    run: NamedRun
-    tags: Mapping[str, str]

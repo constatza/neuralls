@@ -9,7 +9,6 @@ import numpy as np
 import torch
 
 from neuralls.composition.comparison.models import (
-    ComparisonPaths,
     LinearSystem,
     ResolvedComparisonInput,
 )
@@ -20,7 +19,6 @@ from neuralls.domain.solver.utils.validation import (
     validate_rhs_vector,
 )
 from neuralls.platform.config.models.comparison import RHS_SOURCE_MODEL_BY_KIND
-from neuralls.platform.storage.comparison import load_system_arrays
 from neuralls.platform.storage.manifest import DatasetNormalization
 from neuralls.shared.types import ComparisonRhsSourceKind, SystemMatrix
 
@@ -223,48 +221,6 @@ def _normalize_linear_system(
             rhs_source_kind=rhs_source_kind,
             matrix_normalization=matrix_normalization,
         )
-    )
-
-
-def _load_linear_system(
-    paths: ComparisonPaths,
-    *,
-    rhs_sample_index: int,
-    matrix_index: int,
-    normalize_system: str,
-    resolved_input: ResolvedComparisonInput | None = None,
-) -> LinearSystem:
-    """Load and validate a linear system from disk.
-
-    Args:
-        paths: Resolved comparison paths with matrix and rhs file locations.
-        rhs_sample_index: Row index to select from a multi-RHS file; -1 selects row 0.
-        matrix_index: Sample index to select from a multi-matrix dataset directory.
-        normalize_system: Scaling mode — one of ``"none"``, ``"matrix"``,
-            ``"rhs"``, ``"both"``.
-
-    Returns:
-        Validated and scaled LinearSystem.
-
-    Raises:
-        ValueError: If validation fails (wrong shape, NaN values, incompatible
-            dimensions) or the Ax=b invariant is violated when a known true
-            solution is available.
-        FileNotFoundError: If matrix or rhs files don't exist.
-    """
-    if resolved_input is None:
-        A, b = load_system_arrays(
-            paths.matrix, paths.rhs, rhs_sample_index=rhs_sample_index, matrix_index=matrix_index
-        )
-    else:
-        A, b = resolved_input.matrix, resolved_input.rhs
-    return _prepare_linear_system(
-        A,
-        b,
-        normalize_system,
-        rhs_source_kind=resolved_input.rhs_source_kind if resolved_input else None,
-        matrix_normalization=resolved_input.matrix_normalization if resolved_input else None,
-        lhs=resolved_input.lhs if resolved_input else None,
     )
 
 

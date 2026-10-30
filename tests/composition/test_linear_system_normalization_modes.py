@@ -1,7 +1,7 @@
 """Characterization tests for `_normalize_linear_system`'s mode dispatch.
 
 `tests/composition/test_comparison_normalization_consistency.py` covers the
-``"matrix"`` mode end-to-end through `_load_linear_system`. These pin the
+``"matrix"`` mode end-to-end through `prepare_resolved_linear_system`. These pin the
 remaining modes (``"none"``, ``"rhs"``, ``"both"``), the unsupported-mode
 error, and the persisted-normalization guard that runs ahead of the dispatch.
 """

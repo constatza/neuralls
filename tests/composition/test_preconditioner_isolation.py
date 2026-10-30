@@ -1,57 +1,40 @@
-"""One failing preconditioner must never abort the rest of a comparison."""
+"""One failing preconditioner must never abort the rest of a method workload."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
-import torch
 
 from neuralls.composition.comparison import comparison_run
-from neuralls.composition.comparison.comparison_run import _evaluate_preconditioner
+from neuralls.composition.comparison._preconditioner_setup import PreconditionerService
+from neuralls.composition.comparison.models import MatrixWorkload, ResolvedMethod
+from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.solver.models import SetupCompleted, SetupFailed, SolveFailed
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from tests.fakes.fit_data import FakeFitData
+from neuralls.shared.types import DatasetId
+from tests.composition.workload_support import DIAGONAL, matrix_bundle
+from tests.presentation_support import PreparedMethodFactory
 
-
-class _FailingService:
-    """Preconditioner service whose construction raises a non-Runtime/Value error."""
-
-    def preload(self, matrix: torch.Tensor, cfg: object) -> None:
-        """Nothing to preload: the failure under test happens at construction."""
-
-    def create_preconditioner(self, matrix: torch.Tensor, cfg: object) -> object:
-        raise KeyError("checkpoint key missing")
-
-
-MATRIX_PATH = Path("/workspace/matrix")
+FAILING_MATRIX_ID = 1
+HEALTHY_MATRIX_ID = 2
+BUILD_ERROR = KeyError("checkpoint key missing")
 
 
 @pytest.fixture
-def system_matrix() -> torch.Tensor:
-    """Seeded SPD matrix (n=12)."""
-    generator = torch.Generator().manual_seed(0)
-    m = torch.randn(12, 12, dtype=torch.float64, generator=generator)
-    return m @ m.T + 12 * torch.eye(12, dtype=torch.float64)
+def method() -> ResolvedMethod:
+    """The identity method every workload runs."""
+    return ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
 
 
 @pytest.fixture
-def system_rhs(system_matrix: torch.Tensor) -> torch.Tensor:
-    """Seeded right-hand side."""
-    generator = torch.Generator().manual_seed(1)
-    return system_matrix @ torch.randn(12, dtype=torch.float64, generator=generator)
-
-
-@pytest.fixture
-def identity_cfg() -> StandardPreconditionerConfig:
-    """Config for the identity preconditioner."""
-    return StandardPreconditionerConfig(
-        type=PreconditionerType.IDENTITY,
-    )
+def two_matrix_bundles() -> tuple[MatrixWorkload, MatrixWorkload]:
+    """Matrix 1 then matrix 2, one RHS each."""
+    return matrix_bundle(FAILING_MATRIX_ID), matrix_bundle(HEALTHY_MATRIX_ID)
 
 
 @pytest.fixture
@@ -62,93 +45,78 @@ def solver_params() -> SolverParams:
     )
 
 
-def test_unexpected_build_error_becomes_breakdown_entry(
-    identity_cfg: StandardPreconditionerConfig,
+@pytest.fixture
+def fail_build_on_first_matrix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the service raise a non-Runtime/Value error while building for the first matrix."""
+    real = PreconditionerService.create_preconditioner
+
+    def create(self: PreconditionerService, matrix, config):
+        if float(matrix[0, 0]) == DIAGONAL[0] * FAILING_MATRIX_ID:
+            raise BUILD_ERROR
+        return real(self, matrix, config)
+
+    monkeypatch.setattr(PreconditionerService, "create_preconditioner", create)
+
+
+def test_unexpected_build_error_is_a_setup_failure_and_later_matrices_still_run(
+    fail_build_on_first_matrix: None,
+    method: ResolvedMethod,
+    two_matrix_bundles: tuple[MatrixWorkload, MatrixWorkload],
     solver_params: SolverParams,
-    system_matrix: torch.Tensor,
-    system_rhs: torch.Tensor,
-    neuralls_settings,
-    prepared_cohort,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
-    """Any exception yields a breakdown entry rather than escaping the subrun."""
-    entry = _evaluate_preconditioner(
-        identity_cfg,
-        service=_FailingService(),
-        matrix=system_matrix,
-        rhs=system_rhs,
-        matrix_path=MATRIX_PATH,
-        matrix_index=0,
+    workload = comparison_run.execute_method_workload(
+        method,
+        two_matrix_bundles,
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
         params=solver_params,
         settings=neuralls_settings,
-        presentation=prepared_cohort(identity_cfg.name),
-        notation=NotationPolicy.default(),
+        prepared=prepared_method(str(method.name)),
     )
 
-    assert entry.result.breakdown is True
-    assert entry.result.error is not None
+    failed, completed = workload.setup_events
+    assert isinstance(failed.outcome, SetupFailed)
+    assert isinstance(completed.outcome, SetupCompleted)
+    assert [attempt.matrix_id for attempt in workload.solve_attempts] == [
+        two_matrix_bundles[1].matrix_id
+    ]
+    breakdowns = {system_id: result.breakdown for system_id, result in workload.diagnostics}
+    assert breakdowns == {
+        two_matrix_bundles[0].members[0].tag.system_id: True,
+        two_matrix_bundles[1].members[0].tag.system_id: False,
+    }
 
 
 def test_solver_stage_error_is_isolated(
-    identity_cfg: StandardPreconditionerConfig,
-    solver_params: SolverParams,
-    system_matrix: torch.Tensor,
-    system_rhs: torch.Tensor,
     monkeypatch: pytest.MonkeyPatch,
-    neuralls_settings,
-    prepared_cohort,
+    method: ResolvedMethod,
+    two_matrix_bundles: tuple[MatrixWorkload, MatrixWorkload],
+    solver_params: SolverParams,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
-    """A failure after construction (e.g. inside the solve) is isolated too."""
+    """A failure inside the solve is recorded as a failed attempt, not raised."""
+    from neuralls.domain.solver import comparison as solver_comparison
 
     def boom(*args: object, **kwargs: object) -> object:
         raise MemoryError("simulated")
 
-    monkeypatch.setattr(comparison_run, "run_cg_comparison", boom)
-    entry = _evaluate_preconditioner(
-        identity_cfg,
-        service=comparison_run.PreconditionerService(FakeFitData()),
-        matrix=system_matrix,
-        rhs=system_rhs,
-        matrix_path=MATRIX_PATH,
-        matrix_index=0,
+    monkeypatch.setattr(solver_comparison, "_solve_one", boom)
+    monkeypatch.setattr(comparison_run, "compute_reference_solution", lambda *a, **k: None)
+
+    workload = comparison_run.execute_method_workload(
+        method,
+        two_matrix_bundles,
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
         params=solver_params,
         settings=neuralls_settings,
-        presentation=prepared_cohort(identity_cfg.name),
-        notation=NotationPolicy.default(),
+        prepared=prepared_method(str(method.name)),
     )
 
-    assert entry.result.breakdown is True
-    assert entry.result.error is not None
-
-
-def test_a_failed_preconditioner_is_logged_by_its_description_not_its_key(
-    identity_cfg: StandardPreconditionerConfig,
-    solver_params: SolverParams,
-    system_matrix: torch.Tensor,
-    system_rhs: torch.Tensor,
-    neuralls_settings,
-    prepared_cohort,
-) -> None:
-    from loguru import logger
-
-    messages: list[str] = []
-    sink_id = logger.add(lambda message: messages.append(message.record["message"]), level="INFO")
-    try:
-        _evaluate_preconditioner(
-            identity_cfg,
-            service=_FailingService(),
-            matrix=system_matrix,
-            rhs=system_rhs,
-            matrix_path=MATRIX_PATH,
-            matrix_index=0,
-            params=solver_params,
-            settings=neuralls_settings,
-            presentation=prepared_cohort(identity_cfg.name),
-            notation=NotationPolicy.default(),
-        )
-    finally:
-        logger.remove(sink_id)
-
-    assert messages == [
-        "Evaluating Method identity",
-        "Method identity failed: KeyError: 'checkpoint key missing'",
-    ]
+    assert len(workload.solve_attempts) == len(two_matrix_bundles)
+    assert all(isinstance(attempt.outcome, SolveFailed) for attempt in workload.solve_attempts)

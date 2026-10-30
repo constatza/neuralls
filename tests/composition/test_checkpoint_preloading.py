@@ -15,7 +15,12 @@ from neuralls.composition.comparison._preconditioner_setup import (
     DatasetScope,
     PreconditionerService,
 )
-from neuralls.composition.comparison.comparison_run import _run_preconditioner
+from neuralls.composition.comparison.comparison_run import execute_method_workload
+from neuralls.composition.comparison.models import (
+    CompletedMethodWorkload,
+    MatrixWorkload,
+    ResolvedMethod,
+)
 from neuralls.composition.preconditioners import preloading
 from neuralls.composition.preconditioners.builders import _BuildDeps, _create_predictor
 from neuralls.composition.preconditioners.checkpoint_store import (
@@ -25,6 +30,7 @@ from neuralls.composition.preconditioners.checkpoint_store import (
 )
 from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.composition.preconditioners.preloading import CheckpointLoaders, preload_checkpoints
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
@@ -38,8 +44,10 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.dlkit.predictor_adapter import OwningDLKitNeuralPreconditioner
+from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.timing import TimingRepeatPolicy
-from neuralls.shared.types import MatrixId
+from neuralls.shared.types import DatasetId, MatrixId
+from tests.composition.workload_support import matrix_bundle
 from tests.fakes.fit_data import FakeFitData
 from tests.presentation_support import PreparedMethodFactory
 
@@ -260,71 +268,108 @@ def test_every_checkpoint_ref_kind_has_a_preloader() -> None:
     assert ref_kinds <= set(preloading._REF_PRELOADERS)
 
 
-class OrderRecordingService:
-    """Service double that records preload/build order and lets preload be slow."""
+@pytest.fixture
+def events(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record every preload and build the method workload's service performs, in order."""
+    recorded: list[str] = []
+    real_create = PreconditionerService.create_preconditioner
 
-    def __init__(self, preload_seconds: float = 0.0) -> None:
-        self.events: list[str] = []
-        self._preload_seconds = preload_seconds
-        self._inner = PreconditionerService(FakeFitData())
+    def preload(self: PreconditionerService, matrix: torch.Tensor, config: object) -> None:
+        recorded.append("preload")
 
-    def preload(self, matrix: torch.Tensor, config: StandardPreconditionerConfig) -> None:
-        self.events.append("preload")
-        time.sleep(self._preload_seconds)
+    def create(
+        self: PreconditionerService, matrix: torch.Tensor, config: StandardPreconditionerConfig
+    ):
+        recorded.append("build")
+        return real_create(self, matrix, config)
 
-    def create_preconditioner(self, matrix: torch.Tensor, config: StandardPreconditionerConfig):
-        self.events.append("build")
-        return self._inner.create_preconditioner(matrix, config)
+    monkeypatch.setattr(PreconditionerService, "preload", preload)
+    monkeypatch.setattr(PreconditionerService, "create_preconditioner", create)
+    return recorded
+
+
+@pytest.fixture
+def slow_preload(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every preload take ``SLOW_LOAD_SECONDS``, as a checkpoint read would."""
+    monkeypatch.setattr(
+        PreconditionerService,
+        "preload",
+        lambda self, matrix, config: time.sleep(SLOW_LOAD_SECONDS),
+    )
+
+
+@pytest.fixture
+def jacobi() -> ResolvedMethod:
+    return ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.JACOBI))
+
+
+def _solver_params(repeats: int) -> SolverParams:
+    return SolverParams(
+        rtol=1e-6,
+        atol=1e-10,
+        max_iterations=50,
+        stopping_criterion="residual_norm",
+        m_max=10,
+        timing=TimingRepeatPolicy(repeats=repeats),
+    )
 
 
 def _run(
-    service: OrderRecordingService,
-    settings: NeurallsSettings,
+    method: ResolvedMethod,
+    bundles: tuple[MatrixWorkload, ...],
+    *,
     repeats: int,
+    settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
-) -> float:
-    entry = _run_preconditioner(
-        StandardPreconditionerConfig(type=PreconditionerType.JACOBI),
-        service=service,  # type: ignore[arg-type]
-        matrix=torch.diag(torch.tensor([2.0, 4.0, 8.0], dtype=torch.float64)),
-        rhs=torch.ones(3, dtype=torch.float64),
-        matrix_path=Path("/nonexistent"),
-        matrix_index=0,
-        params=SolverParams(
-            rtol=1e-6,
-            atol=1e-10,
-            max_iterations=50,
-            stopping_criterion="residual_norm",
-            m_max=10,
-            timing=TimingRepeatPolicy(repeats=repeats),
-        ),
-        color_key=None,
-        marker_key=None,
-        x_exact=None,
+    datasets: dict[DatasetId, DatasetPresentation],
+) -> CompletedMethodWorkload:
+    return execute_method_workload(
+        method,
+        bundles,
+        prepared=prepared_method(str(method.name)),
+        datasets=datasets,
+        notation=NotationPolicy.default(),
+        params=_solver_params(repeats),
         settings=settings,
-        presentation=prepared_method("jacobi"),
     )
-    return entry.result.setup_cost
 
 
-def test_preload_runs_once_before_all_timed_builds(
-    neuralls_settings: NeurallsSettings, prepared_method: PreparedMethodFactory
+def test_preload_runs_once_per_matrix_before_all_its_timed_builds(
+    events: list[str],
+    jacobi: ResolvedMethod,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
-    service = OrderRecordingService()
+    _run(
+        jacobi,
+        (matrix_bundle(1), matrix_bundle(2)),
+        repeats=3,
+        settings=neuralls_settings,
+        prepared_method=prepared_method,
+        datasets=group_datasets,
+    )
 
-    _run(service, neuralls_settings, repeats=3, prepared_method=prepared_method)
-
-    assert service.events == ["preload", "build", "build", "build"]
+    assert events == ["preload", *["build"] * 3, "preload", *["build"] * 3]
 
 
 def test_setup_cost_excludes_the_preload(
-    neuralls_settings: NeurallsSettings, prepared_method: PreparedMethodFactory
+    slow_preload: None,
+    jacobi: ResolvedMethod,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
-    service = OrderRecordingService(preload_seconds=SLOW_LOAD_SECONDS)
+    workload = _run(
+        jacobi,
+        (matrix_bundle(1),),
+        repeats=1,
+        settings=neuralls_settings,
+        prepared_method=prepared_method,
+        datasets=group_datasets,
+    )
 
-    setup_cost = _run(service, neuralls_settings, repeats=1, prepared_method=prepared_method)
-
-    assert setup_cost < SLOW_LOAD_SECONDS
+    assert workload.setup_events[0].setup_s < SLOW_LOAD_SECONDS
 
 
 def test_matrix_dependent_builds_are_evicted_but_static_ones_and_checkpoints_stay() -> None:

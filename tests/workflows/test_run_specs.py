@@ -10,12 +10,11 @@ from neuralls.composition.comparison.models import MatrixRef, PlannedSystem
 from neuralls.composition.tracking.run_specs import (
     TrainingRunTags,
     build_benchmark_method_run_spec,
-    build_child_comparison_tags,
-    build_comparison_run_spec,
     build_evaluation_run,
     build_evaluation_tags,
     build_session_run_spec,
     build_training_run_spec,
+    comparison_run,
     system_qualifier,
 )
 from neuralls.domain.presentation.methods import DatasetQualifiedMethodPresentation
@@ -24,7 +23,9 @@ from neuralls.domain.presentation.run_names import (
     EditorialTrainingSubject,
     HeldOutMatrixPart,
     RhsDrawPart,
+    RunTimestamp,
     TrainingPresentation,
+    Untimed,
 )
 from neuralls.domain.presentation.titles import (
     ComparisonScopePresentation,
@@ -131,42 +132,31 @@ def test_batched_training_run_name_has_no_timestamp(trained: TrainingPresentatio
     assert run_name_text(spec.name) == "POD-2G | Gaussian CG Residuals (k=20, N=100)"
 
 
-def test_comparison_run_spec_name_and_tags(dataset_presentation: DatasetPresentation) -> None:
+def test_timed_comparison_run_name_ends_with_the_timestamp(
+    dataset_presentation: DatasetPresentation,
+) -> None:
     entry = _entry(method=Path("configs/compare.toml"))
-    title = ComparisonScopePresentation(dataset_presentation)
 
-    run, tags = build_comparison_run_spec(
-        entry=entry,
-        planned=_planned(entry),
-        title=title,
-        dataset=dataset_presentation,
-        notation=PLAIN,
-        timestamp=ISO,
+    run = comparison_run(
+        _planned(entry),
+        ComparisonScopePresentation(dataset_presentation),
+        dataset_presentation,
+        PLAIN,
+        RunTimestamp(ISO),
     )
 
     assert run_name_text(run) == f"{DATASET_TEXT} | {ISO}"
-    assert tags.as_mlflow_tags() == {
-        "phase": "comparison",
-        "comparison_id": "cmp-1",
-        "comparison_label": DATASET_TEXT,
-        "comparison_config": "compare",
-        "comparison_path": "configs/compare.toml",
-        "started_at": ISO,
-        "run_name": f"{DATASET_TEXT} | {ISO}",
-    }
 
 
 def test_untimed_comparison_run_is_the_bare_title(
     dataset_presentation: DatasetPresentation,
 ) -> None:
-    entry = _entry()
-    run, _ = build_comparison_run_spec(
-        entry=entry,
-        planned=_planned(entry),
-        title=ComparisonScopePresentation(dataset_presentation),
-        dataset=dataset_presentation,
-        notation=PLAIN,
-        include_timestamp=False,
+    run = comparison_run(
+        _planned(_entry()),
+        ComparisonScopePresentation(dataset_presentation),
+        dataset_presentation,
+        PLAIN,
+        Untimed(),
     )
     assert run_name_text(run) == DATASET_TEXT
 
@@ -174,18 +164,15 @@ def test_untimed_comparison_run_is_the_bare_title(
 def test_editorial_comparison_run_names_its_dataset_after_the_title(
     dataset_presentation: DatasetPresentation,
 ) -> None:
-    entry = _entry()
-    run, tags = build_comparison_run_spec(
-        entry=entry,
-        planned=_planned(entry),
-        title=EditorialPresentation("Spectral"),
-        dataset=dataset_presentation,
-        notation=PLAIN,
-        include_timestamp=False,
+    run = comparison_run(
+        _planned(_entry()),
+        EditorialPresentation("Spectral"),
+        dataset_presentation,
+        PLAIN,
+        Untimed(),
     )
 
     assert run_name_text(run) == f"Spectral | {DATASET_TEXT}"
-    assert tags.as_mlflow_tags()["comparison_label"] == "Spectral"
 
 
 def test_sibling_systems_on_a_dataset_title_get_distinct_run_names(
@@ -196,13 +183,12 @@ def test_sibling_systems_on_a_dataset_title_get_distinct_run_names(
     for matrix in (3, 4):
         entry = _entry(rhs_count=2)
         for ordinal in (0, 1):
-            run, _ = build_comparison_run_spec(
-                entry=entry,
-                planned=_planned(entry, matrix=matrix, ordinal=ordinal),
-                title=title,
-                dataset=dataset_presentation,
-                notation=PLAIN,
-                include_timestamp=False,
+            run = comparison_run(
+                _planned(entry, matrix=matrix, ordinal=ordinal),
+                title,
+                dataset_presentation,
+                PLAIN,
+                Untimed(),
             )
             names.append(run_name_text(run))
     dataset = "Test problem | Gaussian CG Residuals (k=20, N=100)"
@@ -221,32 +207,6 @@ def test_a_held_out_matrix_with_several_draws_is_qualified_by_both() -> None:
     entry = _entry(rhs_count=3)
     qualifier = system_qualifier(_planned(entry, matrix=7, ordinal=2))
     assert qualifier.parts == (HeldOutMatrixPart(MatrixId(7)), RhsDrawPart(2))
-
-
-def test_child_tags_link_back_to_the_rendered_parent(
-    dataset_presentation: DatasetPresentation, prepared_method: PreparedMethodFactory
-) -> None:
-    entry = _entry()
-    parent, _ = build_comparison_run_spec(
-        entry=entry,
-        planned=_planned(entry),
-        title=EditorialPresentation("Spectral"),
-        dataset=dataset_presentation,
-        notation=PLAIN,
-        timestamp=ISO,
-    )
-
-    tags = build_child_comparison_tags(
-        prepared=prepared_method("jacobi"), notation=PLAIN, comparison_id="cmp-1", parent=parent
-    )
-
-    assert tags.as_mlflow_tags() == {
-        "phase": "preconditioner_run",
-        "method_id": "jacobi",
-        "method_label": "Jacobi",
-        "comparison_id": "cmp-1",
-        "parent_run_name": f"Spectral | {DATASET_TEXT} | {ISO}",
-    }
 
 
 def test_method_run_is_named_by_its_presentation_and_tagged_with_its_id(

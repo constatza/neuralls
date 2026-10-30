@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import contextlib
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,18 +17,15 @@ from neuralls.composition.assignments import comparison_batch
 from neuralls.composition.assignments.comparison_batch import (
     PreparedComparisonExecution,
     ResolvedComparisonSpecs,
-    _build_child_runs,
     _ComparisonResolutionContext,
-    _execute_prepared_comparison,
     run_comparison_batch,
 )
 from neuralls.composition.assignments.presentation_preflight import (
     describe_method,
     prepare_comparison_presentation,
 )
-from neuralls.composition.comparison.models import ComparisonParams, MatrixRef, PlannedSystem
+from neuralls.composition.comparison.models import ComparisonParams, PlannedSystem
 from neuralls.composition.tracking import run_specs
-from neuralls.composition.tracking.run_specs import build_comparison_run_spec
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import PreparedComparisonPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation
@@ -39,8 +35,6 @@ from neuralls.domain.presentation.titles import (
     ComparisonTitle,
     EditorialPresentation,
 )
-from neuralls.domain.solver.models.provenance import HeldOutMatrix
-from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
@@ -50,8 +44,7 @@ from neuralls.platform.storage.facts_codec import encode_method_parameters
 from neuralls.platform.tracking.run_names import render_run_name, run_name_text
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
-from neuralls.shared.types import MatrixId
-from tests.presentation_support import NO_DATASET_READS, datasets_by_dir, pod_spec
+from tests.presentation_support import datasets_by_dir, pod_spec
 from tests.workflows.comparison_support import MLFLOW_MODULE, mock_cfg, write_experiments_config
 
 pytestmark = pytest.mark.deferred_io("config-loading")
@@ -132,111 +125,6 @@ def test_session_run_is_named_by_the_editorial_title_when_one_is_configured(
     )
 
     assert name == f"Spectral comparison | 2 systems (1 RHS type x 1 matrix) | {STAMP}"
-
-
-def _planned(entry: ComparisonRegistryEntry, matrix: int, ordinal: int) -> PlannedSystem:
-    return PlannedSystem(
-        entry=entry,
-        matrix=MatrixRef(matrix_id=MatrixId(matrix), row=0),
-        rhs_row=None,
-        rhs_ordinal=ordinal,
-        provenance=HeldOutMatrix(matrix_id=MatrixId(matrix), raw_matrix_index=0),
-    )
-
-
-def test_comparison_parent_runs_of_a_sweep_have_distinct_names_and_no_ids(
-    prepared_presentation: PreparedComparisonPresentation, tmp_path: Path
-) -> None:
-    context = _ComparisonResolutionContext(
-        topology=MagicMock(),
-        case_config_path=tmp_path / "case.toml",
-        settings=MagicMock(),
-        load_dataset=NO_DATASET_READS,
-    )
-    started: list[tuple[str, dict[str, str]]] = []
-    fake_mlflow = MagicMock()
-    fake_mlflow.start_run.side_effect = lambda **kwargs: (
-        started.append((kwargs["run_name"], kwargs["tags"])) or MagicMock()
-    )
-    with (
-        patch.object(comparison_batch, "mlflow", fake_mlflow),
-        patch.object(comparison_batch, "_run_and_log_comparison", return_value=MagicMock()),
-        patch.object(comparison_batch, "log_comparison_run_params"),
-        patch.object(comparison_batch, "log_comparison_artifact_uri"),
-    ):
-        for matrix in (3, 4):
-            for ordinal in (0, 1):
-                entry = ComparisonRegistryEntry(
-                    id=f"sweep_{matrix}_{ordinal}",
-                    matrix_dataset="solutions",
-                    rhs_source={"kind": "gaussian"},
-                    rhs_count=2,
-                )
-                prepared = _execution(
-                    mock_cfg(),
-                    _planned(entry, matrix, ordinal),
-                    context,
-                    prepared_presentation,
-                    prepared_presentation.scope,
-                )
-                _execute_prepared_comparison(prepared)
-
-    assert [name for name, _ in started] == [
-        f"{DATASET_TEXT} | matrix {matrix}, RHS {ordinal}"
-        for matrix in (3, 4)
-        for ordinal in (0, 1)
-    ]
-    assert [tags["comparison_id"] for _, tags in started] == [
-        f"sweep_{matrix}_{ordinal}" for matrix in (3, 4) for ordinal in (0, 1)
-    ]
-    assert {tags["comparison_label"] for _, tags in started} == {DATASET_TEXT}
-
-
-def test_child_runs_are_named_after_their_method_presentation_and_carry_ids_in_tags(
-    prepared_presentation: PreparedComparisonPresentation, tmp_path: Path
-) -> None:
-    entry = ComparisonRegistryEntry(
-        id="cmp_1", matrix_dataset="solutions", rhs_source={"kind": "gaussian"}
-    )
-    context = _ComparisonResolutionContext(
-        topology=MagicMock(),
-        case_config_path=tmp_path / "case.toml",
-        settings=MagicMock(),
-        load_dataset=NO_DATASET_READS,
-    )
-    prepared = _execution(
-        mock_cfg(),
-        PlannedSystem(
-            entry=entry,
-            matrix=MatrixRef(matrix_id=MatrixId(0), row=0),
-            rhs_row=None,
-            rhs_ordinal=0,
-            provenance=HeldOutMatrix(matrix_id=MatrixId(0), raw_matrix_index=0),
-        ),
-        context,
-        prepared_presentation,
-        prepared_presentation.scope,
-    )
-    parent, _ = build_comparison_run_spec(
-        entry=entry,
-        planned=prepared.planned,
-        title=prepared.title,
-        dataset=prepared.presentation.scope.dataset,
-        notation=PLAIN,
-        include_timestamp=False,
-    )
-
-    children = _build_child_runs(
-        SimpleNamespace(results={"jacobi": object()}),  # type: ignore[arg-type]
-        prepared=prepared,
-        parent=parent,
-    )
-
-    child = children["jacobi"]
-    assert run_name_text(child.run) == "Jacobi"
-    assert child.tags["method_id"] == "jacobi"
-    assert child.tags["method_label"] == "Jacobi"
-    assert child.tags["parent_run_name"] == run_name_text(parent)
 
 
 def test_a_method_run_and_a_plot_legend_render_the_same_presentation(

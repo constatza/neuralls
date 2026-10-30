@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Callable, Iterable, Mapping
+import contextlib
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -13,10 +13,13 @@ import pytest
 import tomli_w
 
 from neuralls.composition.assignments.comparison_batch import (
+    PendingComparison,
+    PreparedComparisonExecution,
+    _ComparisonResolutionContext,
+    _prepare_comparison_entry,
     _project_setup_measurements,
     _resolve_comparison_topology,
     _resolve_neural_preconditioners,
-    _run_comparison_from_config,
     _validate_neural_preconditioner,
     neural_specs_from_assignments,
     run_comparison_batch,
@@ -40,7 +43,7 @@ from neuralls.composition.comparison.models import (
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import ExecutedMethod, PreparedMethodPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation
-from neuralls.domain.presentation.run_names import NamedRun, TrackedRun
+from neuralls.domain.presentation.run_names import NamedRun
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
@@ -60,6 +63,7 @@ from neuralls.domain.solver.models.recommendations import (
     RankedRecommendation,
 )
 from neuralls.domain.solver.models.result import ComparisonResult
+from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.platform.config.models.experiments import (
     AssignmentEntry,
     CaseConfig,
@@ -77,14 +81,6 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
-from neuralls.platform.reporting.artifacts import (
-    extract_array_artifacts,
-    serialize_comparison_payload,
-)
-from neuralls.platform.tracking.comparison_tracking import (
-    log_comparison_result_metrics,
-    log_linear_system_params,
-)
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy
@@ -96,11 +92,9 @@ from neuralls.shared.types import (
     SetupEventId,
     SystemId,
 )
-from tests.presentation_support import PreparedMethodFactory
+from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 from tests.workflows.comparison_support import (
-    LOG_COMPARISON_ARTIFACTS,
-    SETUP_TRACKING,
     make_settings,
     mock_cfg,
     write_dataset_config,
@@ -120,9 +114,10 @@ def test_resolve_comparison_config_importable_from_composition() -> None:
 _RESOLVE_COMPARISON_CONFIG = (
     "neuralls.composition.comparison.config_assembler.resolve_comparison_config"
 )
-_COMPARE_PRECONDITIONERS = (
-    "neuralls.composition.assignments.comparison_batch.compare_preconditioners"
+_RESOLVE_MODELS = (
+    "neuralls.composition.assignments.comparison_batch.resolve_preconditioner_models_with_warnings"
 )
+NO_RUNNABLE_PRECONDITIONERS = "No runnable preconditioners remain after model resolution."
 
 
 def _write_comparison_config(path: Path) -> None:
@@ -311,24 +306,8 @@ def stub_comparison_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-@pytest.fixture
-def stub_comparison_result(tmp_path: Path) -> ComparisonResult:
-    """An empty-but-real result standing in for a patched `compare_preconditioners`.
-
-    The artifact writer consumes typed `ComparisonResult`s only — a MagicMock
-    would not be a valid substitute for the real workflow's return value.
-    """
-    return ComparisonResult(
-        results={},
-        summary="",
-        solver_params=_solver_params(tmp_path),
-        preconditioners=(),
-        recommendations=ComparisonRecommendations(),
-    )
-
-
 def _make_entry(comparison_id: str = "test") -> ComparisonRegistryEntry:
-    """Build a minimal ComparisonRegistryEntry for direct _run_comparison_from_config calls."""
+    """Build a minimal ComparisonRegistryEntry for direct preparation calls."""
     return ComparisonRegistryEntry(
         id=comparison_id,
         matrix_dataset="solutions",
@@ -706,78 +685,6 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
     client.search_experiments.assert_not_called()
 
 
-def test_extract_array_artifacts_detaches_numpy_data() -> None:
-    payload, array_artifacts = extract_array_artifacts(
-        _typed_comparison_result(Path("/workspace/convergence.png"))
-    )
-    serialized = serialize_comparison_payload(payload)
-    assert serialized["results"]["identity"]["iterations"] == 2
-    assert serialized["results"]["identity"]["residual"] == 1.0e-8
-    assert serialized["results"]["identity"]["x"] == {
-        "path": "arrays/results/identity/x.npy",
-        "shape": [2],
-        "dtype": "float64",
-    }
-    artifact_paths = {artifact.reference.path for artifact in array_artifacts}
-    assert Path("arrays/results/identity/x.npy") in artifact_paths
-
-
-@pytest.mark.usefixtures("stub_log_comparison_artifacts", "fake_mlflow")
-def test_run_comparison_injects_master_topology(
-    tmp_path: Path, stub_comparison_result: ComparisonResult
-) -> None:
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config, comparison_name="CustomComparison")
-    matrix_path, rhs_path = _write_system_inputs(tmp_path)
-    cfg = mock_cfg(
-        matrix_path=matrix_path,
-        rhs_path=rhs_path,
-        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
-    )
-    entry = _make_entry()
-    settings = make_settings(tmp_path)
-
-    with patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result):
-        topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(
-            cfg, _planned(entry), topology, experiments_config, settings
-        )
-
-    assert isinstance(outcomes[0], ComparisonCompleted)
-    assert topology.experiment_name == "CustomComparison"
-
-
-@pytest.mark.usefixtures("stub_log_comparison_artifacts", "stub_setup_tracking", "fake_mlflow")
-def test_run_comparison_uses_explicit_entry_indices(
-    tmp_path: Path, stub_comparison_result: ComparisonResult
-) -> None:
-    """Case-driven comparison forwards the entry's explicit sample indices unchanged."""
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config)
-    matrix_path, rhs_path = _write_system_inputs(tmp_path)
-    cfg = mock_cfg(
-        matrix_path=matrix_path,
-        rhs_path=rhs_path,
-        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
-    )
-    cfg.general.data.matrix_index = 4
-    cfg.general.data.rhs_source_params["sample_index"] = 9
-    np.save(rhs_path, np.eye(10, 2, dtype=np.float64))
-    entry = _make_entry()
-    settings = make_settings(tmp_path)
-
-    with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result) as mock_compare,
-    ):
-        topology = _resolve_comparison_topology(experiments_config, settings)
-        _run_comparison_from_config(cfg, _planned(entry), topology, experiments_config, settings)
-
-    assert mock_compare.call_args.kwargs["general_params"].data.matrix_index == 4
-    assert (
-        mock_compare.call_args.kwargs["general_params"].data.rhs_source_params["sample_index"] == 9
-    )
-
-
 def _build_split_pinned_dataset(root: Path) -> Path:
     """Single-matrix, 3-row dataset with a pinned split test fold of rows (1, 2)."""
     from dlkit.infrastructure.io.index import save_split_indices
@@ -807,75 +714,169 @@ def _build_split_pinned_dataset(root: Path) -> Path:
     return dataset_dir
 
 
-@pytest.mark.usefixtures("stub_log_comparison_artifacts", "stub_setup_tracking", "fake_mlflow")
-def test_run_comparison_loads_the_planned_dataset_row_and_attaches_planner_provenance(
-    tmp_path: Path, stub_comparison_result: ComparisonResult
+def _executing(pending: PendingComparison) -> PreparedComparisonExecution:
+    """Narrow a pending comparison to the execution the test expects it to be."""
+    match pending:
+        case PreparedComparisonExecution():
+            return pending
+        case _:
+            pytest.fail(f"expected a prepared execution, got {pending!r}")
+
+
+def _resolved_input_of(prepared: PreparedComparisonExecution) -> ResolvedComparisonInput:
+    """Resolve the input a prepared system will solve, from its own config and planned binding."""
+    data = prepared.cfg.general.data
+    return resolve_comparison_input(
+        matrix_provenance=prepared.planned.provenance,
+        matrix_path=Path(data.matrix_path),
+        matrix_dataset_id=prepared.entry.matrix_dataset,
+        matrix_index=data.matrix_index,
+        require_non_residual_rhs=data.require_non_residual_rhs,
+        seed=data.selection_seed,
+        rhs_source_kind=data.rhs_source_kind,
+        rhs_source_params=data.rhs_source_params,
+    )
+
+
+@pytest.fixture
+def settings(tmp_path: Path) -> NeurallsSettings:
+    """Runtime settings rooted in the test's tmp_path."""
+    return make_settings(tmp_path)
+
+
+@pytest.fixture
+def experiments_config(tmp_path: Path) -> Path:
+    """A case config whose comparison baseline is a lone identity preconditioner."""
+    path = tmp_path / "experiments.toml"
+    write_experiments_config(path)
+    return path
+
+
+@pytest.fixture
+def system_inputs(tmp_path: Path) -> tuple[Path, Path]:
+    """Minimal matrix and RHS arrays on disk, as the input-source preflight reads them."""
+    return _write_system_inputs(tmp_path)
+
+
+@pytest.fixture
+def identity_cfg(system_inputs: tuple[Path, Path]) -> MagicMock:
+    """A mocked comparison config over `system_inputs` with the identity preconditioner."""
+    matrix_path, rhs_path = system_inputs
+    return mock_cfg(
+        matrix_path=matrix_path,
+        rhs_path=rhs_path,
+        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
+    )
+
+
+@pytest.fixture
+def split_pinned_dataset(tmp_path: Path) -> Path:
+    """A single-matrix, 3-row dataset with a pinned split test fold of rows (1, 2)."""
+    return _build_split_pinned_dataset(tmp_path)
+
+
+@pytest.fixture
+def prepare_entry(
+    experiments_config: Path, settings: NeurallsSettings
+) -> Iterator[Callable[[ComparisonConfig, PlannedSystem], PendingComparison]]:
+    """Prepare one entry through `_prepare_comparison_entry`, releasing its leases afterwards.
+
+    Per-system reuse is off, so preparation never queries MLflow.
+    """
+    with contextlib.ExitStack() as stack:
+
+        def prepare(cfg: ComparisonConfig, planned: PlannedSystem) -> PendingComparison:
+            context = _ComparisonResolutionContext(
+                topology=_resolve_comparison_topology(experiments_config, settings),
+                case_config_path=experiments_config,
+                settings=settings,
+                load_dataset=NO_DATASET_READS,
+                reuse_comparisons=False,
+            )
+            pending = _prepare_comparison_entry(cfg, planned, context)
+            if isinstance(pending, PreparedComparisonExecution):
+                stack.enter_context(pending.cleanup)
+            return pending
+
+        yield prepare
+
+
+def test_prepare_injects_master_topology(
+    experiments_config: Path,
+    identity_cfg: MagicMock,
+    prepare_entry: Callable[[ComparisonConfig, PlannedSystem], PendingComparison],
+) -> None:
+    write_experiments_config(experiments_config, comparison_name="CustomComparison")
+
+    prepared = _executing(prepare_entry(identity_cfg, _planned(_make_entry())))
+
+    assert prepared.topology.experiment_name == "CustomComparison"
+
+
+def test_prepare_keeps_the_entry_indices_unchanged(
+    system_inputs: tuple[Path, Path],
+    identity_cfg: MagicMock,
+    prepare_entry: Callable[[ComparisonConfig, PlannedSystem], PendingComparison],
+) -> None:
+    """Case-driven comparison forwards the entry's explicit sample indices unchanged."""
+    _, rhs_path = system_inputs
+    identity_cfg.general.data.matrix_index = 4
+    identity_cfg.general.data.rhs_source_params["sample_index"] = 9
+    np.save(rhs_path, np.eye(10, 2, dtype=np.float64))
+
+    prepared = _executing(prepare_entry(identity_cfg, _planned(_make_entry())))
+
+    data = prepared.cfg.general.data
+    assert data.matrix_index == 4
+    assert data.rhs_source_params == {
+        "path": rhs_path,
+        "sample_index": 9,
+        "row_kind": RowKind.STANDARD,
+        "scale": 1.0,
+    }
+
+
+def test_prepare_binds_the_planned_dataset_row_and_planner_provenance(
+    split_pinned_dataset: Path,
+    prepare_entry: Callable[[ComparisonConfig, PlannedSystem], PendingComparison],
 ) -> None:
     """A dataset-kind system solves on its planned held-out row, with the planner's provenance."""
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config)
-    dataset_dir = _build_split_pinned_dataset(tmp_path)
     cfg = mock_cfg(
-        matrix_path=dataset_dir,
+        matrix_path=split_pinned_dataset,
         rhs_path=None,
         preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
     cfg.general.data.rhs_source_kind = ComparisonRhsSourceKind.DATASET
     cfg.general.data.rhs_source_params = {"sample_index": 1}
-    settings = make_settings(tmp_path)
 
-    with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result) as mock_compare,
-    ):
-        topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(
-            cfg, _planned(_make_entry(), rhs_row=1), topology, experiments_config, settings
-        )
+    prepared = _executing(prepare_entry(cfg, _planned(_make_entry(), rhs_row=1)))
 
-    assert isinstance(outcomes[0], ComparisonCompleted)
-    resolved_input = mock_compare.call_args.kwargs["resolved_input"]
+    resolved_input = _resolved_input_of(prepared)
     assert resolved_input.rhs_sample_index == 1
     assert resolved_input.matrix_provenance == SharedSingleMatrix(raw_matrix_index=0)
 
 
-@pytest.mark.usefixtures("stub_log_comparison_artifacts", "stub_setup_tracking", "fake_mlflow")
-def test_run_comparison_attaches_the_planned_held_out_provenance(
-    tmp_path: Path, stub_comparison_result: ComparisonResult
+def test_prepare_attaches_the_planned_held_out_provenance(
+    identity_cfg: MagicMock,
+    prepare_entry: Callable[[ComparisonConfig, PlannedSystem], PendingComparison],
 ) -> None:
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config)
-    matrix_path, rhs_path = _write_system_inputs(tmp_path)
-    cfg = mock_cfg(
-        matrix_path=matrix_path,
-        rhs_path=rhs_path,
-        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
-    )
     planned = replace(
         _planned(_make_entry()), provenance=HeldOutMatrix(matrix_id=MatrixId(9), raw_matrix_index=0)
     )
-    settings = make_settings(tmp_path)
 
-    with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result) as mock_compare,
-    ):
-        topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(cfg, planned, topology, experiments_config, settings)
+    prepared = _executing(prepare_entry(identity_cfg, planned))
 
-    assert isinstance(outcomes[0], ComparisonCompleted)
-    resolved_input = mock_compare.call_args.kwargs["resolved_input"]
-    assert resolved_input.matrix_provenance == HeldOutMatrix(
+    assert _resolved_input_of(prepared).matrix_provenance == HeldOutMatrix(
         matrix_id=MatrixId(9), raw_matrix_index=0
     )
 
 
-@pytest.mark.usefixtures("stub_log_comparison_artifacts", "stub_setup_tracking", "fake_mlflow")
-def test_run_comparison_generated_rhs_accepts_matrix_only_input(
-    tmp_path: Path, stub_comparison_result: ComparisonResult
+def test_prepare_generated_rhs_accepts_matrix_only_input(
+    system_inputs: tuple[Path, Path],
+    prepare_entry: Callable[[ComparisonConfig, PlannedSystem], PendingComparison],
 ) -> None:
     """Generated-RHS comparisons should prevalidate only the matrix source."""
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config)
-    matrix_path, _rhs_path = _write_system_inputs(tmp_path)
+    matrix_path, _ = system_inputs
     cfg = mock_cfg(
         matrix_path=matrix_path,
         rhs_path=None,
@@ -884,30 +885,21 @@ def test_run_comparison_generated_rhs_accepts_matrix_only_input(
     cfg.general.data.rhs_source_kind = ComparisonRhsSourceKind.GAUSSIAN
     cfg.general.data.rhs_source_params = {"mean": 0.0, "std": 1.0}
     cfg.general.data.selection_seed = 5
-    entry = _make_entry()
-    settings = make_settings(tmp_path)
 
-    with patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result):
-        topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(
-            cfg, _planned(entry), topology, experiments_config, settings
-        )
+    prepared = _executing(prepare_entry(cfg, _planned(_make_entry())))
 
-    assert isinstance(outcomes[0], ComparisonCompleted)
+    assert prepared.cfg.general.data.rhs_path is None
 
 
-def test_resolved_generated_rhs_uses_matrix_source_without_rhs_dataset(tmp_path: Path) -> None:
-    matrix_path, _rhs_path = _write_system_inputs(tmp_path)
-    cfg = mock_cfg(
-        matrix_path=matrix_path,
-        rhs_path=None,
-        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
-    )
-    cfg.general.data.matrix_index = 0
-    cfg.general.data.require_non_residual_rhs = True
-    cfg.general.data.selection_seed = None
-    cfg.general.data.rhs_source_kind = ComparisonRhsSourceKind.GAUSSIAN
-    cfg.general.data.rhs_source_params = {
+def test_resolved_generated_rhs_uses_matrix_source_without_rhs_dataset(
+    identity_cfg: MagicMock,
+) -> None:
+    identity_cfg.general.data.rhs_path = None
+    identity_cfg.general.data.matrix_index = 0
+    identity_cfg.general.data.require_non_residual_rhs = True
+    identity_cfg.general.data.selection_seed = None
+    identity_cfg.general.data.rhs_source_kind = ComparisonRhsSourceKind.GAUSSIAN
+    identity_cfg.general.data.rhs_source_params = {
         "mask": {"kind": "random", "density": 0.5},
     }
     entry = ComparisonRegistryEntry(
@@ -918,13 +910,13 @@ def test_resolved_generated_rhs_uses_matrix_source_without_rhs_dataset(tmp_path:
 
     resolved = resolve_comparison_input(
         matrix_provenance=SharedSingleMatrix(raw_matrix_index=0),
-        matrix_path=Path(cfg.general.data.matrix_path),
+        matrix_path=Path(identity_cfg.general.data.matrix_path),
         matrix_dataset_id=entry.matrix_dataset,
-        matrix_index=cfg.general.data.matrix_index,
-        require_non_residual_rhs=cfg.general.data.require_non_residual_rhs,
-        seed=cfg.general.data.selection_seed,
-        rhs_source_kind=cfg.general.data.rhs_source_kind,
-        rhs_source_params=cfg.general.data.rhs_source_params,
+        matrix_index=identity_cfg.general.data.matrix_index,
+        require_non_residual_rhs=identity_cfg.general.data.require_non_residual_rhs,
+        seed=identity_cfg.general.data.selection_seed,
+        rhs_source_kind=identity_cfg.general.data.rhs_source_kind,
+        rhs_source_params=identity_cfg.general.data.rhs_source_params,
     )
 
     assert resolved.rhs_source_type == "generated"
@@ -935,35 +927,19 @@ def test_resolved_generated_rhs_uses_matrix_source_without_rhs_dataset(tmp_path:
     assert np.count_nonzero(resolved.rhs) == 1
 
 
-@pytest.mark.usefixtures("stub_log_comparison_artifacts", "stub_setup_tracking", "fake_mlflow")
-def test_run_comparison_does_not_require_split_artifacts(
-    tmp_path: Path, stub_comparison_result: ComparisonResult
+def test_prepare_does_not_require_split_artifacts(
+    identity_cfg: MagicMock,
+    prepare_entry: Callable[[ComparisonConfig, PlannedSystem], PendingComparison],
 ) -> None:
     """Case-driven comparison should not inspect DLKit split artifacts."""
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config)
-    matrix_path, rhs_path = _write_system_inputs(tmp_path)
-    cfg = mock_cfg(
-        matrix_path=matrix_path,
-        rhs_path=rhs_path,
-        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
-    )
-    entry = _make_entry()
-    settings = make_settings(tmp_path)
-
-    with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result),
-        patch(
-            "neuralls.platform.tracking.splits.download_split_indices",
-            side_effect=AssertionError("split artifacts should not be consulted"),
-        ),
+    with patch(
+        "neuralls.platform.tracking.splits.download_split_indices",
+        autospec=True,
+        side_effect=AssertionError("split artifacts should not be consulted"),
     ):
-        topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(
-            cfg, _planned(entry), topology, experiments_config, settings
-        )
+        pending = prepare_entry(identity_cfg, _planned(_make_entry()))
 
-    assert isinstance(outcomes[0], ComparisonCompleted)
+    assert isinstance(pending, PreparedComparisonExecution)
 
 
 def test_sanitize_mlflow_metric_segment_replaces_invalid_characters() -> None:
@@ -975,111 +951,11 @@ def test_sanitize_mlflow_metric_segment_replaces_invalid_characters() -> None:
     )
 
 
-def test_log_comparison_metrics_uses_mlflow_safe_metric_names(
-    tmp_path: Path,
-    fake_mlflow: MagicMock,
-    child_runs_of: Callable[..., dict[str, TrackedRun]],
+def test_prepare_warns_and_continues_when_neural_resolution_fails(
+    system_inputs: tuple[Path, Path],
+    prepare_entry: Callable[[ComparisonConfig, PlannedSystem], PendingComparison],
 ) -> None:
-    result = ComparisonResult(
-        results={
-            "Residual-Error 50 Gaussian 93x31 | Scale-Equivariant Constant-Width 3000": (
-                CGComparisonResult(
-                    x=np.array([1.0, 2.0]),
-                    converged=True,
-                    iterations=2,
-                    residual=1.0e-8,
-                    residual_abs=1.0e-9,
-                    residual_history_rel=[1.0, 1.0e-8],
-                    residual_history_abs=[1.0, 1.0e-9],
-                    preconditioner="neural",
-                    initial_guess=np.zeros(2),
-                    exact_error=None,
-                    rhs_norm=1.0,
-                    breakdown=False,
-                )
-            )
-        },
-        summary="ok",
-        solver_params=_solver_params(tmp_path),
-        preconditioners=("neural",),
-        recommendations=ComparisonRecommendations(),
-    )
-
-    log_comparison_result_metrics(
-        result,
-        child_runs=child_runs_of(
-            "Residual-Error 50 Gaussian 93x31 | Scale-Equivariant Constant-Width 3000"
-        ),
-    )
-
-    logged_names = [call.args[0] for call in fake_mlflow.log_metric.call_args_list[:3]]
-    assert logged_names == [
-        "iterations/Residual-Error_50_Gaussian_93x31_Scale-Equivariant_Constant-Width_3000",
-        "final_residual/Residual-Error_50_Gaussian_93x31_Scale-Equivariant_Constant-Width_3000",
-        "converged/Residual-Error_50_Gaussian_93x31_Scale-Equivariant_Constant-Width_3000",
-    ]
-
-
-@pytest.mark.usefixtures("stub_setup_tracking", "fake_mlflow")
-def test_run_comparison_stages_plot_paths_before_logging(tmp_path: Path) -> None:
-    """Comparison artifacts should record uploaded figures paths, not temp absolutes."""
-    external_plots = tmp_path / "external-plots"
-    external_plots.mkdir()
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config)
-    convergence = external_plots / "convergence.png"
-    convergence.write_text("convergence", encoding="utf-8")
-    matrix_path, rhs_path = _write_system_inputs(tmp_path)
-    cfg = mock_cfg(
-        matrix_path=matrix_path,
-        rhs_path=rhs_path,
-        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
-    )
-    staged_plots_result = ComparisonResult(
-        results={},
-        summary="ok",
-        solver_params=_solver_params(tmp_path),
-        preconditioners=("identity",),
-        plot_paths=PlotPaths(convergence=convergence),
-        recommendations=ComparisonRecommendations(),
-    )
-    logged_files: set[str] = set()
-    comparison_json: dict[str, object] = {}
-    entry = _make_entry()
-    settings = make_settings(tmp_path)
-
-    def _capture_work_root(tracking_uri: str, run_id: str, work_root: Path) -> None:
-        nonlocal logged_files, comparison_json
-        logged_files = {
-            item.relative_to(work_root).as_posix()
-            for item in work_root.rglob("*")
-            if item.is_file()
-        }
-        comparison_json = json.loads((work_root / "comparison.json").read_text(encoding="utf-8"))
-
-    with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=staged_plots_result),
-        patch(LOG_COMPARISON_ARTIFACTS, side_effect=_capture_work_root),
-    ):
-        topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(
-            cfg, _planned(entry), topology, experiments_config, settings
-        )
-
-    assert isinstance(outcomes[0], ComparisonCompleted)
-    assert "figures/convergence.png" in logged_files
-    plot_paths = comparison_json["plot_paths"]
-    assert isinstance(plot_paths, dict)
-    assert plot_paths["convergence"] == "figures/convergence.png"
-
-
-@pytest.mark.usefixtures("stub_log_comparison_artifacts", "stub_setup_tracking", "fake_mlflow")
-def test_run_comparison_warns_and_continues_when_neural_resolution_fails(
-    tmp_path: Path, stub_comparison_result: ComparisonResult
-) -> None:
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config)
-    matrix_path, rhs_path = _write_system_inputs(tmp_path)
+    matrix_path, rhs_path = system_inputs
     cfg = mock_cfg(
         matrix_path=matrix_path,
         rhs_path=rhs_path,
@@ -1091,35 +967,28 @@ def test_run_comparison_warns_and_continues_when_neural_resolution_fails(
             ),
         ],
     )
-    entry = _make_entry()
-    settings = make_settings(tmp_path)
+    skipped = (
+        "Skipping neural preconditioner 'missing-neural': Registered model 'MissingFFNN' not found",
+    )
 
-    with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result),
-        patch(
-            "neuralls.composition.assignments.comparison_batch.resolve_preconditioner_models_with_warnings",
-            return_value=MagicMock(
-                specs=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
-                warnings=(
-                    "Skipping neural preconditioner 'missing-neural': Registered model 'MissingFFNN' not found",
-                ),
-            ),
+    with patch(
+        _RESOLVE_MODELS,
+        return_value=MagicMock(
+            specs=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
+            warnings=skipped,
         ),
     ):
-        topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(
-            cfg, _planned(entry), topology, experiments_config, settings
-        )
+        prepared = _executing(prepare_entry(cfg, _planned(_make_entry())))
 
-    assert isinstance(outcomes[0], ComparisonCompleted)
-    assert len(outcomes[0].warnings) == 1
+    assert prepared.resolved.warnings == skipped
+    assert [spec.name for spec in prepared.resolved.specs] == ["identity"]
 
 
-@pytest.mark.usefixtures("stub_setup_tracking", "fake_mlflow")
-def test_run_comparison_fails_if_all_preconditioners_are_skipped(tmp_path: Path) -> None:
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config)
-    matrix_path, rhs_path = _write_system_inputs(tmp_path)
+def test_prepare_fails_if_all_preconditioners_are_skipped(
+    system_inputs: tuple[Path, Path],
+    prepare_entry: Callable[[ComparisonConfig, PlannedSystem], PendingComparison],
+) -> None:
+    matrix_path, rhs_path = system_inputs
     cfg = mock_cfg(
         matrix_path=matrix_path,
         rhs_path=rhs_path,
@@ -1130,31 +999,27 @@ def test_run_comparison_fails_if_all_preconditioners_are_skipped(tmp_path: Path)
             ),
         ],
     )
-    entry = _make_entry()
-    settings = make_settings(tmp_path)
 
-    with (
-        patch(
-            "neuralls.composition.assignments.comparison_batch.resolve_preconditioner_models_with_warnings",
-            return_value=MagicMock(
-                specs=[],
-                warnings=(
-                    "Skipping neural preconditioner 'missing-neural': Registered model 'MissingFFNN' not found",
-                ),
+    with patch(
+        _RESOLVE_MODELS,
+        return_value=MagicMock(
+            specs=[],
+            warnings=(
+                "Skipping neural preconditioner 'missing-neural': Registered model 'MissingFFNN' not found",
             ),
         ),
     ):
-        topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(
-            cfg, _planned(entry), topology, experiments_config, settings
-        )
+        pending = prepare_entry(cfg, _planned(_make_entry()))
 
-    assert isinstance(outcomes[0], ComparisonEntryFailed)
+    assert isinstance(pending, ComparisonEntryFailed)
+    assert pending.reason == NO_RUNNABLE_PRECONDITIONERS
 
 
-@pytest.mark.usefixtures("stub_log_comparison_artifacts", "stub_setup_tracking", "fake_mlflow")
-def test_run_comparison_ignores_unrelated_broken_experiments(
-    tmp_path: Path, stub_comparison_result: ComparisonResult
+def test_prepare_ignores_unrelated_broken_experiments(
+    tmp_path: Path,
+    system_inputs: tuple[Path, Path],
+    experiments_config: Path,
+    prepare_entry: Callable[[ComparisonConfig, PlannedSystem], PendingComparison],
 ) -> None:
     (tmp_path / "datasets").mkdir()
     (tmp_path / "models").mkdir()
@@ -1171,7 +1036,6 @@ def test_run_comparison_ignores_unrelated_broken_experiments(
         '[run]\ntype = "train"\nseed = 42\nmodel = "../models/valid-model.toml"\ndata = "../models/valid-model.toml"\n\n[training.trainer]\nmax_epochs = 1\n\n[training.optimizer.default_optimizer]\nname = "AdamW"\nlr = 1e-3',
         encoding="utf-8",
     )
-    experiments_config = tmp_path / "experiments.toml"
     experiments_config.write_text(
         f"""
 [mlflow]
@@ -1192,7 +1056,7 @@ job = "valid-job"
         """.strip(),
         encoding="utf-8",
     )
-    matrix_path, rhs_path = _write_system_inputs(tmp_path)
+    matrix_path, rhs_path = system_inputs
     cfg = mock_cfg(
         matrix_path=matrix_path,
         rhs_path=rhs_path,
@@ -1200,82 +1064,55 @@ job = "valid-job"
             NeuralPreconditionerConfig(
                 type=PreconditionerType.NEURAL,
                 architecture="Linear Net",
-                model_ref=_registered_ref(
-                    "NormScaledLinearFFNN",
-                    "residuals-100",
-                ),
+                model_ref=_registered_ref("NormScaledLinearFFNN", "residuals-100"),
             ),
         ],
     )
-    entry = _make_entry()
-    settings = make_settings(tmp_path)
 
-    with (
-        patch(_COMPARE_PRECONDITIONERS, return_value=stub_comparison_result),
-        patch(
-            "neuralls.composition.assignments.comparison_batch.resolve_preconditioner_models_with_warnings",
-            return_value=MagicMock(specs=cfg.preconditioners, warnings=()),
-        ) as mock_resolve_specs,
-    ):
-        topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(
-            cfg, _planned(entry), topology, experiments_config, settings
-        )
+    with patch(
+        _RESOLVE_MODELS,
+        return_value=MagicMock(specs=cfg.preconditioners, warnings=()),
+    ) as mock_resolve_specs:
+        pending = prepare_entry(cfg, _planned(_make_entry()))
 
-    assert isinstance(outcomes[0], ComparisonCompleted)
+    assert isinstance(pending, PreparedComparisonExecution)
     assert mock_resolve_specs.call_args.kwargs["assignment_contexts"] is None
 
 
-def test_run_comparison_fails_before_tracking_when_matrix_input_is_missing(
-    tmp_path: Path, fake_mlflow: MagicMock
+def test_prepare_fails_when_matrix_input_is_missing(
+    tmp_path: Path,
+    system_inputs: tuple[Path, Path],
+    fake_mlflow: MagicMock,
+    prepare_entry: Callable[[ComparisonConfig, PlannedSystem], PendingComparison],
 ) -> None:
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config)
-    missing_matrix = tmp_path / "missing-matrix.npy"
-    _, rhs_path = _write_system_inputs(tmp_path)
+    _, rhs_path = system_inputs
     cfg = mock_cfg(
-        matrix_path=missing_matrix,
+        matrix_path=tmp_path / "missing-matrix.npy",
         rhs_path=rhs_path,
         preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
-    entry = _make_entry()
-    settings = make_settings(tmp_path)
 
-    with (
-        patch(SETUP_TRACKING) as mock_setup_tracking,
-    ):
-        topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(
-            cfg, _planned(entry), topology, experiments_config, settings
-        )
+    pending = prepare_entry(cfg, _planned(_make_entry()))
 
-    assert isinstance(outcomes[0], ComparisonEntryFailed)
-    mock_setup_tracking.assert_not_called()
+    assert isinstance(pending, ComparisonEntryFailed)
     fake_mlflow.start_run.assert_not_called()
 
 
-def test_run_comparison_missing_known_dataset_raises_file_not_found(
+def test_prepare_fails_when_a_known_dataset_is_missing(
     tmp_path: Path,
+    system_inputs: tuple[Path, Path],
+    prepare_entry: Callable[[ComparisonConfig, PlannedSystem], PendingComparison],
 ) -> None:
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config)
-    missing_dataset = tmp_path / "solutions"
-    rhs_path = tmp_path / "rhs.npy"
-    np.save(rhs_path, np.array([[1.0, 0.0]], dtype=np.float64))
+    _, rhs_path = system_inputs
     cfg = mock_cfg(
-        matrix_path=missing_dataset,
+        matrix_path=tmp_path / "solutions",
         rhs_path=rhs_path,
         preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
     )
-    entry = _make_entry()
-    settings = make_settings(tmp_path)
 
-    topology = _resolve_comparison_topology(experiments_config, settings)
-    outcomes = _run_comparison_from_config(
-        cfg, _planned(entry), topology, experiments_config, settings
-    )
+    pending = prepare_entry(cfg, _planned(_make_entry()))
 
-    assert isinstance(outcomes[0], ComparisonEntryFailed)
+    assert isinstance(pending, ComparisonEntryFailed)
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
@@ -1317,60 +1154,9 @@ def test_run_comparison_batch_preserves_declared_order(
     fake_mlflow.start_run.assert_not_called()
 
 
-def test_log_comparison_metrics_logs_scalar_metrics_per_preconditioner(
-    tmp_path: Path,
-    fake_mlflow: MagicMock,
-    child_runs_of: Callable[..., dict[str, TrackedRun]],
-) -> None:
-    """_log_comparison_metrics must emit one metric set per preconditioner."""
-    result = _typed_comparison_result(tmp_path / "conv.png")
-
-    log_comparison_result_metrics(result, child_runs=child_runs_of("identity"))
-
-    metric_calls = {call.args[0]: call.args[1] for call in fake_mlflow.log_metric.call_args_list}
-    assert metric_calls["iterations/identity"] == 2
-    assert metric_calls["final_residual/identity"] == pytest.approx(1.0e-8)
-    assert metric_calls["converged/identity"] == 1
-    fake_mlflow.log_param.assert_called_once_with("best_method_id", "identity")
-
-
-def test_log_comparison_metrics_logs_cost_metrics_when_measured(
-    tmp_path: Path,
-    fake_mlflow: MagicMock,
-    child_runs_of: Callable[..., dict[str, TrackedRun]],
-) -> None:
-    """Setup/solve time and size-normalized cost metrics appear once measured."""
-    result = replace(
-        _typed_comparison_result(tmp_path / "conv.png"),
-        results={
-            "identity": replace(
-                _typed_comparison_result(tmp_path / "conv.png").results["identity"],
-                setup_cost=2.0,
-                setup_peak_memory_bytes=1000,
-                solve_time_seconds=1.0,
-                solve_peak_memory_bytes=2000,
-            )
-        },
-        matrix_shape=(100, 100),
-    )
-
-    log_comparison_result_metrics(result, child_runs=child_runs_of("identity"))
-
-    metric_calls = {call.args[0]: call.args[1] for call in fake_mlflow.log_metric.call_args_list}
-    assert metric_calls["setup_time_s/identity"] == 2.0
-    assert metric_calls["solve_time_s/identity"] == 1.0
-    assert metric_calls["avg_iteration_time_s/identity"] == pytest.approx(0.5)
-    assert metric_calls["peak_memory_bytes/identity"] == 2000.0
-    assert metric_calls["time_per_dof_per_iteration/identity"] == pytest.approx(0.5 / 100)
-    assert metric_calls["setup_time_per_dof/identity"] == pytest.approx(2.0 / 100)
-    assert metric_calls["peak_memory_per_dof/identity"] == pytest.approx(2000 / 100)
-
-
 def test_compatibility_projection_carries_canonical_setup_measurement(
     tmp_path: Path,
-    fake_mlflow: MagicMock,
     prepared_method: PreparedMethodFactory,
-    child_runs_of: Callable[..., dict[str, TrackedRun]],
 ) -> None:
     """Legacy diagnostics retain setup timing copied from the canonical event."""
     tag = SystemTag(
@@ -1413,116 +1199,8 @@ def test_compatibility_projection_carries_canonical_setup_measurement(
     assert projected.setup_time_samples == (1.0, 1.25, 1.5)
     assert projected.setup_peak_memory_bytes == 128
 
-    result = replace(
-        _typed_comparison_result(tmp_path / "conv-result.png"),
-        results={"identity": projected},
-        matrix_shape=(2, 2),
-    )
-    log_comparison_result_metrics(result, child_runs=child_runs_of("identity"))
-    metric_calls = {call.args[0]: call.args[1] for call in fake_mlflow.log_metric.call_args_list}
-    assert metric_calls["setup_time_s/identity"] == 1.25
 
-
-def test_log_comparison_metrics_omits_unmeasured_cost_metrics(
-    tmp_path: Path,
-    fake_mlflow: MagicMock,
-    child_runs_of: Callable[..., dict[str, TrackedRun]],
-) -> None:
-    """No solve/memory metric keys are logged when a result never measured them
-    (e.g. failed build). ``setup_time_s`` is always logged now (0.0 default,
-    since ``setup_cost`` is always measured for every real build)."""
-    result = _typed_comparison_result(tmp_path / "conv.png")
-
-    log_comparison_result_metrics(result, child_runs=child_runs_of("identity"))
-
-    metric_calls = {call.args[0]: call.args[1] for call in fake_mlflow.log_metric.call_args_list}
-    assert metric_calls["setup_time_s/identity"] == 0.0
-    logged_names = set(metric_calls)
-    assert not any(name.startswith("solve_time_s") for name in logged_names)
-    assert not any(name.startswith("peak_memory_bytes") for name in logged_names)
-
-
-def test_log_linear_system_params_logs_matrix_and_rhs_shape(
-    tmp_path: Path, fake_mlflow: MagicMock
-) -> None:
-    """log_linear_system_params must log matrix/rhs shape and RHS kind."""
-    result = replace(
-        _typed_comparison_result(tmp_path / "conv.png"),
-        matrix_shape=(10, 10),
-        rhs_shape=(10,),
-        rhs_source_kind=ComparisonRhsSourceKind.GAUSSIAN,
-    )
-
-    log_linear_system_params(result)
-
-    param_calls = {call.args[0]: call.args[1] for call in fake_mlflow.log_param.call_args_list}
-    assert param_calls["matrix_rows"] == 10
-    assert param_calls["matrix_cols"] == 10
-    assert param_calls["rhs_dim"] == 10
-    assert param_calls["rhs_source_kind"] == "gaussian"
-    fake_mlflow.log_metric.assert_not_called()
-
-
-@pytest.mark.usefixtures("stub_log_comparison_artifacts", "stub_setup_tracking")
-def test_run_comparison_logs_scalar_metrics_to_mlflow(
-    tmp_path: Path, fake_mlflow: MagicMock
-) -> None:
-    """compare workflow must log per-preconditioner metrics to the parent run."""
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config)
-    matrix_path, rhs_path = _write_system_inputs(tmp_path)
-    cfg = mock_cfg(
-        matrix_path=matrix_path,
-        rhs_path=rhs_path,
-        preconditioners=[StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)],
-    )
-    plot_path = tmp_path / "conv.png"
-    plot_path.write_text("x", encoding="utf-8")
-    metrics_result = _typed_comparison_result(plot_path)
-    entry = _make_entry()
-    settings = make_settings(tmp_path)
-
-    with patch(_COMPARE_PRECONDITIONERS, return_value=metrics_result):
-        topology = _resolve_comparison_topology(experiments_config, settings)
-        outcomes = _run_comparison_from_config(
-            cfg, _planned(entry), topology, experiments_config, settings
-        )
-
-    assert isinstance(outcomes[0], ComparisonCompleted)
-    logged_metric_names = {call.args[0] for call in fake_mlflow.log_metric.call_args_list}
-    assert "iterations/identity" in logged_metric_names
-    assert "final_residual/identity" in logged_metric_names
-    assert "converged/identity" in logged_metric_names
-
-
-def test_log_comparison_result_metrics_logs_child_scalar_metrics(
-    tmp_path: Path,
-    fake_mlflow: MagicMock,
-    child_runs_of: Callable[..., dict[str, TrackedRun]],
-) -> None:
-    """Each child run must log scalar summary metrics for its preconditioner."""
-    result = _typed_comparison_result(tmp_path / "conv.png")
-    captured_metrics: list[tuple[str, float]] = []
-
-    def _fake_start_run(*args: object, **kwargs: object) -> MagicMock:
-        ctx = MagicMock()
-        ctx.__enter__ = MagicMock(return_value=MagicMock())
-        ctx.__exit__ = MagicMock(return_value=False)
-        return ctx
-
-    fake_mlflow.start_run.side_effect = _fake_start_run
-    fake_mlflow.log_metric.side_effect = lambda k, v, **kw: captured_metrics.append((k, v))
-    log_comparison_result_metrics(result, child_runs=child_runs_of("identity"))
-
-    metric_map = {k: v for k, v in captured_metrics}
-    assert metric_map["iterations"] == 2
-    assert metric_map["final_residual"] == pytest.approx(1.0e-8)
-    assert metric_map["converged"] == 1
-
-
-@pytest.mark.usefixtures(
-    "stub_input_gate", "stub_log_comparison_artifacts", "stub_setup_tracking", "fake_mlflow"
-)
+@pytest.mark.usefixtures("stub_input_gate", "stub_setup_tracking", "fake_mlflow")
 def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
     tmp_path: Path,
     sparse_id_dataset: Path,
@@ -1654,9 +1332,7 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
     assert len({tuple(i.rhs) for i in inputs}) == 4
 
 
-@pytest.mark.usefixtures(
-    "stub_input_gate", "stub_log_comparison_artifacts", "stub_setup_tracking", "fake_mlflow"
-)
+@pytest.mark.usefixtures("stub_input_gate", "stub_setup_tracking", "fake_mlflow")
 def test_an_external_rhs_of_the_wrong_length_fails_only_its_own_system(
     tmp_path: Path,
     single_matrix_dataset: Path,
