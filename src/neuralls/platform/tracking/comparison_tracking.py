@@ -236,7 +236,6 @@ class MLflowGroupReportSink:
             n_matrices = len({(tag.dataset, tag.matrix_id) for tag in workload.planned})
             recipe_weights = tuple(count / len(workload.planned) for count in counts)
             sources = (
-                f"comparison_method[method={method}]/method_workload/method_diagnostics.json",
                 f"comparison_method[method={method}]/method_workload/convergence.parquet",
                 f"comparison_method[method={method}]/method_workload/solve_attempts.parquet",
             )

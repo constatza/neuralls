@@ -396,7 +396,6 @@ def test_session_manifest_registers_uniquely_owned_method_figures(
     assert metadata.recipes == (GAUSSIAN,)
     assert metadata.solver_contexts == (context,)
     assert metadata.sources == (
-        "comparison_method[method=network_a]/method_workload/method_diagnostics.json",
         "comparison_method[method=network_a]/method_workload/convergence.parquet",
         "comparison_method[method=network_a]/method_workload/solve_attempts.parquet",
     )

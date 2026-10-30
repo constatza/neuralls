@@ -27,6 +27,7 @@ from neuralls.composition.comparison.models import (
 )
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
+from neuralls.platform.reporting.benchmark_events import MethodBenchmarkArtifacts
 from neuralls.platform.reporting.training_diagnostics import compute_diagnostics
 from neuralls.platform.tracking.comparison_tracking import GROUP_REPORT_ARTIFACT_DIR
 from neuralls.platform.tracking.mlflow_client import log_diagnostics_to_mlflow
@@ -291,12 +292,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
 
     method_artifacts = client.list_artifacts(method_run.info.run_id, path="method_workload")
     method_names = {Path(item.path).name for item in method_artifacts}
-    assert {"setup_events.parquet", "solve_attempts.parquet", "summary.toml"}.issubset(method_names)
-    assert {
-        "method_config.toml",
-        "method_diagnostics.json",
-        "convergence.parquet",
-    }.issubset(method_names)
+    assert set(MethodBenchmarkArtifacts.file_names()).issubset(method_names)
     method_figures = client.list_artifacts(method_run.info.run_id, path="method_workload/figures")
     assert {Path(item.path).name for item in method_figures} == {
         "residual_history_Method_Identity.png",
