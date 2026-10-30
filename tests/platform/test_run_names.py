@@ -26,9 +26,11 @@ from neuralls.domain.presentation.run_names import (
 from neuralls.domain.presentation.titles import (
     ComparisonScopePresentation,
     EditorialPresentation,
+    SessionCounts,
     session_title,
+    summarized_session_title,
 )
-from neuralls.platform.tracking.run_names import render_run_name
+from neuralls.platform.tracking.run_names import render_run_name, render_session_title
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import MatrixId
@@ -150,6 +152,47 @@ def test_a_session_over_different_titles_lists_each_once_in_a_stable_order(
     assert text == (
         f"Spectral comparison; Test problem | Gaussian CG Residuals (k=20, N=100) | {STAMP.text}"
     )
+
+
+def test_a_many_system_session_is_summarized_by_counts_not_enumerated() -> None:
+    families = [EditorialPresentation(name) for name in ("Gaussian RHS", "Sparse Gaussian RHS")]
+    titles = [family for family in families for _ in range(10)]
+    title = summarized_session_title(titles, SessionCounts(20, 4, 5))
+    assert render_run_name(SessionRunName(title, STAMP), PLAIN) == (
+        f"20 systems (4 RHS types x 5 matrices) | {STAMP.text}"
+    )
+
+
+def test_a_many_system_session_with_one_shared_title_keeps_it_as_head() -> None:
+    shared = EditorialPresentation("Spectral comparison")
+    title = summarized_session_title([shared] * 6, SessionCounts(6, 2, 3))
+    assert render_run_name(SessionRunName(title, STAMP), PLAIN) == (
+        f"Spectral comparison | 6 systems (2 RHS types x 3 matrices) | {STAMP.text}"
+    )
+
+
+def test_the_session_label_matches_the_summarized_run_name_text() -> None:
+    shared = EditorialPresentation("Spectral comparison")
+    title = summarized_session_title([shared] * 6, SessionCounts(6, 2, 3))
+    assert render_session_title(title, PLAIN) == (
+        "Spectral comparison | 6 systems (2 RHS types x 3 matrices)"
+    )
+
+
+def test_one_lone_system_keeps_its_own_title() -> None:
+    only = EditorialPresentation("Spectral comparison")
+    assert summarized_session_title([only], SessionCounts(1, 1, 1)) == only
+
+
+def test_a_summary_needs_one_title_per_system() -> None:
+    with pytest.raises(ValueError, match="one title per system"):
+        summarized_session_title([EditorialPresentation("A")], SessionCounts(2, 1, 2))
+
+
+@pytest.mark.parametrize("counts", [(0, 1, 1), (1, 0, 1), (1, 1, 0)])
+def test_session_counts_must_be_positive(counts: tuple[int, int, int]) -> None:
+    with pytest.raises(ValueError, match="at least one"):
+        SessionCounts(*counts)
 
 
 def test_a_session_over_one_title_has_that_title(dataset_presentation: DatasetPresentation) -> None:

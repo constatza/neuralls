@@ -53,8 +53,34 @@ class CollectionTitle:
             raise ValueError("CollectionTitle requires at least two distinct titles")
 
 
-type SessionTitle = ComparisonTitle | CollectionTitle
-"""A batch session's title: its one shared title, or the collection of different ones."""
+@dataclass(frozen=True, slots=True)
+class SessionCounts:
+    """How many systems a comparison session ran, and how they spread over RHS types and matrices."""
+
+    n_systems: int
+    n_rhs_types: int
+    n_matrices: int
+
+    def __post_init__(self) -> None:
+        """Require a non-empty session whose systems cover at least one RHS type and matrix."""
+        if min(self.n_systems, self.n_rhs_types, self.n_matrices) < 1:
+            raise ValueError("SessionCounts requires at least one system, RHS type and matrix")
+
+
+@dataclass(frozen=True, slots=True)
+class SummarizedTitle:
+    """A session over many systems: an optional shared title and how many systems it covered.
+
+    The head is the one title every system shares; it is absent when the systems differ,
+    so the session never enumerates its systems.
+    """
+
+    head: ComparisonTitle | None
+    counts: SessionCounts
+
+
+type SessionTitle = ComparisonTitle | CollectionTitle | SummarizedTitle
+"""A batch session's title: its one shared title, a collection of different ones, or a summary."""
 
 
 def session_title(titles: Sequence[ComparisonTitle]) -> SessionTitle:
@@ -71,3 +97,22 @@ def session_title(titles: Sequence[ComparisonTitle]) -> SessionTitle:
             return only
         case _:
             return CollectionTitle(distinct)
+
+
+def summarized_session_title(
+    titles: Sequence[ComparisonTitle], counts: SessionCounts
+) -> SessionTitle:
+    """The title of a comparison session: one lone system keeps its title, else a summary.
+
+    Raises:
+        ValueError: When the session has no title to compose from, or fewer titles than systems.
+    """
+    distinct = tuple(dict.fromkeys(titles))
+    if not distinct:
+        raise ValueError("a session needs at least one title")
+    if len(titles) != counts.n_systems:
+        raise ValueError("a session needs exactly one title per system")
+    head = distinct[0] if len(distinct) == 1 else None
+    if head is not None and counts.n_systems == 1:
+        return head
+    return SummarizedTitle(head=head, counts=counts)

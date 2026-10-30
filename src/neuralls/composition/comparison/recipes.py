@@ -9,9 +9,11 @@ into one recipe.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import assert_never
 
 from neuralls.composition.comparison.models import PlannedSystem
+from neuralls.domain.presentation.titles import SessionCounts
 from neuralls.domain.solver.models.benchmark_events import SystemTag
 from neuralls.platform.config.models.comparison import (
     ComparisonRhsSourceModel,
@@ -37,10 +39,11 @@ from neuralls.shared.rhs_recipe import (
     RhsRecipe,
     SinusoidalRecipe,
     Unmasked,
+    recipe_key,
 )
 from neuralls.shared.types import DatasetId, SystemId
 
-__all__ = ["rhs_recipe", "system_tag"]
+__all__ = ["rhs_recipe", "session_counts", "system_tag"]
 
 _FINGERPRINT_HEX_LENGTH = 16
 
@@ -88,4 +91,14 @@ def system_tag(planned: PlannedSystem) -> SystemTag:
         matrix_id=planned.matrix.matrix_id,
         rhs_ordinal=planned.rhs_ordinal,
         system_id=SystemId(planned.entry.id),
+    )
+
+
+def session_counts(planned: Sequence[PlannedSystem]) -> SessionCounts:
+    """How many systems a session runs, over how many RHS recipes and (dataset, matrix) pairs."""
+    tags = [system_tag(system) for system in planned]
+    return SessionCounts(
+        n_systems=len(tags),
+        n_rhs_types=len({recipe_key(tag.recipe) for tag in tags}),
+        n_matrices=len({(tag.dataset, tag.matrix_id) for tag in tags}),
     )

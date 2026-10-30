@@ -126,11 +126,6 @@ def _ordinal_suffix(rhs_count: int, ordinal: int) -> str:
     return f"-{ordinal}" if rhs_count > 1 else ""
 
 
-def _display_name(base: str | None, qualifier: str) -> str | None:
-    """Qualify an explicit display name so planned siblings stay distinguishable."""
-    return None if base is None else f"{base} ({qualifier})"
-
-
 def _require_rhs_count_fits(source: ComparisonDataBinding, owner: str) -> None:
     if source.rhs_source.single_draw and source.rhs_count != 1:
         raise ValueError(
@@ -176,11 +171,7 @@ def _systems_on_matrix(
                     source,
                     entry_id=f"{id_stem}{_ordinal_suffix(source.rhs_count, ordinal)}",
                     seed=seed,
-                    display_name=(
-                        _display_name(display_stem, f"rhs {ordinal}")
-                        if source.rhs_count > 1
-                        else display_stem
-                    ),
+                    display_name=display_stem,
                 ),
                 matrix=MatrixRef(matrix_id=slot.matrix_id, row=row),
                 rhs_row=rhs_row,
@@ -262,7 +253,7 @@ def _plan_sweep(sweep: ComparisonSweepEntry, catalog: _DatasetCatalog) -> list[P
                 sweep,
                 owner=owner,
                 id_stem=f"{sweep.id_prefix}-{matrix_id}",
-                display_stem=_display_name(sweep.display_name, f"matrix {matrix_id}"),
+                display_stem=sweep.display_name,
                 slot=_MatrixSlot(matrix_id, rows[0], rows),
                 provenance=HeldOutMatrix(matrix_id=matrix_id, raw_matrix_index=rows[0]),
                 matrix_row_follows_rhs_row=True,

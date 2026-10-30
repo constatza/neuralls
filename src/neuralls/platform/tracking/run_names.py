@@ -33,11 +33,14 @@ from neuralls.domain.presentation.run_names import (
     TrainingRunName,
     TrainingSubject,
     Untimed,
+    training_dataset,
 )
 from neuralls.domain.presentation.titles import (
     CollectionTitle,
     ComparisonScopePresentation,
+    EditorialPresentation,
     SessionTitle,
+    SummarizedTitle,
 )
 from neuralls.shared.scientific_description.policy import (
     NotationPolicy,
@@ -68,8 +71,18 @@ def _title_text(title: SessionTitle, profile: RenderProfile, policy: NotationPol
             return _COLLECTION_SEPARATOR.join(
                 sorted(_title_text(part, profile, policy) for part in parts)
             )
-        case _:
+        case SummarizedTitle(head=head, counts=counts):
+            summary = (
+                f"{_counted(counts.n_systems, 'system')} "
+                f"({_counted(counts.n_rhs_types, 'RHS type')} x {_counted(counts.n_matrices, 'matrix', 'matrices')})"
+            )
+            if head is None:
+                return summary
+            return f"{render_title(head, profile, policy).text}{_PART_SEPARATOR}{summary}"
+        case ComparisonScopePresentation() | EditorialPresentation():
             return render_title(title, profile, policy).text
+        case _:
+            assert_never(title)
 
 
 def _qualifier_text(qualifier: SystemQualifier) -> str:
@@ -124,6 +137,11 @@ def render_dataset_label(dataset: DatasetPresentation, notation: NotationPolicy)
     ).text
 
 
+def render_training_dataset(subject: TrainingSubject, notation: NotationPolicy) -> str:
+    """Render the dataset a training subject was trained on, for a ``dataset`` tag or param."""
+    return render_dataset_label(training_dataset(subject), notation)
+
+
 def render_method_label(method: ConfiguredMethodPresentation, notation: NotationPolicy) -> str:
     """Render a configured method as plain text, for logs and summaries."""
     return render_method(
@@ -161,3 +179,8 @@ def render_run_name(name: RunName, notation: NotationPolicy) -> str:
 def run_name_text(run: NamedRun) -> str:
     """The text MLflow (or dlkit, for the runs it opens) shows for ``run``."""
     return render_run_name(run.name, run.notation)
+
+
+def _counted(count: int, noun: str, plural: str | None = None) -> str:
+    """``count`` with ``noun`` in the right grammatical number."""
+    return f"{count} {noun if count == 1 else plural or noun + 's'}"
