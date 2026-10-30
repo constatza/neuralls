@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tomllib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -11,6 +11,7 @@ from unittest.mock import patch
 import polars as pl
 import pytest
 import tomli_w
+from loguru import logger
 from mlflow.tracking import MlflowClient
 from tests.presentation_support import PreparedMethodFactory
 from tests.provenance_support import provenance_for
@@ -255,6 +256,15 @@ def method_artifacts(
     return paths, ("s0",)
 
 
+@pytest.fixture
+def info_messages() -> Iterator[list[str]]:
+    """Collect loguru INFO-and-above messages emitted during a test."""
+    messages: list[str] = []
+    sink_id = logger.add(lambda message: messages.append(message.record["message"]), level="INFO")
+    yield messages
+    logger.remove(sink_id)
+
+
 def _log_method_run(
     client: MlflowClient,
     source: Path,
@@ -354,6 +364,7 @@ def test_reuse_misses_a_run_with_planned_systems_differing_from_requested_ids(
     client: MlflowClient,
     reuse_workload: CompletedMethodWorkload,
     write_artifacts: Callable[[CompletedMethodWorkload, Path], None],
+    info_messages: list[str],
 ) -> None:
     """Tags claim ``s1`` while the stored planned systems are ``s0``."""
     write_artifacts(reuse_workload, tmp_path)
@@ -363,7 +374,7 @@ def test_reuse_misses_a_run_with_planned_systems_differing_from_requested_ids(
         config_digest=CONFIG_DIGEST,
         system_ids=("s1",),
     )
-    _log_method_run(
+    run_id = _log_method_run(
         client,
         tmp_path,
         tags=tags.as_mlflow_tags(),
@@ -379,6 +390,12 @@ def test_reuse_misses_a_run_with_planned_systems_differing_from_requested_ids(
         )
         is None
     )
+    assert info_messages == [
+        (
+            f"Run {run_id} is not reusable for method {reuse_workload.method}: "
+            "planned systems do not match requested workload"
+        )
+    ]
 
 
 @pytest.mark.parametrize("missing", ("planned_systems.parquet", "presentation.toml"))
@@ -387,6 +404,7 @@ def test_reuse_misses_a_run_lacking_a_required_artifact(
     client: MlflowClient,
     reuse_workload: CompletedMethodWorkload,
     write_artifacts: Callable[[CompletedMethodWorkload, Path], None],
+    info_messages: list[str],
     missing: str,
 ) -> None:
     write_artifacts(reuse_workload, tmp_path)
@@ -397,7 +415,7 @@ def test_reuse_misses_a_run_lacking_a_required_artifact(
         system_ids=("s0",),
     )
     present = tuple(name for name in MethodBenchmarkArtifacts.file_names() if name != missing)
-    _log_method_run(client, tmp_path, tags=tags.as_mlflow_tags(), names=present)
+    run_id = _log_method_run(client, tmp_path, tags=tags.as_mlflow_tags(), names=present)
 
     assert (
         _find_reusable(
@@ -408,6 +426,12 @@ def test_reuse_misses_a_run_lacking_a_required_artifact(
         )
         is None
     )
+    assert info_messages == [
+        (
+            f"Run {run_id} is not reusable for method {reuse_workload.method}: "
+            f"missing artifacts {[missing]}."
+        )
+    ]
 
 
 def test_reuse_ignores_checkpoint_lease_path_but_rejects_changed_content(

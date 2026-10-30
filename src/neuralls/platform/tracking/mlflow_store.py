@@ -150,7 +150,14 @@ def find_reusable_benchmark_method(
             for info in client.list_artifacts(run.info.run_id, path=METHOD_ARTIFACT_DIR)
             if not info.is_dir
         }
-        if not _METHOD_ARTIFACTS.issubset(artifacts):
+        missing = sorted(_METHOD_ARTIFACTS - artifacts.keys())
+        if missing:
+            logger.info(
+                "Run {} is not reusable for method {}: missing artifacts {}.",
+                run.info.run_id,
+                method,
+                missing,
+            )
             continue
         with tempfile.TemporaryDirectory(prefix="neuralls-method-reuse-") as temp_dir:
             try:
@@ -169,7 +176,16 @@ def find_reusable_benchmark_method(
                     system_identities=system_identities,
                     method_config=method_config,
                 )
-            except OSError, ValueError, TypeError, KeyError, tomllib.TOMLDecodeError:
+            except (
+                OSError,
+                ValueError,
+                TypeError,
+                KeyError,
+                tomllib.TOMLDecodeError,
+            ) as exc:
+                logger.info(
+                    "Run {} is not reusable for method {}: {}", run.info.run_id, method, exc
+                )
                 continue
         return Reused(run_id=run.info.run_id)
     return None
