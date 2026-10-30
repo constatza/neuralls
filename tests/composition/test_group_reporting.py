@@ -25,7 +25,7 @@ from neuralls.domain.solver.models import (
 from neuralls.domain.solver.models.figure_scope import AllDatasetsScope, DatasetScope, RecipeScope
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated, GroupSkippedAllCacheHit
 from neuralls.domain.solver.models.group_presentation import GroupPresentation, SolverTimingContext
-from neuralls.domain.solver.models.labels import FineLabel, render_group_id
+from neuralls.domain.solver.models.labels import MatrixSetRhsTypeLabel, render_group_id
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.platform.config.models.preconditioner import (
     AggregationCoarseningConfig,
@@ -323,8 +323,8 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
         NotationPolicy.default(),
     )
     assert [legend.label(config.name) for config in configs] == [
-        "AMG (L=2, θ=0.25, ν₁=2, ν₂=2, ωₛ=auto)",
-        "AMG (L=2, θ=0.5, ν₁=2, ν₂=2, ωₛ=auto)",
+        "AMG (L=2, θ=0.25)",
+        "AMG (L=2, θ=0.5)",
     ]
 
 
@@ -333,7 +333,7 @@ def test_a_skipped_group_is_named_by_its_scope_not_its_group_id(
     group_datasets: dict[DatasetId, DatasetPresentation],
     captured_log: CapturedLog,
 ) -> None:
-    label = FineLabel(dataset=DatasetId("ds"), recipe=GAUSSIAN)
+    label = MatrixSetRhsTypeLabel(dataset=DatasetId("ds"), recipe=GAUSSIAN)
     skipped = GroupSkippedAllCacheHit(
         group_id=render_group_id(label), label=label, n_planned_rhs=3, n_matrices=1
     )

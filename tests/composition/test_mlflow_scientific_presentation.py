@@ -120,7 +120,7 @@ def test_session_run_is_named_by_the_dataset_not_the_case_file(
 ) -> None:
     (name,) = _session_run_names(tmp_path, prepared_presentation, prepared_presentation.scope)
 
-    assert name == f"{DATASET_TEXT} | {STAMP}"
+    assert name == f"{DATASET_TEXT} | 2 systems (1 RHS type x 1 matrix) | {STAMP}"
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
@@ -131,7 +131,7 @@ def test_session_run_is_named_by_the_editorial_title_when_one_is_configured(
         tmp_path, prepared_presentation, EditorialPresentation("Spectral comparison")
     )
 
-    assert name == f"Spectral comparison | {STAMP}"
+    assert name == f"Spectral comparison | 2 systems (1 RHS type x 1 matrix) | {STAMP}"
 
 
 def _planned(entry: ComparisonRegistryEntry, matrix: int, ordinal: int) -> PlannedSystem:
@@ -275,9 +275,6 @@ def test_configured_facts_become_stable_parameters_without_rendered_text(
     assert parameters == {
         "method.base_name": "POD-2G",
         "method.rank": "10",
-        "method.pre_smoothing_steps": "2",
-        "method.post_smoothing_steps": "2",
-        "method.smoother_damping": "auto",
         "training_dataset.source": "Atomic test",
         "training_dataset.strategy_0.kind": "gaussian_forward",
         "training_dataset.strategy_0.mean": "0.0",

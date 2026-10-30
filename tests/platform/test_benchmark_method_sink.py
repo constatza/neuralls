@@ -160,10 +160,9 @@ def test_method_sink_records_aggregates_without_opening_a_run(
         "summary.toml",
         "method_config.toml",
         "method_diagnostics.json",
-        "residual_histories.json",
-        "energy_histories.json",
-        "residual_history_jacobi.png",
-        "energy_history_jacobi.png",
+        "convergence.parquet",
+        "residual_history_Method_Jacobi.png",
+        "energy_history_Method_Jacobi.png",
         "realized_facts.json",
     }
 

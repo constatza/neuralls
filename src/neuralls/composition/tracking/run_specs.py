@@ -47,6 +47,7 @@ from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.tracking.mlflow import MlflowRunConfig
 from neuralls.platform.tracking.run_names import (
     render_session_title,
+    render_training_dataset,
     render_training_subject,
     run_name_text,
 )
@@ -79,26 +80,19 @@ def _stamp(timestamp: str | None, *, include_timestamp: bool) -> RunStamp:
     return RunTimestamp(timestamp or format_run_timestamp())
 
 
-def system_qualifier(planned: PlannedSystem, title: ComparisonTitle) -> SystemQualifier:
+def system_qualifier(planned: PlannedSystem) -> SystemQualifier:
     """What tells ``planned`` apart from its sibling systems in a run name.
 
-    An editorial title is qualified by the planner when it plans siblings, so it needs no
-    further qualifier; a dataset title is shared by every sibling and needs the held-out
-    matrix and the right-hand-side draw.
+    A title is shared by every sibling system, so the held-out matrix and the
+    right-hand-side draw carry the distinction.
     """
-    match title:
-        case EditorialPresentation():
-            return SystemQualifier(())
-        case ComparisonScopePresentation():
-            matrix = (
-                (HeldOutMatrixPart(planned.matrix.matrix_id),)
-                if isinstance(planned.provenance, HeldOutMatrix)
-                else ()
-            )
-            draw = (RhsDrawPart(planned.rhs_ordinal),) if planned.entry.rhs_count > 1 else ()
-            return SystemQualifier((*matrix, *draw))
-        case _:
-            assert_never(title)
+    matrix = (
+        (HeldOutMatrixPart(planned.matrix.matrix_id),)
+        if isinstance(planned.provenance, HeldOutMatrix)
+        else ()
+    )
+    draw = (RhsDrawPart(planned.rhs_ordinal),) if planned.entry.rhs_count > 1 else ()
+    return SystemQualifier((*matrix, *draw))
 
 
 def training_run_name(
@@ -116,7 +110,9 @@ def training_run_name(
 class TrainingRunTags:
     """Structured tags for a training run.
 
-    ``subject`` is what was trained; its rendered text becomes the ``assignment_label`` tag.
+    ``subject`` is what was trained; its rendered text becomes the ``assignment_label`` tag
+    and the dataset it trained on becomes the ``dataset`` tag. ``dataset_id`` stays the
+    machine id so runs remain filterable by it.
     """
 
     phase: Literal["training"]
@@ -132,6 +128,7 @@ class TrainingRunTags:
             "phase": self.phase,
             "assignment_id": self.assignment_id,
             "dataset_id": self.dataset_id,
+            "dataset": render_training_dataset(self.subject, self.notation),
             "job_id": self.job_id,
             "assignment_label": render_training_subject(self.subject, self.notation),
         }
@@ -190,6 +187,7 @@ class EvaluationRunTags:
             "assignment_id": self.assignment_id,
             "source_training_run_id": self.source_training_run_id,
             "split_artifact": self.split_artifact,
+            "dataset": render_training_dataset(self.subject, self.notation),
             "assignment_label": render_training_subject(self.subject, self.notation),
         }
 
@@ -363,9 +361,7 @@ def comparison_run(
 ) -> NamedRun:
     """The typed name of one planned system's comparison run."""
     return NamedRun(
-        ComparisonRunName(
-            comparison_subject(title, dataset), system_qualifier(planned, title), stamp
-        ),
+        ComparisonRunName(comparison_subject(title, dataset), system_qualifier(planned), stamp),
         notation,
     )
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from math import isfinite
 from typing import assert_never
 
@@ -21,7 +21,9 @@ from neuralls.domain.solver.models.benchmark_events import (
     SolveOutcome,
     UnknownPeakMemory,
 )
+from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.shared.rhs_recipe import parse_recipe_key, recipe_key
+from neuralls.shared.types import PreconditionerName, SystemId
 
 SETUP_EVENT_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "setup_event_id": pl.String,
@@ -53,6 +55,42 @@ SOLVE_ATTEMPT_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "final_relative_residual": pl.Float64,
     "failure_reason": pl.String,
 }
+
+CONVERGENCE_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
+    "method": pl.String,
+    "system_id": pl.String,
+    "iteration": pl.Int32,
+    "residual_rel": pl.Float64,
+    "energy_error_rel": pl.Float64,
+}
+
+
+def build_convergence_frame(
+    method: PreconditionerName,
+    diagnostics: Sequence[tuple[SystemId, CGComparisonResult]],
+) -> pl.DataFrame:
+    """One row per iteration of each system's relative residual history.
+
+    The energy error is null for iterations the energy history does not cover,
+    including every iteration of a system without a reference solution.
+    """
+    rows: list[dict[str, object]] = []
+    for system_id, result in diagnostics:
+        energy = result.error_history_a_rel
+        for iteration, residual in enumerate(result.residual_history_rel):
+            has_energy = energy is not None and iteration < len(energy)
+            rows.append(
+                {
+                    "method": str(method),
+                    "system_id": str(system_id),
+                    "iteration": iteration,
+                    "residual_rel": float(residual),
+                    "energy_error_rel": (
+                        float(energy[iteration]) if energy is not None and has_energy else None
+                    ),
+                }
+            )
+    return pl.DataFrame(rows, schema=CONVERGENCE_SCHEMA)
 
 
 def build_setup_frame(events: Collection[MatrixSetupEvent]) -> pl.DataFrame:
@@ -192,6 +230,23 @@ def validate_decoded_solve_frame(frame: pl.DataFrame) -> None:
         if system_id in seen_systems:
             raise ValueError(f"duplicate solve system ID: {system_id!r}")
         seen_systems.add(system_id)
+
+
+def validate_decoded_convergence_frame(frame: pl.DataFrame) -> None:
+    """Reapply convergence-row invariants after an untrusted frame is decoded."""
+    seen: set[tuple[str, str, int]] = set()
+    for row in frame.to_dicts():
+        key = (
+            _required_text(row["method"], "method"),
+            _required_text(row["system_id"], "system ID"),
+            _required_int(row["iteration"], "iteration"),
+        )
+        _finite_non_negative(row["residual_rel"], "relative residual")
+        if row["energy_error_rel"] is not None:
+            _finite_non_negative(row["energy_error_rel"], "relative energy error")
+        if key in seen:
+            raise ValueError(f"duplicate convergence row: {key!r}")
+        seen.add(key)
 
 
 def _required_text(value: object, name: str) -> str:

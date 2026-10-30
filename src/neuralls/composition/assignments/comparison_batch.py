@@ -67,13 +67,17 @@ from neuralls.composition.comparison.models import (
     is_comparison_outcome,
 )
 from neuralls.composition.comparison.plan import plan_comparisons
-from neuralls.composition.comparison.recipes import system_tag
+from neuralls.composition.comparison.recipes import session_counts, system_tag
 from neuralls.composition.comparison.result_keys import validate_unique_preconditioner_keys
 from neuralls.composition.comparison.source_handlers import (
     ComparisonSourceSpec,
     validate_comparison_source,
 )
 from neuralls.composition.comparison.spec_consistency import validate_dataset_specs_consistent
+from neuralls.composition.comparison.system_figures import (
+    concat_convergence_frames,
+    write_system_figures,
+)
 from neuralls.composition.identity.comparison import (
     comparison_identity,
     preconditioner_identities,
@@ -102,7 +106,7 @@ from neuralls.domain.presentation.titles import (
     ComparisonScopePresentation,
     ComparisonTitle,
     EditorialPresentation,
-    session_title,
+    summarized_session_title,
 )
 from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory, SetupCompleted
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
@@ -1722,6 +1726,36 @@ def _has_complete_reusable_session(
     return True
 
 
+SYSTEM_FIGURES_ARTIFACT_DIR = "system_figures"
+"""Session-run artifact directory holding one subdirectory of figures per system."""
+
+
+def _log_system_convergence(
+    workloads: Sequence[CompletedMethodWorkload],
+    *,
+    datasets: Mapping[DatasetId, DatasetPresentation],
+    notation: NotationPolicy,
+) -> None:
+    """Upload the merged convergence table and every per-system figure to the session run.
+
+    Runs after every method workload has finished, so no write happens inside a timed region.
+    """
+    frame = concat_convergence_frames(workloads)
+    with tempfile.TemporaryDirectory(prefix="neuralls-system-figures-") as tmp:
+        root = Path(tmp)
+        table = root / "convergence.parquet"
+        frame.write_parquet(table)
+        mlflow.log_artifact(str(table))
+        figures = write_system_figures(
+            workloads, frame, datasets=datasets, notation=notation, root=root / "figures"
+        )
+        for figure in figures:
+            mlflow.log_artifact(
+                str(figure.path),
+                artifact_path=f"{SYSTEM_FIGURES_ARTIFACT_DIR}/{figure.system_slug}",
+            )
+
+
 def run_comparison_batch(
     case_config_path: Path,
     params: ComparisonParams,
@@ -1790,9 +1824,11 @@ def run_comparison_batch(
             ]
 
         notation = _batch_notation_policy(pending)
+        executions = [item for item in pending if isinstance(item, PreparedComparisonExecution)]
         session_run, session_tags = build_session_run_spec(
-            title=session_title(
-                [item.title for item in pending if isinstance(item, PreparedComparisonExecution)]
+            title=summarized_session_title(
+                [item.title for item in executions],
+                session_counts([item.planned for item in executions]),
             ),
             notation=notation,
             case_config_path=case_config_path.resolve(),
@@ -1853,6 +1889,9 @@ def run_comparison_batch(
                     notation=notation,
                     reference_selection=selection,
                     contexts_by_system=contexts_by_system,
+                )
+                _log_system_convergence(
+                    workloads, datasets=_batch_dataset_presentations(pending), notation=notation
                 )
             with _failure_boundary(
                 failure_sink,

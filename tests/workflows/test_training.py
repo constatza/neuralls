@@ -551,6 +551,7 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(
         "phase": "training",
         "assignment_id": "exp-1",
         "dataset_id": "dataset-1",
+        "dataset": "Test problem | Gaussian CG Residuals (k=20, N=100)",
         "job_id": "job-1",
         "assignment_label": "POD-2G | Gaussian CG Residuals (k=20, N=100)",
     }

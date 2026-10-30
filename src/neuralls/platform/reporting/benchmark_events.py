@@ -22,10 +22,13 @@ from neuralls.domain.solver.models.workload import (
 )
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.domain.solver.reporting.event_frames import (
+    CONVERGENCE_SCHEMA,
     SETUP_EVENT_SCHEMA,
     SOLVE_ATTEMPT_SCHEMA,
+    build_convergence_frame,
     build_setup_frame,
     build_solve_frame,
+    validate_decoded_convergence_frame,
     validate_decoded_setup_frame,
     validate_decoded_solve_frame,
     validate_setup_solve_frame_links,
@@ -39,6 +42,7 @@ class MethodBenchmarkArtifacts:
 
     setup_events: Path = Path("setup_events.parquet")
     solve_attempts: Path = Path("solve_attempts.parquet")
+    convergence: Path = Path("convergence.parquet")
     summary: Path = Path("summary.toml")
 
 
@@ -61,6 +65,10 @@ def write_method_benchmark_artifacts(
     root.mkdir(parents=True, exist_ok=True)
     _write_frame(build_setup_frame(workload.setup_events), root / artifacts.setup_events)
     _write_frame(build_solve_frame(workload.solve_attempts), root / artifacts.solve_attempts)
+    _write_frame(
+        build_convergence_frame(workload.method, workload.diagnostics),
+        root / artifacts.convergence,
+    )
     _write_summary(workload, canonical_summary, root / artifacts.summary)
     return artifacts
 
@@ -70,6 +78,13 @@ def read_setup_events(path: Path) -> pl.DataFrame:
     frame = _read_frame(path, SETUP_EVENT_SCHEMA)
     validate_decoded_setup_frame(frame)
     _validate_unique_setup_ids(frame)
+    return frame
+
+
+def read_convergence(path: Path) -> pl.DataFrame:
+    """Read and validate a per-iteration convergence Parquet artifact."""
+    frame = _read_frame(path, CONVERGENCE_SCHEMA)
+    validate_decoded_convergence_frame(frame)
     return frame
 
 

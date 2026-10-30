@@ -18,6 +18,7 @@ from neuralls.domain.benchmarking.selection import (
 )
 from neuralls.domain.solver.models.figure_scope import FigureScope, render_figure_scope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
+from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.storage.facts_codec import encode_figure_scope
 from neuralls.shared.rhs_recipe import RhsRecipe, recipe_key
 from neuralls.shared.scientific_description.policy import (
@@ -65,7 +66,7 @@ class FigureMetadata:
     kind: FigureKind
     metric_definition: str
     scenario: TimingScenario | None
-    report_level: str
+    report_level: ReportLevelName
     scope: FigureScope
     dataset_ids: tuple[str, ...]
     recipes: tuple[RhsRecipe, ...]
@@ -153,7 +154,7 @@ class FigureManifest:
             entry: dict[str, object] = {
                 "kind": metadata.kind.value,
                 "metric_definition": metadata.metric_definition,
-                "report_level": metadata.report_level,
+                "report_level": metadata.report_level.value,
                 "scope": {
                     **encode_figure_scope(metadata.scope),
                     "display": render_figure_scope(metadata.scope, MANIFEST_PROFILE, plain).text,
@@ -238,6 +239,42 @@ def sanitize_filename(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("_").lower()
 
 
+MAX_SLUG_LENGTH = 80
+
+
+def text_slug(text: str) -> str:
+    """Turn rendered scientific text into a safe, human-readable file stem."""
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", text).strip("_")
+    return stem[:MAX_SLUG_LENGTH].rstrip("_") or "figure"
+
+
+@dataclass(slots=True)
+class FigureSlugs:
+    """Assigns each report subject one file stem derived from its rendered text.
+
+    Subjects whose text collapses to the same stem get a numeric suffix in
+    encounter order, so names stay unique and deterministic without exposing the
+    machine id that keys the subject.
+    """
+
+    _by_subject: dict[str, str] = field(default_factory=dict)
+
+    def slug(self, subject_key: str, rendered_text: str) -> str:
+        """Return the stable stem of ``subject_key``, allocating it on first use."""
+        existing = self._by_subject.get(subject_key)
+        if existing is not None:
+            return existing
+        base = text_slug(rendered_text)
+        taken = {value.lower() for value in self._by_subject.values()}
+        candidate, index = base, 1
+        while candidate.lower() in taken:
+            index += 1
+            suffix = f"_{index}"
+            candidate = f"{base[: MAX_SLUG_LENGTH - len(suffix)].rstrip('_')}{suffix}"
+        self._by_subject[subject_key] = candidate
+        return candidate
+
+
 def make_plan(
     kind: FigureKind,
     metadata: FigureMetadata,
@@ -259,5 +296,5 @@ def make_plan(
         FigureKind.ENERGY_HISTORY: "Energy History",
     }
     scenario = f"_{metadata.scenario.value}" if metadata.scenario else ""
-    filename = f"{kind.value}_{sanitize_filename(metadata.report_level)}_{sanitize_filename(group_slug)}{scenario}.png"
+    filename = f"{kind.value}_{sanitize_filename(metadata.report_level.value)}_{sanitize_filename(group_slug)}{scenario}.png"
     return FigurePlan(filename, titles[kind], metadata)

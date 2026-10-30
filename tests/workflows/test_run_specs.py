@@ -94,6 +94,7 @@ def test_training_tags_keep_the_id_apart_from_the_rendered_label(
         "phase": "training",
         "assignment_id": "exp-1",
         "dataset_id": "dataset-1",
+        "dataset": "Test problem | Gaussian CG Residuals (k=20, N=100)",
         "job_id": "job-1",
         "assignment_label": "POD-2G | Gaussian CG Residuals (k=20, N=100)",
     }
@@ -210,30 +211,16 @@ def test_sibling_systems_on_a_dataset_title_get_distinct_run_names(
     ]
 
 
-def test_a_single_draw_on_a_shared_matrix_needs_no_qualifier(
-    dataset_presentation: DatasetPresentation,
-) -> None:
+def test_a_single_draw_on_a_shared_matrix_needs_no_qualifier() -> None:
     entry = _entry()
-    qualifier = system_qualifier(_planned(entry), ComparisonScopePresentation(dataset_presentation))
+    qualifier = system_qualifier(_planned(entry))
     assert qualifier.parts == ()
 
 
-def test_a_held_out_matrix_with_several_draws_is_qualified_by_both(
-    dataset_presentation: DatasetPresentation,
-) -> None:
+def test_a_held_out_matrix_with_several_draws_is_qualified_by_both() -> None:
     entry = _entry(rhs_count=3)
-    qualifier = system_qualifier(
-        _planned(entry, matrix=7, ordinal=2), ComparisonScopePresentation(dataset_presentation)
-    )
+    qualifier = system_qualifier(_planned(entry, matrix=7, ordinal=2))
     assert qualifier.parts == (HeldOutMatrixPart(MatrixId(7)), RhsDrawPart(2))
-
-
-def test_an_editorial_title_is_not_qualified_again() -> None:
-    entry = _entry(rhs_count=3)
-    qualifier = system_qualifier(
-        _planned(entry, matrix=7, ordinal=2), EditorialPresentation("Spectral (rhs 2)")
-    )
-    assert qualifier.parts == ()
 
 
 def test_child_tags_link_back_to_the_rendered_parent(
@@ -322,4 +309,5 @@ def test_evaluation_run_and_tags_use_the_same_subject(
 
     assert run_name_text(run) == f"Graph net run | {DATASET_TEXT}"
     assert tags["assignment_label"] == f"Graph net run | {DATASET_TEXT}"
+    assert tags["dataset"] == DATASET_TEXT
     assert tags["assignment_id"] == "exp-1"

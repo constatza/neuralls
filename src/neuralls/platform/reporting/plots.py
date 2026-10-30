@@ -5,6 +5,7 @@ from __future__ import annotations
 import colorsys
 import itertools
 from collections.abc import Hashable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -254,6 +255,36 @@ def _resolve_styles(
     return styles
 
 
+@dataclass(frozen=True, slots=True)
+class ConvergenceCurve:
+    """One method's per-iteration history on one plotted metric."""
+
+    values: tuple[float, ...]
+    converged: bool
+
+
+_UNCONVERGED_ALPHA = 0.6
+
+
+def _curve_from_result(
+    result: CGComparisonResult | Mapping[str, Any], history_attr: str
+) -> ConvergenceCurve | None:
+    """The history of ``result`` as a curve, or ``None`` when it holds none."""
+    if isinstance(result, CGComparisonResult):
+        history = getattr(result, history_attr)
+        converged = result.converged
+    elif isinstance(result, Mapping):
+        history = result.get(history_attr)
+        if history_attr == "residual_history_rel":
+            history = history or result.get("residuals")
+        converged = bool(result.get("converged", True))
+    else:
+        return None
+    if history is None or len(history) == 0:
+        return None
+    return ConvergenceCurve(tuple(float(value) for value in history), converged)
+
+
 def plot_convergence_comparison(
     results: Mapping[str, CGComparisonResult | Mapping[str, Any]],
     metadata: Mapping[str, Any] | None = None,
@@ -273,63 +304,97 @@ def plot_convergence_comparison(
     *,
     legend: Legend,
 ) -> None:
-    """Plot convergence comparison between preconditioners.
+    """Plot the ``history_attr`` histories of solver results on one figure.
+
+    Adapter over ``plot_convergence_curves``; a result without a history is
+    skipped with a warning. ``metadata`` maps a result key to optional
+    training annotations appended to its legend label.
+    """
+    curves: dict[str, ConvergenceCurve] = {}
+    for method_name, result in results.items():
+        curve = _curve_from_result(result, history_attr)
+        if curve is None:
+            logger.warning(f"Method '{method_name}' has no residual history to plot")
+            continue
+        curves[method_name] = curve
+    plot_convergence_curves(
+        curves,
+        legend=legend,
+        save_path=save_path,
+        show=show,
+        title=title,
+        subtitle=subtitle,
+        rtol=rtol,
+        atol=atol,
+        max_iterations=max_iterations,
+        families=families,
+        color_keys=color_keys,
+        marker_keys=marker_keys,
+        marker_size=marker_size,
+        ylabel=ylabel,
+        metadata=metadata,
+    )
+
+
+def plot_convergence_curves(
+    curves: Mapping[str, ConvergenceCurve],
+    *,
+    legend: Legend,
+    save_path: str | Path | None = None,
+    show: bool = False,
+    title: FigureTitle | None = None,
+    subtitle: ScopeSubtitle | None = None,
+    rtol: float | None = None,
+    atol: float | None = None,
+    max_iterations: int | None = None,
+    families: Mapping[str, Hashable] | None = None,
+    color_keys: Mapping[str, Hashable] | None = None,
+    marker_keys: Mapping[str, Hashable] | None = None,
+    marker_size: float = DEFAULT_LINE_MARKER_SIZE,
+    ylabel: str = "Relative Residual $\\|r\\| / \\|b\\|$",
+    metadata: Mapping[str, Any] | None = None,
+) -> None:
+    """Plot one semilog curve per key of ``curves``.
 
     Args:
-        results: Dictionary of method results
-        metadata: Optional metadata dict mapping method name -> NeuralPreconditionerMetadata
-        save_path: Path to save plot
-        show: Whether to show plot
-        title: Optional title for the plot
+        curves: Per-iteration values by series key; a curve that did not converge is
+            drawn translucent.
+        legend: Text of every plotted series, keyed like ``curves``; a curve without an
+            entry raises.
+        save_path: Path to save plot.
+        show: Whether to show plot.
+        title: Optional title for the plot.
         subtitle: Optional scope shown below the core metric title, rendered here.
-        rtol: Optional relative tolerance parameter to display
-        atol: Optional absolute tolerance parameter to display
-        max_iterations: Optional max iterations parameter to display
-        families: Optional plot-style family per method name (see
-            ``preconditioner_family.preconditioner_family``). Drives linestyle:
-            same-family lines always share a linestyle.
-        color_keys: Optional color-axis key per method name (e.g. a POD-2G
-            fit dataset). Methods sharing a key share a color; methods
-            omitted here fall back to their family. Colors come from the
-            Okabe-Ito palette, extended with generated hues beyond 8 keys.
-        marker_keys: Optional marker-axis key per method name (e.g. a POD-2G
-            weighting scheme). Methods sharing a key share a marker; methods
-            omitted here fall back to their family.
+        rtol: Optional relative tolerance parameter to display.
+        atol: Optional absolute tolerance parameter to display.
+        max_iterations: Optional max iterations parameter to display.
+        families: Optional plot-style family per key; same-family lines share a
+            linestyle.
+        color_keys: Optional color-axis key per series; series sharing a key share a
+            color. Colors come from the Okabe-Ito palette, extended with generated hues.
+        marker_keys: Optional marker-axis key per series; series sharing a key share a
+            marker.
         marker_size: Marker diameter for convergence-history points.
-        history_attr: Per-iteration history field to plot, read from each result.
-        ylabel: Y-axis label matching ``history_attr``.
-        legend: Text of every plotted series, keyed by result key. Result identity and
-            style lookup always remain keyed by ``results``; a result without an entry
-            raises.
+        ylabel: Y-axis label.
+        metadata: Optional per-key training annotations appended to the legend label.
     """
     fig, ax = plt.subplots(figsize=(10, 6))
     metadata = dict(metadata or {})
     line_styles = _resolve_styles(families, color_keys, marker_keys) if families else {}
 
-    for method_name, result in results.items():
-        # Handle both dict and dataclass results
-        if isinstance(result, CGComparisonResult):
-            residuals = getattr(result, history_attr)
-        elif isinstance(result, Mapping):
-            residuals = result.get(history_attr)
-            if history_attr == "residual_history_rel":
-                residuals = residuals or result.get("residuals")
-        else:
-            residuals = None
-
-        if residuals and len(residuals) > 0:
-            iterations = range(len(residuals))
-
-            label = _build_convergence_label(legend.label(method_name), metadata.get(method_name))
-            style = dict(line_styles.get(method_name, {"marker": "o", "linestyle": "-"}))
-            size_scale = style.pop("markersize_scale", 1.0)
-
-            ax.semilogy(
-                iterations, residuals, label=label, markersize=marker_size * size_scale, **style
-            )
-        else:
-            # Log warning for methods with no history
-            logger.warning(f"Method '{method_name}' has no residual history to plot")
+    for key, curve in curves.items():
+        label = _build_convergence_label(legend.label(key), metadata.get(key))
+        style = dict(line_styles.get(key, {"marker": "o", "linestyle": "-"}))
+        size_scale = style.pop("markersize_scale", 1.0)
+        if not curve.converged:
+            style["alpha"] = _UNCONVERGED_ALPHA
+        ax.semilogy(
+            range(len(curve.values)),
+            curve.values,
+            label=label,
+            markersize=marker_size * size_scale,
+            **style,
+        )
 
     ax.set_xlabel("Iteration")
     ax.set_ylabel(ylabel)
@@ -458,7 +523,7 @@ def plot_work_precision(
     )
     fig.suptitle(plot_title, fontsize=13, fontweight="bold")
     ax.grid(True, which="both", alpha=0.3)
-    draw_legend(ax, legend, inside_loc="upper right", fontsize=8)
+    draw_legend(ax, legend, inside_loc="upper right")
 
     plt.tight_layout()
 
@@ -583,7 +648,7 @@ def plot_residual_vs_time(
         fontweight="bold",
     )
     ax.grid(True, alpha=0.3)
-    draw_legend(ax, legend, inside_loc="upper right", fontsize=8)
+    draw_legend(ax, legend, inside_loc="upper right")
 
     plt.tight_layout()
 
@@ -674,7 +739,7 @@ def plot_error_vs_time(
         fontweight="bold",
     )
     ax.grid(True, alpha=0.3)
-    draw_legend(ax, legend, inside_loc="upper right", fontsize=8)
+    draw_legend(ax, legend, inside_loc="upper right")
 
     plt.tight_layout()
 

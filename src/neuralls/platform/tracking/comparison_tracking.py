@@ -38,12 +38,12 @@ from neuralls.domain.solver.models.group_outcomes import (
     WorkloadMixtureReport,
 )
 from neuralls.domain.solver.models.group_presentation import GroupPresentation, SolverTimingContext
-from neuralls.domain.solver.models.labels import MediumLabel
 from neuralls.domain.solver.models.plot_style import plot_style_maps
 from neuralls.domain.solver.models.result import ComparisonResult
 from neuralls.domain.solver.models.statistics import MethodComparison, PairedComparison
 from neuralls.domain.solver.models.workload import MethodWorkload, MethodWorkloadSummary
 from neuralls.domain.solver.ports import CostRecorder
+from neuralls.domain.solver.reporting.report_levels import ReportLevelName, level_name
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.reporting.benchmark_events import (
@@ -55,8 +55,10 @@ from neuralls.platform.reporting.figure_metadata import (
     FigureManifest,
     FigureMetadata,
     FigurePlan,
+    FigureSlugs,
     TimingScenario,
     make_plan,
+    text_slug,
     write_figure_manifest,
 )
 from neuralls.platform.reporting.figure_text import (
@@ -64,6 +66,7 @@ from neuralls.platform.reporting.figure_text import (
     Legend,
     ScopeSubtitle,
     method_legend,
+    scope_label,
     series_legend,
 )
 from neuralls.platform.reporting.outcome_plots import (
@@ -82,6 +85,7 @@ from neuralls.platform.reporting.plots import (
 from neuralls.platform.storage.facts_codec import encode_facts, encode_method_parameters
 from neuralls.platform.tracking.mlflow import ensure_experiment, sanitize_metric_key_segment
 from neuralls.platform.tracking.run_names import render_session_title, run_name_text
+from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, GroupId, PreconditionerName, SystemId
 
@@ -263,6 +267,7 @@ class MLflowGroupReportSink:
     _staging: tempfile.TemporaryDirectory[str] = field(
         default_factory=lambda: tempfile.TemporaryDirectory(prefix="neuralls-figures-")
     )
+    _slugs: FigureSlugs = field(default_factory=FigureSlugs)
     _finalized: bool = False
 
     def register_method_figures(
@@ -290,11 +295,12 @@ class MLflowGroupReportSink:
             )
             method = str(workload.method)
             scope = MethodScope(workload.presentation.prepared.detailed)
-            method_slug = sanitize_metric_key_segment(method)
+            method_slug = self._slugs.slug(f"method:{method}", scope_label(scope, self.notation))
             n_matrices = len({(tag.dataset, tag.matrix_id) for tag in workload.planned})
             recipe_weights = tuple(count / len(workload.planned) for count in counts)
             sources = (
                 f"comparison_method[method={method}]/method_workload/method_diagnostics.json",
+                f"comparison_method[method={method}]/method_workload/convergence.parquet",
                 f"comparison_method[method={method}]/method_workload/solve_attempts.parquet",
             )
             for kind, filename, metric in (
@@ -313,7 +319,7 @@ class MLflowGroupReportSink:
                     kind=kind,
                     metric_definition=metric,
                     scenario=None,
-                    report_level="method",
+                    report_level=ReportLevelName.METHOD,
                     scope=scope,
                     dataset_ids=dataset_ids,
                     recipes=recipes,
@@ -345,7 +351,9 @@ class MLflowGroupReportSink:
         if isinstance(outcome, RecipeProfileReport):
             log_comparison_metrics(group_id, outcome.comparisons)
         with tempfile.TemporaryDirectory() as tmp:
-            file_key = sanitize_metric_key_segment(group_id)
+            file_key = self._slugs.slug(
+                f"group:{group_id}", scope_label(presentation.scope, self.notation)
+            )
             plans = _figure_plans(outcome, presentation, file_key)
             self.manifest.validate_plans(plans)
             outcome_plots = _write_outcome_plots(
@@ -448,13 +456,6 @@ def _figure_metadata(
     outcome: RecipeProfileReport | WorkloadMixtureReport,
     presentation: GroupPresentation,
 ) -> FigureMetadata:
-    report_level = (
-        "fine"
-        if isinstance(outcome, RecipeProfileReport)
-        else "medium"
-        if isinstance(outcome.label, MediumLabel)
-        else "global"
-    )
     dataset_ids = tuple(str(dataset) for dataset in outcome.dataset_membership)
     recipes = outcome.recipe_membership
     weights = tuple(count / outcome.n_planned_rhs for count in outcome.recipe_counts)
@@ -507,7 +508,7 @@ def _figure_metadata(
         kind=kind,
         metric_definition=metric,
         scenario=scenario,
-        report_level=report_level,
+        report_level=level_name(outcome.label),
         scope=presentation.scope,
         dataset_ids=dataset_ids,
         recipes=recipes,
@@ -560,7 +561,12 @@ class MLflowBenchmarkMethodSink:
         try:
             artifacts = write_method_benchmark_artifacts(workload, summary, root)
             self._log_method_metadata(workload, summary)
-            for relative in (artifacts.setup_events, artifacts.solve_attempts, artifacts.summary):
+            for relative in (
+                artifacts.setup_events,
+                artifacts.solve_attempts,
+                artifacts.convergence,
+                artifacts.summary,
+            ):
                 mlflow.log_artifact(str(root / relative), artifact_path=METHOD_ARTIFACT_DIR)
             config_path = _write_method_config(root, workload.method_config)
             mlflow.log_artifact(str(config_path), artifact_path=METHOD_ARTIFACT_DIR)
@@ -698,36 +704,13 @@ def _write_method_diagnostics(
         for system_id, result in workload.diagnostics
     ]
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    residuals_path = root / "residual_histories.json"
-    residuals_path.write_text(
-        json.dumps(
-            {name: list(result.residual_history_rel) for name, result in diagnostics.items()},
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-    energies_path = root / "energy_histories.json"
-    energies_path.write_text(
-        json.dumps(
-            {
-                name: (
-                    list(result.error_history_a_rel)
-                    if result.error_history_a_rel is not None
-                    else None
-                )
-                for name, result in diagnostics.items()
-            },
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
     figures = root / "figures"
     figures.mkdir(exist_ok=True)
     subtitle = ScopeSubtitle(MethodScope(workload.presentation.prepared.detailed), notation)
     legend = _system_legend(workload, notation, datasets)
-    method_slug = sanitize_metric_key_segment(str(workload.method))
+    method_slug = text_slug(scope_label(subtitle.scope, notation))
+    recipes = {str(tag.system_id): recipe_key(tag.recipe) for tag in workload.planned}
+    series_recipes = {name: recipes[name] for name in diagnostics}
     residual_figure = figures / f"residual_history_{method_slug}.png"
     plot_convergence_comparison(
         diagnostics,
@@ -735,6 +718,8 @@ def _write_method_diagnostics(
         title=EditorialTitle("Residual History"),
         subtitle=subtitle,
         legend=legend,
+        families=series_recipes,
+        color_keys=series_recipes,
     )
     energy_figure = figures / f"energy_history_{method_slug}.png"
     plot_error_convergence_comparison(
@@ -743,8 +728,10 @@ def _write_method_diagnostics(
         title=EditorialTitle("Energy History"),
         subtitle=subtitle,
         legend=legend,
+        families=series_recipes,
+        color_keys=series_recipes,
     )
-    return path, residuals_path, energies_path, residual_figure, energy_figure
+    return path, residual_figure, energy_figure
 
 
 @dataclass(frozen=True, slots=True)

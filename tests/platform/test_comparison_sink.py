@@ -28,9 +28,9 @@ from neuralls.domain.solver.models.group_presentation import (
     SolverTimingContext,
 )
 from neuralls.domain.solver.models.labels import (
-    FineLabel,
-    GlobalLabel,
-    MediumLabel,
+    AllMatrixSetsLabel,
+    MatrixSetLabel,
+    MatrixSetRhsTypeLabel,
     render_group_id,
 )
 from neuralls.domain.solver.models.outcomes import Failed, Solved
@@ -90,7 +90,7 @@ def _failed() -> Failed:
 
 @pytest.fixture
 def group() -> RecipeProfileReport:
-    label = FineLabel(dataset=DatasetId("ds"), recipe=GAUSSIAN)
+    label = MatrixSetRhsTypeLabel(dataset=DatasetId("ds"), recipe=GAUSSIAN)
     amg = {
         SystemId("s0"): _solved(5, 1.0),
         SystemId("s1"): _solved(6, 2.0),
@@ -218,7 +218,7 @@ def _report_variant(
         "label": (
             group.label
             if report_type is RecipeProfileReport
-            else MediumLabel(DatasetId("ds"), membership)
+            else MatrixSetLabel(DatasetId("ds"), membership)
         ),
         "n_matrices": group.n_matrices,
         "n_planned_rhs": group.n_planned_rhs,
@@ -236,6 +236,9 @@ def _report_variant(
     return WorkloadMixtureReport(**common)
 
 
+_GROUP_FILE_STEM = "Test_problem_Gaussian_CG_Residuals_k_20_N_100_-_Gaussian"
+
+
 def test_mixture_sink_omits_profiles_but_keeps_aggregate_bars(
     group: GroupAggregated,
     presentation: GroupPresentation,
@@ -246,7 +249,7 @@ def test_mixture_sink_omits_profiles_but_keeps_aggregate_bars(
     mixture = _report_variant(group, WorkloadMixtureReport)
     MLflowGroupReportSink(notation).report(mixture, presentation=presentation)
 
-    key = comparison_tracking.sanitize_metric_key_segment(group.group_id)
+    key = _GROUP_FILE_STEM
     assert f"aggregate_bars_{key}.png" in logged_artifacts
     assert set(logged_artifacts) == {
         f"aggregate_bars_{key}.png",
@@ -259,8 +262,8 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
     group: RecipeProfileReport,
 ) -> None:
     mixture = WorkloadMixtureReport(
-        group_id=GroupId("global/dissolved"),
-        label=GlobalLabel((ALPHA, BETA)),
+        group_id=GroupId("all"),
+        label=AllMatrixSetsLabel((ALPHA, BETA)),
         n_matrices=3,
         n_planned_rhs=4,
         convergence=group.convergence,
@@ -289,7 +292,7 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
         solver_contexts=(context,),
     )
 
-    plans = _figure_plans(mixture, presentation, "global_dissolved")
+    plans = _figure_plans(mixture, presentation, "all")
     online = next(plan for plan in plans if plan.filename.startswith("online_time"))
     solve = next(plan for plan in plans if plan.filename.startswith("solve_time"))
 
@@ -312,7 +315,7 @@ def test_figure_plans_name_solve_and_online_ecdfs_by_scenario(
     presentation = GroupPresentation(
         scope=RecipeScope(dataset_presentation, GAUSSIAN), plot_styles={}, methods={}
     )
-    plans = _figure_plans(group, presentation, "fine_ds_gaussian")
+    plans = _figure_plans(group, presentation, "matrix_set_rhs_ds_gaussian")
 
     solve = next(
         plan
@@ -339,7 +342,7 @@ def test_paired_scatter_manifest_describes_axis_censored_pairs(
     presentation = GroupPresentation(
         scope=RecipeScope(dataset_presentation, GAUSSIAN), plot_styles={}, methods={}
     )
-    plans = _figure_plans(group, presentation, "fine_ds_gaussian")
+    plans = _figure_plans(group, presentation, "matrix_set_rhs_ds_gaussian")
     paired = next(plan for plan in plans if plan.metadata.kind.value == "paired_time")
     ratio = next(plan for plan in plans if plan.metadata.kind.value == "speed_ratio")
 
@@ -384,16 +387,17 @@ def test_session_manifest_registers_uniquely_owned_method_figures(
     sink.register_method_figures((workload,), contexts_by_system={tag.system_id: context})
 
     assert set(sink.manifest.entries) == {
-        "residual_history_network_a.png",
-        "energy_history_network_a.png",
+        "residual_history_Method_Jacobi.png",
+        "energy_history_Method_Jacobi.png",
     }
-    metadata = sink.manifest.entries["residual_history_network_a.png"]
+    metadata = sink.manifest.entries["residual_history_Method_Jacobi.png"]
     assert metadata.scope == MethodScope(prepared.detailed)
     assert metadata.dataset_ids == ("ds",)
     assert metadata.recipes == (GAUSSIAN,)
     assert metadata.solver_contexts == (context,)
     assert metadata.sources == (
         "comparison_method[method=network_a]/method_workload/method_diagnostics.json",
+        "comparison_method[method=network_a]/method_workload/convergence.parquet",
         "comparison_method[method=network_a]/method_workload/solve_attempts.parquet",
     )
 
@@ -408,7 +412,7 @@ def test_recipe_profile_sink_keeps_profile_ecdf_and_aggregate_bars(
     profile = _report_variant(group, RecipeProfileReport)
     MLflowGroupReportSink(notation).report(profile, presentation=presentation)
 
-    key = comparison_tracking.sanitize_metric_key_segment(group.group_id)
+    key = _GROUP_FILE_STEM
     assert f"aggregate_bars_{key}.png" in logged_artifacts
     assert f"performance_profile_solve_{key}.png" in logged_artifacts
     assert f"performance_profile_online_{key}.png" in logged_artifacts
@@ -456,7 +460,7 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
 ) -> None:
     MLflowGroupReportSink(notation).report(group, presentation=presentation)
 
-    key = comparison_tracking.sanitize_metric_key_segment(group.group_id)
+    key = _GROUP_FILE_STEM
     expected = {
         f"{stem}_{key}.png"
         for stem in (

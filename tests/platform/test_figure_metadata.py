@@ -12,13 +12,16 @@ from neuralls.domain.solver.models.figure_scope import (
     render_figure_scope,
 )
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
+from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.reporting.figure_metadata import (
     MANIFEST_PROFILE,
+    MAX_SLUG_LENGTH,
     FailureTreatment,
     FigureKind,
     FigureManifest,
     FigureMetadata,
     FigurePlan,
+    FigureSlugs,
     InvalidFigureManifestError,
     ReferenceSelectionKind,
     TimingScenario,
@@ -36,7 +39,7 @@ def _metadata(scope: FigureScope) -> FigureMetadata:
         kind=FigureKind.PERFORMANCE_PROFILE,
         metric_definition="amortized online seconds",
         scenario=TimingScenario.ONLINE,
-        report_level="fine",
+        report_level=ReportLevelName.MATRIX_SET_RHS_TYPE,
         scope=scope,
         dataset_ids=("Dataset X",),
         recipes=(SinusoidalRecipe(omega=6.28319),),
@@ -131,7 +134,7 @@ def test_manifest_serializes_literal_population_and_solver_context(
             "performance_profile_fine_x_online.png": {
                 "kind": "performance_profile",
                 "metric_definition": "amortized online seconds",
-                "report_level": "fine",
+                "report_level": "matrix_set_rhs_type",
                 "dataset_ids": ["Dataset X"],
                 "recipes": [recipe_key(SinusoidalRecipe(omega=6.28319))],
                 "recipe_counts": [4],
@@ -232,3 +235,37 @@ def test_manifest_keeps_machine_ids_in_id_fields_and_the_reference_as_a_kind(
     assert stored["reference_method_id"] == "jacobi-7"
     assert "datasets" not in stored
     assert stored["scope"] == _entry(_manifest_of(_metadata(scope)), notation)["scope"]
+
+
+@pytest.mark.parametrize("name", list(ReportLevelName))
+def test_every_report_level_name_round_trips_through_the_manifest(
+    name: ReportLevelName, scope: RecipeScope, notation: NotationPolicy
+) -> None:
+    manifest = FigureManifest()
+    manifest.add("figure.png", replace(_metadata(scope), report_level=name))
+    payload = manifest.as_dict(notation)
+
+    validate_figure_manifest(payload)
+    figures = cast(dict[str, dict[str, Any]], payload["figures"])
+    assert ReportLevelName(figures["figure.png"]["report_level"]) is name
+
+
+def test_slugs_follow_rendered_text_and_disambiguate_in_encounter_order() -> None:
+    slugs = FigureSlugs()
+
+    assert slugs.slug("method:a", "POD-2G (r=10)") == "POD-2G_r_10"
+    assert slugs.slug("method:b", "POD-2G (r=10)") == "POD-2G_r_10_2"
+    assert slugs.slug("method:c", "pod-2g (r=10)") == "pod-2g_r_10_3"
+    assert slugs.slug("method:a", "ignored once allocated") == "POD-2G_r_10"
+
+
+def test_slugs_are_truncated_and_stay_unique() -> None:
+    slugs = FigureSlugs()
+    long_text = "word " * 40
+
+    first = slugs.slug("a", long_text)
+    second = slugs.slug("b", long_text)
+
+    assert len(first) <= MAX_SLUG_LENGTH
+    assert len(second) <= MAX_SLUG_LENGTH
+    assert first != second

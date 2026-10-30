@@ -23,10 +23,18 @@ from neuralls.domain.solver.models.group_outcomes import (
     RecipeProfileReport,
     WorkloadMixtureReport,
 )
-from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, MediumLabel
+from neuralls.domain.solver.models.labels import (
+    AllMatrixSetsLabel,
+    MatrixSetLabel,
+    MatrixSetRhsTypeLabel,
+)
 from neuralls.domain.solver.models.outcomes import Failed, Solved
 from neuralls.domain.solver.reporting.classification import classify_level
-from neuralls.domain.solver.reporting.report_levels import FineLevel, GlobalLevel, MediumLevel
+from neuralls.domain.solver.reporting.report_levels import (
+    AllMatrixSetsLevel,
+    MatrixSetLevel,
+    MatrixSetRhsTypeLevel,
+)
 from neuralls.shared.rhs_recipe import RhsRecipe, recipe_key
 from neuralls.shared.types import (
     DatasetId,
@@ -100,14 +108,14 @@ def test_counts_planned_attempted_converged_and_matrices_independently(method) -
     setups = (_setup(method, 3), _setup(method, 7))
     attempts = (_attempt(tags[0], method), _attempt(tags[1], method, converged=False))
 
-    (outcome,) = classify_level(tags, setups, attempts, GlobalLevel())
+    (outcome,) = classify_level(tags, setups, attempts, AllMatrixSetsLevel())
 
     assert isinstance(outcome, GroupAggregated)
     assert (outcome.n_planned_rhs, outcome.n_matrices) == (3, 2)
     summary = outcome.convergence[method]
     assert (summary.n_planned_rhs, summary.n_attempted_rhs, summary.n_converged) == (3, 2, 1)
-    assert outcome.group_id == GroupId("global")
-    assert outcome.label == GlobalLabel((GAUSSIAN,))
+    assert outcome.group_id == GroupId("all")
+    assert outcome.label == AllMatrixSetsLabel((GAUSSIAN,))
 
 
 def test_system_cost_rows_become_explicit_solved_and_failed_outcomes(method) -> None:
@@ -115,7 +123,7 @@ def test_system_cost_rows_become_explicit_solved_and_failed_outcomes(method) -> 
     setup = _setup(method)
     attempts = (_attempt(tags[0], method), _attempt(tags[1], method, converged=False))
 
-    (group,) = classify_level(tags, (setup,), attempts, FineLevel())
+    (group,) = classify_level(tags, (setup,), attempts, MatrixSetRhsTypeLevel())
 
     assert isinstance(group, RecipeProfileReport)
     assert group.outcomes[method] == {
@@ -130,7 +138,7 @@ def test_setup_failure_is_reported_as_zero_attempts_not_zero_planned(method) -> 
     tags = (_tag(0), _tag(1))
     failed_setup = replace(_setup(method), outcome=SetupFailed(reason="factorization failed"))
 
-    (group,) = classify_level(tags, (failed_setup,), (), FineLevel())
+    (group,) = classify_level(tags, (failed_setup,), (), MatrixSetRhsTypeLevel())
 
     assert isinstance(group, RecipeProfileReport)
     summary = group.convergence[method]
@@ -140,17 +148,21 @@ def test_setup_failure_is_reported_as_zero_attempts_not_zero_planned(method) -> 
     assert all(isinstance(outcome, Failed) for outcome in group.outcomes[method].values())
 
 
-def test_fine_summary_allocates_setup_using_complete_matrix_membership(method) -> None:
+def test_matrix_set_rhs_type_summary_allocates_setup_using_complete_matrix_membership(
+    method,
+) -> None:
     tags = (_tag(0, recipe=GAUSSIAN), _tag(1, recipe=SINE))
     setup = _setup(method)
     attempts = tuple(_attempt(tag, method) for tag in tags)
 
-    reports = classify_level(tags, (setup,), attempts, FineLevel())
+    reports = classify_level(tags, (setup,), attempts, MatrixSetRhsTypeLevel())
     assert all(isinstance(report, RecipeProfileReport) for report in reports)
 
-    fine_reports = [report for report in reports if isinstance(report, RecipeProfileReport)]
-    assert [report.summaries[0].setup_total_s for report in fine_reports] == [1.0, 1.0]
-    assert sum(report.summaries[0].setup_total_s for report in fine_reports) == pytest.approx(2.0)
+    rhs_type_reports = [report for report in reports if isinstance(report, RecipeProfileReport)]
+    assert [report.summaries[0].setup_total_s for report in rhs_type_reports] == [1.0, 1.0]
+    assert sum(report.summaries[0].setup_total_s for report in rhs_type_reports) == pytest.approx(
+        2.0
+    )
 
 
 def test_setup_failure_creates_asymmetric_censored_outcomes(method) -> None:
@@ -163,7 +175,7 @@ def test_setup_failure_creates_asymmetric_censored_outcomes(method) -> None:
         tags,
         (reference, failed),
         attempts,
-        FineLevel(),
+        MatrixSetRhsTypeLevel(),
         ConfiguredReference(method),
     )
 
@@ -176,7 +188,7 @@ def test_setup_failure_creates_asymmetric_censored_outcomes(method) -> None:
 def test_unmeasured_group_retains_planned_membership(method) -> None:
     tags = (_tag(0), _tag(1))
 
-    (group,) = classify_level(tags, (), (), GlobalLevel())
+    (group,) = classify_level(tags, (), (), AllMatrixSetsLevel())
 
     assert isinstance(group, GroupSkippedAllCacheHit)
     assert (group.n_planned_rhs, group.n_matrices) == (2, 1)
@@ -198,7 +210,7 @@ def test_interrupted_method_is_retained_in_a_group_without_its_setup(method) -> 
         tags,
         setups,
         attempts,
-        FineLevel(),
+        MatrixSetRhsTypeLevel(),
         ConfiguredReference(reference),
         planned_by_method={reference: tags, candidate: tags},
     )
@@ -211,7 +223,7 @@ def test_interrupted_method_is_retained_in_a_group_without_its_setup(method) -> 
     assert interrupted.comparisons[candidate].paired.n_reference_only == 1
 
 
-def test_fine_and_medium_labels_preserve_recipe_membership(method) -> None:
+def test_matrix_set_rhs_type_and_matrix_set_labels_preserve_recipe_membership(method) -> None:
     tags = (_tag(0), _tag(0, recipe=SINE), _tag(0, dataset="other"))
     setups = (
         _setup(method),
@@ -233,41 +245,43 @@ def test_fine_and_medium_labels_preserve_recipe_membership(method) -> None:
         for tag in tags
     )
 
-    fine = classify_level(tags, setups, attempts, FineLevel())
-    medium = classify_level(tags, setups, attempts, MediumLevel())
+    rhs_type = classify_level(tags, setups, attempts, MatrixSetRhsTypeLevel())
+    matrix_set = classify_level(tags, setups, attempts, MatrixSetLevel())
 
-    assert [group.label for group in fine] == [
-        FineLabel(DatasetId("ds"), GAUSSIAN),
-        FineLabel(DatasetId("ds"), SINE),
-        FineLabel(DatasetId("other"), GAUSSIAN),
+    assert [group.label for group in rhs_type] == [
+        MatrixSetRhsTypeLabel(DatasetId("ds"), GAUSSIAN),
+        MatrixSetRhsTypeLabel(DatasetId("ds"), SINE),
+        MatrixSetRhsTypeLabel(DatasetId("other"), GAUSSIAN),
     ]
-    assert [group.label for group in medium] == [
-        MediumLabel(DatasetId("ds"), (GAUSSIAN, SINE)),
-        MediumLabel(DatasetId("other"), (GAUSSIAN,)),
+    assert [group.label for group in matrix_set] == [
+        MatrixSetLabel(DatasetId("ds"), (GAUSSIAN, SINE)),
+        MatrixSetLabel(DatasetId("other"), (GAUSSIAN,)),
     ]
-    assert all(isinstance(group, RecipeProfileReport) for group in fine)
+    assert all(isinstance(group, RecipeProfileReport) for group in rhs_type)
     assert [
-        group.recipe_membership for group in fine if isinstance(group, RecipeProfileReport)
+        group.recipe_membership for group in rhs_type if isinstance(group, RecipeProfileReport)
     ] == [
         (GAUSSIAN,),
         (SINE,),
         (GAUSSIAN,),
     ]
-    assert all(isinstance(group, WorkloadMixtureReport) for group in medium)
+    assert all(isinstance(group, WorkloadMixtureReport) for group in matrix_set)
     assert [
-        group.recipe_membership for group in medium if isinstance(group, WorkloadMixtureReport)
+        group.recipe_membership for group in matrix_set if isinstance(group, WorkloadMixtureReport)
     ] == [(GAUSSIAN, SINE), (GAUSSIAN,)]
 
-    global_report = classify_level(tags, setups, attempts, GlobalLevel())[0]
-    assert isinstance(global_report, WorkloadMixtureReport)
-    assert global_report.dataset_membership == (DatasetId("ds"), DatasetId("other"))
-    assert global_report.recipe_counts == (2, 1)
+    all_sets_report = classify_level(tags, setups, attempts, AllMatrixSetsLevel())[0]
+    assert isinstance(all_sets_report, WorkloadMixtureReport)
+    assert all_sets_report.dataset_membership == (DatasetId("ds"), DatasetId("other"))
+    assert all_sets_report.recipe_counts == (2, 1)
 
 
 def test_removed_cost_models_are_absent_from_event_classification(method) -> None:
     tag = _tag(0)
 
-    (group,) = classify_level((tag,), (_setup(method),), (_attempt(tag, method),), FineLevel())
+    (group,) = classify_level(
+        (tag,), (_setup(method),), (_attempt(tag, method),), MatrixSetRhsTypeLevel()
+    )
 
     assert isinstance(group, RecipeProfileReport)
     summary = group.convergence[method]
@@ -281,7 +295,9 @@ def test_removed_cost_models_are_absent_from_event_classification(method) -> Non
 def test_workload_mixture_exposes_no_profile_or_paired_inputs(method) -> None:
     tag = _tag(0)
 
-    (group,) = classify_level((tag,), (_setup(method),), (_attempt(tag, method),), GlobalLevel())
+    (group,) = classify_level(
+        (tag,), (_setup(method),), (_attempt(tag, method),), AllMatrixSetsLevel()
+    )
 
     assert isinstance(group, WorkloadMixtureReport)
     assert not hasattr(group, "outcomes")

@@ -28,7 +28,7 @@ from tests.workflows.comparison_support import (
 
 pytestmark = pytest.mark.deferred_io("generation-io")
 
-_GROUP_IDS = ("fine_solutions_dataset", "medium_solutions", "global")
+_GROUP_IDS = ("matrix_set_rhs_solutions_dataset", "matrix_set_solutions", "all")
 _N_PLANNED_RHS = 4
 """2 held-out matrices x `rhs_count` 2."""
 
@@ -100,21 +100,24 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
     ]
     uploaded_names = [Path(call.args[0]).name for call in group_report_calls]
     uploaded = set(uploaded_names)
+    recipe_stem = "Test_problem_Ones_Solutions_N_4_-_Dataset_RHS"
+    dataset_stem = "Test_problem_Ones_Solutions_N_4"
+    all_stem = "All_datasets"
     assert uploaded == {
         "figure_manifest.toml",
-        "aggregate_bars_fine_solutions_dataset.png",
-        "solve_time_bars_fine_solutions_dataset.png",
-        "online_time_bars_fine_solutions_dataset.png",
-        "performance_profile_solve_fine_solutions_dataset.png",
-        "performance_profile_online_fine_solutions_dataset.png",
-        "ecdf_iterations_fine_solutions_dataset.png",
-        "ecdf_time_solve_fine_solutions_dataset.png",
-        "ecdf_time_online_fine_solutions_dataset.png",
-        "aggregate_bars_medium_solutions.png",
-        "solve_time_bars_medium_solutions.png",
-        "online_time_bars_medium_solutions.png",
-        "aggregate_bars_global.png",
-        "solve_time_bars_global.png",
-        "online_time_bars_global.png",
+        f"aggregate_bars_{recipe_stem}.png",
+        f"solve_time_bars_{recipe_stem}.png",
+        f"online_time_bars_{recipe_stem}.png",
+        f"performance_profile_solve_{recipe_stem}.png",
+        f"performance_profile_online_{recipe_stem}.png",
+        f"ecdf_iterations_{recipe_stem}.png",
+        f"ecdf_time_solve_{recipe_stem}.png",
+        f"ecdf_time_online_{recipe_stem}.png",
+        f"aggregate_bars_{dataset_stem}.png",
+        f"solve_time_bars_{dataset_stem}.png",
+        f"online_time_bars_{dataset_stem}.png",
+        f"aggregate_bars_{all_stem}.png",
+        f"solve_time_bars_{all_stem}.png",
+        f"online_time_bars_{all_stem}.png",
     }
     assert uploaded_names.count("figure_manifest.toml") == 1

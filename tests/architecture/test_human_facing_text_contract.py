@@ -12,6 +12,11 @@ Rules:
 - ``type(x).__name__`` / ``x.__class__.__name__``: a class name used as a name.
 - an f-string that interpolates a method, dataset, assignment or system identifier into a
   title, label or tick-label parameter.
+- an f-string that builds an image file name or an ``artifact_path`` from an id-named variable,
+  and a file stem sliced out of one (``sanitize_*``/``text_slug`` of an id).
+- an f-string passed as the value of ``set_tag`` or ``log_param`` that interpolates an
+  id-named variable; a tag that is a lookup key carries the bare id, a human tag carries
+  rendered text.
 """
 
 from __future__ import annotations
@@ -68,6 +73,8 @@ ID_INTERPOLATION = "id-interpolation"
 RUN_NAME_TEXT = "run-name-text"
 LOG_ID_TEXT = "log-id-text"
 NAME_FALLBACK = "name-fallback"
+FILE_NAME_ID = "file-name-id"
+TAG_VALUE_ID = "tag-value-id"
 
 _HUMAN_CALLS = frozenset(
     {
@@ -91,6 +98,10 @@ _EMIT_OWNERS = frozenset({"logger", "typer", "warnings", "console"})
 _LOG_IDENTIFIER = re.compile(
     r"^(id|name)$|(?<!run)(?<!matrix)_id$|(^|_)display_name$|^(dataset|method|assignment|system|comparison)$"
 )
+_IMAGE_SUFFIXES = (".png", ".svg", ".pdf", ".jpg")
+_FILE_ID = re.compile(r"_id$|^(dataset|method|group|assignment|system)s?$|_(dataset|method)$")
+_SLUGGERS = frozenset({"sanitize_metric_key_segment", "sanitize_filename", "text_slug"})
+_TAG_SETTERS = frozenset({"set_tag", "log_param"})
 _DELETED_FALLBACKS = frozenset({"effective_display_name", "resolve_display_name"})
 _LABELLED = re.compile(r"(display|label)")
 
@@ -101,8 +112,15 @@ SCOPES: dict[str, SinkScope] = {
             "composition/tracking",
             "composition/assignments",
         ),
-        rules=frozenset({RUN_NAME_TEXT, LABEL_FALLBACK}),
+        rules=frozenset({RUN_NAME_TEXT, LABEL_FALLBACK, FILE_NAME_ID, TAG_VALUE_ID}),
         allowed=(
+            Allowed(
+                FILE_NAME_ID,
+                "platform/tracking/comparison_tracking.py",
+                "_group_metric_key",
+                "builds the MLflow metric key, a machine lookup key that is queried by "
+                "group id and never shown as a file or figure name",
+            ),
             Allowed(
                 RUN_NAME_TEXT,
                 "platform/tracking/mlflow.py",
@@ -379,6 +397,46 @@ def _is_unrendered_run_name(node: ast.AST) -> bool:
     return False
 
 
+def _interpolates_file_id(fstring: ast.JoinedStr) -> bool:
+    return any(
+        isinstance(part, ast.FormattedValue)
+        and any(
+            (identifier := _identifier_of(inner)) is not None and bool(_FILE_ID.search(identifier))
+            for inner in ast.walk(part.value)
+        )
+        for part in fstring.values
+    )
+
+
+def _is_image_name(fstring: ast.JoinedStr) -> bool:
+    tail = fstring.values[-1] if fstring.values else None
+    return (
+        isinstance(tail, ast.Constant)
+        and isinstance(tail.value, str)
+        and tail.value.endswith(_IMAGE_SUFFIXES)
+    )
+
+
+def _is_file_name_id(node: ast.AST) -> bool:
+    """An image file name or artifact path built from an id, or a file stem sliced from one."""
+    if isinstance(node, ast.JoinedStr):
+        return _is_image_name(node) and _interpolates_file_id(node)
+    if isinstance(node, ast.keyword) and node.arg == "artifact_path":
+        return isinstance(node.value, ast.JoinedStr) and _interpolates_file_id(node.value)
+    if isinstance(node, ast.Call) and _identifier_of(node.func) in _SLUGGERS and node.args:
+        identifier = _identifier_of(node.args[0])
+        return identifier is not None and bool(_FILE_ID.search(identifier))
+    return False
+
+
+def _is_tag_value_id(call: ast.Call) -> bool:
+    """``set_tag``/``log_param`` whose value is an f-string interpolating an id."""
+    if _identifier_of(call.func) not in _TAG_SETTERS:
+        return False
+    values = [*call.args[1:], *(kw.value for kw in call.keywords if kw.arg == "value")]
+    return any(isinstance(v, ast.JoinedStr) and _interpolates_file_id(v) for v in values)
+
+
 def _is_emit_call(call: ast.Call) -> bool:
     func = call.func
     return (
@@ -455,6 +513,10 @@ def violations_in(source: str, path: str) -> list[Violation]:
             rules.append(LOG_ID_TEXT)
         if _is_name_fallback(node):
             rules.append(NAME_FALLBACK)
+        if _is_file_name_id(node):
+            rules.append(FILE_NAME_ID)
+        if isinstance(node, ast.Call) and _is_tag_value_id(node):
+            rules.append(TAG_VALUE_ID)
         found += [Violation(rule, path, function, getattr(node, "lineno", 0)) for rule in rules]
     return found
 
@@ -533,6 +595,21 @@ def test_every_allowance_states_its_reason(name: str) -> None:
         ('def f(cfg):\n    logger.warning("Evaluating {}", cfg.name)\n', LOG_ID_TEXT),
         ("def f(entry):\n    return entry.effective_display_name\n", NAME_FALLBACK),
         ("def f(n):\n    return resolve_display_name(n, None)\n", NAME_FALLBACK),
+        ('def f(group_id):\n    return f"aggregate_bars_{group_id}.png"\n', FILE_NAME_ID),
+        ('def f(d):\n    return f"{d.dataset_id}/plot.png"\n', FILE_NAME_ID),
+        ("def f(group_id):\n    return sanitize_metric_key_segment(group_id)\n", FILE_NAME_ID),
+        (
+            'def f(mlflow, method_id):\n    mlflow.log_artifact(p, artifact_path=f"m/{method_id}")\n',
+            FILE_NAME_ID,
+        ),
+        (
+            'def f(mlflow, dataset_id):\n    mlflow.set_tag("dataset", f"{dataset_id}")\n',
+            TAG_VALUE_ID,
+        ),
+        (
+            'def f(c, run_id, dataset_id):\n    c.log_param(run_id, "d", f"x-{dataset_id}")\n',
+            TAG_VALUE_ID,
+        ),
         ('def f(display_name):\n    return display_name or "unnamed"\n', NAME_FALLBACK),
     ],
 )
@@ -554,6 +631,9 @@ def test_the_checker_detects_each_rule(source: str, rule: str) -> None:
         'def f(run_id):\n    logger.info("Logged to MLflow run {}", run_id)\n',
         'def f(bundle):\n    logger.info("matrix {}", int(bundle.matrix_id))\n',
         'def f(base):\n    return base.name or "FlexibleDataset"\n',
+        'def f(stem):\n    return f"aggregate_bars_{stem}.png"\n',
+        'def f(mlflow, dataset_id):\n    mlflow.set_tag("dataset_id", dataset_id)\n',
+        'def f(mlflow, label):\n    mlflow.set_tag("dataset", f"{label}")\n',
         'def f(run):\n    return {"mlflow.runName": run_name_text(run)}\n',
     ],
 )

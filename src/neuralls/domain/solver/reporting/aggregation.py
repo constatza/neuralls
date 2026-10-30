@@ -68,7 +68,7 @@ def build_matrix_bundle_frame(
     """Build one setup-aware online-cost row per method and matrix.
 
     ``planned`` selects the report membership; ``allocation_planned`` keeps a
-    fine recipe's setup share tied to the complete matrix RHS bundle.
+    matrix-set-and-RHS-type group's setup share tied to the complete matrix RHS bundle.
     """
     _validate_event_links(planned, setup_events, attempts)
     planned_counts = _planned_matrix_counts(planned)

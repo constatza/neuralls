@@ -1,57 +1,87 @@
-"""The fine, medium and global report levels, and the labels and keys they induce."""
+"""The matrix-set-and-RHS-type, matrix-set and all-matrix-sets report levels, and the labels and keys they induce."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
+from typing import assert_never
 
 import polars as pl
 
 from neuralls.domain.solver.models.benchmark_events import SystemTag
-from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLabel, MediumLabel
+from neuralls.domain.solver.models.labels import (
+    AllMatrixSetsLabel,
+    GroupLabel,
+    MatrixSetLabel,
+    MatrixSetRhsTypeLabel,
+)
 from neuralls.shared.rhs_recipe import RhsRecipe, parse_recipe_key, recipe_key
 from neuralls.shared.types import DatasetId
 
 SYSTEM_ID = "system_id"
 
 
-@dataclass(frozen=True, slots=True)
-class FineLevel:
-    """Group by dataset and recipe: one homogeneous problem family per group."""
+class ReportLevelName(StrEnum):
+    """What a report figure groups by, as persisted in the figure manifest."""
+
+    MATRIX_SET_RHS_TYPE = "matrix_set_rhs_type"
+    MATRIX_SET = "matrix_set"
+    ALL_MATRIX_SETS = "all_matrix_sets"
+    METHOD = "method"
+    SYSTEM = "system"
 
 
 @dataclass(frozen=True, slots=True)
-class MediumLevel:
-    """Group by dataset, pooling that dataset's recipes."""
+class MatrixSetRhsTypeLevel:
+    """Group by matrix set (the case's `matrix_dataset`) and RHS type: one homogeneous problem family per group."""
 
 
 @dataclass(frozen=True, slots=True)
-class GlobalLevel:
-    """No keys: pool every system in the case."""
+class MatrixSetLevel:
+    """Group by matrix set, pooling that set's RHS types."""
 
 
-type ReportLevel = FineLevel | MediumLevel | GlobalLevel
+@dataclass(frozen=True, slots=True)
+class AllMatrixSetsLevel:
+    """No keys: pool every system of every matrix set in the case."""
+
+
+type ReportLevel = MatrixSetRhsTypeLevel | MatrixSetLevel | AllMatrixSetsLevel
 
 
 def report_key(level: ReportLevel, tag: SystemTag) -> tuple[str, ...]:
     """The values of ``tag`` that select its report group at ``level``."""
     match level:
-        case FineLevel():
+        case MatrixSetRhsTypeLevel():
             return (tag.dataset, recipe_key(tag.recipe))
-        case MediumLevel():
+        case MatrixSetLevel():
             return (tag.dataset,)
-        case GlobalLevel():
+        case AllMatrixSetsLevel():
             return ()
+
+
+def level_name(label: GroupLabel) -> ReportLevelName:
+    """The persisted name of the level that produced ``label``."""
+    match label:
+        case MatrixSetRhsTypeLabel():
+            return ReportLevelName.MATRIX_SET_RHS_TYPE
+        case MatrixSetLabel():
+            return ReportLevelName.MATRIX_SET
+        case AllMatrixSetsLabel():
+            return ReportLevelName.ALL_MATRIX_SETS
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def label_key(label: GroupLabel) -> tuple[str, ...]:
     """The `report_key` that selects ``label``'s group (mixtures are not part of the key)."""
     match label:
-        case FineLabel(dataset=dataset, recipe=recipe):
+        case MatrixSetRhsTypeLabel(dataset=dataset, recipe=recipe):
             return (dataset, recipe_key(recipe))
-        case MediumLabel(dataset=dataset):
+        case MatrixSetLabel(dataset=dataset):
             return (dataset,)
-        case GlobalLabel():
+        case AllMatrixSetsLabel():
             return ()
 
 
@@ -63,12 +93,12 @@ def label_for_tags(level: ReportLevel, tags: Sequence[SystemTag]) -> GroupLabel:
     mixture = sorted_recipes({tag.recipe for tag in tags})
     first = tags[0]
     match level:
-        case FineLevel():
-            return FineLabel(dataset=first.dataset, recipe=first.recipe)
-        case MediumLevel():
-            return MediumLabel(dataset=first.dataset, mixture_of=mixture)
-        case GlobalLevel():
-            return GlobalLabel(mixture_of=mixture)
+        case MatrixSetRhsTypeLevel():
+            return MatrixSetRhsTypeLabel(dataset=first.dataset, recipe=first.recipe)
+        case MatrixSetLevel():
+            return MatrixSetLabel(dataset=first.dataset, mixture_of=mixture)
+        case AllMatrixSetsLevel():
+            return AllMatrixSetsLabel(mixture_of=mixture)
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,11 +130,11 @@ def system_counts(frame: pl.DataFrame, level: ReportLevel) -> dict[GroupLabel, S
 
 def level_columns(level: ReportLevel) -> list[str]:
     match level:
-        case FineLevel():
+        case MatrixSetRhsTypeLevel():
             return ["dataset", "recipe"]
-        case MediumLevel():
+        case MatrixSetLevel():
             return ["dataset"]
-        case GlobalLevel():
+        case AllMatrixSetsLevel():
             return []
 
 
@@ -136,12 +166,12 @@ def group_label(
     mixtures: Mapping[tuple[str, ...], tuple[RhsRecipe, ...]],
 ) -> GroupLabel:
     match level:
-        case FineLevel():
-            return FineLabel(
+        case MatrixSetRhsTypeLevel():
+            return MatrixSetRhsTypeLabel(
                 dataset=DatasetId(str(row["dataset"])), recipe=parse_recipe_key(str(row["recipe"]))
             )
-        case MediumLevel():
+        case MatrixSetLevel():
             dataset = str(row["dataset"])
-            return MediumLabel(dataset=DatasetId(dataset), mixture_of=mixtures[(dataset,)])
-        case GlobalLevel():
-            return GlobalLabel(mixture_of=mixtures[()])
+            return MatrixSetLabel(dataset=DatasetId(dataset), mixture_of=mixtures[(dataset,)])
+        case AllMatrixSetsLevel():
+            return AllMatrixSetsLabel(mixture_of=mixtures[()])

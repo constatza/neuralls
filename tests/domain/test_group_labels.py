@@ -5,11 +5,12 @@ from __future__ import annotations
 import pytest
 
 from neuralls.domain.solver.models.labels import (
-    FineLabel,
-    GlobalLabel,
-    MediumLabel,
+    AllMatrixSetsLabel,
+    MatrixSetLabel,
+    MatrixSetRhsTypeLabel,
     render_group_id,
 )
+from neuralls.domain.solver.reporting.report_levels import ReportLevelName, level_name
 from neuralls.shared.rhs_recipe import (
     GaussianRecipe,
     RandomlyMasked,
@@ -40,19 +41,25 @@ def recipes() -> tuple[RhsRecipe, ...]:
 
 
 def test_distinct_recipes_get_distinct_group_ids(recipes: tuple[RhsRecipe, ...]) -> None:
-    ids = [render_group_id(FineLabel(DS, recipe)) for recipe in recipes]
+    ids = [render_group_id(MatrixSetRhsTypeLabel(DS, recipe)) for recipe in recipes]
     assert len(set(ids)) == len(ids)
 
 
-def test_a_fine_group_id_returns_its_recipe(recipes: tuple[RhsRecipe, ...]) -> None:
+def test_a_matrix_set_rhs_type_group_id_returns_its_recipe(recipes: tuple[RhsRecipe, ...]) -> None:
     for recipe in recipes:
-        group_id = render_group_id(FineLabel(DS, recipe))
+        group_id = render_group_id(MatrixSetRhsTypeLabel(DS, recipe))
         prefix, dataset, key = group_id.split("/")
-        assert (prefix, dataset) == ("fine", "ds")
+        assert (prefix, dataset) == ("matrix_set_rhs", "ds")
         assert parse_recipe_key(key) == recipe
 
 
 def test_mixture_levels_are_named_by_level_and_dataset_only() -> None:
     mixture = (GaussianRecipe(0.0, 1.0), SinusoidalRecipe(2.0))
-    assert render_group_id(MediumLabel(DS, mixture)) == GroupId("medium/ds")
-    assert render_group_id(GlobalLabel(mixture)) == GroupId("global")
+    assert render_group_id(MatrixSetLabel(DS, mixture)) == GroupId("matrix_set/ds")
+    assert render_group_id(AllMatrixSetsLabel(mixture)) == GroupId("all")
+
+
+def test_level_name_covers_every_label_variant(recipes: tuple[RhsRecipe, ...]) -> None:
+    assert level_name(MatrixSetRhsTypeLabel(DS, recipes[0])) is ReportLevelName.MATRIX_SET_RHS_TYPE
+    assert level_name(MatrixSetLabel(DS, recipes)) is ReportLevelName.MATRIX_SET
+    assert level_name(AllMatrixSetsLabel(recipes)) is ReportLevelName.ALL_MATRIX_SETS

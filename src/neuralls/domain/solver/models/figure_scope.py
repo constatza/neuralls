@@ -46,7 +46,7 @@ class MethodScope:
 
 
 type GroupScope = RecipeScope | DatasetScope | AllDatasetsScope
-"""What one report group pools; medium and global groups are mixtures."""
+"""What one report group pools; matrix-set and all-matrix-sets groups are mixtures."""
 
 type FigureScope = GroupScope | MethodScope
 """What a figure is about."""

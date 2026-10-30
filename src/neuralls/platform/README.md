@@ -147,7 +147,7 @@ required `save_path` and returns it, or `None` when nothing was drawn, and a
 `MLflowGroupReportSink` logs planned, attempted, and converged counts plus the
 failure-aware paired fields. Its typed plans (`FigurePlan`: editorial title plus the `FigureMetadata` scope) are also the single source of
 figure scope, stable filenames, timing scenarios, and manifest
-metadata. The figure manifest stores each scope as keys and typed values (`facts_codec.encode_figure_scope`, whose recipe is `encode_recipe`: kind, parameters and mask) beside its plain rendered `display` text; file names stay machine-safe ids, and machine ids live only in `*_id` fields (`dataset_ids`, `recipes` (each recipe's machine key), `reference_method_id`; `reference_selection` is the kind alone). Global metadata retains every dataset, recipe population/weight, and
+metadata. The figure manifest stores each scope as keys and typed values (`facts_codec.encode_figure_scope`, whose recipe is `encode_recipe`: kind, parameters and mask) beside its plain rendered `display` text; file names are slugs of rendered text, never ids: a group figure `{kind}_{slug}.png` takes `slug` from the plain rendered scope (`scope_label`, e.g. `aggregate_bars_Gaussian_CG_Residuals_k_20_N_100_-_Gaussian.png`) and a method figure `residual_history_{slug}.png` from the rendered method label (`POD-2G (r=10)` becomes `POD-2G_r_10`); `figure_metadata.FigureSlugs` allocates one stem per subject (<= 80 characters) and suffixes `_2`, `_3` in encounter order when two subjects render alike. Machine ids live only in metric keys (`{metric}/{group_id}/{method}`) and in `*_id` fields (`dataset_ids`, `recipes` (each recipe's machine key), `reference_method_id`; `reference_selection` is the kind alone). Global metadata retains every dataset, recipe population/weight, and
 the actual solver, normalization, and timing-repeat settings; method-child
 history figures are registered with unique method-qualified ownership. Raw
 benchmark events and method summaries become
@@ -160,7 +160,7 @@ text is produced where MLflow (or dlkit, which opens the training and evaluation
 handed a name (`run_name_text`), so a run cannot be named from an id, a slug, a path or a
 class name. Tags keep machine ids in `*_id` fields (`method_id`, `assignment_id`,
 `comparison_id`) and rendered text in `*_label` fields (`method_label`,
-`assignment_label`, `comparison_label`); metric keys stay machine-safe and are never labels.
+`assignment_label`, `comparison_label`, and the `dataset` tag/param holding the rendered dataset beside the machine `dataset_id` lookup tag); metric keys stay machine-safe and are never labels.
 The method-child tag `method_id` is what reuse queries.
 
 **Fact logging.** `facts_codec.encode_method_parameters` turns a prepared method's configured
@@ -173,8 +173,10 @@ parameter.
 
 `MLflowBenchmarkMethodSink` persists one completed method workload into the
 already-active method child. It writes `setup_events.parquet`,
-`solve_attempts.parquet`, `summary.toml`, the required method configuration,
-residual/energy histories, and diagnostic figures, then logs reducer-owned
+`solve_attempts.parquet`, `convergence.parquet` (one row per method, system and
+iteration with the relative residual and the nullable relative energy error),
+`summary.toml`, the required method configuration, `method_diagnostics.json`,
+and diagnostic figures, then logs reducer-owned
 scalars exactly once. The sink never opens an MLflow run;
 `comparison_batch` owns the session parent and its one direct child per method.
 The parent receives only shared provenance and cross-method reports, while raw

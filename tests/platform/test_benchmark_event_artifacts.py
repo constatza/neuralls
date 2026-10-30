@@ -7,6 +7,7 @@ from pathlib import Path
 import polars as pl
 import pyarrow.parquet as pq
 import pytest
+from tests.convergence_support import cg_result
 from tests.presentation_support import PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 
@@ -27,6 +28,7 @@ from neuralls.domain.solver.models.cost import StageCost
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.platform.reporting.benchmark_events import (
+    read_convergence,
     read_setup_events,
     read_solve_attempts,
     write_method_benchmark_artifacts,
@@ -468,3 +470,25 @@ def test_readers_reject_wrong_column_schema_and_corrupt_links(
 
     pq.write_table(setup.to_arrow().replace_schema_metadata({}), setup_path)
     assert read_setup_events(setup_path).equals(setup)
+
+
+def test_convergence_table_round_trips_and_rejects_a_duplicated_row(
+    tmp_path: Path,
+    workload: CompletedMethodWorkload,
+    summary: CompleteWorkloadSummary,
+) -> None:
+    with_history = replace(
+        workload,
+        diagnostics=((SystemId("s0"), cg_result([1.0, 0.1], [1.0, 0.3])),),
+    )
+
+    artifacts = write_method_benchmark_artifacts(with_history, summary, tmp_path)
+    path = tmp_path / artifacts.convergence
+
+    assert read_convergence(path).rows() == [
+        ("jacobi", "s0", 0, 1.0, 1.0),
+        ("jacobi", "s0", 1, 0.1, 0.3),
+    ]
+    _rewrite_frame(path, pl.concat([pl.read_parquet(path)] * 2))
+    with pytest.raises(ValueError, match="duplicate convergence row"):
+        read_convergence(path)

@@ -35,7 +35,11 @@ from neuralls.platform.tracking.mlflow_client import (
     log_diagnostics_to_mlflow,
 )
 from neuralls.platform.tracking.model_registry import upload_checkpoint_artifacts
-from neuralls.platform.tracking.run_names import render_training_subject, run_name_text
+from neuralls.platform.tracking.run_names import (
+    render_training_dataset,
+    render_training_subject,
+    run_name_text,
+)
 
 BEST_CHECKPOINT_ARTIFACT_KEY = "best_checkpoint"
 LAST_CHECKPOINT_ARTIFACT_KEY = "last_checkpoint"
@@ -221,6 +225,7 @@ def _log_training_context(
     client = MlflowClient(tracking_uri=tracking_uri)
     params: dict[str, str] = {
         "dataset_id": resolved_dataset_id,
+        "dataset": render_training_dataset(presentation.subject, presentation.notation),
         "assignment_label": render_training_subject(presentation.subject, presentation.notation),
     }
     if assignment_id is not None:

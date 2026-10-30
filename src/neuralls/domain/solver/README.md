@@ -61,8 +61,8 @@ workload_online_s = sum(matrix_online_s)
 ```
 
 One matrix setup is therefore charged once even when sibling RHS values belong
-to different recipes. Fine recipe summaries allocate that setup using the
-complete matrix membership; medium/global summaries retain the whole setup
+to different recipes. Matrix-set-and-RHS-type summaries allocate that setup using the
+complete matrix membership; matrix-set and all-matrix-sets summaries retain the whole setup
 once. Workload totals use `math.fsum` over representative event values;
 warmups and individual repeat samples are never added to totals.
 

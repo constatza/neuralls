@@ -285,7 +285,7 @@ payloads and deciding when the logging happens.
 
 **CLI, log and summary text.** Results carry typed presentations, never display strings: `AssignmentResult.presentation` and `EvaluationRunResult.presentation` are `TrainingPresentation`s, and `ComparisonCompleted`/`ComparisonReused` carry the `NamedRun` MLflow opens for the system (`PreparedComparisonExecution.run_name`, built by `tracking/run_specs.py::comparison_run`, the same function `build_comparison_run_spec` uses). `ComparisonEntryFailed.run` is that `NamedRun`, or `UndescribedComparison` when the failure came before the methods and dataset resolved (no title exists yet). `composition/display.py` is the only place the CLI turns these into text (`comparison_label`, `assignment_label`, `generation_label`), so a printed line is the plain text of the run name MLflow shows. Training and evaluation batches log `render_training_label(presentation)`; the bar charts they upload label each bar with `training_legend` and the label-map JSON stores `assignment_label` beside the machine `assignment_id`. `training_presentations` rejects two assignments that render alike (`IndistinguishableTrainingError`) before any run opens. Comparison summaries (`format_results_summary`) head each line with the method's description; per-method and per-matrix log lines in `execute_method_workload` name the method and dataset by their presentations (`datasets` and `notation` are explicit arguments), and a skipped report group is named by its scope. `GenerationResult` carries the dataset's stamped presentation. The remaining id-bearing log lines (pre-title comparison preparation, checkpoint hashing, checkpoint resolution, solver algorithm names) are listed with reasons in the `cli-and-logs` scope of `tests/workflows/test_human_facing_text_contract.py`.
 
-**MLflow run naming.** `tracking/run_specs.py` builds every run spec from typed presentations and returns a `NamedRun` (never text): the session parent is `SessionRunName(session_title(...), timestamp)`, a comparison parent is `ComparisonRunName` (the comparison title plus `system_qualifier(planned, title)`, which adds the held-out matrix and RHS draw when a dataset title is shared by sibling systems; an editorial title is already qualified by the planner), a method child is `MethodRunName(prepared.compact)`, and training and evaluation runs are `TrainingRunName`/`EvaluationRunName` over a `TrainingSubject`. `assignments/assignment_subjects.py::training_subject` describes what an assignment trains exactly as a comparison describes it (a `fit` job is the POD-2G basis, any other job its neural architecture, each qualified by its dataset; an explicit assignment `display_name` becomes an editorial title beside the dataset), and `training_presentations` builds all of them before the first run opens, so a missing provenance or architecture name aborts the batch. Tags keep `*_id` and `*_label` apart (`BenchmarkMethodRunTags.method_id`/`method_label`). The ad-hoc `run_inference` entry point no longer opens an MLflow run: it had no presentation to name one by.
+**MLflow run naming.** `tracking/run_specs.py` builds every run spec from typed presentations and returns a `NamedRun` (never text): the session parent is `SessionRunName(summarized_session_title(titles, session_counts(planned)), timestamp)` for comparisons (`session_title` for training and evaluation), a comparison parent is `ComparisonRunName` (the comparison title plus `system_qualifier(planned)`, which adds the held-out matrix and RHS draw that tell sibling systems apart; the planner leaves an editorial display name unqualified), a method child is `MethodRunName(prepared.compact)`, and training and evaluation runs are `TrainingRunName`/`EvaluationRunName` over a `TrainingSubject`. `assignments/assignment_subjects.py::training_subject` describes what an assignment trains exactly as a comparison describes it (a `fit` job is the POD-2G basis, any other job its neural architecture, each qualified by its dataset; an explicit assignment `display_name` becomes an editorial title beside the dataset), and `training_presentations` builds all of them before the first run opens, so a missing provenance or architecture name aborts the batch. Tags keep `*_id` and `*_label` apart (`BenchmarkMethodRunTags.method_id`/`method_label`). The ad-hoc `run_inference` entry point no longer opens an MLflow run: it had no presentation to name one by.
 
 Comparison plot legends are a separate concern from that MLflow metric-key
 policy. `composition.preconditioners.descriptions` builds each display name as a
@@ -465,13 +465,18 @@ the level chooses the other columns:
 
 | Level | Keys besides the preconditioner | Group id (`render_group_id`) |
 |---|---|---|
-| `FineLevel` | dataset, recipe | `fine/<dataset>/<recipe key>` |
-| `MediumLevel` | dataset | `medium/<dataset>` |
-| `GlobalLevel` | none | `global` |
+| `MatrixSetRhsTypeLevel` | matrix set (`matrix_dataset`), RHS type | `matrix_set_rhs/<dataset>/<recipe key>` |
+| `MatrixSetLevel` | matrix set | `matrix_set/<dataset>` |
+| `AllMatrixSetsLevel` | none | `all` |
+
+`level_name(label)` maps each label to the `ReportLevelName` persisted as the
+figure manifest's `report_level` (`matrix_set_rhs_type`, `matrix_set`,
+`all_matrix_sets`; method figures use `method` and per-system convergence
+figures `system`).
 
 Classification returns two closed report variants. `RecipeProfileReport` is
-fine-level and names exactly one recipe; only it emits performance-profile and
-ECDF data. `WorkloadMixtureReport` is used at medium and global levels and
+matrix-set-and-RHS-type level and names exactly one RHS type; only it emits performance-profile and
+ECDF data. `WorkloadMixtureReport` is used at the matrix-set and all-matrix-sets levels and
 retains the complete ordered recipe membership as explicit mixture metadata.
 Both variants carry distinct matrix, planned-RHS, attempted-RHS, and
 converged counts for each method. Aggregate convergence bars are emitted for
@@ -498,7 +503,7 @@ missing setup event.
 Completed method workloads are persisted by
 `platform.reporting.benchmark_events.write_method_benchmark_artifacts` as the
 versioned, artifact-relative `setup_events.parquet`, `solve_attempts.parquet`,
-and `summary.toml` files. The Parquet frames are canonical; the TOML summary is
+`convergence.parquet` and `summary.toml` files. The Parquet frames are canonical; the TOML summary is
 reconciled from the Task 2 reducers and records the method name/config digest,
 planned/attempted/converged counts, setup/solve/online timings, attempted-RHS
 average, and workload peak memory. If an offline value is present, it is named
@@ -635,9 +640,9 @@ matrix setup once across its planned RHS values. Success rate is converged
 attempts over planned systems, so failures stay visible without a synthetic
 penalty.
 
-Fine-level profiles use one recipe. Solve-only and amortized-online ECDFs and
+Matrix-set-and-RHS-type profiles use one RHS type. Solve-only and amortized-online ECDFs and
 Dolan--Moré profiles show their respective absolute budgets and fastest-method
-ratios. Medium and global outputs are workload mixtures and emit bars only,
+ratios. Matrix-set and all-matrix-sets outputs are workload mixtures and emit bars only,
 not pooled per-system profiles or paired distributions.
 Paired time and reference/method speed ratios use only the same matrix/RHS
 systems and only a `reference_preconditioner` explicitly configured by the

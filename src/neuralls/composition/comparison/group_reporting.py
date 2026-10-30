@@ -1,4 +1,4 @@
-"""Report every executed system at the fine, medium and global levels.
+"""Report every executed system by matrix set and RHS type, by matrix set, and across all matrix sets.
 
 Event-backed group reporting resumes when method-major execution supplies
 canonical setup and solve events. Denormalized diagnostic results are not
@@ -31,13 +31,18 @@ from neuralls.domain.solver.models.group_presentation import (
     GroupPresentation,
     SolverTimingContext,
 )
-from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLabel, MediumLabel
+from neuralls.domain.solver.models.labels import (
+    AllMatrixSetsLabel,
+    GroupLabel,
+    MatrixSetLabel,
+    MatrixSetRhsTypeLabel,
+)
 from neuralls.domain.solver.ports import GroupReportSink
 from neuralls.domain.solver.reporting.classification import classify_level
 from neuralls.domain.solver.reporting.report_levels import (
-    FineLevel,
-    GlobalLevel,
-    MediumLevel,
+    AllMatrixSetsLevel,
+    MatrixSetLevel,
+    MatrixSetRhsTypeLevel,
     ReportLevel,
 )
 from neuralls.platform.reporting.figure_text import scope_label
@@ -46,8 +51,12 @@ from neuralls.shared.types import DatasetId, PreconditionerName, SystemId
 
 __all__ = ["REPORT_LEVELS", "report_all_levels"]
 
-REPORT_LEVELS: tuple[ReportLevel, ...] = (FineLevel(), MediumLevel(), GlobalLevel())
-"""Every level a batch reports, finest first."""
+REPORT_LEVELS: tuple[ReportLevel, ...] = (
+    MatrixSetRhsTypeLevel(),
+    MatrixSetLevel(),
+    AllMatrixSetsLevel(),
+)
+"""Every level a batch reports, narrowest grouping first."""
 
 
 class MissingDatasetPresentationError(LookupError):
@@ -71,11 +80,11 @@ def _scope(label: GroupLabel, datasets: Mapping[DatasetId, DatasetPresentation])
         return found
 
     match label:
-        case FineLabel(dataset=dataset, recipe=recipe):
+        case MatrixSetRhsTypeLabel(dataset=dataset, recipe=recipe):
             return RecipeScope(presentation_of(dataset), recipe)
-        case MediumLabel(dataset=dataset):
+        case MatrixSetLabel(dataset=dataset):
             return DatasetScope(presentation_of(dataset))
-        case GlobalLabel():
+        case AllMatrixSetsLabel():
             return AllDatasetsScope()
         case _ as unreachable:
             assert_never(cast(Never, unreachable))

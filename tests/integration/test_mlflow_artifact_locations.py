@@ -295,13 +295,12 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
     assert {
         "method_config.toml",
         "method_diagnostics.json",
-        "residual_histories.json",
-        "energy_histories.json",
+        "convergence.parquet",
     }.issubset(method_names)
     method_figures = client.list_artifacts(method_run.info.run_id, path="method_workload/figures")
     assert {Path(item.path).name for item in method_figures} == {
-        "residual_history_identity.png",
-        "energy_history_identity.png",
+        "residual_history_Method_Identity.png",
+        "energy_history_Method_Identity.png",
     }
 
     session_artifact_names = [
@@ -310,21 +309,23 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
     ]
     session_artifacts = set(session_artifact_names)
     assert session_artifact_names.count("figure_manifest.toml") == 1
-    for level in ("fine_benchmark_gaussian_m0.0_s1.0", "medium_benchmark", "global"):
+    recipe_stem = "Test_problem_Ones_Solutions_N_1_-_Gaussian"
+    for level in (recipe_stem, "Test_problem_Ones_Solutions_N_1", "All_datasets"):
         assert {
             f"aggregate_bars_{level}.png",
             f"solve_time_bars_{level}.png",
             f"online_time_bars_{level}.png",
         } <= session_artifacts
     assert {
-        "performance_profile_solve_fine_benchmark_gaussian_m0.0_s1.0.png",
-        "performance_profile_online_fine_benchmark_gaussian_m0.0_s1.0.png",
-        "ecdf_iterations_fine_benchmark_gaussian_m0.0_s1.0.png",
-        "ecdf_time_solve_fine_benchmark_gaussian_m0.0_s1.0.png",
-        "ecdf_time_online_fine_benchmark_gaussian_m0.0_s1.0.png",
+        "performance_profile_solve_Test_problem_Ones_Solutions_N_1_-_Gaussian.png",
+        "performance_profile_online_Test_problem_Ones_Solutions_N_1_-_Gaussian.png",
+        "ecdf_iterations_Test_problem_Ones_Solutions_N_1_-_Gaussian.png",
+        "ecdf_time_solve_Test_problem_Ones_Solutions_N_1_-_Gaussian.png",
+        "ecdf_time_online_Test_problem_Ones_Solutions_N_1_-_Gaussian.png",
     } <= session_artifacts
     assert not any(
-        name.startswith(("performance_profile_", "ecdf_")) and "_fine_" not in name
+        name.startswith(("performance_profile_", "ecdf_"))
+        and not name.endswith(f"_{recipe_stem}.png")
         for name in session_artifacts
     )
     legacy_runs = client.search_runs(

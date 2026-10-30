@@ -7,7 +7,12 @@ from dataclasses import dataclass, field
 
 from neuralls.domain.benchmarking.selection import NoReferenceConfigured, ReferenceSelection
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
-from neuralls.domain.solver.models.labels import FineLabel, GlobalLabel, GroupLabel, MediumLabel
+from neuralls.domain.solver.models.labels import (
+    AllMatrixSetsLabel,
+    GroupLabel,
+    MatrixSetLabel,
+    MatrixSetRhsTypeLabel,
+)
 from neuralls.domain.solver.models.outcomes import SystemOutcome
 from neuralls.domain.solver.models.statistics import MethodComparison
 from neuralls.domain.solver.models.workload import MethodWorkloadSummary
@@ -45,25 +50,25 @@ class GroupAggregated:
 
 @dataclass(frozen=True, slots=True)
 class RecipeProfileReport(GroupAggregated):
-    """Fine-level report for one recipe; profile and ECDF data are valid here."""
+    """Matrix-set-and-RHS-type report for one recipe; profile and ECDF data are valid here."""
 
-    label: FineLabel
+    label: MatrixSetRhsTypeLabel
     outcomes: Mapping[PreconditionerName, Mapping[SystemId, SystemOutcome]] = field(
         default_factory=dict
     )
     comparisons: Mapping[PreconditionerName, MethodComparison] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Require exactly the recipe named by the fine-level label."""
+        """Require exactly the recipe named by the matrix-set-and-RHS-type label."""
         if self.recipe_membership != (self.label.recipe,):
             raise ValueError("a recipe profile must contain exactly its recipe")
 
 
 @dataclass(frozen=True, slots=True)
 class WorkloadMixtureReport(GroupAggregated):
-    """Medium/global report whose recipes are explicitly named as a mixture."""
+    """Matrix-set or all-matrix-sets report whose recipes are explicitly named as a mixture."""
 
-    label: MediumLabel | GlobalLabel
+    label: MatrixSetLabel | AllMatrixSetsLabel
 
     def __post_init__(self) -> None:
         """Require complete, ordered, duplicate-free mixture membership."""

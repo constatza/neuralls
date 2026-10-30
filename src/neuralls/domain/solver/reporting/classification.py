@@ -19,9 +19,9 @@ from neuralls.domain.solver.models.group_outcomes import (
     WorkloadMixtureReport,
 )
 from neuralls.domain.solver.models.labels import (
-    FineLabel,
-    GlobalLabel,
-    MediumLabel,
+    AllMatrixSetsLabel,
+    MatrixSetLabel,
+    MatrixSetRhsTypeLabel,
     render_group_id,
 )
 from neuralls.domain.solver.reporting.aggregation import (
@@ -99,7 +99,7 @@ def classify_level(
             for method in methods
         )
         match label:
-            case FineLabel():
+            case MatrixSetRhsTypeLabel():
                 group_outcomes = {
                     method: outcomes.get(label, {}).get(method, {})
                     for method in convergence_by_method
@@ -124,7 +124,7 @@ def classify_level(
                         system_ids=system_ids,
                     )
                 )
-            case MediumLabel() | GlobalLabel():
+            case MatrixSetLabel() | AllMatrixSetsLabel():
                 classified.append(
                     WorkloadMixtureReport(
                         group_id=render_group_id(label),
