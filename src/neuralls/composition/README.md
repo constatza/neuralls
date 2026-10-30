@@ -338,7 +338,7 @@ share a device without repeated host-to-device transfers.
 Plot *styling* (marker/color, as opposed to the label text above) is a
 further separate concern, driven by `PreconditionerComparisonEntry.color_key`/
 `.marker_key` alongside `.family`. `comparison_run.py::execute_method_workload`
-populates them via `_pod2g_style_keys`, which reads the raw (unresolved)
+populates them via `platform/config/models/preconditioner_family.py::pod2g_style_keys`, which reads the raw (unresolved)
 `PreconditionerConfig` — POD-2G's fit dataset (`coarsening.dataset_dir`)
 becomes the color key and its snapshot weighting scheme
 (`coarsening.weighting.method`) becomes the marker key, so a dense POD-2G

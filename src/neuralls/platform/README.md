@@ -95,7 +95,7 @@ always follows preconditioner family (lowest-cardinality attribute, matching
 matplotlib's own default solid/dashed/dashdot/dotted order), while marker and
 color follow explicit per-entry keys when the composition layer supplies them
 — e.g. POD-2G comparisons key color on fit dataset and marker on snapshot
-weighting scheme (`comparison_run.py::_pod2g_style_keys`) — falling back to
+weighting scheme (`preconditioner_family.py::pod2g_style_keys`) — falling back to
 family when a caller doesn't supply one. Colors come from the Okabe-Ito
 colorblind-safe palette for up to 8 distinct keys, extended with
 procedurally generated evenly-spaced hues beyond that so the color axis
@@ -211,6 +211,17 @@ methods, membership, and summary totals before accepting a hit; the session's fi
 manifest is not part of the gate. The persisted configuration is the
 canonical identity representation: checkpoint inputs are content digests and
 runtime lease paths are omitted.
+
+A report reads a session back through two modules. `tracking/session_artifacts.py` finds
+the session's FINISHED `comparison_method` children (by `mlflow.parentRunId`), checks each
+holds the full artifact set, and downloads it; the reuse gate lists artifacts through the
+same helper, so run discovery exists once. `reporting/stored_benchmark.py::read_stored_benchmark`
+reads one directory per method into a `StoredBenchmark` of `StoredMethod`s (parsed method
+config, presentation, planned systems, and the setup, solve and convergence tables) and
+rejects anything inconsistent: a presentation of another method, events for systems that
+were not planned, a method stored twice, or datasets presented differently by two methods.
+The stored config holds content digests for checkpoint and dataset inputs, so a report-time
+`pod2g_style_keys` colour key groups methods by fit-dataset content, not by path.
 
 The DLKit dataset bridge stays generic. Platform helpers construct and patch
 DLKit-native dataset entries with the names supplied by composition, but

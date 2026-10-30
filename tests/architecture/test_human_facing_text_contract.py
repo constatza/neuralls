@@ -209,12 +209,6 @@ SCOPES: dict[str, SinkScope] = {
         allowed=(
             Allowed(
                 PATH_AS_NAME,
-                "composition/comparison/comparison_run.py",
-                "_pod2g_style_keys",
-                "the fit dataset directory is a colour-grouping key, compared and never drawn",
-            ),
-            Allowed(
-                PATH_AS_NAME,
                 "platform/reporting/figure_metadata.py",
                 "_collision_key",
                 "file-name collision detection compares machine file names",

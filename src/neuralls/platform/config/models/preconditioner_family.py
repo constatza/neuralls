@@ -16,7 +16,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.shared.types import PreconditionerFamily
 
-__all__ = ["PreconditionerFamilyKey", "preconditioner_family"]
+__all__ = ["PreconditionerFamilyKey", "pod2g_style_keys", "preconditioner_family"]
 
 type PreconditionerFamilyKey = PreconditionerFamily | PreconditionerType
 """A preconditioner's family: one of the merged `PreconditionerFamily` names
@@ -52,3 +52,32 @@ def preconditioner_family(cfg: PreconditionerConfig) -> PreconditionerFamilyKey:
     if cfg.type in (PreconditionerType.NEURAL, PreconditionerType.NEURAL_AMG):
         return PreconditionerFamily.NEURAL
     return cfg.type
+
+
+def pod2g_style_keys(cfg: PreconditionerConfig) -> tuple[str | None, str | None]:
+    """Extract (color_key, marker_key) for a POD-2G config, else (None, None).
+
+    POD-2G comparisons routinely sweep many (fit dataset, snapshot weighting)
+    combinations in one plot; the fit dataset drives color, the weighting
+    scheme drives marker, so a dense sweep separates into distinct
+    color/marker combinations instead of collapsing onto one family-wide
+    marker+linestyle with only color-shade differences.
+
+    Args:
+        cfg: Preconditioner configuration to inspect.
+
+    Returns:
+        tuple[str | None, str | None]: ``(color_key, marker_key)``, both
+        ``None`` for non-POD-2G configs (falls back to family-based styling).
+    """
+    if not isinstance(cfg, AMGPreconditionerConfig) or not isinstance(
+        cfg.coarsening, PODCoarseningConfig | NeuralPODCoarseningConfig
+    ):
+        return None, None
+    color_key = str(cfg.coarsening.dataset_dir)
+    # Only PODCoarseningConfig carries a snapshot weighting scheme;
+    # NeuralPODCoarseningConfig predicts snapshots from a checkpoint instead.
+    marker_key = (
+        cfg.coarsening.weighting.method if isinstance(cfg.coarsening, PODCoarseningConfig) else None
+    )
+    return color_key, marker_key

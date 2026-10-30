@@ -53,13 +53,11 @@ from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.cost import StageCost
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
-from neuralls.platform.config.models.preconditioner import (
-    AMGPreconditionerConfig,
-    NeuralPODCoarseningConfig,
-    PODCoarseningConfig,
-    PreconditionerConfig,
+from neuralls.platform.config.models.preconditioner import PreconditionerConfig
+from neuralls.platform.config.models.preconditioner_family import (
+    pod2g_style_keys,
+    preconditioner_family,
 )
-from neuralls.platform.config.models.preconditioner_family import preconditioner_family
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.run_names import render_dataset_label, render_method_label
 from neuralls.shared.device import (
@@ -71,35 +69,6 @@ from neuralls.shared.device import (
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, PreconditionerName, SetupEventId, SystemId
-
-
-def _pod2g_style_keys(cfg: PreconditionerConfig) -> tuple[str | None, str | None]:
-    """Extract (color_key, marker_key) for a POD-2G config, else (None, None).
-
-    POD-2G comparisons routinely sweep many (fit dataset, snapshot weighting)
-    combinations in one plot; the fit dataset drives color, the weighting
-    scheme drives marker, so a dense sweep separates into distinct
-    color/marker combinations instead of collapsing onto one family-wide
-    marker+linestyle with only color-shade differences.
-
-    Args:
-        cfg: Preconditioner configuration to inspect.
-
-    Returns:
-        tuple[str | None, str | None]: ``(color_key, marker_key)``, both
-        ``None`` for non-POD-2G configs (falls back to family-based styling).
-    """
-    if not isinstance(cfg, AMGPreconditionerConfig) or not isinstance(
-        cfg.coarsening, PODCoarseningConfig | NeuralPODCoarseningConfig
-    ):
-        return None, None
-    color_key = str(cfg.coarsening.dataset_dir)
-    # Only PODCoarseningConfig carries a snapshot weighting scheme;
-    # NeuralPODCoarseningConfig predicts snapshots from a checkpoint instead.
-    marker_key = (
-        cfg.coarsening.weighting.method if isinstance(cfg.coarsening, PODCoarseningConfig) else None
-    )
-    return color_key, marker_key
 
 
 def _breakdown_result(name: str, *, rhs: torch.Tensor, error: str) -> CGComparisonResult:
@@ -408,7 +377,7 @@ def execute_method_workload(
             )
             del bundle
 
-    color_key, marker_key = _pod2g_style_keys(method.config)
+    color_key, marker_key = pod2g_style_keys(method.config)
     return CompletedMethodWorkload(
         method=PreconditionerName(method.name),
         planned=tuple(planned_list),

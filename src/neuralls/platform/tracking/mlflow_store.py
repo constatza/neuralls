@@ -17,7 +17,6 @@ from mlflow.tracking import MlflowClient
 
 from neuralls.domain.identity import IdentityTag, Reused, StageIdentity
 from neuralls.platform.reporting.benchmark_events import (
-    METHOD_ARTIFACT_DIR,
     MethodBenchmarkArtifacts,
     read_convergence,
     read_planned_systems,
@@ -27,12 +26,15 @@ from neuralls.platform.reporting.benchmark_events import (
 )
 from neuralls.platform.tracking.mlflow import quote_filter_value
 from neuralls.platform.tracking.mlflow_client import MlflowClientFactory
+from neuralls.platform.tracking.session_artifacts import (
+    METHOD_PHASE,
+    REQUIRED_METHOD_ARTIFACTS,
+    method_artifact_paths,
+)
 from neuralls.shared.digest import Digest, Json, ordered_workload_digest
 
 _PAGE_SIZE = 50
 _NEWEST_FIRST = ["attributes.start_time DESC", "attributes.run_id ASC"]
-_METHOD_PHASE = "comparison_method"
-_METHOD_ARTIFACTS = frozenset(MethodBenchmarkArtifacts.file_names())
 
 
 def _tag_clause(tag: IdentityTag, value: str) -> str:
@@ -134,7 +136,7 @@ def find_reusable_benchmark_method(
     escaped_method = method.replace("'", "''")
     clauses = [
         "attributes.status = 'FINISHED'",
-        "tags.`phase` = 'comparison_method'",
+        f"tags.`phase` = '{METHOD_PHASE}'",
         f"tags.`method_id` = '{escaped_method}'",
         f"tags.`method_config_digest` = '{config_digest}'",
         f"tags.`workload_membership_digest` = '{membership}'",
@@ -145,12 +147,8 @@ def find_reusable_benchmark_method(
         order_by=_NEWEST_FIRST,
     )
     for run in runs:
-        artifacts = {
-            info.path.rsplit("/", 1)[-1]: info.path
-            for info in client.list_artifacts(run.info.run_id, path=METHOD_ARTIFACT_DIR)
-            if not info.is_dir
-        }
-        missing = sorted(_METHOD_ARTIFACTS - artifacts.keys())
+        artifacts = method_artifact_paths(client, run.info.run_id)
+        missing = sorted(REQUIRED_METHOD_ARTIFACTS - artifacts.keys())
         if missing:
             logger.info(
                 "Run {} is not reusable for method {}: missing artifacts {}.",
@@ -166,7 +164,7 @@ def find_reusable_benchmark_method(
                         run.info.run_id, path=artifact, dst_path=temp_dir
                     )
                     for name, artifact in artifacts.items()
-                    if name in _METHOD_ARTIFACTS
+                    if name in REQUIRED_METHOD_ARTIFACTS
                 }
                 _validate_method_artifacts(
                     paths,
