@@ -277,7 +277,8 @@ def test_run_cg_comparison_dispatches_by_preconditioner_compatibility(
         maxiter=100,
     )
 
-    assert calls == ["flexible", "pcg"]
+    # Each preconditioner solves twice: once timed, once untimed to track the exact energy error.
+    assert calls == ["flexible", "flexible", "pcg", "pcg"]
     assert results["nonlinear"].converged
     assert results["identity"].converged
 

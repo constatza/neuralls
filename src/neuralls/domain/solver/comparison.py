@@ -115,7 +115,7 @@ def run_cg_comparison(
         timed = repeat_timed_outcome(
             lambda precond=precond: _solve_one(
                 A, b, x0, precond, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
-                x_exact=x_exact,
+                x_exact=None,
             ),
             timing,
             device=A.device,
@@ -143,7 +143,13 @@ def run_cg_comparison(
         else:
             x_sol, info = timed.value
             exact_error = relative_exact_error(x_sol, x_exact) if x_exact is not None else None
-            error_history, error_bound = _safe_extract_energy_error(info)
+            error_history, error_bound = (
+                _safe_extract_energy_error(info)
+                if x_exact is None
+                else _untimed_energy_error(
+                    A, b, x0, precond, x_exact, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max
+                )
+            )
 
             rhs_norm = info.rhs_norm
             residual: list[float] = list(info.residual_history_abs or (info.residual_abs,))
@@ -209,6 +215,41 @@ def _safe_extract_energy_error(
         valid solve.
     """
     try:
+        return extract_energy_error(info)
+    except (RuntimeError, ValueError) as exc:
+        logger.warning("Energy-norm error metrics skipped: {}", exc)
+        return None, None
+
+
+def _untimed_energy_error(
+    A: torch.Tensor,
+    b: torch.Tensor,
+    x0: torch.Tensor,
+    preconditioner: Preconditioner,
+    x_exact: torch.Tensor,
+    *,
+    rtol: float,
+    atol: float,
+    maxiter: int,
+    m_max: int,
+) -> tuple[list[float] | None, list[float] | None]:
+    """Energy-norm error history from a second, untimed solve that tracks ``x_exact``.
+
+    ``torchalg`` computes the exact A-norm error at every iteration when given
+    ``x_exact``, which would be billed to the timed solve. The solve is
+    deterministic, so repeating it here yields the same iterates without
+    touching any timer.
+
+    Returns:
+        ``(error_history_a_rel, error_bound_a_rel)``, or ``(None, None)`` if the
+        metric fails — a metrics failure must never discard an otherwise valid
+        solve.
+    """
+    try:
+        _, info = _solve_one(
+            A, b, x0, preconditioner, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
+            x_exact=x_exact,
+        )  # fmt: skip
         return extract_energy_error(info)
     except (RuntimeError, ValueError) as exc:
         logger.warning("Energy-norm error metrics skipped: {}", exc)
