@@ -1,6 +1,6 @@
 # Comparison workflow
 
-Composition for comparing preconditioners. `plan.py` defines concrete matrix/RHS systems, `recipes.py` defines their report identities, and `spec_consistency.py` validates method identity across datasets. Aggregate reporting accepts canonical matrix-setup and RHS-solve events only; `group_reporting.py` deliberately does not rebuild those events from denormalized `CGComparisonResult` rows.
+Composition for comparing preconditioners. `plan.py` defines concrete matrix/RHS systems, `recipes.py` defines their report identities, and `spec_consistency.py` validates method identity across datasets. Aggregate reporting (run by `neuralls report`, not by `compare`) accepts canonical matrix-setup and RHS-solve events only; `postprocessing/group_reporting.py` deliberately does not rebuild those events from denormalized `CGComparisonResult` rows.
 
 ## Modules
 

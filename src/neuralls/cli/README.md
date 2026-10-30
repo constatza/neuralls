@@ -9,8 +9,9 @@ The CLI package defines one public executable: `neuralls`.
 - `neuralls generate-single <dataset.toml> --case-config <case.toml> [--force]`: build one dataset config
 - `neuralls train <case.toml> [--force]`: train every assignment declared in one case (assumes datasets were already generated — run `generate` first; skips an assignment whose dataset/checkpoint already matches unless `--force`), and log the aggregate metric plot/label map
 - `neuralls eval <case.toml>`: evaluate completed assignment checkpoints on their logged test splits
-- `neuralls run <case.toml> [--force] [--force-expand] [--force-generate] [--force-train] [--force-compare]`: the full per-case pipeline — generate every dataset, train every assignment, then run every comparison, each stage independently skippable/forceable
-- `neuralls compare <case.toml> [--force]`: run every comparison profile declared in one case after their benchmark datasets exist (skips a comparison whose resolved checkpoints already produced a result unless `--force`)
+- `neuralls run <case.toml> [--force] [--force-expand] [--force-generate] [--force-train] [--force-compare]`: the full per-case pipeline — generate every dataset, train every assignment, then run every comparison and its report, each stage independently skippable/forceable
+- `neuralls compare <case.toml> [--force]`: run every comparison profile declared in one case after their benchmark datasets exist and store each method's raw tables (skips a comparison whose resolved checkpoints already produced a result unless `--force`). Compute only: it draws no figures; run `neuralls report` for them
+- `neuralls report <case.toml> [--force] [--session-run-id ID]`: read the newest finished compare session back and write the nested report run tree (metrics, figures with cards, `figure_index.toml`) into the `Reports` experiment; a finished report for the same session, notation and schema is skipped unless `--force`. Never solves or times
 
 ## Package Map
 
@@ -20,8 +21,9 @@ The CLI package defines one public executable: `neuralls`.
 - `generate_single.py`: explicit single-dataset generation
 - `train.py`: case-wide training and aggregate reporting
 - `eval.py`: case-wide checkpoint evaluation and aggregate reporting
-- `run.py`: end-to-end case execution (generate → train → compare via `composition.assignments.case_pipeline.run_case_pipeline`)
-- `compare.py`: case-wide solver benchmarking
+- `run.py`: end-to-end case execution (generate → train → compare → report via `composition.assignments.case_pipeline.run_case_pipeline`)
+- `compare.py`: case-wide solver benchmarking (compute only)
+- `report.py`: report generation from a stored compare session
 - `errors.py`: the shared top-level failure renderer; blocking workflow exceptions retain
   their concrete type, message, contextual exception notes, and logged traceback
 - `options.py`: shared option aliases for profile and env-file resolution

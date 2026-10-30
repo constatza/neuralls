@@ -43,11 +43,12 @@ from neuralls.platform.tracking.failure_reporting import MLflowWorkflowFailureSi
 from neuralls.platform.tracking.mlflow import quote_filter_value
 from neuralls.platform.tracking.scope_params import scope_params
 from neuralls.platform.tracking.session_artifacts import (
+    REPORT_PHASE,
     download_session_methods,
     latest_session_run_id,
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from neuralls.shared.types import SystemId
+from neuralls.shared.types import SessionRunId, SystemId
 from neuralls.shared.workflow_failures import ComparisonBatchFailureContext, ComparisonBatchPhase
 
 REPORT_SCHEMA_VERSION = "2"
@@ -58,7 +59,7 @@ class ComparisonReportOutcome:
     """The report run written for one comparison session, and whether it was already there."""
 
     report_run_id: str
-    session_run_id: str
+    session_run_id: SessionRunId
     reused: bool
 
 
@@ -66,7 +67,7 @@ def run_comparison_report(
     case_config_path: Path,
     *,
     force: bool = False,
-    session_run_id: str | None = None,
+    session_run_id: SessionRunId | None = None,
     settings: NeurallsSettings | None = None,
 ) -> ComparisonReportOutcome:
     """Render the newest (or the named) comparison session of a case config into a report run."""
@@ -85,7 +86,7 @@ def run_comparison_report(
         "report_schema_version": REPORT_SCHEMA_VERSION,
     }
 
-    report_experiment = master_cfg.names.report
+    report_experiment = topology.report_experiment_name
     setup_comparison_tracking(
         tracking_uri=topology.tracking_uri,
         artifact_location=topology.artifact_location,
@@ -104,7 +105,7 @@ def run_comparison_report(
         with mlflow.start_run(
             run_name=session_name,
             tags={
-                "phase": "report",
+                "phase": REPORT_PHASE,
                 "report_level": "all_matrix_sets",
                 "source_experiment": topology.experiment_name,
                 **source_tags,
@@ -149,7 +150,7 @@ def _finished_report(
     experiment = client.get_experiment_by_name(experiment_name)
     if experiment is None:
         return None
-    clauses = ["attributes.status = 'FINISHED'", "tags.`phase` = 'report'"] + [
+    clauses = ["attributes.status = 'FINISHED'", f"tags.`phase` = '{REPORT_PHASE}'"] + [
         f"tags.`{key}` = '{quote_filter_value(value)}'" for key, value in tags.items()
     ]
     runs = client.search_runs(

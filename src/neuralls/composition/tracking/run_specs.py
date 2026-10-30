@@ -50,6 +50,7 @@ from neuralls.platform.tracking.run_names import (
     render_training_subject,
     run_name_text,
 )
+from neuralls.platform.tracking.session_artifacts import METHOD_PHASE
 from neuralls.shared.digest import Digest, ordered_workload_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import PreconditionerName
@@ -194,7 +195,7 @@ def build_benchmark_method_run_spec(
     """
     membership = ordered_workload_digest(system_ids, system_identities)
     identity = StageIdentity.build(
-        "comparison_method",
+        METHOD_PHASE,
         {
             "method_config": config_digest,
             "workload_membership": membership,
@@ -202,7 +203,7 @@ def build_benchmark_method_run_spec(
     )
     named = NamedRun(MethodRunName(prepared.compact), notation)
     tags = BenchmarkMethodRunTags(
-        phase="comparison_method",
+        phase=METHOD_PHASE,
         method_id=prepared.method_id,
         method_label=run_name_text(named),
         method_config_digest=config_digest,

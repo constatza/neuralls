@@ -12,12 +12,16 @@ from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 from tests.dataset_support import build_test_dataset
 
+from neuralls.composition.assignments import comparison_report
 from neuralls.composition.assignments._training_artifacts import (
     _log_training_evaluation,
     _normalize_training_numpy_payload,
 )
 from neuralls.composition.assignments.comparison_batch import run_comparison_batch
-from neuralls.composition.assignments.comparison_report import run_comparison_report
+from neuralls.composition.assignments.comparison_report import (
+    _finished_report,
+    run_comparison_report,
+)
 from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
 )
@@ -41,6 +45,7 @@ from neuralls.platform.tracking.comparison_tracking import (
     METHOD_FIGURE_ARTIFACT_DIR,
 )
 from neuralls.platform.tracking.mlflow_client import log_diagnostics_to_mlflow
+from neuralls.platform.tracking.session_artifacts import REPORT_PHASE
 
 
 def _artifact_files(client: MlflowClient, run_id: str, path: str | None = None) -> list[str]:
@@ -313,7 +318,9 @@ def _write_method_config(path: Path) -> None:
 @pytest.mark.usefixtures("stub_input_gate")
 @pytest.mark.integration
 @pytest.mark.figure_placeholders
-def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None:
+def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Comparison workflow logs figures and diagnostics files under run artifacts."""
     output_root = tmp_path / "output"
     artifact_root = output_root / "mlartifacts"
@@ -524,3 +531,24 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(tmp_path: Path) -> None
         )
         == session_count + 1
     )
+
+    # A failure while a report is written leaves its root run FAILED, so it is never reused.
+    def fail_report(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("report boom")
+
+    monkeypatch.setattr(comparison_report, "report_all_levels", fail_report)
+    with pytest.raises(RuntimeError, match="report boom"):
+        run_comparison_report(experiments_config)
+    failed = client.search_runs(
+        experiment_ids=[reports_experiment_id],
+        filter_string=f"tags.phase = '{REPORT_PHASE}' and attributes.status = 'FAILED'",
+    )
+    assert len(failed) == 1
+    assert failed[0].data.tags["source_session_run_id"] != session_id
+    failed_tags = failed[0].data.tags
+    source_tags = {
+        key: failed_tags[key]
+        for key in ("source_session_run_id", "notation_digest", "report_schema_version")
+    }
+    report_experiment = client.get_experiment(reports_experiment_id).name
+    assert _finished_report(client, report_experiment, source_tags) is None

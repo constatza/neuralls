@@ -139,6 +139,7 @@ from neuralls.platform.tracking.mlflow_store import (
 )
 from neuralls.platform.tracking.model_registry import build_registered_model_name
 from neuralls.platform.tracking.run_names import run_name_text
+from neuralls.platform.tracking.session_artifacts import SESSION_PHASE
 from neuralls.shared.device import release_device_memory, warm_up_device
 from neuralls.shared.digest import Digest, canonical_digest, content_digest, digest_memo
 from neuralls.shared.errors import StageInputsStale
@@ -171,6 +172,7 @@ class ComparisonTopology:
     artifact_location: str | None
     experiment_name: str
     model_store_tracking_uri: str
+    report_experiment_name: str
 
 
 def _validate_neural_preconditioner(spec: Any) -> None:
@@ -587,6 +589,7 @@ def _resolve_comparison_topology(
         artifact_location=runtime.artifact_uri,
         experiment_name=master_cfg.names.comparison,
         model_store_tracking_uri=runtime.tracking_uri,
+        report_experiment_name=master_cfg.names.report,
     )
 
 
@@ -1409,9 +1412,7 @@ def _has_complete_reusable_session(
         return False
     parent_id = parent_ids.pop()
     parent = client.get_run(parent_id)
-    return (
-        parent.info.status == "FINISHED" and parent.data.tags.get("phase") == "session_comparison"
-    )
+    return parent.info.status == "FINISHED" and parent.data.tags.get("phase") == SESSION_PHASE
 
 
 def run_comparison_batch(
@@ -1491,7 +1492,7 @@ def run_comparison_batch(
             notation=notation,
             case_config_path=case_config_path.resolve(),
             experiment_name=topology.experiment_name,
-            phase="session_comparison",
+            phase=SESSION_PHASE,
         )
         failure_sink = MLflowWorkflowFailureSink()
         with mlflow.start_run(

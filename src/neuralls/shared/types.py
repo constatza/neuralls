@@ -40,6 +40,9 @@ SystemId = NewType("SystemId", str)
 PreconditionerName = NewType("PreconditionerName", str)
 """A stable configured name for one preconditioner variant."""
 
+SessionRunId = NewType("SessionRunId", str)
+"""The MLflow run id of one comparison session — never a method, report, or training run id."""
+
 SetupEventId = NewType("SetupEventId", str)
 """A stable identity for one method setup against one matrix."""
 

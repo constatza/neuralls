@@ -47,7 +47,7 @@ from neuralls.platform.storage.facts_codec import (
     encode_recipe,
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
-from neuralls.shared.types import PreconditionerName
+from neuralls.shared.types import PreconditionerName, SessionRunId
 
 CARD_SUFFIX = ".toml"
 """A card shares its figure's stem and directory; only the suffix differs."""
@@ -100,7 +100,7 @@ class FigureCard:
     figure: str
     title: str
     scope_display: str
-    session_run_id: str
+    session_run_id: SessionRunId
     metadata: FigureMetadata
 
     def __post_init__(self) -> None:
@@ -123,7 +123,7 @@ def build_figure_card(
     title: str,
     metadata: FigureMetadata,
     *,
-    session_run_id: str,
+    session_run_id: SessionRunId,
     notation: NotationPolicy,
 ) -> FigureCard:
     """The card of ``figure``, rendering its scope as plain text."""
@@ -291,7 +291,7 @@ def decode_figure_card(payload: Mapping[str, Any]) -> FigureCard:
         figure=str(payload["figure"]),
         title=str(payload["title"]),
         scope_display=str(payload["scope"]["display"]),
-        session_run_id=str(payload["source"]["session_run_id"]),
+        session_run_id=SessionRunId(str(payload["source"]["session_run_id"])),
         metadata=metadata,
     )
     _check_table(card, payload.get("table"))

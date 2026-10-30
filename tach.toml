@@ -39,6 +39,7 @@ depends_on = [
 [[modules]]
 paths = [
     "neuralls.composition.comparison",
+    "neuralls.composition.comparison.postprocessing",
     "neuralls.composition.config",
     "neuralls.composition.assignments",
     "neuralls.composition.generation",

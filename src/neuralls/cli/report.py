@@ -11,6 +11,7 @@ from neuralls.cli.errors import fail_workflow
 from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ProfileOption
 from neuralls.composition.assignments.comparison_report import run_comparison_report
 from neuralls.composition.config import load_case_settings
+from neuralls.shared.types import SessionRunId
 
 os.environ.setdefault("MPLBACKEND", "Agg")
 
@@ -30,7 +31,10 @@ def report_case(
     try:
         settings = load_case_settings(config, env_file, profile=profile)
         outcome = run_comparison_report(
-            config, force=force, session_run_id=session_run_id, settings=settings
+            config,
+            force=force,
+            session_run_id=None if session_run_id is None else SessionRunId(session_run_id),
+            settings=settings,
         )
     except Exception as exc:  # noqa: BLE001
         fail_workflow("Report workflow", exc)

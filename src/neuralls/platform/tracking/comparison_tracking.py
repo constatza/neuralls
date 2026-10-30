@@ -123,7 +123,7 @@ from neuralls.platform.tracking.scope_params import scope_params
 from neuralls.platform.tracking.session_artifacts import PARENT_RUN_TAG
 from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from neuralls.shared.types import DatasetId, PreconditionerName, SystemId
+from neuralls.shared.types import DatasetId, PreconditionerName, SessionRunId, SystemId
 
 
 def setup_comparison_tracking(
@@ -231,7 +231,7 @@ class MLflowReportSink:
     """
 
     notation: NotationPolicy
-    session_run_id: str
+    session_run_id: SessionRunId
     methods: Sequence[StoredMethod] = ()
     datasets: Mapping[DatasetId, DatasetPresentation] = field(default_factory=dict)
     _staging: tempfile.TemporaryDirectory[str] = field(

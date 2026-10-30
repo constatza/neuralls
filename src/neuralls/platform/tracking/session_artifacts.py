@@ -7,6 +7,7 @@ compare reuse gate and the report workflow cannot disagree about either.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Final
 
 from mlflow.entities import Run
 from mlflow.tracking import MlflowClient
@@ -17,8 +18,10 @@ from neuralls.platform.reporting.benchmark_events import (
 )
 from neuralls.platform.reporting.stored_benchmark import MethodDirectory
 from neuralls.platform.tracking.mlflow import quote_filter_value
+from neuralls.shared.types import SessionRunId
 
-METHOD_PHASE = "comparison_method"
+METHOD_PHASE: Final = "comparison_method"
+REPORT_PHASE: Final = "report"
 PARENT_RUN_TAG = "mlflow.parentRunId"
 REQUIRED_METHOD_ARTIFACTS = frozenset(MethodBenchmarkArtifacts.file_names())
 _NEWEST_FIRST = ["attributes.start_time DESC", "attributes.run_id ASC"]
@@ -42,7 +45,7 @@ def method_artifact_paths(client: MlflowClient, run_id: str) -> dict[str, str]:
     }
 
 
-def session_method_runs(client: MlflowClient, session_run_id: str) -> list[Run]:
+def session_method_runs(client: MlflowClient, session_run_id: SessionRunId) -> list[Run]:
     """The FINISHED method children of a session, oldest first."""
     experiment_id = client.get_run(session_run_id).info.experiment_id
     clauses = [
@@ -59,7 +62,7 @@ def session_method_runs(client: MlflowClient, session_run_id: str) -> list[Run]:
 
 
 def download_session_methods(
-    client: MlflowClient, session_run_id: str, destination: Path
+    client: MlflowClient, session_run_id: SessionRunId, destination: Path
 ) -> list[MethodDirectory]:
     """Download every method child's artifacts; return each local directory with its run id.
 
@@ -86,10 +89,12 @@ def download_session_methods(
     return directories
 
 
-SESSION_PHASE = "session_comparison"
+SESSION_PHASE: Final = "session_comparison"
 
 
-def latest_session_run_id(client: MlflowClient, experiment_name: str, case_config_path: str) -> str:
+def latest_session_run_id(
+    client: MlflowClient, experiment_name: str, case_config_path: str
+) -> SessionRunId:
     """The newest FINISHED comparison session of a case config.
 
     Raises:
@@ -113,4 +118,4 @@ def latest_session_run_id(client: MlflowClient, experiment_name: str, case_confi
         raise ValueError(
             f"no finished comparison session for {case_config_path}; run `neuralls compare`"
         )
-    return runs[0].info.run_id
+    return SessionRunId(runs[0].info.run_id)

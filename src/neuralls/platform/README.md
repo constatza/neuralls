@@ -114,8 +114,9 @@ looks the same in every plot. Their legends are rendered from the group's method
 (`GroupStyle.legend`) and append explicit success counts; a `GroupStyle` is the fixed
 title, the typed `scope` (rendered as the subtitle), the legend and the series style maps. The per-run convergence plots also come in solve-only variants
 (`solve_only=True`) whose curves all start at t=0. `MLflowReportSink.report`
-takes the aggregated group plus a `GroupPresentation` and names artifacts by the
-sanitized group id.
+takes the aggregated group plus a `GroupPresentation` and logs it into the nested run of the
+group's report scope; figure file names are slugs of the rendered scope (see the figure-card
+paragraph below), never group ids.
 
 The per-run work-precision diagram is solve-only: its x-axis is measured
 `solve_time_seconds`, independent of whether historical offline generation cost
