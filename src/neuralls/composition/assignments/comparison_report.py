@@ -6,21 +6,19 @@ written to the report experiment, so a failure here cannot invalidate completed 
 
 from __future__ import annotations
 
-import hashlib
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-import mlflow
 from loguru import logger
 from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments.assignment_subjects import case_notation
-from neuralls.composition.assignments.comparison_batch import (
-    _failure_boundary,
-    _load_master_config,
-    _resolve_comparison_topology,
+from neuralls.composition.assignments.comparison_topology import (
+    failure_boundary,
+    load_master_config,
+    resolve_comparison_topology,
 )
 from neuralls.composition.comparison.postprocessing.group_reporting import report_all_levels
 from neuralls.composition.comparison.postprocessing.ports import ReportSink
@@ -30,37 +28,50 @@ from neuralls.composition.comparison.postprocessing.report_inputs import (
 )
 from neuralls.composition.comparison.postprocessing.system_figures import write_system_figures
 from neuralls.domain.solver.models.benchmark_events import SolveConverged
-from neuralls.domain.solver.models.report_scope import AllMatrixSets, System
+from neuralls.domain.solver.models.report_scope import System
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.platform.reporting.figure_index import FIGURE_INDEX_FILE, read_figure_index
 from neuralls.platform.reporting.stored_benchmark import read_stored_benchmark
-from neuralls.platform.tracking.comparison_tracking import (
-    MLflowReportSink,
+from neuralls.platform.tracking.failure_reporting import MLflowWorkflowFailureSink
+from neuralls.platform.tracking.metrics_logging import (
     parent_run_metric_key,
     setup_comparison_tracking,
 )
-from neuralls.platform.tracking.failure_reporting import MLflowWorkflowFailureSink
 from neuralls.platform.tracking.mlflow import quote_filter_value
-from neuralls.platform.tracking.scope_params import scope_params
+from neuralls.platform.tracking.report_run import root_report_run
+from neuralls.platform.tracking.report_sink import MLflowReportSink
 from neuralls.platform.tracking.session_artifacts import (
     REPORT_PHASE,
     download_session_methods,
     latest_session_run_id,
 )
+from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import SessionRunId, SystemId
 from neuralls.shared.workflow_failures import ComparisonBatchFailureContext, ComparisonBatchPhase
 
-REPORT_SCHEMA_VERSION = "2"
+REPORT_SCHEMA_VERSION = "3"
+NOTATION_DIGEST_LENGTH = 8
 
 
 @dataclass(frozen=True, slots=True)
-class ComparisonReportOutcome:
-    """The report run written for one comparison session, and whether it was already there."""
+class ReportReused:
+    """A finished report run already covered the session, so nothing was written."""
 
     report_run_id: str
     session_run_id: SessionRunId
-    reused: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ReportCreated:
+    """A new report run was written for the session."""
+
+    report_run_id: str
+    session_run_id: SessionRunId
+
+
+type ComparisonReportOutcome = ReportReused | ReportCreated
+"""The closed set of results of reporting one comparison session."""
 
 
 def run_comparison_report(
@@ -72,14 +83,14 @@ def run_comparison_report(
 ) -> ComparisonReportOutcome:
     """Render the newest (or the named) comparison session of a case config into a report run."""
     settings = require_settings(settings, case_config_path=case_config_path)
-    master_cfg, _ = _load_master_config(case_config_path, settings)
-    topology = _resolve_comparison_topology(case_config_path, settings)
+    master_cfg, _ = load_master_config(case_config_path, settings)
+    topology = resolve_comparison_topology(case_config_path, settings)
     notation = case_notation(master_cfg)
     client = MlflowClient(tracking_uri=topology.tracking_uri)
     session = session_run_id or latest_session_run_id(
         client, topology.experiment_name, case_config_path.resolve().as_posix()
     )
-    notation_digest = hashlib.sha256(repr(notation).encode("utf-8")).hexdigest()[:8]
+    notation_digest = canonical_digest(notation).split(":", 1)[1][:NOTATION_DIGEST_LENGTH]
     source_tags = {
         "source_session_run_id": session,
         "notation_digest": notation_digest,
@@ -95,27 +106,26 @@ def run_comparison_report(
     existing = _finished_report(client, report_experiment, source_tags)
     if existing is not None and not force:
         logger.info("Report {} already covers session {}.", existing, session)
-        return ComparisonReportOutcome(existing, session, reused=True)
+        return ReportReused(existing, session)
 
     with tempfile.TemporaryDirectory(prefix="neuralls-report-") as tmp:
         directories = download_session_methods(client, session, Path(tmp))
         inputs = report_inputs(read_stored_benchmark(directories))
         session_name = client.get_run(session).data.tags.get("mlflow.runName", session)
         failure_sink = MLflowWorkflowFailureSink()
-        with mlflow.start_run(
-            run_name=session_name,
-            tags={
+        with root_report_run(
+            session_name,
+            {
                 "phase": REPORT_PHASE,
                 "report_level": "all_matrix_sets",
                 "source_experiment": topology.experiment_name,
                 **source_tags,
             },
-        ) as run:
-            mlflow.log_params(scope_params(AllMatrixSets()))
+        ) as report_run_id:
             sink = MLflowReportSink(
                 notation, session, methods=inputs.stored.methods, datasets=inputs.datasets
             )
-            with _failure_boundary(
+            with failure_boundary(
                 failure_sink,
                 ComparisonBatchFailureContext(
                     phase=ComparisonBatchPhase.REPORTING,
@@ -132,7 +142,7 @@ def run_comparison_report(
                     contexts_by_system=inputs.solver_contexts,
                 )
                 _report_systems(sink, inputs, notation)
-            with _failure_boundary(
+            with failure_boundary(
                 failure_sink,
                 ComparisonBatchFailureContext(
                     phase=ComparisonBatchPhase.FINALIZATION,
@@ -140,7 +150,7 @@ def run_comparison_report(
                 ),
             ):
                 sink.finalize()
-    return ComparisonReportOutcome(run.info.run_id, session, reused=False)
+    return ReportCreated(report_run_id, session)
 
 
 def _finished_report(

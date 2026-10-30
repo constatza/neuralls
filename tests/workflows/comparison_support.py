@@ -14,7 +14,12 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
 MLFLOW_MODULE = "neuralls.composition.assignments.comparison_batch.mlflow"
-COMPARISON_TRACKING_MLFLOW_MODULE = "neuralls.platform.tracking.comparison_tracking.mlflow"
+EXECUTE_MLFLOW_MODULE = "neuralls.composition.assignments.comparison_execute.mlflow"
+TRACKING_MLFLOW_MODULES = (
+    "neuralls.platform.tracking.report_sink.mlflow",
+    "neuralls.platform.tracking.method_sink.mlflow",
+    "neuralls.platform.tracking.metrics_logging.mlflow",
+)
 SETUP_TRACKING = "neuralls.composition.assignments.comparison_batch.setup_comparison_tracking"
 
 

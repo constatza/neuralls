@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
-from neuralls.platform.tracking.comparison_tracking import setup_comparison_tracking
+from neuralls.platform.tracking.metrics_logging import setup_comparison_tracking
 
 TRACKING_URI = "sqlite:////workspace/mlruns/mlflow.db"
 ARTIFACT_DIR = "/workspace/artifacts"
@@ -21,8 +21,8 @@ def test_setup_comparison_tracking_delegates_to_ensure_experiment() -> None:
     tracking_uri = TRACKING_URI
     artifact_dir = ARTIFACT_DIR
     with (
-        patch("neuralls.platform.tracking.comparison_tracking.mlflow") as mock_mlflow,
-        patch("neuralls.platform.tracking.comparison_tracking.ensure_experiment") as mock_ensure,
+        patch("neuralls.platform.tracking.metrics_logging.mlflow") as mock_mlflow,
+        patch("neuralls.platform.tracking.metrics_logging.ensure_experiment") as mock_ensure,
     ):
         setup_comparison_tracking(
             tracking_uri,
@@ -42,8 +42,8 @@ def test_setup_comparison_tracking_uses_model_default_when_name_missing() -> Non
     tracking_uri = TRACKING_URI
     artifact_dir = ARTIFACT_DIR
     with (
-        patch("neuralls.platform.tracking.comparison_tracking.mlflow") as mock_mlflow,
-        patch("neuralls.platform.tracking.comparison_tracking.ensure_experiment") as mock_ensure,
+        patch("neuralls.platform.tracking.metrics_logging.mlflow") as mock_mlflow,
+        patch("neuralls.platform.tracking.metrics_logging.ensure_experiment") as mock_ensure,
     ):
         setup_comparison_tracking(tracking_uri, artifact_dir)
 

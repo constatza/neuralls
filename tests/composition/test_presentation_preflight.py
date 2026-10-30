@@ -131,7 +131,9 @@ def test_auto_neural_stub_carries_only_the_explicit_job_architecture() -> None:
 
 
 def test_prepared_batch_item_count_must_match_the_plan() -> None:
-    from neuralls.composition.assignments.comparison_batch import PreparedComparisonBatch
+    from neuralls.composition.assignments.comparison_prepared import (
+        PreparedComparisonBatch,
+    )
 
     with pytest.raises(ValueError, match="one item per planned system"):
         PreparedComparisonBatch(items=(), planned=(object(),))  # type: ignore[arg-type]

@@ -7,9 +7,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from neuralls.composition.assignments.comparison_batch import (
+from neuralls.composition.assignments.comparison_execute import (
+    outcomes_from_workloads,
+)
+from neuralls.composition.assignments.comparison_prepared import (
     PreparedComparisonExecution,
-    _outcomes_from_workloads,
 )
 from neuralls.composition.comparison.models import (
     ComparisonCompleted,
@@ -70,7 +72,7 @@ def test_completed_item_carries_the_formatted_summary(
         (prepared_method("jacobi"),), ComparisonScopePresentation(dataset_presentation)
     )
 
-    [outcome] = _outcomes_from_workloads([_pending(SYSTEM, cohort, comparison_run)], [workload])
+    [outcome] = outcomes_from_workloads([_pending(SYSTEM, cohort, comparison_run)], [workload])
 
     assert outcome == ComparisonCompleted(comparison_id=SYSTEM, run=comparison_run, summary=SUMMARY)
 
@@ -85,7 +87,7 @@ def test_missing_method_presentation_yields_entry_failed(
         (prepared_method("identity"),), ComparisonScopePresentation(dataset_presentation)
     )
 
-    [outcome] = _outcomes_from_workloads([_pending(SYSTEM, cohort, comparison_run)], [workload])
+    [outcome] = outcomes_from_workloads([_pending(SYSTEM, cohort, comparison_run)], [workload])
 
     assert isinstance(outcome, ComparisonEntryFailed)
     assert outcome.comparison_id == SYSTEM

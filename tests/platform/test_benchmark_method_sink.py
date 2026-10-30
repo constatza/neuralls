@@ -47,7 +47,7 @@ from neuralls.platform.reporting.benchmark_events import (
     MethodBenchmarkArtifacts,
     read_presentation,
 )
-from neuralls.platform.tracking.comparison_tracking import MLflowBenchmarkMethodSink
+from neuralls.platform.tracking.method_sink import MLflowBenchmarkMethodSink
 from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS, make_fact
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
@@ -153,7 +153,7 @@ def method_sink(
 def logged_run(monkeypatch: pytest.MonkeyPatch) -> LoggedRun:
     """Capture everything the sink logs without opening an MLflow run."""
     run = LoggedRun({}, [])
-    prefix = "neuralls.platform.tracking.comparison_tracking.mlflow"
+    prefix = "neuralls.platform.tracking.method_sink.mlflow"
     monkeypatch.setattr(
         f"{prefix}.start_run",
         lambda *args, **kwargs: pytest.fail("method sink must not open MLflow runs"),
@@ -274,15 +274,15 @@ def test_method_sink_marks_recoverable_setup_failures_from_canonical_events(
     metrics: dict[str, float] = {}
     tags: dict[str, str] = {}
     monkeypatch.setattr(
-        "neuralls.platform.tracking.comparison_tracking.mlflow.log_param",
+        "neuralls.platform.tracking.method_sink.mlflow.log_param",
         lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
-        "neuralls.platform.tracking.comparison_tracking.mlflow.log_metric",
+        "neuralls.platform.tracking.method_sink.mlflow.log_metric",
         lambda key, value, **kwargs: metrics.__setitem__(key, value),
     )
     monkeypatch.setattr(
-        "neuralls.platform.tracking.comparison_tracking.mlflow.set_tag",
+        "neuralls.platform.tracking.method_sink.mlflow.set_tag",
         lambda key, value: tags.__setitem__(key, value),
     )
 
@@ -315,15 +315,15 @@ def test_method_sink_counts_recoverable_solve_failures_from_canonical_events(
     metrics: dict[str, float] = {}
     tags: dict[str, str] = {}
     monkeypatch.setattr(
-        "neuralls.platform.tracking.comparison_tracking.mlflow.log_param",
+        "neuralls.platform.tracking.method_sink.mlflow.log_param",
         lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
-        "neuralls.platform.tracking.comparison_tracking.mlflow.log_metric",
+        "neuralls.platform.tracking.method_sink.mlflow.log_metric",
         lambda key, value, **kwargs: metrics.__setitem__(key, value),
     )
     monkeypatch.setattr(
-        "neuralls.platform.tracking.comparison_tracking.mlflow.set_tag",
+        "neuralls.platform.tracking.method_sink.mlflow.set_tag",
         lambda key, value: tags.__setitem__(key, value),
     )
 

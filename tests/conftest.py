@@ -426,7 +426,7 @@ def stub_input_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     dataset directly (no generation stage) would otherwise be refused as stale.
     """
     monkeypatch.setattr(
-        "neuralls.composition.assignments.comparison_batch.require_current_inputs",
+        "neuralls.composition.assignments.comparison_prepare.require_current_inputs",
         lambda *_args, **_kwargs: None,
     )
 
@@ -523,7 +523,9 @@ def stub_planning(monkeypatch: pytest.MonkeyPatch) -> None:
             for entry in case_cfg.comparisons
         )
 
-    monkeypatch.setattr("neuralls.composition.assignments.comparison_batch.plan_comparisons", _plan)
+    monkeypatch.setattr(
+        "neuralls.composition.assignments.comparison_prepare.plan_comparisons", _plan
+    )
 
 
 @pytest.fixture
@@ -620,7 +622,7 @@ def stub_matrix_scope(
     """
     scope = ComparisonScopePresentation(dataset_presentation)
     monkeypatch.setattr(
-        "neuralls.composition.assignments.comparison_batch._matrix_scope",
+        "neuralls.composition.assignments.comparison_prepare.matrix_scope",
         lambda planned, context: scope,
     )
     return scope

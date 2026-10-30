@@ -9,9 +9,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from neuralls.composition.assignments.comparison_batch import (
+from neuralls.composition.assignments.comparison_prepared import (
     PreparedComparisonBatch,
     PreparedComparisonExecution,
+)
+from neuralls.composition.assignments.comparison_resolution import (
     ResolvedComparisonSpecs,
 )
 from neuralls.composition.comparison.models import (

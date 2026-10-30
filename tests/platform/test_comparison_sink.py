@@ -77,15 +77,16 @@ from neuralls.platform.reporting.figure_metadata import (
     StagedFigure,
     TimingScenario,
 )
+from neuralls.platform.reporting.figure_planning import figure_plans
 from neuralls.platform.reporting.stored_benchmark import StoredMethod
-from neuralls.platform.tracking import comparison_tracking
-from neuralls.platform.tracking.comparison_tracking import (
+from neuralls.platform.tracking import report_sink
+from neuralls.platform.tracking.metrics_logging import parent_run_metric_key
+from neuralls.platform.tracking.report_sink import (
     GROUP_REPORT_ARTIFACT_DIR,
     METHOD_FIGURE_ARTIFACT_DIR,
     DuplicateFigureNameError,
     MLflowReportSink,
     UnknownStoredMethodError,
-    _figure_plans,
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, GroupId, MatrixId, PreconditionerName, SystemId
@@ -109,7 +110,7 @@ _CONTEXT = SolverTimingContext(
 @pytest.fixture
 def logged_metrics(monkeypatch: pytest.MonkeyPatch) -> LoggedMetrics:
     metrics: LoggedMetrics = {}
-    monkeypatch.setattr(comparison_tracking.mlflow, "log_metric", metrics.__setitem__)
+    monkeypatch.setattr(report_sink.mlflow, "log_metric", metrics.__setitem__)
     return metrics
 
 
@@ -121,7 +122,7 @@ def logged_artifacts(monkeypatch: pytest.MonkeyPatch) -> dict[str, tuple[str, bo
     def log_artifact(local_path: str, artifact_path: str | None = None) -> None:
         artifacts[Path(local_path).name] = (str(artifact_path), Path(local_path).exists())
 
-    monkeypatch.setattr(comparison_tracking.mlflow, "log_artifact", log_artifact)
+    monkeypatch.setattr(report_sink.mlflow, "log_artifact", log_artifact)
     return artifacts
 
 
@@ -131,14 +132,14 @@ def logged_text(
 ) -> dict[str, str]:
     """Logged TOML artifact file name -> its text when logged (cards and the figure index)."""
     texts: dict[str, str] = {}
-    inner = comparison_tracking.mlflow.log_artifact
+    inner = report_sink.mlflow.log_artifact
 
     def log_artifact(local_path: str, artifact_path: str | None = None) -> None:
         inner(local_path, artifact_path)
         if local_path.endswith(".toml"):
             texts[Path(local_path).name] = Path(local_path).read_text(encoding="utf-8")
 
-    monkeypatch.setattr(comparison_tracking.mlflow, "log_artifact", log_artifact)
+    monkeypatch.setattr(report_sink.mlflow, "log_artifact", log_artifact)
     return texts
 
 
@@ -314,7 +315,7 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
 @pytest.fixture(autouse=True)
 def _no_system_metrics_logging(monkeypatch: pytest.MonkeyPatch) -> None:
     """Per-system metrics are covered by the integration tree; none may start a real run here."""
-    monkeypatch.setattr(comparison_tracking.mlflow, "log_metrics", lambda metrics: None)
+    monkeypatch.setattr(report_sink.mlflow, "log_metrics", lambda metrics: None)
 
 
 @pytest.fixture(autouse=True)
@@ -329,7 +330,7 @@ def _log_into_the_active_run(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _key(metric: str, group: GroupAggregated, name: str) -> str:
-    return comparison_tracking.parent_run_metric_key(metric, name)
+    return parent_run_metric_key(metric, name)
 
 
 def _report_variant(
@@ -404,7 +405,7 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
         solver_contexts=(context,),
     )
 
-    plans = _figure_plans(mixture, presentation, "all", {})
+    plans = figure_plans(mixture, presentation, "all", {})
     online = next(plan for plan in plans if plan.filename.startswith("online_time"))
     solve = next(plan for plan in plans if plan.filename.startswith("solve_time"))
 
@@ -427,7 +428,7 @@ def test_figure_plans_name_solve_and_online_ecdfs_by_scenario(
     presentation = GroupPresentation(
         scope=RecipeScope(dataset_presentation, GAUSSIAN), plot_styles={}, methods={}
     )
-    plans = _figure_plans(group, presentation, "matrix_set_rhs_ds_gaussian", {})
+    plans = figure_plans(group, presentation, "matrix_set_rhs_ds_gaussian", {})
 
     solve = next(
         plan
@@ -454,7 +455,7 @@ def test_paired_scatter_manifest_describes_axis_censored_pairs(
     presentation = GroupPresentation(
         scope=RecipeScope(dataset_presentation, GAUSSIAN), plot_styles={}, methods={}
     )
-    plans = _figure_plans(group, presentation, "matrix_set_rhs_ds_gaussian", {})
+    plans = figure_plans(group, presentation, "matrix_set_rhs_ds_gaussian", {})
     paired = next(plan for plan in plans if plan.metadata.kind.value == "paired_time")
     ratio = next(plan for plan in plans if plan.metadata.kind.value == "speed_ratio")
 
@@ -471,9 +472,7 @@ def test_method_figures_are_uploaded_with_cards_naming_their_method_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     drawn: list[Path] = []
-    monkeypatch.setattr(
-        comparison_tracking, "_draw_method_figure", lambda path, *args: drawn.append(path)
-    )
+    monkeypatch.setattr(report_sink, "draw_method_figure", lambda path, *args: drawn.append(path))
     jacobi = next(method for method in stored_methods if str(method.name) == "jacobi")
 
     sink.register_method_figures(datasets={})

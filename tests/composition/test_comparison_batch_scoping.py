@@ -11,14 +11,27 @@ from unittest.mock import MagicMock
 import pytest
 import torch
 
-from neuralls.composition.assignments import comparison_batch
-from neuralls.composition.assignments.comparison_batch import (
+from neuralls.composition.assignments import (
+    comparison_batch,
+    comparison_execute,
+    comparison_prepare,
+    comparison_schedule,
+)
+from neuralls.composition.assignments.comparison_execute import (
+    execute_all,
+)
+from neuralls.composition.assignments.comparison_prepare import (
+    prepare_comparison_entry,
+)
+from neuralls.composition.assignments.comparison_prepared import (
     PreparedComparisonBatch,
     PreparedComparisonExecution,
-    _ComparisonResolutionContext,
-    _execute_all,
-    _method_major_schedule,
-    _prepare_comparison_entry,
+)
+from neuralls.composition.assignments.comparison_resolution import (
+    ComparisonResolutionContext,
+)
+from neuralls.composition.assignments.comparison_schedule import (
+    method_major_schedule,
 )
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
@@ -106,7 +119,7 @@ def test_method_major_schedule_nests_matrix_and_rhs_in_plan_order() -> None:
     for system in pending:
         system.resolved.specs = [identity, jacobi]
 
-    schedule = _method_major_schedule(pending)
+    schedule = method_major_schedule(pending)
     trace = [
         (method.name, matrix_id, tuple(system.entry.id for system in systems))
         for method, matrices in schedule
@@ -130,7 +143,7 @@ def test_method_schedule_does_not_share_same_name_with_different_identity() -> N
     ]
 
     with pytest.raises(ValueError):
-        _method_major_schedule((first, second))
+        method_major_schedule((first, second))
 
 
 def test_method_schedule_rejects_mixed_matrix_and_solver_semantics() -> None:
@@ -150,7 +163,7 @@ def test_method_schedule_rejects_mixed_matrix_and_solver_semantics() -> None:
     second.cfg.general.data.normalize_system = "rhs"
 
     with pytest.raises(ValueError):
-        _method_major_schedule((first, second))
+        method_major_schedule((first, second))
 
 
 def test_method_schedule_rejects_different_method_membership_on_siblings() -> None:
@@ -162,11 +175,11 @@ def test_method_schedule_rejects_different_method_membership_on_siblings() -> No
     second.resolved.specs = [identity]
 
     with pytest.raises(ValueError):
-        _method_major_schedule((first, second))
+        method_major_schedule((first, second))
 
 
 def test_matrix_workloads_are_loaded_lazily_per_method_matrix() -> None:
-    assert isgeneratorfunction(comparison_batch._load_matrix_workloads)
+    assert isgeneratorfunction(comparison_schedule.load_matrix_workloads)
 
 
 def test_matrix_loader_releases_prepared_system_before_next_matrix_load(
@@ -208,13 +221,13 @@ def test_matrix_loader_releases_prepared_system_before_next_matrix_load(
         prepared_refs.append(weakref.ref(prepared))
         return prepared
 
-    monkeypatch.setattr(comparison_batch, "resolve_comparison_input", resolve)
-    monkeypatch.setattr(comparison_batch, "prepare_resolved_linear_system", prepare)
+    monkeypatch.setattr(comparison_schedule, "resolve_comparison_input", resolve)
+    monkeypatch.setattr(comparison_schedule, "prepare_resolved_linear_system", prepare)
     matrices = (
         ((DatasetId("ds"), MatrixId(0)), (first,)),
         ((DatasetId("ds"), MatrixId(1)), (second,)),
     )
-    bundles = comparison_batch._load_matrix_workloads(matrices)
+    bundles = comparison_schedule.load_matrix_workloads(matrices)
 
     first_bundle = next(bundles)
     assert prepared_refs[0]() is None
@@ -232,7 +245,7 @@ def _no_parameter_logging(monkeypatch: pytest.MonkeyPatch) -> None:
 def events(monkeypatch: pytest.MonkeyPatch, prepared_method: PreparedMethodFactory) -> list[str]:
     recorded: list[str] = []
     monkeypatch.setattr(comparison_batch, "warm_up_device", lambda device: recorded.append("warm"))
-    monkeypatch.setattr(comparison_batch, "release_device_memory", lambda: None)
+    monkeypatch.setattr(comparison_execute, "release_device_memory", lambda: None)
     monkeypatch.setattr(comparison_batch.mlflow, "log_metric", lambda *a, **k: None)
     child_run = MagicMock()
     child_run.__enter__.return_value = MagicMock()
@@ -240,8 +253,8 @@ def events(monkeypatch: pytest.MonkeyPatch, prepared_method: PreparedMethodFacto
     monkeypatch.setattr(comparison_batch.mlflow, "start_run", MagicMock(return_value=child_run))
 
     monkeypatch.setattr(
-        comparison_batch,
-        "_load_matrix_workloads",
+        comparison_execute,
+        "load_matrix_workloads",
         lambda matrices: tuple(matrix for matrix, _ in matrices),
     )
 
@@ -268,7 +281,7 @@ def events(monkeypatch: pytest.MonkeyPatch, prepared_method: PreparedMethodFacto
             presentation=ExecutedMethod(prepared_method(str(name)), ()),
         )
 
-    monkeypatch.setattr(comparison_batch, "execute_method_workload", execute)
+    monkeypatch.setattr(comparison_execute, "execute_method_workload", execute)
     return recorded
 
 
@@ -287,7 +300,7 @@ def test_device_is_warmed_once_and_each_method_releases_before_the_next(
         system.resolved.specs = [identity, jacobi]
 
     comparison_batch.warm_up_device(torch.device("cpu"))
-    workloads = _execute_all(
+    workloads = execute_all(
         _batch(pending),
         method_sink=MagicMock(),
         failure_sink=MagicMock(),
@@ -328,7 +341,7 @@ def test_method_child_wraps_execution_and_persistence(
         def record(self, context: object, exc: Exception) -> None:
             raise AssertionError(f"unexpected failure: {context}: {exc}")
 
-    _execute_all(_batch(pending), method_sink=MethodSink(), failure_sink=FailureSink())
+    execute_all(_batch(pending), method_sink=MethodSink(), failure_sink=FailureSink())
 
     assert events.index("child:enter") < events.index("method:identity")
     assert events.index("method:identity") < events.index("persist")
@@ -342,7 +355,7 @@ def test_method_failure_reraises_original_when_failure_sink_also_fails(
     pending[0].resolved.specs = [StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)]
     original = RuntimeError("method exploded")
     monkeypatch.setattr(
-        comparison_batch, "execute_method_workload", MagicMock(side_effect=original)
+        comparison_execute, "execute_method_workload", MagicMock(side_effect=original)
     )
     run = MagicMock()
     run.__enter__.return_value = MagicMock()
@@ -361,7 +374,7 @@ def test_method_failure_reraises_original_when_failure_sink_also_fails(
             raise RuntimeError("diagnostics unavailable")
 
     with pytest.raises(RuntimeError) as raised:
-        _execute_all(
+        execute_all(
             _batch(pending),
             method_sink=MethodSink(),
             failure_sink=FailingFailureSink(),
@@ -379,11 +392,11 @@ def test_matrix_loading_failure_records_exact_matrix_context_once_in_child(
     pending[0].resolved.specs = [StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)]
     original = RuntimeError("matrix input broke")
     monkeypatch.setattr(
-        comparison_batch,
+        comparison_schedule,
         "_load_one_matrix_workload",
         MagicMock(side_effect=original),
     )
-    monkeypatch.setattr(comparison_batch, "release_device_memory", lambda: None)
+    monkeypatch.setattr(comparison_execute, "release_device_memory", lambda: None)
     child_run = MagicMock()
     child_run.__enter__.return_value = MagicMock()
     child_run.__exit__.return_value = False
@@ -396,7 +409,7 @@ def test_matrix_loading_failure_records_exact_matrix_context_once_in_child(
         tuple(bundles)
         raise AssertionError("the matrix load should fail first")
 
-    monkeypatch.setattr(comparison_batch, "execute_method_workload", consume_bundles)
+    monkeypatch.setattr(comparison_execute, "execute_method_workload", consume_bundles)
     contexts: list[object] = []
 
     class MethodSink:
@@ -409,7 +422,7 @@ def test_matrix_loading_failure_records_exact_matrix_context_once_in_child(
             contexts.append(context)
 
     with pytest.raises(RuntimeError) as raised:
-        _execute_all(
+        execute_all(
             _batch(pending),
             method_sink=MethodSink(),
             failure_sink=FailureSink(),
@@ -435,11 +448,11 @@ def test_every_entry_of_a_sweep_shares_the_one_lease_manager(
         leases_seen.append(artifact_leases)
         raise ValueError("stop after resolution")
 
-    monkeypatch.setattr(comparison_batch, "_validate_comparison_sources", lambda cfg: None)
-    monkeypatch.setattr(comparison_batch, "_resolve_comparison_specs", resolve)
-    monkeypatch.setattr(comparison_batch, "_undescribed_failure", lambda entry, exc: exc)
+    monkeypatch.setattr(comparison_prepare, "validate_comparison_sources", lambda cfg: None)
+    monkeypatch.setattr(comparison_prepare, "resolve_comparison_specs", resolve)
+    monkeypatch.setattr(comparison_prepare, "_undescribed_failure", lambda entry, exc: exc)
     shared_leases = MagicMock()
-    context = _ComparisonResolutionContext(
+    context = ComparisonResolutionContext(
         topology=MagicMock(),
         case_config_path=MagicMock(),
         settings=MagicMock(),
@@ -448,7 +461,7 @@ def test_every_entry_of_a_sweep_shares_the_one_lease_manager(
     )
 
     for _ in range(3):
-        _prepare_comparison_entry(MagicMock(), MagicMock(), context)
+        prepare_comparison_entry(MagicMock(), MagicMock(), context)
 
     assert leases_seen == [shared_leases] * 3
     shared_leases.__exit__.assert_not_called()
@@ -501,9 +514,9 @@ def test_method_run_forwards_the_cohort_presentation_of_its_own_method(
             presentation=ExecutedMethod(prepared, ()),
         )
 
-    monkeypatch.setattr(comparison_batch, "execute_method_workload", execute)
+    monkeypatch.setattr(comparison_execute, "execute_method_workload", execute)
 
-    _execute_all(_batch([system]), method_sink=MagicMock(), failure_sink=MagicMock())
+    execute_all(_batch([system]), method_sink=MagicMock(), failure_sink=MagicMock())
 
     assert forwarded == {
         "identity": cohort.method(PreconditionerName("identity")),
@@ -528,7 +541,7 @@ def test_method_child_is_named_by_its_presentation_and_logs_configured_facts_bef
 
     monkeypatch.setattr(comparison_batch.mlflow, "start_run", start_run)
     monkeypatch.setattr(
-        comparison_batch,
+        comparison_execute,
         "log_configured_method_facts",
         lambda prepared: events.append(f"facts:{prepared.method_id}"),
     )
@@ -537,7 +550,7 @@ def test_method_child_is_named_by_its_presentation_and_logs_configured_facts_bef
         def record_method(self, workload: object, summary: object) -> None:
             del workload, summary
 
-    _execute_all(_batch(pending), method_sink=MethodSink(), failure_sink=MagicMock())
+    execute_all(_batch(pending), method_sink=MethodSink(), failure_sink=MagicMock())
 
     (call,) = started
     assert call["run_name"] == "Jacobi"

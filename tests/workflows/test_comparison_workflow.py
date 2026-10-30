@@ -13,16 +13,26 @@ import pytest
 import tomli_w
 
 from neuralls.composition.assignments.comparison_batch import (
+    run_comparison_batch,
+)
+from neuralls.composition.assignments.comparison_execute import (
+    project_setup_measurements,
+)
+from neuralls.composition.assignments.comparison_prepare import (
+    prepare_comparison_entry,
+)
+from neuralls.composition.assignments.comparison_prepared import (
     PendingComparison,
     PreparedComparisonExecution,
-    _ComparisonResolutionContext,
-    _prepare_comparison_entry,
-    _project_setup_measurements,
-    _resolve_comparison_topology,
-    _resolve_neural_preconditioners,
-    _validate_neural_preconditioner,
+)
+from neuralls.composition.assignments.comparison_resolution import (
+    ComparisonResolutionContext,
     neural_specs_from_assignments,
-    run_comparison_batch,
+    resolve_neural_preconditioners,
+    validate_neural_preconditioner,
+)
+from neuralls.composition.assignments.comparison_topology import (
+    resolve_comparison_topology,
 )
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
 from neuralls.composition.comparison.comparison_run import execute_method_workload
@@ -108,9 +118,7 @@ def test_resolve_comparison_config_importable_from_composition() -> None:
 _RESOLVE_COMPARISON_CONFIG = (
     "neuralls.composition.comparison.config_assembler.resolve_comparison_config"
 )
-_RESOLVE_MODELS = (
-    "neuralls.composition.assignments.comparison_batch.resolve_preconditioner_models_with_warnings"
-)
+_RESOLVE_MODELS = "neuralls.composition.assignments.comparison_resolution.resolve_preconditioner_models_with_warnings"
 NO_RUNNABLE_PRECONDITIONERS = "No runnable preconditioners remain after model resolution."
 
 
@@ -267,7 +275,7 @@ def _scope(stub_matrix_scope: object) -> None:
 def stub_comparison_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     """These tests drive the workflow with mocked configs; identity derivation has its own tests."""
     monkeypatch.setattr(
-        "neuralls.composition.assignments.comparison_batch.comparison_identity",
+        "neuralls.composition.assignments.comparison_prepare.comparison_identity",
         lambda *_args, **_kwargs: StageIdentity.build(
             "comparison", {"stub": canonical_digest("stub")}
         ),
@@ -545,7 +553,7 @@ def test_comparison_data_model_tracks_explicit_normalize_in_fields_set() -> None
 def test_validate_neural_preconditioner_requires_model_ref() -> None:
     spec = NeuralPreconditionerConfig(type=PreconditionerType.NEURAL)
     with pytest.raises(ValueError):
-        _validate_neural_preconditioner(spec)
+        validate_neural_preconditioner(spec)
 
 
 def test_validate_neural_preconditioner_rejects_checkpoint_path() -> None:
@@ -555,7 +563,7 @@ def test_validate_neural_preconditioner_rejects_checkpoint_path() -> None:
         model_ref=_logged_ref("run-1"),
     )
     with pytest.raises(ValueError):
-        _validate_neural_preconditioner(spec)
+        validate_neural_preconditioner(spec)
 
 
 def test_resolve_neural_preconditioners_validates_all() -> None:
@@ -566,7 +574,7 @@ def test_resolve_neural_preconditioners_validates_all() -> None:
             model_ref=_logged_ref("run-1"),
         ),
     ]
-    resolved = _resolve_neural_preconditioners(specs)
+    resolved = resolve_neural_preconditioners(specs)
     assert len(resolved) == 2
 
 
@@ -747,21 +755,21 @@ def split_pinned_dataset(tmp_path: Path) -> Path:
 def prepare_entry(
     experiments_config: Path, settings: NeurallsSettings
 ) -> Iterator[Callable[[ComparisonConfig, PlannedSystem], PendingComparison]]:
-    """Prepare one entry through `_prepare_comparison_entry`, releasing its leases afterwards.
+    """Prepare one entry through `prepare_comparison_entry`, releasing its leases afterwards.
 
     Per-system reuse is off, so preparation never queries MLflow.
     """
     with contextlib.ExitStack() as stack:
 
         def prepare(cfg: ComparisonConfig, planned: PlannedSystem) -> PendingComparison:
-            context = _ComparisonResolutionContext(
-                topology=_resolve_comparison_topology(experiments_config, settings),
+            context = ComparisonResolutionContext(
+                topology=resolve_comparison_topology(experiments_config, settings),
                 case_config_path=experiments_config,
                 settings=settings,
                 load_dataset=NO_DATASET_READS,
                 reuse_comparisons=False,
             )
-            pending = _prepare_comparison_entry(cfg, planned, context)
+            pending = prepare_comparison_entry(cfg, planned, context)
             if isinstance(pending, PreparedComparisonExecution):
                 stack.enter_context(pending.cleanup)
             return pending
@@ -1090,7 +1098,7 @@ def test_run_comparison_batch_preserves_declared_order(
     """Cache-hit outcomes come back in declared config order.
 
     Also proves no MLflow run is needed for this: run_comparison_batch never
-    calls mlflow.start_run when _prepare_comparison_entry reports every entry
+    calls mlflow.start_run when prepare_comparison_entry reports every entry
     as a cache hit.
     """
     experiments_config = tmp_path / "experiments.toml"
@@ -1107,11 +1115,11 @@ def test_run_comparison_batch_preserves_declared_order(
 
     with (
         patch(
-            "neuralls.composition.assignments.comparison_batch._prepare_comparison_entry",
+            "neuralls.composition.assignments.comparison_prepare.prepare_comparison_entry",
             side_effect=_fake_prepare_entry,
         ) as mock_prepare,
         patch(
-            "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
+            "neuralls.composition.assignments.comparison_prepare.resolve_comparison_config",
             return_value=mock_cfg(),
         ),
     ):
@@ -1157,7 +1165,7 @@ def test_compatibility_projection_carries_canonical_setup_measurement(
         method_config={"name": "identity"},
         presentation=ExecutedMethod(prepared_method("identity"), ()),
     )
-    projected = _project_setup_measurements(
+    projected = project_setup_measurements(
         workload,
         str(tag.system_id),
         _identity_cg_result(),
@@ -1266,11 +1274,11 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
 
     with (
         patch(
-            "neuralls.composition.assignments.comparison_batch.resolve_comparison_input",
+            "neuralls.composition.assignments.comparison_schedule.resolve_comparison_input",
             side_effect=capture_resolved_input,
         ),
         patch(
-            "neuralls.composition.assignments.comparison_batch.execute_method_workload",
+            "neuralls.composition.assignments.comparison_execute.execute_method_workload",
             side_effect=capture_workload,
         ),
     ):

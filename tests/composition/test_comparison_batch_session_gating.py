@@ -16,11 +16,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from neuralls.composition.assignments.comparison_batch import (
+    run_comparison_batch,
+)
+from neuralls.composition.assignments.comparison_prepared import (
     PendingComparison,
     PreparedComparisonExecution,
+)
+from neuralls.composition.assignments.comparison_resolution import (
+    ComparisonResolutionContext,
     ResolvedComparisonSpecs,
-    _ComparisonResolutionContext,
-    run_comparison_batch,
 )
 from neuralls.composition.comparison.models import (
     ComparisonParams,
@@ -70,11 +74,11 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
 
     with (
         patch(
-            "neuralls.composition.assignments.comparison_batch._prepare_comparison_entry",
+            "neuralls.composition.assignments.comparison_prepare.prepare_comparison_entry",
             side_effect=_fake_prepare_entry,
         ),
         patch(
-            "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
+            "neuralls.composition.assignments.comparison_prepare.resolve_comparison_config",
             return_value=mock_cfg(),
         ),
         patch(MLFLOW_MODULE) as mock_mlflow,
@@ -97,7 +101,7 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
     def _fake_prepare_entry(
         cfg: object,
         planned: PlannedSystem,
-        context: _ComparisonResolutionContext,
+        context: ComparisonResolutionContext,
         *,
         force: bool = False,
     ) -> PendingComparison:
@@ -126,23 +130,23 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
 
     with (
         patch(
-            "neuralls.composition.assignments.comparison_batch._prepare_comparison_entry",
+            "neuralls.composition.assignments.comparison_prepare.prepare_comparison_entry",
             side_effect=_fake_prepare_entry,
         ),
         patch(
-            "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
+            "neuralls.composition.assignments.comparison_prepare.resolve_comparison_config",
             return_value=mock_cfg(),
         ),
         patch(
-            "neuralls.composition.assignments.comparison_batch._has_complete_reusable_session",
+            "neuralls.composition.assignments.comparison_batch.has_complete_reusable_session",
             return_value=False,
         ),
         patch(
-            "neuralls.composition.assignments.comparison_batch._execute_all",
+            "neuralls.composition.assignments.comparison_batch.execute_all",
             return_value=(),
         ),
         patch(
-            "neuralls.composition.assignments.comparison_batch._outcomes_from_workloads",
+            "neuralls.composition.assignments.comparison_batch.outcomes_from_workloads",
             return_value=[
                 ComparisonReused(comparison_id="a", run=comparison_run),
                 ComparisonReused(comparison_id="b", run=comparison_run),
@@ -169,7 +173,7 @@ def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
     def prepare(
         cfg: object,
         planned: PlannedSystem,
-        context: _ComparisonResolutionContext,
+        context: ComparisonResolutionContext,
         *,
         force: bool = False,
     ) -> PreparedComparisonExecution:
@@ -194,19 +198,19 @@ def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
 
     with (
         patch(
-            "neuralls.composition.assignments.comparison_batch._prepare_comparison_entry",
+            "neuralls.composition.assignments.comparison_prepare.prepare_comparison_entry",
             side_effect=prepare,
         ),
         patch(
-            "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
+            "neuralls.composition.assignments.comparison_prepare.resolve_comparison_config",
             return_value=mock_cfg(),
         ),
         patch(
-            "neuralls.composition.assignments.comparison_batch._has_complete_reusable_session",
+            "neuralls.composition.assignments.comparison_batch.has_complete_reusable_session",
             return_value=False,
         ),
         patch(
-            "neuralls.composition.assignments.comparison_batch._execute_all",
+            "neuralls.composition.assignments.comparison_batch.execute_all",
             side_effect=original,
         ),
         patch(

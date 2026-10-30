@@ -1,4 +1,4 @@
-"""Tests for `_checkpoint_digests`: the checkpoint-content part of a comparison's identity."""
+"""Tests for `checkpoint_digests`: the checkpoint-content part of a comparison's identity."""
 
 from __future__ import annotations
 
@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.assignments.comparison_batch import _checkpoint_digests
+from neuralls.composition.assignments.comparison_resolution import (
+    checkpoint_digests,
+)
 from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     PreconditionerType,
@@ -55,26 +57,24 @@ def test_same_bytes_at_different_paths_give_the_same_digests(
     checkpoint: Path, same_bytes_elsewhere: Path
 ) -> None:
     """Identity follows checkpoint content, never the leased temp path."""
-    assert _checkpoint_digests([_resolved(checkpoint)]) == _checkpoint_digests(
+    assert checkpoint_digests([_resolved(checkpoint)]) == checkpoint_digests(
         [_resolved(same_bytes_elsewhere)]
     )
 
 
 def test_different_bytes_change_the_digests(checkpoint: Path, retrained: Path) -> None:
     """A retrained model with different weights changes the identity."""
-    assert _checkpoint_digests([_resolved(checkpoint)]) != _checkpoint_digests(
-        [_resolved(retrained)]
-    )
+    assert checkpoint_digests([_resolved(checkpoint)]) != checkpoint_digests([_resolved(retrained)])
 
 
 def test_run_id_and_name_do_not_matter(checkpoint: Path) -> None:
     """Only bytes count: a new run id or a rename with identical weights is not a change."""
-    assert _checkpoint_digests(
-        [_resolved(checkpoint, run_id="r1", name="x")]
-    ) == _checkpoint_digests([_resolved(checkpoint, run_id="r2", name="y")])
+    assert checkpoint_digests([_resolved(checkpoint, run_id="r1", name="x")]) == checkpoint_digests(
+        [_resolved(checkpoint, run_id="r2", name="y")]
+    )
 
 
 def test_non_checkpoint_specs_contribute_nothing() -> None:
     """Static preconditioners have no checkpoint dependency."""
     spec = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
-    assert _checkpoint_digests([spec]) == {}
+    assert checkpoint_digests([spec]) == {}

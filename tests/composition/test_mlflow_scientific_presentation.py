@@ -13,12 +13,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from neuralls.composition.assignments import comparison_batch
+from neuralls.composition.assignments import comparison_batch, comparison_prepare
 from neuralls.composition.assignments.comparison_batch import (
-    PreparedComparisonExecution,
-    ResolvedComparisonSpecs,
-    _ComparisonResolutionContext,
     run_comparison_batch,
+)
+from neuralls.composition.assignments.comparison_prepared import (
+    PreparedComparisonExecution,
+)
+from neuralls.composition.assignments.comparison_resolution import (
+    ComparisonResolutionContext,
+    ResolvedComparisonSpecs,
 )
 from neuralls.composition.assignments.presentation_preflight import (
     describe_method,
@@ -58,7 +62,7 @@ DATASET_TEXT = "Test problem | Gaussian CG Residuals (k=20, N=100)"
 def _execution(
     cfg: object,
     planned: PlannedSystem,
-    context: _ComparisonResolutionContext,
+    context: ComparisonResolutionContext,
     presentation: PreparedComparisonPresentation,
     title: ComparisonTitle,
 ) -> PreparedComparisonExecution:
@@ -86,16 +90,16 @@ def _session_run_names(
     write_experiments_config(experiments_config, with_comparisons=True)
 
     def prepare(
-        cfg: object, planned: PlannedSystem, context: _ComparisonResolutionContext, **_: object
+        cfg: object, planned: PlannedSystem, context: ComparisonResolutionContext, **_: object
     ) -> PreparedComparisonExecution:
         return _execution(cfg, planned, context, presentation, title)
 
     with (
-        patch.object(comparison_batch, "_prepare_comparison_entry", side_effect=prepare),
-        patch.object(comparison_batch, "resolve_comparison_config", return_value=mock_cfg()),
-        patch.object(comparison_batch, "_has_complete_reusable_session", return_value=False),
-        patch.object(comparison_batch, "_execute_all", return_value=()),
-        patch.object(comparison_batch, "_outcomes_from_workloads", return_value=[]),
+        patch.object(comparison_prepare, "prepare_comparison_entry", side_effect=prepare),
+        patch.object(comparison_prepare, "resolve_comparison_config", return_value=mock_cfg()),
+        patch.object(comparison_batch, "has_complete_reusable_session", return_value=False),
+        patch.object(comparison_batch, "execute_all", return_value=()),
+        patch.object(comparison_batch, "outcomes_from_workloads", return_value=[]),
         patch(MLFLOW_MODULE) as mock_mlflow,
         patch.object(run_specs, "iso_timestamp", return_value=STAMP),
     ):

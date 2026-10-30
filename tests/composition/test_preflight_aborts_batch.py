@@ -1,7 +1,7 @@
 """A presentation error aborts the whole comparison batch, through the real per-entry preparation.
 
-Nothing here replaces `_prepare_comparison_entry`: only checkpoint resolution
-(`_resolve_comparison_specs`), source validation and MLflow are stubbed, so the
+Nothing here replaces `prepare_comparison_entry`: only checkpoint resolution
+(`resolve_comparison_specs`), source validation and MLflow are stubbed, so the
 tests fail if presentation validation ever moves under the per-entry handler that
 turns a resolution `ValueError` into a failed-comparison outcome.
 """
@@ -15,12 +15,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 import tomli_w
 
-from neuralls.composition.assignments import comparison_batch
+from neuralls.composition.assignments import comparison_prepare
 from neuralls.composition.assignments.comparison_batch import (
-    ResolvedComparisonSpecs,
-    _ComparisonResolutionContext,
-    _matrix_scope,
     run_comparison_batch,
+)
+from neuralls.composition.assignments.comparison_prepare import (
+    matrix_scope,
+)
+from neuralls.composition.assignments.comparison_resolution import (
+    ComparisonResolutionContext,
+    ResolvedComparisonSpecs,
 )
 from neuralls.composition.comparison.models import ComparisonParams
 from neuralls.composition.preconditioners.descriptions import MissingArchitectureNameError
@@ -77,8 +81,8 @@ def resolved_specs(monkeypatch: pytest.MonkeyPatch) -> ResolvedSpecs:
             calls.append(1)
             return ResolvedComparisonSpecs(specs=specs, warnings=(), checkpoint_digests={})
 
-        monkeypatch.setattr(comparison_batch, "_resolve_comparison_specs", resolve)
-        monkeypatch.setattr(comparison_batch, "_validate_comparison_sources", lambda cfg: None)
+        monkeypatch.setattr(comparison_prepare, "resolve_comparison_specs", resolve)
+        monkeypatch.setattr(comparison_prepare, "validate_comparison_sources", lambda cfg: None)
         return calls
 
     return install
@@ -89,7 +93,7 @@ def _run_expecting_abort(tmp_path: Path, error: type[Exception]) -> MagicMock:
     write_experiments_config(experiments_config, with_comparisons=True)
     with (
         patch(
-            "neuralls.composition.assignments.comparison_batch.resolve_comparison_config",
+            "neuralls.composition.assignments.comparison_prepare.resolve_comparison_config",
             return_value=MagicMock(),
         ),
         patch(MLFLOW_MODULE) as mock_mlflow,
@@ -174,14 +178,14 @@ def _planned() -> MagicMock:
 
 
 def _scope_of(tmp_path: Path, cfg: CaseConfig, case_path: Path) -> ComparisonScopePresentation:
-    context = _ComparisonResolutionContext(
+    context = ComparisonResolutionContext(
         topology=MagicMock(),
         case_config_path=case_path,
         settings=make_settings(tmp_path),
         load_dataset=load_dataset_presentation,
         master_cfg=cfg,
     )
-    return _matrix_scope(_planned(), context)
+    return matrix_scope(_planned(), context)
 
 
 def test_the_matrix_scope_is_read_from_the_dataset_the_registry_resolves(

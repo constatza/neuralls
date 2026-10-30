@@ -123,15 +123,15 @@ SCOPES: dict[str, SinkScope] = {
             ),
             Allowed(
                 RUN_NAME_TEXT,
-                "platform/tracking/comparison_tracking.py",
+                "platform/tracking/report_sink.py",
                 "_scope_run_id",
                 "the child run is named by _scope_name, which renders the typed report scope "
                 "through the scientific scope renderer",
             ),
             Allowed(
                 RUN_NAME_TEXT,
-                "composition/assignments/comparison_report.py",
-                "run_comparison_report",
+                "platform/tracking/report_run.py",
+                "root_report_run",
                 "the report run carries the name its comparison session already rendered "
                 "from a typed run name, so both runs read the same in their experiments",
             ),
@@ -165,15 +165,15 @@ SCOPES: dict[str, SinkScope] = {
         allowed=(
             Allowed(
                 LOG_ID_TEXT,
-                "composition/assignments/comparison_batch.py",
-                "_checkpoint_digests",
+                "composition/assignments/comparison_resolution.py",
+                "checkpoint_digests",
                 "progress lines about hashing a checkpoint file name the preconditioner by its "
                 "configured result key, because they run before any presentation exists",
             ),
             Allowed(
                 LOG_ID_TEXT,
-                "composition/assignments/comparison_batch.py",
-                "_prepare_comparison_entry",
+                "composition/assignments/comparison_prepare.py",
+                "prepare_comparison_entry",
                 "the lines before the title exists name the registry entry being prepared; "
                 "a comparison can only be titled after its checkpoints and dataset resolve",
             ),

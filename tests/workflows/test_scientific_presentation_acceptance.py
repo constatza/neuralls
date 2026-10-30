@@ -43,7 +43,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.reporting.figure_text import method_legend
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
-from neuralls.platform.tracking.comparison_tracking import log_configured_method_facts
+from neuralls.platform.tracking.metrics_logging import log_configured_method_facts
 from neuralls.platform.tracking.run_names import run_name_text
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS

@@ -10,8 +10,10 @@ import torch
 from mlflow.tracking import MlflowClient
 from torchalg.preconditioners.base import Preconditioner
 
-from neuralls.composition.assignments import comparison_batch
-from neuralls.composition.assignments.comparison_batch import run_comparison_batch
+from neuralls.composition.assignments import comparison_schedule
+from neuralls.composition.assignments.comparison_batch import (
+    run_comparison_batch,
+)
 from neuralls.composition.assignments.comparison_report import run_comparison_report
 from neuralls.composition.comparison import comparison_run
 from neuralls.composition.comparison._preconditioner_setup import PreconditionerService
@@ -21,7 +23,7 @@ from neuralls.composition.comparison.models import (
     ComparisonReused,
 )
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
-from neuralls.platform.tracking.comparison_tracking import (
+from neuralls.platform.tracking.report_sink import (
     GROUP_REPORT_ARTIFACT_DIR,
     MLflowReportSink,
 )
@@ -162,7 +164,7 @@ def test_blocking_matrix_load_failure_marks_child_and_parent_with_exact_diagnost
         del args, kwargs
         raise original
 
-    monkeypatch.setattr(comparison_batch, "_load_one_matrix_workload", fail_matrix_load)
+    monkeypatch.setattr(comparison_schedule, "_load_one_matrix_workload", fail_matrix_load)
 
     with pytest.raises(RuntimeError) as raised:
         run_comparison_batch(case_path, ComparisonParams(), settings)

@@ -18,11 +18,13 @@ import tomli_w
 from mlflow.entities import Run
 from mlflow.tracking import MlflowClient
 
-from neuralls.composition.assignments.comparison_batch import run_comparison_batch
+from neuralls.composition.assignments.comparison_batch import (
+    run_comparison_batch,
+)
 from neuralls.composition.assignments.comparison_report import run_comparison_report
 from neuralls.composition.comparison.models import ComparisonCompleted, ComparisonParams
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
-from neuralls.platform.tracking.comparison_tracking import GROUP_REPORT_ARTIFACT_DIR
+from neuralls.platform.tracking.report_sink import GROUP_REPORT_ARTIFACT_DIR
 from tests.workflows.comparison_support import (
     make_settings,
     write_dataset_config,

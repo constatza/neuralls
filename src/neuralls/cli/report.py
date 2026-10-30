@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import os
+from typing import assert_never
 
 import typer
 from loguru import logger
 
 from neuralls.cli.errors import fail_workflow
 from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ProfileOption
-from neuralls.composition.assignments.comparison_report import run_comparison_report
+from neuralls.composition.assignments.comparison_report import (
+    ReportCreated,
+    ReportReused,
+    run_comparison_report,
+)
 from neuralls.composition.config import load_case_settings
 from neuralls.shared.types import SessionRunId
 
@@ -38,5 +43,11 @@ def report_case(
         )
     except Exception as exc:  # noqa: BLE001
         fail_workflow("Report workflow", exc)
-    verb = "Reused" if outcome.reused else "Wrote"
+    match outcome:
+        case ReportReused():
+            verb = "Reused"
+        case ReportCreated():
+            verb = "Wrote"
+        case _ as unreachable:
+            assert_never(unreachable)
     logger.info(f"{verb} report run {outcome.report_run_id} for session {outcome.session_run_id}.")

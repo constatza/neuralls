@@ -2,8 +2,8 @@
 
 Pins the observable behavior of the three helpers that walk every
 ``(label, ref)`` pair exposed by ``CheckpointRefBearing`` preconditioner
-specs — ``_needs_model_resolution``, ``_referenced_assignment_ids`` and
-``_existing_assignment_ids`` — plus which coarsening configs
+specs — ``needs_model_resolution``, ``referenced_assignment_ids`` and
+``existing_assignment_ids`` — plus which coarsening configs
 ``AMGPreconditionerConfig.checkpoint_refs`` opts into resolution.
 """
 
@@ -14,10 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.composition.assignments.comparison_batch import (
-    _existing_assignment_ids,
-    _needs_model_resolution,
-    _referenced_assignment_ids,
+from neuralls.composition.assignments.comparison_resolution import (
+    existing_assignment_ids,
+    needs_model_resolution,
+    referenced_assignment_ids,
 )
 from neuralls.platform.config.models.preconditioner import (
     AggregationCoarseningConfig,
@@ -95,26 +95,26 @@ def logged_ref() -> LoggedModelRefConfig:
 def test_no_model_resolution_needed_without_checkpoint_bearing_specs(
     identity_spec: StandardPreconditionerConfig,
 ) -> None:
-    assert _needs_model_resolution((identity_spec,)) is False
+    assert needs_model_resolution((identity_spec,)) is False
 
 
 def test_no_model_resolution_needed_when_refs_carry_no_model_ref(
     make_neural_spec: NeuralSpecFactory,
 ) -> None:
-    assert _needs_model_resolution((make_neural_spec(assignment="a"),)) is False
+    assert needs_model_resolution((make_neural_spec(assignment="a"),)) is False
 
 
 def test_model_resolution_needed_for_neural_model_ref(
     make_neural_spec: NeuralSpecFactory, logged_ref: LoggedModelRefConfig
 ) -> None:
-    assert _needs_model_resolution((make_neural_spec(model_ref=logged_ref),)) is True
+    assert needs_model_resolution((make_neural_spec(model_ref=logged_ref),)) is True
 
 
 def test_model_resolution_needed_for_checkpoint_backed_pod_coarsening(
     make_pod_amg_spec: AmgSpecFactory, logged_ref: LoggedModelRefConfig
 ) -> None:
     """A POD-2G basis fitted ahead of time triggers resolution like a neural spec."""
-    assert _needs_model_resolution((make_pod_amg_spec(model_ref=logged_ref),)) is True
+    assert needs_model_resolution((make_pod_amg_spec(model_ref=logged_ref),)) is True
 
 
 def test_referenced_assignment_ids_preserves_first_seen_order(
@@ -128,13 +128,13 @@ def test_referenced_assignment_ids_preserves_first_seen_order(
         make_pod_amg_spec(name="amg", assignment="a"),
         make_neural_spec(name="n2", assignment="b"),
     )
-    assert _referenced_assignment_ids(specs) == ("b", "a")
+    assert referenced_assignment_ids(specs) == ("b", "a")
 
 
 def test_referenced_assignment_ids_skips_refs_without_an_assignment(
     make_neural_spec: NeuralSpecFactory,
 ) -> None:
-    assert _referenced_assignment_ids((make_neural_spec(),)) == ()
+    assert referenced_assignment_ids((make_neural_spec(),)) == ()
 
 
 def test_existing_assignment_ids_collects_claimed_ids_as_a_set(
@@ -148,13 +148,13 @@ def test_existing_assignment_ids_collects_claimed_ids_as_a_set(
         make_pod_amg_spec(name="amg", assignment="a"),
         make_neural_spec(name="n2", assignment="b"),
     )
-    assert _existing_assignment_ids(specs) == {"a", "b"}
+    assert existing_assignment_ids(specs) == {"a", "b"}
 
 
 def test_existing_assignment_ids_ignores_unassigned_refs(
     make_neural_spec: NeuralSpecFactory,
 ) -> None:
-    assert _existing_assignment_ids((make_neural_spec(),)) == set()
+    assert existing_assignment_ids((make_neural_spec(),)) == set()
 
 
 def test_pod_coarsening_without_checkpoint_identity_is_invisible_to_resolution(

@@ -17,8 +17,12 @@ from neuralls.composition.assignments._training_artifacts import (
     _log_training_evaluation,
     _normalize_training_numpy_payload,
 )
-from neuralls.composition.assignments.comparison_batch import run_comparison_batch
+from neuralls.composition.assignments.comparison_batch import (
+    run_comparison_batch,
+)
 from neuralls.composition.assignments.comparison_report import (
+    ReportCreated,
+    ReportReused,
     _finished_report,
     run_comparison_report,
 )
@@ -40,11 +44,11 @@ from neuralls.platform.reporting.figure_index import FIGURE_INDEX_FILE, read_fig
 from neuralls.platform.reporting.figure_metadata import NoTable, SiblingTable
 from neuralls.platform.reporting.figure_table import read_group_table
 from neuralls.platform.reporting.training_diagnostics import compute_diagnostics
-from neuralls.platform.tracking.comparison_tracking import (
+from neuralls.platform.tracking.mlflow_client import log_diagnostics_to_mlflow
+from neuralls.platform.tracking.report_sink import (
     GROUP_REPORT_ARTIFACT_DIR,
     METHOD_FIGURE_ARTIFACT_DIR,
 )
-from neuralls.platform.tracking.mlflow_client import log_diagnostics_to_mlflow
 from neuralls.platform.tracking.session_artifacts import REPORT_PHASE
 
 
@@ -404,7 +408,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
 
     report = run_comparison_report(experiments_config)
     assert report.session_run_id == session_id
-    assert not report.reused
+    assert isinstance(report, ReportCreated)
     reports = MlflowClient(tracking_uri=tracking_uri)
     report_id = report.report_run_id
     method_figures = reports.list_artifacts(report_id, path=METHOD_FIGURE_ARTIFACT_DIR)
@@ -517,7 +521,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
         == session_count
     )
 
-    assert run_comparison_report(experiments_config).reused
+    assert isinstance(run_comparison_report(experiments_config), ReportReused)
 
     forced = run_comparison_batch(
         case_config_path=experiments_config, params=ComparisonParams(force=True)

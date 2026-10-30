@@ -20,9 +20,10 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
 )
 from tests.workflows.comparison_support import (
-    COMPARISON_TRACKING_MLFLOW_MODULE,
+    EXECUTE_MLFLOW_MODULE,
     MLFLOW_MODULE,
     SETUP_TRACKING,
+    TRACKING_MLFLOW_MODULES,
     configure_mock_mlflow,
 )
 
@@ -287,7 +288,7 @@ def log_run_with_named_checkpoints(
 
 @pytest.fixture
 def fake_mlflow(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """One `mlflow` double shared by the comparison batch and its tracking sink.
+    """One `mlflow` double shared by the comparison batch, its method runs and its tracking sinks.
 
     Both modules must see the same object so a test can assert on the metrics, params and
     artifacts logged from either of them.
@@ -295,7 +296,9 @@ def fake_mlflow(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     mock = MagicMock()
     configure_mock_mlflow(mock)
     monkeypatch.setattr(MLFLOW_MODULE, mock)
-    monkeypatch.setattr(COMPARISON_TRACKING_MLFLOW_MODULE, mock)
+    monkeypatch.setattr(EXECUTE_MLFLOW_MODULE, mock)
+    for module in TRACKING_MLFLOW_MODULES:
+        monkeypatch.setattr(module, mock)
     return mock
 
 

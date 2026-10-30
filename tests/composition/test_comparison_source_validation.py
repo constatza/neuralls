@@ -1,4 +1,4 @@
-"""Characterization tests for `_validate_comparison_sources`.
+"""Characterization tests for `validate_comparison_sources`.
 
 Pins exactly which concrete input artifacts each RHS source kind prevalidates
 before any MLflow run is opened — the per-kind dispatch that must stay
@@ -13,7 +13,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neuralls.composition.assignments.comparison_batch import _validate_comparison_sources
+from neuralls.composition.assignments.comparison_prepare import (
+    validate_comparison_sources,
+)
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
 from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
@@ -86,7 +88,7 @@ def make_config(solver_params: SolverParams) -> ConfigFactory:
 def test_missing_rhs_source_kind_is_rejected(make_config: ConfigFactory, matrix_file: Path) -> None:
     config = make_config(matrix_path=matrix_file, rhs_source_kind=None)
     with pytest.raises(ValueError):
-        _validate_comparison_sources(config)
+        validate_comparison_sources(config)
 
 
 @pytest.mark.parametrize(
@@ -103,7 +105,7 @@ def test_generated_sources_validate_only_the_matrix(
     params: dict[str, object],
 ) -> None:
     """Gaussian/sinusoidal RHS is synthesized, so only the matrix input is prevalidated."""
-    _validate_comparison_sources(
+    validate_comparison_sources(
         make_config(matrix_path=matrix_file, rhs_source_kind=kind, rhs_source_params=params)
     )
 
@@ -121,13 +123,13 @@ def test_generated_sources_reject_a_missing_matrix(
     )
     config = make_config(matrix_path=missing_file, rhs_source_kind=kind, rhs_source_params=params)
     with pytest.raises(FileNotFoundError):
-        _validate_comparison_sources(config)
+        validate_comparison_sources(config)
 
 
 def test_raw_lhs_validates_both_matrix_and_source_path(
     make_config: ConfigFactory, matrix_file: Path, vector_file: Path
 ) -> None:
-    _validate_comparison_sources(
+    validate_comparison_sources(
         make_config(
             matrix_path=matrix_file,
             rhs_source_kind=ComparisonRhsSourceKind.RAW_LHS,
@@ -150,13 +152,13 @@ def test_raw_lhs_rejects_a_missing_source_path(
         rhs_source_params={"path": missing_file},
     )
     with pytest.raises(FileNotFoundError):
-        _validate_comparison_sources(config)
+        validate_comparison_sources(config)
 
 
 def test_raw_rhs_validates_both_matrix_and_source_path(
     make_config: ConfigFactory, matrix_file: Path, vector_file: Path
 ) -> None:
-    _validate_comparison_sources(
+    validate_comparison_sources(
         make_config(
             matrix_path=matrix_file,
             rhs_source_kind=ComparisonRhsSourceKind.RAW_RHS,
@@ -174,14 +176,14 @@ def test_raw_rhs_rejects_a_missing_matrix(
         rhs_source_params={"path": vector_file},
     )
     with pytest.raises(FileNotFoundError):
-        _validate_comparison_sources(config)
+        validate_comparison_sources(config)
 
 
 def test_dataset_source_validates_the_entrys_own_dataset_path(
     make_config: ConfigFactory, matrix_file: Path
 ) -> None:
     """A `dataset` source carries no path of its own: the matrix dataset is the source."""
-    _validate_comparison_sources(
+    validate_comparison_sources(
         make_config(
             matrix_path=matrix_file,
             rhs_source_kind=ComparisonRhsSourceKind.DATASET,
@@ -199,7 +201,7 @@ def test_dataset_source_rejects_a_missing_dataset_path(
         rhs_source_params={"sample_index": 0},
     )
     with pytest.raises(FileNotFoundError):
-        _validate_comparison_sources(config)
+        validate_comparison_sources(config)
 
 
 def test_source_params_are_validated_against_the_kinds_schema(
@@ -212,7 +214,7 @@ def test_source_params_are_validated_against_the_kinds_schema(
         rhs_source_params={},
     )
     with pytest.raises(ValueError):
-        _validate_comparison_sources(config)
+        validate_comparison_sources(config)
 
 
 @pytest.mark.parametrize("kind", [ComparisonRhsSourceKind.RAW_LHS, ComparisonRhsSourceKind.RAW_RHS])
@@ -226,7 +228,7 @@ def test_an_external_vector_of_the_wrong_length_is_rejected(
     )
 
     with pytest.raises(ValueError):
-        _validate_comparison_sources(config)
+        validate_comparison_sources(config)
 
 
 def test_an_external_sample_index_past_the_last_row_is_rejected(
@@ -239,4 +241,4 @@ def test_an_external_sample_index_past_the_last_row_is_rejected(
     )
 
     with pytest.raises(ValueError):
-        _validate_comparison_sources(config)
+        validate_comparison_sources(config)
