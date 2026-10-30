@@ -28,10 +28,10 @@ from neuralls.domain.presentation.titles import (
     ComparisonTitle,
     EditorialPresentation,
 )
+from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     ConcretePreconditionerConfig,
-    PODCoarseningConfig,
     PreconditionerConfig,
 )
 from neuralls.shared.types import PreconditionerName

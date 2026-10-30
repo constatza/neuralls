@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Protocol
 
 import polars as pl
 
@@ -18,6 +19,7 @@ from neuralls.domain.solver.models.figure_scope import (
 from neuralls.platform.reporting.figure_metadata import (
     FigureKind,
 )
+from neuralls.platform.reporting.figure_planning import FIGURE_RECIPES
 from neuralls.platform.reporting.figure_text import (
     EditorialTitle,
     Legend,
@@ -32,6 +34,29 @@ from neuralls.platform.reporting.stored_benchmark import StoredMethod
 from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId
+
+
+class MethodPlot(Protocol):
+    """A convergence-history plot of one stored method, one curve per attempted system."""
+
+    def __call__(
+        self,
+        results: Mapping[str, Mapping[str, object]],
+        *,
+        save_path: Path,
+        title: EditorialTitle,
+        subtitle: ScopeSubtitle,
+        legend: Legend,
+        families: Mapping[str, str],
+        color_keys: Mapping[str, str],
+    ) -> None: ...
+
+
+METHOD_PLOTS: Mapping[FigureKind, MethodPlot] = {
+    FigureKind.RESIDUAL_HISTORY: plot_convergence_comparison,
+    FigureKind.ENERGY_HISTORY: plot_error_convergence_comparison,
+}
+"""The plot of each method figure kind; a group kind has no entry and cannot be drawn here."""
 
 
 def _system_legend(
@@ -78,17 +103,10 @@ def draw_method_figure(
         str(system.tag.system_id): recipe_key(system.tag.recipe) for system in method.systems
     }
     series_recipes = {name: recipes[name] for name in histories}
-    match kind:
-        case FigureKind.RESIDUAL_HISTORY:
-            plot, title = plot_convergence_comparison, "Residual History"
-        case FigureKind.ENERGY_HISTORY:
-            plot, title = plot_error_convergence_comparison, "Energy History"
-        case _:
-            raise ValueError(f"{kind} is not a method figure")
-    plot(
+    METHOD_PLOTS[kind](
         histories,
         save_path=path,
-        title=EditorialTitle(title),
+        title=EditorialTitle(FIGURE_RECIPES[kind].variants[0].title),
         subtitle=subtitle,
         legend=_system_legend(method, notation, datasets),
         families=series_recipes,

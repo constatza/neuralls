@@ -8,7 +8,7 @@ from typing import Annotated
 import typer
 
 from neuralls.cli.error_messages import format_cli_error
-from neuralls.cli.options import CaseConfigOption, EnvFileOption, ProfileOption
+from neuralls.cli.options import CaseConfigOption, EnvFileOption, ForceOption, ProfileOption
 from neuralls.composition.config import load_case_settings, resolve_case_config_path
 from neuralls.composition.generation.process_data import process_data_from_config
 from neuralls.shared.constants import EXIT_FAILURE, SYMBOL_ERROR, SYMBOL_SUCCESS
@@ -22,10 +22,7 @@ def _resolve_case_config(case_config: Path | None) -> Path | None:
 def generate_single(
     config: Annotated[Path, typer.Argument(help="Path to a dataset config TOML.")],
     case_config: CaseConfigOption = None,
-    force: Annotated[
-        bool,
-        typer.Option("--force", "-f", help="Regenerate even if a matching dataset already exists."),
-    ] = False,
+    force: ForceOption = False,
     env_file: EnvFileOption = None,
     profile: ProfileOption = None,
 ) -> None:

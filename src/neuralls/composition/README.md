@@ -10,7 +10,7 @@ The composition package owns wiring and config-driven assembly.
 - `inference/`: inference data-loading composition helpers
 - `preconditioners/`: config-to-`torchalg` preconditioner factory wiring; one `(PreconditionerType, MatrixFormat)` table selects the dense or sparse CSR builder (Identity, Jacobi, ILU, IC0, AMG, ADAPTIVE_SA_AMG, BOOTSTRAP_AMG, NeuralAMG, Neural)
 - `solvers/`: config/workflow-to-`torchalg` solver runner adapters; `run_traced_pcg` accepts a dense ndarray or a `csr_array` and converts CSR once into a sparse CSR tensor
-- `tracking/`: tracking tag and run-spec assembly
+- `tracking/`: tracking tag and run-spec assembly; `tracking/services.py` holds the `TrackingServices` port (clients, identity stores, artifact lease managers) and the `MLFLOW_TRACKING` default
 
 ## Semantic Difference
 
@@ -57,7 +57,7 @@ its residual and energy figures (each with its card). Every run's metrics are ke
 root also holds the method figures and the figure index. `ReportSink.report_system(scope, metrics, figures)`
 takes the system's `StagedFigure`s (a `FigurePlan` plus the drawn file) so system figures carry the same cards. Postprocessing writes only
 through the `ReportSink` Protocol (`postprocessing/ports.py`); `MLflowReportSink` maps a
-scope to its run, creating a scope's ancestors first. Re-running without `--force` reuses
+scope to its run through `ScopeRunTree`, creating a scope's ancestors first, and writes nothing after `finalize()`. Re-running without `--force` reuses
 a finished report with the same tags and a valid `figure_index.toml`; a report failure never touches the compute session.
 `run` chains `report` after `compare`.
 
@@ -303,7 +303,7 @@ payloads and deciding when the logging happens.
 
 **Presentation preflight.** `assignments/presentation_preflight.py` builds each comparison's typed scientific presentation inside `comparison_prepare.py::prepare_comparison_entry`, after checkpoint resolution and before the reuse gate, the session run, or any execution. `describe_method` describes a resolved config through `composition/preconditioners/descriptions.py`; a POD-2G method becomes a `DatasetQualifiedMethodPresentation` whose dataset presentation comes from the injected `DatasetPresentationLoader` (`Path -> DatasetPresentation`; the batch runners wire `platform/storage/manifest_io.py::load_dataset_presentation`, tests pass an in-memory mapping), so the dataset appears exactly once and the assignment id never does. `prepare_comparison_presentation` runs the cohort through `domain/presentation/planner.py`, and `compose_comparison_title` yields an explicit `EditorialPresentation` or, absent one, the matrix dataset's presentation, never a registry id. Each `PreparedComparisonExecution` carries the resulting `PreparedComparisonPresentation` and title and, on construction, proves that the presentation's methods are exactly the resolved specs' names in the same order and that a scope title is the presentation's own scope. `prepare_comparison_batch` returns a `PreparedComparisonBatch` (items are the closed union `PendingComparison = ComparisonOutcome | PreparedComparisonExecution`; item `i` must be the state of planned system `i`), the only type session orchestration and `comparison_execute.py::execute_all` accept. A missing dataset provenance, a neural method without an `architecture` name, or two indistinguishable methods raises out of `prepare_comparison_batch`, so no MLflow run opens and no method executes. A neural stub made from an assignment takes its architecture name from the job registry entry's explicit `architecture`, never its `display_name` title; registry-id fallbacks do not exist anywhere (a missing `display_name` stays absent, and `effective_display_name`/`resolve_display_name` are gone).
 
-**CLI, log and summary text.** Results carry typed presentations, never display strings: `AssignmentResult.presentation` and `EvaluationRunResult.presentation` are `TrainingPresentation`s, and `ComparisonCompleted`/`ComparisonReused` carry the `NamedRun` MLflow opens for the system (`ComparisonCompleted` also carries the text `summary` the CLI logs) (`PreparedComparisonExecution.run_name`, built by `tracking/run_specs.py::comparison_run`). `ComparisonEntryFailed.run` is that `NamedRun`, or `UndescribedComparison` when the failure came before the methods and dataset resolved (no title exists yet). `composition/display.py` is the only place the CLI turns these into text (`comparison_label`, `assignment_label`, `generation_label`), so a printed line is the plain text of the run name MLflow shows. Training and evaluation batches log `render_training_label(presentation)`; the bar charts they upload label each bar with `training_legend` and the label-map JSON stores `assignment_label` beside the machine `assignment_id`. `training_presentations` rejects two assignments that render alike (`IndistinguishableTrainingError`) before any run opens. Comparison summaries (`format_results_summary`) head each line with the method's description; per-method and per-matrix log lines in `execute_method_workload` name the method and dataset by their presentations (`datasets` and `notation` are explicit arguments), and a skipped report group is named by its scope. `GenerationResult` carries the dataset's stamped presentation. The remaining id-bearing log lines (pre-title comparison preparation, checkpoint hashing, checkpoint resolution, solver algorithm names) are listed with reasons in the `cli-and-logs` scope of `tests/workflows/test_human_facing_text_contract.py`.
+**CLI, log and summary text.** Results carry typed presentations, never display strings: `AssignmentSucceeded.presentation`/`AssignmentFailed.presentation` (the closed `AssignmentResult` union) and `EvaluationRunResult.presentation` are `TrainingPresentation`s, and `ComparisonCompleted`/`ComparisonReused` carry the `NamedRun` MLflow opens for the system (`ComparisonCompleted` also carries the text `summary` the CLI logs) (`PreparedComparisonExecution.run_name`, built by `tracking/run_specs.py::comparison_run`). `ComparisonEntryFailed.run` is that `NamedRun`, or `UndescribedComparison` when the failure came before the methods and dataset resolved (no title exists yet). `composition/display.py` is the only place the CLI turns these into text (`comparison_label`, `assignment_label`, `generation_label`), so a printed line is the plain text of the run name MLflow shows. Training and evaluation batches log `render_training_label(presentation)`; the bar charts they upload label each bar with `training_legend` and the label-map JSON stores `assignment_label` beside the machine `assignment_id`. `training_presentations` rejects two assignments that render alike (`IndistinguishableTrainingError`) before any run opens. Comparison summaries (`format_results_summary`) head each line with the method's description; per-method and per-matrix log lines in `execute_method_workload` name the method and dataset by their presentations (`datasets` and `notation` are explicit arguments), and a skipped report group is named by its scope. `GenerationResult` carries the dataset's stamped presentation. The remaining id-bearing log lines (pre-title comparison preparation, checkpoint hashing, checkpoint resolution, solver algorithm names) are listed with reasons in the `cli-and-logs` scope of `tests/workflows/test_human_facing_text_contract.py`.
 
 **MLflow run naming.** `tracking/run_specs.py` builds every run spec from typed presentations and returns a `NamedRun` (never text): the session parent is `SessionRunName(summarized_session_title(titles, session_counts(planned)), timestamp)` for comparisons (`session_title` for training and evaluation), a comparison parent is `ComparisonRunName` (the comparison title plus `system_qualifier(planned)`, which adds the held-out matrix and RHS draw that tell sibling systems apart; the planner leaves an editorial display name unqualified), a method child is `MethodRunName(prepared.compact)`, and training and evaluation runs are `TrainingRunName`/`EvaluationRunName` over a `TrainingSubject`. `assignments/assignment_subjects.py::training_subject` describes what an assignment trains exactly as a comparison describes it (a `fit` job is the POD-2G basis, any other job its neural architecture, each qualified by its dataset; an explicit assignment `display_name` becomes an editorial title beside the dataset), and `training_presentations` builds all of them before the first run opens, so a missing provenance or architecture name aborts the batch. Tags keep `*_id` and `*_label` apart (`BenchmarkMethodRunTags.method_id`/`method_label`). The ad-hoc `run_inference` entry point no longer opens an MLflow run: it had no presentation to name one by.
 
@@ -624,12 +624,18 @@ no fallback to an older or differently-trained
 run: no match raises, and the comparison skips only that model (with a logged
 warning) while the rest run.
 
-Every MLflow lookup in `assignments/model_resolution.py` (registered models,
-versions, aliases, logged-run search, the identity store) goes through one
-injectable `MlflowClientFactory` taken by `resolve_model_ref` and
-`resolve_preconditioner_models*`; batch entry points rely on the default (the
-real `MlflowClient`). The helper lookups take the resulting client, not a
-tracking URI.
+Composition never constructs MLflow objects: every client, identity store and
+artifact lease manager comes from one injected `TrackingServices`
+(`tracking/services.py`, implemented by `platform/tracking/services.py::MlflowTrackingServices`).
+The CLI passes `MLFLOW_TRACKING` explicitly to each batch entry point
+(`run_assignment_sweep`, `eval_batch`, `run_comparison_batch`,
+`run_comparison_report`, `run_case_pipeline`); tests substitute a services object
+built over a fake client factory. Every MLflow lookup in
+`assignments/model_resolution.py` (registered models, versions, aliases, logged-run
+search, the identity store) goes through the `tracking` taken by `resolve_model_ref`
+and `resolve_preconditioner_models*`. `identity/gate.py::reuse_lookup` is the one
+helper that builds an experiment's identity store and runs the reuse decision on it.
+The helper lookups take the resulting client, not a tracking URI.
 
 Comparison model resolution treats one resolved MLflow `run_id` as the hard
 boundary for checkpoint discovery — but that scan-and-select contract applies
@@ -711,8 +717,9 @@ itself — it only resolves the already-generated dataset's directory
 constraint, not just tidiness: it's what makes stage 1 the single place
 dataset generation happens, so `neuralls train`'s original "assumes data
 already generated" contract holds whether you call it standalone or through
-`run`. Each stage keeps its own independent `force_generate`/`force_train`/
-`force_compare` flag and its own MLflow-backed reuse check.
+`run`. Each stage keeps its own independent force switch (the frozen
+`ForcePolicy` of `generate`/`train`/`compare`/`expand`, resolved once at the CLI from
+the blanket `--force` and the per-stage flags) and its own MLflow-backed reuse check.
 
 Three reuse checks compose into one cascade, so rerunning `run` after any
 change only redoes the affected work:
@@ -724,7 +731,7 @@ change only redoes the affected work:
    regeneration iff the manifest's `identity_key` equals that key *and*
    `platform.storage.dataset_digest.current_dataset_digest` equals the manifest's
    `content_digest` (O(1) while the stat snapshot is unchanged; re-hashes the
-   logical arrays after a copy), unless `force_generate=True`
+   logical arrays after a copy), unless `ForcePolicy.generate` is set
    (`generation/dataset_builder.py::is_dataset_reusable`). A fresh write stamps
    `identity_key`, `identity_components`, `content_digest` and `stat_digest`
    into the manifest as its last step; a manifest without `identity_key`

@@ -9,6 +9,7 @@ from pydantic import Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from neuralls.platform.config import resolution
+from neuralls.platform.config.profile import load_profile
 from neuralls.platform.config.resolution import (
     resolve_case_config_path,
     resolve_env_file_path,
@@ -150,8 +151,6 @@ def load_case_settings(
     Returns:
         A fully resolved and validated NeurallsSettings instance.
     """
-    from neuralls.platform.config.profile import load_profile
-
     env_file_path = resolve_env_file_path(env_file)
     profile_config = load_profile(profile)
     profile_values = profile_config.to_root_mapping() if profile_config else {}

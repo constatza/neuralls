@@ -38,8 +38,8 @@ from neuralls.domain.solver.models.workload import (
     IncompleteWorkloadSummary,
 )
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
+from neuralls.platform.config.models.coarsening import AggregationCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
-    AggregationCoarseningConfig,
     AMGPreconditionerConfig,
     NeuralPreconditionerConfig,
 )

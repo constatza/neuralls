@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import gzip
 import io
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
 
@@ -23,15 +23,13 @@ import numpy as np
 from scipy.io import mmread
 from scipy.sparse import csr_array, load_npz
 
-from neuralls.shared.types import SystemMatrix
+from neuralls.shared.types import MatrixReader, SystemMatrix
 
 NPY_SUFFIX = ".npy"
 TXT_SUFFIX = ".txt"
 NPZ_SUFFIX = ".npz"
 MTX_SUFFIX = ".mtx"
 MTX_GZ_SUFFIX = ".mtx.gz"
-
-type MatrixReader = Callable[[Path], SystemMatrix]
 
 
 def _read_npy(path: Path) -> np.ndarray:

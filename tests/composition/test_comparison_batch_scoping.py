@@ -457,6 +457,7 @@ def test_every_entry_of_a_sweep_shares_the_one_lease_manager(
         case_config_path=MagicMock(),
         settings=MagicMock(),
         load_dataset=NO_DATASET_READS,
+        tracking=MagicMock(),
         artifact_leases=shared_leases,
     )
 

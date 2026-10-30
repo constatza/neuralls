@@ -31,6 +31,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import assert_never
 
 from dlkit.common import ChildFailure, ChildPlannedEvent, ChildSuccess, LifecycleHooks
 from dlkit.common.results import OptimizationResult
@@ -40,7 +41,12 @@ from dlkit.interfaces.api import run_multirun_spec
 from loguru import logger
 from torchalg.utils.device import resolve_device
 
-from neuralls.application.models import AssignmentResult, AssignmentSweepResult
+from neuralls.application.models import (
+    AssignmentFailed,
+    AssignmentResult,
+    AssignmentSucceeded,
+    AssignmentSweepResult,
+)
 from neuralls.composition.assignments.assembler import (
     AssignmentIdentity,
     load_assignment_batch,
@@ -57,9 +63,11 @@ from neuralls.composition.assignments.training import (
     prepare_training_settings,
     to_run_spec,
 )
-from neuralls.composition.identity.gate import gate_reuse
+from neuralls.composition.identity.gate import reuse_lookup
 from neuralls.composition.identity.training import dataset_unchanged_since, training_identity
 from neuralls.composition.tracking.run_specs import build_session_run_spec
+from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
+from neuralls.domain.identity import Reused
 from neuralls.domain.presentation.run_names import TrainingPresentation, training_dataset
 from neuralls.domain.presentation.titles import ComparisonScopePresentation, session_title
 from neuralls.platform.config.loaders import load_data_config
@@ -81,7 +89,6 @@ from neuralls.platform.tracking.mlflow_client import (
     log_metric_to_run,
     mark_run_failed,
 )
-from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
 from neuralls.platform.tracking.run_names import render_training_label, run_name_text
 from neuralls.shared.constants import (
     TRAINING_CHILD_DURATION_METRIC_KEY,
@@ -104,6 +111,7 @@ def run_assignment(
     presentation: TrainingPresentation,
     mlflow_experiment_name: str | None = None,
     tracking_uri: str | None = None,
+    tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> AssignmentResult | PreparedTraining:
     """Reuse-check one assignment's already-generated dataset and prepare it for the sweep.
 
@@ -129,10 +137,11 @@ def run_assignment(
         force: If True, retrain even if a completed run already exists. If False, reuse it.
         presentation: What the assignment trains; its run name and labels are rendered from it.
         tracking_uri: MLflow tracking URI used to check for a prior completed run.
+        tracking: Source of the reuse lookup.
 
     Returns:
-        An `AssignmentResult` with status='Success' (a completed MLflow run already
-        exists and `force=False`) or status='Failed' (the dataset was never
+        An `AssignmentSucceeded` (a completed MLflow run already
+        exists and `force=False`) or an `AssignmentFailed` (the dataset was never
         generated, the reuse check, or dlkit settings preparation raised).
         Otherwise a `PreparedTraining` ready to become one child of the
         training sweep in `run_assignment_sweep()`.
@@ -148,7 +157,7 @@ def run_assignment(
         ...     output_root=Path("output"),
         ...     force=False,
         ... )
-        >>> isinstance(outcome, AssignmentResult) and outcome.status
+        >>> isinstance(outcome, AssignmentSucceeded) and outcome.status
         'Success'
     """
     assignment_id = spec.assignment_id
@@ -191,27 +200,30 @@ def run_assignment(
         existing = (
             None
             if mlflow_experiment_name is None or tracking_uri is None
-            else gate_reuse(
-                MlflowIdentityStore(
-                    tracking_uri=tracking_uri,
-                    experiment=mlflow_experiment_name,
-                    require_checkpoint=True,
-                ),
-                identity,
+            else reuse_lookup(
+                tracking,
+                tracking_uri=tracking_uri,
+                experiment=mlflow_experiment_name,
+                identity=identity,
                 force=force,
                 label=assignment_id,
+                require_checkpoint=True,
             )
         )
 
         # Step 3: Skip training if a completed run already exists; otherwise resolve
         # this assignment's dlkit settings so the caller can add it to the sweep.
-        if existing is not None:
-            return AssignmentResult(
-                assignment_id=assignment_id,
-                presentation=presentation,
-                status="Success",
-                mlflow_run_id=existing.run_id,
-            )
+        match existing:
+            case Reused(run_id=str() as reused_run_id):
+                return AssignmentSucceeded(
+                    assignment_id=assignment_id,
+                    presentation=presentation,
+                    mlflow_run_id=reused_run_id,
+                )
+            case Reused(run_id=None):
+                raise RuntimeError("The reusable training run carries no MLflow run id.")
+            case None:
+                pass
 
         return prepare_training_settings(
             config_path=spec.job_config_path,
@@ -229,10 +241,9 @@ def run_assignment(
         # errors, e.g. a leaked MLflow run from a prior search job) must never
         # abort the rest of the batch.
         logger.error("{} failed: {}", render_training_label(presentation), exc)
-        return AssignmentResult(
+        return AssignmentFailed(
             assignment_id=assignment_id,
             presentation=presentation,
-            status="Failed",
             error=str(exc),
         )
 
@@ -242,10 +253,11 @@ def _finalize_assignment_child(
     prepared: PreparedTraining,
     execution_result: DlkitTrainingResult | OptimizationResult,
     settings: NeurallsSettings,
+    tracking: TrackingServices,
 ) -> AssignmentResult:
     """Finalize one successful multirun child: make its checkpoint durable in MLflow.
 
-    Converts a durability failure into a Failed `AssignmentResult` rather than
+    Converts a durability failure into a `AssignmentFailed` rather than
     raising — mirrors `run_assignment()`'s original per-assignment failure
     isolation, which used to cover the full train+finalize path via `train_model()`.
     This also catches `finalize_prepared_training`'s `WorkflowError` when a
@@ -260,11 +272,11 @@ def _finalize_assignment_child(
         settings: Runtime settings, used to re-verify the dataset is unchanged.
 
     Returns:
-        `AssignmentResult` with status='Success' or 'Failed'.
+        `AssignmentSucceeded` or `AssignmentFailed`.
     """
     spec = prepared.assignment.spec
     try:
-        coords = finalize_prepared_training(prepared, execution_result)
+        coords = finalize_prepared_training(prepared, execution_result, tracking)
         if not dataset_unchanged_since(prepared.run_config.tags, spec.data_config_path, settings):
             mark_run_failed(run_id=coords.run_id, tracking_uri=coords.tracking_uri)
             raise RuntimeError(
@@ -273,17 +285,15 @@ def _finalize_assignment_child(
             )
     except Exception as exc:  # noqa: BLE001
         logger.error("{} failed: {}", render_training_label(prepared.presentation), exc)
-        return AssignmentResult(
+        return AssignmentFailed(
             assignment_id=spec.assignment_id,
             presentation=prepared.presentation,
-            status="Failed",
             error=str(exc),
         )
     logger.info(f"Training complete: run {coords.run_id}")
-    return AssignmentResult(
+    return AssignmentSucceeded(
         assignment_id=spec.assignment_id,
         presentation=prepared.presentation,
-        status="Success",
         mlflow_run_id=coords.run_id,
     )
 
@@ -357,6 +367,7 @@ def run_assignment_sweep(
     settings: NeurallsSettings | None = None,
     *,
     force: bool = False,
+    tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> AssignmentSweepResult:
     """Run training for every assignment defined in one case config.
 
@@ -373,6 +384,7 @@ def run_assignment_sweep(
     Args:
         case_config_path: Path to a case config defining all assignments
         force: If True, retrain all models even if a completed run already exists
+        tracking: Source of the reuse lookups, clients and lease managers.
 
     Returns:
         `AssignmentSweepResult` with one `AssignmentResult` per assignment
@@ -457,15 +469,19 @@ def run_assignment_sweep(
                 presentation=presentations[spec.assignment_id],
                 mlflow_experiment_name=mlflow_experiment_name,
                 tracking_uri=training_mlflow_env.tracking_uri,
+                tracking=tracking,
             )
             match outcome:
                 case PreparedTraining():
                     prepared_by_child_id[spec.assignment_id] = outcome
                     run_specs.append(to_run_spec(outcome))
-                case AssignmentResult():
+                case AssignmentSucceeded():
                     results_by_id[spec.assignment_id] = outcome
-                    if not outcome.is_success:
-                        any_failed = True
+                case AssignmentFailed():
+                    results_by_id[spec.assignment_id] = outcome
+                    any_failed = True
+                case _ as unreachable:
+                    assert_never(unreachable)
 
         # Phase 2: Dispatch every assignment that needs training as one sweep.
         sweep_result = None
@@ -494,6 +510,7 @@ def run_assignment_sweep(
                                 prepared=prepared,
                                 execution_result=child_outcome.result,
                                 settings=settings,
+                                tracking=tracking,
                             )
                             results_by_id[child_outcome.child_id] = result
                             if not result.is_success:
@@ -505,10 +522,9 @@ def run_assignment_sweep(
                                 render_training_label(prepared.presentation),
                                 child_outcome.message,
                             )
-                            results_by_id[child_outcome.child_id] = AssignmentResult(
+                            results_by_id[child_outcome.child_id] = AssignmentFailed(
                                 assignment_id=child_outcome.child_id,
                                 presentation=prepared.presentation,
-                                status="Failed",
                                 error=child_outcome.message,
                             )
                 finally:

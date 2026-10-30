@@ -27,6 +27,7 @@ from neuralls.composition.comparison.postprocessing.report_inputs import (
     report_inputs,
 )
 from neuralls.composition.comparison.postprocessing.system_figures import write_system_figures
+from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
 from neuralls.domain.solver.models.benchmark_events import SolveConverged
 from neuralls.domain.solver.models.report_scope import System
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
@@ -40,6 +41,7 @@ from neuralls.platform.tracking.metrics_logging import (
 from neuralls.platform.tracking.mlflow import quote_filter_value
 from neuralls.platform.tracking.report_run import root_report_run
 from neuralls.platform.tracking.report_sink import MLflowReportSink
+from neuralls.platform.tracking.scope_run_tree import MlflowRunTree
 from neuralls.platform.tracking.session_artifacts import (
     REPORT_PHASE,
     download_session_methods,
@@ -50,7 +52,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import SessionRunId, SystemId
 from neuralls.shared.workflow_failures import ComparisonBatchFailureContext, ComparisonBatchPhase
 
-REPORT_SCHEMA_VERSION = "3"
+REPORT_SCHEMA_VERSION = "4"
 NOTATION_DIGEST_LENGTH = 8
 
 
@@ -80,13 +82,14 @@ def run_comparison_report(
     force: bool = False,
     session_run_id: SessionRunId | None = None,
     settings: NeurallsSettings | None = None,
+    tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> ComparisonReportOutcome:
     """Render the newest (or the named) comparison session of a case config into a report run."""
     settings = require_settings(settings, case_config_path=case_config_path)
     master_cfg, _ = load_master_config(case_config_path, settings)
     topology = resolve_comparison_topology(case_config_path, settings)
     notation = case_notation(master_cfg)
-    client = MlflowClient(tracking_uri=topology.tracking_uri)
+    client = tracking.client(topology.tracking_uri)
     session = session_run_id or latest_session_run_id(
         client, topology.experiment_name, case_config_path.resolve().as_posix()
     )
@@ -123,7 +126,11 @@ def run_comparison_report(
             },
         ) as report_run_id:
             sink = MLflowReportSink(
-                notation, session, methods=inputs.stored.methods, datasets=inputs.datasets
+                notation,
+                session,
+                MlflowRunTree(client),
+                methods=inputs.stored.methods,
+                datasets=inputs.datasets,
             )
             with failure_boundary(
                 failure_sink,

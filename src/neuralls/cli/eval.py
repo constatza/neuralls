@@ -11,6 +11,7 @@ from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ProfileOptio
 from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.composition.assignments.evaluation import eval_batch, write_eval_metric_report
 from neuralls.composition.config import load_case_settings
+from neuralls.composition.tracking.services import MLFLOW_TRACKING
 from neuralls.shared.constants import EXIT_FAILURE
 
 
@@ -50,6 +51,7 @@ def eval_case_batch(
             output_root=output_dir,
             case_config_path=config.resolve(),
             assignment_ids=assignment,
+            tracking=MLFLOW_TRACKING,
         )
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         typer.echo(f"Error during batch evaluation: {exc}", err=True)

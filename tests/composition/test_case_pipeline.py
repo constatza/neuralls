@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from neuralls.application.models import AssignmentSweepResult
-from neuralls.composition.assignments.case_pipeline import run_case_pipeline
+from neuralls.composition.assignments.case_pipeline import ForcePolicy, run_case_pipeline
 from neuralls.composition.comparison.models import ComparisonParams
 
 CASE_CONFIG_PATH = Path("/workspace/case.toml")
@@ -131,9 +131,7 @@ def test_threads_force_flags_to_each_stage() -> None:
         run_case_pipeline(
             case_config_path,
             settings,
-            force_generate=True,
-            force_train=True,
-            force_compare=True,
+            force=ForcePolicy(generate=True, train=True, compare=True),
         )
 
     assert mocks.generate.call_args.kwargs["force"] is True
@@ -177,7 +175,7 @@ def test_run_case_pipeline_calls_generate_batch_as_an_explicit_stage() -> None:
             ),
         ),
     ):
-        run_case_pipeline(case_config_path, settings, force_generate=True)
+        run_case_pipeline(case_config_path, settings, force=ForcePolicy(generate=True))
 
     assert call_order == ["generate", "sweep"]
     assert mock_generate.call_args.kwargs.get("force") is True

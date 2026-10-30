@@ -14,7 +14,6 @@ from dlkit.infrastructure.config.job_config import (
     TrainingJobConfig,
 )
 from loguru import logger
-from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments._job_types import AnyJobConfig
 from neuralls.composition.assignments.assembler import load_validated_case_config
@@ -33,8 +32,13 @@ from neuralls.composition.assignments.presentation_preflight import (
     DatasetPresentationLoader,
 )
 from neuralls.composition.identity.training import training_identity
+from neuralls.composition.tracking.services import TrackingServices
 from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.loaders import load_data_config
+from neuralls.platform.config.models.checkpoint_refs import (
+    CheckpointRefBearing,
+    NeuralCheckpointRef,
+)
 from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
 from neuralls.platform.config.models.experiments import (
@@ -42,21 +46,13 @@ from neuralls.platform.config.models.experiments import (
     CaseConfig,
 )
 from neuralls.platform.config.models.preconditioner import (
-    CheckpointRefBearing,
-    NeuralCheckpointRef,
     NeuralPreconditionerConfig,
     PreconditionerConfig,
 )
 from neuralls.platform.config.registry import get_assignment_binding
 from neuralls.platform.config.settings import NeurallsSettings
-from neuralls.platform.tracking.artifact_access import (
-    ArtifactLeaseManager,
-    MlflowArtifactLeaseManager,
-)
+from neuralls.platform.tracking.artifact_access import ArtifactLeaseManager
 from neuralls.platform.tracking.extra_features import fetch_extra_feature_names
-from neuralls.platform.tracking.mlflow_store import (
-    MlflowIdentityStore,
-)
 from neuralls.platform.tracking.model_registry import build_registered_model_name
 from neuralls.shared.digest import Digest, content_digest
 from neuralls.shared.errors import StageInputsStale
@@ -237,7 +233,11 @@ def _resolve_assignment_job_context(
 
 
 def _extra_input_names_of_training_run(
-    context: _AssignmentJobContext, *, experiment: str, client: MlflowClient
+    context: _AssignmentJobContext,
+    *,
+    experiment: str,
+    tracking: TrackingServices,
+    tracking_uri: str,
 ) -> tuple[str, ...]:
     """Read extra input names from the very run strict resolution will select.
 
@@ -246,19 +246,20 @@ def _extra_input_names_of_training_run(
     """
     if context.training is None:
         return ()
-    reused = MlflowIdentityStore(
-        tracking_uri=client.tracking_uri, experiment=experiment, require_checkpoint=True
+    reused = tracking.identity_store(
+        tracking_uri=tracking_uri, experiment=experiment, require_checkpoint=True
     ).find(context.training)
     if reused is None or reused.run_id is None:
         return ()
-    return fetch_extra_feature_names(reused.run_id, client=client)
+    return fetch_extra_feature_names(reused.run_id, client=tracking.client(tracking_uri))
 
 
 def neural_specs_from_assignments(
     entries: Sequence[AssignmentEntry],
     claimed_ids: set[str],
     *,
-    client: MlflowClient,
+    tracking: TrackingServices,
+    tracking_uri: str,
     cfg: CaseConfig,
     config_dir: Path,
     settings: NeurallsSettings,
@@ -280,7 +281,8 @@ def neural_specs_from_assignments(
     Args:
         entries: Assignment entries to convert.
         claimed_ids: Assignment ids already covered by explicit preconditioners.
-        client: Configured MLflow client used to look up training run tags.
+        tracking: Source of the clients and reuse lookups for the training runs.
+        tracking_uri: Tracking store holding the training runs.
         cfg: The assignments' owning case config, for job/dataset resolution.
         config_dir: Directory `cfg`'s registry paths resolve relative to.
         settings: Runtime settings used to load each assignment's job/dataset config.
@@ -305,7 +307,10 @@ def neural_specs_from_assignments(
                     neural_spec_from_assignment(
                         entry,
                         extra_input_names=_extra_input_names_of_training_run(
-                            context, experiment=cfg.names.training, client=client
+                            context,
+                            experiment=cfg.names.training,
+                            tracking=tracking,
+                            tracking_uri=tracking_uri,
                         ),
                         architecture=context.architecture,
                     )
@@ -326,6 +331,7 @@ class ComparisonResolutionContext:
     their own loose parameters.
 
     Attributes:
+        tracking: Source of the lease managers and reuse lookups of this resolution.
         load_dataset: Reads a dataset's presentation from its directory, so scope and
             POD-2G method descriptions never touch a manifest directly.
         master_cfg: The already-loaded case config, when the caller has one
@@ -345,8 +351,9 @@ class ComparisonResolutionContext:
     case_config_path: Path
     settings: NeurallsSettings
     load_dataset: DatasetPresentationLoader
+    tracking: TrackingServices
     master_cfg: CaseConfig | None = None
-    artifact_leases: MlflowArtifactLeaseManager | None = None
+    artifact_leases: ArtifactLeaseManager | None = None
     reuse_comparisons: bool = True
 
 

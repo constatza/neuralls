@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import assert_never
 
-from neuralls.domain.benchmarking.costs import amortized_online_seconds, solve_seconds
+from neuralls.domain.benchmarking.costs import Cost, amortized_online_seconds, solve_seconds
 from neuralls.domain.benchmarking.selection import (
     ConfiguredReference,
 )
@@ -21,8 +21,10 @@ from neuralls.domain.solver.models.statistics import MethodComparison, PairedCom
 from neuralls.platform.reporting.figure_metadata import (
     FigureKind,
     FigurePlan,
+    GroupFigureMetadata,
     TimingScenario,
 )
+from neuralls.platform.reporting.figure_planning import GroupReport
 from neuralls.platform.reporting.figure_text import (
     method_legend,
 )
@@ -67,12 +69,8 @@ class GroupStyler:
         )
 
 
-def _plan_for(
-    plans: Sequence[FigurePlan], kind: FigureKind, scenario: TimingScenario | None = None
-) -> FigurePlan:
-    return next(
-        plan for plan in plans if plan.metadata.kind is kind and plan.metadata.scenario is scenario
-    )
+type GroupDrawer = Callable[[GroupReport, GroupStyle, Path], Path | None]
+"""Draws one group figure of an outcome into a path; ``None`` when the data cannot support it."""
 
 
 def _paired_by_method(
@@ -82,144 +80,107 @@ def _paired_by_method(
     return {name: comparison.paired for name, comparison in comparisons.items()}
 
 
-def _write_profile_plots(
-    outcome: RecipeProfileReport,
-    styler: GroupStyler,
-    directory: Path,
-    plans: Sequence[FigurePlan],
-) -> list[Path | None]:
-    """Draw fine-only iteration and separate solve/online time profiles."""
-    performance_solve = _plan_for(plans, FigureKind.PERFORMANCE_PROFILE, TimingScenario.SOLVE)
-    performance_online = _plan_for(plans, FigureKind.PERFORMANCE_PROFILE, TimingScenario.ONLINE)
-    ecdf_iterations = _plan_for(plans, FigureKind.ECDF_ITERATIONS)
-    ecdf_solve = _plan_for(plans, FigureKind.ECDF_TIME, TimingScenario.SOLVE)
-    ecdf_online = _plan_for(plans, FigureKind.ECDF_TIME, TimingScenario.ONLINE)
-    return [
-        plot_performance_profile(
-            outcome.outcomes,
-            style=styler.style(performance_solve),
-            cost=solve_seconds,
-            save_path=directory / performance_solve.filename,
-        ),
-        plot_performance_profile(
-            outcome.outcomes,
-            style=styler.style(performance_online),
-            cost=amortized_online_seconds,
-            save_path=directory / performance_online.filename,
-        ),
-        plot_ecdf_profile(
-            outcome.outcomes,
-            style=styler.style(ecdf_iterations),
-            save_path=directory / ecdf_iterations.filename,
-        ),
-        plot_ecdf_profile(
-            outcome.outcomes,
-            style=styler.style(ecdf_solve),
-            cost=solve_seconds,
-            xlabel="Solve time per system [s]",
-            save_path=directory / ecdf_solve.filename,
-        ),
-        plot_ecdf_profile(
-            outcome.outcomes,
-            style=styler.style(ecdf_online),
-            cost=amortized_online_seconds,
-            xlabel="Amortized online time per system [s]",
-            save_path=directory / ecdf_online.filename,
-        ),
-    ]
+def _profile_only(
+    draw: Callable[[RecipeProfileReport, GroupStyle, Path], Path | None],
+) -> GroupDrawer:
+    """Adapt a drawer of per-system outcomes; workload mixtures have none to draw."""
+
+    def drawer(outcome: GroupReport, style: GroupStyle, path: Path) -> Path | None:
+        match outcome:
+            case RecipeProfileReport():
+                return draw(outcome, style, path)
+            case WorkloadMixtureReport():
+                return None
+            case unreachable:
+                assert_never(unreachable)
+
+    return drawer
 
 
-def _write_system_plots(
-    outcome: RecipeProfileReport,
-    styler: GroupStyler,
-    directory: Path,
-    plans: Sequence[FigurePlan],
-) -> list[Path | None]:
-    """Draw setup-aware timing bars, paired timing, and ratio plots."""
-    paired_plan = _plan_for(plans, FigureKind.PAIRED_TIME, TimingScenario.ONLINE)
-    solve_plan = _plan_for(plans, FigureKind.SOLVE_TIME, TimingScenario.SOLVE)
-    online_plan = _plan_for(plans, FigureKind.ONLINE_TIME, TimingScenario.ONLINE)
-    ratio_plan = _plan_for(plans, FigureKind.SPEED_RATIO, TimingScenario.ONLINE)
-    paired = (
-        plot_paired_time_scatter(
-            outcome.outcomes,
-            reference=outcome.reference_selection,
-            style=styler.style(paired_plan),
-            save_path=directory / paired_plan.filename,
+def _time_bars(scenario: TimingScenario) -> GroupDrawer:
+    def drawer(outcome: GroupReport, style: GroupStyle, path: Path) -> Path | None:
+        return plot_online_time_bars(
+            outcome.summaries, scenario=scenario.value, style=style, save_path=path
         )
-        if isinstance(outcome.reference_selection, ConfiguredReference)
-        else None
+
+    return drawer
+
+
+def _performance_profile(cost: Cost) -> GroupDrawer:
+    return _profile_only(
+        lambda outcome, style, path: plot_performance_profile(
+            outcome.outcomes, style=style, cost=cost, save_path=path
+        )
     )
-    plots: list[Path | None] = [
-        plot_online_time_bars(
-            outcome.summaries,
-            scenario="solve",
-            style=styler.style(solve_plan),
-            save_path=directory / solve_plan.filename,
-        ),
-        plot_online_time_bars(
-            outcome.summaries,
-            scenario="online",
-            style=styler.style(online_plan),
-            save_path=directory / online_plan.filename,
-        ),
-        paired,
-        plot_speed_ratio_cdf(
-            _paired_by_method(outcome.comparisons),
-            style=styler.style(ratio_plan),
-            reference_name=outcome.reference_selection.name
-            if isinstance(outcome.reference_selection, ConfiguredReference)
-            else None,
-            save_path=directory / ratio_plan.filename,
-        ),
-    ]
-    return plots
+
+
+def _ecdf_time(cost: Cost, xlabel: str) -> GroupDrawer:
+    return _profile_only(
+        lambda outcome, style, path: plot_ecdf_profile(
+            outcome.outcomes, style=style, cost=cost, xlabel=xlabel, save_path=path
+        )
+    )
+
+
+def _aggregate_bars(outcome: GroupReport, style: GroupStyle, path: Path) -> Path | None:
+    return plot_aggregate_bars(outcome, style=style, save_path=path)
+
+
+def _paired_scatter(outcome: RecipeProfileReport, style: GroupStyle, path: Path) -> Path | None:
+    reference = outcome.reference_selection
+    if not isinstance(reference, ConfiguredReference):
+        return None
+    return plot_paired_time_scatter(
+        outcome.outcomes, reference=reference, style=style, save_path=path
+    )
+
+
+def _speed_ratio(outcome: RecipeProfileReport, style: GroupStyle, path: Path) -> Path | None:
+    reference = outcome.reference_selection
+    return plot_speed_ratio_cdf(
+        _paired_by_method(outcome.comparisons),
+        style=style,
+        reference_name=reference.name if isinstance(reference, ConfiguredReference) else None,
+        save_path=path,
+    )
+
+
+GROUP_DRAWERS: Mapping[tuple[FigureKind, TimingScenario | None], GroupDrawer] = {
+    (FigureKind.AGGREGATE_BARS, None): _aggregate_bars,
+    (FigureKind.SOLVE_TIME, TimingScenario.SOLVE): _time_bars(TimingScenario.SOLVE),
+    (FigureKind.ONLINE_TIME, TimingScenario.ONLINE): _time_bars(TimingScenario.ONLINE),
+    (FigureKind.PAIRED_TIME, TimingScenario.ONLINE): _profile_only(_paired_scatter),
+    (FigureKind.SPEED_RATIO, TimingScenario.ONLINE): _profile_only(_speed_ratio),
+    (FigureKind.PERFORMANCE_PROFILE, TimingScenario.SOLVE): _performance_profile(solve_seconds),
+    (FigureKind.PERFORMANCE_PROFILE, TimingScenario.ONLINE): _performance_profile(
+        amortized_online_seconds
+    ),
+    (FigureKind.ECDF_ITERATIONS, None): _profile_only(
+        lambda outcome, style, path: plot_ecdf_profile(
+            outcome.outcomes, style=style, save_path=path
+        )
+    ),
+    (FigureKind.ECDF_TIME, TimingScenario.SOLVE): _ecdf_time(
+        solve_seconds, "Solve time per system [s]"
+    ),
+    (FigureKind.ECDF_TIME, TimingScenario.ONLINE): _ecdf_time(
+        amortized_online_seconds, "Amortized online time per system [s]"
+    ),
+}
+"""One drawer per group figure, keyed by the kind and timing scenario a plan records."""
 
 
 def write_outcome_plots(
-    outcome: RecipeProfileReport | WorkloadMixtureReport,
+    outcome: GroupReport,
     styler: GroupStyler,
     directory: Path,
-    plans: Sequence[FigurePlan],
+    plans: Sequence[FigurePlan[GroupFigureMetadata]],
 ) -> tuple[Path, ...]:
-    """Draw plots allowed by the typed report variant."""
-    match outcome:
-        case RecipeProfileReport():
-            aggregate_plan = _plan_for(plans, FigureKind.AGGREGATE_BARS)
-            aggregate = plot_aggregate_bars(
-                outcome,
-                style=styler.style(aggregate_plan),
-                save_path=directory / aggregate_plan.filename,
-            )
-            drawn = [
-                aggregate,
-                *_write_system_plots(outcome, styler, directory, plans),
-                *_write_profile_plots(outcome, styler, directory, plans),
-            ]
-        case WorkloadMixtureReport():
-            aggregate_plan = _plan_for(plans, FigureKind.AGGREGATE_BARS)
-            solve_plan = _plan_for(plans, FigureKind.SOLVE_TIME, TimingScenario.SOLVE)
-            online_plan = _plan_for(plans, FigureKind.ONLINE_TIME, TimingScenario.ONLINE)
-            aggregate = plot_aggregate_bars(
-                outcome,
-                style=styler.style(aggregate_plan),
-                save_path=directory / aggregate_plan.filename,
-            )
-            drawn = [
-                aggregate,
-                plot_online_time_bars(
-                    outcome.summaries,
-                    scenario="solve",
-                    style=styler.style(solve_plan),
-                    save_path=directory / solve_plan.filename,
-                ),
-                plot_online_time_bars(
-                    outcome.summaries,
-                    scenario="online",
-                    style=styler.style(online_plan),
-                    save_path=directory / online_plan.filename,
-                ),
-            ]
-        case _ as unreachable:
-            assert_never(unreachable)
+    """Draw every planned figure the outcome's data supports, in plan order."""
+    drawn = (
+        GROUP_DRAWERS[plan.metadata.kind, plan.metadata.scenario](
+            outcome, styler.style(plan), directory / plan.filename
+        )
+        for plan in plans
+    )
     return tuple(path for path in drawn if path is not None)

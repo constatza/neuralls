@@ -27,7 +27,7 @@ from neuralls.platform.config.models.preconditioner_family import (
     preconditioner_family,
 )
 from neuralls.platform.reporting.stored_benchmark import StoredBenchmark, StoredMethod
-from neuralls.shared.types import DatasetId, PreconditionerName, SystemId
+from neuralls.shared.types import DatasetId, PreconditionerName, RunId, SystemId
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +35,7 @@ class ReportedMethod:
     """One method's events and presentation as the report levels consume them."""
 
     method: PreconditionerName
-    run_id: str
+    run_id: RunId
     config_digest: str
     planned: tuple[SystemTag, ...]
     setup_events: tuple[MatrixSetupEvent, ...]

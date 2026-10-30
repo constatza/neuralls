@@ -10,6 +10,7 @@ from typing import Literal
 
 import numpy as np
 from loguru import logger
+from scipy.sparse.linalg import cg as scipy_cg
 
 from .matrix_operator import MatrixOperator
 
@@ -42,8 +43,6 @@ def _solve_cg_rows(
     operator: MatrixOperator, rhs_array: np.ndarray, options: _SolveOptions
 ) -> np.ndarray:
     """Iterative CG per RHS row; warns on non-convergence."""
-    from scipy.sparse.linalg import cg as scipy_cg
-
     solutions = np.zeros(rhs_array.shape, dtype=np.float64)
     for idx, rhs in enumerate(rhs_array):
         solution, exit_code = scipy_cg(

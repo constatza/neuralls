@@ -5,8 +5,8 @@ The application package holds use-case logic only.
 ## Package Map
 
 - `inference/prediction.py`: batch prediction execution over prepared inference data through a domain-owned inference predictor port
-- `inference/models.py`: `InferenceConfig` and `InferenceData` DTOs
-- `models.py`: `AssignmentResult` (carries the assignment's typed `TrainingPresentation`; sinks render its text) and `TaskResult` reporting DTOs
+- `inference/models.py`: `InferenceConfig` and `InferenceData` DTOs (`InferenceData.source` is a `DataSource`)
+- `models.py`: `AssignmentResult` (the closed union `AssignmentSucceeded | AssignmentFailed`: a success always holds its `mlflow_run_id`, a failure always holds its `error`; both carry the assignment's typed `TrainingPresentation`, and sinks render its text) and `TaskResult` (`TaskSucceeded | TaskFailed`) reporting DTOs
 
 Comparison logic lives directly in `domain/solver/comparison.py` and is called
 from `composition/comparison/`; there is no application-layer redirect for it.

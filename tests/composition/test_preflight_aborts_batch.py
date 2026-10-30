@@ -32,11 +32,11 @@ from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.domain.presentation.methods import DuplicateMethodPresentationError
 from neuralls.domain.presentation.provenance import DatasetSourceProvenance
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
+from neuralls.platform.config.models.checkpoint_refs import TrainedAssignmentRefConfig
 from neuralls.platform.config.models.experiments import CaseConfig
 from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     PreconditionerConfig,
-    TrainedAssignmentRefConfig,
 )
 from neuralls.platform.storage.manifest import MissingDatasetProvenanceError
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
@@ -183,6 +183,7 @@ def _scope_of(tmp_path: Path, cfg: CaseConfig, case_path: Path) -> ComparisonSco
         case_config_path=case_path,
         settings=make_settings(tmp_path),
         load_dataset=load_dataset_presentation,
+        tracking=MagicMock(),
         master_cfg=cfg,
     )
     return matrix_scope(_planned(), context)

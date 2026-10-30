@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -12,52 +13,106 @@ type AssignmentStatus = Literal["Success", "Failed"]
 
 
 @dataclass(frozen=True, slots=True)
-class TaskResult:
-    """Outcome of a single task execution (e.g., training, prediction).
+class TaskSucceeded:
+    """A task that finished (e.g., training, prediction).
 
     Args:
         name: Task name.
         artifacts: Paths to produced artifacts.
         metrics: Computed metrics.
-        success: Whether the task succeeded.
-        error: Error message if failed.
     """
 
     name: str
-    artifacts: list[Path] = field(default_factory=list)
-    metrics: dict[str, float] = field(default_factory=dict)
-    success: bool = True
-    error: str | None = None
+    artifacts: tuple[Path, ...] = ()
+    metrics: Mapping[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
-class AssignmentResult:
-    """Final comprehensive report for a single assignment.
+class TaskFailed:
+    """A task that failed.
+
+    Args:
+        name: Task name.
+        error: Why it failed.
+    """
+
+    name: str
+    error: str
+
+
+type TaskResult = TaskSucceeded | TaskFailed
+"""The closed set of outcomes of a single task execution."""
+
+
+@dataclass(frozen=True, slots=True)
+class AssignmentSucceeded:
+    """An assignment whose checkpoint and metrics live under an MLflow run.
 
     Args:
         assignment_id: Stable assignment identifier.
         presentation: What the assignment trains and the notation it is described with;
             every sink renders its own text from it.
-        status: "Success" or "Failed".
+        mlflow_run_id: The run holding the checkpoint and metrics — the reused run on a
+            cache hit, or the freshly finalized run otherwise.
         tasks: Individual task outcomes.
-        error: Top-level error message if failed.
-        mlflow_run_id: The MLflow run this assignment's checkpoint/metrics live
-            under — the reused run on a cache hit, or the freshly finalized run
-            otherwise. None only when the assignment failed before any run was
-            established.
     """
 
     assignment_id: str
     presentation: TrainingPresentation
-    status: AssignmentStatus
-    tasks: list[TaskResult] = field(default_factory=list)
-    error: str | None = None
-    mlflow_run_id: str | None = None
+    mlflow_run_id: str
+    tasks: tuple[TaskResult, ...] = ()
+
+    @property
+    def status(self) -> AssignmentStatus:
+        """Always ``"Success"``."""
+        return "Success"
 
     @property
     def is_success(self) -> bool:
-        """Whether the assignment succeeded."""
-        return self.status == "Success"
+        """Always true."""
+        return True
+
+    @property
+    def error(self) -> None:
+        """A success carries no error."""
+        return None
+
+
+@dataclass(frozen=True, slots=True)
+class AssignmentFailed:
+    """An assignment that failed, before or after a run was established.
+
+    Args:
+        assignment_id: Stable assignment identifier.
+        presentation: What the assignment trains and the notation it is described with;
+            every sink renders its own text from it.
+        error: Why it failed.
+        tasks: Individual task outcomes.
+    """
+
+    assignment_id: str
+    presentation: TrainingPresentation
+    error: str
+    tasks: tuple[TaskResult, ...] = ()
+
+    @property
+    def status(self) -> AssignmentStatus:
+        """Always ``"Failed"``."""
+        return "Failed"
+
+    @property
+    def is_success(self) -> bool:
+        """Always false."""
+        return False
+
+    @property
+    def mlflow_run_id(self) -> None:
+        """A failed assignment has no run whose results can be read."""
+        return None
+
+
+type AssignmentResult = AssignmentSucceeded | AssignmentFailed
+"""The closed set of final reports for a single assignment."""
 
 
 @dataclass(frozen=True, slots=True)

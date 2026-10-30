@@ -13,9 +13,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 from mlflow.tracking import MlflowClient
 
-from neuralls.application.models import AssignmentResult
+from neuralls.application.models import (
+    AssignmentFailed,
+    AssignmentResult,
+    AssignmentSucceeded,
+)
 from neuralls.composition.assignments import training_batch
 from neuralls.composition.assignments.training import PreparedTraining
+from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
 from neuralls.domain.identity import Reused, StageIdentity
 from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.config.models.workspace import AssignmentSpec
@@ -55,12 +60,13 @@ def run_assignment_dependencies(
     """Patch every I/O dependency of ``run_assignment`` except the reuse decision."""
     data_dir = tmp_path / "data"
     data_dir.mkdir()
+    tracking = MagicMock()
+    store_cls = tracking.identity_store
     with (
         patch.object(training_batch, "load_data_config") as load_data_config,
         patch.object(training_batch, "resolve_dataset_identity") as resolve_dataset_identity,
         patch.object(training_batch, "resolve_dataset_artifacts") as resolve_dataset_artifacts,
         patch.object(training_batch, "training_identity", return_value=identity) as derive,
-        patch.object(training_batch, "MlflowIdentityStore") as store_cls,
         patch.object(training_batch, "prepare_training_settings") as prepare_training_settings,
     ):
         data_cfg = MagicMock()
@@ -78,6 +84,7 @@ def run_assignment_dependencies(
         yield {
             "find": store_cls.return_value.find,
             "store_cls": store_cls,
+            "tracking": tracking,
             "derive": derive,
             "prepare_training_settings": prepare_training_settings,
         }
@@ -90,6 +97,7 @@ def _run(
     assignment_id: str = "exp-1",
     force: bool = False,
     tracking_uri: str = "sqlite:///tracking.db",
+    tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> AssignmentResult | PreparedTraining:
     return training_batch.run_assignment(
         settings=MagicMock(),
@@ -99,6 +107,7 @@ def _run(
         presentation=presentation,
         mlflow_experiment_name="Train",
         tracking_uri=tracking_uri,
+        tracking=tracking,
     )
 
 
@@ -110,10 +119,10 @@ def test_train_skips_when_an_identical_run_already_exists(
 ) -> None:
     """A FINISHED run carrying this exact identity short-circuits training."""
     run_assignment_dependencies["find"].return_value = Reused(run_id="existing-run-id")
-    result = _run(tmp_path, training_presentation)
+    result = _run(tmp_path, training_presentation, tracking=run_assignment_dependencies["tracking"])
     run_assignment_dependencies["prepare_training_settings"].assert_not_called()
     run_assignment_dependencies["find"].assert_called_once_with(identity)
-    assert isinstance(result, AssignmentResult)
+    assert isinstance(result, AssignmentSucceeded)
     assert result.status == "Success"
     assert result.mlflow_run_id == "existing-run-id"
 
@@ -124,7 +133,7 @@ def test_lookup_is_scoped_to_the_training_experiment_and_requires_a_checkpoint(
     training_presentation: TrainingPresentation,
 ) -> None:
     """Reuse only considers the case's training experiment and real checkpoints."""
-    _run(tmp_path, training_presentation)
+    _run(tmp_path, training_presentation, tracking=run_assignment_dependencies["tracking"])
     run_assignment_dependencies["store_cls"].assert_called_once_with(
         tracking_uri="sqlite:///tracking.db", experiment="Train", require_checkpoint=True
     )
@@ -137,7 +146,7 @@ def test_train_runs_and_tags_the_identity_when_no_matching_run_exists(
     training_presentation: TrainingPresentation,
 ) -> None:
     """A miss prepares training and stamps the derived identity on the new run."""
-    result = _run(tmp_path, training_presentation)
+    result = _run(tmp_path, training_presentation, tracking=run_assignment_dependencies["tracking"])
     prepare = run_assignment_dependencies["prepare_training_settings"]
     prepare.assert_called_once()
     assert prepare.call_args.kwargs["extra_tags"] == identity.tags()
@@ -151,7 +160,12 @@ def test_force_always_retrains_even_with_a_matching_run(
 ) -> None:
     """force=True bypasses the reuse check entirely."""
     run_assignment_dependencies["find"].return_value = Reused(run_id="existing-run-id")
-    result = _run(tmp_path, training_presentation, force=True)
+    result = _run(
+        tmp_path,
+        training_presentation,
+        force=True,
+        tracking=run_assignment_dependencies["tracking"],
+    )
     run_assignment_dependencies["prepare_training_settings"].assert_called_once()
     run_assignment_dependencies["find"].assert_not_called()
     assert result is run_assignment_dependencies["prepare_training_settings"].return_value
@@ -169,8 +183,13 @@ def test_run_assignment_returns_failed_result_on_unexpected_exception(
     run_assignment_dependencies["prepare_training_settings"].side_effect = Exception(
         "Run with UUID abc123 is already active."
     )
-    result = _run(tmp_path, training_presentation, assignment_id="search-job-2")
-    assert isinstance(result, AssignmentResult)
+    result = _run(
+        tmp_path,
+        training_presentation,
+        assignment_id="search-job-2",
+        tracking=run_assignment_dependencies["tracking"],
+    )
+    assert isinstance(result, AssignmentFailed)
     assert result.status == "Failed"
     assert result.error is not None
 
@@ -205,7 +224,7 @@ def test_run_assignment_fails_cleanly_when_dataset_was_never_generated(
             tracking_uri="sqlite:///tracking.db",
         )
 
-    assert isinstance(result, AssignmentResult)
+    assert isinstance(result, AssignmentFailed)
     assert result.status == "Failed"
     assert result.error is not None
     prepare_training_settings.assert_not_called()
@@ -217,9 +236,13 @@ def test_a_failed_assignment_is_logged_by_its_training_presentation(
     """The failure line and the result both describe what was being trained, not an id."""
     messages = captured_log("ERROR")
     with patch.object(training_batch, "load_data_config", side_effect=ValueError("no config")):
-        result = _run(tmp_path, training_presentation, assignment_id="exp-secret-9")
+        result = _run(
+            tmp_path,
+            training_presentation,
+            assignment_id="exp-secret-9",
+        )
 
-    assert isinstance(result, AssignmentResult)
+    assert isinstance(result, AssignmentFailed)
     assert result.presentation is training_presentation
     assert messages == [f"{render_training_label(training_presentation)} failed: no config"]
 
@@ -234,8 +257,18 @@ def test_each_assignment_is_looked_up_under_its_own_derived_identity(
     """Two assignments derive and query their own identities, so a run for one
     can never satisfy the other."""
     run_assignment_dependencies["derive"].side_effect = [identity, other_identity]
-    _run(tmp_path, training_presentation, assignment_id="train-job")
-    _run(tmp_path, training_presentation, assignment_id="search-job")
+    _run(
+        tmp_path,
+        training_presentation,
+        assignment_id="train-job",
+        tracking=run_assignment_dependencies["tracking"],
+    )
+    _run(
+        tmp_path,
+        training_presentation,
+        assignment_id="search-job",
+        tracking=run_assignment_dependencies["tracking"],
+    )
 
     queried = [c.args[0] for c in run_assignment_dependencies["find"].call_args_list]
     assert queried == [identity, other_identity]
@@ -300,7 +333,7 @@ def test_real_store_reuses_run_with_the_same_identity(
 
     result = _run(tmp_path, training_presentation, tracking_uri=tracking_uri)
 
-    assert isinstance(result, AssignmentResult)
+    assert isinstance(result, AssignmentSucceeded)
     assert result.mlflow_run_id == run_id
     deps["prepare_training_settings"].assert_not_called()
 

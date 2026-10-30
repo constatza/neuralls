@@ -23,10 +23,10 @@ from neuralls.composition.comparison.models import MatrixRef, PlannedSystem, Res
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
+from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
-    PODCoarseningConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
 )

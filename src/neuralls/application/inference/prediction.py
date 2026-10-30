@@ -137,7 +137,7 @@ def run_prediction(
     """
     feature_arrays = data.features
 
-    logger.info(f"Running inference on {data.metadata.get('source', 'unknown')} data...")
+    logger.info(f"Running inference on {data.source} data...")
     raw_preds, duration = collect_predictions(predictor, feature_arrays, batch_size)
 
     predictions = process_predictions(raw_preds)
@@ -148,6 +148,7 @@ def run_prediction(
         predictions={"y_pred": predictions},
         targets={"y_true": targets},
         metadata={
+            "source": data.source.value,
             **data.metadata,
             "duration_seconds": duration,
             "num_predictions": len(predictions),

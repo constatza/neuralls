@@ -23,11 +23,13 @@ from neuralls.composition.comparison._generation_cost import (
     resolve_generation_repeatability,
 )
 from neuralls.domain.solver.models.cost import StageCost
-from neuralls.platform.config.models.preconditioner import (
+from neuralls.platform.config.models.coarsening import (
     AggregationCoarseningConfig,
+    PODCoarseningConfig,
+)
+from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     NeuralPreconditionerConfig,
-    PODCoarseningConfig,
     PreconditionerType,
 )
 from neuralls.platform.config.settings import NeurallsSettings

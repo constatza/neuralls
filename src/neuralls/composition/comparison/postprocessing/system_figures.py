@@ -20,12 +20,13 @@ from neuralls.domain.solver.models.plot_style import plot_style_maps
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.reporting.benchmark_events import MethodBenchmarkArtifacts
 from neuralls.platform.reporting.figure_metadata import (
-    FailureTreatment,
     FigureKind,
-    FigureMetadata,
     FigureMethod,
     FigurePlan,
+    MethodAggregationRule,
+    MethodFigureMetadata,
     StagedFigure,
+    TimingPolicy,
     method_source,
 )
 from neuralls.platform.reporting.figure_text import EditorialTitle, ScopeSubtitle, method_legend
@@ -148,22 +149,20 @@ def _metadata(
     *,
     reference: ReferenceSelection,
     context: SolverTimingContext,
-) -> FigureMetadata:
+) -> MethodFigureMetadata:
     """The scientific context of one system figure: one system, the methods it draws."""
     artifacts = MethodBenchmarkArtifacts()
-    return FigureMetadata(
+    return MethodFigureMetadata(
         kind=_METRIC_KIND[metric],
         metric_definition=_METRIC_DEFINITION[metric],
-        scenario=None,
         report_level=ReportLevelName.SYSTEM,
         scope=SystemScope(dataset, tag.recipe, tag.matrix_id, tag.rhs_ordinal),
-        dataset_ids=(str(tag.dataset),),
+        dataset_ids=(tag.dataset,),
         recipes=(tag.recipe,),
         n_matrices=1,
         n_planned_rhs=1,
         reference_selection=reference,
-        failure_treatment=FailureTreatment.NONE,
-        timing_policy="diagnostic histories; excluded from online timing",
+        timing_policy=TimingPolicy.DIAGNOSTIC_EXCLUDED_FROM_ONLINE,
         methods=tuple(
             FigureMethod(method.method, method.presentation.prepared.detailed, method.config_digest)
             for method in drawn
@@ -173,7 +172,7 @@ def _metadata(
             for method in drawn
         ),
         recipe_counts=(1,),
-        aggregation_rule="one diagnostic history per method on this system",
+        aggregation_rule=MethodAggregationRule.PER_METHOD_ON_SYSTEM,
         recipe_weights=(1.0,),
         solver_contexts=(context,),
     )

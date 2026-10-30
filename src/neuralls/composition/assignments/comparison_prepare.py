@@ -8,7 +8,6 @@ from dataclasses import replace
 from pathlib import Path
 
 from loguru import logger
-from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.composition.assignments.comparison_prepared import (
@@ -53,10 +52,11 @@ from neuralls.composition.identity.comparison import (
     comparison_identity,
     preconditioner_identities,
 )
-from neuralls.composition.identity.gate import gate_reuse
+from neuralls.composition.identity.gate import reuse_lookup
 from neuralls.composition.tracking.run_specs import (
     comparison_run,
 )
+from neuralls.composition.tracking.services import TrackingServices
 from neuralls.domain.benchmarking.selection import (
     ReferenceSelection,
     resolve_reference_selection,
@@ -75,12 +75,6 @@ from neuralls.platform.config.models.experiments import (
 )
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
-from neuralls.platform.tracking.artifact_access import (
-    MlflowArtifactLeaseManager,
-)
-from neuralls.platform.tracking.mlflow_store import (
-    MlflowIdentityStore,
-)
 from neuralls.platform.tracking.run_names import run_name_text
 from neuralls.shared.digest import Digest
 
@@ -157,9 +151,7 @@ def prepare_comparison_entry(
 
     with contextlib.ExitStack() as local_stack:
         artifact_leases = context.artifact_leases or local_stack.enter_context(
-            MlflowArtifactLeaseManager(
-                client=MlflowClient(tracking_uri=context.topology.model_store_tracking_uri)
-            )
+            context.tracking.lease_manager(context.topology.model_store_tracking_uri)
         )
         logger.info("Comparison '{}': resolving preconditioner checkpoints.", entry.id)
         try:
@@ -239,12 +231,11 @@ def _is_reusable(
         logger.info("{}: per-system reuse is disabled for batch execution.", label)
         return False
     logger.info("{}: checking MLflow for a reusable run.", label)
-    reused = gate_reuse(
-        MlflowIdentityStore(
-            tracking_uri=context.topology.tracking_uri,
-            experiment=context.topology.experiment_name,
-        ),
-        identity,
+    reused = reuse_lookup(
+        context.tracking,
+        tracking_uri=context.topology.tracking_uri,
+        experiment=context.topology.experiment_name,
+        identity=identity,
         force=force,
         label=label,
     )
@@ -276,7 +267,7 @@ def prepare_comparison_batch(
     topology: ComparisonTopology,
     case_config_path: Path,
     settings: NeurallsSettings,
-    mlflow_client: MlflowClient,
+    tracking: TrackingServices,
     stack: contextlib.ExitStack,
     *,
     force: bool,
@@ -312,11 +303,10 @@ def prepare_comparison_batch(
         case_config_path=case_config_path,
         settings=settings,
         load_dataset=load_dataset_presentation,
+        tracking=tracking,
         master_cfg=master_cfg,
         artifact_leases=stack.enter_context(
-            MlflowArtifactLeaseManager(
-                client=MlflowClient(tracking_uri=topology.model_store_tracking_uri)
-            )
+            tracking.lease_manager(topology.model_store_tracking_uri)
         ),
         reuse_comparisons=reuse_comparisons,
     )
@@ -329,7 +319,8 @@ def prepare_comparison_batch(
             master_cfg=master_cfg,
             config_dir=config_dir,
             settings=settings,
-            mlflow_client=mlflow_client,
+            tracking=tracking,
+            tracking_uri=topology.model_store_tracking_uri,
         )
         prepared = prepare_comparison_entry(cfg, planned, context, force=force)
         if isinstance(prepared, PreparedComparisonExecution):
@@ -346,7 +337,8 @@ def _with_assignment_preconditioners(
     master_cfg: CaseConfig,
     config_dir: Path,
     settings: NeurallsSettings,
-    mlflow_client: MlflowClient,
+    tracking: TrackingServices,
+    tracking_uri: str,
 ) -> ComparisonConfig:
     """Append the auto-generated preconditioners of the assignments no explicit one claims."""
     entry = planned.entry
@@ -358,7 +350,8 @@ def _with_assignment_preconditioners(
     auto_specs = neural_specs_from_assignments(
         assignment_entries,
         existing_assignment_ids(cfg.preconditioners),
-        client=mlflow_client,
+        tracking=tracking,
+        tracking_uri=tracking_uri,
         cfg=master_cfg,
         config_dir=config_dir,
         settings=settings,

@@ -34,8 +34,6 @@ def fetch_mlflow_metrics(run_id: str, tracking_uri: str) -> dict[str, float]:
     Returns:
         Flat dict of ``{metric_key: value}`` for the run.
     """
-    from mlflow.tracking import MlflowClient
-
     client = MlflowClient(tracking_uri=tracking_uri)
     run = client.get_run(run_id)
     return dict(run.data.metrics)
@@ -54,8 +52,6 @@ def log_metric_to_run(run_id: str, key: str, value: float, tracking_uri: str) ->
         value: Metric value.
         tracking_uri: SQLite or HTTP tracking URI.
     """
-    from mlflow.tracking import MlflowClient
-
     MlflowClient(tracking_uri=tracking_uri).log_metric(run_id, key, float(value))
 
 
@@ -79,8 +75,6 @@ def _log_artifact_paths(
         artifact_path_per_dir: When True, nest each directory's artifacts under
             an artifact_path matching its own name; when False, upload flat.
     """
-    from mlflow.tracking import MlflowClient
-
     client = MlflowClient(tracking_uri=tracking_uri)
     for name in dirs:
         path = root / name
@@ -145,8 +139,6 @@ def mark_run_failed(*, run_id: str, tracking_uri: str) -> None:
         run_id: Run to mark.
         tracking_uri: MLflow tracking URI.
     """
-    from mlflow.tracking import MlflowClient
-
     try:
         MlflowClient(tracking_uri=tracking_uri).set_terminated(run_id, status="FAILED")
     except Exception as exc:  # noqa: BLE001
@@ -169,8 +161,6 @@ def find_mlflow_run(
     Returns:
         ``(experiment_id, run_id)`` when found, otherwise ``None``.
     """
-    from mlflow.tracking import MlflowClient
-
     client = MlflowClient(tracking_uri=tracking_uri)
     experiment = client.get_experiment_by_name(experiment_name)
     if experiment is None:
@@ -205,8 +195,6 @@ def log_diagnostics_to_mlflow(
         run_id: Existing MLflow run ID to reopen.
         diagnostics: Diagnostics result with ``metrics`` dict attribute.
     """
-    from mlflow.tracking import MlflowClient
-
     client = MlflowClient(tracking_uri=tracking_uri)
     metrics = getattr(diagnostics, "metrics", {})
     for key, value in metrics.items():

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from mlflow.exceptions import MlflowException
-from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments import model_resolution
 from neuralls.composition.assignments.model_resolution import (
@@ -17,10 +16,10 @@ from neuralls.composition.assignments.model_resolution import (
     resolve_preconditioner_models_with_warnings,
 )
 from neuralls.domain.identity import Reused, StageIdentity
+from neuralls.platform.config.models.checkpoint_refs import TrainedAssignmentRefConfig
 from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     PreconditionerType,
-    TrainedAssignmentRefConfig,
 )
 from neuralls.platform.tracking.artifact_access import NoopArtifactLeaseManager
 from neuralls.shared.digest import canonical_digest
@@ -47,10 +46,9 @@ def lookup(identity: StageIdentity) -> TrainingLookup:
 
 
 @pytest.fixture
-def store_cls():
-    """Patched identity store class used by the strict resolver."""
-    with patch.object(model_resolution, "MlflowIdentityStore") as cls:
-        yield cls
+def tracking() -> MagicMock:
+    """Tracking services whose identity store is a mock the strict resolver asks."""
+    return MagicMock()
 
 
 @pytest.fixture
@@ -67,7 +65,7 @@ def neural_spec(ref: TrainedAssignmentRefConfig) -> NeuralPreconditionerConfig:
     )
 
 
-def _resolve(ref: TrainedAssignmentRefConfig, lookup: TrainingLookup | None):
+def _resolve(ref: TrainedAssignmentRefConfig, lookup: TrainingLookup | None, tracking: MagicMock):
     return resolve_model_ref(
         spec=NeuralPreconditionerConfig(
             type=PreconditionerType.NEURAL, assignment=ASSIGNMENT_ID, model_ref=ref
@@ -75,6 +73,7 @@ def _resolve(ref: TrainedAssignmentRefConfig, lookup: TrainingLookup | None):
         tracking_uri="sqlite:///unused",
         artifact_leases=NoopArtifactLeaseManager(),
         training=lookup,
+        tracking=tracking,
     )
 
 
@@ -83,53 +82,54 @@ def test_lookup_is_scoped_to_experiment_and_exact_identity(
     lookup: TrainingLookup,
     identity: StageIdentity,
     checkpoint: Path,
-    store_cls,
+    tracking,
 ) -> None:
     """The store is built for the training experiment, requires a checkpoint, and is
     asked for exactly the assignment's identity."""
-    store_cls.return_value.find.return_value = Reused(run_id="run-1")
+    tracking.identity_store.return_value.find.return_value = Reused(run_id="run-1")
     with patch.object(model_resolution, "_resolve_checkpoint_for_run", return_value=checkpoint):
-        resolution = _resolve(ref, lookup)
+        resolution = _resolve(ref, lookup, tracking)
 
-    store_cls.assert_called_once_with(
+    tracking.identity_store.assert_called_once_with(
         tracking_uri="sqlite:///unused",
         experiment="Train-Case",
         require_checkpoint=True,
-        client_factory=MlflowClient,
     )
-    store_cls.return_value.find.assert_called_once_with(identity)
+    tracking.identity_store.return_value.find.assert_called_once_with(identity)
     assert (resolution.run_id, resolution.checkpoint_path) == ("run-1", checkpoint)
 
 
 def test_no_matching_run_is_an_error_not_a_fallback(
-    ref: TrainedAssignmentRefConfig, lookup: TrainingLookup, store_cls
+    ref: TrainedAssignmentRefConfig, lookup: TrainingLookup, tracking
 ) -> None:
     """When nothing matches the current inputs, resolution raises with guidance."""
-    store_cls.return_value.find.return_value = None
+    tracking.identity_store.return_value.find.return_value = None
     with pytest.raises(ValueError):
-        _resolve(ref, lookup)
+        _resolve(ref, lookup, tracking)
 
 
 def test_missing_identity_fails_without_searching(
-    ref: TrainedAssignmentRefConfig, store_cls
+    ref: TrainedAssignmentRefConfig, tracking
 ) -> None:
     """An ungenerated dataset cannot be verified, so no search is attempted."""
     with pytest.raises(ValueError):
-        _resolve(ref, TrainingLookup(experiment="Train-Case", identity=None))
-    store_cls.assert_not_called()
+        _resolve(ref, TrainingLookup(experiment="Train-Case", identity=None), tracking)
+    tracking.identity_store.assert_not_called()
 
 
-def test_missing_training_context_is_an_error(ref: TrainedAssignmentRefConfig) -> None:
+def test_missing_training_context_is_an_error(
+    ref: TrainedAssignmentRefConfig, tracking: MagicMock
+) -> None:
     """A ref resolved without any assignment context raises instead of guessing."""
     with pytest.raises(ValueError):
-        _resolve(ref, None)
+        _resolve(ref, None, tracking)
 
 
 def test_tracking_errors_skip_one_model_instead_of_aborting(
-    neural_spec: NeuralPreconditionerConfig, lookup: TrainingLookup, store_cls
+    neural_spec: NeuralPreconditionerConfig, lookup: TrainingLookup, tracking
 ) -> None:
     """An MLflow failure for one model is reported as a warning when skipping is allowed."""
-    store_cls.return_value.find.side_effect = MlflowException("server down")
+    tracking.identity_store.return_value.find.side_effect = MlflowException("server down")
     if True:
         result = resolve_preconditioner_models_with_warnings(
             specs=[neural_spec],
@@ -137,6 +137,7 @@ def test_tracking_errors_skip_one_model_instead_of_aborting(
             artifact_leases=NoopArtifactLeaseManager(),
             assignment_contexts={ASSIGNMENT_ID: AssignmentModelContext(training=lookup)},
             skip_unresolved=True,
+            tracking=tracking,
         )
 
     assert result.specs == []

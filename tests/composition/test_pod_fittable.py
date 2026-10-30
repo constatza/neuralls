@@ -10,7 +10,7 @@ import torch
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
 from neuralls.composition.preconditioners.pod_fittable import PODCoarseningFittable
-from neuralls.platform.config.models.preconditioner import (
+from neuralls.platform.config.models.weighting import (
     PowerNormWeightingConfig,
     SmootherPersistenceWeightingConfig,
 )

@@ -52,12 +52,12 @@ from torchalg.preconditioners.implementations.amg import TargetDimensionCoarseni
 
 from neuralls.composition.preconditioners.factory import create_preconditioner_with_coarsening
 from neuralls.domain.solver.comparison import run_cg_comparison
-from neuralls.platform.config.models.preconditioner import (
+from neuralls.platform.config.models.coarsening import (
     AggregationCoarseningConfig,
-    AMGPreconditionerConfig,
     PODCoarseningConfig,
     TargetDimCoarseningConfig,
 )
+from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
 from neuralls.platform.storage.comparison import load_system_arrays
 from neuralls.platform.storage.dataset_readers import load_dense_training_arrays
 

@@ -31,14 +31,14 @@ from neuralls.domain.presentation.run_names import (
 )
 from neuralls.domain.presentation.titles import EditorialPresentation
 from neuralls.platform.config.loaders import load_data_config
+from neuralls.platform.config.models.checkpoint_refs import TrainedAssignmentRefConfig
+from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
 from neuralls.platform.config.models.experiments import AssignmentEntry, CaseConfig
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     NeuralPreconditionerConfig,
-    PODCoarseningConfig,
     PreconditionerType,
-    TrainedAssignmentRefConfig,
 )
 from neuralls.platform.config.models.presentation import ScientificLabelsConfig
 from neuralls.platform.config.registry import ResolvedAssignmentBinding, resolve_assignment_binding
@@ -86,7 +86,7 @@ def neural_spec_from_assignment(
     """Build an unresolved neural preconditioner stub for a train/search-kind assignment.
 
     The result key (`spec.name`) is derived from the config's own fields
-    (`preconditioner.py::preconditioner_slug`), not set here — it always
+    (each config's `slug()`), not set here — it always
     embeds `entry.id` via the `assignment` field below, so it stays
     traceable to the assignment without needing a separately-chosen name.
     References the assignment's training run through a strict

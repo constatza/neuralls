@@ -13,7 +13,7 @@ import numpy as np
 from dlkit.io import load_array
 from loguru import logger
 
-from neuralls.application.inference.models import InferenceData
+from neuralls.application.inference.models import DataSource, InferenceData
 from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
 )
@@ -111,8 +111,8 @@ def load_standard_data(
     return InferenceData(
         features=feature_dict,
         targets=target_dict,
+        source=DataSource.STANDARD,
         metadata={
-            "source": "standard",
             "features_path": str(feat_path),
             "targets_path": str(tgt_path),
             "num_samples": features.shape[0],
@@ -164,8 +164,8 @@ def load_synthetic_data(
     return InferenceData(
         features=feature_dict,
         targets=target_dict,
+        source=DataSource.SYNTHETIC,
         metadata={
-            "source": "synthetic",
             "matrix_path": str(matrix_path),
             "comparison_config_path": str(comparison_config_path),
             "num_samples": 1,

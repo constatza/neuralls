@@ -29,25 +29,29 @@ from neuralls.composition.preconditioners.descriptions import (
     describe_configured_preconditioner,
     describe_realized_preconditioner,
 )
+from neuralls.platform.config.models.coarsening import (
+    AggregationCoarseningConfig,
+    CoarseningConfig,
+    NeuralPODCoarseningConfig,
+    PODCoarseningConfig,
+    TargetDimCoarseningConfig,
+)
 from neuralls.platform.config.models.preconditioner import (
     AdaptiveSAPreconditionerConfig,
-    AggregationCoarseningConfig,
     AMGPreconditionerConfig,
     BootstrapAMGPreconditionerConfig,
-    CoarseningConfig,
     ConcretePreconditionerConfig,
     IC0PreconditionerConfig,
     NeuralAMGPreconditionerConfig,
-    NeuralPODCoarseningConfig,
     NeuralPreconditionerConfig,
     NeuralTransferConfig,
-    PODCoarseningConfig,
-    PowerNormWeightingConfig,
     PreconditionerType,
+    StandardPreconditionerConfig,
+)
+from neuralls.platform.config.models.weighting import (
+    PowerNormWeightingConfig,
     SmootherPersistenceWeightingConfig,
     SnapshotWeightingConfig,
-    StandardPreconditionerConfig,
-    TargetDimCoarseningConfig,
 )
 from neuralls.shared.fact_binding import Fact, unbound_fields
 from neuralls.shared.scientific_description.catalog import (

@@ -15,7 +15,7 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Self, cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -721,6 +721,7 @@ def finalize_context(
 ) -> _TrainingFinalizationContext:
     """Bundled context for _finalize_training_run tests, with a resolvable run_id."""
     return _TrainingFinalizationContext(
+        tracking=MagicMock(),
         training_result=SimpleNamespace(run_id="run-123", metrics={}),
         run_config=finalize_run_config,
         workspace=finalize_workspace,

@@ -9,13 +9,14 @@ import typer
 from loguru import logger
 
 from neuralls.cli.errors import fail_workflow
-from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ProfileOption
+from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ForceOption, ProfileOption
 from neuralls.composition.assignments.comparison_report import (
     ReportCreated,
     ReportReused,
     run_comparison_report,
 )
 from neuralls.composition.config import load_case_settings
+from neuralls.composition.tracking.services import MLFLOW_TRACKING
 from neuralls.shared.types import SessionRunId
 
 os.environ.setdefault("MPLBACKEND", "Agg")
@@ -23,9 +24,7 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 
 def report_case(
     config: CaseConfigArgument,
-    force: bool = typer.Option(
-        False, "--force", "-f", help="Render again even if a matching report already exists."
-    ),
+    force: ForceOption = False,
     session_run_id: str | None = typer.Option(
         None, "--session-run-id", help="Report this comparison session instead of the newest."
     ),
@@ -40,6 +39,7 @@ def report_case(
             force=force,
             session_run_id=None if session_run_id is None else SessionRunId(session_run_id),
             settings=settings,
+            tracking=MLFLOW_TRACKING,
         )
     except Exception as exc:  # noqa: BLE001
         fail_workflow("Report workflow", exc)

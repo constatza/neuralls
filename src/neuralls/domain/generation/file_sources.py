@@ -35,12 +35,12 @@ from pathlib import Path
 import numpy as np
 from scipy.sparse import csr_array
 
+from neuralls.shared.types import MatrixReader
+
 from .sample_ids import EnumerateBy, _build_glob_index
 
-# Mirror, but are independently defined from, platform/storage/matrix_readers.py's
-# MatrixReader/read_dense_npy: domain cannot import that module directly (AGENTS.md's
-# dependency rule — domain and platform are siblings; only composition may import both).
-type MatrixReader = Callable[[Path], np.ndarray | csr_array]
+# ``MatrixReader`` is defined once in ``shared/types.py`` (platform implements it); the dense
+# narrowing below has no platform-side alias, so it lives here with its only consumer.
 type DenseReader = Callable[[Path], np.ndarray]
 
 

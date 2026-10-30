@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from neuralls.application.models import AssignmentResult
+from neuralls.application.models import AssignmentFailed, AssignmentSucceeded
 from neuralls.cli.main import app
 from neuralls.composition.comparison.models import (
     ComparisonCompleted,
@@ -194,8 +194,8 @@ def test_run_summary_names_trainings_and_comparisons_by_their_descriptions(
         NotationPolicy.default(),
     )
     results = [
-        AssignmentResult("asg-1", training_presentation_of("POD-2G"), status="Success"),
-        AssignmentResult("asg-2", editorial, status="Failed", error="out of memory"),
+        AssignmentSucceeded("asg-1", training_presentation_of("POD-2G"), mlflow_run_id="run-1"),
+        AssignmentFailed("asg-2", editorial, error="out of memory"),
     ]
     outcomes = [
         ComparisonReused(

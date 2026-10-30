@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -105,6 +105,7 @@ def finalization_context(
     """Minimal finalization context for the two `_finalize_*_mlflow_run` branches."""
     config_path = Path("job.toml")
     return _TrainingFinalizationContext(
+        tracking=MagicMock(),
         training_result=SimpleNamespace(metrics={}),
         run_config=MlflowRunConfig(
             experiment_name="Training",

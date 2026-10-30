@@ -56,7 +56,7 @@ from neuralls.composition.preconditioners._weighting import (
     resolve_row_scales,
     weighting_needs_matrix,
 )
-from neuralls.platform.config.models.preconditioner import (
+from neuralls.platform.config.models.weighting import (
     RawWeightingConfig,
     SnapshotWeightingConfig,
     parse_snapshot_weighting_config,

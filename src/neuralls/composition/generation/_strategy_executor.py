@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 
 from neuralls.composition.generation._archive_resolution import (
+    NoRhs,
     _merge_rhs_archive_options,
     _resolve_rhs_archive_glob,
     _resolve_rhs_source,
@@ -158,7 +159,7 @@ def _execute_synthetic_generation(
         solution_archive_options=solution_archive_strategy.options
         if solution_archive_strategy
         else None,
-        provide_rhs_option=None,
+        provide_rhs_option=NoRhs(),
         matrix=matrix,
     )
 

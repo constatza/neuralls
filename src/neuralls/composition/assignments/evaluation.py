@@ -42,6 +42,7 @@ from neuralls.composition.tracking.run_specs import (
     build_evaluation_tags,
     build_session_run_spec,
 )
+from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.run_names import NamedRun, TrainingPresentation, training_dataset
 from neuralls.domain.presentation.titles import ComparisonScopePresentation, session_title
@@ -57,10 +58,7 @@ from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.platform.reporting.figure_text import training_legend
 from neuralls.platform.reporting.plots import plot_method_bars
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
-from neuralls.platform.tracking.artifact_access import (
-    ArtifactLeaseManager,
-    MlflowArtifactLeaseManager,
-)
+from neuralls.platform.tracking.artifact_access import ArtifactLeaseManager
 from neuralls.platform.tracking.environment import scoped_mlflow_environment
 from neuralls.platform.tracking.evaluation_artifacts import (
     TrainingEvaluationArtifacts,
@@ -71,11 +69,7 @@ from neuralls.platform.tracking.mlflow import (
     create_session_parent_run,
     finalize_session_parent_run,
 )
-from neuralls.platform.tracking.mlflow_client import (
-    MlflowClientFactory,
-    log_batch_artifacts_to_mlflow,
-)
-from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
+from neuralls.platform.tracking.mlflow_client import log_batch_artifacts_to_mlflow
 from neuralls.platform.tracking.run_names import render_training_label, run_name_text
 
 DEFAULT_EVAL_BATCH_SIZE = 32
@@ -211,6 +205,7 @@ def _with_eval_runtime_dataset(
 
 def _resolve_training_run_id(
     *,
+    tracking: TrackingServices,
     tracking_uri: str,
     experiment_name: str,
     assignment_id: str,
@@ -219,6 +214,7 @@ def _resolve_training_run_id(
     """Find the training run carrying this assignment's derived identity.
 
     Args:
+        tracking: Source of the training-run lookup.
         tracking_uri: MLflow tracking URI.
         experiment_name: Training experiment.
         assignment_id: Assignment label, for the error message only.
@@ -231,7 +227,7 @@ def _resolve_training_run_id(
     Raises:
         RuntimeError: If no FINISHED run with a checkpoint carries the identity.
     """
-    reused = MlflowIdentityStore(
+    reused = tracking.identity_store(
         tracking_uri=tracking_uri, experiment=experiment_name, require_checkpoint=True
     ).find(identity)
     if reused is None or reused.run_id is None:
@@ -279,12 +275,13 @@ def _build_eval_context(
     configs_dir: Path,
     assignment: AssignmentEntry,
     tracking_uri: str,
-    mlflow_client_factory: MlflowClientFactory,
+    tracking: TrackingServices,
     artifact_leases: ArtifactLeaseManager,
     settings: NeurallsSettings,
 ) -> EvaluationAssignmentContext:
     job_config_path, data_config_path = _resolve_config_paths(assignment, configs_dir, cfg)
     training_run_id = _resolve_training_run_id(
+        tracking=tracking,
         tracking_uri=tracking_uri,
         experiment_name=cfg.names.training,
         assignment_id=assignment.id,
@@ -294,7 +291,7 @@ def _build_eval_context(
             settings=settings,
         ),
     )
-    client = mlflow_client_factory(tracking_uri=tracking_uri)
+    client = tracking.client(tracking_uri)
     artifacts = resolve_training_evaluation_artifacts(
         client=client,
         run_id=training_run_id,
@@ -421,7 +418,7 @@ def prepare_evaluation_settings(
     case_config_path: Path,
     tracking_uri: str,
     artifact_leases: ArtifactLeaseManager,
-    mlflow_client_factory: MlflowClientFactory = MlflowClient,
+    tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> PreparedEvaluation:
     """Resolve one assignment's checkpoint, split, and dlkit eval settings.
 
@@ -434,7 +431,7 @@ def prepare_evaluation_settings(
         configs_dir=configs_dir,
         assignment=assignment,
         tracking_uri=tracking_uri,
-        mlflow_client_factory=mlflow_client_factory,
+        tracking=tracking,
         artifact_leases=artifact_leases,
         settings=settings,
     )
@@ -530,6 +527,7 @@ def _prepare_eval_run_specs(
     settings: NeurallsSettings,
     output_root: Path,
     case_config_path: Path,
+    tracking: TrackingServices,
     tracking_uri: str,
     artifact_leases: ArtifactLeaseManager,
 ) -> EvaluationPreparationBatch:
@@ -546,6 +544,7 @@ def _prepare_eval_run_specs(
                 presentation=presentations[assignment.id],
                 output_root=output_root,
                 case_config_path=case_config_path,
+                tracking=tracking,
                 tracking_uri=tracking_uri,
                 artifact_leases=artifact_leases,
             )
@@ -628,6 +627,7 @@ def eval_batch(
     output_root: Path | None = None,
     case_config_path: Path | None = None,
     assignment_ids: Sequence[str] | None = None,
+    tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> EvaluationBatchResult:
     """Evaluate selected assignments from one case config as one dlkit multirun sweep."""
     settings = require_settings(settings, case_config_path=case_config_path)
@@ -676,8 +676,7 @@ def eval_batch(
         )
         session_tag_map = dict(session_tags.as_mlflow_tags())
 
-        lease_client = MlflowClient(tracking_uri=eval_mlflow_env.tracking_uri)
-        with MlflowArtifactLeaseManager(client=lease_client) as artifact_leases:
+        with tracking.lease_manager(eval_mlflow_env.tracking_uri) as artifact_leases:
             preparation = _prepare_eval_run_specs(
                 assignments=assignments,
                 presentations=presentations,
@@ -686,6 +685,7 @@ def eval_batch(
                 settings=settings,
                 output_root=base_output,
                 case_config_path=resolved_case_config_path,
+                tracking=tracking,
                 tracking_uri=eval_mlflow_env.tracking_uri,
                 artifact_leases=artifact_leases,
             )

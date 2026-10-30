@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import pytest
 import torch
-from torchalg.preconditioners.implementations import pod as pod_module
 
+from neuralls.composition.preconditioners import _weighting as pod_module
 from neuralls.composition.preconditioners._weighting import (
     resolve_row_scales,
     weighting_needs_matrix,
 )
-from neuralls.platform.config.models.preconditioner import (
+from neuralls.platform.config.models.weighting import (
     PowerNormWeightingConfig,
     RawWeightingConfig,
     SmootherPersistenceWeightingConfig,

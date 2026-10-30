@@ -9,7 +9,7 @@ import typer
 from loguru import logger
 
 from neuralls.cli.errors import fail_workflow
-from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ProfileOption
+from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ForceOption, ProfileOption
 from neuralls.composition.assignments.comparison_batch import run_comparison_batch
 from neuralls.composition.comparison.models import (
     ComparisonCompleted,
@@ -20,6 +20,7 @@ from neuralls.composition.comparison.models import (
 )
 from neuralls.composition.config import load_case_settings
 from neuralls.composition.display import comparison_label
+from neuralls.composition.tracking.services import MLFLOW_TRACKING
 from neuralls.shared.constants import EXIT_FAILURE, SYMBOL_CHECKMARK
 
 os.environ.setdefault("MPLBACKEND", "Agg")
@@ -79,12 +80,7 @@ def _log_outcomes(outcomes: list[ComparisonOutcome]) -> None:
 
 def compare_case(
     config: CaseConfigArgument,
-    force: bool = typer.Option(
-        False,
-        "--force",
-        "-f",
-        help="Rerun every comparison even if a matching one already exists.",
-    ),
+    force: ForceOption = False,
     env_file: EnvFileOption = None,
     profile: ProfileOption = None,
 ) -> None:
@@ -93,7 +89,7 @@ def compare_case(
 
     try:
         settings = load_case_settings(config, env_file, profile=profile)
-        outcomes = run_comparison_batch(config, params, settings)
+        outcomes = run_comparison_batch(config, params, settings, tracking=MLFLOW_TRACKING)
     except Exception as exc:  # noqa: BLE001
         fail_workflow("Comparison workflow", exc)
 

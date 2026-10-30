@@ -17,7 +17,7 @@ from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.reporting.benchmark_events import METHOD_ARTIFACT_DIR
 from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.scientific_description.policy import RenderProfile
-from neuralls.shared.types import PreconditionerName
+from neuralls.shared.types import DatasetId, PreconditionerName, RunId
 
 CARD_PROFILE = RenderProfile(name="card", include_context=True)
 """Figure cards store the scope's full text on one line; wrapping is a drawing concern."""
@@ -96,6 +96,30 @@ class ReferenceSelectionKind(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
+class TimingPolicy(StrEnum):
+    """How a figure's timing numbers treat one-off setup against per-RHS solves."""
+
+    SETUP_PER_MATRIX_PLUS_SOLVE_PER_RHS = "setup once per dataset/matrix + solve per planned RHS"
+    DIAGNOSTIC_EXCLUDED_FROM_ONLINE = "diagnostic histories; excluded from online timing"
+
+
+class GroupAggregationRule(StrEnum):
+    """How a group figure combines the systems of its population into one number."""
+
+    PER_PLANNED_SYSTEM = "one observation per planned (matrix, RHS) system"
+    WORKLOAD_SUM = (
+        "sum observed setup and solve event costs; recipe contributions follow planned RHS "
+        "membership"
+    )
+
+
+class MethodAggregationRule(StrEnum):
+    """Which convergence histories a method or system figure draws."""
+
+    PER_ATTEMPTED_RHS = "one diagnostic history per attempted RHS"
+    PER_METHOD_ON_SYSTEM = "one diagnostic history per method on this system"
+
+
 @dataclass(frozen=True, slots=True)
 class FigureMethod:
     """One method a figure draws: its identity, scientific presentation and config digest."""
@@ -109,11 +133,11 @@ class FigureMethod:
 class FigureSource:
     """The stored artifacts of one method run that a figure was computed from."""
 
-    run_id: str
+    run_id: RunId
     artifact_paths: tuple[str, ...]
 
 
-def method_source(run_id: str, *artifacts: Path) -> FigureSource:
+def method_source(run_id: RunId, *artifacts: Path) -> FigureSource:
     """The source of a figure: ``artifacts`` of the method workload logged in ``run_id``."""
     return FigureSource(
         run_id=run_id,
@@ -124,29 +148,66 @@ def method_source(run_id: str, *artifacts: Path) -> FigureSource:
 
 
 @dataclass(frozen=True, slots=True)
-class FigureMetadata:
+class _FigureContext:
+    """What every figure records about the population, methods and sources it was drawn from."""
+
     kind: FigureKind
     metric_definition: str
-    scenario: TimingScenario | None
     report_level: ReportLevelName
     scope: FigureScope
-    dataset_ids: tuple[str, ...]
+    dataset_ids: tuple[DatasetId, ...]
     recipes: tuple[RhsRecipe, ...]
     n_matrices: int
     n_planned_rhs: int
     reference_selection: ReferenceSelection
-    failure_treatment: FailureTreatment
-    timing_policy: str
+    timing_policy: TimingPolicy
     methods: tuple[FigureMethod, ...]
     sources: tuple[FigureSource, ...]
-    recipe_counts: tuple[int, ...] = ()
-    aggregation_rule: str = ""
-    recipe_weights: tuple[float, ...] = ()
-    solver_contexts: tuple[SolverTimingContext, ...] = ()
+    recipe_counts: tuple[int, ...]
+    recipe_weights: tuple[float, ...]
+    solver_contexts: tuple[SolverTimingContext, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class FigurePlan:
+class GroupFigureMetadata(_FigureContext):
+    """Context of a figure aggregated over a group of systems.
+
+    ``scenario`` names the timing budget a figure is drawn for; kinds that compare no
+    timing have none. ``failure_treatment`` says what the figure does with failed systems.
+    """
+
+    scenario: TimingScenario | None
+    failure_treatment: FailureTreatment
+    aggregation_rule: GroupAggregationRule
+
+    def __post_init__(self) -> None:
+        """Require a kind drawn from a group outcome."""
+        if self.kind not in GROUP_FIGURE_KINDS:
+            raise ValueError(f"{self.kind.value} is not a group figure kind")
+
+
+@dataclass(frozen=True, slots=True)
+class MethodFigureMetadata(_FigureContext):
+    """Context of a convergence-history figure of one method or one system.
+
+    Histories are diagnostics, so there is no timing scenario and failed systems are drawn
+    as they ended.
+    """
+
+    aggregation_rule: MethodAggregationRule
+
+    def __post_init__(self) -> None:
+        """Require a kind drawn from stored method histories."""
+        if self.kind in GROUP_FIGURE_KINDS:
+            raise ValueError(f"{self.kind.value} is not a method figure kind")
+
+
+type FigureMetadata = GroupFigureMetadata | MethodFigureMetadata
+"""The closed set of figure contexts; a card stores exactly one of them."""
+
+
+@dataclass(frozen=True, slots=True)
+class FigurePlan[M: FigureMetadata]:
     """All presentation and scientific context decided before drawing.
 
     ``title`` is fixed editorial wording; the subtitle is ``metadata.scope`` rendered
@@ -155,7 +216,7 @@ class FigurePlan:
 
     filename: str
     title: str
-    metadata: FigureMetadata
+    metadata: M
 
 
 def collision_key(filename: str) -> str:
@@ -179,9 +240,16 @@ class StagedFigure:
             )
 
 
-def sanitize_filename(value: str) -> str:
-    """Create the stable slug used by figure plans and collision checks."""
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("_").lower()
+@dataclass(frozen=True, slots=True)
+class StagedTabledFigure:
+    """A staged group figure together with the table it plots, uploaded beside it."""
+
+    figure: StagedFigure
+    table: pl.DataFrame
+
+
+type UploadableFigure = StagedFigure | StagedTabledFigure
+"""A figure without a plotted table, or one with it; the card says which one is correct."""
 
 
 MAX_SLUG_LENGTH = 80
@@ -218,28 +286,3 @@ class FigureSlugs:
             candidate = f"{base[: MAX_SLUG_LENGTH - len(suffix)].rstrip('_')}{suffix}"
         self._by_subject[subject_key] = candidate
         return candidate
-
-
-def make_plan(
-    kind: FigureKind,
-    metadata: FigureMetadata,
-    *,
-    group_slug: str,
-) -> FigurePlan:
-    titles = {
-        FigureKind.AGGREGATE_BARS: "Convergence",
-        FigureKind.ONLINE_TIME: "Online Time",
-        FigureKind.SOLVE_TIME: "Solve Time",
-        FigureKind.PAIRED_TIME: "Online Time",
-        FigureKind.PERFORMANCE_PROFILE: "Performance Profile",
-        FigureKind.ECDF_ITERATIONS: "Iterations",
-        FigureKind.ECDF_TIME: (
-            "Solve Time" if metadata.scenario is TimingScenario.SOLVE else "Online Time"
-        ),
-        FigureKind.SPEED_RATIO: "Speed Ratio",
-        FigureKind.RESIDUAL_HISTORY: "Residual History",
-        FigureKind.ENERGY_HISTORY: "Energy History",
-    }
-    scenario = f"_{metadata.scenario.value}" if metadata.scenario else ""
-    filename = f"{kind.value}_{sanitize_filename(metadata.report_level.value)}_{sanitize_filename(group_slug)}{scenario}.png"
-    return FigurePlan(filename, titles[kind], metadata)

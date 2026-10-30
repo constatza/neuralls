@@ -7,7 +7,7 @@ from typing import Literal
 import numpy as np
 from scipy.linalg import norm
 
-from neuralls.domain.normalization import IScale
+from neuralls.domain.normalization import IScale, create_scale_from_config
 from neuralls.shared.types import ScaleMetadata, SystemMatrix
 
 
@@ -70,8 +70,6 @@ def normalize_matrix_for_generation(
         >>> value_scale > 0
         True
     """
-    from neuralls.domain.normalization import create_scale_from_config
-
     # No normalization: return defensive copy
     if normalize_type in ("none", "rhs"):
         return matrix.copy(), None, 1.0

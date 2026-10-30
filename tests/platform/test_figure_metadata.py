@@ -35,10 +35,13 @@ from neuralls.platform.reporting.figure_card import (
 from neuralls.platform.reporting.figure_metadata import (
     CARD_PROFILE,
     MAX_SLUG_LENGTH,
+    FigureKind,
     FigureMetadata,
     FigureMethod,
     FigurePlan,
     FigureSlugs,
+    GroupFigureMetadata,
+    MethodFigureMetadata,
     StagedFigure,
     collision_key,
 )
@@ -102,7 +105,7 @@ def test_card_of_each_scope_kind_round_trips_through_toml(
     kind: str,
     tmp_path: Path,
     every_scope: dict[str, FigureScope],
-    metadata_of: Callable[[FigureScope], FigureMetadata],
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
     figure_method: FigureMethod,
     notation: NotationPolicy,
 ) -> None:
@@ -143,10 +146,41 @@ def test_card_of_each_scope_kind_round_trips_through_toml(
     assert read_figure_card(path) == card
 
 
+def test_method_card_round_trips_without_group_only_fields(
+    tmp_path: Path,
+    scope: RecipeScope,
+    method_metadata_of: Callable[[FigureScope], MethodFigureMetadata],
+    notation: NotationPolicy,
+) -> None:
+    card = _card(method_metadata_of(scope), notation)
+    path = tmp_path / card_name(FIGURE)
+
+    write_figure_card(path, card)
+
+    payload = card_payload(card)
+    assert "failure_treatment" not in payload
+    assert "scenario" not in payload
+    assert read_figure_card(path) == card
+
+
+def test_group_metadata_rejects_a_method_figure_kind(
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata], scope: RecipeScope
+) -> None:
+    with pytest.raises(ValueError, match="not a group figure kind"):
+        replace(metadata_of(scope), kind=FigureKind.RESIDUAL_HISTORY)
+
+
+def test_method_metadata_rejects_a_group_figure_kind(
+    method_metadata_of: Callable[[FigureScope], MethodFigureMetadata], scope: RecipeScope
+) -> None:
+    with pytest.raises(ValueError, match="not a method figure kind"):
+        replace(method_metadata_of(scope), kind=FigureKind.AGGREGATE_BARS)
+
+
 def test_card_is_a_deterministic_function_of_its_value(
     tmp_path: Path,
     scope: RecipeScope,
-    metadata_of: Callable[[FigureScope], FigureMetadata],
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
     notation: NotationPolicy,
 ) -> None:
     card = _card(metadata_of(scope), notation)
@@ -160,7 +194,7 @@ def test_card_is_a_deterministic_function_of_its_value(
 
 def test_card_stores_structured_scope_and_its_rendered_text(
     scope: RecipeScope,
-    metadata_of: Callable[[FigureScope], FigureMetadata],
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
     notation: NotationPolicy,
 ) -> None:
     stored = cast(dict[str, Any], card_payload(_card(metadata_of(scope), notation))["scope"])
@@ -185,7 +219,7 @@ def test_every_reference_selection_round_trips(
     reference: NoReferenceConfigured | ConfiguredReference | ReferenceUnavailable,
     tmp_path: Path,
     scope: RecipeScope,
-    metadata_of: Callable[[FigureScope], FigureMetadata],
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
     notation: NotationPolicy,
 ) -> None:
     card = _card(replace(metadata_of(scope), reference_selection=reference), notation)
@@ -200,7 +234,7 @@ def test_every_report_level_name_round_trips_through_the_card(
     name: ReportLevelName,
     tmp_path: Path,
     scope: RecipeScope,
-    metadata_of: Callable[[FigureScope], FigureMetadata],
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
     notation: NotationPolicy,
 ) -> None:
     card = _card(replace(metadata_of(scope), report_level=name), notation)
@@ -214,7 +248,7 @@ def test_every_report_level_name_round_trips_through_the_card(
 def test_card_missing_a_required_field_is_rejected(
     missing: str,
     scope: RecipeScope,
-    metadata_of: Callable[[FigureScope], FigureMetadata],
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
     notation: NotationPolicy,
 ) -> None:
     payload = card_payload(_card(metadata_of(scope), notation))
@@ -226,7 +260,7 @@ def test_card_missing_a_required_field_is_rejected(
 
 def test_card_scope_without_display_text_is_rejected(
     scope: RecipeScope,
-    metadata_of: Callable[[FigureScope], FigureMetadata],
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
     notation: NotationPolicy,
 ) -> None:
     payload = card_payload(_card(metadata_of(scope), notation))
@@ -238,7 +272,7 @@ def test_card_scope_without_display_text_is_rejected(
 
 def test_card_source_without_run_id_is_rejected(
     scope: RecipeScope,
-    metadata_of: Callable[[FigureScope], FigureMetadata],
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
     notation: NotationPolicy,
 ) -> None:
     payload = card_payload(_card(metadata_of(scope), notation))
@@ -252,7 +286,7 @@ def test_card_source_without_run_id_is_rejected(
 def test_card_must_name_a_png_by_its_basename(
     figure: str,
     scope: RecipeScope,
-    metadata_of: Callable[[FigureScope], FigureMetadata],
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
 ) -> None:
     with pytest.raises(ValueError):
         FigureCard(figure, "Title", "display", SESSION_RUN_ID, metadata_of(scope))
@@ -261,7 +295,7 @@ def test_card_must_name_a_png_by_its_basename(
 def test_staged_figure_file_must_carry_the_planned_name(
     tmp_path: Path,
     scope: RecipeScope,
-    metadata_of: Callable[[FigureScope], FigureMetadata],
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
 ) -> None:
     plan = FigurePlan("planned.png", "Title", metadata_of(scope))
 

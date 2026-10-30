@@ -48,9 +48,9 @@ from torchalg.sparse.preconditioners.jacobi import (
     JacobiPreconditioner as SparseJacobiPreconditioner,
 )
 
+from neuralls.platform.config.models.coarsening import AggregationCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
     AdaptiveSAPreconditionerConfig,
-    AggregationCoarseningConfig,
     AMGPreconditionerConfig,
     BootstrapAMGPreconditionerConfig,
     IC0PreconditionerConfig,
@@ -74,10 +74,8 @@ if TYPE_CHECKING:
     from torchalg.preconditioners.implementations.amg.protocols import CoarseningStrategy
     from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAdapter
 
-    from neuralls.platform.config.models.preconditioner import (
-        ConcretePreconditionerConfig,
-        NeuralCheckpointRef,
-    )
+    from neuralls.platform.config.models.checkpoint_refs import NeuralCheckpointRef
+    from neuralls.platform.config.models.preconditioner import ConcretePreconditionerConfig
 
 
 @dataclass(frozen=True, slots=True)

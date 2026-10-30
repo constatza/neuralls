@@ -14,11 +14,12 @@ from pathlib import Path
 import pytest
 
 from neuralls.composition.comparison.models import canonical_method_config
-from neuralls.platform.config.models.preconditioner import (
-    AMGPreconditionerConfig,
+from neuralls.platform.config.models.coarsening import (
     NeuralPODCoarseningConfig,
     PODCoarseningConfig,
-    PowerNormWeightingConfig,
+)
+from neuralls.platform.config.models.preconditioner import (
+    AMGPreconditionerConfig,
     PreconditionerConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
@@ -28,6 +29,7 @@ from neuralls.platform.config.models.preconditioner_family import (
     pod2g_style_keys,
     preconditioner_family,
 )
+from neuralls.platform.config.models.weighting import PowerNormWeightingConfig
 
 
 @pytest.fixture

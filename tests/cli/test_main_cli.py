@@ -13,7 +13,7 @@ from typer.main import get_command
 from typer.models import ArgumentInfo
 from typer.testing import CliRunner
 
-from neuralls.application.models import AssignmentResult
+from neuralls.application.models import AssignmentSucceeded
 from neuralls.cli.compare import compare_case
 from neuralls.cli.eval import eval_case_batch
 from neuralls.cli.generate import generate_case
@@ -21,11 +21,13 @@ from neuralls.cli.generate_single import generate_single
 from neuralls.cli.main import app
 from neuralls.cli.run import run_case_pipeline_command
 from neuralls.cli.train import train_case_batch
+from neuralls.composition.assignments.case_pipeline import ForcePolicy
 from neuralls.composition.comparison.models import (
     ComparisonCompleted,
     ComparisonParams,
 )
 from neuralls.composition.generation.multi_generation import GenerationResult
+from neuralls.composition.tracking.services import MLFLOW_TRACKING
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.run_names import NamedRun, TrainingPresentation
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
@@ -279,6 +281,7 @@ def test_train_invokes_batch_workflow(
         case_config_path=config.resolve(),
         settings=settings,
         force=False,
+        tracking=MLFLOW_TRACKING,
     )
     mock_write_metric_report.assert_called_once_with(sweep_result, metric="eval/mae")
 
@@ -317,6 +320,7 @@ def test_eval_invokes_batch_workflow(
         output_root=None,
         case_config_path=config.resolve(),
         assignment_ids=["a1", "a2"],
+        tracking=MLFLOW_TRACKING,
     )
     mock_write_metric_report.assert_called_once_with(batch, metric="mae")
 
@@ -342,8 +346,8 @@ def test_run_invokes_batch_workflow(
     mock_load_settings.return_value = settings
     mock_run_case_pipeline.return_value = (
         [
-            AssignmentResult(
-                assignment_id="exp-1", presentation=training_presentation, status="Success"
+            AssignmentSucceeded(
+                assignment_id="exp-1", presentation=training_presentation, mlflow_run_id="run-1"
             )
         ],
         [],
@@ -357,9 +361,8 @@ def test_run_invokes_batch_workflow(
     call_kwargs = mock_run_case_pipeline.call_args.kwargs
     assert call_kwargs["case_config_path"] == config
     assert call_kwargs["settings"] == settings
-    assert call_kwargs["force_train"] is False
-    assert call_kwargs["force_generate"] is False
-    assert call_kwargs["force_compare"] is False
+    assert call_kwargs["force"] == ForcePolicy()
+    assert call_kwargs["tracking"] is MLFLOW_TRACKING
 
 
 @patch("neuralls.cli.run.run_case_pipeline")
@@ -380,9 +383,7 @@ def test_run_global_force_cascades_to_every_stage(
 
     assert result.exit_code == 0
     call_kwargs = mock_run_case_pipeline.call_args.kwargs
-    assert call_kwargs["force_train"] is True
-    assert call_kwargs["force_generate"] is True
-    assert call_kwargs["force_compare"] is True
+    assert call_kwargs["force"] == ForcePolicy(generate=True, train=True, compare=True, expand=True)
 
 
 @patch("neuralls.cli.run.run_case_pipeline")
@@ -401,9 +402,7 @@ def test_run_per_stage_force_flags_stay_independent(
 
     assert result.exit_code == 0
     call_kwargs = mock_run_case_pipeline.call_args.kwargs
-    assert call_kwargs["force_generate"] is True
-    assert call_kwargs["force_train"] is False
-    assert call_kwargs["force_compare"] is False
+    assert call_kwargs["force"] == ForcePolicy(generate=True)
 
 
 def test_compare_signature_uses_batch_case_argument() -> None:

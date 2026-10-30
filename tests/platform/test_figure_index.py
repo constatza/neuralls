@@ -22,9 +22,10 @@ from neuralls.platform.reporting.figure_index import (
     verify_figure_records,
     write_figure_index,
 )
-from neuralls.platform.reporting.figure_metadata import FigureKind, FigureMetadata
+from neuralls.platform.reporting.figure_metadata import GroupFigureMetadata, MethodFigureMetadata
 from neuralls.shared.rhs_recipe import SinusoidalRecipe
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.types import SessionRunId
 
 DIRECTORY = "group_reports"
 
@@ -36,7 +37,7 @@ def scope(dataset_presentation: DatasetPresentation) -> RecipeScope:
 
 @pytest.fixture
 def card_of(
-    metadata_of: Callable[[FigureScope], FigureMetadata],
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
     scope: RecipeScope,
     notation: NotationPolicy,
 ) -> Callable[[str], FigureCard]:
@@ -122,12 +123,17 @@ def test_a_group_figure_without_its_table_is_rejected(
 
 def test_a_table_beside_a_history_figure_is_rejected(
     complete: tuple[list[ArtifactLocation], dict[ArtifactLocation, FigureCard]],
-    card_of: Callable[[str], FigureCard],
+    method_metadata_of: Callable[[FigureScope], MethodFigureMetadata],
+    scope: RecipeScope,
+    notation: NotationPolicy,
 ) -> None:
     uploaded, cards = complete
-    history = card_of("residual.png")
-    cards[_card("root", "residual")] = replace(
-        history, metadata=replace(history.metadata, kind=FigureKind.RESIDUAL_HISTORY)
+    cards[_card("root", "residual")] = build_figure_card(
+        "residual.png",
+        "Title",
+        method_metadata_of(scope),
+        session_run_id=SessionRunId("session"),
+        notation=notation,
     )
 
     with pytest.raises(IncompleteFigureRecordsError, match="tables"):

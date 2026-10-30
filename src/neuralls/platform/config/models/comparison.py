@@ -15,11 +15,11 @@ from neuralls.domain.solver.models.config import (
     ComparisonGeneral,
     SolverParams,
 )
-from neuralls.platform.config.context import ConfigContext
+from neuralls.platform.config.context import ConfigContext, expand_config_path
+from neuralls.platform.config.models.checkpoint_refs import ByAlias, RegisteredModelRefConfig
 from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     PreconditionerConfig,
-    RegisteredModelRefConfig,
 )
 from neuralls.platform.config.models.presentation import ScientificLabelsConfig
 from neuralls.shared.constants import (
@@ -81,7 +81,6 @@ class ComparisonDataModel(BaseModel):
     def _expand_paths(cls, v: object, info: ValidationInfo) -> object:
         if not isinstance(v, str) or info.context is None:
             return v
-        from neuralls.platform.config.context import expand_config_path
 
         ctx = ConfigContext.from_pydantic_context(info.context)
         return expand_config_path(v, ctx)
@@ -218,7 +217,6 @@ class RawVectorSourceBase(RhsSourceModelBase):
     def _expand_path(cls, v: object, info: ValidationInfo) -> object:
         if not isinstance(v, str) or info.context is None:
             return v
-        from neuralls.platform.config.context import ConfigContext, expand_config_path
 
         return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
 
@@ -325,8 +323,8 @@ class _ComparisonConfigModel(BaseModel):
 
         requires_dataset_alias = any(
             isinstance(spec.model_ref, RegisteredModelRefConfig)
-            and spec.model_ref.alias is not None
-            and spec.model_ref.alias.strip() == "@dataset"
+            and isinstance(spec.model_ref.selector, ByAlias)
+            and spec.model_ref.selector.alias.strip() == "@dataset"
             and spec.assignment is None
             for spec in neural_specs
         )

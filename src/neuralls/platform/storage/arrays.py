@@ -15,11 +15,13 @@ from typing import Any
 
 import numpy as np
 
+from neuralls.platform.storage.dataset_views import load_dataset
 from neuralls.platform.storage.datasets import (
     load_dataset_manifest,
     load_dense_training_arrays,
     load_matrix_dense_sample,
 )
+from neuralls.platform.storage.filesystem import ensure_dir
 from neuralls.platform.storage.matrix_readers import read_matrix, to_dense
 from neuralls.shared.types import SystemMatrix
 
@@ -156,8 +158,6 @@ def save_training_data(
         features_path: Output path for features
         targets_path: Output path for targets
     """
-    from neuralls.platform.storage.filesystem import ensure_dir
-
     features_path = Path(features_path)
     targets_path = Path(targets_path)
 
@@ -190,8 +190,6 @@ def load_case_data(
         >>> R = data["rhs"]
         >>> X = data["solutions"]
     """
-    from neuralls.platform.storage.dataset_views import load_dataset
-
     data_dir = Path(data_dir)
 
     if not data_dir.exists():

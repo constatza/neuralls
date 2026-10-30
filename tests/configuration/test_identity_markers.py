@@ -11,13 +11,13 @@ from typing import Annotated, Union, get_args, get_origin, get_type_hints
 import pytest
 from pydantic import BaseModel
 
+from neuralls.platform.config.models.coarsening import CoarseningConfig
 from neuralls.platform.config.models.comparison import (
     ComparisonConfig,
     ComparisonRhsSourceModel,
 )
 from neuralls.platform.config.models.data_models import DataConfigFile
 from neuralls.platform.config.models.preconditioner import (
-    CoarseningConfig,
     ConcretePreconditionerConfig,
     NeuralTransferConfig,
 )

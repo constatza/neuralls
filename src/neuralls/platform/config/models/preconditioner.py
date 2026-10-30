@@ -6,27 +6,36 @@ They support both factory creation and scheduling/comparison concerns.
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from enum import StrEnum
-from pathlib import Path
-from typing import Annotated, Literal, Protocol, Self, cast, runtime_checkable
+from typing import Annotated, Literal, cast
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     TypeAdapter,
-    ValidationInfo,
     computed_field,
     field_validator,
     model_validator,
 )
 
-from neuralls.shared.digest import Cosmetic, InputConfig, InputData
+from neuralls.platform.config.models.checkpoint_refs import (
+    NeuralCheckpointRef,
+    RegisteredModelRefConfig,
+)
+from neuralls.platform.config.models.coarsening import (
+    CoarseningConfig,
+    NeuralPODCoarseningConfig,
+    PODCoarseningConfig,
+)
+from neuralls.platform.config.models.fact_roles import IDENTITY_ROLE, OPERATIONAL_ROLE
+from neuralls.platform.config.models.slugs import slug_number
+from neuralls.shared.digest import Cosmetic
 from neuralls.shared.fact_binding import (
     AFTER_METHOD_FACTS,
     Fact,
     Nested,
-    Omitted,
     Show,
     auto_if_none,
     enum_value,
@@ -34,7 +43,6 @@ from neuralls.shared.fact_binding import (
 )
 from neuralls.shared.scientific_description.catalog import (
     ALGEBRAIC_DISTANCE_THRESHOLD,
-    BETA,
     BOOTSTRAP_CYCLES,
     CALIBER,
     CALIBER_GROWTH_PENALTY,
@@ -47,30 +55,19 @@ from neuralls.shared.scientific_description.catalog import (
     FALLBACK,
     ITERATION_LIMIT,
     MAX_COARSE_DIMENSION,
-    METRIC,
     MODEL_ARCHITECTURE,
     MULTIGRID_LEVELS,
     POST_SMOOTHING_STEPS,
     PRE_SMOOTHING_STEPS,
-    RANK,
     RELAXATION_SWEEPS,
     RELAXATION_TEST_VECTORS,
     SEED,
     SMOOTHER_DAMPING,
-    SNAPSHOT_COUNT,
     START_ITERATION,
-    STEPS,
-    TARGET_COARSE_DIMENSION,
     THRESHOLD,
     USE_LSR,
-    WEIGHTING,
-    FactRole,
 )
 from neuralls.shared.scientific_description.models import ValidatedLabel
-
-_IDENTITY = Omitted(FactRole.IDENTITY)
-_PROVENANCE = Omitted(FactRole.PROVENANCE)
-_OPERATIONAL = Omitted(FactRole.OPERATIONAL)
 
 
 class MissingArchitectureNameError(ValueError):
@@ -138,249 +135,7 @@ class PreconditionerType(StrEnum):
                 return "BAMG"
 
 
-def _validate_pod_rank(v: float) -> int | float:
-    """Enforce the per-mode constraint matching whichever branch of ``rank`` was given.
-
-    Shared by ``PODCoarseningConfig._validate_rank`` and
-    ``NeuralPODCoarseningConfig._validate_rank`` — same POD-2G rank
-    contract, only the surrounding config differs.
-
-    Args:
-        v: The parsed ``rank`` value — an int (mode count) or float
-            (energy threshold).
-
-    Returns:
-        The validated value, unchanged.
-
-    Raises:
-        ValueError: If an int rank is < 1, or a float rank is outside (0, 1].
-    """
-    if isinstance(v, float) and not (0.0 < v <= 1.0):
-        raise ValueError(f"rank as an energy threshold must be in (0, 1], got {v}")
-    if not isinstance(v, float) and v < 1:
-        raise ValueError(f"rank as a mode count must be >= 1, got {v}")
-    return v
-
-
-class RegisteredModelRefConfig(BaseModel):
-    """Reference to a model registered in the MLflow Model Registry.
-
-    Attributes:
-        source: Discriminator field, always "registry".
-        name: Registered model name when explicitly provided. Only meaningful
-            for a registered model with no assignment linkage at all (e.g. an
-            externally-trained baseline this system never trained). When a
-            ``NeuralPreconditionerConfig.assignment`` is set, the registered
-            model name is derived automatically from the assignment; do not
-            also set `name` in that case (see
-            ``NeuralPreconditionerConfig.validate_single_model_identity_source``).
-        alias: Model alias (e.g. ``"@solutions"``); ``@`` prefix is stripped.
-        version: Explicit model version number.
-        latest: If True, select the highest registered version number. This is
-            "most recently registered," not "best-performing" — there is no
-            metric-based (e.g. lowest validation loss) selection. Use an
-            explicit `alias` pointed at a deliberately-chosen version if you
-            need a stable, quality-vetted reference.
-    """
-
-    source: Literal["registry"] = "registry"
-    name: str | None = Field(default=None, min_length=1)
-    alias: str | None = None
-    version: int | None = Field(default=None, ge=1)
-    latest: bool | None = None
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    @model_validator(mode="after")
-    def validate_selector(self) -> RegisteredModelRefConfig:
-        """Validate that exactly one selector is provided.
-
-        Returns:
-            The validated config instance.
-
-        Raises:
-            ValueError: If not exactly one of alias, version, or latest=True is set.
-        """
-        selectors = [self.alias is not None, self.version is not None, self.latest is True]
-        if sum(selectors) != 1:
-            raise ValueError("Requires exactly one selector: alias, version, or latest=true.")
-        return self
-
-
-class LoggedModelRefConfig(BaseModel):
-    """Reference to a model logged within an MLflow run.
-
-    Attributes:
-        source: Discriminator field, always "run".
-        run_id: Explicit MLflow run ID to reference.
-        latest: If True, select the most recently *started* run matching the
-            given filters (ordered by ``attributes.start_time DESC``). This is
-            "most recent," not "best-performing" — there is no metric-based
-            (e.g. lowest validation loss) selection.
-        model_name: Filter by logged model name.
-        experiment_name: Filter by experiment name.
-        experiment_id: Filter by experiment ID.
-        run_name: Filter by run name.
-        artifact_path: Artifact path within the run (default: "model").
-        tags: Optional tag filters.
-    """
-
-    source: Literal["run"] = "run"
-    run_id: str | None = Field(default=None, min_length=1)
-    latest: bool | None = None
-    model_name: str | None = None
-    experiment_name: str | None = None
-    experiment_id: str | None = None
-    run_name: str | None = None
-    artifact_path: str = "model"
-    tags: dict[str, str] | None = None
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    @model_validator(mode="after")
-    def validate_selector(self) -> LoggedModelRefConfig:
-        """Validate that exactly one selection mode is active.
-
-        Returns:
-            The validated config instance.
-
-        Raises:
-            ValueError: If not exactly one of run_id or latest=True is set.
-        """
-        selectors = [self.run_id is not None, self.latest is True]
-        if sum(selectors) != 1:
-            raise ValueError("Requires exactly one selector: run_id or latest=true.")
-        return self
-
-    @model_validator(mode="after")
-    def validate_latest_filters(self) -> LoggedModelRefConfig:
-        """Validate that latest=True is accompanied by at least one filter.
-
-        Returns:
-            The validated config instance.
-
-        Raises:
-            ValueError: If latest=True but no filter fields are set.
-        """
-        if self.latest is not True:
-            return self
-        filters = [
-            self.model_name,
-            self.experiment_name,
-            self.experiment_id,
-            self.run_name,
-            self.tags,
-        ]
-        if not any(f is not None for f in filters):
-            raise ValueError(
-                "latest=true requires at least one filter "
-                "(model_name, experiment_name, experiment_id, run_name, or tags)."
-            )
-        return self
-
-
-class TrainedAssignmentRefConfig(BaseModel):
-    """Reference to the training run that produced an assignment's current model.
-
-    Unlike ``LoggedModelRefConfig(latest=True, ...)`` this is not a tag search:
-    it resolves to exactly one run that is (a) in the case's training
-    experiment, (b) tagged with this assignment id, (c) FINISHED with a real
-    checkpoint, and (d) trained on the dataset as it exists on disk right now
-    (matching ``dataset_hash``). A run from another experiment, a failed or
-    incomplete run, or a run trained on a since-regenerated dataset is never
-    selected. The experiment and dataset hash come from the resolution
-    context, not from this config.
-
-    Attributes:
-        source: Discriminator field, always "assignment".
-        assignment_id: Stable assignment id the training run was tagged with.
-    """
-
-    source: Literal["assignment"] = "assignment"
-    assignment_id: str = Field(min_length=1)
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-ModelRefConfig = Annotated[
-    RegisteredModelRefConfig | LoggedModelRefConfig | TrainedAssignmentRefConfig,
-    Field(discriminator="source"),
-]
-
-
-class NeuralCheckpointRef(BaseModel):
-    """Shared checkpoint-identity fields for any config that loads a trained network.
-
-    Composition (a nested ``identity`` field) would be the usual preference for
-    an orthogonal concern like this, but Pydantic composition would force a
-    nested TOML sub-table, breaking the existing flat shape of configs that
-    already embed these fields. Inheritance keeps the flat shape. Consumers
-    that only need to resolve a checkpoint should type against this mixin
-    directly rather than against a concrete leaf class.
-    """
-
-    checkpoint_path: Annotated[Path | None, InputData(), _IDENTITY] = None
-    assignment: Annotated[str | None, _IDENTITY] = None
-    config_path: Annotated[Path | None, InputConfig(), _IDENTITY] = None
-    data_config_path: Annotated[Path | None, InputConfig(), _IDENTITY] = None
-    model_ref: Annotated[ModelRefConfig | None, _IDENTITY] = None
-    resolved_checkpoint_path: Annotated[Path | None, Cosmetic(), _IDENTITY] = None
-    resolved_run_id: Annotated[str | None, Cosmetic(), _IDENTITY] = None
-    """MLflow run id the checkpoint was resolved from, when resolved via
-    `model_ref` (unset for an explicit `checkpoint_path`). Used to detect when
-    a comparison's dependency has been retrained since it last ran."""
-
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-    @property
-    def active_checkpoint_path(self) -> Path | None:
-        """The checkpoint to load: the resolved MLflow artifact when present, else the explicit path."""
-        return self.resolved_checkpoint_path or self.checkpoint_path
-
-    @field_validator("checkpoint_path", "config_path", "data_config_path", mode="before")
-    @classmethod
-    def _expand_paths(cls, v: object, info: ValidationInfo) -> object:
-        """Expand ${NEURALLS_*} placeholders and resolve checkpoint-related paths.
-
-        Args:
-            v: Raw value from config field.
-            info: Pydantic validation info carrying context.
-
-        Returns:
-            Resolved absolute path string, or original value if not a string.
-        """
-        if v is None or info.context is None or not isinstance(v, str):
-            return v
-        from neuralls.platform.config.context import ConfigContext, expand_config_path
-
-        return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
-
-
-@runtime_checkable
-class CheckpointRefBearing(Protocol):
-    """A preconditioner config that owns one or more resolvable checkpoint refs.
-
-    The resolution layer (``composition/assignments/model_resolution.py``)
-    resolves every ``NeuralCheckpointRef`` reachable from a preconditioner
-    spec the same way, regardless of whether the config *is* a ref
-    (``NeuralPreconditionerConfig``) or *has* one nested in a field
-    (``AMGPreconditionerConfig.coarsening``, ``NeuralAMGPreconditionerConfig
-    .prolongation``/``.restriction``) — implementing this protocol is what
-    makes a config participate, with no branching on ``PreconditionerType``
-    in the resolver itself.
-
-    Invariant: ``with_resolved_refs`` must accept a tuple of exactly the
-    labels and length last returned by ``checkpoint_refs()`` — the resolver
-    always round-trips the same set it read, never a different arity.
-    """
-
-    def checkpoint_refs(self) -> tuple[tuple[str, NeuralCheckpointRef], ...]:
-        """Return every ``(label, ref)`` pair reachable from this config."""
-        ...
-
-    def with_resolved_refs(self, resolved: tuple[tuple[str, NeuralCheckpointRef], ...]) -> Self:
-        """Rebuild this config with the given resolved refs substituted in."""
-        ...
-
-
-class BasePreconditionerConfig(BaseModel):
+class BasePreconditionerConfig(BaseModel, ABC):
     """Shared fields for all preconditioners.
 
     Includes scheduling fields shared by all preconditioner variants.
@@ -419,12 +174,16 @@ class BasePreconditionerConfig(BaseModel):
         collision is correct and is exactly what
         ``result_keys.validate_unique_preconditioner_keys`` catches); two
         configs differing in any distinguishing field always produce a
-        different key. See ``preconditioner_slug`` below — kept config-only
+        different key. See ``slug`` — kept config-only
         (never reads a constructed object) so it's available before a
         preconditioner is built, for dict/cache keys and MLflow
         run-name/metric-key segments.
         """
-        return preconditioner_slug(cast(ConcretePreconditionerConfig, self))
+        return self.slug()
+
+    @abstractmethod
+    def slug(self) -> str:
+        """Deterministic identity key from this config's type and distinguishing fields."""
 
 
 class StandardPreconditionerConfig(BasePreconditionerConfig):
@@ -444,8 +203,12 @@ class StandardPreconditionerConfig(BasePreconditionerConfig):
             PreconditionerType.JACOBI,
             PreconditionerType.ILU,
         ],
-        _IDENTITY,
+        IDENTITY_ROLE,
     ]
+
+    def slug(self) -> str:
+        """Deterministic slug: the bare type name."""
+        return self.type.value
 
 
 class IC0PreconditionerConfig(BasePreconditionerConfig):
@@ -460,7 +223,7 @@ class IC0PreconditionerConfig(BasePreconditionerConfig):
     .ic0.IC0Preconditioner`` for the derivation.
     """
 
-    type: Annotated[Literal[PreconditionerType.IC0], _IDENTITY] = PreconditionerType.IC0
+    type: Annotated[Literal[PreconditionerType.IC0], IDENTITY_ROLE] = PreconditionerType.IC0
     threshold: Annotated[float, Fact(DROP_TOLERANCE)] = Field(
         default=0.0,
         description=(
@@ -472,6 +235,10 @@ class IC0PreconditionerConfig(BasePreconditionerConfig):
             "sparsity pattern. Default 0.0 only drops exact zeros."
         ),
     )
+
+    def slug(self) -> str:
+        """Deterministic slug for this config."""
+        return f"ic0_threshold{slug_number(self.threshold)}"
 
 
 class NeuralPreconditionerConfig(BasePreconditionerConfig, NeuralCheckpointRef):
@@ -485,7 +252,7 @@ class NeuralPreconditionerConfig(BasePreconditionerConfig, NeuralCheckpointRef):
     the comparison result) rather than assume it.
     """
 
-    type: Annotated[Literal[PreconditionerType.NEURAL], _IDENTITY] = PreconditionerType.NEURAL
+    type: Annotated[Literal[PreconditionerType.NEURAL], IDENTITY_ROLE] = PreconditionerType.NEURAL
     architecture: Annotated[
         str | None, Cosmetic(), Fact(MODEL_ARCHITECTURE, convert=architecture_label)
     ] = Field(
@@ -496,7 +263,7 @@ class NeuralPreconditionerConfig(BasePreconditionerConfig, NeuralCheckpointRef):
             "so it does not change the preconditioner's identity digest."
         ),
     )
-    extra_input_names: Annotated[tuple[str, ...], _OPERATIONAL] = Field(
+    extra_input_names: Annotated[tuple[str, ...], OPERATIONAL_ROLE] = Field(
         default=(),
         description=(
             "Names of extra dataset arrays to bind before CG, beyond the residual. "
@@ -561,383 +328,9 @@ class NeuralPreconditionerConfig(BasePreconditionerConfig, NeuralCheckpointRef):
             )
         return self
 
-
-class AggregationCoarseningConfig(BaseModel):
-    """Classical smoothed-aggregation coarsening (SA-AMG).
-
-    Complexity: setup is one strength-of-connection pass plus greedy
-    aggregation, O(nnz(A)) on a truly sparse matrix — this pipeline's dense
-    tensor storage (see ``IC0PreconditionerConfig``'s complexity note for
-    the same caveat) makes the practical cost closer to O(n^2) since forming
-    and scanning the dense strength graph touches every entry.
-    """
-
-    method: Annotated[Literal["aggregation"], _IDENTITY] = "aggregation"
-    theta: Annotated[float, Fact(THRESHOLD)] = Field(
-        default=0.25,
-        gt=0.0,
-        lt=1.0,
-        description="Strength-of-connection threshold controlling AMG aggregate/coarse-grid size.",
-    )
-    omega: Annotated[float | None, Fact(DAMPING, show=Show.NOT_NONE)] = Field(
-        default=None,
-        gt=0.0,
-        description="Prolongation Jacobi-smoothing damping; auto per-matrix via "
-        "torchalg's spectral-radius rule when unset.",
-    )
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    def exposed_checkpoint_ref(self) -> NeuralCheckpointRef | None:
-        """Purely algebraic coarsening — never checkpoint-backed."""
-        return None
-
-
-class TargetDimCoarseningConfig(BaseModel):
-    """AMG-aggregation coarsening parameterized by target coarse dimension, not theta.
-
-    `theta` is a strength-of-connection threshold; the coarse dimension it
-    produces is emergent, not chosen, and (confirmed against real stiffness
-    matrices, see `docs/plan.md`) a step function of `theta` rather than a
-    smooth or monotonic one. This gives AMG-aggregation the same "set the
-    coarse dimension directly" ergonomics `PODCoarseningConfig.rank` already
-    has, via an adaptive `theta` search for the closest realized match
-    (`torchalg.preconditioners.implementations.amg.TargetDimensionCoarsening`
-    — a wrapper external to `AggregationCoarsening`/`AMGPreconditioner`,
-    never modifying either; `composition/preconditioners/factory.py`
-    constructs it with `cache_candidates=True` to share the winning
-    theta's full build across sibling `target_dim` configs against the
-    same matrix within one comparison run).
-
-    Complexity: `AggregationCoarseningConfig`'s setup cost (see its own
-    complexity note), multiplied by however many `theta` values the grid
-    search in `(theta_min, theta_max, step)` tries before landing on the
-    closest match — `cache_candidates=True` (this repo's factory always sets
-    it) means repeated `target_dim` configs against the same matrix reuse
-    already-built candidates rather than re-paying this multiplier each time.
-    """
-
-    method: Annotated[Literal["target_dim"], _IDENTITY] = "target_dim"
-    target_coarse_dim: Annotated[int, Fact(TARGET_COARSE_DIMENSION)] = Field(
-        gt=0, description="Desired realized coarse dimension."
-    )
-    theta_min: Annotated[float, _OPERATIONAL] = Field(
-        default=0.01, gt=0.0, lt=1.0, description="Lower theta search bound."
-    )
-    theta_max: Annotated[float, _OPERATIONAL] = Field(
-        default=0.99, gt=0.0, lt=1.0, description="Upper theta search bound."
-    )
-    step: Annotated[float, _OPERATIONAL] = Field(
-        default=0.01, gt=0.0, description="Theta search grid spacing."
-    )
-    omega: Annotated[float | None, Fact(DAMPING, show=Show.NOT_NONE)] = Field(
-        default=None,
-        gt=0.0,
-        description="Prolongation Jacobi-smoothing damping; auto per-matrix via "
-        "torchalg's spectral-radius rule when unset.",
-    )
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    def exposed_checkpoint_ref(self) -> NeuralCheckpointRef | None:
-        """Purely algebraic coarsening — never checkpoint-backed."""
-        return None
-
-
-class RawWeightingConfig(BaseModel):
-    """No snapshot weighting — every snapshot votes equally in the POD SVD.
-
-    The default `PODCoarseningConfig.weighting`, reproducing the exact
-    behavior POD-2G had before per-snapshot weighting existed.
-    """
-
-    method: Annotated[Literal["raw"], _IDENTITY] = "raw"
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class PowerNormWeightingConfig(BaseModel):
-    """Row scale `||e_k||^(-beta)`, interpolating between raw and normalized snapshots.
-
-    `beta=0` is `RawWeightingConfig` in disguise (every snapshot keeps its
-    own magnitude); `beta=1` fully normalizes each snapshot by `metric`
-    before the SVD — `"l2"` for `e_k / ||e_k||_2`, `"a"` for the A-inner-product
-    `e_k / ||e_k||_A`. Values in between interpolate. See
-    `torchalg.preconditioners.implementations.pod.weighting.power_norm_scales`,
-    which this config resolves to.
-    """
-
-    method: Annotated[Literal["power_norm"], Fact(WEIGHTING)] = "power_norm"
-    metric: Annotated[Literal["l2", "a"], Fact(METRIC)] = "l2"
-    beta: Annotated[float, Fact(BETA)] = Field(
-        default=1.0, ge=0.0, description="Normalization exponent."
-    )
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class SmootherPersistenceWeightingConfig(BaseModel):
-    """Row scale by how well each snapshot survives weighted-Jacobi damping.
-
-    Weights each snapshot by `||G^steps e_k|| / ||e_k||`, `G = I - omega D^-1 A`
-    — the smoother's own error-propagation operator — so snapshots the
-    smoother already removes efficiently contribute little to the fitted
-    basis, and smoother-resistant ("algebraically smooth") snapshots
-    contribute most. `omega` defaults to unset, matching
-    `torchalg.preconditioners.implementations.amg.smoothers.JacobiSmoother`'s
-    own default of auto-computing the damping per-matrix via its
-    spectral-radius rule, so this targets the same smoother POD-2G actually
-    runs alongside. See
-    `torchalg.preconditioners.implementations.pod.weighting.smoother_persistence_scales`,
-    which this config resolves to.
-    """
-
-    method: Annotated[Literal["smoother_persistence"], Fact(WEIGHTING)] = "smoother_persistence"
-    steps: Annotated[int, Fact(STEPS)] = Field(
-        default=5, gt=0, description="Number of damping sweeps."
-    )
-    omega: Annotated[float | None, Fact(DAMPING, show=Show.NOT_NONE)] = Field(
-        default=None,
-        gt=0.0,
-        description="Weighted-Jacobi damping factor; auto per-matrix via "
-        "torchalg's spectral-radius rule when unset.",
-    )
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-SnapshotWeightingConfig = Annotated[
-    RawWeightingConfig | PowerNormWeightingConfig | SmootherPersistenceWeightingConfig,
-    Field(discriminator="method"),
-]
-
-parse_snapshot_weighting_config = TypeAdapter(SnapshotWeightingConfig).validate_python
-"""Coerce a raw dict (as a TOML `[model]` table's `extra="allow"` passthrough
-yields — see `composition/preconditioners/pod_fittable.py`) or an already-typed
-instance into a validated `SnapshotWeightingConfig` member."""
-
-
-class PODCoarseningConfig(NeuralCheckpointRef):
-    """POD-2G coarsening (Nikolopoulos et al. 2022, §3.3-3.5).
-
-    The prolongation/restriction operator is a POD basis fit to a snapshot
-    ensemble of high-fidelity solutions (or, for a sharper coarse space,
-    CG error traces e_k = x* - x_k, which are richer than raw solution vectors
-    since e_0 == x* and later k emphasize slow-converging directions) —
-    read from an already-generated dataset directory, not raw files, so the
-    same validation/normalization/manifest guarantees as every other
-    dataset in this repo apply.
-
-    Inherits the optional checkpoint-identity fields from
-    ``NeuralCheckpointRef`` (``assignment``, ``model_ref``, ``checkpoint_path``,
-    ``resolved_checkpoint_path``) so a POD-2G basis can *also* be fit once
-    ahead of time via a ``FitJobConfig`` assignment and reconstructed from its
-    MLflow-tracked checkpoint at comparison time, instead of being refit
-    inline from ``dataset_dir`` on every run — see
-    ``composition/preconditioners/factory.py``'s AMG branch. None of these
-    fields are required: a `PODCoarseningConfig` with no checkpoint identity
-    set behaves exactly as before (inline `dataset_dir` fit only).
-
-    Complexity: fit cost has two parts — the thin SVD over the snapshot
-    matrix (`m` snapshots x `n` DOFs), `O(min(m, n) * m * n)` for
-    `torch.linalg.svd`'s default full-matrices=False mode (cheap when
-    `m << n`, the usual case), and the one-time Galerkin coarse-matrix
-    triple product `Phi_r^T @ A @ Phi_r` in `build_transfer`, `O(rank * n^2)`
-    (dense `n x n` matrix, dominates the SVD when `rank` isn't tiny relative
-    to `m`). No fit cost at all when checkpoint-backed (see the class
-    docstring above) — just a checkpoint load (done ahead of the timed build, once
-    per dataset), though `build_transfer`'s
-    triple product still runs once per comparison since it depends on the
-    matrix, not the basis. Per-iteration application cost is `O(rank * n)`
-    for the basis projection itself, but every CG iteration through
-    `AMGPreconditioner`'s V-cycle also pays the surrounding cycle's O(n^2)
-    dense fine-level smoothing/residual cost — see
-    `AMGPreconditionerConfig`'s complexity note; POD-2G's basis projection
-    is cheap next to that, not instead of it. See
-    `torchalg.preconditioners.implementations.pod.coarsening` /
-    `.basis` for the derivation.
-    """
-
-    method: Annotated[Literal["pod"], _IDENTITY] = "pod"
-    dataset_dir: Annotated[Path, InputData(), _PROVENANCE] = Field(
-        ...,
-        description="Generated dataset directory whose `solutions` array supplies POD-2G snapshots.",
-    )
-    rank: Annotated[int | float, Fact(RANK)] = Field(
-        default=8,
-        description=(
-            "Fixed number of POD modes to retain (int), or minimum cumulative "
-            "captured energy to retain (float in (0, 1] — e.g. 0.9999)."
-        ),
-    )
-    n_snapshots: Annotated[int, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
-        default=-1, description="Number of snapshot files to load; -1 means all matched."
-    )
-    weighting: Annotated[SnapshotWeightingConfig, Nested()] = Field(
-        default_factory=RawWeightingConfig,
-        description=(
-            "Per-snapshot row scaling applied before the POD SVD — "
-            "`RawWeightingConfig` (default) reproduces the original unweighted "
-            "fit exactly; see `SnapshotWeightingConfig`'s member configs."
-        ),
-    )
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    @field_validator("dataset_dir", mode="before")
-    @classmethod
-    def _expand_dataset_dir(cls, v: object, info: ValidationInfo) -> object:
-        """Expand ``${NEURALLS_*}`` placeholders and anchor the dataset directory.
-
-        Args:
-            v: Raw field value.
-            info: Pydantic validation context.
-
-        Returns:
-            Resolved path string, or original value if not a string.
-        """
-        from neuralls.platform.config.context import expand_path_field
-
-        return expand_path_field(v, info)
-
-    @field_validator("rank")
-    @classmethod
-    def _validate_rank(cls, v: float) -> int | float:
-        """Enforce the per-mode constraint matching whichever branch was matched.
-
-        Args:
-            v: The parsed ``rank`` value — an int (mode count) or float
-                (energy threshold).
-
-        Returns:
-            The validated value, unchanged.
-
-        Raises:
-            ValueError: If an int rank is < 1, or a float rank is outside (0, 1].
-        """
-        return _validate_pod_rank(v)
-
-    def exposed_checkpoint_ref(self) -> NeuralCheckpointRef | None:
-        """Opt into checkpoint resolution only when a resolvable identity is set.
-
-        Unlike a neural preconditioner (always checkpoint-backed), POD
-        coarsening is equally valid unfitted-from-scratch (``dataset_dir`` +
-        ``rank`` only, no checkpoint fields at all) — that case must stay
-        invisible to `CheckpointRefBearing` resolution so it keeps falling
-        through to today's inline fit unchanged.
-        """
-        has_identity = (
-            self.assignment is not None
-            or self.model_ref is not None
-            or self.checkpoint_path is not None
-        )
-        return self if has_identity else None
-
-
-class NeuralPODCoarseningConfig(NeuralCheckpointRef):
-    """POD-2G coarsening whose snapshot ensemble is predicted by a checkpoint.
-
-    Same POD-2G math as ``PODCoarseningConfig`` (Nikolopoulos et al. 2022,
-    §3.3-3.5), but the high-fidelity snapshot ensemble is *predicted* by a
-    trained network instead of read from precomputed solutions: ``dataset_dir``
-    supplies the network's input parameter arrays (not the solutions
-    themselves), and the checkpoint identity fields inherited from
-    ``NeuralCheckpointRef`` locate the model that turns those parameters into
-    snapshots.
-
-    Complexity: application cost is the same `O(rank * n)` basis projection
-    as `PODCoarseningConfig` (also dominated in practice by the surrounding
-    V-cycle's O(n^2) cost — same caveat as `PODCoarseningConfig`'s complexity
-    note). Fit cost, unlike `PODCoarseningConfig`, is not
-    a fixed SVD formula — the snapshot ensemble itself comes from a network
-    forward pass (see `NeuralPreconditionerConfig`'s complexity note: model
-    architecture-dependent, not stated here), *followed by* the same
-    `O(min(m, n) * m * n)` SVD over the predicted snapshots.
-    """
-
-    method: Annotated[Literal["neural_pod"], _IDENTITY] = "neural_pod"
-    dataset_dir: Annotated[Path, InputData(), _PROVENANCE] = Field(
-        ...,
-        description="Generated dataset directory whose `params` arrays feed the checkpoint.",
-    )
-    input_names: Annotated[tuple[str, ...], _OPERATIONAL] = Field(
-        ...,
-        min_length=1,
-        description=(
-            "Checkpoint forward()/predict() keyword-argument names, one per "
-            "dataset `params` array, in the same order. These are declared by "
-            "the checkpoint's DLKit training job — NOT derived from how the "
-            "dataset writer happened to name the on-disk params artifacts; "
-            "there is no relationship between the two, so this must be set "
-            "explicitly (mirrors NeuralPreconditionerConfig.extra_input_names)."
-        ),
-    )
-    rank: Annotated[int | float, Fact(RANK)] = Field(
-        default=8,
-        description=(
-            "Fixed number of POD modes to retain (int), or minimum cumulative "
-            "captured energy to retain (float in (0, 1] — e.g. 0.9999)."
-        ),
-    )
-    n_snapshots: Annotated[int, Fact(SNAPSHOT_COUNT, show=Show.NON_DEFAULT)] = Field(
-        default=-1, description="Number of predicted snapshots to keep; -1 means all."
-    )
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    @field_validator("dataset_dir", mode="before")
-    @classmethod
-    def _expand_dataset_dir(cls, v: object, info: ValidationInfo) -> object:
-        """Expand ``${NEURALLS_*}`` placeholders and anchor the dataset directory.
-
-        Args:
-            v: Raw field value.
-            info: Pydantic validation context.
-
-        Returns:
-            Resolved path string, or original value if not a string.
-        """
-        from neuralls.platform.config.context import expand_path_field
-
-        return expand_path_field(v, info)
-
-    @field_validator("input_names", mode="before")
-    @classmethod
-    def _coerce_input_names_to_tuple(cls, v: object) -> tuple[str, ...] | object:
-        """Coerce list to tuple for input_names field.
-
-        Args:
-            v: Raw value that may be list, tuple, or other type.
-
-        Returns:
-            Tuple of strings, or original value if not list/tuple.
-        """
-        if isinstance(v, (list, tuple)):
-            return tuple(str(x) for x in v)
-        return v
-
-    @field_validator("rank")
-    @classmethod
-    def _validate_rank(cls, v: float) -> int | float:
-        """Enforce the per-mode constraint matching whichever branch was matched.
-
-        Args:
-            v: The parsed ``rank`` value — an int (mode count) or float
-                (energy threshold).
-
-        Returns:
-            The validated value, unchanged.
-
-        Raises:
-            ValueError: If an int rank is < 1, or a float rank is outside (0, 1].
-        """
-        return _validate_pod_rank(v)
-
-    def exposed_checkpoint_ref(self) -> NeuralCheckpointRef:
-        """Always checkpoint-backed — its snapshot ensemble only exists via a checkpoint."""
-        return self
-
-
-CoarseningConfig = Annotated[
-    AggregationCoarseningConfig
-    | PODCoarseningConfig
-    | NeuralPODCoarseningConfig
-    | TargetDimCoarseningConfig,
-    Field(discriminator="method"),
-]
+    def slug(self) -> str:
+        """Deterministic slug for this config."""
+        return f"neural_{self.checkpoint_slug()}"
 
 
 def _has_algebraic_levels(cfg: AMGPreconditionerConfig) -> bool:
@@ -974,7 +367,7 @@ class AMGPreconditionerConfig(BasePreconditionerConfig):
     / ``TargetDimCoarseningConfig`` / ``PODCoarseningConfig`` / ``NeuralPODCoarseningConfig``).
     """
 
-    type: Annotated[Literal[PreconditionerType.AMG], _IDENTITY] = PreconditionerType.AMG
+    type: Annotated[Literal[PreconditionerType.AMG], IDENTITY_ROLE] = PreconditionerType.AMG
     n_levels: Annotated[int, Fact(MULTIGRID_LEVELS, when=_has_algebraic_levels)] = Field(
         default=2, ge=2, description="Total number of grid levels."
     )
@@ -1011,6 +404,17 @@ class AMGPreconditionerConfig(BasePreconditionerConfig):
         description="Weighted Jacobi damping; auto per-matrix via torchalg's "
         "spectral-radius rule when unset.",
     )
+
+    def slug(self) -> str:
+        """Deterministic slug for this config."""
+        smoother_omega = (
+            slug_number(self.smoother_omega) if self.smoother_omega is not None else "auto"
+        )
+        return (
+            f"amg_levels{self.n_levels}_pre{self.pre_smoothing_steps}"
+            f"_post{self.post_smoothing_steps}_smootheromega{smoother_omega}"
+            f"_{self.coarsening.slug()}"
+        )
 
 
 class AdaptiveSAPreconditionerConfig(BasePreconditionerConfig):
@@ -1069,7 +473,7 @@ class AdaptiveSAPreconditionerConfig(BasePreconditionerConfig):
     see `AMGPreconditionerConfig`'s complexity note.
     """
 
-    type: Annotated[Literal[PreconditionerType.ADAPTIVE_SA_AMG], _IDENTITY] = (
+    type: Annotated[Literal[PreconditionerType.ADAPTIVE_SA_AMG], IDENTITY_ROLE] = (
         PreconditionerType.ADAPTIVE_SA_AMG
     )
     n_levels: Annotated[int, Fact(MULTIGRID_LEVELS)] = Field(
@@ -1101,6 +505,14 @@ class AdaptiveSAPreconditionerConfig(BasePreconditionerConfig):
     seed: Annotated[int, Fact(SEED)] = Field(
         default=0, description="Seed for the candidate/spectral-radius random source."
     )
+
+    def slug(self) -> str:
+        """Deterministic slug for this config."""
+        return (
+            f"asa_levels{self.n_levels}_k{self.num_candidates}_iters{self.candidate_iters}"
+            f"_maxcoarse{self.max_coarse}_theta{slug_number(self.theta)}"
+            f"_omega{slug_number(self.omega)}_seed{self.seed}"
+        )
 
 
 class BootstrapAMGPreconditionerConfig(BasePreconditionerConfig):
@@ -1141,7 +553,7 @@ class BootstrapAMGPreconditionerConfig(BasePreconditionerConfig):
     built — see `AMGPreconditionerConfig`'s complexity note.
     """
 
-    type: Annotated[Literal[PreconditionerType.BOOTSTRAP_AMG], _IDENTITY] = (
+    type: Annotated[Literal[PreconditionerType.BOOTSTRAP_AMG], IDENTITY_ROLE] = (
         PreconditionerType.BOOTSTRAP_AMG
     )
     n_levels: Annotated[int, Fact(MULTIGRID_LEVELS)] = Field(
@@ -1184,6 +596,16 @@ class BootstrapAMGPreconditionerConfig(BasePreconditionerConfig):
         default=0, description="Seed of the random test-vector source."
     )
 
+    def slug(self) -> str:
+        """Deterministic slug for this config."""
+        return (
+            f"bamg_levels{self.n_levels}_kr{self.k_r}_eta{self.eta}"
+            f"_cycles{self.n_bootstrap_cycles}_nu{self.nu}"
+            f"_delta{slug_number(self.delta)}_thetaad{slug_number(self.theta_ad)}"
+            f"_caliber{self.caliber}_gamma{slug_number(self.gamma)}_lsr{self.use_lsr}"
+            f"_maxcoarse{self.max_coarse}_seed{self.seed}"
+        )
+
 
 class NeuralTransferConfig(NeuralCheckpointRef):
     """Config for one neural transfer operator (prolongation or restriction).
@@ -1210,7 +632,7 @@ class NeuralAMGPreconditionerConfig(BasePreconditionerConfig):
     the neural transfer operators' own forward passes cost.
     """
 
-    type: Annotated[Literal[PreconditionerType.NEURAL_AMG], _IDENTITY] = (
+    type: Annotated[Literal[PreconditionerType.NEURAL_AMG], IDENTITY_ROLE] = (
         PreconditionerType.NEURAL_AMG
     )
     n_levels: Annotated[int, Fact(MULTIGRID_LEVELS)] = Field(
@@ -1228,8 +650,8 @@ class NeuralAMGPreconditionerConfig(BasePreconditionerConfig):
     smoother_omega: Annotated[
         float | None, Fact(SMOOTHER_DAMPING, convert=auto_if_none, show=Show.NON_DEFAULT)
     ] = Field(default=None, gt=0.0)
-    prolongation: Annotated[NeuralTransferConfig, _IDENTITY]
-    restriction: Annotated[NeuralTransferConfig | None, _IDENTITY] = None
+    prolongation: Annotated[NeuralTransferConfig, IDENTITY_ROLE]
+    restriction: Annotated[NeuralTransferConfig | None, IDENTITY_ROLE] = None
 
     def checkpoint_refs(self) -> tuple[tuple[str, NeuralCheckpointRef], ...]:
         """Expose prolongation's ref, plus restriction's when set."""
@@ -1246,6 +668,23 @@ class NeuralAMGPreconditionerConfig(BasePreconditionerConfig):
         for label, ref in resolved:
             updates[label] = cast(NeuralTransferConfig, ref)
         return self.model_copy(update=updates)
+
+    def slug(self) -> str:
+        """Deterministic slug for this config."""
+        smoother_omega = (
+            slug_number(self.smoother_omega) if self.smoother_omega is not None else "auto"
+        )
+        aggregation_omega = (
+            slug_number(self.aggregation_omega) if self.aggregation_omega is not None else "auto"
+        )
+        base = (
+            f"neural_amg_levels{self.n_levels}_pre{self.pre_smoothing_steps}"
+            f"_post{self.post_smoothing_steps}_smootheromega{smoother_omega}"
+            f"_aggomega{aggregation_omega}_{self.prolongation.checkpoint_slug()}"
+        )
+        if self.restriction is None:
+            return base
+        return f"{base}_{self.restriction.checkpoint_slug()}"
 
 
 ConcretePreconditionerConfig = (
@@ -1266,169 +705,3 @@ _StrictPreconditionerConfig = Annotated[
 PreconditionerConfig = _StrictPreconditionerConfig
 
 parse_preconditioner_config = TypeAdapter(PreconditionerConfig).validate_python
-
-
-def _num(value: float) -> str:
-    """Slug-safe rendering of a float: no ``.``/``-``/``+`` (e.g. a ``%g``-formatted exponent)."""
-    return f"{value:g}".replace(".", "p").replace("-", "neg").replace("+", "")
-
-
-def _sanitize(text: str) -> str:
-    """Lowercase, alnum-and-underscore-only rendering of free text from a checkpoint ref."""
-    return "".join(c if c.isalnum() else "_" for c in text.lower()).strip("_") or "unset"
-
-
-def _checkpoint_ref_slug(ref: NeuralCheckpointRef) -> str:
-    """Deterministic slug for whichever checkpoint-identity source ``ref`` actually sets.
-
-    Priority: ``assignment`` / ``model_ref`` (the stable, *logical* reference)
-    over a bare ``checkpoint_path``. This matters because checkpoint
-    resolution (``model_resolution.py``) fills in ``checkpoint_path`` with
-    the resolved *local* path once a ``model_ref`` is resolved — a path that
-    can differ run to run (temp dirs, cache locations) even for the exact
-    same logical reference. If the slug followed that local path, the same
-    comparison re-run later would get a different MLflow metric-key segment
-    for what is logically the same preconditioner. A bare ``checkpoint_path``
-    with no ``model_ref``/``assignment`` at all (an explicit local file,
-    never resolved from MLflow) is the only case with nothing better to key
-    on, so it's the fallback, not the first choice.
-    """
-    if ref.assignment is not None:
-        return f"assignment_{_sanitize(ref.assignment)}"
-    match ref.model_ref:
-        case RegisteredModelRefConfig(name=name, alias=alias, version=version, latest=latest):
-            selector = (
-                alias
-                or (f"v{version}" if version is not None else None)
-                or ("latest" if latest else "unset")
-            )
-            return f"registry_{_sanitize(name or 'assignment')}_{_sanitize(selector)}"
-        case LoggedModelRefConfig(run_id=run_id, latest=latest, model_name=model_name):
-            if run_id is not None:
-                return f"run_{_sanitize(run_id)}"
-            return f"run_latest_{_sanitize(model_name or 'unset')}" if latest else "run_unset"
-        case TrainedAssignmentRefConfig(assignment_id=assignment_id):
-            return f"assignment_{_sanitize(assignment_id)}"
-        case None:
-            pass
-    if ref.checkpoint_path is not None:
-        return f"path_{_sanitize(ref.checkpoint_path.stem)}"
-    return "unset"
-
-
-def _weighting_slug(weighting: SnapshotWeightingConfig) -> str:
-    """Deterministic slug for a POD-2G snapshot-weighting config."""
-    match weighting:
-        case RawWeightingConfig():
-            return "raw"
-        case PowerNormWeightingConfig(metric=metric, beta=beta):
-            return f"powernorm_{metric}_beta{_num(beta)}"
-        case SmootherPersistenceWeightingConfig(omega=omega, steps=steps):
-            omega_text = _num(omega) if omega is not None else "auto"
-            return f"smoother_omega{omega_text}_steps{steps}"
-
-
-def _coarsening_slug(coarsening: CoarseningConfig) -> str:
-    """Deterministic slug for an AMG coarsening config, including any checkpoint identity."""
-    match coarsening:
-        case AggregationCoarseningConfig(theta=theta, omega=omega):
-            omega_text = _num(omega) if omega is not None else "auto"
-            return f"aggregation_theta{_num(theta)}_omega{omega_text}"
-        case TargetDimCoarseningConfig(
-            target_coarse_dim=target, theta_min=theta_min, theta_max=theta_max, step=step
-        ):
-            return f"targetdim{target}_range{_num(theta_min)}to{_num(theta_max)}_step{_num(step)}"
-        case PODCoarseningConfig(rank=rank, n_snapshots=n_snapshots, weighting=weighting):
-            base = f"pod_rank{_num(rank)}_n{n_snapshots}_{_weighting_slug(weighting)}"
-            ref = coarsening.exposed_checkpoint_ref()
-            return f"{base}_{_checkpoint_ref_slug(ref)}" if ref is not None else base
-        case NeuralPODCoarseningConfig(rank=rank, n_snapshots=n_snapshots):
-            return f"neuralpod_rank{_num(rank)}_n{n_snapshots}_{_checkpoint_ref_slug(coarsening)}"
-
-
-def preconditioner_slug(cfg: PreconditionerConfig) -> str:
-    """Deterministic ASCII identity key from a config's own type + distinguishing fields.
-
-    Config-only (never reads a constructed object), so it's available
-    before construction — used as the dict/cache key and MLflow
-    run-name/metric-key segment throughout the comparison pipeline. Two
-    configs with identical fields produce the identical slug (a true
-    duplicate, correctly rejected by
-    ``result_keys.validate_unique_preconditioner_keys``); any differing
-    field changes the slug. Never carries the Greek/space/paren notation
-    of the human-readable render (see ``composition.preconditioners
-    .descriptions``) — that would break
-    MLflow metric-key stability across runs.
-    """
-    match cfg:
-        case StandardPreconditionerConfig(type=kind):
-            return kind.value
-        case IC0PreconditionerConfig(threshold=threshold):
-            return f"ic0_threshold{_num(threshold)}"
-        case NeuralPreconditionerConfig():
-            return f"neural_{_checkpoint_ref_slug(cfg)}"
-        case AMGPreconditionerConfig(
-            coarsening=coarsening,
-            n_levels=n_levels,
-            pre_smoothing_steps=pre_smoothing_steps,
-            post_smoothing_steps=post_smoothing_steps,
-            smoother_omega=smoother_omega,
-        ):
-            smoother_omega_text = _num(smoother_omega) if smoother_omega is not None else "auto"
-            return (
-                f"amg_levels{n_levels}_pre{pre_smoothing_steps}_post{post_smoothing_steps}"
-                f"_smootheromega{smoother_omega_text}_{_coarsening_slug(coarsening)}"
-            )
-        case AdaptiveSAPreconditionerConfig(
-            n_levels=n_levels,
-            num_candidates=num_candidates,
-            candidate_iters=candidate_iters,
-            max_coarse=max_coarse,
-            theta=theta,
-            omega=omega,
-            seed=seed,
-        ):
-            return (
-                f"asa_levels{n_levels}_k{num_candidates}_iters{candidate_iters}"
-                f"_maxcoarse{max_coarse}_theta{_num(theta)}_omega{_num(omega)}_seed{seed}"
-            )
-        case BootstrapAMGPreconditionerConfig(
-            n_levels=n_levels,
-            k_r=k_r,
-            eta=eta,
-            n_bootstrap_cycles=n_bootstrap_cycles,
-            nu=nu,
-            delta=delta,
-            theta_ad=theta_ad,
-            caliber=caliber,
-            gamma=gamma,
-            use_lsr=use_lsr,
-            max_coarse=max_coarse,
-            seed=seed,
-        ):
-            return (
-                f"bamg_levels{n_levels}_kr{k_r}_eta{eta}_cycles{n_bootstrap_cycles}_nu{nu}"
-                f"_delta{_num(delta)}_thetaad{_num(theta_ad)}_caliber{caliber}"
-                f"_gamma{_num(gamma)}_lsr{use_lsr}_maxcoarse{max_coarse}_seed{seed}"
-            )
-        case NeuralAMGPreconditionerConfig(
-            prolongation=prolongation,
-            restriction=restriction,
-            n_levels=n_levels,
-            pre_smoothing_steps=pre_smoothing_steps,
-            post_smoothing_steps=post_smoothing_steps,
-            smoother_omega=smoother_omega,
-            aggregation_omega=aggregation_omega,
-        ):
-            smoother_omega_text = _num(smoother_omega) if smoother_omega is not None else "auto"
-            aggregation_omega_text = (
-                _num(aggregation_omega) if aggregation_omega is not None else "auto"
-            )
-            base = (
-                f"neural_amg_levels{n_levels}_pre{pre_smoothing_steps}_post{post_smoothing_steps}"
-                f"_smootheromega{smoother_omega_text}_aggomega{aggregation_omega_text}"
-                f"_{_checkpoint_ref_slug(prolongation)}"
-            )
-            if restriction is None:
-                return base
-            return f"{base}_{_checkpoint_ref_slug(restriction)}"

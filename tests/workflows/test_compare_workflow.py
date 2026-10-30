@@ -15,7 +15,7 @@ def test_preconditioner_result_keys_reject_duplicate_keys() -> None:
     """Two configs with identical type and fields derive the identical key and must be rejected.
 
     `name` is no longer user-settable — it's derived from type + fields (see
-    `preconditioner.py::preconditioner_slug`), so a "duplicate key" now means
+    each config's `slug()`), so a "duplicate key" now means
     what it should: two requested solves that are actually the same
     preconditioner, listed twice.
     """

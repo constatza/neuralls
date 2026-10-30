@@ -23,12 +23,14 @@ from pathlib import Path
 
 from neuralls.domain.solver.models.cost import StageCost
 from neuralls.platform.config.loaders import load_data_config
+from neuralls.platform.config.models.checkpoint_refs import CheckpointRefBearing
+from neuralls.platform.config.models.coarsening import (
+    NeuralPODCoarseningConfig,
+    PODCoarseningConfig,
+)
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
-    CheckpointRefBearing,
-    NeuralPODCoarseningConfig,
-    PODCoarseningConfig,
     PreconditionerConfig,
 )
 from neuralls.platform.config.settings import NeurallsSettings

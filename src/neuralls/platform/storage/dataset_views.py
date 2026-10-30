@@ -13,6 +13,7 @@ from neuralls.platform.storage.datasets import (
     load_matrix_dense_sample,
     resolve_dataset_artifacts,
 )
+from neuralls.platform.storage.filesystem import ensure_dir, format_file_size, get_file_size
 from neuralls.platform.storage.matrix_readers import read_matrix, to_dense
 
 
@@ -104,8 +105,6 @@ def save_numpy_array(array: np.ndarray, path: str | Path) -> None:
         array: Array to save
         path: Output path (.npy format)
     """
-    from neuralls.platform.storage.filesystem import ensure_dir
-
     path = Path(path)
     ensure_dir(path.parent)
     np.save(path, array)
@@ -125,8 +124,6 @@ class DatasetFileTracker:
             path: File path that was read
             size: File size in bytes (optional)
         """
-        from neuralls.platform.storage.filesystem import get_file_size
-
         self.operations.append(
             {
                 "operation": "read",
@@ -142,8 +139,6 @@ class DatasetFileTracker:
             path: File path that was written
             size: File size in bytes (optional)
         """
-        from neuralls.platform.storage.filesystem import get_file_size
-
         self.operations.append(
             {
                 "operation": "write",
@@ -171,8 +166,6 @@ class DatasetFileTracker:
 
     def print_summary(self) -> None:
         """Print file operations summary to stdout."""
-        from neuralls.platform.storage.filesystem import format_file_size
-
         summary = self.get_summary()
         print("File Operations Summary:")
         print(f"  Total operations: {summary['total_operations']}")

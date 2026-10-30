@@ -30,13 +30,13 @@ from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.composition.preconditioners.preloading import CheckpointLoaders, preload_checkpoints
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.config import SolverParams
+from neuralls.platform.config.models.checkpoint_refs import NeuralCheckpointRef
+from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     NeuralAMGPreconditionerConfig,
-    NeuralCheckpointRef,
     NeuralPreconditionerConfig,
     NeuralTransferConfig,
-    PODCoarseningConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
 )

@@ -42,17 +42,19 @@ from neuralls.composition.preconditioners.schedule import (
     create_scheduled_preconditioner,
 )
 from neuralls.domain.inference_ports import InferencePredictorPort
+from neuralls.platform.config.models.coarsening import (
+    AggregationCoarseningConfig,
+    NeuralPODCoarseningConfig,
+    PODCoarseningConfig,
+    TargetDimCoarseningConfig,
+)
 from neuralls.platform.config.models.preconditioner import (
     AdaptiveSAPreconditionerConfig,
-    AggregationCoarseningConfig,
     AMGPreconditionerConfig,
     BootstrapAMGPreconditionerConfig,
-    NeuralPODCoarseningConfig,
     NeuralPreconditionerConfig,
-    PODCoarseningConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
-    TargetDimCoarseningConfig,
     parse_preconditioner_config,
 )
 from neuralls.platform.dlkit.predictor_adapter import OwningDLKitNeuralPreconditioner

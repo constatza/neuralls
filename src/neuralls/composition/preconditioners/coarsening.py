@@ -31,13 +31,13 @@ from neuralls.composition.preconditioners.checkpoint_store import (
     PreloadedCheckpoints,
     preloaded_inference_factory,
 )
-from neuralls.platform.config.models.preconditioner import (
+from neuralls.platform.config.models.coarsening import (
     AggregationCoarseningConfig,
-    AMGPreconditionerConfig,
     NeuralPODCoarseningConfig,
     PODCoarseningConfig,
     TargetDimCoarseningConfig,
 )
+from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
 from neuralls.platform.dlkit.inference_adapter import create_inference_predictor
 
 if TYPE_CHECKING:

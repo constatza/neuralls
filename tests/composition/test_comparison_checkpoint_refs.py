@@ -19,16 +19,21 @@ from neuralls.composition.assignments.comparison_resolution import (
     needs_model_resolution,
     referenced_assignment_ids,
 )
-from neuralls.platform.config.models.preconditioner import (
-    AggregationCoarseningConfig,
-    AMGPreconditionerConfig,
+from neuralls.platform.config.models.checkpoint_refs import (
+    LatestMatching,
     LoggedModelRefConfig,
+)
+from neuralls.platform.config.models.coarsening import (
+    AggregationCoarseningConfig,
     NeuralPODCoarseningConfig,
-    NeuralPreconditionerConfig,
     PODCoarseningConfig,
+    TargetDimCoarseningConfig,
+)
+from neuralls.platform.config.models.preconditioner import (
+    AMGPreconditionerConfig,
+    NeuralPreconditionerConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
-    TargetDimCoarseningConfig,
 )
 
 type NeuralSpecFactory = Callable[..., NeuralPreconditionerConfig]
@@ -89,7 +94,7 @@ def make_pod_amg_spec() -> AmgSpecFactory:
 @pytest.fixture
 def logged_ref() -> LoggedModelRefConfig:
     """A model ref that triggers checkpoint resolution."""
-    return LoggedModelRefConfig(latest=True, tags={"assignment_id": "a"})
+    return LoggedModelRefConfig(selector=LatestMatching(tags={"assignment_id": "a"}))
 
 
 def test_no_model_resolution_needed_without_checkpoint_bearing_specs(

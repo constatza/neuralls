@@ -13,7 +13,12 @@ from unittest.mock import patch
 
 import pytest
 
-from neuralls.application.models import AssignmentResult, AssignmentSweepResult
+from neuralls.application.models import (
+    AssignmentFailed,
+    AssignmentResult,
+    AssignmentSucceeded,
+    AssignmentSweepResult,
+)
 from neuralls.composition.assignments.training_batch import write_metric_report
 from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.tracking.run_names import render_training_label
@@ -42,12 +47,13 @@ def result_of(
     def build(
         assignment_id: str, method_name: str, *, run: str | None = None, **kwargs: object
     ) -> AssignmentResult:
-        return AssignmentResult(
-            assignment_id=assignment_id,
-            presentation=training_presentation_of(method_name),
-            status="Success",
-            mlflow_run_id=run,
-            **kwargs,
+        presentation = training_presentation_of(method_name)
+        if run is None:
+            return AssignmentFailed(
+                assignment_id=assignment_id, presentation=presentation, **kwargs
+            )
+        return AssignmentSucceeded(
+            assignment_id=assignment_id, presentation=presentation, mlflow_run_id=run, **kwargs
         )
 
     return build

@@ -123,9 +123,9 @@ SCOPES: dict[str, SinkScope] = {
             ),
             Allowed(
                 RUN_NAME_TEXT,
-                "platform/tracking/report_sink.py",
-                "_scope_run_id",
-                "the child run is named by _scope_name, which renders the typed report scope "
+                "platform/tracking/scope_run_tree.py",
+                "child_run",
+                "the child run is named by scope_run_name, which renders the typed report scope "
                 "through the scientific scope renderer",
             ),
             Allowed(
@@ -253,7 +253,7 @@ SCOPES: dict[str, SinkScope] = {
             Allowed(
                 CLASS_NAME,
                 "composition/comparison/comparison_run.py",
-                "_execute_matrix_bundle",
+                "_setup_failed",
                 "exception class names in diagnostic log lines and failure records",
             ),
         ),

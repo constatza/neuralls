@@ -8,9 +8,20 @@ from typing import Any
 
 import numpy as np
 
-from neuralls.application.inference.models import InferenceConfig
+from neuralls.application.inference.models import DataSource, InferenceConfig
+from neuralls.application.inference.prediction import run_prediction
 from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
+from neuralls.composition.inference.data_loading import load_inference_data
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.dlkit.inference_adapter import (
+    create_inference_predictor,
+    resolve_batch_size,
+)
+from neuralls.platform.reporting.predictions import (
+    save_inference_outputs,
+    save_synthetic_predictions,
+)
+from neuralls.platform.storage.filesystem import sanitize_identifier
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,20 +41,21 @@ class InferenceResult:
     duration_seconds: float
 
 
-def _validate_inference_config(config: InferenceConfig) -> None:
-    """Validate inference configuration early.
+def _validated_checkpoint_path(config: InferenceConfig) -> Path:
+    """Return the checkpoint path inference needs, failing early when there is none.
 
     Args:
         config: Inference configuration to validate
 
+    Returns:
+        The checkpoint path the pipeline loads the model from.
+
     Raises:
         ValueError: If checkpoint path not provided
-
-    Note:
-        After this function returns, checkpoint_path is guaranteed non-None.
     """
     if config.checkpoint_path is None:
         raise ValueError("No checkpoint path specified")
+    return config.checkpoint_path
 
 
 def _load_assignment_settings(
@@ -84,6 +96,7 @@ def _load_assignment_settings(
 
 def _execute_inference_pipeline(
     config: InferenceConfig,
+    checkpoint_path: Path,
     runtime_settings: NeurallsSettings,
     settings: Any,
     workspace: Any,
@@ -93,6 +106,7 @@ def _execute_inference_pipeline(
 
     Args:
         config: Inference configuration
+        checkpoint_path: Validated checkpoint the model is loaded from
         settings: Assignment settings
         workspace: Workspace paths
         dataset_id: Dataset identifier
@@ -100,20 +114,6 @@ def _execute_inference_pipeline(
     Returns:
         Tuple of (predictions, metrics_dict)
     """
-    from neuralls.application.inference.prediction import run_prediction
-    from neuralls.composition.inference.data_loading import load_inference_data
-    from neuralls.platform.dlkit.inference_adapter import (
-        create_inference_predictor,
-        resolve_batch_size,
-    )
-    from neuralls.platform.reporting.predictions import (
-        save_inference_outputs,
-        save_synthetic_predictions,
-    )
-
-    # Type guard: checkpoint_path validated before this function is called
-    assert config.checkpoint_path is not None
-
     # Load data (strategy pattern: standard vs synthetic)
     data = load_inference_data(
         workspace=workspace,
@@ -125,14 +125,12 @@ def _execute_inference_pipeline(
     )
 
     # Run prediction (transforms applied automatically from checkpoint)
-    with create_inference_predictor(config.checkpoint_path) as predictor:
+    with create_inference_predictor(checkpoint_path) as predictor:
         predictions = run_prediction(predictor, data, batch_size=resolve_batch_size(settings))
 
     # Save synthetic results separately (if applicable)
-    if config.synthetic_benchmark and data.metadata.get("source") == "synthetic":
-        from neuralls.platform.storage.filesystem import sanitize_identifier
-
-        run_identifier = sanitize_identifier(str(workspace.run_id or config.checkpoint_path.stem))
+    if config.synthetic_benchmark and data.source is DataSource.SYNTHETIC:
+        run_identifier = sanitize_identifier(str(workspace.run_id or checkpoint_path.stem))
         dataset_slug = sanitize_identifier(str(dataset_id))
         identifier = f"{dataset_slug}-{run_identifier}"
         save_synthetic_predictions(predictions, workspace.predictions_dir, identifier)
@@ -142,7 +140,7 @@ def _execute_inference_pipeline(
         predictions=predictions,
         workspace=workspace,
         settings=settings,
-        checkpoint_path=config.checkpoint_path,
+        checkpoint_path=checkpoint_path,
         config_path=config.config_path,
         dataset_id=dataset_id,
     )
@@ -221,7 +219,7 @@ def run_inference(
     )
 
     # 1. Validate configuration
-    _validate_inference_config(config)
+    checkpoint = _validated_checkpoint_path(config)
 
     # 2. Load assignment settings
     assignment_settings, workspace, dataset_id = _load_assignment_settings(
@@ -232,7 +230,7 @@ def run_inference(
 
     # 3. Execute inference pipeline
     predictions, metrics = _execute_inference_pipeline(
-        config, settings, assignment_settings, workspace, dataset_id
+        config, checkpoint, settings, assignment_settings, workspace, dataset_id
     )
 
     # 4. Build typed result

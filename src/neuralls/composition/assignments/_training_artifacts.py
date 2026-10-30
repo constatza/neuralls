@@ -11,11 +11,11 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
-from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments.assembler import AssignmentIdentity
 from neuralls.composition.assignments.runtime_dataset_contract import RuntimeDatasetContract
 from neuralls.composition.tracking.run_specs import build_training_run_spec, training_run_name
+from neuralls.composition.tracking.services import TrackingServices
 from neuralls.domain.presentation.run_names import NamedRun, TrainingPresentation
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.reporting.training_diagnostics import (
@@ -126,6 +126,7 @@ def _build_training_run_config(
 
 def _resolve_mlflow_run_ids(
     *,
+    tracking: TrackingServices,
     training_result: Any,
     fallback_tracking_uri: str | None,
     experiment_name: str,
@@ -134,6 +135,7 @@ def _resolve_mlflow_run_ids(
     """Resolve MLflow tracking URI, experiment ID, and run ID for a training run.
 
     Args:
+        tracking: Source of the client that looks the run up.
         training_result: DLKit training result object.
         fallback_tracking_uri: Tracking URI to use when not found in result metrics.
         experiment_name: MLflow experiment name for fallback lookup.
@@ -156,7 +158,7 @@ def _resolve_mlflow_run_ids(
     if isinstance(direct_run_id, str) and direct_run_id:
         try:
             resolved_experiment_id = (
-                MlflowClient(tracking_uri=tracking_uri).get_run(direct_run_id).info.experiment_id
+                tracking.client(tracking_uri).get_run(direct_run_id).info.experiment_id
             )
         except Exception:  # noqa: BLE001
             resolved_experiment_id = None
@@ -177,6 +179,7 @@ def _resolve_mlflow_run_ids(
 
 def create_fallback_training_run(
     *,
+    tracking: TrackingServices,
     tracking_uri: str,
     experiment_name: str,
     run: NamedRun,
@@ -184,7 +187,7 @@ def create_fallback_training_run(
     checkpoint_path: Path,
 ) -> tuple[str, str]:
     """Create a training run directly through MlflowClient when DLKit leaves none behind."""
-    client = MlflowClient(tracking_uri=tracking_uri)
+    client = tracking.client(tracking_uri)
     experiment = client.get_experiment_by_name(experiment_name)
     experiment_id = (
         experiment.experiment_id
@@ -201,6 +204,7 @@ def create_fallback_training_run(
 
 def _log_training_context(
     *,
+    tracking: TrackingServices,
     tracking_uri: str,
     run_id: str,
     assignment_id: str | None,
@@ -212,6 +216,7 @@ def _log_training_context(
     """Log stable ids and the rendered assignment label to the training MLflow run.
 
     Args:
+        tracking: Source of the client that logs the parameters.
         tracking_uri: MLflow tracking URI.
         run_id: Target MLflow run ID.
         assignment_id: Registry assignment ID, or None.
@@ -222,7 +227,7 @@ def _log_training_context(
         dataset_registry_id: Registry dataset ID, or None.
         job_registry_id: Registry job ID, or None.
     """
-    client = MlflowClient(tracking_uri=tracking_uri)
+    client = tracking.client(tracking_uri)
     params: dict[str, str] = {
         "dataset_id": resolved_dataset_id,
         "dataset": render_training_dataset(presentation.subject, presentation.notation),

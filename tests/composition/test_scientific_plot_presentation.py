@@ -25,9 +25,9 @@ from neuralls.domain.presentation.render import (
     render_distinct_methods,
 )
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
+from neuralls.platform.config.models.coarsening import AggregationCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
     AdaptiveSAPreconditionerConfig,
-    AggregationCoarseningConfig,
     AMGPreconditionerConfig,
     BootstrapAMGPreconditionerConfig,
     IC0PreconditionerConfig,

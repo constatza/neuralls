@@ -13,17 +13,23 @@ from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import RESOURCE_DOES_NOT_EXIST, ErrorCode
 from mlflow.tracking import MlflowClient
 
+from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
 from neuralls.domain.identity import StageIdentity
-from neuralls.platform.config.models.dataset_identity import normalize_registry_id
-from neuralls.platform.config.models.preconditioner import (
+from neuralls.platform.config.models.checkpoint_refs import (
+    ByAlias,
+    ByRunId,
+    ByVersion,
     CheckpointRefBearing,
+    LatestMatching,
+    LatestVersion,
     LoggedModelRefConfig,
     ModelRefConfig,
     NeuralCheckpointRef,
-    PreconditionerConfig,
     RegisteredModelRefConfig,
     TrainedAssignmentRefConfig,
 )
+from neuralls.platform.config.models.dataset_identity import normalize_registry_id
+from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.tracking.artifact_access import ArtifactLeaseManager
 from neuralls.platform.tracking.artifact_selection import (
     CHECKPOINT_ARTIFACT_DIR,
@@ -31,8 +37,6 @@ from neuralls.platform.tracking.artifact_selection import (
 )
 from neuralls.platform.tracking.checkpoint_selection import find_single_checkpoint
 from neuralls.platform.tracking.mlflow import quote_filter_value
-from neuralls.platform.tracking.mlflow_client import MlflowClientFactory
-from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
 from neuralls.platform.tracking.model_registry import CHECKPOINT_ARTIFACT_PATH_TAG
 
 _DATASET_ALIAS_PLACEHOLDER = "@dataset"
@@ -318,7 +322,7 @@ class _ModelRefRequest:
         ref: The `model_ref` config being resolved.
         tracking_uri: MLflow tracking URI to read metadata from.
         client: MLflow client bound to `tracking_uri`.
-        client_factory: Builds further clients for collaborators that look up runs.
+        tracking: Source of the clients and reuse lookups for collaborators.
         artifact_leases: Lease manager owning artifact materialization.
         dataset_alias: Alias substituted for the `@dataset` placeholder.
         model_name: Registered model name supplied by an assignment binding.
@@ -328,7 +332,7 @@ class _ModelRefRequest:
     ref: ModelRefConfig
     tracking_uri: str
     client: MlflowClient
-    client_factory: MlflowClientFactory
+    tracking: TrackingServices
     artifact_leases: ArtifactLeaseManager
     dataset_alias: str | None
     model_name: str | None
@@ -342,12 +346,16 @@ def _resolve_registered_version_number(
     client: MlflowClient,
 ) -> int:
     """Resolve which registered version to use: the pinned one, else the highest."""
-    if ref.version is not None:
-        return ref.version
-    versions = list_model_versions(model_name, client=client)
-    if not versions:
-        raise ValueError(f"Registered model '{model_name}' has no versions")
-    return max(versions)
+    match ref.selector:
+        case ByVersion(version=version):
+            return version
+        case LatestVersion():
+            versions = list_model_versions(model_name, client=client)
+            if not versions:
+                raise ValueError(f"Registered model '{model_name}' has no versions")
+            return max(versions)
+        case ByAlias():
+            raise TypeError("An alias selector has no version number to resolve.")
 
 
 def _resolve_registered_ref(request: _ModelRefRequest) -> ModelResolution:
@@ -381,8 +389,8 @@ def _resolve_registered_ref(request: _ModelRefRequest) -> ModelResolution:
     if not search_registered_models(model_name=model_name, client=request.client):
         raise ValueError(f"Registered model '{model_name}' not found")
 
-    if ref.alias is not None:
-        alias = _resolve_registered_alias(ref.alias, dataset_alias=request.dataset_alias)
+    if isinstance(ref.selector, ByAlias):
+        alias = _resolve_registered_alias(ref.selector.alias, dataset_alias=request.dataset_alias)
         model_uri = build_registered_model_uri(model_name, alias=alias)
         version = request.client.get_model_version_by_alias(model_name, alias)
     else:
@@ -439,28 +447,28 @@ def _resolve_logged_ref(request: _ModelRefRequest) -> ModelResolution:
     if not isinstance(ref, LoggedModelRefConfig):
         raise TypeError(f"Expected a logged model_ref, got {type(ref)}")
 
-    if ref.run_id is not None:
-        run_id = ref.run_id
-        model_uri = build_logged_model_uri(run_id=run_id, artifact_path=ref.artifact_path)
-    else:
-        records = search_logged_models(
-            model_name=ref.model_name,
-            experiment_name=ref.experiment_name,
-            experiment_id=ref.experiment_id,
-            run_name=ref.run_name,
-            client=request.client,
-            artifact_path=ref.artifact_path,
-            tags=ref.tags,
-            max_results=100,
-        )
-        if not records:
-            raise ValueError("No logged model matches the provided model_ref filters")
-        latest = records[0]
-        run_id = latest.run_id
-        model_uri = latest.model_uri or build_logged_model_uri(
-            run_id=run_id,
-            artifact_path=ref.artifact_path,
-        )
+    match ref.selector:
+        case ByRunId(run_id=run_id):
+            model_uri = build_logged_model_uri(run_id=run_id, artifact_path=ref.artifact_path)
+        case LatestMatching() as filters:
+            records = search_logged_models(
+                model_name=filters.model_name,
+                experiment_name=filters.experiment_name,
+                experiment_id=filters.experiment_id,
+                run_name=filters.run_name,
+                client=request.client,
+                artifact_path=ref.artifact_path,
+                tags=filters.tags,
+                max_results=100,
+            )
+            if not records:
+                raise ValueError("No logged model matches the provided model_ref filters")
+            latest = records[0]
+            run_id = latest.run_id
+            model_uri = latest.model_uri or build_logged_model_uri(
+                run_id=run_id,
+                artifact_path=ref.artifact_path,
+            )
 
     return ModelResolution(
         model_uri=model_uri,
@@ -499,11 +507,10 @@ def _resolve_trained_assignment_ref(request: _ModelRefRequest) -> ModelResolutio
             f"Assignment '{ref.assignment_id}': its dataset is not generated, so no training run "
             "can be verified against it. Run the generation stage first."
         )
-    reused = MlflowIdentityStore(
+    reused = request.tracking.identity_store(
         tracking_uri=request.tracking_uri,
         experiment=training.experiment,
         require_checkpoint=True,
-        client_factory=request.client_factory,
     ).find(training.identity)
     if reused is None or reused.run_id is None:
         raise ValueError(
@@ -542,7 +549,7 @@ def resolve_model_ref(
     dataset_alias: str | None = None,
     model_name: str | None = None,
     training: TrainingLookup | None = None,
-    client_factory: MlflowClientFactory = MlflowClient,
+    tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> ModelResolution:
     """Resolve one checkpoint ref's `model_ref` to a concrete checkpoint."""
     ref = spec.model_ref
@@ -558,8 +565,8 @@ def resolve_model_ref(
         _ModelRefRequest(
             ref=ref,
             tracking_uri=tracking_uri,
-            client=client_factory(tracking_uri=tracking_uri),
-            client_factory=client_factory,
+            client=tracking.client(tracking_uri),
+            tracking=tracking,
             artifact_leases=artifact_leases,
             dataset_alias=dataset_alias,
             model_name=model_name,
@@ -589,7 +596,7 @@ def resolve_preconditioner_models(
     artifact_leases: ArtifactLeaseManager,
     dataset_alias: str | None = None,
     assignment_contexts: dict[str, AssignmentModelContext] | None = None,
-    client_factory: MlflowClientFactory = MlflowClient,
+    tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> list[PreconditionerConfig]:
     """Resolve all neural preconditioners to concrete checkpoint paths."""
     return resolve_preconditioner_models_with_warnings(
@@ -598,7 +605,7 @@ def resolve_preconditioner_models(
         artifact_leases=artifact_leases,
         dataset_alias=dataset_alias,
         assignment_contexts=assignment_contexts,
-        client_factory=client_factory,
+        tracking=tracking,
     ).specs
 
 
@@ -612,7 +619,7 @@ def _resolve_checkpoint_ref(
     dataset_alias: str | None,
     assignment_contexts: dict[str, AssignmentModelContext] | None,
     skip_unresolved: bool,
-    client_factory: MlflowClientFactory,
+    tracking: TrackingServices,
 ) -> tuple[NeuralCheckpointRef, str | None]:
     """Resolve one checkpoint ref to a concrete checkpoint path.
 
@@ -644,7 +651,7 @@ def _resolve_checkpoint_ref(
             dataset_alias=context.dataset_alias if context is not None else dataset_alias,
             model_name=context.model_name if context is not None else None,
             training=context.training if context is not None else None,
-            client_factory=client_factory,
+            tracking=tracking,
         )
     except (ValueError, FileNotFoundError, RuntimeError, OSError, KeyError, MlflowException) as exc:
         if not skip_unresolved:
@@ -678,7 +685,7 @@ def resolve_preconditioner_models_with_warnings(
     dataset_alias: str | None = None,
     assignment_contexts: dict[str, AssignmentModelContext] | None = None,
     skip_unresolved: bool = False,
-    client_factory: MlflowClientFactory = MlflowClient,
+    tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> PreconditionerResolutionResult:
     """Resolve every checkpoint-bearing preconditioner spec, symmetrically.
 
@@ -709,7 +716,7 @@ def resolve_preconditioner_models_with_warnings(
                 dataset_alias=dataset_alias,
                 assignment_contexts=assignment_contexts,
                 skip_unresolved=skip_unresolved,
-                client_factory=client_factory,
+                tracking=tracking,
             )
             if warning is not None:
                 warnings.append(warning)

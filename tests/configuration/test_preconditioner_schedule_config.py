@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from neuralls.platform.config.models.coarsening import AggregationCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
-    AggregationCoarseningConfig,
     AMGPreconditionerConfig,
     IC0PreconditionerConfig,
     PreconditionerType,

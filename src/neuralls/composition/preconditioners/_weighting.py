@@ -12,7 +12,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from neuralls.platform.config.models.preconditioner import (
+from torchalg.preconditioners.implementations.pod import (
+    power_norm_scales,
+    smoother_persistence_scales,
+)
+
+from neuralls.platform.config.models.weighting import (
     PowerNormWeightingConfig,
     RawWeightingConfig,
     SmootherPersistenceWeightingConfig,
@@ -21,7 +26,7 @@ from neuralls.platform.config.models.preconditioner import (
 if TYPE_CHECKING:
     import torch
 
-    from neuralls.platform.config.models.preconditioner import SnapshotWeightingConfig
+    from neuralls.platform.config.models.weighting import SnapshotWeightingConfig
 
 
 def weighting_needs_matrix(cfg: SnapshotWeightingConfig) -> bool:
@@ -67,11 +72,6 @@ def resolve_row_scales(
     Raises:
         ValueError: If `cfg` needs the system matrix and `matrix` is `None`.
     """
-    from torchalg.preconditioners.implementations.pod import (
-        power_norm_scales,
-        smoother_persistence_scales,
-    )
-
     if weighting_needs_matrix(cfg) and matrix is None:
         raise ValueError(f"{type(cfg).__name__} requires the system matrix, but none was given.")
 

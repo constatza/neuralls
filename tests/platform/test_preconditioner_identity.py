@@ -2,32 +2,38 @@
 
 `name` used to be an arbitrary user-typed string; it's now a
 ``@computed_field`` derived from each config's own type and distinguishing
-fields (``platform/config/models/preconditioner.py::preconditioner_slug``).
+fields (each config's ``slug()``).
 """
 
 from __future__ import annotations
 
 import pytest
 
+from neuralls.platform.config.models.checkpoint_refs import (
+    ByAlias,
+    ByRunId,
+    LoggedModelRefConfig,
+    RegisteredModelRefConfig,
+    TrainedAssignmentRefConfig,
+)
+from neuralls.platform.config.models.coarsening import (
+    AggregationCoarseningConfig,
+    NeuralPODCoarseningConfig,
+    PODCoarseningConfig,
+    TargetDimCoarseningConfig,
+)
 from neuralls.platform.config.models.preconditioner import (
     AdaptiveSAPreconditionerConfig,
-    AggregationCoarseningConfig,
     AMGPreconditionerConfig,
     BootstrapAMGPreconditionerConfig,
     IC0PreconditionerConfig,
-    LoggedModelRefConfig,
     NeuralAMGPreconditionerConfig,
-    NeuralPODCoarseningConfig,
     NeuralPreconditionerConfig,
     NeuralTransferConfig,
-    PODCoarseningConfig,
-    PowerNormWeightingConfig,
     PreconditionerType,
-    RegisteredModelRefConfig,
     StandardPreconditionerConfig,
-    TargetDimCoarseningConfig,
-    TrainedAssignmentRefConfig,
 )
+from neuralls.platform.config.models.weighting import PowerNormWeightingConfig
 
 
 def test_standard_preconditioner_slug_is_bare_type() -> None:
@@ -117,7 +123,7 @@ def test_neural_pod_slug_always_includes_checkpoint_identity() -> None:
             dataset_dir="/data/params",
             input_names=("param",),
             rank=4,
-            model_ref=RegisteredModelRefConfig(name="PodNet", alias="best"),
+            model_ref=RegisteredModelRefConfig(name="PodNet", selector=ByAlias(alias="best")),
         )
     )
     assert "neuralpod_rank4_n-1_registry_podnet_best" in cfg.name
@@ -184,10 +190,10 @@ def test_neural_slug_distinguishes_different_checkpoints() -> None:
     directly from the config instead of a constructed object.
     """
     first = NeuralPreconditionerConfig(
-        model_ref=RegisteredModelRefConfig(name="FFNN", alias="best")
+        model_ref=RegisteredModelRefConfig(name="FFNN", selector=ByAlias(alias="best"))
     )
     second = NeuralPreconditionerConfig(
-        model_ref=RegisteredModelRefConfig(name="FFNN", alias="other")
+        model_ref=RegisteredModelRefConfig(name="FFNN", selector=ByAlias(alias="other"))
     )
     assert first.name != second.name
 
@@ -202,7 +208,7 @@ def test_neural_slug_prefers_logical_ref_over_resolved_local_path() -> None:
     later gets the same MLflow metric-key segment.
     """
     before = NeuralPreconditionerConfig(
-        model_ref=LoggedModelRefConfig(run_id="abc123"),
+        model_ref=LoggedModelRefConfig(selector=ByRunId(run_id="abc123")),
     )
     after = before.model_copy(update={"checkpoint_path": "/tmp/some/resolved/path.ckpt"})
     assert before.name == after.name
@@ -212,10 +218,10 @@ def test_neural_amg_slug_includes_both_transfer_operators() -> None:
     """Neural AMG's slug reflects both prolongation and restriction when both are set."""
     cfg = NeuralAMGPreconditionerConfig(
         prolongation=NeuralTransferConfig(
-            model_ref=RegisteredModelRefConfig(name="ProlongNet", alias="best")
+            model_ref=RegisteredModelRefConfig(name="ProlongNet", selector=ByAlias(alias="best"))
         ),
         restriction=NeuralTransferConfig(
-            model_ref=RegisteredModelRefConfig(name="RestrictNet", alias="best")
+            model_ref=RegisteredModelRefConfig(name="RestrictNet", selector=ByAlias(alias="best"))
         ),
     )
     assert "registry_prolongnet_best" in cfg.name
@@ -226,7 +232,7 @@ def test_neural_amg_slug_omits_restriction_when_unset() -> None:
     """Neural AMG with no explicit restriction (shared transfer) has no restriction segment."""
     cfg = NeuralAMGPreconditionerConfig(
         prolongation=NeuralTransferConfig(
-            model_ref=RegisteredModelRefConfig(name="ProlongNet", alias="best")
+            model_ref=RegisteredModelRefConfig(name="ProlongNet", selector=ByAlias(alias="best"))
         ),
     )
     assert cfg.name.endswith("registry_prolongnet_best")
@@ -236,7 +242,7 @@ def test_neural_amg_slug_omits_restriction_when_unset() -> None:
 def test_neural_amg_slug_includes_previously_omitted_fields() -> None:
     """Regression test: cycle/smoothing fields must also distinguish Neural AMG configs."""
     prolongation = NeuralTransferConfig(
-        model_ref=RegisteredModelRefConfig(name="ProlongNet", alias="best")
+        model_ref=RegisteredModelRefConfig(name="ProlongNet", selector=ByAlias(alias="best"))
     )
     base = NeuralAMGPreconditionerConfig(prolongation=prolongation)
     different_levels = NeuralAMGPreconditionerConfig(prolongation=prolongation, n_levels=3)
@@ -269,7 +275,7 @@ def test_identical_configs_collide_on_name() -> None:
         lambda: StandardPreconditionerConfig(type=PreconditionerType.IDENTITY),
         lambda: IC0PreconditionerConfig(threshold=0.001),
         lambda: NeuralPreconditionerConfig(
-            model_ref=RegisteredModelRefConfig(name="FFNN", alias="best")
+            model_ref=RegisteredModelRefConfig(name="FFNN", selector=ByAlias(alias="best"))
         ),
         lambda: AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig()),
         lambda: AdaptiveSAPreconditionerConfig(),

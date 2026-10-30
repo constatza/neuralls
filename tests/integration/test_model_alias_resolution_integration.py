@@ -13,10 +13,14 @@ from dlkit.infrastructure.io import url_resolver
 from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments.model_resolution import resolve_model_ref
+from neuralls.platform.config.models.checkpoint_refs import (
+    ByAlias,
+    LatestVersion,
+    RegisteredModelRefConfig,
+)
 from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     PreconditionerType,
-    RegisteredModelRefConfig,
 )
 from neuralls.platform.config.resolution import resolve_local_path
 from neuralls.platform.tracking.artifact_access import MlflowArtifactLeaseManager
@@ -111,7 +115,7 @@ def test_registered_alias_resolution_with_local_sqlite_tracking(tmp_path: Path) 
 
     spec = NeuralPreconditionerConfig(
         type=PreconditionerType.NEURAL,
-        model_ref=RegisteredModelRefConfig(name=model_name, alias="@solutions"),
+        model_ref=RegisteredModelRefConfig(name=model_name, selector=ByAlias(alias="@solutions")),
     )
 
     with MlflowArtifactLeaseManager(client=client) as artifact_leases:
@@ -168,7 +172,7 @@ def test_experiment_id_registration_resolves_via_latest(tmp_path: Path) -> None:
 
     spec = NeuralPreconditionerConfig(
         type=PreconditionerType.NEURAL,
-        model_ref=RegisteredModelRefConfig(latest=True),
+        model_ref=RegisteredModelRefConfig(selector=LatestVersion()),
     )
 
     with MlflowArtifactLeaseManager(client=client) as artifact_leases:

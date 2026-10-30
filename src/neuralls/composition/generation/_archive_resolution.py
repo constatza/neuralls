@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, assert_never
 
 import numpy as np
 
@@ -160,10 +161,80 @@ def persist_derived_rhs(rhs_vector: np.ndarray, *, dataset_dir: Path) -> Path:
     return output_path
 
 
+@dataclass(frozen=True, slots=True)
+class NoRhs:
+    """No RHS is provided beyond what the context's ``rhs_path`` already names."""
+
+
+@dataclass(frozen=True, slots=True)
+class RhsFromFile:
+    """The RHS is read from an existing file.
+
+    Attributes:
+        path: Location of the RHS file; it must exist when the source is resolved.
+    """
+
+    path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class RhsFromSolutions:
+    """The RHS is derived as ``A @ x`` from the first stored solution."""
+
+
+type RhsOption = NoRhs | RhsFromFile | RhsFromSolutions
+"""The closed set of ways a dataset can be given its mother RHS."""
+
+
+def parse_provide_rhs(value: bool | str | Path | None) -> RhsOption:
+    """Parse the weakly-typed ``provide_rhs`` config value once, at the boundary.
+
+    Args:
+        value: ``None``/``False`` for no RHS, ``True`` to derive it from a solution,
+            or a path to an RHS file.
+
+    Returns:
+        The typed option the rest of resolution works on.
+    """
+    match value:
+        case None | False:
+            return NoRhs()
+        case True:
+            return RhsFromSolutions()
+        case str() | Path():
+            return RhsFromFile(Path(value))
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _derive_rhs_from_solutions(
+    context: DataGenerationContext,
+    solution_archive_options: Mapping[str, Any] | None,
+    matrix: np.ndarray | None,
+) -> str:
+    """Derive ``A @ x`` from the first solution matching the strategy's glob and persist it."""
+    if matrix is None:
+        raise ValueError(
+            "provide_rhs=True is not supported with a matrix glob source; "
+            "supply an explicit rhs_path instead."
+        )
+    if not solution_archive_options:
+        raise ValueError(
+            "provide_rhs=True requires solution archive options to resolve a solutions glob."
+        )
+    solutions_glob = solution_archive_options.get("solutions_glob")
+    if not isinstance(solutions_glob, str) or not solutions_glob:
+        raise ValueError(
+            "provide_rhs=True requires 'solutions_glob' for the solution_archive strategy."
+        )
+    rhs_vector = compute_rhs_from_solution(matrix=matrix, solutions_glob=solutions_glob)
+    return str(persist_derived_rhs(rhs_vector, dataset_dir=context.dataset_dir))
+
+
 def _resolve_rhs_source(
     context: DataGenerationContext,
     solution_archive_options: Mapping[str, Any] | None,
-    provide_rhs_option: Any,
+    provide_rhs_option: RhsOption,
     matrix: np.ndarray | None,
 ) -> str | None:
     """Determine the RHS path for synthetic generation, with provide_rhs overrides.
@@ -171,46 +242,28 @@ def _resolve_rhs_source(
     Args:
         context: Generation context (rhs_path used as first priority).
         solution_archive_options: Options from the solution_archive strategy,
-            required when provide_rhs=True.
-        provide_rhs_option: Value of the provide_rhs config key — may be
-            a bool, a path string, or None.
-        matrix: System matrix, required when provide_rhs=True to compute A @ x.
+            required when the RHS is derived from solutions.
+        provide_rhs_option: How the dataset is given its RHS beyond the context's path.
+        matrix: System matrix, required when deriving the RHS to compute A @ x.
 
     Returns:
         Resolved RHS path string, or None if no RHS source applies.
 
     Raises:
         FileNotFoundError: If a provide_rhs path doesn't exist.
-        ValueError: If provide_rhs=True but required config is missing.
+        ValueError: If the RHS is derived from solutions but required config is missing.
     """
     if context.rhs_path:
         return context.rhs_path
 
-    if provide_rhs_option is None:
-        return None
-
-    if isinstance(provide_rhs_option, (str, Path)):
-        path = Path(provide_rhs_option)
-        if not path.exists():
-            raise FileNotFoundError(f"provide_rhs path does not exist: {path}")
-        return str(path)
-
-    if isinstance(provide_rhs_option, bool) and provide_rhs_option:
-        if matrix is None:
-            raise ValueError(
-                "provide_rhs=True is not supported with a matrix glob source; "
-                "supply an explicit rhs_path instead."
-            )
-        if not solution_archive_options:
-            raise ValueError(
-                "provide_rhs=True requires solution archive options to resolve a solutions glob."
-            )
-        solutions_glob = solution_archive_options.get("solutions_glob")
-        if not isinstance(solutions_glob, str) or not solutions_glob:
-            raise ValueError(
-                "provide_rhs=True requires 'solutions_glob' for the solution_archive strategy."
-            )
-        rhs_vector = compute_rhs_from_solution(matrix=matrix, solutions_glob=solutions_glob)
-        return str(persist_derived_rhs(rhs_vector, dataset_dir=context.dataset_dir))
-
-    return None
+    match provide_rhs_option:
+        case NoRhs():
+            return None
+        case RhsFromFile(path=path):
+            if not path.exists():
+                raise FileNotFoundError(f"provide_rhs path does not exist: {path}")
+            return str(path)
+        case RhsFromSolutions():
+            return _derive_rhs_from_solutions(context, solution_archive_options, matrix)
+        case _ as unreachable:
+            assert_never(unreachable)

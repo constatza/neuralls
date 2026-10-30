@@ -9,6 +9,7 @@ Functions in this module perform I/O operations and are not pure.
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -175,8 +176,6 @@ def copy_file(src: str | Path, dst: str | Path) -> None:
         src: Source path
         dst: Destination path
     """
-    import shutil
-
     src = Path(src)
     dst = Path(dst)
     ensure_dir(dst.parent)

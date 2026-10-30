@@ -10,6 +10,7 @@ from pathlib import Path
 
 import polars as pl
 import pytest
+from tests.fakes.run_tree import FakeRunTree
 from tests.presentation_support import PreparedMethodFactory
 from tests.recipe_support import ALPHA, BETA, GAUSSIAN, SINE
 
@@ -70,9 +71,8 @@ from neuralls.platform.reporting.figure_index import (
 )
 from neuralls.platform.reporting.figure_metadata import (
     FailureTreatment,
-    FigureKind,
-    FigureMetadata,
     FigurePlan,
+    MethodFigureMetadata,
     SiblingTable,
     StagedFigure,
     TimingScenario,
@@ -80,12 +80,13 @@ from neuralls.platform.reporting.figure_metadata import (
 from neuralls.platform.reporting.figure_planning import figure_plans
 from neuralls.platform.reporting.stored_benchmark import StoredMethod
 from neuralls.platform.tracking import report_sink
+from neuralls.platform.tracking.figure_uploader import DuplicateFigureNameError
 from neuralls.platform.tracking.metrics_logging import parent_run_metric_key
 from neuralls.platform.tracking.report_sink import (
     GROUP_REPORT_ARTIFACT_DIR,
     METHOD_FIGURE_ARTIFACT_DIR,
-    DuplicateFigureNameError,
     MLflowReportSink,
+    OpenReport,
     UnknownStoredMethodError,
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy
@@ -289,7 +290,7 @@ def stored_methods(
 
 @pytest.fixture
 def sink(notation: NotationPolicy, stored_methods: tuple[StoredMethod, ...]) -> MLflowReportSink:
-    return MLflowReportSink(notation, "session-run", methods=stored_methods)
+    return MLflowReportSink(notation, "session-run", FakeRunTree(), methods=stored_methods)
 
 
 @pytest.fixture
@@ -323,10 +324,10 @@ def _log_into_the_active_run(monkeypatch: pytest.MonkeyPatch) -> None:
     """Scope-to-run nesting is covered by the integration tests; here a scope logs in place."""
 
     @contextmanager
-    def in_place(sink: MLflowReportSink, scope: object) -> Generator[str]:
+    def in_place(report: OpenReport, scope: object) -> Generator[str]:
         yield f"run-of-{scope!r}"
 
-    monkeypatch.setattr(MLflowReportSink, "_in_scope", in_place)
+    monkeypatch.setattr(OpenReport, "_in_scope", in_place)
 
 
 def _key(metric: str, group: GroupAggregated, name: str) -> str:
@@ -629,7 +630,9 @@ def test_group_naming_a_method_without_a_stored_run_is_rejected(
     group: GroupAggregated, presentation: GroupPresentation, notation: NotationPolicy
 ) -> None:
     with pytest.raises(UnknownStoredMethodError):
-        MLflowReportSink(notation, "session-run").report(group, presentation=presentation)
+        MLflowReportSink(notation, "session-run", FakeRunTree()).report(
+            group, presentation=presentation
+        )
 
 
 def test_sink_finalizes_one_index_listing_exactly_the_logged_figures(
@@ -668,16 +671,12 @@ def system(dataset_presentation: DatasetPresentation) -> System:
 @pytest.fixture
 def system_figure(
     tmp_path: Path,
-    metadata_of: Callable[[FigureScope], FigureMetadata],
+    method_metadata_of: Callable[[FigureScope], MethodFigureMetadata],
     dataset_presentation: DatasetPresentation,
     system: System,
 ) -> StagedFigure:
-    metadata = replace(
-        metadata_of(SystemScope(dataset_presentation, system.recipe, system.matrix_id, 0)),
-        kind=FigureKind.RESIDUAL_HISTORY,
-        report_level=ReportLevelName.SYSTEM,
-        n_matrices=1,
-        n_planned_rhs=1,
+    metadata = method_metadata_of(
+        SystemScope(dataset_presentation, system.recipe, system.matrix_id, 0)
     )
     plan = FigurePlan("residual_history.png", "Residual History", metadata)
     return StagedFigure(plan, tmp_path / plan.filename)
@@ -723,7 +722,7 @@ def test_finalizing_with_a_figure_missing_its_card_raises(
     sink: MLflowReportSink,
 ) -> None:
     sink.report_system(system, {}, [system_figure])
-    sink._cards.clear()  # a recorded card lost: the invariant must catch it
+    sink._open().uploader._cards.clear()  # a recorded card lost: the invariant must catch it
 
     with pytest.raises(IncompleteFigureRecordsError):
         sink.finalize()

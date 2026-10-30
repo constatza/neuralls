@@ -31,9 +31,9 @@ from neuralls.domain.solver.models.group_presentation import (
     GroupMethodPresentation,
     GroupPresentation,
 )
+from neuralls.platform.config.models.coarsening import AggregationCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
     AdaptiveSAPreconditionerConfig,
-    AggregationCoarseningConfig,
     AMGPreconditionerConfig,
     BootstrapAMGPreconditionerConfig,
     IC0PreconditionerConfig,

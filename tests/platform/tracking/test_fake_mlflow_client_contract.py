@@ -11,15 +11,20 @@ from mlflow.tracking import MlflowClient
 from tests.fakes.mlflow_client import FAKE_EXPERIMENT_NAME, FakeMlflowClient
 
 from neuralls.composition.assignments.model_resolution import resolve_model_ref
-from neuralls.platform.config.models.preconditioner import (
+from neuralls.platform.config.models.checkpoint_refs import (
+    LatestMatching,
+    LatestVersion,
     LoggedModelRefConfig,
     ModelRefConfig,
+    RegisteredModelRefConfig,
+)
+from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     PreconditionerType,
-    RegisteredModelRefConfig,
 )
 from neuralls.platform.tracking.artifact_access import MlflowArtifactLeaseManager
 from neuralls.platform.tracking.model_registry import register_logged_model
+from neuralls.platform.tracking.services import MlflowTrackingServices
 
 type Resolve = Callable[[ModelRefConfig], tuple[str, str]]
 
@@ -101,7 +106,7 @@ def resolve(store: Store) -> Iterator[Resolve]:
                 ),
                 tracking_uri=store.tracking_uri,
                 artifact_leases=leases,
-                client_factory=store.client_factory,
+                tracking=MlflowTrackingServices(client_factory=store.client_factory),
             )
             return resolution.run_id, resolution.checkpoint_path.read_text(encoding="utf-8")
 
@@ -115,7 +120,10 @@ def test_latest_registered_version_beats_run_order(store: Store, resolve: Resolv
     store.register("Model", run_b)
     store.register("Model", run_a)
 
-    assert resolve(RegisteredModelRefConfig(name="Model", latest=True)) == (run_a, "marker-a")
+    assert resolve(RegisteredModelRefConfig(name="Model", selector=LatestVersion())) == (
+        run_a,
+        "marker-a",
+    )
 
 
 def test_latest_logged_run_is_the_most_recently_started(store: Store, resolve: Resolve) -> None:
@@ -123,7 +131,7 @@ def test_latest_logged_run_is_the_most_recently_started(store: Store, resolve: R
     run_new = store.add_run("marker-new", 5_000)
     store.add_run("marker-old", 1_000)
 
-    ref = LoggedModelRefConfig(latest=True, experiment_name=store.experiment_name)
+    ref = LoggedModelRefConfig(selector=LatestMatching(experiment_name=store.experiment_name))
     assert resolve(ref) == (run_new, "marker-new")
 
 
@@ -132,4 +140,4 @@ def test_unknown_registered_model_is_a_value_error(
 ) -> None:
     """A missing registered model fails identically in both stores."""
     with pytest.raises(ValueError):
-        resolve(RegisteredModelRefConfig(name="Missing", latest=True))
+        resolve(RegisteredModelRefConfig(name="Missing", selector=LatestVersion()))

@@ -5,11 +5,17 @@ from __future__ import annotations
 import typer
 
 from neuralls.cli.errors import fail_workflow
-from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ProfileOption
-from neuralls.composition.assignments.case_pipeline import run_case_pipeline
+from neuralls.cli.options import (
+    CaseConfigArgument,
+    EnvFileOption,
+    ProfileOption,
+    require_existing_config,
+)
+from neuralls.composition.assignments.case_pipeline import ForcePolicy, run_case_pipeline
 from neuralls.composition.comparison.models import ComparisonEntryFailed
 from neuralls.composition.config import load_case_settings
 from neuralls.composition.display import assignment_label, comparison_label
+from neuralls.composition.tracking.services import MLFLOW_TRACKING
 from neuralls.shared.constants import EXIT_FAILURE
 
 
@@ -46,27 +52,26 @@ def run_case_pipeline_command(
     profile: ProfileOption = None,
 ) -> None:
     """Generate datasets, train every assignment, and run comparisons for one case config."""
-    if not config.exists():
-        typer.echo(f"Error: Config file not found: {config}", err=True)
-        raise typer.Exit(code=EXIT_FAILURE)
+    require_existing_config(config)
 
     try:
         settings = load_case_settings(config, env_file, profile=profile)
         typer.echo(f"Running case pipeline from: {config}")
-        force_generate = force or force_generate
-        force_train = force or force_train
-        force_compare = force or force_compare
-        force_expand = force or force_expand
+        policy = ForcePolicy.resolve(
+            everything=force,
+            generate=force_generate,
+            train=force_train,
+            compare=force_compare,
+            expand=force_expand,
+        )
         if force:
             typer.echo("Force mode enabled: generation, training, and comparison will all rerun.")
 
         results, comparison_outcomes = run_case_pipeline(
             case_config_path=config,
             settings=settings,
-            force_train=force_train,
-            force_generate=force_generate,
-            force_compare=force_compare,
-            force_expand=force_expand,
+            force=policy,
+            tracking=MLFLOW_TRACKING,
         )
     except Exception as exc:  # noqa: BLE001
         fail_workflow("Case pipeline", exc)

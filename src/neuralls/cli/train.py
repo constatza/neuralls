@@ -6,23 +6,19 @@ from typing import Annotated
 
 import typer
 
-from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ProfileOption
+from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ForceOption, ProfileOption
 from neuralls.composition.assignments.training_batch import (
     run_assignment_sweep,
     write_metric_report,
 )
 from neuralls.composition.config import load_case_settings
+from neuralls.composition.tracking.services import MLFLOW_TRACKING
 from neuralls.shared.constants import EXIT_FAILURE
 
 
 def train_case_batch(
     config: CaseConfigArgument,
-    force: Annotated[
-        bool,
-        typer.Option(
-            "--force", "-f", help="Force retraining even if a completed MLflow run already exists."
-        ),
-    ] = False,
+    force: ForceOption = False,
     metric: Annotated[
         str, typer.Option(help="MLflow metric key to plot across assignments.")
     ] = "eval/mae",
@@ -36,6 +32,7 @@ def train_case_batch(
             case_config_path=config.resolve(),
             settings=settings,
             force=force,
+            tracking=MLFLOW_TRACKING,
         )
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         typer.echo(f"Error during batch training: {exc}", err=True)

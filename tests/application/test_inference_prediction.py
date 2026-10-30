@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from neuralls.application.inference.models import InferenceData
+from neuralls.application.inference.models import DataSource, InferenceData
 from neuralls.application.inference.prediction import process_predictions, run_prediction
 from neuralls.domain.inference_ports import InferencePredictorPort
 
@@ -49,7 +49,8 @@ def multi_feature_inference_fixtures() -> InferenceFixtures:
     data = InferenceData(
         features=features,
         targets=targets,
-        metadata={"source": "fixture"},
+        source=DataSource.STANDARD,
+        metadata={},
     )
     return InferenceFixtures(
         data=data,
@@ -80,7 +81,8 @@ def empty_inference_data() -> InferenceData:
     return InferenceData(
         features={"x": np.empty((0, 1), dtype=np.float64)},
         targets={"y_true": np.empty((0,), dtype=np.float64)},
-        metadata={"source": "empty"},
+        source=DataSource.STANDARD,
+        metadata={},
     )
 
 

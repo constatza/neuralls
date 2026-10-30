@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ import numpy as np
 from neuralls.domain.inference import InferenceOutputs, InferencePredictions
 
 __all__ = [
+    "DataSource",
     "InferenceConfig",
     "InferenceData",
     "InferenceOutputs",
@@ -46,6 +48,13 @@ class InferenceConfig:
     comparison_config_path: Path | None = None
 
 
+class DataSource(StrEnum):
+    """Where inference data came from."""
+
+    STANDARD = "standard"
+    SYNTHETIC = "synthetic"
+
+
 @dataclass(frozen=True, slots=True)
 class InferenceData:
     """Loaded data for inference.
@@ -53,9 +62,11 @@ class InferenceData:
     Args:
         features: Feature arrays keyed by name (e.g., "rhs", "matrix").
         targets: Target arrays keyed by name (optional for synthetic).
+        source: Which loading strategy produced the data.
         metadata: Additional metadata about the data.
     """
 
     features: dict[str, np.ndarray]
     targets: dict[str, np.ndarray] | None
+    source: DataSource
     metadata: dict[str, Any]

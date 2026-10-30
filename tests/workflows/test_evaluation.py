@@ -145,7 +145,7 @@ def test_write_eval_metric_report_accepts_plain_and_prefixed_metric(
         parent_run_id="parent-run-1",
     )
 
-    with patch("mlflow.tracking.MlflowClient") as mock_client_cls:
+    with patch("neuralls.platform.tracking.mlflow_client.MlflowClient") as mock_client_cls:
         client = mock_client_cls.return_value
         plotted = write_eval_metric_report(batch, metric="rmse")
 
@@ -362,7 +362,7 @@ def test_eval_batch_continues_after_one_assignment_fails(
     assert mock_sweep.called
     assert [result.assignment_id for result in batch.results] == ["assign-ok"]
 
-    with patch("mlflow.tracking.MlflowClient") as mock_client_cls:
+    with patch("neuralls.platform.tracking.mlflow_client.MlflowClient") as mock_client_cls:
         client = mock_client_cls.return_value
         plotted = write_eval_metric_report(batch, metric="mae")
 

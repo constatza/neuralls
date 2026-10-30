@@ -9,7 +9,9 @@ Moving cross-boundary types here prevents upward dependencies, e.g. io → gener
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import Enum, StrEnum
+from pathlib import Path
 from typing import Literal, NewType, TypedDict
 
 import numpy as np
@@ -42,6 +44,9 @@ PreconditionerName = NewType("PreconditionerName", str)
 
 SessionRunId = NewType("SessionRunId", str)
 """The MLflow run id of one comparison session — never a method, report, or training run id."""
+
+RunId = NewType("RunId", str)
+"""The MLflow run id of one stored run (a method workload), as figure sources cite it."""
 
 SetupEventId = NewType("SetupEventId", str)
 """A stable identity for one method setup against one matrix."""
@@ -87,6 +92,9 @@ class SparsityPattern(StrEnum):
 
 SystemMatrix = np.ndarray | csr_array
 """A system matrix in either supported format: dense ndarray or CSR."""
+
+type MatrixReader = Callable[[Path], SystemMatrix]
+"""Reads one matrix file; the domain consumes it, ``platform/storage`` implements it."""
 
 
 class MatrixNormType(StrEnum):

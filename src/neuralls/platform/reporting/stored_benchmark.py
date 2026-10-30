@@ -28,7 +28,7 @@ from neuralls.platform.reporting.benchmark_events import (
     read_setup_events,
     read_solve_attempts,
 )
-from neuralls.shared.types import DatasetId, PreconditionerName
+from neuralls.shared.types import DatasetId, PreconditionerName, RunId
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +39,7 @@ class MethodDirectory:
     artifacts copied from or overwritten by another run are rejected.
     """
 
-    run_id: str
+    run_id: RunId
     path: Path
     config_digest: str
 
@@ -62,7 +62,7 @@ class StoredMethod:
         convergence: Per-iteration convergence table.
     """
 
-    run_id: str
+    run_id: RunId
     name: PreconditionerName
     config_digest: str
     config: PreconditionerConfig

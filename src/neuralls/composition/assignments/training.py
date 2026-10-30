@@ -15,7 +15,6 @@ from dlkit.common.results import TrainingResult as DlkitTrainingResult
 from dlkit.engine.workflows.multi_run import RunSpec
 from dlkit.infrastructure.config.core.patching import patch_model
 from loguru import logger
-from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments._dataset_assembly import (
     _extra_feature_names_from_settings,
@@ -41,13 +40,13 @@ from neuralls.composition.assignments.runtime_dataset_contract import (
     RuntimeDatasetContract,
     default_training_dataset_contract,
 )
+from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
 from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.config.loaders import load_tracking_config
 from neuralls.platform.config.models.workspace import AssignmentWorkspace, RunnableAssignment
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.platform.tracking.artifact_access import (
     ArtifactLeaseManager,
-    MlflowArtifactLeaseManager,
     NoopArtifactLeaseManager,
 )
 from neuralls.platform.tracking.extra_features import log_extra_feature_names_tag
@@ -107,14 +106,14 @@ def _unwrap_execution_result(
 
 def _training_artifact_lease_scope(
     *,
+    tracking: TrackingServices,
     tracking_uri: str | None,
     run_id: str | None,
 ) -> AbstractContextManager[ArtifactLeaseManager]:
     """Return an MLflow-backed lease scope, or a no-op one with no source run."""
     if not tracking_uri or not run_id:
         return NoopArtifactLeaseManager()
-    client = MlflowClient(tracking_uri=tracking_uri)
-    return MlflowArtifactLeaseManager(client=client)
+    return tracking.lease_manager(tracking_uri)
 
 
 def _resolve_finalization_checkpoint(
@@ -150,6 +149,7 @@ def _finalize_existing_mlflow_run(
     tracking_uri = mlflow_coords.tracking_uri
     run_id = mlflow_coords.run_id
     _log_training_context(
+        tracking=context.tracking,
         tracking_uri=tracking_uri,
         run_id=run_id,
         assignment_id=context.assignment.spec.assignment_id,
@@ -203,6 +203,7 @@ def _finalize_fallback_mlflow_run(
     logger.warning("Training completed without MLflow run metadata; creating fallback run.")
     try:
         fallback_exp_id, fallback_run_id = create_fallback_training_run(
+            tracking=context.tracking,
             tracking_uri=context.fallback_tracking_uri or "",
             experiment_name=context.run_config.experiment_name,
             run=context.run_config.name,
@@ -260,6 +261,7 @@ class _TrainingFinalizationContext:
     read closure locals off ``train_model``.
 
     Attributes:
+        tracking: Source of the clients and lease managers used while finalizing.
         training_result: DLKit training result object returned by ``execute()``.
         run_config: Declarative MLflow run settings built before ``execute()`` ran.
         workspace: Filesystem workspace for this assignment's training run.
@@ -280,6 +282,7 @@ class _TrainingFinalizationContext:
             ``_resolve_mlflow_run_ids`` may override it.
     """
 
+    tracking: TrackingServices
     training_result: Any
     run_config: MlflowRunConfig
     workspace: AssignmentWorkspace
@@ -473,6 +476,7 @@ def to_run_spec(prepared: PreparedTraining) -> RunSpec:
 def finalize_prepared_training(
     prepared: PreparedTraining,
     execution_result: DlkitTrainingResult | OptimizationResult,
+    tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> MlflowCoordinates:
     """Finalize one dlkit ``execute()`` result: make the checkpoint durable in MLflow.
 
@@ -485,6 +489,7 @@ def finalize_prepared_training(
             child's dispatch) returned for this assignment — a ``TrainingResult``
             directly for a ``train``/``fit`` job, or an ``OptimizationResult``
             for a ``search`` job.
+        tracking: Source of the clients and lease managers used while finalizing.
 
     Returns:
         Coordinates of the MLflow run the checkpoint was uploaded to.
@@ -492,6 +497,7 @@ def finalize_prepared_training(
     training_result = _unwrap_execution_result(execution_result)
     fallback_tracking_uri, _ = resolve_runtime_tracking_config()
     context = _TrainingFinalizationContext(
+        tracking=tracking,
         training_result=training_result,
         run_config=prepared.run_config,
         workspace=prepared.workspace,
@@ -535,6 +541,7 @@ def _finalize_training_run(context: _TrainingFinalizationContext) -> MlflowCoord
     try:
         # Step 6: Resolve MLflow run metadata and retrieve the checkpoint
         mlflow_coords = _resolve_mlflow_run_ids(
+            tracking=context.tracking,
             training_result=context.training_result,
             fallback_tracking_uri=context.fallback_tracking_uri,
             experiment_name=context.run_config.experiment_name,
@@ -548,6 +555,7 @@ def _finalize_training_run(context: _TrainingFinalizationContext) -> MlflowCoord
                 context.training_result, "run_id", None
             )
         with _training_artifact_lease_scope(
+            tracking=context.tracking,
             tracking_uri=resolved_tracking_uri,
             run_id=resolved_run_id,
         ) as artifact_leases:

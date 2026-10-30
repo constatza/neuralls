@@ -512,9 +512,6 @@ def load_standard_row_indices(
     dataset_dir: str | Path, require_standard: bool = True
 ) -> tuple[int, ...]:
     """List row indices that are STANDARD (safe for solver comparison)."""
-    from neuralls.shared.enum_codecs import decode_row_kind_array
-    from neuralls.shared.types import RowKind
-
     codes = load_row_kind_codes(dataset_dir)
     kinds = decode_row_kind_array(codes)
     if not require_standard:

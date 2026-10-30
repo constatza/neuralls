@@ -27,8 +27,8 @@ from neuralls.domain.solver.models.group_outcomes import GroupAggregated, GroupS
 from neuralls.domain.solver.models.group_presentation import GroupPresentation, SolverTimingContext
 from neuralls.domain.solver.models.labels import MatrixSetRhsTypeLabel, render_group_id
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
+from neuralls.platform.config.models.coarsening import AggregationCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
-    AggregationCoarseningConfig,
     AMGPreconditionerConfig,
     PreconditionerType,
 )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from neuralls.application.models import AssignmentResult
@@ -16,18 +17,49 @@ from neuralls.composition.comparison.models import (
     ComparisonReused,
 )
 from neuralls.composition.generation.multi_generation import generate_batch
+from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.shared.device import release_device_memory
+
+
+@dataclass(frozen=True, slots=True)
+class ForcePolicy:
+    """Which pipeline stages ignore an existing matching result and rerun.
+
+    Attributes:
+        generate: Regenerate every dataset.
+        train: Retrain every assignment.
+        compare: Rerun every comparison.
+        expand: Recreate sweep-generated dataset configs.
+    """
+
+    generate: bool = False
+    train: bool = False
+    compare: bool = False
+    expand: bool = False
+
+    @classmethod
+    def resolve(
+        cls, *, everything: bool, generate: bool, train: bool, compare: bool, expand: bool
+    ) -> ForcePolicy:
+        """Combine the blanket flag with the per-stage flags: a stage reruns if either says so."""
+        return cls(
+            generate=everything or generate,
+            train=everything or train,
+            compare=everything or compare,
+            expand=everything or expand,
+        )
+
+
+NO_FORCE = ForcePolicy()
 
 
 def run_case_pipeline(
     case_config_path: Path,
     settings: NeurallsSettings | None = None,
     *,
-    force_generate: bool = False,
-    force_train: bool = False,
-    force_compare: bool = False,
-    force_expand: bool = False,
+    force: ForcePolicy = NO_FORCE,
+    tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> tuple[list[AssignmentResult], list[ComparisonOutcome]]:
     """Run the full pipeline for one case config: generate, train, then compare.
 
@@ -49,10 +81,8 @@ def run_case_pipeline(
         case_config_path: Path to a case config defining datasets, assignments,
             and (optionally) comparisons.
         settings: Optional pre-loaded runtime settings.
-        force_generate: Regenerate every dataset even if a matching one exists.
-        force_train: Retrain every assignment even if a completed run exists.
-        force_compare: Rerun every comparison even if a matching one exists.
-        force_expand: Recreate sweep-generated dataset configs even if present.
+        force: Which stages ignore an existing matching result and rerun.
+        tracking: Source of the MLflow clients, lease managers and reuse lookups.
 
     Returns:
         Tuple of (assignment results, comparison outcomes). Each list is
@@ -61,17 +91,18 @@ def run_case_pipeline(
     """
     settings = require_settings(settings, case_config_path=case_config_path)
     cfg, config_dir = load_validated_case_config(
-        case_config_path, settings, force_expand=force_expand
+        case_config_path, settings, force_expand=force.expand
     )
 
-    generate_batch(cfg, config_dir, settings, force=force_generate)
+    generate_batch(cfg, config_dir, settings, force=force.generate)
 
     assignment_results: list[AssignmentResult] = []
     if cfg.assignments:
         sweep_result = run_assignment_sweep(
             case_config_path,
             settings=settings,
-            force=force_train,
+            force=force.train,
+            tracking=tracking,
         )
         assignment_results = sweep_result.results
 
@@ -86,9 +117,10 @@ def run_case_pipeline(
 
     comparison_outcomes = run_comparison_batch(
         case_config_path,
-        ComparisonParams(force=force_compare),
+        ComparisonParams(force=force.compare),
         settings=settings,
+        tracking=tracking,
     )
     if any(isinstance(o, (ComparisonCompleted, ComparisonReused)) for o in comparison_outcomes):
-        run_comparison_report(case_config_path, settings=settings)
+        run_comparison_report(case_config_path, settings=settings, tracking=tracking)
     return assignment_results, comparison_outcomes

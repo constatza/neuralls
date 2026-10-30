@@ -8,7 +8,6 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 
 import mlflow
-from mlflow.tracking import MlflowClient
 from torchalg.utils.device import resolve_device
 
 from neuralls.composition.assignments.comparison_execute import (
@@ -46,6 +45,7 @@ from neuralls.composition.comparison.recipes import session_counts
 from neuralls.composition.tracking.run_specs import (
     build_session_run_spec,
 )
+from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
 from neuralls.domain.presentation.titles import (
     summarized_session_title,
 )
@@ -116,6 +116,8 @@ def run_comparison_batch(
     case_config_path: Path,
     params: ComparisonParams,
     settings: NeurallsSettings | None = None,
+    *,
+    tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> list[ComparisonOutcome]:
     """Run all configured comparison entries from the case config.
 
@@ -130,6 +132,7 @@ def run_comparison_batch(
         case_config_path: Path to the case config TOML.
         params: Comparison execution parameters (`force`).
         settings: Optional pre-loaded runtime settings.
+        tracking: Source of the MLflow clients, lease managers and reuse lookups.
 
     Returns:
         List of comparison outcomes, one per planned system, in plan order
@@ -156,7 +159,7 @@ def run_comparison_batch(
             topology,
             case_config_path,
             settings,
-            MlflowClient(tracking_uri=topology.model_store_tracking_uri),
+            tracking,
             stack,
             force=params.force,
             reuse_comparisons=False,
@@ -164,7 +167,7 @@ def run_comparison_batch(
         partition = partition_pending(batch.items)
         if not partition.executions:
             return list(partition.decided)
-        if has_complete_reusable_session(batch, topology, force=params.force):
+        if has_complete_reusable_session(batch, topology, tracking, force=params.force):
             return [
                 item
                 if is_comparison_outcome(item)

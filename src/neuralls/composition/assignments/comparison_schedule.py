@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 
-from mlflow.tracking import MlflowClient
-
 from neuralls.composition.assignments.comparison_prepared import (
     PendingComparison,
     PreparedComparisonBatch,
@@ -33,6 +31,7 @@ from neuralls.composition.comparison.recipes import system_tag
 from neuralls.composition.identity.comparison import (
     preconditioner_identities,
 )
+from neuralls.composition.tracking.services import TrackingServices
 from neuralls.platform.tracking.mlflow_store import (
     find_reusable_benchmark_method,
 )
@@ -160,6 +159,7 @@ def load_matrix_workloads(matrices: Sequence[MatrixGroup]) -> Iterator[MatrixWor
 def has_complete_reusable_session(
     batch: PreparedComparisonBatch,
     topology: ComparisonTopology,
+    tracking: TrackingServices,
     *,
     force: bool,
 ) -> bool:
@@ -169,7 +169,7 @@ def has_complete_reusable_session(
     schedule = method_major_schedule(batch.items)
     if not schedule:
         return False
-    client = MlflowClient(tracking_uri=topology.tracking_uri)
+    client = tracking.client(topology.tracking_uri)
     parent_ids: set[str] = set()
     for method, matrices in schedule:
         system_ids = tuple(str(system.entry.id) for _, systems in matrices for system in systems)

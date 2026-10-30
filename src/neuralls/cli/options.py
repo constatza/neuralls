@@ -7,6 +7,8 @@ from typing import Annotated
 
 import typer
 
+from neuralls.shared.constants import EXIT_FAILURE
+
 ProfileOption = Annotated[
     str | None,
     typer.Option(
@@ -36,3 +38,20 @@ CaseConfigArgument = Annotated[
     Path,
     typer.Argument(help="Path to a case config TOML."),
 ]
+
+ForceOption = Annotated[
+    bool,
+    typer.Option(
+        "--force",
+        "-f",
+        help="Ignore a matching existing result and run again.",
+    ),
+]
+
+
+def require_existing_config(config: Path) -> None:
+    """Exit with a clear message when the case config path does not exist."""
+    if config.exists():
+        return
+    typer.echo(f"Error: Config file not found: {config}", err=True)
+    raise typer.Exit(code=EXIT_FAILURE)

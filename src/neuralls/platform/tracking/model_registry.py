@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from dlkit.mlflow import has_checkpoint_artifact
 from loguru import logger
 from mlflow.exceptions import MlflowException
 from mlflow.protos.databricks_pb2 import RESOURCE_ALREADY_EXISTS, RESOURCE_DOES_NOT_EXIST, ErrorCode
@@ -247,8 +248,6 @@ def ensure_checkpoint_artifact(
         run_id: Target run ID.
         checkpoint_path: Local path to the permanent ``.ckpt`` file.
     """
-    from dlkit.mlflow import has_checkpoint_artifact
-
     if not has_checkpoint_artifact(run_id, tracking_uri=tracking_uri):
         client = MlflowClient(tracking_uri=tracking_uri)
         upload_checkpoint_artifacts(client, run_id, checkpoint_path)

@@ -11,9 +11,7 @@ from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
 )
 from neuralls.domain.presentation.provenance import DatasetPresentation
-from neuralls.platform.config.models.preconditioner import (
-    PreconditionerType,
-)
+from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.platform.reporting.stored_benchmark import MethodDirectory, read_stored_benchmark
 from neuralls.shared.types import DatasetId
 

@@ -7,10 +7,12 @@ reaching into config internals themselves.
 
 from __future__ import annotations
 
-from neuralls.platform.config.models.preconditioner import (
-    AMGPreconditionerConfig,
+from neuralls.platform.config.models.coarsening import (
     NeuralPODCoarseningConfig,
     PODCoarseningConfig,
+)
+from neuralls.platform.config.models.preconditioner import (
+    AMGPreconditionerConfig,
     PreconditionerConfig,
     PreconditionerType,
 )

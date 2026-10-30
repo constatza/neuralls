@@ -18,7 +18,7 @@ from neuralls.platform.reporting.benchmark_events import (
 )
 from neuralls.platform.reporting.stored_benchmark import MethodDirectory
 from neuralls.platform.tracking.mlflow import quote_filter_value
-from neuralls.shared.types import SessionRunId
+from neuralls.shared.types import RunId, SessionRunId
 
 METHOD_PHASE: Final = "comparison_method"
 REPORT_PHASE: Final = "report"
@@ -84,7 +84,7 @@ def download_session_methods(
             run_id, path=METHOD_ARTIFACT_DIR, dst_path=str(destination / run_id)
         )
         directories.append(
-            MethodDirectory(run_id, Path(local), run.data.tags["method_config_digest"])
+            MethodDirectory(RunId(run_id), Path(local), run.data.tags["method_config_digest"])
         )
     return directories
 

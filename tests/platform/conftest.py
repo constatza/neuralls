@@ -37,13 +37,24 @@ from neuralls.platform.reporting.benchmark_events import write_method_benchmark_
 from neuralls.platform.reporting.figure_metadata import (
     FailureTreatment,
     FigureKind,
-    FigureMetadata,
     FigureMethod,
     FigureSource,
+    GroupAggregationRule,
+    GroupFigureMetadata,
+    MethodAggregationRule,
+    MethodFigureMetadata,
+    TimingPolicy,
     TimingScenario,
 )
 from neuralls.shared.rhs_recipe import SinusoidalRecipe
-from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
+from neuralls.shared.types import (
+    DatasetId,
+    MatrixId,
+    PreconditionerName,
+    RunId,
+    SetupEventId,
+    SystemId,
+)
 
 type WriteMethod = Callable[..., CompletedMethodWorkload]
 
@@ -136,30 +147,57 @@ def figure_method(prepared_method: PreparedMethodFactory) -> FigureMethod:
 @pytest.fixture
 def metadata_of(
     figure_method: FigureMethod,
-) -> Callable[[FigureScope], FigureMetadata]:
-    def build(scope: FigureScope) -> FigureMetadata:
-        return FigureMetadata(
+) -> Callable[[FigureScope], GroupFigureMetadata]:
+    def build(scope: FigureScope) -> GroupFigureMetadata:
+        return GroupFigureMetadata(
             kind=FigureKind.PERFORMANCE_PROFILE,
             metric_definition="amortized online seconds",
             scenario=TimingScenario.ONLINE,
             report_level=ReportLevelName.MATRIX_SET_RHS_TYPE,
             scope=scope,
-            dataset_ids=("Dataset X",),
+            dataset_ids=(DatasetId("Dataset X"),),
             recipes=(SinusoidalRecipe(omega=6.28319),),
             n_matrices=1,
             n_planned_rhs=4,
             reference_selection=ConfiguredReference(PreconditionerName("jacobi")),
             failure_treatment=FailureTreatment.CENSORED,
-            timing_policy="planned setup share + solve",
+            timing_policy=TimingPolicy.SETUP_PER_MATRIX_PLUS_SOLVE_PER_RHS,
             methods=(figure_method,),
             sources=(
                 FigureSource(
-                    "method-run",
+                    RunId("method-run"),
                     ("method_workload/setup_events.parquet", "method_workload/summary.toml"),
                 ),
             ),
             recipe_counts=(4,),
-            aggregation_rule="one recipe, four planned RHS",
+            aggregation_rule=GroupAggregationRule.PER_PLANNED_SYSTEM,
+            recipe_weights=(1.0,),
+            solver_contexts=(CONTEXT,),
+        )
+
+    return build
+
+
+@pytest.fixture
+def method_metadata_of(
+    figure_method: FigureMethod,
+) -> Callable[[FigureScope], MethodFigureMetadata]:
+    def build(scope: FigureScope) -> MethodFigureMetadata:
+        return MethodFigureMetadata(
+            kind=FigureKind.RESIDUAL_HISTORY,
+            metric_definition="relative residual by iteration",
+            report_level=ReportLevelName.SYSTEM,
+            scope=scope,
+            dataset_ids=(DatasetId("Dataset X"),),
+            recipes=(SinusoidalRecipe(omega=6.28319),),
+            n_matrices=1,
+            n_planned_rhs=1,
+            reference_selection=ConfiguredReference(PreconditionerName("jacobi")),
+            timing_policy=TimingPolicy.DIAGNOSTIC_EXCLUDED_FROM_ONLINE,
+            methods=(figure_method,),
+            sources=(FigureSource(RunId("method-run"), ("method_workload/convergence.parquet",)),),
+            recipe_counts=(1,),
+            aggregation_rule=MethodAggregationRule.PER_METHOD_ON_SYSTEM,
             recipe_weights=(1.0,),
             solver_contexts=(CONTEXT,),
         )

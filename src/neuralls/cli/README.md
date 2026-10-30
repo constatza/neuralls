@@ -26,7 +26,7 @@ The CLI package defines one public executable: `neuralls`.
 - `report.py`: report generation from a stored compare session
 - `errors.py`: the shared top-level failure renderer; blocking workflow exceptions retain
   their concrete type, message, contextual exception notes, and logged traceback
-- `options.py`: shared option aliases for profile and env-file resolution
+- `options.py`: shared option aliases (profile, env file, case config, `--force`) and `require_existing_config`
 
 ## Printed text
 

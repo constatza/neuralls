@@ -20,11 +20,9 @@ from neuralls.domain.presentation.methods import (
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.render import render_method, render_title
 from neuralls.domain.presentation.titles import ComparisonScopePresentation, EditorialPresentation
+from neuralls.platform.config.models.coarsening import AggregationCoarseningConfig
 from neuralls.platform.config.models.experiments import AssignmentEntry
-from neuralls.platform.config.models.preconditioner import (
-    AggregationCoarseningConfig,
-    AMGPreconditionerConfig,
-)
+from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
 from neuralls.platform.storage.manifest import MissingDatasetProvenanceError
 from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy

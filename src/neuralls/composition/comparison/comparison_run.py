@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 import numpy as np
 import torch
@@ -128,196 +128,250 @@ def _build_scheduled_and_bind(
     return scheduled
 
 
-def _execute_matrix_bundle(
-    method: ResolvedMethod,
+@dataclass(frozen=True, slots=True)
+class _MethodRun:
+    """What stays fixed while one method executes over every matrix bundle.
+
+    Attributes:
+        method: The method being executed.
+        service: Builds and preloads the method's preconditioner for each matrix.
+        params: Solver and timing parameters.
+        device: Device the matrices and solves live on.
+        offline_cost: One-off generation cost attached to every result, if the method has one.
+        observer: Tracks the workload's peak memory across setup and solves.
+        method_text: The method as its log lines name it.
+    """
+
+    method: ResolvedMethod
+    service: PreconditionerService
+    params: SolverParams
+    device: torch.device
+    offline_cost: StageCost | None
+    observer: WorkloadMemoryObserver
+    method_text: str
+
+
+@dataclass(frozen=True, slots=True)
+class MatrixBundleResult:
+    """Everything one matrix contributed to a method's workload.
+
+    Attributes:
+        setup_event: The matrix's single setup, completed or failed.
+        attempts: One solve attempt per right-hand side; empty when setup failed.
+        diagnostics: Each system's solver (or stand-in breakdown) result.
+        realizations: Facts read from the built preconditioner; empty when setup failed.
+    """
+
+    setup_event: MatrixSetupEvent
+    attempts: tuple[SolveAttempt, ...]
+    diagnostics: tuple[tuple[SystemId, CGComparisonResult], ...]
+    realizations: tuple[SystemRealization, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _SetupTiming:
+    """What a setup measured before failing (all zero when it failed before being timed)."""
+
+    seconds: float = 0.0
+    samples_seconds: tuple[float, ...] = ()
+    peak_memory_bytes: int = 0
+
+
+def _setup_failed(
+    run: _MethodRun,
     bundle: MatrixWorkload,
+    event_id: SetupEventId,
     *,
-    service: PreconditionerService,
-    params: SolverParams,
-    device: torch.device,
-    offline_cost: StageCost | None,
-    observer: WorkloadMemoryObserver,
-    setup_events: list[MatrixSetupEvent],
-    attempts: list[SolveAttempt],
-    diagnostics: list[tuple[SystemId, CGComparisonResult]],
-    realizations: list[SystemRealization],
-    method_text: str,
+    error: Exception,
     dataset_text: str,
-) -> None:
+    timing: _SetupTiming,
+) -> MatrixBundleResult:
+    """Record a recoverable setup failure: one failed event and a breakdown for every system.
+
+    Args:
+        run: The method run the matrix belongs to.
+        bundle: The matrix whose setup failed.
+        event_id: Identity of the matrix's setup event.
+        error: What failed.
+        dataset_text: The dataset as log lines name it.
+        timing: What the timed setup measured before failing.
+    """
+    logger.warning(
+        "Recoverable setup failure for {} on {}, matrix {}: {}: {}",
+        run.method_text,
+        dataset_text,
+        int(bundle.matrix_id),
+        type(error).__name__,
+        error,
+    )
+    return MatrixBundleResult(
+        setup_event=MatrixSetupEvent(
+            event_id=event_id,
+            dataset=bundle.dataset,
+            matrix_id=bundle.matrix_id,
+            method=run.method.name,
+            setup_s=timing.seconds,
+            samples_s=timing.samples_seconds,
+            peak_memory=MeasuredPeakMemory(timing.peak_memory_bytes),
+            outcome=SetupFailed(f"{type(error).__name__}: {error}"),
+        ),
+        attempts=(),
+        diagnostics=tuple(
+            (
+                member.tag.system_id,
+                _breakdown_result(
+                    run.method.name,
+                    rhs=torch.as_tensor(member.rhs),
+                    error=f"setup failed: {error}",
+                ),
+            )
+            for member in bundle.members
+        ),
+        realizations=(),
+    )
+
+
+def _solve_bundle(
+    run: _MethodRun,
+    bundle: MatrixWorkload,
+    matrix: torch.Tensor,
+    scheduled: dict[str, Preconditioner],
+    setup_event: MatrixSetupEvent,
+    dataset_text: str,
+) -> MatrixBundleResult:
+    """Solve every right-hand side of one matrix with its single built preconditioner."""
+    method, params = run.method, run.params
+    realizations = tuple(
+        capture_system_realizations(scheduled[method.name], PreconditionerName(method.name), bundle)
+    )
+    attempts: list[SolveAttempt] = []
+    diagnostics: list[tuple[SystemId, CGComparisonResult]] = []
+    for member in bundle.members:
+        rhs = torch.as_tensor(member.rhs).to(device=run.device, dtype=matrix.dtype)
+        x_exact = compute_reference_solution(
+            matrix,
+            rhs,
+            rtol=params.rtol,
+            margin=params.reference_precision_margin,
+        )
+        result = run_cg_comparison(
+            matrix,
+            rhs,
+            preconditioners=scheduled,
+            x_exact=x_exact,
+            rtol=params.rtol,
+            atol=params.atol,
+            maxiter=params.max_iterations,
+            m_max=params.m_max,
+            reference_precision_margin=params.reference_precision_margin,
+            timing=params.timing,
+        )[method.config.name]
+        if run.offline_cost is not None:
+            result = replace(result, generation_cost=run.offline_cost)
+        diagnostics.append((member.tag.system_id, result))
+        solve_peak = result.solve_peak_memory_bytes
+        if solve_peak is not None:
+            run.observer.observe_operation(solve_peak)
+        outcome = (
+            SolveConverged(result.iterations, result.residual)
+            if result.converged
+            else SolveFailed(result.iterations, result.error or "solver did not converge")
+        )
+        if isinstance(outcome, SolveFailed):
+            logger.warning(
+                "Recoverable solve failure for {} on {}, matrix {}, RHS {}: {}",
+                run.method_text,
+                dataset_text,
+                int(bundle.matrix_id),
+                member.tag.rhs_ordinal,
+                outcome.reason,
+            )
+        attempts.append(
+            SolveAttempt(
+                setup_event_id=setup_event.event_id,
+                system_id=member.tag.system_id,
+                dataset=bundle.dataset,
+                recipe=member.tag.recipe,
+                matrix_id=bundle.matrix_id,
+                rhs_ordinal=member.tag.rhs_ordinal,
+                method=method.name,
+                solve_s=result.solve_time_seconds or 0.0,
+                samples_s=result.solve_time_samples,
+                peak_memory=(
+                    MeasuredPeakMemory(solve_peak)
+                    if solve_peak is not None
+                    else UnknownPeakMemory()
+                ),
+                outcome=outcome,
+            )
+        )
+        del rhs, x_exact
+    return MatrixBundleResult(
+        setup_event=setup_event,
+        attempts=tuple(attempts),
+        diagnostics=tuple(diagnostics),
+        realizations=realizations,
+    )
+
+
+def _execute_on_device(
+    run: _MethodRun, bundle: MatrixWorkload, matrix: torch.Tensor, dataset_text: str
+) -> MatrixBundleResult:
+    """Build the method once for ``matrix`` (timed), then solve every right-hand side."""
+    method = run.method
+    staged_inputs = _load_extra_inputs(bundle.matrix_path, bundle.matrix_index)
+    event_id = SetupEventId(f"{method.name}:{bundle.dataset}:{int(bundle.matrix_id)}")
+    try:
+        run.service.preload(matrix, method.config)
+    except Exception as exc:  # noqa: BLE001
+        return _setup_failed(
+            run, bundle, event_id, error=exc, dataset_text=dataset_text, timing=_SetupTiming()
+        )
+    timed_setup = repeat_timed_outcome(
+        lambda: _build_scheduled_and_bind(run.service, matrix, method.config, staged_inputs),
+        run.params.timing,
+        device=run.device,
+    )
+    run.observer.observe_operation(timed_setup.peak_memory_bytes)
+    if isinstance(timed_setup, FailedTimedRuns):
+        return _setup_failed(
+            run,
+            bundle,
+            event_id,
+            error=timed_setup.error,
+            dataset_text=dataset_text,
+            timing=_SetupTiming(
+                timed_setup.seconds, timed_setup.samples_seconds, timed_setup.peak_memory_bytes
+            ),
+        )
+    setup_event = MatrixSetupEvent(
+        event_id=event_id,
+        dataset=bundle.dataset,
+        matrix_id=bundle.matrix_id,
+        method=method.name,
+        setup_s=timed_setup.seconds,
+        samples_s=timed_setup.samples_seconds,
+        peak_memory=MeasuredPeakMemory(timed_setup.peak_memory_bytes),
+        outcome=SetupCompleted(),
+    )
+    return _solve_bundle(run, bundle, matrix, timed_setup.value, setup_event, dataset_text)
+
+
+def _execute_matrix_bundle(
+    run: _MethodRun, bundle: MatrixWorkload, dataset_text: str
+) -> MatrixBundleResult:
     """Execute one matrix and release all device state on every exit path.
 
     Realized facts are read from the built preconditioner right after its one setup and
-    appended to ``realizations``; only those plain facts outlive the release below.
+    returned as plain values; only those outlive the release below.
     """
-    matrix: torch.Tensor | None = None
-    staged_inputs: tuple[np.ndarray, ...] = ()
-    scheduled: dict[str, Preconditioner] | None = None
     try:
-        matrix = torch.as_tensor(bundle.matrix).to(device)
-        staged_inputs = _load_extra_inputs(bundle.matrix_path, bundle.matrix_index)
-        event_id = SetupEventId(f"{method.name}:{bundle.dataset}:{int(bundle.matrix_id)}")
+        matrix = torch.as_tensor(bundle.matrix).to(run.device)
         try:
-            service.preload(matrix, method.config)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Recoverable setup failure for {} on {}, matrix {}: {}: {}",
-                method_text,
-                dataset_text,
-                int(bundle.matrix_id),
-                type(exc).__name__,
-                exc,
-            )
-            setup_events.append(
-                MatrixSetupEvent(
-                    event_id=event_id,
-                    dataset=bundle.dataset,
-                    matrix_id=bundle.matrix_id,
-                    method=method.name,
-                    setup_s=0.0,
-                    samples_s=(),
-                    peak_memory=MeasuredPeakMemory(0),
-                    outcome=SetupFailed(f"{type(exc).__name__}: {exc}"),
-                )
-            )
-            diagnostics.extend(
-                (
-                    member.tag.system_id,
-                    _breakdown_result(
-                        method.name,
-                        rhs=torch.as_tensor(member.rhs),
-                        error=f"setup failed: {exc}",
-                    ),
-                )
-                for member in bundle.members
-            )
-            return
-        timed_setup = repeat_timed_outcome(
-            lambda matrix=matrix, staged_inputs=staged_inputs: _build_scheduled_and_bind(
-                service, matrix, method.config, staged_inputs
-            ),
-            params.timing,
-            device=device,
-        )
-        observer.observe_operation(timed_setup.peak_memory_bytes)
-        if isinstance(timed_setup, FailedTimedRuns):
-            logger.warning(
-                "Recoverable setup failure for {} on {}, matrix {}: {}: {}",
-                method_text,
-                dataset_text,
-                int(bundle.matrix_id),
-                type(timed_setup.error).__name__,
-                timed_setup.error,
-            )
-            setup_events.append(
-                MatrixSetupEvent(
-                    event_id=event_id,
-                    dataset=bundle.dataset,
-                    matrix_id=bundle.matrix_id,
-                    method=method.name,
-                    setup_s=timed_setup.seconds,
-                    samples_s=timed_setup.samples_seconds,
-                    peak_memory=MeasuredPeakMemory(timed_setup.peak_memory_bytes),
-                    outcome=SetupFailed(f"{type(timed_setup.error).__name__}: {timed_setup.error}"),
-                )
-            )
-            diagnostics.extend(
-                (
-                    member.tag.system_id,
-                    _breakdown_result(
-                        method.name,
-                        rhs=torch.as_tensor(member.rhs),
-                        error=f"setup failed: {timed_setup.error}",
-                    ),
-                )
-                for member in bundle.members
-            )
-            return
-
-        scheduled = timed_setup.value
-        realizations.extend(
-            capture_system_realizations(
-                scheduled[method.name], PreconditionerName(method.name), bundle
-            )
-        )
-        setup_events.append(
-            MatrixSetupEvent(
-                event_id=event_id,
-                dataset=bundle.dataset,
-                matrix_id=bundle.matrix_id,
-                method=method.name,
-                setup_s=timed_setup.seconds,
-                samples_s=timed_setup.samples_seconds,
-                peak_memory=MeasuredPeakMemory(timed_setup.peak_memory_bytes),
-                outcome=SetupCompleted(),
-            )
-        )
-
-        for member in bundle.members:
-            rhs = torch.as_tensor(member.rhs).to(device=device, dtype=matrix.dtype)
-            x_exact = compute_reference_solution(
-                matrix,
-                rhs,
-                rtol=params.rtol,
-                margin=params.reference_precision_margin,
-            )
-            result = run_cg_comparison(
-                matrix,
-                rhs,
-                preconditioners=scheduled,
-                x_exact=x_exact,
-                rtol=params.rtol,
-                atol=params.atol,
-                maxiter=params.max_iterations,
-                m_max=params.m_max,
-                reference_precision_margin=params.reference_precision_margin,
-                timing=params.timing,
-            )[method.config.name]
-            if offline_cost is not None:
-                result = replace(result, generation_cost=offline_cost)
-            diagnostics.append((member.tag.system_id, result))
-            solve_peak = result.solve_peak_memory_bytes
-            if solve_peak is not None:
-                observer.observe_operation(solve_peak)
-            outcome = (
-                SolveConverged(result.iterations, result.residual)
-                if result.converged
-                else SolveFailed(result.iterations, result.error or "solver did not converge")
-            )
-            if isinstance(outcome, SolveFailed):
-                logger.warning(
-                    "Recoverable solve failure for {} on {}, matrix {}, RHS {}: {}",
-                    method_text,
-                    dataset_text,
-                    int(bundle.matrix_id),
-                    member.tag.rhs_ordinal,
-                    outcome.reason,
-                )
-            attempts.append(
-                SolveAttempt(
-                    setup_event_id=event_id,
-                    system_id=member.tag.system_id,
-                    dataset=bundle.dataset,
-                    recipe=member.tag.recipe,
-                    matrix_id=bundle.matrix_id,
-                    rhs_ordinal=member.tag.rhs_ordinal,
-                    method=method.name,
-                    solve_s=result.solve_time_seconds or 0.0,
-                    samples_s=result.solve_time_samples,
-                    peak_memory=(
-                        MeasuredPeakMemory(solve_peak)
-                        if solve_peak is not None
-                        else UnknownPeakMemory()
-                    ),
-                    outcome=outcome,
-                )
-            )
-            del rhs, x_exact
-    finally:
-        if scheduled is not None:
-            del scheduled
-        if matrix is not None:
+            return _execute_on_device(run, bundle, matrix, dataset_text)
+        finally:
             del matrix
-        del staged_inputs
+    finally:
         release_device_memory()
 
 
@@ -357,24 +411,24 @@ def execute_method_workload(
     method_text = render_method_label(prepared.configured, notation)
 
     with CheckpointStore() as checkpoints:
-        service = PreconditionerService(FS_FIT_DATA, checkpoints=checkpoints)
+        run = _MethodRun(
+            method=method,
+            service=PreconditionerService(FS_FIT_DATA, checkpoints=checkpoints),
+            params=params,
+            device=device,
+            offline_cost=offline_cost,
+            observer=observer,
+            method_text=method_text,
+        )
         for bundle in bundles:
             planned_list.extend(member.tag for member in bundle.members)
-            _execute_matrix_bundle(
-                method,
-                bundle,
-                method_text=method_text,
-                dataset_text=render_dataset_label(datasets[bundle.dataset], notation),
-                service=service,
-                params=params,
-                device=device,
-                offline_cost=offline_cost,
-                observer=observer,
-                setup_events=setup_events,
-                attempts=attempts,
-                diagnostics=diagnostics,
-                realizations=realizations,
+            result = _execute_matrix_bundle(
+                run, bundle, render_dataset_label(datasets[bundle.dataset], notation)
             )
+            setup_events.append(result.setup_event)
+            attempts.extend(result.attempts)
+            diagnostics.extend(result.diagnostics)
+            realizations.extend(result.realizations)
             del bundle
 
     color_key, marker_key = pod2g_style_keys(method.config)

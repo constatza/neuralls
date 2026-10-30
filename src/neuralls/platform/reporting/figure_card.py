@@ -26,15 +26,21 @@ from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.reporting.figure_metadata import (
     CARD_PROFILE,
+    GROUP_FIGURE_KINDS,
     FailureTreatment,
     FigureKind,
     FigureMetadata,
     FigureMethod,
     FigureSource,
     FigureTable,
+    GroupAggregationRule,
+    GroupFigureMetadata,
+    MethodAggregationRule,
+    MethodFigureMetadata,
     NoTable,
     ReferenceSelectionKind,
     SiblingTable,
+    TimingPolicy,
     TimingScenario,
     table_of,
 )
@@ -47,7 +53,7 @@ from neuralls.platform.storage.facts_codec import (
     encode_recipe,
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
-from neuralls.shared.types import PreconditionerName, SessionRunId
+from neuralls.shared.types import DatasetId, PreconditionerName, RunId, SessionRunId
 
 CARD_SUFFIX = ".toml"
 """A card shares its figure's stem and directory; only the suffix differs."""
@@ -61,7 +67,6 @@ _REQUIRED_FIELDS: frozenset[str] = frozenset(
         "title",
         "metric_definition",
         "level",
-        "failure_treatment",
         "aggregation_rule",
         "timing_policy",
         "scope",
@@ -179,9 +184,8 @@ def card_payload(card: FigureCard) -> dict[str, Any]:
         "title": card.title,
         "metric_definition": metadata.metric_definition,
         "level": metadata.report_level.value,
-        "failure_treatment": metadata.failure_treatment.value,
-        "aggregation_rule": metadata.aggregation_rule,
-        "timing_policy": metadata.timing_policy,
+        "aggregation_rule": metadata.aggregation_rule.value,
+        "timing_policy": metadata.timing_policy.value,
         "scope": {**encode_figure_scope(metadata.scope), "display": card.scope_display},
         "methods": [
             {
@@ -194,7 +198,7 @@ def card_payload(card: FigureCard) -> dict[str, Any]:
         "counts": {
             "n_matrices": metadata.n_matrices,
             "n_planned_rhs": metadata.n_planned_rhs,
-            "dataset_ids": list(metadata.dataset_ids),
+            "dataset_ids": [str(dataset) for dataset in metadata.dataset_ids],
             "recipes": [encode_recipe(recipe) for recipe in metadata.recipes],
             "recipe_counts": list(metadata.recipe_counts),
             "recipe_weights": list(metadata.recipe_weights),
@@ -204,13 +208,20 @@ def card_payload(card: FigureCard) -> dict[str, Any]:
         "source": {
             "session_run_id": card.session_run_id,
             "methods": [
-                {"run_id": source.run_id, "artifact_paths": list(source.artifact_paths)}
+                {"run_id": str(source.run_id), "artifact_paths": list(source.artifact_paths)}
                 for source in metadata.sources
             ],
         },
     }
-    if metadata.scenario is not None:
-        payload["scenario"] = metadata.scenario.value
+    match metadata:
+        case GroupFigureMetadata(scenario=scenario, failure_treatment=failure_treatment):
+            payload["failure_treatment"] = failure_treatment.value
+            if scenario is not None:
+                payload["scenario"] = scenario.value
+        case MethodFigureMetadata():
+            pass
+        case unreachable:
+            assert_never(unreachable)
     match card.table:
         case SiblingTable(name=name):
             payload["table"] = name
@@ -249,25 +260,39 @@ def validate_figure_card(payload: Mapping[str, Any]) -> None:
     _require_tables(source["methods"], _REQUIRED_SOURCE_METHOD_FIELDS, "source method")
 
 
-def decode_figure_card(payload: Mapping[str, Any]) -> FigureCard:
-    """Validate ``payload`` and rebuild the card it encodes."""
-    validate_figure_card(payload)
-    counts = payload["counts"]
+def _decode_group_metadata(kind: FigureKind, payload: Mapping[str, Any]) -> GroupFigureMetadata:
+    _require(payload, frozenset({"failure_treatment"}), "group document")
     scenario = payload.get("scenario")
-    metadata = FigureMetadata(
-        kind=FigureKind(payload["kind"]),
-        metric_definition=str(payload["metric_definition"]),
+    return GroupFigureMetadata(
+        **_common_fields(kind, payload),
         scenario=None if scenario is None else TimingScenario(scenario),
-        report_level=ReportLevelName(payload["level"]),
-        scope=decode_figure_scope(payload["scope"]),
-        dataset_ids=tuple(str(dataset) for dataset in counts["dataset_ids"]),
-        recipes=tuple(decode_recipe(recipe) for recipe in counts["recipes"]),
-        n_matrices=int(counts["n_matrices"]),
-        n_planned_rhs=int(counts["n_planned_rhs"]),
-        reference_selection=_decode_reference(payload["reference"]),
         failure_treatment=FailureTreatment(payload["failure_treatment"]),
-        timing_policy=str(payload["timing_policy"]),
-        methods=tuple(
+        aggregation_rule=GroupAggregationRule(payload["aggregation_rule"]),
+    )
+
+
+def _decode_method_metadata(kind: FigureKind, payload: Mapping[str, Any]) -> MethodFigureMetadata:
+    return MethodFigureMetadata(
+        **_common_fields(kind, payload),
+        aggregation_rule=MethodAggregationRule(payload["aggregation_rule"]),
+    )
+
+
+def _common_fields(kind: FigureKind, payload: Mapping[str, Any]) -> dict[str, Any]:
+    """The fields of every figure context, decoded from a validated card payload."""
+    counts = payload["counts"]
+    return {
+        "kind": kind,
+        "metric_definition": str(payload["metric_definition"]),
+        "report_level": ReportLevelName(payload["level"]),
+        "scope": decode_figure_scope(payload["scope"]),
+        "dataset_ids": tuple(DatasetId(str(dataset)) for dataset in counts["dataset_ids"]),
+        "recipes": tuple(decode_recipe(recipe) for recipe in counts["recipes"]),
+        "n_matrices": int(counts["n_matrices"]),
+        "n_planned_rhs": int(counts["n_planned_rhs"]),
+        "reference_selection": _decode_reference(payload["reference"]),
+        "timing_policy": TimingPolicy(payload["timing_policy"]),
+        "methods": tuple(
             FigureMethod(
                 method_id=PreconditionerName(method["method_id"]),
                 presentation=decode_method_presentation(method["presentation"]),
@@ -275,17 +300,29 @@ def decode_figure_card(payload: Mapping[str, Any]) -> FigureCard:
             )
             for method in payload["methods"]
         ),
-        sources=tuple(
+        "sources": tuple(
             FigureSource(
-                run_id=str(source["run_id"]),
+                run_id=RunId(str(source["run_id"])),
                 artifact_paths=tuple(str(artifact) for artifact in source["artifact_paths"]),
             )
             for source in payload["source"]["methods"]
         ),
-        recipe_counts=tuple(int(count) for count in counts["recipe_counts"]),
-        aggregation_rule=str(payload["aggregation_rule"]),
-        recipe_weights=tuple(float(weight) for weight in counts["recipe_weights"]),
-        solver_contexts=tuple(SolverTimingContext(**context) for context in payload["parameters"]),
+        "recipe_counts": tuple(int(count) for count in counts["recipe_counts"]),
+        "recipe_weights": tuple(float(weight) for weight in counts["recipe_weights"]),
+        "solver_contexts": tuple(
+            SolverTimingContext(**context) for context in payload["parameters"]
+        ),
+    }
+
+
+def decode_figure_card(payload: Mapping[str, Any]) -> FigureCard:
+    """Validate ``payload`` and rebuild the card it encodes."""
+    validate_figure_card(payload)
+    kind = FigureKind(payload["kind"])
+    metadata = (
+        _decode_group_metadata(kind, payload)
+        if kind in GROUP_FIGURE_KINDS
+        else _decode_method_metadata(kind, payload)
     )
     card = FigureCard(
         figure=str(payload["figure"]),

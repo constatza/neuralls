@@ -24,13 +24,17 @@ from neuralls.composition.preconditioners.checkpoint_store import (
     PredictorKey,
 )
 from neuralls.composition.preconditioners.coarsening import load_fitted_pod_model
-from neuralls.platform.config.models.preconditioner import (
+from neuralls.platform.config.models.checkpoint_refs import (
     CheckpointRefBearing,
     NeuralCheckpointRef,
+)
+from neuralls.platform.config.models.coarsening import (
     NeuralPODCoarseningConfig,
+    PODCoarseningConfig,
+)
+from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     NeuralTransferConfig,
-    PODCoarseningConfig,
     PreconditionerConfig,
 )
 from neuralls.platform.dlkit.inference_adapter import create_inference_predictor

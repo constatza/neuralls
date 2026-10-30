@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
+from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.comparison import ComparisonConfig, NoMask, RhsMask
 from neuralls.platform.config.models.data_models import (
     DataConfigFile,
@@ -19,7 +20,6 @@ from neuralls.platform.config.models.data_models import (
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     IC0PreconditionerConfig,
-    PODCoarseningConfig,
     StandardPreconditionerConfig,
 )
 

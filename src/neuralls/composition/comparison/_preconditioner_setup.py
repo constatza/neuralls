@@ -21,10 +21,12 @@ from neuralls.composition.preconditioners.schedule import (
     create_scheduled_preconditioner,
 )
 from neuralls.domain.presentation.methods import SystemRealization
-from neuralls.platform.config.models.preconditioner import (
-    AMGPreconditionerConfig,
+from neuralls.platform.config.models.coarsening import (
     NeuralPODCoarseningConfig,
     PODCoarseningConfig,
+)
+from neuralls.platform.config.models.preconditioner import (
+    AMGPreconditionerConfig,
     PreconditionerConfig,
 )
 from neuralls.platform.storage.training_artifacts import (

@@ -12,11 +12,8 @@ from pathlib import Path
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from neuralls.platform.config.models.preconditioner import (
-    AMGPreconditionerConfig,
-    CoarseningConfig,
-    NeuralPODCoarseningConfig,
-)
+from neuralls.platform.config.models.coarsening import CoarseningConfig, NeuralPODCoarseningConfig
+from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
 
 WORKSPACE = Path("/workspace")
 

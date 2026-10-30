@@ -427,7 +427,7 @@ def test_log_artifacts_to_mlflow_excludes_checkpoints(tmp_path: Path) -> None:
         directory.mkdir(parents=True)
         (directory / f"{name}.txt").write_text(name, encoding="utf-8")
 
-    with patch("mlflow.tracking.MlflowClient") as mock_client_cls:
+    with patch("neuralls.platform.tracking.mlflow_client.MlflowClient") as mock_client_cls:
         client = mock_client_cls.return_value
         log_artifacts_to_mlflow(
             tracking_uri=f"sqlite:///{(tmp_path / 'db.sqlite').as_posix()}",
@@ -449,7 +449,7 @@ def test_log_batch_artifacts_to_mlflow_uploads_only_existing_files(tmp_path: Pat
     (work_root / "batch_eval_labels.json").write_text("{}", encoding="utf-8")
     # "batch_metric_mae.png" intentionally not created.
 
-    with patch("mlflow.tracking.MlflowClient") as mock_client_cls:
+    with patch("neuralls.platform.tracking.mlflow_client.MlflowClient") as mock_client_cls:
         client = mock_client_cls.return_value
         log_batch_artifacts_to_mlflow(
             tracking_uri=f"sqlite:///{(tmp_path / 'db.sqlite').as_posix()}",

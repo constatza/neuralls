@@ -67,6 +67,14 @@ from neuralls.domain.solver.models.provenance import (
     MatrixProvenance,
     SharedSingleMatrix,
 )
+from neuralls.platform.config.models.checkpoint_refs import (
+    ByAlias,
+    ByRunId,
+    LoggedModelRefConfig,
+    RegisteredModelRefConfig,
+    TrainedAssignmentRefConfig,
+)
+from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.platform.config.models.experiments import (
     AssignmentEntry,
@@ -75,13 +83,9 @@ from neuralls.platform.config.models.experiments import (
 )
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
-    LoggedModelRefConfig,
     NeuralPreconditionerConfig,
-    PODCoarseningConfig,
     PreconditionerType,
-    RegisteredModelRefConfig,
     StandardPreconditionerConfig,
-    TrainedAssignmentRefConfig,
 )
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
@@ -106,6 +110,8 @@ from tests.workflows.comparison_support import (
 )
 
 pytestmark = pytest.mark.deferred_io("generation-io")
+
+TRACKING_URI = "sqlite:///unused"
 
 
 def test_resolve_comparison_config_importable_from_composition() -> None:
@@ -242,11 +248,11 @@ def _write_system_inputs(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def _logged_ref(run_id: str) -> LoggedModelRefConfig:
-    return LoggedModelRefConfig(run_id=run_id)
+    return LoggedModelRefConfig(selector=ByRunId(run_id=run_id))
 
 
 def _registered_ref(name: str, alias: str) -> RegisteredModelRefConfig:
-    return RegisteredModelRefConfig(name=name, alias=alias)
+    return RegisteredModelRefConfig(name=name, selector=ByAlias(alias=alias))
 
 
 def _identity_cg_result() -> CGComparisonResult:
@@ -591,11 +597,14 @@ def test_neural_specs_from_assignments_uses_strict_assignment_ref(
         job="ffnn",
         display_name="Shared model label",
     )
-    client = MagicMock()
-    client.search_experiments.return_value = []
-
     specs = neural_specs_from_assignments(
-        [entry], claimed_ids=set(), client=client, cfg=cfg, config_dir=config_dir, settings=settings
+        [entry],
+        claimed_ids=set(),
+        tracking=MagicMock(),
+        tracking_uri=TRACKING_URI,
+        cfg=cfg,
+        config_dir=config_dir,
+        settings=settings,
     )
 
     assert len(specs) == 1
@@ -612,12 +621,12 @@ def test_neural_specs_from_assignments_skips_claimed_ids(tmp_path: Path) -> None
         tmp_path, job_writer=_write_train_job_config
     )
     entry = AssignmentEntry(id="ffnn_solutions", dataset="solutions", job="ffnn")
-    client = MagicMock()
 
     specs = neural_specs_from_assignments(
         [entry],
         claimed_ids={"ffnn_solutions"},
-        client=client,
+        tracking=MagicMock(),
+        tracking_uri=TRACKING_URI,
         cfg=cfg,
         config_dir=config_dir,
         settings=settings,
@@ -637,16 +646,22 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
         dataset_id="solutions-cg1",
         job_id="pod-2g_cg-0",
     )
+    tracking = MagicMock()
     entry = AssignmentEntry(
         id="pod2g_cg1",
         dataset="solutions-cg1",
         job="pod-2g_cg-0",
         display_name="Shared model label",
     )
-    client = MagicMock()
 
     specs = neural_specs_from_assignments(
-        [entry], claimed_ids=set(), client=client, cfg=cfg, config_dir=config_dir, settings=settings
+        [entry],
+        claimed_ids=set(),
+        tracking=tracking,
+        tracking_uri=TRACKING_URI,
+        cfg=cfg,
+        config_dir=config_dir,
+        settings=settings,
     )
 
     assert len(specs) == 1
@@ -658,7 +673,7 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
     assert spec.coarsening.rank == 0.9999
     assert spec.coarsening.dataset_dir == settings.processed_dir / "solutions-cg1"
     assert spec.coarsening.model_ref == TrainedAssignmentRefConfig(assignment_id="pod2g_cg1")
-    client.search_experiments.assert_not_called()
+    tracking.client.assert_not_called()
 
 
 def _build_split_pinned_dataset(root: Path) -> Path:
@@ -767,6 +782,7 @@ def prepare_entry(
                 case_config_path=experiments_config,
                 settings=settings,
                 load_dataset=NO_DATASET_READS,
+                tracking=MagicMock(),
                 reuse_comparisons=False,
             )
             pending = prepare_comparison_entry(cfg, planned, context)

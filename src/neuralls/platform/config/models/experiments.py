@@ -9,6 +9,7 @@ from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
+from neuralls.platform.config.context import ConfigContext, expand_config_path
 from neuralls.platform.config.models.comparison import ComparisonRhsSourceModel
 from neuralls.platform.config.models.id_generation import (
     _infer_assignment_id,
@@ -47,7 +48,6 @@ class MlflowTopologyConfig(BaseModel):
         """
         if v is None or info.context is None or "${" not in v:
             return v
-        from neuralls.platform.config.context import ConfigContext, expand_config_path
 
         return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
 
@@ -119,7 +119,6 @@ class RegistryEntry(BaseModel):
         """
         if info.context is None or not isinstance(v, str):
             return v
-        from neuralls.platform.config.context import ConfigContext, expand_config_path
 
         return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
 
@@ -188,7 +187,6 @@ class AssignmentEntry(BaseModel):
         """
         if v is None or info.context is None or not isinstance(v, str):
             return v
-        from neuralls.platform.config.context import ConfigContext, expand_config_path
 
         return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
 
@@ -283,7 +281,6 @@ class ComparisonDataBinding(BaseModel):
         """
         if v is None or not isinstance(v, str) or info.context is None:
             return v
-        from neuralls.platform.config.context import ConfigContext, expand_config_path
 
         return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
 

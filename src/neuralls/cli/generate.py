@@ -7,7 +7,7 @@ from typing import Any
 import typer
 
 from neuralls.cli.error_messages import format_cli_error
-from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ProfileOption
+from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ForceOption, ProfileOption
 from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.composition.config import load_case_settings, load_raw_toml
 from neuralls.composition.display import generation_label
@@ -23,13 +23,7 @@ def _looks_like_dataset_config(raw_config: dict[str, Any]) -> bool:
 
 def generate_case(
     config: CaseConfigArgument,
-    force: bool = typer.Option(
-        False,
-        "--force",
-        "-f",
-        help="Regenerate every dataset (and recreate sweep-generated dataset configs) "
-        "even if a matching one already exists.",
-    ),
+    force: ForceOption = False,
     env_file: EnvFileOption = None,
     profile: ProfileOption = None,
 ) -> None:

@@ -8,10 +8,8 @@ from pathlib import Path
 from neuralls.composition.assignments.presentation_preflight import DatasetPresentationLoader
 from neuralls.domain.presentation.methods import PreparedMethodPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation
-from neuralls.platform.config.models.preconditioner import (
-    AMGPreconditionerConfig,
-    PODCoarseningConfig,
-)
+from neuralls.platform.config.models.coarsening import PODCoarseningConfig
+from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
 
 type PreparedMethodFactory = Callable[[str], PreparedMethodPresentation]
 """The `prepared_method` fixture: the validated presentation of one method id."""
