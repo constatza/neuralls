@@ -23,15 +23,8 @@ DatasetFormat = Literal["zarr", "npy", "hdf5"]
 NormalizeType = Literal["none", "matrix", "rhs"]
 """Normalization applied to generated systems; shared because dataset provenance records it."""
 
-TestPosition = NewType("TestPosition", int)
-"""A 0-indexed position within a pinned split's `test` fold — never a raw row
-or matrix index, so it can never resolve to a training sample by construction."""
-
 MatrixId = NewType("MatrixId", int)
 """A raw physical matrix index within a comparison dataset directory."""
-
-RhsId = NewType("RhsId", int)
-"""A raw row/sample index identifying one RHS within a comparison dataset directory."""
 
 DatasetId = NewType("DatasetId", str)
 """A `[[datasets]]` registry id — a dataset reference, never a free-form label."""
