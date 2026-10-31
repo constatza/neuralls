@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
 
@@ -16,6 +16,8 @@ from neuralls.domain.solver.models.figure_scope import (
     MethodScope,
     RecipeScope,
 )
+from neuralls.domain.solver.models.system_provenance import SystemProvenance
+from neuralls.domain.solver.true_residual import shared_threshold, stopping_threshold_rel
 from neuralls.platform.reporting.figure_metadata import (
     FigureKind,
 )
@@ -44,6 +46,7 @@ class MethodPlot(Protocol):
         results: Mapping[str, Mapping[str, object]],
         *,
         save_path: Path,
+        threshold_rel: float | None,
         title: EditorialTitle,
         subtitle: ScopeSubtitle,
         legend: Legend,
@@ -76,6 +79,33 @@ def _system_legend(
     return series_legend(texts)
 
 
+def residual_threshold(
+    solve_attempts: pl.DataFrame, systems: Sequence[SystemProvenance], system_ids: Collection[str]
+) -> float | None:
+    """The stopping threshold shared by every plotted system, or ``None`` when unknown or mixed.
+
+    A system without a measured RHS norm has no threshold, so the line is then omitted rather
+    than drawn for only some of the curves.
+    """
+    rhs_norms = dict(
+        zip(
+            solve_attempts.get_column("system_id").to_list(),
+            solve_attempts.get_column("rhs_norm").to_list(),
+            strict=True,
+        )
+    )
+    solver = {str(system.tag.system_id): system.solver for system in systems}
+    thresholds: list[float] = []
+    for system_id in system_ids:
+        rhs_norm = rhs_norms.get(system_id)
+        if rhs_norm is None or rhs_norm <= 0:
+            return None
+        thresholds.append(
+            stopping_threshold_rel(solver[system_id].rtol, solver[system_id].atol, rhs_norm)
+        )
+    return shared_threshold(thresholds)
+
+
 def draw_method_figure(
     path: Path,
     kind: FigureKind,
@@ -103,8 +133,14 @@ def draw_method_figure(
         str(system.tag.system_id): recipe_key(system.tag.recipe) for system in method.systems
     }
     series_recipes = {name: recipes[name] for name in histories}
+    threshold = (
+        residual_threshold(method.solve_attempts, method.systems, histories)
+        if kind is FigureKind.RESIDUAL_HISTORY
+        else None
+    )
     METHOD_PLOTS[kind](
         histories,
+        threshold_rel=threshold,
         save_path=path,
         title=EditorialTitle(FIGURE_RECIPES[kind].variants[0].title),
         subtitle=subtitle,

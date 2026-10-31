@@ -54,6 +54,7 @@ from neuralls.shared.scientific_description.models import (
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SystemId
 from neuralls.shared.workflow_failures import ComparisonMatrixFailureContext, ComparisonMatrixPhase
+from tests.measurement_support import NO_REFERENCE_SOLUTION
 from tests.presentation_support import PreparedMethodFactory
 from tests.realized_support import completed_workload, levels
 from tests.recipe_support import ALPHA, BETA, GAUSSIAN
@@ -154,7 +155,9 @@ def counters(monkeypatch: pytest.MonkeyPatch, method: ResolvedMethod) -> _Counte
     monkeypatch.setattr(comparison_run, "_build_scheduled", build)
     monkeypatch.setattr(_preconditioner_setup, "describe_realized_preconditioner", capture)
     monkeypatch.setattr(comparison_run, "run_cg_comparison", solve)
-    monkeypatch.setattr(comparison_run, "compute_reference_solution", lambda *a, **k: None)
+    monkeypatch.setattr(
+        comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE_SOLUTION
+    )
     return counts
 
 

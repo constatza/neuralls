@@ -18,6 +18,7 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId
 from tests.composition.workload_support import DIAGONAL, matrix_bundle
+from tests.measurement_support import NO_REFERENCE_SOLUTION
 from tests.presentation_support import PreparedMethodFactory
 
 FAILING_MATRIX_ID = 1
@@ -106,7 +107,9 @@ def test_solver_stage_error_is_isolated(
         raise MemoryError("simulated")
 
     monkeypatch.setattr(solver_comparison, "_solve_one", boom)
-    monkeypatch.setattr(comparison_run, "compute_reference_solution", lambda *a, **k: None)
+    monkeypatch.setattr(
+        comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE_SOLUTION
+    )
 
     workload = comparison_run.execute_method_workload(
         method,

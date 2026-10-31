@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
 from tests.presentation_support import PreparedMethodFactory
 from tests.provenance_support import SOLVER_CONTEXT
 from tests.recipe_support import GAUSSIAN
@@ -107,6 +108,8 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
             (2.0 + tag.rhs_ordinal,),
             MeasuredPeakMemory(1),
             SolveConverged(CONVERGED_ITERATIONS, 1e-8),
+            NO_RESIDUAL,
+            NO_REFERENCE,
         )
         for tag in planned
     )

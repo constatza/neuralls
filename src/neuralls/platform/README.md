@@ -82,7 +82,9 @@ the `PreparedComparisonPresentation` built at preflight, never the configs again
 Every comparison run writes two convergence figures with identical styling:
 relative residual `||r||/||b||` (`plot_convergence_comparison`) and relative
 energy-norm error `||e_k||_A/||e_0||_A` (`plot_error_convergence_comparison`,
-reading `CGComparisonResult.error_history_a_rel`).
+reading `CGComparisonResult.error_history_a_rel`). The method residual figure draws a dashed
+stopping-threshold line (`method_figures.residual_threshold`, from the stored `rhs_norm` and the
+planned `rtol`/`atol`) only when every plotted system shares one threshold.
 Condition-number figures and MLflow metrics are deliberately absent from the
 comparison workflow because iterative spectral estimation can dominate or
 stall otherwise healthy solver runs; that analysis remains available only as
@@ -198,7 +200,11 @@ already-active method child. The artifact set is defined once by
 
 - `setup_events.parquet`, `solve_attempts.parquet`, and `convergence.parquet` (one row per
   method, system and iteration with the relative residual and the nullable relative energy
-  error).
+  error). `solve_attempts.parquet` also carries the extra residual measurements as flat
+  `residual_status` (`measured`/`unmeasured`), `rhs_norm`, `true_residual_rel` and
+  `reference_status` (`solved`/`unavailable`), `reference_true_residual_rel`, `reference_reason`
+  columns; a payload is null exactly when its status says so. A table without them is rejected,
+  so the reuse gate recomputes such a run.
 - `planned_systems.parquet`: one row per planned system, including systems whose setup
   failed, with its dataset, recipe key, matrix and RHS ordinal, the solver and timing
   settings it ran under, and its reference state as flat `reference_kind`

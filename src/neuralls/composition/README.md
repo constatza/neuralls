@@ -520,6 +520,10 @@ but never across matrices. This makes every matrix setup visible instead of
 copying it onto RHS rows or treating a cross-matrix static-state reuse as a
 missing setup event.
 
+`comparison_run._solve_bundle` computes the exact-reference outcome once per right-hand side and
+passes it to `run_cg_comparison`, which measures the true residual after the timed solve; both are
+copied onto the `SolveAttempt` and stored as extra columns only.
+
 Completed method workloads are persisted by
 `platform.reporting.benchmark_events.write_method_benchmark_artifacts` as the
 versioned, artifact-relative `setup_events.parquet`, `solve_attempts.parquet`,

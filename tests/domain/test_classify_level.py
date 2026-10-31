@@ -44,6 +44,7 @@ from neuralls.shared.types import (
     SetupEventId,
     SystemId,
 )
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
 from tests.recipe_support import ALPHA, BETA, GAUSSIAN, SINE
 
 
@@ -100,6 +101,8 @@ def _attempt(
         samples_s=(0.5,),
         peak_memory=UnknownPeakMemory(),
         outcome=outcome,
+        residual=NO_RESIDUAL,
+        exact_reference=NO_REFERENCE,
     )
 
 

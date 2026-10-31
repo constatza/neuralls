@@ -248,7 +248,7 @@ def _solve_bundle(
     diagnostics: list[tuple[SystemId, CGComparisonResult]] = []
     for member in bundle.members:
         rhs = torch.as_tensor(member.rhs).to(device=run.device, dtype=matrix.dtype)
-        x_exact = compute_reference_solution(
+        x_exact, exact_reference = compute_reference_solution(
             matrix,
             rhs,
             rtol=params.rtol,
@@ -259,6 +259,7 @@ def _solve_bundle(
             rhs,
             preconditioners=scheduled,
             x_exact=x_exact,
+            exact_reference=exact_reference,
             rtol=params.rtol,
             atol=params.atol,
             maxiter=params.max_iterations,
@@ -303,6 +304,8 @@ def _solve_bundle(
                     else UnknownPeakMemory()
                 ),
                 outcome=outcome,
+                residual=result.true_residual,
+                exact_reference=result.exact_reference,
             )
         )
         del rhs, x_exact

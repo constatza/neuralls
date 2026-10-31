@@ -48,7 +48,11 @@ type SetupOutcome = SetupCompleted | SetupFailed
 
 @dataclass(frozen=True, slots=True)
 class SolveConverged:
-    """A solve reached the target tolerance."""
+    """A solve reached the target tolerance.
+
+    ``final_relative_residual`` is the solver's own recursive residual estimate, not
+    ``||b - A x||``; the independently computed value is ``SolveAttempt.residual``.
+    """
 
     iterations: int
     final_relative_residual: float
@@ -73,6 +77,50 @@ class SolveFailed:
 
 type SolveOutcome = SolveConverged | SolveFailed
 """The closed outcome set for one solve attempt."""
+
+
+@dataclass(frozen=True, slots=True)
+class MeasuredResidual:
+    """The relative residual ``||b - A x|| / ||b||`` recomputed from the returned solution."""
+
+    rhs_norm: float
+    true_residual_rel: float
+
+    def __post_init__(self) -> None:
+        """Reject impossible residual measurements."""
+        _validate_non_negative(self.rhs_norm, "RHS norm")
+        _validate_non_negative(self.true_residual_rel, "true relative residual")
+
+
+@dataclass(frozen=True, slots=True)
+class UnmeasuredResidual:
+    """No residual was recomputed: the solver raised or the right-hand side is zero."""
+
+
+type ResidualMeasurement = MeasuredResidual | UnmeasuredResidual
+"""The measured or explicitly unmeasured true residual of one solve."""
+
+
+@dataclass(frozen=True, slots=True)
+class ExactSolutionSolved:
+    """The exact-solution reference solve finished, reaching this true relative residual."""
+
+    true_residual_rel: float
+
+    def __post_init__(self) -> None:
+        """Reject impossible residual measurements."""
+        _validate_non_negative(self.true_residual_rel, "reference true relative residual")
+
+
+@dataclass(frozen=True, slots=True)
+class ExactSolutionUnavailable:
+    """The exact-solution reference solve failed; no energy curve is labelled exact."""
+
+    reason: str
+
+
+type ExactReference = ExactSolutionSolved | ExactSolutionUnavailable
+"""The outcome of the reference solve that supplies ``x_exact`` for one system."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +172,8 @@ class SolveAttempt:
     samples_s: tuple[float, ...]
     peak_memory: PeakMemory
     outcome: SolveOutcome
+    residual: ResidualMeasurement
+    exact_reference: ExactReference
 
     def __post_init__(self) -> None:
         """Reject impossible solve timings and RHS ordinals before aggregation."""

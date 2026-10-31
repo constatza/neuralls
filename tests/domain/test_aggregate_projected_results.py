@@ -25,6 +25,7 @@ from neuralls.shared.types import (
     SetupEventId,
     SystemId,
 )
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
 from tests.recipe_support import GAUSSIAN
 
 
@@ -58,6 +59,8 @@ def _attempt(tag: SystemTag, method: PreconditionerName, solve_s: float) -> Solv
         (solve_s,),
         UnknownPeakMemory(),
         SolveConverged(iterations=tag.rhs_ordinal + 2, final_relative_residual=1e-9),
+        NO_RESIDUAL,
+        NO_REFERENCE,
     )
 
 

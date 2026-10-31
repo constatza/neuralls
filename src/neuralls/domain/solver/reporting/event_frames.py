@@ -15,9 +15,14 @@ from neuralls.domain.benchmarking.selection import (
     ReferenceUnavailable,
 )
 from neuralls.domain.solver.models.benchmark_events import (
+    ExactReference,
+    ExactSolutionSolved,
+    ExactSolutionUnavailable,
     MatrixSetupEvent,
     MeasuredPeakMemory,
+    MeasuredResidual,
     PeakMemory,
+    ResidualMeasurement,
     SetupCompleted,
     SetupFailed,
     SetupOutcome,
@@ -27,6 +32,7 @@ from neuralls.domain.solver.models.benchmark_events import (
     SolveOutcome,
     SystemTag,
     UnknownPeakMemory,
+    UnmeasuredResidual,
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
@@ -69,6 +75,12 @@ SOLVE_ATTEMPT_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "iterations": pl.Int64,
     "final_relative_residual": pl.Float64,
     "failure_reason": pl.String,
+    "residual_status": pl.String,
+    "rhs_norm": pl.Float64,
+    "true_residual_rel": pl.Float64,
+    "reference_status": pl.String,
+    "reference_true_residual_rel": pl.Float64,
+    "reference_reason": pl.String,
 }
 
 CONVERGENCE_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
@@ -164,6 +176,10 @@ def build_solve_frame(attempts: Collection[SolveAttempt]) -> pl.DataFrame:
         solve_status, iterations, final_residual, failure_reason = _solve_outcome_fields(
             attempt.outcome
         )
+        rhs_norm, true_residual_rel, residual_status = _residual_fields(attempt.residual)
+        reference_residual, reference_reason, reference_status = _reference_outcome_fields(
+            attempt.exact_reference
+        )
         rows.append(
             {
                 "setup_event_id": attempt.setup_event_id,
@@ -181,6 +197,12 @@ def build_solve_frame(attempts: Collection[SolveAttempt]) -> pl.DataFrame:
                 "iterations": iterations,
                 "final_relative_residual": final_residual,
                 "failure_reason": failure_reason,
+                "residual_status": residual_status,
+                "rhs_norm": rhs_norm,
+                "true_residual_rel": true_residual_rel,
+                "reference_status": reference_status,
+                "reference_true_residual_rel": reference_residual,
+                "reference_reason": reference_reason,
             }
         )
     return pl.DataFrame(rows, schema=SOLVE_ATTEMPT_SCHEMA)
@@ -231,9 +253,32 @@ def decode_solve_frame(frame: pl.DataFrame) -> tuple[SolveAttempt, ...]:
                 if row["solve_status"] == "converged"
                 else SolveFailed(iterations=row["iterations"], reason=row["failure_reason"] or "")
             ),
+            residual=_decode_residual(row),
+            exact_reference=_decode_reference_outcome(row),
         )
         for row in frame.iter_rows(named=True)
     )
+
+
+def _decode_residual(row: dict[str, object]) -> ResidualMeasurement:
+    match row["residual_status"]:
+        case "measured":
+            return MeasuredResidual(
+                rhs_norm=_finite_number(row["rhs_norm"], "RHS norm"),
+                true_residual_rel=_finite_number(row["true_residual_rel"], "true residual"),
+            )
+        case _:
+            return UnmeasuredResidual()
+
+
+def _decode_reference_outcome(row: dict[str, object]) -> ExactReference:
+    match row["reference_status"]:
+        case "solved":
+            return ExactSolutionSolved(
+                _finite_number(row["reference_true_residual_rel"], "reference true residual")
+            )
+        case _:
+            return ExactSolutionUnavailable(_required_text(row["reference_reason"], "reason"))
 
 
 def _decode_memory(status: str, peak_memory_bytes: int | None) -> PeakMemory:
@@ -393,9 +438,36 @@ def validate_decoded_solve_frame(frame: pl.DataFrame) -> None:
                 raise ValueError(f"failed solve {system_id!r} has a final relative residual")
             if not isinstance(reason, str):
                 raise ValueError(f"failed solve {system_id!r} is missing a failure reason")
+        _validate_residual_columns(row, system_id)
         if system_id in seen_systems:
             raise ValueError(f"duplicate solve system ID: {system_id!r}")
         seen_systems.add(system_id)
+
+
+def _validate_residual_columns(row: dict[str, object], system_id: str) -> None:
+    """Payload columns of the extra residual measurements must agree with their status."""
+    match row["residual_status"]:
+        case "measured":
+            _finite_non_negative_float(row["rhs_norm"], "RHS norm")
+            _finite_non_negative_float(row["true_residual_rel"], "true relative residual")
+        case "unmeasured":
+            if row["rhs_norm"] is not None or row["true_residual_rel"] is not None:
+                raise ValueError(f"unmeasured residual of {system_id!r} carries a value")
+        case other:
+            raise ValueError(f"unknown residual status: {other!r}")
+    reason = row["reference_reason"]
+    match row["reference_status"]:
+        case "solved":
+            _finite_non_negative_float(row["reference_true_residual_rel"], "reference residual")
+            if reason is not None:
+                raise ValueError(f"solved reference of {system_id!r} has a reason")
+        case "unavailable":
+            if row["reference_true_residual_rel"] is not None:
+                raise ValueError(f"unavailable reference of {system_id!r} carries a residual")
+            if not isinstance(reason, str) or not reason:
+                raise ValueError(f"unavailable reference of {system_id!r} is missing a reason")
+        case other:
+            raise ValueError(f"unknown reference status: {other!r}")
 
 
 def validate_decoded_convergence_frame(frame: pl.DataFrame) -> None:
@@ -513,6 +585,28 @@ def _memory_fields(memory: PeakMemory) -> tuple[int | None, str]:
             return peak_memory_bytes, "measured"
         case UnknownPeakMemory():
             return None, "unknown"
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _residual_fields(residual: ResidualMeasurement) -> tuple[float | None, float | None, str]:
+    match residual:
+        case MeasuredResidual(rhs_norm=rhs_norm, true_residual_rel=true_residual_rel):
+            return rhs_norm, true_residual_rel, "measured"
+        case UnmeasuredResidual():
+            return None, None, "unmeasured"
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _reference_outcome_fields(
+    reference: ExactReference,
+) -> tuple[float | None, str | None, str]:
+    match reference:
+        case ExactSolutionSolved(true_residual_rel=residual):
+            return residual, None, "solved"
+        case ExactSolutionUnavailable(reason=reason):
+            return None, reason, "unavailable"
         case unreachable:
             assert_never(unreachable)
 

@@ -147,6 +147,18 @@ Per-iteration residual and energy-error histories, timing samples, and memory
 diagnostics remain available for artifacts and single-run plots. Workload
 ranking uses complete event summaries.
 
+Three different residual numbers exist and none replaces another. The solver's
+stopping test and `SolveConverged.final_relative_residual` use its recursive estimate.
+`SolveAttempt.residual` (`MeasuredResidual`/`UnmeasuredResidual`) is `||b - A x||/||b||`
+recomputed from the returned solution after the timed region (`true_residual.measure_residual`);
+it never changes how a solve is classified, and it is unmeasured when the solver raised or the
+right-hand side is zero. `SolveAttempt.exact_reference` (`ExactSolutionSolved` with the
+reference solution's achieved residual, or `ExactSolutionUnavailable` with the reason) records
+the Jacobi-PCG solve that supplies `x_exact`. An exact energy-error history exists only when
+that reference solved, and it always comes from the second, untimed diagnostic solve, because
+the timed solve never receives `x_exact`. `true_residual.stopping_threshold_rel` gives the level
+at which the solver stops (`max(rtol, atol/||b||)`, taken from torchalg's own criterion).
+
 ## Presentation planning
 
 `GroupPresentation` lives in `models/group_presentation.py` (it shares no name with the shared presentation modules) and carries a typed `scope` (`models/figure_scope.py`: `RecipeScope | DatasetScope | AllDatasetsScope`, plus `MethodScope` for method figures) that sinks render; a `RecipeScope`, a `SystemTag`, a `SolveAttempt` and the report labels hold the typed `RhsRecipe` (`shared/rhs_recipe.py`), whose machine key is the event frames' `recipe` column and the recipe segment of a group id; `PreconditionerPlotStyle` carries the method's `PreparedMethodPresentation` with family and colour/marker keys, never text.

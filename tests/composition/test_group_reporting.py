@@ -41,6 +41,7 @@ from neuralls.shared.types import (
     SetupEventId,
     SystemId,
 )
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 
@@ -91,6 +92,8 @@ def test_group_reporting_reduces_completed_workload_events(
                 (2.0,),
                 MeasuredPeakMemory(20),
                 SolveConverged(3, 1e-8),
+                NO_RESIDUAL,
+                NO_REFERENCE,
             ),
         ),
         diagnostics=(),
@@ -189,6 +192,8 @@ def test_mixture_presentations_keep_only_the_short_scope(
                 (1.0,),
                 MeasuredPeakMemory(1),
                 SolveConverged(1, 1e-8),
+                NO_RESIDUAL,
+                NO_REFERENCE,
             ),
         ),
         diagnostics=(),

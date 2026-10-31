@@ -13,6 +13,7 @@ import pytest
 import tomli_w
 from loguru import logger
 from mlflow.tracking import MlflowClient
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
 from tests.presentation_support import PreparedMethodFactory
 from tests.provenance_support import provenance_for
 from tests.recipe_support import GAUSSIAN
@@ -204,6 +205,8 @@ def reuse_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWor
         (2.0,),
         MeasuredPeakMemory(1),
         SolveConverged(2, 1e-8),
+        NO_RESIDUAL,
+        NO_REFERENCE,
     )
     return CompletedMethodWorkload(
         method=method,

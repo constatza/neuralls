@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
+from neuralls.domain.solver.models.benchmark_events import (
+    ExactReference,
+    ExactSolutionUnavailable,
+    ResidualMeasurement,
+    UnmeasuredResidual,
+)
 from neuralls.domain.solver.models.cost import StageCost
 from neuralls.shared.types import CostProvenance
 
@@ -113,6 +119,14 @@ class CGComparisonResult:
     error_bound_a_rel: list[float] | None = None
     """Golub-Meurant lower bound on ||e_k||_A / ||e_0||_A, used when the exact
     energy error is unavailable (no reference solution). None if neither is available."""
+
+    true_residual: ResidualMeasurement = field(default_factory=UnmeasuredResidual)
+    """True relative residual ``||b - A x|| / ||b||`` of the returned solution."""
+
+    exact_reference: ExactReference = field(
+        default_factory=lambda: ExactSolutionUnavailable("not computed")
+    )
+    """Outcome of the reference solve behind ``exact_error`` and the exact energy curve."""
 
     generation_cost: StageCost | None = None
     """Dataset-generation cost feeding this preconditioner's fit/train step, or None if

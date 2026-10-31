@@ -22,6 +22,7 @@ from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS, make_fact
 from neuralls.shared.scientific_description.models import ScientificFact
 from neuralls.shared.types import DatasetId, MatrixId, SetupEventId, SystemId
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
 from tests.recipe_support import GAUSSIAN
 
 
@@ -79,6 +80,8 @@ def completed_workload(
             (1.0,),
             MeasuredPeakMemory(1),
             SolveConverged(1, 1e-8),
+            NO_RESIDUAL,
+            NO_REFERENCE,
         )
         for tag, event in zip(tags, events, strict=True)
     )

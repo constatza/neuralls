@@ -19,6 +19,7 @@ from neuralls.domain.solver.models.benchmark_events import (
     UnknownPeakMemory,
 )
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
 from tests.recipe_support import GAUSSIAN, SINE
 
 
@@ -101,6 +102,8 @@ def solve_attempt(
         samples_s=(0.5, 0.75, 1.0),
         peak_memory=measured_memory,
         outcome=SolveConverged(iterations=4, final_relative_residual=1e-9),
+        residual=NO_RESIDUAL,
+        exact_reference=NO_REFERENCE,
     )
 
 

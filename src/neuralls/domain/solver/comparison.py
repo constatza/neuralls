@@ -20,7 +20,15 @@ from neuralls.domain.solver.error_metrics import (
     reference_solution,
     relative_exact_error,
 )
+from neuralls.domain.solver.models.benchmark_events import (
+    ExactReference,
+    ExactSolutionSolved,
+    ExactSolutionUnavailable,
+    MeasuredResidual,
+    UnmeasuredResidual,
+)
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.true_residual import measure_residual
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
 from neuralls.shared.device import FailedTimedRuns, release_device_memory, repeat_timed_outcome
 from neuralls.shared.timing import TimingRepeatPolicy
@@ -40,6 +48,7 @@ def run_cg_comparison(
     preconditioners: Mapping[str, Preconditioner],
     x0: torch.Tensor | None = None,
     x_exact: torch.Tensor | None = None,
+    exact_reference: ExactReference | None = None,
     rtol: float = DEFAULT_RTOL,
     atol: float = DEFAULT_ATOL,
     maxiter: int = 100,
@@ -74,6 +83,8 @@ def run_cg_comparison(
             call — pass this when comparing multiple preconditioners against
             the same ``A``/``b`` so the dense reference solve runs once
             instead of once per call. ``None`` (default) computes it here.
+        exact_reference: Outcome of the reference solve that produced ``x_exact``; recorded
+            on every result. Ignored when ``x_exact`` is computed here.
         rtol: Relative tolerance.
         atol: Absolute tolerance.
         maxiter: Maximum iterations.
@@ -103,9 +114,11 @@ def run_cg_comparison(
     x0_base = x0.detach().clone()
 
     if x_exact is None:
-        x_exact = compute_reference_solution(
+        x_exact, exact_reference = compute_reference_solution(
             A.detach(), b.detach(), rtol=rtol, margin=reference_precision_margin
         )
+    elif exact_reference is None:
+        exact_reference = ExactSolutionUnavailable("reference supplied without its outcome")
     if x_exact is not None:
         x_exact = x_exact.to(device=A.device, dtype=A.dtype)
 
@@ -136,6 +149,8 @@ def run_cg_comparison(
                 rhs_norm=float(torch.linalg.vector_norm(b)),
                 breakdown=False,
                 error=f"CG solver failed: {timed.error}",
+                true_residual=UnmeasuredResidual(),
+                exact_reference=exact_reference,
                 solve_time_seconds=timed.seconds,
                 solve_peak_memory_bytes=timed.peak_memory_bytes,
                 solve_time_samples=timed.samples_seconds,
@@ -172,6 +187,8 @@ def run_cg_comparison(
                 breakdown=info.breakdown,
                 error_history_a_rel=error_history,
                 error_bound_a_rel=error_bound,
+                true_residual=measure_residual(A, b, x_sol),
+                exact_reference=exact_reference,
                 solve_time_seconds=timed.seconds,
                 solve_peak_memory_bytes=timed.peak_memory_bytes,
                 solve_time_samples=timed.samples_seconds,
@@ -185,23 +202,29 @@ def run_cg_comparison(
 
 def compute_reference_solution(
     A: torch.Tensor, b: torch.Tensor, *, rtol: float, margin: float
-) -> torch.Tensor | None:
+) -> tuple[torch.Tensor | None, ExactReference]:
     """Jacobi-PCG reference solution, on whichever device ``A``/``b`` are on.
 
     A single ``A``/``b`` pair has one true solution, so callers comparing
     multiple preconditioners against the same system should call this once
-    and pass the result to every ``run_cg_comparison(..., x_exact=...)`` call
+    and pass the solution to every ``run_cg_comparison(..., x_exact=...)`` call
     instead of letting each one recompute this Jacobi-PCG solve from scratch.
 
     Returns:
-        The reference solution, or ``None`` (logged) if it cannot be computed —
+        The reference solution with ``ExactSolutionSolved`` (its achieved true residual), or
+        ``None`` with ``ExactSolutionUnavailable`` (reason logged) if it cannot be computed —
         the comparison then runs without exact-error metrics instead of failing.
     """
     try:
-        return reference_solution(A, b, rtol=rtol, margin=margin)
+        x = reference_solution(A, b, rtol=rtol, margin=margin)
     except (RuntimeError, ValueError) as exc:
         logger.warning("Reference solution unavailable; exact-error metrics skipped: {}", exc)
-        return None
+        return None, ExactSolutionUnavailable(str(exc))
+    match measure_residual(A.double(), b.double(), x):
+        case MeasuredResidual(true_residual_rel=residual):
+            return x, ExactSolutionSolved(residual)
+        case UnmeasuredResidual():
+            return x, ExactSolutionUnavailable("zero right-hand side")
 
 
 def _safe_extract_energy_error(

@@ -295,6 +295,7 @@ def plot_convergence_comparison(
     rtol: float | None = None,
     atol: float | None = None,
     max_iterations: int | None = None,
+    threshold_rel: float | None = None,
     families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
@@ -327,6 +328,7 @@ def plot_convergence_comparison(
         rtol=rtol,
         atol=atol,
         max_iterations=max_iterations,
+        threshold_rel=threshold_rel,
         families=families,
         color_keys=color_keys,
         marker_keys=marker_keys,
@@ -347,6 +349,7 @@ def plot_convergence_curves(
     rtol: float | None = None,
     atol: float | None = None,
     max_iterations: int | None = None,
+    threshold_rel: float | None = None,
     families: Mapping[str, Hashable] | None = None,
     color_keys: Mapping[str, Hashable] | None = None,
     marker_keys: Mapping[str, Hashable] | None = None,
@@ -368,6 +371,8 @@ def plot_convergence_curves(
         rtol: Optional relative tolerance parameter to display.
         atol: Optional absolute tolerance parameter to display.
         max_iterations: Optional max iterations parameter to display.
+        threshold_rel: Optional relative residual at which the solver stops, drawn as a
+            dashed horizontal line.
         families: Optional plot-style family per key; same-family lines share a
             linestyle.
         color_keys: Optional color-axis key per series; series sharing a key share a
@@ -394,6 +399,18 @@ def plot_convergence_curves(
             label=label,
             markersize=marker_size * size_scale,
             **style,
+        )
+
+    if threshold_rel is not None:
+        ax.axhline(threshold_rel, color="black", linestyle="--", linewidth=1, alpha=0.7)
+        ax.annotate(
+            f"stopping threshold {threshold_rel:.1e}",
+            xy=(1.0, threshold_rel),
+            xycoords=("axes fraction", "data"),
+            xytext=(-4, 3),
+            textcoords="offset points",
+            ha="right",
+            fontsize=8,
         )
 
     ax.set_xlabel("Iteration")

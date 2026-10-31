@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
 from tests.presentation_support import PreparedMethodFactory
 from tests.provenance_support import datasets_for, provenance_for
 from tests.recipe_support import GAUSSIAN
@@ -93,6 +94,8 @@ def write_method(
             (2.0,),
             MeasuredPeakMemory(1),
             SolveConverged(2, 1e-8),
+            NO_RESIDUAL,
+            NO_REFERENCE,
         )
         workload = CompletedMethodWorkload(
             method=method,

@@ -21,6 +21,7 @@ from neuralls.domain.solver.reporting.event_frames import (
     decode_solve_frame,
 )
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
 from tests.recipe_support import GAUSSIAN
 
 
@@ -63,6 +64,8 @@ def solve_attempts() -> tuple[SolveAttempt, ...]:
             (0.1,),
             MeasuredPeakMemory(5),
             SolveConverged(7, 1e-9),
+            NO_RESIDUAL,
+            NO_REFERENCE,
         ),
         SolveAttempt(
             SetupEventId("e0"),
@@ -72,6 +75,8 @@ def solve_attempts() -> tuple[SolveAttempt, ...]:
             (0.2,),
             UnknownPeakMemory(),
             SolveFailed(20, "max iterations"),
+            NO_RESIDUAL,
+            NO_REFERENCE,
         ),
     )
 

@@ -39,6 +39,7 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, SystemId
+from tests.measurement_support import NO_REFERENCE_SOLUTION
 from tests.presentation_support import PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 
@@ -234,7 +235,9 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
         return {name: _solved_result(name)}
 
     monkeypatch.setattr(comparison_run, "run_cg_comparison", solve)
-    monkeypatch.setattr(comparison_run, "compute_reference_solution", lambda *a, **k: None)
+    monkeypatch.setattr(
+        comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE_SOLUTION
+    )
     method = ResolvedMethod(StandardPreconditionerConfig(type=preconditioner_type))
 
     workload = comparison_run.execute_method_workload(
@@ -272,7 +275,9 @@ def test_repeat_samples_are_retained_but_totals_use_one_representative(
             next(iter(preconditioners)): _solved_result(next(iter(preconditioners)))
         },
     )
-    monkeypatch.setattr(comparison_run, "compute_reference_solution", lambda *a, **k: None)
+    monkeypatch.setattr(
+        comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE_SOLUTION
+    )
     method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
     workload = comparison_run.execute_method_workload(
         method,
@@ -358,7 +363,7 @@ def test_io_reference_and_reporting_stay_outside_online_timers(
     monkeypatch.setattr(
         comparison_run,
         "compute_reference_solution",
-        lambda *a, **k: trace.append("reference") or None,
+        lambda *a, **k: trace.append("reference") or NO_REFERENCE_SOLUTION,
     )
 
     def solve(*args: object, preconditioners: dict[str, object], **kwargs: object) -> object:
@@ -405,7 +410,9 @@ def test_solver_failure_retains_measured_attempt(
     from neuralls.composition.comparison import comparison_run
     from neuralls.domain.solver import comparison as solver_comparison
 
-    monkeypatch.setattr(comparison_run, "compute_reference_solution", lambda *a, **k: None)
+    monkeypatch.setattr(
+        comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE_SOLUTION
+    )
 
     def fail_solve(*args: object, **kwargs: object) -> object:
         raise RuntimeError("solver broke")

@@ -10,6 +10,7 @@ import polars as pl
 import pyarrow.parquet as pq
 import pytest
 from tests.convergence_support import cg_result
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
 from tests.presentation_support import PreparedMethodFactory
 from tests.provenance_support import datasets_for, provenance_for
 from tests.realized_support import completed_workload
@@ -155,6 +156,8 @@ def workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
             (2.0, 2.5, 3.0),
             UnknownPeakMemory(),
             SolveConverged(4, 1e-8),
+            NO_RESIDUAL,
+            NO_REFERENCE,
         ),
         SolveAttempt(
             SetupEventId("setup-0"),
@@ -168,6 +171,8 @@ def workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
             (0.75,),
             MeasuredPeakMemory(256),
             SolveFailed(7, "breakdown"),
+            NO_RESIDUAL,
+            NO_REFERENCE,
         ),
     )
     return CompletedMethodWorkload(
@@ -242,6 +247,12 @@ def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_vari
             "iterations": pl.Int64,
             "final_relative_residual": pl.Float64,
             "failure_reason": pl.String,
+            "residual_status": pl.String,
+            "rhs_norm": pl.Float64,
+            "true_residual_rel": pl.Float64,
+            "reference_status": pl.String,
+            "reference_true_residual_rel": pl.Float64,
+            "reference_reason": pl.String,
         }
     )
     assert setup.to_dicts() == [
@@ -275,6 +286,12 @@ def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_vari
             "iterations": 4,
             "final_relative_residual": 1e-8,
             "failure_reason": None,
+            "residual_status": "unmeasured",
+            "rhs_norm": None,
+            "true_residual_rel": None,
+            "reference_status": "unavailable",
+            "reference_true_residual_rel": None,
+            "reference_reason": "not computed",
         },
         {
             "setup_event_id": "setup-0",
@@ -292,6 +309,12 @@ def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_vari
             "iterations": 7,
             "final_relative_residual": None,
             "failure_reason": "breakdown",
+            "residual_status": "unmeasured",
+            "rhs_norm": None,
+            "true_residual_rel": None,
+            "reference_status": "unavailable",
+            "reference_true_residual_rel": None,
+            "reference_reason": "not computed",
         },
     ]
 
@@ -523,6 +546,32 @@ def test_incomplete_summary_preserves_planned_membership_and_missing_ids(
         "converged": 1,
         "missing_system_ids": ["s2"],
     }
+
+
+def test_solve_reader_rejects_a_table_without_the_residual_measurements(
+    write: WriteArtifacts,
+    tmp_path: Path,
+    workload: CompletedMethodWorkload,
+    summary: CompleteWorkloadSummary,
+) -> None:
+    """A table stored before the extra measurements existed is rejected, so reuse recomputes."""
+    artifacts = write(workload=workload, summary=summary, root=tmp_path)
+    solve_path = tmp_path / artifacts.solve_attempts
+    current = pl.read_parquet(solve_path)
+    pq.write_table(
+        current.drop(
+            "residual_status",
+            "rhs_norm",
+            "true_residual_rel",
+            "reference_status",
+            "reference_true_residual_rel",
+            "reference_reason",
+        ).to_arrow(),
+        solve_path,
+    )
+
+    with pytest.raises(ValueError, match="unexpected benchmark event schema"):
+        read_solve_attempts(solve_path, setup_events_path=tmp_path / artifacts.setup_events)
 
 
 def test_readers_reject_wrong_column_schema_and_corrupt_links(
