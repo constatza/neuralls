@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Sequence
 from enum import StrEnum
@@ -21,7 +22,24 @@ class EnumerateBy(StrEnum):
 
     NAME = "name"
     CTIME = "ctime"
+    """File creation (birth) time; Linux records none, so it is rejected there."""
     MTIME = "mtime"
+
+
+def _creation_time(path: Path, st: os.stat_result) -> float:
+    """Return the creation timestamp of *path* from its stat result *st*.
+
+    Raises:
+        ValueError: The platform records no creation time (Linux). Falling back
+            to mtime would silently give the same TOML different sample ids per OS.
+    """
+    try:
+        return st.st_birthtime
+    except AttributeError:
+        raise ValueError(
+            f"enumerate_by='ctime' needs file creation times, which this platform does not "
+            f"record ({path}). Use enumerate_by='mtime' or 'name', or sample_id_regex."
+        ) from None
 
 
 def _sort_key_for(path: Path, by: EnumerateBy) -> float | str:
@@ -30,14 +48,20 @@ def _sort_key_for(path: Path, by: EnumerateBy) -> float | str:
         case EnumerateBy.NAME:
             return path.name
         case EnumerateBy.CTIME:
-            return path.stat().st_birthtime
+            return _creation_time(path, path.stat())
         case EnumerateBy.MTIME:
             return path.stat().st_mtime
 
 
 def _enumerate_files(paths: Sequence[Path], by: EnumerateBy) -> dict[int, Path]:
-    """Assign sequential IDs to *paths* sorted by *by*, returning ``{id: path}``."""
-    return {i: p for i, p in enumerate(sorted(paths, key=lambda p: _sort_key_for(p, by)))}
+    """Assign sequential IDs to *paths* sorted by *by*, returning ``{id: path}``.
+
+    Keys are computed once per file; equal keys (common after a bulk copy) break
+    by file name so ids never depend on the caller's path order.
+    """
+    keyed = [(_sort_key_for(p, by), p.name, p) for p in paths]
+    keyed.sort(key=lambda item: item[:2])
+    return {i: p for i, (_, _, p) in enumerate(keyed)}
 
 
 def _filter_mapping(

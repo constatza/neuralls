@@ -53,8 +53,10 @@ IDs 0, 1, 2, …  No renaming or modification of the source files is required.
 | Value | Sort criterion | When to use |
 | --- | --- | --- |
 | `"name"` | Lexicographic filename | **Default choice** — fully reproducible |
-| `"ctime"` | File creation timestamp | Files arrived in a known order |
+| `"ctime"` | File creation timestamp; Linux records none, so it raises `ValueError` | Files arrived in a known order (Windows/macOS) |
 | `"mtime"` | Last-modified timestamp | Files were last touched in a known order |
+
+Equal timestamps break by file name, so ids are deterministic.
 
 `enumerate_by` and `sample_id_regex` are mutually exclusive; specifying both raises
 a validation error.

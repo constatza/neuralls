@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from functools import partial
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from pydantic import ValidationError
 
 from neuralls.domain.generation.bindings import bind_sources
 from neuralls.domain.generation.file_sources import MatrixReaders
-from neuralls.domain.generation.sample_ids import _enumerate_files
+from neuralls.domain.generation.sample_ids import _creation_time, _enumerate_files
 from neuralls.domain.generation.source_streams import (
     EnumerateBy,
     GlobMatrixStream,
@@ -485,6 +486,61 @@ def test_enumerate_files_assigns_sequential_ids_by_mtime(tmp_path: Path) -> None
     assert result[0].name == "file_c.txt"
     assert result[1].name == "file_a.txt"
     assert result[2].name == "file_b.txt"
+
+
+_HAS_BIRTHTIME = hasattr(os.stat("."), "st_birthtime")
+
+
+def test_creation_time_rejects_stat_without_birthtime() -> None:
+    """A stat result without st_birthtime (as on Linux) names the file and the alternatives."""
+    stat_without_birthtime = os.stat_result((0o100644, 1, 1, 1, 0, 0, 0, 1.0, 2.0, 3.0))
+
+    with pytest.raises(ValueError) as excinfo:
+        _creation_time(Path("a.txt"), stat_without_birthtime)
+
+    assert str(excinfo.value) == (
+        "enumerate_by='ctime' needs file creation times, which this platform does not "
+        "record (a.txt). Use enumerate_by='mtime' or 'name', or sample_id_regex."
+    )
+
+
+@pytest.mark.skipif(not _HAS_BIRTHTIME, reason="platform records no file creation time")
+def test_enumerate_files_assigns_sequential_ids_by_ctime(tmp_path: Path) -> None:
+    import time
+
+    paths = []
+    for suffix in ["c", "a", "b"]:
+        p = tmp_path / f"file_{suffix}.txt"
+        p.touch()
+        paths.append(p)
+        time.sleep(0.01)
+
+    result = _enumerate_files(paths, EnumerateBy.CTIME)
+
+    assert [result[i].name for i in range(3)] == ["file_c.txt", "file_a.txt", "file_b.txt"]
+
+
+@pytest.mark.skipif(_HAS_BIRTHTIME, reason="platform records file creation times")
+def test_enumerate_files_by_ctime_raises_without_creation_times(tmp_path: Path) -> None:
+    paths = [tmp_path / "a.txt", tmp_path / "b.txt"]
+    for p in paths:
+        p.touch()
+
+    with pytest.raises(ValueError, match="creation times"):
+        _enumerate_files(paths, EnumerateBy.CTIME)
+
+
+def test_enumerate_files_breaks_timestamp_ties_by_name(tmp_path: Path) -> None:
+    paths = []
+    for suffix in ["c", "b", "a"]:
+        p = tmp_path / f"file_{suffix}.txt"
+        p.touch()
+        os.utime(p, (1_000_000.0, 1_000_000.0))
+        paths.append(p)
+
+    result = _enumerate_files(paths, EnumerateBy.MTIME)
+
+    assert [result[i].name for i in range(3)] == ["file_a.txt", "file_b.txt", "file_c.txt"]
 
 
 def test_glob_matrix_stream_enumerate_by_name_with_arbitrary_filenames(
