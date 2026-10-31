@@ -127,8 +127,9 @@ is available.
 required `save_path` and returns it, or `None` when nothing was drawn, and a
 `GroupStyle` (fixed title, typed scope, notation, legend and the family/colour/marker mappings). A failed run is never given a time:
 
-- `plot_online_time_bars` (`solve_time_bars_*`, `online_time_bars_*`): method
-  workload totals with separate solve-only and setup-plus-solve scenarios.
+- `plot_workload_bars` (`solve_time_bars_*`, `online_time_bars_*`): one workload total per method,
+  chosen by a `WorkloadTotal` selector from `domain/benchmarking/costs.py` (`solve_total_seconds`, `workload_online_seconds`)
+  and captioned by the drawer binding in `group_plots.GROUP_DRAWERS` ("Solve time [s]", "Total online workload time [s]"). These are totals, not per-system amortized shares.
   Numeric bar positions pair each bar with its method; the legend guarantees distinct texts.
 - `plot_paired_time_scatter` (`paired_time_scatter_*`): amortized online times of each method against the
   reference; hollow markers sit on the axis of the run that failed, and a

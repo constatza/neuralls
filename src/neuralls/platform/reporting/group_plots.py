@@ -7,7 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import assert_never
 
-from neuralls.domain.benchmarking.costs import Cost, amortized_online_seconds, solve_seconds
+from neuralls.domain.benchmarking.costs import (
+    Cost,
+    WorkloadTotal,
+    amortized_online_seconds,
+    solve_seconds,
+    solve_total_seconds,
+    workload_online_seconds,
+)
 from neuralls.domain.benchmarking.selection import (
     ConfiguredReference,
 )
@@ -32,10 +39,10 @@ from neuralls.platform.reporting.outcome_plots import (
     GroupStyle,
     plot_aggregate_bars,
     plot_ecdf_profile,
-    plot_online_time_bars,
     plot_paired_time_scatter,
     plot_performance_profile,
     plot_speed_ratio_cdf,
+    plot_workload_bars,
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import PreconditionerName
@@ -97,10 +104,10 @@ def _profile_only(
     return drawer
 
 
-def _time_bars(scenario: TimingScenario) -> GroupDrawer:
+def _time_bars(total: WorkloadTotal, xlabel: str) -> GroupDrawer:
     def drawer(outcome: GroupReport, style: GroupStyle, path: Path) -> Path | None:
-        return plot_online_time_bars(
-            outcome.summaries, scenario=scenario.value, style=style, save_path=path
+        return plot_workload_bars(
+            outcome.summaries, total=total, xlabel=xlabel, style=style, save_path=path
         )
 
     return drawer
@@ -147,8 +154,12 @@ def _speed_ratio(outcome: RecipeProfileReport, style: GroupStyle, path: Path) ->
 
 GROUP_DRAWERS: Mapping[tuple[FigureKind, TimingScenario | None], GroupDrawer] = {
     (FigureKind.AGGREGATE_BARS, None): _aggregate_bars,
-    (FigureKind.SOLVE_TIME, TimingScenario.SOLVE): _time_bars(TimingScenario.SOLVE),
-    (FigureKind.ONLINE_TIME, TimingScenario.ONLINE): _time_bars(TimingScenario.ONLINE),
+    (FigureKind.SOLVE_TIME, TimingScenario.SOLVE): _time_bars(
+        solve_total_seconds, "Solve time [s]"
+    ),
+    (FigureKind.ONLINE_TIME, TimingScenario.ONLINE): _time_bars(
+        workload_online_seconds, "Total online workload time [s]"
+    ),
     (FigureKind.PAIRED_TIME, TimingScenario.ONLINE): _profile_only(_paired_scatter),
     (FigureKind.SPEED_RATIO, TimingScenario.ONLINE): _profile_only(_speed_ratio),
     (FigureKind.PERFORMANCE_PROFILE, TimingScenario.SOLVE): _performance_profile(solve_seconds),

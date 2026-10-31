@@ -8,8 +8,9 @@ save to and returns it, or `None` when there was nothing to draw. The curves
 and points themselves come from `domain.benchmarking.profiles` and
 `domain.benchmarking.paired`; this module only draws them.
 
-Time plots use amortized online seconds: solve plus the planned share of the
-matrix setup event.
+Profiles and scatters use amortized online seconds: solve plus the planned share of the
+matrix setup event. The time bars show workload online totals: all matrix setups plus all
+solves, not a per-system share.
 """
 
 from __future__ import annotations
@@ -17,13 +18,18 @@ from __future__ import annotations
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, assert_never
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
 
-from neuralls.domain.benchmarking.costs import Cost, amortized_online_seconds, iterations
+from neuralls.domain.benchmarking.costs import (
+    Cost,
+    WorkloadTotal,
+    amortized_online_seconds,
+    iterations,
+)
 from neuralls.domain.benchmarking.paired import PairedPoints, paired_points
 from neuralls.domain.benchmarking.profiles import Profile, ecdf_profiles, performance_profiles
 from neuralls.domain.benchmarking.selection import ConfiguredReference
@@ -31,7 +37,11 @@ from neuralls.domain.solver.models.figure_scope import FigureScope
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated
 from neuralls.domain.solver.models.outcomes import Outcomes
 from neuralls.domain.solver.models.statistics import PairedComparison
-from neuralls.domain.solver.models.workload import MethodWorkloadSummary
+from neuralls.domain.solver.models.workload import (
+    CompleteWorkloadSummary,
+    IncompleteWorkloadSummary,
+    MethodWorkloadSummary,
+)
 from neuralls.platform.reporting.figure_text import (
     LEGEND_FONT_SIZE,
     Legend,
@@ -270,39 +280,44 @@ def plot_ecdf_profile(
     )
 
 
-def plot_online_time_bars(
+def _completeness_suffix(summary: MethodWorkloadSummary) -> str:
+    match summary:
+        case CompleteWorkloadSummary():
+            return ""
+        case IncompleteWorkloadSummary():
+            return " (incomplete)"
+        case unreachable:
+            assert_never(unreachable)
+
+
+def plot_workload_bars(
     summaries: Sequence[MethodWorkloadSummary],
     *,
-    scenario: str,
+    total: WorkloadTotal,
+    xlabel: str,
     style: GroupStyle,
     save_path: Path,
 ) -> Path | None:
-    """Draw reducer-owned solve or amortized-online workload totals."""
+    """Draw one workload total per method; a total is not a per-system amortized share."""
     if not summaries:
         return None
-    if scenario not in {"solve", "online"}:
-        raise ValueError("scenario must be 'solve' or 'online'")
     names = [str(summary.method) for summary in summaries]
     styles = _series_styles(names, style)
     labels = [style.legend.label(name) for name in names]
-    values = [
-        summary.solve_total_s if scenario == "solve" else summary.workload_online_s
-        for summary in summaries
-    ]
+    values = [total(summary) for summary in summaries]
     fig, ax = plt.subplots(figsize=_bar_figure_size(labels))
     positions = np.arange(len(names))
     bars = ax.barh(positions, values, color=[styles[name]["color"] for name in names])
     ax.set_yticks(positions, labels, fontsize=LEGEND_FONT_SIZE)
     for bar, summary in zip(bars, summaries, strict=True):
-        incomplete = getattr(summary, "missing_system_ids", ())
-        suffix = " (incomplete)" if incomplete else ""
+        suffix = _completeness_suffix(summary)
         ax.text(
             bar.get_width(),
             bar.get_y() + bar.get_height() / 2,
             f" {summary.n_converged}/{summary.n_planned_rhs}{suffix}",
             va="center",
         )
-    ax.set_xlabel("Solve time [s]" if scenario == "solve" else "Amortized online workload time [s]")
+    ax.set_xlabel(xlabel)
     ax.set_ylabel("Method")
     ax.grid(True, axis="x", alpha=0.3)
     finish_group_figure(
@@ -312,7 +327,7 @@ def plot_online_time_bars(
         subtitle=style.subtitle,
         save_path=save_path,
         show=False,
-        saved_message="Saved online time bars to",
+        saved_message="Saved workload bars to",
     )
     return save_path
 
