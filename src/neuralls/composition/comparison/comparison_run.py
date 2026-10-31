@@ -146,7 +146,7 @@ class _MethodRun:
     service: PreconditionerService
     params: SolverParams
     device: torch.device
-    offline_cost: StageCost | None
+    offline_cost: StageCost
     observer: WorkloadMemoryObserver
     method_text: str
 
@@ -267,8 +267,7 @@ def _solve_bundle(
             reference_precision_margin=params.reference_precision_margin,
             timing=params.timing,
         )[method.config.name]
-        if run.offline_cost is not None:
-            result = replace(result, generation_cost=run.offline_cost)
+        result = replace(result, generation_cost=run.offline_cost)
         diagnostics.append((member.tag.system_id, result))
         solve_peak = result.solve_peak_memory_bytes
         if solve_peak is not None:
@@ -306,6 +305,7 @@ def _solve_bundle(
                 outcome=outcome,
                 residual=result.true_residual,
                 exact_reference=result.exact_reference,
+                repeats=result.timing_agreement,
             )
         )
         del rhs, x_exact

@@ -289,7 +289,7 @@ def prepare_comparison_batch(
         The prepared batch: one outcome-or-prepared-execution per planned system, in plan order.
     """
     config_dir = case_config_path.resolve().parent
-    require_current_inputs(
+    split_records = require_current_inputs(
         master_cfg,
         config_dir,
         settings,
@@ -327,7 +327,9 @@ def prepare_comparison_batch(
             stack.enter_context(prepared.cleanup)
         pending.append(prepared)
     validate_dataset_specs_consistent(planned_systems, _identities_by_entry_id(pending))
-    return PreparedComparisonBatch(items=tuple(pending), planned=planned_systems)
+    return PreparedComparisonBatch(
+        items=tuple(pending), planned=planned_systems, split_records=split_records
+    )
 
 
 def _with_assignment_preconditioners(

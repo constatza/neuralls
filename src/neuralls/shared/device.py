@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import sys
 import time
-from collections.abc import Callable, Generator, Hashable
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import torch
 from loguru import logger
@@ -160,8 +160,39 @@ def track_resource_usage(device: torch.device) -> Generator[Callable[[], Resourc
 
 
 @dataclass(frozen=True, slots=True)
+class SingleRun:
+    """One timed execution: there was nothing to compare."""
+
+
+@dataclass(frozen=True, slots=True)
+class Unchecked:
+    """Several timed executions, but no fingerprint was given to compare them."""
+
+
+@dataclass(frozen=True, slots=True)
+class Agreed:
+    """Every repeat produced the first execution's fingerprint."""
+
+
+@dataclass(frozen=True, slots=True)
+class Diverged:
+    """A repeat produced a different fingerprint, so the samples are not comparable.
+
+    Attributes:
+        first: Fingerprint of the first timed execution.
+        other: Fingerprint of the first repeat that differed.
+    """
+
+    first: int
+    other: int
+
+
+type RepeatAgreement = SingleRun | Unchecked | Agreed | Diverged
+
+
+@dataclass(frozen=True, slots=True)
 class TimedRuns[T]:
-    """Outcome of `repeat_timed`.
+    """Outcome of `repeat_timed_outcome` when the measured call did not raise.
 
     Attributes:
         value: What the first timed execution returned.
@@ -171,12 +202,14 @@ class TimedRuns[T]:
         peak_memory_bytes: Peak memory of the very first execution (warm-up
             included). CPU peak RSS is a process-wide high-water mark with no
             reset, so any later execution would report ~0.
+        agreement: Whether the repeats reproduced the first execution's fingerprint.
     """
 
     value: T
     seconds: float
     samples_seconds: tuple[float, ...]
     peak_memory_bytes: int
+    agreement: RepeatAgreement = field(default_factory=SingleRun)
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,13 +264,6 @@ class WorkloadMemoryObserver:
         return max(self._peak_memory_bytes, process_delta)
 
 
-def _measure[T](run: Callable[[], T], device: torch.device) -> tuple[T, ResourceUsage]:
-    """One GPU-synchronised execution of `run` and its resource usage."""
-    with track_resource_usage(device) as usage:
-        value = run()
-    return value, usage()
-
-
 def _measure_outcome[T](
     run: Callable[[], T], device: torch.device
 ) -> tuple[T | Exception, ResourceUsage]:
@@ -256,9 +282,28 @@ def repeat_timed_outcome[T](
     policy: TimingRepeatPolicy,
     *,
     device: torch.device,
-    fingerprint: Callable[[T], Hashable] | None = None,
+    fingerprint: Callable[[T], int] | None = None,
 ) -> TimedOutcome[T]:
-    """Repeat ``run`` like :func:`repeat_timed`, preserving a timed failure."""
+    """Execute `run` per `policy`, reduce its wall times to one number, and keep a timed failure.
+
+    Runs `policy.warmup` untimed executions, then `policy.repeats` timed ones, each
+    GPU-synchronised through `track_resource_usage`. The default policy is exactly one
+    timed execution, i.e. a plain measurement. An ordinary exception from any execution
+    becomes a `FailedTimedRuns` that still carries the resource data.
+
+    Args:
+        run: The region to measure. Must be repeatable (fresh state each call).
+        policy: Warm-up count, repeat count and reduction.
+        device: Device the region runs on.
+        fingerprint: Optional summary of each result (e.g. an iteration count). A repeat
+            whose summary differs from the first makes the result `Diverged` and logs one
+            warning, since a nondeterministic or stateful region makes its samples
+            incomparable.
+
+    Returns:
+        The first timed value, the reduced time, every sample, the first execution's
+        peak memory and whether the repeats agreed.
+    """
     for _ in range(policy.warmup):
         warmup_value, warmup_usage = _measure_outcome(run, device)
         if isinstance(warmup_value, Exception):
@@ -279,6 +324,7 @@ def repeat_timed_outcome[T](
             first_usage.peak_memory_bytes,
         )
     reference = fingerprint(first_value) if fingerprint is not None else None
+    agreement = _initial_agreement(policy, has_fingerprint=fingerprint is not None)
     for repeat in range(1, policy.repeats):
         value, usage = _measure_outcome(run, device)
         samples.append(usage.wall_time_seconds)
@@ -289,11 +335,17 @@ def repeat_timed_outcome[T](
                 tuple(samples),
                 max(first_usage.peak_memory_bytes, usage.peak_memory_bytes),
             )
-        if fingerprint is not None and fingerprint(value) != reference:
+        if (
+            fingerprint is not None
+            and reference is not None
+            and isinstance(agreement, Agreed)
+            and (other := fingerprint(value)) != reference
+        ):
+            agreement = Diverged(first=reference, other=other)
             logger.warning(
                 "Timed repeat {} differs from the first ({} != {}); its timing is not comparable.",
                 repeat + 1,
-                fingerprint(value),
+                other,
                 reference,
             )
     return TimedRuns(
@@ -301,56 +353,15 @@ def repeat_timed_outcome[T](
         seconds=policy.statistic.reduce(samples),
         samples_seconds=tuple(samples),
         peak_memory_bytes=first_usage.peak_memory_bytes,
+        agreement=agreement,
     )
 
 
-def repeat_timed[T](
-    run: Callable[[], T],
-    policy: TimingRepeatPolicy,
-    *,
-    device: torch.device,
-    fingerprint: Callable[[T], Hashable] | None = None,
-) -> TimedRuns[T]:
-    """Execute `run` per `policy` and reduce its wall times to one number.
-
-    Runs `policy.warmup` untimed executions, then `policy.repeats` timed ones,
-    each GPU-synchronised through `track_resource_usage`. The default policy is
-    exactly one timed execution, i.e. a plain measurement.
-
-    Args:
-        run: The region to measure. Must be repeatable (fresh state each call).
-        policy: Warm-up count, repeat count and reduction.
-        device: Device the region runs on.
-        fingerprint: Optional summary of each result (e.g. an iteration count).
-            A repeat whose summary differs from the first logs a warning,
-            since a nondeterministic or stateful region makes its samples
-            incomparable.
-
-    Returns:
-        The first timed value, the reduced time, every sample, and the first
-        execution's peak memory.
-    """
-    warmup_usages = [_measure(run, device)[1] for _ in range(policy.warmup)]
-    first_value, first_usage = _measure(run, device)
-    samples = [first_usage.wall_time_seconds]
-    reference = fingerprint(first_value) if fingerprint is not None else None
-    for repeat in range(1, policy.repeats):
-        value, usage = _measure(run, device)
-        samples.append(usage.wall_time_seconds)
-        if fingerprint is not None and fingerprint(value) != reference:
-            logger.warning(
-                "Timed repeat {} differs from the first ({} != {}); its timing is not comparable.",
-                repeat + 1,
-                fingerprint(value),
-                reference,
-            )
-    first_execution = warmup_usages[0] if warmup_usages else first_usage
-    return TimedRuns(
-        value=first_value,
-        seconds=policy.statistic.reduce(samples),
-        samples_seconds=tuple(samples),
-        peak_memory_bytes=first_execution.peak_memory_bytes,
-    )
+def _initial_agreement(policy: TimingRepeatPolicy, *, has_fingerprint: bool) -> RepeatAgreement:
+    """What the repeats can say before any is compared: nothing to compare, or no fingerprint."""
+    if policy.repeats == 1:
+        return SingleRun()
+    return Agreed() if has_fingerprint else Unchecked()
 
 
 def release_device_memory() -> None:

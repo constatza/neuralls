@@ -7,7 +7,6 @@ from pathlib import Path
 
 _SOURCE = Path(__file__).resolve().parents[2] / "src" / "neuralls"
 _TIMERS = {
-    "repeat_timed",
     "repeat_timed_outcome",
     "track_resource_usage",
     "begin_resource_usage",
@@ -60,5 +59,5 @@ def test_no_io_call_inside_a_timer_argument() -> None:
 
 
 def test_the_detector_flags_io_inside_a_lambda_argument() -> None:
-    tree = ast.parse("repeat_timed(lambda: frame.write_parquet(path))")
+    tree = ast.parse("repeat_timed_outcome(lambda: frame.write_parquet(path))")
     assert _io_calls_in_timer_arguments(tree) == [1]

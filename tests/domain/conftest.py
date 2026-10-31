@@ -9,7 +9,7 @@ from torchalg.models.result import SolverResult
 from torchalg.preconditioners.implementations import Identity, JacobiPreconditioner
 
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.cost import Known
 from neuralls.shared.types import CostProvenance
 
 
@@ -139,7 +139,7 @@ def comparison_result_with_generation_cost() -> CGComparisonResult:
         exact_error=None,
         rhs_norm=1.0,
         breakdown=False,
-        generation_cost=StageCost(
+        generation_cost=Known(
             wall_time_seconds=5.0,
             peak_memory_bytes=500,
             provenance=CostProvenance.HISTORICAL,

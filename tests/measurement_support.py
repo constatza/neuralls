@@ -6,7 +6,10 @@ from neuralls.domain.solver.models.benchmark_events import (
     ExactSolutionUnavailable,
     UnmeasuredResidual,
 )
+from neuralls.shared.device import SingleRun
 
+SINGLE_RUN = SingleRun()
+"""Repeat agreement of a solve timed once."""
 NO_RESIDUAL = UnmeasuredResidual()
 NO_REFERENCE = ExactSolutionUnavailable("not computed")
 NO_REFERENCE_SOLUTION = (None, NO_REFERENCE)

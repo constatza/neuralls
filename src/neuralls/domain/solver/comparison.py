@@ -30,7 +30,12 @@ from neuralls.domain.solver.models.benchmark_events import (
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.true_residual import measure_residual
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
-from neuralls.shared.device import FailedTimedRuns, release_device_memory, repeat_timed_outcome
+from neuralls.shared.device import (
+    FailedTimedRuns,
+    Unchecked,
+    release_device_memory,
+    repeat_timed_outcome,
+)
 from neuralls.shared.timing import TimingRepeatPolicy
 
 
@@ -154,6 +159,7 @@ def run_cg_comparison(
                 solve_time_seconds=timed.seconds,
                 solve_peak_memory_bytes=timed.peak_memory_bytes,
                 solve_time_samples=timed.samples_seconds,
+                timing_agreement=Unchecked(),
             )
         else:
             x_sol, info = timed.value
@@ -192,6 +198,7 @@ def run_cg_comparison(
                 solve_time_seconds=timed.seconds,
                 solve_peak_memory_bytes=timed.peak_memory_bytes,
                 solve_time_samples=timed.samples_seconds,
+                timing_agreement=timed.agreement,
             )
 
         results[precond_name] = result

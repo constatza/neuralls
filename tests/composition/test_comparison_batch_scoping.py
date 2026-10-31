@@ -51,6 +51,7 @@ from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
 from neuralls.domain.solver.models import MeasuredPeakMemory
 from neuralls.domain.solver.models.config import SolverParams
+from neuralls.domain.solver.models.cost import NotApplicable
 from neuralls.platform.config.models.comparison import GaussianRhsSourceModel
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
@@ -103,7 +104,9 @@ def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
 def _batch(systems: list[MagicMock]) -> PreparedComparisonBatch:
     """Wrap fake prepared executions in the batch type execution requires."""
     return PreparedComparisonBatch(
-        items=tuple(systems), planned=tuple(system.planned for system in systems)
+        items=tuple(systems),
+        planned=tuple(system.planned for system in systems),
+        split_records=(),
     )
 
 
@@ -274,7 +277,7 @@ def events(monkeypatch: pytest.MonkeyPatch, prepared_method: PreparedMethodFacto
             setup_events=(),
             solve_attempts=(),
             diagnostics=(),
-            generation_cost=None,
+            generation_cost=NotApplicable(),
             workload_peak_memory=MeasuredPeakMemory(0),
             config_digest="sha256:" + "0" * 64,
             method_config={"name": str(name)},
@@ -508,7 +511,7 @@ def test_method_run_forwards_the_cohort_presentation_of_its_own_method(
             setup_events=(),
             solve_attempts=(),
             diagnostics=(),
-            generation_cost=None,
+            generation_cost=NotApplicable(),
             workload_peak_memory=MeasuredPeakMemory(0),
             config_digest="sha256:" + "0" * 64,
             method_config={"name": str(method.name)},

@@ -35,6 +35,7 @@ from neuralls.domain.solver.reporting.report_levels import (
     MatrixSetLevel,
     MatrixSetRhsTypeLevel,
 )
+from neuralls.shared.device import SingleRun
 from neuralls.shared.rhs_recipe import RhsRecipe, recipe_key
 from neuralls.shared.types import (
     DatasetId,
@@ -103,6 +104,7 @@ def _attempt(
         outcome=outcome,
         residual=NO_RESIDUAL,
         exact_reference=NO_REFERENCE,
+        repeats=SingleRun(),
     )
 
 

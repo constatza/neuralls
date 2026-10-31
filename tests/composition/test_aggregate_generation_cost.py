@@ -7,7 +7,7 @@ from collections.abc import Callable
 import pytest
 
 from neuralls.composition.comparison._generation_cost import aggregate_generation_cost
-from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.cost import Known, Unavailable
 from neuralls.platform.storage.manifest import (
     DatasetArtifact,
     DatasetManifest,
@@ -42,13 +42,11 @@ def manifest_with_cost() -> ManifestFactory:
 
 
 def test_no_manifest_is_unavailable() -> None:
-    assert aggregate_generation_cost([]) == StageCost(0.0, None, CostProvenance.UNAVAILABLE)
+    assert isinstance(aggregate_generation_cost([]), Unavailable)
 
 
 def test_manifests_without_a_duration_are_unavailable(manifest_with_cost: ManifestFactory) -> None:
-    assert aggregate_generation_cost([manifest_with_cost(None, 5)]) == StageCost(
-        0.0, None, CostProvenance.UNAVAILABLE
-    )
+    assert isinstance(aggregate_generation_cost([manifest_with_cost(None, 5)]), Unavailable)
 
 
 def test_times_add_up_and_peak_memory_takes_the_maximum(
@@ -60,10 +58,10 @@ def test_times_add_up_and_peak_memory_takes_the_maximum(
         manifest_with_cost(None, None),
     ]
 
-    assert aggregate_generation_cost(manifests) == StageCost(3.5, 300, CostProvenance.HISTORICAL)
+    assert aggregate_generation_cost(manifests) == Known(3.5, 300, CostProvenance.HISTORICAL)
 
 
 def test_unrecorded_memory_stays_unrecorded(manifest_with_cost: ManifestFactory) -> None:
-    assert aggregate_generation_cost([manifest_with_cost(4.0, None)]) == StageCost(
+    assert aggregate_generation_cost([manifest_with_cost(4.0, None)]) == Known(
         4.0, None, CostProvenance.HISTORICAL
     )

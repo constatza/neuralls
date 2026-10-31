@@ -179,3 +179,24 @@ Composition maps typed configuration and loaded tensors to `torchalg` runtime
 objects. Platform code persists and plots returned domain payloads. Domain code
 does not parse TOML, open MLflow runs, resolve filesystem layout, or write
 artifacts.
+
+## Stage costs
+
+`models/cost.py::StageCost` is a closed sum for a method's offline (dataset-generation) cost:
+`NotApplicable` (the method has no training data; reads as zero in totals and plots),
+`Known(wall_time_seconds, peak_memory_bytes, provenance)` (`MEASURED` or `HISTORICAL`), and
+`Unavailable(reason)` (the cost applies but was never recorded; it carries no number, so it is never
+read as zero). Only `composition/comparison/_generation_cost.py::resolve_generation_cost` chooses the
+variant. `recorded_seconds` returns the seconds of a `Known` cost and `None` otherwise.
+
+## Timing-repeat agreement
+
+`shared/device.py::repeat_timed_outcome` repeats a timed region per the `TimingRepeatPolicy` and
+returns a `RepeatAgreement` with the timing: `SingleRun` (one timed execution), `Unchecked`
+(several, but no fingerprint to compare), `Agreed`, or `Diverged(first, other)` (a repeat's
+iteration count differed from the first, so its samples are not comparable; the first divergence is
+logged once). `SolveAttempt.repeats` stores it for every solve; a solve that raised is `Unchecked`.
+
+## Split records
+
+`models/split_record.py::DatasetSplitRecord` states what a dataset's pinned split held out: the split digest, fold row counts and the matrix ids of the fit (train plus validation) and test folds. `build_split_record` rejects a row in both a fit fold and the test fold and a row outside the dataset. A single-matrix dataset is `SingleMatrixShared`, because its one matrix is in every fold by design and only RHS rows are held out; a multi-matrix dataset must be `MatrixDisjoint`, so a matrix in both folds is rejected on construction.

@@ -27,6 +27,7 @@ from neuralls.domain.solver.models import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
+from neuralls.domain.solver.models.cost import NotApplicable
 from neuralls.domain.solver.models.workload import (
     CompleteWorkloadSummary,
     IncompleteWorkloadSummary,
@@ -131,7 +132,7 @@ def test_workload_models_are_frozen_and_slotted(
         setup_events=(),
         solve_attempts=(),
         diagnostics=(),
-        generation_cost=None,
+        generation_cost=NotApplicable(),
         workload_peak_memory=MeasuredPeakMemory(0),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": str(method.name)},

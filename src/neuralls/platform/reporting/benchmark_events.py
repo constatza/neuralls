@@ -19,6 +19,7 @@ from neuralls.domain.solver.models.benchmark_events import (
     MeasuredPeakMemory,
     PeakMemory,
 )
+from neuralls.domain.solver.models.cost import Known, NotApplicable, Unavailable
 from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.domain.solver.models.workload import (
     IncompleteWorkloadSummary,
@@ -267,11 +268,18 @@ def _write_summary(workload: MethodWorkload, summary: MethodWorkloadSummary, pat
         counts = cast(dict[str, Any], dict(payload["counts"]))
         counts["missing_system_ids"] = list(summary.missing_system_ids)
         payload["counts"] = counts
-    if workload.generation_cost is not None:
-        # Generation is intentionally the only offline cost in this artifact.
-        generation = workload.generation_cost
-        payload["generation_s"] = generation.wall_time_seconds
-        payload["generation_source"] = generation.provenance.value
+    # Generation is intentionally the only offline cost in this artifact.
+    match workload.generation_cost:
+        case NotApplicable():
+            pass
+        case Known() as generation:
+            payload["generation_s"] = generation.wall_time_seconds
+            payload["generation_source"] = generation.provenance.value
+            if generation.peak_memory_bytes is not None:
+                payload["generation_peak_bytes"] = generation.peak_memory_bytes
+        case Unavailable(reason=reason):
+            payload["generation_source"] = "unavailable"
+            payload["generation_reason"] = reason
     path.write_bytes(tomli_w.dumps(payload).encode("utf-8"))
 
 

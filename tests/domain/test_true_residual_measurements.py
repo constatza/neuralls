@@ -39,6 +39,7 @@ from neuralls.domain.solver.true_residual import (
     stopping_threshold_rel,
 )
 from neuralls.platform.reporting.method_figures import residual_threshold
+from neuralls.shared.device import SingleRun
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 from tests.provenance_support import provenance_for
 from tests.recipe_support import GAUSSIAN
@@ -65,6 +66,7 @@ def _attempt(
         outcome=outcome,
         residual=residual,
         exact_reference=exact_reference,
+        repeats=SingleRun(),
     )
 
 

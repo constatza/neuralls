@@ -1,4 +1,4 @@
-"""``repeat_timed``: warm-up, repeats, reduction, and first-execution memory."""
+"""``repeat_timed_outcome``: warm-up, repeats, reduction, and first-execution memory."""
 
 from __future__ import annotations
 
@@ -12,10 +12,25 @@ from loguru import logger
 from pydantic import ValidationError
 
 from neuralls.shared import device as device_module
-from neuralls.shared.device import repeat_timed
+from neuralls.shared.device import (
+    Agreed,
+    Diverged,
+    FailedTimedRuns,
+    SingleRun,
+    TimedRuns,
+    Unchecked,
+    repeat_timed_outcome,
+)
 from neuralls.shared.timing import TimingRepeatPolicy, TimingStatistic
 
 CPU = torch.device("cpu")
+
+
+def timed_runs(*args: object, **kwargs: object) -> TimedRuns:
+    """`repeat_timed_outcome` for regions that do not raise: the successful outcome."""
+    outcome = repeat_timed_outcome(*args, **kwargs)  # type: ignore[arg-type]
+    assert isinstance(outcome, TimedRuns)
+    return outcome
 
 
 @pytest.fixture
@@ -40,7 +55,7 @@ def test_default_policy_is_a_single_plain_measurement(clock: Callable[[list[floa
     clock([2.0])
     calls: list[int] = []
 
-    timed = repeat_timed(lambda: calls.append(1) or "value", TimingRepeatPolicy(), device=CPU)
+    timed = timed_runs(lambda: calls.append(1) or "value", TimingRepeatPolicy(), device=CPU)
 
     assert len(calls) == 1
     assert timed.value == "value"
@@ -53,7 +68,7 @@ def test_warmup_runs_are_executed_but_not_timed(clock: Callable[[list[float]], N
     calls: list[int] = []
     policy = TimingRepeatPolicy(repeats=3, warmup=1, statistic=TimingStatistic.MEDIAN)
 
-    timed = repeat_timed(lambda: calls.append(1), policy, device=CPU)
+    timed = timed_runs(lambda: calls.append(1), policy, device=CPU)
 
     assert len(calls) == 4
     assert timed.samples_seconds == pytest.approx((1.0, 3.0, 2.0))
@@ -73,9 +88,7 @@ def test_statistic_reduces_the_samples(
 ) -> None:
     clock([1.0, 3.0, 2.0])
 
-    timed = repeat_timed(
-        lambda: None, TimingRepeatPolicy(repeats=3, statistic=statistic), device=CPU
-    )
+    timed = timed_runs(lambda: None, TimingRepeatPolicy(repeats=3, statistic=statistic), device=CPU)
 
     assert timed.seconds == pytest.approx(expected)
 
@@ -84,7 +97,7 @@ def test_value_is_the_first_timed_executions(clock: Callable[[list[float]], None
     clock([1.0, 1.0, 1.0])
     counter = itertools.count()
 
-    timed = repeat_timed(lambda: next(counter), TimingRepeatPolicy(repeats=2, warmup=1), device=CPU)
+    timed = timed_runs(lambda: next(counter), TimingRepeatPolicy(repeats=2, warmup=1), device=CPU)
 
     assert timed.value == 1  # execution 0 was warm-up
 
@@ -97,7 +110,7 @@ def test_a_repeat_whose_fingerprint_differs_logs_a_warning(
     sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
     counter = itertools.count()
     try:
-        repeat_timed(
+        timed = timed_runs(
             lambda: next(counter),
             TimingRepeatPolicy(repeats=2),
             device=CPU,
@@ -107,6 +120,65 @@ def test_a_repeat_whose_fingerprint_differs_logs_a_warning(
         logger.remove(sink_id)
 
     assert len(messages) == 1
+    assert timed.agreement == Diverged(first=0, other=1)
+
+
+def test_only_the_first_divergence_is_reported(clock: Callable[[list[float]], None]) -> None:
+    clock([1.0, 1.0, 1.0])
+    messages: list[str] = []
+    sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
+    counter = itertools.count()
+    try:
+        timed = timed_runs(
+            lambda: next(counter),
+            TimingRepeatPolicy(repeats=3),
+            device=CPU,
+            fingerprint=lambda value: value,
+        )
+    finally:
+        logger.remove(sink_id)
+
+    assert len(messages) == 1
+    assert timed.agreement == Diverged(first=0, other=1)
+
+
+def test_repeats_with_the_same_fingerprint_agree(clock: Callable[[list[float]], None]) -> None:
+    clock([1.0, 1.0])
+
+    timed = timed_runs(
+        lambda: 7, TimingRepeatPolicy(repeats=2), device=CPU, fingerprint=lambda value: value
+    )
+
+    assert timed.agreement == Agreed()
+
+
+def test_a_single_timed_run_has_nothing_to_compare(clock: Callable[[list[float]], None]) -> None:
+    clock([1.0])
+
+    timed = timed_runs(lambda: 7, TimingRepeatPolicy(), device=CPU, fingerprint=lambda value: value)
+
+    assert timed.agreement == SingleRun()
+
+
+def test_repeats_without_a_fingerprint_are_unchecked_not_agreed(
+    clock: Callable[[list[float]], None],
+) -> None:
+    clock([1.0, 1.0])
+
+    timed = timed_runs(lambda: 7, TimingRepeatPolicy(repeats=2), device=CPU)
+
+    assert timed.agreement == Unchecked()
+
+
+def test_a_raising_region_is_a_failed_outcome(clock: Callable[[list[float]], None]) -> None:
+    clock([1.0])
+
+    def boom() -> int:
+        raise RuntimeError("boom")
+
+    outcome = repeat_timed_outcome(boom, TimingRepeatPolicy(), device=CPU)
+
+    assert isinstance(outcome, FailedTimedRuns)
 
 
 @pytest.mark.parametrize("kwargs", [{"repeats": 0}, {"repeats": 11}, {"warmup": -1}, {"bogus": 1}])

@@ -18,6 +18,7 @@ from neuralls.domain.solver.models.outcomes import Failed, Solved
 from neuralls.domain.solver.models.statistics import IterationStats
 from neuralls.domain.solver.reporting.aggregation import convergence_by_level, outcomes_by_system
 from neuralls.domain.solver.reporting.report_levels import AllMatrixSetsLevel
+from neuralls.shared.device import SingleRun
 from neuralls.shared.types import (
     DatasetId,
     MatrixId,
@@ -61,6 +62,7 @@ def _attempt(tag: SystemTag, method: PreconditionerName, solve_s: float) -> Solv
         SolveConverged(iterations=tag.rhs_ordinal + 2, final_relative_residual=1e-9),
         NO_RESIDUAL,
         NO_REFERENCE,
+        repeats=SingleRun(),
     )
 
 

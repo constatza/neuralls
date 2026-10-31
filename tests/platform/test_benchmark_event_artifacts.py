@@ -10,7 +10,7 @@ import polars as pl
 import pyarrow.parquet as pq
 import pytest
 from tests.convergence_support import cg_result
-from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL, SINGLE_RUN
 from tests.presentation_support import PreparedMethodFactory
 from tests.provenance_support import datasets_for, provenance_for
 from tests.realized_support import completed_workload
@@ -45,7 +45,7 @@ from neuralls.domain.solver.models import (
     SystemTag,
     UnknownPeakMemory,
 )
-from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.cost import Known, NotApplicable, Unavailable
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary, MethodWorkloadSummary
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.domain.solver.reporting.event_frames import (
@@ -158,6 +158,7 @@ def workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
             SolveConverged(4, 1e-8),
             NO_RESIDUAL,
             NO_REFERENCE,
+            SINGLE_RUN,
         ),
         SolveAttempt(
             SetupEventId("setup-0"),
@@ -173,6 +174,7 @@ def workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
             SolveFailed(7, "breakdown"),
             NO_RESIDUAL,
             NO_REFERENCE,
+            SINGLE_RUN,
         ),
     )
     return CompletedMethodWorkload(
@@ -181,7 +183,7 @@ def workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
         setup_events=setup,
         solve_attempts=attempts,
         diagnostics=(),
-        generation_cost=None,
+        generation_cost=NotApplicable(),
         workload_peak_memory=MeasuredPeakMemory(512),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": str(method)},
@@ -253,6 +255,9 @@ def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_vari
             "reference_status": pl.String,
             "reference_true_residual_rel": pl.Float64,
             "reference_reason": pl.String,
+            "repeat_status": pl.String,
+            "repeat_first_iterations": pl.Int64,
+            "repeat_other_iterations": pl.Int64,
         }
     )
     assert setup.to_dicts() == [
@@ -292,6 +297,9 @@ def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_vari
             "reference_status": "unavailable",
             "reference_true_residual_rel": None,
             "reference_reason": "not computed",
+            "repeat_status": "single",
+            "repeat_first_iterations": None,
+            "repeat_other_iterations": None,
         },
         {
             "setup_event_id": "setup-0",
@@ -315,6 +323,9 @@ def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_vari
             "reference_status": "unavailable",
             "reference_true_residual_rel": None,
             "reference_reason": "not computed",
+            "repeat_status": "single",
+            "repeat_first_iterations": None,
+            "repeat_other_iterations": None,
         },
     ]
 
@@ -397,7 +408,7 @@ def test_unknown_workload_memory_writes_status_without_toml_null(
     assert memory == {"status": "unknown"}
 
 
-def test_generation_cost_is_explicitly_named_and_only_cost_persisted(
+def test_known_generation_cost_is_explicitly_named_and_only_cost_persisted(
     write: WriteArtifacts,
     tmp_path: Path,
     workload: CompletedMethodWorkload,
@@ -405,13 +416,28 @@ def test_generation_cost_is_explicitly_named_and_only_cost_persisted(
 ) -> None:
     with_generation = replace(
         workload,
-        generation_cost=StageCost(8.5, 1024, CostProvenance.HISTORICAL),
+        generation_cost=Known(8.5, 1024, CostProvenance.HISTORICAL),
     )
     artifacts = write(workload=with_generation, summary=summary, root=tmp_path)
     payload = tomllib.loads((tmp_path / artifacts.summary).read_text(encoding="utf-8"))
     assert payload["generation_s"] == 8.5
     assert payload["generation_source"] == "historical"
+    assert payload["generation_peak_bytes"] == 1024
     assert "offline" not in payload
+
+
+def test_unavailable_generation_cost_persists_no_number(
+    write: WriteArtifacts,
+    tmp_path: Path,
+    workload: CompletedMethodWorkload,
+    summary: CompleteWorkloadSummary,
+) -> None:
+    unavailable = replace(workload, generation_cost=Unavailable("manifest has no duration"))
+    artifacts = write(workload=unavailable, summary=summary, root=tmp_path)
+    payload = tomllib.loads((tmp_path / artifacts.summary).read_text(encoding="utf-8"))
+    assert payload["generation_source"] == "unavailable"
+    assert payload["generation_reason"] == "manifest has no duration"
+    assert "generation_s" not in payload
 
 
 @pytest.mark.parametrize("digest", ["", "sha256:short", "sha256:" + "G" * 64])
@@ -566,6 +592,9 @@ def test_solve_reader_rejects_a_table_without_the_residual_measurements(
             "reference_status",
             "reference_true_residual_rel",
             "reference_reason",
+            "repeat_status",
+            "repeat_first_iterations",
+            "repeat_other_iterations",
         ).to_arrow(),
         solve_path,
     )

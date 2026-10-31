@@ -22,6 +22,7 @@ from neuralls.domain.solver.models import (
     SolveConverged,
     SystemTag,
 )
+from neuralls.domain.solver.models.cost import NotApplicable
 from neuralls.domain.solver.models.figure_scope import AllDatasetsScope, DatasetScope, RecipeScope
 from neuralls.domain.solver.models.group_outcomes import GroupAggregated, GroupSkippedAllCacheHit
 from neuralls.domain.solver.models.group_presentation import GroupPresentation, SolverTimingContext
@@ -41,7 +42,7 @@ from neuralls.shared.types import (
     SetupEventId,
     SystemId,
 )
-from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL, SINGLE_RUN
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 
@@ -94,10 +95,11 @@ def test_group_reporting_reduces_completed_workload_events(
                 SolveConverged(3, 1e-8),
                 NO_RESIDUAL,
                 NO_REFERENCE,
+                SINGLE_RUN,
             ),
         ),
         diagnostics=(),
-        generation_cost=None,
+        generation_cost=NotApplicable(),
         workload_peak_memory=MeasuredPeakMemory(20),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": "identity"},
@@ -135,7 +137,7 @@ def test_group_reporting_propagates_method_plot_styles(
         ),
         solve_attempts=(),
         diagnostics=(),
-        generation_cost=None,
+        generation_cost=NotApplicable(),
         workload_peak_memory=MeasuredPeakMemory(10),
         config_digest="sha256:" + "1" * 64,
         method_config={"name": "identity"},
@@ -194,10 +196,11 @@ def test_mixture_presentations_keep_only_the_short_scope(
                 SolveConverged(1, 1e-8),
                 NO_RESIDUAL,
                 NO_REFERENCE,
+                SINGLE_RUN,
             ),
         ),
         diagnostics=(),
-        generation_cost=None,
+        generation_cost=NotApplicable(),
         workload_peak_memory=MeasuredPeakMemory(1),
         config_digest="sha256:" + "2" * 64,
         method_config={"name": "identity"},
@@ -234,7 +237,7 @@ def test_group_reporting_propagates_actual_solver_timing_context(
         setup_events=(),
         solve_attempts=(),
         diagnostics=(),
-        generation_cost=None,
+        generation_cost=NotApplicable(),
         workload_peak_memory=MeasuredPeakMemory(1),
         config_digest="sha256:" + "3" * 64,
         method_config={"name": "identity"},
@@ -299,7 +302,7 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
             setup_events=(),
             solve_attempts=(),
             diagnostics=(),
-            generation_cost=None,
+            generation_cost=NotApplicable(),
             workload_peak_memory=MeasuredPeakMemory(1),
             config_digest="sha256:" + str(configs.index(config)) * 64,
             method_config={"name": config.name},

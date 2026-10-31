@@ -147,7 +147,7 @@ class CompletedMethodWorkload:
     needs the released preconditioner; it has no systems when no setup succeeded. It must
     belong to ``method``.
 
-    ``generation_cost`` is the optional historical generation cost; checkpoint
+    ``generation_cost`` is the historical generation cost (`NotApplicable` for methods with no training data); checkpoint
     and data loading are I/O outside the benchmark cost model. Generation
     never contributes to setup, solve, or workload-online totals.
     """
@@ -157,7 +157,7 @@ class CompletedMethodWorkload:
     setup_events: tuple[MatrixSetupEvent, ...]
     solve_attempts: tuple[SolveAttempt, ...]
     diagnostics: tuple[tuple[SystemId, CGComparisonResult], ...]
-    generation_cost: StageCost | None
+    generation_cost: StageCost
     workload_peak_memory: PeakMemory
     config_digest: Digest
     method_config: dict[str, Json]

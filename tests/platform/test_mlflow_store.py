@@ -13,7 +13,7 @@ import pytest
 import tomli_w
 from loguru import logger
 from mlflow.tracking import MlflowClient
-from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL, SINGLE_RUN
 from tests.presentation_support import PreparedMethodFactory
 from tests.provenance_support import provenance_for
 from tests.recipe_support import GAUSSIAN
@@ -34,6 +34,7 @@ from neuralls.domain.solver.models import (
     SolveConverged,
     SystemTag,
 )
+from neuralls.domain.solver.models.cost import NotApplicable
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.domain.solver.reporting.event_frames import validate_decoded_solve_frame
 from neuralls.platform.config.models.preconditioner import NeuralPreconditionerConfig
@@ -207,6 +208,7 @@ def reuse_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWor
         SolveConverged(2, 1e-8),
         NO_RESIDUAL,
         NO_REFERENCE,
+        SINGLE_RUN,
     )
     return CompletedMethodWorkload(
         method=method,
@@ -214,7 +216,7 @@ def reuse_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWor
         setup_events=(setup,),
         solve_attempts=(attempt,),
         diagnostics=(),
-        generation_cost=None,
+        generation_cost=NotApplicable(),
         workload_peak_memory=MeasuredPeakMemory(2),
         config_digest=CONFIG_DIGEST,
         method_config={"name": "jacobi"},

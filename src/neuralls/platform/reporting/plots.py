@@ -20,7 +20,13 @@ import seaborn as sns
 from loguru import logger
 
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.cost import (
+    Known,
+    NotApplicable,
+    StageCost,
+    Unavailable,
+    recorded_seconds,
+)
 from neuralls.platform.reporting.figure_text import (
     FigureTitle,
     Legend,
@@ -582,11 +588,7 @@ def _method_wall_times(
     offset = 0.0
     if not solve_only:
         offset = result.setup_cost
-        if (
-            result.generation_cost is not None
-            and result.generation_cost.provenance is not CostProvenance.UNAVAILABLE
-        ):
-            offset += result.generation_cost.wall_time_seconds
+        offset += recorded_seconds(result.generation_cost) or 0.0
     solve = result.solve_time_seconds or 0.0
     n_intervals = max(n_points - 1, 1)
     return [offset + solve * i / n_intervals for i in range(n_points)]
@@ -933,9 +935,9 @@ def finish_group_figure(
 
 
 _TIME_BREAKDOWN_UNAVAILABLE_HATCH = "///"
-"""Hatch pattern marking a stage segment whose cost is UNAVAILABLE-provenance —
-the number is a load/assembly artifact, not a real cost, so it must never read
-identically to a genuine MEASURED/HISTORICAL segment."""
+"""Hatch pattern marking a stage segment whose cost is `Unavailable` — it applies
+but was never recorded, so it must never read identically to a genuine
+`Known` segment."""
 
 
 def _lighten(hex_color: str, amount: float = 0.5) -> tuple[float, float, float]:
@@ -949,34 +951,32 @@ def _lighten(hex_color: str, amount: float = 0.5) -> tuple[float, float, float]:
     return (r + (1 - r) * amount, g + (1 - g) * amount, b + (1 - b) * amount)
 
 
-def _stage_segment_style(base_color: str, provenance: CostProvenance | None) -> dict[str, Any]:
-    """Resolve one stage segment's matplotlib fill style from its provenance.
+def _stage_segment(base_color: str, cost: StageCost) -> tuple[float, dict[str, Any]]:
+    """Resolve one stage segment's width and matplotlib fill style from its cost.
 
-    Exhaustive `match` over every `CostProvenance` member plus an explicit
-    `None` case (stage not applicable), mirroring the
-    `PreconditionerFamily.abbreviation()` convention (`shared/types.py`) so a
-    future fourth provenance value fails loudly at review time rather than
-    silently rendering like one of the existing three.
+    Exhaustive `match` over the `StageCost` sum, so a future variant fails
+    loudly at type-check time rather than silently rendering like an existing one.
 
     Args:
         base_color: This stage's Okabe-Ito base color.
-        provenance: The segment's `StageCost.provenance`, or `None` if the
-            stage doesn't apply to this method (contributes a 0-width,
-            unstyled segment).
+        cost: The stage's cost. `NotApplicable` and `Unavailable` are zero-width;
+            only `Unavailable` is hatched.
 
     Returns:
-        dict[str, Any]: Keyword args for `Axes.barh` (`color`, optionally
-        `hatch`).
+        The segment width in seconds and the keyword args for `Axes.barh`
+        (`color`, optionally `hatch`).
     """
-    match provenance:
-        case None:
-            return {"color": base_color}
-        case CostProvenance.MEASURED:
-            return {"color": base_color}
-        case CostProvenance.HISTORICAL:
-            return {"color": _lighten(base_color)}
-        case CostProvenance.UNAVAILABLE:
-            return {"color": base_color, "hatch": _TIME_BREAKDOWN_UNAVAILABLE_HATCH}
+    match cost:
+        case NotApplicable():
+            return 0.0, {"color": base_color}
+        case Known(wall_time_seconds=seconds, provenance=provenance):
+            match provenance:
+                case CostProvenance.MEASURED:
+                    return seconds, {"color": base_color}
+                case CostProvenance.HISTORICAL:
+                    return seconds, {"color": _lighten(base_color)}
+        case Unavailable():
+            return 0.0, {"color": base_color, "hatch": _TIME_BREAKDOWN_UNAVAILABLE_HATCH}
 
 
 def plot_time_breakdown_barplot(
@@ -992,9 +992,9 @@ def plot_time_breakdown_barplot(
     Complements the separate setup-time/solve-time bar charts with a diagnostic
     view of separately named generation, setup, and solve stages. This is not
     an online workload total; canonical event summaries own that quantity.
-    Each segment is styled by its own ``StageCost.provenance``
-    (solid for a real MEASURED/HISTORICAL cost, hatched for UNAVAILABLE — a
-    real, unrecorded cost, not a true zero) so a silently-failed historical
+    Each segment is styled by its own ``StageCost`` variant
+    (solid for a `Known` MEASURED/HISTORICAL cost, zero-width for `NotApplicable`,
+    hatched for `Unavailable` — a real, unrecorded cost, not a true zero) so a silently-failed historical
     lookup can never render identically to a genuinely fast build. A method
     missing all three components is skipped (with a warning); a method
     missing only some has those components treated as zero-width.
@@ -1006,18 +1006,10 @@ def plot_time_breakdown_barplot(
         show: Whether to show plot.
         title: Optional title for the plot.
     """
-
-    def _stage_parts(cost: StageCost | None) -> tuple[float, CostProvenance | None]:
-        if cost is None:
-            return 0.0, None
-        return cost.wall_time_seconds, cost.provenance
-
-    entries: list[
-        tuple[str, float, CostProvenance | None, float, CostProvenance | None, float]
-    ] = []
+    entries: list[tuple[str, StageCost, StageCost, float]] = []
     for name, result in results.items():
         if (
-            result.generation_cost is None
+            isinstance(result.generation_cost, NotApplicable)
             and result.setup_cost == 0.0
             and result.solve_time_seconds is None
         ):
@@ -1030,23 +1022,24 @@ def plot_time_breakdown_barplot(
                 f"Method '{name}' has an unavailable generation cost — "
                 "its time-breakdown segment will be hatched, not a real zero."
             )
-        generation_seconds, generation_provenance = _stage_parts(result.generation_cost)
+        setup = Known(result.setup_cost, result.setup_peak_memory_bytes, CostProvenance.MEASURED)
         entries.append(
             (
                 legend.label(name),
-                generation_seconds,
-                generation_provenance,
-                result.setup_cost,
-                CostProvenance.MEASURED,
+                result.generation_cost,
+                setup,
                 result.solve_time_seconds or 0.0,
             )
         )
-    entries.sort(key=lambda entry: entry[1] + entry[3] + entry[5], reverse=True)
+    entries.sort(
+        key=lambda entry: (
+            (recorded_seconds(entry[1]) or 0.0) + (recorded_seconds(entry[2]) or 0.0) + entry[3]
+        ),
+        reverse=True,
+    )
 
     plot_labels = [entry[0] for entry in entries]
-    generation_values = [entry[1] for entry in entries]
-    setup_values = [entry[3] for entry in entries]
-    solve_values = [entry[5] for entry in entries]
+    solve_values = [entry[3] for entry in entries]
 
     generation_color, setup_color, solve_color = (
         _OKABE_ITO_HEX[2],
@@ -1057,26 +1050,28 @@ def plot_time_breakdown_barplot(
     fig, ax = plt.subplots(figsize=(8, max(3, len(plot_labels) * 0.6)))
     y_pos = np.arange(len(plot_labels))
 
-    for i, (_, _, generation_provenance, _, setup_provenance, _) in enumerate(entries):
+    for i, (_, generation_cost, setup_cost, _) in enumerate(entries):
+        generation_width, generation_style = _stage_segment(generation_color, generation_cost)
+        setup_width, setup_style = _stage_segment(setup_color, setup_cost)
         ax.barh(
             y_pos[i],
-            generation_values[i],
+            generation_width,
             edgecolor="black",
             linewidth=0.5,
-            **_stage_segment_style(generation_color, generation_provenance),
+            **generation_style,
         )
         ax.barh(
             y_pos[i],
-            setup_values[i],
-            left=generation_values[i],
+            setup_width,
+            left=generation_width,
             edgecolor="black",
             linewidth=0.5,
-            **_stage_segment_style(setup_color, setup_provenance),
+            **setup_style,
         )
         ax.barh(
             y_pos[i],
             solve_values[i],
-            left=generation_values[i] + setup_values[i],
+            left=generation_width + setup_width,
             color=solve_color,
             edgecolor="black",
             linewidth=0.5,
@@ -1088,9 +1083,8 @@ def plot_time_breakdown_barplot(
         matplotlib.patches.Patch(color=solve_color, label="Solve"),
     ]
     if any(
-        generation_provenance is CostProvenance.UNAVAILABLE
-        or setup_provenance is CostProvenance.UNAVAILABLE
-        for _, _, generation_provenance, _, setup_provenance, _ in entries
+        isinstance(generation_cost, Unavailable) or isinstance(setup_cost, Unavailable)
+        for _, generation_cost, setup_cost, _ in entries
     ):
         legend_handles.append(
             matplotlib.patches.Patch(

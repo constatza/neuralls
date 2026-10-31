@@ -22,7 +22,7 @@ from neuralls.composition.comparison._generation_cost import (
     resolve_generation_cost,
     resolve_generation_repeatability,
 )
-from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.cost import Known, NotApplicable, Unavailable
 from neuralls.platform.config.models.coarsening import (
     AggregationCoarseningConfig,
     PODCoarseningConfig,
@@ -83,7 +83,7 @@ def test_classical_amg_has_no_generation_cost(neuralls_settings: NeurallsSetting
     cfg = AMGPreconditionerConfig(
         type=PreconditionerType.AMG, coarsening=AggregationCoarseningConfig()
     )
-    assert resolve_generation_cost(cfg, settings=neuralls_settings) is None
+    assert resolve_generation_cost(cfg, settings=neuralls_settings) == NotApplicable()
 
 
 def test_pod2g_with_stamped_manifest_reports_historical_cost(
@@ -101,7 +101,7 @@ def test_pod2g_with_stamped_manifest_reports_historical_cost(
 
     result = resolve_generation_cost(cfg, settings=neuralls_settings)
 
-    assert result == StageCost(
+    assert result == Known(
         wall_time_seconds=_GENERATION_DURATION,
         peak_memory_bytes=1024,
         provenance=CostProvenance.HISTORICAL,
@@ -121,10 +121,7 @@ def test_pod2g_manifest_missing_duration_field_is_unavailable(
         coarsening=PODCoarseningConfig(dataset_dir=dataset_dir, rank=4),
     )
 
-    result = resolve_generation_cost(cfg, settings=neuralls_settings)
-    assert result is not None
-
-    assert result.provenance is CostProvenance.UNAVAILABLE
+    assert isinstance(resolve_generation_cost(cfg, settings=neuralls_settings), Unavailable)
 
 
 def test_pod2g_missing_dataset_dir_is_unavailable_not_an_exception(
@@ -139,10 +136,7 @@ def test_pod2g_missing_dataset_dir_is_unavailable_not_an_exception(
         coarsening=PODCoarseningConfig(dataset_dir=dataset_dir, rank=4),
     )
 
-    result = resolve_generation_cost(cfg, settings=neuralls_settings)
-    assert result is not None
-
-    assert result.provenance is CostProvenance.UNAVAILABLE
+    assert isinstance(resolve_generation_cost(cfg, settings=neuralls_settings), Unavailable)
 
 
 def test_neural_config_with_data_config_path_reports_historical_cost(
@@ -167,7 +161,7 @@ def test_neural_config_with_data_config_path_reports_historical_cost(
     )
 
     result = resolve_generation_cost(cfg, settings=neuralls_settings)
-    assert result is not None
+    assert isinstance(result, Known)
 
     assert result.provenance is CostProvenance.HISTORICAL
     assert result.wall_time_seconds == _GENERATION_DURATION
@@ -178,7 +172,7 @@ def test_neural_config_without_data_config_path_has_no_generation_cost(
 ) -> None:
     """A Neural config with no `data_config_path` at all is not applicable."""
     cfg = NeuralPreconditionerConfig(type=PreconditionerType.NEURAL)
-    assert resolve_generation_cost(cfg, settings=neuralls_settings) is None
+    assert resolve_generation_cost(cfg, settings=neuralls_settings) == NotApplicable()
 
 
 def test_classical_amg_repeatability_is_not_applicable() -> None:

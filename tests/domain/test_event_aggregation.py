@@ -31,6 +31,7 @@ from neuralls.domain.solver.reporting.aggregation import (
     summarize_method_workload,
 )
 from neuralls.domain.solver.reporting.event_frames import build_setup_frame, build_solve_frame
+from neuralls.shared.device import SingleRun
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
 from tests.recipe_support import GAUSSIAN, SINE
@@ -99,6 +100,9 @@ def solve_frame_schema() -> pl.Schema:
             "reference_status": pl.String,
             "reference_true_residual_rel": pl.Float64,
             "reference_reason": pl.String,
+            "repeat_status": pl.String,
+            "repeat_first_iterations": pl.Int64,
+            "repeat_other_iterations": pl.Int64,
         }
     )
 
@@ -164,6 +168,7 @@ def solve_attempts(
             outcome=SolveConverged(iterations=index, final_relative_residual=1e-9),
             residual=NO_RESIDUAL,
             exact_reference=NO_REFERENCE,
+            repeats=SingleRun(),
         )
         for index, (tag, setup_id) in enumerate(
             zip(planned_systems, setup_ids, strict=True), start=1
@@ -252,6 +257,7 @@ def reordered_extreme_attempts(
             outcome=SolveConverged(iterations=1, final_relative_residual=0.0),
             residual=NO_RESIDUAL,
             exact_reference=NO_REFERENCE,
+            repeats=SingleRun(),
         )
         for index, solve_s in zip(event_order, solve_times, strict=True)
     )
@@ -349,6 +355,7 @@ def ten_matrix_attempts(
             outcome=SolveConverged(iterations=1, final_relative_residual=0.0),
             residual=NO_RESIDUAL,
             exact_reference=NO_REFERENCE,
+            repeats=SingleRun(),
         )
         for index, (tag, solve_s) in enumerate(
             zip(ten_matrix_planned_systems, ten_matrix_solve_seconds, strict=True)

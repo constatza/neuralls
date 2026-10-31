@@ -12,8 +12,13 @@ from neuralls.domain.solver.models.benchmark_events import (
     ResidualMeasurement,
     UnmeasuredResidual,
 )
-from neuralls.domain.solver.models.cost import StageCost
-from neuralls.shared.types import CostProvenance
+from neuralls.domain.solver.models.cost import (
+    NotApplicable,
+    StageCost,
+    Unavailable,
+    recorded_seconds,
+)
+from neuralls.shared.device import RepeatAgreement, SingleRun
 
 
 @dataclass(slots=True)
@@ -128,12 +133,16 @@ class CGComparisonResult:
     )
     """Outcome of the reference solve behind ``exact_error`` and the exact energy curve."""
 
-    generation_cost: StageCost | None = None
-    """Dataset-generation cost feeding this preconditioner's fit/train step, or None if
-    generation doesn't apply (classical/geometric AMG, standard/Jacobi/IC0 preconditioners
-    have no training data at all). When present it is always HISTORICAL (read from the
-    dataset's manifest) or UNAVAILABLE — a comparison run never generates a dataset itself,
-    that's a separate, earlier pipeline stage (see composition/generation's own docs)."""
+    timing_agreement: RepeatAgreement = field(default_factory=SingleRun)
+    """Whether the timed solve repeats reproduced the first one's iteration count."""
+
+    generation_cost: StageCost = field(default_factory=NotApplicable)
+    """Dataset-generation cost feeding this preconditioner's fit/train step. The solver
+    layer knows nothing about generation, so a fresh result is `NotApplicable`; the
+    composition layer replaces it with the method's resolved cost (`Known` from the
+    dataset's manifest, `Unavailable`, or `NotApplicable` for methods with no training
+    data). A comparison run never generates a dataset itself — that is a separate,
+    earlier pipeline stage (see composition/generation's own docs)."""
 
     setup_cost: float = 0.0
     """Wall-clock seconds to construct and `.setup()` this preconditioner. Always
@@ -161,23 +170,16 @@ class CGComparisonResult:
     @property
     def offline_generation_time_seconds(self) -> float | None:
         """Historical generation time, kept separate from online benchmark costs."""
-        if (
-            self.generation_cost is None
-            or self.generation_cost.provenance is CostProvenance.UNAVAILABLE
-        ):
-            return None
-        return self.generation_cost.wall_time_seconds
+        return recorded_seconds(self.generation_cost)
 
     @property
     def has_unavailable_cost(self) -> bool:
-        """True when generation cost exists but couldn't be resolved to a real number.
+        """True when generation applies but its cost couldn't be resolved to a number.
 
-        ``setup_cost`` can no longer be UNAVAILABLE — every preconditioner's
+        ``setup_cost`` can no longer be unavailable — every preconditioner's
         `.setup()` call is always measured.
         """
-        return self.generation_cost is not None and (
-            self.generation_cost.provenance is CostProvenance.UNAVAILABLE
-        )
+        return isinstance(self.generation_cost, Unavailable)
 
     @property
     def avg_iteration_time_seconds(self) -> float | None:

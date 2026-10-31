@@ -57,6 +57,7 @@ from neuralls.platform.tracking.metrics_logging import (
 )
 from neuralls.platform.tracking.run_names import run_name_text
 from neuralls.platform.tracking.session_artifacts import SESSION_PHASE
+from neuralls.platform.tracking.split_records import SPLITS_ARTIFACT, encode_split_records
 from neuralls.shared.device import warm_up_device
 from neuralls.shared.digest import digest_memo
 from neuralls.shared.workflow_failures import (
@@ -96,6 +97,7 @@ def _run_session(
     )
     failure_sink = MLflowWorkflowFailureSink()
     with mlflow.start_run(run_name=run_name_text(session_run), tags=session_tags.as_mlflow_tags()):
+        mlflow.log_text(encode_split_records(batch.split_records).decode("utf-8"), SPLITS_ARTIFACT)
         with _batch_phase(failure_sink, case_config_path, ComparisonBatchPhase.WARMUP):
             warm_up_device(resolve_device())
         with _batch_phase(failure_sink, case_config_path, ComparisonBatchPhase.METHOD_WORKLOADS):

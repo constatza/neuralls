@@ -39,6 +39,7 @@ from neuralls.domain.presentation.titles import (
     ComparisonTitle,
     EditorialPresentation,
 )
+from neuralls.domain.solver.models.split_record import DatasetSplitRecord
 from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.platform.config.models.experiments import (
     ComparisonRegistryEntry,
@@ -142,11 +143,13 @@ class PreparedComparisonBatch:
     Session tracking and execution accept only this type, so an unvalidated cohort cannot
     reach MLflow or a numerical kernel. A comparison that is a reuse hit or a failure
     carries its outcome; one that must execute carries its prepared execution. Item ``i``
-    is the state of planned system ``i``.
+    is the state of planned system ``i``. ``split_records`` holds what the pinned split of every
+    dataset the case reads held out.
     """
 
     items: tuple[PendingComparison, ...]
     planned: tuple[PlannedSystem, ...]
+    split_records: tuple[DatasetSplitRecord, ...]
 
     def __post_init__(self) -> None:
         """Require item ``i`` to be the state of planned system ``i``."""

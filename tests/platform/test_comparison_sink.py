@@ -20,6 +20,7 @@ from neuralls.domain.presentation.methods import ExecutedMethod, PreparedCompari
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.benchmark_events import SystemTag, UnknownPeakMemory
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
+from neuralls.domain.solver.models.cost import NotApplicable
 from neuralls.domain.solver.models.figure_scope import (
     AllDatasetsScope,
     FigureScope,
@@ -304,7 +305,7 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
         setup_events=(),
         solve_attempts=(),
         diagnostics=(),
-        generation_cost=None,
+        generation_cost=NotApplicable(),
         workload_peak_memory=UnknownPeakMemory(),
         config_digest="sha256:" + "b" * 64,
         method_config={"name": str(method)},

@@ -427,7 +427,7 @@ def stub_input_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setattr(
         "neuralls.composition.assignments.comparison_prepare.require_current_inputs",
-        lambda *_args, **_kwargs: None,
+        lambda *_args, **_kwargs: (),
     )
 
 

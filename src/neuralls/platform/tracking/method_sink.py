@@ -18,6 +18,7 @@ from neuralls.domain.solver.models.benchmark_events import (
     SetupFailed,
     SolveFailed,
 )
+from neuralls.domain.solver.models.cost import recorded_seconds
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.domain.solver.models.workload import MethodWorkload, MethodWorkloadSummary
@@ -110,7 +111,8 @@ class MLflowBenchmarkMethodSink:
             metrics["online_s_per_attempted_rhs"] = summary.online_s_per_attempted_rhs
         if isinstance(summary.workload_peak_memory, MeasuredPeakMemory):
             metrics["workload_peak_memory_bytes"] = float(summary.workload_peak_memory.bytes)
-        if workload.generation_cost is not None:
-            metrics["generation_s"] = workload.generation_cost.wall_time_seconds
+        generation_s = recorded_seconds(workload.generation_cost)
+        if generation_s is not None:
+            metrics["generation_s"] = generation_s
         for key, value in metrics.items():
             mlflow.log_metric(key, value)

@@ -17,6 +17,7 @@ from neuralls.composition.generation.dataset_builder import is_dataset_reusable
 from neuralls.composition.generation.default_services import FS_SPLIT_STORE
 from neuralls.composition.generation.split_pinning import plan_split, split_is_current
 from neuralls.composition.identity.generation import generation_identity
+from neuralls.domain.solver.models.split_record import DatasetSplitRecord, build_split_record
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.experiments import CaseConfig
 from neuralls.platform.config.registry import resolve_dataset_config_path
@@ -24,7 +25,9 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.dataset_readers import load_matrix_sample_index
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.constants import REGENERATE_DATASETS_COMMAND
+from neuralls.shared.digest import content_digest
 from neuralls.shared.errors import StageInputsStale
+from neuralls.shared.types import DatasetId
 
 
 def require_current_inputs(
@@ -32,7 +35,7 @@ def require_current_inputs(
     config_dir: Path,
     settings: NeurallsSettings,
     dataset_ids: Iterable[str],
-) -> None:
+) -> tuple[DatasetSplitRecord, ...]:
     """Check each dataset is generated under its current identity with a current split.
 
     Args:
@@ -41,9 +44,15 @@ def require_current_inputs(
         settings: Runtime settings.
         dataset_ids: Registry ids of the datasets comparison will read.
 
+    Returns:
+        What each dataset's pinned split holds out, in the order the ids first appear.
+
     Raises:
         StageInputsStale: Naming the dataset and the stage to run first.
+        ValueError: A pinned split puts a row, or a matrix of a multi-matrix dataset, in both
+            the fit and the test folds.
     """
+    records: list[DatasetSplitRecord] = []
     for dataset_id in dict.fromkeys(dataset_ids):
         data_cfg = load_data_config(
             resolve_dataset_config_path(case_cfg, config_dir, dataset_id), settings
@@ -60,9 +69,21 @@ def require_current_inputs(
                 f"was generated before provenance was recorded): run "
                 f"`{REGENERATE_DATASETS_COMMAND}` to rewrite it."
             )
-        planned = plan_split(load_matrix_sample_index(dataset_dir), data_cfg.split)
+        matrix_sample_index = load_matrix_sample_index(dataset_dir)
+        planned = plan_split(matrix_sample_index, data_cfg.split)
         if not split_is_current(dataset_dir, planned, FS_SPLIT_STORE):
             raise StageInputsStale(
                 f"Dataset '{dataset_id}' has no pinned split matching its [split] config: "
                 "run `neuralls generate` (or `neuralls run`) first."
             )
+        records.append(
+            build_split_record(
+                DatasetId(dataset_id),
+                content_digest(FS_SPLIT_STORE.require(dataset_dir)),
+                train=planned.train,
+                validation=planned.validation,
+                test=planned.test,
+                matrix_sample_index=matrix_sample_index,
+            )
+        )
+    return tuple(records)

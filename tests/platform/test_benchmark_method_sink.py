@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
-from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL, SINGLE_RUN
 from tests.presentation_support import PreparedMethodFactory
 from tests.provenance_support import SOLVER_CONTEXT
 from tests.recipe_support import GAUSSIAN
@@ -33,6 +33,7 @@ from neuralls.domain.solver.models import (
     SolveFailed,
     SystemTag,
 )
+from neuralls.domain.solver.models.cost import NotApplicable
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.models.workload import (
     CompleteWorkloadSummary,
@@ -110,6 +111,7 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
             SolveConverged(CONVERGED_ITERATIONS, 1e-8),
             NO_RESIDUAL,
             NO_REFERENCE,
+            SINGLE_RUN,
         )
         for tag in planned
     )
@@ -119,7 +121,7 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
         setup_events=(setup,),
         solve_attempts=attempts,
         diagnostics=(),
-        generation_cost=None,
+        generation_cost=NotApplicable(),
         workload_peak_memory=MeasuredPeakMemory(2),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": str(method)},

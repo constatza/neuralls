@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
-from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.cost import Known, NotApplicable, StageCost, Unavailable
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.checkpoint_refs import CheckpointRefBearing
 from neuralls.platform.config.models.coarsening import (
@@ -39,20 +39,18 @@ from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.types import CostProvenance, GenerationRepeatability
 
 
-def resolve_generation_cost(
-    cfg: PreconditionerConfig, *, settings: NeurallsSettings
-) -> StageCost | None:
+def resolve_generation_cost(cfg: PreconditionerConfig, *, settings: NeurallsSettings) -> StageCost:
     """Resolve the dataset-generation cost feeding `cfg`'s fit/train step.
 
-    Returns None when generation doesn't apply to this preconditioner kind
-    (classical/geometric AMG, standard/Jacobi/IC0 — no training data at all).
-    Otherwise always HISTORICAL (every referenced dataset's manifest has a
-    recorded generation_duration_seconds) or UNAVAILABLE (a dataset dir
-    couldn't be resolved, or its manifest lacks the field).
+    The one place that decides between the three outcomes. `NotApplicable` when
+    generation doesn't apply to this preconditioner kind (classical/geometric AMG,
+    standard/Jacobi/IC0 — no training data at all). Otherwise `Known` (HISTORICAL:
+    a referenced dataset's manifest recorded generation_duration_seconds) or
+    `Unavailable` (a dataset dir couldn't be resolved, or no manifest has the field).
     """
     dataset_dirs = _resolve_generation_dataset_dirs(cfg, settings=settings)
     if not dataset_dirs:
-        return None
+        return NotApplicable()
     manifests: list[DatasetManifest] = []
     for dataset_dir in dataset_dirs:
         try:
@@ -62,8 +60,8 @@ def resolve_generation_cost(
     return aggregate_generation_cost(manifests)
 
 
-def aggregate_generation_cost(manifests: Iterable[DatasetManifest]) -> StageCost:
-    """Sum the recorded generation times of `manifests`; UNAVAILABLE when none records one.
+def aggregate_generation_cost(manifests: Iterable[DatasetManifest]) -> Known | Unavailable:
+    """Sum the recorded generation times of `manifests`; `Unavailable` when none records one.
 
     Time adds up because every dataset was generated separately; peak memory takes the
     maximum because the generations never shared a process.
@@ -79,8 +77,8 @@ def aggregate_generation_cost(manifests: Iterable[DatasetManifest]) -> StageCost
             total_memory = max(total_memory or 0, manifest.generation_peak_memory_bytes)
         found_any = True
     if not found_any:
-        return StageCost(0.0, None, CostProvenance.UNAVAILABLE)
-    return StageCost(total_seconds, total_memory, CostProvenance.HISTORICAL)
+        return Unavailable("no dataset manifest records a generation duration")
+    return Known(total_seconds, total_memory, CostProvenance.HISTORICAL)
 
 
 def resolve_generation_repeatability(cfg: PreconditionerConfig) -> GenerationRepeatability:

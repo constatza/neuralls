@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from neuralls.domain.solver.cost_metrics import (
     generation_time_per_dof,
     iterations_per_second,
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.cost import Unavailable
 
 
 def test_iterations_per_second_computes_throughput(
@@ -40,3 +43,12 @@ def test_generation_time_per_dof_none_without_generation_cost(
     comparison_result_with_cost_data: CGComparisonResult,
 ) -> None:
     assert generation_time_per_dof(comparison_result_with_cost_data, system_size=100) is None
+
+
+def test_generation_time_per_dof_none_when_generation_is_unavailable(
+    comparison_result_with_generation_cost: CGComparisonResult,
+) -> None:
+    unavailable = replace(
+        comparison_result_with_generation_cost, generation_cost=Unavailable("no record")
+    )
+    assert generation_time_per_dof(unavailable, system_size=100) is None

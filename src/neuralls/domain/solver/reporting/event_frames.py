@@ -37,6 +37,7 @@ from neuralls.domain.solver.models.benchmark_events import (
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.models.system_provenance import SystemProvenance
+from neuralls.shared.device import Agreed, Diverged, RepeatAgreement, SingleRun, Unchecked
 from neuralls.shared.rhs_recipe import parse_recipe_key, recipe_key
 from neuralls.shared.types import (
     DatasetId,
@@ -81,6 +82,9 @@ SOLVE_ATTEMPT_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "reference_status": pl.String,
     "reference_true_residual_rel": pl.Float64,
     "reference_reason": pl.String,
+    "repeat_status": pl.String,
+    "repeat_first_iterations": pl.Int64,
+    "repeat_other_iterations": pl.Int64,
 }
 
 CONVERGENCE_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
@@ -180,6 +184,7 @@ def build_solve_frame(attempts: Collection[SolveAttempt]) -> pl.DataFrame:
         reference_residual, reference_reason, reference_status = _reference_outcome_fields(
             attempt.exact_reference
         )
+        repeat_status, repeat_first, repeat_other = _repeat_fields(attempt.repeats)
         rows.append(
             {
                 "setup_event_id": attempt.setup_event_id,
@@ -203,6 +208,9 @@ def build_solve_frame(attempts: Collection[SolveAttempt]) -> pl.DataFrame:
                 "reference_status": reference_status,
                 "reference_true_residual_rel": reference_residual,
                 "reference_reason": reference_reason,
+                "repeat_status": repeat_status,
+                "repeat_first_iterations": repeat_first,
+                "repeat_other_iterations": repeat_other,
             }
         )
     return pl.DataFrame(rows, schema=SOLVE_ATTEMPT_SCHEMA)
@@ -255,6 +263,7 @@ def decode_solve_frame(frame: pl.DataFrame) -> tuple[SolveAttempt, ...]:
             ),
             residual=_decode_residual(row),
             exact_reference=_decode_reference_outcome(row),
+            repeats=_decode_repeats(row),
         )
         for row in frame.iter_rows(named=True)
     )
@@ -269,6 +278,21 @@ def _decode_residual(row: dict[str, object]) -> ResidualMeasurement:
             )
         case _:
             return UnmeasuredResidual()
+
+
+def _decode_repeats(row: dict[str, object]) -> RepeatAgreement:
+    match row["repeat_status"]:
+        case "single":
+            return SingleRun()
+        case "unchecked":
+            return Unchecked()
+        case "agreed":
+            return Agreed()
+        case _:
+            return Diverged(
+                first=_required_int(row["repeat_first_iterations"], "first repeat iterations"),
+                other=_required_int(row["repeat_other_iterations"], "divergent repeat iterations"),
+            )
 
 
 def _decode_reference_outcome(row: dict[str, object]) -> ExactReference:
@@ -439,6 +463,7 @@ def validate_decoded_solve_frame(frame: pl.DataFrame) -> None:
             if not isinstance(reason, str):
                 raise ValueError(f"failed solve {system_id!r} is missing a failure reason")
         _validate_residual_columns(row, system_id)
+        _validate_repeat_columns(row, system_id)
         if system_id in seen_systems:
             raise ValueError(f"duplicate solve system ID: {system_id!r}")
         seen_systems.add(system_id)
@@ -468,6 +493,24 @@ def _validate_residual_columns(row: dict[str, object], system_id: str) -> None:
                 raise ValueError(f"unavailable reference of {system_id!r} is missing a reason")
         case other:
             raise ValueError(f"unknown reference status: {other!r}")
+
+
+def _validate_repeat_columns(row: dict[str, object], system_id: str) -> None:
+    """Iteration columns of the repeat agreement must exist exactly when the repeats diverged."""
+    carries_iterations = (
+        row["repeat_first_iterations"] is not None or row["repeat_other_iterations"] is not None
+    )
+    match row["repeat_status"]:
+        case "single" | "unchecked" | "agreed":
+            if carries_iterations:
+                raise ValueError(f"non-diverged repeats of {system_id!r} carry iteration counts")
+        case "diverged":
+            first = _required_int(row["repeat_first_iterations"], "first repeat iterations")
+            other = _required_int(row["repeat_other_iterations"], "divergent repeat iterations")
+            if first == other:
+                raise ValueError(f"diverged repeats of {system_id!r} have equal iteration counts")
+        case other_status:
+            raise ValueError(f"unknown repeat status: {other_status!r}")
 
 
 def validate_decoded_convergence_frame(frame: pl.DataFrame) -> None:
@@ -607,6 +650,20 @@ def _reference_outcome_fields(
             return residual, None, "solved"
         case ExactSolutionUnavailable(reason=reason):
             return None, reason, "unavailable"
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _repeat_fields(repeats: RepeatAgreement) -> tuple[str, int | None, int | None]:
+    match repeats:
+        case SingleRun():
+            return "single", None, None
+        case Unchecked():
+            return "unchecked", None, None
+        case Agreed():
+            return "agreed", None, None
+        case Diverged(first=first, other=other):
+            return "diverged", first, other
         case unreachable:
             assert_never(unreachable)
 

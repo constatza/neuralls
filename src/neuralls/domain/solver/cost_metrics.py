@@ -14,6 +14,7 @@ onto every ``CGComparisonResult``.
 from __future__ import annotations
 
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.cost import recorded_seconds
 
 
 def iterations_per_second(result: CGComparisonResult) -> float | None:
@@ -34,29 +35,24 @@ def iterations_per_second(result: CGComparisonResult) -> float | None:
 def generation_time_per_dof(result: CGComparisonResult, *, system_size: int) -> float | None:
     """Dataset-generation cost feeding this preconditioner's fit/train step, normalized by problem size.
 
-    Deliberately provenance-agnostic: returns a number whenever a
-    ``StageCost`` is present on ``result.generation_cost``, regardless of
-    whether its provenance is MEASURED/HISTORICAL/UNAVAILABLE.
-    Provenance-based filtering (e.g. skipping UNAVAILABLE costs) is a
-    presentation-layer concern (plots, MLflow logging), not this pure-math
-    layer's job.
+    Provenance-agnostic: returns a number whenever ``result.generation_cost`` is a
+    recorded (`Known`) cost, MEASURED or HISTORICAL alike. A stage that is not
+    applicable or whose cost is unavailable has no number to normalize.
 
     Args:
         result: Comparison result to derive normalized generation cost from.
         system_size: Number of unknowns ``n`` in the linear system.
 
     Returns:
-        ``generation_time_seconds / system_size``, or ``None`` if generation
-        cost doesn't apply to this result.
+        ``generation_time_seconds / system_size``, or ``None`` if there is no
+        recorded generation cost for this result.
 
     Raises:
         ValueError: If ``system_size`` is not positive.
     """
     if system_size <= 0:
         raise ValueError(f"system_size must be positive, got {system_size}.")
-    generation_time_seconds = (
-        result.generation_cost.wall_time_seconds if result.generation_cost is not None else None
-    )
+    generation_time_seconds = recorded_seconds(result.generation_cost)
     if generation_time_seconds is None:
         return None
     return generation_time_seconds / system_size

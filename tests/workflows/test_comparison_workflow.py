@@ -62,6 +62,7 @@ from neuralls.domain.solver.models.benchmark_events import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
+from neuralls.domain.solver.models.cost import NotApplicable
 from neuralls.domain.solver.models.provenance import (
     HeldOutMatrix,
     MatrixProvenance,
@@ -1175,7 +1176,7 @@ def test_compatibility_projection_carries_canonical_setup_measurement(
         ),
         solve_attempts=(),
         diagnostics=(),
-        generation_cost=None,
+        generation_cost=NotApplicable(),
         workload_peak_memory=MeasuredPeakMemory(128),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": "identity"},

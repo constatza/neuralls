@@ -531,8 +531,11 @@ versioned, artifact-relative `setup_events.parquet`, `solve_attempts.parquet`,
 `presentation.toml` files (see `platform/README.md`). The Parquet frames are canonical; the TOML summary is
 reconciled from the Task 2 reducers and records the method name/config digest,
 planned/attempted/converged counts, setup/solve/online timings, attempted-RHS
-average, and workload peak memory. If an offline value is present, it is named
-`generation_s`; checkpoint and data I/O are not serialized as costs or metrics.
+average, and workload peak memory. The offline generation cost
+is a `StageCost`: nothing is written for `NotApplicable` (no training data), `generation_s`,
+`generation_source` and, when recorded, `generation_peak_bytes` for `Known`, and
+`generation_source = "unavailable"` with `generation_reason` (no number) for `Unavailable`;
+checkpoint and data I/O are not serialized as costs or metrics.
 The frames remain canonical for realized setup/solve events and their timing,
 outcomes, repeats, per-event memory, and attempted/converged counts. The
 summary remains canonical for planned membership, missing system IDs, and the

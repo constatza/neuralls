@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL, SINGLE_RUN
 from tests.presentation_support import PreparedMethodFactory
 from tests.provenance_support import datasets_for, provenance_for
 from tests.recipe_support import GAUSSIAN
@@ -26,6 +26,7 @@ from neuralls.domain.solver.models import (
     SolveConverged,
     SystemTag,
 )
+from neuralls.domain.solver.models.cost import NotApplicable
 from neuralls.domain.solver.models.figure_scope import FigureScope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
@@ -96,6 +97,7 @@ def write_method(
             SolveConverged(2, 1e-8),
             NO_RESIDUAL,
             NO_REFERENCE,
+            SINGLE_RUN,
         )
         workload = CompletedMethodWorkload(
             method=method,
@@ -103,7 +105,7 @@ def write_method(
             setup_events=(setup,),
             solve_attempts=(attempt,),
             diagnostics=(),
-            generation_cost=None,
+            generation_cost=NotApplicable(),
             workload_peak_memory=MeasuredPeakMemory(2),
             config_digest="sha256:" + "a" * 64,
             method_config=canonical_method_config(config),

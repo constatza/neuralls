@@ -102,7 +102,9 @@ def test_batch_accepts_executions_and_outcomes_matching_the_plan(
     first, second = planned_system("a"), planned_system("b")
     reused = ComparisonReused(comparison_id="b", run=comparison_run)
 
-    batch = PreparedComparisonBatch(items=(execution(first), reused), planned=(first, second))
+    batch = PreparedComparisonBatch(
+        items=(execution(first), reused), planned=(first, second), split_records=()
+    )
 
     assert batch.planned == (first, second)
 
@@ -114,7 +116,9 @@ def test_batch_rejects_an_execution_of_a_different_planned_system(
 
     with pytest.raises(ValueError, match="planned system"):
         PreparedComparisonBatch(
-            items=(execution(second), execution(first)), planned=(first, second)
+            items=(execution(second), execution(first)),
+            planned=(first, second),
+            split_records=(),
         )
 
 
@@ -125,11 +129,11 @@ def test_batch_rejects_an_outcome_of_a_different_comparison(
     other = ComparisonReused(comparison_id="zzz", run=comparison_run)
 
     with pytest.raises(ValueError, match="planned system"):
-        PreparedComparisonBatch(items=(other,), planned=(first,))
+        PreparedComparisonBatch(items=(other,), planned=(first,), split_records=())
 
 
 def test_batch_is_slotted(planned_system: PlannedFactory) -> None:
-    batch = PreparedComparisonBatch(items=(), planned=())
+    batch = PreparedComparisonBatch(items=(), planned=(), split_records=())
 
     assert not hasattr(batch, "__dict__")
 

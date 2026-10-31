@@ -203,7 +203,10 @@ already-active method child. The artifact set is defined once by
   error). `solve_attempts.parquet` also carries the extra residual measurements as flat
   `residual_status` (`measured`/`unmeasured`), `rhs_norm`, `true_residual_rel` and
   `reference_status` (`solved`/`unavailable`), `reference_true_residual_rel`, `reference_reason`
-  columns; a payload is null exactly when its status says so. A table without them is rejected,
+  columns, and the timing-repeat agreement as `repeat_status`
+  (`single`/`unchecked`/`agreed`/`diverged`) with `repeat_first_iterations` and
+  `repeat_other_iterations`; a payload is null exactly when its status says so (the iteration
+  counts are set only for `diverged`). A table without them is rejected,
   so the reuse gate recomputes such a run.
 - `planned_systems.parquet`: one row per planned system, including systems whose setup
   failed, with its dataset, recipe key, matrix and RHS ordinal, the solver and timing
@@ -231,6 +234,8 @@ methods, membership, and summary totals before accepting a hit; the session's fi
 figure index is not part of the gate. The persisted configuration is the
 canonical identity representation: checkpoint inputs are content digests and
 runtime lease paths are omitted.
+
+The comparison session run also carries `splits.toml` (`tracking/split_records.py`): one table per dataset id with the pinned split's content digest, train/validation/test row counts, the matrix ids of the fit (train and validation) and test folds, and the separation (`single_matrix_shared`, whose one matrix is in every fold by design, or `matrix_disjoint`). `download_session_splits` reads it back and rejects a session that predates it. Writing it is the composition layer's `mlflow.log_text`; the report data bundle copies it.
 
 A report reads a session back through two modules. `tracking/session_artifacts.py` finds
 the session's FINISHED `comparison_method` children (by `mlflow.parentRunId`), checks each

@@ -134,4 +134,4 @@ def test_prepared_batch_item_count_must_match_the_plan() -> None:
     )
 
     with pytest.raises(ValueError, match="one item per planned system"):
-        PreparedComparisonBatch(items=(), planned=(object(),))  # type: ignore[arg-type]
+        PreparedComparisonBatch(items=(), planned=(object(),), split_records=())  # type: ignore[arg-type]

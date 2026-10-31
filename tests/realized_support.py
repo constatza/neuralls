@@ -16,13 +16,14 @@ from neuralls.domain.solver.models import (
     SolveConverged,
     SystemTag,
 )
+from neuralls.domain.solver.models.cost import NotApplicable
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS, make_fact
 from neuralls.shared.scientific_description.models import ScientificFact
 from neuralls.shared.types import DatasetId, MatrixId, SetupEventId, SystemId
-from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
+from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL, SINGLE_RUN
 from tests.recipe_support import GAUSSIAN
 
 
@@ -82,6 +83,7 @@ def completed_workload(
             SolveConverged(1, 1e-8),
             NO_RESIDUAL,
             NO_REFERENCE,
+            SINGLE_RUN,
         )
         for tag, event in zip(tags, events, strict=True)
     )
@@ -101,7 +103,7 @@ def completed_workload(
         setup_events=events,
         solve_attempts=attempts,
         diagnostics=(),
-        generation_cost=None,
+        generation_cost=NotApplicable(),
         workload_peak_memory=MeasuredPeakMemory(1),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": str(name)},

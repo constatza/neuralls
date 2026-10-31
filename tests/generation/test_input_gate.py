@@ -18,6 +18,7 @@ from neuralls.composition.identity.generation import generation_identity
 from neuralls.platform.config.models.data_models import DataConfigFile, SplitConfig, StrategyConfig
 from neuralls.platform.storage.dataset_readers import load_matrix_sample_index
 from neuralls.shared.constants import REGENERATE_DATASETS_COMMAND, SPLIT_FILENAME
+from neuralls.shared.digest import content_digest
 from neuralls.shared.errors import StageInputsStale
 from tests.dataset_support import strip_provenance
 
@@ -125,3 +126,22 @@ def test_a_dataset_generated_before_provenance_existed_is_stale_and_names_the_co
         f"provenance was recorded): run `{REGENERATE_DATASETS_COMMAND}` to rewrite it."
     )
     assert REGENERATE_DATASETS_COMMAND == "neuralls generate --force <case-config.toml>"
+
+
+def test_the_gate_reports_what_the_pinned_split_holds_out(
+    data_config: DataConfigFile, served_config: list[DataConfigFile]
+) -> None:
+    served_config.append(data_config)
+    dataset_dir = _generate_and_pin(data_config)
+    split = FS_SPLIT_STORE.read(dataset_dir)
+    assert split is not None
+
+    (record,) = require_current_inputs(MagicMock(), Path("."), MagicMock(), [data_config.id])
+
+    assert record.dataset == data_config.id
+    assert (record.train_rows, record.validation_rows, record.test_rows) == (
+        len(split.train),
+        len(split.validation),
+        len(split.test),
+    )
+    assert record.split_digest == content_digest(dataset_dir / SPLIT_FILENAME)

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import isfinite
 
+from neuralls.shared.device import RepeatAgreement
 from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 
@@ -174,6 +175,8 @@ class SolveAttempt:
     outcome: SolveOutcome
     residual: ResidualMeasurement
     exact_reference: ExactReference
+    repeats: RepeatAgreement
+    """Whether the timed repeats of this solve reproduced the first one's iteration count."""
 
     def __post_init__(self) -> None:
         """Reject impossible solve timings and RHS ordinals before aggregation."""
