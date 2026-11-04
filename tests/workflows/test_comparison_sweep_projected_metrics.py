@@ -129,6 +129,22 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             | {name.replace(".png", ".parquet") for name in figures}
         )
 
+    def mean_bars(stem: str) -> set[str]:
+        """The mean and time-per-iteration bars, which every report level draws."""
+        return {
+            f"{kind}_{stem}.png"
+            for kind in (
+                "iteration_means",
+                *(
+                    f"time_means_{time}_{population}"
+                    for time in ("solve", "online", "standalone")
+                    for population in ("own", "common")
+                ),
+                "setup_means",
+                "time_per_iteration",
+            )
+        }
+
     recipe_stem = "Test_problem_Ones_Solutions_N_4_-_Dataset_RHS"
     dataset_stem = "Test_problem_Ones_Solutions_N_4"
     all_stem = "All_datasets"
@@ -143,6 +159,7 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"ecdf_time_solve_{recipe_stem}.png",
             f"ecdf_time_online_{recipe_stem}.png",
             f"convergence_factor_{recipe_stem}.png",
+            *mean_bars(recipe_stem),
         }
     )
     assert artifact_names(run_of_level("matrix_set").info.run_id) == with_cards(
@@ -150,6 +167,8 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"aggregate_bars_{dataset_stem}.png",
             f"solve_time_bars_{dataset_stem}.png",
             f"online_time_bars_{dataset_stem}.png",
+            *mean_bars(dataset_stem),
+            f"convergence_factor_{dataset_stem}.png",
         }
     )
     assert artifact_names(report.report_run_id) == with_cards(
@@ -157,5 +176,7 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"aggregate_bars_{all_stem}.png",
             f"solve_time_bars_{all_stem}.png",
             f"online_time_bars_{all_stem}.png",
+            *mean_bars(all_stem),
+            f"convergence_factor_{all_stem}.png",
         }
     )

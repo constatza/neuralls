@@ -144,7 +144,7 @@ $$\bar{x}^{\mathrm{sys},(b)} = \frac{\sum_{i}\sum_{s \in \mathcal{P}_{p,m^{(b)}_
 
 Seeded with `DEFAULT_RANDOM_SEED`; `None` if $K' < 2$; a matrix with no system in the population is dropped. Nothing about the solves is recomputed: it resamples stored per-system values, grouped by matrix, because RHS of one matrix share it and the effective sample size is $K$. It covers matrix-to-matrix variability only, not timing noise. `benchmarking/uncertainty.py::matrix_cluster_interval` computes it for `ClusterStatistic.MEAN_OVER_SYSTEMS`, `MEAN_OVER_MATRICES` and `MEDIAN`.
 
-**Time per iteration** (per system with a real iteration count $k \ge 1$; `UNCONVERGED` runs count because time and iterations are both real and a rate is not censored; `SOLVER_ERROR` and setup failures do not): $\theta_{p,s} = t^{\mathrm{solve}}_{p,s} / k_{p,s}$. It isolates per-iteration cost (preconditioner application, flexible-CG overhead) from numerical effectiveness; fixed per-solve overhead inflates $\theta$ when $k$ is small.
+**Time per iteration** (per system with a real iteration count $k \ge 1$; `UNCONVERGED` runs count because time and iterations are both real and a rate is not censored; `SOLVER_ERROR` and setup failures do not): $\theta_{p,s} = t^{\mathrm{solve}}_{p,s} / k_{p,s}$. It isolates per-iteration cost (preconditioner application, flexible-CG overhead) from numerical effectiveness; fixed per-solve overhead inflates $\theta$ when $k$ is small, which is why a figure's bar is the ratio of sums $\Theta_p$ (`time_per_iteration_summary`, below) and the per-system $\theta_{p,s}$ are drawn only as points.
 
 **Convergence factor** (per converged system with a stored residual history): the stored `convergence` frame holds the relative residual norm $\hat{r}_{p,s,j} = \|r_j\| / \|b\|$ as the solver recorded it during the solve (`residual_rel`) at iterations $j = 0..J_{p,s}$, $j = 0$ the initial residual and $J_{p,s}$ the last stored iteration. $\gamma_{p,s} = (\hat{r}_{p,s,J} / \hat{r}_{p,s,0})^{1/J_{p,s}}$ is the geometric mean of the per-iteration reductions, so $\gamma < 1$ and smaller is faster; it is the same however the reduction was spread over the iterations, and a zero final residual gives 0. It is undefined for $J = 0$ and for a zero initial residual (a zero right-hand side). Only `CONVERGED` systems enter: an `UNCONVERGED` history stopped where the cap or a breakdown cut it, so its factor does not describe a solve that reached the tolerance, and the figure states $k/n$ so the excluded systems stay visible. The history is read in memory from `convergence.parquet` into the observation view; no stored schema changes.
 
@@ -169,6 +169,20 @@ with a defined unit, and `n_unconverged`, `n_solver_error`, `n_setup_failed`, `n
 always count systems, whichever the metric's unit. A method with no defined unit has
 `n_defined = 0` and null statistics, never 0. `mean_over_systems_ci_*` and
 `mean_over_matrices_ci_*` are the 95% matrix-cluster bootstrap interval, null below two matrices.
+`time_per_iteration_summary(obs, population)` gives one `RATIO_OF_SUMS_SCHEMA` row per method
+(`n_planned`, `n_defined`, `n_matrices` as above, `solve_s_sum`, `iterations_sum`,
+`ratio_of_sums`) over the systems `select` keeps for `TIME_PER_ITERATION_S`:
+$\Theta_p = \sum_{s \in \mathcal{P}_p} t^{\mathrm{solve}}_{p,s} / \sum_{s \in \mathcal{P}_p} k_{p,s}$,
+which weighs every iteration the same, unlike the mean of $\theta_{p,s}$ that lets many short solves
+(whose fixed per-solve overhead inflates their rate) outvote a few long ones; the sums and ratio are
+null when the method has no such system.
+`reporting/cohorts.py::by_cohort(obs, statistic, rows, schema=...)` splits any per-method statistic
+by RHS recipe: one block of `statistic`'s rows per recipe of `obs` (in order of first appearance,
+each computed on that recipe's systems only, so `Population.COMMON` is taken within the recipe),
+behind a leading `cohort` column holding the recipe's lossless key; with
+`CohortRows.RECIPES_AND_MIXTURE` a last block is `statistic` of the whole of `obs`, labelled
+`MIXTURE_COHORT` (`"mixture"`, never a recipe key). `COHORT_SUMMARY_SCHEMA` and
+`COHORT_RATIO_OF_SUMS_SCHEMA` are `cohort_schema` of `SUMMARY_SCHEMA` and `RATIO_OF_SUMS_SCHEMA`.
 `residual_consistency(obs)` counts, per method, converged systems whose true residual exceeds
 `RESIDUAL_MISMATCH_FACTOR` times the stopping level and reports the worst ratio; classification
 is never changed by it. `timing_noise(obs)` gives the median `timing_spread` per method and

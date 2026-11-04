@@ -237,6 +237,12 @@ def unbalanced_observations(
 
 
 @pytest.fixture
+def two_recipe_observations(unbalanced_observations: pl.DataFrame) -> pl.DataFrame:
+    """The observation view of all three methods, matrices 3 and 4 drawn from a second recipe."""
+    return observation_support.with_second_recipe(unbalanced_observations)
+
+
+@pytest.fixture
 def two_method_observations(unbalanced_observations: pl.DataFrame) -> pl.DataFrame:
     """The observation view of ``amg`` and ``jacobi`` only, the pair that share systems."""
     return unbalanced_observations.filter(

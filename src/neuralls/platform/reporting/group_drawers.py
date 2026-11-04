@@ -23,7 +23,7 @@ from neuralls.domain.benchmarking.paired import (
 from neuralls.domain.benchmarking.profiles import ProfileSeries, ecdf_series, performance_series
 from neuralls.domain.benchmarking.selection import ReferenceSelection
 from neuralls.domain.solver.reporting.metrics import MetricId
-from neuralls.domain.solver.reporting.summary import Population, select
+from neuralls.platform.reporting.figure_metadata import Statistic
 from neuralls.platform.reporting.outcome_plots import (
     GroupStyle,
     TotalColumn,
@@ -37,6 +37,11 @@ from neuralls.platform.reporting.outcome_plots import (
 from neuralls.platform.reporting.seaborn_cost_curves import (
     plot_break_even_curves,
     plot_convergence_factors,
+)
+from neuralls.platform.reporting.seaborn_means import (
+    BarStatistic,
+    plot_mean_bars,
+    plot_time_per_iteration,
 )
 
 
@@ -149,18 +154,24 @@ def _break_even(data: FigureData, path: Path) -> Path | None:
 
 
 def _convergence_factors(data: FigureData, path: Path) -> Path | None:
-    """Per-system points are the observations the summary rows were taken over.
+    return plot_convergence_factors(
+        data.summary, data.observations, metric=data.metric, style=data.style, save_path=path
+    )
 
-    The summary states its population on every row; without a row there is nothing to draw.
-    """
-    match data.summary["population"].unique().to_list():
-        case [population]:
-            points = select(data.observations, data.metric, Population(population))
-            return plot_convergence_factors(
-                points, data.summary, metric=data.metric, style=data.style, save_path=path
-            )
-        case _:
-            return None
+
+def _mean_bars(statistic: BarStatistic) -> GroupDrawer:
+    def drawer(data: FigureData, path: Path) -> Path | None:
+        return plot_mean_bars(
+            data.summary, statistic=statistic, metric=data.metric, style=data.style, save_path=path
+        )
+
+    return drawer
+
+
+def _time_per_iteration(data: FigureData, path: Path) -> Path | None:
+    return plot_time_per_iteration(
+        data.summary, data.observations, metric=data.metric, style=data.style, save_path=path
+    )
 
 
 AGGREGATE_BARS_DRAWER: GroupDrawer = _aggregate_bars
@@ -175,3 +186,6 @@ ECDF_ITERATIONS_DRAWER: GroupDrawer = _ecdf(_ITERATIONS_XLABEL)
 ECDF_TIME_DRAWER: GroupDrawer = _ecdf(_TIME_XLABELS)
 BREAK_EVEN_DRAWER: GroupDrawer = _break_even
 CONVERGENCE_FACTOR_DRAWER: GroupDrawer = _convergence_factors
+MEAN_OVER_SYSTEMS_DRAWER: GroupDrawer = _mean_bars(Statistic.MEAN_OVER_SYSTEMS)
+MEAN_OVER_MATRICES_DRAWER: GroupDrawer = _mean_bars(Statistic.MEAN_OVER_MATRICES)
+TIME_PER_ITERATION_DRAWER: GroupDrawer = _time_per_iteration

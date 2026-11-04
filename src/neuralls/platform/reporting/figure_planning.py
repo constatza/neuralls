@@ -23,19 +23,26 @@ from neuralls.domain.solver.models.group_outcomes import (
     WorkloadMixtureReport,
 )
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
-from neuralls.domain.solver.reporting.metrics import MetricId
+from neuralls.domain.solver.reporting.cohorts import CohortRows, by_cohort
+from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.report_levels import (
     level_name,
 )
-from neuralls.domain.solver.reporting.summary import Population, summarize
+from neuralls.domain.solver.reporting.summary import (
+    RATIO_OF_SUMS_SCHEMA,
+    SUMMARY_SCHEMA,
+    Population,
+    summarize,
+    time_per_iteration_summary,
+)
 from neuralls.platform.reporting.benchmark_events import (
     MethodBenchmarkArtifacts,
 )
 from neuralls.platform.reporting.figure_evidence import (
     FigureInterval,
     NoInterval,
+    bootstrap_of_means,
     bootstrap_of_speed_ratios,
-    bootstrap_of_summary,
     outcome_counts_of,
     setup_sharing_of,
     timing_evidence_of,
@@ -63,13 +70,17 @@ from neuralls.platform.reporting.group_drawers import (
     CONVERGENCE_FACTOR_DRAWER,
     ECDF_ITERATIONS_DRAWER,
     ECDF_TIME_DRAWER,
+    MEAN_OVER_MATRICES_DRAWER,
+    MEAN_OVER_SYSTEMS_DRAWER,
     ONLINE_TIME_BARS_DRAWER,
     PAIRED_TIME_DRAWER,
     PERFORMANCE_PROFILE_DRAWER,
     SOLVE_TIME_BARS_DRAWER,
     SPEED_RATIO_DRAWER,
+    TIME_PER_ITERATION_DRAWER,
     GroupDrawer,
 )
+from neuralls.platform.reporting.seaborn_means import BarStatistic, bar_statistic_text
 from neuralls.platform.reporting.stored_benchmark import StoredMethod
 from neuralls.shared.types import PreconditionerName
 
@@ -87,7 +98,8 @@ class FigureVariant:
     """One group figure a kind produces, and the statistic of a metric it draws.
 
     ``population`` says which systems the metric is taken over and ``statistic`` what is drawn
-    of it; a kind's variants differ in ``metric``, which is what tells them apart.
+    of it; a kind's variants differ in ``metric`` or ``population``, the pair that tells them
+    apart.
     """
 
     stem: str
@@ -147,17 +159,19 @@ class GroupFigureRecipe:
     table: TableKind
 
     def __post_init__(self) -> None:
-        """Require the variants to differ in metric, which selects the variant to draw."""
-        metrics = [variant.metric for variant in self.variants]
-        if len(set(metrics)) != len(metrics):
-            raise ValueError(f"{self.kind.value} has two variants of one metric")
+        """Require the variants to differ in metric or population, which select the one to draw."""
+        keys = [(variant.metric, variant.population) for variant in self.variants]
+        if len(set(keys)) != len(keys):
+            raise ValueError(f"{self.kind.value} has two variants of one metric and population")
 
-    def variant(self, metric: MetricId) -> FigureVariant:
-        """The variant of this kind that summarizes ``metric``."""
+    def variant(self, metric: MetricId, population: Population) -> FigureVariant:
+        """The variant of this kind that summarizes ``metric`` over ``population``."""
         for variant in self.variants:
-            if variant.metric is metric:
+            if (variant.metric, variant.population) == (metric, population):
                 return variant
-        raise UnknownFigureVariantError(f"{self.kind.value} has no variant for metric {metric}")
+        raise UnknownFigureVariantError(
+            f"{self.kind.value} has no variant for metric {metric} over population {population}"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,6 +184,38 @@ class HistoryFigureRecipe:
 
 
 type FigureRecipe = GroupFigureRecipe | HistoryFigureRecipe
+
+_TIME_MEAN_METRICS: tuple[tuple[str, str, MetricId], ...] = (
+    ("solve", "Solve Time", MetricId.SOLVE_S),
+    ("online", "Online Time", MetricId.ONLINE_S),
+    ("standalone", "Standalone Time", MetricId.STANDALONE_S),
+)
+"""File-stem word, title and metric of each time whose mean is drawn."""
+
+
+def _bar_variant(
+    stem: str, title: str, metric: MetricId, population: Population, statistic: BarStatistic
+) -> FigureVariant:
+    """A bar variant whose definition is built from the metric catalog's label."""
+    return FigureVariant(
+        stem,
+        f"{title}{_population_title(population)}",
+        f"{bar_statistic_text(statistic)} of {METRICS[metric].label}, {population} population",
+        metric,
+        population,
+        statistic,
+    )
+
+
+def _population_title(population: Population) -> str:
+    match population:
+        case Population.OWN:
+            return ""
+        case Population.COMMON:
+            return " (Common Systems)"
+        case unreachable:
+            assert_never(unreachable)
+
 
 FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
     recipe.kind: recipe
@@ -359,9 +405,75 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.OMITTED,
-            _PROFILE,
+            _BOTH,
             CONVERGENCE_FACTOR_DRAWER,
-            TableKind.SUMMARY,
+            TableKind.COHORT_SUMMARY,
+        ),
+        GroupFigureRecipe(
+            FigureKind.ITERATION_MEANS,
+            (
+                _bar_variant(
+                    "iteration_means",
+                    "Iterations",
+                    MetricId.ITERATIONS,
+                    Population.OWN,
+                    Statistic.MEAN_OVER_SYSTEMS,
+                ),
+            ),
+            FailureTreatment.OMITTED,
+            _BOTH,
+            MEAN_OVER_SYSTEMS_DRAWER,
+            TableKind.COHORT_SUMMARY,
+        ),
+        GroupFigureRecipe(
+            FigureKind.TIME_MEANS,
+            tuple(
+                _bar_variant(
+                    f"time_means_{word}_{population}",
+                    title,
+                    metric,
+                    population,
+                    Statistic.MEAN_OVER_SYSTEMS,
+                )
+                for word, title, metric in _TIME_MEAN_METRICS
+                for population in Population
+            ),
+            FailureTreatment.OMITTED,
+            _BOTH,
+            MEAN_OVER_SYSTEMS_DRAWER,
+            TableKind.COHORT_SUMMARY,
+        ),
+        GroupFigureRecipe(
+            FigureKind.SETUP_MEANS,
+            (
+                _bar_variant(
+                    "setup_means",
+                    "Setup Time",
+                    MetricId.SETUP_S,
+                    Population.OWN,
+                    Statistic.MEAN_OVER_MATRICES,
+                ),
+            ),
+            FailureTreatment.OMITTED,
+            _BOTH,
+            MEAN_OVER_MATRICES_DRAWER,
+            TableKind.COHORT_SUMMARY,
+        ),
+        GroupFigureRecipe(
+            FigureKind.TIME_PER_ITERATION,
+            (
+                _bar_variant(
+                    "time_per_iteration",
+                    "Time per Iteration",
+                    MetricId.TIME_PER_ITERATION_S,
+                    Population.OWN,
+                    Statistic.RATIO_OF_SUMS,
+                ),
+            ),
+            FailureTreatment.OMITTED,
+            _BOTH,
+            TIME_PER_ITERATION_DRAWER,
+            TableKind.COHORT_RATIO_OF_SUMS,
         ),
         HistoryFigureRecipe(
             FigureKind.RESIDUAL_HISTORY,
@@ -466,7 +578,7 @@ def _summary(
 ) -> pl.DataFrame | None:
     observations = outcome.observations
     match variant.statistic:
-        case Statistic.CONVERGED_COUNT | Statistic.MEAN_AND_MEDIAN:
+        case Statistic.CONVERGED_COUNT:
             return summarize(observations, variant.metric, variant.population)
         case Statistic.WORKLOAD_TOTAL:
             return build_group_table(outcome.summaries)
@@ -488,6 +600,33 @@ def _summary(
             )
         case Statistic.CUMULATIVE_COST:
             return None if reference is None else break_even_curves(observations, reference)
+        case Statistic.MEAN_OVER_SYSTEMS | Statistic.MEAN_OVER_MATRICES | Statistic.MEAN_AND_MEDIAN:
+            metric, population = variant.metric, variant.population
+            return by_cohort(
+                observations,
+                lambda frame: summarize(frame, metric, population),
+                _cohort_rows(outcome),
+                schema=SUMMARY_SCHEMA,
+            )
+        case Statistic.RATIO_OF_SUMS:
+            population = variant.population
+            return by_cohort(
+                observations,
+                lambda frame: time_per_iteration_summary(frame, population),
+                _cohort_rows(outcome),
+                schema=RATIO_OF_SUMS_SCHEMA,
+            )
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _cohort_rows(outcome: GroupReport) -> CohortRows:
+    """A mixture level keeps its pooled rows beside its recipes'; a recipe level has only one."""
+    match outcome:
+        case RecipeProfileReport():
+            return CohortRows.RECIPES
+        case WorkloadMixtureReport():
+            return CohortRows.RECIPES_AND_MIXTURE
         case unreachable:
             assert_never(unreachable)
 
@@ -587,8 +726,8 @@ def _interval(variant: FigureVariant, outcome: GroupReport) -> FigureInterval:
                     return NoInterval()
                 case reference:
                     return bootstrap_of_speed_ratios(observations, reference, variant.metric)
-        case Statistic.MEAN_AND_MEDIAN:
-            return bootstrap_of_summary(observations, variant.metric, variant.population)
+        case Statistic.MEAN_OVER_SYSTEMS | Statistic.MEAN_OVER_MATRICES | Statistic.MEAN_AND_MEDIAN:
+            return bootstrap_of_means(observations, variant.metric, variant.population)
         case (
             Statistic.CONVERGED_COUNT
             | Statistic.WORKLOAD_TOTAL
@@ -596,6 +735,7 @@ def _interval(variant: FigureVariant, outcome: GroupReport) -> FigureInterval:
             | Statistic.PERFORMANCE_PROFILE
             | Statistic.PAIRED_VALUES
             | Statistic.CUMULATIVE_COST
+            | Statistic.RATIO_OF_SUMS
         ):
             return NoInterval()
         case unreachable:

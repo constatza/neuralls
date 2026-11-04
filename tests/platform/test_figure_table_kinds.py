@@ -19,8 +19,20 @@ from neuralls.domain.benchmarking.paired import (
 )
 from neuralls.domain.benchmarking.profiles import PROFILE_SERIES_SCHEMA, ecdf_series
 from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport
+from neuralls.domain.solver.reporting.cohorts import (
+    COHORT_RATIO_OF_SUMS_SCHEMA,
+    COHORT_SUMMARY_SCHEMA,
+    CohortRows,
+    by_cohort,
+)
 from neuralls.domain.solver.reporting.metrics import MetricId
-from neuralls.domain.solver.reporting.summary import SUMMARY_SCHEMA, Population, summarize
+from neuralls.domain.solver.reporting.summary import (
+    RATIO_OF_SUMS_SCHEMA,
+    SUMMARY_SCHEMA,
+    Population,
+    summarize,
+    time_per_iteration_summary,
+)
 from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, FigureKind, TableKind
 from neuralls.platform.reporting.figure_planning import (
     FIGURE_RECIPES,
@@ -52,6 +64,18 @@ def table_frames(profile_report: RecipeProfileReport) -> dict[str, pl.DataFrame]
         "SPEED_RATIO": speed_ratio_summary(observations, JACOBI, REFERENCE_METRIC),
         "WORKLOAD_TOTALS": build_group_table(profile_report.summaries),
         "COST_CURVES": break_even_curves(observations, JACOBI),
+        "COHORT_SUMMARY": by_cohort(
+            observations,
+            lambda frame: summarize(frame, MetricId.SOLVE_S, Population.OWN),
+            CohortRows.RECIPES_AND_MIXTURE,
+            schema=SUMMARY_SCHEMA,
+        ),
+        "COHORT_RATIO_OF_SUMS": by_cohort(
+            observations,
+            lambda frame: time_per_iteration_summary(frame, Population.OWN),
+            CohortRows.RECIPES,
+            schema=RATIO_OF_SUMS_SCHEMA,
+        ),
     }
 
 
@@ -70,6 +94,8 @@ def test_each_table_kind_has_the_schema_of_the_frame_it_stores() -> None:
     assert schemas[kind.SPEED_RATIO] == SPEED_RATIO_SCHEMA
     assert schemas[kind.WORKLOAD_TOTALS] == dict(build_group_table(()).schema)
     assert schemas[kind.COST_CURVES] == COST_CURVE_SCHEMA
+    assert schemas[kind.COHORT_SUMMARY] == COHORT_SUMMARY_SCHEMA
+    assert schemas[kind.COHORT_RATIO_OF_SUMS] == COHORT_RATIO_OF_SUMS_SCHEMA
 
 
 @pytest.mark.parametrize("name", TABLE_KINDS)

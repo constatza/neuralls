@@ -17,6 +17,10 @@ from neuralls.domain.benchmarking.selection import ReferenceSelection
 from neuralls.domain.presentation.methods import ConfiguredMethodPresentation
 from neuralls.domain.solver.models.figure_scope import FigureScope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
+from neuralls.domain.solver.reporting.cohorts import (
+    COHORT_RATIO_OF_SUMS_SCHEMA,
+    COHORT_SUMMARY_SCHEMA,
+)
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.domain.solver.reporting.summary import SUMMARY_SCHEMA, Population
@@ -46,6 +50,10 @@ class FigureKind(StrEnum):
     SPEED_RATIO = "speed_ratio"
     BREAKEVEN = "breakeven"
     CONVERGENCE_FACTOR = "convergence_factor"
+    ITERATION_MEANS = "iteration_means"
+    TIME_MEANS = "time_means"
+    SETUP_MEANS = "setup_means"
+    TIME_PER_ITERATION = "time_per_iteration"
     RESIDUAL_HISTORY = "residual_history"
     ENERGY_HISTORY = "energy_history"
 
@@ -67,6 +75,8 @@ class TableKind(StrEnum):
     method, ``SERIES`` the points of a step curve, ``SPEED_RATIO`` one row of ratio statistics per
     compared method, ``WORKLOAD_TOTALS`` one row of workload sums per method and ``COST_CURVES``
     the cumulative cost of each side of a method/reference pair by RHS count.
+    ``COHORT_SUMMARY`` and ``COHORT_RATIO_OF_SUMS`` hold per-method statistics by cohort: one block
+    per recipe, and at a mixture level the pooled block too (``domain/solver/reporting/cohorts.py``).
     """
 
     SUMMARY = "summary"
@@ -75,6 +85,8 @@ class TableKind(StrEnum):
     SPEED_RATIO = "speed_ratio"
     WORKLOAD_TOTALS = "workload_totals"
     COST_CURVES = "cost_curves"
+    COHORT_SUMMARY = "cohort_summary"
+    COHORT_RATIO_OF_SUMS = "cohort_ratio_of_sums"
 
 
 type TableSchema = Mapping[str, pl.DataType | type[pl.DataType]]
@@ -97,6 +109,8 @@ TABLE_SCHEMAS: Mapping[TableKind, TableSchema] = {
     TableKind.SPEED_RATIO: SPEED_RATIO_SCHEMA,
     TableKind.WORKLOAD_TOTALS: WORKLOAD_TOTALS_SCHEMA,
     TableKind.COST_CURVES: COST_CURVE_SCHEMA,
+    TableKind.COHORT_SUMMARY: COHORT_SUMMARY_SCHEMA,
+    TableKind.COHORT_RATIO_OF_SUMS: COHORT_RATIO_OF_SUMS_SCHEMA,
 }
 """The columns and dtypes, in order, of the table each kind stores; the frames come from the
 domain statistics, so a schema change there reaches the stored tables through this mapping."""
@@ -119,7 +133,10 @@ type FigureTable = SiblingTable | NoTable
 
 
 class Statistic(StrEnum):
-    """What a group figure draws of its metric."""
+    """What a group figure draws of its metric.
+
+    The values of the bar statistics are also the summary-table columns their bars are read from.
+    """
 
     CONVERGED_COUNT = "converged_count"
     WORKLOAD_TOTAL = "workload_total"
@@ -129,6 +146,9 @@ class Statistic(StrEnum):
     SPEED_RATIO_CDF = "speed_ratio_cdf"
     CUMULATIVE_COST = "cumulative_cost"
     MEAN_AND_MEDIAN = "mean_and_median"
+    MEAN_OVER_SYSTEMS = "mean_over_systems"
+    MEAN_OVER_MATRICES = "mean_over_matrices"
+    RATIO_OF_SUMS = "ratio_of_sums"
 
 
 class FailureTreatment(StrEnum):

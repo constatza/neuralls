@@ -36,7 +36,7 @@ from neuralls.platform.reporting.figure_card import (
     card_payload,
     decode_figure_card,
 )
-from neuralls.platform.reporting.figure_metadata import GroupFigureMetadata
+from neuralls.platform.reporting.figure_metadata import GroupFigureMetadata, Statistic
 from neuralls.platform.reporting.figure_planning import (
     FIGURE_RECIPES,
     GroupFigureRecipe,
@@ -70,7 +70,16 @@ _ONLINE_STEMS = sorted(
 _NOT_ONLINE_STEMS = sorted(
     variant.stem for variant in _PROFILE_VARIANTS if variant.metric is not MetricId.ONLINE_S
 )
-_NO_INTERVAL_STEMS = sorted(set(_BY_STEM) - {"speed_ratio_cdf", "convergence_factor"})
+_MEAN_STEMS = sorted(
+    variant.stem
+    for variant in _PROFILE_VARIANTS
+    if variant.statistic in {Statistic.MEAN_OVER_SYSTEMS, Statistic.MEAN_OVER_MATRICES}
+)
+_OWN_MEAN_STEMS = [stem for stem in _MEAN_STEMS if _BY_STEM[stem].population is Population.OWN]
+_COMMON_MEAN_STEMS = [stem for stem in _MEAN_STEMS if stem not in _OWN_MEAN_STEMS]
+_NO_INTERVAL_STEMS = sorted(set(_BY_STEM) - {"speed_ratio_cdf", "convergence_factor", *_MEAN_STEMS})
+_WHISKER_STEMS = [*_OWN_MEAN_STEMS, "convergence_factor"]
+"""Figures whose whiskers are matrix-cluster intervals of per-method means over their own systems."""
 
 _TIME_UNITS = frozenset({Unit.SECONDS, Unit.SECONDS_PER_ITERATION})
 _TIME_STEMS = sorted(
@@ -210,19 +219,36 @@ def test_the_speed_ratio_card_states_its_interval(
     }
 
 
-def test_the_convergence_factor_card_states_the_interval_of_its_means(
-    profile_report: RecipeProfileReport, payloads: dict[str, Payload]
-) -> None:
-    """Every matrix on which a method converged a system with a history is a cluster."""
-    defined = select(profile_report.observations, MetricId.CONVERGENCE_FACTOR, Population.OWN)
-    matrices = defined.select(pl.struct("dataset", "matrix_id").n_unique()).item()
+def test_mean_figures_exist_for_every_mean_kind() -> None:
+    assert {_RECIPE_OF_STEM[stem].kind.value for stem in _MEAN_STEMS} == {
+        "iteration_means",
+        "time_means",
+        "setup_means",
+    }
 
-    assert _table(payloads["convergence_factor"], "interval") == {
+
+@pytest.mark.parametrize("stem", _WHISKER_STEMS)
+def test_a_mean_card_states_the_matrix_cluster_bootstrap_of_its_whiskers(
+    profile_report: RecipeProfileReport, payloads: dict[str, Payload], stem: str
+) -> None:
+    variant = _BY_STEM[stem]
+    selected = select(profile_report.observations, variant.metric, variant.population)
+    matrices = selected.select(pl.struct("dataset", "matrix_id").n_unique()).item()
+
+    assert _table(payloads[stem], "interval") == {
         "method": INTERVAL_METHOD,
         "level": CONFIDENCE_LEVEL,
         "resamples": BOOTSTRAP_RESAMPLES,
         "matrices": matrices,
     }
+
+
+@pytest.mark.parametrize("stem", _COMMON_MEAN_STEMS)
+def test_a_mean_card_over_an_empty_common_population_records_no_interval(
+    payloads: dict[str, Payload], stem: str
+) -> None:
+    # ``broken`` defines nothing, so no system is common to every method and no whisker exists.
+    assert "interval" not in payloads[stem]
 
 
 @pytest.mark.parametrize("stem", _ONLINE_STEMS)

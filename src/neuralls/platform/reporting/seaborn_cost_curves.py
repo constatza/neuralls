@@ -7,7 +7,7 @@ interval whisker) is read from the frame stored as the figure's table.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import assert_never
 
@@ -17,11 +17,15 @@ import seaborn as sns
 from matplotlib.axes import Axes
 
 from neuralls.domain.benchmarking.cost_curves import BreakEvenState, CostSide
+from neuralls.domain.presentation.recipes import render_recipe
+from neuralls.domain.solver.reporting.cohorts import COHORT_COLUMN, MIXTURE_COHORT
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
-from neuralls.platform.reporting.figure_text import draw_legend
+from neuralls.domain.solver.reporting.summary import Population, select
+from neuralls.platform.reporting.figure_text import TITLE_PROFILE, draw_legend
 from neuralls.platform.reporting.outcome_plots import GroupStyle
 from neuralls.platform.reporting.plots import finish_group_figure, group_series_styles
 from neuralls.platform.reporting.seaborn_figures import plot_frame
+from neuralls.shared.rhs_recipe import parse_recipe_key
 from neuralls.shared.types import PreconditionerName
 
 _REFERENCE_DASHES = (4.0, 2.0)
@@ -153,6 +157,10 @@ _POINT_JITTER = 0.2
 _SUMMARY_COLOR = "black"
 _MEDIAN_MARKER = "|"
 _MEDIAN_MARKER_SIZE = 260
+_FACTOR_PANEL_WIDTH_IN = 7.0
+"""Width in inches of one recipe panel, method labels included."""
+_HEADER_RATIO = 0.02
+"""Height of the header row that carries the scope above all panels, relative to a panel."""
 
 
 def factor_axis_label(label: str, *, n_defined: int, n_planned: int) -> str:
@@ -164,65 +172,53 @@ def factor_axis_label(label: str, *, n_defined: int, n_planned: int) -> str:
 
 
 def plot_convergence_factors(
-    points: pl.DataFrame,
     summary: pl.DataFrame,
+    observations: pl.DataFrame,
     *,
     metric: MetricId,
     style: GroupStyle,
     save_path: Path,
 ) -> Path | None:
-    """Per-method residual reduction per iteration: every system as a point, mean and median.
+    """Per-method residual reduction per iteration, one panel per recipe cohort of ``summary``.
 
-    ``points`` holds the observation rows the metric is defined on and ``summary`` their
-    ``summarize`` rows, one per method. Seaborn strips the points; the mean over systems with its
-    95% matrix-cluster interval and the median tick come from ``summary``. ``None`` without a
-    method to draw.
+    ``summary`` is the figure's cohort summary table; the mean over systems with its 95%
+    matrix-cluster interval and the median tick of each method come from it. Seaborn strips the
+    per-system points, the observation rows of the panel's recipe the summary was taken over, which
+    no table stores again. The pooled rows of a mixture stay in the table only, since pooling
+    hides how the recipes differ. ``None`` without a recipe cohort.
     """
-    if summary.height == 0:
+    drawn = summary.filter(pl.col(COHORT_COLUMN) != MIXTURE_COHORT)
+    cohorts = drawn[COHORT_COLUMN].unique(maintain_order=True).to_list()
+    if not cohorts:
         return None
-    rows = list(summary.iter_rows(named=True))
-    names = [row["method"] for row in rows]
+    names = sorted(set(drawn["method"].to_list()))
     styles = group_series_styles(names, style.families, style.color_keys, style.marker_keys)
-    labels = [
-        factor_axis_label(
-            style.legend.label(row["method"]),
-            n_defined=row["n_defined"],
-            n_planned=row["n_planned"],
+    palette = {name: styles[name]["color"] for name in names}
+    fig = plt.figure(
+        figsize=(_FACTOR_PANEL_WIDTH_IN * len(cohorts), max(3.0, 1.1 * len(names) + 1.5))
+    )
+    grid = fig.add_gridspec(2, len(cohorts), height_ratios=(_HEADER_RATIO, 1.0))
+    header = fig.add_subplot(grid[0, :])
+    header.axis("off")
+    axes = [fig.add_subplot(grid[1, column]) for column in range(len(cohorts))]
+    for column, (ax, cohort) in enumerate(zip(axes, cohorts, strict=True)):
+        rows = drawn.filter(pl.col(COHORT_COLUMN) == cohort)
+        points = select(observations, metric, Population(rows["population"][0])).filter(
+            pl.col("recipe") == cohort
         )
-        for row in rows
-    ]
-    column = METRICS[metric].column
-    fig, ax = plt.subplots(figsize=(8, max(3.0, 1.1 * len(names) + 1.5)))
-    if points.height > 0:
-        sns.stripplot(
-            data=plot_frame(points.select("method", column)),
-            x=column,
-            y="method",
-            order=names,
-            hue="method",
-            hue_order=names,
-            palette={name: styles[name]["color"] for name in names},
-            alpha=_POINT_ALPHA,
-            jitter=_POINT_JITTER,
-            legend=False,
-            ax=ax,
-        )
-    for position, row in enumerate(rows):
-        _draw_summary_marks(ax, position, row)
-    ax.plot(
+        _draw_factor_panel(ax, rows, points, names, palette, metric, style)
+        ax.set_ylabel("Method" if column == 0 else "")
+        if len(cohorts) > 1:
+            recipe = parse_recipe_key(cohort)
+            ax.set_title(render_recipe(recipe, TITLE_PROFILE, style.notation), fontsize=9)
+    axes[-1].plot(
         [], [], "o", color=_SUMMARY_COLOR, label="mean over systems, 95% matrix-cluster interval"
     )
-    ax.plot([], [], _MEDIAN_MARKER, color=_SUMMARY_COLOR, markersize=12, label="median")
-    ax.set_yticks(range(len(names)), labels)
-    ax.set_ylim(len(names) - 0.5, -0.5)
-    ax.set_xlim(left=0.0)
-    ax.set_xlabel(f"{METRICS[metric].label} (smaller converges faster)")
-    ax.set_ylabel("Method")
-    ax.grid(True, axis="x", alpha=0.3)
-    draw_legend(ax, style.legend, inside_loc="lower right")
+    axes[-1].plot([], [], _MEDIAN_MARKER, color=_SUMMARY_COLOR, markersize=12, label="median")
+    draw_legend(axes[-1], style.legend, inside_loc="lower right")
     finish_group_figure(
         fig,
-        ax,
+        header,
         title=style.title,
         subtitle=style.subtitle,
         save_path=save_path,
@@ -230,6 +226,52 @@ def plot_convergence_factors(
         saved_message="Saved convergence factors to",
     )
     return save_path
+
+
+def _draw_factor_panel(
+    ax: Axes,
+    rows: pl.DataFrame,
+    points: pl.DataFrame,
+    names: Sequence[str],
+    palette: Mapping[str, object],
+    metric: MetricId,
+    style: GroupStyle,
+) -> None:
+    """One cohort's points and summary marks, a method per row in the order of ``names``."""
+    column = METRICS[metric].column
+    by_method = {row["method"]: row for row in rows.iter_rows(named=True)}
+    if points.height > 0:
+        sns.stripplot(
+            data=plot_frame(points.select("method", column)),
+            x=column,
+            y="method",
+            order=list(names),
+            hue="method",
+            hue_order=list(names),
+            palette=dict(palette),
+            alpha=_POINT_ALPHA,
+            jitter=_POINT_JITTER,
+            legend=False,
+            ax=ax,
+        )
+    labels = []
+    for position, name in enumerate(names):
+        row = by_method.get(name)
+        if row is None:
+            # The method planned no system of this recipe, so it has no row to draw or count.
+            labels.append(style.legend.label(name))
+            continue
+        _draw_summary_marks(ax, position, row)
+        labels.append(
+            factor_axis_label(
+                style.legend.label(name), n_defined=row["n_defined"], n_planned=row["n_planned"]
+            )
+        )
+    ax.set_yticks(range(len(names)), labels)
+    ax.set_ylim(len(names) - 0.5, -0.5)
+    ax.set_xlim(left=0.0)
+    ax.set_xlabel(f"{METRICS[metric].label} (smaller converges faster)")
+    ax.grid(True, axis="x", alpha=0.3)
 
 
 def _draw_summary_marks(ax: Axes, position: int, row: Mapping[str, object]) -> None:

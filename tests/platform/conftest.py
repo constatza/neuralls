@@ -9,10 +9,16 @@ from pathlib import Path
 import polars as pl
 import pytest
 from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL, SINGLE_RUN
-from tests.observation_support import PLANNED, unbalanced_events
+from tests.observation_support import (
+    PLANNED,
+    RHS_PER_MATRIX,
+    SECOND_RECIPE_MATRICES,
+    unbalanced_events,
+    with_second_recipe,
+)
 from tests.presentation_support import PreparedMethodFactory
 from tests.provenance_support import datasets_for, provenance_for
-from tests.recipe_support import GAUSSIAN
+from tests.recipe_support import GAUSSIAN, SINE
 
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
@@ -308,6 +314,19 @@ def mixture_report(
         recipe_membership=(GAUSSIAN,),
         dataset_membership=(DatasetId("ds"),),
         recipe_counts=(profile_report.n_planned_rhs,),
+    )
+
+
+@pytest.fixture
+def two_recipe_mixture_report(mixture_report: WorkloadMixtureReport) -> WorkloadMixtureReport:
+    """The same workload as a matrix-set mixture of two recipes: matrices 3 and 4 use ``SINE``."""
+    second = sum(RHS_PER_MATRIX[matrix] for matrix in SECOND_RECIPE_MATRICES)
+    return replace(
+        mixture_report,
+        label=MatrixSetLabel(DatasetId("ds"), (GAUSSIAN, SINE)),
+        observations=with_second_recipe(mixture_report.observations),
+        recipe_membership=(GAUSSIAN, SINE),
+        recipe_counts=(len(PLANNED) - second, second),
     )
 
 

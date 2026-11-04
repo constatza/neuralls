@@ -25,8 +25,8 @@ from neuralls.domain.solver.models.labels import (
     render_group_id,
 )
 from neuralls.domain.solver.reporting.metrics import MetricId
-from neuralls.domain.solver.reporting.summary import Population, select
-from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, FigureKind
+from neuralls.domain.solver.reporting.summary import Population
+from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, FigureKind, Statistic
 from neuralls.platform.reporting.figure_planning import figure_summaries, group_recipe
 from neuralls.platform.reporting.group_drawers import FigureData
 from neuralls.platform.reporting.outcome_plots import GroupStyle
@@ -73,6 +73,8 @@ def plot_calls(monkeypatch: pytest.MonkeyPatch) -> PlotCalls:
         "plot_speed_ratio_cdf",
         "plot_break_even_curves",
         "plot_convergence_factors",
+        "plot_mean_bars",
+        "plot_time_per_iteration",
     ):
         monkeypatch.setattr(f"neuralls.platform.reporting.group_drawers.{name}", recorder(name))
     return calls
@@ -124,7 +126,7 @@ def _data(report: GroupAggregated, summary: pl.DataFrame, metric: MetricId) -> F
 
 def _draw(report: GroupAggregated, kind: FigureKind, metric: MetricId) -> Path | None:
     recipe = group_recipe(kind)
-    summary = figure_summaries(report)[recipe.variant(metric).stem]
+    summary = figure_summaries(report)[recipe.variant(metric, Population.OWN).stem]
     return recipe.draw(_data(report, summary, metric), PATH)
 
 
@@ -223,7 +225,8 @@ def test_the_speed_ratio_cdf_is_drawn_from_the_ratios_and_their_summary(
 def test_the_break_even_curves_are_drawn_from_the_cost_curves_they_store_against_the_reference(
     report: RecipeProfileReport, plot_calls: PlotCalls
 ) -> None:
-    _draw(report, FigureKind.BREAKEVEN, MetricId.STANDALONE_S)
+    summary = figure_summaries(report)["breakeven"]
+    group_recipe(FigureKind.BREAKEVEN).draw(_data(report, summary, MetricId.STANDALONE_S), PATH)
 
     call = plot_calls.by_function["plot_break_even_curves"]
     (curves,) = _frames_of(call)
@@ -231,27 +234,17 @@ def test_the_break_even_curves_are_drawn_from_the_cost_curves_they_store_against
     assert_frame_equal(curves, figure_summaries(report)["breakeven"])
 
 
-def test_the_convergence_factors_are_drawn_from_their_summary_and_the_converged_points(
+def test_the_convergence_factors_are_drawn_from_their_cohort_summary_and_the_observations(
     report: RecipeProfileReport, plot_calls: PlotCalls
 ) -> None:
     metric = MetricId.CONVERGENCE_FACTOR
     _draw(report, FigureKind.CONVERGENCE_FACTOR, metric)
 
     call = plot_calls.by_function["plot_convergence_factors"]
-    points, summary = _frames_of(call)
-    assert_frame_equal(points, select(report.observations, metric, Population.OWN))
+    summary, observations = _frames_of(call)
     assert_frame_equal(summary, figure_summaries(report)["convergence_factor"])
+    assert_frame_equal(observations, report.observations)
     assert call.options["metric"] is metric
-
-
-def test_convergence_factors_are_not_drawn_without_a_summary_row(
-    report: RecipeProfileReport, plot_calls: PlotCalls
-) -> None:
-    recipe = group_recipe(FigureKind.CONVERGENCE_FACTOR)
-    empty = pl.DataFrame(schema=TABLE_SCHEMAS[recipe.table])
-
-    assert recipe.draw(_data(report, empty, MetricId.CONVERGENCE_FACTOR), PATH) is None
-    assert plot_calls.by_function == {}
 
 
 @pytest.mark.parametrize(
@@ -294,7 +287,7 @@ def test_bar_figures_are_drawn_from_the_summary_frame_they_store(
 
     (drawn,) = _frames_of(plot_calls.by_function[function])
     recipe = group_recipe(kind)
-    assert_frame_equal(drawn, figure_summaries(report)[recipe.variant(metric).stem])
+    assert_frame_equal(drawn, figure_summaries(report)[recipe.variant(metric, Population.OWN).stem])
 
 
 @pytest.mark.parametrize(
@@ -314,3 +307,47 @@ def test_the_time_bars_draw_the_total_column_of_their_metric(
     _draw(report, kind, metric)
 
     assert plot_calls.by_function["plot_workload_bars"].options["column"] == column
+
+
+@pytest.mark.parametrize(
+    ("kind", "metric", "statistic"),
+    [
+        (FigureKind.ITERATION_MEANS, MetricId.ITERATIONS, Statistic.MEAN_OVER_SYSTEMS),
+        (FigureKind.TIME_MEANS, MetricId.SOLVE_S, Statistic.MEAN_OVER_SYSTEMS),
+        (FigureKind.TIME_MEANS, MetricId.ONLINE_S, Statistic.MEAN_OVER_SYSTEMS),
+        (FigureKind.TIME_MEANS, MetricId.STANDALONE_S, Statistic.MEAN_OVER_SYSTEMS),
+        (FigureKind.SETUP_MEANS, MetricId.SETUP_S, Statistic.MEAN_OVER_MATRICES),
+    ],
+)
+def test_mean_bars_are_drawn_from_the_summary_they_store_with_their_statistic(
+    report: RecipeProfileReport,
+    plot_calls: PlotCalls,
+    kind: FigureKind,
+    metric: MetricId,
+    statistic: Statistic,
+) -> None:
+    _draw(report, kind, metric)
+
+    call = plot_calls.by_function["plot_mean_bars"]
+    (drawn,) = _frames_of(call)
+    assert_frame_equal(drawn, figure_summaries(report)[_stem(kind, metric)])
+    assert (call.options["statistic"], call.options["metric"]) == (statistic, metric)
+
+
+def test_time_per_iteration_is_drawn_from_its_ratio_table_and_the_observations(
+    report: RecipeProfileReport, plot_calls: PlotCalls
+) -> None:
+    _draw(report, FigureKind.TIME_PER_ITERATION, MetricId.TIME_PER_ITERATION_S)
+
+    drawn, observations = _frames_of(plot_calls.by_function["plot_time_per_iteration"])
+    assert_frame_equal(
+        drawn,
+        figure_summaries(report)[
+            _stem(FigureKind.TIME_PER_ITERATION, MetricId.TIME_PER_ITERATION_S)
+        ],
+    )
+    assert_frame_equal(observations, report.observations)
+
+
+def _stem(kind: FigureKind, metric: MetricId) -> str:
+    return group_recipe(kind).variant(metric, Population.OWN).stem

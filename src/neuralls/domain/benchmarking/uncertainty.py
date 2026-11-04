@@ -15,7 +15,8 @@ from neuralls.shared.types import MatrixId
 
 type MatrixCluster = MatrixId | tuple[str | None, MatrixId]
 
-_MIN_MATRICES = 2
+MIN_INTERVAL_MATRICES = 2
+"""Fewer matrices than this give no interval: resampling one matrix only repeats it."""
 
 
 class ClusterStatistic(StrEnum):
@@ -55,7 +56,7 @@ def matrix_cluster_interval(
     Raises:
         ValueError: A matrix has no values.
     """
-    if len(values_by_matrix) < _MIN_MATRICES:
+    if len(values_by_matrix) < MIN_INTERVAL_MATRICES:
         return None
     clusters = tuple(np.asarray(values, dtype=np.float64) for values in values_by_matrix.values())
     if any(cluster.size == 0 for cluster in clusters):
