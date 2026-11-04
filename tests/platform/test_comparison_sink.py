@@ -573,6 +573,7 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
             "ecdf_iterations",
             "ecdf_time_solve",
             "ecdf_time_online",
+            "convergence_factor",
         )
     }
     assert _figures(logged_artifacts) == expected
@@ -598,7 +599,7 @@ def test_sink_skips_the_reference_figures_without_a_configured_reference(
     assert not [
         name
         for name in logged_artifacts
-        if name.startswith(("speed_ratio_cdf", "paired_time_scatter"))
+        if name.startswith(("speed_ratio_cdf", "paired_time_scatter", "breakeven"))
     ]
     assert not [key for key in logged_metrics if key.startswith("speed_ratio")]
 
@@ -627,6 +628,27 @@ def test_group_figures_carry_cards_with_methods_parameters_and_sources(
     assert card.table == SiblingTable(
         f"aggregate_bars_{_GROUP_FILE_STEM}.parquet", TableKind.SUMMARY
     )
+
+
+def test_the_convergence_factor_card_cites_the_stored_residual_histories(
+    group: GroupAggregated,
+    presentation: GroupPresentation,
+    logged_metrics: LoggedMetrics,
+    logged_text: dict[str, str],
+    sink: MLflowReportSink,
+) -> None:
+    sink.report(group, presentation=presentation)
+
+    card = _cards(logged_text)[f"convergence_factor_{_GROUP_FILE_STEM}.toml"]
+
+    assert {source.artifact_paths for source in card.metadata.sources} == {
+        (
+            "method_workload/setup_events.parquet",
+            "method_workload/solve_attempts.parquet",
+            "method_workload/summary.toml",
+            "method_workload/convergence.parquet",
+        )
+    }
 
 
 @pytest.mark.usefixtures("logged_metrics", "logged_artifacts")

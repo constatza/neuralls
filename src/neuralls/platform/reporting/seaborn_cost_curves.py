@@ -7,14 +7,17 @@ interval whisker) is read from the frame stored as the figure's table.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import assert_never
 
 import matplotlib.pyplot as plt
 import polars as pl
 import seaborn as sns
+from matplotlib.axes import Axes
 
 from neuralls.domain.benchmarking.cost_curves import BreakEvenState, CostSide
+from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.platform.reporting.figure_text import draw_legend
 from neuralls.platform.reporting.outcome_plots import GroupStyle
 from neuralls.platform.reporting.plots import finish_group_figure, group_series_styles
@@ -143,3 +146,132 @@ def plot_break_even_curves(
         saved_message="Saved break-even curves to",
     )
     return save_path
+
+
+_POINT_ALPHA = 0.45
+_POINT_JITTER = 0.2
+_SUMMARY_COLOR = "black"
+_MEDIAN_MARKER = "|"
+_MEDIAN_MARKER_SIZE = 260
+
+
+def factor_axis_label(label: str, *, n_defined: int, n_planned: int) -> str:
+    """Method-axis text of a convergence-factor row: the method and how many systems have a factor.
+
+    Only converged systems with a stored history have one, so the count keeps the others visible.
+    """
+    return f"{label}\n({n_defined}/{n_planned} systems with a factor)"
+
+
+def plot_convergence_factors(
+    points: pl.DataFrame,
+    summary: pl.DataFrame,
+    *,
+    metric: MetricId,
+    style: GroupStyle,
+    save_path: Path,
+) -> Path | None:
+    """Per-method residual reduction per iteration: every system as a point, mean and median.
+
+    ``points`` holds the observation rows the metric is defined on and ``summary`` their
+    ``summarize`` rows, one per method. Seaborn strips the points; the mean over systems with its
+    95% matrix-cluster interval and the median tick come from ``summary``. ``None`` without a
+    method to draw.
+    """
+    if summary.height == 0:
+        return None
+    rows = list(summary.iter_rows(named=True))
+    names = [row["method"] for row in rows]
+    styles = group_series_styles(names, style.families, style.color_keys, style.marker_keys)
+    labels = [
+        factor_axis_label(
+            style.legend.label(row["method"]),
+            n_defined=row["n_defined"],
+            n_planned=row["n_planned"],
+        )
+        for row in rows
+    ]
+    column = METRICS[metric].column
+    fig, ax = plt.subplots(figsize=(8, max(3.0, 1.1 * len(names) + 1.5)))
+    if points.height > 0:
+        sns.stripplot(
+            data=plot_frame(points.select("method", column)),
+            x=column,
+            y="method",
+            order=names,
+            hue="method",
+            hue_order=names,
+            palette={name: styles[name]["color"] for name in names},
+            alpha=_POINT_ALPHA,
+            jitter=_POINT_JITTER,
+            legend=False,
+            ax=ax,
+        )
+    for position, row in enumerate(rows):
+        _draw_summary_marks(ax, position, row)
+    ax.plot(
+        [], [], "o", color=_SUMMARY_COLOR, label="mean over systems, 95% matrix-cluster interval"
+    )
+    ax.plot([], [], _MEDIAN_MARKER, color=_SUMMARY_COLOR, markersize=12, label="median")
+    ax.set_yticks(range(len(names)), labels)
+    ax.set_ylim(len(names) - 0.5, -0.5)
+    ax.set_xlim(left=0.0)
+    ax.set_xlabel(f"{METRICS[metric].label} (smaller converges faster)")
+    ax.set_ylabel("Method")
+    ax.grid(True, axis="x", alpha=0.3)
+    draw_legend(ax, style.legend, inside_loc="lower right")
+    finish_group_figure(
+        fig,
+        ax,
+        title=style.title,
+        subtitle=style.subtitle,
+        save_path=save_path,
+        show=False,
+        saved_message="Saved convergence factors to",
+    )
+    return save_path
+
+
+def _draw_summary_marks(ax: Axes, position: int, row: Mapping[str, object]) -> None:
+    """The mean with its interval whisker and the median tick of one summary row, if it has any."""
+    mean_and_interval = (
+        row["mean_over_systems"],
+        row["mean_over_systems_ci_low"],
+        row["mean_over_systems_ci_high"],
+    )
+    match mean_and_interval:
+        case float(mean), float(low), float(high):
+            ax.errorbar(
+                [mean],
+                [position],
+                xerr=[[mean - low], [high - mean]],
+                fmt="o",
+                color=_SUMMARY_COLOR,
+                capsize=4,
+                zorder=3,
+            )
+        case float(mean), None, None:
+            # Below two matrices the bootstrap gives no interval, so the mean stands alone.
+            ax.scatter([mean], [position], color=_SUMMARY_COLOR, zorder=3)
+        case None, None, None:
+            return
+        case other:
+            raise InconsistentSummaryRowError(
+                f"summary row has an inconsistent mean and interval: {other!r}"
+            )
+    match row["q50"]:
+        case float(median):
+            ax.scatter(
+                [median],
+                [position],
+                marker=_MEDIAN_MARKER,
+                s=_MEDIAN_MARKER_SIZE,
+                color=_SUMMARY_COLOR,
+                zorder=3,
+            )
+        case _:
+            return
+
+
+class InconsistentSummaryRowError(ValueError):
+    """A summary row has an interval without a mean, or only one end of an interval."""

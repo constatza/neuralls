@@ -45,6 +45,7 @@ class FigureKind(StrEnum):
     ECDF_TIME = "ecdf_time"
     SPEED_RATIO = "speed_ratio"
     BREAKEVEN = "breakeven"
+    CONVERGENCE_FACTOR = "convergence_factor"
     RESIDUAL_HISTORY = "residual_history"
     ENERGY_HISTORY = "energy_history"
 
@@ -127,6 +128,7 @@ class Statistic(StrEnum):
     PAIRED_VALUES = "paired_values"
     SPEED_RATIO_CDF = "speed_ratio_cdf"
     CUMULATIVE_COST = "cumulative_cost"
+    MEAN_AND_MEDIAN = "mean_and_median"
 
 
 class FailureTreatment(StrEnum):

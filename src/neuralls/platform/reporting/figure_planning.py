@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import assert_never
 
 import polars as pl
@@ -34,6 +35,7 @@ from neuralls.platform.reporting.figure_evidence import (
     FigureInterval,
     NoInterval,
     bootstrap_of_speed_ratios,
+    bootstrap_of_summary,
     outcome_counts_of,
     setup_sharing_of,
     timing_evidence_of,
@@ -58,6 +60,7 @@ from neuralls.platform.reporting.figure_table import build_group_table
 from neuralls.platform.reporting.group_drawers import (
     AGGREGATE_BARS_DRAWER,
     BREAK_EVEN_DRAWER,
+    CONVERGENCE_FACTOR_DRAWER,
     ECDF_ITERATIONS_DRAWER,
     ECDF_TIME_DRAWER,
     ONLINE_TIME_BARS_DRAWER,
@@ -342,6 +345,24 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             BREAK_EVEN_DRAWER,
             TableKind.COST_CURVES,
         ),
+        GroupFigureRecipe(
+            FigureKind.CONVERGENCE_FACTOR,
+            (
+                FigureVariant(
+                    "convergence_factor",
+                    "Convergence Factor",
+                    "residual reduction factor per iteration (r_J / r_0)^(1/J) of each converged "
+                    "system's stored history",
+                    MetricId.CONVERGENCE_FACTOR,
+                    Population.OWN,
+                    Statistic.MEAN_AND_MEDIAN,
+                ),
+            ),
+            FailureTreatment.OMITTED,
+            _PROFILE,
+            CONVERGENCE_FACTOR_DRAWER,
+            TableKind.SUMMARY,
+        ),
         HistoryFigureRecipe(
             FigureKind.RESIDUAL_HISTORY,
             HistoryVariant(
@@ -445,7 +466,7 @@ def _summary(
 ) -> pl.DataFrame | None:
     observations = outcome.observations
     match variant.statistic:
-        case Statistic.CONVERGED_COUNT:
+        case Statistic.CONVERGED_COUNT | Statistic.MEAN_AND_MEDIAN:
             return summarize(observations, variant.metric, variant.population)
         case Statistic.WORKLOAD_TOTAL:
             return build_group_table(outcome.summaries)
@@ -495,9 +516,7 @@ def _figure_metadata(
         for name in names
     )
     sources = tuple(
-        method_source(
-            stored[name].run_id, artifacts.setup_events, artifacts.solve_attempts, artifacts.summary
-        )
+        method_source(stored[name].run_id, *_source_artifacts(variant.metric, artifacts))
         for name in names
     )
     aggregation_rule = (
@@ -535,6 +554,29 @@ def _figure_metadata(
     )
 
 
+def _source_artifacts(metric: MetricId, artifacts: MethodBenchmarkArtifacts) -> tuple[Path, ...]:
+    """The stored artifacts a figure of ``metric`` is computed from.
+
+    Every group figure reads the setup and solve events and the summary; the convergence factor
+    also reads the residual histories, so its card cites them.
+    """
+    events = (artifacts.setup_events, artifacts.solve_attempts, artifacts.summary)
+    match metric:
+        case MetricId.CONVERGENCE_FACTOR:
+            return (*events, artifacts.convergence)
+        case (
+            MetricId.ITERATIONS
+            | MetricId.SOLVE_S
+            | MetricId.ONLINE_S
+            | MetricId.STANDALONE_S
+            | MetricId.SETUP_S
+            | MetricId.TIME_PER_ITERATION_S
+        ):
+            return events
+        case unreachable:
+            assert_never(unreachable)
+
+
 def _interval(variant: FigureVariant, outcome: GroupReport) -> FigureInterval:
     """The interval a variant draws; a figure that compares to a missing reference is not drawn."""
     observations = outcome.observations
@@ -545,6 +587,8 @@ def _interval(variant: FigureVariant, outcome: GroupReport) -> FigureInterval:
                     return NoInterval()
                 case reference:
                     return bootstrap_of_speed_ratios(observations, reference, variant.metric)
+        case Statistic.MEAN_AND_MEDIAN:
+            return bootstrap_of_summary(observations, variant.metric, variant.population)
         case (
             Statistic.CONVERGED_COUNT
             | Statistic.WORKLOAD_TOTAL

@@ -142,6 +142,7 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"ecdf_iterations_{recipe_stem}.png",
             f"ecdf_time_solve_{recipe_stem}.png",
             f"ecdf_time_online_{recipe_stem}.png",
+            f"convergence_factor_{recipe_stem}.png",
         }
     )
     assert artifact_names(run_of_level("matrix_set").info.run_id) == with_cards(

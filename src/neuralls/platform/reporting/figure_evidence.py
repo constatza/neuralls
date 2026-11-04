@@ -20,7 +20,12 @@ from neuralls.domain.benchmarking.uncertainty import MatrixClusterBootstrap
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId, Unit
 from neuralls.domain.solver.reporting.observations import Outcome
-from neuralls.domain.solver.reporting.summary import outcome_counts, timing_noise
+from neuralls.domain.solver.reporting.summary import (
+    Population,
+    outcome_counts,
+    select,
+    timing_noise,
+)
 from neuralls.shared.types import PreconditionerName
 
 SINGLE_REPEAT_WARNING = (
@@ -126,6 +131,17 @@ def bootstrap_of_speed_ratios(
     """
     ratios = speed_ratios(paired_systems(observations, reference, metric))
     return MatrixClusterBootstrap(matrices=ratios.select("dataset", "matrix_id").unique().height)
+
+
+def bootstrap_of_summary(
+    observations: pl.DataFrame, metric: MetricId, population: Population
+) -> MatrixClusterBootstrap:
+    """The bootstrap behind the per-method mean intervals of ``summarize``.
+
+    ``matrices`` counts the distinct matrices on which any method has a value of ``metric``.
+    """
+    defined = select(observations, metric, population)
+    return MatrixClusterBootstrap(matrices=defined.select("dataset", "matrix_id").unique().height)
 
 
 def setup_sharing_of(metric: MetricId, observations: pl.DataFrame) -> SetupSharing:

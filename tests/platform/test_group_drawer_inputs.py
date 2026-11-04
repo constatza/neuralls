@@ -25,6 +25,7 @@ from neuralls.domain.solver.models.labels import (
     render_group_id,
 )
 from neuralls.domain.solver.reporting.metrics import MetricId
+from neuralls.domain.solver.reporting.summary import Population, select
 from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, FigureKind
 from neuralls.platform.reporting.figure_planning import figure_summaries, group_recipe
 from neuralls.platform.reporting.group_drawers import FigureData
@@ -71,6 +72,7 @@ def plot_calls(monkeypatch: pytest.MonkeyPatch) -> PlotCalls:
         "plot_paired_time_scatter",
         "plot_speed_ratio_cdf",
         "plot_break_even_curves",
+        "plot_convergence_factors",
     ):
         monkeypatch.setattr(f"neuralls.platform.reporting.group_drawers.{name}", recorder(name))
     return calls
@@ -227,6 +229,29 @@ def test_the_break_even_curves_are_drawn_from_the_cost_curves_they_store_against
     (curves,) = _frames_of(call)
     assert call.options["reference_name"] == AMG
     assert_frame_equal(curves, figure_summaries(report)["breakeven"])
+
+
+def test_the_convergence_factors_are_drawn_from_their_summary_and_the_converged_points(
+    report: RecipeProfileReport, plot_calls: PlotCalls
+) -> None:
+    metric = MetricId.CONVERGENCE_FACTOR
+    _draw(report, FigureKind.CONVERGENCE_FACTOR, metric)
+
+    call = plot_calls.by_function["plot_convergence_factors"]
+    points, summary = _frames_of(call)
+    assert_frame_equal(points, select(report.observations, metric, Population.OWN))
+    assert_frame_equal(summary, figure_summaries(report)["convergence_factor"])
+    assert call.options["metric"] is metric
+
+
+def test_convergence_factors_are_not_drawn_without_a_summary_row(
+    report: RecipeProfileReport, plot_calls: PlotCalls
+) -> None:
+    recipe = group_recipe(FigureKind.CONVERGENCE_FACTOR)
+    empty = pl.DataFrame(schema=TABLE_SCHEMAS[recipe.table])
+
+    assert recipe.draw(_data(report, empty, MetricId.CONVERGENCE_FACTOR), PATH) is None
+    assert plot_calls.by_function == {}
 
 
 @pytest.mark.parametrize(

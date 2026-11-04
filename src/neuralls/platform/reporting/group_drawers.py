@@ -23,6 +23,7 @@ from neuralls.domain.benchmarking.paired import (
 from neuralls.domain.benchmarking.profiles import ProfileSeries, ecdf_series, performance_series
 from neuralls.domain.benchmarking.selection import ReferenceSelection
 from neuralls.domain.solver.reporting.metrics import MetricId
+from neuralls.domain.solver.reporting.summary import Population, select
 from neuralls.platform.reporting.outcome_plots import (
     GroupStyle,
     TotalColumn,
@@ -33,7 +34,10 @@ from neuralls.platform.reporting.outcome_plots import (
     plot_speed_ratio_cdf,
     plot_workload_bars,
 )
-from neuralls.platform.reporting.seaborn_cost_curves import plot_break_even_curves
+from neuralls.platform.reporting.seaborn_cost_curves import (
+    plot_break_even_curves,
+    plot_convergence_factors,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +148,21 @@ def _break_even(data: FigureData, path: Path) -> Path | None:
             )
 
 
+def _convergence_factors(data: FigureData, path: Path) -> Path | None:
+    """Per-system points are the observations the summary rows were taken over.
+
+    The summary states its population on every row; without a row there is nothing to draw.
+    """
+    match data.summary["population"].unique().to_list():
+        case [population]:
+            points = select(data.observations, data.metric, Population(population))
+            return plot_convergence_factors(
+                points, data.summary, metric=data.metric, style=data.style, save_path=path
+            )
+        case _:
+            return None
+
+
 AGGREGATE_BARS_DRAWER: GroupDrawer = _aggregate_bars
 SOLVE_TIME_BARS_DRAWER: GroupDrawer = _time_bars("solve_total_s", "Solve time [s]")
 ONLINE_TIME_BARS_DRAWER: GroupDrawer = _time_bars(
@@ -155,3 +174,4 @@ PERFORMANCE_PROFILE_DRAWER: GroupDrawer = _performance_profile
 ECDF_ITERATIONS_DRAWER: GroupDrawer = _ecdf(_ITERATIONS_XLABEL)
 ECDF_TIME_DRAWER: GroupDrawer = _ecdf(_TIME_XLABELS)
 BREAK_EVEN_DRAWER: GroupDrawer = _break_even
+CONVERGENCE_FACTOR_DRAWER: GroupDrawer = _convergence_factors

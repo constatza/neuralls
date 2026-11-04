@@ -28,9 +28,9 @@ from neuralls.domain.benchmarking.paired import (
 )
 from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
-from neuralls.domain.solver.reporting.metrics import MetricId
+from neuralls.domain.solver.reporting.metrics import METRICS, MetricId, Unit
 from neuralls.domain.solver.reporting.observations import Outcome
-from neuralls.domain.solver.reporting.summary import Population, timing_noise
+from neuralls.domain.solver.reporting.summary import Population, select, timing_noise
 from neuralls.platform.reporting.figure_card import (
     build_figure_card,
     card_payload,
@@ -70,14 +70,13 @@ _ONLINE_STEMS = sorted(
 _NOT_ONLINE_STEMS = sorted(
     variant.stem for variant in _PROFILE_VARIANTS if variant.metric is not MetricId.ONLINE_S
 )
-_NO_INTERVAL_STEMS = sorted(set(_BY_STEM) - {"speed_ratio_cdf"})
+_NO_INTERVAL_STEMS = sorted(set(_BY_STEM) - {"speed_ratio_cdf", "convergence_factor"})
 
+_TIME_UNITS = frozenset({Unit.SECONDS, Unit.SECONDS_PER_ITERATION})
 _TIME_STEMS = sorted(
-    variant.stem for variant in _PROFILE_VARIANTS if variant.metric is not MetricId.ITERATIONS
+    variant.stem for variant in _PROFILE_VARIANTS if METRICS[variant.metric].unit in _TIME_UNITS
 )
-_ITERATION_STEMS = sorted(
-    variant.stem for variant in _PROFILE_VARIANTS if variant.metric is MetricId.ITERATIONS
-)
+_UNTIMED_STEMS = sorted(set(_BY_STEM) - set(_TIME_STEMS))
 
 
 def _payloads(
@@ -211,6 +210,21 @@ def test_the_speed_ratio_card_states_its_interval(
     }
 
 
+def test_the_convergence_factor_card_states_the_interval_of_its_means(
+    profile_report: RecipeProfileReport, payloads: dict[str, Payload]
+) -> None:
+    """Every matrix on which a method converged a system with a history is a cluster."""
+    defined = select(profile_report.observations, MetricId.CONVERGENCE_FACTOR, Population.OWN)
+    matrices = defined.select(pl.struct("dataset", "matrix_id").n_unique()).item()
+
+    assert _table(payloads["convergence_factor"], "interval") == {
+        "method": INTERVAL_METHOD,
+        "level": CONFIDENCE_LEVEL,
+        "resamples": BOOTSTRAP_RESAMPLES,
+        "matrices": matrices,
+    }
+
+
 @pytest.mark.parametrize("stem", _ONLINE_STEMS)
 def test_an_online_card_lists_the_planned_rhs_counts_per_matrix(
     profile_report: RecipeProfileReport, payloads: dict[str, Payload], stem: str
@@ -260,7 +274,7 @@ def test_a_card_records_the_median_timing_spread_of_each_method_with_timed_solve
     assert _leaf_types(spread) == {float}
 
 
-@pytest.mark.parametrize("stem", _ITERATION_STEMS)
+@pytest.mark.parametrize("stem", _UNTIMED_STEMS)
 def test_a_card_of_a_metric_that_is_not_a_time_records_no_timing_evidence(
     single_repeat_payloads: dict[str, Payload], stem: str
 ) -> None:

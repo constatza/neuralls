@@ -90,6 +90,9 @@ _EXPECTED_SUMMARY: dict[str, SummaryOf] = {
         report.observations, JACOBI, REFERENCE_METRIC
     ),
     "breakeven": lambda report: break_even_curves(report.observations, JACOBI),
+    "convergence_factor": lambda report: summarize(
+        report.observations, MetricId.CONVERGENCE_FACTOR, Population.OWN
+    ),
 }
 """The frame each variant stores, from the domain statistics."""
 
