@@ -33,6 +33,7 @@ from neuralls.domain.solver.reporting.cohorts import (
     CohortRows,
     by_cohort,
 )
+from neuralls.domain.solver.reporting.matrix_breakdown import matrix_breakdown
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.summary import (
     RATIO_OF_SUMS_SCHEMA,
@@ -61,7 +62,14 @@ from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.types import PreconditionerName
 
 JACOBI = PreconditionerName("jacobi")
-_MEAN_STEMS = ("iteration_means", "setup_means", "time_means_online_common", "time_per_iteration")
+_MEAN_STEMS = (
+    "iteration_means",
+    "setup_means",
+    "time_means_online_common",
+    "time_per_iteration",
+    "iteration_distribution",
+    "time_distribution_online",
+)
 
 
 def _recipe_summaries(
@@ -135,6 +143,12 @@ _EXPECTED_SUMMARY: dict[str, SummaryOf] = {
         lambda observations: time_per_iteration_summary(observations, Population.OWN),
         CohortRows.RECIPES,
         schema=RATIO_OF_SUMS_SCHEMA,
+    ),
+    "iteration_distribution": lambda report: _recipe_summaries(report, MetricId.ITERATIONS),
+    "time_distribution_solve": lambda report: _recipe_summaries(report, MetricId.SOLVE_S),
+    "time_distribution_online": lambda report: _recipe_summaries(report, MetricId.ONLINE_S),
+    "matrix_heatmap_iterations": lambda report: matrix_breakdown(
+        report.observations, MetricId.ITERATIONS
     ),
 }
 """The frame each variant stores, from the domain statistics."""
@@ -274,6 +288,16 @@ def test_mean_bars_write_the_cohort_summary_table() -> None:
     kinds = (FigureKind.ITERATION_MEANS, FigureKind.TIME_MEANS, FigureKind.SETUP_MEANS)
 
     assert {group_recipe(kind).table for kind in kinds} == {TableKind.COHORT_SUMMARY}
+
+
+def test_distributions_write_the_cohort_summary_table_their_quantiles_are_read_from() -> None:
+    kinds = (FigureKind.ITERATION_DISTRIBUTION, FigureKind.TIME_DISTRIBUTION)
+
+    assert {group_recipe(kind).table for kind in kinds} == {TableKind.COHORT_SUMMARY}
+
+
+def test_the_matrix_heatmap_writes_the_matrix_breakdown_table() -> None:
+    assert group_recipe(FigureKind.MATRIX_HEATMAP).table is TableKind.MATRIX_BREAKDOWN
 
 
 def test_time_per_iteration_writes_the_cohort_ratio_of_sums_table() -> None:

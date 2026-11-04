@@ -178,6 +178,15 @@ behind a leading `cohort` column holding the recipe's lossless key; with
 `CohortRows.RECIPES_AND_MIXTURE` a last block is `statistic` of the whole of `obs`, labelled
 `MIXTURE_COHORT` (`"mixture"`, never a recipe key). `COHORT_SUMMARY_SCHEMA` and
 `COHORT_RATIO_OF_SUMS_SCHEMA` are `cohort_schema` of `SUMMARY_SCHEMA` and `RATIO_OF_SUMS_SCHEMA`.
+`reporting/matrix_breakdown.py::matrix_breakdown(obs, metric)` keeps each matrix apart: one
+`MATRIX_BREAKDOWN_SCHEMA` row per method and planned matrix (`method`, `metric`, `dataset`,
+`matrix_id`, `n_planned` planned RHS of the matrix, `n_defined` RHS that define the metric, `mean`),
+sorted by method, dataset and matrix, with
+$\bar{x}_{p,m} = \frac{1}{|\mathcal{P}^{\mathrm{own}}_{p,m}|} \sum_{s \in \mathcal{P}^{\mathrm{own}}_{p,m}} x_{p,s}$
+over the method's own population on the matrix; `mean` is null, never 0, when no RHS of the matrix
+defines the metric. A common population would empty every cell of a matrix on which any method
+failed, which is what the breakdown is meant to show. A per-matrix metric (`SETUP_S`) raises
+`ValueError`, since it has no RHS to average over.
 `residual_consistency(obs)` counts, per method, converged systems whose true residual exceeds
 `RESIDUAL_MISMATCH_FACTOR` times the stopping level and reports the worst ratio; classification
 is never changed by it. `timing_noise(obs)` gives the median `timing_spread` per method and

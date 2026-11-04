@@ -24,6 +24,10 @@ from neuralls.domain.solver.reporting.cohorts import (
     CohortRows,
     by_cohort,
 )
+from neuralls.domain.solver.reporting.matrix_breakdown import (
+    MATRIX_BREAKDOWN_SCHEMA,
+    matrix_breakdown,
+)
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.summary import (
     RATIO_OF_SUMS_SCHEMA,
@@ -74,6 +78,7 @@ def table_frames(profile_report: RecipeProfileReport) -> dict[str, pl.DataFrame]
             CohortRows.RECIPES,
             schema=RATIO_OF_SUMS_SCHEMA,
         ),
+        "MATRIX_BREAKDOWN": matrix_breakdown(observations, MetricId.ITERATIONS),
     }
 
 
@@ -93,6 +98,7 @@ def test_each_table_kind_has_the_schema_of_the_frame_it_stores() -> None:
     assert schemas[kind.WORKLOAD_TOTALS] == dict(build_group_table(()).schema)
     assert schemas[kind.COHORT_SUMMARY] == COHORT_SUMMARY_SCHEMA
     assert schemas[kind.COHORT_RATIO_OF_SUMS] == COHORT_RATIO_OF_SUMS_SCHEMA
+    assert schemas[kind.MATRIX_BREAKDOWN] == MATRIX_BREAKDOWN_SCHEMA
 
 
 @pytest.mark.parametrize("name", TABLE_KINDS)

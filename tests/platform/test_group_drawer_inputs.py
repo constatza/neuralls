@@ -73,6 +73,8 @@ def plot_calls(monkeypatch: pytest.MonkeyPatch) -> PlotCalls:
         "plot_speed_ratio_cdf",
         "plot_mean_bars",
         "plot_time_per_iteration",
+        "plot_distribution",
+        "plot_matrix_heatmap",
     ):
         monkeypatch.setattr(f"neuralls.platform.reporting.group_drawers.{name}", recorder(name))
     return calls
@@ -323,3 +325,36 @@ def test_time_per_iteration_is_drawn_from_its_ratio_table_and_the_observations(
 
 def _stem(kind: FigureKind, metric: MetricId) -> str:
     return group_recipe(kind).variant(metric, Population.OWN).stem
+
+
+@pytest.mark.parametrize(
+    ("kind", "metric"),
+    [
+        (FigureKind.ITERATION_DISTRIBUTION, MetricId.ITERATIONS),
+        (FigureKind.TIME_DISTRIBUTION, MetricId.SOLVE_S),
+        (FigureKind.TIME_DISTRIBUTION, MetricId.ONLINE_S),
+    ],
+)
+def test_a_distribution_is_drawn_from_its_cohort_summary_and_the_observations(
+    report: RecipeProfileReport, plot_calls: PlotCalls, kind: FigureKind, metric: MetricId
+) -> None:
+    _draw(report, kind, metric)
+
+    call = plot_calls.by_function["plot_distribution"]
+    drawn, observations = _frames_of(call)
+    assert_frame_equal(drawn, figure_summaries(report)[_stem(kind, metric)])
+    assert_frame_equal(observations, report.observations)
+    assert call.options["metric"] is metric
+
+
+def test_the_matrix_heatmap_is_drawn_from_the_breakdown_it_stores(
+    report: RecipeProfileReport, plot_calls: PlotCalls
+) -> None:
+    _draw(report, FigureKind.MATRIX_HEATMAP, MetricId.ITERATIONS)
+
+    call = plot_calls.by_function["plot_matrix_heatmap"]
+    (drawn,) = _frames_of(call)
+    assert_frame_equal(
+        drawn, figure_summaries(report)[_stem(FigureKind.MATRIX_HEATMAP, MetricId.ITERATIONS)]
+    )
+    assert call.options["metric"] is MetricId.ITERATIONS

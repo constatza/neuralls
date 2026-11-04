@@ -8,7 +8,8 @@ profiles while their measured attempt time stays in workload totals.
 
 ``observations`` joins one method's stored frames into one row per planned system, ``metrics``
 catalogs what can be summarized and on which outcomes, and ``summary`` applies that failure rule
-once to give per-method means, quantiles and matrix-cluster intervals.
+once to give per-method means, quantiles and matrix-cluster intervals; ``matrix_breakdown`` gives
+one mean per method and matrix.
 
 Report-level summaries retain planned, attempted, converged, and matrix counts
 independently. Confidence intervals resample whole matrix clusters so sibling

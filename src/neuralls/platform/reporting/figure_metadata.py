@@ -20,6 +20,7 @@ from neuralls.domain.solver.reporting.cohorts import (
     COHORT_RATIO_OF_SUMS_SCHEMA,
     COHORT_SUMMARY_SCHEMA,
 )
+from neuralls.domain.solver.reporting.matrix_breakdown import MATRIX_BREAKDOWN_SCHEMA
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.domain.solver.reporting.summary import SUMMARY_SCHEMA, Population
@@ -51,6 +52,9 @@ class FigureKind(StrEnum):
     TIME_MEANS = "time_means"
     SETUP_MEANS = "setup_means"
     TIME_PER_ITERATION = "time_per_iteration"
+    ITERATION_DISTRIBUTION = "iteration_distribution"
+    TIME_DISTRIBUTION = "time_distribution"
+    MATRIX_HEATMAP = "matrix_heatmap"
     RESIDUAL_HISTORY = "residual_history"
     ENERGY_HISTORY = "energy_history"
 
@@ -73,6 +77,7 @@ class TableKind(StrEnum):
     compared method and ``WORKLOAD_TOTALS`` one row of workload sums per method.
     ``COHORT_SUMMARY`` and ``COHORT_RATIO_OF_SUMS`` hold per-method statistics by cohort: one block
     per recipe, and at a mixture level the pooled block too (``domain/solver/reporting/cohorts.py``).
+    ``MATRIX_BREAKDOWN`` holds one row per method and matrix, exactly the cells of a heatmap.
     """
 
     SUMMARY = "summary"
@@ -82,6 +87,7 @@ class TableKind(StrEnum):
     WORKLOAD_TOTALS = "workload_totals"
     COHORT_SUMMARY = "cohort_summary"
     COHORT_RATIO_OF_SUMS = "cohort_ratio_of_sums"
+    MATRIX_BREAKDOWN = "matrix_breakdown"
 
 
 type TableSchema = Mapping[str, pl.DataType | type[pl.DataType]]
@@ -105,6 +111,7 @@ TABLE_SCHEMAS: Mapping[TableKind, TableSchema] = {
     TableKind.WORKLOAD_TOTALS: WORKLOAD_TOTALS_SCHEMA,
     TableKind.COHORT_SUMMARY: COHORT_SUMMARY_SCHEMA,
     TableKind.COHORT_RATIO_OF_SUMS: COHORT_RATIO_OF_SUMS_SCHEMA,
+    TableKind.MATRIX_BREAKDOWN: MATRIX_BREAKDOWN_SCHEMA,
 }
 """The columns and dtypes, in order, of the table each kind stores; the frames come from the
 domain statistics, so a schema change there reaches the stored tables through this mapping."""
@@ -130,6 +137,8 @@ class Statistic(StrEnum):
     """What a group figure draws of its metric.
 
     The values of the bar statistics are also the summary-table columns their bars are read from.
+    ``QUANTILES`` draws a distribution whose box and whiskers are the summary's ``q05`` to ``q95``;
+    ``MEAN_PER_MATRIX`` draws one mean per method and matrix.
     """
 
     CONVERGED_COUNT = "converged_count"
@@ -141,6 +150,8 @@ class Statistic(StrEnum):
     MEAN_OVER_SYSTEMS = "mean_over_systems"
     MEAN_OVER_MATRICES = "mean_over_matrices"
     RATIO_OF_SUMS = "ratio_of_sums"
+    QUANTILES = "quantiles"
+    MEAN_PER_MATRIX = "mean_per_matrix"
 
 
 class FailureTreatment(StrEnum):

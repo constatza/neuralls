@@ -130,7 +130,7 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
         )
 
     def mean_bars(stem: str) -> set[str]:
-        """The mean and time-per-iteration bars, which every report level draws."""
+        """The mean and time-per-iteration bars and the distributions, drawn at every level."""
         return {
             f"{kind}_{stem}.png"
             for kind in (
@@ -142,6 +142,9 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
                 ),
                 "setup_means",
                 "time_per_iteration",
+                "iteration_distribution",
+                "time_distribution_solve",
+                "time_distribution_online",
             )
         }
 
@@ -158,6 +161,7 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"ecdf_iterations_{recipe_stem}.png",
             f"ecdf_time_solve_{recipe_stem}.png",
             f"ecdf_time_online_{recipe_stem}.png",
+            f"matrix_heatmap_iterations_{recipe_stem}.png",
             *mean_bars(recipe_stem),
         }
     )

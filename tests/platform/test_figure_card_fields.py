@@ -226,6 +226,44 @@ def test_mean_figures_exist_for_every_mean_kind() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("stem", "definition"),
+    [
+        (
+            "iteration_distribution",
+            (
+                "distribution of iterations to converge over systems, own population; box at "
+                "q25, q50, q75 and whiskers from q05 to q95 of the systems, a distribution "
+                "summary and not a confidence interval; points are per-matrix means"
+            ),
+        ),
+        (
+            "time_distribution_online",
+            (
+                "distribution of online time per system [s] over systems, own population; box at "
+                "q25, q50, q75 and whiskers from q05 to q95 of the systems, a distribution "
+                "summary and not a confidence interval; points are per-matrix means"
+            ),
+        ),
+    ],
+)
+def test_a_distribution_card_states_its_whiskers_are_no_confidence_interval(
+    payloads: dict[str, Payload], stem: str, definition: str
+) -> None:
+    assert (payloads[stem]["metric_definition"], "interval" in payloads[stem]) == (
+        definition,
+        False,
+    )
+
+
+def test_the_matrix_heatmap_card_states_what_a_cell_is() -> None:
+    assert _BY_STEM["matrix_heatmap_iterations"].metric_definition == (
+        "mean of iterations to converge over the converged RHS of each matrix, per method; "
+        "a hatched cell has no converged RHS and is labelled 0/r solved, r the planned RHS "
+        "of the matrix"
+    )
+
+
 @pytest.mark.parametrize("stem", _OWN_MEAN_STEMS)
 def test_a_mean_card_states_the_matrix_cluster_bootstrap_of_its_whiskers(
     profile_report: RecipeProfileReport, payloads: dict[str, Payload], stem: str

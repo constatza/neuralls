@@ -34,6 +34,10 @@ from neuralls.platform.reporting.outcome_plots import (
     plot_speed_ratio_cdf,
     plot_workload_bars,
 )
+from neuralls.platform.reporting.seaborn_distributions import (
+    plot_distribution,
+    plot_matrix_heatmap,
+)
 from neuralls.platform.reporting.seaborn_means import (
     BarStatistic,
     plot_mean_bars,
@@ -154,6 +158,16 @@ def _time_per_iteration(data: FigureData, path: Path) -> Path | None:
     )
 
 
+def _distribution(data: FigureData, path: Path) -> Path | None:
+    return plot_distribution(
+        data.summary, data.observations, metric=data.metric, style=data.style, save_path=path
+    )
+
+
+def _matrix_heatmap(data: FigureData, path: Path) -> Path | None:
+    return plot_matrix_heatmap(data.summary, metric=data.metric, style=data.style, save_path=path)
+
+
 AGGREGATE_BARS_DRAWER: GroupDrawer = _aggregate_bars
 SOLVE_TIME_BARS_DRAWER: GroupDrawer = _time_bars("solve_total_s", "Solve time [s]")
 ONLINE_TIME_BARS_DRAWER: GroupDrawer = _time_bars(
@@ -167,3 +181,5 @@ ECDF_TIME_DRAWER: GroupDrawer = _ecdf(_TIME_XLABELS)
 MEAN_OVER_SYSTEMS_DRAWER: GroupDrawer = _mean_bars(Statistic.MEAN_OVER_SYSTEMS)
 MEAN_OVER_MATRICES_DRAWER: GroupDrawer = _mean_bars(Statistic.MEAN_OVER_MATRICES)
 TIME_PER_ITERATION_DRAWER: GroupDrawer = _time_per_iteration
+DISTRIBUTION_DRAWER: GroupDrawer = _distribution
+MATRIX_HEATMAP_DRAWER: GroupDrawer = _matrix_heatmap

@@ -14,10 +14,10 @@ recipes differ.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, assert_never
+from typing import Literal, Protocol, assert_never
 
 import matplotlib.pyplot as plt
 import polars as pl
@@ -154,18 +154,38 @@ def _whisker(row: Mapping[str, object], statistic: BarStatistic) -> Whisker | No
             assert_never(unreachable)
 
 
-def panel_points(observations: pl.DataFrame, panel: BarPanel, metric: MetricId) -> pl.DataFrame:
+class CohortPanel(Protocol):
+    """A panel of one recipe cohort, drawn over the systems of one population."""
+
+    @property
+    def cohort(self) -> str: ...
+
+    @property
+    def population(self) -> Population: ...
+
+
+def cohort_systems(
+    observations: pl.DataFrame, panel: CohortPanel, metric: MetricId
+) -> pl.DataFrame:
+    """The observation rows behind ``panel``: its recipe's systems that define ``metric``."""
+    return select(observations, metric, panel.population).filter(pl.col("recipe") == panel.cohort)
+
+
+def panel_points(observations: pl.DataFrame, panel: CohortPanel, metric: MetricId) -> pl.DataFrame:
     """The per-system values behind ``panel``: its recipe's selected systems, ``method, value``."""
-    return (
-        select(observations, metric, panel.population)
-        .filter(pl.col("recipe") == panel.cohort)
-        .select("method", value=METRICS[metric].column)
+    return cohort_systems(observations, panel, metric).select(
+        "method", value=METRICS[metric].column
     )
 
 
 def defined_label(bar: MethodBar, metric: MetricId) -> str:
     """The annotation of ``bar``: how many of its planned units define ``metric``."""
-    return f"{bar.n_defined}/{bar.n_planned} {_defined_word(metric)}"
+    return count_label(bar.n_defined, bar.n_planned, metric)
+
+
+def count_label(n_defined: int, n_planned: int, metric: MetricId) -> str:
+    """How many of ``n_planned`` units define ``metric``, in the metric's words: "k/n solved"."""
+    return f"{n_defined}/{n_planned} {_defined_word(metric)}"
 
 
 def _defined_word(metric: MetricId) -> str:
@@ -241,47 +261,69 @@ def plot_time_per_iteration(
     )
 
 
-def _draw_panels(
-    panels: Sequence[BarPanel],
-    points: Mapping[str, pl.DataFrame],
+@dataclass(frozen=True, slots=True)
+class MethodPalette:
+    """The drawn label of each method, in row order, and the colour of each label."""
+
+    labels: Mapping[PreconditionerName, str]
+    colors: Mapping[str, object]
+
+    @property
+    def order(self) -> list[str]:
+        """The labels from the top row down."""
+        return list(self.labels.values())
+
+
+def method_palette(names: Sequence[PreconditionerName], style: GroupStyle) -> MethodPalette:
+    """The labels and series colours of ``names``, sorted, as every report figure draws them."""
+    ordered = sorted(names)
+    labels = {name: style.legend.label(name) for name in ordered}
+    styles = group_series_styles(ordered, style.families, style.color_keys, style.marker_keys)
+    return MethodPalette(labels, {labels[name]: styles[name]["color"] for name in ordered})
+
+
+type PanelDrawer = Callable[[Axes, int], None]
+"""Draws the panel at a column index into its axes, including the x label."""
+
+
+def draw_recipe_panels(
+    cohorts: Sequence[str],
+    palette: MethodPalette,
     *,
-    statistic: BarStatistic,
-    metric: MetricId,
+    draw_panel: PanelDrawer,
     style: GroupStyle,
     save_path: Path,
     saved_message: str,
 ) -> Path | None:
-    """Draw ``panels`` side by side under one header that carries the scope."""
-    if not panels:
+    """Draw one panel per recipe cohort side by side, method rows shared, under one header.
+
+    Each panel is titled by its rendered recipe when there are several; ``None`` when there is no
+    cohort to draw.
+    """
+    if not cohorts:
         return None
-    names = sorted({bar.method for panel in panels for bar in panel.bars})
-    labels = {name: style.legend.label(name) for name in names}
-    styles = group_series_styles(names, style.families, style.color_keys, style.marker_keys)
-    palette = {labels[name]: styles[name]["color"] for name in names}
-    widest = max(len(line) for label in labels.values() for line in label.split("\n"))
+    widest = max(len(line) for label in palette.order for line in label.split("\n"))
     fig = plt.figure(
         figsize=(
-            widest * _LABEL_CHAR_WIDTH_IN + _PANEL_WIDTH_IN * len(panels),
-            max(_MIN_HEIGHT_IN, len(names) * _ROW_HEIGHT_IN + 2.0),
+            widest * _LABEL_CHAR_WIDTH_IN + _PANEL_WIDTH_IN * len(cohorts),
+            max(_MIN_HEIGHT_IN, len(palette.labels) * _ROW_HEIGHT_IN + 2.0),
         )
     )
-    grid = fig.add_gridspec(2, len(panels), height_ratios=(_HEADER_RATIO, 1.0))
+    grid = fig.add_gridspec(2, len(cohorts), height_ratios=(_HEADER_RATIO, 1.0))
     header = fig.add_subplot(grid[0, :])
     header.axis("off")
     first = fig.add_subplot(grid[1, 0])
     axes = [
         first,
-        *(fig.add_subplot(grid[1, column], sharey=first) for column in range(1, len(panels))),
+        *(fig.add_subplot(grid[1, column], sharey=first) for column in range(1, len(cohorts))),
     ]
-    xlabel = f"{bar_statistic_text(statistic).capitalize()}: {METRICS[metric].label}"
-    for column, (ax, panel) in enumerate(zip(axes, panels, strict=True)):
-        _draw_panel(ax, panel, points.get(panel.cohort, _NO_POINTS), labels, palette, metric)
-        ax.set_xlabel(xlabel)
+    for column, (ax, cohort) in enumerate(zip(axes, cohorts, strict=True)):
+        draw_panel(ax, column)
         ax.set_ylabel("Method" if column == 0 else "")
         if column > 0:
             ax.tick_params(labelleft=False)
-        if len(panels) > 1:
-            recipe = parse_recipe_key(panel.cohort)
+        if len(cohorts) > 1:
+            recipe = parse_recipe_key(cohort)
             ax.set_title(render_recipe(recipe, TITLE_PROFILE, style.notation), fontsize=9)
     finish_group_figure(
         fig,
@@ -295,15 +337,44 @@ def _draw_panels(
     return save_path
 
 
+def _draw_panels(
+    panels: Sequence[BarPanel],
+    points: Mapping[str, pl.DataFrame],
+    *,
+    statistic: BarStatistic,
+    metric: MetricId,
+    style: GroupStyle,
+    save_path: Path,
+    saved_message: str,
+) -> Path | None:
+    """Draw ``panels`` side by side under one header that carries the scope."""
+    palette = method_palette(list({bar.method for panel in panels for bar in panel.bars}), style)
+    xlabel = f"{bar_statistic_text(statistic).capitalize()}: {METRICS[metric].label}"
+
+    def draw_panel(ax: Axes, column: int) -> None:
+        panel = panels[column]
+        _draw_panel(ax, panel, points.get(panel.cohort, _NO_POINTS), palette, metric)
+        ax.set_xlabel(xlabel)
+
+    return draw_recipe_panels(
+        [panel.cohort for panel in panels],
+        palette,
+        draw_panel=draw_panel,
+        style=style,
+        save_path=save_path,
+        saved_message=saved_message,
+    )
+
+
 def _draw_panel(
     ax: Axes,
     panel: BarPanel,
     points: pl.DataFrame,
-    labels: Mapping[PreconditionerName, str],
-    palette: Mapping[str, object],
+    palette: MethodPalette,
     metric: MetricId,
 ) -> None:
-    order = list(labels.values())
+    labels = palette.labels
+    order = palette.order
     bars = pl.DataFrame(
         {
             "label": [labels[bar.method] for bar in panel.bars],
@@ -318,7 +389,7 @@ def _draw_panel(
         order=order,
         hue="label",
         hue_order=order,
-        palette=dict(palette),
+        palette=dict(palette.colors),
         legend=False,
         errorbar=None,
         orient="h",
@@ -342,15 +413,34 @@ def _draw_panel(
     rows = {label: position for position, label in enumerate(order)}
     # The annotation starts right of the method's last point, so it never covers a point.
     point_ends = dict(points.group_by("method").agg(pl.col("value").max()).iter_rows())
-    starts = []
+    annotations = []
     for bar in panel.bars:
         row = rows[labels[bar.method]]
         start = max(_draw_whisker(ax, bar, row), point_ends.get(bar.method, 0.0))
-        starts.append(start)
+        annotations.append(RowAnnotation(row, start, defined_label(bar, metric)))
+    annotate_rows(ax, annotations)
+
+
+@dataclass(frozen=True, slots=True)
+class RowAnnotation:
+    """The text right of a method's row, starting where the row's last mark ends."""
+
+    row: int
+    start: float
+    text: str
+
+
+def annotate_rows(ax: Axes, annotations: Sequence[RowAnnotation]) -> None:
+    """Write each annotation and widen the x axis from 0 so the rightmost one fits inside."""
+    for annotation in annotations:
         ax.text(
-            start, row, f" {defined_label(bar, metric)}", va="center", fontsize=LEGEND_FONT_SIZE
+            annotation.start,
+            annotation.row,
+            f" {annotation.text}",
+            va="center",
+            fontsize=LEGEND_FONT_SIZE,
         )
-    rightmost = max(starts, default=0.0)
+    rightmost = max((annotation.start for annotation in annotations), default=0.0)
     if rightmost > 0.0:
         ax.set_xlim(0.0, rightmost * _ANNOTATION_ROOM)
     else:

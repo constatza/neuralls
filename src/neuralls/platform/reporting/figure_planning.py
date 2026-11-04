@@ -22,6 +22,7 @@ from neuralls.domain.solver.models.group_outcomes import (
 )
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.reporting.cohorts import CohortRows, by_cohort
+from neuralls.domain.solver.reporting.matrix_breakdown import matrix_breakdown
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.report_levels import (
     level_name,
@@ -64,8 +65,10 @@ from neuralls.platform.reporting.figure_metadata import (
 from neuralls.platform.reporting.figure_table import build_group_table
 from neuralls.platform.reporting.group_drawers import (
     AGGREGATE_BARS_DRAWER,
+    DISTRIBUTION_DRAWER,
     ECDF_ITERATIONS_DRAWER,
     ECDF_TIME_DRAWER,
+    MATRIX_HEATMAP_DRAWER,
     MEAN_OVER_MATRICES_DRAWER,
     MEAN_OVER_SYSTEMS_DRAWER,
     ONLINE_TIME_BARS_DRAWER,
@@ -200,6 +203,33 @@ def _bar_variant(
         metric,
         population,
         statistic,
+    )
+
+
+_DISTRIBUTION_SUMMARY = (
+    "box at q25, q50, q75 and whiskers from q05 to q95 of the systems, a distribution summary "
+    "and not a confidence interval; points are per-matrix means"
+)
+"""What a distribution's marks are; its card records no interval, so this says why."""
+
+_DISTRIBUTION_TIMES: tuple[tuple[str, str, MetricId], ...] = (
+    ("solve", "Solve Time", MetricId.SOLVE_S),
+    ("online", "Online Time", MetricId.ONLINE_S),
+)
+"""File-stem word, title and metric of each time whose distribution is drawn."""
+
+
+def _distribution_variant(stem: str, title: str, metric: MetricId) -> FigureVariant:
+    """A distribution over each method's own systems, whose quantiles the summary table holds."""
+    population = Population.OWN
+    return FigureVariant(
+        stem,
+        f"{title} Distribution",
+        f"distribution of {METRICS[metric].label} over systems, {population} population; "
+        f"{_DISTRIBUTION_SUMMARY}",
+        metric,
+        population,
+        Statistic.QUANTILES,
     )
 
 
@@ -435,6 +465,46 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             TIME_PER_ITERATION_DRAWER,
             TableKind.COHORT_RATIO_OF_SUMS,
         ),
+        GroupFigureRecipe(
+            FigureKind.ITERATION_DISTRIBUTION,
+            (_distribution_variant("iteration_distribution", "Iteration", MetricId.ITERATIONS),),
+            FailureTreatment.OMITTED,
+            _BOTH,
+            DISTRIBUTION_DRAWER,
+            TableKind.COHORT_SUMMARY,
+        ),
+        GroupFigureRecipe(
+            FigureKind.TIME_DISTRIBUTION,
+            tuple(
+                _distribution_variant(f"time_distribution_{word}", title, metric)
+                for word, title, metric in _DISTRIBUTION_TIMES
+            ),
+            FailureTreatment.OMITTED,
+            _BOTH,
+            DISTRIBUTION_DRAWER,
+            TableKind.COHORT_SUMMARY,
+        ),
+        GroupFigureRecipe(
+            FigureKind.MATRIX_HEATMAP,
+            (
+                FigureVariant(
+                    "matrix_heatmap_iterations",
+                    "Iterations per Matrix",
+                    f"mean of {METRICS[MetricId.ITERATIONS].label} over the converged RHS of "
+                    "each matrix, per method; a hatched cell has no converged RHS and is "
+                    "labelled 0/r solved, r the planned RHS of the matrix",
+                    MetricId.ITERATIONS,
+                    Population.OWN,
+                    Statistic.MEAN_PER_MATRIX,
+                ),
+            ),
+            FailureTreatment.OMITTED,
+            # A mixture level would pool recipes inside a matrix's cell; the recipe levels below
+            # it already draw every matrix once per recipe.
+            _PROFILE,
+            MATRIX_HEATMAP_DRAWER,
+            TableKind.MATRIX_BREAKDOWN,
+        ),
         HistoryFigureRecipe(
             FigureKind.RESIDUAL_HISTORY,
             HistoryVariant(
@@ -558,7 +628,7 @@ def _summary(
                 if reference is None
                 else speed_ratio_summary(observations, reference, variant.metric)
             )
-        case Statistic.MEAN_OVER_SYSTEMS | Statistic.MEAN_OVER_MATRICES:
+        case Statistic.MEAN_OVER_SYSTEMS | Statistic.MEAN_OVER_MATRICES | Statistic.QUANTILES:
             metric, population = variant.metric, variant.population
             return by_cohort(
                 observations,
@@ -574,6 +644,8 @@ def _summary(
                 _cohort_rows(outcome),
                 schema=RATIO_OF_SUMS_SCHEMA,
             )
+        case Statistic.MEAN_PER_MATRIX:
+            return matrix_breakdown(observations, variant.metric)
         case unreachable:
             assert_never(unreachable)
 
@@ -672,6 +744,8 @@ def _interval(variant: FigureVariant, outcome: GroupReport) -> FigureInterval:
             | Statistic.PERFORMANCE_PROFILE
             | Statistic.PAIRED_VALUES
             | Statistic.RATIO_OF_SUMS
+            | Statistic.QUANTILES
+            | Statistic.MEAN_PER_MATRIX
         ):
             return NoInterval()
         case unreachable:

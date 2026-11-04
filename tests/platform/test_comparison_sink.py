@@ -357,8 +357,11 @@ _MEAN_STEMS = (
     "time_means_standalone_common",
     "setup_means",
     "time_per_iteration",
+    "iteration_distribution",
+    "time_distribution_solve",
+    "time_distribution_online",
 )
-"""The bar figures of means and time per iteration, drawn at every report level."""
+"""The figures of means, time per iteration and distributions, drawn at every report level."""
 
 
 def test_mixture_sink_omits_profiles_but_keeps_the_bars(
@@ -587,6 +590,7 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
             "ecdf_iterations",
             "ecdf_time_solve",
             "ecdf_time_online",
+            "matrix_heatmap_iterations",
             *_MEAN_STEMS,
         )
     }
