@@ -56,6 +56,20 @@ SUMMARY_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
 """One row per method. ``n_planned`` and ``n_defined`` count the metric's observation units (systems
 or matrices); the per-outcome counts always count systems, whichever the metric's unit."""
 
+RATIO_OF_SUMS_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
+    "method": pl.String,
+    "metric": pl.String,
+    "population": pl.String,
+    "n_planned": pl.Int64,
+    "n_defined": pl.Int64,
+    "n_matrices": pl.Int64,
+    "solve_s_sum": pl.Float64,
+    "iterations_sum": pl.Int64,
+    "ratio_of_sums": pl.Float64,
+}
+"""One row per method of ``time_per_iteration_summary``; the sums and ratio are null when the
+method has no system that returned an iterate."""
+
 RESIDUAL_CONSISTENCY_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "method": pl.String,
     "n_checked": pl.Int64,
@@ -227,6 +241,37 @@ def _statistics(spec: MetricSpec, selected: pl.DataFrame, seed: int) -> dict[str
         "mean_over_matrices_ci_low": matrices_ci.low if matrices_ci else None,
         "mean_over_matrices_ci_high": matrices_ci.high if matrices_ci else None,
     }
+
+
+def time_per_iteration_summary(obs: pl.DataFrame, population: Population) -> pl.DataFrame:
+    """Per method, summed solve seconds over summed iterations, with ``RATIO_OF_SUMS_SCHEMA``.
+
+    The sums run over the systems ``select`` keeps for ``TIME_PER_ITERATION_S``, those that
+    returned an iterate after at least one iteration. A ratio of sums weighs every iteration the
+    same, so a few long solves are not outvoted by many short ones whose fixed per-solve overhead
+    inflates their own rate, which a mean of per-system rates would let happen.
+    """
+    metric = MetricId.TIME_PER_ITERATION_S
+    selected = select(obs, metric, population)
+    sums = selected.group_by("method").agg(
+        n_defined=pl.len(),
+        n_matrices=pl.struct(_MATRIX_KEYS).n_unique(),
+        solve_s_sum=pl.col("solve_s").sum(),
+        iterations_sum=pl.col("iterations").sum(),
+    )
+    planned = obs.group_by("method").agg(n_planned=pl.len())
+    return (
+        planned.join(sums, on="method", how="left")
+        .sort("method")
+        .with_columns(
+            pl.col("n_defined", "n_matrices").fill_null(0),
+            metric=pl.lit(str(metric)),
+            population=pl.lit(str(population)),
+            ratio_of_sums=pl.col("solve_s_sum") / pl.col("iterations_sum"),
+        )
+        .select(list(RATIO_OF_SUMS_SCHEMA))
+        .cast(pl.Schema(RATIO_OF_SUMS_SCHEMA))
+    )
 
 
 def residual_consistency(obs: pl.DataFrame) -> pl.DataFrame:

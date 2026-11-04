@@ -39,10 +39,11 @@ from neuralls.domain.solver.reporting.observations import (
     observations_of_methods,
 )
 from neuralls.shared.device import SingleRun
+from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
 from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL
 from tests.provenance_support import provenance_for
-from tests.recipe_support import GAUSSIAN
+from tests.recipe_support import GAUSSIAN, SINE
 
 DATASET = DatasetId("ds")
 AMG = PreconditionerName("amg")
@@ -279,6 +280,23 @@ def synthetic_observations(rows: Sequence[SyntheticRow]) -> pl.DataFrame:
             for row in rows
         ],
         schema=OBSERVATION_SCHEMA,
+    )
+
+
+SECOND_RECIPE_MATRICES = (3, 4)
+"""The matrices ``with_second_recipe`` moves to the second recipe."""
+
+
+def with_second_recipe(observations: pl.DataFrame) -> pl.DataFrame:
+    """``observations`` with the systems of ``SECOND_RECIPE_MATRICES`` drawn from ``SINE``.
+
+    The unbalanced workload then mixes two recipes: matrices 1 and 2 stay Gaussian, so every
+    outcome but setup failure stays in the first recipe.
+    """
+    return observations.with_columns(
+        recipe=pl.when(pl.col("matrix_id").is_in(SECOND_RECIPE_MATRICES))
+        .then(pl.lit(recipe_key(SINE)))
+        .otherwise(pl.col("recipe"))
     )
 
 
