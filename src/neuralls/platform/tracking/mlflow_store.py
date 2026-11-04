@@ -313,14 +313,6 @@ def _validate_summary(
     _require_close(online.get("setup_s"), setup_total, "setup total")
     _require_close(online.get("solve_s"), solve_total, "solve total")
     _require_close(online.get("workload_s"), workload_total, "workload total")
-    if solved_ids:
-        _require_close(
-            online.get("per_attempted_rhs_s"),
-            workload_total / len(solved_ids),
-            "attempted-RHS average",
-        )
-    elif "per_attempted_rhs_s" in online:
-        raise ValueError("empty solve membership must not declare an average")
 
 
 def _validate_summary_memory(memory: object) -> None:

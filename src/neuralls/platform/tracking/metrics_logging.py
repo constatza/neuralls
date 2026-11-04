@@ -5,12 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import mlflow
+import polars as pl
 
 from neuralls.domain.presentation.methods import (
     PreparedMethodPresentation,
 )
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
-from neuralls.domain.solver.models.statistics import MethodComparison, PairedComparison
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.storage.facts_codec import encode_method_parameters
@@ -79,23 +79,29 @@ def _log_optional_metrics(preconditioner_name: str, metrics: Mapping[str, float 
             mlflow.log_metric(parent_run_metric_key(metric, preconditioner_name), value)
 
 
-def _paired_metrics(paired: PairedComparison) -> dict[str, float | None]:
-    """Failure counts, median ratio, and matrix-cluster interval."""
-    interval = paired.median_speed_ratio_ci
-    return {
-        "n_both_solved": float(paired.n_both_solved),
-        "n_reference_only": float(paired.n_reference_only),
-        "n_method_only": float(paired.n_method_only),
-        "speed_ratio_median": paired.median_speed_ratio,
-        "speed_ratio_ci_low": interval.low if interval is not None else None,
-        "speed_ratio_ci_high": interval.high if interval is not None else None,
-    }
+_SPEED_RATIO_METRIC_COLUMNS = {
+    "n_both_solved": "n_systems_both_solved",
+    "n_reference_only": "n_reference_only",
+    "n_method_only": "n_method_only",
+    "n_ratio": "n_ratio",
+    "n_matrices": "n_matrices",
+    "speed_ratio_median": "median_ratio",
+    "speed_ratio_ci_low": "ci_low",
+    "speed_ratio_ci_high": "ci_high",
+}
+"""MLflow metric name -> ``SPEED_RATIO_SCHEMA`` column it is logged from."""
 
 
-def log_comparison_metrics(comparisons: Mapping[PreconditionerName, MethodComparison]) -> None:
-    """Log each method's failure-aware reference/method speed ratios."""
-    for name, comparison in comparisons.items():
-        _log_optional_metrics(name, _paired_metrics(comparison.paired))
+def log_comparison_metrics(speed_ratios: pl.DataFrame) -> None:
+    """Log each method's failure-aware reference/method speed ratios.
+
+    ``speed_ratios`` holds ``SPEED_RATIO_SCHEMA`` rows, one per non-reference method.
+    """
+    for row in speed_ratios.iter_rows(named=True):
+        _log_optional_metrics(
+            row["method"],
+            {metric: row[column] for metric, column in _SPEED_RATIO_METRIC_COLUMNS.items()},
+        )
 
 
 def log_configured_method_facts(prepared: PreparedMethodPresentation) -> None:

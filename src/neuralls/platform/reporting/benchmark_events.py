@@ -258,8 +258,6 @@ def _write_summary(workload: MethodWorkload, summary: MethodWorkloadSummary, pat
         },
         "memory": {"status": peak_status},
     }
-    if summary.online_s_per_attempted_rhs is not None:
-        payload["online"]["per_attempted_rhs_s"] = summary.online_s_per_attempted_rhs
     if peak_bytes is not None:
         memory = cast(dict[str, Any], dict(payload["memory"]))
         memory["peak_bytes"] = peak_bytes

@@ -11,7 +11,7 @@ The platform package isolates external integrations and side-effecting helpers.
 - `storage/errors.py`: `_raise_storage_error`, the OSError translation every storage module shares.
 - `storage/dense_stream.py`: streamed dense persistence for `zarr` and `hdf5`. `open_dense_array_store()` opens the store that the streamed writer fills, and `save_dense_stream_manifest()` writes the manifest last, from the shapes the writer reports.
 - `storage/matrix_readers.py`: suffix-keyed registry `MATRIX_READERS` (`.npy`, `.txt`, `.npz`, `.mtx`, `.mtx.gz`) returning `SystemMatrix` via `read_matrix`; `to_dense` is the explicit densify helper. Unknown suffixes raise; `.npz` must hold a sparse matrix.
-- `tracking/`: MLflow run helpers, naming/query policy, workflow topology resolution, client adapters, and best-effort blocking-failure diagnostics (`failure_reporting.py`). Comparison tracking is split by concern: `report_sink.py` (`MLflowReportSink`, the `ReportSink` adapter over an `OpenReport` that `finalize()` turns into a `FinalizedReport`), `scope_run_tree.py` (`ScopeRunTree`: scope to nested run, ancestors first; `RunTree` Protocol with the `MlflowRunTree` adapter holding the one shared client), `figure_uploader.py` (`FigureUploader`: staging, per-run stem collision rule, card/table upload, uploaded-record list, index write; `ArtifactSink` Protocol with the `MlflowArtifactSink` adapter), `method_sink.py` (`MLflowBenchmarkMethodSink`: one method workload's events and scalars), `metrics_logging.py` (`setup_comparison_tracking`, parent-run metric keys, convergence/comparison scalars, configured method facts). The matplotlib drawing and figure planning they call live in `reporting/` (`figure_planning.py`, `group_plots.py`, `method_figures.py`) and never import `tracking/`. Failure diagnostics record typed context and the exact traceback in the active run without replacing the workflow exception.
+- `tracking/`: MLflow run helpers, naming/query policy, workflow topology resolution, client adapters, and best-effort blocking-failure diagnostics (`failure_reporting.py`). Comparison tracking is split by concern: `report_sink.py` (`MLflowReportSink`, the `ReportSink` adapter over an `OpenReport` that `finalize()` turns into a `FinalizedReport`), `scope_run_tree.py` (`ScopeRunTree`: scope to nested run, ancestors first; `RunTree` Protocol with the `MlflowRunTree` adapter holding the one shared client), `figure_uploader.py` (`FigureUploader`: staging, per-run stem collision rule, card/table upload, uploaded-record list, index write; `ArtifactSink` Protocol with the `MlflowArtifactSink` adapter), `method_sink.py` (`MLflowBenchmarkMethodSink`: one method workload's events and scalars), `metrics_logging.py` (`setup_comparison_tracking`, parent-run metric keys, convergence/comparison scalars, configured method facts). `runtime_environment.py` (`RuntimeEnvironment`, `collect_runtime_environment`, `environment_params`: the execution environment every timing of a session depends on). The matplotlib drawing and figure planning they call live in `reporting/` (`figure_planning.py`, `group_plots.py`, `method_figures.py`) and never import `tracking/`. Failure diagnostics record typed context and the exact traceback in the active run without replacing the workflow exception.
 - `reporting/`: plotting, artifact staging, versioned benchmark-event Parquet
   and summary artifacts, and inference output adapters
 - `dlkit/`: DLKit-backed adapters for solver preconditioners and batch inference
@@ -87,8 +87,7 @@ stopping-threshold line (`method_figures.residual_threshold`, from the stored `r
 planned `rtol`/`atol`) only when every plotted system shares one threshold.
 Condition-number figures and MLflow metrics are deliberately absent from the
 comparison workflow because iterative spectral estimation can dominate or
-stall otherwise healthy solver runs; that analysis remains available only as
-an explicit standalone operation.
+stall otherwise healthy solver runs.
 Plotting defaults keep markers compact so convergence and diagnostic figures
 stay readable when several methods or dense prediction samples are shown.
 Comparison-plot styling (`reporting/plots.py`) resolves three independent
@@ -124,32 +123,45 @@ The per-run work-precision diagram is solve-only: its x-axis is measured
 `solve_time_seconds`, independent of whether historical offline generation cost
 is available.
 
-`outcome_plots.py` draws the per-system outcome plots from
-`domain.benchmarking.profiles` and `domain.benchmarking.paired`; every function takes a
+`outcome_plots.py` draws the per-system outcome plots from the frames and series of
+`domain.benchmarking.profiles` and `domain.benchmarking.paired`, which the drawers of `group_drawers.py`
+compute from the report's `observations` (profiles, pairings and speed ratios only for a
+`RecipeProfileReport`, since they need one homogeneous recipe); every function takes a
 required `save_path` and returns it, or `None` when nothing was drawn, and a
 `GroupStyle` (fixed title, typed scope, notation, legend and the family/colour/marker mappings). A failed run is never given a time:
 
 - `plot_workload_bars` (`solve_time_bars_*`, `online_time_bars_*`): one workload total per method,
-  chosen by a `WorkloadTotal` selector from `domain/benchmarking/costs.py` (`solve_total_seconds`, `workload_online_seconds`)
-  and captioned by the drawer binding in `group_plots.GROUP_DRAWERS` ("Solve time [s]", "Total online workload time [s]"). These are totals, not per-system amortized shares.
+  chosen by a `WorkloadTotal` selector from `domain/benchmarking/workload_totals.py` (`solve_total_seconds`, `workload_online_seconds`)
+  and captioned by the kind's drawer in `group_drawers.py` ("Solve time [s]", "Total online workload time [s]"). These are totals, not per-system amortized shares.
   Numeric bar positions pair each bar with its method; the legend guarantees distinct texts.
-- `plot_paired_time_scatter` (`paired_time_scatter_*`): amortized online times of each method against the
-  reference; hollow markers sit on the axis of the run that failed, and a
-  reference run that solved without a comparable time is not drawn as failed.
+- `plot_paired_time_scatter` (`paired_time_scatter_*`): draws a `paired_systems` frame of the amortized
+  online time of each method against the reference; hollow markers sit on the axis of the run that
+  failed (`method_only` and `reference_only` rows), and a system neither side solved is not in the frame.
   Zero-time solved coordinates remain valid on these linear axes.
 - `plot_performance_profile` (`performance_profile_solve_*`, `performance_profile_online_*`): Dolan-Moré profiles for solve-only and amortized-online time
-  (Math. Program. 91, 2002).
+  (Math. Program. 91, 2002), drawn from `performance_series`. When systems were left out because the
+  best value on them is 0, the legend ends with "N systems excluded: best value is 0"
+  (`excluded_zero_best_note`); each curve's legend counts solved of planned systems among the
+  systems that remain (`profile_legend`).
 - `plot_ecdf_profile` (`ecdf_iterations_*`, `ecdf_time_solve_*`, `ecdf_time_online_*`): unnormalised iteration, solve-only, and amortized-online ECDFs
-  over an absolute budget (Hansen et al. 2016, COCO), not the n_p+1-normalised
+  from `ecdf_series` over an absolute budget (Hansen et al. 2016, COCO), not the n_p+1-normalised
   Moré-Wild data profile. Step curves share one right edge so each plateau is
   its success rate.
 - `plot_speed_ratio_cdf` (`speed_ratio_cdf_*`): ECDF of per-system reference/method
-  ratios with a line at 1; the legend gives the median, its matrix-clustered
-  interval, and the both-solved count. Reference-only and method-only counts
-  remain available separately; no Wilcoxon p-value is reported.
+  ratios (`speed_ratios`) with a line at 1; the legend (`speed_ratio_legend`, from the
+  `speed_ratio_summary` row) gives the median, its matrix-clustered interval, and the systems and
+  matrices the interval rests on, for example "median 1.23 [0.98, 1.50], n=10 systems on 5 matrices
+  (reference / method)". Reference-only and method-only counts are logged separately; no Wilcoxon
+  p-value is reported.
 
 `MLflowReportSink` logs planned, attempted, and converged counts plus the
-failure-aware paired fields, each into the nested run of the group's report scope. Its typed plans (`FigurePlan`: editorial title plus the figure's metadata) are also the single source of
+failure-aware paired fields, each into the nested run of the group's report scope. The paired fields
+come from `speed_ratio_summary` of the recipe report's `observations` against the configured
+reference on amortized online time (nothing is logged without a configured reference among the
+group's methods), under `<metric>/<method>` keys: `n_both_solved`, `n_reference_only`,
+`n_method_only`, `n_ratio` (both-solved systems with a positive ratio), `n_matrices` (distinct
+matrices among them, the cluster count the interval rests on), `speed_ratio_median`,
+`speed_ratio_ci_low` and `speed_ratio_ci_high`; a null statistic is not logged. Its typed plans (`FigurePlan`: editorial title plus the figure's metadata) are also the single source of
 figure scope, stable filenames, timing scenarios, and card
 metadata. `figure_planning.FIGURE_RECIPES` holds one `FigureRecipe` per `FigureKind` (file stems, titles and metric definitions per timing scenario, failure treatment, the group report types it applies to); planning, the group drawers (`group_plots.GROUP_DRAWERS`, keyed by kind and scenario) and the method plots (`method_figures.METHOD_PLOTS`) are all driven from it. Metadata is `GroupFigureMetadata` (scenario, failure treatment, `GroupAggregationRule`) or `MethodFigureMetadata` (`MethodAggregationRule`; no scenario or failure treatment), sharing `TimingPolicy`, `DatasetId` dataset ids and `RunId` sources. A group figure is uploaded as a `StagedTabledFigure` (figure plus its table), a history figure as a `StagedFigure`. Every figure (group, method and system) is uploaded with its **figure card**
 (`reporting/figure_card.py`: `<stem>.toml` beside `<stem>.png`, same run directory, same stem) into the
@@ -234,6 +246,8 @@ methods, membership, and summary totals before accepting a hit; the session's fi
 figure index is not part of the gate. The persisted configuration is the
 canonical identity representation: checkpoint inputs are content digests and
 runtime lease paths are omitted.
+
+**Runtime environment.** `tracking/runtime_environment.py::collect_runtime_environment(device)` is the one impure reader (platform, os, torch, `importlib.metadata`; the CPU model comes from `/proc/cpuinfo`, then `platform.processor()`, and any fact the platform cannot report is the explicit `Unreported.UNKNOWN`, never a raise); `environment_params` flattens the frozen `RuntimeEnvironment` to the stable `env.*` MLflow params `env.device` (CUDA device name or `cpu`), `env.cpu_model`, `env.cpu_logical_count`, `env.torch_threads`, `env.torch_version`, `env.torchalg_version` and `env.python_version`. They are constant for a session, so the comparison session run logs them once and no parquet table or per-row record repeats them. No dtype is recorded: the stored datasets are pinned to float64 by the readers and no session-level dtype setting exists.
 
 The comparison session run also carries `splits.toml` (`tracking/split_records.py`): one table per dataset id with the pinned split's content digest, train/validation/test row counts, the matrix ids of the fit (train and validation) and test folds, and the separation (`single_matrix_shared`, whose one matrix is in every fold by design, or `matrix_disjoint`). `download_session_splits` reads it back and rejects a session that predates it. Writing it is the composition layer's `mlflow.log_text`; the report data bundle copies it.
 

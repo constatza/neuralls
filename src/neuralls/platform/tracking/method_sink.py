@@ -107,8 +107,6 @@ class MLflowBenchmarkMethodSink:
             "workload_outcome",
             "completed_with_failures" if n_setup_failed or n_solve_failed else "completed",
         )
-        if summary.online_s_per_attempted_rhs is not None:
-            metrics["online_s_per_attempted_rhs"] = summary.online_s_per_attempted_rhs
         if isinstance(summary.workload_peak_memory, MeasuredPeakMemory):
             metrics["workload_peak_memory_bytes"] = float(summary.workload_peak_memory.bytes)
         generation_s = recorded_seconds(workload.generation_cost)

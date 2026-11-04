@@ -11,6 +11,11 @@ from typing import assert_never
 
 import mlflow
 
+from neuralls.domain.benchmarking.paired import (
+    REFERENCE_METRIC,
+    reference_among_methods,
+    speed_ratio_summary,
+)
 from neuralls.domain.benchmarking.selection import NoReferenceConfigured
 from neuralls.domain.presentation.methods import MissingMethodPresentationError
 from neuralls.domain.presentation.provenance import DatasetPresentation
@@ -213,7 +218,13 @@ class OpenReport:
         with self._in_scope(scope) as run_id, tempfile.TemporaryDirectory() as tmp:
             log_convergence_metrics(outcome.convergence)
             if isinstance(outcome, RecipeProfileReport):
-                log_comparison_metrics(outcome.comparisons)
+                reference = reference_among_methods(
+                    outcome.observations, outcome.reference_selection
+                )
+                if reference is not None:
+                    log_comparison_metrics(
+                        speed_ratio_summary(outcome.observations, reference, REFERENCE_METRIC)
+                    )
             file_key = self.slugs.slug(
                 f"group:{group_id}", scope_label(presentation.scope, self.notation)
             )
