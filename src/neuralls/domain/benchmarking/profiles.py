@@ -1,4 +1,4 @@
-"""Profiles of how many systems each preconditioner solves, built from `SystemOutcome`s.
+"""Profiles of how many systems each preconditioner solves, as series over the observation view.
 
 Both profiles are cumulative distributions over systems in which a failed run
 stays an unsolved system. Nothing is averaged and no penalty is invented:
@@ -19,99 +19,115 @@ expected performance, so these are shown beside explicit success counts.
 
 from __future__ import annotations
 
-import bisect
-from collections.abc import Mapping
 from dataclasses import dataclass
 
-from neuralls.domain.benchmarking.costs import Cost
-from neuralls.domain.solver.models.outcomes import Failed, Outcomes, Solved, SystemOutcome
+import polars as pl
+
+from neuralls.domain.solver.reporting.metrics import MetricId, system_metric
+from neuralls.domain.solver.reporting.summary import Population, select
+
+PROFILE_SERIES_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
+    "method": pl.String,
+    "x": pl.Float64,
+    "fraction": pl.Float64,
+    "n_planned": pl.Int64,
+    "n_solved": pl.Int64,
+}
+"""One row per system a method solved, ascending in ``x``; ``fraction`` is solved-within-``x`` over
+``n_planned``, so a curve ends at ``n_solved / n_planned``."""
+
+PLANNED_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
+    "method": pl.String,
+    "n_planned": pl.Int64,
+    "n_solved": pl.Int64,
+}
+"""One row per method, including a method that solved nothing and so has no curve row."""
+
+_SYSTEM_KEYS = ["dataset", "system_id"]
 
 
-@dataclass(frozen=True, slots=True)
-class Profile:
-    """One method's cumulative distribution over the systems it was run on.
+@dataclass(frozen=True, slots=True, eq=False)
+class ProfileSeries:
+    """The curves of a profile as frames, with the counts that place their plateaus.
 
     Attributes:
-        n_systems: Systems counted, failures included.
-        solved_at: Ascending values at which a system was solved (a cost
-            ratio for a performance profile, a budget for an ECDF profile).
-            Failures contribute no value, so the curve plateaus below 1.
+        frame: ``PROFILE_SERIES_SCHEMA`` rows of the solved systems of every method.
+        planned: ``PLANNED_SCHEMA`` rows, one per method of the observations. A method that
+            solved nothing has no row in ``frame`` and is still here with ``n_solved = 0``.
+        n_excluded_zero_best: Systems left out of every method's counts because the best method
+            needed a value of 0 on them (always 0 for an absolute ECDF).
     """
 
-    n_systems: int
-    solved_at: tuple[float, ...]
-
-    def fraction_solved(self, x: float) -> float:
-        """Fraction of systems solved at a value of at most ``x``."""
-        return bisect.bisect_right(self.solved_at, x) / self.n_systems
+    frame: pl.DataFrame
+    planned: pl.DataFrame
+    n_excluded_zero_best: int
 
 
-def _cost_of(outcome: SystemOutcome, cost: Cost) -> float | Failed:
-    """A run's numeric cost, or its censored failure state.
+def ecdf_series(obs: pl.DataFrame, metric: MetricId) -> ProfileSeries:
+    """Per method, the fraction of its planned systems solved within each absolute budget.
 
-    Zero is a valid cost (a run converged at the initial guess takes 0
-    iterations); `performance_profiles` skips systems whose best cost is zero
-    because a ratio to it is undefined.
+    The absolute-budget ECDF of ``metric`` (Hansen et al. 2016): ``x`` is the metric value of a
+    system the method solved, as ``select`` defines it, and ``fraction`` divides by every planned
+    system of the method, so unsolved systems keep the curve below 1. It does not depend on which
+    other methods are compared.
+
+    Raises:
+        ValueError: The metric has one value per matrix.
     """
-    match outcome:
-        case Failed():
-            return outcome
-        case Solved():
-            return cost(outcome)
+    spec = system_metric(metric)
+    solved = select(obs, metric, Population.OWN)
+    points = solved.select("method", x=pl.col(spec.column).cast(pl.Float64))
+    return _series(obs, obs, points, n_excluded_zero_best=0)
 
 
-def _costs(outcomes: Outcomes, cost: Cost) -> dict[str, dict[str, float | Failed]]:
-    """Each solved cost or censored failure, preserving every observation."""
-    return {
-        name: {sid: _cost_of(outcome, cost) for sid, outcome in per_system.items()}
-        for name, per_system in outcomes.items()
-    }
+def performance_series(obs: pl.DataFrame, metric: MetricId) -> ProfileSeries:
+    r"""Per method, the fraction of planned systems within each factor of the best method.
 
+    The Dolan-More performance profile of ``metric``: on a system the ratio of a solving method
+    is ``value / best`` with ``best`` the least value over the methods that solved it, and
+    $\rho_{p,s} = x_{p,s} / \min_{p'} x_{p',s}$. A system a method did not solve has no ratio
+    but stays in its denominator, so the curve plateaus below 1.
 
-def ecdf_profiles(outcomes: Outcomes, cost: Cost) -> dict[str, Profile]:
-    """Per method, the fraction of its systems solved within each absolute budget.
+    A system whose best value is 0 (an iteration count of a solve at the initial guess, or a time
+    of zero) is excluded from numerator and denominator of every method and counted in
+    ``n_excluded_zero_best``. Its ratios are undefined, and keeping it in the denominators would
+    lower every method's plateau by a system nobody failed on, which reads as failures.
 
-    The unnormalised empirical CDF of runtimes (Hansen et al. 2016, "COCO:
-    Performance Assessment", arXiv:1605.03560). It is not the Moré & Wild
-    (2009) data profile, which divides the budget by n_p + 1 simplex
-    gradients. It does not depend on which other methods are compared.
+    Raises:
+        ValueError: The metric has one value per matrix.
     """
-    return {
-        name: Profile(
-            n_systems=len(per_system),
-            solved_at=tuple(sorted(v for v in per_system.values() if not isinstance(v, Failed))),
-        )
-        for name, per_system in _costs(outcomes, cost).items()
-        if per_system
-    }
+    spec = system_metric(metric)
+    solved = select(obs, metric, Population.OWN)
+    value = pl.col(spec.column).cast(pl.Float64)
+    best = solved.group_by(_SYSTEM_KEYS).agg(best=value.min())
+    zero_best = best.filter(pl.col("best") == 0.0).select(_SYSTEM_KEYS)
+    points = solved.join(best.filter(pl.col("best") != 0.0), on=_SYSTEM_KEYS, how="inner").select(
+        "method", x=value / pl.col("best")
+    )
+    planned = obs.join(zero_best, on=_SYSTEM_KEYS, how="anti")
+    return _series(obs, planned, points, n_excluded_zero_best=zero_best.height)
 
 
-def performance_profiles(outcomes: Outcomes, cost: Cost) -> dict[str, Profile]:
-    """Per method, the fraction of systems within each factor of the best method's cost.
-
-    Systems on which every method failed remain in every denominator as
-    censored observations. They contribute no ratio, so the profile plateaus
-    below one even when no method solved that system.
-    """
-    costs = _costs(outcomes, cost)
-    best = _best_cost_by_system(costs)
-    profiles: dict[str, Profile] = {}
-    for name, per_system in costs.items():
-        if not per_system:
-            continue
-        ratios = sorted(
-            value / best[sid]
-            for sid, value in per_system.items()
-            if sid in best and best[sid] > 0.0 and not isinstance(value, Failed)
-        )
-        profiles[name] = Profile(n_systems=len(per_system), solved_at=tuple(ratios))
-    return profiles
-
-
-def _best_cost_by_system(costs: Mapping[str, Mapping[str, float | Failed]]) -> dict[str, float]:
-    best: dict[str, float] = {}
-    for per_system in costs.values():
-        for system_id, value in per_system.items():
-            if not isinstance(value, Failed):
-                best[system_id] = min(value, best.get(system_id, value))
-    return best
+def _series(
+    obs: pl.DataFrame, planned: pl.DataFrame, points: pl.DataFrame, *, n_excluded_zero_best: int
+) -> ProfileSeries:
+    """Assemble the curves from the solved ``points`` and the systems each method planned."""
+    counts = (
+        obs.select("method")
+        .unique()
+        .join(planned.group_by("method").agg(n_planned=pl.len()), on="method", how="left")
+        .join(points.group_by("method").agg(n_solved=pl.len()), on="method", how="left")
+        .with_columns(pl.col("n_planned", "n_solved").fill_null(0))
+        .select(list(PLANNED_SCHEMA))
+        .cast(pl.Schema(PLANNED_SCHEMA))
+        .sort("method")
+    )
+    frame = (
+        points.with_columns(solved_within=pl.col("x").rank("max").over("method"))
+        .join(counts, on="method", how="left")
+        .with_columns(fraction=pl.col("solved_within") / pl.col("n_planned"))
+        .select(list(PROFILE_SERIES_SCHEMA))
+        .cast(pl.Schema(PROFILE_SERIES_SCHEMA))
+        .sort("method", "x")
+    )
+    return ProfileSeries(frame, counts, n_excluded_zero_best)

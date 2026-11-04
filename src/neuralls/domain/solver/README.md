@@ -27,8 +27,8 @@ timed setup or solve event.
 
 `models/workload.py` represents a method summary as either complete or
 explicitly incomplete. Both variants retain planned, attempted, and converged
-RHS counts, setup and solve totals, total online workload time, attempted-RHS
-average when defined, and workload peak memory. Incomplete summaries name the
+RHS counts, setup and solve totals, total online workload time, and workload
+peak memory. Incomplete summaries name the
 unattempted systems and cannot be ranked.
 
 ## Event reductions
@@ -71,13 +71,116 @@ attempts, and a report level. A `ConvergenceSummary` keeps planned, attempted,
 and converged counts distinct and reports iteration statistics over converged
 attempts only. Explicit per-method planned membership retains an interrupted
 method in every recipe/dataset group even when execution never reached that
-group's first setup. `RecipeProfileReport` alone carries per-system outcomes
-and paired comparisons; `WorkloadMixtureReport` carries only counts, summaries,
-ordered dataset/recipe membership, and recipe population counts. `Solved`
-carries matrix identity, iterations, solve seconds, and
-amortized-online seconds. `Failed` carries matrix identity, iterations, and a
-reason, but no imputed numeric cost; the measured failed-attempt time remains
-only in the raw event/frame and workload totals.
+group's first setup. Every `GroupAggregated` report carries `observations`, the group's rows of the
+all-methods observation view (`classify_level` receives the view of the whole workload and keeps the
+rows of the group's systems): a `RecipeProfileReport` holds its one recipe's rows, a
+`WorkloadMixtureReport` the pooled rows of every recipe it names. The recipe-versus-mixture split
+only gates which figure kinds apply, because a performance profile and a paired comparison need
+one homogeneous recipe. Failed attempts keep their measured time in the observation frame and in
+workload totals, and every per-system metric excludes them through `select`.
+
+## Observation view and metric catalog
+
+`reporting/observations.py::observations(method, planned_systems, setup_events, solve_attempts)`
+joins the three stored frames of one method into one row per planned system
+(`OBSERVATION_SCHEMA`); `observations_of_methods` concatenates methods, sorted by method,
+dataset, matrix and RHS ordinal. The view is computed in memory from the stored parquets and is
+never persisted, so it needs no `compare` re-run. The inputs are validated first: a frame of
+another method, a duplicated or unplanned system, a solve that contradicts its planned system and
+a solve linked to a failed or foreign setup raise `ValueError`.
+
+| Column | Source |
+|---|---|
+| `dataset`, `recipe`, `matrix_id`, `system_id`, `rhs_ordinal` | `planned_systems` |
+| `method` | the `method` argument (`planned_systems` has no method column) |
+| `outcome` | `Outcome` value: `solve_outcome_expr` on the `solve_attempts` row; no row and `setup_events.setup_status = failed` is `setup_failed`; otherwise `not_attempted` |
+| `iterations` | `solve_attempts.iterations`; null unless the outcome is `converged` or `unconverged` |
+| `solve_s` | `solve_attempts.solve_s`; null without a solve row |
+| `setup_s` | `setup_events.setup_s` of the system's `(dataset, matrix_id)`; null without a setup row |
+| `planned_rhs` | planned systems of the system's `(dataset, matrix_id)` over every recipe in `planned_systems`, the count the setup is divided by |
+| `online_s`, `standalone_s` | `solve_s + setup_s / planned_rhs` and `solve_s + setup_s`; null when either term is null |
+| `time_per_iteration_s` | `solve_s / iterations` for `converged` and `unconverged` rows with at least one iteration |
+| `true_residual_rel` | `solve_attempts.true_residual_rel`; null when unmeasured |
+| `stopping_threshold_rel` | `true_residual.stopping_threshold_rel(rtol, atol, rhs_norm)` from `planned_systems` and `solve_attempts.rhs_norm`; null without a nonzero measured RHS norm |
+| `timing_spread` | `(max - min) / median` of `solve_attempts.samples_s`; 0 for one sample, null without a solve row or for a zero median |
+
+Vocabulary. A **timing repeat** is the same solve timed again to cut noise; it is already reduced
+inside `solve_s` and is never an element of a resample. A **bootstrap resample** is an in-memory
+redraw of whole matrices. An **RHS** is one system of a matrix. **Allocated** or **amortized
+online** time shares a matrix setup among its planned RHS; **standalone** time charges every RHS
+the whole setup. `mean_over_systems` pools all selected systems; `mean_over_matrices` averages
+the per-matrix means.
+
+Notation. Method $p$; matrix $m \in \mathcal{M}$, $K = |\mathcal{M}|$; system $s$ = (matrix, RHS), $m(s)$ its matrix; $r_m$ the planned RHS count of $m$; $\mathcal{A}_p$ attempted systems, $\mathcal{C}_p \subseteq \mathcal{A}_p$ converged systems of $p$; $k_{p,s}$ iterations. $\tau_{p,s,j}$ is the wall time of **timing repeat** $j = 1..R$ of the same solve; $\operatorname{stat}$ is the configured `TimingStatistic` (median default).
+
+$$t^{\mathrm{solve}}_{p,s} = \operatorname{stat}_{j}\,\tau^{\mathrm{solve}}_{p,s,j}, \quad t^{\mathrm{setup}}_{p,m} = \operatorname{stat}_{j}\,\tau^{\mathrm{setup}}_{p,m,j}$$
+
+$$t^{\mathrm{online}}_{p,s} = t^{\mathrm{solve}}_{p,s} + \frac{t^{\mathrm{setup}}_{p,m(s)}}{r_{m(s)}}\ \text{(amortized: setup shared by the matrix's planned RHS)}, \qquad t^{\mathrm{standalone}}_{p,s} = t^{\mathrm{solve}}_{p,s} + t^{\mathrm{setup}}_{p,m(s)}\ \text{(every RHS pays the whole setup)}$$
+
+$$T^{\mathrm{solve}}_p = \sum_{s \in \mathcal{A}_p} t^{\mathrm{solve}}_{p,s}, \qquad T^{\mathrm{online}}_p = \sum_{m} t^{\mathrm{setup}}_{p,m} + T^{\mathrm{solve}}_p \quad\text{(workload totals; failed attempts keep their time)}$$
+
+A mean of $t^{\mathrm{online}}$ over converged systems is **not** $T^{\mathrm{online}}_p/|\mathcal{S}|$: a failed system's setup share is simply missing.
+
+**Populations** for a metric $x$ defined on a set $\mathcal{D}_x$ of outcomes: $\mathcal{P}^{\mathrm{own}}_p = \{ s : \mathrm{outcome}_{p,s} \in \mathcal{D}_x \}$ and $\mathcal{P}^{\mathrm{common}} = \bigcap_{p'} \mathcal{P}^{\mathrm{own}}_{p'}$; $\mathcal{P}_{p,m}$ = its systems on matrix $m$, $\mathcal{M}_{\mathcal{P}} = \{ m : \mathcal{P}_{p,m} \neq \emptyset \}$. `Population.OWN` and `Population.COMMON` select them.
+
+**Two means, never called just "mean":**
+
+$$\bar{x}^{\mathrm{sys}}_p = \frac{1}{|\mathcal{P}_p|} \sum_{s \in \mathcal{P}_p} x_{p,s}\ \text{(crude pooled)}, \qquad \bar{x}^{\mathrm{mat}}_p = \frac{1}{|\mathcal{M}_{\mathcal{P}}|} \sum_{m \in \mathcal{M}_{\mathcal{P}}} \frac{1}{|\mathcal{P}_{p,m}|} \sum_{s \in \mathcal{P}_{p,m}} x_{p,s}\ \text{(every matrix weighs the same)}$$
+
+**Quantiles** (linear interpolation, the numpy/polars default, which is also what seaborn's violin box draws), $h = (n-1)\alpha + 1$: $q_\alpha = x_{(\lfloor h \rfloor)} + (h - \lfloor h \rfloor)(x_{(\lfloor h \rfloor + 1)} - x_{(\lfloor h \rfloor)})$. Box = $q_{0.25}, q_{0.5}, q_{0.75}$; whiskers $q_{0.05}, q_{0.95}$.
+
+**Matrix-cluster bootstrap interval** (reads stored values only; $B$ = `BOOTSTRAP_RESAMPLES`, $\alpha = 1 -$ `CONFIDENCE_LEVEL`). For resample $b = 1..B$ draw $m^{(b)}_1..m^{(b)}_{K'}$ uniformly with replacement from $\mathcal{M}_{\mathcal{P}}$, $K' = |\mathcal{M}_{\mathcal{P}}|$, and recompute the bar's statistic:
+
+$$\bar{x}^{\mathrm{sys},(b)} = \frac{\sum_{i}\sum_{s \in \mathcal{P}_{p,m^{(b)}_i}} x_{p,s}}{\sum_{i} |\mathcal{P}_{p,m^{(b)}_i}|}, \quad \bar{x}^{\mathrm{mat},(b)} = \frac{1}{K'}\sum_{i} \frac{1}{|\mathcal{P}_{p,m^{(b)}_i}|}\sum_{s \in \mathcal{P}_{p,m^{(b)}_i}} x_{p,s}, \quad \mathrm{CI} = [q_{\alpha/2}, q_{1-\alpha/2}]\ \text{of}\ \{\bar{x}^{(b)}\}_{b=1}^{B}$$
+
+Seeded with `DEFAULT_RANDOM_SEED`; `None` if $K' < 2$; a matrix with no system in the population is dropped. Nothing about the solves is recomputed: it resamples stored per-system values, grouped by matrix, because RHS of one matrix share it and the effective sample size is $K$. It covers matrix-to-matrix variability only, not timing noise. `benchmarking/uncertainty.py::matrix_cluster_interval` computes it for `ClusterStatistic.MEAN_OVER_SYSTEMS`, `MEAN_OVER_MATRICES` and `MEDIAN`.
+
+**Time per iteration** (per system with a real iteration count $k \ge 1$; `UNCONVERGED` runs count because time and iterations are both real and a rate is not censored; `SOLVER_ERROR` and setup failures do not): $\theta_{p,s} = t^{\mathrm{solve}}_{p,s} / k_{p,s}$. It isolates per-iteration cost (preconditioner application, flexible-CG overhead) from numerical effectiveness; fixed per-solve overhead inflates $\theta$ when $k$ is small.
+
+`reporting/metrics.py::METRICS` is the catalog; its labels and formulas are the single source and this table repeats them verbatim (`tests/architecture/test_metric_catalog_documented.py` fails on any difference). The failure rule is the `defined_on` column: a system whose outcome is outside it has no value for the metric and is excluded from every mean, quantile and interval, never counted as zero and never given the iteration cap.
+
+| `MetricId` | Label | Observation unit | Defined on | Formula |
+|---|---|---|---|---|
+| `ITERATIONS` | iterations to converge | system | `converged` | $k_{p,s},\quad s \in \mathcal{C}_p$ |
+| `SOLVE_S` | solve time per system [s] | system | `converged` | $t^{\mathrm{solve}}_{p,s} = \operatorname{stat}_{j}\,\tau^{\mathrm{solve}}_{p,s,j}$ |
+| `ONLINE_S` | online time per system [s] | system | `converged` | $t^{\mathrm{online}}_{p,s} = t^{\mathrm{solve}}_{p,s} + \frac{t^{\mathrm{setup}}_{p,m(s)}}{r_{m(s)}}$ |
+| `STANDALONE_S` | standalone time per system [s] | system | `converged` | $t^{\mathrm{standalone}}_{p,s} = t^{\mathrm{solve}}_{p,s} + t^{\mathrm{setup}}_{p,m(s)}$ |
+| `SETUP_S` | setup time per matrix [s] | matrix (one value per method, dataset, matrix) | `converged`, `unconverged`, `solver_error` (the setup completed) | $t^{\mathrm{setup}}_{p,m} = \operatorname{stat}_{j}\,\tau^{\mathrm{setup}}_{p,m,j}$ |
+| `TIME_PER_ITERATION_S` | time per iteration [s] | system | `converged`, `unconverged` | $\theta_{p,s} = \frac{t^{\mathrm{solve}}_{p,s}}{k_{p,s}}$ |
+
+`reporting/summary.py` applies the rule in one place. `select(obs, metric, population)` keeps the
+rows on which the metric is defined (one row per matrix for a matrix metric); `Population.COMMON`
+keeps only systems, or matrices, defined for every method present in `obs`, so a method with no
+defined unit empties it. `summarize(obs, metric, population)` gives one `SUMMARY_SCHEMA` row per
+method: `n_planned` and `n_defined` count the metric's observation units, `n_matrices` the matrices
+with a defined unit, and `n_unconverged`, `n_solver_error`, `n_setup_failed`, `n_not_attempted`
+always count systems, whichever the metric's unit. A method with no defined unit has
+`n_defined = 0` and null statistics, never 0. `mean_over_systems_ci_*` and
+`mean_over_matrices_ci_*` are the 95% matrix-cluster bootstrap interval, null below two matrices.
+`residual_consistency(obs)` counts, per method, converged systems whose true residual exceeds
+`RESIDUAL_MISMATCH_FACTOR` times the stopping level and reports the worst ratio; classification
+is never changed by it. `timing_noise(obs)` gives the median `timing_spread` per method.
+
+Reproduce a table from the stored parquets of a session:
+
+```python
+import polars as pl
+
+from neuralls.domain.solver.reporting.metrics import MetricId
+from neuralls.domain.solver.reporting.observations import MethodFrames, observations_of_methods
+from neuralls.domain.solver.reporting.summary import Population, summarize
+from neuralls.platform.reporting.benchmark_events import read_setup_events, read_solve_attempts
+
+frames = {
+    method: MethodFrames(
+        planned_systems=pl.read_parquet(directory / "planned_systems.parquet"),
+        setup_events=read_setup_events(directory / "setup_events.parquet"),
+        solve_attempts=read_solve_attempts(directory / "solve_attempts.parquet"),
+    )
+    for method, directory in method_directories.items()
+}
+table = summarize(observations_of_methods(frames), MetricId.ONLINE_S, Population.COMMON)
+```
 
 ## Benchmarking statistics
 
@@ -101,6 +204,24 @@ performance profile** instead shows the fraction within a factor of the
 fastest method on each system. Profiles are emitted only for one homogeneous
 recipe; heterogeneous recipes are reported as workload mixtures.
 
+Every planned system ends in exactly one **outcome** (`reporting/observations.py::Outcome`).
+`solve_outcome` / `solve_outcome_expr` derive it from the stored `solve_status` and
+`residual_status` columns, never from an iteration count (zero iterations is a valid count for a
+solved zero right-hand side and for `max_iterations = 0`). `validate_decoded_solve_frame` rejects
+rows that contradict the derivation: a failed solve with an unmeasured residual must store 0
+iterations, and a measured residual needs a nonzero right-hand side.
+
+| Outcome | What happened | Stored | Measured time kept | Iteration count |
+|---|---|---|---|---|
+| `CONVERGED` | tolerance reached (a zero right-hand side converges unmeasured) | `solve_status = converged` | solve time | real |
+| `UNCONVERGED` | the solver returned an iterate that missed the tolerance (iteration cap reached, or a solver-flagged breakdown that still returned a finite iterate; breakdown is not stored) | `failed` + `residual_status = measured` | full solve time | real: where the solver stopped; when the cap was hit, a lower bound on the iterations needed |
+| `SOLVER_ERROR` | the solver raised, or returned a non-finite iterate (or one whose true residual is non-finite) | `failed` + `residual_status = unmeasured` | time until the error, or the full solve time for a non-finite iterate | none (stored as 0, not a count); a non-finite iterate keeps the real count in the failure reason (`non-finite iterate after 37 iterations`) |
+| `SETUP_FAILED` | matrix setup raised; no right-hand side of that matrix ran | failed setup event, no solve row | setup time until the error | none |
+| `NOT_ATTEMPTED` | planned, never run | planned system only, no solve row, no failed setup | none | none |
+
+`SETUP_FAILED` and `NOT_ATTEMPTED` have no solve row, so the join of planned systems with setup
+events decides them; the solve-row derivation covers the first three.
+
 A **paired time** comparison uses the same matrix/RHS system for a configured
 reference and method. Its **speed ratio** is reference time divided by method
 time, so values above one favor the method. Pair counts retain both-solved,
@@ -117,15 +238,23 @@ a meaningful expected running time (ERT). ERT would be appropriate only for
 a separately designed restart experiment with a specified success
 distribution and stopping rule.
 
-`domain/benchmarking/` provides:
+`domain/benchmarking/` provides, all over the observation frame as polars frames:
 
-- Dolan–Moré performance profiles and absolute ECDFs that retain failures in
-  their denominators;
-- explicit `solve_seconds` and `amortized_online_seconds` cost scenarios;
-- paired reference/method ratios using only positive-time both-solved systems
-  while retaining all both-solved, reference-only, and method-only counts;
+- Dolan–Moré performance profiles (`performance_series`) and absolute ECDFs (`ecdf_series`) that
+  retain failures in their denominators (`profiles.py`);
+- paired reference/method systems (`paired_systems`), their per-system ratios (`speed_ratios`),
+  the speed-ratio summary using only positive-value both-solved systems while retaining all
+  both-solved, reference-only, and method-only counts (`speed_ratio_summary`), and `break_even`
+  (`paired.py`);
+- `reference_among_methods`, which turns the configured `ReferenceSelection` into the reference
+  name a group can be compared to;
 - percentile intervals that resample whole `(dataset, matrix_id)` clusters with
-  every sibling RHS observation; paired Wilcoxon p-values are not reported.
+  every sibling RHS observation (`uncertainty.py`); paired Wilcoxon p-values are not reported;
+- the workload-total selectors `solve_total_seconds` and `workload_online_seconds`
+  (`workload_totals.py`), which the sum-bar figures draw;
+- the reference selection types (`selection.py`).
+
+They are described under "Profiles, paired comparisons and break-even over the observation view".
 
 Performance profiles normalize by the fastest method on each problem. A
 failed attempt remains censored rather than receiving a penalty time, and
@@ -133,6 +262,63 @@ all-failed systems remain in every profile denominator. Paired
 comparisons require a `ConfiguredReference`; `NoReferenceConfigured` and
 `ReferenceUnavailable` produce no ratios, and no observed outcome can select a
 fallback reference.
+
+### Profiles, paired comparisons and break-even over the observation view
+
+These functions read the observation frame and take a `MetricId` with one value per system
+(`ITERATIONS`, `SOLVE_S`, `ONLINE_S`, `STANDALONE_S`, `TIME_PER_ITERATION_S`); a per-matrix metric
+raises `ValueError`. The failure rule is `select`'s, so "solved" means the metric is defined on the
+system's outcome.
+
+`ecdf_series(obs, metric)` and `performance_series(obs, metric)` return a `ProfileSeries`:
+`frame` has `PROFILE_SERIES_SCHEMA` (`method, x, fraction, n_planned, n_solved`), one row per solved
+system, ascending in `x`, with `fraction` the number of solved systems of the method with value at
+most `x` divided by `n_planned`, so a curve ends at `n_solved / n_planned` and ties share the
+fraction of the whole tie. `planned` has `PLANNED_SCHEMA` (`method, n_planned, n_solved`), one row
+per method of `obs`: a method that solved nothing has no curve row and is still counted there.
+The ECDF `x` is the metric value (absolute budget, independent of the other methods). The
+performance-profile `x` is the Dolan-More ratio $\rho_{p,s} = x_{p,s} / \min_{p'} x_{p',s}$ with
+the minimum over the methods that solved $s$; an unsolved system stays in the denominator.
+
+A system whose best value is 0 (a solve at the initial guess takes 0 iterations, a time can be 0)
+has no ratio for any method. It is dropped from numerator and denominator of every method and
+counted in `ProfileSeries.n_excluded_zero_best`; leaving it in the denominators would lower every
+method's plateau by a system nobody failed on, which reads as failures. The ECDF keeps such a
+system, since an absolute budget of 0 is meaningful.
+
+`paired_systems(obs, reference, metric)` has `PAIRED_SCHEMA` (`method, system_id, dataset,
+matrix_id, pair_kind, reference_value, method_value`): for each non-reference method, one row per
+system planned for both where at least one side has a value. `pair_kind` is a `PairKind`: `both`,
+`method_only` (no `reference_value`) or `reference_only` (no `method_value`). A system neither side
+solved has no row. `speed_ratio_summary(obs, reference, metric, seed=...)` has
+`SPEED_RATIO_SCHEMA`, one row per non-reference method:
+
+| Column | Meaning |
+|---|---|
+| `n_systems_both_solved` | `both` rows, including those with a zero value |
+| `n_ratio` | `both` rows with both values positive, the systems a ratio $x_{\mathrm{ref},s} / x_{p,s}$ exists for; a zero value makes it undefined, never infinite |
+| `n_matrices` | distinct `(dataset, matrix_id)` among the ratio rows: the cluster count the interval rests on, since sibling RHS share a matrix and `n_ratio` overstates the effective sample size |
+| `n_reference_only`, `n_method_only` | one-sided systems |
+| `median_ratio`, `ci_low`, `ci_high` | median ratio (above 1 favours the method) and its matrix-cluster bootstrap interval; null without a ratio, interval null below two matrices |
+
+`speed_ratios(paired)` lists the per-system ratios behind the summary (`method`, `dataset`,
+`matrix_id`, `system_id`, `ratio`), so a ratio CDF and the summary count the same systems. Reports
+compare methods to the configured reference on `REFERENCE_METRIC` (`ONLINE_S`, amortized online
+time); `reference_among_methods(obs, selection)` gives the reference name only for a
+`ConfiguredReference` whose method has systems in the group.
+
+`break_even(obs, reference)` has `BREAK_EVEN_SCHEMA` (`method, setup_s_mean,
+reference_setup_s_mean, solve_s_mean, reference_solve_s_mean, break_even_rhs`). The means are over
+the population common to the pair alone: `SETUP_S` over the matrices both set up, `SOLVE_S` over
+the systems both solved. Against the reference, on those populations,
+$C_p(n) = \bar{t}^{\mathrm{setup}}_p + n\,\bar{t}^{\mathrm{solve},\mathrm{sys}}_p$ and
+
+$$n^{*} = \frac{\bar{t}^{\mathrm{setup}}_p - \bar{t}^{\mathrm{setup}}_{\mathrm{ref}}}{\bar{t}^{\mathrm{solve},\mathrm{sys}}_{\mathrm{ref}} - \bar{t}^{\mathrm{solve},\mathrm{sys}}_p}$$
+
+defined only when the denominator is positive; otherwise `break_even_rhs` is null (the method is
+not faster per RHS and never breaks even). With a positive denominator and a setup no dearer than
+the reference's, `break_even_rhs` is 0.0: the method never costs more. A pair with no common unit
+has null means and a null `break_even_rhs`.
 
 ## Diagnostic solver results
 
@@ -152,7 +338,9 @@ stopping test and `SolveConverged.final_relative_residual` use its recursive est
 `SolveAttempt.residual` (`MeasuredResidual`/`UnmeasuredResidual`) is `||b - A x||/||b||`
 recomputed from the returned solution after the timed region (`true_residual.measure_residual`);
 it never changes how a solve is classified, and it is unmeasured when the solver raised or the
-right-hand side is zero. `SolveAttempt.exact_reference` (`ExactSolutionSolved` with the
+right-hand side is zero. `measure_residual` returns `NonFiniteResidual` for a non-finite iterate or
+a residual that overflows; `run_cg_comparison` then records the solve as a failed one with an
+unmeasured residual, no histories and no energy-error second solve, instead of storing a NaN. `SolveAttempt.exact_reference` (`ExactSolutionSolved` with the
 reference solution's achieved residual, or `ExactSolutionUnavailable` with the reason) records
 the Jacobi-PCG solve that supplies `x_exact`. An exact energy-error history exists only when
 that reference solved, and it always comes from the second, untimed diagnostic solve, because
@@ -195,7 +383,7 @@ variant. `recorded_seconds` returns the seconds of a `Known` cost and `None` oth
 returns a `RepeatAgreement` with the timing: `SingleRun` (one timed execution), `Unchecked`
 (several, but no fingerprint to compare), `Agreed`, or `Diverged(first, other)` (a repeat's
 iteration count differed from the first, so its samples are not comparable; the first divergence is
-logged once). `SolveAttempt.repeats` stores it for every solve; a solve that raised is `Unchecked`.
+logged once). `SolveAttempt.repeats` stores it for every solve; a solve that raised is `Unchecked`, a non-finite iterate keeps the agreement of its completed repeats.
 
 ## Split records
 

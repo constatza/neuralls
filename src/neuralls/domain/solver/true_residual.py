@@ -6,7 +6,9 @@ which ``error_metrics`` (imported by the solver configuration models) must not d
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import torch
 from torchalg.strategies.convergence import CombinedToleranceCriterion
@@ -18,16 +20,35 @@ from neuralls.domain.solver.models.benchmark_events import (
 )
 
 
-def measure_residual(A: torch.Tensor, b: torch.Tensor, x: torch.Tensor) -> ResidualMeasurement:
+@dataclass(frozen=True, slots=True)
+class NonFiniteResidual:
+    """The returned solution, or the residual computed from it, is not finite.
+
+    A diverged solve (for instance a learned preconditioner emitting NaN) has no relative
+    residual to store, so this is kept apart from ``UnmeasuredResidual``: the caller turns it
+    into a failed solve instead of a measurement.
+    """
+
+
+type SolutionResidual = ResidualMeasurement | NonFiniteResidual
+"""What recomputing the residual of a returned solution can yield."""
+
+
+def measure_residual(A: torch.Tensor, b: torch.Tensor, x: torch.Tensor) -> SolutionResidual:
     """Recompute ``||b - A x||_2 / ||b||_2`` from the returned solution, in ``A``'s dtype.
 
-    This is independent of the solver's recursive residual estimate. A zero right-hand
-    side has no relative residual, so it is unmeasured.
+    This is independent of the solver's recursive residual estimate. A non-finite solution, or
+    one whose residual overflows, is ``NonFiniteResidual``. A zero right-hand side has no
+    relative residual, so it is unmeasured.
     """
+    if not bool(torch.isfinite(x).all()):
+        return NonFiniteResidual()
     rhs_norm = float(torch.linalg.vector_norm(b))
     if rhs_norm == 0.0:
         return UnmeasuredResidual()
     residual_norm = float(torch.linalg.vector_norm(b - A @ x))
+    if not (math.isfinite(rhs_norm) and math.isfinite(residual_norm)):
+        return NonFiniteResidual()
     return MeasuredResidual(rhs_norm=rhs_norm, true_residual_rel=residual_norm / rhs_norm)
 
 

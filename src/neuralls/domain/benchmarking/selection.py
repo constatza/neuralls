@@ -1,12 +1,11 @@
-"""Explicit reference selection and common solved-system helpers."""
+"""Explicit reference selection: configured, absent or unavailable."""
 
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 
-from neuralls.domain.solver.models.outcomes import Outcomes, Solved
-from neuralls.shared.types import PreconditionerName, SystemId
+from neuralls.shared.types import PreconditionerName
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,17 +92,3 @@ def resolve_reference_selection(
         return ReferenceUnavailable(name=name, reason=skipped_by_name[str(name)])
     validate_reference_preconditioner(name, available)
     return ConfiguredReference(name=name)
-
-
-def systems_solved_by_all(outcomes: Outcomes) -> frozenset[SystemId]:
-    """Systems on which every method converged.
-
-    Conditional means over a method's own converged systems favour methods that
-    only solve easy systems (survivorship bias); comparing on this common
-    subset removes it, at the price of a smaller n.
-    """
-    per_method = [
-        {sid for sid, o in per_system.items() if isinstance(o, Solved)}
-        for per_system in outcomes.values()
-    ]
-    return frozenset.intersection(*map(frozenset, per_method)) if per_method else frozenset()

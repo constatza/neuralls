@@ -36,7 +36,6 @@ class CompleteWorkloadSummary:
     setup_total_s: float
     solve_total_s: float
     workload_online_s: float
-    online_s_per_attempted_rhs: float | None
     workload_peak_memory: PeakMemory
 
     def __post_init__(self) -> None:
@@ -57,7 +56,6 @@ class IncompleteWorkloadSummary:
     setup_total_s: float
     solve_total_s: float
     workload_online_s: float
-    online_s_per_attempted_rhs: float | None
     workload_peak_memory: PeakMemory
     missing_system_ids: tuple[SystemId, ...]
 
@@ -124,17 +122,6 @@ def _validate_summary_fields(summary: MethodWorkloadSummary) -> None:
         summary.workload_online_s, summary.setup_total_s + summary.solve_total_s
     ):
         raise ValueError("workload online time must equal setup plus solve time")
-    expected_average = (
-        summary.workload_online_s / summary.n_attempted_rhs if summary.n_attempted_rhs > 0 else None
-    )
-    if expected_average is None:
-        average_matches = summary.online_s_per_attempted_rhs is None
-    else:
-        average_matches = summary.online_s_per_attempted_rhs is not None and _derived_seconds_match(
-            summary.online_s_per_attempted_rhs, expected_average
-        )
-    if not average_matches:
-        raise ValueError("attempted-RHS average must agree with workload online time")
 
 
 def _derived_seconds_match(left: float, right: float) -> bool:

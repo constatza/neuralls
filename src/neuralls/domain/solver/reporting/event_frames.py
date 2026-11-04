@@ -463,6 +463,7 @@ def validate_decoded_solve_frame(frame: pl.DataFrame) -> None:
             if not isinstance(reason, str):
                 raise ValueError(f"failed solve {system_id!r} is missing a failure reason")
         _validate_residual_columns(row, system_id)
+        _validate_outcome_columns(row, system_id)
         _validate_repeat_columns(row, system_id)
         if system_id in seen_systems:
             raise ValueError(f"duplicate solve system ID: {system_id!r}")
@@ -493,6 +494,30 @@ def _validate_residual_columns(row: dict[str, object], system_id: str) -> None:
                 raise ValueError(f"unavailable reference of {system_id!r} is missing a reason")
         case other:
             raise ValueError(f"unknown reference status: {other!r}")
+
+
+def _validate_outcome_columns(row: dict[str, object], system_id: str) -> None:
+    """Status columns must agree with the facts ``solve_outcome`` reads from them.
+
+    A failed solve with an unmeasured residual is a solver that raised or returned a non-finite
+    iterate, which stores no iteration count (0). A measured residual needs a nonzero
+    right-hand side: a zero one has no relative residual and is stored unmeasured.
+    """
+    rhs_norm = row["rhs_norm"]
+    if row["residual_status"] == "measured" and rhs_norm == 0.0:
+        raise ValueError(
+            f"measured residual of {system_id!r} has a zero RHS norm; "
+            "a zero right-hand side is stored unmeasured"
+        )
+    if (
+        row["solve_status"] == "failed"
+        and row["residual_status"] == "unmeasured"
+        and row["iterations"] != 0
+    ):
+        raise ValueError(
+            f"failed solve {system_id!r} with an unmeasured residual "
+            "(the solver raised or diverged) must have 0 iterations"
+        )
 
 
 def _validate_repeat_columns(row: dict[str, object], system_id: str) -> None:

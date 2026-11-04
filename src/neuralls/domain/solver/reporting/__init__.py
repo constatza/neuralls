@@ -6,6 +6,10 @@ links, allocates each matrix setup across its complete planned RHS bundle, and
 derives solve-only and amortized-online outcomes. Failures remain censored in
 profiles while their measured attempt time stays in workload totals.
 
+``observations`` joins one method's stored frames into one row per planned system, ``metrics``
+catalogs what can be summarized and on which outcomes, and ``summary`` applies that failure rule
+once to give per-method means, quantiles and matrix-cluster intervals.
+
 Report-level summaries retain planned, attempted, converged, and matrix counts
 independently. Confidence intervals resample whole matrix clusters so sibling
 RHS observations are never treated as independent matrices.

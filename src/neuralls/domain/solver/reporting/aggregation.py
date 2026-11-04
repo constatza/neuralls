@@ -18,7 +18,6 @@ from neuralls.domain.solver.models.benchmark_events import (
 )
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.models.labels import GroupLabel
-from neuralls.domain.solver.models.outcomes import Failed, Solved, SystemOutcome
 from neuralls.domain.solver.models.statistics import IterationStats
 from neuralls.domain.solver.models.workload import (
     CompleteWorkloadSummary,
@@ -38,24 +37,6 @@ _PLANNED_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "matrix_id": pl.Int64,
     "system_id": pl.String,
 }
-
-
-def build_system_cost_frame(
-    planned: Sequence[SystemTag],
-    setup_events: Collection[MatrixSetupEvent],
-    attempts: Collection[SolveAttempt],
-) -> pl.DataFrame:
-    """Build attempted-system costs with setup allocated by planned matrix membership."""
-    _validate_event_links(planned, setup_events, attempts)
-    planned_counts = _planned_matrix_counts(planned)
-    setup_costs = build_setup_frame(setup_events).select("setup_event_id", "setup_s")
-    return (
-        build_solve_frame(attempts)
-        .join(setup_costs, on="setup_event_id", how="left", validate="m:1")
-        .join(planned_counts, on=["dataset", "matrix_id"], how="left", validate="m:1")
-        .with_columns(allocated_setup_s=pl.col("setup_s") / pl.col("planned_rhs_count"))
-        .with_columns(amortized_online_s=pl.col("solve_s") + pl.col("allocated_setup_s"))
-    )
 
 
 def build_matrix_bundle_frame(
@@ -133,9 +114,6 @@ def summarize_method_workload(
     )
     n_attempted_rhs = len(method_attempts)
     n_converged = sum(isinstance(attempt.outcome, SolveConverged) for attempt in method_attempts)
-    online_s_per_attempted_rhs = (
-        workload_online_s / n_attempted_rhs if n_attempted_rhs > 0 else None
-    )
     summary_fields = {
         "method": method,
         "n_planned_rhs": len(planned),
@@ -144,26 +122,11 @@ def summarize_method_workload(
         "setup_total_s": setup_total_s,
         "solve_total_s": solve_total_s,
         "workload_online_s": workload_online_s,
-        "online_s_per_attempted_rhs": online_s_per_attempted_rhs,
         "workload_peak_memory": workload_peak_memory,
     }
     if missing_ids:
         return IncompleteWorkloadSummary(**summary_fields, missing_system_ids=missing_ids)
     return CompleteWorkloadSummary(**summary_fields)
-
-
-def ranking_costs(
-    summaries: Sequence[MethodWorkloadSummary],
-) -> Mapping[PreconditionerName, float]:
-    """Return rankable online workload costs, rejecting incomplete methods."""
-    costs: dict[PreconditionerName, float] = {}
-    for summary in summaries:
-        if isinstance(summary, IncompleteWorkloadSummary):
-            raise TypeError(f"incomplete workload for method {summary.method!r} is not rankable")
-        if summary.method in costs:
-            raise ValueError(f"duplicate workload summary for method {summary.method!r}")
-        costs[summary.method] = summary.workload_online_s
-    return costs
 
 
 def convergence_by_level(
@@ -203,67 +166,6 @@ def convergence_by_level(
             )
         if by_method:
             report[label] = by_method
-    return report
-
-
-def outcomes_by_system(
-    planned: Sequence[SystemTag],
-    setup_events: Collection[MatrixSetupEvent],
-    attempts: Collection[SolveAttempt],
-    level: ReportLevel,
-    *,
-    planned_by_method: Mapping[PreconditionerName, Sequence[SystemTag]] | None = None,
-) -> dict[GroupLabel, dict[PreconditionerName, dict[SystemId, SystemOutcome]]]:
-    """Build one censored outcome for every planned method/system pair."""
-    _validate_event_links(planned, setup_events, attempts)
-    planned_counts = {
-        (row["dataset"], MatrixId(row["matrix_id"])): int(row["planned_rhs_count"])
-        for row in _planned_matrix_counts(planned).iter_rows(named=True)
-    }
-    setups = {(event.dataset, event.matrix_id, event.method): event for event in setup_events}
-    attempts_by_key = {(attempt.system_id, attempt.method): attempt for attempt in attempts}
-    groups = _tags_by_report_key(planned, level)
-    labels = {key: label_for_tags(level, tags) for key, tags in groups.items()}
-    report: dict[GroupLabel, dict[PreconditionerName, dict[SystemId, SystemOutcome]]] = {}
-    for key, tags in groups.items():
-        label = labels[key]
-        methods = _group_methods(tags, setup_events, planned_by_method)
-        for method in methods:
-            method_outcomes = report.setdefault(label, {}).setdefault(method, {})
-            for tag in tags:
-                attempt = attempts_by_key.get((tag.system_id, method))
-                setup = setups.get((tag.dataset, tag.matrix_id, method))
-                if attempt is None:
-                    reason = (
-                        setup.outcome.reason
-                        if setup is not None and isinstance(setup.outcome, SetupFailed)
-                        else "setup not recorded"
-                        if setup is None
-                        else "not attempted"
-                    )
-                    method_outcomes[tag.system_id] = Failed(
-                        matrix_id=tag.matrix_id, iterations=0, reason=reason
-                    )
-                    continue
-                if isinstance(attempt.outcome, SolveConverged):
-                    if setup is None:
-                        raise ValueError("solved attempt is missing its setup event")
-                    method_outcomes[tag.system_id] = Solved(
-                        matrix_id=attempt.matrix_id,
-                        iterations=attempt.outcome.iterations,
-                        solve_s=attempt.solve_s,
-                        amortized_online_s=(
-                            attempt.solve_s
-                            + setup.setup_s / planned_counts[(tag.dataset, tag.matrix_id)]
-                        ),
-                        dataset=tag.dataset,
-                    )
-                else:
-                    method_outcomes[tag.system_id] = Failed(
-                        matrix_id=attempt.matrix_id,
-                        iterations=attempt.outcome.iterations,
-                        reason=attempt.outcome.reason,
-                    )
     return report
 
 

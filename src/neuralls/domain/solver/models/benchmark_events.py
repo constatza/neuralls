@@ -95,7 +95,7 @@ class MeasuredResidual:
 
 @dataclass(frozen=True, slots=True)
 class UnmeasuredResidual:
-    """No residual was recomputed: the solver raised or the right-hand side is zero."""
+    """No residual was recomputed: the solver raised or diverged, or the right-hand side is zero."""
 
 
 type ResidualMeasurement = MeasuredResidual | UnmeasuredResidual

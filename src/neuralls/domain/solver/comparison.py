@@ -28,10 +28,11 @@ from neuralls.domain.solver.models.benchmark_events import (
     UnmeasuredResidual,
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.domain.solver.true_residual import measure_residual
+from neuralls.domain.solver.true_residual import NonFiniteResidual, measure_residual
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
 from neuralls.shared.device import (
     FailedTimedRuns,
+    RepeatAgreement,
     Unchecked,
     release_device_memory,
     repeat_timed_outcome,
@@ -140,66 +141,74 @@ def run_cg_comparison(
             fingerprint=lambda solved: solved[1].iterations,
         )  # fmt: skip
         if isinstance(timed, FailedTimedRuns):
-            result = CGComparisonResult(
-                x=_to_numpy(x0_base),
-                converged=False,
-                iterations=0,
-                residual=float("inf"),
-                residual_abs=float("inf"),
-                residual_history_rel=[],
-                residual_history_abs=[],
-                preconditioner=precond_name,
-                initial_guess=_to_numpy(x0_base),
-                exact_error=None,
-                rhs_norm=float(torch.linalg.vector_norm(b)),
-                breakdown=False,
+            result = _unsolved_result(
+                precond_name,
+                x0_base,
+                b,
+                exact_reference,
                 error=f"CG solver failed: {timed.error}",
-                true_residual=UnmeasuredResidual(),
-                exact_reference=exact_reference,
-                solve_time_seconds=timed.seconds,
-                solve_peak_memory_bytes=timed.peak_memory_bytes,
-                solve_time_samples=timed.samples_seconds,
+                seconds=timed.seconds,
+                peak_memory_bytes=timed.peak_memory_bytes,
+                samples_seconds=timed.samples_seconds,
                 timing_agreement=Unchecked(),
             )
         else:
             x_sol, info = timed.value
-            exact_error = relative_exact_error(x_sol, x_exact) if x_exact is not None else None
-            error_history, error_bound = (
-                _safe_extract_energy_error(info)
-                if x_exact is None
-                else _untimed_energy_error(
-                    A, b, x0, precond, x_exact, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max
-                )
-            )
+            match measure_residual(A, b, x_sol):
+                case NonFiniteResidual():
+                    result = _unsolved_result(
+                        precond_name,
+                        x0_base,
+                        b,
+                        exact_reference,
+                        error=f"non-finite iterate after {info.iterations} iterations",
+                        seconds=timed.seconds,
+                        peak_memory_bytes=timed.peak_memory_bytes,
+                        samples_seconds=timed.samples_seconds,
+                        timing_agreement=timed.agreement,
+                        breakdown=info.breakdown,
+                    )
+                case MeasuredResidual() | UnmeasuredResidual() as true_residual:
+                    exact_error = (
+                        relative_exact_error(x_sol, x_exact) if x_exact is not None else None
+                    )
+                    error_history, error_bound = (
+                        _safe_extract_energy_error(info)
+                        if x_exact is None
+                        else _untimed_energy_error(
+                            A, b, x0, precond, x_exact,
+                            rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
+                        )
+                    )  # fmt: skip
 
-            rhs_norm = info.rhs_norm
-            residual: list[float] = list(info.residual_history_abs or (info.residual_abs,))
-            residual_rel: list[float] = (
-                [r / rhs_norm for r in residual] if rhs_norm > 0 else list(residual)
-            )
+                    rhs_norm = info.rhs_norm
+                    residual: list[float] = list(info.residual_history_abs or (info.residual_abs,))
+                    residual_rel: list[float] = (
+                        [r / rhs_norm for r in residual] if rhs_norm > 0 else list(residual)
+                    )
 
-            result = CGComparisonResult(
-                x=_to_numpy(x_sol),
-                converged=info.converged,
-                iterations=info.iterations,
-                residual=info.residual,
-                residual_abs=info.residual_abs,
-                residual_history_rel=residual_rel,
-                residual_history_abs=residual,
-                preconditioner=precond_name,
-                initial_guess=_to_numpy(x0_base),
-                exact_error=exact_error,
-                rhs_norm=info.rhs_norm,
-                breakdown=info.breakdown,
-                error_history_a_rel=error_history,
-                error_bound_a_rel=error_bound,
-                true_residual=measure_residual(A, b, x_sol),
-                exact_reference=exact_reference,
-                solve_time_seconds=timed.seconds,
-                solve_peak_memory_bytes=timed.peak_memory_bytes,
-                solve_time_samples=timed.samples_seconds,
-                timing_agreement=timed.agreement,
-            )
+                    result = CGComparisonResult(
+                        x=_to_numpy(x_sol),
+                        converged=info.converged,
+                        iterations=info.iterations,
+                        residual=info.residual,
+                        residual_abs=info.residual_abs,
+                        residual_history_rel=residual_rel,
+                        residual_history_abs=residual,
+                        preconditioner=precond_name,
+                        initial_guess=_to_numpy(x0_base),
+                        exact_error=exact_error,
+                        rhs_norm=info.rhs_norm,
+                        breakdown=info.breakdown,
+                        error_history_a_rel=error_history,
+                        error_bound_a_rel=error_bound,
+                        true_residual=true_residual,
+                        exact_reference=exact_reference,
+                        solve_time_seconds=timed.seconds,
+                        solve_peak_memory_bytes=timed.peak_memory_bytes,
+                        solve_time_samples=timed.samples_seconds,
+                        timing_agreement=timed.agreement,
+                    )
 
         results[precond_name] = result
         release_device_memory()
@@ -232,6 +241,50 @@ def compute_reference_solution(
             return x, ExactSolutionSolved(residual)
         case UnmeasuredResidual():
             return x, ExactSolutionUnavailable("zero right-hand side")
+        case NonFiniteResidual():
+            return None, ExactSolutionUnavailable("reference solution is not finite")
+
+
+def _unsolved_result(
+    precond_name: str,
+    x0: torch.Tensor,
+    b: torch.Tensor,
+    exact_reference: ExactReference,
+    *,
+    error: str,
+    seconds: float,
+    peak_memory_bytes: int,
+    samples_seconds: tuple[float, ...],
+    timing_agreement: RepeatAgreement,
+    breakdown: bool = False,
+) -> CGComparisonResult:
+    """A solve that produced no usable iterate: the initial guess, 0 iterations, no residual.
+
+    Stored as a failed solve with an unmeasured residual, whose iteration count must be 0, so
+    anything worth knowing about the attempt (the iterations a diverged solve ran) belongs in
+    ``error``.
+    """
+    return CGComparisonResult(
+        x=_to_numpy(x0),
+        converged=False,
+        iterations=0,
+        residual=float("inf"),
+        residual_abs=float("inf"),
+        residual_history_rel=[],
+        residual_history_abs=[],
+        preconditioner=precond_name,
+        initial_guess=_to_numpy(x0),
+        exact_error=None,
+        rhs_norm=float(torch.linalg.vector_norm(b)),
+        breakdown=breakdown,
+        error=error,
+        true_residual=UnmeasuredResidual(),
+        exact_reference=exact_reference,
+        solve_time_seconds=seconds,
+        solve_peak_memory_bytes=peak_memory_bytes,
+        solve_time_samples=samples_seconds,
+        timing_agreement=timing_agreement,
+    )
 
 
 def _safe_extract_energy_error(

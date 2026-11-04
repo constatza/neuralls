@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+import polars as pl
+
 from neuralls.domain.benchmarking.selection import NoReferenceConfigured, ReferenceSelection
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.models.labels import (
@@ -13,16 +15,17 @@ from neuralls.domain.solver.models.labels import (
     MatrixSetLabel,
     MatrixSetRhsTypeLabel,
 )
-from neuralls.domain.solver.models.outcomes import SystemOutcome
-from neuralls.domain.solver.models.statistics import MethodComparison
 from neuralls.domain.solver.models.workload import MethodWorkloadSummary
 from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.types import DatasetId, GroupId, PreconditionerName, SystemId
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, eq=False)
 class GroupAggregated:
     """One or more comparison group members contributed a real result.
+
+    Equality is identity: ``observations`` is a frame, whose elementwise comparison is not a
+    boolean.
 
     Attributes:
         group_id: Stable, unique rendering of `label`, used for filenames and
@@ -31,6 +34,10 @@ class GroupAggregated:
             levels name the recipes they pool.
         n_matrices: Distinct planned matrices in the group.
         n_planned_rhs: Total planned systems in the group.
+        observations: The group's rows of the all-methods observation view (schema
+            ``OBSERVATION_SCHEMA``): one row per method and planned system of the group, whatever
+            its outcome. A recipe report holds its recipe's rows, a mixture report the pooled rows
+            of every recipe it names.
         convergence: For every preconditioner name run in the group, including
             interrupted methods, its planned, attempted, and converged counts.
     """
@@ -39,6 +46,7 @@ class GroupAggregated:
     label: GroupLabel
     n_matrices: int
     n_planned_rhs: int
+    observations: pl.DataFrame
     convergence: Mapping[PreconditionerName, ConvergenceSummary] = field(default_factory=dict)
     summaries: tuple[MethodWorkloadSummary, ...] = ()
     reference_selection: ReferenceSelection = field(default_factory=NoReferenceConfigured)
@@ -48,15 +56,15 @@ class GroupAggregated:
     system_ids: tuple[SystemId, ...] = ()
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, eq=False)
 class RecipeProfileReport(GroupAggregated):
-    """Matrix-set-and-RHS-type report for one recipe; profile and ECDF data are valid here."""
+    """Matrix-set-and-RHS-type report for one recipe.
+
+    One homogeneous recipe is what makes a performance profile and a paired comparison against
+    the reference meaningful, so only this report type is planned those figures.
+    """
 
     label: MatrixSetRhsTypeLabel
-    outcomes: Mapping[PreconditionerName, Mapping[SystemId, SystemOutcome]] = field(
-        default_factory=dict
-    )
-    comparisons: Mapping[PreconditionerName, MethodComparison] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Require exactly the recipe named by the matrix-set-and-RHS-type label."""
@@ -64,7 +72,7 @@ class RecipeProfileReport(GroupAggregated):
             raise ValueError("a recipe profile must contain exactly its recipe")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, eq=False)
 class WorkloadMixtureReport(GroupAggregated):
     """Matrix-set or all-matrix-sets report whose recipes are explicitly named as a mixture."""
 
