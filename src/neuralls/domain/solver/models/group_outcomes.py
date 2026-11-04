@@ -86,6 +86,10 @@ class WorkloadMixtureReport(GroupAggregated):
             raise ValueError("recipe membership must be ordered and unique")
 
 
+type GroupReport = RecipeProfileReport | WorkloadMixtureReport
+"""A report group that has results to draw; the two report types call for different figures."""
+
+
 @dataclass(frozen=True, slots=True)
 class GroupSkippedAllCacheHit:
     """No system of this report group produced a result this run.

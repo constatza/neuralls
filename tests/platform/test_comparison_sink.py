@@ -55,6 +55,7 @@ from neuralls.domain.solver.reporting.event_frames import (
     SETUP_EVENT_SCHEMA,
     SOLVE_ATTEMPT_SCHEMA,
 )
+from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
@@ -71,7 +72,6 @@ from neuralls.platform.reporting.figure_metadata import (
     MethodFigureMetadata,
     SiblingTable,
     StagedFigure,
-    TimingScenario,
 )
 from neuralls.platform.reporting.figure_planning import figure_plans
 from neuralls.platform.reporting.stored_benchmark import StoredMethod
@@ -398,17 +398,17 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
     assert online.metadata.recipe_counts == (1, 3)
     assert online.metadata.recipe_weights == (0.25, 0.75)
     assert online.metadata.metric_definition == "workload online seconds (setup + solve total)"
-    assert online.metadata.scenario is TimingScenario.ONLINE
+    assert online.metadata.metric is MetricId.ONLINE_S
     assert online.metadata.failure_treatment is FailureTreatment.NONE
     assert online.metadata.solver_contexts == (context,)
     assert solve.metadata.metric_definition == "solve seconds (workload total)"
-    assert solve.metadata.scenario is TimingScenario.SOLVE
+    assert solve.metadata.metric is MetricId.SOLVE_S
 
 
-def test_figure_plans_name_solve_and_online_ecdfs_by_scenario(
+def test_figure_plans_name_solve_and_online_ecdfs_by_metric(
     group: RecipeProfileReport, dataset_presentation: DatasetPresentation
 ) -> None:
-    """ECDF titles describe the explicit timing scenario being plotted."""
+    """ECDF titles describe the timing metric being plotted."""
     presentation = GroupPresentation(
         scope=RecipeScope(dataset_presentation, GAUSSIAN), plot_styles={}, methods={}
     )
@@ -417,14 +417,12 @@ def test_figure_plans_name_solve_and_online_ecdfs_by_scenario(
     solve = next(
         plan
         for plan in plans
-        if plan.metadata.kind.value == "ecdf_time"
-        and plan.metadata.scenario is TimingScenario.SOLVE
+        if plan.metadata.kind.value == "ecdf_time" and plan.metadata.metric is MetricId.SOLVE_S
     )
     online = next(
         plan
         for plan in plans
-        if plan.metadata.kind.value == "ecdf_time"
-        and plan.metadata.scenario is TimingScenario.ONLINE
+        if plan.metadata.kind.value == "ecdf_time" and plan.metadata.metric is MetricId.ONLINE_S
     )
 
     scope = RecipeScope(dataset_presentation, GAUSSIAN)
@@ -518,9 +516,9 @@ def test_sink_logs_explicit_counts_and_ratio_metrics(
     assert logged_metrics[_key("n_planned_rhs", group, "amg")] == 4
     assert logged_metrics[_key("n_attempted_rhs", group, "amg")] == 4
     assert logged_metrics[_key("n_converged", group, "amg")] == 3
-    # amg over jacobi online time: 1.5/2.5 and 2.5/3.0 on matrix 7, 4.5/9.5 on matrix 8
     assert logged_metrics[_key("success_rate", group, "amg")] == pytest.approx(0.75)
     assert logged_metrics[_key("iterations_median", group, "amg")] == 6.0
+    # amg over jacobi online time: 1.5/2.5 and 2.5/3.0 on matrix 7, 4.5/9.5 on matrix 8
     assert logged_metrics[_key("n_both_solved", group, "jacobi")] == 3
     assert logged_metrics[_key("n_ratio", group, "jacobi")] == 3
     assert logged_metrics[_key("n_matrices", group, "jacobi")] == 2

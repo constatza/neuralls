@@ -51,7 +51,7 @@ from neuralls.platform.reporting.figure_metadata import (
     TimingPolicy,
     method_source,
 )
-from neuralls.platform.reporting.figure_planning import FIGURE_RECIPES, figure_plans, plan_figure
+from neuralls.platform.reporting.figure_planning import figure_plans, history_variant, plan_figure
 from neuralls.platform.reporting.figure_table import build_group_table
 from neuralls.platform.reporting.figure_text import scope_label
 from neuralls.platform.reporting.group_plots import GroupStyler, write_outcome_plots
@@ -178,7 +178,7 @@ class OpenReport:
         figure_method = FigureMethod(method.name, scope.method, method.config_digest)
         figures_dir = self.uploader.staging_dir(METHOD_FIGURE_ARTIFACT_DIR)
         for kind in METHOD_PLOTS:
-            variant = FIGURE_RECIPES[kind].variant(None)
+            variant = history_variant(kind)
             metadata = MethodFigureMetadata(
                 kind=kind,
                 metric_definition=variant.metric_definition,

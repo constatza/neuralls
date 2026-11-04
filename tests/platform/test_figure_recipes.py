@@ -1,4 +1,4 @@
-"""The figure-kind registry covers every kind, and every drawer matches a planned variant."""
+"""The figure registry covers every kind, and each recipe is complete for its kind of figure."""
 
 from __future__ import annotations
 
@@ -8,12 +8,18 @@ from neuralls.domain.solver.models.group_outcomes import (
     RecipeProfileReport,
     WorkloadMixtureReport,
 )
+from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.platform.reporting.figure_metadata import GROUP_FIGURE_KINDS, FigureKind
 from neuralls.platform.reporting.figure_planning import (
     FIGURE_RECIPES,
+    GroupFigureRecipe,
+    HistoryFigureRecipe,
+    NotAGroupKindError,
+    NotAHistoryKindError,
     UnknownFigureVariantError,
+    group_recipe,
+    history_variant,
 )
-from neuralls.platform.reporting.group_plots import GROUP_DRAWERS
 from neuralls.platform.reporting.method_figures import METHOD_PLOTS
 
 
@@ -22,39 +28,53 @@ def test_every_figure_kind_has_one_recipe() -> None:
     assert all(recipe.kind is kind for kind, recipe in FIGURE_RECIPES.items())
 
 
-def test_group_drawers_are_exactly_the_group_variants() -> None:
-    planned = {
-        (recipe.kind, variant.scenario)
-        for recipe in FIGURE_RECIPES.values()
-        if recipe.applies_to
-        for variant in recipe.variants
+def test_group_kinds_are_the_kinds_with_a_group_recipe() -> None:
+    drawn_from_a_group = {
+        kind for kind, recipe in FIGURE_RECIPES.items() if isinstance(recipe, GroupFigureRecipe)
     }
-    assert set(GROUP_DRAWERS) == planned
+    assert drawn_from_a_group == GROUP_FIGURE_KINDS
 
 
-def test_group_kinds_are_the_kinds_that_apply_to_a_group_report() -> None:
-    applied = {kind for kind, recipe in FIGURE_RECIPES.items() if recipe.applies_to}
-    assert applied == GROUP_FIGURE_KINDS
-
-
-def test_method_plots_are_exactly_the_method_kinds() -> None:
-    assert set(METHOD_PLOTS) == set(FigureKind) - GROUP_FIGURE_KINDS
+def test_method_plots_are_exactly_the_kinds_with_a_history_recipe() -> None:
+    histories = {
+        kind for kind, recipe in FIGURE_RECIPES.items() if isinstance(recipe, HistoryFigureRecipe)
+    }
+    assert set(METHOD_PLOTS) == histories
 
 
 def test_mixture_reports_plan_only_the_kinds_common_to_both_reports() -> None:
     mixture_kinds = {
         kind
         for kind, recipe in FIGURE_RECIPES.items()
-        if WorkloadMixtureReport in recipe.applies_to
+        if isinstance(recipe, GroupFigureRecipe) and WorkloadMixtureReport in recipe.applies_to
     }
     assert mixture_kinds == {
         FigureKind.AGGREGATE_BARS,
         FigureKind.SOLVE_TIME,
         FigureKind.ONLINE_TIME,
     }
-    assert all(RecipeProfileReport in FIGURE_RECIPES[kind].applies_to for kind in mixture_kinds)
+    assert all(RecipeProfileReport in group_recipe(kind).applies_to for kind in mixture_kinds)
 
 
-def test_variant_lookup_rejects_a_scenario_the_kind_lacks() -> None:
+def test_variant_lookup_rejects_a_metric_the_kind_lacks() -> None:
     with pytest.raises(UnknownFigureVariantError):
-        FIGURE_RECIPES[FigureKind.SPEED_RATIO].variant(None)
+        group_recipe(FigureKind.SPEED_RATIO).variant(MetricId.ITERATIONS)
+
+
+def test_a_variant_is_found_by_the_metric_it_summarizes() -> None:
+    recipe = group_recipe(FigureKind.ECDF_TIME)
+
+    assert [recipe.variant(metric).stem for metric in (MetricId.SOLVE_S, MetricId.ONLINE_S)] == [
+        "ecdf_time_solve",
+        "ecdf_time_online",
+    ]
+
+
+def test_a_group_kind_has_no_history_variant() -> None:
+    with pytest.raises(NotAHistoryKindError):
+        history_variant(FigureKind.ECDF_ITERATIONS)
+
+
+def test_a_history_kind_has_no_group_recipe() -> None:
+    with pytest.raises(NotAGroupKindError):
+        group_recipe(FigureKind.RESIDUAL_HISTORY)

@@ -23,7 +23,9 @@ from neuralls.domain.benchmarking.selection import (
 )
 from neuralls.domain.solver.models.figure_scope import render_figure_scope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
+from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
+from neuralls.domain.solver.reporting.summary import Population
 from neuralls.platform.reporting.figure_metadata import (
     CARD_PROFILE,
     GROUP_FIGURE_KINDS,
@@ -40,8 +42,8 @@ from neuralls.platform.reporting.figure_metadata import (
     NoTable,
     ReferenceSelectionKind,
     SiblingTable,
+    Statistic,
     TimingPolicy,
-    TimingScenario,
     table_of,
 )
 from neuralls.platform.storage.facts_codec import (
@@ -214,10 +216,16 @@ def card_payload(card: FigureCard) -> dict[str, Any]:
         },
     }
     match metadata:
-        case GroupFigureMetadata(scenario=scenario, failure_treatment=failure_treatment):
+        case GroupFigureMetadata(
+            metric=metric,
+            population=population,
+            statistic=statistic,
+            failure_treatment=failure_treatment,
+        ):
             payload["failure_treatment"] = failure_treatment.value
-            if scenario is not None:
-                payload["scenario"] = scenario.value
+            payload["metric"] = metric.value
+            payload["population"] = population.value
+            payload["statistic"] = statistic.value
         case MethodFigureMetadata():
             pass
         case unreachable:
@@ -261,11 +269,16 @@ def validate_figure_card(payload: Mapping[str, Any]) -> None:
 
 
 def _decode_group_metadata(kind: FigureKind, payload: Mapping[str, Any]) -> GroupFigureMetadata:
-    _require(payload, frozenset({"failure_treatment"}), "group document")
-    scenario = payload.get("scenario")
+    _require(
+        payload,
+        frozenset({"failure_treatment", "metric", "population", "statistic"}),
+        "group document",
+    )
     return GroupFigureMetadata(
         **_common_fields(kind, payload),
-        scenario=None if scenario is None else TimingScenario(scenario),
+        metric=MetricId(payload["metric"]),
+        population=Population(payload["population"]),
+        statistic=Statistic(payload["statistic"]),
         failure_treatment=FailureTreatment(payload["failure_treatment"]),
         aggregation_rule=GroupAggregationRule(payload["aggregation_rule"]),
     )

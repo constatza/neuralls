@@ -13,7 +13,9 @@ from neuralls.domain.benchmarking.selection import ReferenceSelection
 from neuralls.domain.presentation.methods import ConfiguredMethodPresentation
 from neuralls.domain.solver.models.figure_scope import FigureScope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
+from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
+from neuralls.domain.solver.reporting.summary import Population
 from neuralls.platform.reporting.benchmark_events import METHOD_ARTIFACT_DIR
 from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.scientific_description.policy import RenderProfile
@@ -79,9 +81,24 @@ def table_of(figure: str, kind: FigureKind) -> FigureTable:
     return SiblingTable(f"{figure.removesuffix('.png')}{TABLE_SUFFIX}")
 
 
-class TimingScenario(StrEnum):
-    SOLVE = "solve"
-    ONLINE = "online"
+class TableKind(StrEnum):
+    """The closed set of tables a group figure can write beside itself."""
+
+    SUMMARY = "summary"
+    SERIES = "series"
+    SPEED_RATIO = "speed_ratio"
+    WORKLOAD_TOTALS = "workload_totals"
+
+
+class Statistic(StrEnum):
+    """What a group figure draws of its metric."""
+
+    CONVERGED_COUNT = "converged_count"
+    WORKLOAD_TOTAL = "workload_total"
+    ECDF = "ecdf"
+    PERFORMANCE_PROFILE = "performance_profile"
+    PAIRED_VALUES = "paired_values"
+    SPEED_RATIO_CDF = "speed_ratio_cdf"
 
 
 class FailureTreatment(StrEnum):
@@ -172,11 +189,14 @@ class _FigureContext:
 class GroupFigureMetadata(_FigureContext):
     """Context of a figure aggregated over a group of systems.
 
-    ``scenario`` names the timing budget a figure is drawn for; kinds that compare no
-    timing have none. ``failure_treatment`` says what the figure does with failed systems.
+    ``metric`` is the per-system quantity the figure summarizes, ``population`` the systems it
+    is taken over and ``statistic`` what is drawn of it. ``failure_treatment`` says what the
+    figure does with failed systems.
     """
 
-    scenario: TimingScenario | None
+    metric: MetricId
+    population: Population
+    statistic: Statistic
     failure_treatment: FailureTreatment
     aggregation_rule: GroupAggregationRule
 
@@ -190,7 +210,7 @@ class GroupFigureMetadata(_FigureContext):
 class MethodFigureMetadata(_FigureContext):
     """Context of a convergence-history figure of one method or one system.
 
-    Histories are diagnostics, so there is no timing scenario and failed systems are drawn
+    Histories are diagnostics, so they summarize no metric and failed systems are drawn
     as they ended.
     """
 

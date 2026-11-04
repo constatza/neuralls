@@ -1,7 +1,7 @@
 """MLflow params naming the scope a report run covers.
 
 Only facts constant over every figure of the run are params; anything that can differ
-between figures of one run (kind, scenario, solver settings) lives in the figure cards.
+between figures of one run (kind, metric, solver settings) lives in the figure cards.
 """
 
 from __future__ import annotations

@@ -21,7 +21,7 @@ from neuralls.domain.solver.true_residual import shared_threshold, stopping_thre
 from neuralls.platform.reporting.figure_metadata import (
     FigureKind,
 )
-from neuralls.platform.reporting.figure_planning import FIGURE_RECIPES
+from neuralls.platform.reporting.figure_planning import history_variant
 from neuralls.platform.reporting.figure_text import (
     EditorialTitle,
     Legend,
@@ -142,7 +142,7 @@ def draw_method_figure(
         histories,
         threshold_rel=threshold,
         save_path=path,
-        title=EditorialTitle(FIGURE_RECIPES[kind].variants[0].title),
+        title=EditorialTitle(history_variant(kind).title),
         subtitle=subtitle,
         legend=_system_legend(method, notation, datasets),
         families=series_recipes,

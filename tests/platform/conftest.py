@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
+import polars as pl
 import pytest
 from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL, SINGLE_RUN
+from tests.observation_support import PLANNED, unbalanced_events
 from tests.presentation_support import PreparedMethodFactory
 from tests.provenance_support import datasets_for, provenance_for
 from tests.recipe_support import GAUSSIAN
@@ -27,10 +30,23 @@ from neuralls.domain.solver.models import (
     SystemTag,
 )
 from neuralls.domain.solver.models.cost import NotApplicable
-from neuralls.domain.solver.models.figure_scope import FigureScope
-from neuralls.domain.solver.models.group_presentation import SolverTimingContext
+from neuralls.domain.solver.models.figure_scope import FigureScope, RecipeScope
+from neuralls.domain.solver.models.group_outcomes import (
+    RecipeProfileReport,
+    WorkloadMixtureReport,
+)
+from neuralls.domain.solver.models.group_presentation import GroupPresentation, SolverTimingContext
+from neuralls.domain.solver.models.labels import (
+    MatrixSetLabel,
+    MatrixSetRhsTypeLabel,
+    render_group_id,
+)
+from neuralls.domain.solver.models.workload import MethodWorkloadSummary
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
+from neuralls.domain.solver.reporting.metrics import MetricId
+from neuralls.domain.solver.reporting.observations import observations_of_methods
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
+from neuralls.domain.solver.reporting.summary import Population
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
@@ -45,8 +61,8 @@ from neuralls.platform.reporting.figure_metadata import (
     GroupFigureMetadata,
     MethodAggregationRule,
     MethodFigureMetadata,
+    Statistic,
     TimingPolicy,
-    TimingScenario,
 )
 from neuralls.shared.rhs_recipe import SinusoidalRecipe
 from neuralls.shared.types import (
@@ -157,7 +173,9 @@ def metadata_of(
         return GroupFigureMetadata(
             kind=FigureKind.PERFORMANCE_PROFILE,
             metric_definition="amortized online seconds",
-            scenario=TimingScenario.ONLINE,
+            metric=MetricId.ONLINE_S,
+            population=Population.OWN,
+            statistic=Statistic.PERFORMANCE_PROFILE,
             report_level=ReportLevelName.MATRIX_SET_RHS_TYPE,
             scope=scope,
             dataset_ids=(DatasetId("Dataset X"),),
@@ -208,3 +226,91 @@ def method_metadata_of(
         )
 
     return build
+
+
+AMG_TIMING_SPREAD = 0.25
+"""The relative spread of the timing repeats of every ``amg`` solve in ``report_observations``."""
+
+
+@pytest.fixture
+def report_observations() -> pl.DataFrame:
+    """The unbalanced three-method workload; ``amg`` solves carry a spread of repeated timings."""
+    frames = {method: events.frames() for method, events in unbalanced_events().items()}
+    return observations_of_methods(frames).with_columns(
+        timing_spread=pl.when(pl.col("method") == "amg")
+        .then(AMG_TIMING_SPREAD)
+        .otherwise(pl.col("timing_spread"))
+    )
+
+
+@pytest.fixture
+def workload_summaries() -> tuple[MethodWorkloadSummary, ...]:
+    """The workload totals of the three methods of ``report_observations``."""
+    return tuple(
+        summarize_method_workload(
+            events.method,
+            PLANNED,
+            events.setup_events,
+            events.solve_attempts,
+            MeasuredPeakMemory(1),
+        )
+        for events in unbalanced_events().values()
+    )
+
+
+@pytest.fixture
+def profile_report(
+    report_observations: pl.DataFrame, workload_summaries: tuple[MethodWorkloadSummary, ...]
+) -> RecipeProfileReport:
+    """One recipe over four matrices, compared against the configured reference ``jacobi``."""
+    label = MatrixSetRhsTypeLabel(dataset=DatasetId("ds"), recipe=GAUSSIAN)
+    return RecipeProfileReport(
+        group_id=render_group_id(label),
+        label=label,
+        n_matrices=4,
+        n_planned_rhs=len(PLANNED),
+        observations=report_observations,
+        summaries=workload_summaries,
+        reference_selection=ConfiguredReference(PreconditionerName("jacobi")),
+        recipe_membership=(GAUSSIAN,),
+    )
+
+
+@pytest.fixture
+def mixture_report(
+    profile_report: RecipeProfileReport,
+) -> WorkloadMixtureReport:
+    """The same workload pooled as a mixture of one named recipe."""
+    return WorkloadMixtureReport(
+        group_id=profile_report.group_id,
+        label=MatrixSetLabel(DatasetId("ds"), (GAUSSIAN,)),
+        n_matrices=profile_report.n_matrices,
+        n_planned_rhs=profile_report.n_planned_rhs,
+        observations=profile_report.observations,
+        summaries=profile_report.summaries,
+        reference_selection=profile_report.reference_selection,
+        recipe_membership=(GAUSSIAN,),
+        dataset_membership=(DatasetId("ds"),),
+        recipe_counts=(profile_report.n_planned_rhs,),
+    )
+
+
+@pytest.fixture
+def repeated_timing_presentation(dataset_presentation: DatasetPresentation) -> GroupPresentation:
+    """A group presentation whose systems were each timed three times."""
+    return GroupPresentation(
+        scope=RecipeScope(dataset_presentation, GAUSSIAN),
+        plot_styles={},
+        methods={},
+        solver_contexts=(CONTEXT,),
+    )
+
+
+@pytest.fixture
+def single_timing_presentation(
+    repeated_timing_presentation: GroupPresentation,
+) -> GroupPresentation:
+    """A group presentation whose systems were each timed once."""
+    return replace(
+        repeated_timing_presentation, solver_contexts=(replace(CONTEXT, timing_repeats=1),)
+    )

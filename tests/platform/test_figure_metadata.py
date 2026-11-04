@@ -159,7 +159,7 @@ def test_method_card_round_trips_without_group_only_fields(
 
     payload = card_payload(card)
     assert "failure_treatment" not in payload
-    assert "scenario" not in payload
+    assert {"metric", "population", "statistic"}.isdisjoint(payload)
     assert read_figure_card(path) == card
 
 
