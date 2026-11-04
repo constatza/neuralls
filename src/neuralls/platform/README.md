@@ -119,9 +119,9 @@ takes the aggregated group plus a `GroupPresentation` and logs it into the neste
 group's report scope; figure file names are slugs of the rendered scope (see the figure-card
 paragraph below), never group ids.
 
-The per-run work-precision diagram is solve-only: its x-axis is measured
-`solve_time_seconds`, independent of whether historical offline generation cost
-is available.
+Every report figure is written by `finish_group_figure` (an architecture test forbids `savefig`
+elsewhere), so an output-format change is one edit. Seaborn figures take their data through
+`seaborn_figures.plot_frame`, the one polars-to-pandas conversion, because seaborn raises on a polars frame.
 
 `outcome_plots.py` draws the group outcome plots from one frame each. Planning (`figure_planning.figure_summaries`)
 computes, once per report, the frame every planned variant draws and stores (`summarize`, `ecdf_series`,

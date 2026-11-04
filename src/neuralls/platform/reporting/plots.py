@@ -13,20 +13,12 @@ import matplotlib
 
 matplotlib.use("Agg", force=True)
 import matplotlib.colors
-import matplotlib.patches
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from loguru import logger
 
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.domain.solver.models.cost import (
-    Known,
-    NotApplicable,
-    StageCost,
-    Unavailable,
-    recorded_seconds,
-)
 from neuralls.platform.reporting.figure_text import (
     FigureTitle,
     Legend,
@@ -34,7 +26,6 @@ from neuralls.platform.reporting.figure_text import (
     draw_legend,
     title_text,
 )
-from neuralls.shared.types import CostProvenance
 
 DEFAULT_LINE_MARKER_SIZE = 2.0
 DEFAULT_SCATTER_MARKER_AREA = 4.0
@@ -431,29 +422,18 @@ def plot_convergence_curves(
     if max_iterations is not None:
         subtitle_parts.append(f"maxiter={max_iterations}")
 
-    if subtitle_parts:
-        ax.set_title(", ".join(subtitle_parts), fontsize=9)
-
-    fig.suptitle(
-        title_text(title) if title is not None else "Convergence Comparison",
-        fontsize=13,
-        fontweight="bold",
-    )
     ax.grid(True, alpha=0.3)
     draw_legend(ax, legend, inside_loc="upper right")
 
-    plt.tight_layout()
-
-    if save_path is not None:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=200, bbox_inches="tight")
-        print(f"Saved convergence comparison plot to: {save_path}")
-
-    if show:
-        plt.show()
-    else:
-        plt.close(fig)
+    finish_group_figure(
+        fig,
+        ax,
+        title=title_text(title) if title is not None else "Convergence Comparison",
+        subtitle=", ".join(subtitle_parts),
+        save_path=save_path,
+        show=show,
+        saved_message="Saved convergence comparison plot to",
+    )
 
 
 def plot_error_convergence_comparison(
@@ -475,91 +455,6 @@ def plot_error_convergence_comparison(
         ylabel="Relative energy error $\\|e_k\\|_A / \\|e_0\\|_A$",
         **kwargs,
     )
-
-
-def plot_work_precision(
-    results: Mapping[str, CGComparisonResult],
-    *,
-    legend: Legend,
-    families: Mapping[str, Hashable] | None = None,
-    color_keys: Mapping[str, Hashable] | None = None,
-    marker_keys: Mapping[str, Hashable] | None = None,
-    save_path: str | Path | None = None,
-    show: bool = False,
-    title: FigureTitle | None = None,
-    marker_size: float = DEFAULT_SCATTER_MARKER_AREA,
-) -> None:
-    """Work-precision diagram: final achieved precision vs. solve time.
-
-    The standard cost/accuracy tradeoff plot from the iterative-solver
-    benchmarking literature (log-log, one point per method) — distinct from
-    ``plot_convergence_comparison``, which plots precision against iteration
-    *index* rather than measured solve time. Offline generation and setup costs
-    are intentionally excluded from this solve-only diagnostic.
-
-    Args:
-        results: Dictionary of method results.
-        legend: Text of every plotted series, keyed by result key.
-        families: Optional plot-style family per method name — see
-            ``plot_convergence_comparison``.
-        color_keys: Optional color-axis key per method name.
-        marker_keys: Optional marker-axis key per method name.
-        save_path: Path to save plot.
-        show: Whether to call ``plt.show()``.
-        title: Optional title for the plot.
-        marker_size: Scatter marker area.
-    """
-    fig, ax = plt.subplots(figsize=(8, 6))
-    line_styles = _resolve_styles(families, color_keys, marker_keys) if families else {}
-
-    for method_name, result in results.items():
-        solve_time = result.solve_time_seconds
-        if solve_time is None or solve_time <= 0 or result.residual <= 0:
-            logger.warning(f"Method '{method_name}' has no cost data to plot on work-precision.")
-            continue
-
-        style = dict(
-            line_styles.get(method_name, {"marker": "o", "linestyle": "None", "color": None})
-        )
-        style["linestyle"] = "None"
-        size_scale = style.pop("markersize_scale", 1.0)
-
-        ax.scatter(
-            [solve_time],
-            [result.residual],
-            label=legend.label(method_name),
-            s=marker_size * 20 * size_scale,
-            marker=style.get("marker", "o"),
-            color=style.get("color"),
-            edgecolors="black",
-            linewidths=0.5,
-        )
-
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlabel("Solve time (s)")
-    ax.set_ylabel("Final Relative Residual $\\|r\\| / \\|b\\|$")
-    plot_title = (
-        f"{title_text(title)}\nSolve-Time Work-Precision"
-        if title is not None
-        else "Solve-Time Work-Precision Diagram"
-    )
-    fig.suptitle(plot_title, fontsize=13, fontweight="bold")
-    ax.grid(True, which="both", alpha=0.3)
-    draw_legend(ax, legend, inside_loc="upper right")
-
-    plt.tight_layout()
-
-    if save_path is not None:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=200, bbox_inches="tight")
-        logger.info(f"Saved work-precision plot to: {save_path}")
-
-    if show:
-        plt.show()
-    else:
-        plt.close(fig)
 
 
 def plot_metric_comparison(
@@ -627,20 +522,15 @@ def plot_metric_comparison(
         ax.set_ylabel(metric_name, fontsize=12)
         ax.grid(True, alpha=0.3, axis="y")
 
-    ax.set_title(title or f"Metric Comparison: {metric_name}", fontsize=13, fontweight="bold")
-
-    fig.tight_layout()
-
-    if save_path is not None:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=200, bbox_inches="tight")
-        logger.info(f"Saved metric comparison plot to: {save_path}")
-
-    if show:
-        plt.show()
-    else:
-        plt.close(fig)
+    finish_group_figure(
+        fig,
+        ax,
+        title=title or f"Metric Comparison: {metric_name}",
+        subtitle=None,
+        save_path=save_path,
+        show=show,
+        saved_message="Saved metric comparison plot to",
+    )
 
 
 def plot_method_bars(
@@ -700,11 +590,11 @@ def finish_group_figure(
     *,
     title: str,
     subtitle: str | None,
-    save_path: Path | None,
+    save_path: str | Path | None,
     show: bool,
     saved_message: str,
 ) -> None:
-    """Title, save and close/show a group-level figure (shared by both plots)."""
+    """Title, save and close/show a figure; the only place a report figure is written."""
     fig.suptitle(title, fontsize=13, fontweight="bold")
     if subtitle:
         ax.set_title(subtitle, fontsize=9)
@@ -715,193 +605,6 @@ def finish_group_figure(
         save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=200, bbox_inches="tight")
         logger.info(f"{saved_message}: {save_path}")
-
-    if show:
-        plt.show()
-    else:
-        plt.close(fig)
-
-
-_TIME_BREAKDOWN_UNAVAILABLE_HATCH = "///"
-"""Hatch pattern marking a stage segment whose cost is `Unavailable` — it applies
-but was never recorded, so it must never read identically to a genuine
-`Known` segment."""
-
-
-def _lighten(hex_color: str, amount: float = 0.5) -> tuple[float, float, float]:
-    """Blend `hex_color` toward white by `amount` (0=no change, 1=white).
-
-    Used to give a HISTORICAL segment a visually distinct-but-solid shade of
-    its stage's base color (still a real, trustworthy number — just not
-    measured this run — so it stays solid, never hatched).
-    """
-    r, g, b = matplotlib.colors.to_rgb(hex_color)
-    return (r + (1 - r) * amount, g + (1 - g) * amount, b + (1 - b) * amount)
-
-
-def _stage_segment(base_color: str, cost: StageCost) -> tuple[float, dict[str, Any]]:
-    """Resolve one stage segment's width and matplotlib fill style from its cost.
-
-    Exhaustive `match` over the `StageCost` sum, so a future variant fails
-    loudly at type-check time rather than silently rendering like an existing one.
-
-    Args:
-        base_color: This stage's Okabe-Ito base color.
-        cost: The stage's cost. `NotApplicable` and `Unavailable` are zero-width;
-            only `Unavailable` is hatched.
-
-    Returns:
-        The segment width in seconds and the keyword args for `Axes.barh`
-        (`color`, optionally `hatch`).
-    """
-    match cost:
-        case NotApplicable():
-            return 0.0, {"color": base_color}
-        case Known(wall_time_seconds=seconds, provenance=provenance):
-            match provenance:
-                case CostProvenance.MEASURED:
-                    return seconds, {"color": base_color}
-                case CostProvenance.HISTORICAL:
-                    return seconds, {"color": _lighten(base_color)}
-        case Unavailable():
-            return 0.0, {"color": base_color, "hatch": _TIME_BREAKDOWN_UNAVAILABLE_HATCH}
-
-
-def plot_time_breakdown_barplot(
-    results: Mapping[str, CGComparisonResult],
-    legend: Legend,
-    *,
-    save_path: str | Path | None = None,
-    show: bool = False,
-    title: FigureTitle | None = None,
-) -> None:
-    """Stacked horizontal bar chart of each method's generation/setup/solve time.
-
-    Complements the separate setup-time/solve-time bar charts with a diagnostic
-    view of separately named generation, setup, and solve stages. This is not
-    an online workload total; canonical event summaries own that quantity.
-    Each segment is styled by its own ``StageCost`` variant
-    (solid for a `Known` MEASURED/HISTORICAL cost, zero-width for `NotApplicable`,
-    hatched for `Unavailable` — a real, unrecorded cost, not a true zero) so a silently-failed historical
-    lookup can never render identically to a genuinely fast build. A method
-    missing all three components is skipped (with a warning); a method
-    missing only some has those components treated as zero-width.
-
-    Args:
-        results: Dictionary of method results.
-        legend: Text of every plotted series, keyed by result key.
-        save_path: Path to save plot.
-        show: Whether to show plot.
-        title: Optional title for the plot.
-    """
-    entries: list[tuple[str, StageCost, StageCost, float]] = []
-    for name, result in results.items():
-        if (
-            isinstance(result.generation_cost, NotApplicable)
-            and result.setup_cost == 0.0
-            and result.solve_time_seconds is None
-        ):
-            logger.warning(
-                f"Method '{name}' has no generation/setup/solve time to plot on time breakdown."
-            )
-            continue
-        if result.has_unavailable_cost:
-            logger.warning(
-                f"Method '{name}' has an unavailable generation cost — "
-                "its time-breakdown segment will be hatched, not a real zero."
-            )
-        setup = Known(result.setup_cost, result.setup_peak_memory_bytes, CostProvenance.MEASURED)
-        entries.append(
-            (
-                legend.label(name),
-                result.generation_cost,
-                setup,
-                result.solve_time_seconds or 0.0,
-            )
-        )
-    entries.sort(
-        key=lambda entry: (
-            (recorded_seconds(entry[1]) or 0.0) + (recorded_seconds(entry[2]) or 0.0) + entry[3]
-        ),
-        reverse=True,
-    )
-
-    plot_labels = [entry[0] for entry in entries]
-    solve_values = [entry[3] for entry in entries]
-
-    generation_color, setup_color, solve_color = (
-        _OKABE_ITO_HEX[2],
-        _OKABE_ITO_HEX[0],
-        _OKABE_ITO_HEX[1],
-    )
-
-    fig, ax = plt.subplots(figsize=(8, max(3, len(plot_labels) * 0.6)))
-    y_pos = np.arange(len(plot_labels))
-
-    for i, (_, generation_cost, setup_cost, _) in enumerate(entries):
-        generation_width, generation_style = _stage_segment(generation_color, generation_cost)
-        setup_width, setup_style = _stage_segment(setup_color, setup_cost)
-        ax.barh(
-            y_pos[i],
-            generation_width,
-            edgecolor="black",
-            linewidth=0.5,
-            **generation_style,
-        )
-        ax.barh(
-            y_pos[i],
-            setup_width,
-            left=generation_width,
-            edgecolor="black",
-            linewidth=0.5,
-            **setup_style,
-        )
-        ax.barh(
-            y_pos[i],
-            solve_values[i],
-            left=generation_width + setup_width,
-            color=solve_color,
-            edgecolor="black",
-            linewidth=0.5,
-        )
-
-    legend_handles = [
-        matplotlib.patches.Patch(color=generation_color, label="Generation"),
-        matplotlib.patches.Patch(color=setup_color, label="Setup"),
-        matplotlib.patches.Patch(color=solve_color, label="Solve"),
-    ]
-    if any(
-        isinstance(generation_cost, Unavailable) or isinstance(setup_cost, Unavailable)
-        for _, generation_cost, setup_cost, _ in entries
-    ):
-        legend_handles.append(
-            matplotlib.patches.Patch(
-                facecolor="white",
-                edgecolor="black",
-                hatch=_TIME_BREAKDOWN_UNAVAILABLE_HATCH,
-                label="Cost unavailable",
-            )
-        )
-
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels(plot_labels, fontsize=11)
-    ax.invert_yaxis()
-    ax.set_xlabel("Time (s)", fontsize=12)
-    ax.grid(True, alpha=0.3, axis="x")
-    ax.legend(handles=legend_handles, loc="lower right")
-    fig.suptitle(
-        title_text(title) if title is not None else "Time Breakdown (Generation + Setup + Solve)",
-        fontsize=13,
-        fontweight="bold",
-    )
-
-    fig.tight_layout()
-
-    if save_path is not None:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=200, bbox_inches="tight")
-        logger.info(f"Saved time breakdown plot to: {save_path}")
 
     if show:
         plt.show()
