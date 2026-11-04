@@ -6,7 +6,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import assert_never
 
-from neuralls.domain.benchmarking.paired import REFERENCE_METRIC
+import polars as pl
+
+from neuralls.domain.benchmarking.paired import (
+    REFERENCE_METRIC,
+    paired_systems,
+    reference_among_methods,
+    speed_ratio_summary,
+)
+from neuralls.domain.benchmarking.profiles import ecdf_series, performance_series
 from neuralls.domain.solver.models.group_outcomes import (
     GroupReport,
     RecipeProfileReport,
@@ -17,7 +25,7 @@ from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.report_levels import (
     level_name,
 )
-from neuralls.domain.solver.reporting.summary import Population
+from neuralls.domain.solver.reporting.summary import Population, summarize
 from neuralls.platform.reporting.benchmark_events import (
     MethodBenchmarkArtifacts,
 )
@@ -27,13 +35,17 @@ from neuralls.platform.reporting.figure_metadata import (
     FigureMetadata,
     FigureMethod,
     FigurePlan,
+    FigureTable,
     GroupAggregationRule,
     GroupFigureMetadata,
+    NoTable,
+    SiblingTable,
     Statistic,
     TableKind,
     TimingPolicy,
     method_source,
 )
+from neuralls.platform.reporting.figure_table import build_group_table
 from neuralls.platform.reporting.group_drawers import (
     AGGREGATE_BARS_DRAWER,
     ECDF_ITERATIONS_DRAWER,
@@ -47,6 +59,9 @@ from neuralls.platform.reporting.group_drawers import (
 )
 from neuralls.platform.reporting.stored_benchmark import StoredMethod
 from neuralls.shared.types import PreconditionerName
+
+TABLE_SUFFIX = ".parquet"
+"""A figure's table shares its stem and directory; only the suffix differs."""
 
 
 def variant_filename(stem: str, slug: str) -> str:
@@ -213,7 +228,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             FailureTreatment.CENSORED,
             _PROFILE,
             PAIRED_TIME_DRAWER,
-            TableKind.SUMMARY,
+            TableKind.PAIRED,
         ),
         GroupFigureRecipe(
             FigureKind.SPEED_RATIO,
@@ -340,6 +355,17 @@ def history_variant(kind: FigureKind) -> HistoryVariant:
             assert_never(unreachable)
 
 
+def table_of(figure: str, kind: FigureKind) -> FigureTable:
+    """The table beside ``figure`` of ``kind``: its recipe's kind of table, if it writes one."""
+    match FIGURE_RECIPES[kind]:
+        case GroupFigureRecipe(table=table_kind):
+            return SiblingTable(f"{figure.removesuffix('.png')}{TABLE_SUFFIX}", table_kind)
+        case HistoryFigureRecipe():
+            return NoTable()
+        case unreachable:
+            assert_never(unreachable)
+
+
 def plan_figure[M: FigureMetadata](
     variant: FigureVariant | HistoryVariant, metadata: M, *, slug: str
 ) -> FigurePlan[M]:
@@ -367,6 +393,52 @@ def figure_plans(
         if isinstance(outcome, recipe.applies_to)
         for variant in recipe.variants
     )
+
+
+def figure_summaries(outcome: GroupReport) -> Mapping[str, pl.DataFrame]:
+    """The frame each figure planned for ``outcome`` draws and stores, by variant stem.
+
+    Each frame is computed once, here, and is both what the drawer draws and the table written
+    beside the figure. A figure that compares against the reference has no frame, and so is not
+    drawn, when the group has no configured reference among its methods.
+    """
+    reference = reference_among_methods(outcome.observations, outcome.reference_selection)
+    frames = (
+        (variant.stem, _summary(variant, outcome, reference))
+        for recipe in _group_recipes()
+        if isinstance(outcome, recipe.applies_to)
+        for variant in recipe.variants
+    )
+    return {stem: frame for stem, frame in frames if frame is not None}
+
+
+def _summary(
+    variant: FigureVariant, outcome: GroupReport, reference: PreconditionerName | None
+) -> pl.DataFrame | None:
+    observations = outcome.observations
+    match variant.statistic:
+        case Statistic.CONVERGED_COUNT:
+            return summarize(observations, variant.metric, variant.population)
+        case Statistic.WORKLOAD_TOTAL:
+            return build_group_table(outcome.summaries)
+        case Statistic.ECDF:
+            return ecdf_series(observations, variant.metric).frame
+        case Statistic.PERFORMANCE_PROFILE:
+            return performance_series(observations, variant.metric).frame
+        case Statistic.PAIRED_VALUES:
+            return (
+                None
+                if reference is None
+                else paired_systems(observations, reference, variant.metric)
+            )
+        case Statistic.SPEED_RATIO_CDF:
+            return (
+                None
+                if reference is None
+                else speed_ratio_summary(observations, reference, variant.metric)
+            )
+        case unreachable:
+            assert_never(unreachable)
 
 
 def _group_recipes() -> tuple[GroupFigureRecipe, ...]:

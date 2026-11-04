@@ -37,7 +37,7 @@ short (for example `Online Time`, `Performance Profile`, and `Speed Ratio`),
 while each figure's card (`<stem>.toml`, uploaded beside the PNG into the run of the figure's
 scope) carries report scope, counts, actual dataset/recipe membership and weights, solver
 tolerances, iteration and normalization settings, repeat policy, reference/failure semantics,
-the methods drawn and the stored method runs and artifacts the figure came from; group figures also get a same-stem `.parquet` of per-method workload totals. Method-child
+the methods drawn and the stored method runs and artifacts the figure came from; group figures also get a same-stem `.parquet` of the frame the figure draws, of the kind its recipe names (a per-method summary, a curve's points, per-system pairs, speed-ratio statistics or workload totals). Method-child
 residual and energy figures use unique method-qualified names; system figures keep short stems
 because a stem only needs to be unique within one run directory. One `MLflowReportSink`
 finalizes `figure_index.toml` exactly once on the root report run, after checking that every

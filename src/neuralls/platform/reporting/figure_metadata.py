@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
 import polars as pl
 
+from neuralls.domain.benchmarking.paired import PAIRED_SCHEMA, SPEED_RATIO_SCHEMA
+from neuralls.domain.benchmarking.profiles import PROFILE_SERIES_SCHEMA
 from neuralls.domain.benchmarking.selection import ReferenceSelection
 from neuralls.domain.presentation.methods import ConfiguredMethodPresentation
 from neuralls.domain.solver.models.figure_scope import FigureScope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
-from neuralls.domain.solver.reporting.summary import Population
+from neuralls.domain.solver.reporting.summary import SUMMARY_SCHEMA, Population
 from neuralls.platform.reporting.benchmark_events import METHOD_ARTIFACT_DIR
 from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.scientific_description.policy import RenderProfile
@@ -47,7 +50,25 @@ GROUP_FIGURE_KINDS: frozenset[FigureKind] = frozenset(FigureKind) - {
 TABLE_SUFFIX = ".parquet"
 """A plotted table shares its figure's stem and directory; only the suffix differs."""
 
-GROUP_TABLE_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
+
+class TableKind(StrEnum):
+    """The closed set of tables a group figure writes beside itself, each the frame it draws.
+
+    ``PAIRED`` holds the per-system pairs of a scatter, ``SUMMARY`` one row of statistics per
+    method, ``SERIES`` the points of a step curve, ``SPEED_RATIO`` one row of ratio statistics per
+    compared method and ``WORKLOAD_TOTALS`` one row of workload sums per method.
+    """
+
+    SUMMARY = "summary"
+    SERIES = "series"
+    PAIRED = "paired"
+    SPEED_RATIO = "speed_ratio"
+    WORKLOAD_TOTALS = "workload_totals"
+
+
+type TableSchema = Mapping[str, pl.DataType | type[pl.DataType]]
+
+WORKLOAD_TOTALS_SCHEMA: TableSchema = {
     "method_id": pl.String,
     "n_planned_rhs": pl.Int64,
     "n_attempted_rhs": pl.Int64,
@@ -56,14 +77,25 @@ GROUP_TABLE_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "solve_total_s": pl.Float64,
     "workload_online_s": pl.Float64,
 }
-"""The one schema of the plotted table: one row per method drawn, workload totals only."""
+"""One row per method: workload totals, summed over its attempted systems."""
+
+TABLE_SCHEMAS: Mapping[TableKind, TableSchema] = {
+    TableKind.SUMMARY: SUMMARY_SCHEMA,
+    TableKind.SERIES: PROFILE_SERIES_SCHEMA,
+    TableKind.PAIRED: PAIRED_SCHEMA,
+    TableKind.SPEED_RATIO: SPEED_RATIO_SCHEMA,
+    TableKind.WORKLOAD_TOTALS: WORKLOAD_TOTALS_SCHEMA,
+}
+"""The columns and dtypes, in order, of the table each kind stores; the frames come from the
+domain statistics, so a schema change there reaches the stored tables through this mapping."""
 
 
 @dataclass(frozen=True, slots=True)
 class SiblingTable:
-    """The figure has a plotted table with the same stem in the same directory."""
+    """The figure has a table of the given kind with the same stem in the same directory."""
 
     name: str
+    kind: TableKind
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,22 +104,6 @@ class NoTable:
 
 
 type FigureTable = SiblingTable | NoTable
-
-
-def table_of(figure: str, kind: FigureKind) -> FigureTable:
-    """The plotted table of ``figure`` of ``kind``; the kind alone decides whether one exists."""
-    if kind not in GROUP_FIGURE_KINDS:
-        return NoTable()
-    return SiblingTable(f"{figure.removesuffix('.png')}{TABLE_SUFFIX}")
-
-
-class TableKind(StrEnum):
-    """The closed set of tables a group figure can write beside itself."""
-
-    SUMMARY = "summary"
-    SERIES = "series"
-    SPEED_RATIO = "speed_ratio"
-    WORKLOAD_TOTALS = "workload_totals"
 
 
 class Statistic(StrEnum):

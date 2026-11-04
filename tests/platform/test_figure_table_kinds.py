@@ -1,11 +1,4 @@
-"""A figure's table is read back only against the kind of table its recipe writes.
-
-The tests marked ``xfail`` pin the table interface that does not exist yet: one schema per
-``figure_metadata.TableKind`` in ``figure_metadata.TABLE_SCHEMAS`` and
-``figure_table.read_group_table(path, kind)``. They are
-reached through module attributes so the file imports before those exist; strict ``xfail`` fails
-loudly once one starts to pass, which is the cue to drop its marker.
-"""
+"""A figure's table is read back only against the kind of table its recipe writes."""
 
 from __future__ import annotations
 
@@ -17,42 +10,34 @@ import pytest
 from polars.testing import assert_frame_equal
 
 from neuralls.domain.benchmarking.paired import (
+    PAIRED_SCHEMA,
     REFERENCE_METRIC,
     SPEED_RATIO_SCHEMA,
+    paired_systems,
     speed_ratio_summary,
 )
 from neuralls.domain.benchmarking.profiles import PROFILE_SERIES_SCHEMA, ecdf_series
 from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.summary import SUMMARY_SCHEMA, Population, summarize
-from neuralls.platform.reporting import figure_metadata, figure_planning, figure_table
+from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, FigureKind, TableKind
 from neuralls.platform.reporting.figure_planning import (
     FIGURE_RECIPES,
     GroupFigureRecipe,
+    figure_summaries,
     group_recipe,
 )
 from neuralls.platform.reporting.figure_table import (
     InvalidFigureTableError,
     build_group_table,
+    read_group_table,
     write_group_table,
 )
 from neuralls.shared.types import PreconditionerName
 
-TABLE_KINDS = ("SUMMARY", "SERIES", "SPEED_RATIO", "WORKLOAD_TOTALS")
-"""Member names of ``TableKind``; names, not members, so collecting the tests needs no enum."""
+JACOBI = PreconditionerName("jacobi")
 
-_NO_TABLE_KINDS = pytest.mark.xfail(
-    strict=True,
-    raises=(AttributeError, TypeError),
-    reason="tables are not validated per kind yet (figure_metadata.TABLE_SCHEMAS and "
-    "read_group_table(path, kind) are missing)",
-)
-_NO_SUMMARY_PLANNING = pytest.mark.xfail(
-    strict=True,
-    raises=AttributeError,
-    reason="planning does not compute a summary frame per figure variant yet "
-    "(figure_planning.figure_summaries is missing)",
-)
+TABLE_KINDS = tuple(kind.name for kind in TableKind)
 
 
 @pytest.fixture
@@ -62,31 +47,28 @@ def table_frames(profile_report: RecipeProfileReport) -> dict[str, pl.DataFrame]
     return {
         "SUMMARY": summarize(observations, MetricId.ITERATIONS, Population.OWN),
         "SERIES": ecdf_series(observations, MetricId.ONLINE_S).frame,
-        "SPEED_RATIO": speed_ratio_summary(
-            observations, PreconditionerName("jacobi"), REFERENCE_METRIC
-        ),
+        "PAIRED": paired_systems(observations, JACOBI, REFERENCE_METRIC),
+        "SPEED_RATIO": speed_ratio_summary(observations, JACOBI, REFERENCE_METRIC),
         "WORKLOAD_TOTALS": build_group_table(profile_report.summaries),
     }
 
 
-@_NO_TABLE_KINDS
 def test_there_is_exactly_one_schema_per_table_kind() -> None:
-    assert set(figure_metadata.TABLE_SCHEMAS) == set(figure_metadata.TableKind)
-    assert {kind.name for kind in figure_metadata.TableKind} == set(TABLE_KINDS)
+    assert set(TABLE_SCHEMAS) == set(TableKind)
+    assert {kind.name for kind in TableKind} == set(TABLE_KINDS)
 
 
-@_NO_TABLE_KINDS
 def test_each_table_kind_has_the_schema_of_the_frame_it_stores() -> None:
-    schemas = figure_metadata.TABLE_SCHEMAS
-    kind = figure_metadata.TableKind
+    schemas = TABLE_SCHEMAS
+    kind = TableKind
 
     assert schemas[kind.SUMMARY] == SUMMARY_SCHEMA
     assert schemas[kind.SERIES] == PROFILE_SERIES_SCHEMA
+    assert schemas[kind.PAIRED] == PAIRED_SCHEMA
     assert schemas[kind.SPEED_RATIO] == SPEED_RATIO_SCHEMA
     assert schemas[kind.WORKLOAD_TOTALS] == dict(build_group_table(()).schema)
 
 
-@_NO_TABLE_KINDS
 @pytest.mark.parametrize("name", TABLE_KINDS)
 def test_a_table_is_read_back_as_the_kind_it_was_written_for(
     tmp_path: Path, table_frames: dict[str, pl.DataFrame], name: str
@@ -94,12 +76,11 @@ def test_a_table_is_read_back_as_the_kind_it_was_written_for(
     path = tmp_path / "table.parquet"
     write_group_table(path, table_frames[name])
 
-    read = figure_table.read_group_table(path, figure_metadata.TableKind[name])
+    read = read_group_table(path, TableKind[name])
 
     assert_frame_equal(read, table_frames[name])
 
 
-@_NO_TABLE_KINDS
 @pytest.mark.parametrize(
     ("written", "expected"),
     [pytest.param(a, b, id=f"{a}-as-{b}") for a, b in permutations(TABLE_KINDS, 2)],
@@ -111,10 +92,9 @@ def test_a_table_is_rejected_when_read_as_another_kind(
     write_group_table(path, table_frames[written])
 
     with pytest.raises(InvalidFigureTableError):
-        figure_table.read_group_table(path, figure_metadata.TableKind[expected])
+        read_group_table(path, TableKind[expected])
 
 
-@_NO_TABLE_KINDS
 @pytest.mark.parametrize("name", TABLE_KINDS)
 def test_a_table_with_the_right_columns_but_other_types_is_rejected(
     tmp_path: Path, table_frames: dict[str, pl.DataFrame], name: str
@@ -123,10 +103,9 @@ def test_a_table_with_the_right_columns_but_other_types_is_rejected(
     write_group_table(path, table_frames[name].with_columns(pl.col(pl.Int64).cast(pl.Float64)))
 
     with pytest.raises(InvalidFigureTableError):
-        figure_table.read_group_table(path, figure_metadata.TableKind[name])
+        read_group_table(path, TableKind[name])
 
 
-@_NO_SUMMARY_PLANNING
 @pytest.mark.parametrize(
     ("kind", "stem"),
     [
@@ -139,16 +118,16 @@ def test_a_table_with_the_right_columns_but_other_types_is_rejected(
 def test_the_table_planned_for_a_recipe_is_read_back_only_as_that_recipes_kind(
     tmp_path: Path,
     profile_report: RecipeProfileReport,
-    kind: figure_metadata.FigureKind,
+    kind: FigureKind,
     stem: str,
 ) -> None:
-    summary = figure_planning.figure_summaries(profile_report)[stem]
+    summary = figure_summaries(profile_report)[stem]
     path = tmp_path / f"{stem}.parquet"
     write_group_table(path, summary)
     own = group_recipe(kind).table
 
-    assert_frame_equal(figure_table.read_group_table(path, own), summary)
-    for other in figure_metadata.TableKind:
+    assert_frame_equal(read_group_table(path, own), summary)
+    for other in TableKind:
         if other is not own:
             with pytest.raises(InvalidFigureTableError):
-                figure_table.read_group_table(path, other)
+                read_group_table(path, other)

@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import polars as pl
 import pytest
+from polars.testing import assert_frame_equal
 from tests.observation_support import solved_row, synthetic_observations, unconverged_row
-from tests.recipe_support import GAUSSIAN, SINE
+from tests.recipe_support import GAUSSIAN
 
 from neuralls.domain.benchmarking.paired import PairKind
 from neuralls.domain.benchmarking.profiles import ProfileSeries
@@ -17,16 +19,15 @@ from neuralls.domain.benchmarking.selection import ConfiguredReference, NoRefere
 from neuralls.domain.solver.models.group_outcomes import (
     GroupAggregated,
     RecipeProfileReport,
-    WorkloadMixtureReport,
 )
 from neuralls.domain.solver.models.labels import (
-    MatrixSetLabel,
     MatrixSetRhsTypeLabel,
     render_group_id,
 )
 from neuralls.domain.solver.reporting.metrics import MetricId
-from neuralls.platform.reporting.figure_metadata import FigureKind
-from neuralls.platform.reporting.figure_planning import group_recipe
+from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, FigureKind
+from neuralls.platform.reporting.figure_planning import figure_summaries, group_recipe
+from neuralls.platform.reporting.group_drawers import FigureData
 from neuralls.platform.reporting.outcome_plots import GroupStyle
 from neuralls.shared.types import DatasetId, PreconditionerName
 
@@ -35,11 +36,19 @@ JACOBI = PreconditionerName("jacobi")
 PATH = Path("figure.png")
 
 
+@dataclass(frozen=True, slots=True)
+class PlotCall:
+    """The positional arguments and options one plot function was called with."""
+
+    args: tuple[object, ...]
+    options: Mapping[str, object]
+
+
 @dataclass(slots=True)
 class PlotCalls:
-    """Arguments the plot functions were called with, by plot function name."""
+    """The call of each plot function, by plot function name."""
 
-    by_function: dict[str, dict[str, object]] = field(default_factory=dict)
+    by_function: dict[str, PlotCall] = field(default_factory=dict)
 
 
 @pytest.fixture
@@ -47,14 +56,16 @@ def plot_calls(monkeypatch: pytest.MonkeyPatch) -> PlotCalls:
     """Replace every plot function with a recorder that returns the path it was given."""
     calls = PlotCalls()
 
-    def recorder(name: str):
+    def recorder(name: str) -> Callable[..., Path]:
         def record(*args: object, save_path: Path, **kwargs: object) -> Path:
-            calls.by_function[name] = {"args": args, **kwargs}
+            calls.by_function[name] = PlotCall(args, kwargs)
             return save_path
 
         return record
 
     for name in (
+        "plot_aggregate_bars",
+        "plot_workload_bars",
         "plot_ecdf_profile",
         "plot_performance_profile",
         "plot_paired_time_scatter",
@@ -102,12 +113,36 @@ def report(observations: pl.DataFrame) -> RecipeProfileReport:
     return _recipe_report(observations, ConfiguredReference(AMG))
 
 
+def _data(report: GroupAggregated, summary: pl.DataFrame, metric: MetricId) -> FigureData:
+    return FigureData(
+        report.observations, summary, MagicMock(spec=GroupStyle), metric, report.reference_selection
+    )
+
+
 def _draw(report: GroupAggregated, kind: FigureKind, metric: MetricId) -> Path | None:
-    return group_recipe(kind).draw(metric, report, MagicMock(spec=GroupStyle), PATH)
+    recipe = group_recipe(kind)
+    summary = figure_summaries(report)[recipe.variant(metric).stem]
+    return recipe.draw(_data(report, summary, metric), PATH)
 
 
 def _x(series: ProfileSeries, method: str) -> list[float]:
     return series.frame.filter(pl.col("method") == method)["x"].to_list()
+
+
+def _series_of(call: PlotCall) -> ProfileSeries:
+    match call.args:
+        case (ProfileSeries() as series,):
+            return series
+        case other:
+            raise TypeError(f"expected one profile series, got {other!r}")
+
+
+def _frames_of(call: PlotCall) -> tuple[pl.DataFrame, ...]:
+    match call.args:
+        case tuple() as args if all(isinstance(arg, pl.DataFrame) for arg in args):
+            return tuple(arg for arg in args if isinstance(arg, pl.DataFrame))
+        case other:
+            raise TypeError(f"expected frames, got {other!r}")
 
 
 def test_the_iteration_ecdf_is_drawn_from_the_iterations_of_converged_systems(
@@ -116,9 +151,9 @@ def test_the_iteration_ecdf_is_drawn_from_the_iterations_of_converged_systems(
     assert _draw(report, FigureKind.ECDF_ITERATIONS, MetricId.ITERATIONS) == PATH
 
     call = plot_calls.by_function["plot_ecdf_profile"]
-    (series,) = call["args"]
+    series = _series_of(call)
     assert (_x(series, AMG), _x(series, JACOBI)) == ([3.0, 4.0], [30.0, 40.0])
-    assert call["xlabel"] == "Iterations"
+    assert call.options["xlabel"] == "Iterations"
 
 
 @pytest.mark.parametrize(
@@ -137,7 +172,7 @@ def test_the_time_ecdf_is_drawn_from_the_metrics_seconds(
 ) -> None:
     _draw(report, FigureKind.ECDF_TIME, metric)
 
-    (series,) = plot_calls.by_function["plot_ecdf_profile"]["args"]
+    series = _series_of(plot_calls.by_function["plot_ecdf_profile"])
     assert (_x(series, AMG), _x(series, JACOBI)) == (amg, jacobi)
 
 
@@ -146,7 +181,7 @@ def test_the_online_performance_profile_is_drawn_from_ratios_to_the_best_method(
 ) -> None:
     _draw(report, FigureKind.PERFORMANCE_PROFILE, MetricId.ONLINE_S)
 
-    (series,) = plot_calls.by_function["plot_performance_profile"]["args"]
+    series = _series_of(plot_calls.by_function["plot_performance_profile"])
     # s0: amg 1.5 beats jacobi 4.5; s1 only amg; s2 only jacobi
     assert _x(series, AMG) == [1.0, 1.0]
     assert _x(series, JACOBI) == [1.0, 3.0]
@@ -159,8 +194,8 @@ def test_the_paired_scatter_is_drawn_from_the_online_pairs_against_the_reference
     _draw(report, FigureKind.PAIRED_TIME, MetricId.ONLINE_S)
 
     call = plot_calls.by_function["plot_paired_time_scatter"]
-    (paired,) = call["args"]
-    assert call["reference_name"] == AMG
+    (paired,) = _frames_of(call)
+    assert call.options["reference_name"] == AMG
     assert paired.select("system_id", "pair_kind", "reference_value", "method_value").rows() == [
         ("s0", PairKind.BOTH, 1.5, 4.5),
         ("s1", PairKind.REFERENCE_ONLY, 2.5, None),
@@ -174,8 +209,8 @@ def test_the_speed_ratio_cdf_is_drawn_from_the_ratios_and_their_summary(
     _draw(report, FigureKind.SPEED_RATIO, MetricId.ONLINE_S)
 
     call = plot_calls.by_function["plot_speed_ratio_cdf"]
-    ratios, summary = call["args"]
-    assert call["reference_name"] == AMG
+    ratios, summary = _frames_of(call)
+    assert call.options["reference_name"] == AMG
     assert ratios.select("method", "system_id", "ratio").rows() == [(JACOBI, "s0", 1.5 / 4.5)]
     row = summary.row(0, named=True)
     assert (row["method"], row["n_ratio"], row["n_matrices"]) == (JACOBI, 1, 1)
@@ -192,39 +227,52 @@ def test_the_speed_ratio_cdf_is_drawn_from_the_ratios_and_their_summary(
 def test_reference_figures_need_a_configured_reference_among_the_methods(
     observations: pl.DataFrame, plot_calls: PlotCalls, kind: FigureKind, metric: MetricId
 ) -> None:
+    recipe = group_recipe(kind)
+    empty = pl.DataFrame(schema=TABLE_SCHEMAS[recipe.table])
     unconfigured = _recipe_report(observations, NoReferenceConfigured())
     elsewhere = _recipe_report(observations, ConfiguredReference(PreconditionerName("elsewhere")))
 
-    assert _draw(unconfigured, kind, metric) is None
-    assert _draw(elsewhere, kind, metric) is None
+    assert recipe.draw(_data(unconfigured, empty, metric), PATH) is None
+    assert recipe.draw(_data(elsewhere, empty, metric), PATH) is None
     assert plot_calls.by_function == {}
 
 
 @pytest.mark.parametrize(
-    ("kind", "metric"),
+    ("kind", "metric", "function"),
     [
-        (FigureKind.ECDF_ITERATIONS, MetricId.ITERATIONS),
-        (FigureKind.ECDF_TIME, MetricId.ONLINE_S),
-        (FigureKind.PERFORMANCE_PROFILE, MetricId.SOLVE_S),
-        (FigureKind.PAIRED_TIME, MetricId.ONLINE_S),
-        (FigureKind.SPEED_RATIO, MetricId.ONLINE_S),
+        (FigureKind.AGGREGATE_BARS, MetricId.ITERATIONS, "plot_aggregate_bars"),
+        (FigureKind.SOLVE_TIME, MetricId.SOLVE_S, "plot_workload_bars"),
+        (FigureKind.ONLINE_TIME, MetricId.ONLINE_S, "plot_workload_bars"),
     ],
 )
-def test_a_workload_mixture_draws_no_profile_or_pairing(
-    observations: pl.DataFrame,
+def test_bar_figures_are_drawn_from_the_summary_frame_they_store(
+    report: RecipeProfileReport,
     plot_calls: PlotCalls,
     kind: FigureKind,
     metric: MetricId,
+    function: str,
 ) -> None:
-    mixture = WorkloadMixtureReport(
-        group_id=render_group_id(MatrixSetLabel(DatasetId("ds"), (GAUSSIAN, SINE))),
-        label=MatrixSetLabel(DatasetId("ds"), (GAUSSIAN, SINE)),
-        n_matrices=2,
-        n_planned_rhs=3,
-        observations=observations,
-        reference_selection=ConfiguredReference(AMG),
-        recipe_membership=(GAUSSIAN, SINE),
-    )
+    _draw(report, kind, metric)
 
-    assert _draw(mixture, kind, metric) is None
-    assert plot_calls.by_function == {}
+    (drawn,) = _frames_of(plot_calls.by_function[function])
+    recipe = group_recipe(kind)
+    assert_frame_equal(drawn, figure_summaries(report)[recipe.variant(metric).stem])
+
+
+@pytest.mark.parametrize(
+    ("kind", "metric", "column"),
+    [
+        (FigureKind.SOLVE_TIME, MetricId.SOLVE_S, "solve_total_s"),
+        (FigureKind.ONLINE_TIME, MetricId.ONLINE_S, "workload_online_s"),
+    ],
+)
+def test_the_time_bars_draw_the_total_column_of_their_metric(
+    report: RecipeProfileReport,
+    plot_calls: PlotCalls,
+    kind: FigureKind,
+    metric: MetricId,
+    column: str,
+) -> None:
+    _draw(report, kind, metric)
+
+    assert plot_calls.by_function["plot_workload_bars"].options["column"] == column

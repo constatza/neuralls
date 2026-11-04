@@ -44,8 +44,8 @@ from neuralls.platform.reporting.figure_metadata import (
     SiblingTable,
     Statistic,
     TimingPolicy,
-    table_of,
 )
+from neuralls.platform.reporting.figure_planning import table_of
 from neuralls.platform.storage.facts_codec import (
     decode_figure_scope,
     decode_method_presentation,
@@ -231,8 +231,9 @@ def card_payload(card: FigureCard) -> dict[str, Any]:
         case unreachable:
             assert_never(unreachable)
     match card.table:
-        case SiblingTable(name=name):
+        case SiblingTable(name=name, kind=kind):
             payload["table"] = name
+            payload["table_kind"] = kind.value
         case NoTable():
             pass
         case unreachable:
@@ -344,18 +345,25 @@ def decode_figure_card(payload: Mapping[str, Any]) -> FigureCard:
         session_run_id=SessionRunId(str(payload["source"]["session_run_id"])),
         metadata=metadata,
     )
-    _check_table(card, payload.get("table"))
+    _check_table(card, payload)
     return card
 
 
-def _check_table(card: FigureCard, recorded: object) -> None:
-    """Require the card's ``table`` entry to be exactly the table its kind implies."""
+def _check_table(card: FigureCard, payload: Mapping[str, Any]) -> None:
+    """Require the card's table entries to be exactly the table its kind implies."""
     match card.table:
-        case SiblingTable(name=name):
-            if recorded != name:
-                raise InvalidFigureCardError(f"figure card table must be {name}, not {recorded!r}")
+        case SiblingTable(name=name, kind=kind):
+            if payload.get("table") != name:
+                raise InvalidFigureCardError(
+                    f"figure card table must be {name}, not {payload.get('table')!r}"
+                )
+            if payload.get("table_kind") != kind.value:
+                raise InvalidFigureCardError(
+                    f"figure card table kind must be {kind.value}, "
+                    f"not {payload.get('table_kind')!r}"
+                )
         case NoTable():
-            if recorded is not None:
+            if "table" in payload or "table_kind" in payload:
                 raise InvalidFigureCardError(f"figure card of {card.metadata.kind} has no table")
         case unreachable:
             assert_never(unreachable)

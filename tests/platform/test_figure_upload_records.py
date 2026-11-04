@@ -7,6 +7,7 @@ import tomllib
 from pathlib import Path
 
 import polars as pl
+import pytest
 from polars.testing import assert_frame_equal
 from tests.fakes.artifact_sink import InMemoryArtifactSink
 
@@ -20,7 +21,8 @@ from neuralls.platform.reporting.figure_metadata import (
     StagedFigure,
     StagedTabledFigure,
 )
-from neuralls.platform.reporting.figure_planning import figure_plans
+from neuralls.platform.reporting.figure_planning import figure_plans, figure_summaries
+from neuralls.platform.reporting.figure_table import InvalidFigureTableError
 from neuralls.platform.tracking.figure_uploader import FigureUploader
 from neuralls.shared.scientific_description.policy import NotationPolicy
 
@@ -38,7 +40,7 @@ def test_the_table_beside_a_figure_is_the_one_its_card_names(
         for plan in figure_plans(profile_report, repeated_timing_presentation, "key", {})
         if plan.metadata.kind is FigureKind.ECDF_TIME and plan.metadata.metric is MetricId.ONLINE_S
     )
-    table = pl.DataFrame({"method": ["amg", "jacobi"], "n_solved": [4, 9]})
+    table = figure_summaries(profile_report)["ecdf_time_online"]
     figure_path = tmp_path / plan.filename
     figure_path.write_bytes(b"")
     sink = InMemoryArtifactSink()
@@ -63,3 +65,28 @@ def test_the_table_beside_a_figure_is_the_one_its_card_names(
     assert sorted(file for _, file in sink.files) == sorted(
         [plan.filename, card_name(plan.filename), name, "figure_index.toml"]
     )
+
+
+def test_a_table_of_another_kind_than_the_cards_is_not_uploaded(
+    tmp_path: Path,
+    profile_report: RecipeProfileReport,
+    repeated_timing_presentation: GroupPresentation,
+    notation: NotationPolicy,
+) -> None:
+    plan = next(
+        plan
+        for plan in figure_plans(profile_report, repeated_timing_presentation, "key", {})
+        if plan.metadata.kind is FigureKind.ECDF_ITERATIONS
+    )
+    figure_path = tmp_path / plan.filename
+    figure_path.write_bytes(b"")
+    sink = InMemoryArtifactSink()
+    uploader = FigureUploader("session-run", notation, sink)
+    other_kind = figure_summaries(profile_report)["aggregate_bars"]
+
+    with pytest.raises(InvalidFigureTableError):
+        uploader.upload(
+            GROUP_DIRECTORY,
+            GROUP_DIRECTORY,
+            StagedTabledFigure(StagedFigure(plan, figure_path), other_kind),
+        )

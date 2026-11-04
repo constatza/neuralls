@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, assert_never
+from typing import Any, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -27,14 +27,7 @@ from matplotlib.axes import Axes
 
 from neuralls.domain.benchmarking.paired import PairKind
 from neuralls.domain.benchmarking.profiles import ProfileSeries
-from neuralls.domain.benchmarking.workload_totals import WorkloadTotal
 from neuralls.domain.solver.models.figure_scope import FigureScope
-from neuralls.domain.solver.models.group_outcomes import GroupAggregated
-from neuralls.domain.solver.models.workload import (
-    CompleteWorkloadSummary,
-    IncompleteWorkloadSummary,
-    MethodWorkloadSummary,
-)
 from neuralls.platform.reporting.figure_text import (
     LEGEND_FONT_SIZE,
     Legend,
@@ -93,29 +86,34 @@ def _bar_figure_size(labels: Sequence[str]) -> tuple[float, float]:
 
 
 def plot_aggregate_bars(
-    outcome: GroupAggregated,
+    summary: pl.DataFrame,
     *,
     style: GroupStyle,
     save_path: Path,
 ) -> Path | None:
-    """Plot explicit convergence counts for every method in a report group."""
-    if not outcome.convergence:
+    """Plot explicit convergence counts for every method in a report group.
+
+    ``summary`` is the ``SUMMARY_SCHEMA`` table of the iteration metric, whose defined systems are
+    the converged ones; a system was attempted unless it was never run or its setup failed.
+    """
+    if summary.height == 0:
         return None
-    names = list(outcome.convergence)
+    rows = list(summary.iter_rows(named=True))
+    names = [row["method"] for row in rows]
     styles = _series_styles(names, style)
     labels = [style.legend.label(name) for name in names]
     fig, ax = plt.subplots(figsize=_bar_figure_size(labels))
-    values = [outcome.convergence[name].n_converged for name in names]
+    values = [row["n_defined"] for row in rows]
     positions = np.arange(len(names))
     bars = ax.barh(positions, values, color=[styles[name]["color"] for name in names])
     ax.set_yticks(positions, labels, fontsize=LEGEND_FONT_SIZE)
-    ax.set_xlim(0, max(1, outcome.n_planned_rhs))
+    ax.set_xlim(0, max(1, *(row["n_planned"] for row in rows)))
     ax.set_xlabel("Converged RHS (of planned RHS)")
     ax.set_ylabel("Method")
     ax.grid(True, axis="x", alpha=0.3)
-    for bar, name in zip(bars, names):
-        summary = outcome.convergence[name]
-        bar_label = f"{summary.n_converged}/{summary.n_attempted_rhs}/{summary.n_planned_rhs}"
+    for bar, row in zip(bars, rows, strict=True):
+        n_attempted = row["n_defined"] + row["n_unconverged"] + row["n_solver_error"]
+        bar_label = f"{row['n_defined']}/{n_attempted}/{row['n_planned']}"
         ax.text(bar.get_width(), bar.get_y() + bar.get_height() / 2, f" {bar_label}", va="center")
     finish_group_figure(
         fig,
@@ -291,41 +289,40 @@ def plot_ecdf_profile(
     )
 
 
-def _completeness_suffix(summary: MethodWorkloadSummary) -> str:
-    match summary:
-        case CompleteWorkloadSummary():
-            return ""
-        case IncompleteWorkloadSummary():
-            return " (incomplete)"
-        case unreachable:
-            assert_never(unreachable)
+type TotalColumn = Literal["solve_total_s", "workload_online_s"]
+"""The column of a workload-totals table a bar figure draws."""
 
 
 def plot_workload_bars(
-    summaries: Sequence[MethodWorkloadSummary],
+    totals: pl.DataFrame,
     *,
-    total: WorkloadTotal,
+    column: TotalColumn,
     xlabel: str,
     style: GroupStyle,
     save_path: Path,
 ) -> Path | None:
-    """Draw one workload total per method; a total is not a per-system amortized share."""
-    if not summaries:
+    """Draw one workload total per method; a total is not a per-system amortized share.
+
+    ``totals`` is the workload-totals table. A method that attempted fewer systems than were
+    planned is marked incomplete, so its short total is not read as a cheap one.
+    """
+    if totals.height == 0:
         return None
-    names = [str(summary.method) for summary in summaries]
+    rows = list(totals.iter_rows(named=True))
+    names = [row["method_id"] for row in rows]
     styles = _series_styles(names, style)
     labels = [style.legend.label(name) for name in names]
-    values = [total(summary) for summary in summaries]
+    values = [row[column] for row in rows]
     fig, ax = plt.subplots(figsize=_bar_figure_size(labels))
     positions = np.arange(len(names))
     bars = ax.barh(positions, values, color=[styles[name]["color"] for name in names])
     ax.set_yticks(positions, labels, fontsize=LEGEND_FONT_SIZE)
-    for bar, summary in zip(bars, summaries, strict=True):
-        suffix = _completeness_suffix(summary)
+    for bar, row in zip(bars, rows, strict=True):
+        suffix = " (incomplete)" if row["n_attempted_rhs"] < row["n_planned_rhs"] else ""
         ax.text(
             bar.get_width(),
             bar.get_y() + bar.get_height() / 2,
-            f" {summary.n_converged}/{summary.n_planned_rhs}{suffix}",
+            f" {row['n_converged']}/{row['n_planned_rhs']}{suffix}",
             va="center",
         )
     ax.set_xlabel(xlabel)

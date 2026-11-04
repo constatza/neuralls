@@ -72,6 +72,7 @@ from neuralls.platform.reporting.figure_metadata import (
     MethodFigureMetadata,
     SiblingTable,
     StagedFigure,
+    TableKind,
 )
 from neuralls.platform.reporting.figure_planning import figure_plans
 from neuralls.platform.reporting.stored_benchmark import StoredMethod
@@ -617,7 +618,9 @@ def test_group_figures_carry_cards_with_methods_parameters_and_sources(
         "run-never",
     ]
     assert card.session_run_id == "session-run"
-    assert card.table == SiblingTable(f"aggregate_bars_{_GROUP_FILE_STEM}.parquet")
+    assert card.table == SiblingTable(
+        f"aggregate_bars_{_GROUP_FILE_STEM}.parquet", TableKind.SUMMARY
+    )
 
 
 @pytest.mark.usefixtures("logged_metrics", "logged_artifacts")

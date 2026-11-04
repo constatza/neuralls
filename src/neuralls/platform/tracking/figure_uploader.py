@@ -32,7 +32,7 @@ from neuralls.platform.reporting.figure_metadata import (
     UploadableFigure,
     collision_key,
 )
-from neuralls.platform.reporting.figure_table import write_group_table
+from neuralls.platform.reporting.figure_table import check_table_kind, write_group_table
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import SessionRunId
 
@@ -114,9 +114,9 @@ class FigureUploader:
             case StagedTabledFigure(figure=staged, table=table):
                 card = self._upload_with_card(run_id, directory, staged)
                 match card.table:
-                    case SiblingTable(name=name):
+                    case SiblingTable(name=name, kind=kind):
                         table_path = staged.path.with_name(name)
-                        write_group_table(table_path, table)
+                        write_group_table(table_path, check_table_kind(table, kind))
                         self.artifacts.log(table_path, directory)
                         self._uploaded.append(ArtifactLocation(run_id, _in(directory, name)))
                     case NoTable():

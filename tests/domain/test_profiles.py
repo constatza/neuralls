@@ -49,13 +49,15 @@ def _planned(series: ProfileSeries, method: str) -> tuple[int, int]:
 
 
 def _plateau(series: ProfileSeries, method: str) -> float:
-    fractions = series.frame.filter(pl.col("method") == method)["fraction"]
-    return fractions.max() if fractions.len() else 0.0
+    fractions = series.frame.filter(pl.col("method") == method)["fraction"].to_list()
+    return max(fractions, default=0.0)
 
 
 def _fraction_within(series: ProfileSeries, method: str, x: float) -> float:
-    within = series.frame.filter((pl.col("method") == method) & (pl.col("x") <= x))["fraction"]
-    return within.max() if within.len() else 0.0
+    within = series.frame.filter((pl.col("method") == method) & (pl.col("x") <= x))[
+        "fraction"
+    ].to_list()
+    return max(within, default=0.0)
 
 
 def test_performance_profile_scores_failures_as_unsolved(

@@ -41,7 +41,7 @@ from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.reporting.benchmark_events import MethodBenchmarkArtifacts
 from neuralls.platform.reporting.figure_card import read_figure_card
 from neuralls.platform.reporting.figure_index import FIGURE_INDEX_FILE, read_figure_index
-from neuralls.platform.reporting.figure_metadata import NoTable, SiblingTable
+from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, NoTable, SiblingTable
 from neuralls.platform.reporting.figure_table import read_group_table
 from neuralls.platform.reporting.training_diagnostics import compute_diagnostics
 from neuralls.platform.tracking.mlflow_client import log_diagnostics_to_mlflow
@@ -96,15 +96,14 @@ def _assert_report_tree_is_documented(
             card = read_figure_card(Path(local))
             assert card.figure == Path(png).name
             match card.table:
-                case SiblingTable(name=name):
+                case SiblingTable(name=name, kind=kind):
                     table_path = str(Path(png).with_name(name))
                     assert table_path in files
                     table_local = client.download_artifacts(
                         run_id, table_path, dst_path=str(download_root / run_id)
                     )
-                    assert read_group_table(Path(table_local)).get_column(
-                        "method_id"
-                    ).to_list() == ["identity"]
+                    table = read_group_table(Path(table_local), kind)
+                    assert table.columns == list(TABLE_SCHEMAS[kind])
                 case NoTable():
                     assert png.removesuffix(".png") + ".parquet" not in files
             assert card.session_run_id == session_id

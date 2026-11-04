@@ -250,8 +250,6 @@ distribution and stopping rule.
   name a group can be compared to;
 - percentile intervals that resample whole `(dataset, matrix_id)` clusters with
   every sibling RHS observation (`uncertainty.py`); paired Wilcoxon p-values are not reported;
-- the workload-total selectors `solve_total_seconds` and `workload_online_seconds`
-  (`workload_totals.py`), which the sum-bar figures draw;
 - the reference selection types (`selection.py`).
 
 They are described under "Profiles, paired comparisons and break-even over the observation view".

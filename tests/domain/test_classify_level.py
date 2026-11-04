@@ -312,12 +312,20 @@ def test_matrix_set_rhs_type_and_matrix_set_labels_preserve_recipe_membership(me
         group.recipe_membership for group in matrix_set if isinstance(group, WorkloadMixtureReport)
     ] == [(GAUSSIAN, SINE), (GAUSSIAN,)]
 
-    assert [group.observations["system_id"].to_list() for group in rhs_type] == [
+    assert [
+        group.observations["system_id"].to_list()
+        for group in rhs_type
+        if isinstance(group, GroupAggregated)
+    ] == [
         [tags[0].system_id],
         [tags[1].system_id],
         [tags[2].system_id],
     ]
-    assert [group.observations["system_id"].to_list() for group in matrix_set] == [
+    assert [
+        group.observations["system_id"].to_list()
+        for group in matrix_set
+        if isinstance(group, GroupAggregated)
+    ] == [
         [tags[0].system_id, tags[1].system_id],
         [tags[2].system_id],
     ]

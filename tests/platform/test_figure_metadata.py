@@ -28,6 +28,7 @@ from neuralls.platform.reporting.figure_card import (
     build_figure_card,
     card_name,
     card_payload,
+    decode_figure_card,
     read_figure_card,
     validate_figure_card,
     write_figure_card,
@@ -280,6 +281,31 @@ def test_card_source_without_run_id_is_rejected(
 
     with pytest.raises(InvalidFigureCardError, match="run_id"):
         validate_figure_card(payload)
+
+
+def test_a_group_card_names_the_kind_of_table_beside_its_figure(
+    scope: RecipeScope,
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
+    notation: NotationPolicy,
+) -> None:
+    payload = card_payload(_card(metadata_of(scope), notation))
+
+    assert (payload["table"], payload["table_kind"]) == (
+        "performance_profile_fine_x_online.parquet",
+        "series",
+    )
+
+
+def test_a_card_naming_another_kind_of_table_than_its_recipes_is_rejected(
+    scope: RecipeScope,
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
+    notation: NotationPolicy,
+) -> None:
+    payload = card_payload(_card(metadata_of(scope), notation))
+    payload["table_kind"] = "summary"
+
+    with pytest.raises(InvalidFigureCardError, match="table kind"):
+        decode_figure_card(payload)
 
 
 @pytest.mark.parametrize("figure", ["", "nested/figure.png", "figure.svg"])

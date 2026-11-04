@@ -47,12 +47,15 @@ from neuralls.platform.reporting.figure_metadata import (
     MethodAggregationRule,
     MethodFigureMetadata,
     StagedFigure,
-    StagedTabledFigure,
     TimingPolicy,
     method_source,
 )
-from neuralls.platform.reporting.figure_planning import figure_plans, history_variant, plan_figure
-from neuralls.platform.reporting.figure_table import build_group_table
+from neuralls.platform.reporting.figure_planning import (
+    figure_plans,
+    figure_summaries,
+    history_variant,
+    plan_figure,
+)
 from neuralls.platform.reporting.figure_text import scope_label
 from neuralls.platform.reporting.group_plots import GroupStyler, write_outcome_plots
 from neuralls.platform.reporting.method_figures import METHOD_PLOTS, draw_method_figure
@@ -232,16 +235,15 @@ class OpenReport:
             self.uploader.check_free(
                 run_id, GROUP_REPORT_ARTIFACT_DIR, [plan.filename for plan in plans]
             )
-            outcome_plots = write_outcome_plots(
-                outcome, GroupStyler(presentation, self.notation), Path(tmp), plans
+            figures = write_outcome_plots(
+                outcome,
+                figure_summaries(outcome),
+                GroupStyler(presentation, self.notation),
+                Path(tmp),
+                plans,
             )
-            table = build_group_table(outcome.summaries)
-            plan_of = {plan.filename: plan for plan in plans}
-            for artifact in outcome_plots:
-                staged = StagedFigure(plan_of[artifact.name], artifact)
-                self.uploader.upload(
-                    run_id, GROUP_REPORT_ARTIFACT_DIR, StagedTabledFigure(staged, table)
-                )
+            for figure in figures:
+                self.uploader.upload(run_id, GROUP_REPORT_ARTIFACT_DIR, figure)
 
     def _group_methods(
         self, presentation: GroupPresentation
