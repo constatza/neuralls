@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Never, assert_never, cast
 
+import polars as pl
 from loguru import logger
 
 from neuralls.composition.comparison.postprocessing.ports import ReportSink
@@ -124,6 +125,7 @@ def report_all_levels(
     workloads: Sequence[ReportedMethod],
     sink: ReportSink,
     *,
+    observations: pl.DataFrame,
     datasets: Mapping[DatasetId, DatasetPresentation],
     notation: NotationPolicy,
     reference_selection: ReferenceSelection | dict[SystemId, ReferenceSelection] | None = None,
@@ -131,7 +133,8 @@ def report_all_levels(
 ) -> None:
     """Reduce completed method workloads and report every canonical level.
 
-    ``datasets`` presents each dataset a group names; a group on a dataset without an
+    ``observations`` is the observation view of every method's stored frames; each report group
+    is the filter of it to the group's systems. ``datasets`` presents each dataset a group names; a group on a dataset without an
     entry raises before anything is reported for it. ``notation`` is the case's symbol
     policy, used for the text of a skipped group.
     """
@@ -146,7 +149,13 @@ def report_all_levels(
     }
     for level in REPORT_LEVELS:
         for classified in classify_level(
-            planned, setup_events, attempts, level, selected, planned_by_method=planned_by_method
+            planned,
+            setup_events,
+            attempts,
+            level,
+            selected,
+            observations=observations,
+            planned_by_method=planned_by_method,
         ):
             match classified:
                 case GroupAggregated() as aggregated:

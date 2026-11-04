@@ -143,6 +143,7 @@ def run_comparison_report(
                 report_all_levels(
                     inputs.methods,
                     sink,
+                    observations=inputs.observations,
                     datasets=inputs.datasets,
                     notation=notation,
                     reference_selection=dict(inputs.references),

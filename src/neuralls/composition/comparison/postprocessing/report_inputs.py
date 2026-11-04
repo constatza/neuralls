@@ -19,9 +19,11 @@ from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.domain.solver.reporting.event_frames import (
     CONVERGENCE_SCHEMA,
+    build_planned_systems_frame,
     decode_setup_frame,
     decode_solve_frame,
 )
+from neuralls.domain.solver.reporting.observations import MethodFrames, observations_of_methods
 from neuralls.platform.config.models.preconditioner_family import (
     pod2g_style_keys,
     preconditioner_family,
@@ -54,6 +56,7 @@ class ReportInputs:
     references: Mapping[SystemId, ReferenceSelection]
     solver_contexts: Mapping[SystemId, SolverTimingContext]
     convergence: pl.DataFrame
+    observations: pl.DataFrame
 
 
 def _reported_method(stored: StoredMethod) -> ReportedMethod:
@@ -83,6 +86,24 @@ def concat_convergence(methods: Sequence[StoredMethod]) -> pl.DataFrame:
     return pl.concat(frames) if frames else pl.DataFrame(schema=CONVERGENCE_SCHEMA)
 
 
+def observation_view(methods: Sequence[StoredMethod]) -> pl.DataFrame:
+    """The observation view of every stored method.
+
+    The planned-systems frame is rebuilt from the validated provenance, which holds the
+    solver tolerances the stopping threshold of each system needs.
+    """
+    return observations_of_methods(
+        {
+            method.name: MethodFrames(
+                planned_systems=build_planned_systems_frame(method.systems),
+                setup_events=method.setup_events,
+                solve_attempts=method.solve_attempts,
+            )
+            for method in methods
+        }
+    )
+
+
 def report_inputs(stored: StoredBenchmark) -> ReportInputs:
     """Rebuild typed events, references and solver contexts from a validated stored benchmark."""
     systems = [system for method in stored.methods for system in method.systems]
@@ -93,4 +114,5 @@ def report_inputs(stored: StoredBenchmark) -> ReportInputs:
         references={system.tag.system_id: system.reference for system in systems},
         solver_contexts={system.tag.system_id: system.solver for system in systems},
         convergence=concat_convergence(stored.methods),
+        observations=observation_view(stored.methods),
     )

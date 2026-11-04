@@ -56,6 +56,10 @@ from neuralls.platform.tracking.metrics_logging import (
     setup_comparison_tracking,
 )
 from neuralls.platform.tracking.run_names import run_name_text
+from neuralls.platform.tracking.runtime_environment import (
+    collect_runtime_environment,
+    environment_params,
+)
 from neuralls.platform.tracking.session_artifacts import SESSION_PHASE
 from neuralls.platform.tracking.split_records import SPLITS_ARTIFACT, encode_split_records
 from neuralls.shared.device import warm_up_device
@@ -98,8 +102,10 @@ def _run_session(
     failure_sink = MLflowWorkflowFailureSink()
     with mlflow.start_run(run_name=run_name_text(session_run), tags=session_tags.as_mlflow_tags()):
         mlflow.log_text(encode_split_records(batch.split_records).decode("utf-8"), SPLITS_ARTIFACT)
+        device = resolve_device()
+        mlflow.log_params(environment_params(collect_runtime_environment(device)))
         with _batch_phase(failure_sink, case_config_path, ComparisonBatchPhase.WARMUP):
-            warm_up_device(resolve_device())
+            warm_up_device(device)
         with _batch_phase(failure_sink, case_config_path, ComparisonBatchPhase.METHOD_WORKLOADS):
             workloads = execute_all(
                 batch,

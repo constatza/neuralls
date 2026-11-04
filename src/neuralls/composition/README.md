@@ -27,7 +27,8 @@ clear the baseline. Composition validates that value against the final method
 tuple after assignment filters and auto-generated methods are applied. If
 runtime checkpoint resolution skips that configured method, reporting keeps
 `ReferenceUnavailable` with the resolution reason and never chooses a fallback
-from observed outcomes. Paired outputs use the reference/method speed ratio;
+from observed outcomes. Paired outputs (`speed_ratio_summary` over a group's observations, on
+amortized online time) use the reference/method speed ratio;
 performance profiles still normalize independently by the fastest method on
 each problem.
 
@@ -495,20 +496,27 @@ figure card's `level` (`matrix_set_rhs_type`, `matrix_set`,
 figures `system`).
 
 Classification returns two closed report variants. `RecipeProfileReport` is
-matrix-set-and-RHS-type level and names exactly one RHS type; only it emits performance-profile and
-ECDF data. `WorkloadMixtureReport` is used at the matrix-set and all-matrix-sets levels and
+matrix-set-and-RHS-type level and names exactly one RHS type; only it is planned the figures
+that need one homogeneous population (performance profiles, ECDFs, the paired scatter and the
+speed-ratio CDF). `WorkloadMixtureReport` is used at the matrix-set and all-matrix-sets levels and
 retains the complete ordered recipe membership as explicit mixture metadata.
 Both variants carry distinct matrix, planned-RHS, attempted-RHS, and
-converged counts for each method. Aggregate convergence bars are emitted for
+converged counts for each method, and both carry `observations`, the group's rows of the
+observation view. Aggregate convergence bars and workload-total bars are emitted for
 all levels, while mixture reports never imply that heterogeneous recipes form
 one profile population.
 
-`classify_level(planned, setup_events, solve_attempts, level)` returns
-`GroupAggregated` when at least one method has a setup event and
-`GroupSkippedAllCacheHit` when the group has no benchmark event. Aggregated
-groups carry planned matrix/RHS membership, per-method planned/attempted/
-converged counts, converged-iteration statistics, and failure-aware per-system
-outcomes. A setup failure therefore remains a zero-attempt incomplete method,
+`classify_level(planned, setup_events, solve_attempts, level, selection, observations=...)`
+returns `GroupAggregated` when at least one method has a setup event and
+`GroupSkippedAllCacheHit` when the group has no benchmark event. The observation view is built
+once per report from the frames the report already holds: `report_inputs.observation_view` joins
+each stored method's `planned_systems` (rebuilt from the validated `SystemProvenance`, which holds
+the `rtol` and `atol` of the stopping threshold), `setup_events` and `solve_attempts` with
+`observations_of_methods`, and `report_all_levels` passes that frame to every level. A level is a
+filter of it: each group keeps the rows of its own systems, so `planned_rhs` stays the per-matrix
+count over all recipes. Aggregated groups carry planned matrix/RHS membership, per-method
+planned/attempted/converged counts, converged-iteration statistics, and the failure-aware per-system
+observations. A setup failure therefore remains a zero-attempt incomplete method,
 not an artificially cheap empty result.
 
 `comparison_schedule.method_major_schedule` groups execution as method, matrix,
@@ -530,8 +538,8 @@ versioned, artifact-relative `setup_events.parquet`, `solve_attempts.parquet`,
 `convergence.parquet`, `planned_systems.parquet`, `summary.toml`, `method_config.toml` and
 `presentation.toml` files (see `platform/README.md`). The Parquet frames are canonical; the TOML summary is
 reconciled from the Task 2 reducers and records the method name/config digest,
-planned/attempted/converged counts, setup/solve/online timings, attempted-RHS
-average, and workload peak memory. The offline generation cost
+planned/attempted/converged counts, setup/solve/online timings, and
+workload peak memory. The offline generation cost
 is a `StageCost`: nothing is written for `NotApplicable` (no training data), `generation_s`,
 `generation_source` and, when recorded, `generation_peak_bytes` for `Known`, and
 `generation_source = "unavailable"` with `generation_reason` (no number) for `Unavailable`;
@@ -553,7 +561,13 @@ A method child owns its
 required configuration, the two canonical Parquet event files, `summary.toml`,
 method histories, and method diagnostic figures; the session parent owns shared
 provenance and cross-method figures. No matrix/RHS system runs or method
-grandchildren are created. Method reuse is accepted only for children
+grandchildren are created. The session
+run also logs the runtime environment of its timings once, as the `env.*` params
+`env.device`, `env.cpu_model`, `env.cpu_logical_count`, `env.torch_threads`,
+`env.torch_version`, `env.torchalg_version` and `env.python_version`
+(`comparison_batch.py::_run_session` collects it on the device it then warms and
+logs `environment_params`; see `platform/README.md`). They describe the whole
+session, so they are never written per row or into a parquet table. Method reuse is accepted only for children
 whose identity contains the method config/checkpoint digest and complete
 workload membership and whose required raw artifacts pass schema/link and
 summary validation. Reuse also compares the canonical method config (checkpoint
