@@ -35,7 +35,6 @@ def _summary(name: str, converged: int, setup: float, solve: float) -> MethodWor
         setup_total_s=setup,
         solve_total_s=solve,
         workload_online_s=setup + solve,
-        online_s_per_attempted_rhs=(setup + solve) / 4,
         workload_peak_memory=UnknownPeakMemory(),
     )
 

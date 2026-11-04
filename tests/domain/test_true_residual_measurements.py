@@ -34,6 +34,7 @@ from neuralls.domain.solver.reporting.event_frames import (
     validate_decoded_solve_frame,
 )
 from neuralls.domain.solver.true_residual import (
+    NonFiniteResidual,
     measure_residual,
     shared_threshold,
     stopping_threshold_rel,
@@ -82,7 +83,7 @@ def attempts() -> tuple[SolveAttempt, ...]:
         ),
         _attempt(
             "s1",
-            outcome=SolveFailed(20, "solver raised"),
+            outcome=SolveFailed(0, "solver raised"),
             residual=UnmeasuredResidual(),
             exact_reference=ExactSolutionUnavailable("iteration budget exhausted"),
         ),
@@ -180,6 +181,35 @@ def test_measure_residual_of_a_zero_rhs_is_unmeasured(spd_matrix: torch.Tensor) 
     assert measure_residual(spd_matrix, zero, zero) == UnmeasuredResidual()
 
 
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_measure_residual_of_a_non_finite_iterate_is_non_finite(
+    spd_matrix: torch.Tensor, rhs: torch.Tensor, bad: float
+) -> None:
+    iterate = torch.zeros_like(rhs)
+    iterate[3] = bad
+
+    assert measure_residual(spd_matrix, rhs, iterate) == NonFiniteResidual()
+
+
+def test_measure_residual_of_a_zero_rhs_with_a_non_finite_iterate_is_non_finite(
+    spd_matrix: torch.Tensor,
+) -> None:
+    zero = torch.zeros(spd_matrix.shape[0], dtype=spd_matrix.dtype)
+
+    assert measure_residual(spd_matrix, zero, torch.full_like(zero, float("nan"))) == (
+        NonFiniteResidual()
+    )
+
+
+def test_measure_residual_of_a_finite_iterate_whose_residual_overflows_is_non_finite(
+    rhs: torch.Tensor,
+) -> None:
+    huge = torch.eye(rhs.shape[0], dtype=rhs.dtype) * torch.finfo(rhs.dtype).max
+    iterate = torch.full_like(rhs, 10.0)
+
+    assert measure_residual(huge, rhs, iterate) == NonFiniteResidual()
+
+
 @pytest.mark.parametrize(
     "rtol, atol, rhs_norm, expected",
     [(1e-6, 1e-14, 2.0, 1e-6), (1e-6, 1e-3, 2.0, 5e-4)],
@@ -226,6 +256,21 @@ def test_failed_reference_solve_keeps_its_reason(
     assert solution is None
     assert isinstance(reference, ExactSolutionUnavailable)
     assert "reference_precision_margin" in reference.reason
+
+
+def test_non_finite_reference_solution_is_unavailable_not_an_error(
+    spd_matrix: torch.Tensor, rhs: torch.Tensor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from neuralls.domain.solver import comparison
+
+    monkeypatch.setattr(
+        comparison, "reference_solution", lambda *a, **k: torch.full_like(rhs, float("nan"))
+    )
+
+    solution, reference = compute_reference_solution(spd_matrix, rhs, rtol=1e-6, margin=1e-2)
+
+    assert solution is None
+    assert reference == ExactSolutionUnavailable("reference solution is not finite")
 
 
 @pytest.fixture

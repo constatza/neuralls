@@ -126,8 +126,3 @@ def test_plot_convergence_comparison_without_a_legend_entry_raises(
 
     assert raised.value.method_id in set(two_result_entries) - {first}
     reporting_plots.plt.close("all")
-
-
-# ---------------------------------------------------------------------------
-# plot_condition_numbers — horizontal bars, title, tolerances
-# ---------------------------------------------------------------------------

@@ -51,6 +51,7 @@ from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
 from neuralls.shared.types import DatasetId, PreconditionerName
 from tests.dataset_support import build_test_dataset
+from tests.observation_support import observations_of_workloads
 from tests.presentation_support import pod_spec
 from tests.realized_support import completed_workload
 
@@ -278,9 +279,11 @@ def _group_methods(
     cohort: PreparedComparisonPresentation, depth_by_matrix: dict[int, int]
 ) -> Mapping[PreconditionerName, GroupMethodPresentation]:
     sink = _RecordingSink()
+    workloads = tuple(completed_workload(m, depth_by_matrix) for m in cohort.methods)
     report_all_levels(
-        tuple(completed_workload(m, depth_by_matrix) for m in cohort.methods),
+        workloads,
         sink,
+        observations=observations_of_workloads(workloads),
         datasets={DatasetId("ds"): cohort.scope.dataset},
         notation=PLAIN,
     )

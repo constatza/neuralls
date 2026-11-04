@@ -6,12 +6,13 @@ import contextlib
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import numpy as np
 import pytest
 import tomli_w
 
+from neuralls.composition.assignments import comparison_batch
 from neuralls.composition.assignments.comparison_batch import (
     run_comparison_batch,
 )
@@ -91,6 +92,7 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
+from neuralls.platform.tracking.runtime_environment import RuntimeEnvironment, environment_params
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import (
@@ -1376,3 +1378,44 @@ def test_an_external_rhs_of_the_wrong_length_fails_only_its_own_system(
     by_id = {outcome.comparison_id: outcome for outcome in outcomes}
     assert isinstance(by_id["fits"], ComparisonCompleted)
     assert isinstance(by_id["too-long"], ComparisonEntryFailed)
+
+
+SESSION_ENVIRONMENT = RuntimeEnvironment(
+    device_name="cpu",
+    cpu_model="Fixture CPU 9000",
+    cpu_logical_count=12,
+    torch_threads=6,
+    torch_version="2.99.0",
+    torchalg_version="0.7.0",
+    python_version="3.14.1",
+)
+
+
+@pytest.mark.usefixtures("stub_input_gate", "stub_setup_tracking")
+def test_the_session_run_logs_the_runtime_environment_once(
+    tmp_path: Path,
+    single_matrix_dataset: Path,
+    pin_test_fold: Callable[[Path, tuple[int, ...]], None],
+    fake_mlflow: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every timing of a session shares one environment, so it is a param of the session run."""
+    monkeypatch.setattr(
+        comparison_batch, "collect_runtime_environment", lambda device: SESSION_ENVIRONMENT
+    )
+    settings = make_settings(tmp_path)
+    dataset_dir = settings.processed_dir / "solutions"
+    dataset_dir.parent.mkdir(parents=True)
+    single_matrix_dataset.rename(dataset_dir)
+    pin_test_fold(dataset_dir, (0, 1))
+    experiments_config = tmp_path / "experiments.toml"
+    write_experiments_config(experiments_config, with_comparisons=True)
+
+    run_comparison_batch(experiments_config, ComparisonParams(), settings)
+
+    environment_logs = [
+        call
+        for call in fake_mlflow.log_params.call_args_list
+        if any(key.startswith("env.") for key in call.args[0])
+    ]
+    assert environment_logs == [call(environment_params(SESSION_ENVIRONMENT))]

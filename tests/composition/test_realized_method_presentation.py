@@ -55,6 +55,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SystemId
 from neuralls.shared.workflow_failures import ComparisonMatrixFailureContext, ComparisonMatrixPhase
 from tests.measurement_support import NO_REFERENCE_SOLUTION
+from tests.observation_support import observations_of_workloads
 from tests.presentation_support import PreparedMethodFactory
 from tests.realized_support import completed_workload, levels
 from tests.recipe_support import ALPHA, BETA, GAUSSIAN
@@ -265,7 +266,13 @@ def test_failed_setup_is_reported_from_the_prepared_state(
 
     assert workload.presentation == ExecutedMethod(prepared, ())
     sink = _RecordingSink()
-    report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
+    report_all_levels(
+        (workload,),
+        sink,
+        observations=observations_of_workloads((workload,)),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+    )
     group_method = sink.presentations[0].methods[method.name]
     assert group_method.prepared is prepared
     assert group_method.invariant_facts == ()
@@ -300,9 +307,11 @@ def test_group_reports_a_realized_fact_shared_by_every_matrix(
     prepared = prepared_method("jacobi")
     sink = _RecordingSink()
 
+    workload = completed_workload(prepared, {1: 2, 2: 2})
     report_all_levels(
-        (completed_workload(prepared, {1: 2, 2: 2}),),
+        (workload,),
         sink,
+        observations=observations_of_workloads((workload,)),
         datasets=group_datasets,
         notation=NotationPolicy.default(),
     )
@@ -321,7 +330,13 @@ def test_group_does_not_claim_a_realized_fact_that_varies_by_matrix(
     workload = completed_workload(prepared, {1: 2, 2: 3})
     sink = _RecordingSink()
 
-    report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
+    report_all_levels(
+        (workload,),
+        sink,
+        observations=observations_of_workloads((workload,)),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+    )
 
     group_method = sink.presentations[0].methods[PreconditionerName("jacobi")]
     assert group_method.invariant_facts == ()
@@ -365,7 +380,13 @@ def test_each_group_states_only_facts_invariant_over_its_own_systems(
     )
     sink = _RecordingSink()
 
-    report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
+    report_all_levels(
+        (workload,),
+        sink,
+        observations=observations_of_workloads((workload,)),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+    )
 
     dataset = group_datasets[DatasetId("ds")]
     by_scope = [(group.scope, _depth_shown(group, "jacobi")) for group in sink.presentations]
@@ -386,7 +407,13 @@ def test_a_group_with_an_unrealized_system_states_no_realized_fact(
     )
     sink = _RecordingSink()
 
-    report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
+    report_all_levels(
+        (workload,),
+        sink,
+        observations=observations_of_workloads((workload,)),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+    )
 
     assert all(_depth_shown(group, "jacobi") == [] for group in sink.presentations)
 
@@ -400,7 +427,11 @@ def test_group_lists_only_methods_with_systems_in_that_group(
     sink = _RecordingSink()
 
     report_all_levels(
-        (alpha, beta), sink, datasets=group_datasets, notation=NotationPolicy.default()
+        (alpha, beta),
+        sink,
+        observations=observations_of_workloads((alpha, beta)),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
     )
 
     dataset = group_datasets[DatasetId("ds")]

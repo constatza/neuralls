@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from neuralls.domain.benchmarking.costs import solve_total_seconds, workload_online_seconds
+from neuralls.domain.benchmarking.workload_totals import (
+    solve_total_seconds,
+    workload_online_seconds,
+)
 from neuralls.domain.solver.models.benchmark_events import UnknownPeakMemory
 from neuralls.domain.solver.models.workload import (
     CompleteWorkloadSummary,
@@ -27,7 +30,6 @@ def complete() -> MethodWorkloadSummary:
         setup_total_s=SETUP_S,
         solve_total_s=SOLVE_S,
         workload_online_s=SETUP_S + SOLVE_S,
-        online_s_per_attempted_rhs=(SETUP_S + SOLVE_S) / 7,
         workload_peak_memory=UnknownPeakMemory(),
     )
 
@@ -42,7 +44,6 @@ def incomplete() -> MethodWorkloadSummary:
         setup_total_s=SETUP_S,
         solve_total_s=SOLVE_S,
         workload_online_s=SETUP_S + SOLVE_S,
-        online_s_per_attempted_rhs=(SETUP_S + SOLVE_S) / 6,
         workload_peak_memory=UnknownPeakMemory(),
         missing_system_ids=(SystemId("s7"),),
     )

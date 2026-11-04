@@ -45,6 +45,7 @@ from neuralls.domain.solver.models import (
     SystemTag,
     UnknownPeakMemory,
 )
+from neuralls.domain.solver.models.benchmark_events import MeasuredResidual
 from neuralls.domain.solver.models.cost import Known, NotApplicable, Unavailable
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary, MethodWorkloadSummary
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
@@ -172,7 +173,7 @@ def workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
             (0.75,),
             MeasuredPeakMemory(256),
             SolveFailed(7, "breakdown"),
-            NO_RESIDUAL,
+            MeasuredResidual(rhs_norm=1.0, true_residual_rel=0.5),
             NO_REFERENCE,
             SINGLE_RUN,
         ),
@@ -317,9 +318,9 @@ def test_event_artifacts_round_trip_preserves_schema_values_order_links_and_vari
             "iterations": 7,
             "final_relative_residual": None,
             "failure_reason": "breakdown",
-            "residual_status": "unmeasured",
-            "rhs_norm": None,
-            "true_residual_rel": None,
+            "residual_status": "measured",
+            "rhs_norm": 1.0,
+            "true_residual_rel": 0.5,
             "reference_status": "unavailable",
             "reference_true_residual_rel": None,
             "reference_reason": "not computed",
@@ -381,7 +382,6 @@ def test_summary_is_reconciled_from_canonical_frames_and_versioned(
         "setup_s": setup_total,
         "solve_s": solve_total,
         "workload_s": workload_total,
-        "per_attempted_rhs_s": workload_total / attempted,
     }
     assert max(measured_peaks) == 256
     assert isinstance(summary.workload_peak_memory, MeasuredPeakMemory)
@@ -508,26 +508,6 @@ def test_failed_setup_outcome_round_trips_without_inventing_attempts(
     assert setup.get_column("setup_status").to_list() == ["completed", "failed"]
     assert setup.get_column("failure_reason").to_list() == [None, "assembly failed"]
     assert read_solve_attempts(tmp_path / artifacts.solve_attempts).height == 2
-
-    zero_attempt_workload = replace(
-        failed_workload,
-        planned=(failed_tag,),
-        setup_events=(failed_setup,),
-        solve_attempts=(),
-    )
-    zero_attempt_summary = summarize_method_workload(
-        zero_attempt_workload.method,
-        zero_attempt_workload.planned,
-        zero_attempt_workload.setup_events,
-        zero_attempt_workload.solve_attempts,
-        zero_attempt_workload.workload_peak_memory,
-    )
-    zero_root = tmp_path / "zero-attempt"
-    zero_artifacts = write(
-        workload=zero_attempt_workload, summary=zero_attempt_summary, root=zero_root
-    )
-    zero_payload = tomllib.loads((zero_root / zero_artifacts.summary).read_text(encoding="utf-8"))
-    assert "per_attempted_rhs_s" not in zero_payload["online"]
 
 
 def test_incomplete_summary_preserves_planned_membership_and_missing_ids(

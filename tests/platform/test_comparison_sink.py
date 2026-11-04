@@ -11,6 +11,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 from tests.fakes.run_tree import FakeRunTree
+from tests.observation_support import solved_row, synthetic_observations, unconverged_row
 from tests.presentation_support import PreparedMethodFactory
 from tests.recipe_support import ALPHA, BETA, GAUSSIAN, SINE
 
@@ -44,15 +45,9 @@ from neuralls.domain.solver.models.labels import (
     MatrixSetRhsTypeLabel,
     render_group_id,
 )
-from neuralls.domain.solver.models.outcomes import Failed, Solved
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.domain.solver.models.report_scope import System
-from neuralls.domain.solver.models.statistics import (
-    Interval,
-    IterationStats,
-    MethodComparison,
-    PairedComparison,
-)
+from neuralls.domain.solver.models.statistics import IterationStats
 from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
 from neuralls.domain.solver.reporting.event_frames import (
@@ -157,40 +152,48 @@ def _figures(logged_artifacts: dict[str, tuple[str, bool]]) -> set[str]:
     return {name for name in logged_artifacts if name.endswith(".png")}
 
 
-def _solved(iterations: int, solve_s: float) -> Solved:
-    return Solved(
-        MatrixId(7),
-        iterations,
-        solve_s=solve_s,
-        amortized_online_s=solve_s + 0.5,
-    )
-
-
-def _failed() -> Failed:
-    return Failed(MatrixId(7), iterations=100, reason="iteration limit")
+AMG = PreconditionerName("amg")
+JACOBI = PreconditionerName("jacobi")
+NEVER = PreconditionerName("never")
 
 
 @pytest.fixture
-def group() -> RecipeProfileReport:
+def group_observations() -> pl.DataFrame:
+    """Four systems on two matrices (7 holds s0 and s1, 8 holds s2 and s3).
+
+    ``amg`` and ``jacobi`` solve the first three, ``never`` none. The online time of a solved
+    system is its solve time plus 0.5.
+    """
+    matrix_of = {"s0": 7, "s1": 7, "s2": 8, "s3": 8}
+    solved = {
+        AMG: {"s0": (5, 1.0), "s1": (6, 2.0), "s2": (7, 4.0)},
+        JACOBI: {"s0": (50, 2.0), "s1": (60, 2.5), "s2": (70, 9.0)},
+        NEVER: {},
+    }
+    rows = []
+    for method, solves in solved.items():
+        for system, matrix in matrix_of.items():
+            if system in solves:
+                iterations, solve_s = solves[system]
+                rows.append(
+                    solved_row(
+                        method, system, matrix, solve_s, iterations, online_seconds=solve_s + 0.5
+                    )
+                )
+            else:
+                rows.append(unconverged_row(method, system, matrix))
+    return synthetic_observations(rows)
+
+
+@pytest.fixture
+def group(group_observations: pl.DataFrame) -> RecipeProfileReport:
     label = MatrixSetRhsTypeLabel(dataset=DatasetId("ds"), recipe=GAUSSIAN)
-    amg = {
-        SystemId("s0"): _solved(5, 1.0),
-        SystemId("s1"): _solved(6, 2.0),
-        SystemId("s2"): _solved(7, 4.0),
-        SystemId("s3"): _failed(),
-    }
-    jacobi = {
-        SystemId("s0"): _solved(50, 2.0),
-        SystemId("s1"): _solved(60, 2.5),
-        SystemId("s2"): _solved(70, 9.0),
-        SystemId("s3"): _failed(),
-    }
-    never = {SystemId(f"s{i}"): _failed() for i in range(4)}
     return RecipeProfileReport(
         group_id=render_group_id(label),
         label=label,
-        n_matrices=1,
+        n_matrices=2,
         n_planned_rhs=4,
+        observations=group_observations,
         convergence={
             PreconditionerName("amg"): ConvergenceSummary(
                 n_planned_rhs=4,
@@ -204,24 +207,6 @@ def group() -> RecipeProfileReport:
                 n_converged=0,
             ),
         },
-        outcomes={
-            PreconditionerName("amg"): amg,
-            PreconditionerName("jacobi"): jacobi,
-            PreconditionerName("never"): never,
-        },
-        comparisons={
-            PreconditionerName("jacobi"): MethodComparison(
-                reference=PreconditionerName("amg"),
-                paired=PairedComparison(
-                    speed_ratios=(0.5, 0.4, 0.2),
-                    median_speed_ratio=0.4,
-                    median_speed_ratio_ci=Interval(low=0.2, high=0.5, confidence=0.95),
-                    n_both_solved=3,
-                    n_reference_only=0,
-                    n_method_only=0,
-                ),
-            )
-        },
         summaries=(
             CompleteWorkloadSummary(
                 method=PreconditionerName("amg"),
@@ -231,7 +216,6 @@ def group() -> RecipeProfileReport:
                 setup_total_s=2.0,
                 solve_total_s=7.0,
                 workload_online_s=9.0,
-                online_s_per_attempted_rhs=2.25,
                 workload_peak_memory=UnknownPeakMemory(),
             ),
         ),
@@ -349,17 +333,14 @@ def _report_variant(
         ),
         "n_matrices": group.n_matrices,
         "n_planned_rhs": group.n_planned_rhs,
+        "observations": group.observations,
         "convergence": group.convergence,
         "summaries": group.summaries,
         "reference_selection": group.reference_selection,
         "recipe_membership": membership,
     }
     if report_type is RecipeProfileReport:
-        return RecipeProfileReport(
-            **common,
-            outcomes=group.outcomes,
-            comparisons=group.comparisons,
-        )
+        return RecipeProfileReport(**common)
     return WorkloadMixtureReport(**common)
 
 
@@ -392,6 +373,7 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
         label=AllMatrixSetsLabel((ALPHA, BETA)),
         n_matrices=3,
         n_planned_rhs=4,
+        observations=group.observations,
         convergence=group.convergence,
         summaries=group.summaries,
         reference_selection=group.reference_selection,
@@ -536,12 +518,18 @@ def test_sink_logs_explicit_counts_and_ratio_metrics(
     assert logged_metrics[_key("n_planned_rhs", group, "amg")] == 4
     assert logged_metrics[_key("n_attempted_rhs", group, "amg")] == 4
     assert logged_metrics[_key("n_converged", group, "amg")] == 3
+    # amg over jacobi online time: 1.5/2.5 and 2.5/3.0 on matrix 7, 4.5/9.5 on matrix 8
     assert logged_metrics[_key("success_rate", group, "amg")] == pytest.approx(0.75)
     assert logged_metrics[_key("iterations_median", group, "amg")] == 6.0
     assert logged_metrics[_key("n_both_solved", group, "jacobi")] == 3
-    assert logged_metrics[_key("speed_ratio_median", group, "jacobi")] == 0.4
-    assert logged_metrics[_key("speed_ratio_ci_high", group, "jacobi")] == 0.5
-    assert not any("wilcoxon" in key for key in logged_metrics)
+    assert logged_metrics[_key("n_ratio", group, "jacobi")] == 3
+    assert logged_metrics[_key("n_matrices", group, "jacobi")] == 2
+    assert logged_metrics[_key("speed_ratio_median", group, "jacobi")] == pytest.approx(0.6)
+    assert logged_metrics[_key("speed_ratio_ci_low", group, "jacobi")] == pytest.approx(4.5 / 9.5)
+    assert logged_metrics[_key("speed_ratio_ci_high", group, "jacobi")] == pytest.approx(
+        (1.5 / 2.5 + 2.5 / 3.0) / 2
+    )
+    assert logged_metrics[_key("n_reference_only", group, "never")] == 3
 
 
 def test_never_converged_method_logs_only_counts(
@@ -591,16 +579,22 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
     assert all(directory == GROUP_REPORT_ARTIFACT_DIR for directory, _ in logged_artifacts.values())
 
 
-def test_sink_skips_the_ratio_cdf_without_comparisons(
+def test_sink_skips_the_reference_figures_without_a_configured_reference(
     group: GroupAggregated,
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
     sink: MLflowReportSink,
 ) -> None:
-    sink.report(replace(group, comparisons={}), presentation=presentation)
+    sink.report(
+        replace(group, reference_selection=NoReferenceConfigured()), presentation=presentation
+    )
 
-    assert not [name for name in logged_artifacts if name.startswith("speed_ratio_cdf")]
+    assert not [
+        name
+        for name in logged_artifacts
+        if name.startswith(("speed_ratio_cdf", "paired_time_scatter"))
+    ]
     assert not [key for key in logged_metrics if key.startswith("speed_ratio")]
 
 
@@ -611,7 +605,9 @@ def test_group_figures_carry_cards_with_methods_parameters_and_sources(
     logged_text: dict[str, str],
     sink: MLflowReportSink,
 ) -> None:
-    sink.report(replace(group, comparisons={}), presentation=presentation)
+    sink.report(
+        replace(group, reference_selection=NoReferenceConfigured()), presentation=presentation
+    )
 
     card = _cards(logged_text)[f"aggregate_bars_{_GROUP_FILE_STEM}.toml"]
 

@@ -10,12 +10,14 @@ import pytest
 from neuralls.domain.solver.models.benchmark_events import (
     MatrixSetupEvent,
     MeasuredPeakMemory,
+    MeasuredResidual,
     SetupCompleted,
     SetupFailed,
     SolveAttempt,
     SolveConverged,
     SolveFailed,
     UnknownPeakMemory,
+    UnmeasuredResidual,
 )
 from neuralls.domain.solver.reporting.event_frames import (
     SOLVE_ATTEMPT_SCHEMA,
@@ -23,6 +25,7 @@ from neuralls.domain.solver.reporting.event_frames import (
     build_solve_frame,
     decode_setup_frame,
     decode_solve_frame,
+    validate_decoded_solve_frame,
 )
 from neuralls.shared.device import Agreed, Diverged, RepeatAgreement, SingleRun, Unchecked
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
@@ -81,7 +84,7 @@ def solve_attempts() -> tuple[SolveAttempt, ...]:
             (0.2,),
             UnknownPeakMemory(),
             SolveFailed(20, "max iterations"),
-            NO_RESIDUAL,
+            MeasuredResidual(rhs_norm=1.0, true_residual_rel=0.5),
             NO_REFERENCE,
             SINGLE_RUN,
         ),
@@ -129,3 +132,81 @@ def test_inconsistent_repeat_columns_are_rejected(
 
     with pytest.raises(ValueError):
         decode_solve_frame(frame)
+
+
+@pytest.fixture
+def one_system_per_solve_outcome(
+    solve_attempts: tuple[SolveAttempt, ...],
+) -> tuple[SolveAttempt, ...]:
+    """A converged, a zero-RHS converged, a capped, and a raised solve, with realistic fields."""
+    template = solve_attempts[0]
+    measured = MeasuredResidual(rhs_norm=2.0, true_residual_rel=1e-9)
+    return (
+        replace(
+            template,
+            system_id=SystemId("converged"),
+            outcome=SolveConverged(7, 1e-9),
+            residual=measured,
+        ),
+        replace(
+            template,
+            system_id=SystemId("zero-rhs"),
+            outcome=SolveConverged(0, 0.0),
+            residual=UnmeasuredResidual(),
+        ),
+        replace(
+            template,
+            system_id=SystemId("capped"),
+            outcome=SolveFailed(500, "max iterations"),
+            residual=MeasuredResidual(rhs_norm=2.0, true_residual_rel=0.3),
+        ),
+        replace(
+            template,
+            system_id=SystemId("capped-at-zero"),
+            outcome=SolveFailed(0, "max iterations"),
+            residual=MeasuredResidual(rhs_norm=2.0, true_residual_rel=1.0),
+        ),
+        replace(
+            template,
+            system_id=SystemId("raised"),
+            outcome=SolveFailed(0, "CG solver failed"),
+            residual=UnmeasuredResidual(),
+        ),
+    )
+
+
+def test_a_frame_with_each_kind_of_solve_outcome_is_accepted(
+    one_system_per_solve_outcome: tuple[SolveAttempt, ...],
+) -> None:
+    validate_decoded_solve_frame(build_solve_frame(one_system_per_solve_outcome))
+
+
+def _with_columns(frame: pl.DataFrame, system_id: str, columns: dict[str, object]) -> pl.DataFrame:
+    """Overwrite columns of one system's row, keeping the schema dtypes."""
+    for name, value in columns.items():
+        frame = frame.with_columns(
+            pl.when(pl.col("system_id") == system_id)
+            .then(pl.lit(value, dtype=SOLVE_ATTEMPT_SCHEMA[name]))
+            .otherwise(pl.col(name))
+            .alias(name)
+        )
+    return frame
+
+
+@pytest.mark.parametrize(
+    ("system_id", "columns", "rule"),
+    [
+        ("raised", {"iterations": 5}, "must have 0 iterations"),
+        ("capped", {"rhs_norm": 0.0}, "zero RHS norm"),
+    ],
+)
+def test_cross_column_violations_name_the_system_and_the_rule(
+    one_system_per_solve_outcome: tuple[SolveAttempt, ...],
+    system_id: str,
+    columns: dict[str, object],
+    rule: str,
+) -> None:
+    frame = _with_columns(build_solve_frame(one_system_per_solve_outcome), system_id, columns)
+
+    with pytest.raises(ValueError, match=f"{system_id!r}.*{rule}"):
+        validate_decoded_solve_frame(frame)

@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import replace
+
 import numpy as np
+import polars as pl
 import pytest
 import torch
 from torchalg.models.result import SolverResult
 from torchalg.preconditioners.implementations import Identity, JacobiPreconditioner
 
+from neuralls.domain.solver.models.benchmark_events import SolveConverged
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.cost import Known
-from neuralls.shared.types import CostProvenance
+from neuralls.domain.solver.reporting.observations import MethodFrames, observations_of_methods
+from neuralls.shared.types import CostProvenance, PreconditionerName
+from tests import observation_support
+from tests.observation_support import MethodEvents
 
 
 @pytest.fixture
@@ -203,4 +211,99 @@ def solver_result_with_no_energy_data() -> SolverResult:
         breakdown=False,
         error_history_a_norm=None,
         energy_decrements=None,
+    )
+
+
+@pytest.fixture
+def unbalanced_events() -> Mapping[PreconditionerName, MethodEvents]:
+    """Domain events of three methods over an unbalanced workload with every outcome."""
+    return observation_support.unbalanced_events()
+
+
+@pytest.fixture
+def unbalanced_frames(
+    unbalanced_events: Mapping[PreconditionerName, MethodEvents],
+) -> Mapping[PreconditionerName, MethodFrames]:
+    """The stored frames of the three methods."""
+    return {method: events.frames() for method, events in unbalanced_events.items()}
+
+
+@pytest.fixture
+def unbalanced_observations(
+    unbalanced_frames: Mapping[PreconditionerName, MethodFrames],
+) -> pl.DataFrame:
+    """The observation view of all three methods."""
+    return observations_of_methods(unbalanced_frames)
+
+
+@pytest.fixture
+def two_method_observations(unbalanced_observations: pl.DataFrame) -> pl.DataFrame:
+    """The observation view of ``amg`` and ``jacobi`` only, the pair that share systems."""
+    return unbalanced_observations.filter(
+        pl.col("method").is_in([observation_support.AMG, observation_support.JACOBI])
+    )
+
+
+@pytest.fixture
+def drifted_observations(two_method_observations: pl.DataFrame) -> pl.DataFrame:
+    """Observations where one converged ``amg`` system's true residual is 20 times its threshold."""
+    return two_method_observations.with_columns(
+        true_residual_rel=pl.when(
+            (pl.col("system_id") == "m1-0") & (pl.col("method") == observation_support.AMG)
+        )
+        .then(20 * observation_support.STOPPING_THRESHOLD_REL)
+        .otherwise(pl.col("true_residual_rel"))
+    )
+
+
+@pytest.fixture
+def zero_iteration_events(
+    unbalanced_events: Mapping[PreconditionerName, MethodEvents],
+) -> Mapping[PreconditionerName, MethodEvents]:
+    """The unbalanced events where ``amg`` converges system ``m1-0`` at the initial guess.
+
+    ``amg`` needs 0 iterations there and ``jacobi`` 10, so the best iteration count of ``m1-0``
+    is 0 and a ratio to it is undefined.
+    """
+    amg = unbalanced_events[observation_support.AMG]
+    attempts = tuple(
+        replace(attempt, outcome=SolveConverged(0, 1e-9))
+        if attempt.system_id == "m1-0"
+        else attempt
+        for attempt in amg.solve_attempts
+    )
+    return {**unbalanced_events, amg.method: replace(amg, solve_attempts=attempts)}
+
+
+@pytest.fixture
+def zero_iteration_observations(
+    zero_iteration_events: Mapping[PreconditionerName, MethodEvents],
+) -> pl.DataFrame:
+    """The observation view of ``zero_iteration_events``."""
+    return observations_of_methods(
+        {method: events.frames() for method, events in zero_iteration_events.items()}
+    )
+
+
+@pytest.fixture
+def zero_solve_time_observations(two_method_observations: pl.DataFrame) -> pl.DataFrame:
+    """Two methods where ``amg`` solves every system of matrix 1 in zero seconds."""
+    return two_method_observations.with_columns(
+        solve_s=pl.when((pl.col("method") == observation_support.AMG) & (pl.col("matrix_id") == 1))
+        .then(0.0)
+        .otherwise(pl.col("solve_s"))
+    )
+
+
+@pytest.fixture
+def setup_heavy_fast_solver_observations(two_method_observations: pl.DataFrame) -> pl.DataFrame:
+    """Two methods where ``amg`` solves ten times faster than in the base workload.
+
+    ``amg`` then averages 0.25 s per common system against 0.65 s for ``jacobi``, while its
+    matrix setups (6 s and 12 s) stay far above ``jacobi``'s (1 s and 2 s).
+    """
+    return two_method_observations.with_columns(
+        solve_s=pl.when(pl.col("method") == observation_support.AMG)
+        .then(pl.col("solve_s") / 10)
+        .otherwise(pl.col("solve_s"))
     )

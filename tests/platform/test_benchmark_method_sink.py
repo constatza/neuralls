@@ -67,7 +67,6 @@ EXPECTED_METRIC_KEYS = [
     "n_setup_failed",
     "n_solve_failed",
     "iterations_total",
-    "online_s_per_attempted_rhs",
     "workload_peak_memory_bytes",
 ]
 

@@ -60,8 +60,6 @@ def test_runtime_resolution_skip_does_not_fallback_to_observed_method() -> None:
         ReferenceUnavailable,
         resolve_reference_selection,
     )
-    from neuralls.domain.solver.models.outcomes import Solved
-    from neuralls.shared.types import MatrixId
 
     selection = resolve_reference_selection(
         "amg",
@@ -71,4 +69,4 @@ def test_runtime_resolution_skip_does_not_fallback_to_observed_method() -> None:
 
     assert isinstance(selection, ReferenceUnavailable)
     assert selection.name == PreconditionerName("amg")
-    assert Solved(MatrixId(1), 1, 1.0, 1.0)
+    assert selection.reason == "checkpoint not found"

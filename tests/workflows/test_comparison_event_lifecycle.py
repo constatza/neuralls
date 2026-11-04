@@ -25,6 +25,11 @@ from neuralls.domain.solver.models import (
     SolveFailed,
     SystemTag,
 )
+from neuralls.domain.solver.models.benchmark_events import (
+    MeasuredResidual,
+    SolveConverged,
+    UnmeasuredResidual,
+)
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.cost import NotApplicable
@@ -33,6 +38,12 @@ from neuralls.domain.solver.models.workload import (
     IncompleteWorkloadSummary,
 )
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
+from neuralls.domain.solver.reporting.event_frames import (
+    build_convergence_frame,
+    build_solve_frame,
+    validate_decoded_solve_frame,
+)
+from neuralls.domain.solver.reporting.observations import Outcome, solve_outcome
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
@@ -438,3 +449,62 @@ def test_solver_failure_retains_measured_attempt(
     assert isinstance(attempt.peak_memory, MeasuredPeakMemory)
     assert attempt.samples_s
     assert len(messages) == 1
+
+
+@pytest.fixture
+def poison_rhs_ordinal_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the solver return a NaN iterate for the right-hand side of ordinal 1 only."""
+    from neuralls.domain.solver import comparison as solver_comparison
+
+    real_solve = solver_comparison._solve_one
+
+    def solve(
+        A: torch.Tensor, b: torch.Tensor, *args: object, **kwargs: object
+    ) -> tuple[torch.Tensor, object]:
+        x, info = real_solve(A, b, *args, **kwargs)  # type: ignore[arg-type]
+        return (torch.full_like(x, float("nan")), info) if b[1] == 2.0 else (x, info)
+
+    monkeypatch.setattr(solver_comparison, "_solve_one", solve)
+
+
+@pytest.mark.usefixtures("poison_rhs_ordinal_one")
+def test_a_non_finite_iterate_is_stored_as_a_solver_error_beside_a_good_solve(
+    two_matrix_bundles: tuple[MatrixWorkload, MatrixWorkload],
+    solver_params: SolverParams,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    captured_log: CapturedLog,
+) -> None:
+    """One diverged solve must not abort the matrix: it is stored as a failed attempt."""
+    from neuralls.composition.comparison import comparison_run
+
+    method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.JACOBI))
+
+    messages = captured_log("WARNING")
+    workload = comparison_run.execute_method_workload(
+        method,
+        (two_matrix_bundles[0],),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+        params=solver_params,
+        settings=neuralls_settings,
+        prepared=prepared_method(str(method.name)),
+    )
+
+    good, poisoned = workload.solve_attempts
+    assert isinstance(good.outcome, SolveConverged)
+    assert isinstance(good.residual, MeasuredResidual)
+    # Jacobi solves the diagonal system in one iteration, which the stored reason keeps.
+    assert poisoned.outcome == SolveFailed(0, "non-finite iterate after 1 iterations")
+    assert poisoned.residual == UnmeasuredResidual()
+    assert len(workload.diagnostics) == 2
+    assert len(messages) == 1
+    rows = build_solve_frame(workload.solve_attempts).to_dicts()
+    assert [solve_outcome(row["solve_status"], row["residual_status"]) for row in rows] == [
+        Outcome.CONVERGED,
+        Outcome.SOLVER_ERROR,
+    ]
+    validate_decoded_solve_frame(build_solve_frame(workload.solve_attempts))
+    convergence = build_convergence_frame(workload.method, workload.diagnostics)
+    assert set(convergence["system_id"]) == {str(good.system_id)}

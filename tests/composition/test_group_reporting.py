@@ -43,6 +43,7 @@ from neuralls.shared.types import (
     SystemId,
 )
 from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL, SINGLE_RUN
+from tests.observation_support import observations_of_workloads
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 
@@ -107,7 +108,13 @@ def test_group_reporting_reduces_completed_workload_events(
     )
     sink = RecordingSink()
 
-    report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
+    report_all_levels(
+        (workload,),
+        sink,
+        observations=observations_of_workloads((workload,)),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+    )
 
     assert [outcome.n_planned_rhs for outcome in sink.outcomes] == [1, 1, 1]
 
@@ -154,7 +161,13 @@ def test_group_reporting_propagates_method_plot_styles(
             self.presentations.append(presentation)
 
     sink = PresentationSink()
-    report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
+    report_all_levels(
+        (workload,),
+        sink,
+        observations=observations_of_workloads((workload,)),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+    )
 
     assert sink.presentations[0].plot_styles[str(method)] == style
 
@@ -216,7 +229,13 @@ def test_mixture_presentations_keep_only_the_short_scope(
             self.presentations.append(presentation)
 
     sink = PresentationSink()
-    report_all_levels((workload,), sink, datasets=group_datasets, notation=NotationPolicy.default())
+    report_all_levels(
+        (workload,),
+        sink,
+        observations=observations_of_workloads((workload,)),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+    )
 
     assert [presentation.scope for presentation in sink.presentations] == [
         RecipeScope(group_datasets[DatasetId("ds")], GAUSSIAN),
@@ -268,6 +287,7 @@ def test_group_reporting_propagates_actual_solver_timing_context(
     report_all_levels(
         (workload,),
         sink,
+        observations=observations_of_workloads((workload,)),
         datasets=group_datasets,
         notation=NotationPolicy.default(),
         contexts_by_system={tag.system_id: context},
@@ -319,9 +339,11 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
             self.presentations.append(presentation)
 
     sink = PresentationSink()
+    workloads = tuple(workload(config) for config in configs)
     report_all_levels(
-        tuple(workload(config) for config in configs),
+        workloads,
         sink,
+        observations=observations_of_workloads(workloads),
         datasets=group_datasets,
         notation=NotationPolicy.default(),
     )
@@ -348,7 +370,11 @@ def test_a_skipped_group_is_named_by_its_scope_not_its_group_id(
     monkeypatch.setattr(group_reporting, "classify_level", lambda *args, **kwargs: (skipped,))
     messages = captured_log("WARNING")
     report_all_levels(
-        (), RecordingSink(), datasets=group_datasets, notation=NotationPolicy.default()
+        (),
+        RecordingSink(),
+        observations=observations_of_workloads(()),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
     )
 
     assert messages[0] == (

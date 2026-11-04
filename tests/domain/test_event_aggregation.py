@@ -26,8 +26,6 @@ from neuralls.domain.solver.models.workload import (
 )
 from neuralls.domain.solver.reporting.aggregation import (
     build_matrix_bundle_frame,
-    build_system_cost_frame,
-    ranking_costs,
     summarize_method_workload,
 )
 from neuralls.domain.solver.reporting.event_frames import build_setup_frame, build_solve_frame
@@ -407,7 +405,6 @@ def duplicate_missing_summary_factory(
             setup_total_s=0.0,
             solve_total_s=0.0,
             workload_online_s=0.0,
-            online_s_per_attempted_rhs=None,
             workload_peak_memory=unknown_workload_peak_memory,
             missing_system_ids=(SystemId("missing"), SystemId("missing")),
         )
@@ -431,7 +428,6 @@ def inconsistent_complete_summary_factory(
             setup_total_s=1.0,
             solve_total_s=2.0,
             workload_online_s=3.01,
-            online_s_per_attempted_rhs=3.01,
             workload_peak_memory=unknown_workload_peak_memory,
         )
 
@@ -486,21 +482,6 @@ def test_event_frames_preserve_failed_outcome_data(
     assert solve_row["failure_reason"] == "iteration limit"
 
 
-def test_system_costs_allocate_each_matrix_setup_over_planned_rhs(
-    planned_systems: tuple[SystemTag, ...],
-    setup_events: tuple[MatrixSetupEvent, ...],
-    solve_attempts: tuple[SolveAttempt, ...],
-) -> None:
-    """Counting attempts instead of planned matrix membership misallocates shared setup."""
-    costs = build_system_cost_frame(planned_systems, setup_events, solve_attempts).sort(
-        ["matrix_id", "rhs_ordinal"]
-    )
-
-    assert costs["planned_rhs_count"].to_list() == [3, 3, 3, 3, 3, 3]
-    assert costs["allocated_setup_s"].sum() == pytest.approx(18.0)
-    assert costs["amortized_online_s"].to_list() == pytest.approx((3, 4, 5, 8, 9, 10))
-
-
 def test_matrix_bundle_costs_charge_setup_once(
     planned_systems: tuple[SystemTag, ...],
     setup_events: tuple[MatrixSetupEvent, ...],
@@ -525,7 +506,7 @@ def test_setup_link_is_validated_before_cost_allocation(
     """Unknown or contradictory setup links must not receive a fabricated allocation."""
     for attempt in invalid_link_attempts:
         with pytest.raises(ValueError):
-            build_system_cost_frame(planned_systems, setup_events, (attempt,))
+            build_matrix_bundle_frame(planned_systems, setup_events, (attempt,))
 
 
 def test_failed_setup_cannot_back_a_solve_attempt(
@@ -535,7 +516,7 @@ def test_failed_setup_cannot_back_a_solve_attempt(
 ) -> None:
     """A failed setup cannot provide valid prepared state for a solve."""
     with pytest.raises(ValueError):
-        build_system_cost_frame(planned_systems, failed_setup_events, solve_attempts)
+        build_matrix_bundle_frame(planned_systems, failed_setup_events, solve_attempts)
 
 
 def test_matrix_bundle_retains_failed_setup_without_attempts(
@@ -553,21 +534,6 @@ def test_matrix_bundle_retains_failed_setup_without_attempts(
     assert row["failure_reason"] == "factorization failed"
     assert row["attempted_rhs_count"] == 0
     assert row["solve_total_s"] == 0.0
-
-
-def test_recipe_groups_share_one_matrix_charge(
-    planned_systems: tuple[SystemTag, ...],
-    setup_events: tuple[MatrixSetupEvent, ...],
-    solve_attempts: tuple[SolveAttempt, ...],
-) -> None:
-    """Recipe grouping after allocation must not reproduce raw matrix setup rows."""
-    recipe_costs = (
-        build_system_cost_frame(planned_systems, setup_events[:1], solve_attempts[:3])
-        .group_by("recipe")
-        .agg(pl.col("allocated_setup_s").sum())
-    )
-
-    assert recipe_costs["allocated_setup_s"].sum() == pytest.approx(6.0)
 
 
 def test_complete_workload_summary_reconciles_raw_events(
@@ -591,8 +557,6 @@ def test_complete_workload_summary_reconciles_raw_events(
     assert summary.setup_total_s == pytest.approx(18.0)
     assert summary.solve_total_s == pytest.approx(21.0)
     assert summary.workload_online_s == pytest.approx(39.0)
-    assert summary.online_s_per_attempted_rhs == pytest.approx(6.5)
-    assert ranking_costs((summary,)) == {method: 39.0}
 
 
 def test_workload_totals_are_derived_from_matrix_bundles(
@@ -653,7 +617,7 @@ def test_workload_totals_use_stable_matrix_bundle_reductions(
     )
 
 
-def test_incomplete_workload_is_visible_and_not_rankable(
+def test_incomplete_workload_is_visible(
     method: PreconditionerName,
     unknown_workload_peak_memory: UnknownPeakMemory,
     planned_systems: tuple[SystemTag, ...],
@@ -672,19 +636,16 @@ def test_incomplete_workload_is_visible_and_not_rankable(
     assert isinstance(summary, IncompleteWorkloadSummary)
     assert (summary.n_planned_rhs, summary.n_attempted_rhs, summary.n_converged) == (6, 4, 3)
     assert summary.missing_system_ids == (SystemId("20-1"), SystemId("20-2"))
-    assert summary.online_s_per_attempted_rhs == pytest.approx(7.0)
-    with pytest.raises(TypeError):
-        ranking_costs((summary,))
 
 
-def test_unattempted_workload_has_no_attempted_rhs_average(
+def test_unattempted_workload_has_zero_solve_total(
     method: PreconditionerName,
     unknown_workload_peak_memory: UnknownPeakMemory,
     planned_systems: tuple[SystemTag, ...],
     setup_events: tuple[MatrixSetupEvent, ...],
     no_attempts: tuple[SolveAttempt, ...],
 ) -> None:
-    """An interrupted workload with no attempts has no per-attempt average."""
+    """An interrupted workload with no attempts has no solve time."""
     summary = summarize_method_workload(
         method,
         planned_systems,
@@ -696,7 +657,6 @@ def test_unattempted_workload_has_no_attempted_rhs_average(
     assert isinstance(summary, IncompleteWorkloadSummary)
     assert isinstance(summary.solve_total_s, float)
     assert summary.solve_total_s == 0.0
-    assert summary.online_s_per_attempted_rhs is None
 
 
 def test_workload_summaries_are_frozen_and_slotted(
