@@ -24,6 +24,10 @@ dependencies = [
     "torch>=2.8.0,<3.0",
     "typer>=0.19.2",
     "polars>=1.44.2",
+    "pandas>=3.0",
+    "pyarrow>=25.0",
+    "matplotlib>=3.11",
+    "numpy>=2.3",
 ]
 
 [project.scripts]
