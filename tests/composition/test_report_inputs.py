@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-import polars as pl
 import pytest
 
 from neuralls.composition.comparison.postprocessing.report_inputs import observation_view
@@ -35,7 +34,7 @@ def stored_methods(
     prepared_cohort: Callable[..., PreparedComparisonPresentation],
     stored_events: dict[PreconditionerName, MethodEvents],
 ) -> tuple[StoredMethod, ...]:
-    """``amg`` and ``jacobi`` as stored: validated provenance plus the three event tables."""
+    """``amg`` and ``jacobi`` as stored: validated provenance plus the event and convergence tables."""
     cohort = prepared_cohort(str(AMG), str(JACOBI))
     return tuple(
         StoredMethod(
@@ -47,7 +46,7 @@ def stored_methods(
             systems=provenance_for(PLANNED),
             setup_events=events.frames().setup_events,
             solve_attempts=events.frames().solve_attempts,
-            convergence=pl.DataFrame(),
+            convergence=events.frames().convergence,
         )
         for method, events in stored_events.items()
     )

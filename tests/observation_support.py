@@ -26,8 +26,10 @@ from neuralls.domain.solver.models.benchmark_events import (
     SolveFailed,
     SolveOutcome,
     SystemTag,
+    UnmeasuredResidual,
 )
 from neuralls.domain.solver.reporting.event_frames import (
+    CONVERGENCE_SCHEMA,
     build_planned_systems_frame,
     build_setup_frame,
     build_solve_frame,
@@ -68,6 +70,39 @@ _UNCONVERGED_RESIDUAL = MeasuredResidual(
 )
 
 
+def residual_history(attempt: SolveAttempt) -> tuple[float, ...]:
+    """The stored relative residuals of an attempt: geometric from 1 to its true residual.
+
+    An attempt with a measured residual and ``k >= 1`` iterations falls by the same factor every
+    iteration, so its convergence factor is ``true_residual_rel ** (1 / k)``; one without either
+    stored no history.
+    """
+    iterations = attempt.outcome.iterations
+    match attempt.residual:
+        case MeasuredResidual(true_residual_rel=final) if iterations >= 1:
+            return tuple(final ** (step / iterations) for step in range(iterations + 1))
+        case MeasuredResidual() | UnmeasuredResidual():
+            return ()
+
+
+def convergence_frame(attempts: Collection[SolveAttempt]) -> pl.DataFrame:
+    """The ``convergence`` frame of ``attempts``, each with its ``residual_history``."""
+    return pl.DataFrame(
+        [
+            {
+                "method": str(attempt.method),
+                "system_id": str(attempt.system_id),
+                "iteration": step,
+                "residual_rel": residual,
+                "energy_error_rel": None,
+            }
+            for attempt in attempts
+            for step, residual in enumerate(residual_history(attempt))
+        ],
+        schema=CONVERGENCE_SCHEMA,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class MethodEvents:
     """The setup events and solve attempts one method produced for ``PLANNED``."""
@@ -82,6 +117,7 @@ class MethodEvents:
             planned_systems=build_planned_systems_frame(provenance_for(PLANNED)),
             setup_events=build_setup_frame(self.setup_events),
             solve_attempts=build_solve_frame(self.solve_attempts),
+            convergence=convergence_frame(self.solve_attempts),
         )
 
 
@@ -308,6 +344,9 @@ def observations_of_events(
                     [event for event in setup_events if event.method == method]
                 ),
                 solve_attempts=build_solve_frame(
+                    [attempt for attempt in solve_attempts if attempt.method == method]
+                ),
+                convergence=convergence_frame(
                     [attempt for attempt in solve_attempts if attempt.method == method]
                 ),
             )

@@ -26,6 +26,7 @@ class MetricId(StrEnum):
     STANDALONE_S = "standalone_s"
     SETUP_S = "setup_s"
     TIME_PER_ITERATION_S = "time_per_iteration_s"
+    CONVERGENCE_FACTOR = "convergence_factor"
 
 
 class Unit(StrEnum):
@@ -34,6 +35,7 @@ class Unit(StrEnum):
     ITERATIONS = "iterations"
     SECONDS = "s"
     SECONDS_PER_ITERATION = "s/iteration"
+    REDUCTION_PER_ITERATION = "reduction/iteration"
 
 
 class ObservationUnit(StrEnum):
@@ -120,6 +122,18 @@ _SPECS = (
         observation_unit=ObservationUnit.SYSTEM,
         defined_on=_RETURNED_AN_ITERATE,
         formula=r"\theta_{p,s} = \frac{t^{\mathrm{solve}}_{p,s}}{k_{p,s}}",
+    ),
+    MetricSpec(
+        id=MetricId.CONVERGENCE_FACTOR,
+        column="convergence_factor",
+        unit=Unit.REDUCTION_PER_ITERATION,
+        label="residual reduction factor per iteration",
+        observation_unit=ObservationUnit.SYSTEM,
+        defined_on=_CONVERGED_ONLY,
+        formula=(
+            r"\gamma_{p,s} = \left(\frac{\hat{r}_{p,s,J}}{\hat{r}_{p,s,0}}\right)^{1/J_{p,s}},"
+            r"\quad s \in \mathcal{C}_p"
+        ),
     ),
 )
 

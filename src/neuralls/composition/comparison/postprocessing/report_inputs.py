@@ -98,6 +98,7 @@ def observation_view(methods: Sequence[StoredMethod]) -> pl.DataFrame:
                 planned_systems=build_planned_systems_frame(method.systems),
                 setup_events=method.setup_events,
                 solve_attempts=method.solve_attempts,
+                convergence=method.convergence,
             )
             for method in methods
         }
