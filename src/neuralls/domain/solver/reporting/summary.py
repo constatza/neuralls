@@ -69,6 +69,12 @@ TIMING_NOISE_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "n_systems": pl.Int64,
 }
 
+OUTCOME_COUNTS_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
+    "method": pl.String,
+    **{outcome.value: pl.Int64 for outcome in Outcome},
+}
+"""One row per method, with the number of its planned systems in each ``Outcome``."""
+
 _QUANTILE_LEVELS = {"q05": 0.05, "q25": 0.25, "q50": 0.5, "q75": 0.75, "q95": 0.95}
 _MATRIX_KEYS = ["dataset", "matrix_id"]
 _NO_STATISTICS: dict[str, float | None] = dict.fromkeys(
@@ -245,6 +251,17 @@ def residual_consistency(obs: pl.DataFrame) -> pl.DataFrame:
         _per_method(obs, per_method, ["n_checked", "n_above_threshold"])
         .select(list(RESIDUAL_CONSISTENCY_SCHEMA))
         .cast(pl.Schema(RESIDUAL_CONSISTENCY_SCHEMA))
+    )
+
+
+def outcome_counts(obs: pl.DataFrame) -> pl.DataFrame:
+    """Per method, how many of its planned systems ended in each outcome, with the schema above."""
+    return (
+        obs.group_by("method")
+        .agg((pl.col("outcome") == outcome.value).sum().alias(outcome.value) for outcome in Outcome)
+        .sort("method")
+        .select(list(OUTCOME_COUNTS_SCHEMA))
+        .cast(pl.Schema(OUTCOME_COUNTS_SCHEMA))
     )
 
 

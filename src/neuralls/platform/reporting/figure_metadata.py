@@ -20,6 +20,12 @@ from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.domain.solver.reporting.summary import SUMMARY_SCHEMA, Population
 from neuralls.platform.reporting.benchmark_events import METHOD_ARTIFACT_DIR
+from neuralls.platform.reporting.figure_evidence import (
+    FigureInterval,
+    FigureTimingEvidence,
+    MethodOutcomeCounts,
+    SetupSharing,
+)
 from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.scientific_description.policy import RenderProfile
 from neuralls.shared.types import DatasetId, PreconditionerName, RunId
@@ -207,7 +213,9 @@ class GroupFigureMetadata(_FigureContext):
 
     ``metric`` is the per-system quantity the figure summarizes, ``population`` the systems it
     is taken over and ``statistic`` what is drawn of it. ``failure_treatment`` says what the
-    figure does with failed systems.
+    figure does with failed systems. The remaining fields record the evidence under the numbers:
+    the ``interval`` drawn, the right-hand-side counts the metric divides setup over, how many
+    systems each method has in each outcome, and how reliable the times are.
     """
 
     metric: MetricId
@@ -215,6 +223,10 @@ class GroupFigureMetadata(_FigureContext):
     statistic: Statistic
     failure_treatment: FailureTreatment
     aggregation_rule: GroupAggregationRule
+    interval: FigureInterval
+    setup_sharing: SetupSharing
+    outcome_counts: tuple[MethodOutcomeCounts, ...]
+    timing: FigureTimingEvidence
 
     def __post_init__(self) -> None:
         """Require a kind drawn from a group outcome."""

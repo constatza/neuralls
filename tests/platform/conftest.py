@@ -44,7 +44,7 @@ from neuralls.domain.solver.models.labels import (
 from neuralls.domain.solver.models.workload import MethodWorkloadSummary
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.domain.solver.reporting.metrics import MetricId
-from neuralls.domain.solver.reporting.observations import observations_of_methods
+from neuralls.domain.solver.reporting.observations import Outcome, observations_of_methods
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.domain.solver.reporting.summary import Population
 from neuralls.platform.config.models.preconditioner import (
@@ -52,6 +52,13 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
 )
 from neuralls.platform.reporting.benchmark_events import write_method_benchmark_artifacts
+from neuralls.platform.reporting.figure_evidence import (
+    MethodOutcomeCounts,
+    NoInterval,
+    SetupSharedOverRhs,
+    TimingEvidence,
+    TimingRepeats,
+)
 from neuralls.platform.reporting.figure_metadata import (
     FailureTreatment,
     FigureKind,
@@ -196,6 +203,15 @@ def metadata_of(
             aggregation_rule=GroupAggregationRule.PER_PLANNED_SYSTEM,
             recipe_weights=(1.0,),
             solver_contexts=(CONTEXT,),
+            interval=NoInterval(),
+            setup_sharing=SetupSharedOverRhs((4,)),
+            outcome_counts=(
+                MethodOutcomeCounts(
+                    PreconditionerName("jacobi"),
+                    {outcome: 4 if outcome is Outcome.CONVERGED else 0 for outcome in Outcome},
+                ),
+            ),
+            timing=TimingEvidence((), TimingRepeats.REPEATED),
         )
 
     return build

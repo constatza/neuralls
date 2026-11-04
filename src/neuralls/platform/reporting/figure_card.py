@@ -21,11 +21,27 @@ from neuralls.domain.benchmarking.selection import (
     ReferenceSelection,
     ReferenceUnavailable,
 )
+from neuralls.domain.benchmarking.uncertainty import MatrixClusterBootstrap
 from neuralls.domain.solver.models.figure_scope import render_figure_scope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.reporting.metrics import MetricId
+from neuralls.domain.solver.reporting.observations import Outcome
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.domain.solver.reporting.summary import Population
+from neuralls.platform.reporting.figure_evidence import (
+    SINGLE_REPEAT_WARNING,
+    FigureInterval,
+    FigureTimingEvidence,
+    MethodOutcomeCounts,
+    MethodTimingSpread,
+    NoInterval,
+    NoSharedSetup,
+    NoTimingEvidence,
+    SetupSharedOverRhs,
+    SetupSharing,
+    TimingEvidence,
+    TimingRepeats,
+)
 from neuralls.platform.reporting.figure_metadata import (
     CARD_PROFILE,
     GROUP_FIGURE_KINDS,
@@ -177,6 +193,103 @@ def _decode_reference(payload: Mapping[str, Any]) -> ReferenceSelection:
             )
 
 
+def _encode_interval(interval: FigureInterval) -> dict[str, Any]:
+    match interval:
+        case NoInterval():
+            return {}
+        case MatrixClusterBootstrap(matrices=matrices, level=level, resamples=resamples):
+            return {
+                "interval": {
+                    "method": MatrixClusterBootstrap.NAME,
+                    "level": level,
+                    "resamples": resamples,
+                    "matrices": matrices,
+                }
+            }
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _decode_interval(payload: Mapping[str, Any]) -> FigureInterval:
+    if "interval" not in payload:
+        return NoInterval()
+    interval = _require(
+        payload["interval"], frozenset({"method", "level", "resamples", "matrices"}), "interval"
+    )
+    if interval["method"] != MatrixClusterBootstrap.NAME:
+        raise InvalidFigureCardError(
+            f"figure card interval method is unknown: {interval['method']}"
+        )
+    return MatrixClusterBootstrap(
+        matrices=int(interval["matrices"]),
+        level=float(interval["level"]),
+        resamples=int(interval["resamples"]),
+    )
+
+
+def _encode_setup_sharing(sharing: SetupSharing) -> dict[str, Any]:
+    match sharing:
+        case NoSharedSetup():
+            return {}
+        case SetupSharedOverRhs(rhs_counts=rhs_counts):
+            return {"r_m": list(rhs_counts)}
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _decode_setup_sharing(payload: Mapping[str, Any]) -> SetupSharing:
+    if "r_m" not in payload:
+        return NoSharedSetup()
+    return SetupSharedOverRhs(tuple(int(count) for count in payload["r_m"]))
+
+
+def _encode_timing(timing: FigureTimingEvidence) -> dict[str, Any]:
+    match timing:
+        case NoTimingEvidence():
+            return {}
+        case TimingEvidence(spreads=spreads, repeats=repeats):
+            table = {str(spread.method): spread.median_spread for spread in spreads}
+            match repeats:
+                case TimingRepeats.REPEATED:
+                    return {"timing_spread": table}
+                case TimingRepeats.SINGLE:
+                    return {"timing_spread": table, "timing_warning": SINGLE_REPEAT_WARNING}
+                case unreachable:
+                    assert_never(unreachable)
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _decode_timing(payload: Mapping[str, Any]) -> FigureTimingEvidence:
+    if "timing_spread" not in payload:
+        if "timing_warning" in payload:
+            raise InvalidFigureCardError("figure card has a timing warning without timing spreads")
+        return NoTimingEvidence()
+    spreads = tuple(
+        MethodTimingSpread(PreconditionerName(method), float(spread))
+        for method, spread in payload["timing_spread"].items()
+    )
+    repeats = TimingRepeats.SINGLE if "timing_warning" in payload else TimingRepeats.REPEATED
+    return TimingEvidence(spreads, repeats)
+
+
+def _group_payload(metadata: GroupFigureMetadata) -> dict[str, Any]:
+    """The fields only a group figure records: what it summarizes and the evidence under it."""
+    return {
+        "failure_treatment": metadata.failure_treatment.value,
+        "metric": metadata.metric.value,
+        "population": metadata.population.value,
+        "statistic": metadata.statistic.value,
+        "outcome_counts": {
+            str(counts.method): {outcome.value: n for outcome, n in counts.counts.items()}
+            for counts in metadata.outcome_counts
+        },
+        **_encode_interval(metadata.interval),
+        **_encode_setup_sharing(metadata.setup_sharing),
+        **_encode_timing(metadata.timing),
+    }
+
+
 def card_payload(card: FigureCard) -> dict[str, Any]:
     """The card as TOML-ready data: structure, typed values and the rendered scope text."""
     metadata = card.metadata
@@ -216,16 +329,8 @@ def card_payload(card: FigureCard) -> dict[str, Any]:
         },
     }
     match metadata:
-        case GroupFigureMetadata(
-            metric=metric,
-            population=population,
-            statistic=statistic,
-            failure_treatment=failure_treatment,
-        ):
-            payload["failure_treatment"] = failure_treatment.value
-            payload["metric"] = metric.value
-            payload["population"] = population.value
-            payload["statistic"] = statistic.value
+        case GroupFigureMetadata():
+            payload.update(_group_payload(metadata))
         case MethodFigureMetadata():
             pass
         case unreachable:
@@ -272,11 +377,21 @@ def validate_figure_card(payload: Mapping[str, Any]) -> None:
 def _decode_group_metadata(kind: FigureKind, payload: Mapping[str, Any]) -> GroupFigureMetadata:
     _require(
         payload,
-        frozenset({"failure_treatment", "metric", "population", "statistic"}),
+        frozenset({"failure_treatment", "metric", "population", "statistic", "outcome_counts"}),
         "group document",
     )
     return GroupFigureMetadata(
         **_common_fields(kind, payload),
+        interval=_decode_interval(payload),
+        setup_sharing=_decode_setup_sharing(payload),
+        outcome_counts=tuple(
+            MethodOutcomeCounts(
+                PreconditionerName(method),
+                {Outcome(outcome): int(n) for outcome, n in counts.items()},
+            )
+            for method, counts in payload["outcome_counts"].items()
+        ),
+        timing=_decode_timing(payload),
         metric=MetricId(payload["metric"]),
         population=Population(payload["population"]),
         statistic=Statistic(payload["statistic"]),

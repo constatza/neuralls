@@ -9,10 +9,12 @@ import pytest
 from neuralls.domain.benchmarking.uncertainty import ClusterStatistic, matrix_cluster_interval
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import (
+    OUTCOME_COUNTS_SCHEMA,
     RESIDUAL_CONSISTENCY_SCHEMA,
     SUMMARY_SCHEMA,
     TIMING_NOISE_SCHEMA,
     Population,
+    outcome_counts,
     residual_consistency,
     select,
     summarize,
@@ -296,6 +298,40 @@ def test_residual_consistency_reports_a_method_with_nothing_to_check(
     )
 
     assert broken == {"method": BROKEN, "n_checked": 0, "n_above_threshold": 0, "worst_ratio": None}
+
+
+def test_outcome_counts_tally_every_planned_system_of_each_method_by_outcome(
+    unbalanced_observations: pl.DataFrame,
+) -> None:
+    result = outcome_counts(unbalanced_observations)
+
+    assert dict(result.schema) == OUTCOME_COUNTS_SCHEMA
+    assert result.rows(named=True) == [
+        {
+            "method": AMG,
+            "converged": 4,
+            "unconverged": 1,
+            "solver_error": 1,
+            "setup_failed": 2,
+            "not_attempted": 1,
+        },
+        {
+            "method": BROKEN,
+            "converged": 0,
+            "unconverged": 0,
+            "solver_error": 0,
+            "setup_failed": 8,
+            "not_attempted": 1,
+        },
+        {
+            "method": JACOBI,
+            "converged": 9,
+            "unconverged": 0,
+            "solver_error": 0,
+            "setup_failed": 0,
+            "not_attempted": 0,
+        },
+    ]
 
 
 def test_timing_noise_is_the_median_spread_over_systems_with_a_solve_row(

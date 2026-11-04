@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from enum import StrEnum
-from typing import assert_never
+from typing import ClassVar, assert_never
 
 import numpy as np
 
@@ -23,6 +24,22 @@ class ClusterStatistic(StrEnum):
     MEAN_OVER_SYSTEMS = "mean_over_systems"
     MEAN_OVER_MATRICES = "mean_over_matrices"
     MEDIAN = "median"
+
+
+@dataclass(frozen=True, slots=True)
+class MatrixClusterBootstrap:
+    """The bootstrap ``matrix_cluster_interval`` runs, as a figure that draws its interval records it.
+
+    ``level`` and ``resamples`` default to the constants the interval is computed with, so a
+    freshly built record states the bootstrap actually used. ``matrices`` is the number of whole
+    matrices resampled, the cluster count the interval rests on.
+    """
+
+    NAME: ClassVar[str] = "matrix_cluster_bootstrap"
+
+    matrices: int
+    level: float = CONFIDENCE_LEVEL
+    resamples: int = BOOTSTRAP_RESAMPLES
 
 
 def matrix_cluster_interval(

@@ -2,17 +2,15 @@
 
 A card is built the way the report sink builds it: the figure plan of a group report goes
 through ``build_figure_card`` and ``card_payload``. ``metric``, ``population`` and ``statistic`` name
-what is summarized. Tests marked ``xfail`` pin the card fields that are not recorded yet, reading
-every field of the payload by key so they run before the fields exist:
+what is summarized. The payload is read by key:
 
 - ``interval`` is a table with ``method``, ``level``, ``resamples`` and ``matrices``, present only
   on a figure that draws one;
 - ``r_m`` lists the distinct planned RHS counts per matrix, present only on online metrics;
 - ``outcome_counts`` holds, per method, the number of systems with each outcome;
 - ``timing_spread`` holds, per method, the median relative spread of its timing repeats, and
-  ``timing_warning`` is present only when a figure rests on a single timing repeat.
-
-Strict ``xfail`` fails loudly once one starts to pass, which is the cue to drop its marker.
+  ``timing_warning`` is present only when a figure rests on a single timing repeat; both exist
+  only on a figure of a metric measured in seconds, since iteration counts do not depend on timing.
 """
 
 from __future__ import annotations
@@ -74,10 +72,11 @@ _NOT_ONLINE_STEMS = sorted(
 )
 _NO_INTERVAL_STEMS = sorted(set(_BY_STEM) - {"speed_ratio_cdf"})
 
-_CARD_FIELD_MISSING = pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="figure cards do not record this field yet",
+_TIME_STEMS = sorted(
+    variant.stem for variant in _PROFILE_VARIANTS if variant.metric is not MetricId.ITERATIONS
+)
+_ITERATION_STEMS = sorted(
+    variant.stem for variant in _PROFILE_VARIANTS if variant.metric is MetricId.ITERATIONS
 )
 
 
@@ -188,7 +187,6 @@ def test_a_card_names_the_statistic_it_draws(payloads: dict[str, Payload], stem:
     assert isinstance(payloads[stem].get("statistic"), str)
 
 
-@_CARD_FIELD_MISSING
 def test_the_speed_ratio_card_states_its_interval(
     profile_report: RecipeProfileReport, payloads: dict[str, Payload]
 ) -> None:
@@ -213,7 +211,6 @@ def test_the_speed_ratio_card_states_its_interval(
     }
 
 
-@_CARD_FIELD_MISSING
 @pytest.mark.parametrize("stem", _ONLINE_STEMS)
 def test_an_online_card_lists_the_planned_rhs_counts_per_matrix(
     profile_report: RecipeProfileReport, payloads: dict[str, Payload], stem: str
@@ -226,7 +223,6 @@ def test_an_online_card_lists_the_planned_rhs_counts_per_matrix(
     assert _leaf_types(r_m) == {int}
 
 
-@_CARD_FIELD_MISSING
 @pytest.mark.parametrize("stem", sorted(_BY_STEM))
 def test_a_card_counts_the_systems_of_each_method_by_outcome(
     profile_report: RecipeProfileReport, payloads: dict[str, Payload], stem: str
@@ -248,8 +244,7 @@ def test_a_card_counts_the_systems_of_each_method_by_outcome(
     assert _leaf_types(counts) == {int}
 
 
-@_CARD_FIELD_MISSING
-@pytest.mark.parametrize("stem", sorted(_BY_STEM))
+@pytest.mark.parametrize("stem", _TIME_STEMS)
 def test_a_card_records_the_median_timing_spread_of_each_method_with_timed_solves(
     profile_report: RecipeProfileReport, payloads: dict[str, Payload], stem: str
 ) -> None:
@@ -265,8 +260,35 @@ def test_a_card_records_the_median_timing_spread_of_each_method_with_timed_solve
     assert _leaf_types(spread) == {float}
 
 
-@_CARD_FIELD_MISSING
-@pytest.mark.parametrize("stem", sorted(_BY_STEM))
+@pytest.mark.parametrize("stem", _ITERATION_STEMS)
+def test_a_card_of_a_metric_that_is_not_a_time_records_no_timing_evidence(
+    single_repeat_payloads: dict[str, Payload], stem: str
+) -> None:
+    payload = single_repeat_payloads[stem]
+
+    assert ("timing_spread" in payload, "timing_warning" in payload) == (False, False)
+
+
+@pytest.mark.parametrize("stem", _BY_STEM)
+def test_a_card_decodes_to_the_metadata_it_was_built_from(
+    profile_report: RecipeProfileReport,
+    single_timing_presentation: GroupPresentation,
+    notation: NotationPolicy,
+    stem: str,
+) -> None:
+    plans = {
+        plan.filename: plan
+        for plan in figure_plans(profile_report, single_timing_presentation, FILE_KEY, {})
+    }
+    plan = plans[_BY_STEM[stem].filename(FILE_KEY)]
+    card = build_figure_card(
+        plan.filename, plan.title, plan.metadata, session_run_id=SESSION_RUN_ID, notation=notation
+    )
+
+    assert decode_figure_card(card_payload(card)) == card
+
+
+@pytest.mark.parametrize("stem", _TIME_STEMS)
 def test_a_card_resting_on_a_single_timing_repeat_carries_a_warning(
     single_repeat_payloads: dict[str, Payload], stem: str
 ) -> None:

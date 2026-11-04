@@ -29,6 +29,14 @@ from neuralls.domain.solver.reporting.summary import Population, summarize
 from neuralls.platform.reporting.benchmark_events import (
     MethodBenchmarkArtifacts,
 )
+from neuralls.platform.reporting.figure_evidence import (
+    FigureInterval,
+    NoInterval,
+    bootstrap_of_speed_ratios,
+    outcome_counts_of,
+    setup_sharing_of,
+    timing_evidence_of,
+)
 from neuralls.platform.reporting.figure_metadata import (
     FailureTreatment,
     FigureKind,
@@ -496,4 +504,32 @@ def _figure_metadata(
         solver_contexts=presentation.solver_contexts,
         methods=methods,
         sources=sources,
+        interval=_interval(variant, outcome),
+        setup_sharing=setup_sharing_of(variant.metric, outcome.observations),
+        outcome_counts=outcome_counts_of(outcome.observations),
+        timing=timing_evidence_of(
+            variant.metric, outcome.observations, presentation.solver_contexts
+        ),
     )
+
+
+def _interval(variant: FigureVariant, outcome: GroupReport) -> FigureInterval:
+    """The interval a variant draws; a figure that compares to a missing reference is not drawn."""
+    observations = outcome.observations
+    match variant.statistic:
+        case Statistic.SPEED_RATIO_CDF:
+            match reference_among_methods(observations, outcome.reference_selection):
+                case None:
+                    return NoInterval()
+                case reference:
+                    return bootstrap_of_speed_ratios(observations, reference, variant.metric)
+        case (
+            Statistic.CONVERGED_COUNT
+            | Statistic.WORKLOAD_TOTAL
+            | Statistic.ECDF
+            | Statistic.PERFORMANCE_PROFILE
+            | Statistic.PAIRED_VALUES
+        ):
+            return NoInterval()
+        case unreachable:
+            assert_never(unreachable)
