@@ -257,7 +257,7 @@ distribution and stopping rule.
 - paired reference/method systems (`paired_systems`), their per-system ratios (`speed_ratios`),
   the speed-ratio summary using only positive-value both-solved systems while retaining all
   both-solved, reference-only, and method-only counts (`speed_ratio_summary`), and `break_even`
-  (`paired.py`);
+  (`paired.py`), with its cumulative-cost curves (`break_even_curves`, `cost_curves.py`);
 - `reference_among_methods`, which turns the configured `ReferenceSelection` into the reference
   name a group can be compared to;
 - percentile intervals that resample whole `(dataset, matrix_id)` clusters with
@@ -329,6 +329,17 @@ defined only when the denominator is positive; otherwise `break_even_rhs` is nul
 not faster per RHS and never breaks even). With a positive denominator and a setup no dearer than
 the reference's, `break_even_rhs` is 0.0: the method never costs more. A pair with no common unit
 has null means and a null `break_even_rhs`.
+
+`cost_curves.py::break_even_curves(obs, reference)` samples the two lines whose crossing is $n^*$,
+so a break-even figure draws exactly what its table stores. It has `COST_CURVE_SCHEMA` (`method,
+side, n_rhs, cost_s, break_even, break_even_rhs, break_even_cost_s`): one row per compared method,
+`side` (`CostSide`: `method` or `reference`) and $n = 1..N$, with $C(n)$ in `cost_s` from that
+pair's `break_even` means. $N$ is the largest planned RHS count of a matrix (`planned_rhs`),
+extended to $\lceil n^* \rceil$ of the furthest break-even count but not beyond
+`BREAK_EVEN_HORIZON_LIMIT` (1000), since a near-zero per-RHS saving puts $n^*$ arbitrarily far
+out. `break_even` holds a `BreakEvenState` repeated on every row of a method: `breaks_even`
+(`break_even_rhs` is $n^*$ and `break_even_cost_s` $C_p(n^*)$), `never` (not faster per RHS; both
+null) or `no_common_systems` (a mean is null, so `cost_s` is null too).
 
 ## Diagnostic solver results
 

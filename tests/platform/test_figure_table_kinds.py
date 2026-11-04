@@ -9,6 +9,7 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 
+from neuralls.domain.benchmarking.cost_curves import COST_CURVE_SCHEMA, break_even_curves
 from neuralls.domain.benchmarking.paired import (
     PAIRED_SCHEMA,
     REFERENCE_METRIC,
@@ -50,6 +51,7 @@ def table_frames(profile_report: RecipeProfileReport) -> dict[str, pl.DataFrame]
         "PAIRED": paired_systems(observations, JACOBI, REFERENCE_METRIC),
         "SPEED_RATIO": speed_ratio_summary(observations, JACOBI, REFERENCE_METRIC),
         "WORKLOAD_TOTALS": build_group_table(profile_report.summaries),
+        "COST_CURVES": break_even_curves(observations, JACOBI),
     }
 
 
@@ -67,6 +69,7 @@ def test_each_table_kind_has_the_schema_of_the_frame_it_stores() -> None:
     assert schemas[kind.PAIRED] == PAIRED_SCHEMA
     assert schemas[kind.SPEED_RATIO] == SPEED_RATIO_SCHEMA
     assert schemas[kind.WORKLOAD_TOTALS] == dict(build_group_table(()).schema)
+    assert schemas[kind.COST_CURVES] == COST_CURVE_SCHEMA
 
 
 @pytest.mark.parametrize("name", TABLE_KINDS)

@@ -8,6 +8,7 @@ from typing import assert_never
 
 import polars as pl
 
+from neuralls.domain.benchmarking.cost_curves import break_even_curves
 from neuralls.domain.benchmarking.paired import (
     REFERENCE_METRIC,
     paired_systems,
@@ -56,6 +57,7 @@ from neuralls.platform.reporting.figure_metadata import (
 from neuralls.platform.reporting.figure_table import build_group_table
 from neuralls.platform.reporting.group_drawers import (
     AGGREGATE_BARS_DRAWER,
+    BREAK_EVEN_DRAWER,
     ECDF_ITERATIONS_DRAWER,
     ECDF_TIME_DRAWER,
     ONLINE_TIME_BARS_DRAWER,
@@ -322,6 +324,24 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ECDF_TIME_DRAWER,
             TableKind.SERIES,
         ),
+        GroupFigureRecipe(
+            FigureKind.BREAKEVEN,
+            (
+                FigureVariant(
+                    "breakeven",
+                    "Break-even",
+                    "mean setup + n x mean solve seconds per RHS on one matrix, means over the "
+                    "matrices and systems common to the method and the reference",
+                    MetricId.STANDALONE_S,
+                    Population.COMMON,
+                    Statistic.CUMULATIVE_COST,
+                ),
+            ),
+            FailureTreatment.OMITTED,
+            _PROFILE,
+            BREAK_EVEN_DRAWER,
+            TableKind.COST_CURVES,
+        ),
         HistoryFigureRecipe(
             FigureKind.RESIDUAL_HISTORY,
             HistoryVariant(
@@ -445,6 +465,8 @@ def _summary(
                 if reference is None
                 else speed_ratio_summary(observations, reference, variant.metric)
             )
+        case Statistic.CUMULATIVE_COST:
+            return None if reference is None else break_even_curves(observations, reference)
         case unreachable:
             assert_never(unreachable)
 
@@ -529,6 +551,7 @@ def _interval(variant: FigureVariant, outcome: GroupReport) -> FigureInterval:
             | Statistic.ECDF
             | Statistic.PERFORMANCE_PROFILE
             | Statistic.PAIRED_VALUES
+            | Statistic.CUMULATIVE_COST
         ):
             return NoInterval()
         case unreachable:

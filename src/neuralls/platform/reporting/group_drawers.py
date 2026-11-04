@@ -33,6 +33,7 @@ from neuralls.platform.reporting.outcome_plots import (
     plot_speed_ratio_cdf,
     plot_workload_bars,
 )
+from neuralls.platform.reporting.seaborn_cost_curves import plot_break_even_curves
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +134,16 @@ def _speed_ratio(data: FigureData, path: Path) -> Path | None:
             )
 
 
+def _break_even(data: FigureData, path: Path) -> Path | None:
+    match reference_among_methods(data.observations, data.reference):
+        case None:
+            return None
+        case reference:
+            return plot_break_even_curves(
+                data.summary, reference_name=reference, style=data.style, save_path=path
+            )
+
+
 AGGREGATE_BARS_DRAWER: GroupDrawer = _aggregate_bars
 SOLVE_TIME_BARS_DRAWER: GroupDrawer = _time_bars("solve_total_s", "Solve time [s]")
 ONLINE_TIME_BARS_DRAWER: GroupDrawer = _time_bars(
@@ -143,3 +154,4 @@ SPEED_RATIO_DRAWER: GroupDrawer = _speed_ratio
 PERFORMANCE_PROFILE_DRAWER: GroupDrawer = _performance_profile
 ECDF_ITERATIONS_DRAWER: GroupDrawer = _ecdf(_ITERATIONS_XLABEL)
 ECDF_TIME_DRAWER: GroupDrawer = _ecdf(_TIME_XLABELS)
+BREAK_EVEN_DRAWER: GroupDrawer = _break_even

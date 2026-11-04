@@ -10,6 +10,7 @@ from pathlib import Path
 
 import polars as pl
 
+from neuralls.domain.benchmarking.cost_curves import COST_CURVE_SCHEMA
 from neuralls.domain.benchmarking.paired import PAIRED_SCHEMA, SPEED_RATIO_SCHEMA
 from neuralls.domain.benchmarking.profiles import PROFILE_SERIES_SCHEMA
 from neuralls.domain.benchmarking.selection import ReferenceSelection
@@ -43,6 +44,7 @@ class FigureKind(StrEnum):
     ECDF_ITERATIONS = "ecdf_iterations"
     ECDF_TIME = "ecdf_time"
     SPEED_RATIO = "speed_ratio"
+    BREAKEVEN = "breakeven"
     RESIDUAL_HISTORY = "residual_history"
     ENERGY_HISTORY = "energy_history"
 
@@ -62,7 +64,8 @@ class TableKind(StrEnum):
 
     ``PAIRED`` holds the per-system pairs of a scatter, ``SUMMARY`` one row of statistics per
     method, ``SERIES`` the points of a step curve, ``SPEED_RATIO`` one row of ratio statistics per
-    compared method and ``WORKLOAD_TOTALS`` one row of workload sums per method.
+    compared method, ``WORKLOAD_TOTALS`` one row of workload sums per method and ``COST_CURVES``
+    the cumulative cost of each side of a method/reference pair by RHS count.
     """
 
     SUMMARY = "summary"
@@ -70,6 +73,7 @@ class TableKind(StrEnum):
     PAIRED = "paired"
     SPEED_RATIO = "speed_ratio"
     WORKLOAD_TOTALS = "workload_totals"
+    COST_CURVES = "cost_curves"
 
 
 type TableSchema = Mapping[str, pl.DataType | type[pl.DataType]]
@@ -91,6 +95,7 @@ TABLE_SCHEMAS: Mapping[TableKind, TableSchema] = {
     TableKind.PAIRED: PAIRED_SCHEMA,
     TableKind.SPEED_RATIO: SPEED_RATIO_SCHEMA,
     TableKind.WORKLOAD_TOTALS: WORKLOAD_TOTALS_SCHEMA,
+    TableKind.COST_CURVES: COST_CURVE_SCHEMA,
 }
 """The columns and dtypes, in order, of the table each kind stores; the frames come from the
 domain statistics, so a schema change there reaches the stored tables through this mapping."""
@@ -121,6 +126,7 @@ class Statistic(StrEnum):
     PERFORMANCE_PROFILE = "performance_profile"
     PAIRED_VALUES = "paired_values"
     SPEED_RATIO_CDF = "speed_ratio_cdf"
+    CUMULATIVE_COST = "cumulative_cost"
 
 
 class FailureTreatment(StrEnum):
