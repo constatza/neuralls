@@ -66,6 +66,13 @@ complete matrix membership; matrix-set and all-matrix-sets summaries retain the 
 once. Workload totals use `math.fsum` over representative event values;
 warmups and individual repeat samples are never added to totals.
 
+Two quantities divide a matrix's setup over its planned RHS and are named apart. `online_s` of the
+observation view uses the matrix's whole planned RHS count $r_m$, whichever report group the system
+is in. `allocated_setup_s`, the setup field of `CompleteWorkloadSummary` and
+`IncompleteWorkloadSummary` and the matching column of the workload-totals table, allocates setup
+to one report group by that group's share of the matrix's RHS, so the groups of a matrix add up to
+one setup. Neither is a measurement; both are shares of one measured setup.
+
 `reporting/classification.py` consumes planned tags, setup events, solve
 attempts, and a report level. A `ConvergenceSummary` keeps planned, attempted,
 and converged counts distinct and reports iteration statistics over converged
@@ -159,7 +166,12 @@ always count systems, whichever the metric's unit. A method with no defined unit
 `mean_over_matrices_ci_*` are the 95% matrix-cluster bootstrap interval, null below two matrices.
 `residual_consistency(obs)` counts, per method, converged systems whose true residual exceeds
 `RESIDUAL_MISMATCH_FACTOR` times the stopping level and reports the worst ratio; classification
-is never changed by it. `timing_noise(obs)` gives the median `timing_spread` per method.
+is never changed by it. `timing_noise(obs)` gives the median `timing_spread` per method and
+`outcome_counts(obs)` the number of planned systems per method in each `Outcome`
+(`OUTCOME_COUNTS_SCHEMA`); figure cards record both. `benchmarking/uncertainty.py::MatrixClusterBootstrap`
+(`matrices`, `level`, `resamples`, the last two defaulting to `CONFIDENCE_LEVEL` and
+`BOOTSTRAP_RESAMPLES`, the values `matrix_cluster_interval` resamples with) is what a card states
+about an interval it draws.
 
 Reproduce a table from the stored parquets of a session:
 

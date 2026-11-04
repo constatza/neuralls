@@ -36,7 +36,7 @@ Comparison figures are planned with typed metadata before drawing. Titles stay
 short (for example `Online Time`, `Performance Profile`, and `Speed Ratio`),
 while each figure's card (`<stem>.toml`, uploaded beside the PNG into the run of the figure's
 scope) carries report scope, counts, actual dataset/recipe membership and weights, solver
-tolerances, iteration and normalization settings, repeat policy, reference/failure semantics,
+tolerances, iteration and normalization settings, repeat policy, reference/failure semantics, the metric, population and statistic drawn, the evidence under the numbers (the bootstrap interval where one is drawn, the RHS counts that share a matrix's setup on online metrics, per-method outcome counts, and timing spread with a warning when each solve was timed once),
 the methods drawn and the stored method runs and artifacts the figure came from; group figures also get a same-stem `.parquet` of the frame the figure draws, of the kind its recipe names (a per-method summary, a curve's points, per-system pairs, speed-ratio statistics or workload totals). Method-child
 residual and energy figures use unique method-qualified names; system figures keep short stems
 because a stem only needs to be unique within one run directory. One `MLflowReportSink`
@@ -45,7 +45,7 @@ uploaded figure has its card; reports with no figures still receive an empty ind
 
 `compare` is compute-only: it times solves and persists each method's raw tables
 (`platform/reporting/benchmark_events.py::MethodBenchmarkArtifacts`) under the
-`Comparisons` experiment. `neuralls report` (`assignments/comparison_report.py::run_comparison_report`, returning `ReportReused | ReportCreated`; the notation digest is a `canonical_digest` prefix, and the schema version tag keeps reports of an older digest from being reused)
+`Comparisons` experiment. `neuralls report` (`assignments/comparison_report.py::run_comparison_report`, returning `ReportReused | ReportCreated`; the notation digest is a `canonical_digest` prefix, and the schema version tag, `REPORT_SCHEMA_VERSION`, changes with the card keys, table schemas and metric keys a report writes, so a report written by older code is not reused)
 reads the newest finished session of the case config back through
 `platform/reporting/stored_benchmark.py::read_stored_benchmark`, rebuilds typed events
 (`comparison/postprocessing/report_inputs.py`), draws every figure and logs every metric
@@ -57,7 +57,7 @@ that set, and each of those contains one run per system with its per-method metr
 its residual and energy figures (each with its card). Every run's metrics are keyed `{metric}/{method}`; the
 root also holds the method figures and the figure index. `ReportSink.report_system(scope, metrics, figures)`
 takes the system's `StagedFigure`s (a `FigurePlan` plus the drawn file) so system figures carry the same cards. Postprocessing writes only
-through the `ReportSink` Protocol (`postprocessing/ports.py`); `MLflowReportSink` maps a
+through the `ReportSink` Protocol (`postprocessing/ports.py`: `register_method_figures`, `report`, `report_system`, `finalize`); `MLflowReportSink` maps a
 scope to its run through `ScopeRunTree`, creating a scope's ancestors first, and writes nothing after `finalize()`. Re-running without `--force` reuses
 a finished report with the same tags and a valid `figure_index.toml`; a report failure never touches the compute session.
 `run` chains `report` after `compare`.
