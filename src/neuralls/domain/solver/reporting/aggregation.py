@@ -104,7 +104,7 @@ def summarize_method_workload(
     )
     attempted_ids = {attempt.system_id for attempt in method_attempts}
     missing_ids = tuple(tag.system_id for tag in planned if tag.system_id not in attempted_ids)
-    setup_total_s = fsum(bundles["allocated_setup_s"])
+    allocated_setup_s = fsum(bundles["allocated_setup_s"])
     solve_total_s = fsum(bundles["solve_total_s"])
     workload_online_s = fsum(
         setup_s + solve_s
@@ -119,7 +119,7 @@ def summarize_method_workload(
         "n_planned_rhs": len(planned),
         "n_attempted_rhs": n_attempted_rhs,
         "n_converged": n_converged,
-        "setup_total_s": setup_total_s,
+        "allocated_setup_s": allocated_setup_s,
         "solve_total_s": solve_total_s,
         "workload_online_s": workload_online_s,
         "workload_peak_memory": workload_peak_memory,

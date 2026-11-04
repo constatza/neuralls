@@ -33,7 +33,7 @@ class CompleteWorkloadSummary:
     n_planned_rhs: int
     n_attempted_rhs: int
     n_converged: int
-    setup_total_s: float
+    allocated_setup_s: float
     solve_total_s: float
     workload_online_s: float
     workload_peak_memory: PeakMemory
@@ -53,7 +53,7 @@ class IncompleteWorkloadSummary:
     n_planned_rhs: int
     n_attempted_rhs: int
     n_converged: int
-    setup_total_s: float
+    allocated_setup_s: float
     solve_total_s: float
     workload_online_s: float
     workload_peak_memory: PeakMemory
@@ -115,11 +115,11 @@ def _validate_summary_fields(summary: MethodWorkloadSummary) -> None:
     """Validate count ordering and derived online costs at construction."""
     if not 0 <= summary.n_converged <= summary.n_attempted_rhs <= summary.n_planned_rhs:
         raise ValueError("workload counts must satisfy converged <= attempted <= planned")
-    costs = (summary.setup_total_s, summary.solve_total_s, summary.workload_online_s)
+    costs = (summary.allocated_setup_s, summary.solve_total_s, summary.workload_online_s)
     if any(not isfinite(cost) or cost < 0 for cost in costs):
         raise ValueError("workload costs must be finite and non-negative")
     if not _derived_seconds_match(
-        summary.workload_online_s, summary.setup_total_s + summary.solve_total_s
+        summary.workload_online_s, summary.allocated_setup_s + summary.solve_total_s
     ):
         raise ValueError("workload online time must equal setup plus solve time")
 

@@ -214,7 +214,7 @@ def group(group_observations: pl.DataFrame) -> RecipeProfileReport:
                 n_planned_rhs=4,
                 n_attempted_rhs=4,
                 n_converged=3,
-                setup_total_s=2.0,
+                allocated_setup_s=2.0,
                 solve_total_s=7.0,
                 workload_online_s=9.0,
                 workload_peak_memory=UnknownPeakMemory(),
@@ -518,7 +518,9 @@ def test_sink_logs_explicit_counts_and_ratio_metrics(
     assert logged_metrics[_key("n_attempted_rhs", group, "amg")] == 4
     assert logged_metrics[_key("n_converged", group, "amg")] == 3
     assert logged_metrics[_key("success_rate", group, "amg")] == pytest.approx(0.75)
-    assert logged_metrics[_key("iterations_median", group, "amg")] == 6.0
+    assert logged_metrics[_key("iterations_converged_median", group, "amg")] == 6.0
+    assert logged_metrics[_key("iterations_n_defined", group, "amg")] == 3
+    assert logged_metrics[_key("iterations_n_planned", group, "amg")] == 4
     # amg over jacobi online time: 1.5/2.5 and 2.5/3.0 on matrix 7, 4.5/9.5 on matrix 8
     assert logged_metrics[_key("n_both_solved", group, "jacobi")] == 3
     assert logged_metrics[_key("n_ratio", group, "jacobi")] == 3
@@ -531,7 +533,7 @@ def test_sink_logs_explicit_counts_and_ratio_metrics(
     assert logged_metrics[_key("n_reference_only", group, "never")] == 3
 
 
-def test_never_converged_method_logs_only_counts(
+def test_never_converged_method_logs_counts_and_no_iteration_statistics(
     group: GroupAggregated,
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
@@ -541,7 +543,11 @@ def test_never_converged_method_logs_only_counts(
     sink.report(group, presentation=presentation)
 
     assert logged_metrics[_key("success_rate", group, "never")] == 0.0
-    assert not [key for key in logged_metrics if key.endswith("/never") and "iterations" in key]
+    assert {key for key in logged_metrics if key.endswith("/never") and "iterations" in key} == {
+        _key("iterations_n_defined", group, "never"),
+        _key("iterations_n_planned", group, "never"),
+    }
+    assert logged_metrics[_key("iterations_n_defined", group, "never")] == 0
 
 
 def test_sink_uploads_only_failure_aware_group_artifacts(

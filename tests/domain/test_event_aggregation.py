@@ -402,7 +402,7 @@ def duplicate_missing_summary_factory(
             n_planned_rhs=2,
             n_attempted_rhs=0,
             n_converged=0,
-            setup_total_s=0.0,
+            allocated_setup_s=0.0,
             solve_total_s=0.0,
             workload_online_s=0.0,
             workload_peak_memory=unknown_workload_peak_memory,
@@ -425,7 +425,7 @@ def inconsistent_complete_summary_factory(
             n_planned_rhs=1,
             n_attempted_rhs=1,
             n_converged=1,
-            setup_total_s=1.0,
+            allocated_setup_s=1.0,
             solve_total_s=2.0,
             workload_online_s=3.01,
             workload_peak_memory=unknown_workload_peak_memory,
@@ -554,7 +554,7 @@ def test_complete_workload_summary_reconciles_raw_events(
 
     assert isinstance(summary, CompleteWorkloadSummary)
     assert (summary.n_planned_rhs, summary.n_attempted_rhs, summary.n_converged) == (6, 6, 6)
-    assert summary.setup_total_s == pytest.approx(18.0)
+    assert summary.allocated_setup_s == pytest.approx(18.0)
     assert summary.solve_total_s == pytest.approx(21.0)
     assert summary.workload_online_s == pytest.approx(39.0)
 
@@ -586,7 +586,7 @@ def test_workload_totals_are_derived_from_matrix_bundles(
         workload_peak_memory,
     )
 
-    assert summary.setup_total_s == bundles["setup_s"].sum()
+    assert summary.allocated_setup_s == bundles["setup_s"].sum()
     assert summary.solve_total_s == bundles["solve_total_s"].sum()
     assert summary.workload_online_s == bundles["matrix_online_s"].sum()
 
@@ -609,7 +609,7 @@ def test_workload_totals_use_stable_matrix_bundle_reductions(
         workload_peak_memory,
     )
 
-    assert summary.setup_total_s == fsum(ten_matrix_setup_seconds)
+    assert summary.allocated_setup_s == fsum(ten_matrix_setup_seconds)
     assert summary.solve_total_s == fsum(ten_matrix_solve_seconds)
     assert summary.workload_online_s == fsum(
         setup_s + solve_s
@@ -677,7 +677,7 @@ def test_workload_summaries_are_frozen_and_slotted(
 
     assert not hasattr(summary, "__dict__")
     with pytest.raises(FrozenInstanceError):
-        summary.setup_total_s = 0.0
+        summary.allocated_setup_s = 0.0
 
 
 def test_incomplete_summary_rejects_duplicate_missing_system_ids(

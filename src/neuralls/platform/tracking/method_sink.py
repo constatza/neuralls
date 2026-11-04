@@ -94,7 +94,7 @@ class MLflowBenchmarkMethodSink:
             "success_rate": (
                 summary.n_converged / summary.n_planned_rhs if summary.n_planned_rhs else 0.0
             ),
-            "setup_total_s": summary.setup_total_s,
+            "setup_total_s": summary.allocated_setup_s,
             "solve_total_s": summary.solve_total_s,
             "workload_online_s": summary.workload_online_s,
             "n_setup_failed": float(n_setup_failed),

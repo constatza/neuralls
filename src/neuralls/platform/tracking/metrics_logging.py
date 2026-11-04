@@ -11,6 +11,7 @@ from neuralls.domain.presentation.methods import (
     PreparedMethodPresentation,
 )
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
+from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.storage.facts_codec import encode_method_parameters
@@ -54,20 +55,47 @@ def parent_run_metric_key(metric: str, preconditioner_name: str) -> str:
     return f"{metric}/{sanitize_metric_key_segment(preconditioner_name)}"
 
 
+def metric_key(metric: MetricId, field: str) -> str:
+    """The bare metric name of ``field`` of ``metric``, generated from the metric catalog.
+
+    A statistic is named after the outcomes its metric is defined on, so a key states which
+    systems entered it: ``iterations_converged_mean`` is a mean over converged systems only,
+    because the catalog defines iterations on no other outcome.
+    """
+    outcomes = "_".join(sorted(outcome.value for outcome in METRICS[metric].defined_on))
+    return f"{metric}_{outcomes}_{field}"
+
+
+def count_key(metric: MetricId, field: str) -> str:
+    """The bare name of a count (``n_defined``, ``n_planned``) of ``metric``'s systems."""
+    return f"{metric}_{field}"
+
+
 def log_convergence_metrics(convergence: Mapping[PreconditionerName, ConvergenceSummary]) -> None:
-    """Log explicit planned, attempted, and converged counts."""
+    """Log explicit planned, attempted, and converged counts and the iteration statistics.
+
+    ``iterations_n_defined`` counts the systems the iteration statistics are taken over and
+    ``iterations_n_planned`` the systems planned, so a statistic over few systems is visible.
+    """
     for name, summary in convergence.items():
         mlflow.log_metric(parent_run_metric_key("n_planned_rhs", name), summary.n_planned_rhs)
         mlflow.log_metric(parent_run_metric_key("n_attempted_rhs", name), summary.n_attempted_rhs)
         mlflow.log_metric(parent_run_metric_key("n_converged", name), summary.n_converged)
         mlflow.log_metric(parent_run_metric_key("success_rate", name), summary.success_rate)
+        _log_optional_metrics(
+            name,
+            {
+                count_key(MetricId.ITERATIONS, "n_defined"): summary.n_converged,
+                count_key(MetricId.ITERATIONS, "n_planned"): summary.n_planned_rhs,
+            },
+        )
         if summary.iterations is not None:
             _log_optional_metrics(
                 name,
                 {
-                    "iterations_mean": summary.iterations.mean,
-                    "iterations_median": summary.iterations.median,
-                    "iterations_std": summary.iterations.std,
+                    metric_key(MetricId.ITERATIONS, "mean"): summary.iterations.mean,
+                    metric_key(MetricId.ITERATIONS, "median"): summary.iterations.median,
+                    metric_key(MetricId.ITERATIONS, "std"): summary.iterations.std,
                 },
             )
 

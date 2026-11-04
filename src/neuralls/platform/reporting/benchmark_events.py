@@ -252,7 +252,7 @@ def _write_summary(workload: MethodWorkload, summary: MethodWorkloadSummary, pat
             "converged": summary.n_converged,
         },
         "online": {
-            "setup_s": summary.setup_total_s,
+            "setup_s": summary.allocated_setup_s,
             "solve_s": summary.solve_total_s,
             "workload_s": summary.workload_online_s,
         },

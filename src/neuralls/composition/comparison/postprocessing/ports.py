@@ -5,14 +5,20 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
+from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport, WorkloadMixtureReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.models.report_scope import System
 from neuralls.platform.reporting.figure_metadata import StagedFigure
+from neuralls.shared.types import DatasetId
 
 
 class ReportSink(Protocol):
     """Receives each aggregation level of a report and records it under its own scope."""
+
+    def register_method_figures(self, *, datasets: Mapping[DatasetId, DatasetPresentation]) -> None:
+        """Draw and record each method's convergence histories at the report's root scope."""
+        ...
 
     def report(
         self,

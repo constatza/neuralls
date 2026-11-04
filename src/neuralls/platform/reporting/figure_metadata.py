@@ -79,7 +79,7 @@ WORKLOAD_TOTALS_SCHEMA: TableSchema = {
     "n_planned_rhs": pl.Int64,
     "n_attempted_rhs": pl.Int64,
     "n_converged": pl.Int64,
-    "setup_total_s": pl.Float64,
+    "allocated_setup_s": pl.Float64,
     "solve_total_s": pl.Float64,
     "workload_online_s": pl.Float64,
 }

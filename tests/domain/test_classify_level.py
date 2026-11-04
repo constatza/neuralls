@@ -193,10 +193,10 @@ def test_matrix_set_rhs_type_summary_allocates_setup_using_complete_matrix_membe
     assert all(isinstance(report, RecipeProfileReport) for report in reports)
 
     rhs_type_reports = [report for report in reports if isinstance(report, RecipeProfileReport)]
-    assert [report.summaries[0].setup_total_s for report in rhs_type_reports] == [1.0, 1.0]
-    assert sum(report.summaries[0].setup_total_s for report in rhs_type_reports) == pytest.approx(
-        2.0
-    )
+    assert [report.summaries[0].allocated_setup_s for report in rhs_type_reports] == [1.0, 1.0]
+    assert sum(
+        report.summaries[0].allocated_setup_s for report in rhs_type_reports
+    ) == pytest.approx(2.0)
     assert [report.observations["planned_rhs"].to_list() for report in rhs_type_reports] == [
         [2],
         [2],
