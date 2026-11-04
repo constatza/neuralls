@@ -162,6 +162,7 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"ecdf_time_solve_{recipe_stem}.png",
             f"ecdf_time_online_{recipe_stem}.png",
             f"matrix_heatmap_iterations_{recipe_stem}.png",
+            f"convergence_factor_{recipe_stem}.png",
             *mean_bars(recipe_stem),
         }
     )
@@ -171,6 +172,7 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"solve_time_bars_{dataset_stem}.png",
             f"online_time_bars_{dataset_stem}.png",
             *mean_bars(dataset_stem),
+            f"convergence_factor_{dataset_stem}.png",
         }
     )
     assert artifact_names(report.report_run_id) == with_cards(
@@ -179,5 +181,6 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"solve_time_bars_{all_stem}.png",
             f"online_time_bars_{all_stem}.png",
             *mean_bars(all_stem),
+            f"convergence_factor_{all_stem}.png",
         }
     )

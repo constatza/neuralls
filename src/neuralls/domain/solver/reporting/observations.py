@@ -20,8 +20,9 @@ the setup events decides them: a planned system with no solve row is ``SETUP_FAI
 matrix's setup failed and ``NOT_ATTEMPTED`` otherwise.
 ``validate_decoded_solve_frame`` rejects stored rows that contradict the table above.
 
-The observation view (``observations``) joins the three stored frames of one method into one row
-per planned system. It is computed in memory from the stored parquets and never persisted.
+The observation view (``observations``) joins the four stored frames of one method into one row
+per planned system. It is computed in memory from the stored parquets and never persisted; the
+per-iteration convergence history enters it only as each system's convergence factor.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ from typing import assert_never
 
 import polars as pl
 
+from neuralls.domain.solver.reporting.convergence_factor import convergence_factors
 from neuralls.domain.solver.reporting.event_frames import validate_setup_solve_frame_links
 from neuralls.domain.solver.true_residual import stopping_threshold_rel
 from neuralls.shared.types import PreconditionerName
@@ -127,6 +129,7 @@ OBSERVATION_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "online_s": pl.Float64,
     "standalone_s": pl.Float64,
     "time_per_iteration_s": pl.Float64,
+    "convergence_factor": pl.Float64,
     "true_residual_rel": pl.Float64,
     "stopping_threshold_rel": pl.Float64,
     "timing_spread": pl.Float64,
@@ -141,17 +144,24 @@ _OUTCOMES_WITH_ITERATIONS = [Outcome.CONVERGED.value, Outcome.UNCONVERGED.value]
 
 @dataclass(frozen=True, slots=True, eq=False)
 class MethodFrames:
-    """The three stored frames of one method, as its parquet artifacts hold them."""
+    """The four stored frames of one method, as its parquet artifacts hold them."""
 
     planned_systems: pl.DataFrame
     setup_events: pl.DataFrame
     solve_attempts: pl.DataFrame
+    convergence: pl.DataFrame
 
 
 def observations_of_methods(per_method: Mapping[PreconditionerName, MethodFrames]) -> pl.DataFrame:
     """The observation view of several methods, sorted by method, dataset, matrix and RHS."""
     views = [
-        observations(method, frames.planned_systems, frames.setup_events, frames.solve_attempts)
+        observations(
+            method,
+            frames.planned_systems,
+            frames.setup_events,
+            frames.solve_attempts,
+            frames.convergence,
+        )
         for method, frames in per_method.items()
     ]
     if not views:
@@ -164,18 +174,20 @@ def observations(
     planned_systems: pl.DataFrame,
     setup_events: pl.DataFrame,
     solve_attempts: pl.DataFrame,
+    convergence: pl.DataFrame,
 ) -> pl.DataFrame:
     """Join one method's stored frames into one row per planned system.
 
     ``planned_rhs`` counts the planned systems of a system's ``(dataset, matrix_id)`` over every
     recipe in ``planned_systems``, which is the count the amortized online time divides the
-    matrix setup by.
+    matrix setup by. ``convergence_factor`` is the system's ``convergence_factors`` value, null
+    without a stored history.
 
     Raises:
         ValueError: A frame belongs to another method, a solve row is not a planned system, or
             a solve row contradicts its planned system or its setup event.
     """
-    _validate_frames(method, planned_systems, setup_events, solve_attempts)
+    _validate_frames(method, planned_systems, setup_events, solve_attempts, convergence)
     planned = planned_systems.select("system_id", *_SYSTEM_IDENTITY, "rtol", "atol").with_columns(
         planned_rhs=pl.len().over(_MATRIX_KEYS).cast(pl.Int64)
     )
@@ -189,8 +201,10 @@ def observations(
         solve_outcome=solve_outcome_expr(),
     )
     setups = setup_events.select(*_MATRIX_KEYS, "setup_s", "setup_status")
+    factors = convergence_factors(convergence).select("system_id", "convergence_factor")
     joined = (
         planned.join(solves, on="system_id", how="left", validate="1:1")
+        .join(factors, on="system_id", how="left", validate="1:1")
         .join(setups, on=_MATRIX_KEYS, how="left", validate="m:1")
         .with_columns(
             outcome=pl.coalesce(
@@ -246,9 +260,14 @@ def _validate_frames(
     planned_systems: pl.DataFrame,
     setup_events: pl.DataFrame,
     solve_attempts: pl.DataFrame,
+    convergence: pl.DataFrame,
 ) -> None:
     """Reject frames the join would silently mis-attribute."""
-    for name, frame in (("setup events", setup_events), ("solve attempts", solve_attempts)):
+    for name, frame in (
+        ("setup events", setup_events),
+        ("solve attempts", solve_attempts),
+        ("convergence", convergence),
+    ):
         if (frame["method"] != str(method)).any():
             raise ValueError(f"{name} contain rows of a method other than {method!r}")
     if planned_systems["system_id"].is_duplicated().any():
@@ -266,6 +285,8 @@ def _validate_frames(
     )
     if solved["dataset_planned"].is_null().any():
         raise ValueError("solve attempt is not a planned system")
+    if not convergence["system_id"].is_in(planned_systems["system_id"].implode()).all():
+        raise ValueError("convergence history is not of a planned system")
     for column in _SYSTEM_IDENTITY:
         if (solved[column] != solved[f"{column}_planned"]).any():
             raise ValueError(f"solve attempt {column} does not match its planned system")

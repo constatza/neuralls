@@ -163,6 +163,7 @@ def setup_sharing_of(metric: MetricId, observations: pl.DataFrame) -> SetupShari
             | MetricId.STANDALONE_S
             | MetricId.SETUP_S
             | MetricId.TIME_PER_ITERATION_S
+            | MetricId.CONVERGENCE_FACTOR
         ):
             return NoSharedSetup()
         case unreachable:
@@ -171,7 +172,7 @@ def setup_sharing_of(metric: MetricId, observations: pl.DataFrame) -> SetupShari
 
 def _is_time(metric: MetricId) -> bool:
     match METRICS[metric].unit:
-        case Unit.ITERATIONS:
+        case Unit.ITERATIONS | Unit.REDUCTION_PER_ITERATION:
             return False
         case Unit.SECONDS | Unit.SECONDS_PER_ITERATION:
             return True

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 
 import polars as pl
 import pytest
@@ -18,9 +19,11 @@ from neuralls.shared.types import PreconditionerName
 from tests.observation_support import (
     AMG,
     BROKEN,
+    CONVERGED_TRUE_RESIDUAL,
     JACOBI,
     PLANNED,
     STOPPING_THRESHOLD_REL,
+    UNCONVERGED_TRUE_RESIDUAL,
 )
 
 SORT_KEYS = ["method", "dataset", "matrix_id", "rhs_ordinal"]
@@ -53,6 +56,8 @@ CORRUPTIONS = (
     "duplicate_solve",
     "foreign_setup_method",
     "foreign_solve_method",
+    "foreign_convergence_method",
+    "unplanned_convergence",
 )
 
 
@@ -71,7 +76,7 @@ def corrupt_frames(
     first = solve.head(1)
 
     def with_solve(frame: pl.DataFrame) -> MethodFrames:
-        return MethodFrames(clean.planned_systems, clean.setup_events, frame)
+        return replace(clean, solve_attempts=frame)
 
     return {
         "solve_on_failed_setup": with_solve(
@@ -96,12 +101,21 @@ def corrupt_frames(
             )
         ),
         "duplicate_solve": with_solve(pl.concat([solve, first])),
-        "foreign_setup_method": MethodFrames(
-            clean.planned_systems,
-            clean.setup_events.with_columns(method=pl.lit("other")),
-            solve,
+        "foreign_setup_method": replace(
+            clean, setup_events=clean.setup_events.with_columns(method=pl.lit("other"))
         ),
         "foreign_solve_method": with_solve(solve.with_columns(method=pl.lit("other"))),
+        "foreign_convergence_method": replace(
+            clean, convergence=clean.convergence.with_columns(method=pl.lit("other"))
+        ),
+        "unplanned_convergence": replace(
+            clean,
+            convergence=clean.convergence.with_columns(
+                system_id=pl.when(pl.col("system_id") == "m1-0")
+                .then(pl.lit("ghost"))
+                .otherwise(pl.col("system_id"))
+            ),
+        ),
     }
 
 
@@ -224,4 +238,29 @@ def test_frames_that_violate_a_link_invariant_are_rejected(
     frames = corrupt_frames[corruption]
 
     with pytest.raises(ValueError):
-        observations(AMG, frames.planned_systems, frames.setup_events, frames.solve_attempts)
+        observations(
+            AMG,
+            frames.planned_systems,
+            frames.setup_events,
+            frames.solve_attempts,
+            frames.convergence,
+        )
+
+
+def test_each_system_with_a_history_carries_its_convergence_factor(
+    amg_observations: pl.DataFrame,
+) -> None:
+    """Each stored history falls geometrically from 1 to the system's true residual."""
+    factors = dict(
+        zip(amg_observations["system_id"], amg_observations["convergence_factor"], strict=True)
+    )
+    expected = {
+        "m1-0": CONVERGED_TRUE_RESIDUAL ** (1 / 2),
+        "m1-1": CONVERGED_TRUE_RESIDUAL ** (1 / 5),
+        "m1-2": CONVERGED_TRUE_RESIDUAL ** (1 / 3),
+        "m2-0": CONVERGED_TRUE_RESIDUAL ** (1 / 8),
+        "m2-1": UNCONVERGED_TRUE_RESIDUAL ** (1 / 20),
+    }
+
+    assert {system: factors[system] for system in expected} == pytest.approx(expected)
+    assert [factors[system] for system in ("m2-2", "m3-0", "m3-1", "m4-0")] == [None] * 4

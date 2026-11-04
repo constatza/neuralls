@@ -61,6 +61,7 @@ def test_mixture_reports_plan_only_the_kinds_common_to_both_reports() -> None:
         FigureKind.TIME_PER_ITERATION,
         FigureKind.ITERATION_DISTRIBUTION,
         FigureKind.TIME_DISTRIBUTION,
+        FigureKind.CONVERGENCE_FACTOR,
     }
     assert all(RecipeProfileReport in group_recipe(kind).applies_to for kind in mixture_kinds)
 

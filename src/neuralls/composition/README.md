@@ -511,8 +511,8 @@ returns `GroupAggregated` when at least one method has a setup event and
 `GroupSkippedAllCacheHit` when the group has no benchmark event. The observation view is built
 once per report from the frames the report already holds: `report_inputs.observation_view` joins
 each stored method's `planned_systems` (rebuilt from the validated `SystemProvenance`, which holds
-the `rtol` and `atol` of the stopping threshold), `setup_events` and `solve_attempts` with
-`observations_of_methods`, and `report_all_levels` passes that frame to every level. A level is a
+the `rtol` and `atol` of the stopping threshold), `setup_events`, `solve_attempts` and
+`convergence` (reduced to each system's convergence factor) with `observations_of_methods`, and `report_all_levels` passes that frame to every level. A level is a
 filter of it: each group keeps the rows of its own systems, so `planned_rhs` stays the per-matrix
 count over all recipes. Aggregated groups carry planned matrix/RHS membership, per-method
 planned/attempted/converged counts, converged-iteration statistics, and the failure-aware per-system

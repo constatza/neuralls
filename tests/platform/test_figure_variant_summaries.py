@@ -15,6 +15,7 @@ from polars.testing import assert_frame_equal
 from tests.figure_support import VARIANT_METRIC
 from tests.recipe_support import GAUSSIAN, SINE
 
+from neuralls.domain.benchmarking.cost_curves import break_even_curves
 from neuralls.domain.benchmarking.paired import (
     REFERENCE_METRIC,
     paired_systems,
@@ -69,6 +70,7 @@ _MEAN_STEMS = (
     "time_per_iteration",
     "iteration_distribution",
     "time_distribution_online",
+    "convergence_factor",
 )
 
 
@@ -123,6 +125,8 @@ _EXPECTED_SUMMARY: dict[str, SummaryOf] = {
     "speed_ratio_cdf": lambda report: speed_ratio_summary(
         report.observations, JACOBI, REFERENCE_METRIC
     ),
+    "breakeven": lambda report: break_even_curves(report.observations, JACOBI),
+    "convergence_factor": lambda report: _recipe_summaries(report, MetricId.CONVERGENCE_FACTOR),
     "iteration_means": lambda report: _recipe_summaries(report, MetricId.ITERATIONS),
     "setup_means": lambda report: _recipe_summaries(report, MetricId.SETUP_S),
     **{
@@ -226,6 +230,7 @@ def test_a_report_without_a_reference_plans_no_figure_that_compares_against_one(
     assert set(figure_summaries(unreferenced)) == _PROFILE_STEMS - {
         "paired_time_scatter",
         "speed_ratio_cdf",
+        "breakeven",
     }
 
 
@@ -243,6 +248,10 @@ def test_profiles_and_ecdfs_write_the_series_table() -> None:
 
 def test_the_speed_ratio_writes_the_speed_ratio_table() -> None:
     assert group_recipe(FigureKind.SPEED_RATIO).table is TableKind.SPEED_RATIO
+
+
+def test_the_break_even_figure_writes_the_cost_curves_table() -> None:
+    assert group_recipe(FigureKind.BREAKEVEN).table is TableKind.COST_CURVES
 
 
 @pytest.mark.parametrize("stem", sorted(VARIANT_METRIC))

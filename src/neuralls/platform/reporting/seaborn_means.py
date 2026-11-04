@@ -196,6 +196,8 @@ def _defined_word(metric: MetricId) -> str:
             return "set up"
         case MetricId.TIME_PER_ITERATION_S:
             return "returned an iterate"
+        case MetricId.CONVERGENCE_FACTOR:
+            return "converged with a residual history"
         case unreachable:
             assert_never(unreachable)
 

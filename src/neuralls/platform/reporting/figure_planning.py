@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import assert_never
 
 import polars as pl
 
+from neuralls.domain.benchmarking.cost_curves import break_even_curves
 from neuralls.domain.benchmarking.paired import (
     REFERENCE_METRIC,
     paired_systems,
@@ -65,6 +67,8 @@ from neuralls.platform.reporting.figure_metadata import (
 from neuralls.platform.reporting.figure_table import build_group_table
 from neuralls.platform.reporting.group_drawers import (
     AGGREGATE_BARS_DRAWER,
+    BREAK_EVEN_DRAWER,
+    CONVERGENCE_FACTOR_DRAWER,
     DISTRIBUTION_DRAWER,
     ECDF_ITERATIONS_DRAWER,
     ECDF_TIME_DRAWER,
@@ -400,6 +404,42 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             TableKind.SERIES,
         ),
         GroupFigureRecipe(
+            FigureKind.BREAKEVEN,
+            (
+                FigureVariant(
+                    "breakeven",
+                    "Break-even",
+                    "mean setup + n x mean solve seconds per RHS on one matrix, means over the "
+                    "matrices and systems common to the method and the reference",
+                    MetricId.STANDALONE_S,
+                    Population.COMMON,
+                    Statistic.CUMULATIVE_COST,
+                ),
+            ),
+            FailureTreatment.OMITTED,
+            _PROFILE,
+            BREAK_EVEN_DRAWER,
+            TableKind.COST_CURVES,
+        ),
+        GroupFigureRecipe(
+            FigureKind.CONVERGENCE_FACTOR,
+            (
+                FigureVariant(
+                    "convergence_factor",
+                    "Convergence Factor",
+                    "residual reduction factor per iteration (r_J / r_0)^(1/J) of each converged "
+                    "system's stored history",
+                    MetricId.CONVERGENCE_FACTOR,
+                    Population.OWN,
+                    Statistic.MEAN_AND_MEDIAN,
+                ),
+            ),
+            FailureTreatment.OMITTED,
+            _BOTH,
+            CONVERGENCE_FACTOR_DRAWER,
+            TableKind.COHORT_SUMMARY,
+        ),
+        GroupFigureRecipe(
             FigureKind.ITERATION_MEANS,
             (
                 _bar_variant(
@@ -628,7 +668,14 @@ def _summary(
                 if reference is None
                 else speed_ratio_summary(observations, reference, variant.metric)
             )
-        case Statistic.MEAN_OVER_SYSTEMS | Statistic.MEAN_OVER_MATRICES | Statistic.QUANTILES:
+        case Statistic.CUMULATIVE_COST:
+            return None if reference is None else break_even_curves(observations, reference)
+        case (
+            Statistic.MEAN_OVER_SYSTEMS
+            | Statistic.MEAN_OVER_MATRICES
+            | Statistic.MEAN_AND_MEDIAN
+            | Statistic.QUANTILES
+        ):
             metric, population = variant.metric, variant.population
             return by_cohort(
                 observations,
@@ -685,9 +732,7 @@ def _figure_metadata(
         for name in names
     )
     sources = tuple(
-        method_source(
-            stored[name].run_id, artifacts.setup_events, artifacts.solve_attempts, artifacts.summary
-        )
+        method_source(stored[name].run_id, *_source_artifacts(variant.metric, artifacts))
         for name in names
     )
     aggregation_rule = (
@@ -725,6 +770,29 @@ def _figure_metadata(
     )
 
 
+def _source_artifacts(metric: MetricId, artifacts: MethodBenchmarkArtifacts) -> tuple[Path, ...]:
+    """The stored artifacts a figure of ``metric`` is computed from.
+
+    Every group figure reads the setup and solve events and the summary; the convergence factor
+    also reads the residual histories, so its card cites them.
+    """
+    events = (artifacts.setup_events, artifacts.solve_attempts, artifacts.summary)
+    match metric:
+        case MetricId.CONVERGENCE_FACTOR:
+            return (*events, artifacts.convergence)
+        case (
+            MetricId.ITERATIONS
+            | MetricId.SOLVE_S
+            | MetricId.ONLINE_S
+            | MetricId.STANDALONE_S
+            | MetricId.SETUP_S
+            | MetricId.TIME_PER_ITERATION_S
+        ):
+            return events
+        case unreachable:
+            assert_never(unreachable)
+
+
 def _interval(variant: FigureVariant, outcome: GroupReport) -> FigureInterval:
     """The interval a variant draws; a figure that compares to a missing reference is not drawn."""
     observations = outcome.observations
@@ -735,7 +803,7 @@ def _interval(variant: FigureVariant, outcome: GroupReport) -> FigureInterval:
                     return NoInterval()
                 case reference:
                     return bootstrap_of_speed_ratios(observations, reference, variant.metric)
-        case Statistic.MEAN_OVER_SYSTEMS | Statistic.MEAN_OVER_MATRICES:
+        case Statistic.MEAN_OVER_SYSTEMS | Statistic.MEAN_OVER_MATRICES | Statistic.MEAN_AND_MEDIAN:
             return bootstrap_of_means(observations, variant.metric, variant.population)
         case (
             Statistic.CONVERGED_COUNT
@@ -743,6 +811,7 @@ def _interval(variant: FigureVariant, outcome: GroupReport) -> FigureInterval:
             | Statistic.ECDF
             | Statistic.PERFORMANCE_PROFILE
             | Statistic.PAIRED_VALUES
+            | Statistic.CUMULATIVE_COST
             | Statistic.RATIO_OF_SUMS
             | Statistic.QUANTILES
             | Statistic.MEAN_PER_MATRIX

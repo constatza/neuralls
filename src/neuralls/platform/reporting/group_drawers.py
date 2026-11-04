@@ -34,6 +34,10 @@ from neuralls.platform.reporting.outcome_plots import (
     plot_speed_ratio_cdf,
     plot_workload_bars,
 )
+from neuralls.platform.reporting.seaborn_cost_curves import (
+    plot_break_even_curves,
+    plot_convergence_factors,
+)
 from neuralls.platform.reporting.seaborn_distributions import (
     plot_distribution,
     plot_matrix_heatmap,
@@ -143,6 +147,22 @@ def _speed_ratio(data: FigureData, path: Path) -> Path | None:
             )
 
 
+def _break_even(data: FigureData, path: Path) -> Path | None:
+    match reference_among_methods(data.observations, data.reference):
+        case None:
+            return None
+        case reference:
+            return plot_break_even_curves(
+                data.summary, reference_name=reference, style=data.style, save_path=path
+            )
+
+
+def _convergence_factors(data: FigureData, path: Path) -> Path | None:
+    return plot_convergence_factors(
+        data.summary, data.observations, metric=data.metric, style=data.style, save_path=path
+    )
+
+
 def _mean_bars(statistic: BarStatistic) -> GroupDrawer:
     def drawer(data: FigureData, path: Path) -> Path | None:
         return plot_mean_bars(
@@ -178,6 +198,8 @@ SPEED_RATIO_DRAWER: GroupDrawer = _speed_ratio
 PERFORMANCE_PROFILE_DRAWER: GroupDrawer = _performance_profile
 ECDF_ITERATIONS_DRAWER: GroupDrawer = _ecdf(_ITERATIONS_XLABEL)
 ECDF_TIME_DRAWER: GroupDrawer = _ecdf(_TIME_XLABELS)
+BREAK_EVEN_DRAWER: GroupDrawer = _break_even
+CONVERGENCE_FACTOR_DRAWER: GroupDrawer = _convergence_factors
 MEAN_OVER_SYSTEMS_DRAWER: GroupDrawer = _mean_bars(Statistic.MEAN_OVER_SYSTEMS)
 MEAN_OVER_MATRICES_DRAWER: GroupDrawer = _mean_bars(Statistic.MEAN_OVER_MATRICES)
 TIME_PER_ITERATION_DRAWER: GroupDrawer = _time_per_iteration

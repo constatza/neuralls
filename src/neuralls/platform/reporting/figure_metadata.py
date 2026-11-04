@@ -10,6 +10,7 @@ from pathlib import Path
 
 import polars as pl
 
+from neuralls.domain.benchmarking.cost_curves import COST_CURVE_SCHEMA
 from neuralls.domain.benchmarking.paired import PAIRED_SCHEMA, SPEED_RATIO_SCHEMA
 from neuralls.domain.benchmarking.profiles import PROFILE_SERIES_SCHEMA
 from neuralls.domain.benchmarking.selection import ReferenceSelection
@@ -48,6 +49,8 @@ class FigureKind(StrEnum):
     ECDF_ITERATIONS = "ecdf_iterations"
     ECDF_TIME = "ecdf_time"
     SPEED_RATIO = "speed_ratio"
+    BREAKEVEN = "breakeven"
+    CONVERGENCE_FACTOR = "convergence_factor"
     ITERATION_MEANS = "iteration_means"
     TIME_MEANS = "time_means"
     SETUP_MEANS = "setup_means"
@@ -74,7 +77,8 @@ class TableKind(StrEnum):
 
     ``PAIRED`` holds the per-system pairs of a scatter, ``SUMMARY`` one row of statistics per
     method, ``SERIES`` the points of a step curve, ``SPEED_RATIO`` one row of ratio statistics per
-    compared method and ``WORKLOAD_TOTALS`` one row of workload sums per method.
+    compared method, ``WORKLOAD_TOTALS`` one row of workload sums per method and ``COST_CURVES``
+    the cumulative cost of each side of a method/reference pair by RHS count.
     ``COHORT_SUMMARY`` and ``COHORT_RATIO_OF_SUMS`` hold per-method statistics by cohort: one block
     per recipe, and at a mixture level the pooled block too (``domain/solver/reporting/cohorts.py``).
     ``MATRIX_BREAKDOWN`` holds one row per method and matrix, exactly the cells of a heatmap.
@@ -85,6 +89,7 @@ class TableKind(StrEnum):
     PAIRED = "paired"
     SPEED_RATIO = "speed_ratio"
     WORKLOAD_TOTALS = "workload_totals"
+    COST_CURVES = "cost_curves"
     COHORT_SUMMARY = "cohort_summary"
     COHORT_RATIO_OF_SUMS = "cohort_ratio_of_sums"
     MATRIX_BREAKDOWN = "matrix_breakdown"
@@ -109,6 +114,7 @@ TABLE_SCHEMAS: Mapping[TableKind, TableSchema] = {
     TableKind.PAIRED: PAIRED_SCHEMA,
     TableKind.SPEED_RATIO: SPEED_RATIO_SCHEMA,
     TableKind.WORKLOAD_TOTALS: WORKLOAD_TOTALS_SCHEMA,
+    TableKind.COST_CURVES: COST_CURVE_SCHEMA,
     TableKind.COHORT_SUMMARY: COHORT_SUMMARY_SCHEMA,
     TableKind.COHORT_RATIO_OF_SUMS: COHORT_RATIO_OF_SUMS_SCHEMA,
     TableKind.MATRIX_BREAKDOWN: MATRIX_BREAKDOWN_SCHEMA,
@@ -147,6 +153,8 @@ class Statistic(StrEnum):
     PERFORMANCE_PROFILE = "performance_profile"
     PAIRED_VALUES = "paired_values"
     SPEED_RATIO_CDF = "speed_ratio_cdf"
+    CUMULATIVE_COST = "cumulative_cost"
+    MEAN_AND_MEDIAN = "mean_and_median"
     MEAN_OVER_SYSTEMS = "mean_over_systems"
     MEAN_OVER_MATRICES = "mean_over_matrices"
     RATIO_OF_SUMS = "ratio_of_sums"

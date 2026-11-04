@@ -88,13 +88,14 @@ workload totals, and every per-system metric excludes them through `select`.
 
 ## Observation view and metric catalog
 
-`reporting/observations.py::observations(method, planned_systems, setup_events, solve_attempts)`
-joins the three stored frames of one method into one row per planned system
+`reporting/observations.py::observations(method, planned_systems, setup_events, solve_attempts, convergence)`
+joins the four stored frames of one method into one row per planned system
 (`OBSERVATION_SCHEMA`); `observations_of_methods` concatenates methods, sorted by method,
 dataset, matrix and RHS ordinal. The view is computed in memory from the stored parquets and is
 never persisted, so it needs no `compare` re-run. The inputs are validated first: a frame of
 another method, a duplicated or unplanned system, a solve that contradicts its planned system and
-a solve linked to a failed or foreign setup raise `ValueError`.
+a solve linked to a failed or foreign setup, and a convergence history of another method or of an
+unplanned system raise `ValueError`.
 
 | Column | Source |
 |---|---|
@@ -107,6 +108,7 @@ a solve linked to a failed or foreign setup raise `ValueError`.
 | `planned_rhs` | planned systems of the system's `(dataset, matrix_id)` over every recipe in `planned_systems`, the count the setup is divided by |
 | `online_s`, `standalone_s` | `solve_s + setup_s / planned_rhs` and `solve_s + setup_s`; null when either term is null |
 | `time_per_iteration_s` | `solve_s / iterations` for `converged` and `unconverged` rows with at least one iteration |
+| `convergence_factor` | `convergence_factor.py::convergence_factors` of the system's `convergence` rows; null without a stored history, without an iteration in it, or for a zero initial residual |
 | `true_residual_rel` | `solve_attempts.true_residual_rel`; null when unmeasured |
 | `stopping_threshold_rel` | `true_residual.stopping_threshold_rel(rtol, atol, rhs_norm)` from `planned_systems` and `solve_attempts.rhs_norm`; null without a nonzero measured RHS norm |
 | `timing_spread` | `(max - min) / median` of `solve_attempts.samples_s`; 0 for one sample, null without a solve row or for a zero median |
@@ -144,6 +146,8 @@ Seeded with `DEFAULT_RANDOM_SEED`; `None` if $K' < 2$; a matrix with no system i
 
 **Time per iteration** (per system with a real iteration count $k \ge 1$; `UNCONVERGED` runs count because time and iterations are both real and a rate is not censored; `SOLVER_ERROR` and setup failures do not): $\theta_{p,s} = t^{\mathrm{solve}}_{p,s} / k_{p,s}$. It isolates per-iteration cost (preconditioner application, flexible-CG overhead) from numerical effectiveness; fixed per-solve overhead inflates $\theta$ when $k$ is small, which is why a figure's bar is the ratio of sums $\Theta_p$ (`time_per_iteration_summary`, below) and the per-system $\theta_{p,s}$ are drawn only as points.
 
+**Convergence factor** (per converged system with a stored residual history): the stored `convergence` frame holds the relative residual norm $\hat{r}_{p,s,j} = \|r_j\| / \|b\|$ as the solver recorded it during the solve (`residual_rel`) at iterations $j = 0..J_{p,s}$, $j = 0$ the initial residual and $J_{p,s}$ the last stored iteration. $\gamma_{p,s} = (\hat{r}_{p,s,J} / \hat{r}_{p,s,0})^{1/J_{p,s}}$ is the geometric mean of the per-iteration reductions, so $\gamma < 1$ and smaller is faster; it is the same however the reduction was spread over the iterations, and a zero final residual gives 0. It is undefined for $J = 0$ and for a zero initial residual (a zero right-hand side). Only `CONVERGED` systems enter: an `UNCONVERGED` history stopped where the cap or a breakdown cut it, so its factor does not describe a solve that reached the tolerance, and the figure states $k/n$ so the excluded systems stay visible. The history is read in memory from `convergence.parquet` into the observation view; no stored schema changes.
+
 `reporting/metrics.py::METRICS` is the catalog; its labels and formulas are the single source and this table repeats them verbatim (`tests/architecture/test_metric_catalog_documented.py` fails on any difference). The failure rule is the `defined_on` column: a system whose outcome is outside it has no value for the metric and is excluded from every mean, quantile and interval, never counted as zero and never given the iteration cap.
 
 | `MetricId` | Label | Observation unit | Defined on | Formula |
@@ -154,6 +158,7 @@ Seeded with `DEFAULT_RANDOM_SEED`; `None` if $K' < 2$; a matrix with no system i
 | `STANDALONE_S` | standalone time per system [s] | system | `converged` | $t^{\mathrm{standalone}}_{p,s} = t^{\mathrm{solve}}_{p,s} + t^{\mathrm{setup}}_{p,m(s)}$ |
 | `SETUP_S` | setup time per matrix [s] | matrix (one value per method, dataset, matrix) | `converged`, `unconverged`, `solver_error` (the setup completed) | $t^{\mathrm{setup}}_{p,m} = \operatorname{stat}_{j}\,\tau^{\mathrm{setup}}_{p,m,j}$ |
 | `TIME_PER_ITERATION_S` | time per iteration [s] | system | `converged`, `unconverged` | $\theta_{p,s} = \frac{t^{\mathrm{solve}}_{p,s}}{k_{p,s}}$ |
+| `CONVERGENCE_FACTOR` | residual reduction factor per iteration | system | `converged` | $\gamma_{p,s} = \left(\frac{\hat{r}_{p,s,J}}{\hat{r}_{p,s,0}}\right)^{1/J_{p,s}},\quad s \in \mathcal{C}_p$ |
 
 `reporting/summary.py` applies the rule in one place. `select(obs, metric, population)` keeps the
 rows on which the metric is defined (one row per matrix for a matrix metric); `Population.COMMON`
@@ -204,13 +209,18 @@ import polars as pl
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.observations import MethodFrames, observations_of_methods
 from neuralls.domain.solver.reporting.summary import Population, summarize
-from neuralls.platform.reporting.benchmark_events import read_setup_events, read_solve_attempts
+from neuralls.platform.reporting.benchmark_events import (
+    read_convergence,
+    read_setup_events,
+    read_solve_attempts,
+)
 
 frames = {
     method: MethodFrames(
         planned_systems=pl.read_parquet(directory / "planned_systems.parquet"),
         setup_events=read_setup_events(directory / "setup_events.parquet"),
         solve_attempts=read_solve_attempts(directory / "solve_attempts.parquet"),
+        convergence=read_convergence(directory / "convergence.parquet"),
     )
     for method, directory in method_directories.items()
 }
@@ -280,7 +290,7 @@ distribution and stopping rule.
 - paired reference/method systems (`paired_systems`), their per-system ratios (`speed_ratios`),
   the speed-ratio summary using only positive-value both-solved systems while retaining all
   both-solved, reference-only, and method-only counts (`speed_ratio_summary`), and `break_even`
-  (`paired.py`);
+  (`paired.py`), with its cumulative-cost curves (`break_even_curves`, `cost_curves.py`);
 - `reference_among_methods`, which turns the configured `ReferenceSelection` into the reference
   name a group can be compared to;
 - percentile intervals that resample whole `(dataset, matrix_id)` clusters with
@@ -299,7 +309,7 @@ fallback reference.
 ### Profiles, paired comparisons and break-even over the observation view
 
 These functions read the observation frame and take a `MetricId` with one value per system
-(`ITERATIONS`, `SOLVE_S`, `ONLINE_S`, `STANDALONE_S`, `TIME_PER_ITERATION_S`); a per-matrix metric
+(`ITERATIONS`, `SOLVE_S`, `ONLINE_S`, `STANDALONE_S`, `TIME_PER_ITERATION_S`, `CONVERGENCE_FACTOR`); a per-matrix metric
 raises `ValueError`. The failure rule is `select`'s, so "solved" means the metric is defined on the
 system's outcome.
 
@@ -352,6 +362,17 @@ defined only when the denominator is positive; otherwise `break_even_rhs` is nul
 not faster per RHS and never breaks even). With a positive denominator and a setup no dearer than
 the reference's, `break_even_rhs` is 0.0: the method never costs more. A pair with no common unit
 has null means and a null `break_even_rhs`.
+
+`cost_curves.py::break_even_curves(obs, reference)` samples the two lines whose crossing is $n^*$,
+so a break-even figure draws exactly what its table stores. It has `COST_CURVE_SCHEMA` (`method,
+side, n_rhs, cost_s, break_even, break_even_rhs, break_even_cost_s`): one row per compared method,
+`side` (`CostSide`: `method` or `reference`) and $n = 1..N$, with $C(n)$ in `cost_s` from that
+pair's `break_even` means. $N$ is the largest planned RHS count of a matrix (`planned_rhs`),
+extended to $\lceil n^* \rceil$ of the furthest break-even count but not beyond
+`BREAK_EVEN_HORIZON_LIMIT` (1000), since a near-zero per-RHS saving puts $n^*$ arbitrarily far
+out. `break_even` holds a `BreakEvenState` repeated on every row of a method: `breaks_even`
+(`break_even_rhs` is $n^*$ and `break_even_cost_s` $C_p(n^*)$), `never` (not faster per RHS; both
+null) or `no_common_systems` (a mean is null, so `cost_s` is null too).
 
 ## Diagnostic solver results
 

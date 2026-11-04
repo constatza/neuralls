@@ -71,6 +71,8 @@ def plot_calls(monkeypatch: pytest.MonkeyPatch) -> PlotCalls:
         "plot_performance_profile",
         "plot_paired_time_scatter",
         "plot_speed_ratio_cdf",
+        "plot_break_even_curves",
+        "plot_convergence_factors",
         "plot_mean_bars",
         "plot_time_per_iteration",
         "plot_distribution",
@@ -222,11 +224,37 @@ def test_the_speed_ratio_cdf_is_drawn_from_the_ratios_and_their_summary(
     assert (row["n_reference_only"], row["n_method_only"]) == (1, 1)
 
 
+def test_the_break_even_curves_are_drawn_from_the_cost_curves_they_store_against_the_reference(
+    report: RecipeProfileReport, plot_calls: PlotCalls
+) -> None:
+    summary = figure_summaries(report)["breakeven"]
+    group_recipe(FigureKind.BREAKEVEN).draw(_data(report, summary, MetricId.STANDALONE_S), PATH)
+
+    call = plot_calls.by_function["plot_break_even_curves"]
+    (curves,) = _frames_of(call)
+    assert call.options["reference_name"] == AMG
+    assert_frame_equal(curves, figure_summaries(report)["breakeven"])
+
+
+def test_the_convergence_factors_are_drawn_from_their_cohort_summary_and_the_observations(
+    report: RecipeProfileReport, plot_calls: PlotCalls
+) -> None:
+    metric = MetricId.CONVERGENCE_FACTOR
+    _draw(report, FigureKind.CONVERGENCE_FACTOR, metric)
+
+    call = plot_calls.by_function["plot_convergence_factors"]
+    summary, observations = _frames_of(call)
+    assert_frame_equal(summary, figure_summaries(report)["convergence_factor"])
+    assert_frame_equal(observations, report.observations)
+    assert call.options["metric"] is metric
+
+
 @pytest.mark.parametrize(
     ("kind", "metric"),
     [
         (FigureKind.PAIRED_TIME, MetricId.ONLINE_S),
         (FigureKind.SPEED_RATIO, MetricId.ONLINE_S),
+        (FigureKind.BREAKEVEN, MetricId.STANDALONE_S),
     ],
 )
 def test_reference_figures_need_a_configured_reference_among_the_methods(

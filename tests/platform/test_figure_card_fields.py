@@ -28,7 +28,7 @@ from neuralls.domain.benchmarking.paired import (
 )
 from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
-from neuralls.domain.solver.reporting.metrics import MetricId
+from neuralls.domain.solver.reporting.metrics import METRICS, MetricId, Unit
 from neuralls.domain.solver.reporting.observations import Outcome
 from neuralls.domain.solver.reporting.summary import Population, select, timing_noise
 from neuralls.platform.reporting.figure_card import (
@@ -77,14 +77,15 @@ _MEAN_STEMS = sorted(
 )
 _OWN_MEAN_STEMS = [stem for stem in _MEAN_STEMS if _BY_STEM[stem].population is Population.OWN]
 _COMMON_MEAN_STEMS = [stem for stem in _MEAN_STEMS if stem not in _OWN_MEAN_STEMS]
-_NO_INTERVAL_STEMS = sorted(set(_BY_STEM) - {"speed_ratio_cdf", *_MEAN_STEMS})
+_NO_INTERVAL_STEMS = sorted(set(_BY_STEM) - {"speed_ratio_cdf", "convergence_factor", *_MEAN_STEMS})
+_WHISKER_STEMS = [*_OWN_MEAN_STEMS, "convergence_factor"]
+"""Figures whose whiskers are matrix-cluster intervals of per-method means over their own systems."""
 
+_TIME_UNITS = frozenset({Unit.SECONDS, Unit.SECONDS_PER_ITERATION})
 _TIME_STEMS = sorted(
-    variant.stem for variant in _PROFILE_VARIANTS if variant.metric is not MetricId.ITERATIONS
+    variant.stem for variant in _PROFILE_VARIANTS if METRICS[variant.metric].unit in _TIME_UNITS
 )
-_ITERATION_STEMS = sorted(
-    variant.stem for variant in _PROFILE_VARIANTS if variant.metric is MetricId.ITERATIONS
-)
+_UNTIMED_STEMS = sorted(set(_BY_STEM) - set(_TIME_STEMS))
 
 
 def _payloads(
@@ -264,7 +265,7 @@ def test_the_matrix_heatmap_card_states_what_a_cell_is() -> None:
     )
 
 
-@pytest.mark.parametrize("stem", _OWN_MEAN_STEMS)
+@pytest.mark.parametrize("stem", _WHISKER_STEMS)
 def test_a_mean_card_states_the_matrix_cluster_bootstrap_of_its_whiskers(
     profile_report: RecipeProfileReport, payloads: dict[str, Payload], stem: str
 ) -> None:
@@ -337,7 +338,7 @@ def test_a_card_records_the_median_timing_spread_of_each_method_with_timed_solve
     assert _leaf_types(spread) == {float}
 
 
-@pytest.mark.parametrize("stem", _ITERATION_STEMS)
+@pytest.mark.parametrize("stem", _UNTIMED_STEMS)
 def test_a_card_of_a_metric_that_is_not_a_time_records_no_timing_evidence(
     single_repeat_payloads: dict[str, Payload], stem: str
 ) -> None:
