@@ -404,6 +404,7 @@ def duplicate_missing_summary_factory(
             n_converged=0,
             allocated_setup_s=0.0,
             solve_total_s=0.0,
+            failed_solve_s=0.0,
             workload_online_s=0.0,
             workload_peak_memory=unknown_workload_peak_memory,
             missing_system_ids=(SystemId("missing"), SystemId("missing")),
@@ -427,6 +428,7 @@ def inconsistent_complete_summary_factory(
             n_converged=1,
             allocated_setup_s=1.0,
             solve_total_s=2.0,
+            failed_solve_s=0.0,
             workload_online_s=3.01,
             workload_peak_memory=unknown_workload_peak_memory,
         )
@@ -636,6 +638,45 @@ def test_incomplete_workload_is_visible(
     assert isinstance(summary, IncompleteWorkloadSummary)
     assert (summary.n_planned_rhs, summary.n_attempted_rhs, summary.n_converged) == (6, 4, 3)
     assert summary.missing_system_ids == (SystemId("20-1"), SystemId("20-2"))
+
+
+def test_solve_time_splits_into_converged_systems_and_failed_attempts(
+    method: PreconditionerName,
+    unknown_workload_peak_memory: UnknownPeakMemory,
+    planned_systems: tuple[SystemTag, ...],
+    setup_events: tuple[MatrixSetupEvent, ...],
+    incomplete_attempts: tuple[SolveAttempt, ...],
+) -> None:
+    """A failed attempt's seconds are spent too; only a split keeps them from looking converged."""
+    summary = summarize_method_workload(
+        method,
+        planned_systems,
+        setup_events,
+        incomplete_attempts,
+        unknown_workload_peak_memory,
+    )
+
+    assert (summary.converged_solve_s, summary.failed_solve_s) == (7.0, 3.0)
+    assert summary.solve_total_s == 10.0
+
+
+def test_a_failed_time_above_the_solve_total_is_rejected(
+    method: PreconditionerName,
+    unknown_workload_peak_memory: UnknownPeakMemory,
+) -> None:
+    """Failed attempts are a part of the attempts, so their time cannot exceed the total."""
+    with pytest.raises(ValueError):
+        CompleteWorkloadSummary(
+            method=method,
+            n_planned_rhs=1,
+            n_attempted_rhs=1,
+            n_converged=0,
+            allocated_setup_s=1.0,
+            solve_total_s=2.0,
+            failed_solve_s=2.5,
+            workload_online_s=3.0,
+            workload_peak_memory=unknown_workload_peak_memory,
+        )
 
 
 def test_unattempted_workload_has_zero_solve_total(

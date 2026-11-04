@@ -29,6 +29,8 @@ def build_group_table(summaries: Iterable[MethodWorkloadSummary]) -> pl.DataFram
                 "n_attempted_rhs": summary.n_attempted_rhs,
                 "n_converged": summary.n_converged,
                 "allocated_setup_s": summary.allocated_setup_s,
+                "converged_solve_s": summary.converged_solve_s,
+                "failed_solve_s": summary.failed_solve_s,
                 "solve_total_s": summary.solve_total_s,
                 "workload_online_s": summary.workload_online_s,
             }

@@ -63,6 +63,7 @@ def build_matrix_bundle_frame(
             attempted_rhs_count=pl.len(),
             converged_rhs_count=(pl.col("solve_status") == "converged").sum(),
             solve_total_s=pl.col("solve_s").sum(),
+            failed_solve_s=pl.col("solve_s").filter(pl.col("solve_status") != "converged").sum(),
         )
     )
     return (
@@ -74,6 +75,7 @@ def build_matrix_bundle_frame(
             pl.col("attempted_rhs_count").fill_null(0),
             pl.col("converged_rhs_count").fill_null(0),
             pl.col("solve_total_s").fill_null(0.0),
+            pl.col("failed_solve_s").fill_null(0.0),
         )
         .with_columns(
             allocated_setup_s=pl.col("setup_s")
@@ -106,6 +108,7 @@ def summarize_method_workload(
     missing_ids = tuple(tag.system_id for tag in planned if tag.system_id not in attempted_ids)
     allocated_setup_s = fsum(bundles["allocated_setup_s"])
     solve_total_s = fsum(bundles["solve_total_s"])
+    failed_solve_s = fsum(bundles["failed_solve_s"])
     workload_online_s = fsum(
         setup_s + solve_s
         for setup_s, solve_s in zip(
@@ -121,6 +124,7 @@ def summarize_method_workload(
         "n_converged": n_converged,
         "allocated_setup_s": allocated_setup_s,
         "solve_total_s": solve_total_s,
+        "failed_solve_s": failed_solve_s,
         "workload_online_s": workload_online_s,
         "workload_peak_memory": workload_peak_memory,
     }

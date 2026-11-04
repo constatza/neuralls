@@ -29,7 +29,7 @@ from neuralls.domain.solver.reporting.summary import Population
 from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, FigureKind, Statistic
 from neuralls.platform.reporting.figure_planning import figure_summaries, group_recipe
 from neuralls.platform.reporting.group_drawers import FigureData
-from neuralls.platform.reporting.outcome_plots import GroupStyle
+from neuralls.platform.reporting.outcome_plots import GroupStyle, WorkloadTotal
 from neuralls.shared.types import DatasetId, PreconditionerName
 
 AMG = PreconditionerName("amg")
@@ -202,7 +202,7 @@ def test_the_paired_scatter_is_drawn_from_the_online_pairs_against_the_reference
 
     call = plot_calls.by_function["plot_paired_time_scatter"]
     (paired,) = _frames_of(call)
-    assert call.options["reference_name"] == AMG
+    assert (call.options["reference_name"], call.options["metric"]) == (AMG, MetricId.ONLINE_S)
     assert paired.select("system_id", "pair_kind", "reference_value", "method_value").rows() == [
         ("s0", PairKind.BOTH, 1.5, 4.5),
         ("s1", PairKind.REFERENCE_ONLY, 2.5, None),
@@ -293,22 +293,22 @@ def test_bar_figures_are_drawn_from_the_summary_frame_they_store(
 
 
 @pytest.mark.parametrize(
-    ("kind", "metric", "column"),
+    ("kind", "metric", "total"),
     [
-        (FigureKind.SOLVE_TIME, MetricId.SOLVE_S, "solve_total_s"),
-        (FigureKind.ONLINE_TIME, MetricId.ONLINE_S, "workload_online_s"),
+        (FigureKind.SOLVE_TIME, MetricId.SOLVE_S, WorkloadTotal.SOLVE),
+        (FigureKind.ONLINE_TIME, MetricId.ONLINE_S, WorkloadTotal.ONLINE),
     ],
 )
-def test_the_time_bars_draw_the_total_column_of_their_metric(
+def test_the_time_bars_draw_the_total_of_their_metric(
     report: RecipeProfileReport,
     plot_calls: PlotCalls,
     kind: FigureKind,
     metric: MetricId,
-    column: str,
+    total: WorkloadTotal,
 ) -> None:
     _draw(report, kind, metric)
 
-    assert plot_calls.by_function["plot_workload_bars"].options["column"] == column
+    assert plot_calls.by_function["plot_workload_bars"].options["total"] is total
 
 
 @pytest.mark.parametrize(

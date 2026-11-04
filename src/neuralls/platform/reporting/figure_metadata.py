@@ -103,10 +103,17 @@ WORKLOAD_TOTALS_SCHEMA: TableSchema = {
     "n_attempted_rhs": pl.Int64,
     "n_converged": pl.Int64,
     "allocated_setup_s": pl.Float64,
+    "converged_solve_s": pl.Float64,
+    "failed_solve_s": pl.Float64,
     "solve_total_s": pl.Float64,
     "workload_online_s": pl.Float64,
 }
-"""One row per method: workload totals, summed over its attempted systems."""
+"""One row per method: workload totals, summed over its attempted systems.
+
+``converged_solve_s + failed_solve_s`` is ``solve_total_s`` and adding ``allocated_setup_s`` gives
+``workload_online_s``; setup is one event per matrix shared by all its RHS, so it is not split by
+outcome.
+"""
 
 TABLE_SCHEMAS: Mapping[TableKind, TableSchema] = {
     TableKind.SUMMARY: SUMMARY_SCHEMA,

@@ -24,6 +24,11 @@ from neuralls.domain.presentation.render import render_distinct_methods, render_
 from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.domain.presentation.titles import ComparisonTitle
 from neuralls.domain.solver.models.figure_scope import FigureScope, render_figure_scope
+from neuralls.platform.reporting.figure_evidence import (
+    NoSharedSetup,
+    SetupSharedOverRhs,
+    SetupSharing,
+)
 from neuralls.platform.tracking.run_names import render_training_label
 from neuralls.shared.scientific_description.policy import (
     LEGEND_PROFILE,
@@ -48,6 +53,7 @@ __all__ = [
     "method_legend",
     "scope_label",
     "series_legend",
+    "setup_sharing_note",
     "title_text",
     "training_legend",
     "wrap_at_boundaries",
@@ -282,6 +288,39 @@ def title_text(title: FigureTitle) -> str:
             return text if size is None else f"{text}\nN={size}"
         case _:
             assert_never(title)
+
+
+SETUP_SHARED_TEXT = "each matrix's setup is shared by its r_m planned RHS"
+"""What an online time divides: one matrix setup over the right-hand sides planned on it."""
+
+MAX_LISTED_RHS_COUNTS = 4
+"""Most distinct r_m values listed one by one; more are stated as their range."""
+
+
+def setup_sharing_note(sharing: SetupSharing) -> str | None:
+    """The line a figure draws about its shared setup, or ``None`` when its metric shares none.
+
+    It is rendered from the same record the figure's card stores, so the two cannot disagree.
+    When the matrices of a figure have different r_m the note lists them, or gives their range
+    when there are many, instead of one representative count.
+    """
+    match sharing:
+        case NoSharedSetup():
+            return None
+        case SetupSharedOverRhs(rhs_counts=()):
+            return SETUP_SHARED_TEXT
+        case SetupSharedOverRhs(rhs_counts=(count,)):
+            return f"{SETUP_SHARED_TEXT}, r_m = {count}"
+        case SetupSharedOverRhs(rhs_counts=counts) if len(counts) <= MAX_LISTED_RHS_COUNTS:
+            listed = ", ".join(str(count) for count in counts[:-1])
+            return f"{SETUP_SHARED_TEXT}, r_m = {listed} or {counts[-1]} (varies by matrix)"
+        case SetupSharedOverRhs(rhs_counts=counts):
+            return (
+                f"{SETUP_SHARED_TEXT}, r_m from {counts[0]} to {counts[-1]} over "
+                f"{len(counts)} values (varies by matrix)"
+            )
+        case unreachable:
+            assert_never(unreachable)
 
 
 @dataclass(frozen=True, slots=True)

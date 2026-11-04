@@ -9,38 +9,44 @@ and points themselves are frames from `domain.benchmarking.profiles` and
 `domain.benchmarking.paired`; this module only draws them.
 
 Profiles and scatters use amortized online seconds: solve plus the planned share of the
-matrix setup event. The time bars show workload online totals: all matrix setups plus all
-solves, not a per-system share.
+matrix setup event. The time bars show workload totals: all matrix setups plus all solves, not a
+per-system share, stacked so the seconds spent on attempts that failed are not read as cheap
+converged solves.
 """
 
 from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, assert_never
 
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
 from matplotlib.axes import Axes
+from matplotlib.patches import Patch
 
 from neuralls.domain.benchmarking.paired import PairKind
 from neuralls.domain.benchmarking.profiles import ProfileSeries
 from neuralls.domain.solver.models.figure_scope import FigureScope
+from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
+from neuralls.platform.reporting.figure_evidence import SetupSharing
 from neuralls.platform.reporting.figure_text import (
     LEGEND_FONT_SIZE,
     Legend,
     ScopeSubtitle,
     draw_legend,
+    setup_sharing_note,
 )
 from neuralls.platform.reporting.plots import finish_group_figure, group_series_styles
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import PreconditionerName
 
-_FAILED_AXIS_MARGIN = 1.6
-"""Factor above the slowest solved run at which failures are drawn; a position on the
-axis marking "did not converge", not a time."""
+FAILED_AXIS_MARGIN = 1.6
+"""Factor above the slowest solved run at which failures are drawn, and below the fastest at
+which the log axes start; the upper one is a position marking "did not converge", not a time."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,11 +54,13 @@ class GroupStyle:
     """How a group's preconditioners are titled and drawn, shared by every plot here.
 
     ``title`` is fixed editorial wording; the subtitle is the typed ``scope`` rendered
-    when a figure is drawn, and every series is named by ``legend``.
+    when a figure is drawn, followed by what ``setup_sharing`` (the record the figure's card
+    stores) says about the setup the metric divides, and every series is named by ``legend``.
     """
 
     title: str
     scope: FigureScope
+    setup_sharing: SetupSharing
     notation: NotationPolicy
     legend: Legend
     families: Mapping[str, Hashable]
@@ -61,8 +69,13 @@ class GroupStyle:
 
     @property
     def subtitle(self) -> str:
-        """The scope under the title, rendered for this style's notation."""
-        return ScopeSubtitle(self.scope, self.notation).text
+        """The scope under the title, and the shared setup when the metric divides one."""
+        scope = ScopeSubtitle(self.scope, self.notation).text
+        match setup_sharing_note(self.setup_sharing):
+            case None:
+                return scope
+            case note:
+                return f"{scope}\n{note}"
 
 
 _BAR_AREA_WIDTH_IN = 6.0
@@ -289,22 +302,83 @@ def plot_ecdf_profile(
     )
 
 
-type TotalColumn = Literal["solve_total_s", "workload_online_s"]
-"""The column of a workload-totals table a bar figure draws."""
+class WorkloadTotal(StrEnum):
+    """The workload total a bar figure draws, named by its workload-totals column."""
+
+    SOLVE = "solve_total_s"
+    ONLINE = "workload_online_s"
+
+
+class BarSegment(StrEnum):
+    """One stacked part of a workload bar, named by the workload-totals column it draws."""
+
+    SETUP = "allocated_setup_s"
+    CONVERGED = "converged_solve_s"
+    FAILED = "failed_solve_s"
+
+
+def workload_segments(total: WorkloadTotal) -> tuple[BarSegment, ...]:
+    """The columns stacked, left to right, into a bar of ``total``; they sum to it.
+
+    Setup is its own segment: one setup event serves every RHS of a matrix, converged or not,
+    so it belongs to neither solve outcome.
+    """
+    match total:
+        case WorkloadTotal.SOLVE:
+            return (BarSegment.CONVERGED, BarSegment.FAILED)
+        case WorkloadTotal.ONLINE:
+            return (BarSegment.SETUP, BarSegment.CONVERGED, BarSegment.FAILED)
+        case unreachable:
+            assert_never(unreachable)
+
+
+@dataclass(frozen=True, slots=True)
+class _SegmentLook:
+    """How a segment is filled: the method colour at ``alpha``, hatched when ``hatch`` is set."""
+
+    label: str
+    alpha: float
+    hatch: str | None
+
+
+def _segment_look(segment: BarSegment) -> _SegmentLook:
+    match segment:
+        case BarSegment.SETUP:
+            return _SegmentLook("matrix setup", 0.35, None)
+        case BarSegment.CONVERGED:
+            return _SegmentLook("solves that converged", 1.0, None)
+        case BarSegment.FAILED:
+            return _SegmentLook("attempts that failed", 0.25, "///")
+        case unreachable:
+            assert_never(unreachable)
+
+
+def workload_bar_label(*, n_converged: int, n_attempted: int, n_planned: int) -> str:
+    """The count beside a workload bar: converged of planned, and attempted when short of it."""
+    converged = f"{n_converged}/{n_planned} converged"
+    if n_attempted < n_planned:
+        return f"{converged}, {n_attempted}/{n_planned} attempted"
+    return converged
+
+
+_SEGMENT_KEY_COLOR = "gray"
+"""Colour of the segment key; the bars themselves carry each method's colour."""
 
 
 def plot_workload_bars(
     totals: pl.DataFrame,
     *,
-    column: TotalColumn,
+    total: WorkloadTotal,
     xlabel: str,
     style: GroupStyle,
     save_path: Path,
 ) -> Path | None:
-    """Draw one workload total per method; a total is not a per-system amortized share.
+    """Draw one workload total per method, stacked by ``workload_segments``.
 
-    ``totals`` is the workload-totals table. A method that attempted fewer systems than were
-    planned is marked incomplete, so its short total is not read as a cheap one.
+    ``totals`` is the workload-totals table and every segment is one of its columns. A total is
+    not a per-system amortized share. The seconds of failed attempts are a hatched segment and
+    the count beside each bar says how many planned RHS converged, so a method that fails fast
+    is not read as a cheap one.
     """
     if totals.height == 0:
         return None
@@ -312,19 +386,39 @@ def plot_workload_bars(
     names = [row["method_id"] for row in rows]
     styles = _series_styles(names, style)
     labels = [style.legend.label(name) for name in names]
-    values = [row[column] for row in rows]
+    colors = [styles[name]["color"] for name in names]
     fig, ax = plt.subplots(figsize=_bar_figure_size(labels))
     positions = np.arange(len(names))
-    bars = ax.barh(positions, values, color=[styles[name]["color"] for name in names])
-    ax.set_yticks(positions, labels, fontsize=LEGEND_FONT_SIZE)
-    for bar, row in zip(bars, rows, strict=True):
-        suffix = " (incomplete)" if row["n_attempted_rhs"] < row["n_planned_rhs"] else ""
-        ax.text(
-            bar.get_width(),
-            bar.get_y() + bar.get_height() / 2,
-            f" {row['n_converged']}/{row['n_planned_rhs']}{suffix}",
-            va="center",
+    left = np.zeros(len(names))
+    segments = workload_segments(total)
+    for segment in segments:
+        look = _segment_look(segment)
+        widths = np.asarray([row[segment.value] for row in rows], dtype=np.float64)
+        ax.barh(
+            positions,
+            widths,
+            left=left,
+            color=colors,
+            alpha=look.alpha,
+            hatch=look.hatch,
+            edgecolor=colors,
         )
+        left = left + widths
+    ax.set_yticks(positions, labels, fontsize=LEGEND_FONT_SIZE)
+    for position, end, row in zip(positions, left, rows, strict=True):
+        count = workload_bar_label(
+            n_converged=row["n_converged"],
+            n_attempted=row["n_attempted_rhs"],
+            n_planned=row["n_planned_rhs"],
+        )
+        ax.text(end, position, f" {count}", va="center")
+    ax.legend(
+        handles=[_segment_key(segment) for segment in segments],
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.12),
+        ncols=len(segments),
+        fontsize=LEGEND_FONT_SIZE,
+    )
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Method")
     ax.grid(True, axis="x", alpha=0.3)
@@ -340,38 +434,68 @@ def plot_workload_bars(
     return save_path
 
 
-def _paired_axes_limits(times: Sequence[float]) -> tuple[float, float, float]:
-    """Linear non-negative shared axis and its failure-marker position."""
-    high = max(times)
-    upper = high * _FAILED_AXIS_MARGIN if high > 0 else 1.0
-    return 0.0, upper, upper
+def _segment_key(segment: BarSegment) -> Patch:
+    look = _segment_look(segment)
+    return Patch(
+        facecolor=_SEGMENT_KEY_COLOR,
+        edgecolor=_SEGMENT_KEY_COLOR,
+        alpha=look.alpha,
+        hatch=look.hatch,
+        label=look.label,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class PairedLogAxes:
+    """The shared log range of both scatter axes and where a failed run is drawn on them."""
+
+    low: float
+    high: float
+    edge: float
+
+
+def paired_log_axes(times: Sequence[float]) -> PairedLogAxes | None:
+    """Axes spanning the positive ``times`` with a margin, or ``None`` when there are none.
+
+    A log axis cannot place a time of 0, so such a time neither sets the range nor is drawn.
+    The upper end is the failure position, so a hollow marker sits on the axis edge.
+    """
+    positive = [time for time in times if time > 0]
+    if not positive:
+        return None
+    high = max(positive) * FAILED_AXIS_MARGIN
+    return PairedLogAxes(low=min(positive) / FAILED_AXIS_MARGIN, high=high, edge=high)
 
 
 def plot_paired_time_scatter(
     paired: pl.DataFrame,
     *,
     reference_name: PreconditionerName,
+    metric: MetricId,
     style: GroupStyle,
     save_path: Path,
 ) -> Path | None:
-    """Time of each method against the reference method's time, system by system.
+    """Time of each method against the reference method's time, system by system, on log axes.
 
-    ``paired`` is a ``paired_systems`` frame of the amortized online time. The reference is the
-    method explicitly selected in configuration. A point below the diagonal is a system on
-    which the method beat the reference. Where only one of the two failed the
-    point sits on the failing axis's edge as a hollow marker; where both
-    failed there is nothing to compare and the system is not in the frame. Both axes use
-    amortized online time: solve plus the system's planned share of matrix setup.
+    ``paired`` is a ``paired_systems`` frame of ``metric``. The reference is the method explicitly
+    selected in configuration. A point below the diagonal is a system on which the method beat
+    the reference. Log axes keep systems that differ by orders of magnitude apart and put equal
+    speed ratios at equal distances from the diagonal. Where only one of the two failed the point
+    sits on the failing axis's upper edge as a hollow marker; where both failed there is nothing
+    to compare and the system is not in the frame.
     """
     all_times = pl.concat([paired["reference_value"], paired["method_value"]]).drop_nulls()
-    if all_times.len() == 0:
+    axes = paired_log_axes(all_times.to_list())
+    if axes is None:
         return None
-    low, high, edge = _paired_axes_limits(all_times.to_list())
     others = paired["method"].unique().sort().to_list()
     styles = _series_styles(others, style)
+    label = METRICS[metric].label
 
     fig, ax = plt.subplots(figsize=(6.5, 6.5))
-    ax.plot([low, high], [low, high], color="gray", linewidth=1, linestyle="--")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.plot([axes.low, axes.high], [axes.low, axes.high], color="gray", linewidth=1, linestyle="--")
     for name in others:
         pairs = paired.filter(pl.col("method") == name)
         both = pairs.filter(pl.col("pair_kind") == PairKind.BOTH.value)
@@ -386,7 +510,7 @@ def plot_paired_time_scatter(
         )  # fmt: skip
         _hollow(
             ax,
-            [edge] * method_only.height,
+            [axes.edge] * method_only.height,
             method_only["method_value"].to_list(),
             color=color,
             marker=marker,
@@ -394,18 +518,18 @@ def plot_paired_time_scatter(
         _hollow(
             ax,
             reference_only["reference_value"].to_list(),
-            [edge] * reference_only.height,
+            [axes.edge] * reference_only.height,
             color=color,
             marker=marker,
         )
+    ax.set_xlim(axes.low, axes.high)
+    ax.set_ylim(axes.low, axes.high)
     ax.set_aspect("equal", adjustable="box")
-    ax.set_xlim(low, high)
-    ax.set_ylim(low, high)
     ax.set_xlabel(
-        f"{style.legend.label(reference_name)} (reference): amortized online time [s]"
+        f"{style.legend.label(reference_name)} (reference): {label}"
         "\nhollow markers: the other axis's run did not converge"
     )
-    ax.set_ylabel("Method: amortized online time [s]")
+    ax.set_ylabel(f"Method: {label}")
     ax.grid(True, which="both", alpha=0.3)
     _legend_outside(ax, style.legend)
     finish_group_figure(

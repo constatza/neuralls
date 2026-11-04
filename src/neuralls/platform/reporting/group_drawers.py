@@ -22,11 +22,11 @@ from neuralls.domain.benchmarking.paired import (
 )
 from neuralls.domain.benchmarking.profiles import ProfileSeries, ecdf_series, performance_series
 from neuralls.domain.benchmarking.selection import ReferenceSelection
-from neuralls.domain.solver.reporting.metrics import MetricId
+from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.platform.reporting.figure_metadata import Statistic
 from neuralls.platform.reporting.outcome_plots import (
     GroupStyle,
-    TotalColumn,
+    WorkloadTotal,
     plot_aggregate_bars,
     plot_ecdf_profile,
     plot_paired_time_scatter,
@@ -77,8 +77,7 @@ type _SeriesOf = Callable[[pl.DataFrame, MetricId], ProfileSeries]
 
 _ITERATIONS_XLABEL: Mapping[MetricId, str] = {MetricId.ITERATIONS: "Iterations"}
 _TIME_XLABELS: Mapping[MetricId, str] = {
-    MetricId.SOLVE_S: "Solve time per system [s]",
-    MetricId.ONLINE_S: "Amortized online time per system [s]",
+    metric: METRICS[metric].label.capitalize() for metric in (MetricId.SOLVE_S, MetricId.ONLINE_S)
 }
 
 
@@ -91,10 +90,10 @@ def _profile_series(data: FigureData, series_of: _SeriesOf) -> ProfileSeries:
     return replace(series_of(data.observations, data.metric), frame=data.summary)
 
 
-def _time_bars(column: TotalColumn, xlabel: str) -> GroupDrawer:
+def _time_bars(total: WorkloadTotal, xlabel: str) -> GroupDrawer:
     def drawer(data: FigureData, path: Path) -> Path | None:
         return plot_workload_bars(
-            data.summary, column=column, xlabel=xlabel, style=data.style, save_path=path
+            data.summary, total=total, xlabel=xlabel, style=data.style, save_path=path
         )
 
     return drawer
@@ -128,7 +127,11 @@ def _paired_scatter(data: FigureData, path: Path) -> Path | None:
             return None
         case reference:
             return plot_paired_time_scatter(
-                data.summary, reference_name=reference, style=data.style, save_path=path
+                data.summary,
+                reference_name=reference,
+                metric=data.metric,
+                style=data.style,
+                save_path=path,
             )
 
 
@@ -189,9 +192,9 @@ def _matrix_heatmap(data: FigureData, path: Path) -> Path | None:
 
 
 AGGREGATE_BARS_DRAWER: GroupDrawer = _aggregate_bars
-SOLVE_TIME_BARS_DRAWER: GroupDrawer = _time_bars("solve_total_s", "Solve time [s]")
+SOLVE_TIME_BARS_DRAWER: GroupDrawer = _time_bars(WorkloadTotal.SOLVE, "Solve time [s]")
 ONLINE_TIME_BARS_DRAWER: GroupDrawer = _time_bars(
-    "workload_online_s", "Total online workload time [s]"
+    WorkloadTotal.ONLINE, "Total online workload time [s]"
 )
 PAIRED_TIME_DRAWER: GroupDrawer = _paired_scatter
 SPEED_RATIO_DRAWER: GroupDrawer = _speed_ratio

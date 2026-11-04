@@ -216,6 +216,7 @@ def group(group_observations: pl.DataFrame) -> RecipeProfileReport:
                 n_converged=3,
                 allocated_setup_s=2.0,
                 solve_total_s=7.0,
+                failed_solve_s=1.0,
                 workload_online_s=9.0,
                 workload_peak_memory=UnknownPeakMemory(),
             ),

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import polars as pl
 import pytest
+from polars.testing import assert_frame_equal
 
 from neuralls.domain.solver.models.benchmark_events import UnknownPeakMemory
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary, MethodWorkloadSummary
@@ -27,7 +28,9 @@ from neuralls.platform.reporting.figure_table import (
 from neuralls.shared.types import PreconditionerName
 
 
-def _summary(name: str, converged: int, setup: float, solve: float) -> MethodWorkloadSummary:
+def _summary(
+    name: str, converged: int, setup: float, solve: float, failed: float
+) -> MethodWorkloadSummary:
     return CompleteWorkloadSummary(
         method=PreconditionerName(name),
         n_planned_rhs=4,
@@ -35,6 +38,7 @@ def _summary(name: str, converged: int, setup: float, solve: float) -> MethodWor
         n_converged=converged,
         allocated_setup_s=setup,
         solve_total_s=solve,
+        failed_solve_s=failed,
         workload_online_s=setup + solve,
         workload_peak_memory=UnknownPeakMemory(),
     )
@@ -42,7 +46,14 @@ def _summary(name: str, converged: int, setup: float, solve: float) -> MethodWor
 
 @pytest.fixture
 def summaries() -> tuple[MethodWorkloadSummary, ...]:
-    return (_summary("pcg_jacobi", 3, 0.5, 2.0), _summary("amg", 4, 1.0, 1.5))
+    """``pcg_jacobi`` spent 0.75 of its 2 solve seconds on its one failed attempt."""
+    return (_summary("pcg_jacobi", 3, 0.5, 2.0, 0.75), _summary("amg", 4, 1.0, 1.5, 0.0))
+
+
+@pytest.fixture
+def only_failures() -> MethodWorkloadSummary:
+    """A method whose four attempts all failed, after 3 seconds of solving."""
+    return _summary("broken", 0, 1.0, 3.0, 3.0)
 
 
 def test_table_has_one_row_per_method_ordered_by_id(
@@ -58,6 +69,8 @@ def test_table_has_one_row_per_method_ordered_by_id(
             "n_attempted_rhs": 4,
             "n_converged": 4,
             "allocated_setup_s": 1.0,
+            "converged_solve_s": 1.5,
+            "failed_solve_s": 0.0,
             "solve_total_s": 1.5,
             "workload_online_s": 2.5,
         },
@@ -67,9 +80,35 @@ def test_table_has_one_row_per_method_ordered_by_id(
             "n_attempted_rhs": 4,
             "n_converged": 3,
             "allocated_setup_s": 0.5,
+            "converged_solve_s": 1.25,
+            "failed_solve_s": 0.75,
             "solve_total_s": 2.0,
             "workload_online_s": 2.5,
         },
+    ]
+
+
+def test_the_converged_and_failed_solve_times_sum_to_the_totals(
+    summaries: tuple[MethodWorkloadSummary, ...], only_failures: MethodWorkloadSummary
+) -> None:
+    table = build_group_table((*summaries, only_failures))
+
+    split = table.select(
+        "method_id",
+        solve=pl.col("converged_solve_s") + pl.col("failed_solve_s"),
+        online=pl.col("allocated_setup_s") + pl.col("converged_solve_s") + pl.col("failed_solve_s"),
+    )
+    totals = table.select("method_id", solve="solve_total_s", online="workload_online_s")
+    assert_frame_equal(split, totals)
+
+
+def test_a_method_with_only_failures_has_no_converged_solve_time(
+    only_failures: MethodWorkloadSummary,
+) -> None:
+    table = build_group_table((only_failures,))
+
+    assert table.select("n_converged", "converged_solve_s", "failed_solve_s").rows() == [
+        (0, 0.0, 3.0)
     ]
 
 

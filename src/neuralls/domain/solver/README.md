@@ -128,6 +128,11 @@ $$t^{\mathrm{online}}_{p,s} = t^{\mathrm{solve}}_{p,s} + \frac{t^{\mathrm{setup}
 
 $$T^{\mathrm{solve}}_p = \sum_{s \in \mathcal{A}_p} t^{\mathrm{solve}}_{p,s}, \qquad T^{\mathrm{online}}_p = \sum_{m} t^{\mathrm{setup}}_{p,m} + T^{\mathrm{solve}}_p \quad\text{(workload totals; failed attempts keep their time)}$$
 
+$$T^{\mathrm{solve}}_p = \underbrace{\sum_{s \in \mathcal{C}_p} t^{\mathrm{solve}}_{p,s}}_{\texttt{converged\_solve\_s}} + \underbrace{\sum_{s \in \mathcal{A}_p \setminus \mathcal{C}_p} t^{\mathrm{solve}}_{p,s}}_{\texttt{failed\_solve\_s}}$$
+
+A `MethodWorkloadSummary` stores `failed_solve_s` beside `solve_total_s` and derives `converged_solve_s`; the setup
+sum is not split by outcome, since one setup per matrix serves all its RHS.
+
 A mean of $t^{\mathrm{online}}$ over converged systems is **not** $T^{\mathrm{online}}_p/|\mathcal{S}|$: a failed system's setup share is simply missing.
 
 **Populations** for a metric $x$ defined on a set $\mathcal{D}_x$ of outcomes: $\mathcal{P}^{\mathrm{own}}_p = \{ s : \mathrm{outcome}_{p,s} \in \mathcal{D}_x \}$ and $\mathcal{P}^{\mathrm{common}} = \bigcap_{p'} \mathcal{P}^{\mathrm{own}}_{p'}$; $\mathcal{P}_{p,m}$ = its systems on matrix $m$, $\mathcal{M}_{\mathcal{P}} = \{ m : \mathcal{P}_{p,m} \neq \emptyset \}$. `Population.OWN` and `Population.COMMON` select them.

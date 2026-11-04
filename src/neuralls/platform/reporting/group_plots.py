@@ -43,6 +43,7 @@ class GroupStyler:
         return GroupStyle(
             title=plan.title,
             scope=plan.metadata.scope,
+            setup_sharing=plan.metadata.setup_sharing,
             notation=self.notation,
             legend=method_legend(
                 {name: method.compact for name, method in self.presentation.methods.items()},

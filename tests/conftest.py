@@ -45,6 +45,7 @@ from neuralls.domain.presentation.titles import ComparisonScopePresentation, Edi
 from neuralls.domain.solver.models.figure_scope import AllDatasetsScope
 from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.platform.reporting.figure_evidence import NoSharedSetup, SetupSharing
 from neuralls.platform.reporting.figure_text import Legend, method_legend
 from neuralls.platform.reporting.outcome_plots import GroupStyle
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
@@ -685,16 +686,23 @@ def group_datasets(
     return {DatasetId("ds"): dataset_presentation}
 
 
+NO_SHARED_SETUP = NoSharedSetup()
+"""The setup sharing of a group style whose test does not draw an online metric."""
+
+
 @pytest.fixture
 def group_style_of(
     notation: NotationPolicy, legend_of: Callable[..., Legend]
 ) -> Callable[..., GroupStyle]:
     """Build the style of a group figure whose series are the given method names."""
 
-    def build(*names: str, title: str = "group") -> GroupStyle:
+    def build(
+        *names: str, title: str = "group", setup_sharing: SetupSharing = NO_SHARED_SETUP
+    ) -> GroupStyle:
         return GroupStyle(
             title=title,
             scope=AllDatasetsScope(),
+            setup_sharing=setup_sharing,
             notation=notation,
             legend=legend_of(*names),
             families={},

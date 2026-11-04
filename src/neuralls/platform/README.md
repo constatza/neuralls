@@ -113,7 +113,12 @@ colour, marker and linestyle from the recorded families and colour/marker keys)
 and `finish_group_figure` (title, subtitle, save, close). A preconditioner thus
 looks the same in every plot. Their legends are rendered from the group's method presentations
 (`GroupStyle.legend`) and append explicit success counts; a `GroupStyle` is the fixed
-title, the typed `scope` (rendered as the subtitle), the legend and the series style maps. The per-run convergence plots also come in solve-only variants
+title, the typed `scope` (rendered as the subtitle), the figure's `setup_sharing` record, the legend and the series
+style maps. `GroupStyler.style` copies `setup_sharing` from the plan's metadata, the record the card stores as `r_m`,
+and the subtitle adds `figure_text.setup_sharing_note` of it under the scope: for every `online_s` figure (bars, ECDF,
+performance profile, paired scatter, speed ratio, means, distribution) "each matrix's setup is shared by its r_m
+planned RHS, r_m = 4", with the distinct values ("r_m = 2 or 4 (varies by matrix)") or, past four values, their range
+when matrices differ, and nothing for a metric that shares no setup, so the drawn text and the card cannot disagree. The per-run convergence plots also come in solve-only variants
 (`solve_only=True`) whose curves all start at t=0. `MLflowReportSink.report`
 takes the aggregated group plus a `GroupPresentation` and logs it into the nested run of the
 group's report scope; figure file names are slugs of the rendered scope (see the figure-card
@@ -138,15 +143,21 @@ notation, legend and the family/colour/marker mappings). A failed run is never g
 
 - `plot_aggregate_bars` (`aggregate_bars_*`): converged systems per method from the `summary` table of the
   iteration metric (defined systems are the converged ones); the label reads converged/attempted/planned.
-- `plot_workload_bars` (`solve_time_bars_*`, `online_time_bars_*`): one workload total per method from the
-  workload-totals table, the `solve_total_s` or `workload_online_s` column chosen by the kind's drawer in
-  `group_drawers.py` ("Solve time [s]", "Total online workload time [s]"); a method with fewer attempted than planned
-  systems is marked incomplete. These are totals, not per-system amortized shares.
+- `plot_workload_bars` (`solve_time_bars_*`, `online_time_bars_*`): one stacked workload total per method from
+  the workload-totals table, the `WorkloadTotal` (`solve_total_s` or `workload_online_s`) chosen by the kind's drawer
+  in `group_drawers.py` ("Solve time [s]", "Total online workload time [s]"). `workload_segments` names the columns
+  stacked: `converged_solve_s` then `failed_solve_s` (hatched) for solve time, preceded by `allocated_setup_s` for
+  online time. Setup is its own segment because one setup event serves every RHS of a matrix, converged or not. The
+  label beside each bar (`workload_bar_label`) reads "k/n converged" of the planned RHS, followed by "a/n attempted"
+  when fewer were attempted, so a method that fails fast is not read as cheap. These are totals, not per-system
+  amortized shares.
   Numeric bar positions pair each bar with its method; the legend guarantees distinct texts.
 - `plot_paired_time_scatter` (`paired_time_scatter_*`): draws a `paired_systems` frame of the amortized
-  online time of each method against the reference; hollow markers sit on the axis of the run that
-  failed (`method_only` and `reference_only` rows), and a system neither side solved is not in the frame.
-  Zero-time solved coordinates remain valid on these linear axes.
+  online time of each method against the reference on equal log-log axes, labelled with the catalog label of the
+  metric, with the diagonal; `paired_log_axes` spans the positive times with a factor `FAILED_AXIS_MARGIN` either
+  side, and hollow markers sit on the upper edge of the axis of the run that failed (`method_only` and
+  `reference_only` rows). A system neither side solved is not in the frame, and a time of 0, which a log axis
+  cannot place, is not drawn.
 - `plot_performance_profile` (`performance_profile_solve_*`, `performance_profile_online_*`): Dolan-Moré profiles for solve-only and amortized-online time
   (Math. Program. 91, 2002), drawn from `performance_series`. When systems were left out because the
   best value on them is 0, the legend ends with "N systems excluded: best value is 0"
@@ -273,7 +284,7 @@ short stems `residual_history` and `energy_history`. A card is the single record
 presentation, config digest), `[counts]`, `[reference]`, `[[parameters]]` (one table per solver context:
 tolerances, iteration limits, timing repeats, normalization) and `[source]` (the session run id and, per
 method child run, the artifact paths its numbers came from). `FigureCard` is the validated immutable value;
-`write_figure_card`, `read_figure_card` and `validate_figure_card` round-trip it. Group figures (`figure_metadata.GROUP_FIGURE_KINDS`, every kind but the two histories) also carry a **table** `<stem>.parquet` in the same directory: the frame the figure draws (`SUMMARY_SCHEMA` rows for the bars of converged counts, `PROFILE_SERIES_SCHEMA` rows for ECDFs and performance profiles, `PAIRED_SCHEMA` rows for the paired scatter, `SPEED_RATIO_SCHEMA` rows for the speed-ratio CDF, `COST_CURVE_SCHEMA` rows for the break-even curves, `COHORT_SUMMARY_SCHEMA` rows for the mean bars, the convergence factors and the distributions and `COHORT_RATIO_OF_SUMS_SCHEMA` rows for time per iteration (both by recipe cohort, with the pooled `mixture` block at a mixture level), `MATRIX_BREAKDOWN_SCHEMA` rows, exactly the cells drawn, for the matrix heatmap, and for the sum bars `reporting/figure_table.py::build_group_table` rows of workload totals with `method_id`, `n_planned_rhs`, `n_attempted_rhs`, `n_converged`, `allocated_setup_s`, `solve_total_s`, `workload_online_s`), so a paper table and the figure cannot disagree. The card names it in its `table` and `table_kind` entries; the recipe alone decides whether one exists and of which kind (`figure_planning.table_of` returns `SiblingTable(name, kind)` or `NoTable`, so the card cannot disagree), the uploader refuses a table whose schema is not its kind's (`figure_table.check_table_kind`), `read_group_table(path, kind)` reads a stored table back only as that kind and raises `InvalidFigureTableError` otherwise, and `verify_figure_records` additionally requires a parquet for exactly the figures whose card names one. `tracking/scope_params.py::scope_params` logs each non-root scope run's identity as MLflow params (`report_level`; `dataset_id` from matrix-set level down; `recipe_key` (the lossless `recipe_key`) from cohort level down; `matrix_id` and `rhs_ordinal` for a system), and the report workflow logs `report_level` on the root run; solver settings and anything else varying between figures of one run stay in the cards. `figure_index.toml`
+`write_figure_card`, `read_figure_card` and `validate_figure_card` round-trip it. Group figures (`figure_metadata.GROUP_FIGURE_KINDS`, every kind but the two histories) also carry a **table** `<stem>.parquet` in the same directory: the frame the figure draws (`SUMMARY_SCHEMA` rows for the bars of converged counts, `PROFILE_SERIES_SCHEMA` rows for ECDFs and performance profiles, `PAIRED_SCHEMA` rows for the paired scatter, `SPEED_RATIO_SCHEMA` rows for the speed-ratio CDF, `COST_CURVE_SCHEMA` rows for the break-even curves, `COHORT_SUMMARY_SCHEMA` rows for the mean bars, the convergence factors and the distributions and `COHORT_RATIO_OF_SUMS_SCHEMA` rows for time per iteration (both by recipe cohort, with the pooled `mixture` block at a mixture level), `MATRIX_BREAKDOWN_SCHEMA` rows, exactly the cells drawn, for the matrix heatmap, and for the sum bars `reporting/figure_table.py::build_group_table` rows of workload totals with `method_id`, `n_planned_rhs`, `n_attempted_rhs`, `n_converged`, `allocated_setup_s`, `converged_solve_s`, `failed_solve_s`, `solve_total_s`, `workload_online_s`; converged plus failed is the solve total, and adding the setup gives the online total), so a paper table and the figure cannot disagree. The card names it in its `table` and `table_kind` entries; the recipe alone decides whether one exists and of which kind (`figure_planning.table_of` returns `SiblingTable(name, kind)` or `NoTable`, so the card cannot disagree), the uploader refuses a table whose schema is not its kind's (`figure_table.check_table_kind`), `read_group_table(path, kind)` reads a stored table back only as that kind and raises `InvalidFigureTableError` otherwise, and `verify_figure_records` additionally requires a parquet for exactly the figures whose card names one. `tracking/scope_params.py::scope_params` logs each non-root scope run's identity as MLflow params (`report_level`; `dataset_id` from matrix-set level down; `recipe_key` (the lossless `recipe_key`) from cohort level down; `matrix_id` and `rhs_ordinal` for a system), and the report workflow logs `report_level` on the root run; solver settings and anything else varying between figures of one run stay in the cards. `figure_index.toml`
 (`reporting/figure_index.py`, written once to the root run's artifact root in `finalize`) lists only
 `run_id`, `artifact_path`, `card`, `kind`, `level` and `scope` per figure, derived from the cards; before it is
 written `verify_figure_records` raises unless every uploaded PNG has a same-stem card naming it and the index
