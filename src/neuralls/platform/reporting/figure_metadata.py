@@ -16,6 +16,10 @@ from neuralls.domain.benchmarking.selection import ReferenceSelection
 from neuralls.domain.presentation.methods import ConfiguredMethodPresentation
 from neuralls.domain.solver.models.figure_scope import FigureScope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
+from neuralls.domain.solver.reporting.cohorts import (
+    COHORT_RATIO_OF_SUMS_SCHEMA,
+    COHORT_SUMMARY_SCHEMA,
+)
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.domain.solver.reporting.summary import SUMMARY_SCHEMA, Population
@@ -43,6 +47,10 @@ class FigureKind(StrEnum):
     ECDF_ITERATIONS = "ecdf_iterations"
     ECDF_TIME = "ecdf_time"
     SPEED_RATIO = "speed_ratio"
+    ITERATION_MEANS = "iteration_means"
+    TIME_MEANS = "time_means"
+    SETUP_MEANS = "setup_means"
+    TIME_PER_ITERATION = "time_per_iteration"
     RESIDUAL_HISTORY = "residual_history"
     ENERGY_HISTORY = "energy_history"
 
@@ -63,6 +71,8 @@ class TableKind(StrEnum):
     ``PAIRED`` holds the per-system pairs of a scatter, ``SUMMARY`` one row of statistics per
     method, ``SERIES`` the points of a step curve, ``SPEED_RATIO`` one row of ratio statistics per
     compared method and ``WORKLOAD_TOTALS`` one row of workload sums per method.
+    ``COHORT_SUMMARY`` and ``COHORT_RATIO_OF_SUMS`` hold per-method statistics by cohort: one block
+    per recipe, and at a mixture level the pooled block too (``domain/solver/reporting/cohorts.py``).
     """
 
     SUMMARY = "summary"
@@ -70,6 +80,8 @@ class TableKind(StrEnum):
     PAIRED = "paired"
     SPEED_RATIO = "speed_ratio"
     WORKLOAD_TOTALS = "workload_totals"
+    COHORT_SUMMARY = "cohort_summary"
+    COHORT_RATIO_OF_SUMS = "cohort_ratio_of_sums"
 
 
 type TableSchema = Mapping[str, pl.DataType | type[pl.DataType]]
@@ -91,6 +103,8 @@ TABLE_SCHEMAS: Mapping[TableKind, TableSchema] = {
     TableKind.PAIRED: PAIRED_SCHEMA,
     TableKind.SPEED_RATIO: SPEED_RATIO_SCHEMA,
     TableKind.WORKLOAD_TOTALS: WORKLOAD_TOTALS_SCHEMA,
+    TableKind.COHORT_SUMMARY: COHORT_SUMMARY_SCHEMA,
+    TableKind.COHORT_RATIO_OF_SUMS: COHORT_RATIO_OF_SUMS_SCHEMA,
 }
 """The columns and dtypes, in order, of the table each kind stores; the frames come from the
 domain statistics, so a schema change there reaches the stored tables through this mapping."""
@@ -113,7 +127,10 @@ type FigureTable = SiblingTable | NoTable
 
 
 class Statistic(StrEnum):
-    """What a group figure draws of its metric."""
+    """What a group figure draws of its metric.
+
+    The values of the bar statistics are also the summary-table columns their bars are read from.
+    """
 
     CONVERGED_COUNT = "converged_count"
     WORKLOAD_TOTAL = "workload_total"
@@ -121,6 +138,9 @@ class Statistic(StrEnum):
     PERFORMANCE_PROFILE = "performance_profile"
     PAIRED_VALUES = "paired_values"
     SPEED_RATIO_CDF = "speed_ratio_cdf"
+    MEAN_OVER_SYSTEMS = "mean_over_systems"
+    MEAN_OVER_MATRICES = "mean_over_matrices"
+    RATIO_OF_SUMS = "ratio_of_sums"
 
 
 class FailureTreatment(StrEnum):

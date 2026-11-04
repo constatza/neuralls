@@ -30,13 +30,13 @@ from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.observations import Outcome
-from neuralls.domain.solver.reporting.summary import Population, timing_noise
+from neuralls.domain.solver.reporting.summary import Population, select, timing_noise
 from neuralls.platform.reporting.figure_card import (
     build_figure_card,
     card_payload,
     decode_figure_card,
 )
-from neuralls.platform.reporting.figure_metadata import GroupFigureMetadata
+from neuralls.platform.reporting.figure_metadata import GroupFigureMetadata, Statistic
 from neuralls.platform.reporting.figure_planning import (
     FIGURE_RECIPES,
     GroupFigureRecipe,
@@ -70,7 +70,14 @@ _ONLINE_STEMS = sorted(
 _NOT_ONLINE_STEMS = sorted(
     variant.stem for variant in _PROFILE_VARIANTS if variant.metric is not MetricId.ONLINE_S
 )
-_NO_INTERVAL_STEMS = sorted(set(_BY_STEM) - {"speed_ratio_cdf"})
+_MEAN_STEMS = sorted(
+    variant.stem
+    for variant in _PROFILE_VARIANTS
+    if variant.statistic in {Statistic.MEAN_OVER_SYSTEMS, Statistic.MEAN_OVER_MATRICES}
+)
+_OWN_MEAN_STEMS = [stem for stem in _MEAN_STEMS if _BY_STEM[stem].population is Population.OWN]
+_COMMON_MEAN_STEMS = [stem for stem in _MEAN_STEMS if stem not in _OWN_MEAN_STEMS]
+_NO_INTERVAL_STEMS = sorted(set(_BY_STEM) - {"speed_ratio_cdf", *_MEAN_STEMS})
 
 _TIME_STEMS = sorted(
     variant.stem for variant in _PROFILE_VARIANTS if variant.metric is not MetricId.ITERATIONS
@@ -209,6 +216,38 @@ def test_the_speed_ratio_card_states_its_interval(
         "resamples": int,
         "matrices": int,
     }
+
+
+def test_mean_figures_exist_for_every_mean_kind() -> None:
+    assert {_RECIPE_OF_STEM[stem].kind.value for stem in _MEAN_STEMS} == {
+        "iteration_means",
+        "time_means",
+        "setup_means",
+    }
+
+
+@pytest.mark.parametrize("stem", _OWN_MEAN_STEMS)
+def test_a_mean_card_states_the_matrix_cluster_bootstrap_of_its_whiskers(
+    profile_report: RecipeProfileReport, payloads: dict[str, Payload], stem: str
+) -> None:
+    variant = _BY_STEM[stem]
+    selected = select(profile_report.observations, variant.metric, variant.population)
+    matrices = selected.select(pl.struct("dataset", "matrix_id").n_unique()).item()
+
+    assert _table(payloads[stem], "interval") == {
+        "method": INTERVAL_METHOD,
+        "level": CONFIDENCE_LEVEL,
+        "resamples": BOOTSTRAP_RESAMPLES,
+        "matrices": matrices,
+    }
+
+
+@pytest.mark.parametrize("stem", _COMMON_MEAN_STEMS)
+def test_a_mean_card_over_an_empty_common_population_records_no_interval(
+    payloads: dict[str, Payload], stem: str
+) -> None:
+    # ``broken`` defines nothing, so no system is common to every method and no whisker exists.
+    assert "interval" not in payloads[stem]
 
 
 @pytest.mark.parametrize("stem", _ONLINE_STEMS)

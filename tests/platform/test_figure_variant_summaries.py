@@ -13,6 +13,7 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 from tests.figure_support import VARIANT_METRIC
+from tests.recipe_support import GAUSSIAN, SINE
 
 from neuralls.domain.benchmarking.paired import (
     REFERENCE_METRIC,
@@ -26,8 +27,20 @@ from neuralls.domain.solver.models.group_outcomes import (
     WorkloadMixtureReport,
 )
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
+from neuralls.domain.solver.reporting.cohorts import (
+    COHORT_COLUMN,
+    MIXTURE_COHORT,
+    CohortRows,
+    by_cohort,
+)
 from neuralls.domain.solver.reporting.metrics import MetricId
-from neuralls.domain.solver.reporting.summary import Population, summarize
+from neuralls.domain.solver.reporting.summary import (
+    RATIO_OF_SUMS_SCHEMA,
+    SUMMARY_SCHEMA,
+    Population,
+    summarize,
+    time_per_iteration_summary,
+)
 from neuralls.platform.reporting import figure_planning
 from neuralls.platform.reporting.figure_metadata import (
     GROUP_FIGURE_KINDS,
@@ -44,9 +57,23 @@ from neuralls.platform.reporting.figure_planning import (
     history_variant,
 )
 from neuralls.platform.reporting.figure_table import build_group_table
+from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.types import PreconditionerName
 
 JACOBI = PreconditionerName("jacobi")
+_MEAN_STEMS = ("iteration_means", "setup_means", "time_means_online_common", "time_per_iteration")
+
+
+def _recipe_summaries(
+    report: RecipeProfileReport, metric: MetricId, population: Population = Population.OWN
+) -> pl.DataFrame:
+    return by_cohort(
+        report.observations,
+        lambda observations: summarize(observations, metric, population),
+        CohortRows.RECIPES,
+        schema=SUMMARY_SCHEMA,
+    )
+
 
 type SummaryOf = Callable[[RecipeProfileReport], pl.DataFrame]
 
@@ -87,6 +114,27 @@ _EXPECTED_SUMMARY: dict[str, SummaryOf] = {
     ),
     "speed_ratio_cdf": lambda report: speed_ratio_summary(
         report.observations, JACOBI, REFERENCE_METRIC
+    ),
+    "iteration_means": lambda report: _recipe_summaries(report, MetricId.ITERATIONS),
+    "setup_means": lambda report: _recipe_summaries(report, MetricId.SETUP_S),
+    **{
+        f"time_means_{name}_{population}": (
+            lambda report, metric=metric, population=population: _recipe_summaries(
+                report, metric, population
+            )
+        )
+        for name, metric in (
+            ("solve", MetricId.SOLVE_S),
+            ("online", MetricId.ONLINE_S),
+            ("standalone", MetricId.STANDALONE_S),
+        )
+        for population in Population
+    },
+    "time_per_iteration": lambda report: by_cohort(
+        report.observations,
+        lambda observations: time_per_iteration_summary(observations, Population.OWN),
+        CohortRows.RECIPES,
+        schema=RATIO_OF_SUMS_SCHEMA,
     ),
 }
 """The frame each variant stores, from the domain statistics."""
@@ -188,3 +236,45 @@ def test_a_variant_names_the_metric_it_summarizes(stem: str) -> None:
     variants = {variant.stem: variant for _, variant in _PROFILE_VARIANTS}
 
     assert variants[stem].metric is VARIANT_METRIC[stem]
+
+
+@pytest.mark.parametrize("stem", _MEAN_STEMS)
+def test_a_mixture_mean_table_holds_each_recipes_rows_and_the_pooled_mixture(
+    two_recipe_mixture_report: WorkloadMixtureReport, stem: str
+) -> None:
+    table = figure_summaries(two_recipe_mixture_report)[stem]
+
+    assert table[COHORT_COLUMN].unique(maintain_order=True).to_list() == [
+        recipe_key(GAUSSIAN),
+        recipe_key(SINE),
+        MIXTURE_COHORT,
+    ]
+
+
+def test_the_pooled_rows_of_a_mixture_are_the_summary_of_every_recipe_together(
+    two_recipe_mixture_report: WorkloadMixtureReport,
+) -> None:
+    table = figure_summaries(two_recipe_mixture_report)["iteration_means"]
+
+    pooled = table.filter(pl.col(COHORT_COLUMN) == MIXTURE_COHORT).drop(COHORT_COLUMN)
+
+    assert_frame_equal(
+        pooled,
+        summarize(two_recipe_mixture_report.observations, MetricId.ITERATIONS, Population.OWN),
+    )
+
+
+def test_a_recipe_report_has_no_mixture_rows(profile_report: RecipeProfileReport) -> None:
+    table = figure_summaries(profile_report)["iteration_means"]
+
+    assert table[COHORT_COLUMN].unique().to_list() == [recipe_key(GAUSSIAN)]
+
+
+def test_mean_bars_write_the_cohort_summary_table() -> None:
+    kinds = (FigureKind.ITERATION_MEANS, FigureKind.TIME_MEANS, FigureKind.SETUP_MEANS)
+
+    assert {group_recipe(kind).table for kind in kinds} == {TableKind.COHORT_SUMMARY}
+
+
+def test_time_per_iteration_writes_the_cohort_ratio_of_sums_table() -> None:
+    assert group_recipe(FigureKind.TIME_PER_ITERATION).table is TableKind.COHORT_RATIO_OF_SUMS

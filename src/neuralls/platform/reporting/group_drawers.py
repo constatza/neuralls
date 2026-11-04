@@ -23,6 +23,7 @@ from neuralls.domain.benchmarking.paired import (
 from neuralls.domain.benchmarking.profiles import ProfileSeries, ecdf_series, performance_series
 from neuralls.domain.benchmarking.selection import ReferenceSelection
 from neuralls.domain.solver.reporting.metrics import MetricId
+from neuralls.platform.reporting.figure_metadata import Statistic
 from neuralls.platform.reporting.outcome_plots import (
     GroupStyle,
     TotalColumn,
@@ -32,6 +33,11 @@ from neuralls.platform.reporting.outcome_plots import (
     plot_performance_profile,
     plot_speed_ratio_cdf,
     plot_workload_bars,
+)
+from neuralls.platform.reporting.seaborn_means import (
+    BarStatistic,
+    plot_mean_bars,
+    plot_time_per_iteration,
 )
 
 
@@ -133,6 +139,21 @@ def _speed_ratio(data: FigureData, path: Path) -> Path | None:
             )
 
 
+def _mean_bars(statistic: BarStatistic) -> GroupDrawer:
+    def drawer(data: FigureData, path: Path) -> Path | None:
+        return plot_mean_bars(
+            data.summary, statistic=statistic, metric=data.metric, style=data.style, save_path=path
+        )
+
+    return drawer
+
+
+def _time_per_iteration(data: FigureData, path: Path) -> Path | None:
+    return plot_time_per_iteration(
+        data.summary, data.observations, metric=data.metric, style=data.style, save_path=path
+    )
+
+
 AGGREGATE_BARS_DRAWER: GroupDrawer = _aggregate_bars
 SOLVE_TIME_BARS_DRAWER: GroupDrawer = _time_bars("solve_total_s", "Solve time [s]")
 ONLINE_TIME_BARS_DRAWER: GroupDrawer = _time_bars(
@@ -143,3 +164,6 @@ SPEED_RATIO_DRAWER: GroupDrawer = _speed_ratio
 PERFORMANCE_PROFILE_DRAWER: GroupDrawer = _performance_profile
 ECDF_ITERATIONS_DRAWER: GroupDrawer = _ecdf(_ITERATIONS_XLABEL)
 ECDF_TIME_DRAWER: GroupDrawer = _ecdf(_TIME_XLABELS)
+MEAN_OVER_SYSTEMS_DRAWER: GroupDrawer = _mean_bars(Statistic.MEAN_OVER_SYSTEMS)
+MEAN_OVER_MATRICES_DRAWER: GroupDrawer = _mean_bars(Statistic.MEAN_OVER_MATRICES)
+TIME_PER_ITERATION_DRAWER: GroupDrawer = _time_per_iteration

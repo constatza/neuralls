@@ -70,7 +70,7 @@ def write_outcome_plots(
     for plan in plans:
         metadata = plan.metadata
         recipe = group_recipe(metadata.kind)
-        summary = summaries.get(recipe.variant(metadata.metric).stem)
+        summary = summaries.get(recipe.variant(metadata.metric, metadata.population).stem)
         if summary is None:
             continue
         data = FigureData(

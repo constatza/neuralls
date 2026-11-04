@@ -347,8 +347,21 @@ def _report_variant(
 
 _GROUP_FILE_STEM = "Test_problem_Gaussian_CG_Residuals_k_20_N_100_-_Gaussian"
 
+_MEAN_STEMS = (
+    "iteration_means",
+    "time_means_solve_own",
+    "time_means_solve_common",
+    "time_means_online_own",
+    "time_means_online_common",
+    "time_means_standalone_own",
+    "time_means_standalone_common",
+    "setup_means",
+    "time_per_iteration",
+)
+"""The bar figures of means and time per iteration, drawn at every report level."""
 
-def test_mixture_sink_omits_profiles_but_keeps_aggregate_bars(
+
+def test_mixture_sink_omits_profiles_but_keeps_the_bars(
     group: GroupAggregated,
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
@@ -363,6 +376,7 @@ def test_mixture_sink_omits_profiles_but_keeps_aggregate_bars(
         f"aggregate_bars_{key}.png",
         f"solve_time_bars_{key}.png",
         f"online_time_bars_{key}.png",
+        *(f"{stem}_{key}.png" for stem in _MEAN_STEMS),
     }
 
 
@@ -573,6 +587,7 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
             "ecdf_iterations",
             "ecdf_time_solve",
             "ecdf_time_online",
+            *_MEAN_STEMS,
         )
     }
     assert _figures(logged_artifacts) == expected

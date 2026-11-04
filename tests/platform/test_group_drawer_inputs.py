@@ -25,7 +25,8 @@ from neuralls.domain.solver.models.labels import (
     render_group_id,
 )
 from neuralls.domain.solver.reporting.metrics import MetricId
-from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, FigureKind
+from neuralls.domain.solver.reporting.summary import Population
+from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, FigureKind, Statistic
 from neuralls.platform.reporting.figure_planning import figure_summaries, group_recipe
 from neuralls.platform.reporting.group_drawers import FigureData
 from neuralls.platform.reporting.outcome_plots import GroupStyle
@@ -70,6 +71,8 @@ def plot_calls(monkeypatch: pytest.MonkeyPatch) -> PlotCalls:
         "plot_performance_profile",
         "plot_paired_time_scatter",
         "plot_speed_ratio_cdf",
+        "plot_mean_bars",
+        "plot_time_per_iteration",
     ):
         monkeypatch.setattr(f"neuralls.platform.reporting.group_drawers.{name}", recorder(name))
     return calls
@@ -121,7 +124,7 @@ def _data(report: GroupAggregated, summary: pl.DataFrame, metric: MetricId) -> F
 
 def _draw(report: GroupAggregated, kind: FigureKind, metric: MetricId) -> Path | None:
     recipe = group_recipe(kind)
-    summary = figure_summaries(report)[recipe.variant(metric).stem]
+    summary = figure_summaries(report)[recipe.variant(metric, Population.OWN).stem]
     return recipe.draw(_data(report, summary, metric), PATH)
 
 
@@ -256,7 +259,7 @@ def test_bar_figures_are_drawn_from_the_summary_frame_they_store(
 
     (drawn,) = _frames_of(plot_calls.by_function[function])
     recipe = group_recipe(kind)
-    assert_frame_equal(drawn, figure_summaries(report)[recipe.variant(metric).stem])
+    assert_frame_equal(drawn, figure_summaries(report)[recipe.variant(metric, Population.OWN).stem])
 
 
 @pytest.mark.parametrize(
@@ -276,3 +279,47 @@ def test_the_time_bars_draw_the_total_column_of_their_metric(
     _draw(report, kind, metric)
 
     assert plot_calls.by_function["plot_workload_bars"].options["column"] == column
+
+
+@pytest.mark.parametrize(
+    ("kind", "metric", "statistic"),
+    [
+        (FigureKind.ITERATION_MEANS, MetricId.ITERATIONS, Statistic.MEAN_OVER_SYSTEMS),
+        (FigureKind.TIME_MEANS, MetricId.SOLVE_S, Statistic.MEAN_OVER_SYSTEMS),
+        (FigureKind.TIME_MEANS, MetricId.ONLINE_S, Statistic.MEAN_OVER_SYSTEMS),
+        (FigureKind.TIME_MEANS, MetricId.STANDALONE_S, Statistic.MEAN_OVER_SYSTEMS),
+        (FigureKind.SETUP_MEANS, MetricId.SETUP_S, Statistic.MEAN_OVER_MATRICES),
+    ],
+)
+def test_mean_bars_are_drawn_from_the_summary_they_store_with_their_statistic(
+    report: RecipeProfileReport,
+    plot_calls: PlotCalls,
+    kind: FigureKind,
+    metric: MetricId,
+    statistic: Statistic,
+) -> None:
+    _draw(report, kind, metric)
+
+    call = plot_calls.by_function["plot_mean_bars"]
+    (drawn,) = _frames_of(call)
+    assert_frame_equal(drawn, figure_summaries(report)[_stem(kind, metric)])
+    assert (call.options["statistic"], call.options["metric"]) == (statistic, metric)
+
+
+def test_time_per_iteration_is_drawn_from_its_ratio_table_and_the_observations(
+    report: RecipeProfileReport, plot_calls: PlotCalls
+) -> None:
+    _draw(report, FigureKind.TIME_PER_ITERATION, MetricId.TIME_PER_ITERATION_S)
+
+    drawn, observations = _frames_of(plot_calls.by_function["plot_time_per_iteration"])
+    assert_frame_equal(
+        drawn,
+        figure_summaries(report)[
+            _stem(FigureKind.TIME_PER_ITERATION, MetricId.TIME_PER_ITERATION_S)
+        ],
+    )
+    assert_frame_equal(observations, report.observations)
+
+
+def _stem(kind: FigureKind, metric: MetricId) -> str:
+    return group_recipe(kind).variant(metric, Population.OWN).stem
