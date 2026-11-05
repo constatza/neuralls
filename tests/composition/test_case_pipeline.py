@@ -59,7 +59,7 @@ def _patch_pipeline(
     )
     compare = stack.enter_context(
         patch(
-            "neuralls.composition.assignments.case_pipeline.run_comparison_batch",
+            "neuralls.composition.assignments.case_pipeline.run_loaded_comparison_batch",
             return_value=["comparison-outcome"],
         )
     )
@@ -204,7 +204,7 @@ def test_sweep_runs_before_comparison_batch() -> None:
             return_value=(MagicMock(comparisons=(MagicMock(),)), MagicMock()),
         ),
         patch(
-            "neuralls.composition.assignments.case_pipeline.run_comparison_batch",
+            "neuralls.composition.assignments.case_pipeline.run_loaded_comparison_batch",
             side_effect=lambda *a, **k: call_order.append("compare") or [],
         ),
     ):
@@ -243,7 +243,7 @@ def test_releases_device_memory_between_sweep_and_comparison() -> None:
             side_effect=lambda: call_order.append("release"),
         ),
         patch(
-            "neuralls.composition.assignments.case_pipeline.run_comparison_batch",
+            "neuralls.composition.assignments.case_pipeline.run_loaded_comparison_batch",
             side_effect=lambda *a, **k: call_order.append("compare") or [],
         ),
     ):

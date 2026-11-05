@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, cast, get_args, get_type_hints
 from unittest.mock import MagicMock, patch
 
-import pytest
 from typer.core import TyperGroup as Group
 from typer.main import get_command
 from typer.models import ArgumentInfo
@@ -33,8 +32,6 @@ from neuralls.domain.presentation.run_names import NamedRun, TrainingPresentatio
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.shared.constants import EXIT_FAILURE
 from neuralls.shared.scientific_description.policy import NotationPolicy
-
-pytestmark = pytest.mark.deferred_io("config-loading")
 
 runner = CliRunner()
 WORKSPACE = Path("/workspace")
@@ -64,7 +61,7 @@ def test_config_subcommands_are_exposed_under_root() -> None:
 
 
 def test_project_scripts_only_expose_neuralls() -> None:
-    pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
+    pyproject_path = Path(__file__).resolve().parents[3] / "pyproject.toml"
     pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
 
     assert pyproject["project"]["scripts"] == {"neuralls": "neuralls.cli.main:app"}

@@ -15,7 +15,7 @@ import pytest
 
 from neuralls.composition.assignments import comparison_batch, comparison_prepare
 from neuralls.composition.assignments.comparison_batch import (
-    run_comparison_batch,
+    run_loaded_comparison_batch,
 )
 from neuralls.composition.assignments.comparison_prepared import (
     PreparedComparisonExecution,
@@ -46,12 +46,17 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.reporting.figure_text import method_legend
 from neuralls.platform.storage.facts_codec import encode_method_parameters
 from neuralls.platform.tracking.run_names import render_run_name, run_name_text
+from neuralls.platform.tracking.services import MlflowTrackingServices
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
 from tests.presentation_support import datasets_by_dir, pod_spec
-from tests.workflows.comparison_support import MLFLOW_MODULE, mock_cfg, write_experiments_config
-
-pytestmark = pytest.mark.deferred_io("config-loading")
+from tests.workflows.comparison_support import (
+    MLFLOW_MODULE,
+    VIRTUAL_CASE_PATH,
+    in_memory_case,
+    mock_cfg,
+    virtual_settings,
+)
 
 PLAIN = NotationPolicy.default()
 FIT_DIR = Path("pod-fit")
@@ -84,10 +89,11 @@ def _execution(
 
 
 def _session_run_names(
-    tmp_path: Path, presentation: PreparedComparisonPresentation, title: ComparisonTitle
+    presentation: PreparedComparisonPresentation,
+    title: ComparisonTitle,
+    fake_tracking: MlflowTrackingServices,
 ) -> list[str]:
-    experiments_config = tmp_path / "case_with_ids.toml"
-    write_experiments_config(experiments_config, with_comparisons=True)
+    case = in_memory_case(with_comparisons=True)
 
     def prepare(
         cfg: object, planned: PlannedSystem, context: ComparisonResolutionContext, **_: object
@@ -105,25 +111,33 @@ def _session_run_names(
     ):
         mock_mlflow.start_run.return_value.__enter__.return_value = MagicMock()
         mock_mlflow.start_run.return_value.__exit__.return_value = False
-        run_comparison_batch(experiments_config, ComparisonParams())
+        run_loaded_comparison_batch(
+            case,
+            VIRTUAL_CASE_PATH,
+            ComparisonParams(),
+            virtual_settings(),
+            tracking=fake_tracking,
+        )
     return [call.kwargs["run_name"] for call in mock_mlflow.start_run.call_args_list]
 
 
-@pytest.mark.usefixtures("stub_input_gate", "stub_planning")
+@pytest.mark.usefixtures("stub_input_gate", "stub_planning", "stub_setup_tracking")
 def test_session_run_is_named_by_the_dataset_not_the_case_file(
-    tmp_path: Path, prepared_presentation: PreparedComparisonPresentation
+    prepared_presentation: PreparedComparisonPresentation,
+    fake_tracking: MlflowTrackingServices,
 ) -> None:
-    (name,) = _session_run_names(tmp_path, prepared_presentation, prepared_presentation.scope)
+    (name,) = _session_run_names(prepared_presentation, prepared_presentation.scope, fake_tracking)
 
     assert name == f"{DATASET_TEXT} | 2 systems (1 RHS type x 1 matrix) | {STAMP}"
 
 
-@pytest.mark.usefixtures("stub_input_gate", "stub_planning")
+@pytest.mark.usefixtures("stub_input_gate", "stub_planning", "stub_setup_tracking")
 def test_session_run_is_named_by_the_editorial_title_when_one_is_configured(
-    tmp_path: Path, prepared_presentation: PreparedComparisonPresentation
+    prepared_presentation: PreparedComparisonPresentation,
+    fake_tracking: MlflowTrackingServices,
 ) -> None:
     (name,) = _session_run_names(
-        tmp_path, prepared_presentation, EditorialPresentation("Spectral comparison")
+        prepared_presentation, EditorialPresentation("Spectral comparison"), fake_tracking
     )
 
     assert name == f"Spectral comparison | 2 systems (1 RHS type x 1 matrix) | {STAMP}"

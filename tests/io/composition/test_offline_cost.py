@@ -44,8 +44,6 @@ from neuralls.platform.tracking.services import MlflowTrackingServices
 from neuralls.shared.types import CostProvenance
 from tests.fakes.mlflow_client import FakeMlflowClient
 
-pytestmark = pytest.mark.deferred_io("config-loading")
-
 _GENERATION_DURATION = 12.5
 WORKSPACE = Path("/workspace")
 

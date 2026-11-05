@@ -20,8 +20,6 @@ from neuralls.platform.config.resolution import (
 from neuralls.platform.tracking.environment import scoped_mlflow_environment
 from tests.path_assertions import assert_local_path_eq
 
-pytestmark = pytest.mark.deferred_io("config-loading")
-
 WORKSPACE = Path("/workspace")
 
 
@@ -109,9 +107,8 @@ def test_derive_output_root_from_tracking_uri_uses_repo_output_root() -> None:
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-shaped path test")
-def test_normalize_tracking_uri_accepts_windows_drive_letter_path(tmp_path: Path) -> None:
-    config_path = tmp_path / "configs" / "experiments.toml"
-    config_path.parent.mkdir(parents=True)
+def test_normalize_tracking_uri_accepts_windows_drive_letter_path() -> None:
+    config_path = WORKSPACE / "configs" / "experiments.toml"
 
     normalized = normalize_tracking_uri(
         "sqlite:///C:/neuralls/output/mlruns/mlflow.db",
@@ -123,11 +120,10 @@ def test_normalize_tracking_uri_accepts_windows_drive_letter_path(tmp_path: Path
 
 def test_scoped_mlflow_environment_restores_previous_values(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
 ) -> None:
     old_tracking = "https://previous.invalid/mlflow"
     new_tracking = "https://current.invalid/mlflow"
-    artifact_uri = str(tmp_path / "mlartifacts")
+    artifact_uri = str(WORKSPACE / "mlartifacts")
     monkeypatch.setenv("MLFLOW_TRACKING_URI", old_tracking)
     monkeypatch.delenv("MLFLOW_ARTIFACT_URI", raising=False)
 

@@ -7,6 +7,9 @@ from unittest.mock import MagicMock
 
 import tomli_w
 
+from neuralls.platform.config.context import ConfigContext
+from neuralls.platform.config.loaders import parse_case_config
+from neuralls.platform.config.models.experiments import CaseConfig
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
@@ -46,12 +49,13 @@ def write_dataset_config(path: Path, dataset_id: str) -> None:
     path.write_text(f'id = "{dataset_id}"\n\n[output]\n', encoding="utf-8")
 
 
-def write_experiments_config(
+def experiments_payload(
     path: Path,
     *,
     with_comparisons: bool = False,
     comparison_name: str = "Comparisons",
-) -> None:
+) -> dict[str, object]:
+    """The raw case-config mapping that `path` would hold; reads and writes no file."""
     payload: dict[str, object] = {
         "mlflow": {"tracking_uri": build_sqlite_tracking_uri(path.parent / "mlruns" / "mlflow.db")},
         "names": {
@@ -68,9 +72,6 @@ def write_experiments_config(
         },
     }
     if with_comparisons:
-        (path.parent / "datasets").mkdir(exist_ok=True)
-        write_dataset_config(path.parent / "datasets" / "solutions.toml", "solutions")
-        write_dataset_config(path.parent / "datasets" / "gaussian-rhs.toml", "gaussian-rhs")
         payload["datasets"] = [
             {"id": "solutions", "path": "datasets/solutions.toml"},
             {"id": "gaussian-rhs", "path": "datasets/gaussian-rhs.toml"},
@@ -79,8 +80,52 @@ def write_experiments_config(
             {"id": "a", "matrix_dataset": "solutions", "rhs_source": {"kind": "gaussian"}},
             {"id": "b", "matrix_dataset": "solutions", "rhs_source": {"kind": "gaussian"}},
         ]
+    return payload
+
+
+def write_experiments_config(
+    path: Path,
+    *,
+    with_comparisons: bool = False,
+    comparison_name: str = "Comparisons",
+) -> None:
+    """Write the case config and, with comparisons, the dataset stubs it registers."""
+    if with_comparisons:
+        (path.parent / "datasets").mkdir(exist_ok=True)
+        write_dataset_config(path.parent / "datasets" / "solutions.toml", "solutions")
+        write_dataset_config(path.parent / "datasets" / "gaussian-rhs.toml", "gaussian-rhs")
+    payload = experiments_payload(
+        path, with_comparisons=with_comparisons, comparison_name=comparison_name
+    )
     with path.open("wb") as fh:
         tomli_w.dump(payload, fh)
+
+
+VIRTUAL_CASE_PATH = Path("/virtual/case/experiments.toml")
+"""Where an in-memory case config pretends to live; nothing is ever read or written there."""
+
+
+def virtual_settings() -> NeurallsSettings:
+    """Settings whose roots are never touched."""
+    return NeurallsSettings(
+        _env_file=[],
+        processed_dir=VIRTUAL_CASE_PATH.parent / "processed",
+        output_dir=VIRTUAL_CASE_PATH.parent / "output",
+    )
+
+
+def in_memory_case(
+    *,
+    with_comparisons: bool = False,
+    comparison_name: str = "Comparisons",
+    settings: NeurallsSettings | None = None,
+) -> CaseConfig:
+    """The case config of `write_experiments_config`, parsed without touching disk."""
+    ctx = ConfigContext(config_path=VIRTUAL_CASE_PATH, settings=settings or virtual_settings())
+    raw = experiments_payload(
+        VIRTUAL_CASE_PATH, with_comparisons=with_comparisons, comparison_name=comparison_name
+    )
+    return parse_case_config(raw, ctx)
 
 
 def mock_cfg(

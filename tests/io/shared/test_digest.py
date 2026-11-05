@@ -15,7 +15,7 @@ from neuralls.shared.digest import (
     digest_memo,
     toml_digest,
 )
-from tests.shared.conftest import (
+from tests.io.shared.conftest import (
     CosmeticDataclass,
     CosmeticModel,
     DefaultModel,
@@ -23,8 +23,6 @@ from tests.shared.conftest import (
     Unknown,
     UnmarkedPathModel,
 )
-
-pytestmark = pytest.mark.deferred_io("config-loading")
 
 
 def test_digest_format() -> None:

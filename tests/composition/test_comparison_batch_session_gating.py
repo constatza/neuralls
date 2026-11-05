@@ -10,13 +10,12 @@ cache hit alongside one entry that needs real execution.
 from __future__ import annotations
 
 import contextlib
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from neuralls.composition.assignments.comparison_batch import (
-    run_comparison_batch,
+    run_loaded_comparison_batch,
 )
 from neuralls.composition.assignments.comparison_prepared import (
     PendingComparison,
@@ -38,6 +37,7 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
+from neuralls.platform.tracking.services import MlflowTrackingServices
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.workflow_failures import (
     ComparisonBatchFailureContext,
@@ -45,20 +45,19 @@ from neuralls.shared.workflow_failures import (
 )
 from tests.workflows.comparison_support import (
     MLFLOW_MODULE,
+    VIRTUAL_CASE_PATH,
+    in_memory_case,
     mock_cfg,
-    write_experiments_config,
+    virtual_settings,
 )
 
-pytestmark = pytest.mark.deferred_io("config-loading")
 
-
-@pytest.mark.usefixtures("stub_input_gate", "stub_planning")
+@pytest.mark.usefixtures("stub_input_gate", "stub_planning", "stub_setup_tracking")
 def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
-    tmp_path: Path,
     comparison_run: NamedRun,
+    fake_tracking: MlflowTrackingServices,
 ) -> None:
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config, with_comparisons=True)
+    case = in_memory_case(with_comparisons=True)
 
     def _fake_prepare_entry(
         cfg: object,
@@ -83,20 +82,25 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
         ),
         patch(MLFLOW_MODULE) as mock_mlflow,
     ):
-        outcomes = run_comparison_batch(experiments_config, ComparisonParams())
+        outcomes = run_loaded_comparison_batch(
+            case,
+            VIRTUAL_CASE_PATH,
+            ComparisonParams(),
+            virtual_settings(),
+            tracking=fake_tracking,
+        )
 
     assert all(isinstance(outcome, ComparisonReused) for outcome in outcomes)
     mock_mlflow.start_run.assert_not_called()
 
 
-@pytest.mark.usefixtures("stub_input_gate", "stub_planning")
+@pytest.mark.usefixtures("stub_input_gate", "stub_planning", "stub_setup_tracking")
 def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
-    tmp_path: Path,
     prepared_presentation: PreparedComparisonPresentation,
     comparison_run: NamedRun,
+    fake_tracking: MlflowTrackingServices,
 ) -> None:
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config, with_comparisons=True)
+    case = in_memory_case(with_comparisons=True)
 
     def _fake_prepare_entry(
         cfg: object,
@@ -154,19 +158,24 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
         ),
         patch(MLFLOW_MODULE) as mock_mlflow,
     ):
-        outcomes = run_comparison_batch(experiments_config, ComparisonParams())
+        outcomes = run_loaded_comparison_batch(
+            case,
+            VIRTUAL_CASE_PATH,
+            ComparisonParams(),
+            virtual_settings(),
+            tracking=fake_tracking,
+        )
 
     assert [outcome.comparison_id for outcome in outcomes] == ["a", "b"]
     mock_mlflow.start_run.assert_called_once()
 
 
-@pytest.mark.usefixtures("stub_input_gate", "stub_planning")
+@pytest.mark.usefixtures("stub_input_gate", "stub_planning", "stub_setup_tracking")
 def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
-    tmp_path: Path,
     prepared_presentation: PreparedComparisonPresentation,
+    fake_tracking: MlflowTrackingServices,
 ) -> None:
-    experiments_config = tmp_path / "experiments.toml"
-    write_experiments_config(experiments_config, with_comparisons=True)
+    case = in_memory_case(with_comparisons=True)
     original = RuntimeError("injected method failure")
     failure_sink = MagicMock()
 
@@ -222,11 +231,17 @@ def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
     ):
         mock_mlflow.start_run.return_value.__enter__.return_value = MagicMock()
         mock_mlflow.start_run.return_value.__exit__.return_value = False
-        run_comparison_batch(experiments_config, ComparisonParams())
+        run_loaded_comparison_batch(
+            case,
+            VIRTUAL_CASE_PATH,
+            ComparisonParams(),
+            virtual_settings(),
+            tracking=fake_tracking,
+        )
 
     assert raised.value is original
     context = failure_sink.record.call_args.args[0]
     assert context == ComparisonBatchFailureContext(
         phase=ComparisonBatchPhase.METHOD_WORKLOADS,
-        case_config_path=experiments_config.resolve(),
+        case_config_path=VIRTUAL_CASE_PATH.resolve(),
     )

@@ -11,9 +11,7 @@ from neuralls.composition.identity.comparison import comparison_identity, input_
 from neuralls.platform.config.models.comparison import ComparisonConfig, RandomMask
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
 from neuralls.shared.digest import canonical_digest, digest_memo
-from tests.configuration.conftest import ComparisonFactory
-
-pytestmark = pytest.mark.deferred_io("config-loading")
+from tests.io.identity.conftest import ComparisonFactory
 
 
 def _key(cfg: ComparisonConfig, checkpoints: dict[str, str] | None = None) -> str:

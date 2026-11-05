@@ -9,7 +9,6 @@ from pathlib import Path
 
 from loguru import logger
 
-from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.platform.config.models.experiments import CaseConfig
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.mlflow import build_workflow_environment
@@ -27,20 +26,12 @@ class ComparisonTopology:
     report_experiment_name: str
 
 
-def load_master_config(
-    case_config_path: Path,
-    settings: NeurallsSettings,
-) -> tuple[CaseConfig, Path]:
-    """Load the case config and its resolution root."""
-    return load_validated_case_config(case_config_path, settings)
-
-
 def resolve_comparison_topology(
+    master_cfg: CaseConfig,
     case_config_path: Path,
     settings: NeurallsSettings,
 ) -> ComparisonTopology:
-    """Resolve comparison MLflow topology from the case config."""
-    master_cfg, _ = load_master_config(case_config_path, settings)
+    """Resolve comparison MLflow topology from the loaded case config."""
     runtime = build_workflow_environment(
         tracking_uri=master_cfg.mlflow.tracking_uri,
         artifact_location=master_cfg.mlflow.artifacts_destination,

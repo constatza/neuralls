@@ -1,4 +1,4 @@
-"""Fixtures for sweep-expansion config-loading tests."""
+"""Fixtures for sweep-expansion and config-loader tests."""
 
 from __future__ import annotations
 

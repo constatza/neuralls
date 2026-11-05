@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import tomllib
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -49,11 +50,15 @@ def missing_dataset_config_hint(path: Path) -> str:
     )
 
 
-def load_data_config(path: Path, settings: NeurallsSettings) -> DataConfigFile:
-    """Load and validate a data config TOML using context-aware path expansion."""
-    raw = load_raw_toml(path)
-    ctx = ConfigContext(config_path=path.resolve(), settings=settings)
+def parse_data_config(raw: Mapping[str, Any], ctx: ConfigContext) -> DataConfigFile:
+    """Validate an already-read data config with context-aware path expansion."""
     return DataConfigFile.model_validate(raw, context=ctx.as_pydantic_context())
+
+
+def load_data_config(path: Path, settings: NeurallsSettings) -> DataConfigFile:
+    """Read a data config TOML and validate it."""
+    ctx = ConfigContext(config_path=path.resolve(), settings=settings)
+    return parse_data_config(load_raw_toml(path), ctx)
 
 
 def load_comparison_config(path: Path, settings: NeurallsSettings) -> ComparisonConfig:
@@ -73,7 +78,13 @@ def _ensure_generated_dataset_configs(
             ensure_generated_dataset_config(Path(expand_config_path(raw_path, ctx)), force=force)
 
 
-def _fill_missing_dataset_ids(raw: dict[str, Any], ctx: ConfigContext) -> None:
+type DatasetConfigReader = Callable[[Path], Mapping[str, Any]]
+"""Reads the raw TOML mapping of a dataset config; `load_raw_toml` at the disk edge."""
+
+
+def _fill_missing_dataset_ids(
+    raw: dict[str, Any], ctx: ConfigContext, read_dataset_config: DatasetConfigReader
+) -> None:
     """Default missing [[datasets]] entry ids from their referenced dataset config's own id.
 
     A [[datasets]] entry's ``id`` is only a case-registry lookup key; the dataset
@@ -97,7 +108,7 @@ def _fill_missing_dataset_ids(raw: dict[str, Any], ctx: ConfigContext) -> None:
             continue
         dataset_path = Path(expand_config_path(raw_path, ctx))
         try:
-            dataset_raw = load_raw_toml(dataset_path)
+            dataset_raw = read_dataset_config(dataset_path)
         except FileNotFoundError as exc:
             raise FileNotFoundError(
                 f"Dataset config not found: {dataset_path}.{missing_dataset_config_hint(dataset_path)}"
@@ -342,21 +353,45 @@ def _expand_assignment_sweeps(
                 assignments.append({"dataset": dataset_id, "job": job_id})
 
 
+def _no_generated_files(_raw: dict[str, Any], _ctx: ConfigContext) -> None:
+    """Materialize nothing: the in-memory default for `parse_case_config`."""
+
+
+def parse_case_config(
+    raw: dict[str, Any],
+    ctx: ConfigContext,
+    read_dataset_config: DatasetConfigReader = load_raw_toml,
+    materialize_generated: Callable[[dict[str, Any], ConfigContext], None] = _no_generated_files,
+) -> CaseConfig:
+    """Expand sweeps, default dataset ids and validate an already-read case config.
+
+    Touches no file unless a callback does. `materialize_generated` runs once the dataset
+    sweeps are expanded into `raw["datasets"]` and before ids are defaulted, because the
+    id of a sweep entry is read from the dataset config the sweep writes.
+    `read_dataset_config` supplies the raw TOML of dataset configs whose entries omit an id,
+    so in-memory callers pass a lookup. Mutates `raw`.
+    """
+    sweep_datasets = _expand_dataset_sweeps(raw, ctx)
+    materialize_generated(raw, ctx)
+    _fill_missing_dataset_ids(raw, ctx, read_dataset_config)
+    _expand_assignment_sweeps(raw, sweep_datasets)
+    return CaseConfig.model_validate(raw, context=ctx.as_pydantic_context())
+
+
 def load_case_config(
     path: Path, settings: NeurallsSettings, *, force_expand: bool = False
 ) -> CaseConfig:
-    """Load and validate the top-level case TOML.
+    """Read and validate the top-level case TOML: the disk edge of `parse_case_config`.
 
     Sweep-generated dataset configs the case references are created when missing;
     `force_expand` recreates them even when present.
     """
-    raw = load_raw_toml(path)
     ctx = ConfigContext(config_path=path.resolve(), settings=settings)
-    sweep_datasets = _expand_dataset_sweeps(raw, ctx)
-    _ensure_generated_dataset_configs(raw, ctx, force=force_expand)
-    _fill_missing_dataset_ids(raw, ctx)
-    _expand_assignment_sweeps(raw, sweep_datasets)
-    return CaseConfig.model_validate(raw, context=ctx.as_pydantic_context())
+
+    def materialize(raw: dict[str, Any], ctx: ConfigContext) -> None:
+        _ensure_generated_dataset_configs(raw, ctx, force=force_expand)
+
+    return parse_case_config(load_raw_toml(path), ctx, load_raw_toml, materialize)
 
 
 def load_case(path: Path, env_file: Path | None = None) -> tuple[CaseConfig, NeurallsSettings]:

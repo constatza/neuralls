@@ -16,8 +16,6 @@ from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAda
 from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.platform.config.models.preconditioner import NeuralPreconditionerConfig
 
-pytestmark = pytest.mark.deferred_io("config-loading")
-
 # ==============================================================================
 # Mock Predictor and Adapter
 # ==============================================================================
@@ -48,9 +46,7 @@ class MockAdapter(PredictorAdapter):
         config_path: Path | None = None,
         data_config_path: Path | None = None,
     ) -> ExtraInputPredictorPort:
-        """Create mock predictor, raising if the checkpoint is missing."""
-        if not checkpoint_path.exists():
-            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        """Create a mock predictor; the checkpoint path is never read."""
         return MockPredictor()
 
 
@@ -66,11 +62,9 @@ def well_conditioned_matrix() -> torch.Tensor:
 
 
 @pytest.fixture
-def mock_checkpoint(tmp_path: Path) -> Path:
-    """Create mock checkpoint file."""
-    checkpoint = tmp_path / "mock_checkpoint.ckpt"
-    checkpoint.write_text("mock checkpoint data", encoding="utf-8")
-    return checkpoint
+def mock_checkpoint() -> Path:
+    """A checkpoint location that only the mock adapter sees, so no file exists there."""
+    return Path("/virtual/mock_checkpoint.ckpt")
 
 
 @pytest.fixture

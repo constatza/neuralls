@@ -14,6 +14,7 @@ import tomli_w
 from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments import comparison_batch
+from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.composition.assignments.comparison_batch import (
     run_comparison_batch,
 )
@@ -782,7 +783,11 @@ def prepare_entry(
 
         def prepare(cfg: ComparisonConfig, planned: PlannedSystem) -> PendingComparison:
             context = ComparisonResolutionContext(
-                topology=resolve_comparison_topology(experiments_config, settings),
+                topology=resolve_comparison_topology(
+                    load_validated_case_config(experiments_config, settings)[0],
+                    experiments_config,
+                    settings,
+                ),
                 case_config_path=experiments_config,
                 settings=settings,
                 load_dataset=NO_DATASET_READS,

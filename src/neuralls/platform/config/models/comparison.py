@@ -278,7 +278,7 @@ RHS_SOURCE_MODEL_BY_KIND: Mapping[ComparisonRhsSourceKind, type[RhsSourceModelBa
 need one of its class-level traits."""
 
 
-class _ComparisonConfigModel(BaseModel):
+class ComparisonConfigModel(BaseModel):
     """Parser for comparison method override files.
 
     All sections are optional — absent sections inherit from case
@@ -291,7 +291,7 @@ class _ComparisonConfigModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     @model_validator(mode="after")
-    def validate_preconditioners(self) -> _ComparisonConfigModel:
+    def validate_preconditioners(self) -> ComparisonConfigModel:
         """Validate any preconditioners that are present."""
         if not self.preconditioners:
             return self
@@ -357,7 +357,7 @@ def parse_comparison_config(
         ValueError: If required fields (matrix_path, rhs_path, preconditioners,
             or solver params) are absent.
     """
-    parsed = _ComparisonConfigModel.model_validate(raw, context=context.as_pydantic_context())
+    parsed = ComparisonConfigModel.model_validate(raw, context=context.as_pydantic_context())
     data = parsed.general.data
     params = parsed.general.params
     if data.matrix_path is None:
@@ -389,7 +389,7 @@ def parse_comparison_config(
 def parse_comparison_method_override(
     raw: dict[str, object],
     context: ConfigContext,
-) -> _ComparisonConfigModel:
+) -> ComparisonConfigModel:
     """Parse a comparison method override file (partial config, no paths required).
 
     Returns the raw parsed model so callers can merge it with case defaults.
@@ -401,4 +401,4 @@ def parse_comparison_method_override(
     Returns:
         Parsed partial config model for merging with case comparison_baseline.
     """
-    return _ComparisonConfigModel.model_validate(raw, context=context.as_pydantic_context())
+    return ComparisonConfigModel.model_validate(raw, context=context.as_pydantic_context())

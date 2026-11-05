@@ -4,7 +4,7 @@ The composition package owns wiring and config-driven assembly.
 
 ## Package Map
 
-- `assignments/`: registry loading, assignment wiring, training, eval, comparison, inference. Comparison is a pipeline of modules: `comparison_topology.py` (`ComparisonTopology`, `load_master_config`, `resolve_comparison_topology`, `failure_boundary`, shared with the report workflow), `comparison_resolution.py` (assignment-derived specs, checkpoint resolution and digests), `comparison_prepared.py` (`PreparedComparisonExecution`, `PreparedComparisonBatch`, `partition_pending`), `comparison_prepare.py` (per-entry validation, resolution, reuse gate, presentation), `comparison_schedule.py` (method -> matrix -> RHS schedule, input loading, session reuse check), `comparison_execute.py` (method runs, outcome projection, batch-level sink inputs), and `comparison_batch.py::run_comparison_batch`, the thin orchestrator that opens the session run
+- `assignments/`: registry loading, assignment wiring, training, eval, comparison, inference. Comparison is a pipeline of modules: `comparison_topology.py` (`ComparisonTopology`, `resolve_comparison_topology`, which takes the loaded `CaseConfig` and so never reads the case file itself, `failure_boundary`, shared with the report workflow), `comparison_resolution.py` (assignment-derived specs, checkpoint resolution and digests), `comparison_prepared.py` (`PreparedComparisonExecution`, `PreparedComparisonBatch`, `partition_pending`), `comparison_prepare.py` (per-entry validation, resolution, reuse gate, presentation), `comparison_schedule.py` (method -> matrix -> RHS schedule, input loading, session reuse check), `comparison_execute.py` (method runs, outcome projection, batch-level sink inputs), and `comparison_batch.py`, whose `run_comparison_batch(path, ...)` loads the case config from disk and delegates to `run_loaded_comparison_batch(case_cfg, path, ...)`, the thin orchestrator that opens the session run; `case_pipeline` and tests that hold an in-memory `CaseConfig` call the loaded variant directly, so the case file is read once per command
 - `comparison/`: single-run comparison assembly around application/domain logic
 - `generation/`: config-driven dataset orchestration, dataset persistence wiring, and default tracing services
 - `inference/`: inference data-loading composition helpers
@@ -456,7 +456,9 @@ system drops its known solution (`ResolvedComparisonInput.lhs = None`): the Ax =
 `lhs` and the error-vs-time plots, which are skipped when no error history exists, then do not apply.
 The mask is part of the dumped source params, so it is part of the comparison identity.
 
-`config_assembler.resolve_comparison_config` consumes a `PlannedSystem`: it
+`config_assembler.resolve_comparison_config` is the disk edge of the pure
+`bind_comparison_config`: it reads the entry's optional `method` override file and resolves
+the matrix dataset directory, then binds. `bind_comparison_config` consumes a `PlannedSystem`: it
 builds `ComparisonData(matrix_index=planned.matrix.row, selection_seed=...)` and,
 for the `dataset` kind, injects `sample_index=planned.rhs_row` into the source
 params. `comparison_schedule.py::_load_one_matrix_workload` attaches
@@ -725,7 +727,7 @@ orchestrator itself:
    matrix). This is the *only* training implementation — the older,
    generate-and-train-in-one `multi_training.py::train_batch` was retired in
    favor of this shared function.
-3. **Compare** — `assignments/comparison_batch.py::run_comparison_batch()`,
+3. **Compare** — `assignments/comparison_batch.py::run_loaded_comparison_batch()`,
    also called directly by `neuralls compare`, only when the case config
    declares `[[comparisons]]` or `[[comparison_sweeps]]`.
 

@@ -15,6 +15,7 @@ from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.loaders import load_data_config, load_raw_toml
 from neuralls.platform.config.models.comparison import (
     ComparisonConfig,
+    ComparisonConfigModel,
     parse_comparison_method_override,
 )
 from neuralls.platform.config.models.experiments import (
@@ -63,23 +64,48 @@ def resolve_comparison_config(
     planned: PlannedSystem,
     settings: NeurallsSettings,
 ) -> ComparisonConfig:
+    """Read the system's method override file and matrix dataset, then bind them.
+
+    The disk edge of `bind_comparison_config`: it reads the optional methodology
+    override named by the planned entry and resolves the matrix dataset directory
+    from the dataset registry.
+    """
+    entry = planned.entry
+    method_override = None
+    if entry.method is not None:
+        method_path = resolve_registry_path(config_dir, entry.method)
+        ctx = ConfigContext(config_path=method_path.resolve(), settings=settings)
+        method_override = parse_comparison_method_override(load_raw_toml(method_path), ctx)
+    matrix_path = resolve_dataset_dir(case_cfg, config_dir, entry.matrix_dataset, settings)
+    return bind_comparison_config(
+        case_cfg, planned, method_override=method_override, matrix_path=matrix_path
+    )
+
+
+def bind_comparison_config(
+    case_cfg: CaseConfig,
+    planned: PlannedSystem,
+    *,
+    method_override: ComparisonConfigModel | None,
+    matrix_path: Path,
+) -> ComparisonConfig:
     """Build a fully resolved ComparisonConfig from one planned system.
 
-    Merges ``[comparison_baseline]`` with an optional methodology override file,
-    then injects the data paths resolved from the dataset registry and the
-    matrix row, RHS seed and RHS row the planner bound to this system.
+    Merges ``[comparison_baseline]`` with an optional methodology override, then
+    injects the matrix dataset path and the matrix row, RHS seed and RHS row the
+    planner bound to this system. Reads no file.
 
     Args:
         case_cfg: Top-level case configuration.
-        config_dir: Directory of the case config file (for resolving relative paths).
         planned: The planned system to resolve.
-        settings: ``NeurallsSettings`` for processed-dir expansion.
+        method_override: The parsed override named by ``planned.entry.method``, if any.
+        matrix_path: Directory of the matrix dataset the system runs on.
 
     Returns:
         Fully materialised ``ComparisonConfig`` with injected paths.
 
     Raises:
-        ValueError: If the case comparison baseline or a referenced dataset is missing.
+        ValueError: If the case comparison baseline is missing.
     """
     entry = planned.entry
     baseline: ComparisonBaseline | None = case_cfg.comparison_baseline
@@ -94,23 +120,18 @@ def resolve_comparison_config(
     presentation = baseline.presentation
     params_override: dict[str, Any] | None = None
 
-    if entry.method is not None:
-        method_path = resolve_registry_path(config_dir, entry.method)
-        ctx = ConfigContext(config_path=method_path.resolve(), settings=settings)
-        raw = load_raw_toml(method_path)
-        override = parse_comparison_method_override(raw, ctx)
-        if override.preconditioners:
-            preconditioners = list(override.preconditioners)
-        if "reference_preconditioner" in override.general.model_fields_set:
-            reference_preconditioner = override.general.reference_preconditioner
-        if "normalize_system" in override.general.data.model_fields_set:
-            normalize_system = override.general.data.normalize_system
-        if override.general.params is not None:
-            params_override = dict(override.general.params)
-        if override.presentation is not None:
-            presentation = override.presentation
+    if method_override is not None:
+        if method_override.preconditioners:
+            preconditioners = list(method_override.preconditioners)
+        if "reference_preconditioner" in method_override.general.model_fields_set:
+            reference_preconditioner = method_override.general.reference_preconditioner
+        if "normalize_system" in method_override.general.data.model_fields_set:
+            normalize_system = method_override.general.data.normalize_system
+        if method_override.general.params is not None:
+            params_override = dict(method_override.general.params)
+        if method_override.presentation is not None:
+            presentation = method_override.presentation
 
-    matrix_path = resolve_dataset_dir(case_cfg, config_dir, entry.matrix_dataset, settings)
     base_params: dict[str, Any] = {
         "rtol": baseline.rtol,
         "atol": baseline.atol,

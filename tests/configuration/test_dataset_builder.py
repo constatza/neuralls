@@ -18,14 +18,12 @@ from neuralls.platform.config.models.dataset import (
     with_dataset_arrays,
 )
 
-pytestmark = pytest.mark.deferred_io("config-loading")
+TRAINER_ROOT = Path(
+    __file__
+).parent  # dlkit requires an existing directory; nothing is written there
 
 
-def _build_training_job(
-    tmp_path: Path, *, dataset_name: str = "FlexibleDataset"
-) -> TrainingJobConfig:
-    trainer_root = tmp_path / "trainer-root"
-    trainer_root.mkdir(parents=True, exist_ok=True)
+def _build_training_job(*, dataset_name: str = "FlexibleDataset") -> TrainingJobConfig:
     return TrainingJobConfig.model_validate(
         {
             "run": {"type": "train", "seed": 42},
@@ -39,7 +37,7 @@ def _build_training_job(
             "training": {
                 "trainer": {
                     "max_epochs": 1,
-                    "default_root_dir": str(trainer_root),
+                    "default_root_dir": str(TRAINER_ROOT),
                 }
             },
         }
@@ -109,11 +107,10 @@ class TestCreateTargetsFromArray:
 class TestWithDatasetArrays:
     def test_with_dataset_arrays_standard_dataset(
         self,
-        tmp_path: Path,
         sample_rhs_array: np.ndarray,
         sample_solutions_array: np.ndarray,
     ) -> None:
-        settings = _build_training_job(tmp_path)
+        settings = _build_training_job()
         contract = default_training_dataset_contract()
         updated = with_dataset_arrays(
             settings,
@@ -128,12 +125,11 @@ class TestWithDatasetArrays:
 
     def test_with_dataset_arrays_graph_dataset_includes_matrix(
         self,
-        tmp_path: Path,
         sample_rhs_array: np.ndarray,
         sample_solutions_array: np.ndarray,
         sample_matrix_array: np.ndarray,
     ) -> None:
-        settings = _build_training_job(tmp_path, dataset_name="GraphDataset")
+        settings = _build_training_job(dataset_name="GraphDataset")
         contract = default_training_dataset_contract()
         updated = with_dataset_arrays(
             settings,
@@ -148,11 +144,10 @@ class TestWithDatasetArrays:
 
     def test_with_dataset_arrays_keeps_original_settings_immutable(
         self,
-        tmp_path: Path,
         sample_rhs_array: np.ndarray,
         sample_solutions_array: np.ndarray,
     ) -> None:
-        settings = _build_training_job(tmp_path)
+        settings = _build_training_job()
         contract = default_training_dataset_contract()
         updated = with_dataset_arrays(
             settings,

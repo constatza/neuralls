@@ -28,8 +28,6 @@ from neuralls.shared.rhs_recipe import (
 )
 from neuralls.shared.types import DatasetId, MatrixId, RowKind
 
-pytestmark = pytest.mark.deferred_io("config-loading")
-
 
 def test_different_omegas_are_different_recipes() -> None:
     assert rhs_recipe(SinusoidalRhsSourceModel(omega=6.283185)) == SinusoidalRecipe(6.283185)
@@ -93,8 +91,8 @@ def test_raw_sources_differing_in_any_identity_field_are_different_recipes(
     assert recipe_key(one) != recipe_key(two)
 
 
-def test_the_same_raw_source_twice_is_one_recipe(tmp_path: Path) -> None:
-    path = tmp_path / "vector.npy"
+def test_the_same_raw_source_twice_is_one_recipe() -> None:
+    path = Path("/virtual/vector.npy")
     assert rhs_recipe(RawLhsSourceModel(path=path)) == rhs_recipe(RawLhsSourceModel(path=path))
 
 

@@ -1,4 +1,4 @@
-"""Fixtures for identity-marker tests."""
+"""Fixtures for identity tests: the matrix, snapshot and dataset files whose content is digested."""
 
 from __future__ import annotations
 

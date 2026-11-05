@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from shutil import copy2
 from types import ModuleType
+from unittest.mock import MagicMock
 
 import h5py
 import matplotlib.figure
@@ -63,6 +64,7 @@ from neuralls.shared.scientific_description.models import (
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
 from neuralls.shared.types import DatasetId, GenerationStrategyKind, PreconditionerName, RowKind
 from tests.fakes.mlflow_client import FakeMlflowClient
+from tests.workflows.comparison_support import SETUP_TRACKING
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -254,6 +256,14 @@ def training_runs(tmp_path: Path) -> MlflowClient:
     """An empty in-memory MLflow store: the training runs a method without checkpoints never reads."""
     fake = FakeMlflowClient(artifact_root=tmp_path / "training-artifacts")
     return MlflowTrackingServices(client_factory=fake).client(fake.tracking_uri)
+
+
+@pytest.fixture
+def fake_tracking(tmp_path: Path) -> MlflowTrackingServices:
+    """Tracking services whose every client, lease manager and identity store is the in-memory fake."""
+    return MlflowTrackingServices(
+        client_factory=FakeMlflowClient(artifact_root=tmp_path / "tracking-artifacts")
+    )
 
 
 @pytest.fixture
@@ -777,3 +787,11 @@ def captured_log() -> Iterator[Callable[[str], list[str]]]:
     yield capture
     for sink_id in sink_ids:
         logger.remove(sink_id)
+
+
+@pytest.fixture
+def stub_setup_tracking(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Skip creating the comparison experiment in a tracking store."""
+    stub = MagicMock()
+    monkeypatch.setattr(SETUP_TRACKING, stub)
+    return stub

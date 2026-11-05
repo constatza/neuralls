@@ -49,7 +49,8 @@ from neuralls.shared.types import DatasetId
 from tests.composition.workload_support import matrix_bundle
 from tests.presentation_support import PreparedMethodFactory
 
-pytestmark = pytest.mark.deferred_io("config-loading")
+CHECKPOINT_DIR = Path("/virtual/checkpoints")
+
 
 POD_RANK = 2
 SLOW_LOAD_SECONDS = 0.2
@@ -151,11 +152,11 @@ def test_a_built_preconditioner_gc_does_not_unload_the_shared_predictor(
 
 
 def test_neural_amg_transfer_predictors_are_borrowed_from_the_store(
-    tmp_path: Path, matrix: torch.Tensor
+    matrix: torch.Tensor,
 ) -> None:
     """Prolongation and restriction each get their own preloaded predictor, never a load."""
-    prolongation = NeuralTransferConfig(checkpoint_path=tmp_path / "p.ckpt")
-    restriction = NeuralTransferConfig(checkpoint_path=tmp_path / "r.ckpt")
+    prolongation = NeuralTransferConfig(checkpoint_path=CHECKPOINT_DIR / "p.ckpt")
+    restriction = NeuralTransferConfig(checkpoint_path=CHECKPOINT_DIR / "r.ckpt")
     cfg = NeuralAMGPreconditionerConfig(prolongation=prolongation, restriction=restriction)
     store = CheckpointStore()
     loading = RecordingAdapter()
@@ -163,8 +164,8 @@ def test_neural_amg_transfer_predictors_are_borrowed_from_the_store(
     failing_adapter = RecordingAdapter()
     deps = _BuildDeps(adapter=failing_adapter, inference_predictor_factory=None, preloaded=store)
 
-    borrowed_p = _create_predictor(prolongation, tmp_path / "p.ckpt", deps)
-    borrowed_r = _create_predictor(restriction, tmp_path / "r.ckpt", deps)
+    borrowed_p = _create_predictor(prolongation, CHECKPOINT_DIR / "p.ckpt", deps)
+    borrowed_r = _create_predictor(restriction, CHECKPOINT_DIR / "r.ckpt", deps)
 
     assert isinstance(borrowed_p, FakePredictor)
     assert isinstance(borrowed_r, FakePredictor)
@@ -188,11 +189,11 @@ def test_without_a_preload_the_built_preconditioner_owns_and_releases_its_predic
 
 
 def test_preload_covers_every_checkpoint_of_a_neural_amg(
-    tmp_path: Path, matrix: torch.Tensor, adapter: RecordingAdapter, loaders: CheckpointLoaders
+    matrix: torch.Tensor, adapter: RecordingAdapter, loaders: CheckpointLoaders
 ) -> None:
     cfg = NeuralAMGPreconditionerConfig(
-        prolongation=NeuralTransferConfig(checkpoint_path=tmp_path / "p.ckpt"),
-        restriction=NeuralTransferConfig(checkpoint_path=tmp_path / "r.ckpt"),
+        prolongation=NeuralTransferConfig(checkpoint_path=CHECKPOINT_DIR / "p.ckpt"),
+        restriction=NeuralTransferConfig(checkpoint_path=CHECKPOINT_DIR / "r.ckpt"),
     )
     store = CheckpointStore()
 

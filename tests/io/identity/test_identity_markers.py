@@ -22,7 +22,7 @@ from neuralls.platform.config.models.preconditioner import (
     NeuralTransferConfig,
 )
 from neuralls.shared.digest import MARKER_TYPES, canonical_digest
-from tests.configuration.conftest import ComparisonFactory, DataConfigFactory
+from tests.io.identity.conftest import ComparisonFactory, DataConfigFactory
 
 ROOTS: list[object] = [
     pytest.param(ComparisonConfig, id="ComparisonConfig"),

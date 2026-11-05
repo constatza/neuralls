@@ -14,10 +14,10 @@ from loguru import logger
 from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
+from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.composition.assignments.assignment_subjects import case_notation
 from neuralls.composition.assignments.comparison_topology import (
     failure_boundary,
-    load_master_config,
     resolve_comparison_topology,
 )
 from neuralls.composition.comparison.postprocessing.group_reporting import report_all_levels
@@ -89,8 +89,8 @@ def run_comparison_report(
 ) -> ComparisonReportOutcome:
     """Render the newest (or the named) comparison session of a case config into a report run."""
     settings = require_settings(settings, case_config_path=case_config_path)
-    master_cfg, _ = load_master_config(case_config_path, settings)
-    topology = resolve_comparison_topology(case_config_path, settings)
+    master_cfg, _ = load_validated_case_config(case_config_path, settings)
+    topology = resolve_comparison_topology(master_cfg, case_config_path, settings)
     notation = case_notation(master_cfg)
     client = tracking.client(topology.tracking_uri)
     session = session_run_id or latest_session_run_id(

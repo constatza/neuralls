@@ -3,7 +3,7 @@
 Tests factory creation, error handling, and edge cases independent of solver internals.
 Follows project principles:
 - Use fixtures for all test data
-- Use tmp_path for temporary files (never tempfile)
+- No file IO: checkpoints are locations only the mock adapters see
 - Type hints throughout
 - Focus on our own logic, not torchalg internals
 """
@@ -60,8 +60,6 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.dlkit.predictor_adapter import OwningDLKitNeuralPreconditioner
 from tests.fakes.fit_data import FakeFitData
 
-pytestmark = pytest.mark.deferred_io("config-loading")
-
 # ==============================================================================
 # Mock Predictor and Adapter for Neural Preconditioner Testing
 # ==============================================================================
@@ -111,10 +109,21 @@ class MockAdapter(PredictorAdapter):
         config_path: Path | None = None,
         data_config_path: Path | None = None,
     ) -> ExtraInputPredictorPort:
-        """Create mock predictor, raising if the checkpoint is missing."""
-        if not checkpoint_path.exists():
-            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+        """Create the mock predictor; the checkpoint path is never read."""
         return self.predictor
+
+
+class MissingCheckpointAdapter(PredictorAdapter):
+    """Adapter whose checkpoint is always missing, as a real adapter reports it."""
+
+    def create_predictor(
+        self,
+        checkpoint_path: Path,
+        config_path: Path | None = None,
+        data_config_path: Path | None = None,
+    ) -> ExtraInputPredictorPort:
+        """Fail like a real adapter handed a checkpoint that does not exist."""
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
 
 class MockInferencePredictor(InferencePredictorPort):
@@ -138,11 +147,9 @@ class MockInferencePredictor(InferencePredictorPort):
 def make_mock_inference_predictor_factory(
     output_dim: int,
 ) -> Callable[[Path], MockInferencePredictor]:
-    """Build an `inference_predictor_factory` callable, raising on a missing checkpoint."""
+    """Build an `inference_predictor_factory` callable, ignoring the checkpoint path."""
 
     def factory(checkpoint_path: Path) -> MockInferencePredictor:
-        if not checkpoint_path.exists():
-            raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
         return MockInferencePredictor(output_dim)
 
     return factory
@@ -188,11 +195,9 @@ def residual_vector() -> torch.Tensor:
 
 
 @pytest.fixture
-def mock_checkpoint(tmp_path: Path) -> Path:
-    """Create mock checkpoint file."""
-    checkpoint = tmp_path / "mock_checkpoint.ckpt"
-    checkpoint.write_text("mock checkpoint data", encoding="utf-8")
-    return checkpoint
+def mock_checkpoint() -> Path:
+    """A checkpoint location that only the mock adapters see, so no file exists there."""
+    return Path("/virtual/mock_checkpoint.ckpt")
 
 
 FIT_DIR = Path("pod-fit")
@@ -297,11 +302,10 @@ def test_neural_preconditioner_with_custom_adapter(
 
 def test_neural_preconditioner_checkpoint_not_found(
     well_conditioned_matrix: torch.Tensor,
-    tmp_path: Path,
 ) -> None:
     """NeuralPreconditioner surfaces a missing checkpoint as FileNotFoundError."""
-    mock_adapter = MockAdapter()
-    missing_checkpoint = tmp_path / "missing" / "checkpoint.ckpt"
+    mock_adapter = MissingCheckpointAdapter()
+    missing_checkpoint = Path("/virtual/missing/checkpoint.ckpt")
 
     config = NeuralPreconditionerConfig(
         type=PreconditionerType.NEURAL,

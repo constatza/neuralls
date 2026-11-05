@@ -6,7 +6,7 @@ This module tests the workflow orchestration functions in cg_runner.py:
 
 Follows project testing principles:
 - Use fixtures for all test data (no inline data creation)
-- Use tmp_path for temporary files (never tempfile)
+- No file IO: every input is built in memory
 - Type hints throughout
 - Mirror source structure (tests/workflows/ mirrors src/neuralls/workflows/)
 """
@@ -37,8 +37,6 @@ from neuralls.domain.solver.error_metrics import relative_exact_error
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy
-
-pytestmark = pytest.mark.deferred_io("config-loading")
 
 if TYPE_CHECKING:
     from torch import Tensor

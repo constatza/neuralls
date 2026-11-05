@@ -10,6 +10,7 @@ from pathlib import Path
 import mlflow
 from torchalg.utils.device import resolve_device
 
+from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.composition.assignments.comparison_execute import (
     batch_dataset_presentations,
     batch_notation_policy,
@@ -32,7 +33,6 @@ from neuralls.composition.assignments.comparison_schedule import (
 from neuralls.composition.assignments.comparison_topology import (
     ComparisonTopology,
     failure_boundary,
-    load_master_config,
     resolve_comparison_topology,
 )
 from neuralls.composition.comparison.models import (
@@ -49,6 +49,7 @@ from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServ
 from neuralls.domain.presentation.titles import (
     summarized_session_title,
 )
+from neuralls.platform.config.models.experiments import CaseConfig
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.platform.tracking.failure_reporting import MLflowWorkflowFailureSink
 from neuralls.platform.tracking.method_sink import MLflowBenchmarkMethodSink
@@ -129,7 +130,26 @@ def run_comparison_batch(
     *,
     tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> list[ComparisonOutcome]:
-    """Run all configured comparison entries from the case config.
+    """Load the case config from disk and run its comparison entries.
+
+    The disk edge of `run_loaded_comparison_batch`.
+    """
+    settings = require_settings(settings, case_config_path=case_config_path)
+    master_cfg, _ = load_validated_case_config(case_config_path, settings)
+    return run_loaded_comparison_batch(
+        master_cfg, case_config_path, params, settings, tracking=tracking
+    )
+
+
+def run_loaded_comparison_batch(
+    master_cfg: CaseConfig,
+    case_config_path: Path,
+    params: ComparisonParams,
+    settings: NeurallsSettings,
+    *,
+    tracking: TrackingServices = MLFLOW_TRACKING,
+) -> list[ComparisonOutcome]:
+    """Run all comparison entries of an already-loaded case config.
 
     Every entry is resolved and reuse-checked first, with no MLflow run
     opened yet. Only if at least one entry genuinely needs execution does
@@ -139,23 +159,23 @@ def run_comparison_batch(
     cache hit, no MLflow run is created at all.
 
     Args:
-        case_config_path: Path to the case config TOML.
+        master_cfg: The validated case config.
+        case_config_path: Where the case config lives; anchors relative paths and
+            identifies the case. It is not read here.
         params: Comparison execution parameters (`force`).
-        settings: Optional pre-loaded runtime settings.
+        settings: Resolved runtime settings.
         tracking: Source of the MLflow clients, lease managers and reuse lookups.
 
     Returns:
         List of comparison outcomes, one per planned system, in plan order
         (sweep systems follow all [[comparisons]] systems).
     """
-    settings = require_settings(settings, case_config_path=case_config_path)
-    master_cfg, _ = load_master_config(case_config_path, settings)
     if not master_cfg.comparisons and not master_cfg.comparison_sweeps:
         raise ValueError(
             "Case config must define at least one [[comparisons]] or [[comparison_sweeps]] entry."
         )
 
-    topology = resolve_comparison_topology(case_config_path, settings)
+    topology = resolve_comparison_topology(master_cfg, case_config_path, settings)
     setup_comparison_tracking(
         tracking_uri=topology.tracking_uri,
         artifact_location=topology.artifact_location,
