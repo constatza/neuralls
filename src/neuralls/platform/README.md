@@ -294,6 +294,26 @@ history figures are registered with unique method-qualified ownership. Raw
 benchmark events and method summaries become
 the persistence source of truth; the removed scaling-law TOML is not emitted.
 
+**Figure kinds.** Every group figure answers five questions, which its card records and which `FIGURE_RECIPES` fixes per kind; formulas and the per-metric failure rule are in `domain/solver/README.md`, "Observation view and metric catalog". Observation unit is a system unless stated; "own" population keeps the systems on which each method's metric is defined, "common" those defined for every method. Online time is the amortized scenario $t^{\mathrm{solve}} + t^{\mathrm{setup}}/r_m$, standalone charges the whole setup, solve ignores it.
+
+| Kind | Metric (time scenario) | Population | Statistic drawn | Failure treatment |
+|---|---|---|---|---|
+| `aggregate_bars` | iterations (converged count) | own | converged count | censored: failed systems stay in the denominator |
+| `solve_time`, `online_time` | solve, online | own | workload total over attempted systems, stacked setup, converged and failed solve time with k/n | none: failed attempts keep their time |
+| `paired_time` | online, method against reference | own | per-system pairs, log-log | censored on the axis for an asymmetric failure; both-failed pairs omitted |
+| `speed_ratio` | online, reference/method | own | CDF of the ratio with a matrix-cluster interval | omitted |
+| `performance_profile` | solve, online | own | profile series | censored |
+| `ecdf_iterations`, `ecdf_time` | iterations, solve, online | own | ECDF with failures at infinity, so the plateau stays below 1 | censored |
+| `breakeven` | standalone | common | cumulative cost against the RHS count | omitted |
+| `iteration_means`, `time_means` | iterations; solve, online, standalone | own and common | mean over systems with a matrix-cluster interval | omitted; the card states k/n |
+| `setup_means` | setup (one value per matrix) | own | mean over matrices | omitted |
+| `time_per_iteration` | solve time / iterations | own | ratio of sums | omitted; unconverged runs with a real iteration count enter |
+| `iteration_distribution`, `time_distribution` | iterations; solve, online | own | quartiles and q05-q95 whiskers, a distribution summary and not a confidence interval | omitted |
+| `matrix_heatmap` | iterations | own | mean per matrix | omitted: a cell with no converged RHS is hatched "0/r solved" |
+| `convergence_factor` | residual reduction per iteration | own | mean and median | omitted |
+
+**Memory scope.** Peak memory is an operation- or method-lifetime reading, never a comparison across platforms. On CUDA it is the allocator peak (`torch.cuda.max_memory_allocated` after `reset_peak_memory_stats`), exact for the timed operation. On CPU it is a process RSS high-water mark (`ru_maxrss`, `peak_wset` on Windows) read as a delta: the process has no reset, so it is a lower bound when an earlier workload set a higher peak, and a CPU peak must not be compared across methods. `shared/device.py` holds both readings.
+
 **Run names.** `tracking/run_names.py::render_run_name` is the only place a typed
 `RunName` (`domain/presentation/run_names.py`) becomes text: plain Unicode under the case's
 notation, one line, no wrapping. `MlflowRunConfig` carries a `NamedRun`; the
