@@ -8,6 +8,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
+from tests.figure_support import no_offline_cost
 
 from neuralls.domain.benchmarking.cost_curves import COST_CURVE_SCHEMA, break_even_curves
 from neuralls.domain.benchmarking.paired import (
@@ -46,6 +47,7 @@ from neuralls.platform.reporting.figure_planning import (
 )
 from neuralls.platform.reporting.figure_table import (
     InvalidFigureTableError,
+    build_cost_breakdown_table,
     build_group_table,
     read_group_table,
     write_group_table,
@@ -81,6 +83,9 @@ def table_frames(profile_report: RecipeProfileReport) -> dict[str, pl.DataFrame]
             schema=RATIO_OF_SUMS_SCHEMA,
         ),
         "MATRIX_BREAKDOWN": matrix_breakdown(observations, MetricId.ITERATIONS),
+        "COST_BREAKDOWN": build_cost_breakdown_table(
+            profile_report.summaries, no_offline_cost(profile_report)
+        ),
     }
 
 
@@ -102,6 +107,7 @@ def test_each_table_kind_has_the_schema_of_the_frame_it_stores() -> None:
     assert schemas[kind.COHORT_SUMMARY] == COHORT_SUMMARY_SCHEMA
     assert schemas[kind.COHORT_RATIO_OF_SUMS] == COHORT_RATIO_OF_SUMS_SCHEMA
     assert schemas[kind.MATRIX_BREAKDOWN] == MATRIX_BREAKDOWN_SCHEMA
+    assert schemas[kind.COST_BREAKDOWN] == dict(build_cost_breakdown_table((), {}).schema)
 
 
 @pytest.mark.parametrize("name", TABLE_KINDS)
@@ -135,7 +141,10 @@ def test_a_table_with_the_right_columns_but_other_types_is_rejected(
     tmp_path: Path, table_frames: dict[str, pl.DataFrame], name: str
 ) -> None:
     path = tmp_path / "table.parquet"
-    write_group_table(path, table_frames[name].with_columns(pl.col(pl.Int64).cast(pl.Float64)))
+    retyped = table_frames[name].with_columns(
+        pl.col(pl.Int64).cast(pl.Float64), pl.col(pl.Float64).cast(pl.Float32)
+    )
+    write_group_table(path, retyped)
 
     with pytest.raises(InvalidFigureTableError):
         read_group_table(path, TableKind[name])
@@ -156,7 +165,7 @@ def test_the_table_planned_for_a_recipe_is_read_back_only_as_that_recipes_kind(
     kind: FigureKind,
     stem: str,
 ) -> None:
-    summary = figure_summaries(profile_report)[stem]
+    summary = figure_summaries(profile_report, no_offline_cost(profile_report))[stem]
     path = tmp_path / f"{stem}.parquet"
     write_group_table(path, summary)
     own = group_recipe(kind).table

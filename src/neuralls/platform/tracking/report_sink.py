@@ -233,13 +233,16 @@ class OpenReport:
             file_key = self.slugs.slug(
                 f"group:{group_id}", scope_label(presentation.scope, self.notation)
             )
-            plans = figure_plans(outcome, presentation, file_key, self._group_methods(presentation))
+            stored = self._group_methods(presentation)
+            plans = figure_plans(outcome, presentation, file_key, stored)
             self.uploader.check_free(
                 run_id, GROUP_REPORT_ARTIFACT_DIR, [plan.stem for plan in plans]
             )
             figures = write_outcome_plots(
                 outcome,
-                figure_summaries(outcome),
+                figure_summaries(
+                    outcome, {name: method.offline for name, method in stored.items()}
+                ),
                 GroupStyler(presentation, self.notation),
                 Path(tmp),
                 plans,

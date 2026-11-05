@@ -17,6 +17,7 @@ from neuralls.domain.benchmarking.paired import (
     speed_ratio_summary,
 )
 from neuralls.domain.benchmarking.profiles import ecdf_series, performance_series
+from neuralls.domain.solver.models.cost import OfflineStages
 from neuralls.domain.solver.models.group_outcomes import (
     GroupReport,
     RecipeProfileReport,
@@ -64,11 +65,12 @@ from neuralls.platform.reporting.figure_metadata import (
     TimingPolicy,
     method_source,
 )
-from neuralls.platform.reporting.figure_table import build_group_table
+from neuralls.platform.reporting.figure_table import build_cost_breakdown_table, build_group_table
 from neuralls.platform.reporting.group_drawers import (
     AGGREGATE_BARS_DRAWER,
     BREAK_EVEN_DRAWER,
     CONVERGENCE_FACTOR_DRAWER,
+    COST_BREAKDOWN_DRAWER,
     DISTRIBUTION_DRAWER,
     ECDF_ITERATIONS_DRAWER,
     ECDF_TIME_DRAWER,
@@ -545,6 +547,26 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             MATRIX_HEATMAP_DRAWER,
             TableKind.MATRIX_BREAKDOWN,
         ),
+        GroupFigureRecipe(
+            FigureKind.COST_BREAKDOWN,
+            (
+                FigureVariant(
+                    "cost_breakdown",
+                    "Total Cost",
+                    "offline (dataset generation + training, paid once per method artifact) "
+                    "+ setup + solve seconds of the report's workload, stacked per method; an "
+                    "offline stage with no recorded cost draws no segment and leaves the total "
+                    "unstated",
+                    MetricId.ONLINE_S,
+                    Population.OWN,
+                    Statistic.OFFLINE_ONLINE_TOTAL,
+                ),
+            ),
+            FailureTreatment.NONE,
+            _BOTH,
+            COST_BREAKDOWN_DRAWER,
+            TableKind.COST_BREAKDOWN,
+        ),
         HistoryFigureRecipe(
             FigureKind.RESIDUAL_HISTORY,
             HistoryVariant(
@@ -626,16 +648,19 @@ def figure_plans(
     )
 
 
-def figure_summaries(outcome: GroupReport) -> Mapping[str, pl.DataFrame]:
+def figure_summaries(
+    outcome: GroupReport, offline: Mapping[PreconditionerName, OfflineStages]
+) -> Mapping[str, pl.DataFrame]:
     """The frame each figure planned for ``outcome`` draws and stores, by variant stem.
 
     Each frame is computed once, here, and is both what the drawer draws and the table written
     beside the figure. A figure that compares against the reference has no frame, and so is not
-    drawn, when the group has no configured reference among its methods.
+    drawn, when the group has no configured reference among its methods. ``offline`` holds the
+    offline cost of every method of the group, which only the cost breakdown draws.
     """
     reference = reference_among_methods(outcome.observations, outcome.reference_selection)
     frames = (
-        (variant.stem, _summary(variant, outcome, reference))
+        (variant.stem, _summary(variant, outcome, reference, offline))
         for recipe in _group_recipes()
         if isinstance(outcome, recipe.applies_to)
         for variant in recipe.variants
@@ -644,7 +669,10 @@ def figure_summaries(outcome: GroupReport) -> Mapping[str, pl.DataFrame]:
 
 
 def _summary(
-    variant: FigureVariant, outcome: GroupReport, reference: PreconditionerName | None
+    variant: FigureVariant,
+    outcome: GroupReport,
+    reference: PreconditionerName | None,
+    offline: Mapping[PreconditionerName, OfflineStages],
 ) -> pl.DataFrame | None:
     observations = outcome.observations
     match variant.statistic:
@@ -652,6 +680,8 @@ def _summary(
             return summarize(observations, variant.metric, variant.population)
         case Statistic.WORKLOAD_TOTAL:
             return build_group_table(outcome.summaries)
+        case Statistic.OFFLINE_ONLINE_TOTAL:
+            return build_cost_breakdown_table(outcome.summaries, offline)
         case Statistic.ECDF:
             return ecdf_series(observations, variant.metric).frame
         case Statistic.PERFORMANCE_PROFILE:
@@ -808,6 +838,7 @@ def _interval(variant: FigureVariant, outcome: GroupReport) -> FigureInterval:
         case (
             Statistic.CONVERGED_COUNT
             | Statistic.WORKLOAD_TOTAL
+            | Statistic.OFFLINE_ONLINE_TOTAL
             | Statistic.ECDF
             | Statistic.PERFORMANCE_PROFILE
             | Statistic.PAIRED_VALUES

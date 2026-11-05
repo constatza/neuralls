@@ -12,7 +12,7 @@ from dataclasses import replace
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
-from tests.figure_support import VARIANT_METRIC
+from tests.figure_support import VARIANT_METRIC, no_offline_cost
 from tests.recipe_support import GAUSSIAN, SINE
 
 from neuralls.domain.benchmarking.cost_curves import break_even_curves
@@ -23,6 +23,7 @@ from neuralls.domain.benchmarking.paired import (
 )
 from neuralls.domain.benchmarking.profiles import ecdf_series, performance_series
 from neuralls.domain.benchmarking.selection import NoReferenceConfigured
+from neuralls.domain.solver.models.cost import Known, OfflineStages, Unavailable
 from neuralls.domain.solver.models.group_outcomes import (
     RecipeProfileReport,
     WorkloadMixtureReport,
@@ -58,9 +59,9 @@ from neuralls.platform.reporting.figure_planning import (
     group_recipe,
     history_variant,
 )
-from neuralls.platform.reporting.figure_table import build_group_table
+from neuralls.platform.reporting.figure_table import build_cost_breakdown_table, build_group_table
 from neuralls.shared.rhs_recipe import recipe_key
-from neuralls.shared.types import PreconditionerName
+from neuralls.shared.types import CostProvenance, PreconditionerName
 
 JACOBI = PreconditionerName("jacobi")
 _MEAN_STEMS = (
@@ -113,6 +114,9 @@ _EXPECTED_SUMMARY: dict[str, SummaryOf] = {
     ),
     "solve_time_bars": lambda report: build_group_table(report.summaries),
     "online_time_bars": lambda report: build_group_table(report.summaries),
+    "cost_breakdown": lambda report: build_cost_breakdown_table(
+        report.summaries, no_offline_cost(report)
+    ),
     "ecdf_iterations": lambda report: ecdf_series(report.observations, MetricId.ITERATIONS).frame,
     "ecdf_time_solve": lambda report: ecdf_series(report.observations, MetricId.SOLVE_S).frame,
     "ecdf_time_online": lambda report: ecdf_series(report.observations, MetricId.ONLINE_S).frame,
@@ -179,7 +183,7 @@ def test_planning_yields_one_figure_per_variant_of_a_profile_report(
 def test_a_profile_report_plans_a_summary_frame_for_every_variant(
     profile_report: RecipeProfileReport,
 ) -> None:
-    summaries = figure_summaries(profile_report)
+    summaries = figure_summaries(profile_report, no_offline_cost(profile_report))
 
     assert set(summaries) == _PROFILE_STEMS
 
@@ -187,7 +191,7 @@ def test_a_profile_report_plans_a_summary_frame_for_every_variant(
 def test_a_mixture_report_plans_summary_frames_only_for_the_variants_it_draws(
     mixture_report: WorkloadMixtureReport,
 ) -> None:
-    summaries = figure_summaries(mixture_report)
+    summaries = figure_summaries(mixture_report, no_offline_cost(mixture_report))
 
     assert set(summaries) == _MIXTURE_STEMS
 
@@ -199,7 +203,7 @@ def test_a_mixture_report_plans_summary_frames_only_for_the_variants_it_draws(
 def test_a_variant_summary_has_the_schema_of_its_recipes_table_kind(
     profile_report: RecipeProfileReport, kind: FigureKind, variant: FigureVariant
 ) -> None:
-    summary = figure_summaries(profile_report)[variant.stem]
+    summary = figure_summaries(profile_report, no_offline_cost(profile_report))[variant.stem]
 
     assert dict(summary.schema) == TABLE_SCHEMAS[group_recipe(kind).table]
 
@@ -208,7 +212,7 @@ def test_a_variant_summary_has_the_schema_of_its_recipes_table_kind(
 def test_a_variant_summary_is_the_domain_statistic_its_figure_draws(
     profile_report: RecipeProfileReport, stem: str
 ) -> None:
-    summary = figure_summaries(profile_report)[stem]
+    summary = figure_summaries(profile_report, no_offline_cost(profile_report))[stem]
 
     assert_frame_equal(summary, _EXPECTED_SUMMARY[stem](profile_report))
 
@@ -217,9 +221,28 @@ def test_a_variant_summary_is_the_domain_statistic_its_figure_draws(
 def test_a_mixture_report_summarizes_the_workload_totals_of_its_methods(
     mixture_report: WorkloadMixtureReport, stem: str
 ) -> None:
-    summary = figure_summaries(mixture_report)[stem]
+    summary = figure_summaries(mixture_report, no_offline_cost(mixture_report))[stem]
 
     assert_frame_equal(summary, build_group_table(mixture_report.summaries))
+
+
+@pytest.mark.parametrize("report_name", ["profile_report", "mixture_report"])
+def test_the_cost_breakdown_stacks_the_offline_cost_of_each_method_on_its_workload_totals(
+    request: pytest.FixtureRequest, report_name: str
+) -> None:
+    report: RecipeProfileReport | WorkloadMixtureReport = request.getfixturevalue(report_name)
+    offline = {
+        summary.method: OfflineStages(
+            generation=Known(10.0, None, CostProvenance.HISTORICAL),
+            training=Unavailable("1 of 1 checkpoints have no recorded training run"),
+        )
+        for summary in report.summaries
+    }
+
+    table = figure_summaries(report, offline)["cost_breakdown"]
+
+    assert_frame_equal(table, build_cost_breakdown_table(report.summaries, offline))
+    assert set(table["total_status"]) == {"offline_unavailable"}
 
 
 def test_a_report_without_a_reference_plans_no_figure_that_compares_against_one(
@@ -227,7 +250,7 @@ def test_a_report_without_a_reference_plans_no_figure_that_compares_against_one(
 ) -> None:
     unreferenced = replace(profile_report, reference_selection=NoReferenceConfigured())
 
-    assert set(figure_summaries(unreferenced)) == _PROFILE_STEMS - {
+    assert set(figure_summaries(unreferenced, no_offline_cost(unreferenced))) == _PROFILE_STEMS - {
         "paired_time_scatter",
         "speed_ratio_cdf",
         "breakeven",
@@ -265,7 +288,9 @@ def test_a_variant_names_the_metric_it_summarizes(stem: str) -> None:
 def test_a_mixture_mean_table_holds_each_recipes_rows_and_the_pooled_mixture(
     two_recipe_mixture_report: WorkloadMixtureReport, stem: str
 ) -> None:
-    table = figure_summaries(two_recipe_mixture_report)[stem]
+    table = figure_summaries(two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report))[
+        stem
+    ]
 
     assert table[COHORT_COLUMN].unique(maintain_order=True).to_list() == [
         recipe_key(GAUSSIAN),
@@ -277,7 +302,9 @@ def test_a_mixture_mean_table_holds_each_recipes_rows_and_the_pooled_mixture(
 def test_the_pooled_rows_of_a_mixture_are_the_summary_of_every_recipe_together(
     two_recipe_mixture_report: WorkloadMixtureReport,
 ) -> None:
-    table = figure_summaries(two_recipe_mixture_report)["iteration_means"]
+    table = figure_summaries(two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report))[
+        "iteration_means"
+    ]
 
     pooled = table.filter(pl.col(COHORT_COLUMN) == MIXTURE_COHORT).drop(COHORT_COLUMN)
 
@@ -288,7 +315,7 @@ def test_the_pooled_rows_of_a_mixture_are_the_summary_of_every_recipe_together(
 
 
 def test_a_recipe_report_has_no_mixture_rows(profile_report: RecipeProfileReport) -> None:
-    table = figure_summaries(profile_report)["iteration_means"]
+    table = figure_summaries(profile_report, no_offline_cost(profile_report))["iteration_means"]
 
     assert table[COHORT_COLUMN].unique().to_list() == [recipe_key(GAUSSIAN)]
 

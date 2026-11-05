@@ -695,6 +695,12 @@ Matrix-set-and-RHS-type profiles use one RHS type. Solve-only and amortized-onli
 Dolan--Moré profiles show their respective absolute budgets and fastest-method
 ratios. Matrix-set and all-matrix-sets outputs are workload mixtures and emit bars only,
 not pooled per-system profiles or paired distributions.
+Every level also emits a total-cost figure (`cost_breakdown`): each method's offline generation and
+training, read from the offline block of its stored `summary.toml` and paid once per artifact, stacked on
+the setup and solve seconds of that level's workload. A report never recomputes training from MLflow, so
+a session stored without the offline block cannot be reported; `compare` runs such methods again because
+the reuse gate requires the block. A method whose offline stage has no recorded number is drawn without
+that segment and labelled as having an unknown total.
 Paired time and reference/method speed ratios use only the same matrix/RHS
 systems and only a `reference_preconditioner` explicitly configured by the
 user. Missing or failed sides remain counted but do not produce a ratio.

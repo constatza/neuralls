@@ -16,6 +16,8 @@ def test_canonical_comparison_terms_are_documented() -> None:
     text = "\n".join(path.read_text(encoding="utf-8") for path in DOCUMENTS)
     for term in (
         "generation",
+        "offline",
+        "training",
         "checkpoint",
         "setup",
         "solve",

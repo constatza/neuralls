@@ -394,6 +394,7 @@ def test_mixture_sink_omits_profiles_but_keeps_the_bars(
         f"aggregate_bars_{key}.png",
         f"solve_time_bars_{key}.png",
         f"online_time_bars_{key}.png",
+        f"cost_breakdown_{key}.png",
         *(f"{stem}_{key}.png" for stem in _MEAN_STEMS),
         f"convergence_factor_{key}.png",
     }
@@ -603,6 +604,7 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
             "aggregate_bars",
             "solve_time_bars",
             "online_time_bars",
+            "cost_breakdown",
             "paired_time_scatter",
             "speed_ratio_cdf",
             "performance_profile_solve",

@@ -450,11 +450,13 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
         "aggregate_bars_All_datasets.png",
         "solve_time_bars_All_datasets.png",
         "online_time_bars_All_datasets.png",
+        "cost_breakdown_All_datasets.png",
     } <= set(root_names)
     assert {
         "aggregate_bars_Test_problem_Ones_Solutions_N_1.png",
         "solve_time_bars_Test_problem_Ones_Solutions_N_1.png",
         "online_time_bars_Test_problem_Ones_Solutions_N_1.png",
+        "cost_breakdown_Test_problem_Ones_Solutions_N_1.png",
     } <= set(group_artifacts(matrix_set_id))
     recipe_stem = "Test_problem_Ones_Solutions_N_1_-_Gaussian"
     assert {

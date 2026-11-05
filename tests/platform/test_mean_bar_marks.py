@@ -9,6 +9,7 @@ from __future__ import annotations
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
+from tests.figure_support import no_offline_cost
 from tests.recipe_support import GAUSSIAN, SINE
 
 from neuralls.domain.solver.models.group_outcomes import (
@@ -49,7 +50,7 @@ def _row(summary: pl.DataFrame, method: str) -> dict[str, object]:
 def test_a_mean_bar_and_its_whisker_are_the_summary_row_of_its_method(
     profile_report: RecipeProfileReport,
 ) -> None:
-    summary = figure_summaries(profile_report)["iteration_means"]
+    summary = figure_summaries(profile_report, no_offline_cost(profile_report))["iteration_means"]
 
     (panel,) = bar_panels(summary, Statistic.MEAN_OVER_SYSTEMS)
 
@@ -68,7 +69,7 @@ def test_a_mean_bar_and_its_whisker_are_the_summary_row_of_its_method(
 def test_a_method_with_nothing_defined_has_no_bar_but_keeps_its_counts(
     profile_report: RecipeProfileReport,
 ) -> None:
-    summary = figure_summaries(profile_report)["iteration_means"]
+    summary = figure_summaries(profile_report, no_offline_cost(profile_report))["iteration_means"]
 
     (panel,) = bar_panels(summary, Statistic.MEAN_OVER_SYSTEMS)
 
@@ -78,7 +79,7 @@ def test_a_method_with_nothing_defined_has_no_bar_but_keeps_its_counts(
 def test_setup_bars_read_the_mean_over_matrices_of_matrices_set_up(
     profile_report: RecipeProfileReport,
 ) -> None:
-    summary = figure_summaries(profile_report)["setup_means"]
+    summary = figure_summaries(profile_report, no_offline_cost(profile_report))["setup_means"]
 
     (panel,) = bar_panels(summary, Statistic.MEAN_OVER_MATRICES)
 
@@ -95,7 +96,9 @@ def test_setup_bars_read_the_mean_over_matrices_of_matrices_set_up(
 def test_time_per_iteration_bars_are_the_ratio_of_sums_without_a_whisker(
     profile_report: RecipeProfileReport,
 ) -> None:
-    summary = figure_summaries(profile_report)["time_per_iteration"]
+    summary = figure_summaries(profile_report, no_offline_cost(profile_report))[
+        "time_per_iteration"
+    ]
 
     (panel,) = bar_panels(summary, Statistic.RATIO_OF_SUMS)
 
@@ -105,7 +108,9 @@ def test_time_per_iteration_bars_are_the_ratio_of_sums_without_a_whisker(
 def test_a_mixture_draws_one_panel_per_recipe_and_no_pooled_panel(
     two_recipe_mixture_report: WorkloadMixtureReport,
 ) -> None:
-    summary = figure_summaries(two_recipe_mixture_report)["iteration_means"]
+    summary = figure_summaries(
+        two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
+    )["iteration_means"]
 
     panels = bar_panels(summary, Statistic.MEAN_OVER_SYSTEMS)
 
@@ -117,7 +122,9 @@ def test_a_mixture_draws_one_panel_per_recipe_and_no_pooled_panel(
 def test_a_panel_states_the_population_of_its_rows(
     two_recipe_mixture_report: WorkloadMixtureReport,
 ) -> None:
-    summary = figure_summaries(two_recipe_mixture_report)["time_means_solve_common"]
+    summary = figure_summaries(
+        two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
+    )["time_means_solve_common"]
 
     panels = bar_panels(summary, Statistic.MEAN_OVER_SYSTEMS)
 
@@ -128,7 +135,9 @@ def test_time_per_iteration_points_are_each_recipes_systems_with_an_iterate(
     two_recipe_mixture_report: WorkloadMixtureReport,
 ) -> None:
     observations = two_recipe_mixture_report.observations
-    summary = figure_summaries(two_recipe_mixture_report)["time_per_iteration"]
+    summary = figure_summaries(
+        two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
+    )["time_per_iteration"]
     first, _ = bar_panels(summary, Statistic.RATIO_OF_SUMS)
 
     points = panel_points(observations, first, MetricId.TIME_PER_ITERATION_S)

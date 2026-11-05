@@ -12,7 +12,13 @@ from neuralls.domain.solver.models.group_outcomes import (
 )
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.summary import Population
-from neuralls.platform.reporting.figure_metadata import GROUP_FIGURE_KINDS, FigureKind
+from neuralls.platform.reporting.figure_metadata import (
+    GROUP_FIGURE_KINDS,
+    FailureTreatment,
+    FigureKind,
+    Statistic,
+    TableKind,
+)
 from neuralls.platform.reporting.figure_planning import (
     FIGURE_RECIPES,
     GroupFigureRecipe,
@@ -62,8 +68,27 @@ def test_mixture_reports_plan_only_the_kinds_common_to_both_reports() -> None:
         FigureKind.ITERATION_DISTRIBUTION,
         FigureKind.TIME_DISTRIBUTION,
         FigureKind.CONVERGENCE_FACTOR,
+        FigureKind.COST_BREAKDOWN,
     }
     assert all(RecipeProfileReport in group_recipe(kind).applies_to for kind in mixture_kinds)
+
+
+def test_the_cost_breakdown_is_one_figure_of_offline_plus_online_totals() -> None:
+    recipe = group_recipe(FigureKind.COST_BREAKDOWN)
+
+    assert [
+        (variant.stem, variant.metric, variant.population, variant.statistic)
+        for variant in recipe.variants
+    ] == [
+        (
+            "cost_breakdown",
+            MetricId.ONLINE_S,
+            Population.OWN,
+            Statistic.OFFLINE_ONLINE_TOTAL,
+        )
+    ]
+    assert recipe.table is TableKind.COST_BREAKDOWN
+    assert recipe.failure_treatment is FailureTreatment.NONE
 
 
 def test_variant_lookup_rejects_a_metric_the_kind_lacks() -> None:

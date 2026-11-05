@@ -59,6 +59,7 @@ class FigureKind(StrEnum):
     ITERATION_DISTRIBUTION = "iteration_distribution"
     TIME_DISTRIBUTION = "time_distribution"
     MATRIX_HEATMAP = "matrix_heatmap"
+    COST_BREAKDOWN = "cost_breakdown"
     RESIDUAL_HISTORY = "residual_history"
     ENERGY_HISTORY = "energy_history"
 
@@ -83,6 +84,7 @@ class TableKind(StrEnum):
     ``COHORT_SUMMARY`` and ``COHORT_RATIO_OF_SUMS`` hold per-method statistics by cohort: one block
     per recipe, and at a mixture level the pooled block too (``domain/solver/reporting/cohorts.py``).
     ``MATRIX_BREAKDOWN`` holds one row per method and matrix, exactly the cells of a heatmap.
+    ``COST_BREAKDOWN`` holds one row per method: its offline stages beside its online totals.
     """
 
     SUMMARY = "summary"
@@ -94,6 +96,7 @@ class TableKind(StrEnum):
     COHORT_SUMMARY = "cohort_summary"
     COHORT_RATIO_OF_SUMS = "cohort_ratio_of_sums"
     MATRIX_BREAKDOWN = "matrix_breakdown"
+    COST_BREAKDOWN = "cost_breakdown"
 
 
 type TableSchema = Mapping[str, pl.DataType | type[pl.DataType]]
@@ -116,6 +119,25 @@ WORKLOAD_TOTALS_SCHEMA: TableSchema = {
 outcome.
 """
 
+COST_BREAKDOWN_SCHEMA: TableSchema = {
+    "method_id": pl.String,
+    "generation_s": pl.Float64,
+    "generation_status": pl.String,
+    "training_s": pl.Float64,
+    "training_status": pl.String,
+    "allocated_setup_s": pl.Float64,
+    "solve_total_s": pl.Float64,
+    "total_s": pl.Float64,
+    "total_status": pl.String,
+}
+"""One row per method: its offline stages and the online totals of the report's workload.
+
+A stage's seconds are null unless its status is ``known``, so a stage that does not apply and one
+that is unavailable both carry no number and are told apart by the status. ``total_s`` is the
+sum of the known offline seconds, ``allocated_setup_s`` and ``solve_total_s``, and is null when
+the status is ``offline_unavailable``: an unknown stage is never read as zero.
+"""
+
 TABLE_SCHEMAS: Mapping[TableKind, TableSchema] = {
     TableKind.SUMMARY: SUMMARY_SCHEMA,
     TableKind.SERIES: PROFILE_SERIES_SCHEMA,
@@ -126,6 +148,7 @@ TABLE_SCHEMAS: Mapping[TableKind, TableSchema] = {
     TableKind.COHORT_SUMMARY: COHORT_SUMMARY_SCHEMA,
     TableKind.COHORT_RATIO_OF_SUMS: COHORT_RATIO_OF_SUMS_SCHEMA,
     TableKind.MATRIX_BREAKDOWN: MATRIX_BREAKDOWN_SCHEMA,
+    TableKind.COST_BREAKDOWN: COST_BREAKDOWN_SCHEMA,
 }
 """The columns and dtypes, in order, of the table each kind stores; the frames come from the
 domain statistics, so a schema change there reaches the stored tables through this mapping."""
@@ -152,7 +175,9 @@ class Statistic(StrEnum):
 
     The values of the bar statistics are also the summary-table columns their bars are read from.
     ``QUANTILES`` draws a distribution whose box and whiskers are the summary's ``q05`` to ``q95``;
-    ``MEAN_PER_MATRIX`` draws one mean per method and matrix.
+    ``MEAN_PER_MATRIX`` draws one mean per method and matrix; ``OFFLINE_ONLINE_TOTAL`` stacks a
+    method's offline generation and training, paid once per artifact, on its setup and solve
+    totals over the report's workload.
     """
 
     CONVERGED_COUNT = "converged_count"
@@ -168,6 +193,7 @@ class Statistic(StrEnum):
     RATIO_OF_SUMS = "ratio_of_sums"
     QUANTILES = "quantiles"
     MEAN_PER_MATRIX = "mean_per_matrix"
+    OFFLINE_ONLINE_TOTAL = "offline_online_total"
 
 
 class FailureTreatment(StrEnum):

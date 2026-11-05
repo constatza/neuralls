@@ -236,15 +236,33 @@ table = summarize(observations_of_methods(frames), MetricId.ONLINE_S, Population
 
 ### Comparison vocabulary
 
-The benchmark separates costs by when they are paid. **Generation** is the
-offline construction of a dataset or training artifact; it is reported only
-when a measured historical value is available. Checkpoint and input-data
-loading, validation, staging, plotting, persistence, and MLflow work are
-excluded from online timing. **Setup** is method preparation for one matrix;
-**solve** is one attempted RHS. **Workload online time** is the sum of setup
-and solve events for the workload. **Amortized online time per RHS** is solve
-time plus that matrix setup divided by the planned RHS count. Thus no
-checkpoint or data-read cost is silently charged to a method.
+The benchmark separates costs by when they are paid.
+
+| Term | Meaning | Source of the number |
+|---|---|---|
+| **generation** | construction of the dataset a method was fit on; offline | dataset manifest, `HISTORICAL` |
+| **training** | fit of a network or POD basis, only for a method with a checkpoint; offline | wall time of the MLflow run the checkpoint was resolved from, `HISTORICAL` |
+| **offline** | generation plus training, paid once per method artifact | `OfflineStages.total()` |
+| **setup** | method preparation for one matrix; online | live event, `MEASURED` |
+| **solve** | one attempted RHS; online | live event, `MEASURED` |
+| **online** | setup plus solve for the workload (**workload online time**) | the setup and solve events |
+| **total** | offline plus online for one stated workload | `total_cost_seconds`; derived, never stored |
+
+A stage that does not apply to a method (a classical method has neither offline stage, and a POD basis
+fit inline has no separate training because that fit runs inside its measured setup) is `NotApplicable`
+and adds nothing. A stage that applies but has no recorded number is `Unavailable` and is never read as
+zero: the total is then `OfflineUnavailable`, which carries only the online seconds, and the cost-breakdown
+figure states that the total is unknown. Offline cost is paid once and online cost once per workload, so
+a total names the workload it covers and neither is amortized into the other.
+
+Training seconds are the start-to-end wall time of the MLflow run, so they span the whole job lifecycle
+(data loading, epochs, checkpointing), not pure fit time. Two checkpoints trained in one run count that
+run once. Separating the fit from the rest of the job needs instrumentation in the dlkit fit path and is
+not done.
+
+Checkpoint and input-data loading, validation, staging, plotting, persistence, and MLflow work are
+excluded from online timing. **Amortized online time per RHS** is solve time plus that matrix setup
+divided by the planned RHS count. Thus no checkpoint or data-read cost is silently charged to a method.
 
 The **success rate** is converged attempts divided by planned RHS systems;
 failures remain in the denominator and are never assigned a penalty time. An

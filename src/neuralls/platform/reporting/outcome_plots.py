@@ -88,7 +88,7 @@ _LABEL_LINE_HEIGHT_IN = 0.3
 """Height in inches one wrapped label line takes on a bar chart's method axis."""
 
 
-def _bar_figure_size(labels: Sequence[str]) -> tuple[float, float]:
+def bar_figure_size(labels: Sequence[str]) -> tuple[float, float]:
     """Figure size that leaves the bars their own width and gives every label line its own row."""
     lines = [line for label in labels for line in label.split("\n")]
     widest = max((len(line) for line in lines), default=0)
@@ -113,9 +113,9 @@ def plot_aggregate_bars(
         return None
     rows = list(summary.iter_rows(named=True))
     names = [row["method"] for row in rows]
-    styles = _series_styles(names, style)
+    styles = series_styles(names, style)
     labels = [style.legend.label(name) for name in names]
-    fig, ax = plt.subplots(figsize=_bar_figure_size(labels))
+    fig, ax = plt.subplots(figsize=bar_figure_size(labels))
     values = [row["n_defined"] for row in rows]
     positions = np.arange(len(names))
     bars = ax.barh(positions, values, color=[styles[name]["color"] for name in names])
@@ -140,7 +140,7 @@ def plot_aggregate_bars(
     return target
 
 
-def _series_styles(names: Sequence[str], style: GroupStyle) -> dict[str, dict[str, Any]]:
+def series_styles(names: Sequence[str], style: GroupStyle) -> dict[str, dict[str, Any]]:
     return group_series_styles(names, style.families, style.color_keys, style.marker_keys)
 
 
@@ -211,7 +211,7 @@ def _step_profile_figure(
     if counts.height == 0:
         return None
     names = counts["method"].to_list()
-    styles = _series_styles(names, style)
+    styles = series_styles(names, style)
     solved = series.frame["x"].to_numpy()
     x_min, x_max = (float(solved.min()), float(solved.max())) if len(solved) else (1.0, 1.0)
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -384,10 +384,10 @@ def plot_workload_bars(
         return None
     rows = list(totals.iter_rows(named=True))
     names = [row["method_id"] for row in rows]
-    styles = _series_styles(names, style)
+    styles = series_styles(names, style)
     labels = [style.legend.label(name) for name in names]
     colors = [styles[name]["color"] for name in names]
-    fig, ax = plt.subplots(figsize=_bar_figure_size(labels))
+    fig, ax = plt.subplots(figsize=bar_figure_size(labels))
     positions = np.arange(len(names))
     left = np.zeros(len(names))
     segments = workload_segments(total)
@@ -489,7 +489,7 @@ def plot_paired_time_scatter(
     if axes is None:
         return None
     others = paired["method"].unique().sort().to_list()
-    styles = _series_styles(others, style)
+    styles = series_styles(others, style)
     label = METRICS[metric].label
 
     fig, ax = plt.subplots(figsize=(6.5, 6.5))
@@ -593,7 +593,7 @@ def plot_speed_ratio_cdf(
     if summary.height == 0:
         return None
     names = summary["method"].to_list()
-    styles = _series_styles(names, style)
+    styles = series_styles(names, style)
     fig, ax = plt.subplots(figsize=(8, 5))
     for row in summary.iter_rows(named=True):
         name = row["method"]

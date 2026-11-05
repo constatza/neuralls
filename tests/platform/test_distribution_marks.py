@@ -11,6 +11,7 @@ from __future__ import annotations
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
+from tests.figure_support import no_offline_cost
 from tests.recipe_support import GAUSSIAN, SINE
 
 from neuralls.domain.solver.models.group_outcomes import (
@@ -53,13 +54,19 @@ def _cell(cells: tuple[HeatmapCell, ...], method: str, matrix: int) -> HeatmapCe
 
 @pytest.fixture
 def heatmap(profile_report: RecipeProfileReport) -> tuple[HeatmapCell, ...]:
-    return heatmap_cells(figure_summaries(profile_report)["matrix_heatmap_iterations"])
+    return heatmap_cells(
+        figure_summaries(profile_report, no_offline_cost(profile_report))[
+            "matrix_heatmap_iterations"
+        ]
+    )
 
 
 def test_a_violins_box_and_whiskers_are_the_quantiles_of_its_summary_row(
     profile_report: RecipeProfileReport,
 ) -> None:
-    summary = figure_summaries(profile_report)["iteration_distribution"]
+    summary = figure_summaries(profile_report, no_offline_cost(profile_report))[
+        "iteration_distribution"
+    ]
 
     (panel,) = distribution_panels(summary)
 
@@ -75,7 +82,9 @@ def test_a_violins_box_and_whiskers_are_the_quantiles_of_its_summary_row(
 def test_a_method_with_nothing_defined_has_no_violin_but_keeps_its_counts(
     profile_report: RecipeProfileReport,
 ) -> None:
-    summary = figure_summaries(profile_report)["time_distribution_online"]
+    summary = figure_summaries(profile_report, no_offline_cost(profile_report))[
+        "time_distribution_online"
+    ]
 
     (panel,) = distribution_panels(summary)
 
@@ -87,7 +96,9 @@ def test_a_method_with_nothing_defined_has_no_violin_but_keeps_its_counts(
 def test_a_mixture_draws_one_distribution_panel_per_recipe(
     two_recipe_mixture_report: WorkloadMixtureReport,
 ) -> None:
-    summary = figure_summaries(two_recipe_mixture_report)["time_distribution_solve"]
+    summary = figure_summaries(
+        two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
+    )["time_distribution_solve"]
 
     panels = distribution_panels(summary)
 
@@ -100,7 +111,9 @@ def test_the_points_of_a_panel_are_the_per_matrix_means_of_its_recipes_systems(
     two_recipe_mixture_report: WorkloadMixtureReport,
 ) -> None:
     observations = two_recipe_mixture_report.observations
-    summary = figure_summaries(two_recipe_mixture_report)["iteration_distribution"]
+    summary = figure_summaries(
+        two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
+    )["iteration_distribution"]
     first, _ = distribution_panels(summary)
 
     points = matrix_points(observations, first, MetricId.ITERATIONS)

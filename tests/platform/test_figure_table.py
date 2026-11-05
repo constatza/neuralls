@@ -9,8 +9,15 @@ import pytest
 from polars.testing import assert_frame_equal
 
 from neuralls.domain.solver.models.benchmark_events import UnknownPeakMemory
+from neuralls.domain.solver.models.cost import (
+    NO_OFFLINE_COST,
+    Known,
+    OfflineStages,
+    Unavailable,
+)
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary, MethodWorkloadSummary
 from neuralls.platform.reporting.figure_metadata import (
+    COST_BREAKDOWN_SCHEMA,
     GROUP_FIGURE_KINDS,
     WORKLOAD_TOTALS_SCHEMA,
     FigureKind,
@@ -21,11 +28,12 @@ from neuralls.platform.reporting.figure_metadata import (
 from neuralls.platform.reporting.figure_planning import group_recipe, table_of
 from neuralls.platform.reporting.figure_table import (
     InvalidFigureTableError,
+    build_cost_breakdown_table,
     build_group_table,
     read_group_table,
     write_group_table,
 )
-from neuralls.shared.types import PreconditionerName
+from neuralls.shared.types import CostProvenance, PreconditionerName
 
 
 def _summary(
@@ -110,6 +118,95 @@ def test_a_method_with_only_failures_has_no_converged_solve_time(
     assert table.select("n_converged", "converged_solve_s", "failed_solve_s").rows() == [
         (0, 0.0, 3.0)
     ]
+
+
+def test_cost_breakdown_stacks_each_methods_offline_stages_on_its_online_totals(
+    summaries: tuple[MethodWorkloadSummary, ...],
+) -> None:
+    offline = {
+        PreconditionerName("pcg_jacobi"): NO_OFFLINE_COST,
+        PreconditionerName("amg"): OfflineStages(
+            generation=Known(10.0, None, CostProvenance.HISTORICAL),
+            training=Known(90.0, None, CostProvenance.HISTORICAL),
+        ),
+    }
+
+    table = build_cost_breakdown_table(summaries, offline)
+
+    assert dict(table.schema) == COST_BREAKDOWN_SCHEMA
+    assert table.to_dicts() == [
+        {
+            "method_id": "amg",
+            "generation_s": 10.0,
+            "generation_status": "known",
+            "training_s": 90.0,
+            "training_status": "known",
+            "allocated_setup_s": 1.0,
+            "solve_total_s": 1.5,
+            "total_s": 102.5,
+            "total_status": "complete",
+        },
+        {
+            "method_id": "pcg_jacobi",
+            "generation_s": None,
+            "generation_status": "not_applicable",
+            "training_s": None,
+            "training_status": "not_applicable",
+            "allocated_setup_s": 0.5,
+            "solve_total_s": 2.0,
+            "total_s": 2.5,
+            "total_status": "complete",
+        },
+    ]
+
+
+def test_cost_breakdown_has_no_total_when_an_offline_stage_is_unavailable(
+    summaries: tuple[MethodWorkloadSummary, ...],
+) -> None:
+    offline = {
+        PreconditionerName("pcg_jacobi"): NO_OFFLINE_COST,
+        PreconditionerName("amg"): OfflineStages(
+            generation=Known(10.0, None, CostProvenance.HISTORICAL),
+            training=Unavailable("1 of 1 checkpoints have no recorded training run"),
+        ),
+    }
+
+    (amg, _) = build_cost_breakdown_table(summaries, offline).to_dicts()
+
+    assert amg == {
+        "method_id": "amg",
+        "generation_s": 10.0,
+        "generation_status": "known",
+        "training_s": None,
+        "training_status": "unavailable",
+        "allocated_setup_s": 1.0,
+        "solve_total_s": 1.5,
+        "total_s": None,
+        "total_status": "offline_unavailable",
+    }
+
+
+def test_cost_breakdown_table_round_trips_through_parquet(
+    tmp_path: Path, summaries: tuple[MethodWorkloadSummary, ...]
+) -> None:
+    offline = {
+        PreconditionerName("pcg_jacobi"): OfflineStages(
+            Unavailable("no manifest"), Known(3.0, None, CostProvenance.HISTORICAL)
+        ),
+        PreconditionerName("amg"): NO_OFFLINE_COST,
+    }
+    table = build_cost_breakdown_table(summaries, offline)
+    path = tmp_path / "table.parquet"
+    write_group_table(path, table)
+
+    assert_frame_equal(read_group_table(path, TableKind.COST_BREAKDOWN), table)
+
+
+def test_empty_cost_breakdown_has_the_schema() -> None:
+    table = build_cost_breakdown_table((), {})
+
+    assert table.height == 0
+    assert dict(table.schema) == COST_BREAKDOWN_SCHEMA
 
 
 def test_empty_summaries_give_an_empty_table_with_the_schema() -> None:

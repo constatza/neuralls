@@ -22,6 +22,7 @@ from neuralls.domain.benchmarking.paired import (
 from neuralls.domain.benchmarking.profiles import ProfileSeries, ecdf_series, performance_series
 from neuralls.domain.benchmarking.selection import ReferenceSelection
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
+from neuralls.platform.reporting.cost_breakdown_plot import plot_cost_breakdown
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import Statistic
 from neuralls.platform.reporting.outcome_plots import (
@@ -117,6 +118,10 @@ def _performance_profile(data: FigureData, target: FigureTarget) -> FigureTarget
     )
 
 
+def _cost_breakdown(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+    return plot_cost_breakdown(data.summary, style=data.style, target=target)
+
+
 def _aggregate_bars(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_aggregate_bars(data.summary, style=data.style, target=target)
 
@@ -208,3 +213,4 @@ MEAN_OVER_MATRICES_DRAWER: GroupDrawer = _mean_bars(Statistic.MEAN_OVER_MATRICES
 TIME_PER_ITERATION_DRAWER: GroupDrawer = _time_per_iteration
 DISTRIBUTION_DRAWER: GroupDrawer = _distribution
 MATRIX_HEATMAP_DRAWER: GroupDrawer = _matrix_heatmap
+COST_BREAKDOWN_DRAWER: GroupDrawer = _cost_breakdown

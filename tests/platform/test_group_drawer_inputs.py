@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
+from tests.figure_support import no_offline_cost
 from tests.observation_support import solved_row, synthetic_observations, unconverged_row
 from tests.recipe_support import GAUSSIAN
 
@@ -68,6 +69,7 @@ def plot_calls(monkeypatch: pytest.MonkeyPatch) -> PlotCalls:
     for name in (
         "plot_aggregate_bars",
         "plot_workload_bars",
+        "plot_cost_breakdown",
         "plot_ecdf_profile",
         "plot_performance_profile",
         "plot_paired_time_scatter",
@@ -129,7 +131,9 @@ def _data(report: GroupAggregated, summary: pl.DataFrame, metric: MetricId) -> F
 
 def _draw(report: GroupAggregated, kind: FigureKind, metric: MetricId) -> FigureTarget | None:
     recipe = group_recipe(kind)
-    summary = figure_summaries(report)[recipe.variant(metric, Population.OWN).stem]
+    summary = figure_summaries(report, no_offline_cost(report))[
+        recipe.variant(metric, Population.OWN).stem
+    ]
     return recipe.draw(_data(report, summary, metric), TARGET)
 
 
@@ -228,13 +232,13 @@ def test_the_speed_ratio_cdf_is_drawn_from_the_ratios_and_their_summary(
 def test_the_break_even_curves_are_drawn_from_the_cost_curves_they_store_against_the_reference(
     report: RecipeProfileReport, plot_calls: PlotCalls
 ) -> None:
-    summary = figure_summaries(report)["breakeven"]
+    summary = figure_summaries(report, no_offline_cost(report))["breakeven"]
     group_recipe(FigureKind.BREAKEVEN).draw(_data(report, summary, MetricId.STANDALONE_S), TARGET)
 
     call = plot_calls.by_function["plot_break_even_curves"]
     (curves,) = _frames_of(call)
     assert call.options["reference_name"] == AMG
-    assert_frame_equal(curves, figure_summaries(report)["breakeven"])
+    assert_frame_equal(curves, figure_summaries(report, no_offline_cost(report))["breakeven"])
 
 
 def test_the_convergence_factors_are_drawn_from_their_cohort_summary_and_the_observations(
@@ -245,7 +249,9 @@ def test_the_convergence_factors_are_drawn_from_their_cohort_summary_and_the_obs
 
     call = plot_calls.by_function["plot_convergence_factors"]
     summary, observations = _frames_of(call)
-    assert_frame_equal(summary, figure_summaries(report)["convergence_factor"])
+    assert_frame_equal(
+        summary, figure_summaries(report, no_offline_cost(report))["convergence_factor"]
+    )
     assert_frame_equal(observations, report.observations)
     assert call.options["metric"] is metric
 
@@ -277,6 +283,7 @@ def test_reference_figures_need_a_configured_reference_among_the_methods(
         (FigureKind.AGGREGATE_BARS, MetricId.ITERATIONS, "plot_aggregate_bars"),
         (FigureKind.SOLVE_TIME, MetricId.SOLVE_S, "plot_workload_bars"),
         (FigureKind.ONLINE_TIME, MetricId.ONLINE_S, "plot_workload_bars"),
+        (FigureKind.COST_BREAKDOWN, MetricId.ONLINE_S, "plot_cost_breakdown"),
     ],
 )
 def test_bar_figures_are_drawn_from_the_summary_frame_they_store(
@@ -290,7 +297,12 @@ def test_bar_figures_are_drawn_from_the_summary_frame_they_store(
 
     (drawn,) = _frames_of(plot_calls.by_function[function])
     recipe = group_recipe(kind)
-    assert_frame_equal(drawn, figure_summaries(report)[recipe.variant(metric, Population.OWN).stem])
+    assert_frame_equal(
+        drawn,
+        figure_summaries(report, no_offline_cost(report))[
+            recipe.variant(metric, Population.OWN).stem
+        ],
+    )
 
 
 @pytest.mark.parametrize(
@@ -333,7 +345,9 @@ def test_mean_bars_are_drawn_from_the_summary_they_store_with_their_statistic(
 
     call = plot_calls.by_function["plot_mean_bars"]
     (drawn,) = _frames_of(call)
-    assert_frame_equal(drawn, figure_summaries(report)[_stem(kind, metric)])
+    assert_frame_equal(
+        drawn, figure_summaries(report, no_offline_cost(report))[_stem(kind, metric)]
+    )
     assert (call.options["statistic"], call.options["metric"]) == (statistic, metric)
 
 
@@ -345,7 +359,7 @@ def test_time_per_iteration_is_drawn_from_its_ratio_table_and_the_observations(
     drawn, observations = _frames_of(plot_calls.by_function["plot_time_per_iteration"])
     assert_frame_equal(
         drawn,
-        figure_summaries(report)[
+        figure_summaries(report, no_offline_cost(report))[
             _stem(FigureKind.TIME_PER_ITERATION, MetricId.TIME_PER_ITERATION_S)
         ],
     )
@@ -371,7 +385,9 @@ def test_a_distribution_is_drawn_from_its_cohort_summary_and_the_observations(
 
     call = plot_calls.by_function["plot_distribution"]
     drawn, observations = _frames_of(call)
-    assert_frame_equal(drawn, figure_summaries(report)[_stem(kind, metric)])
+    assert_frame_equal(
+        drawn, figure_summaries(report, no_offline_cost(report))[_stem(kind, metric)]
+    )
     assert_frame_equal(observations, report.observations)
     assert call.options["metric"] is metric
 
@@ -384,6 +400,9 @@ def test_the_matrix_heatmap_is_drawn_from_the_breakdown_it_stores(
     call = plot_calls.by_function["plot_matrix_heatmap"]
     (drawn,) = _frames_of(call)
     assert_frame_equal(
-        drawn, figure_summaries(report)[_stem(FigureKind.MATRIX_HEATMAP, MetricId.ITERATIONS)]
+        drawn,
+        figure_summaries(report, no_offline_cost(report))[
+            _stem(FigureKind.MATRIX_HEATMAP, MetricId.ITERATIONS)
+        ],
     )
     assert call.options["metric"] is MetricId.ITERATIONS

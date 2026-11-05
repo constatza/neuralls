@@ -195,6 +195,26 @@ def test_a_card_names_the_statistic_it_draws(payloads: dict[str, Payload], stem:
     assert isinstance(payloads[stem].get("statistic"), str)
 
 
+def test_the_cost_breakdown_card_names_its_statistic_table_and_failure_rule(
+    payloads: dict[str, Payload],
+) -> None:
+    card = payloads["cost_breakdown"]
+
+    assert (
+        card["kind"],
+        card["statistic"],
+        card["failure_treatment"],
+        card["table"],
+        card["table_kind"],
+    ) == (
+        "cost_breakdown",
+        "offline_online_total",
+        "none",
+        "cost_breakdown_key.parquet",
+        "cost_breakdown",
+    )
+
+
 def test_the_speed_ratio_card_states_its_interval(
     profile_report: RecipeProfileReport, payloads: dict[str, Payload]
 ) -> None:
