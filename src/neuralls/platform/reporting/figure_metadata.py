@@ -32,6 +32,7 @@ from neuralls.platform.reporting.figure_evidence import (
     MethodOutcomeCounts,
     SetupSharing,
 )
+from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.scientific_description.policy import RenderProfile
 from neuralls.shared.types import DatasetId, PreconditionerName, RunId
@@ -308,29 +309,28 @@ class FigurePlan[M: FigureMetadata]:
     when the figure is drawn.
     """
 
-    filename: str
+    stem: str
     title: str
     metadata: M
 
 
-def collision_key(filename: str) -> str:
-    """The case-folded safe spelling of ``filename``; equal keys name the same artifact."""
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", Path(filename).name).lower()
+def collision_key(name: str) -> str:
+    """The case-folded safe spelling of file stem or name ``name``; equal keys collide."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", Path(name).name).lower()
 
 
 @dataclass(frozen=True, slots=True)
 class StagedFigure:
-    """A drawn figure file together with the plan that describes it."""
+    """A drawn figure, its files written at ``target``, together with the plan that describes it."""
 
     plan: FigurePlan
-    path: Path
+    target: FigureTarget
 
     def __post_init__(self) -> None:
-        """Require the file to carry the planned name."""
-        if self.path.name != self.plan.filename:
+        """Require the files to carry the planned stem."""
+        if self.target.stem != self.plan.stem:
             raise ValueError(
-                f"staged file {self.path.name!r} does not carry the planned name "
-                f"{self.plan.filename!r}"
+                f"staged stem {self.target.stem!r} is not the planned stem {self.plan.stem!r}"
             )
 
 

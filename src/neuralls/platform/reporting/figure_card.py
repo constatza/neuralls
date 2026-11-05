@@ -42,6 +42,7 @@ from neuralls.platform.reporting.figure_evidence import (
     TimingEvidence,
     TimingRepeats,
 )
+from neuralls.platform.reporting.figure_formats import figure_files
 from neuralls.platform.reporting.figure_metadata import (
     CARD_PROFILE,
     GROUP_FIGURE_KINDS,
@@ -76,11 +77,10 @@ from neuralls.shared.types import DatasetId, PreconditionerName, RunId, SessionR
 CARD_SUFFIX = ".toml"
 """A card shares its figure's stem and directory; only the suffix differs."""
 
-FIGURE_SUFFIX = ".png"
-
 _REQUIRED_FIELDS: frozenset[str] = frozenset(
     {
-        "figure",
+        "stem",
+        "files",
         "kind",
         "title",
         "metric_definition",
@@ -112,7 +112,7 @@ class FigureCard:
     """Everything recorded about one figure, validated at construction.
 
     Attributes:
-        figure: File name of the PNG the card describes.
+        stem: File stem shared by the figure's files, one per figure format.
         title: The figure's fixed editorial title.
         scope_display: ``metadata.scope`` rendered as plain text.
         session_run_id: The compare session the numbers were read from.
@@ -120,39 +120,42 @@ class FigureCard:
             method runs and artifacts the figure was computed from.
     """
 
-    figure: str
+    stem: str
     title: str
     scope_display: str
     session_run_id: SessionRunId
     metadata: FigureMetadata
 
     def __post_init__(self) -> None:
-        """Require a PNG basename and a session run id."""
-        if not self.figure or Path(self.figure).name != self.figure:
-            raise ValueError("figure card must name a file by its basename")
-        if not self.figure.endswith(FIGURE_SUFFIX):
-            raise ValueError(f"figure card must describe a {FIGURE_SUFFIX} file: {self.figure}")
+        """Require a file stem and a session run id."""
+        if not self.stem or Path(self.stem).name != self.stem:
+            raise ValueError("figure card must name its files by a stem without directories")
         if not self.session_run_id:
             raise ValueError("figure card needs the session run id its numbers came from")
 
     @property
+    def files(self) -> tuple[str, ...]:
+        """The figure's files, one per figure format."""
+        return figure_files(self.stem)
+
+    @property
     def table(self) -> FigureTable:
         """The plotted table beside the figure, decided by the figure's kind alone."""
-        return table_of(self.figure, self.metadata.kind)
+        return table_of(self.stem, self.metadata.kind)
 
 
 def build_figure_card(
-    figure: str,
+    stem: str,
     title: str,
     metadata: FigureMetadata,
     *,
     session_run_id: SessionRunId,
     notation: NotationPolicy,
 ) -> FigureCard:
-    """The card of ``figure``, rendering its scope as plain text."""
+    """The card of the figure with file stem ``stem``, rendering its scope as plain text."""
     plain = replace(notation, target=RenderTarget.PLAIN)
     return FigureCard(
-        figure=figure,
+        stem=stem,
         title=title,
         scope_display=render_figure_scope(metadata.scope, CARD_PROFILE, plain).text,
         session_run_id=session_run_id,
@@ -160,9 +163,9 @@ def build_figure_card(
     )
 
 
-def card_name(figure: str) -> str:
-    """The file name of the card that sits beside ``figure``."""
-    return f"{figure.removesuffix(FIGURE_SUFFIX)}{CARD_SUFFIX}"
+def card_name(stem: str) -> str:
+    """The file name of the card that sits beside the figure with file stem ``stem``."""
+    return f"{stem}{CARD_SUFFIX}"
 
 
 def _encode_reference(reference: ReferenceSelection) -> dict[str, Any]:
@@ -294,7 +297,8 @@ def card_payload(card: FigureCard) -> dict[str, Any]:
     """The card as TOML-ready data: structure, typed values and the rendered scope text."""
     metadata = card.metadata
     payload: dict[str, Any] = {
-        "figure": card.figure,
+        "stem": card.stem,
+        "files": list(card.files),
         "kind": metadata.kind.value,
         "title": card.title,
         "metric_definition": metadata.metric_definition,
@@ -454,12 +458,16 @@ def decode_figure_card(payload: Mapping[str, Any]) -> FigureCard:
         else _decode_method_metadata(kind, payload)
     )
     card = FigureCard(
-        figure=str(payload["figure"]),
+        stem=str(payload["stem"]),
         title=str(payload["title"]),
         scope_display=str(payload["scope"]["display"]),
         session_run_id=SessionRunId(str(payload["source"]["session_run_id"])),
         metadata=metadata,
     )
+    if tuple(payload["files"]) != card.files:
+        raise InvalidFigureCardError(
+            f"figure card files must be {list(card.files)}, not {payload['files']!r}"
+        )
     _check_table(card, payload)
     return card
 

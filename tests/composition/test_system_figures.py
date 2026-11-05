@@ -33,6 +33,7 @@ from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.domain.solver.reporting.event_frames import build_convergence_frame
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.config.models.preconditioner import PreconditionerType
+from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import FigureKind
 from neuralls.platform.reporting.figure_text import EditorialTitle
 from neuralls.platform.reporting.plots import ConvergenceCurve
@@ -61,7 +62,7 @@ FIGURE_ROOT = Path("figures")
 @dataclass(slots=True)
 class DrawRequest:
     curves: dict[str, ConvergenceCurve]
-    path: Path
+    target: FigureTarget
     title: str
     ylabel: str
 
@@ -78,12 +79,12 @@ def draws(monkeypatch: pytest.MonkeyPatch) -> RecordedDraws:
     def record(
         curves: dict[str, ConvergenceCurve],
         *,
-        save_path: Path,
+        target: FigureTarget,
         title: EditorialTitle,
         ylabel: str,
         **_: object,
     ) -> None:
-        recorded.requests.append(DrawRequest(curves, Path(save_path), title.text, ylabel))
+        recorded.requests.append(DrawRequest(curves, target, title.text, ylabel))
 
     monkeypatch.setattr(system_figures, "plot_convergence_curves", record)
     return recorded
@@ -175,8 +176,10 @@ def test_each_system_gets_one_residual_and_one_energy_figure_with_every_method(
         for matrix in (1, 2)
         for title in ("Residual History", "Energy History")
     ]
-    names = [r.path.relative_to(FIGURE_ROOT).parts for r in draws.requests]
-    assert {parts[1] for parts in names} == {"residual_history.png", "energy_history.png"}
+    names = [
+        (*r.target.directory.relative_to(FIGURE_ROOT).parts, r.target.stem) for r in draws.requests
+    ]
+    assert {parts[1] for parts in names} == {"residual_history", "energy_history"}
     assert all("sys-" not in part and "ds" != part for parts in names for part in parts)
     assert len({parts[0] for parts in names}) == 2
 
@@ -218,8 +221,8 @@ def test_each_figure_is_planned_with_its_system_methods_parameters_and_sources(
     )
     plan = second_residual.staged.plan
     metadata = plan.metadata
-    assert plan.filename == "residual_history.png"
-    assert second_residual.staged.path.name == plan.filename
+    assert plan.stem == "residual_history"
+    assert second_residual.staged.target.stem == plan.stem
     assert metadata.kind is FigureKind.RESIDUAL_HISTORY
     assert metadata.report_level is ReportLevelName.SYSTEM
     assert metadata.scope == SystemScope(dataset_presentation, GAUSSIAN, MatrixId(2), 0)

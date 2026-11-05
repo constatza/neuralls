@@ -74,6 +74,7 @@ from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
 from neuralls.platform.config.models.workspace import AssignmentSpec
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.reporting.figure_formats import FigureTarget, figure_files
 from neuralls.platform.reporting.figure_text import Legend, training_legend
 from neuralls.platform.reporting.plots import plot_method_bars
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
@@ -639,7 +640,7 @@ def _upload_metric_report(
     parent_run_id: str,
 ) -> None:
     """Stage the report's plot and label map in a scratch dir and upload both to MLflow."""
-    plot_name = f"batch_metric_{metric.replace('/', '_')}.png"
+    plot_stem = f"batch_metric_{metric.replace('/', '_')}"
     with tempfile.TemporaryDirectory() as tmp:
         work_root = Path(tmp)
         if report.has_plot:
@@ -648,7 +649,7 @@ def _upload_metric_report(
                 report.labels,
                 report.values,
                 metric_name=metric,
-                save_path=work_root / plot_name,
+                target=FigureTarget(work_root, plot_stem),
             )
 
         (work_root / "batch_training_labels.json").write_text(
@@ -660,7 +661,7 @@ def _upload_metric_report(
             tracking_uri=tracking_uri,
             run_id=parent_run_id,
             work_root=work_root,
-            flat_files=(plot_name, "batch_training_labels.json"),
+            flat_files=(*figure_files(plot_stem), "batch_training_labels.json"),
         )
 
 

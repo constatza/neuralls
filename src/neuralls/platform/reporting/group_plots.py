@@ -11,6 +11,7 @@ import polars as pl
 from neuralls.domain.solver.models.group_outcomes import GroupReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.models.plot_style import plot_style_maps
+from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import (
     FigurePlan,
     GroupFigureMetadata,
@@ -81,7 +82,7 @@ def write_outcome_plots(
             metadata.metric,
             outcome.reference_selection,
         )
-        path = recipe.draw(data, directory / plan.filename)
-        if path is not None:
-            drawn.append(StagedTabledFigure(StagedFigure(plan, path), summary))
+        target = recipe.draw(data, FigureTarget(directory, plan.stem))
+        if target is not None:
+            drawn.append(StagedTabledFigure(StagedFigure(plan, target), summary))
     return tuple(drawn)

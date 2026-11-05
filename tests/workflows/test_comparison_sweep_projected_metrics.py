@@ -122,9 +122,10 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
         }
 
     def with_cards(figures: set[str]) -> set[str]:
-        """Each group figure is stored beside the card and plotted table of the same stem."""
+        """Each group figure is stored beside its vector twin, card and plotted table."""
         return (
             figures
+            | {name.replace(".png", ".pdf") for name in figures}
             | {name.replace(".png", ".toml") for name in figures}
             | {name.replace(".png", ".parquet") for name in figures}
         )

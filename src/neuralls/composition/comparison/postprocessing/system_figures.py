@@ -19,6 +19,7 @@ from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.models.plot_style import plot_style_maps
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.reporting.benchmark_events import MethodBenchmarkArtifacts
+from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import (
     FigureKind,
     FigureMethod,
@@ -111,8 +112,8 @@ def write_system_figures(
             curves = _curves(system_frame, metric, str(tag.system_id), converged)
             if not curves:
                 continue
-            filename = f"{metric.value}_history.png"
-            path = root / f"system_{index}" / filename
+            stem = f"{metric.value}_history"
+            target = FigureTarget(root / f"system_{index}", stem)
             title = f"{_METRIC_TITLE[metric]} (matrix {int(tag.matrix_id)}, RHS {tag.rhs_ordinal})"
             drawn = [by_method[name] for name in curves]
             plot_convergence_curves(
@@ -120,7 +121,7 @@ def write_system_figures(
                 legend=legend.marking_unconverged(
                     name for name, curve in curves.items() if not curve.converged
                 ),
-                save_path=path,
+                target=target,
                 title=EditorialTitle(title),
                 subtitle=ScopeSubtitle(RecipeScope(dataset, tag.recipe), notation),
                 families=maps.families,
@@ -136,8 +137,8 @@ def write_system_figures(
                 reference=references[tag.system_id],
                 context=solver_contexts[tag.system_id],
             )
-            plan = FigurePlan(filename, title, metadata)
-            figures.append(SystemFigure(tag, metric, StagedFigure(plan, path)))
+            plan = FigurePlan(stem, title, metadata)
+            figures.append(SystemFigure(tag, metric, StagedFigure(plan, target)))
     return tuple(figures)
 
 

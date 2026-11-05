@@ -16,6 +16,7 @@ from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.models.split_record import DatasetSplitRecord
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.platform.reporting.figure_card import card_name, decode_figure_card
+from neuralls.platform.reporting.figure_formats import FigureTarget, figure_files
 from neuralls.platform.reporting.figure_metadata import (
     FigureKind,
     SiblingTable,
@@ -31,6 +32,14 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 GROUP_DIRECTORY = "group_report"
 
 
+def _written_target(directory: Path, stem: str) -> FigureTarget:
+    """A target whose files exist, as the figure writer leaves them (empty: images are not tested)."""
+    target = FigureTarget(directory, stem)
+    for path in target.paths:
+        path.write_bytes(b"")
+    return target
+
+
 def test_the_table_beside_a_figure_is_the_one_its_card_names(
     tmp_path: Path,
     profile_report: RecipeProfileReport,
@@ -43,18 +52,17 @@ def test_the_table_beside_a_figure_is_the_one_its_card_names(
         if plan.metadata.kind is FigureKind.ECDF_TIME and plan.metadata.metric is MetricId.ONLINE_S
     )
     table = figure_summaries(profile_report)["ecdf_time_online"]
-    figure_path = tmp_path / plan.filename
-    figure_path.write_bytes(b"")
+    target = _written_target(tmp_path, plan.stem)
     sink = InMemoryArtifactSink()
     uploader = FigureUploader("session-run", notation, sink)
 
     uploader.upload(
-        GROUP_DIRECTORY, GROUP_DIRECTORY, StagedTabledFigure(StagedFigure(plan, figure_path), table)
+        GROUP_DIRECTORY, GROUP_DIRECTORY, StagedTabledFigure(StagedFigure(plan, target), table)
     )
     uploader.write_index(())
 
     card = decode_figure_card(
-        tomllib.loads(sink.files[GROUP_DIRECTORY, card_name(plan.filename)].decode("utf-8"))
+        tomllib.loads(sink.files[GROUP_DIRECTORY, card_name(plan.stem)].decode("utf-8"))
     )
     match card.table:
         case SiblingTable(name=name):
@@ -64,8 +72,9 @@ def test_the_table_beside_a_figure_is_the_one_its_card_names(
                 f"a group figure card must name a sibling table, not {unreachable}"
             )
     assert_frame_equal(stored, table)
+    assert card.files == figure_files(plan.stem)
     assert sorted(file for _, file in sink.files) == sorted(
-        [plan.filename, card_name(plan.filename), name, "figure_index.toml", "splits.toml"]
+        [*card.files, card_name(plan.stem), name, "figure_index.toml", "splits.toml"]
     )
 
 
@@ -80,8 +89,7 @@ def test_a_table_of_another_kind_than_the_cards_is_not_uploaded(
         for plan in figure_plans(profile_report, repeated_timing_presentation, "key", {})
         if plan.metadata.kind is FigureKind.ECDF_ITERATIONS
     )
-    figure_path = tmp_path / plan.filename
-    figure_path.write_bytes(b"")
+    target = _written_target(tmp_path, plan.stem)
     sink = InMemoryArtifactSink()
     uploader = FigureUploader("session-run", notation, sink)
     other_kind = figure_summaries(profile_report)["aggregate_bars"]
@@ -90,7 +98,7 @@ def test_a_table_of_another_kind_than_the_cards_is_not_uploaded(
         uploader.upload(
             GROUP_DIRECTORY,
             GROUP_DIRECTORY,
-            StagedTabledFigure(StagedFigure(plan, figure_path), other_kind),
+            StagedTabledFigure(StagedFigure(plan, target), other_kind),
         )
 
 

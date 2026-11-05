@@ -41,6 +41,7 @@ from neuralls.domain.solver.models.report_scope import (
 from neuralls.domain.solver.models.split_record import DatasetSplitRecord
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.reporting.benchmark_events import MethodBenchmarkArtifacts
+from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_index import FigureIndexEntry
 from neuralls.platform.reporting.figure_metadata import (
     FigureMethod,
@@ -205,11 +206,10 @@ class OpenReport:
                 solver_contexts=contexts,
             )
             plan = plan_figure(variant, metadata, slug=method_slug)
-            filename = plan.filename
-            self.uploader.check_free(root_id, METHOD_FIGURE_ARTIFACT_DIR, [filename])
-            path = figures_dir / filename
-            draw_method_figure(path, kind, method, self.notation, datasets)
-            self.uploader.upload(root_id, METHOD_FIGURE_ARTIFACT_DIR, StagedFigure(plan, path))
+            self.uploader.check_free(root_id, METHOD_FIGURE_ARTIFACT_DIR, [plan.stem])
+            target = FigureTarget(figures_dir, plan.stem)
+            draw_method_figure(target, kind, method, self.notation, datasets)
+            self.uploader.upload(root_id, METHOD_FIGURE_ARTIFACT_DIR, StagedFigure(plan, target))
 
     def report(
         self,
@@ -235,7 +235,7 @@ class OpenReport:
             )
             plans = figure_plans(outcome, presentation, file_key, self._group_methods(presentation))
             self.uploader.check_free(
-                run_id, GROUP_REPORT_ARTIFACT_DIR, [plan.filename for plan in plans]
+                run_id, GROUP_REPORT_ARTIFACT_DIR, [plan.stem for plan in plans]
             )
             figures = write_outcome_plots(
                 outcome,
@@ -259,7 +259,7 @@ class OpenReport:
         """Log one system's per-method metrics and figures, with their cards, into its own run."""
         with self._in_scope(scope) as run_id:
             mlflow.log_metrics(dict(metrics))
-            self.uploader.check_free(run_id, None, [staged.plan.filename for staged in figures])
+            self.uploader.check_free(run_id, None, [staged.plan.stem for staged in figures])
             for staged in figures:
                 self.uploader.upload(run_id, None, staged)
 

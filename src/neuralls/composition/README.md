@@ -34,14 +34,14 @@ each problem.
 
 Comparison figures are planned with typed metadata before drawing. Titles stay
 short (for example `Online Time`, `Performance Profile`, and `Speed Ratio`),
-while each figure's card (`<stem>.toml`, uploaded beside the PNG into the run of the figure's
+while each figure's card (`<stem>.toml`, uploaded beside the figure's PNG and PDF files into the run of the figure's
 scope) carries report scope, counts, actual dataset/recipe membership and weights, solver
 tolerances, iteration and normalization settings, repeat policy, reference/failure semantics, the metric, population and statistic drawn, the evidence under the numbers (the bootstrap interval where one is drawn, the RHS counts that share a matrix's setup on online metrics, per-method outcome counts, and timing spread with a warning when each solve was timed once),
 the methods drawn and the stored method runs and artifacts the figure came from; group figures also get a same-stem `.parquet` of the frame the figure draws, of the kind its recipe names (a per-method summary, a curve's points, per-system pairs, speed-ratio statistics or workload totals). Method-child
 residual and energy figures use unique method-qualified names; system figures keep short stems
 because a stem only needs to be unique within one run directory. One `MLflowReportSink`
 finalizes `figure_index.toml` exactly once on the root report run, after checking that every
-uploaded figure has its card, and uploads the session's `splits.toml` beside it (`run_comparison_report` downloads it first, so a session that predates it is refused before any report run exists); reports with no figures still receive an empty index.
+uploaded figure has all its format files (PNG and PDF) and its card, and uploads the session's `splits.toml` beside it (`run_comparison_report` downloads it first, so a session that predates it is refused before any report run exists); reports with no figures still receive an empty index.
 
 `compare` is compute-only: it times solves and persists each method's raw tables
 (`platform/reporting/benchmark_events.py::MethodBenchmarkArtifacts`) under the

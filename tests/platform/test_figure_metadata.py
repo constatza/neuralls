@@ -33,6 +33,7 @@ from neuralls.platform.reporting.figure_card import (
     validate_figure_card,
     write_figure_card,
 )
+from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import (
     CARD_PROFILE,
     MAX_SLUG_LENGTH,
@@ -52,7 +53,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy, Render
 from neuralls.shared.types import MatrixId, PreconditionerName
 
 SESSION_RUN_ID = "session-run"
-FIGURE = "performance_profile_fine_x_online.png"
+FIGURE = "performance_profile_fine_x_online"
 CONTEXT = SolverTimingContext(
     rtol=1e-6,
     atol=1e-14,
@@ -283,6 +284,31 @@ def test_card_source_without_run_id_is_rejected(
         validate_figure_card(payload)
 
 
+def test_a_card_names_the_raster_and_the_vector_file_of_its_figure(
+    scope: RecipeScope,
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
+    notation: NotationPolicy,
+) -> None:
+    payload = card_payload(_card(metadata_of(scope), notation))
+
+    assert (payload["stem"], payload["files"]) == (
+        FIGURE,
+        ["performance_profile_fine_x_online.png", "performance_profile_fine_x_online.pdf"],
+    )
+
+
+def test_a_card_listing_other_files_than_its_stems_formats_is_rejected(
+    scope: RecipeScope,
+    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
+    notation: NotationPolicy,
+) -> None:
+    payload = card_payload(_card(metadata_of(scope), notation))
+    payload["files"] = [payload["files"][0]]
+
+    with pytest.raises(InvalidFigureCardError, match="files must be"):
+        decode_figure_card(payload)
+
+
 def test_a_group_card_names_the_kind_of_table_beside_its_figure(
     scope: RecipeScope,
     metadata_of: Callable[[FigureScope], GroupFigureMetadata],
@@ -308,30 +334,30 @@ def test_a_card_naming_another_kind_of_table_than_its_recipes_is_rejected(
         decode_figure_card(payload)
 
 
-@pytest.mark.parametrize("figure", ["", "nested/figure.png", "figure.svg"])
-def test_card_must_name_a_png_by_its_basename(
-    figure: str,
+@pytest.mark.parametrize("stem", ["", "nested/figure"])
+def test_card_must_name_its_files_by_a_stem_without_directories(
+    stem: str,
     scope: RecipeScope,
     metadata_of: Callable[[FigureScope], GroupFigureMetadata],
 ) -> None:
     with pytest.raises(ValueError):
-        FigureCard(figure, "Title", "display", SESSION_RUN_ID, metadata_of(scope))
+        FigureCard(stem, "Title", "display", SESSION_RUN_ID, metadata_of(scope))
 
 
-def test_staged_figure_file_must_carry_the_planned_name(
+def test_staged_figure_files_must_carry_the_planned_stem(
     tmp_path: Path,
     scope: RecipeScope,
     metadata_of: Callable[[FigureScope], GroupFigureMetadata],
 ) -> None:
-    plan = FigurePlan("planned.png", "Title", metadata_of(scope))
+    plan = FigurePlan("planned", "Title", metadata_of(scope))
 
-    with pytest.raises(ValueError, match="planned name"):
-        StagedFigure(plan, tmp_path / "other.png")
+    with pytest.raises(ValueError, match="planned stem"):
+        StagedFigure(plan, FigureTarget(tmp_path, "other"))
 
 
 def test_collision_keys_equate_filesystem_unsafe_spellings() -> None:
-    assert collision_key("a b.png") == collision_key("a_b.png")
-    assert collision_key("A.png") == collision_key("a.png")
+    assert collision_key("a b") == collision_key("a_b")
+    assert collision_key("A") == collision_key("a")
 
 
 def test_slugs_follow_rendered_text_and_disambiguate_in_encounter_order() -> None:

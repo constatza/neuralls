@@ -8,7 +8,6 @@ interval whisker) is read from the frame stored as the figure's table.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import assert_never
 
 import matplotlib.pyplot as plt
@@ -21,6 +20,7 @@ from neuralls.domain.presentation.recipes import render_recipe
 from neuralls.domain.solver.reporting.cohorts import COHORT_COLUMN, MIXTURE_COHORT
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import Population, select
+from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_text import TITLE_PROFILE, draw_legend
 from neuralls.platform.reporting.outcome_plots import GroupStyle
 from neuralls.platform.reporting.plots import finish_group_figure, group_series_styles
@@ -72,8 +72,8 @@ def plot_break_even_curves(
     *,
     reference_name: PreconditionerName,
     style: GroupStyle,
-    save_path: Path,
-) -> Path | None:
+    target: FigureTarget,
+) -> FigureTarget | None:
     r"""Cumulative cost $C(n)$ of each compared method and of the reference, for $n$ RHS of one matrix.
 
     ``curves`` is a ``break_even_curves`` frame. Each compared method is a solid line and its
@@ -145,11 +145,11 @@ def plot_break_even_curves(
         ax,
         title=style.title,
         subtitle=style.subtitle,
-        save_path=save_path,
+        target=target,
         show=False,
         saved_message="Saved break-even curves to",
     )
-    return save_path
+    return target
 
 
 _POINT_ALPHA = 0.45
@@ -177,8 +177,8 @@ def plot_convergence_factors(
     *,
     metric: MetricId,
     style: GroupStyle,
-    save_path: Path,
-) -> Path | None:
+    target: FigureTarget,
+) -> FigureTarget | None:
     """Per-method residual reduction per iteration, one panel per recipe cohort of ``summary``.
 
     ``summary`` is the figure's cohort summary table; the mean over systems with its 95%
@@ -221,11 +221,11 @@ def plot_convergence_factors(
         header,
         title=style.title,
         subtitle=style.subtitle,
-        save_path=save_path,
+        target=target,
         show=False,
         saved_message="Saved convergence factors to",
     )
-    return save_path
+    return target
 
 
 def _draw_factor_panel(

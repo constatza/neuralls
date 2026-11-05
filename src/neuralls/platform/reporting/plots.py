@@ -6,7 +6,6 @@ import colorsys
 import itertools
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import matplotlib
@@ -19,6 +18,7 @@ import seaborn as sns
 from loguru import logger
 
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_text import (
     FigureTitle,
     Legend,
@@ -285,7 +285,7 @@ def _curve_from_result(
 def plot_convergence_comparison(
     results: Mapping[str, CGComparisonResult | Mapping[str, Any]],
     metadata: Mapping[str, Any] | None = None,
-    save_path: str | Path | None = None,
+    target: FigureTarget | None = None,
     show: bool = False,
     title: FigureTitle | None = None,
     subtitle: ScopeSubtitle | None = None,
@@ -318,7 +318,7 @@ def plot_convergence_comparison(
     plot_convergence_curves(
         curves,
         legend=legend,
-        save_path=save_path,
+        target=target,
         show=show,
         title=title,
         subtitle=subtitle,
@@ -339,7 +339,7 @@ def plot_convergence_curves(
     curves: Mapping[str, ConvergenceCurve],
     *,
     legend: Legend,
-    save_path: str | Path | None = None,
+    target: FigureTarget | None = None,
     show: bool = False,
     title: FigureTitle | None = None,
     subtitle: ScopeSubtitle | None = None,
@@ -361,7 +361,7 @@ def plot_convergence_curves(
             drawn translucent.
         legend: Text of every plotted series, keyed like ``curves``; a curve without an
             entry raises.
-        save_path: Path to save plot.
+        target: Where to save the plot, one file per figure format.
         show: Whether to show plot.
         title: Optional title for the plot.
         subtitle: Optional scope shown below the core metric title, rendered here.
@@ -430,7 +430,7 @@ def plot_convergence_curves(
         ax,
         title=title_text(title) if title is not None else "Convergence Comparison",
         subtitle=", ".join(subtitle_parts),
-        save_path=save_path,
+        target=target,
         show=show,
         saved_message="Saved convergence comparison plot to",
     )
@@ -462,7 +462,7 @@ def plot_metric_comparison(
     values: list[float],
     *,
     metric_name: str,
-    save_path: Path | None = None,
+    target: FigureTarget | None = None,
     show: bool = False,
     title: str | None = None,
     horizontal: bool = False,
@@ -477,7 +477,7 @@ def plot_metric_comparison(
         values: Metric value for each corresponding label.
         metric_name: Human-readable metric description used as y-axis label
             and figure title (e.g. ``"Mean Absolute Error (eval/mae)"``).
-        save_path: Path to save the figure. Parent directories are created
+        target: Where to save the figure, one file per figure format. Parent directories are created
             automatically if they do not exist.
         show: Whether to call ``plt.show()`` (disabled by default for
             headless / batch use).
@@ -527,7 +527,7 @@ def plot_metric_comparison(
         ax,
         title=title or f"Metric Comparison: {metric_name}",
         subtitle=None,
-        save_path=save_path,
+        target=target,
         show=show,
         saved_message="Saved metric comparison plot to",
     )
@@ -541,7 +541,7 @@ def plot_method_bars(
     metric_name: str,
     title: FigureTitle | None = None,
     horizontal: bool = False,
-    save_path: Path | None = None,
+    target: FigureTarget | None = None,
 ) -> None:
     """Bar chart of one metric per method, each bar labelled by its legend entry.
 
@@ -553,7 +553,7 @@ def plot_method_bars(
         metric_name=metric_name,
         title=title_text(title) if title is not None else None,
         horizontal=horizontal,
-        save_path=save_path,
+        target=target,
     )
 
 
@@ -590,7 +590,7 @@ def finish_group_figure(
     *,
     title: str,
     subtitle: str | None,
-    save_path: str | Path | None,
+    target: FigureTarget | None,
     show: bool,
     saved_message: str,
 ) -> None:
@@ -600,11 +600,11 @@ def finish_group_figure(
         ax.set_title(subtitle, fontsize=9)
     fig.tight_layout()
 
-    if save_path is not None:
-        save_path = Path(save_path)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=200, bbox_inches="tight")
-        logger.info(f"{saved_message}: {save_path}")
+    if target is not None:
+        target.directory.mkdir(parents=True, exist_ok=True)
+        for path in target.paths:
+            fig.savefig(path, dpi=200, bbox_inches="tight")
+            logger.info(f"{saved_message}: {path}")
 
     if show:
         plt.show()

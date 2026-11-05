@@ -11,6 +11,7 @@ import pytest
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.figure_scope import FigureScope, RecipeScope
 from neuralls.platform.reporting.figure_card import FigureCard, build_figure_card
+from neuralls.platform.reporting.figure_formats import FIGURE_FORMATS, FigureFormat, figure_file
 from neuralls.platform.reporting.figure_index import (
     ArtifactLocation,
     IncompleteFigureRecordsError,
@@ -42,16 +43,20 @@ def card_of(
     scope: RecipeScope,
     notation: NotationPolicy,
 ) -> Callable[[str], FigureCard]:
-    def build(figure: str) -> FigureCard:
+    def build(stem: str) -> FigureCard:
         return build_figure_card(
-            figure, "Title", metadata_of(scope), session_run_id="session", notation=notation
+            stem, "Title", metadata_of(scope), session_run_id="session", notation=notation
         )
 
     return build
 
 
-def _figure(run_id: str, stem: str) -> ArtifactLocation:
-    return ArtifactLocation(run_id, f"{DIRECTORY}/{stem}.png")
+def _file(run_id: str, stem: str, figure_format: FigureFormat) -> ArtifactLocation:
+    return ArtifactLocation(run_id, f"{DIRECTORY}/{figure_file(stem, figure_format)}")
+
+
+def _figure(run_id: str, stem: str) -> list[ArtifactLocation]:
+    return [_file(run_id, stem, figure_format) for figure_format in FIGURE_FORMATS]
 
 
 def _card(run_id: str, stem: str) -> ArtifactLocation:
@@ -71,12 +76,12 @@ def complete(
         location
         for run_id in ("root", "child")
         for location in (
-            _figure(run_id, "residual"),
+            *_figure(run_id, "residual"),
             _card(run_id, "residual"),
             _table(run_id, "residual"),
         )
     ]
-    cards = {_card(run_id, "residual"): card_of("residual.png") for run_id in ("root", "child")}
+    cards = {_card(run_id, "residual"): card_of("residual") for run_id in ("root", "child")}
     return uploaded, cards
 
 
@@ -87,8 +92,12 @@ def test_index_lists_every_card_with_where_it_is_and_what_it_shows(
 
     entries = index_of(cards)
 
-    assert {(e.run_id, e.artifact_path, e.card) for e in entries} == {
-        (run_id, f"{DIRECTORY}/residual.png", f"{DIRECTORY}/residual.toml")
+    assert {(e.run_id, e.artifact_paths, e.card) for e in entries} == {
+        (
+            run_id,
+            (f"{DIRECTORY}/residual.png", f"{DIRECTORY}/residual.pdf"),
+            f"{DIRECTORY}/residual.toml",
+        )
         for run_id in ("root", "child")
     }
     assert {e.kind for e in entries} == {card.metadata.kind for card in cards.values()}
@@ -106,10 +115,50 @@ def test_a_figure_without_a_card_is_rejected(
     complete: tuple[list[ArtifactLocation], dict[ArtifactLocation, FigureCard]],
 ) -> None:
     uploaded, cards = complete
-    uploaded.append(_figure("root", "orphan"))
+    uploaded.extend(_figure("root", "orphan"))
 
-    with pytest.raises(IncompleteFigureRecordsError, match="orphan.png has no card"):
+    with pytest.raises(IncompleteFigureRecordsError, match="orphan has no card"):
         verify_figure_records(uploaded, cards, index_of(cards))
+
+
+def test_a_figure_without_its_vector_file_is_rejected(
+    complete: tuple[list[ArtifactLocation], dict[ArtifactLocation, FigureCard]],
+) -> None:
+    uploaded, cards = complete
+    uploaded.remove(_file("root", "residual", FigureFormat.PDF))
+
+    with pytest.raises(IncompleteFigureRecordsError, match="is missing files: residual.pdf"):
+        verify_figure_records(uploaded, cards, index_of(cards))
+
+
+def test_a_figure_without_its_raster_file_is_rejected(
+    complete: tuple[list[ArtifactLocation], dict[ArtifactLocation, FigureCard]],
+) -> None:
+    uploaded, cards = complete
+    uploaded.remove(_file("child", "residual", FigureFormat.PNG))
+
+    with pytest.raises(IncompleteFigureRecordsError, match="is missing files: residual.png"):
+        verify_figure_records(uploaded, cards, index_of(cards))
+
+
+def test_a_vector_file_without_a_card_is_rejected(
+    complete: tuple[list[ArtifactLocation], dict[ArtifactLocation, FigureCard]],
+) -> None:
+    uploaded, cards = complete
+    uploaded.append(_file("root", "orphan", FigureFormat.PDF))
+
+    with pytest.raises(IncompleteFigureRecordsError, match="orphan has no card"):
+        verify_figure_records(uploaded, cards, index_of(cards))
+
+
+def test_an_index_entry_listing_only_the_raster_file_is_rejected(
+    complete: tuple[list[ArtifactLocation], dict[ArtifactLocation, FigureCard]],
+) -> None:
+    uploaded, cards = complete
+    entries = [replace(entry, artifact_paths=entry.artifact_paths[:1]) for entry in index_of(cards)]
+
+    with pytest.raises(IncompleteFigureRecordsError, match="exactly the figures"):
+        verify_figure_records(uploaded, cards, entries)
 
 
 def test_a_group_figure_without_its_table_is_rejected(
@@ -130,7 +179,7 @@ def test_a_table_beside_a_history_figure_is_rejected(
 ) -> None:
     uploaded, cards = complete
     cards[_card("root", "residual")] = build_figure_card(
-        "residual.png",
+        "residual",
         "Title",
         method_metadata_of(scope),
         session_run_id=SessionRunId("session"),
@@ -146,9 +195,9 @@ def test_a_card_naming_another_file_is_rejected(
     card_of: Callable[[str], FigureCard],
 ) -> None:
     uploaded, cards = complete
-    cards[_card("root", "residual")] = card_of("energy.png")
+    cards[_card("root", "residual")] = card_of("energy")
 
-    with pytest.raises(IncompleteFigureRecordsError, match="describes energy.png"):
+    with pytest.raises(IncompleteFigureRecordsError, match="describes energy"):
         verify_figure_records(uploaded, cards, index_of(cards))
 
 
@@ -156,7 +205,8 @@ def test_a_card_without_its_figure_is_rejected(
     complete: tuple[list[ArtifactLocation], dict[ArtifactLocation, FigureCard]],
 ) -> None:
     uploaded, cards = complete
-    uploaded.remove(_figure("child", "residual"))
+    for location in _figure("child", "residual"):
+        uploaded.remove(location)
 
     with pytest.raises(IncompleteFigureRecordsError, match="no uploaded figure"):
         verify_figure_records(uploaded, cards, index_of(cards))
@@ -166,7 +216,10 @@ def test_an_index_entry_without_a_figure_is_rejected(
     complete: tuple[list[ArtifactLocation], dict[ArtifactLocation, FigureCard]],
 ) -> None:
     uploaded, cards = complete
-    ghost = replace(index_of(cards)[0], artifact_path=f"{DIRECTORY}/ghost.png")
+    ghost = replace(
+        index_of(cards)[0],
+        artifact_paths=(f"{DIRECTORY}/ghost.png", f"{DIRECTORY}/ghost.pdf"),
+    )
 
     with pytest.raises(IncompleteFigureRecordsError, match="exactly the figures"):
         verify_figure_records(uploaded, cards, [*index_of(cards), ghost])
@@ -203,7 +256,7 @@ def test_index_round_trips_through_toml_without_card_parameters(
 
     assert read_figure_index(path) == entries
     assert all(
-        set(entry) == {"run_id", "artifact_path", "card", "kind", "level", "scope"}
+        set(entry) == {"run_id", "artifact_paths", "card", "kind", "level", "scope"}
         for entry in index_payload(entries, SPLITS)["figures"]
     )
 
@@ -218,7 +271,7 @@ def test_index_entry_missing_a_field_is_rejected() -> None:
                 "figures": [
                     {
                         "run_id": "r",
-                        "artifact_path": "a.png",
+                        "artifact_paths": ["a.png", "a.pdf"],
                         "kind": "k",
                         "level": "l",
                         "scope": "s",

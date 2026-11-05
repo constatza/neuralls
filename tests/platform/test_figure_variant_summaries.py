@@ -171,8 +171,8 @@ def test_planning_yields_one_figure_per_variant_of_a_profile_report(
 ) -> None:
     plans = figure_planning.figure_plans(profile_report, repeated_timing_presentation, "key", {})
 
-    assert [plan.filename for plan in plans] == [
-        variant.filename("key") for _, variant in _PROFILE_VARIANTS
+    assert [plan.stem for plan in plans] == [
+        variant.figure_stem("key") for _, variant in _PROFILE_VARIANTS
     ]
 
 

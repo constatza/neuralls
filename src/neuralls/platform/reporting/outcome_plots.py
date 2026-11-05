@@ -3,7 +3,7 @@
 A failed run (iteration cap or breakdown) has no time-to-solution, so none of
 these plots gives it a value: profiles leave it unsolved (Dolan & Moré 2002,
 Math. Program. 91; Hansen et al. 2016, arXiv:1605.03560) and the scatters pin
-it to an axis edge as a hollow marker. Every plot function takes the path to
+it to an axis edge as a hollow marker. Every plot function takes the figure target to
 save to and returns it, or `None` when there was nothing to draw. The curves
 and points themselves are frames from `domain.benchmarking.profiles` and
 `domain.benchmarking.paired`; this module only draws them.
@@ -19,7 +19,6 @@ from __future__ import annotations
 from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 from typing import Any, assert_never
 
 import matplotlib.pyplot as plt
@@ -33,6 +32,7 @@ from neuralls.domain.benchmarking.profiles import ProfileSeries
 from neuralls.domain.solver.models.figure_scope import FigureScope
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.platform.reporting.figure_evidence import SetupSharing
+from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_text import (
     LEGEND_FONT_SIZE,
     Legend,
@@ -102,8 +102,8 @@ def plot_aggregate_bars(
     summary: pl.DataFrame,
     *,
     style: GroupStyle,
-    save_path: Path,
-) -> Path | None:
+    target: FigureTarget,
+) -> FigureTarget | None:
     """Plot explicit convergence counts for every method in a report group.
 
     ``summary`` is the ``SUMMARY_SCHEMA`` table of the iteration metric, whose defined systems are
@@ -133,11 +133,11 @@ def plot_aggregate_bars(
         ax,
         title=style.title,
         subtitle=style.subtitle,
-        save_path=save_path,
+        target=target,
         show=False,
         saved_message="Saved aggregate bars to",
     )
-    return save_path
+    return target
 
 
 def _series_styles(names: Sequence[str], style: GroupStyle) -> dict[str, dict[str, Any]]:
@@ -203,9 +203,9 @@ def _step_profile_figure(
     xlabel: str,
     ylabel: str,
     note: str | None,
-    save_path: Path,
+    target: FigureTarget,
     saved_message: str,
-) -> Path | None:
+) -> FigureTarget | None:
     """Draw each method's curve plateauing at its success rate; `None` without a planned system."""
     counts = series.planned.filter(pl.col("n_planned") > 0)
     if counts.height == 0:
@@ -244,19 +244,19 @@ def _step_profile_figure(
         ax,
         title=style.title,
         subtitle=style.subtitle,
-        save_path=save_path,
+        target=target,
         show=False,
         saved_message=saved_message,
     )
-    return save_path
+    return target
 
 
 def plot_performance_profile(
     series: ProfileSeries,
     *,
     style: GroupStyle,
-    save_path: Path,
-) -> Path | None:
+    target: FigureTarget,
+) -> FigureTarget | None:
     """Dolan-Moré performance profile: fraction of systems within a factor tau of the best method.
 
     Reference: Dolan & Moré 2002, "Benchmarking optimization software with
@@ -271,7 +271,7 @@ def plot_performance_profile(
         xlabel="Amortized online cost relative to the best method, tau",
         ylabel="Fraction of systems with ratio <= tau",
         note=excluded_zero_best_note(series.n_excluded_zero_best),
-        save_path=save_path,
+        target=target,
         saved_message="Saved performance profile to",
     )
 
@@ -280,9 +280,9 @@ def plot_ecdf_profile(
     series: ProfileSeries,
     *,
     style: GroupStyle,
-    save_path: Path,
+    target: FigureTarget,
     xlabel: str,
-) -> Path | None:
+) -> FigureTarget | None:
     """Unnormalised ECDF: fraction of systems solved within an absolute budget.
 
     Reference: Hansen et al. 2016, "COCO: Performance Assessment",
@@ -297,7 +297,7 @@ def plot_ecdf_profile(
         xlabel=xlabel,
         ylabel="Fraction of systems solved within budget",
         note=None,
-        save_path=save_path,
+        target=target,
         saved_message="Saved ECDF profile to",
     )
 
@@ -371,8 +371,8 @@ def plot_workload_bars(
     total: WorkloadTotal,
     xlabel: str,
     style: GroupStyle,
-    save_path: Path,
-) -> Path | None:
+    target: FigureTarget,
+) -> FigureTarget | None:
     """Draw one workload total per method, stacked by ``workload_segments``.
 
     ``totals`` is the workload-totals table and every segment is one of its columns. A total is
@@ -427,11 +427,11 @@ def plot_workload_bars(
         ax,
         title=style.title,
         subtitle=style.subtitle,
-        save_path=save_path,
+        target=target,
         show=False,
         saved_message="Saved workload bars to",
     )
-    return save_path
+    return target
 
 
 def _segment_key(segment: BarSegment) -> Patch:
@@ -473,8 +473,8 @@ def plot_paired_time_scatter(
     reference_name: PreconditionerName,
     metric: MetricId,
     style: GroupStyle,
-    save_path: Path,
-) -> Path | None:
+    target: FigureTarget,
+) -> FigureTarget | None:
     """Time of each method against the reference method's time, system by system, on log axes.
 
     ``paired`` is a ``paired_systems`` frame of ``metric``. The reference is the method explicitly
@@ -537,11 +537,11 @@ def plot_paired_time_scatter(
         ax,
         title=style.title,
         subtitle=style.subtitle,
-        save_path=save_path,
+        target=target,
         show=False,
         saved_message="Saved paired time scatter to",
     )
-    return save_path
+    return target
 
 
 def speed_ratio_legend(
@@ -578,8 +578,8 @@ def plot_speed_ratio_cdf(
     *,
     style: GroupStyle,
     reference_name: PreconditionerName,
-    save_path: Path,
-) -> Path | None:
+    target: FigureTarget,
+) -> FigureTarget | None:
     """ECDF of per-system reference/method speed ratios.
 
     ``ratios`` holds the ``speed_ratios`` rows and ``summary`` the ``speed_ratio_summary`` rows
@@ -628,8 +628,8 @@ def plot_speed_ratio_cdf(
         ax,
         title=style.title,
         subtitle=style.subtitle,
-        save_path=save_path,
+        target=target,
         show=False,
         saved_message="Saved speed ratio CDF to",
     )
-    return save_path
+    return target

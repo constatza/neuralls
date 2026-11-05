@@ -91,9 +91,9 @@ TABLE_SUFFIX = ".parquet"
 """A figure's table shares its stem and directory; only the suffix differs."""
 
 
-def variant_filename(stem: str, slug: str) -> str:
-    """The file name of the figure with file stem ``stem`` for the report subject ``slug``."""
-    return f"{stem}_{slug}.png"
+def variant_stem(stem: str, slug: str) -> str:
+    """The file stem of the figure of kind-level ``stem`` for the report subject ``slug``."""
+    return f"{stem}_{slug}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,9 +112,9 @@ class FigureVariant:
     population: Population
     statistic: Statistic
 
-    def filename(self, slug: str) -> str:
-        """The file name of this figure for the report subject named by ``slug``."""
-        return variant_filename(self.stem, slug)
+    def figure_stem(self, slug: str) -> str:
+        """The file stem of this figure for the report subject named by ``slug``."""
+        return variant_stem(self.stem, slug)
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,9 +125,9 @@ class HistoryVariant:
     title: str
     metric_definition: str
 
-    def filename(self, slug: str) -> str:
-        """The file name of this figure for the report subject named by ``slug``."""
-        return variant_filename(self.stem, slug)
+    def figure_stem(self, slug: str) -> str:
+        """The file stem of this figure for the report subject named by ``slug``."""
+        return variant_stem(self.stem, slug)
 
 
 class UnknownFigureVariantError(LookupError):
@@ -586,11 +586,11 @@ def history_variant(kind: FigureKind) -> HistoryVariant:
             assert_never(unreachable)
 
 
-def table_of(figure: str, kind: FigureKind) -> FigureTable:
-    """The table beside ``figure`` of ``kind``: its recipe's kind of table, if it writes one."""
+def table_of(stem: str, kind: FigureKind) -> FigureTable:
+    """The table beside the figure of file stem ``stem``: its recipe's kind, if it writes one."""
     match FIGURE_RECIPES[kind]:
         case GroupFigureRecipe(table=table_kind):
-            return SiblingTable(f"{figure.removesuffix('.png')}{TABLE_SUFFIX}", table_kind)
+            return SiblingTable(f"{stem}{TABLE_SUFFIX}", table_kind)
         case HistoryFigureRecipe():
             return NoTable()
         case unreachable:
@@ -601,7 +601,7 @@ def plan_figure[M: FigureMetadata](
     variant: FigureVariant | HistoryVariant, metadata: M, *, slug: str
 ) -> FigurePlan[M]:
     """The plan of ``variant`` for the report subject named by ``slug``."""
-    return FigurePlan(variant.filename(slug), variant.title, metadata)
+    return FigurePlan(variant.figure_stem(slug), variant.title, metadata)
 
 
 def figure_plans(

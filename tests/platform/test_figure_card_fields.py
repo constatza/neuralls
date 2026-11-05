@@ -92,11 +92,11 @@ def _payloads(
     report: RecipeProfileReport, presentation: GroupPresentation, notation: NotationPolicy
 ) -> dict[str, Payload]:
     """The card payload of every figure planned for ``report``, by variant stem."""
-    stems = {variant.filename(FILE_KEY): variant.stem for variant in _PROFILE_VARIANTS}
+    stems = {variant.figure_stem(FILE_KEY): variant.stem for variant in _PROFILE_VARIANTS}
     return {
-        stems[plan.filename]: card_payload(
+        stems[plan.stem]: card_payload(
             build_figure_card(
-                plan.filename,
+                plan.stem,
                 plan.title,
                 plan.metadata,
                 session_run_id=SESSION_RUN_ID,
@@ -355,12 +355,12 @@ def test_a_card_decodes_to_the_metadata_it_was_built_from(
     stem: str,
 ) -> None:
     plans = {
-        plan.filename: plan
+        plan.stem: plan
         for plan in figure_plans(profile_report, single_timing_presentation, FILE_KEY, {})
     }
-    plan = plans[_BY_STEM[stem].filename(FILE_KEY)]
+    plan = plans[_BY_STEM[stem].figure_stem(FILE_KEY)]
     card = build_figure_card(
-        plan.filename, plan.title, plan.metadata, session_run_id=SESSION_RUN_ID, notation=notation
+        plan.stem, plan.title, plan.metadata, session_run_id=SESSION_RUN_ID, notation=notation
     )
 
     assert decode_figure_card(card_payload(card)) == card

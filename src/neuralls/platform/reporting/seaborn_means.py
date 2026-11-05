@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal, Protocol, assert_never
 
 import matplotlib.pyplot as plt
@@ -28,6 +27,7 @@ from neuralls.domain.presentation.recipes import render_recipe
 from neuralls.domain.solver.reporting.cohorts import COHORT_COLUMN, MIXTURE_COHORT
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import Population, select
+from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import Statistic
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE, TITLE_PROFILE
 from neuralls.platform.reporting.outcome_plots import GroupStyle
@@ -221,8 +221,8 @@ def plot_mean_bars(
     statistic: BarStatistic,
     metric: MetricId,
     style: GroupStyle,
-    save_path: Path,
-) -> Path | None:
+    target: FigureTarget,
+) -> FigureTarget | None:
     """Bars of each method's mean of ``metric`` with matrix-cluster whiskers and "k/n" counts.
 
     ``summary`` is the cohort summary table of the figure; ``None`` when it has no recipe cohort.
@@ -233,7 +233,7 @@ def plot_mean_bars(
         statistic=statistic,
         metric=metric,
         style=style,
-        save_path=save_path,
+        target=target,
         saved_message="Saved mean bars to",
     )
 
@@ -244,8 +244,8 @@ def plot_time_per_iteration(
     *,
     metric: MetricId,
     style: GroupStyle,
-    save_path: Path,
-) -> Path | None:
+    target: FigureTarget,
+) -> FigureTarget | None:
     """Ratio-of-sums bars of time per iteration over each method's per-system rates.
 
     ``summary`` is the cohort ratio-of-sums table; the points are the systems of ``observations``
@@ -258,7 +258,7 @@ def plot_time_per_iteration(
         statistic=Statistic.RATIO_OF_SUMS,
         metric=metric,
         style=style,
-        save_path=save_path,
+        target=target,
         saved_message="Saved time per iteration bars to",
     )
 
@@ -294,9 +294,9 @@ def draw_recipe_panels(
     *,
     draw_panel: PanelDrawer,
     style: GroupStyle,
-    save_path: Path,
+    target: FigureTarget,
     saved_message: str,
-) -> Path | None:
+) -> FigureTarget | None:
     """Draw one panel per recipe cohort side by side, method rows shared, under one header.
 
     Each panel is titled by its rendered recipe when there are several; ``None`` when there is no
@@ -332,11 +332,11 @@ def draw_recipe_panels(
         header,
         title=style.title,
         subtitle=style.subtitle,
-        save_path=save_path,
+        target=target,
         show=False,
         saved_message=saved_message,
     )
-    return save_path
+    return target
 
 
 def _draw_panels(
@@ -346,9 +346,9 @@ def _draw_panels(
     statistic: BarStatistic,
     metric: MetricId,
     style: GroupStyle,
-    save_path: Path,
+    target: FigureTarget,
     saved_message: str,
-) -> Path | None:
+) -> FigureTarget | None:
     """Draw ``panels`` side by side under one header that carries the scope."""
     palette = method_palette(list({bar.method for panel in panels for bar in panel.bars}), style)
     xlabel = f"{bar_statistic_text(statistic).capitalize()}: {METRICS[metric].label}"
@@ -363,7 +363,7 @@ def _draw_panels(
         palette,
         draw_panel=draw_panel,
         style=style,
-        save_path=save_path,
+        target=target,
         saved_message=saved_message,
     )
 

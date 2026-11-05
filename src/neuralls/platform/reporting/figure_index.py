@@ -15,7 +15,8 @@ from typing import Any, assert_never
 import tomli_w
 
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
-from neuralls.platform.reporting.figure_card import FIGURE_SUFFIX, FigureCard, card_name
+from neuralls.platform.reporting.figure_card import FigureCard, card_name
+from neuralls.platform.reporting.figure_formats import split_figure_file
 from neuralls.platform.reporting.figure_metadata import (
     TABLE_SUFFIX,
     FigureKind,
@@ -26,7 +27,7 @@ from neuralls.platform.reporting.figure_metadata import (
 FIGURE_INDEX_FILE = "figure_index.toml"
 
 _REQUIRED_ENTRY_FIELDS: frozenset[str] = frozenset(
-    {"run_id", "artifact_path", "card", "kind", "level", "scope"}
+    {"run_id", "artifact_paths", "card", "kind", "level", "scope"}
 )
 
 
@@ -59,10 +60,10 @@ class ArtifactLocation:
 
 @dataclass(frozen=True, slots=True)
 class FigureIndexEntry:
-    """Where one figure and its card are, and what the figure is."""
+    """Where one figure's files and its card are, and what the figure is."""
 
     run_id: str
-    artifact_path: str
+    artifact_paths: tuple[str, ...]
     card: str
     kind: FigureKind
     level: ReportLevelName
@@ -70,11 +71,11 @@ class FigureIndexEntry:
 
 
 def index_of(cards: Mapping[ArtifactLocation, FigureCard]) -> tuple[FigureIndexEntry, ...]:
-    """One entry per card, in a deterministic order, locating the figure each card names."""
+    """One entry per card, in a deterministic order, locating the files each card names."""
     entries = [
         FigureIndexEntry(
             run_id=location.run_id,
-            artifact_path=location.sibling(card.figure).artifact_path,
+            artifact_paths=tuple(location.sibling(name).artifact_path for name in card.files),
             card=location.artifact_path,
             kind=card.metadata.kind,
             level=card.metadata.report_level,
@@ -82,9 +83,7 @@ def index_of(cards: Mapping[ArtifactLocation, FigureCard]) -> tuple[FigureIndexE
         )
         for location, card in cards.items()
     ]
-    return tuple(
-        sorted(entries, key=lambda entry: (entry.level.value, entry.scope, entry.artifact_path))
-    )
+    return tuple(sorted(entries, key=lambda entry: (entry.level.value, entry.scope, entry.card)))
 
 
 def _verify_table(
@@ -107,20 +106,31 @@ def verify_figure_records(
 ) -> None:
     """Raise unless every uploaded figure has its card and the index lists exactly those figures.
 
-    A figure is complete when a card with the same stem sits in the same run directory and
-    names the figure's own file. A card without its figure, or an index entry without an
-    uploaded figure, is as much a bug as a figure without a card.
+    A figure is complete when every one of its format files was uploaded and a card with the
+    same stem sits in the same run directory and names the figure's own stem. A card without
+    its figure, or an index entry whose files are not its card's, is as much a bug as a figure
+    without a card.
     """
-    figures = {location for location in uploaded if location.name.endswith(FIGURE_SUFFIX)}
     uploaded_set = set(uploaded)
+    files = {location for location in uploaded if split_figure_file(location.name) is not None}
+    figures = {
+        location.sibling(split[0])
+        for location in files
+        if (split := split_figure_file(location.name)) is not None
+    }
     for figure in sorted(figures, key=lambda location: location.artifact_path):
         card_location = figure.sibling(card_name(figure.name))
         card = cards.get(card_location)
         if card is None or card_location not in uploaded_set:
             raise IncompleteFigureRecordsError(f"figure {figure.artifact_path} has no card")
-        if card.figure != figure.name:
+        if card.stem != figure.name:
             raise IncompleteFigureRecordsError(
-                f"card {card_location.artifact_path} describes {card.figure}, not {figure.name}"
+                f"card {card_location.artifact_path} describes {card.stem}, not {figure.name}"
+            )
+        missing = [name for name in card.files if figure.sibling(name) not in files]
+        if missing:
+            raise IncompleteFigureRecordsError(
+                f"figure {figure.artifact_path} is missing files: {', '.join(missing)}"
             )
         _verify_table(figure, card, uploaded_set)
     tables = {location for location in uploaded if location.name.endswith(TABLE_SUFFIX)}
@@ -132,21 +142,24 @@ def verify_figure_records(
     if tables != expected_tables:
         raise IncompleteFigureRecordsError("the uploaded tables are not exactly the group figures'")
     for card_location, card in cards.items():
-        if card_location.sibling(card.figure) not in figures:
+        if card_location.sibling(card.stem) not in figures:
             raise IncompleteFigureRecordsError(
-                f"card {card_location.artifact_path} has no uploaded figure {card.figure}"
+                f"card {card_location.artifact_path} has no uploaded figure {card.stem}"
             )
-    indexed = [ArtifactLocation(entry.run_id, entry.artifact_path) for entry in index]
-    if len(set(indexed)) != len(indexed) or set(indexed) != figures:
+    indexed = [
+        ArtifactLocation(entry.run_id, path) for entry in index for path in entry.artifact_paths
+    ]
+    if len(set(indexed)) != len(indexed) or set(indexed) != files:
         raise IncompleteFigureRecordsError("the figure index does not list exactly the figures")
     for entry in index:
-        expected = ArtifactLocation(entry.run_id, entry.artifact_path).sibling(
-            card_name(PurePosixPath(entry.artifact_path).name)
-        )
-        if entry.card != expected.artifact_path:
+        card_location = ArtifactLocation(entry.run_id, entry.card)
+        card = cards.get(card_location)
+        if card is None or entry.artifact_paths != tuple(
+            card_location.sibling(name).artifact_path for name in card.files
+        ):
             raise IncompleteFigureRecordsError(
-                f"index entry {entry.artifact_path} names card {entry.card}, "
-                f"not {expected.artifact_path}"
+                f"index entry names card {entry.card}, which does not describe its files "
+                f"{', '.join(entry.artifact_paths)}"
             )
 
 
@@ -157,7 +170,7 @@ def index_payload(entries: Sequence[FigureIndexEntry], splits_artifact: str) -> 
         "figures": [
             {
                 "run_id": entry.run_id,
-                "artifact_path": entry.artifact_path,
+                "artifact_paths": list(entry.artifact_paths),
                 "card": entry.card,
                 "kind": entry.kind.value,
                 "level": entry.level.value,
@@ -199,7 +212,7 @@ def read_figure_index(path: Path) -> tuple[FigureIndexEntry, ...]:
     return tuple(
         FigureIndexEntry(
             run_id=str(entry["run_id"]),
-            artifact_path=str(entry["artifact_path"]),
+            artifact_paths=tuple(entry["artifact_paths"]),
             card=str(entry["card"]),
             kind=FigureKind(entry["kind"]),
             level=ReportLevelName(entry["level"]),

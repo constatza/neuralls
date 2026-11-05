@@ -55,6 +55,7 @@ from neuralls.platform.config.resolution import (
     is_sqlite_tracking_uri,
 )
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.reporting.figure_formats import FigureTarget, figure_files
 from neuralls.platform.reporting.figure_text import training_legend
 from neuralls.platform.reporting.plots import plot_method_bars
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
@@ -751,7 +752,7 @@ def write_eval_metric_report(
         plotted_ids.append(result.assignment_id)
         values.append(value)
 
-    plot_name = f"batch_metric_{metric.replace('/', '_')}.png"
+    plot_stem = f"batch_metric_{metric.replace('/', '_')}"
     with tempfile.TemporaryDirectory() as tmp:
         work_root = Path(tmp)
         plotted = bool(plotted_ids)
@@ -767,7 +768,7 @@ def write_eval_metric_report(
                 plotted_ids,
                 values,
                 metric_name=metric,
-                save_path=work_root / plot_name,
+                target=FigureTarget(work_root, plot_stem),
             )
 
         (work_root / "batch_eval_labels.json").write_text(
@@ -779,7 +780,7 @@ def write_eval_metric_report(
             tracking_uri=batch.tracking_uri,
             run_id=batch.parent_run_id,
             work_root=work_root,
-            flat_files=(plot_name, "batch_eval_labels.json"),
+            flat_files=(*figure_files(plot_stem), "batch_eval_labels.json"),
         )
 
     return plotted

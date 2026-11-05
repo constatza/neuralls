@@ -87,14 +87,16 @@ def _assert_report_tree_is_documented(
     for run_id in _report_tree_run_ids(client, report_id):
         files = _artifact_files(client, run_id)
         for png in (path for path in files if path.endswith(".png")):
-            figures.add((run_id, png))
             card_path = png.removesuffix(".png") + ".toml"
             assert card_path in files
             local = client.download_artifacts(
                 run_id, card_path, dst_path=str(download_root / run_id)
             )
             card = read_figure_card(Path(local))
-            assert card.figure == Path(png).name
+            assert card.stem == Path(png).stem
+            for name in card.files:
+                assert str(Path(png).with_name(name)) in files
+                figures.add((run_id, str(Path(png).with_name(name))))
             match card.table:
                 case SiblingTable(name=name, kind=kind):
                     table_path = str(Path(png).with_name(name))
@@ -117,7 +119,7 @@ def _assert_report_tree_is_documented(
         report_id, FIGURE_INDEX_FILE, dst_path=str(download_root / "index")
     )
     index = read_figure_index(Path(index_local))
-    assert {(entry.run_id, entry.artifact_path) for entry in index} == figures
+    assert {(entry.run_id, path) for entry in index for path in entry.artifact_paths} == figures
     for entry in index:
         assert entry.card in _artifact_files(client, entry.run_id)
 
@@ -129,7 +131,7 @@ def _assert_report_tree_is_documented(
         )
         for entry in index
         if entry.level is ReportLevelName.SYSTEM
-        and Path(entry.artifact_path).name == "residual_history.png"
+        and "residual_history.png" in {Path(path).name for path in entry.artifact_paths}
     ]
     assert len(systems) == 2
     assert len({card.metadata.scope for card in systems}) == 2
@@ -413,8 +415,10 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
     method_figures = reports.list_artifacts(report_id, path=METHOD_FIGURE_ARTIFACT_DIR)
     assert {Path(item.path).name for item in method_figures} == {
         "residual_history_Method_Identity.png",
+        "residual_history_Method_Identity.pdf",
         "residual_history_Method_Identity.toml",
         "energy_history_Method_Identity.png",
+        "energy_history_Method_Identity.pdf",
         "energy_history_Method_Identity.toml",
     }
 
@@ -464,8 +468,10 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
     for system in system_runs:
         assert {Path(item.path).name for item in client.list_artifacts(system.info.run_id)} == {
             "residual_history.png",
+            "residual_history.pdf",
             "residual_history.toml",
             "energy_history.png",
+            "energy_history.pdf",
             "energy_history.toml",
         }
         assert set(system.data.metrics) == {

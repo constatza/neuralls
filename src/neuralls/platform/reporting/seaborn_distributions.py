@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import assert_never
 
 import matplotlib.pyplot as plt
@@ -29,6 +28,7 @@ from matplotlib.patches import Rectangle
 from neuralls.domain.solver.reporting.cohorts import COHORT_COLUMN, MIXTURE_COHORT
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import Population
+from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
 from neuralls.platform.reporting.outcome_plots import GroupStyle
 from neuralls.platform.reporting.plots import finish_group_figure
@@ -172,8 +172,8 @@ def plot_distribution(
     *,
     metric: MetricId,
     style: GroupStyle,
-    save_path: Path,
-) -> Path | None:
+    target: FigureTarget,
+) -> FigureTarget | None:
     """Violins of each method's systems with the summary's box, whiskers and "k/n" counts.
 
     ``summary`` is the cohort summary table of the figure; ``None`` when it has no recipe cohort.
@@ -192,7 +192,7 @@ def plot_distribution(
         palette,
         draw_panel=draw_panel,
         style=style,
-        save_path=save_path,
+        target=target,
         saved_message="Saved distribution to",
     )
 
@@ -360,8 +360,8 @@ def plot_matrix_heatmap(
     *,
     metric: MetricId,
     style: GroupStyle,
-    save_path: Path,
-) -> Path | None:
+    target: FigureTarget,
+) -> FigureTarget | None:
     """Method-by-matrix heatmap of the per-matrix mean of ``metric``, rows the matrices.
 
     ``breakdown`` is the matrix breakdown table of the figure; ``None`` when it has no cell.
@@ -415,11 +415,11 @@ def plot_matrix_heatmap(
         ax,
         title=style.title,
         subtitle=style.subtitle,
-        save_path=save_path,
+        target=target,
         show=False,
         saved_message="Saved matrix heatmap to",
     )
-    return save_path
+    return target
 
 
 def _defined_mean(cell: HeatmapCell) -> tuple[float, ...]:

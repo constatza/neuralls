@@ -26,6 +26,7 @@ from neuralls.domain.solver.models.labels import (
 )
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.summary import Population
+from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, FigureKind, Statistic
 from neuralls.platform.reporting.figure_planning import figure_summaries, group_recipe
 from neuralls.platform.reporting.group_drawers import FigureData
@@ -34,7 +35,7 @@ from neuralls.shared.types import DatasetId, PreconditionerName
 
 AMG = PreconditionerName("amg")
 JACOBI = PreconditionerName("jacobi")
-PATH = Path("figure.png")
+TARGET = FigureTarget(Path("figures"), "figure")
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,13 +55,13 @@ class PlotCalls:
 
 @pytest.fixture
 def plot_calls(monkeypatch: pytest.MonkeyPatch) -> PlotCalls:
-    """Replace every plot function with a recorder that returns the path it was given."""
+    """Replace every plot function with a recorder that returns the target it was given."""
     calls = PlotCalls()
 
-    def recorder(name: str) -> Callable[..., Path]:
-        def record(*args: object, save_path: Path, **kwargs: object) -> Path:
+    def recorder(name: str) -> Callable[..., FigureTarget]:
+        def record(*args: object, target: FigureTarget, **kwargs: object) -> FigureTarget:
             calls.by_function[name] = PlotCall(args, kwargs)
-            return save_path
+            return target
 
         return record
 
@@ -126,10 +127,10 @@ def _data(report: GroupAggregated, summary: pl.DataFrame, metric: MetricId) -> F
     )
 
 
-def _draw(report: GroupAggregated, kind: FigureKind, metric: MetricId) -> Path | None:
+def _draw(report: GroupAggregated, kind: FigureKind, metric: MetricId) -> FigureTarget | None:
     recipe = group_recipe(kind)
     summary = figure_summaries(report)[recipe.variant(metric, Population.OWN).stem]
-    return recipe.draw(_data(report, summary, metric), PATH)
+    return recipe.draw(_data(report, summary, metric), TARGET)
 
 
 def _x(series: ProfileSeries, method: str) -> list[float]:
@@ -155,7 +156,7 @@ def _frames_of(call: PlotCall) -> tuple[pl.DataFrame, ...]:
 def test_the_iteration_ecdf_is_drawn_from_the_iterations_of_converged_systems(
     report: RecipeProfileReport, plot_calls: PlotCalls
 ) -> None:
-    assert _draw(report, FigureKind.ECDF_ITERATIONS, MetricId.ITERATIONS) == PATH
+    assert _draw(report, FigureKind.ECDF_ITERATIONS, MetricId.ITERATIONS) == TARGET
 
     call = plot_calls.by_function["plot_ecdf_profile"]
     series = _series_of(call)
@@ -228,7 +229,7 @@ def test_the_break_even_curves_are_drawn_from_the_cost_curves_they_store_against
     report: RecipeProfileReport, plot_calls: PlotCalls
 ) -> None:
     summary = figure_summaries(report)["breakeven"]
-    group_recipe(FigureKind.BREAKEVEN).draw(_data(report, summary, MetricId.STANDALONE_S), PATH)
+    group_recipe(FigureKind.BREAKEVEN).draw(_data(report, summary, MetricId.STANDALONE_S), TARGET)
 
     call = plot_calls.by_function["plot_break_even_curves"]
     (curves,) = _frames_of(call)
@@ -265,8 +266,8 @@ def test_reference_figures_need_a_configured_reference_among_the_methods(
     unconfigured = _recipe_report(observations, NoReferenceConfigured())
     elsewhere = _recipe_report(observations, ConfiguredReference(PreconditionerName("elsewhere")))
 
-    assert recipe.draw(_data(unconfigured, empty, metric), PATH) is None
-    assert recipe.draw(_data(elsewhere, empty, metric), PATH) is None
+    assert recipe.draw(_data(unconfigured, empty, metric), TARGET) is None
+    assert recipe.draw(_data(elsewhere, empty, metric), TARGET) is None
     assert plot_calls.by_function == {}
 
 

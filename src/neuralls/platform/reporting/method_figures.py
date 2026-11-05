@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
-from pathlib import Path
 from typing import Protocol
 
 import polars as pl
@@ -18,6 +17,7 @@ from neuralls.domain.solver.models.figure_scope import (
 )
 from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.domain.solver.true_residual import shared_threshold, stopping_threshold_rel
+from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import (
     FigureKind,
 )
@@ -45,7 +45,7 @@ class MethodPlot(Protocol):
         self,
         results: Mapping[str, Mapping[str, object]],
         *,
-        save_path: Path,
+        target: FigureTarget,
         threshold_rel: float | None,
         title: EditorialTitle,
         subtitle: ScopeSubtitle,
@@ -107,7 +107,7 @@ def residual_threshold(
 
 
 def draw_method_figure(
-    path: Path,
+    target: FigureTarget,
     kind: FigureKind,
     method: StoredMethod,
     notation: NotationPolicy,
@@ -141,7 +141,7 @@ def draw_method_figure(
     METHOD_PLOTS[kind](
         histories,
         threshold_rel=threshold,
-        save_path=path,
+        target=target,
         title=EditorialTitle(history_variant(kind).title),
         subtitle=subtitle,
         legend=_system_legend(method, notation, datasets),

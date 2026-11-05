@@ -62,7 +62,7 @@ class MlflowArtifactSink:
 
 @dataclass(slots=True)
 class FigureUploader:
-    """Uploads each figure with its card (and plotted table) and records what was uploaded.
+    """Uploads each figure's files with its card (and plotted table) and records what was uploaded.
 
     Figures are staged in a private temporary directory. File stems only need to be unique
     inside one run directory; the uploader rejects a name that collides with another one in
@@ -86,15 +86,13 @@ class FigureUploader:
         path.mkdir(exist_ok=True)
         return path
 
-    def check_free(self, run_id: str, directory: str | None, filenames: Iterable[str]) -> None:
-        """Reject names that collide with each other or with a figure already in the directory."""
+    def check_free(self, run_id: str, directory: str | None, stems: Iterable[str]) -> None:
+        """Reject stems that collide with each other or with a figure already in the directory."""
         seen = set(self._taken.get((run_id, directory), ()))
-        for filename in filenames:
-            key = collision_key(filename)
+        for stem in stems:
+            key = collision_key(stem)
             if key in seen:
-                raise DuplicateFigureNameError(
-                    f"duplicate or colliding figure filename: {filename}"
-                )
+                raise DuplicateFigureNameError(f"duplicate or colliding figure stem: {stem}")
             seen.add(key)
 
     def upload(self, run_id: str, directory: str | None, figure: UploadableFigure) -> None:
@@ -110,19 +108,19 @@ class FigureUploader:
                     case NoTable():
                         pass
                     case SiblingTable():
-                        raise ValueError(f"figure {staged.plan.filename} needs its plotted table")
+                        raise ValueError(f"figure {staged.plan.stem} needs its plotted table")
                     case unreachable:
                         assert_never(unreachable)
             case StagedTabledFigure(figure=staged, table=table):
                 card = self._upload_with_card(run_id, directory, staged)
                 match card.table:
                     case SiblingTable(name=name, kind=kind):
-                        table_path = staged.path.with_name(name)
+                        table_path = staged.target.directory / name
                         write_group_table(table_path, check_table_kind(table, kind))
                         self.artifacts.log(table_path, directory)
                         self._uploaded.append(ArtifactLocation(run_id, _in(directory, name)))
                     case NoTable():
-                        raise ValueError(f"figure {staged.plan.filename} has no plotted table")
+                        raise ValueError(f"figure {staged.plan.stem} has no plotted table")
                     case unreachable:
                         assert_never(unreachable)
             case unreachable:
@@ -131,22 +129,24 @@ class FigureUploader:
     def _upload_with_card(
         self, run_id: str, directory: str | None, staged: StagedFigure
     ) -> FigureCard:
-        filename = staged.plan.filename
-        self.check_free(run_id, directory, [filename])
+        stem = staged.plan.stem
+        self.check_free(run_id, directory, [stem])
         card = build_figure_card(
-            filename,
+            stem,
             staged.plan.title,
             staged.plan.metadata,
             session_run_id=self.session_run_id,
             notation=self.notation,
         )
-        card_path = staged.path.with_name(card_name(filename))
+        card_path = staged.target.directory / card_name(stem)
         write_figure_card(card_path, card)
-        self.artifacts.log(staged.path, directory)
+        for path in staged.target.paths:
+            self.artifacts.log(path, directory)
         self.artifacts.log(card_path, directory)
-        self._taken.setdefault((run_id, directory), set()).add(collision_key(filename))
+        self._taken.setdefault((run_id, directory), set()).add(collision_key(stem))
         card_location = ArtifactLocation(run_id, _in(directory, card_path.name))
-        self._uploaded.extend((ArtifactLocation(run_id, _in(directory, filename)), card_location))
+        self._uploaded.extend(ArtifactLocation(run_id, _in(directory, name)) for name in card.files)
+        self._uploaded.append(card_location)
         self._cards[card_location] = card
         return card
 

@@ -63,6 +63,12 @@ from neuralls.platform.config.models.preconditioner import (
     parse_preconditioner_config,
 )
 from neuralls.platform.reporting.figure_card import FigureCard, decode_figure_card
+from neuralls.platform.reporting.figure_formats import (
+    FigureFormat,
+    FigureTarget,
+    figure_file,
+    figure_files,
+)
 from neuralls.platform.reporting.figure_index import (
     FIGURE_INDEX_FILE,
     IncompleteFigureRecordsError,
@@ -417,8 +423,8 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
     )
 
     plans = figure_plans(mixture, presentation, "all", {})
-    online = next(plan for plan in plans if plan.filename.startswith("online_time"))
-    solve = next(plan for plan in plans if plan.filename.startswith("solve_time"))
+    online = next(plan for plan in plans if plan.stem.startswith("online_time"))
+    solve = next(plan for plan in plans if plan.stem.startswith("solve_time"))
 
     assert online.metadata.dataset_ids == ("first", "second")
     assert online.metadata.recipes == (ALPHA, BETA)
@@ -480,20 +486,24 @@ def test_method_figures_are_uploaded_with_cards_naming_their_method_run(
     sink: MLflowReportSink,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    drawn: list[Path] = []
-    monkeypatch.setattr(report_sink, "draw_method_figure", lambda path, *args: drawn.append(path))
+    drawn: list[FigureTarget] = []
+    monkeypatch.setattr(
+        report_sink, "draw_method_figure", lambda target, *args: drawn.append(target)
+    )
     jacobi = next(method for method in stored_methods if str(method.name) == "jacobi")
 
     sink.register_method_figures(datasets={})
 
-    assert {path.name for path in drawn} == _figures(logged_artifacts)
+    assert {figure_file(target.stem, FigureFormat.PNG) for target in drawn} == _figures(
+        logged_artifacts
+    )
     assert {directory for directory, _ in logged_artifacts.values()} == {METHOD_FIGURE_ARTIFACT_DIR}
     assert {name for name in logged_artifacts if name.endswith(".toml")} == {
         name.replace(".png", ".toml") for name in _figures(logged_artifacts)
     }
     card = _cards(logged_text)["residual_history_Method_Method_jacobi.toml"]
     metadata = card.metadata
-    assert card.figure == "residual_history_Method_Method_jacobi.png"
+    assert card.stem == "residual_history_Method_Method_jacobi"
     assert card.session_run_id == "session-run"
     assert metadata.scope == MethodScope(jacobi.presentation.prepared.detailed)
     assert metadata.dataset_ids == ("ds",)
@@ -607,6 +617,7 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
     assert _figures(logged_artifacts) == expected
     assert set(logged_artifacts) == (
         expected
+        | {name.replace(".png", ".pdf") for name in expected}
         | {name.replace(".png", ".toml") for name in expected}
         | {name.replace(".png", ".parquet") for name in expected}
     )
@@ -709,11 +720,13 @@ def test_sink_finalizes_one_index_listing_exactly_the_logged_figures(
 
     index = tomllib.loads(logged_text[FIGURE_INDEX_FILE])["figures"]
     assert logged_artifacts[FIGURE_INDEX_FILE] == ("None", True)
-    assert {entry["artifact_path"] for entry in index} == {
-        f"{GROUP_REPORT_ARTIFACT_DIR}/{name}" for name in _figures(logged_artifacts)
+    assert {path for entry in index for path in entry["artifact_paths"]} == {
+        f"{GROUP_REPORT_ARTIFACT_DIR}/{file}"
+        for name in _figures(logged_artifacts)
+        for file in figure_files(name.removesuffix(".png"))
     }
     assert all(
-        set(entry) == {"run_id", "artifact_path", "card", "kind", "level", "scope"}
+        set(entry) == {"run_id", "artifact_paths", "card", "kind", "level", "scope"}
         for entry in index
     )
     with pytest.raises(RuntimeError):
@@ -735,8 +748,8 @@ def system_figure(
     metadata = method_metadata_of(
         SystemScope(dataset_presentation, system.recipe, system.matrix_id, 0)
     )
-    plan = FigurePlan("residual_history.png", "Residual History", metadata)
-    return StagedFigure(plan, tmp_path / plan.filename)
+    plan = FigurePlan("residual_history", "Residual History", metadata)
+    return StagedFigure(plan, FigureTarget(tmp_path, plan.stem))
 
 
 def test_system_figures_are_uploaded_with_cards_into_the_run_root(
@@ -751,6 +764,7 @@ def test_system_figures_are_uploaded_with_cards_into_the_run_root(
 
     assert logged_artifacts == {
         "residual_history.png": ("None", False),
+        "residual_history.pdf": ("None", False),
         "residual_history.toml": ("None", True),
     }
     card = _cards(logged_text)["residual_history.toml"]

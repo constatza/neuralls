@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
-from pathlib import Path
 
 import polars as pl
 
@@ -23,6 +22,7 @@ from neuralls.domain.benchmarking.paired import (
 from neuralls.domain.benchmarking.profiles import ProfileSeries, ecdf_series, performance_series
 from neuralls.domain.benchmarking.selection import ReferenceSelection
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
+from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import Statistic
 from neuralls.platform.reporting.outcome_plots import (
     GroupStyle,
@@ -70,8 +70,8 @@ class FigureData:
     reference: ReferenceSelection
 
 
-type GroupDrawer = Callable[[FigureData, Path], Path | None]
-"""Draws one figure into a path; ``None`` when the data cannot support it."""
+type GroupDrawer = Callable[[FigureData, FigureTarget], FigureTarget | None]
+"""Draws one figure to a target, which it returns; ``None`` when the data cannot support it."""
 
 type _SeriesOf = Callable[[pl.DataFrame, MetricId], ProfileSeries]
 
@@ -91,37 +91,37 @@ def _profile_series(data: FigureData, series_of: _SeriesOf) -> ProfileSeries:
 
 
 def _time_bars(total: WorkloadTotal, xlabel: str) -> GroupDrawer:
-    def drawer(data: FigureData, path: Path) -> Path | None:
+    def drawer(data: FigureData, target: FigureTarget) -> FigureTarget | None:
         return plot_workload_bars(
-            data.summary, total=total, xlabel=xlabel, style=data.style, save_path=path
+            data.summary, total=total, xlabel=xlabel, style=data.style, target=target
         )
 
     return drawer
 
 
 def _ecdf(xlabels: Mapping[MetricId, str]) -> GroupDrawer:
-    def drawer(data: FigureData, path: Path) -> Path | None:
+    def drawer(data: FigureData, target: FigureTarget) -> FigureTarget | None:
         return plot_ecdf_profile(
             _profile_series(data, ecdf_series),
             style=data.style,
             xlabel=xlabels[data.metric],
-            save_path=path,
+            target=target,
         )
 
     return drawer
 
 
-def _performance_profile(data: FigureData, path: Path) -> Path | None:
+def _performance_profile(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_performance_profile(
-        _profile_series(data, performance_series), style=data.style, save_path=path
+        _profile_series(data, performance_series), style=data.style, target=target
     )
 
 
-def _aggregate_bars(data: FigureData, path: Path) -> Path | None:
-    return plot_aggregate_bars(data.summary, style=data.style, save_path=path)
+def _aggregate_bars(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+    return plot_aggregate_bars(data.summary, style=data.style, target=target)
 
 
-def _paired_scatter(data: FigureData, path: Path) -> Path | None:
+def _paired_scatter(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     match reference_among_methods(data.observations, data.reference):
         case None:
             return None
@@ -131,11 +131,11 @@ def _paired_scatter(data: FigureData, path: Path) -> Path | None:
                 reference_name=reference,
                 metric=data.metric,
                 style=data.style,
-                save_path=path,
+                target=target,
             )
 
 
-def _speed_ratio(data: FigureData, path: Path) -> Path | None:
+def _speed_ratio(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     match reference_among_methods(data.observations, data.reference):
         case None:
             return None
@@ -146,49 +146,49 @@ def _speed_ratio(data: FigureData, path: Path) -> Path | None:
                 data.summary,
                 style=data.style,
                 reference_name=reference,
-                save_path=path,
+                target=target,
             )
 
 
-def _break_even(data: FigureData, path: Path) -> Path | None:
+def _break_even(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     match reference_among_methods(data.observations, data.reference):
         case None:
             return None
         case reference:
             return plot_break_even_curves(
-                data.summary, reference_name=reference, style=data.style, save_path=path
+                data.summary, reference_name=reference, style=data.style, target=target
             )
 
 
-def _convergence_factors(data: FigureData, path: Path) -> Path | None:
+def _convergence_factors(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_convergence_factors(
-        data.summary, data.observations, metric=data.metric, style=data.style, save_path=path
+        data.summary, data.observations, metric=data.metric, style=data.style, target=target
     )
 
 
 def _mean_bars(statistic: BarStatistic) -> GroupDrawer:
-    def drawer(data: FigureData, path: Path) -> Path | None:
+    def drawer(data: FigureData, target: FigureTarget) -> FigureTarget | None:
         return plot_mean_bars(
-            data.summary, statistic=statistic, metric=data.metric, style=data.style, save_path=path
+            data.summary, statistic=statistic, metric=data.metric, style=data.style, target=target
         )
 
     return drawer
 
 
-def _time_per_iteration(data: FigureData, path: Path) -> Path | None:
+def _time_per_iteration(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_time_per_iteration(
-        data.summary, data.observations, metric=data.metric, style=data.style, save_path=path
+        data.summary, data.observations, metric=data.metric, style=data.style, target=target
     )
 
 
-def _distribution(data: FigureData, path: Path) -> Path | None:
+def _distribution(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_distribution(
-        data.summary, data.observations, metric=data.metric, style=data.style, save_path=path
+        data.summary, data.observations, metric=data.metric, style=data.style, target=target
     )
 
 
-def _matrix_heatmap(data: FigureData, path: Path) -> Path | None:
-    return plot_matrix_heatmap(data.summary, metric=data.metric, style=data.style, save_path=path)
+def _matrix_heatmap(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+    return plot_matrix_heatmap(data.summary, metric=data.metric, style=data.style, target=target)
 
 
 AGGREGATE_BARS_DRAWER: GroupDrawer = _aggregate_bars

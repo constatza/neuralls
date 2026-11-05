@@ -222,15 +222,15 @@ SCOPES: dict[str, SinkScope] = {
             ),
             Allowed(
                 PATH_AS_NAME,
-                "platform/reporting/figure_metadata.py",
+                "platform/reporting/figure_formats.py",
                 "__post_init__",
-                "checks a staged file carries its planned machine file name",
+                "validates that a figure target names its files by a bare machine stem",
             ),
             Allowed(
                 PATH_AS_NAME,
                 "platform/reporting/figure_card.py",
                 "__post_init__",
-                "validates that a card names its figure file by a bare basename",
+                "validates that a card names its figure files by a bare stem",
             ),
             Allowed(
                 PATH_AS_NAME,

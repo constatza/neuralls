@@ -146,4 +146,4 @@ def test_a_group_kind_has_a_same_stem_table_of_its_recipes_kind(kind: FigureKind
         else NoTable()
     )
 
-    assert table_of("fig.png", kind) == expected
+    assert table_of("fig", kind) == expected
