@@ -11,7 +11,7 @@ from loguru import logger
 from torchalg.preconditioners.base import Preconditioner
 from torchalg.utils.device import resolve_device
 
-from neuralls.composition.comparison._generation_cost import resolve_generation_cost
+from neuralls.composition.comparison._offline_cost import resolve_generation_cost
 from neuralls.composition.comparison._preconditioner_setup import (
     PreconditionerService,
     _bind_extra_inputs,

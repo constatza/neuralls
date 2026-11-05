@@ -1,4 +1,4 @@
-"""Tests for `_generation_cost.py::resolve_generation_cost`.
+"""Tests for `_offline_cost.py`: the generation cost, the training cost and their pairing.
 
 A comparison run never generates a dataset itself -- this module reads back
 the dataset's own manifest (`DatasetManifest.generation_duration_seconds`,
@@ -17,26 +17,32 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from mlflow.tracking import MlflowClient
 
-from neuralls.composition.comparison._generation_cost import (
+from neuralls.composition.comparison._offline_cost import (
     resolve_generation_cost,
-    resolve_generation_repeatability,
+    resolve_offline_cost,
+    resolve_training_cost,
 )
-from neuralls.domain.solver.models.cost import Known, NotApplicable, Unavailable
+from neuralls.domain.solver.models.cost import Known, NotApplicable, OfflineStages, Unavailable
 from neuralls.platform.config.models.coarsening import (
     AggregationCoarseningConfig,
     PODCoarseningConfig,
 )
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
+    NeuralAMGPreconditionerConfig,
     NeuralPreconditionerConfig,
+    NeuralTransferConfig,
     PreconditionerType,
 )
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
 from neuralls.platform.storage.manifest_io import make_dataset_manifest as _make_manifest
 from neuralls.platform.storage.manifest_io import save_dataset_manifest
-from neuralls.shared.types import CostProvenance, GenerationRepeatability
+from neuralls.platform.tracking.services import MlflowTrackingServices
+from neuralls.shared.types import CostProvenance
+from tests.fakes.mlflow_client import FakeMlflowClient
 
 pytestmark = pytest.mark.deferred_io("config-loading")
 
@@ -175,37 +181,180 @@ def test_neural_config_without_data_config_path_has_no_generation_cost(
     assert resolve_generation_cost(cfg, settings=neuralls_settings) == NotApplicable()
 
 
-def test_classical_amg_repeatability_is_not_applicable() -> None:
-    """Classical/geometric AMG has no fit/train step, so repeatability is moot."""
+TRAINING_START_MS = 10_000
+TRAINING_SECONDS = 90.5
+OTHER_TRAINING_SECONDS = 30.0
+
+
+@pytest.fixture
+def fake_store(tmp_path: Path) -> FakeMlflowClient:
+    """In-memory MLflow store holding the training runs."""
+    return FakeMlflowClient(artifact_root=tmp_path / "artifacts")
+
+
+@pytest.fixture
+def runs(fake_store: FakeMlflowClient) -> MlflowClient:
+    """A client over the fake store, as composition obtains one from its tracking services."""
+    return MlflowTrackingServices(client_factory=fake_store).client(fake_store.tracking_uri)
+
+
+def _finished_run(store: FakeMlflowClient, name: str, seconds: float) -> str:
+    return store.add_run(
+        name,
+        start_time_ms=TRAINING_START_MS,
+        end_time_ms=TRAINING_START_MS + round(seconds * 1000),
+    )
+
+
+def _trained(run_id: str | None) -> NeuralPreconditionerConfig:
+    return NeuralPreconditionerConfig(
+        type=PreconditionerType.NEURAL,
+        checkpoint_path=WORKSPACE / "model.ckpt",
+        resolved_run_id=run_id,
+    )
+
+
+def test_classical_amg_has_no_training_cost(runs: MlflowClient) -> None:
     cfg = AMGPreconditionerConfig(
         type=PreconditionerType.AMG, coarsening=AggregationCoarseningConfig()
     )
-    assert resolve_generation_repeatability(cfg) is GenerationRepeatability.NOT_APPLICABLE
+
+    assert resolve_training_cost(cfg, runs=runs) == NotApplicable()
 
 
-def test_checkpoint_backed_pod2g_repeatability_is_one_time() -> None:
-    """A POD-2G config with an explicit checkpoint_path is a one-time cost."""
-    cfg = AMGPreconditionerConfig(
-        type=PreconditionerType.AMG,
-        coarsening=PODCoarseningConfig(
-            dataset_dir=WORKSPACE / "pod-dataset", rank=4, checkpoint_path=WORKSPACE / "pod.ckpt"
-        ),
-    )
-    assert resolve_generation_repeatability(cfg) is GenerationRepeatability.ONE_TIME
-
-
-def test_checkpointless_pod2g_repeatability_is_per_system() -> None:
-    """A POD-2G config fit inline from `dataset_dir` (no checkpoint) repeats per system."""
+def test_pod2g_fit_inline_has_no_training_stage(runs: MlflowClient) -> None:
+    """The inline basis fit runs inside setup, which is already a measured online cost."""
     cfg = AMGPreconditionerConfig(
         type=PreconditionerType.AMG,
         coarsening=PODCoarseningConfig(dataset_dir=WORKSPACE / "pod-dataset", rank=4),
     )
-    assert resolve_generation_repeatability(cfg) is GenerationRepeatability.PER_SYSTEM
+
+    assert resolve_training_cost(cfg, runs=runs) == NotApplicable()
 
 
-def test_checkpoint_backed_neural_repeatability_is_one_time() -> None:
-    """A Neural config with an explicit checkpoint_path is a one-time cost."""
-    cfg = NeuralPreconditionerConfig(
-        type=PreconditionerType.NEURAL, checkpoint_path=WORKSPACE / "model.ckpt"
+def test_checkpoint_training_cost_is_the_wall_time_of_its_run(
+    fake_store: FakeMlflowClient, runs: MlflowClient
+) -> None:
+    run_id = _finished_run(fake_store, "trained", TRAINING_SECONDS)
+
+    assert resolve_training_cost(_trained(run_id), runs=runs) == Known(
+        TRAINING_SECONDS, None, CostProvenance.HISTORICAL
     )
-    assert resolve_generation_repeatability(cfg) is GenerationRepeatability.ONE_TIME
+
+
+def test_pod2g_checkpoint_training_cost_is_the_wall_time_of_its_run(
+    fake_store: FakeMlflowClient, runs: MlflowClient
+) -> None:
+    run_id = _finished_run(fake_store, "fitted", TRAINING_SECONDS)
+    cfg = AMGPreconditionerConfig(
+        type=PreconditionerType.AMG,
+        coarsening=PODCoarseningConfig(
+            dataset_dir=WORKSPACE / "pod-dataset",
+            rank=4,
+            checkpoint_path=WORKSPACE / "pod.ckpt",
+            resolved_run_id=run_id,
+        ),
+    )
+
+    assert resolve_training_cost(cfg, runs=runs) == Known(
+        TRAINING_SECONDS, None, CostProvenance.HISTORICAL
+    )
+
+
+def test_prolongation_and_restriction_trained_apart_add_their_runs(
+    fake_store: FakeMlflowClient, runs: MlflowClient
+) -> None:
+    prolongation_run = _finished_run(fake_store, "prolongation", TRAINING_SECONDS)
+    restriction_run = _finished_run(fake_store, "restriction", OTHER_TRAINING_SECONDS)
+    cfg = NeuralAMGPreconditionerConfig(
+        prolongation=NeuralTransferConfig(
+            checkpoint_path=WORKSPACE / "p.ckpt", resolved_run_id=prolongation_run
+        ),
+        restriction=NeuralTransferConfig(
+            checkpoint_path=WORKSPACE / "r.ckpt", resolved_run_id=restriction_run
+        ),
+    )
+
+    assert resolve_training_cost(cfg, runs=runs) == Known(
+        TRAINING_SECONDS + OTHER_TRAINING_SECONDS, None, CostProvenance.HISTORICAL
+    )
+
+
+def test_transfer_operators_trained_in_one_run_cost_that_run_once(
+    fake_store: FakeMlflowClient, runs: MlflowClient
+) -> None:
+    run_id = _finished_run(fake_store, "both", TRAINING_SECONDS)
+    cfg = NeuralAMGPreconditionerConfig(
+        prolongation=NeuralTransferConfig(
+            checkpoint_path=WORKSPACE / "p.ckpt", resolved_run_id=run_id
+        ),
+        restriction=NeuralTransferConfig(
+            checkpoint_path=WORKSPACE / "r.ckpt", resolved_run_id=run_id
+        ),
+    )
+
+    assert resolve_training_cost(cfg, runs=runs) == Known(
+        TRAINING_SECONDS, None, CostProvenance.HISTORICAL
+    )
+
+
+def test_an_explicit_checkpoint_path_has_no_run_to_read(runs: MlflowClient) -> None:
+    assert resolve_training_cost(_trained(None), runs=runs) == Unavailable(
+        "1 of 1 checkpoints have no recorded training run"
+    )
+
+
+def test_one_unrecorded_transfer_operator_makes_the_whole_cost_unavailable(
+    fake_store: FakeMlflowClient, runs: MlflowClient
+) -> None:
+    run_id = _finished_run(fake_store, "prolongation", TRAINING_SECONDS)
+    cfg = NeuralAMGPreconditionerConfig(
+        prolongation=NeuralTransferConfig(
+            checkpoint_path=WORKSPACE / "p.ckpt", resolved_run_id=run_id
+        ),
+        restriction=NeuralTransferConfig(checkpoint_path=WORKSPACE / "r.ckpt"),
+    )
+
+    assert resolve_training_cost(cfg, runs=runs) == Unavailable(
+        "1 of 2 checkpoints have no recorded training run"
+    )
+
+
+def test_a_training_run_missing_from_the_store_is_unavailable(runs: MlflowClient) -> None:
+    assert resolve_training_cost(_trained("gone"), runs=runs) == Unavailable(
+        "run gone cannot be read: Run 'gone' not found"
+    )
+
+
+def test_a_training_run_still_running_is_unavailable(
+    fake_store: FakeMlflowClient, runs: MlflowClient
+) -> None:
+    run_id = fake_store.add_run("running", start_time_ms=TRAINING_START_MS)
+
+    assert resolve_training_cost(_trained(run_id), runs=runs) == Unavailable(
+        f"run {run_id} has no end time"
+    )
+
+
+def test_offline_cost_pairs_the_generation_and_training_stages(
+    tmp_path: Path,
+    neuralls_settings: NeurallsSettings,
+    fake_store: FakeMlflowClient,
+    runs: MlflowClient,
+) -> None:
+    data_root = tmp_path / "data-root"
+    _stamp_manifest(data_root / "test-dataset", generation_duration_seconds=_GENERATION_DURATION)
+    data_config_path = tmp_path / "data_config.toml"
+    _write_data_config(data_config_path, data_root)
+    run_id = _finished_run(fake_store, "trained", TRAINING_SECONDS)
+    cfg = NeuralPreconditionerConfig(
+        type=PreconditionerType.NEURAL,
+        data_config_path=data_config_path,
+        checkpoint_path=WORKSPACE / "model.ckpt",
+        resolved_run_id=run_id,
+    )
+
+    assert resolve_offline_cost(cfg, settings=neuralls_settings, runs=runs) == OfflineStages(
+        generation=Known(_GENERATION_DURATION, 1024, CostProvenance.HISTORICAL),
+        training=Known(TRAINING_SECONDS, None, CostProvenance.HISTORICAL),
+    )

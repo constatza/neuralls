@@ -33,6 +33,7 @@ class _FakeRun:
     run_id: str
     run_name: str
     start_time_ms: int
+    end_time_ms: int | None
     artifact_dir: Path
 
     @property
@@ -41,6 +42,7 @@ class _FakeRun:
             run_id=self.run_id,
             run_name=self.run_name,
             start_time=self.start_time_ms,
+            end_time=self.end_time_ms,
             artifact_uri=self.artifact_dir.as_uri(),
         )
 
@@ -78,12 +80,14 @@ class FakeMlflowClient:
         *,
         run_name: str | None = None,
         start_time_ms: int | None = None,
+        end_time_ms: int | None = None,
         checkpoints: Mapping[str, str] | None = None,
     ) -> str:
         """Add a run whose ``model/`` and ``checkpoints/`` hold checkpoints.
 
         ``checkpoints`` maps relative file name to content and defaults to a
-        single ``<marker>.ckpt`` containing ``marker``.
+        single ``<marker>.ckpt`` containing ``marker``. A run without ``end_time_ms`` is
+        still running, as MLflow reports it.
         """
         run_id = _RUN_ID_FORMAT.format(len(self._runs))
         artifact_dir = self.artifact_root / run_id
@@ -96,6 +100,7 @@ class FakeMlflowClient:
                 run_id=run_id,
                 run_name=run_name or marker,
                 start_time_ms=len(self._runs) if start_time_ms is None else start_time_ms,
+                end_time_ms=end_time_ms,
                 artifact_dir=artifact_dir,
             )
         )
@@ -169,6 +174,8 @@ class FakeMlflowClient:
         raise AssertionError(f"unexpected download of {path!r} from {run_id}")
 
     def get_run(self, run_id: str) -> _FakeRun:
+        if not any(run.run_id == run_id for run in self._runs):
+            raise MlflowException(f"Run '{run_id}' not found", error_code=RESOURCE_DOES_NOT_EXIST)
         return self._run(run_id)
 
     def _run(self, run_id: str) -> _FakeRun:

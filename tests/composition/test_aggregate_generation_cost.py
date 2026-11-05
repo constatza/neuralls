@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import pytest
 
-from neuralls.composition.comparison._generation_cost import aggregate_generation_cost
+from neuralls.composition.comparison._offline_cost import aggregate_generation_cost
 from neuralls.domain.solver.models.cost import Known, Unavailable
 from neuralls.platform.storage.manifest import (
     DatasetArtifact,
