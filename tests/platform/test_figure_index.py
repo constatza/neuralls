@@ -28,6 +28,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import SessionRunId
 
 DIRECTORY = "group_reports"
+SPLITS = "splits.toml"
 
 
 @pytest.fixture
@@ -198,21 +199,22 @@ def test_index_round_trips_through_toml_without_card_parameters(
     entries = index_of(cards)
     path = tmp_path / "figure_index.toml"
 
-    write_figure_index(path, entries)
+    write_figure_index(path, entries, SPLITS)
 
     assert read_figure_index(path) == entries
     assert all(
         set(entry) == {"run_id", "artifact_path", "card", "kind", "level", "scope"}
-        for entry in index_payload(entries)["figures"]
+        for entry in index_payload(entries, SPLITS)["figures"]
     )
 
 
 def test_index_entry_missing_a_field_is_rejected() -> None:
     with pytest.raises(InvalidFigureIndexError, match="figures"):
-        validate_figure_index({})
+        validate_figure_index({"splits": SPLITS})
     with pytest.raises(InvalidFigureIndexError, match="card"):
         validate_figure_index(
             {
+                "splits": SPLITS,
                 "figures": [
                     {
                         "run_id": "r",
@@ -221,6 +223,11 @@ def test_index_entry_missing_a_field_is_rejected() -> None:
                         "level": "l",
                         "scope": "s",
                     }
-                ]
+                ],
             }
         )
+
+
+def test_an_index_that_cites_no_split_records_is_rejected() -> None:
+    with pytest.raises(InvalidFigureIndexError, match="split records"):
+        validate_figure_index({"figures": []})

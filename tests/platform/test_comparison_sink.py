@@ -47,6 +47,7 @@ from neuralls.domain.solver.models.labels import (
 )
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.domain.solver.models.report_scope import System
+from neuralls.domain.solver.models.split_record import DatasetSplitRecord
 from neuralls.domain.solver.models.statistics import IterationStats
 from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary
@@ -276,8 +277,14 @@ def stored_methods(
 
 
 @pytest.fixture
-def sink(notation: NotationPolicy, stored_methods: tuple[StoredMethod, ...]) -> MLflowReportSink:
-    return MLflowReportSink(notation, "session-run", FakeRunTree(), methods=stored_methods)
+def sink(
+    notation: NotationPolicy,
+    stored_methods: tuple[StoredMethod, ...],
+    split_records: tuple[DatasetSplitRecord, ...],
+) -> MLflowReportSink:
+    return MLflowReportSink(
+        notation, "session-run", FakeRunTree(), split_records, methods=stored_methods
+    )
 
 
 @pytest.fixture
@@ -674,10 +681,13 @@ def test_the_convergence_factor_card_cites_the_stored_residual_histories(
 
 @pytest.mark.usefixtures("logged_metrics", "logged_artifacts")
 def test_group_naming_a_method_without_a_stored_run_is_rejected(
-    group: GroupAggregated, presentation: GroupPresentation, notation: NotationPolicy
+    group: GroupAggregated,
+    presentation: GroupPresentation,
+    notation: NotationPolicy,
+    split_records: tuple[DatasetSplitRecord, ...],
 ) -> None:
     with pytest.raises(UnknownStoredMethodError):
-        MLflowReportSink(notation, "session-run", FakeRunTree()).report(
+        MLflowReportSink(notation, "session-run", FakeRunTree(), split_records).report(
             group, presentation=presentation
         )
 

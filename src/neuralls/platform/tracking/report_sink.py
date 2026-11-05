@@ -38,6 +38,7 @@ from neuralls.domain.solver.models.report_scope import (
     System,
     scope_of_label,
 )
+from neuralls.domain.solver.models.split_record import DatasetSplitRecord
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.reporting.benchmark_events import MethodBenchmarkArtifacts
 from neuralls.platform.reporting.figure_index import FigureIndexEntry
@@ -133,6 +134,7 @@ class OpenReport:
     methods: Sequence[StoredMethod]
     runs: ScopeRunTree
     uploader: FigureUploader
+    split_records: Sequence[DatasetSplitRecord]
     slugs: FigureSlugs = field(default_factory=FigureSlugs)
 
     def _root_run_id(self) -> str:
@@ -263,7 +265,7 @@ class OpenReport:
 
     def finalize(self) -> FinalizedReport:
         """Check every figure has its card, then upload the figure index to the root run."""
-        return FinalizedReport(self.uploader.write_index())
+        return FinalizedReport(self.uploader.write_index(self.split_records))
 
 
 @dataclass(slots=True)
@@ -272,13 +274,15 @@ class MLflowReportSink:
 
     ``notation`` is the case's symbol policy and ``datasets`` presents each dataset a scope
     names; run names and figures render both. ``session_run_id`` and ``methods`` identify
-    the compare session and the stored method runs every figure is computed from. ``runs``
+    the compare session and the stored method runs every figure is computed from;
+    ``split_records`` are the session's held-out records, copied beside the index. ``runs``
     creates the nested scope runs and ``artifacts`` uploads into the active run.
     """
 
     notation: NotationPolicy
     session_run_id: SessionRunId
     runs: RunTree
+    split_records: Sequence[DatasetSplitRecord]
     methods: Sequence[StoredMethod] = ()
     datasets: Mapping[DatasetId, DatasetPresentation] = field(default_factory=dict)
     artifacts: ArtifactSink = field(default_factory=MlflowArtifactSink)
@@ -294,6 +298,7 @@ class MLflowReportSink:
                 self.runs, lambda scope: scope_run_name(scope, self.notation, self.datasets)
             ),
             uploader,
+            self.split_records,
         )
 
     def _open(self) -> OpenReport:

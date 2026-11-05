@@ -41,11 +41,11 @@ the methods drawn and the stored method runs and artifacts the figure came from;
 residual and energy figures use unique method-qualified names; system figures keep short stems
 because a stem only needs to be unique within one run directory. One `MLflowReportSink`
 finalizes `figure_index.toml` exactly once on the root report run, after checking that every
-uploaded figure has its card; reports with no figures still receive an empty index.
+uploaded figure has its card, and uploads the session's `splits.toml` beside it (`run_comparison_report` downloads it first, so a session that predates it is refused before any report run exists); reports with no figures still receive an empty index.
 
 `compare` is compute-only: it times solves and persists each method's raw tables
 (`platform/reporting/benchmark_events.py::MethodBenchmarkArtifacts`) under the
-`Comparisons` experiment. `neuralls report` (`assignments/comparison_report.py::run_comparison_report`, returning `ReportReused | ReportCreated`; the notation digest is a `canonical_digest` prefix, and the schema version tag, `REPORT_SCHEMA_VERSION`, changes with the card keys, table schemas and metric keys a report writes, so a report written by older code is not reused)
+`Comparisons` experiment. `neuralls report` (`assignments/comparison_report.py::run_comparison_report`, returning `ReportReused | ReportCreated`; the notation digest is a `canonical_digest` prefix, and the schema version tag, `REPORT_SCHEMA_VERSION`, changes with the card keys, table schemas, metric keys and index fields a report writes, so a report written by older code is not reused)
 reads the newest finished session of the case config back through
 `platform/reporting/stored_benchmark.py::read_stored_benchmark`, rebuilds typed events
 (`comparison/postprocessing/report_inputs.py`), draws every figure and logs every metric

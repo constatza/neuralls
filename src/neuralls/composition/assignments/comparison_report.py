@@ -47,12 +47,13 @@ from neuralls.platform.tracking.session_artifacts import (
     download_session_methods,
     latest_session_run_id,
 )
+from neuralls.platform.tracking.split_records import download_session_splits
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import SessionRunId, SystemId
 from neuralls.shared.workflow_failures import ComparisonBatchFailureContext, ComparisonBatchPhase
 
-REPORT_SCHEMA_VERSION = "7"
+REPORT_SCHEMA_VERSION = "8"
 """Identifies the card keys, table schemas and metric keys a report writes; an existing report of
 another version is not reused."""
 NOTATION_DIGEST_LENGTH = 8
@@ -116,6 +117,7 @@ def run_comparison_report(
     with tempfile.TemporaryDirectory(prefix="neuralls-report-") as tmp:
         directories = download_session_methods(client, session, Path(tmp))
         inputs = report_inputs(read_stored_benchmark(directories))
+        split_records = download_session_splits(client, session, Path(tmp) / "splits")
         session_name = client.get_run(session).data.tags.get("mlflow.runName", session)
         failure_sink = MLflowWorkflowFailureSink()
         with root_report_run(
@@ -131,6 +133,7 @@ def run_comparison_report(
                 notation,
                 session,
                 MlflowRunTree(client),
+                split_records,
                 methods=inputs.stored.methods,
                 datasets=inputs.datasets,
             )

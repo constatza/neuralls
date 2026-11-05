@@ -150,9 +150,10 @@ def verify_figure_records(
             )
 
 
-def index_payload(entries: Sequence[FigureIndexEntry]) -> dict[str, Any]:
-    """The index as TOML-ready data."""
+def index_payload(entries: Sequence[FigureIndexEntry], splits_artifact: str) -> dict[str, Any]:
+    """The index as TOML-ready data; ``splits_artifact`` names the split records beside it."""
     return {
+        "splits": splits_artifact,
         "figures": [
             {
                 "run_id": entry.run_id,
@@ -163,12 +164,14 @@ def index_payload(entries: Sequence[FigureIndexEntry]) -> dict[str, Any]:
                 "scope": entry.scope,
             }
             for entry in entries
-        ]
+        ],
     }
 
 
 def validate_figure_index(payload: Mapping[str, Any]) -> None:
-    """Raise unless ``payload`` has a ``figures`` array of complete entries."""
+    """Raise unless ``payload`` cites its split records and has a ``figures`` array of complete entries."""
+    if not isinstance(payload.get("splits"), str):
+        raise InvalidFigureIndexError("figure index does not cite its split records")
     figures = payload.get("figures")
     if not isinstance(figures, list):
         raise InvalidFigureIndexError("figure index has no 'figures' array")
@@ -182,9 +185,11 @@ def validate_figure_index(payload: Mapping[str, Any]) -> None:
             )
 
 
-def write_figure_index(path: Path, entries: Sequence[FigureIndexEntry]) -> None:
-    """Write the index as TOML."""
-    path.write_bytes(tomli_w.dumps(index_payload(entries)).encode("utf-8"))
+def write_figure_index(
+    path: Path, entries: Sequence[FigureIndexEntry], splits_artifact: str
+) -> None:
+    """Write the index as TOML, citing the split records stored in the same run."""
+    path.write_bytes(tomli_w.dumps(index_payload(entries, splits_artifact)).encode("utf-8"))
 
 
 def read_figure_index(path: Path) -> tuple[FigureIndexEntry, ...]:

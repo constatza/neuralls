@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, assert_never
 
 import mlflow
 
+from neuralls.domain.solver.models.split_record import DatasetSplitRecord
 from neuralls.platform.reporting.figure_card import (
     FigureCard,
     build_figure_card,
@@ -33,6 +34,7 @@ from neuralls.platform.reporting.figure_metadata import (
     collision_key,
 )
 from neuralls.platform.reporting.figure_table import check_table_kind, write_group_table
+from neuralls.platform.tracking.split_records import SPLITS_ARTIFACT, encode_split_records
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import SessionRunId
 
@@ -148,13 +150,22 @@ class FigureUploader:
         self._cards[card_location] = card
         return card
 
-    def write_index(self) -> tuple[FigureIndexEntry, ...]:
-        """Check every figure has its card, upload the index to the active run and clean up."""
+    def write_index(
+        self, split_records: Sequence[DatasetSplitRecord]
+    ) -> tuple[FigureIndexEntry, ...]:
+        """Check every figure has its card, upload the split records and the index that cites them.
+
+        Both land in the active (root) run, so the report carries what its session held out.
+        """
         index = index_of(self._cards)
         verify_figure_records(self._uploaded, self._cards, index)
-        path = Path(self._staging.name) / FIGURE_INDEX_FILE
-        write_figure_index(path, index)
-        self.artifacts.log(path, None)
+        staging = Path(self._staging.name)
+        splits_path = staging / SPLITS_ARTIFACT
+        splits_path.write_bytes(encode_split_records(split_records))
+        index_path = staging / FIGURE_INDEX_FILE
+        write_figure_index(index_path, index, SPLITS_ARTIFACT)
+        self.artifacts.log(splits_path, None)
+        self.artifacts.log(index_path, None)
         self._staging.cleanup()
         return index
 

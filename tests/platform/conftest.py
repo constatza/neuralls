@@ -47,6 +47,11 @@ from neuralls.domain.solver.models.labels import (
     MatrixSetRhsTypeLabel,
     render_group_id,
 )
+from neuralls.domain.solver.models.split_record import (
+    DatasetSplitRecord,
+    MatrixDisjoint,
+    SingleMatrixShared,
+)
 from neuralls.domain.solver.models.workload import MethodWorkloadSummary
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.domain.solver.reporting.metrics import MetricId
@@ -348,4 +353,33 @@ def single_timing_presentation(
     """A group presentation whose systems were each timed once."""
     return replace(
         repeated_timing_presentation, solver_contexts=(replace(CONTEXT, timing_repeats=1),)
+    )
+
+
+SPLIT_DIGEST = "sha256:" + "b" * 64
+
+
+@pytest.fixture
+def split_records() -> tuple[DatasetSplitRecord, ...]:
+    return (
+        DatasetSplitRecord(
+            DatasetId("single"),
+            SPLIT_DIGEST,
+            8,
+            1,
+            1,
+            (MatrixId(0),),
+            (MatrixId(0),),
+            SingleMatrixShared(MatrixId(0)),
+        ),
+        DatasetSplitRecord(
+            DatasetId("many"),
+            SPLIT_DIGEST,
+            8,
+            0,
+            2,
+            (MatrixId(0), MatrixId(1)),
+            (MatrixId(2),),
+            MatrixDisjoint(),
+        ),
     )

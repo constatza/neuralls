@@ -13,6 +13,7 @@ from tests.fakes.artifact_sink import InMemoryArtifactSink
 
 from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
+from neuralls.domain.solver.models.split_record import DatasetSplitRecord
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.platform.reporting.figure_card import card_name, decode_figure_card
 from neuralls.platform.reporting.figure_metadata import (
@@ -24,6 +25,7 @@ from neuralls.platform.reporting.figure_metadata import (
 from neuralls.platform.reporting.figure_planning import figure_plans, figure_summaries
 from neuralls.platform.reporting.figure_table import InvalidFigureTableError
 from neuralls.platform.tracking.figure_uploader import FigureUploader
+from neuralls.platform.tracking.split_records import SPLITS_ARTIFACT, encode_split_records
 from neuralls.shared.scientific_description.policy import NotationPolicy
 
 GROUP_DIRECTORY = "group_report"
@@ -49,7 +51,7 @@ def test_the_table_beside_a_figure_is_the_one_its_card_names(
     uploader.upload(
         GROUP_DIRECTORY, GROUP_DIRECTORY, StagedTabledFigure(StagedFigure(plan, figure_path), table)
     )
-    uploader.write_index()
+    uploader.write_index(())
 
     card = decode_figure_card(
         tomllib.loads(sink.files[GROUP_DIRECTORY, card_name(plan.filename)].decode("utf-8"))
@@ -63,7 +65,7 @@ def test_the_table_beside_a_figure_is_the_one_its_card_names(
             )
     assert_frame_equal(stored, table)
     assert sorted(file for _, file in sink.files) == sorted(
-        [plan.filename, card_name(plan.filename), name, "figure_index.toml"]
+        [plan.filename, card_name(plan.filename), name, "figure_index.toml", "splits.toml"]
     )
 
 
@@ -90,3 +92,17 @@ def test_a_table_of_another_kind_than_the_cards_is_not_uploaded(
             GROUP_DIRECTORY,
             StagedTabledFigure(StagedFigure(plan, figure_path), other_kind),
         )
+
+
+def test_the_index_cites_the_split_records_copied_to_the_report_root(
+    notation: NotationPolicy, split_records: tuple[DatasetSplitRecord, ...]
+) -> None:
+    sink = InMemoryArtifactSink()
+    uploader = FigureUploader("session-run", notation, sink)
+
+    uploader.write_index(split_records)
+
+    assert sink.files[None, SPLITS_ARTIFACT] == encode_split_records(split_records)
+    assert tomllib.loads(sink.files[None, "figure_index.toml"].decode("utf-8"))["splits"] == (
+        SPLITS_ARTIFACT
+    )

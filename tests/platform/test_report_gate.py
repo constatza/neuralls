@@ -58,7 +58,7 @@ def valid_index(tmp_path: Path) -> str:
     entry = FigureIndexEntry(
         "r", "a/f.png", "a/f.toml", next(iter(FigureKind)), next(iter(ReportLevelName)), "scope"
     )
-    write_figure_index(path, [entry])
+    write_figure_index(path, [entry], "splits.toml")
     return path.read_text(encoding="utf-8")
 
 
