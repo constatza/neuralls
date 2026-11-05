@@ -24,8 +24,8 @@ class CostFieldSpec:
 
 COST_FIELD_REGISTRY: tuple[CostFieldSpec, ...] = (
     CostFieldSpec(
-        field_name="generation_time_seconds",
-        extractor=lambda r: r.offline_generation_time_seconds,
+        field_name="offline_time_seconds",
+        extractor=lambda r: r.offline_time_seconds,
     ),
     CostFieldSpec(
         field_name="setup_time_seconds",

@@ -1,19 +1,22 @@
 from __future__ import annotations
 
+import tomllib
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+import tomli_w
 from tests.provenance_support import provenance_for
 
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
 )
 from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.solver.models.cost import Known, OfflineStages, Unavailable
 from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.platform.reporting.stored_benchmark import MethodDirectory, read_stored_benchmark
-from neuralls.shared.types import DatasetId
+from neuralls.shared.types import CostProvenance, DatasetId
 
 
 def _dir(path: Path, workload: CompletedMethodWorkload) -> MethodDirectory:
@@ -46,6 +49,33 @@ def test_session_methods_round_trip_into_one_benchmark(
     ]
     assert stored.datasets == {DatasetId("ds"): dataset_presentation}
     assert stored.methods[0].solve_attempts.get_column("system_id").to_list() == ["jacobi-0"]
+
+
+def test_a_methods_offline_cost_is_read_back_from_its_summary(
+    tmp_path: Path, write_method: Callable[..., CompletedMethodWorkload]
+) -> None:
+    offline = OfflineStages(
+        generation=Known(8.5, 1024, CostProvenance.HISTORICAL),
+        training=Unavailable("1 of 1 checkpoints have no recorded training run"),
+    )
+    jacobi = write_method(PreconditionerType.JACOBI, tmp_path / "jacobi", offline=offline)
+
+    (method,) = read_stored_benchmark([_dir(tmp_path / "jacobi", jacobi)]).methods
+
+    assert method.offline == offline
+
+
+def test_a_summary_without_an_offline_cost_is_rejected(
+    tmp_path: Path, write_method: Callable[..., CompletedMethodWorkload]
+) -> None:
+    jacobi = write_method(PreconditionerType.JACOBI, tmp_path / "jacobi")
+    summary_path = tmp_path / "jacobi" / "summary.toml"
+    summary = tomllib.loads(summary_path.read_text(encoding="utf-8"))
+    del summary["offline"]
+    summary_path.write_bytes(tomli_w.dumps(summary).encode("utf-8"))
+
+    with pytest.raises(TypeError, match="no offline cost block"):
+        read_stored_benchmark([_dir(tmp_path / "jacobi", jacobi)])
 
 
 def test_an_empty_session_is_rejected() -> None:

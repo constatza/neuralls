@@ -23,7 +23,7 @@ from neuralls.domain.solver.models.benchmark_events import (
     SystemTag,
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.cost import OfflineStages
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.domain.solver.models.provenance import (
     HeldOutMatrix,
@@ -147,9 +147,10 @@ class CompletedMethodWorkload:
     needs the released preconditioner; it has no systems when no setup succeeded. It must
     belong to ``method``.
 
-    ``generation_cost`` is the historical generation cost (`NotApplicable` for methods with no training data); checkpoint
-    and data loading are I/O outside the benchmark cost model. Generation
-    never contributes to setup, solve, or workload-online totals.
+    ``offline_cost`` is the historical generation and training cost of the method's artifact
+    (both stages `NotApplicable` for a method with nothing to generate or fit); checkpoint and
+    data loading are I/O outside the benchmark cost model. Offline cost never contributes to
+    setup, solve, or workload-online totals.
     """
 
     method: PreconditionerName
@@ -157,7 +158,7 @@ class CompletedMethodWorkload:
     setup_events: tuple[MatrixSetupEvent, ...]
     solve_attempts: tuple[SolveAttempt, ...]
     diagnostics: tuple[tuple[SystemId, CGComparisonResult], ...]
-    generation_cost: StageCost
+    offline_cost: OfflineStages
     workload_peak_memory: PeakMemory
     config_digest: Digest
     method_config: dict[str, Json]

@@ -33,7 +33,7 @@ from neuralls.domain.solver.models import (
     SolveFailed,
     SystemTag,
 )
-from neuralls.domain.solver.models.cost import NotApplicable
+from neuralls.domain.solver.models.cost import NO_OFFLINE_COST, Known, OfflineStages, Unavailable
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.models.workload import (
     CompleteWorkloadSummary,
@@ -52,7 +52,14 @@ from neuralls.platform.reporting.benchmark_events import (
 from neuralls.platform.tracking.method_sink import MLflowBenchmarkMethodSink
 from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS, make_fact
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
+from neuralls.shared.types import (
+    CostProvenance,
+    DatasetId,
+    MatrixId,
+    PreconditionerName,
+    SetupEventId,
+    SystemId,
+)
 
 CONVERGED_ITERATIONS = 2
 METHOD_DIR = "method_workload"
@@ -120,7 +127,7 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
         setup_events=(setup,),
         solve_attempts=attempts,
         diagnostics=(),
-        generation_cost=NotApplicable(),
+        offline_cost=NO_OFFLINE_COST,
         workload_peak_memory=MeasuredPeakMemory(2),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": str(method)},
@@ -199,6 +206,54 @@ def test_method_sink_records_aggregates_without_opening_a_run(
     method_sink.record_method(method_workload, method_summary, root=tmp_path)
 
     assert list(logged_run.metrics) == EXPECTED_METRIC_KEYS
+
+
+def test_method_sink_logs_the_recorded_offline_seconds_of_each_stage(
+    tmp_path: Path,
+    method_sink: MLflowBenchmarkMethodSink,
+    method_workload: CompletedMethodWorkload,
+    method_summary: CompleteWorkloadSummary,
+    logged_run: LoggedRun,
+) -> None:
+    offline = OfflineStages(
+        generation=Known(8.5, None, CostProvenance.HISTORICAL),
+        training=Known(90.25, None, CostProvenance.HISTORICAL),
+    )
+
+    method_sink.record_method(
+        replace(method_workload, offline_cost=offline), method_summary, root=tmp_path
+    )
+
+    offline_metrics = {
+        key: value
+        for key, value in logged_run.metrics.items()
+        if key in {"generation_s", "training_s", "offline_s"}
+    }
+    assert offline_metrics == {"generation_s": 8.5, "training_s": 90.25, "offline_s": 98.75}
+
+
+def test_method_sink_logs_no_number_for_an_unavailable_stage(
+    tmp_path: Path,
+    method_sink: MLflowBenchmarkMethodSink,
+    method_workload: CompletedMethodWorkload,
+    method_summary: CompleteWorkloadSummary,
+    logged_run: LoggedRun,
+) -> None:
+    offline = OfflineStages(
+        generation=Known(8.5, None, CostProvenance.HISTORICAL),
+        training=Unavailable("no recorded training run"),
+    )
+
+    method_sink.record_method(
+        replace(method_workload, offline_cost=offline), method_summary, root=tmp_path
+    )
+
+    offline_metrics = {
+        key: value
+        for key, value in logged_run.metrics.items()
+        if key in {"generation_s", "training_s", "offline_s"}
+    }
+    assert offline_metrics == {"generation_s": 8.5}
 
 
 def test_method_sink_logs_total_iterations_of_every_attempt(

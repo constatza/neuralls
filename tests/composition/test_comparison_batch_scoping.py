@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 import torch
+from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments import (
     comparison_batch,
@@ -51,7 +52,7 @@ from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
 from neuralls.domain.solver.models import MeasuredPeakMemory
 from neuralls.domain.solver.models.config import SolverParams
-from neuralls.domain.solver.models.cost import NotApplicable
+from neuralls.domain.solver.models.cost import NO_OFFLINE_COST
 from neuralls.platform.config.models.comparison import GaussianRhsSourceModel
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
@@ -277,7 +278,7 @@ def events(monkeypatch: pytest.MonkeyPatch, prepared_method: PreparedMethodFacto
             setup_events=(),
             solve_attempts=(),
             diagnostics=(),
-            generation_cost=NotApplicable(),
+            offline_cost=NO_OFFLINE_COST,
             workload_peak_memory=MeasuredPeakMemory(0),
             config_digest="sha256:" + "0" * 64,
             method_config={"name": str(name)},
@@ -290,6 +291,7 @@ def events(monkeypatch: pytest.MonkeyPatch, prepared_method: PreparedMethodFacto
 
 def test_device_is_warmed_once_and_each_method_releases_before_the_next(
     events: list[str],
+    training_runs: MlflowClient,
 ) -> None:
     identity = StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)
     jacobi = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
@@ -307,6 +309,7 @@ def test_device_is_warmed_once_and_each_method_releases_before_the_next(
         _batch(pending),
         method_sink=MagicMock(),
         failure_sink=MagicMock(),
+        training_runs=training_runs,
     )
 
     assert events == [
@@ -326,7 +329,7 @@ def test_device_is_warmed_once_and_each_method_releases_before_the_next(
 
 
 def test_method_child_wraps_execution_and_persistence(
-    events: list[str], monkeypatch: pytest.MonkeyPatch
+    events: list[str], monkeypatch: pytest.MonkeyPatch, training_runs: MlflowClient
 ) -> None:
     pending = [_system("a", 0, "a-0-0")]
     pending[0].resolved.specs = [StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)]
@@ -344,7 +347,12 @@ def test_method_child_wraps_execution_and_persistence(
         def record(self, context: object, exc: Exception) -> None:
             raise AssertionError(f"unexpected failure: {context}: {exc}")
 
-    execute_all(_batch(pending), method_sink=MethodSink(), failure_sink=FailureSink())
+    execute_all(
+        _batch(pending),
+        method_sink=MethodSink(),
+        failure_sink=FailureSink(),
+        training_runs=training_runs,
+    )
 
     assert events.index("child:enter") < events.index("method:identity")
     assert events.index("method:identity") < events.index("persist")
@@ -352,7 +360,7 @@ def test_method_child_wraps_execution_and_persistence(
 
 
 def test_method_failure_reraises_original_when_failure_sink_also_fails(
-    events: list[str], monkeypatch: pytest.MonkeyPatch
+    events: list[str], monkeypatch: pytest.MonkeyPatch, training_runs: MlflowClient
 ) -> None:
     pending = [_system("a", 0, "a-0-0")]
     pending[0].resolved.specs = [StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)]
@@ -381,6 +389,7 @@ def test_method_failure_reraises_original_when_failure_sink_also_fails(
             _batch(pending),
             method_sink=MethodSink(),
             failure_sink=FailingFailureSink(),
+            training_runs=training_runs,
         )
 
     assert raised.value is original
@@ -390,6 +399,7 @@ def test_method_failure_reraises_original_when_failure_sink_also_fails(
 
 def test_matrix_loading_failure_records_exact_matrix_context_once_in_child(
     monkeypatch: pytest.MonkeyPatch,
+    training_runs: MlflowClient,
 ) -> None:
     pending = [_system("dataset-a", 7, "system-7")]
     pending[0].resolved.specs = [StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)]
@@ -429,6 +439,7 @@ def test_matrix_loading_failure_records_exact_matrix_context_once_in_child(
             _batch(pending),
             method_sink=MethodSink(),
             failure_sink=FailureSink(),
+            training_runs=training_runs,
         )
 
     assert raised.value is original
@@ -475,6 +486,7 @@ def test_method_run_forwards_the_cohort_presentation_of_its_own_method(
     events: list[str],
     monkeypatch: pytest.MonkeyPatch,
     dataset_presentation: DatasetPresentation,
+    training_runs: MlflowClient,
 ) -> None:
     cohort = prepare_presentations(
         UnvalidatedComparisonPresentation(
@@ -511,7 +523,7 @@ def test_method_run_forwards_the_cohort_presentation_of_its_own_method(
             setup_events=(),
             solve_attempts=(),
             diagnostics=(),
-            generation_cost=NotApplicable(),
+            offline_cost=NO_OFFLINE_COST,
             workload_peak_memory=MeasuredPeakMemory(0),
             config_digest="sha256:" + "0" * 64,
             method_config={"name": str(method.name)},
@@ -520,7 +532,12 @@ def test_method_run_forwards_the_cohort_presentation_of_its_own_method(
 
     monkeypatch.setattr(comparison_execute, "execute_method_workload", execute)
 
-    execute_all(_batch([system]), method_sink=MagicMock(), failure_sink=MagicMock())
+    execute_all(
+        _batch([system]),
+        method_sink=MagicMock(),
+        failure_sink=MagicMock(),
+        training_runs=training_runs,
+    )
 
     assert forwarded == {
         "identity": cohort.method(PreconditionerName("identity")),
@@ -529,7 +546,7 @@ def test_method_run_forwards_the_cohort_presentation_of_its_own_method(
 
 
 def test_method_child_is_named_by_its_presentation_and_logs_configured_facts_before_executing(
-    events: list[str], monkeypatch: pytest.MonkeyPatch
+    events: list[str], monkeypatch: pytest.MonkeyPatch, training_runs: MlflowClient
 ) -> None:
     pending = [_system("a", 0, "a-0-0")]
     pending[0].resolved.specs = [StandardPreconditionerConfig(type=PreconditionerType.IDENTITY)]
@@ -554,7 +571,12 @@ def test_method_child_is_named_by_its_presentation_and_logs_configured_facts_bef
         def record_method(self, workload: object, summary: object) -> None:
             del workload, summary
 
-    execute_all(_batch(pending), method_sink=MethodSink(), failure_sink=MagicMock())
+    execute_all(
+        _batch(pending),
+        method_sink=MethodSink(),
+        failure_sink=MagicMock(),
+        training_runs=training_runs,
+    )
 
     (call,) = started
     assert call["run_name"] == "Jacobi"

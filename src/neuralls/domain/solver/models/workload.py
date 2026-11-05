@@ -16,7 +16,7 @@ from neuralls.domain.solver.models.benchmark_events import (
     SystemTag,
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.cost import OfflineStages
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.shared.digest import Digest, Json
 from neuralls.shared.types import PreconditionerName, SystemId
@@ -107,7 +107,7 @@ class MethodWorkload(Protocol):
     def solve_attempts(self) -> tuple[SolveAttempt, ...]: ...
 
     @property
-    def generation_cost(self) -> StageCost: ...
+    def offline_cost(self) -> OfflineStages: ...
 
     @property
     def workload_peak_memory(self) -> PeakMemory: ...

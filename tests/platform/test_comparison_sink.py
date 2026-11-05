@@ -21,7 +21,7 @@ from neuralls.domain.presentation.methods import ExecutedMethod, PreparedCompari
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.benchmark_events import SystemTag, UnknownPeakMemory
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
-from neuralls.domain.solver.models.cost import NotApplicable
+from neuralls.domain.solver.models.cost import NO_OFFLINE_COST
 from neuralls.domain.solver.models.figure_scope import (
     AllDatasetsScope,
     FigureScope,
@@ -273,6 +273,7 @@ def stored_methods(
             config_digest="sha256:" + "d" * 64,
             config=parse_preconditioner_config({"name": name, "type": "identity"}),
             presentation=ExecutedMethod(cohort.method(PreconditionerName(name)), ()),
+            offline=NO_OFFLINE_COST,
             systems=(SystemProvenance(tag, _CONTEXT, NoReferenceConfigured()),),
             setup_events=pl.DataFrame(schema=SETUP_EVENT_SCHEMA),
             solve_attempts=pl.DataFrame(schema=SOLVE_ATTEMPT_SCHEMA),
@@ -304,7 +305,7 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
         setup_events=(),
         solve_attempts=(),
         diagnostics=(),
-        generation_cost=NotApplicable(),
+        offline_cost=NO_OFFLINE_COST,
         workload_peak_memory=UnknownPeakMemory(),
         config_digest="sha256:" + "b" * 64,
         method_config={"name": str(method)},

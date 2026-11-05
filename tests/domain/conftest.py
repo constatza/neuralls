@@ -14,7 +14,7 @@ from torchalg.preconditioners.implementations import Identity, JacobiPreconditio
 
 from neuralls.domain.solver.models.benchmark_events import SolveConverged
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.domain.solver.models.cost import Known
+from neuralls.domain.solver.models.cost import Known, NotApplicable, OfflineStages
 from neuralls.domain.solver.reporting.observations import MethodFrames, observations_of_methods
 from neuralls.shared.types import CostProvenance, PreconditionerName
 from tests import observation_support
@@ -131,8 +131,8 @@ def comparison_result_with_cost_data() -> CGComparisonResult:
 
 
 @pytest.fixture
-def comparison_result_with_generation_cost() -> CGComparisonResult:
-    """A converged CGComparisonResult carrying both a historical generation
+def comparison_result_with_offline_cost() -> CGComparisonResult:
+    """A converged CGComparisonResult carrying a historical generation
     cost and a freshly-measured setup cost."""
     return CGComparisonResult(
         x=np.zeros(10),
@@ -147,10 +147,13 @@ def comparison_result_with_generation_cost() -> CGComparisonResult:
         exact_error=None,
         rhs_norm=1.0,
         breakdown=False,
-        generation_cost=Known(
-            wall_time_seconds=5.0,
-            peak_memory_bytes=500,
-            provenance=CostProvenance.HISTORICAL,
+        offline_cost=OfflineStages(
+            generation=Known(
+                wall_time_seconds=5.0,
+                peak_memory_bytes=500,
+                provenance=CostProvenance.HISTORICAL,
+            ),
+            training=NotApplicable(),
         ),
         setup_cost=2.0,
         setup_peak_memory_bytes=1000,

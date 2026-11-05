@@ -49,6 +49,7 @@ from neuralls.platform.reporting.figure_evidence import NoSharedSetup, SetupShar
 from neuralls.platform.reporting.figure_text import Legend, method_legend
 from neuralls.platform.reporting.outcome_plots import GroupStyle
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
+from neuralls.platform.tracking.services import MlflowTrackingServices
 from neuralls.shared.enum_codecs import encode_row_kind_array
 from neuralls.shared.scientific_description.catalog import (
     ITERATION_COUNT,
@@ -61,6 +62,7 @@ from neuralls.shared.scientific_description.models import (
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
 from neuralls.shared.types import DatasetId, GenerationStrategyKind, PreconditionerName, RowKind
+from tests.fakes.mlflow_client import FakeMlflowClient
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -245,6 +247,13 @@ def neuralls_settings(
         processed_dir=processed_root,
         output_dir=output_root,
     )
+
+
+@pytest.fixture
+def training_runs(tmp_path: Path) -> MlflowClient:
+    """An empty in-memory MLflow store: the training runs a method without checkpoints never reads."""
+    fake = FakeMlflowClient(artifact_root=tmp_path / "training-artifacts")
+    return MlflowTrackingServices(client_factory=fake).client(fake.tracking_uri)
 
 
 @pytest.fixture

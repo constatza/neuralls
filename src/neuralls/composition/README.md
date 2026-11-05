@@ -539,10 +539,13 @@ versioned, artifact-relative `setup_events.parquet`, `solve_attempts.parquet`,
 `presentation.toml` files (see `platform/README.md`). The Parquet frames are canonical; the TOML summary is
 reconciled from the Task 2 reducers and records the method name/config digest,
 planned/attempted/converged counts, setup/solve/online timings, and
-workload peak memory. The offline generation cost
-is a `StageCost`: nothing is written for `NotApplicable` (no training data), `generation_s`,
-`generation_source` and, when recorded, `generation_peak_bytes` for `Known`, and
-`generation_source = "unavailable"` with `generation_reason` (no number) for `Unavailable`;
+workload peak memory. The method's offline cost is an `OfflineStages` of two `StageCost`s, written as
+the `[offline.generation]` and `[offline.training]` tables (see `platform/README.md`): a stage that does
+not apply stores only its status, a recorded one its seconds and provenance, and an unavailable one
+its reason and no number. `execute_method_workload` resolves it once per method (not per matrix) with
+`composition/comparison/_offline_cost.py::resolve_offline_cost` from the dataset manifests and the
+MLflow runs the method's checkpoints were trained in (`training_runs`, a client over the case's model
+store that `comparison_batch` builds from its tracking services), outside the timed build.
 checkpoint and data I/O are not serialized as costs or metrics.
 The frames remain canonical for realized setup/solve events and their timing,
 outcomes, repeats, per-event memory, and attempted/converged counts. The

@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from mlflow.tracking import MlflowClient
 
 from neuralls.composition.comparison import comparison_run
 from neuralls.composition.comparison._preconditioner_setup import (
@@ -22,6 +23,7 @@ from neuralls.composition.comparison.comparison_run import execute_method_worklo
 from neuralls.composition.comparison.models import MatrixRef, PlannedSystem, ResolvedMethod
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.config import SolverParams
+from neuralls.domain.solver.models.cost import Known, OfflineStages
 from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
@@ -32,7 +34,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from neuralls.shared.types import DatasetId, MatrixId
+from neuralls.shared.types import CostProvenance, DatasetId, MatrixId
 from tests.composition.workload_support import matrix_bundle
 from tests.fakes.fit_data import FakeFitData
 from tests.presentation_support import PreparedMethodFactory
@@ -89,6 +91,7 @@ def test_a_method_is_built_once_per_matrix_whatever_its_setup_role(
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
 ) -> None:
     """Static and matrix-dependent methods are rebuilt on each matrix, never across them.
 
@@ -104,11 +107,50 @@ def test_a_method_is_built_once_per_matrix_whatever_its_setup_role(
         notation=NotationPolicy.default(),
         params=_SOLVER_PARAMS,
         settings=neuralls_settings,
+        training_runs=training_runs,
     )
 
     assert len(build_count) == len(workload.setup_events) == 2
     assert len(workload.solve_attempts) == 4
     assert build_count[0] != build_count[1]
+
+
+def test_the_offline_cost_is_resolved_once_per_method_and_shared_by_every_matrix(
+    monkeypatch: pytest.MonkeyPatch,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
+) -> None:
+    offline = OfflineStages(
+        generation=Known(8.5, 1024, CostProvenance.HISTORICAL),
+        training=Known(90.25, None, CostProvenance.HISTORICAL),
+    )
+    resolved: list[MlflowClient] = []
+
+    def resolve(
+        cfg: StandardPreconditionerConfig, *, settings: NeurallsSettings, runs: MlflowClient
+    ) -> OfflineStages:
+        resolved.append(runs)
+        return offline
+
+    monkeypatch.setattr(comparison_run, "resolve_offline_cost", resolve)
+    method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.JACOBI))
+
+    workload = execute_method_workload(
+        method,
+        (matrix_bundle(1, n_rhs=2), matrix_bundle(2, n_rhs=2)),
+        prepared=prepared_method(str(method.name)),
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+        params=_SOLVER_PARAMS,
+        settings=neuralls_settings,
+        training_runs=training_runs,
+    )
+
+    assert resolved == [training_runs]
+    assert workload.offline_cost == offline
+    assert [result.offline_cost for _, result in workload.diagnostics] == [offline] * 4
 
 
 def _planned(entry_id: str, rhs_source: dict[str, object]) -> PlannedSystem:

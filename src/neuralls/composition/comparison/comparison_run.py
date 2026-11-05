@@ -8,10 +8,11 @@ from dataclasses import dataclass, replace
 import numpy as np
 import torch
 from loguru import logger
+from mlflow.tracking import MlflowClient
 from torchalg.preconditioners.base import Preconditioner
 from torchalg.utils.device import resolve_device
 
-from neuralls.composition.comparison._offline_cost import resolve_generation_cost
+from neuralls.composition.comparison._offline_cost import resolve_offline_cost
 from neuralls.composition.comparison._preconditioner_setup import (
     PreconditionerService,
     _bind_extra_inputs,
@@ -51,7 +52,7 @@ from neuralls.domain.solver.models.benchmark_events import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
-from neuralls.domain.solver.models.cost import StageCost
+from neuralls.domain.solver.models.cost import OfflineStages
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.models.preconditioner_family import (
@@ -137,7 +138,7 @@ class _MethodRun:
         service: Builds and preloads the method's preconditioner for each matrix.
         params: Solver and timing parameters.
         device: Device the matrices and solves live on.
-        offline_cost: One-off generation cost attached to every result, if the method has one.
+        offline_cost: One-off generation and training cost attached to every result.
         observer: Tracks the workload's peak memory across setup and solves.
         method_text: The method as its log lines name it.
     """
@@ -146,7 +147,7 @@ class _MethodRun:
     service: PreconditionerService
     params: SolverParams
     device: torch.device
-    offline_cost: StageCost
+    offline_cost: OfflineStages
     observer: WorkloadMemoryObserver
     method_text: str
 
@@ -267,7 +268,7 @@ def _solve_bundle(
             reference_precision_margin=params.reference_precision_margin,
             timing=params.timing,
         )[method.config.name]
-        result = replace(result, generation_cost=run.offline_cost)
+        result = replace(result, offline_cost=run.offline_cost)
         diagnostics.append((member.tag.system_id, result))
         solve_peak = result.solve_peak_memory_bytes
         if solve_peak is not None:
@@ -387,6 +388,7 @@ def execute_method_workload(
     notation: NotationPolicy,
     params: SolverParams,
     settings: NeurallsSettings,
+    training_runs: MlflowClient,
 ) -> CompletedMethodWorkload:
     """Execute one method over matrix bundles, keeping matrix state RHS-local.
 
@@ -410,7 +412,7 @@ def execute_method_workload(
     attempts: list[SolveAttempt] = []
     diagnostics: list[tuple[SystemId, CGComparisonResult]] = []
     realizations: list[SystemRealization] = []
-    offline_cost = resolve_generation_cost(method.config, settings=settings)
+    offline_cost = resolve_offline_cost(method.config, settings=settings, runs=training_runs)
     method_text = render_method_label(prepared.configured, notation)
 
     with CheckpointStore() as checkpoints:
@@ -441,7 +443,7 @@ def execute_method_workload(
         setup_events=tuple(setup_events),
         solve_attempts=tuple(attempts),
         diagnostics=tuple(diagnostics),
-        generation_cost=offline_cost,
+        offline_cost=offline_cost,
         workload_peak_memory=MeasuredPeakMemory(observer.finish()),
         config_digest=method.identity_digest or canonical_digest(method.config),
         method_config=canonical_method_config(method.config),

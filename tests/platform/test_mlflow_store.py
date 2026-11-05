@@ -34,7 +34,7 @@ from neuralls.domain.solver.models import (
     SolveConverged,
     SystemTag,
 )
-from neuralls.domain.solver.models.cost import NotApplicable
+from neuralls.domain.solver.models.cost import NO_OFFLINE_COST
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.domain.solver.reporting.event_frames import validate_decoded_solve_frame
 from neuralls.platform.config.models.preconditioner import NeuralPreconditionerConfig
@@ -216,7 +216,7 @@ def reuse_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWor
         setup_events=(setup,),
         solve_attempts=(attempt,),
         diagnostics=(),
-        generation_cost=NotApplicable(),
+        offline_cost=NO_OFFLINE_COST,
         workload_peak_memory=MeasuredPeakMemory(2),
         config_digest=CONFIG_DIGEST,
         method_config={"name": "jacobi"},
@@ -570,9 +570,11 @@ def test_failed_solve_frame_rejects_convergence_only_residual() -> None:
     [
         lambda payload: payload["memory"].update(status="measured", peak_bytes=-1),
         lambda payload: payload["memory"].pop("status"),
+        lambda payload: payload.pop("offline"),
+        lambda payload: payload["offline"]["training"].update(status="free"),
     ],
 )
-def test_reuse_rejects_invalid_summary_memory(
+def test_reuse_rejects_invalid_summary_memory_or_offline_cost(
     method_artifacts: tuple[dict[str, str], tuple[str, ...]],
     mutate: Callable[[dict[str, object]], None],
 ) -> None:

@@ -35,7 +35,7 @@ from neuralls.domain.solver.models import (
     SolveConverged,
     SystemTag,
 )
-from neuralls.domain.solver.models.cost import NotApplicable
+from neuralls.domain.solver.models.cost import NO_OFFLINE_COST, OfflineStages
 from neuralls.domain.solver.models.figure_scope import FigureScope, RecipeScope
 from neuralls.domain.solver.models.group_outcomes import (
     RecipeProfileReport,
@@ -102,7 +102,11 @@ def write_method(
     """Write a complete one-system artifact set for a standard preconditioner."""
 
     def write(
-        kind: PreconditionerType, root: Path, *, dataset: DatasetPresentation = dataset_presentation
+        kind: PreconditionerType,
+        root: Path,
+        *,
+        dataset: DatasetPresentation = dataset_presentation,
+        offline: OfflineStages = NO_OFFLINE_COST,
     ) -> CompletedMethodWorkload:
         config = StandardPreconditionerConfig(type=kind)
         method = PreconditionerName(config.name)
@@ -139,7 +143,7 @@ def write_method(
             setup_events=(setup,),
             solve_attempts=(attempt,),
             diagnostics=(),
-            generation_cost=NotApplicable(),
+            offline_cost=offline,
             workload_peak_memory=MeasuredPeakMemory(2),
             config_digest="sha256:" + "a" * 64,
             method_config=canonical_method_config(config),

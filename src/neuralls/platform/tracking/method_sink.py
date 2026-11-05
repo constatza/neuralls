@@ -109,8 +109,14 @@ class MLflowBenchmarkMethodSink:
         )
         if isinstance(summary.workload_peak_memory, MeasuredPeakMemory):
             metrics["workload_peak_memory_bytes"] = float(summary.workload_peak_memory.bytes)
-        generation_s = recorded_seconds(workload.generation_cost)
-        if generation_s is not None:
-            metrics["generation_s"] = generation_s
+        offline = workload.offline_cost
+        for key, stage in (
+            ("generation_s", offline.generation),
+            ("training_s", offline.training),
+            ("offline_s", offline.total()),
+        ):
+            seconds = recorded_seconds(stage)
+            if seconds is not None:
+                metrics[key] = seconds
         for key, value in metrics.items():
             mlflow.log_metric(key, value)

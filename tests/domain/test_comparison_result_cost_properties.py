@@ -12,10 +12,10 @@ def test_diagnostic_result_exposes_solve_time_without_online_aggregation(
     assert not hasattr(comparison_result_with_cost_data, "total_time_seconds")
 
 
-def test_historical_generation_time_is_explicitly_offline(
-    comparison_result_with_generation_cost: CGComparisonResult,
+def test_historical_offline_time_is_explicitly_offline(
+    comparison_result_with_offline_cost: CGComparisonResult,
 ) -> None:
-    assert comparison_result_with_generation_cost.offline_generation_time_seconds == 5.0
+    assert comparison_result_with_offline_cost.offline_time_seconds == 5.0
 
 
 def test_avg_iteration_time_divides_solve_time_by_iterations(

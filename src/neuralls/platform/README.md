@@ -366,13 +366,19 @@ already-active method child. The artifact set is defined once by
   `ConfiguredReference | NoReferenceConfigured | ReferenceUnavailable`. These are compute
   provenance: a case config edited later would describe different numerics than the ones
   timed.
-- `summary.toml`, `method_config.toml` (the reuse identity), and `presentation.toml` (the
+- `summary.toml` (counts, online totals, memory, and the method's `[offline.generation]` and
+  `[offline.training]` stage tables, each a `status` of `not_applicable`, `known` (with `seconds`,
+  `provenance` and, when recorded, `peak_bytes`) or `unavailable` (with a `reason` and no
+  number); `offline_cost_codec.py` is the one reader and writer, so a missing block is an error
+  and an unavailable stage is never a zero), `method_config.toml` (the reuse identity), and
+  `presentation.toml` (the
   method's configured presentation, compact fact selection, per-system realized facts, and
   the presentation of each dataset it ran on, all through `facts_codec`: keys and typed values
   only).
 
 It also draws the method's residual and energy figures, then logs reducer-owned scalars
-(including `iterations_total`) exactly once. The sink never opens an MLflow run;
+(including `iterations_total`, and `generation_s`, `training_s` and `offline_s` only for the
+stages whose cost is recorded) exactly once. The sink never opens an MLflow run;
 `comparison_batch` owns the session parent and its one direct child per method.
 The parent receives only shared provenance and cross-method reports, while raw
 method artifacts remain on the child. Reuse requires phase
@@ -380,7 +386,8 @@ method artifacts remain on the child. Reuse requires phase
 digest, complete workload membership, and all canonical raw artifacts; legacy
 per-system runs are executed again. Reuse parses the required
 configuration, planned systems, presentation and convergence tables and reconciles event
-methods, membership, and summary totals before accepting a hit; the session's figure
+methods, membership, and summary totals before accepting a hit, and requires the `[offline]`
+block, so a run stored without it is executed again; the session's figure
 figure index is not part of the gate. The persisted configuration is the
 canonical identity representation: checkpoint inputs are content digests and
 runtime lease paths are omitted.
@@ -394,7 +401,7 @@ the session's FINISHED `comparison_method` children (by `mlflow.parentRunId`), c
 holds the full artifact set, and downloads it; the reuse gate lists artifacts through the
 same helper, so run discovery exists once. `reporting/stored_benchmark.py::read_stored_benchmark`
 reads one `MethodDirectory` (local path, the method child run id and its `method_config_digest` tag, as `download_session_methods` returns them) per method into a `StoredBenchmark` of `StoredMethod`s (run id, config digest, parsed method
-config, presentation, planned systems, and the setup, solve and convergence tables) and
+config, presentation, offline cost, planned systems, and the setup, solve and convergence tables) and
 rejects anything inconsistent: a presentation of another method, events for systems that
 were not planned, a summary whose digest differs from the run's tag, a method stored twice, or datasets presented differently by two methods.
 The stored config holds content digests for checkpoint and dataset inputs, so a report-time

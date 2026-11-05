@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from mlflow.tracking import MlflowClient
 from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAdapter
 
 from neuralls.composition.comparison._preconditioner_setup import (
@@ -319,6 +320,7 @@ def _run(
     settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
     datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
 ) -> CompletedMethodWorkload:
     return execute_method_workload(
         method,
@@ -328,6 +330,7 @@ def _run(
         notation=NotationPolicy.default(),
         params=_solver_params(repeats),
         settings=settings,
+        training_runs=training_runs,
     )
 
 
@@ -337,6 +340,7 @@ def test_preload_runs_once_per_matrix_before_all_its_timed_builds(
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
 ) -> None:
     _run(
         jacobi,
@@ -345,6 +349,7 @@ def test_preload_runs_once_per_matrix_before_all_its_timed_builds(
         settings=neuralls_settings,
         prepared_method=prepared_method,
         datasets=group_datasets,
+        training_runs=training_runs,
     )
 
     assert events == ["preload", *["build"] * 3, "preload", *["build"] * 3]
@@ -356,6 +361,7 @@ def test_setup_cost_excludes_the_preload(
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
 ) -> None:
     workload = _run(
         jacobi,
@@ -364,6 +370,7 @@ def test_setup_cost_excludes_the_preload(
         settings=neuralls_settings,
         prepared_method=prepared_method,
         datasets=group_datasets,
+        training_runs=training_runs,
     )
 
     assert workload.setup_events[0].setup_s < SLOW_LOAD_SECONDS

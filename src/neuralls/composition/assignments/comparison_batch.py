@@ -86,6 +86,7 @@ def _run_session(
     executions: Sequence[PreparedComparisonExecution],
     topology: ComparisonTopology,
     case_config_path: Path,
+    tracking: TrackingServices,
 ) -> list[ComparisonOutcome]:
     """Execute the batch inside one session parent run and project the workloads to outcomes."""
     pending = batch.items
@@ -115,6 +116,7 @@ def _run_session(
                     batch_reference_selections(executions),
                 ),
                 failure_sink=failure_sink,
+                training_runs=tracking.client(topology.model_store_tracking_uri),
             )
         with _batch_phase(failure_sink, case_config_path, ComparisonBatchPhase.RESULT_PROJECTION):
             return outcomes_from_workloads(pending, workloads)
@@ -182,4 +184,4 @@ def run_comparison_batch(
                 else ComparisonReused(comparison_id=item.entry.id, run=item.run_name)
                 for item in batch.items
             ]
-        return _run_session(batch, partition.executions, topology, case_config_path)
+        return _run_session(batch, partition.executions, topology, case_config_path, tracking)

@@ -6,6 +6,7 @@ from collections.abc import Iterator, Sequence
 from dataclasses import replace
 
 import mlflow
+from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments.comparison_prepared import (
     PendingComparison,
@@ -169,6 +170,7 @@ def _execute_method_run(
     *,
     method_sink: BenchmarkMethodSink,
     failure_sink: WorkflowFailureSink,
+    training_runs: MlflowClient,
 ) -> CompletedMethodWorkload:
     """Execute and persist one method inside the method's own MLflow child."""
     system_ids = tuple(str(system.entry.id) for _, systems in matrices for system in systems)
@@ -220,6 +222,7 @@ def _execute_method_run(
                 notation=first.cfg.notation_policy,
                 params=first.cfg.general.params,
                 settings=first.settings,
+                training_runs=training_runs,
             )
             workload = replace(workload, workload_identities=system_identities)
         with failure_boundary(
@@ -246,8 +249,12 @@ def execute_all(
     *,
     method_sink: BenchmarkMethodSink,
     failure_sink: WorkflowFailureSink,
+    training_runs: MlflowClient,
 ) -> tuple[CompletedMethodWorkload, ...]:
-    """Execute a prepared batch in method order, each method inside its persisted child run."""
+    """Execute a prepared batch in method order, each method inside its persisted child run.
+
+    ``training_runs`` is the store holding the runs the methods' checkpoints were trained in.
+    """
     schedule = method_major_schedule(batch.items)
 
     workloads: list[CompletedMethodWorkload] = []
@@ -259,6 +266,7 @@ def execute_all(
                     matrices,
                     method_sink=method_sink,
                     failure_sink=failure_sink,
+                    training_runs=training_runs,
                 )
             )
         finally:

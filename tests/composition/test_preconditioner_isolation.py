@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from mlflow.tracking import MlflowClient
 
 from neuralls.composition.comparison import comparison_run
 from neuralls.composition.comparison._preconditioner_setup import PreconditionerService
@@ -67,6 +68,7 @@ def test_unexpected_build_error_is_a_setup_failure_and_later_matrices_still_run(
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
 ) -> None:
     workload = comparison_run.execute_method_workload(
         method,
@@ -76,6 +78,7 @@ def test_unexpected_build_error_is_a_setup_failure_and_later_matrices_still_run(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        training_runs=training_runs,
     )
 
     failed, completed = workload.setup_events
@@ -99,6 +102,7 @@ def test_solver_stage_error_is_isolated(
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
 ) -> None:
     """A failure inside the solve is recorded as a failed attempt, not raised."""
     from neuralls.domain.solver import comparison as solver_comparison
@@ -119,6 +123,7 @@ def test_solver_stage_error_is_isolated(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        training_runs=training_runs,
     )
 
     assert len(workload.solve_attempts) == len(two_matrix_bundles)

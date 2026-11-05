@@ -24,6 +24,7 @@ from neuralls.platform.reporting.benchmark_events import (
     read_setup_events,
     read_solve_attempts,
 )
+from neuralls.platform.reporting.offline_cost_codec import decode_offline_cost
 from neuralls.platform.tracking.mlflow import quote_filter_value
 from neuralls.platform.tracking.mlflow_client import MlflowClientFactory
 from neuralls.platform.tracking.session_artifacts import (
@@ -288,6 +289,7 @@ def _validate_summary(
     if not isinstance(counts, dict) or not isinstance(online, dict):
         raise TypeError("method summary is missing counts or online totals")
     _validate_summary_memory(summary.get("memory"))
+    decode_offline_cost(summary.get("offline"))
     for key in ("planned_rhs", "attempted_rhs", "converged"):
         value = counts.get(key)
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:

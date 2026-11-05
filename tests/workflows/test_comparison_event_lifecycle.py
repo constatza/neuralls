@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from mlflow.tracking import MlflowClient
 
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
@@ -32,7 +33,7 @@ from neuralls.domain.solver.models.benchmark_events import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
-from neuralls.domain.solver.models.cost import NotApplicable
+from neuralls.domain.solver.models.cost import NO_OFFLINE_COST
 from neuralls.domain.solver.models.workload import (
     CompleteWorkloadSummary,
     IncompleteWorkloadSummary,
@@ -143,7 +144,7 @@ def test_workload_models_are_frozen_and_slotted(
         setup_events=(),
         solve_attempts=(),
         diagnostics=(),
-        generation_cost=NotApplicable(),
+        offline_cost=NO_OFFLINE_COST,
         workload_peak_memory=MeasuredPeakMemory(0),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": str(method.name)},
@@ -164,6 +165,7 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
     captured_log: CapturedLog,
+    training_runs: MlflowClient,
 ) -> None:
     """The executor must retain a failed setup without inventing solve attempts."""
     from neuralls.composition.comparison import comparison_run
@@ -184,6 +186,7 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        training_runs=training_runs,
     )
 
     assert len(workload.setup_events) == 1
@@ -228,6 +231,7 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
     preconditioner_type: PreconditionerType,
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
 ) -> None:
     """Static and matrix-dependent methods both get fresh state per matrix."""
     from neuralls.composition.comparison import comparison_run
@@ -260,6 +264,7 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        training_runs=training_runs,
     )
 
     assert len(workload.setup_events) == 2
@@ -277,6 +282,7 @@ def test_repeat_samples_are_retained_but_totals_use_one_representative(
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
 ) -> None:
     from neuralls.composition.comparison import comparison_run
 
@@ -299,6 +305,7 @@ def test_repeat_samples_are_retained_but_totals_use_one_representative(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        training_runs=training_runs,
     )
 
     assert all(attempt.samples_s == (1.0, 2.0, 3.0) for attempt in workload.solve_attempts)
@@ -337,6 +344,7 @@ def test_io_reference_and_reporting_stay_outside_online_timers(
     neuralls_settings: NeurallsSettings,
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
 ) -> None:
     """Only preparation/binding and the solver occupy online timer regions."""
     from neuralls.composition.comparison import comparison_run
@@ -395,6 +403,7 @@ def test_io_reference_and_reporting_stay_outside_online_timers(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        training_runs=training_runs,
     )
 
     assert trace == [
@@ -418,6 +427,7 @@ def test_solver_failure_retains_measured_attempt(
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
     captured_log: CapturedLog,
+    training_runs: MlflowClient,
 ) -> None:
     from neuralls.composition.comparison import comparison_run
     from neuralls.domain.solver import comparison as solver_comparison
@@ -441,6 +451,7 @@ def test_solver_failure_retains_measured_attempt(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        training_runs=training_runs,
     )
 
     assert len(workload.solve_attempts) == 1
@@ -475,6 +486,7 @@ def test_a_non_finite_iterate_is_stored_as_a_solver_error_beside_a_good_solve(
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
     captured_log: CapturedLog,
+    training_runs: MlflowClient,
 ) -> None:
     """One diverged solve must not abort the matrix: it is stored as a failed attempt."""
     from neuralls.composition.comparison import comparison_run
@@ -490,6 +502,7 @@ def test_a_non_finite_iterate_is_stored_as_a_solver_error_beside_a_good_solve(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        training_runs=training_runs,
     )
 
     good, poisoned = workload.solve_attempts

@@ -429,12 +429,15 @@ artifacts.
 
 ## Stage costs
 
-`models/cost.py::StageCost` is a closed sum for a method's offline (dataset-generation) cost:
-`NotApplicable` (the method has no training data; reads as zero in totals and plots),
+`models/cost.py::StageCost` is a closed sum for the cost of one offline stage:
+`NotApplicable` (the method has no such stage; reads as zero in totals and plots),
 `Known(wall_time_seconds, peak_memory_bytes, provenance)` (`MEASURED` or `HISTORICAL`), and
 `Unavailable(reason)` (the cost applies but was never recorded; it carries no number, so it is never
-read as zero). Only `composition/comparison/_generation_cost.py::resolve_generation_cost` chooses the
-variant. `recorded_seconds` returns the seconds of a `Known` cost and `None` otherwise.
+read as zero). `OfflineStages(generation, training)` pairs the two offline stages of a method, and
+`OfflineStages.total()` adds them: seconds sum, peak memory is the largest, and the total is
+`Unavailable` when either stage is. `composition/comparison/_offline_cost.py` chooses the variants
+(`resolve_generation_cost`, `resolve_training_cost`, `resolve_offline_cost`).
+`recorded_seconds` returns the seconds of a `Known` cost and `None` otherwise.
 
 ## Timing-repeat agreement
 

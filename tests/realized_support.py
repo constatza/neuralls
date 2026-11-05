@@ -16,7 +16,7 @@ from neuralls.domain.solver.models import (
     SolveConverged,
     SystemTag,
 )
-from neuralls.domain.solver.models.cost import NotApplicable
+from neuralls.domain.solver.models.cost import NO_OFFLINE_COST
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.shared.rhs_recipe import RhsRecipe
@@ -103,7 +103,7 @@ def completed_workload(
         setup_events=events,
         solve_attempts=attempts,
         diagnostics=(),
-        generation_cost=NotApplicable(),
+        offline_cost=NO_OFFLINE_COST,
         workload_peak_memory=MeasuredPeakMemory(1),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": str(name)},

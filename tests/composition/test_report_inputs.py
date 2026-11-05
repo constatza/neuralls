@@ -8,6 +8,7 @@ import pytest
 
 from neuralls.composition.comparison.postprocessing.report_inputs import observation_view
 from neuralls.domain.presentation.methods import ExecutedMethod, PreparedComparisonPresentation
+from neuralls.domain.solver.models.cost import NO_OFFLINE_COST
 from neuralls.domain.solver.reporting.observations import observations_of_methods
 from neuralls.platform.config.models.preconditioner import parse_preconditioner_config
 from neuralls.platform.reporting.stored_benchmark import StoredMethod
@@ -43,6 +44,7 @@ def stored_methods(
             config_digest="sha256:" + "d" * 64,
             config=parse_preconditioner_config({"name": str(method), "type": "identity"}),
             presentation=ExecutedMethod(cohort.method(method), ()),
+            offline=NO_OFFLINE_COST,
             systems=provenance_for(PLANNED),
             setup_events=events.frames().setup_events,
             solve_attempts=events.frames().solve_attempts,

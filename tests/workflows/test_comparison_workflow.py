@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, call, patch
 import numpy as np
 import pytest
 import tomli_w
+from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments import comparison_batch
 from neuralls.composition.assignments.comparison_batch import (
@@ -63,7 +64,7 @@ from neuralls.domain.solver.models.benchmark_events import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
-from neuralls.domain.solver.models.cost import NotApplicable
+from neuralls.domain.solver.models.cost import NO_OFFLINE_COST
 from neuralls.domain.solver.models.provenance import (
     HeldOutMatrix,
     MatrixProvenance,
@@ -1178,7 +1179,7 @@ def test_compatibility_projection_carries_canonical_setup_measurement(
         ),
         solve_attempts=(),
         diagnostics=(),
-        generation_cost=NotApplicable(),
+        offline_cost=NO_OFFLINE_COST,
         workload_peak_memory=MeasuredPeakMemory(128),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": "identity"},
@@ -1278,6 +1279,7 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
         notation: NotationPolicy,
         params: SolverParams,
         settings: NeurallsSettings,
+        training_runs: MlflowClient,
     ) -> CompletedMethodWorkload:
         bundle_sequence = tuple(bundles)
         bundles_seen.extend(bundle_sequence)
@@ -1289,6 +1291,7 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
             notation=notation,
             params=params,
             settings=settings,
+            training_runs=training_runs,
         )
 
     with (

@@ -13,8 +13,8 @@ from neuralls.domain.solver.models.benchmark_events import (
     UnmeasuredResidual,
 )
 from neuralls.domain.solver.models.cost import (
-    NotApplicable,
-    StageCost,
+    NO_OFFLINE_COST,
+    OfflineStages,
     Unavailable,
     recorded_seconds,
 )
@@ -49,8 +49,8 @@ class CGComparisonResult:
         helper_iterations: Iterations where step helper was invoked.
         helper_norms: Residual norms after step helper application.
         error: Error message if solver failed.
-        generation_cost: Dataset-generation cost feeding this preconditioner's
-            fit/train step, or `None` if generation doesn't apply.
+        offline_cost: Dataset-generation and training cost behind this preconditioner's
+            artifact; nothing is charged when the method has no such stage.
         setup_cost: Wall-clock seconds to construct and `.setup()` this
             preconditioner. Always measured — every `torchalg.Preconditioner`
             requires an explicit `setup(matrix)` call before `apply()`, so
@@ -136,13 +136,11 @@ class CGComparisonResult:
     timing_agreement: RepeatAgreement = field(default_factory=SingleRun)
     """Whether the timed solve repeats reproduced the first one's iteration count."""
 
-    generation_cost: StageCost = field(default_factory=NotApplicable)
-    """Dataset-generation cost feeding this preconditioner's fit/train step. The solver
-    layer knows nothing about generation, so a fresh result is `NotApplicable`; the
-    composition layer replaces it with the method's resolved cost (`Known` from the
-    dataset's manifest, `Unavailable`, or `NotApplicable` for methods with no training
-    data). A comparison run never generates a dataset itself — that is a separate,
-    earlier pipeline stage (see composition/generation's own docs)."""
+    offline_cost: OfflineStages = NO_OFFLINE_COST
+    """Dataset-generation and training cost behind this preconditioner's artifact. The solver
+    layer knows nothing about either, so a fresh result has no offline cost; the composition
+    layer replaces it with the method's resolved cost. A comparison run never generates a
+    dataset or trains a model itself — those are separate, earlier pipeline stages."""
 
     setup_cost: float = 0.0
     """Wall-clock seconds to construct and `.setup()` this preconditioner. Always
@@ -168,18 +166,18 @@ class CGComparisonResult:
     order. Empty when the solve was not measured."""
 
     @property
-    def offline_generation_time_seconds(self) -> float | None:
-        """Historical generation time, kept separate from online benchmark costs."""
-        return recorded_seconds(self.generation_cost)
+    def offline_time_seconds(self) -> float | None:
+        """Historical generation plus training time, kept separate from online benchmark costs."""
+        return recorded_seconds(self.offline_cost.total())
 
     @property
     def has_unavailable_cost(self) -> bool:
-        """True when generation applies but its cost couldn't be resolved to a number.
+        """True when an offline stage applies but its cost couldn't be resolved to a number.
 
         ``setup_cost`` can no longer be unavailable — every preconditioner's
         `.setup()` call is always measured.
         """
-        return isinstance(self.generation_cost, Unavailable)
+        return isinstance(self.offline_cost.total(), Unavailable)
 
     @property
     def avg_iteration_time_seconds(self) -> float | None:

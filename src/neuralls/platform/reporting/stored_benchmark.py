@@ -15,6 +15,7 @@ import polars as pl
 
 from neuralls.domain.presentation.methods import ExecutedMethod
 from neuralls.domain.presentation.provenance import DatasetPresentation
+from neuralls.domain.solver.models.cost import OfflineStages
 from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerConfig,
@@ -28,6 +29,7 @@ from neuralls.platform.reporting.benchmark_events import (
     read_setup_events,
     read_solve_attempts,
 )
+from neuralls.platform.reporting.offline_cost_codec import decode_offline_cost
 from neuralls.shared.types import DatasetId, PreconditionerName, RunId
 
 
@@ -56,6 +58,8 @@ class StoredMethod:
             content digests, not the paths used at compute time; it serves plot-style
             derivation, never a rebuild.
         presentation: The method's scientific presentation with its realized facts.
+        offline: The generation and training cost of the method's artifact, as recorded when it
+            ran; paid once per artifact, not per workload.
         systems: Every planned system with its solver settings and reference state, in plan order.
         setup_events: Setup-event table.
         solve_attempts: Solve-attempt table, linked to ``setup_events``.
@@ -67,6 +71,7 @@ class StoredMethod:
     config_digest: str
     config: PreconditionerConfig
     presentation: ExecutedMethod
+    offline: OfflineStages
     systems: tuple[SystemProvenance, ...]
     setup_events: pl.DataFrame
     solve_attempts: pl.DataFrame
@@ -129,6 +134,7 @@ def read_stored_method(
         config_digest=str(summary["method"]["config_digest"]),
         config=config,
         presentation=stored.method,
+        offline=decode_offline_cost(summary.get("offline")),
         systems=systems,
         setup_events=setup_events,
         solve_attempts=solve_attempts,

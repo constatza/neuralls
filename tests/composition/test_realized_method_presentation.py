@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from mlflow.tracking import MlflowClient
 from torchalg.preconditioners.base import Preconditioner
 
 from neuralls.composition.comparison import _preconditioner_setup, comparison_run
@@ -175,7 +176,9 @@ type Executor = Callable[
 
 
 @pytest.fixture
-def execute(group_datasets: dict[DatasetId, DatasetPresentation]) -> Executor:
+def execute(
+    group_datasets: dict[DatasetId, DatasetPresentation], training_runs: MlflowClient
+) -> Executor:
     """Execute one method over bundles, with log text drawn from the shared dataset fixture."""
 
     def run(
@@ -193,6 +196,7 @@ def execute(group_datasets: dict[DatasetId, DatasetPresentation]) -> Executor:
             notation=NotationPolicy.default(),
             params=params,
             settings=settings,
+            training_runs=training_runs,
         )
 
     return run

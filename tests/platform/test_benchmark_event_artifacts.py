@@ -46,7 +46,13 @@ from neuralls.domain.solver.models import (
     UnknownPeakMemory,
 )
 from neuralls.domain.solver.models.benchmark_events import MeasuredResidual
-from neuralls.domain.solver.models.cost import Known, NotApplicable, Unavailable
+from neuralls.domain.solver.models.cost import (
+    NO_OFFLINE_COST,
+    Known,
+    NotApplicable,
+    OfflineStages,
+    Unavailable,
+)
 from neuralls.domain.solver.models.workload import CompleteWorkloadSummary, MethodWorkloadSummary
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
 from neuralls.domain.solver.reporting.event_frames import (
@@ -184,7 +190,7 @@ def workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
         setup_events=setup,
         solve_attempts=attempts,
         diagnostics=(),
-        generation_cost=NotApplicable(),
+        offline_cost=NO_OFFLINE_COST,
         workload_peak_memory=MeasuredPeakMemory(512),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": str(method)},
@@ -389,7 +395,10 @@ def test_summary_is_reconciled_from_canonical_frames_and_versioned(
         "peak_bytes": summary.workload_peak_memory.bytes,
         "status": "measured",
     }
-    assert "generation_s" not in payload
+    assert payload["offline"] == {
+        "generation": {"status": "not_applicable"},
+        "training": {"status": "not_applicable"},
+    }
 
 
 def test_unknown_workload_memory_writes_status_without_toml_null(
@@ -408,36 +417,50 @@ def test_unknown_workload_memory_writes_status_without_toml_null(
     assert memory == {"status": "unknown"}
 
 
-def test_known_generation_cost_is_explicitly_named_and_only_cost_persisted(
+def test_offline_stages_are_stored_with_their_status_and_provenance(
     write: WriteArtifacts,
     tmp_path: Path,
     workload: CompletedMethodWorkload,
     summary: CompleteWorkloadSummary,
 ) -> None:
-    with_generation = replace(
-        workload,
-        generation_cost=Known(8.5, 1024, CostProvenance.HISTORICAL),
+    offline = OfflineStages(
+        generation=Known(8.5, 1024, CostProvenance.HISTORICAL),
+        training=Known(90.25, None, CostProvenance.HISTORICAL),
     )
-    artifacts = write(workload=with_generation, summary=summary, root=tmp_path)
+    artifacts = write(
+        workload=replace(workload, offline_cost=offline), summary=summary, root=tmp_path
+    )
     payload = tomllib.loads((tmp_path / artifacts.summary).read_text(encoding="utf-8"))
-    assert payload["generation_s"] == 8.5
-    assert payload["generation_source"] == "historical"
-    assert payload["generation_peak_bytes"] == 1024
-    assert "offline" not in payload
+
+    assert payload["offline"] == {
+        "generation": {
+            "status": "known",
+            "seconds": 8.5,
+            "provenance": "historical",
+            "peak_bytes": 1024,
+        },
+        "training": {"status": "known", "seconds": 90.25, "provenance": "historical"},
+    }
 
 
-def test_unavailable_generation_cost_persists_no_number(
+def test_an_unavailable_offline_stage_persists_its_reason_and_no_number(
     write: WriteArtifacts,
     tmp_path: Path,
     workload: CompletedMethodWorkload,
     summary: CompleteWorkloadSummary,
 ) -> None:
-    unavailable = replace(workload, generation_cost=Unavailable("manifest has no duration"))
-    artifacts = write(workload=unavailable, summary=summary, root=tmp_path)
+    offline = OfflineStages(
+        generation=Unavailable("manifest has no duration"), training=NotApplicable()
+    )
+    artifacts = write(
+        workload=replace(workload, offline_cost=offline), summary=summary, root=tmp_path
+    )
     payload = tomllib.loads((tmp_path / artifacts.summary).read_text(encoding="utf-8"))
-    assert payload["generation_source"] == "unavailable"
-    assert payload["generation_reason"] == "manifest has no duration"
-    assert "generation_s" not in payload
+
+    assert payload["offline"] == {
+        "generation": {"status": "unavailable", "reason": "manifest has no duration"},
+        "training": {"status": "not_applicable"},
+    }
 
 
 @pytest.mark.parametrize("digest", ["", "sha256:short", "sha256:" + "G" * 64])
