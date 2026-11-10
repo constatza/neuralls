@@ -18,7 +18,15 @@ from matplotlib.axes import Axes
 from neuralls.domain.benchmarking.paired import PairKind
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.platform.reporting.figure_formats import FigureTarget
-from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE, Legend
+from neuralls.platform.reporting.figure_sizing import (
+    paired_scatter_figure_size,
+    with_outside_legend,
+)
+from neuralls.platform.reporting.figure_text import (
+    LEGEND_ANCHOR,
+    LEGEND_FONT_SIZE,
+    draw_legend_outside,
+)
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.series_style import method_palette
@@ -29,19 +37,13 @@ FAILED_AXIS_MARGIN = 1.6
 which the log axes start; the upper one is a position marking "did not converge", not a time."""
 
 
-def _legend_outside(ax: Axes, legend: Legend) -> None:
-    """Place the legend right of the axes so it never covers the points."""
-    ax.legend(
-        loc="upper left",
-        bbox_to_anchor=(1.01, 1.0),
-        fontsize=LEGEND_FONT_SIZE,
-        ncols=legend.layout.columns,
-    )
-
-
 def _hollow(ax: Axes, xs: Sequence[float], ys: Sequence[float], *, color: Any, marker: Any) -> None:
-    """Draw unfilled markers: the run behind each did not converge, so its value is an axis edge."""
-    ax.scatter(xs, ys, facecolors="none", edgecolors=color, marker=marker, s=28)
+    """Draw unfilled markers: the run behind each did not converge, so its value is an axis edge.
+
+    The markers sit on the axes' limit, so they are not clipped to the axes or half of each would
+    be cut off.
+    """
+    ax.scatter(xs, ys, facecolors="none", edgecolors=color, marker=marker, s=28, clip_on=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +93,9 @@ def plot_paired_time_scatter(
     palette = method_palette(others, style)
     label = METRICS[metric].label
 
-    fig, ax = plt.subplots(figsize=(6.5, 6.5))
+    fig, ax = plt.subplots(
+        figsize=paired_scatter_figure_size([style.legend.label(name) for name in others])
+    )
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.plot([axes.low, axes.high], [axes.low, axes.high], color="gray", linewidth=1, linestyle="--")
@@ -130,7 +134,7 @@ def plot_paired_time_scatter(
     )
     ax.set_ylabel(f"Method: {label}")
     ax.grid(True, which="both", alpha=0.3)
-    _legend_outside(ax, style.legend)
+    draw_legend_outside(ax, style.legend)
     finish_group_figure(
         fig,
         ax,
@@ -151,12 +155,12 @@ def speed_ratio_legend(
 ) -> str:
     """Legend text of a speed-ratio curve: the median and its interval.
 
-    The system and matrix counts the interval rests on are on the figure's card, not in the legend.
+    What the ratio divides is on the x label, not repeated here. The system and matrix counts the interval rests on are on the figure's card, not in the legend.
     """
     text = f"{label}: median {median:.2f}" if median is not None else f"{label}: no paired ratio"
     if ci is not None:
         text += f" [{ci[0]:.2f}, {ci[1]:.2f}]"
-    return f"{text} (reference / method)"
+    return text
 
 
 def _speed_ratio_curve(ratios: Sequence[float]) -> tuple[np.ndarray, np.ndarray]:
@@ -187,7 +191,15 @@ def plot_speed_ratio_cdf(
         return None
     names = summary["method"].to_list()
     palette = method_palette(names, style)
-    fig, ax = plt.subplots(figsize=(8, 5))
+    entries = [
+        speed_ratio_legend(
+            style.legend.label(row["method"]),
+            median=row["median_ratio"],
+            ci=None if row["ci_low"] is None else (row["ci_low"], row["ci_high"]),
+        )
+        for row in summary.iter_rows(named=True)
+    ]
+    fig, ax = plt.subplots(figsize=with_outside_legend((8.0, 5.0), entries))
     for row in summary.iter_rows(named=True):
         name = row["method"]
         xs, ys = _speed_ratio_curve(ratios.filter(pl.col("method") == name)["ratio"].to_list())
@@ -208,12 +220,12 @@ def plot_speed_ratio_cdf(
     ax.set_xscale("log")
     ax.set_ylim(0.0, 1.02)
     ax.set_xlabel(
-        f"{style.legend.label(reference_name)} reference / method speed ratio "
-        "(slower < 1, faster > 1)"
+        f"Speed ratio, {style.legend.label(reference_name)} (reference) / method"
+        "\n(slower < 1, faster > 1)"
     )
     ax.set_ylabel("Fraction of paired systems")
     ax.grid(True, which="both", alpha=0.3)
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), fontsize=LEGEND_FONT_SIZE)
+    ax.legend(loc="upper left", bbox_to_anchor=LEGEND_ANCHOR, fontsize=LEGEND_FONT_SIZE)
     finish_group_figure(
         fig,
         ax,

@@ -31,16 +31,16 @@ def test_a_ratio_bar_is_not_called_a_mean() -> None:
     assert _labels({Mark.RATIO_BAR}) == ["ratio of sums"]
 
 
-def test_a_convergence_factor_figure_names_its_mean_dot_and_median_tick() -> None:
-    marks = {Mark.MEDIAN, Mark.MEAN_POINT, Mark.CONFIDENCE_INTERVAL, Mark.SYSTEM_POINTS}
+def test_a_convergence_factor_figure_names_its_mean_dot_and_median_diamond() -> None:
+    marks = {Mark.MEDIAN_POINT, Mark.MEAN_POINT, Mark.CONFIDENCE_INTERVAL, Mark.SYSTEM_POINTS}
 
     assert _labels(marks) == ["95% matrix-cluster interval", "median", "mean", "systems"]
 
 
 def test_a_violin_column_explains_its_per_matrix_points() -> None:
-    marks = {Mark.MATRIX_MEAN_POINTS, Mark.MEDIAN}
+    marks = {Mark.MATRIX_MEAN_POINTS, Mark.MEDIAN, Mark.VIOLIN}
 
-    assert _labels(marks) == ["median", "matrix means"]
+    assert _labels(marks) == ["median", "density of systems", "matrix means"]
 
 
 def test_no_marks_give_no_handles() -> None:
@@ -54,6 +54,8 @@ def test_legend_text_states_no_sample_counts() -> None:
         "95% matrix-cluster interval",
         "IQR (q25-q75)",
         "median",
+        "median",
+        "density of systems",
         "whiskers within q05-q95",
         "mean",
         "systems",

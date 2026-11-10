@@ -67,14 +67,29 @@ def annotate_rows(ax: Axes, annotations: Sequence[RowAnnotation]) -> None:
     ax.grid(True, axis="x", alpha=0.3)
 
 
-_COLUMN_ANNOTATION_WRAP = 16
-"""Characters per line of a text above a bar, so it stays about as wide as the bar's column."""
+_COLUMN_ANNOTATION_WRAP = 12
+"""Characters per line of a text above a bar, narrow enough that neighbours' texts never touch."""
 
-_COLUMN_HEADROOM_PER_LINE = 0.09
-"""Fraction of the tallest annotated mark's height each annotation line adds above the value axis."""
+_NO_BREAK_SPACE = "\u00a0"
+
+_COLUMN_LINE_FRACTION = 0.045
+"""Fraction of the value axis' height one annotation line (and half a line of gap) takes."""
+
+_MAX_ANNOTATION_FRACTION = 0.9
+"""Most of the value axis an annotation may take, so a very tall note cannot flatten the bars."""
 
 _COLUMN_ANNOTATION_GAP_PT = 2.0
 """Points between the top of a bar's last mark and its text."""
+
+
+def _wrap_line(line: str) -> str:
+    """Wrap ``line`` to a column, keeping the alternatives around a slash ("fit / training") whole.
+
+    A word longer than the column stays on its own line instead of being cut.
+    """
+    glued = line.replace(" / ", f"{_NO_BREAK_SPACE}/{_NO_BREAK_SPACE}")
+    wrapped = textwrap.fill(glued, _COLUMN_ANNOTATION_WRAP, break_long_words=False)
+    return wrapped.replace(_NO_BREAK_SPACE, " ")
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,21 +103,32 @@ class ColumnAnnotation:
     @property
     def wrapped(self) -> str:
         """Each line of the text broken to about a bar's column width; line breaks are kept."""
-        return "\n".join(
-            textwrap.fill(line, _COLUMN_ANNOTATION_WRAP) for line in self.text.split("\n")
-        )
+        return "\n".join(_wrap_line(line) for line in self.text.split("\n"))
+
+    @property
+    def line_count(self) -> int:
+        """How many lines the wrapped text takes."""
+        return self.wrapped.count("\n") + 1
 
 
 def value_axis_top(annotations: Sequence[ColumnAnnotation]) -> float | None:
-    """The value-axis maximum that leaves every wrapped annotation room above its base.
+    """The value-axis maximum that leaves every wrapped annotation room above its own base.
 
-    ``None`` when no mark rises above zero, so there is no scale to leave room on.
+    An annotation of ``n`` lines needs ``n + 0.5`` line fractions of the axis above its base, so
+    the axis top is the largest ``base / (1 - needed)``: a tall note over a short bar does not
+    stretch the axis for the others. ``None`` when no mark rises above zero, so there is no scale
+    to leave room on.
     """
-    tallest = max((annotation.base for annotation in annotations), default=0.0)
-    if tallest <= 0.0:
+    if max((annotation.base for annotation in annotations), default=0.0) <= 0.0:
         return None
-    lines = max(annotation.wrapped.count("\n") + 1 for annotation in annotations)
-    return tallest * (1.0 + _COLUMN_HEADROOM_PER_LINE * (lines + 1))
+    return max(
+        annotation.base
+        / (
+            1.0
+            - min(_MAX_ANNOTATION_FRACTION, _COLUMN_LINE_FRACTION * (annotation.line_count + 0.5))
+        )
+        for annotation in annotations
+    )
 
 
 def annotate_columns(ax: Axes, annotations: Sequence[ColumnAnnotation]) -> None:

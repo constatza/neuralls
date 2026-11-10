@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.axes import Axes
 
+from neuralls.platform.reporting.figure_sizing import wrap_axis_label
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
 
 TITLE_FONT_SIZE = 13
@@ -59,7 +60,12 @@ def paper_style() -> Generator[None]:
 
 
 def rotate_x_labels(ax: Axes, degrees: float) -> None:
-    """Rotate ``ax``'s x tick labels, anchored at their right end so they stay under their tick."""
+    """Wrap and rotate ``ax``'s x tick labels, anchored at their right end under their tick.
+
+    The wrap is ``wrap_axis_label``, the one the figure's size was computed from.
+    """
+    for label in ax.get_xticklabels():
+        label.set_text(wrap_axis_label(label.get_text()))
     ax.tick_params(axis="x", labelrotation=degrees)
     if degrees <= 0:
         return

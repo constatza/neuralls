@@ -24,6 +24,14 @@ _INK: ColorType = "black"
 _BAR_FACE: ColorType = "0.7"
 _GLYPH_SIZE = 9.0
 
+SYSTEM_POINT_STYLE: dict[str, object] = {
+    "color": "white",
+    "edgecolor": _INK,
+    "linewidth": 0.5,
+    "alpha": 0.85,
+}
+"""Seaborn arguments of the per-system points: white with a dark edge, visible on any bar colour."""
+
 _I_BEAM = MarkerStyle(
     Path(
         [(-0.5, 1.0), (0.5, 1.0), (0.0, 1.0), (0.0, -1.0), (-0.5, -1.0), (0.5, -1.0)],
@@ -42,6 +50,8 @@ class Mark(Enum):
     CONFIDENCE_INTERVAL = auto()
     IQR = auto()
     MEDIAN = auto()
+    MEDIAN_POINT = auto()
+    VIOLIN = auto()
     QUANTILE_WHISKER = auto()
     MEAN_POINT = auto()
     SYSTEM_POINTS = auto()
@@ -59,8 +69,10 @@ class Mark(Enum):
                 return "95% matrix-cluster interval"
             case Mark.IQR:
                 return "IQR (q25-q75)"
-            case Mark.MEDIAN:
+            case Mark.MEDIAN | Mark.MEDIAN_POINT:
                 return "median"
+            case Mark.VIOLIN:
+                return "density of systems"
             case Mark.QUANTILE_WHISKER:
                 return "whiskers within q05-q95"
             case Mark.SYSTEM_POINTS:
@@ -90,6 +102,20 @@ def _proxy(mark: Mark) -> Line2D | Patch:
                 color=_INK,
                 label=label,
             )
+        case Mark.MEDIAN_POINT:
+            return Line2D(
+                [],
+                [],
+                marker="D",
+                markersize=5.0,
+                linestyle="none",
+                color=_INK,
+                label=label,
+            )
+        case Mark.VIOLIN:
+            return Patch(
+                facecolor=_BAR_FACE, edgecolor=_INK, linewidth=0.5, alpha=0.45, label=label
+            )
         case Mark.QUANTILE_WHISKER:
             return Line2D(
                 [],
@@ -114,7 +140,15 @@ def _proxy(mark: Mark) -> Line2D | Patch:
             )
         case Mark.MEAN_POINT:
             return Line2D(
-                [], [], marker="o", markersize=5.0, linestyle="none", color=_INK, label=label
+                [],
+                [],
+                marker="o",
+                markersize=5.0,
+                linestyle="none",
+                markerfacecolor="white",
+                markeredgecolor=_INK,
+                markeredgewidth=1.2,
+                label=label,
             )
         case Mark.SYSTEM_POINTS:
             return Line2D(
@@ -123,8 +157,9 @@ def _proxy(mark: Mark) -> Line2D | Patch:
                 marker="o",
                 markersize=4.0,
                 linestyle="none",
-                color="0.45",
-                alpha=0.7,
+                markerfacecolor="white",
+                markeredgecolor=_INK,
+                markeredgewidth=0.5,
                 label=label,
             )
         case Mark.MATRIX_MEAN_POINTS:

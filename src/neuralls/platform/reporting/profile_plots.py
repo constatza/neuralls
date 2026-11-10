@@ -16,17 +16,22 @@ import polars as pl
 from neuralls.domain.benchmarking.profiles import ProfileSeries
 from neuralls.platform.reporting.figure_annotations import counted
 from neuralls.platform.reporting.figure_formats import FigureTarget
-from neuralls.platform.reporting.figure_text import draw_legend
+from neuralls.platform.reporting.figure_sizing import with_outside_legend
+from neuralls.platform.reporting.figure_text import draw_legend_outside
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.series_style import method_palette
 
+_PROFILE_SIZE_IN = (8.0, 5.0)
+"""Width and height in inches of a profile's plotting area, legend excluded."""
+
 
 def excluded_zero_best_note(n_excluded: int) -> str | None:
-    """Legend note on systems a performance profile left out, or ``None`` when there are none.
+    """Subtitle line on systems a performance profile left out, or ``None`` when there are none.
 
     A system whose best value is 0 has no ratio for any method, so it is dropped from every
-    curve; the note says how many, so the lower plateau is not read as failures.
+    curve; the note says how many, so the lower plateau is not read as failures. It is a fact
+    about the figure's population, so it goes under the title and never into the legend.
     """
     if n_excluded == 0:
         return None
@@ -68,7 +73,9 @@ def _step_profile_figure(
     palette = method_palette(names, style)
     solved = series.frame["x"].to_numpy()
     x_min, x_max = (float(solved.min()), float(solved.max())) if len(solved) else (1.0, 1.0)
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(
+        figsize=with_outside_legend(_PROFILE_SIZE_IN, [style.legend.label(name) for name in names])
+    )
     for row in counts.iter_rows(named=True):
         name = row["method"]
         curve = series.frame.filter(pl.col("method") == name)
@@ -83,19 +90,17 @@ def _step_profile_figure(
             linestyle=palette.linestyle(name),
             label=style.legend.label(name),
         )
-    if note is not None:
-        ax.plot([], [], " ", label=note)
     ax.set_xscale("log")
     ax.set_ylim(0.0, 1.02)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.grid(True, which="both", alpha=0.3)
-    draw_legend(ax, style.legend, inside_loc="lower right")
+    draw_legend_outside(ax, style.legend)
     finish_group_figure(
         fig,
         ax,
         title=style.title,
-        subtitle=style.subtitle,
+        subtitle="\n".join(line for line in (style.subtitle, note) if line),
         target=target,
         show=False,
         saved_message=saved_message,
@@ -114,14 +119,14 @@ def plot_performance_profile(
     Reference: Dolan & Moré 2002, "Benchmarking optimization software with
     performance profiles", Math. Program. 91. A curve that plateaus below 1
     belongs to a method that failed on some systems; the plateau is its success
-    rate over the systems that have a ratio. The legend says how many systems
+    rate over the systems that have a ratio. The subtitle says how many systems
     were left out because the best value on them is 0.
     """
     return _step_profile_figure(
         series,
         style=style,
-        xlabel="Amortized online cost relative to the best method, tau",
-        ylabel="Fraction of systems with ratio <= tau",
+        xlabel=r"Amortized online cost relative to the best method, $\tau$",
+        ylabel=r"Fraction of systems with ratio $\leq \tau$",
         note=excluded_zero_best_note(series.n_excluded_zero_best),
         target=target,
         saved_message="Saved performance profile to",

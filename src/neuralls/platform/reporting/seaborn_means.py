@@ -37,7 +37,7 @@ from neuralls.platform.reporting.figure_sizing import POINT_JITTER, bar_columns_
 from neuralls.platform.reporting.figure_style import rotate_x_labels
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
-from neuralls.platform.reporting.mark_legend import Mark, draw_mark_legend
+from neuralls.platform.reporting.mark_legend import SYSTEM_POINT_STYLE, Mark, draw_mark_legend
 from neuralls.platform.reporting.seaborn_figures import plot_frame
 from neuralls.platform.reporting.series_style import MethodPalette, method_palette
 from neuralls.shared.types import PreconditionerName
@@ -51,7 +51,6 @@ _WHISKER_COLOR = "black"
 _WHISKER_CAP = 0.15
 """Half-width of a whisker cap, in units of the distance between two method columns."""
 _POINT_SIZE = 3.0
-_POINT_ALPHA = 0.6
 _NO_POINTS = pl.DataFrame(schema={"method": pl.String, "value": pl.Float64})
 """The points of a mean figure, whose bars stand alone."""
 
@@ -284,12 +283,11 @@ def _draw_panel(
             x="label",
             y="value",
             order=order,
-            color=_WHISKER_COLOR,
             size=_POINT_SIZE,
-            alpha=_POINT_ALPHA,
             jitter=POINT_JITTER,
             orient="v",
             ax=ax,
+            **SYSTEM_POINT_STYLE,
         )
     columns = {label: position for position, label in enumerate(order)}
     # The annotation stands on the method's highest mark, so it never covers a point or whisker.

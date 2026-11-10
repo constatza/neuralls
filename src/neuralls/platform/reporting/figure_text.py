@@ -58,6 +58,7 @@ __all__ = [
     "ScopeSubtitle",
     "cohort_note",
     "draw_legend",
+    "draw_legend_outside",
     "method_legend",
     "scope_label",
     "series_legend",
@@ -256,6 +257,16 @@ def draw_legend(
             )
         case _:
             assert_never(layout.placement)
+
+
+def draw_legend_outside(ax: Axes, legend: Legend, *, fontsize: float = LEGEND_FONT_SIZE) -> None:
+    """Draw ``ax``'s legend right of the axes in ``legend.layout``'s columns, never over a mark."""
+    ax.legend(
+        loc="upper left",
+        bbox_to_anchor=LEGEND_ANCHOR,
+        ncols=legend.layout.columns,
+        fontsize=fontsize,
+    )
 
 
 @dataclass(frozen=True, slots=True)

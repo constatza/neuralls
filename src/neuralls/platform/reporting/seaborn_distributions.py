@@ -17,6 +17,7 @@ converged, is read from the same row.
 
 from __future__ import annotations
 
+import textwrap
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import assert_never
@@ -46,12 +47,12 @@ from neuralls.platform.reporting.figure_annotations import (
     count_label,
 )
 from neuralls.platform.reporting.figure_formats import FigureTarget
-from neuralls.platform.reporting.figure_sizing import bar_columns_figure_size
+from neuralls.platform.reporting.figure_sizing import bar_columns_figure_size, heatmap_figure_size
 from neuralls.platform.reporting.figure_style import rotate_x_labels
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
-from neuralls.platform.reporting.mark_legend import Mark, draw_mark_legend
+from neuralls.platform.reporting.mark_legend import SYSTEM_POINT_STYLE, Mark, draw_mark_legend
 from neuralls.platform.reporting.seaborn_figures import plot_frame
 from neuralls.platform.reporting.series_style import MethodPalette, method_palette
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName
@@ -68,13 +69,8 @@ _POINT_ALPHA = 0.7
 _POINT_JITTER = 0.15
 _VIOLIN_ALPHA = 0.45
 
-_CELL_WIDTH_IN = 1.1
-"""Width in inches of one method's heatmap column."""
-_CELL_HEIGHT_IN = 0.4
-"""Height in inches of one matrix's heatmap row; the figure grows with the number of matrices."""
-_HEATMAP_MARGIN_IN = 2.5
-"""Room in inches for the title, the method labels below the cells and the colour bar."""
-_MIN_HEATMAP_HEIGHT_IN = 4.0
+_COLORBAR_LABEL_WRAP = 22
+"""Characters per line of the colour bar label, so it is not taller than the bar."""
 _HATCH = "///"
 _HATCH_COLOR = "0.6"
 _CELL_FONT_SIZE = 7
@@ -231,7 +227,7 @@ def _draw_distribution_panel(
     violins = _labels_in(modes, Violin)
     if systems.height > 0:
         _draw_violins(ax, systems, violins, palette)
-        _draw_swarm(ax, systems, swarmed, palette)
+        _draw_swarm(ax, systems, swarmed, order)
         _draw_boxes(ax, systems, boxed, order)
         _draw_matrix_points(ax, matrix_points(observations, panel, metric), violins, palette)
     _draw_median_ticks(ax, panel, modes, palette)
@@ -264,7 +260,13 @@ def _marks_of(mode: RowMode) -> frozenset[Mark]:
             return frozenset({Mark.IQR, Mark.MEDIAN, Mark.QUANTILE_WHISKER, Mark.SYSTEM_POINTS})
         case Violin():
             return frozenset(
-                {Mark.IQR, Mark.MEDIAN, Mark.QUANTILE_WHISKER, Mark.MATRIX_MEAN_POINTS}
+                {
+                    Mark.VIOLIN,
+                    Mark.IQR,
+                    Mark.MEDIAN,
+                    Mark.QUANTILE_WHISKER,
+                    Mark.MATRIX_MEAN_POINTS,
+                }
             )
         case unreachable:
             assert_never(unreachable)
@@ -310,9 +312,7 @@ def _draw_violins(
     )
 
 
-def _draw_swarm(
-    ax: Axes, systems: pl.DataFrame, labels: Collection[str], palette: MethodPalette
-) -> None:
+def _draw_swarm(ax: Axes, systems: pl.DataFrame, labels: Collection[str], order: list[str]) -> None:
     """A beeswarm of the systems of ``labels``: every system visible, none jittered at random."""
     if not labels:
         return
@@ -320,15 +320,11 @@ def _draw_swarm(
         data=plot_frame(_only(systems, labels)),
         x="label",
         y="value",
-        order=palette.order,
-        hue="label",
-        hue_order=palette.order,
-        palette=dict(palette.colors),
-        legend=False,
+        order=order,
         size=_POINT_SIZE,
-        alpha=_POINT_ALPHA,
         orient="v",
         ax=ax,
+        **SYSTEM_POINT_STYLE,
     )
 
 
@@ -498,10 +494,7 @@ def plot_matrix_heatmap(
     means = [mean for cell in cells for mean in _defined_mean(cell)]
     norm = Normalize(min(means, default=0.0), max(means, default=1.0))
     fig, ax = plt.subplots(
-        figsize=(
-            len(palette.order) * _CELL_WIDTH_IN + _HEATMAP_MARGIN_IN,
-            max(_MIN_HEATMAP_HEIGHT_IN, len(matrices) * _CELL_HEIGHT_IN + _HEATMAP_MARGIN_IN),
-        )
+        figsize=heatmap_figure_size(palette.order, style.label_rotation_deg, len(matrices))
     )
     sns.heatmap(
         pivot,
@@ -510,7 +503,11 @@ def plot_matrix_heatmap(
         norm=norm,
         linewidths=0.5,
         linecolor="white",
-        cbar_kws={"label": f"Mean over converged RHS: {METRICS[metric].label}"},
+        cbar_kws={
+            "label": textwrap.fill(
+                f"Mean over converged RHS: {METRICS[metric].label}", _COLORBAR_LABEL_WRAP
+            )
+        },
     )
     for cell in cells:
         _draw_cell(

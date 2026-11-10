@@ -21,7 +21,11 @@ from neuralls.domain.solver.reporting.cohorts import single_cohort
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import Population, select
 from neuralls.platform.reporting.figure_formats import FigureTarget
-from neuralls.platform.reporting.figure_sizing import POINT_JITTER, bar_columns_figure_size
+from neuralls.platform.reporting.figure_sizing import (
+    POINT_JITTER,
+    bar_columns_figure_size,
+    with_outside_legend,
+)
 from neuralls.platform.reporting.figure_style import rotate_x_labels
 from neuralls.platform.reporting.figure_text import draw_legend
 from neuralls.platform.reporting.figure_writer import finish_group_figure
@@ -40,6 +44,21 @@ _BREAK_EVEN_MARKER_SIZE = 140
 
 class InconsistentBreakEvenError(ValueError):
     """A cost-curve row states a break-even count that contradicts its break-even state."""
+
+
+def _legend_texts(
+    marks: pl.DataFrame, style: GroupStyle, reference_name: PreconditionerName
+) -> list[str]:
+    """The legend entries a break-even figure draws, to size the figure's width for them."""
+    reference_label = style.legend.label(reference_name)
+    texts = []
+    for row in marks.iter_rows(named=True):
+        label = style.legend.label(row["method"])
+        state = BreakEvenState(row["break_even"])
+        texts.append(break_even_legend(label, state, row["break_even_rhs"]))
+        if state is not BreakEvenState.NO_COMMON_SYSTEMS:
+            texts.append(reference_curve_legend(reference_label, label))
+    return texts
 
 
 def break_even_legend(label: str, state: BreakEvenState, break_even_rhs: float | None) -> str:
@@ -90,7 +109,9 @@ def plot_break_even_curves(
     names = marks["method"].to_list()
     series = method_palette(names, style)
     palette = {name: series.color(name) for name in names}
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(
+        figsize=with_outside_legend((8.0, 5.0), _legend_texts(marks, style, reference_name))
+    )
     sns.lineplot(
         data=plot_frame(drawn),
         x="n_rhs",
@@ -155,12 +176,16 @@ def plot_break_even_curves(
     return target
 
 
-_POINT_ALPHA = 0.45
+_POINT_ALPHA = 0.8
+_POINT_SIZE = 4.0
+_POINT_EDGE = "white"
+_POINT_EDGE_WIDTH = 0.4
+"""A white edge keeps a point apart from its neighbours and from a dark method colour."""
 _YLABEL_WRAP = 30
 """Characters per line of the y label, so a long metric name stays beside a narrow figure."""
 _SUMMARY_COLOR = "black"
-_MEDIAN_MARKER = "_"
-_MEDIAN_MARKER_SIZE = 260
+_MEDIAN_MARKER = "D"
+_MEDIAN_MARKER_SIZE = 22
 
 
 def plot_convergence_factors(
@@ -232,9 +257,12 @@ def _draw_factor_panel(
             hue="method",
             hue_order=list(names),
             palette=dict(palette),
-            alpha=_POINT_ALPHA,
-            jitter=POINT_JITTER,
             legend=False,
+            jitter=POINT_JITTER,
+            size=_POINT_SIZE,
+            alpha=_POINT_ALPHA,
+            edgecolor=_POINT_EDGE,
+            linewidth=_POINT_EDGE_WIDTH,
             orient="v",
             ax=ax,
         )
@@ -270,13 +298,22 @@ def _draw_summary_marks(ax: Axes, position: int, row: Mapping[str, object]) -> s
                 yerr=[[mean - low], [high - mean]],
                 fmt="o",
                 color=_SUMMARY_COLOR,
+                markerfacecolor="white",
+                markeredgewidth=1.2,
                 capsize=4,
                 zorder=3,
             )
             marks |= {Mark.MEAN_POINT, Mark.CONFIDENCE_INTERVAL}
         case float(mean), None, None:
             # Below two matrices the bootstrap gives no interval, so the mean stands alone.
-            ax.scatter([position], [mean], color=_SUMMARY_COLOR, zorder=3)
+            ax.scatter(
+                [position],
+                [mean],
+                facecolor="white",
+                edgecolor=_SUMMARY_COLOR,
+                linewidth=1.2,
+                zorder=3,
+            )
             marks.add(Mark.MEAN_POINT)
         case None, None, None:
             return marks
@@ -294,7 +331,7 @@ def _draw_summary_marks(ax: Axes, position: int, row: Mapping[str, object]) -> s
                 color=_SUMMARY_COLOR,
                 zorder=3,
             )
-            marks.add(Mark.MEDIAN)
+            marks.add(Mark.MEDIAN_POINT)
     return marks
 
 

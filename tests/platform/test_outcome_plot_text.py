@@ -28,19 +28,19 @@ M = FAILED_AXIS_MARGIN
 def test_speed_ratio_legend_states_median_and_interval() -> None:
     text = speed_ratio_legend("AMG", median=1.234, ci=(0.98, 1.5))
 
-    assert text == "AMG: median 1.23 [0.98, 1.50] (reference / method)"
+    assert text == "AMG: median 1.23 [0.98, 1.50]"
 
 
 def test_speed_ratio_legend_without_an_interval_states_only_the_median() -> None:
     text = speed_ratio_legend("AMG", median=2.0, ci=None)
 
-    assert text == "AMG: median 2.00 (reference / method)"
+    assert text == "AMG: median 2.00"
 
 
 def test_speed_ratio_legend_without_a_ratio_says_so() -> None:
     text = speed_ratio_legend("AMG", median=None, ci=None)
 
-    assert text == "AMG: no paired ratio (reference / method)"
+    assert text == "AMG: no paired ratio"
 
 
 @pytest.mark.parametrize(
