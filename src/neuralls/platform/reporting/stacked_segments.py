@@ -5,14 +5,16 @@ from __future__ import annotations
 from matplotlib.patches import Patch
 
 SEGMENT_KEY_COLOR = "gray"
-"""Colour of the segment key; the bars themselves carry each method's colour."""
+"""Colour of a segment key whose bars carry each method's colour."""
 
 
-def segment_key(label: str, alpha: float, hatch: str | None) -> Patch:
-    """The legend patch of one segment: neutral colour, the segment's opacity and hatch."""
+def segment_key(
+    label: str, alpha: float, hatch: str | None, color: str = SEGMENT_KEY_COLOR
+) -> Patch:
+    """The legend patch of one segment: ``color`` (neutral unless the bars share one), opacity, hatch."""
     return Patch(
-        facecolor=SEGMENT_KEY_COLOR,
-        edgecolor=SEGMENT_KEY_COLOR,
+        facecolor=color,
+        edgecolor=color,
         alpha=alpha,
         hatch=hatch,
         label=label,

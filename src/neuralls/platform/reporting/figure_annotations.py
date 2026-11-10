@@ -87,8 +87,10 @@ class ColumnAnnotation:
 
     @property
     def wrapped(self) -> str:
-        """The text broken into lines about as wide as a bar's column."""
-        return textwrap.fill(self.text, _COLUMN_ANNOTATION_WRAP)
+        """Each line of the text broken to about a bar's column width; line breaks are kept."""
+        return "\n".join(
+            textwrap.fill(line, _COLUMN_ANNOTATION_WRAP) for line in self.text.split("\n")
+        )
 
 
 def value_axis_top(annotations: Sequence[ColumnAnnotation]) -> float | None:

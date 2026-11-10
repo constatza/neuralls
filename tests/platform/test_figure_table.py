@@ -12,6 +12,7 @@ from neuralls.domain.solver.models.benchmark_events import UnknownPeakMemory
 from neuralls.domain.solver.models.cost import (
     NO_OFFLINE_COST,
     Known,
+    NotApplicable,
     OfflineStages,
     Unavailable,
 )
@@ -142,6 +143,7 @@ def test_cost_breakdown_stacks_each_methods_offline_stages_on_its_online_totals(
             "generation_status": "known",
             "training_s": 90.0,
             "training_status": "known",
+            "fit_origin": "job",
             "allocated_setup_s": 1.0,
             "solve_total_s": 1.5,
             "total_s": 102.5,
@@ -153,12 +155,28 @@ def test_cost_breakdown_stacks_each_methods_offline_stages_on_its_online_totals(
             "generation_status": "not_applicable",
             "training_s": None,
             "training_status": "not_applicable",
+            "fit_origin": "none",
             "allocated_setup_s": 0.5,
             "solve_total_s": 2.0,
             "total_s": 2.5,
             "total_status": "complete",
         },
     ]
+
+
+def test_cost_breakdown_states_a_method_fit_inline_by_its_generation_alone(
+    summaries: tuple[MethodWorkloadSummary, ...],
+) -> None:
+    offline = {
+        PreconditionerName("pcg_jacobi"): NO_OFFLINE_COST,
+        PreconditionerName("amg"): OfflineStages(
+            generation=Known(10.0, None, CostProvenance.HISTORICAL), training=NotApplicable()
+        ),
+    }
+
+    (amg, _) = build_cost_breakdown_table(summaries, offline).to_dicts()
+
+    assert (amg["training_status"], amg["fit_origin"]) == ("not_applicable", "inline")
 
 
 def test_cost_breakdown_has_no_total_when_an_offline_stage_is_unavailable(
@@ -180,6 +198,7 @@ def test_cost_breakdown_has_no_total_when_an_offline_stage_is_unavailable(
         "generation_status": "known",
         "training_s": None,
         "training_status": "unavailable",
+        "fit_origin": "job",
         "allocated_setup_s": 1.0,
         "solve_total_s": 1.5,
         "total_s": None,

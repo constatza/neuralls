@@ -22,7 +22,7 @@ from neuralls.platform.reporting.figure_metadata import (
     WORKLOAD_TOTALS_SCHEMA,
     TableKind,
 )
-from neuralls.platform.reporting.offline_cost_codec import stage_status
+from neuralls.platform.reporting.offline_cost_codec import fit_origin_kind, stage_status
 from neuralls.shared.types import PreconditionerName
 
 
@@ -91,6 +91,7 @@ def _cost_breakdown_row(
         "generation_status": stage_status(offline.generation).value,
         "training_s": recorded_seconds(offline.training),
         "training_status": stage_status(offline.training).value,
+        "fit_origin": fit_origin_kind(offline.fit_origin()).value,
         "allocated_setup_s": summary.allocated_setup_s,
         "solve_total_s": summary.solve_total_s,
         "total_s": total,

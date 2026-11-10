@@ -45,6 +45,12 @@ def test_annotation_text_is_wrapped_to_about_a_column() -> None:
     assert annotation.wrapped == "3/4 returned an\niterate"
 
 
+def test_annotation_lines_are_wrapped_separately_and_kept_apart() -> None:
+    annotation = ColumnAnnotation(0, 1.0, "102.5 s\nfit inline, counted in setup")
+
+    assert annotation.wrapped == "102.5 s\nfit inline,\ncounted in setup"
+
+
 def test_the_value_axis_leaves_room_above_the_tallest_annotation_base() -> None:
     annotations = [ColumnAnnotation(0, 2.0, "4/9 solved"), ColumnAnnotation(1, 5.0, "9/9 solved")]
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import assert_never
 
 from neuralls.shared.types import CostProvenance
 
@@ -51,6 +52,24 @@ def recorded_seconds(cost: StageCost) -> float | None:
 
 
 @dataclass(frozen=True, slots=True)
+class NoFit:
+    """The method has no fitted artifact: neither a dataset to generate nor a fit to run."""
+
+
+@dataclass(frozen=True, slots=True)
+class InlineFit:
+    """The method is fit from its dataset during setup, so the fit time is inside the setup."""
+
+
+@dataclass(frozen=True, slots=True)
+class FitJob:
+    """The method's artifact was fit ahead of time by a job whose MLflow run is the training stage."""
+
+
+type FitOrigin = NoFit | InlineFit | FitJob
+
+
+@dataclass(frozen=True, slots=True)
 class OfflineStages:
     """The one-off costs paid once per method artifact, before any workload runs.
 
@@ -63,6 +82,24 @@ class OfflineStages:
 
     generation: StageCost
     training: StageCost
+
+    def fit_origin(self) -> FitOrigin:
+        """Where the method's fit happened, read from which stages apply.
+
+        Any applicable training stage (`Known` or `Unavailable`) is a fit job, since training is
+        the wall time of the job that produced the checkpoint. Without one, a dataset to
+        generate means the method is fit inline from it, and that fit is part of its measured
+        setup, not of an offline stage. With neither stage the method has nothing to fit.
+        """
+        match self.training, self.generation:
+            case ((Known() | Unavailable()), _):
+                return FitJob()
+            case NotApplicable(), (Known() | Unavailable()):
+                return InlineFit()
+            case NotApplicable(), NotApplicable():
+                return NoFit()
+            case unreachable:
+                assert_never(unreachable)
 
     def total(self) -> StageCost:
         """Both stages as one cost: seconds add, peak memory is the largest, any unknown stage wins.

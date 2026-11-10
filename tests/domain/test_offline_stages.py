@@ -6,7 +6,11 @@ import pytest
 
 from neuralls.domain.solver.models.cost import (
     NO_OFFLINE_COST,
+    FitJob,
+    FitOrigin,
+    InlineFit,
     Known,
+    NoFit,
     NotApplicable,
     OfflineStages,
     StageCost,
@@ -84,3 +88,26 @@ def test_total_of_a_single_unavailable_stage_names_it() -> None:
     stages: StageCost = Unavailable("no run id")
 
     assert OfflineStages(GENERATION, stages).total() == Unavailable("training: no run id")
+
+
+UNAVAILABLE = Unavailable("not recorded")
+
+
+@pytest.mark.parametrize(
+    ("generation", "training", "expected"),
+    [
+        (NotApplicable(), NotApplicable(), NoFit()),
+        (GENERATION, NotApplicable(), InlineFit()),
+        (UNAVAILABLE, NotApplicable(), InlineFit()),
+        (NotApplicable(), TRAINING, FitJob()),
+        (NotApplicable(), UNAVAILABLE, FitJob()),
+        (GENERATION, TRAINING, FitJob()),
+        (GENERATION, UNAVAILABLE, FitJob()),
+        (UNAVAILABLE, TRAINING, FitJob()),
+        (UNAVAILABLE, UNAVAILABLE, FitJob()),
+    ],
+)
+def test_the_fit_origin_is_read_from_which_stages_apply(
+    generation: StageCost, training: StageCost, expected: FitOrigin
+) -> None:
+    assert OfflineStages(generation=generation, training=training).fit_origin() == expected

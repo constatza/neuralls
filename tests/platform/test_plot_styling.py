@@ -14,7 +14,7 @@ import pytest
 from neuralls.platform.reporting.series_style import (
     _OKABE_ITO_HEX,
     _assign_axis,
-    _color_pool,
+    color_pool,
     resolve_styles,
 )
 from neuralls.shared.types import PreconditionerFamily
@@ -85,12 +85,12 @@ def test_assign_axis_cycles_on_overflow() -> None:
 
 def test_color_pool_uses_okabe_ito_within_standard_size() -> None:
     """Up to 8 colors come straight from the Okabe-Ito palette, in order."""
-    assert _color_pool(3) == list(_OKABE_ITO_HEX[:3])
+    assert color_pool(3) == list(_OKABE_ITO_HEX[:3])
 
 
 def test_color_pool_extends_beyond_okabe_ito_with_distinct_generated_hues() -> None:
     """Beyond 8 keys, the first 8 stay Okabe-Ito and the rest are new, distinct colors."""
-    pool = _color_pool(10)
+    pool = color_pool(10)
     assert pool[:8] == list(_OKABE_ITO_HEX)
     assert len(pool[8:]) == 2
     assert len(set(pool)) == len(pool)

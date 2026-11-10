@@ -41,3 +41,13 @@ def test_a_run_the_store_does_not_hold_is_unavailable(fake_client: FakeMlflowCli
     assert run_wall_seconds(client, "missing") == Unavailable(
         "run missing cannot be read: Run 'missing' not found"
     )
+
+
+def test_a_child_run_costs_its_own_span_not_its_parents(fake_client: FakeMlflowClient) -> None:
+    fake_client.add_run("session", start_time_ms=START_MS, end_time_ms=START_MS + 1_000_000)
+    child_id = fake_client.add_run(
+        "fit job", start_time_ms=START_MS + 100_000, end_time_ms=START_MS + 160_000
+    )
+    client = MlflowTrackingServices(client_factory=fake_client).client(fake_client.tracking_uri)
+
+    assert run_wall_seconds(client, child_id) == Known(60.0, None, CostProvenance.HISTORICAL)

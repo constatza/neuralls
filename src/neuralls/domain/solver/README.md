@@ -246,7 +246,7 @@ The benchmark separates costs by when they are paid.
 | Term | Meaning | Source of the number |
 |---|---|---|
 | **generation** | construction of the dataset a method was fit on; offline | dataset manifest, `HISTORICAL` |
-| **training** | fit of a network or POD basis, only for a method with a checkpoint; offline | wall time of the MLflow run the checkpoint was resolved from, `HISTORICAL` |
+| **training** (drawn as "offline fit / training") | fit of a network or POD basis by a job, only for a method with a checkpoint; offline | wall time of the MLflow run the checkpoint was resolved from, `HISTORICAL` |
 | **offline** | generation plus training, paid once per method artifact | `OfflineStages.total()` |
 | **setup** | method preparation for one matrix; online | live event, `MEASURED` |
 | **solve** | one attempted RHS; online | live event, `MEASURED` |
@@ -260,8 +260,14 @@ zero: the total is then `OfflineUnavailable`, which carries only the online seco
 figure states that the total is unknown. Offline cost is paid once and online cost once per workload, so
 a total names the workload it covers and neither is amortized into the other.
 
-Training seconds are the start-to-end wall time of the MLflow run, so they span the whole job lifecycle
-(data loading, epochs, checkpointing), not pure fit time. Two checkpoints trained in one run count that
+Training is not setup. Training seconds are the start-to-end wall time of the one MLflow run the
+checkpoint was resolved from: the run dlkit opened around the job's `execute()` (for a `search` job the best
+trial's nested run, never the study run; for a `run.type = "fit"` POD job its own run), so they span the whole
+job lifecycle (building the data and model, data loading, epochs or the basis fit, checkpointing), not pure fit
+time. A run's span never includes sibling or parent runs, and the checkpoint is uploaded after the run has
+ended, so upload time is outside it. `OfflineStages.fit_origin()` states where a method's fit happened without
+a stored field: `FitJob` when a training stage applies, `InlineFit` when only generation applies (the POD fit
+from `dataset_dir` is inside the measured setup), `NoFit` when neither does. Two checkpoints trained in one run count that
 run once. Separating the fit from the rest of the job needs instrumentation in the dlkit fit path and is
 not done.
 

@@ -11,7 +11,11 @@ from enum import StrEnum
 from typing import assert_never
 
 from neuralls.domain.solver.models.cost import (
+    FitJob,
+    FitOrigin,
+    InlineFit,
     Known,
+    NoFit,
     NotApplicable,
     OfflineStages,
     StageCost,
@@ -40,6 +44,27 @@ def stage_status(cost: StageCost) -> StageStatus:
             return StageStatus.KNOWN
         case Unavailable():
             return StageStatus.UNAVAILABLE
+        case unreachable:
+            assert_never(unreachable)
+
+
+class FitOriginKind(StrEnum):
+    """Which `FitOrigin` variant a cost-breakdown row states."""
+
+    NONE = "none"
+    INLINE = "inline"
+    JOB = "job"
+
+
+def fit_origin_kind(origin: FitOrigin) -> FitOriginKind:
+    """The kind that names the variant of ``origin``."""
+    match origin:
+        case NoFit():
+            return FitOriginKind.NONE
+        case InlineFit():
+            return FitOriginKind.INLINE
+        case FitJob():
+            return FitOriginKind.JOB
         case unreachable:
             assert_never(unreachable)
 

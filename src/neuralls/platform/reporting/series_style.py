@@ -95,7 +95,7 @@ def _generate_hues(count: int) -> list[tuple[float, float, float]]:
     return [colorsys.hls_to_rgb(i / count, 0.5, 0.65) for i in range(count)]
 
 
-def _color_pool(count: int) -> list[Any]:
+def color_pool(count: int) -> list[Any]:
     """Resolve `count` distinct colors: Okabe-Ito first, generated hues beyond 8.
 
     Args:
@@ -161,7 +161,7 @@ def resolve_styles(
     linestyles = _assign_axis(families, _LINESTYLE_POOL)
     markers = _assign_axis(effective_marker_keys, list(_MARKER_POOL))
     n_colors = len(dict.fromkeys(effective_color_keys.values()))
-    colors = _assign_axis(effective_color_keys, _color_pool(max(n_colors, 1)))
+    colors = _assign_axis(effective_color_keys, color_pool(max(n_colors, 1)))
 
     styles: dict[str, dict[str, Any]] = {
         name: {"marker": markers[name], "linestyle": linestyles[name], "color": colors[name]}
