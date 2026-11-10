@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import polars as pl
@@ -11,6 +11,7 @@ import polars as pl
 from neuralls.domain.solver.models.group_outcomes import GroupReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.models.plot_style import plot_style_maps
+from neuralls.platform.config.models.figure_style import FigureStyleConfig
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import (
     FigurePlan,
@@ -19,6 +20,7 @@ from neuralls.platform.reporting.figure_metadata import (
     StagedTabledFigure,
 )
 from neuralls.platform.reporting.figure_recipes import group_recipe
+from neuralls.platform.reporting.figure_style import paper_style
 from neuralls.platform.reporting.figure_text import (
     method_legend,
 )
@@ -38,6 +40,7 @@ class GroupStyler:
 
     presentation: GroupPresentation
     notation: NotationPolicy
+    figure_style: FigureStyleConfig = field(default_factory=FigureStyleConfig)
 
     def style(self, plan: FigurePlan) -> GroupStyle:
         """The style for ``plan``: fixed title, rendered scope, legend and series styling."""
@@ -54,6 +57,7 @@ class GroupStyler:
             families=maps.families,
             color_keys=maps.color_keys,
             marker_keys=maps.marker_keys,
+            label_rotation_deg=self.figure_style.label_rotation_deg,
         )
 
 
@@ -84,7 +88,8 @@ def write_outcome_plots(
             metadata.metric,
             outcome.reference_selection,
         )
-        target = recipe.draw(data, FigureTarget(directory, plan.stem))
+        with paper_style():
+            target = recipe.draw(data, FigureTarget(directory, plan.stem))
         if target is not None:
             drawn.append(StagedTabledFigure(StagedFigure(plan, target), summary))
     return tuple(drawn)

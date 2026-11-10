@@ -167,6 +167,12 @@ DEFAULT_PLOT_DPI = 150
 DEFAULT_PLOT_FIGSIZE = (10, 6)
 DEFAULT_PLOT_STYLE = "seaborn-v0_8-darkgrid"
 
+DEFAULT_LABEL_ROTATION_DEG = 30.0
+"""Rotation of report-figure method labels on the x axis; steep enough to fit long labels."""
+
+MAX_LABEL_ROTATION_DEG = 90.0
+"""Largest label rotation: vertical text. Beyond it labels would read upside down."""
+
 # =============================================================================
 # Comparison RHS masking
 # =============================================================================

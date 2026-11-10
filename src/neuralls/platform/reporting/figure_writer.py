@@ -9,6 +9,7 @@ from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
 from neuralls.platform.reporting.figure_formats import FigureTarget
+from neuralls.platform.reporting.figure_style import SAVE_DPI, SUBTITLE_FONT_SIZE, TITLE_FONT_SIZE
 
 _HEADLESS_BACKEND = "Agg"
 
@@ -35,15 +36,15 @@ def finish_group_figure(
     saved_message: str,
 ) -> None:
     """Title, save and close/show a figure; the only place a report figure is written."""
-    fig.suptitle(title, fontsize=13, fontweight="bold")
+    fig.suptitle(title, fontsize=TITLE_FONT_SIZE, fontweight="bold")
     if subtitle:
-        ax.set_title(subtitle, fontsize=9)
+        ax.set_title(subtitle, fontsize=SUBTITLE_FONT_SIZE)
     fig.tight_layout()
 
     if target is not None:
         target.directory.mkdir(parents=True, exist_ok=True)
         for path in target.paths:
-            fig.savefig(path, dpi=200, bbox_inches="tight")
+            fig.savefig(path, dpi=SAVE_DPI, bbox_inches="tight")
             logger.info(f"{saved_message}: {path}")
 
     if show:

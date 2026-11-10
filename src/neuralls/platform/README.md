@@ -125,6 +125,8 @@ takes the aggregated group plus a `GroupPresentation` and logs it into the neste
 group's report scope; figure file names are slugs of the rendered scope (see the figure-card
 paragraph below), never group ids.
 
+Report figures are drawn inside `figure_style.paper_style()`, one `rc_context` (seaborn `paper` context and `ticks` style, serif font, top and right spines removed, thin lines, fixed font sizes as named constants). It is entered only by the code that calls a drawer: `group_plots.write_outcome_plots` around `recipe.draw`, `method_figures.draw_method_figure`, and `composition/comparison/postprocessing/system_figures.write_system_figures`; drawers never enter it, and an architecture test allows `rc_context`, `set_theme` and `style.use` only in `figure_style.py`. `figure_style.rotate_x_labels(ax, degrees)` rotates x labels anchored at their right end. The rotation is `FigureStyleConfig.label_rotation_deg` (`platform/config/models/figure_style.py`; `[comparison_baseline.figure_style]`, default `DEFAULT_LABEL_ROTATION_DEG` = 30, validated 0 to 90, section optional like `[comparison_baseline.presentation]`): `composition/assignments/assignment_subjects.case_figure_style` reads it from the case, `MLflowReportSink` carries it to `GroupStyler`, and `GroupStyler.style` copies it into `GroupStyle.label_rotation_deg`, the only way a drawer sees it (the matrix heatmap's method labels use it).
+
 Every report figure is written by `figure_writer.finish_group_figure` (an architecture test forbids `savefig`
 elsewhere). `figure_writer.use_headless_backend` selects matplotlib's off-screen Agg backend; it is called where
 figures are created (`write_outcome_plots`, `plot_convergence_curves`, `plot_metric_comparison`), never when a

@@ -35,6 +35,7 @@ from neuralls.platform.reporting.figure_annotations import (
     count_label,
 )
 from neuralls.platform.reporting.figure_formats import FigureTarget
+from neuralls.platform.reporting.figure_style import rotate_x_labels
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
@@ -408,7 +409,8 @@ def plot_matrix_heatmap(
     ax.set_xlabel("Method")
     ax.set_ylabel("Matrix")
     ax.tick_params(axis="y", rotation=0)
-    ax.tick_params(axis="x", rotation=30, labelsize=LEGEND_FONT_SIZE)
+    ax.tick_params(axis="x", labelsize=LEGEND_FONT_SIZE)
+    rotate_x_labels(ax, style.label_rotation_deg)
     finish_group_figure(
         fig,
         ax,

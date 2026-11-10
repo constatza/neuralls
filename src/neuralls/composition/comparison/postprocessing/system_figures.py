@@ -31,6 +31,7 @@ from neuralls.platform.reporting.figure_metadata import (
     TimingPolicy,
     method_source,
 )
+from neuralls.platform.reporting.figure_style import paper_style
 from neuralls.platform.reporting.figure_text import EditorialTitle, ScopeSubtitle, method_legend
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, SystemId
@@ -116,19 +117,20 @@ def write_system_figures(
             target = FigureTarget(root / f"system_{index}", stem)
             title = f"{_METRIC_TITLE[metric]} (matrix {int(tag.matrix_id)}, RHS {tag.rhs_ordinal})"
             drawn = [by_method[name] for name in curves]
-            plot_convergence_curves(
-                curves,
-                legend=legend.marking_unconverged(
-                    name for name, curve in curves.items() if not curve.converged
-                ),
-                target=target,
-                title=EditorialTitle(title),
-                subtitle=ScopeSubtitle(RecipeScope(dataset, tag.recipe), notation),
-                families=maps.families,
-                color_keys=maps.color_keys,
-                marker_keys=maps.marker_keys,
-                ylabel=_METRIC_YLABEL[metric],
-            )
+            with paper_style():
+                plot_convergence_curves(
+                    curves,
+                    legend=legend.marking_unconverged(
+                        name for name, curve in curves.items() if not curve.converged
+                    ),
+                    target=target,
+                    title=EditorialTitle(title),
+                    subtitle=ScopeSubtitle(RecipeScope(dataset, tag.recipe), notation),
+                    families=maps.families,
+                    color_keys=maps.color_keys,
+                    marker_keys=maps.marker_keys,
+                    ylabel=_METRIC_YLABEL[metric],
+                )
             metadata = _metadata(
                 metric,
                 tag,

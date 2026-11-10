@@ -26,6 +26,7 @@ from neuralls.platform.reporting.figure_metadata import (
     FigureKind,
 )
 from neuralls.platform.reporting.figure_recipes import history_variant
+from neuralls.platform.reporting.figure_style import paper_style
 from neuralls.platform.reporting.figure_text import (
     EditorialTitle,
     Legend,
@@ -138,13 +139,14 @@ def draw_method_figure(
         if kind is FigureKind.RESIDUAL_HISTORY
         else None
     )
-    METHOD_PLOTS[kind](
-        histories,
-        threshold_rel=threshold,
-        target=target,
-        title=EditorialTitle(history_variant(kind).title),
-        subtitle=subtitle,
-        legend=_system_legend(method, notation, datasets),
-        families=series_recipes,
-        color_keys=series_recipes,
-    )
+    with paper_style():
+        METHOD_PLOTS[kind](
+            histories,
+            threshold_rel=threshold,
+            target=target,
+            title=EditorialTitle(history_variant(kind).title),
+            subtitle=subtitle,
+            legend=_system_legend(method, notation, datasets),
+            families=series_recipes,
+            color_keys=series_recipes,
+        )

@@ -34,6 +34,7 @@ from neuralls.platform.config.models.checkpoint_refs import TrainedAssignmentRef
 from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
 from neuralls.platform.config.models.experiments import AssignmentEntry, CaseConfig
+from neuralls.platform.config.models.figure_style import FigureStyleConfig
 from neuralls.platform.config.models.preconditioner import (
     AMGPreconditionerConfig,
     NeuralPreconditionerConfig,
@@ -181,6 +182,12 @@ def case_notation(cfg: CaseConfig) -> NotationPolicy:
     baseline = cfg.comparison_baseline
     labels = ScientificLabelsConfig() if baseline is None else baseline.presentation
     return labels.notation_policy()
+
+
+def case_figure_style(cfg: CaseConfig) -> FigureStyleConfig:
+    """The layout the case's report figures are drawn with."""
+    baseline = cfg.comparison_baseline
+    return FigureStyleConfig() if baseline is None else baseline.figure_style
 
 
 def training_presentations(

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 from neuralls.platform.config.context import ConfigContext, expand_config_path
 from neuralls.platform.config.models.comparison import ComparisonRhsSourceModel
+from neuralls.platform.config.models.figure_style import FigureStyleConfig
 from neuralls.platform.config.models.id_generation import (
     _infer_assignment_id,
     _infer_comparison_id,
@@ -218,6 +219,9 @@ class ComparisonBaseline(BaseModel):
             Complete defaults, so no case needs a ``[comparison_baseline.presentation]``
             table at all. A per-entry ``method`` file may override it the same
             way it overrides ``preconditioners``/``normalize_system``.
+        figure_style: Report figure layout (``label_rotation_deg`` of x-axis method
+            labels). Complete defaults, so no case needs a
+            ``[comparison_baseline.figure_style]`` table at all.
         timing: How often each preconditioner build and each solve is timed
             (``repeats``, ``warmup``, ``statistic``). Defaults to one timed run;
             raise ``repeats`` for steadier estimates when systems are cheap
@@ -233,6 +237,7 @@ class ComparisonBaseline(BaseModel):
     preconditioners: list[PreconditionerConfig] = Field(default_factory=list)
     reference_preconditioner: str | None = None
     presentation: ScientificLabelsConfig = Field(default_factory=ScientificLabelsConfig)
+    figure_style: FigureStyleConfig = Field(default_factory=FigureStyleConfig)
     timing: TimingRepeatPolicy = Field(default_factory=TimingRepeatPolicy)
     model_config = ConfigDict(extra="forbid", frozen=True)
 

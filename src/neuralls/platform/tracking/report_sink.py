@@ -40,6 +40,7 @@ from neuralls.domain.solver.models.report_scope import (
 )
 from neuralls.domain.solver.models.split_record import DatasetSplitRecord
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
+from neuralls.platform.config.models.figure_style import FigureStyleConfig
 from neuralls.platform.reporting.benchmark_events import MethodBenchmarkArtifacts
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_index import FigureIndexEntry
@@ -129,6 +130,7 @@ class OpenReport:
     """
 
     notation: NotationPolicy
+    figure_style: FigureStyleConfig
     methods: Sequence[StoredMethod]
     runs: ScopeRunTree
     uploader: FigureUploader
@@ -240,7 +242,7 @@ class OpenReport:
                 figure_summaries(
                     outcome, {name: method.offline for name, method in stored.items()}
                 ),
-                GroupStyler(presentation, self.notation),
+                GroupStyler(presentation, self.notation, self.figure_style),
                 Path(tmp),
                 plans,
             )
@@ -273,7 +275,7 @@ class MLflowReportSink:
     """The ``ReportSink`` adapter that writes a report to MLflow until it is finalized.
 
     ``notation`` is the case's symbol policy and ``datasets`` presents each dataset a scope
-    names; run names and figures render both. ``session_run_id`` and ``methods`` identify
+    names; run names and figures render both. ``figure_style`` is the case's figure layout. ``session_run_id`` and ``methods`` identify
     the compare session and the stored method runs every figure is computed from;
     ``split_records`` are the session's held-out records, copied beside the index. ``runs``
     creates the nested scope runs and ``artifacts`` uploads into the active run.
@@ -285,6 +287,7 @@ class MLflowReportSink:
     split_records: Sequence[DatasetSplitRecord]
     methods: Sequence[StoredMethod] = ()
     datasets: Mapping[DatasetId, DatasetPresentation] = field(default_factory=dict)
+    figure_style: FigureStyleConfig = field(default_factory=FigureStyleConfig)
     artifacts: ArtifactSink = field(default_factory=MlflowArtifactSink)
     _state: OpenReport | FinalizedReport = field(init=False)
 
@@ -293,6 +296,7 @@ class MLflowReportSink:
         uploader = FigureUploader(self.session_run_id, self.notation, self.artifacts)
         self._state = OpenReport(
             self.notation,
+            self.figure_style,
             self.methods,
             ScopeRunTree(
                 self.runs, lambda scope: scope_run_name(scope, self.notation, self.datasets)

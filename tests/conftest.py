@@ -52,6 +52,7 @@ from neuralls.platform.reporting.figure_text import Legend, method_legend
 from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
 from neuralls.platform.tracking.services import MlflowTrackingServices
+from neuralls.shared.constants import DEFAULT_LABEL_ROTATION_DEG
 from neuralls.shared.enum_codecs import encode_row_kind_array
 from neuralls.shared.scientific_description.catalog import (
     ITERATION_COUNT,
@@ -731,6 +732,7 @@ def group_style_of(
             families={},
             color_keys={},
             marker_keys={},
+            label_rotation_deg=DEFAULT_LABEL_ROTATION_DEG,
         )
 
     return build

@@ -17,7 +17,8 @@ class GroupStyle:
 
     ``title`` is fixed editorial wording; the subtitle is the typed ``scope`` rendered
     when a figure is drawn, followed by what ``setup_sharing`` (the record the figure's card
-    stores) says about the setup the metric divides, and every series is named by ``legend``.
+    stores) says about the setup the metric divides, and every series is named by ``legend``. ``label_rotation_deg`` is the configured
+    rotation of x-axis labels.
     """
 
     title: str
@@ -28,6 +29,7 @@ class GroupStyle:
     families: Mapping[str, Hashable]
     color_keys: Mapping[str, Hashable]
     marker_keys: Mapping[str, Hashable]
+    label_rotation_deg: float
 
     @property
     def subtitle(self) -> str:

@@ -15,7 +15,7 @@ from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments.assembler import load_validated_case_config
-from neuralls.composition.assignments.assignment_subjects import case_notation
+from neuralls.composition.assignments.assignment_subjects import case_figure_style, case_notation
 from neuralls.composition.assignments.comparison_topology import (
     failure_boundary,
     resolve_comparison_topology,
@@ -136,6 +136,7 @@ def run_comparison_report(
                 split_records,
                 methods=inputs.stored.methods,
                 datasets=inputs.datasets,
+                figure_style=case_figure_style(master_cfg),
             )
             with failure_boundary(
                 failure_sink,
