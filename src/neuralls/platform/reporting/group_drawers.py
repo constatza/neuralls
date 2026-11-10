@@ -85,7 +85,7 @@ def solve_time_bars(data: FigureData, target: FigureTarget) -> FigureTarget | No
     return plot_workload_bars(
         data.summary,
         total=WorkloadTotal.SOLVE,
-        xlabel="Solve time [s]",
+        ylabel="Solve time [s]",
         style=data.style,
         target=target,
     )
@@ -95,7 +95,7 @@ def online_time_bars(data: FigureData, target: FigureTarget) -> FigureTarget | N
     return plot_workload_bars(
         data.summary,
         total=WorkloadTotal.ONLINE,
-        xlabel="Total online workload time [s]",
+        ylabel="Total online workload time [s]",
         style=data.style,
         target=target,
     )

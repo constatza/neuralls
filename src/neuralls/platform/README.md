@@ -125,7 +125,9 @@ takes the aggregated group plus a `GroupPresentation` and logs it into the neste
 group's report scope; figure file names are slugs of the rendered scope (see the figure-card
 paragraph below), never group ids.
 
-Report figures are drawn inside `figure_style.paper_style()`, one `rc_context` (seaborn `paper` context and `ticks` style, serif font, top and right spines removed, thin lines, fixed font sizes as named constants). It is entered only by the code that calls a drawer: `group_plots.write_outcome_plots` around `recipe.draw`, `method_figures.draw_method_figure`, and `composition/comparison/postprocessing/system_figures.write_system_figures`; drawers never enter it, and an architecture test allows `rc_context`, `set_theme` and `style.use` only in `figure_style.py`. `figure_style.rotate_x_labels(ax, degrees)` rotates x labels anchored at their right end. The rotation is `FigureStyleConfig.label_rotation_deg` (`platform/config/models/figure_style.py`; `[comparison_baseline.figure_style]`, default `DEFAULT_LABEL_ROTATION_DEG` = 30, validated 0 to 90, section optional like `[comparison_baseline.presentation]`): `composition/assignments/assignment_subjects.case_figure_style` reads it from the case, `MLflowReportSink` carries it to `GroupStyler`, and `GroupStyler.style` copies it into `GroupStyle.label_rotation_deg`, the only way a drawer sees it (the matrix heatmap's method labels use it).
+Report figures are drawn inside `figure_style.paper_style()`, one `rc_context` (seaborn `paper` context and `ticks` style, serif font, top and right spines removed, thin lines, fixed font sizes as named constants). It is entered only by the code that calls a drawer: `group_plots.write_outcome_plots` around `recipe.draw`, `method_figures.draw_method_figure`, and `composition/comparison/postprocessing/system_figures.write_system_figures`; drawers never enter it, and an architecture test allows `rc_context`, `set_theme` and `style.use` only in `figure_style.py`. `figure_style.rotate_x_labels(ax, degrees)` rotates x labels anchored at their right end. The rotation is `FigureStyleConfig.label_rotation_deg` (`platform/config/models/figure_style.py`; `[comparison_baseline.figure_style]`, default `DEFAULT_LABEL_ROTATION_DEG` = 30, validated 0 to 90, section optional like `[comparison_baseline.presentation]`): `composition/assignments/assignment_subjects.case_figure_style` reads it from the case, `MLflowReportSink` carries it to `GroupStyler`, and `GroupStyler.style` copies it into `GroupStyle.label_rotation_deg`, the only way a drawer sees it (the matrix heatmap's method labels and the x axis of every vertical bar figure use it).
+
+Bar figures (means, time per iteration, workload totals, cost breakdown) are vertical: one column per method, method labels on the x axis rotated by `label_rotation_deg` through `rotate_x_labels`, the metric on the y axis, stacked segments stacked upward. The text above a bar ("k/n solved", workload counts, the cost total or "total unknown: ...") is a `figure_annotations.ColumnAnnotation` standing on the top of the column's highest mark (whisker end or point) and placed by `annotate_columns`, which wraps it to about a column's width and extends the value axis from 0 through `value_axis_top` so it does not clip; annotations never widen the figure. The stacked-bar legends sit outside the axes on the right so they do not cover the rotated labels. Violin and distribution rows stay horizontal with `RowAnnotation`/`annotate_rows`.
 
 Every report figure is written by `figure_writer.finish_group_figure` (an architecture test forbids `savefig`
 elsewhere). `figure_writer.use_headless_backend` selects matplotlib's off-screen Agg backend; it is called where
@@ -138,7 +140,7 @@ metric bars written through the same function upload their files the same way. S
 `seaborn_figures.plot_frame`, the one polars-to-pandas conversion, because seaborn raises on a polars frame.
 
 The group outcome plots are drawn from one frame each by `profile_plots.py` (performance profile, ECDF),
-`workload_bars.py` (workload totals), `paired_plots.py` (paired scatter, speed-ratio CDF); `figure_sizing.py` holds the sizes they share and `stacked_segments.py` the segment key
+`workload_bars.py` (workload totals), `paired_plots.py` (paired scatter, speed-ratio CDF); `figure_sizing.py` holds the sizes they share (`bar_columns_figure_size`: width follows the number of methods, height adds room for the rotated labels) and `stacked_segments.py` the segment key
 shared with the cost breakdown. Planning (`figure_summaries.figure_summaries`)
 computes, once per report, the frame every planned variant draws and stores (`summarize`, `ecdf_series`,
 `performance_series`, `paired_systems`, `speed_ratio_summary`, `break_even_curves` or the workload totals, by the variant's `Statistic`;
@@ -218,7 +220,7 @@ holds into a `BarPanel`, each method a `MethodBar` whose `height` is a `Bar(valu
 NoWhisker)` or `NoBar` when nothing is defined, never a zero bar). A figure has one axes and draws
 one cohort; there are no side-by-side panels (see "Figures per cohort" below), and the recipe, or
 the mixture, it draws is named in the subtitle (`figure_text.cohort_note`). The count words (`count_label`: "solved", "set up", "returned an iterate") and the row annotations
-(`annotate_rows`) are in `figure_annotations.py`, and the observation rows behind a panel
+(`annotate_columns` for bars, `annotate_rows` for distribution rows) are in `figure_annotations.py`, and the observation rows behind a panel
 (`cohort_systems`, `panel_points`, of observations already narrowed to the cohort) in
 `cohort_points.py`. The five points of each kind, with the formulas in
 `domain/solver/README.md`:

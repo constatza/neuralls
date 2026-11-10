@@ -17,8 +17,10 @@ import numpy as np
 import polars as pl
 from matplotlib.patches import Patch
 
+from neuralls.platform.reporting.figure_annotations import ColumnAnnotation, annotate_columns
 from neuralls.platform.reporting.figure_formats import FigureTarget
-from neuralls.platform.reporting.figure_sizing import bar_figure_size
+from neuralls.platform.reporting.figure_sizing import bar_columns_figure_size
+from neuralls.platform.reporting.figure_style import rotate_x_labels
 from neuralls.platform.reporting.figure_table import TotalStatus
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
 from neuralls.platform.reporting.figure_writer import finish_group_figure
@@ -40,7 +42,7 @@ class CostSegment(StrEnum):
 
 
 def cost_segments() -> tuple[CostSegment, ...]:
-    """The segments stacked, left to right: offline stages first, then the online ones."""
+    """The segments stacked, bottom to top: offline stages first, then the online ones."""
     return (CostSegment.GENERATION, CostSegment.TRAINING, CostSegment.SETUP, CostSegment.SOLVE)
 
 
@@ -60,7 +62,7 @@ def _segment_look(segment: CostSegment) -> tuple[str, float, str | None]:
 
 
 def cost_bar_label(row: CostRow) -> str:
-    """The text ending a bar: the total in seconds, or which offline stages leave it unknown."""
+    """The text above a bar: the total in seconds, or which offline stages leave it unknown."""
     match TotalStatus(row["total_status"]):
         case TotalStatus.COMPLETE:
             return f"{row['total_s']:.4g} s"
@@ -86,29 +88,40 @@ def plot_cost_breakdown(
     palette = method_palette(names, style)
     labels = [style.legend.label(name) for name in names]
     colors = [palette.color(name) for name in names]
-    fig, ax = plt.subplots(figsize=bar_figure_size(labels))
+    fig, ax = plt.subplots(figsize=bar_columns_figure_size(labels, style.label_rotation_deg))
     positions = np.arange(len(names))
-    left = np.zeros(len(names))
+    bottom = np.zeros(len(names))
     for segment in cost_segments():
         _, alpha, hatch = _segment_look(segment)
-        widths = np.asarray([row[segment.value] or 0.0 for row in rows], dtype=np.float64)
-        ax.barh(
-            positions, widths, left=left, color=colors, alpha=alpha, hatch=hatch, edgecolor=colors
+        heights = np.asarray([row[segment.value] or 0.0 for row in rows], dtype=np.float64)
+        ax.bar(
+            positions,
+            heights,
+            bottom=bottom,
+            color=colors,
+            alpha=alpha,
+            hatch=hatch,
+            edgecolor=colors,
         )
-        left = left + widths
-    ax.set_yticks(positions, labels, fontsize=LEGEND_FONT_SIZE)
-    for position, end, row in zip(positions, left, rows, strict=True):
-        ax.text(end, position, f" {cost_bar_label(row)}", va="center")
+        bottom = bottom + heights
+    ax.set_xticks(positions, labels, fontsize=LEGEND_FONT_SIZE)
+    rotate_x_labels(ax, style.label_rotation_deg)
+    annotate_columns(
+        ax,
+        [
+            ColumnAnnotation(int(position), float(top), cost_bar_label(row))
+            for position, top, row in zip(positions, bottom, rows, strict=True)
+        ],
+    )
+    # Outside the axes on the right: below them it would sit on the rotated method labels.
     ax.legend(
         handles=[_segment_key(segment) for segment in cost_segments()],
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.12),
-        ncols=2,
+        loc="upper left",
+        bbox_to_anchor=(1.01, 1.0),
         fontsize=LEGEND_FONT_SIZE,
     )
-    ax.set_xlabel("Total seconds: offline (once per method) + setup + solve")
-    ax.set_ylabel("Method")
-    ax.grid(True, axis="x", alpha=0.3)
+    ax.set_ylabel("Total seconds: offline (once per method) + setup + solve")
+    ax.set_xlabel("Method")
     finish_group_figure(
         fig,
         ax,

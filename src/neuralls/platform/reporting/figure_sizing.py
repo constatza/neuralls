@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 
 LABEL_CHAR_WIDTH_IN = 0.055
@@ -18,20 +19,36 @@ _METHOD_ROW_HEIGHT_IN = 0.45
 
 _MIN_METHOD_ROWS_HEIGHT_IN = 4.0
 
-_BAR_AREA_WIDTH_IN = 6.0
-"""Width in inches kept for the bars themselves, however long the method labels are."""
+_BAR_COLUMN_WIDTH_IN = 1.1
+"""Width in inches of one method's column in a bar figure with methods along the x axis."""
 
-_LABEL_LINE_HEIGHT_IN = 0.3
-"""Height in inches one wrapped label line takes on a bar chart's method axis."""
+_MIN_BAR_COLUMNS_WIDTH_IN = 5.0
+"""Narrowest bar figure, so a figure of one or two methods keeps room for its axis labels."""
+
+_BAR_PLOT_HEIGHT_IN = 4.0
+"""Height in inches of a vertical bar figure's plotting area, rotated labels excluded."""
+
+_LABEL_LINE_HEIGHT_IN = 0.2
+"""Height in inches one wrapped label line takes along the x axis."""
 
 
-def bar_figure_size(labels: Sequence[str]) -> tuple[float, float]:
-    """Figure size that leaves the bars their own width and gives every label line its own row."""
-    lines = [line for label in labels for line in label.split("\n")]
-    widest = max((len(line) for line in lines), default=0)
+def bar_columns_figure_size(labels: Sequence[str], rotation_deg: float) -> tuple[float, float]:
+    """Figure size of bars with one column per method label, labels rotated by ``rotation_deg``.
+
+    The width follows the number of methods only; annotations sit above the bars and never widen
+    the figure. The height adds the vertical extent of the longest label line, which grows with
+    the rotation, and of the label's stacked lines.
+    """
+    lines = [label.split("\n") for label in labels]
+    widest = max((len(line) for parts in lines for line in parts), default=0)
+    stacked = max((len(parts) for parts in lines), default=1)
+    angle = math.radians(rotation_deg)
+    label_height = widest * LABEL_CHAR_WIDTH_IN * math.sin(
+        angle
+    ) + stacked * _LABEL_LINE_HEIGHT_IN * math.cos(angle)
     return (
-        _BAR_AREA_WIDTH_IN + widest * LABEL_CHAR_WIDTH_IN,
-        max(5.0, len(lines) * _LABEL_LINE_HEIGHT_IN + 2.0),
+        max(_MIN_BAR_COLUMNS_WIDTH_IN, len(labels) * _BAR_COLUMN_WIDTH_IN),
+        _BAR_PLOT_HEIGHT_IN + label_height,
     )
 
 

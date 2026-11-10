@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import textwrap
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import assert_never
@@ -64,3 +65,59 @@ def annotate_rows(ax: Axes, annotations: Sequence[RowAnnotation]) -> None:
     else:
         ax.set_xlim(left=0.0)
     ax.grid(True, axis="x", alpha=0.3)
+
+
+_COLUMN_ANNOTATION_WRAP = 16
+"""Characters per line of a text above a bar, so it stays about as wide as the bar's column."""
+
+_COLUMN_HEADROOM_PER_LINE = 0.09
+"""Fraction of the tallest annotated mark's height each annotation line adds above the value axis."""
+
+_COLUMN_ANNOTATION_GAP_PT = 2.0
+"""Points between the top of a bar's last mark and its text."""
+
+
+@dataclass(frozen=True, slots=True)
+class ColumnAnnotation:
+    """The text above a method's bar, standing on ``base``, the top of the column's last mark."""
+
+    column: int
+    base: float
+    text: str
+
+    @property
+    def wrapped(self) -> str:
+        """The text broken into lines about as wide as a bar's column."""
+        return textwrap.fill(self.text, _COLUMN_ANNOTATION_WRAP)
+
+
+def value_axis_top(annotations: Sequence[ColumnAnnotation]) -> float | None:
+    """The value-axis maximum that leaves every wrapped annotation room above its base.
+
+    ``None`` when no mark rises above zero, so there is no scale to leave room on.
+    """
+    tallest = max((annotation.base for annotation in annotations), default=0.0)
+    if tallest <= 0.0:
+        return None
+    lines = max(annotation.wrapped.count("\n") + 1 for annotation in annotations)
+    return tallest * (1.0 + _COLUMN_HEADROOM_PER_LINE * (lines + 1))
+
+
+def annotate_columns(ax: Axes, annotations: Sequence[ColumnAnnotation]) -> None:
+    """Write each annotation above its bar and extend the value axis from 0 so all fit inside."""
+    for annotation in annotations:
+        ax.annotate(
+            annotation.wrapped,
+            (annotation.column, annotation.base),
+            xytext=(0.0, _COLUMN_ANNOTATION_GAP_PT),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=LEGEND_FONT_SIZE,
+        )
+    top = value_axis_top(annotations)
+    if top is None:
+        ax.set_ylim(bottom=0.0)
+    else:
+        ax.set_ylim(0.0, top)
+    ax.grid(True, axis="y", alpha=0.3)

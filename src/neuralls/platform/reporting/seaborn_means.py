@@ -27,13 +27,14 @@ from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import Population
 from neuralls.platform.reporting.cohort_points import panel_points
 from neuralls.platform.reporting.figure_annotations import (
-    RowAnnotation,
-    annotate_rows,
+    ColumnAnnotation,
+    annotate_columns,
     count_label,
 )
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import Statistic
-from neuralls.platform.reporting.figure_sizing import POINT_JITTER, method_rows_figure_size
+from neuralls.platform.reporting.figure_sizing import POINT_JITTER, bar_columns_figure_size
+from neuralls.platform.reporting.figure_style import rotate_x_labels
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.seaborn_figures import plot_frame
@@ -47,7 +48,7 @@ type BarStatistic = Literal[
 
 _WHISKER_COLOR = "black"
 _WHISKER_CAP = 0.15
-"""Half-height of a whisker cap, in units of the distance between two method rows."""
+"""Half-width of a whisker cap, in units of the distance between two method columns."""
 _POINT_SIZE = 3.0
 _POINT_ALPHA = 0.6
 _NO_POINTS = pl.DataFrame(schema={"method": pl.String, "value": pl.Float64})
@@ -82,7 +83,7 @@ class NoBar:
 
 @dataclass(frozen=True, slots=True)
 class MethodBar:
-    """One method's row of a panel and the units its statistic rests on."""
+    """One method's column of a panel and the units its statistic rests on."""
 
     method: PreconditionerName
     height: Bar | NoBar
@@ -226,10 +227,11 @@ def _draw_cohort(
 ) -> FigureTarget:
     """Draw ``panel`` on one axes, titled with the scope and the cohort by ``style``."""
     palette = method_palette(sorted({bar.method for bar in panel.bars}), style)
-    fig, ax = plt.subplots(figsize=method_rows_figure_size(palette.order))
+    fig, ax = plt.subplots(figsize=bar_columns_figure_size(palette.order, style.label_rotation_deg))
     _draw_panel(ax, panel, points, palette, metric)
-    ax.set_xlabel(f"{bar_statistic_text(statistic).capitalize()}: {METRICS[metric].label}")
-    ax.set_ylabel("Method")
+    ax.set_ylabel(f"{bar_statistic_text(statistic).capitalize()}: {METRICS[metric].label}")
+    ax.set_xlabel("Method")
+    rotate_x_labels(ax, style.label_rotation_deg)
     finish_group_figure(
         fig,
         ax,
@@ -260,15 +262,15 @@ def _draw_panel(
     )
     sns.barplot(
         data=plot_frame(bars),
-        x="value",
-        y="label",
+        x="label",
+        y="value",
         order=order,
         hue="label",
         hue_order=order,
         palette=dict(palette.colors),
         legend=False,
         errorbar=None,
-        orient="h",
+        orient="v",
         ax=ax,
     )
     if points.height > 0:
@@ -276,25 +278,25 @@ def _draw_panel(
             data=plot_frame(
                 points.select(pl.col("method").replace_strict(labels).alias("label"), "value")
             ),
-            x="value",
-            y="label",
+            x="label",
+            y="value",
             order=order,
             color=_WHISKER_COLOR,
             size=_POINT_SIZE,
             alpha=_POINT_ALPHA,
             jitter=POINT_JITTER,
-            orient="h",
+            orient="v",
             ax=ax,
         )
-    rows = {label: position for position, label in enumerate(order)}
-    # The annotation starts right of the method's last point, so it never covers a point.
-    point_ends = dict(points.group_by("method").agg(pl.col("value").max()).iter_rows())
+    columns = {label: position for position, label in enumerate(order)}
+    # The annotation stands on the method's highest mark, so it never covers a point or whisker.
+    point_tops = dict(points.group_by("method").agg(pl.col("value").max()).iter_rows())
     annotations = []
     for bar in panel.bars:
-        row = rows[labels[bar.method]]
-        start = max(_draw_whisker(ax, bar, row), point_ends.get(bar.method, 0.0))
-        annotations.append(RowAnnotation(row, start, defined_label(bar, metric)))
-    annotate_rows(ax, annotations)
+        column = columns[labels[bar.method]]
+        base = max(_draw_whisker(ax, bar, column), point_tops.get(bar.method, 0.0))
+        annotations.append(ColumnAnnotation(column, base, defined_label(bar, metric)))
+    annotate_columns(ax, annotations)
 
 
 def _value(bar: MethodBar) -> float | None:
@@ -307,26 +309,26 @@ def _value(bar: MethodBar) -> float | None:
             assert_never(unreachable)
 
 
-def _draw_whisker(ax: Axes, bar: MethodBar, row: int) -> float:
-    """Draw the whisker of ``bar`` on ``row``; the x where its annotation starts."""
+def _draw_whisker(ax: Axes, bar: MethodBar, column: int) -> float:
+    """Draw the whisker of ``bar`` on ``column``; the y where its annotation stands."""
     match bar.height:
         case Bar(value=value, whisker=whisker):
-            return max(value, _whisker_end(ax, whisker, row))
+            return max(value, _whisker_top(ax, whisker, column))
         case NoBar():
             return 0.0
         case unreachable:
             assert_never(unreachable)
 
 
-def _whisker_end(ax: Axes, whisker: Whisker | NoWhisker, row: int) -> float:
-    """Draw ``whisker`` on ``row``; its right end, or 0 when there is none."""
+def _whisker_top(ax: Axes, whisker: Whisker | NoWhisker, column: int) -> float:
+    """Draw ``whisker`` on ``column``; its upper end, or 0 when there is none."""
     match whisker:
         case Whisker(low=low, high=high):
-            ax.plot([low, high], [row, row], color=_WHISKER_COLOR, linewidth=1)
+            ax.plot([column, column], [low, high], color=_WHISKER_COLOR, linewidth=1)
             for end in (low, high):
                 ax.plot(
+                    [column - _WHISKER_CAP, column + _WHISKER_CAP],
                     [end, end],
-                    [row - _WHISKER_CAP, row + _WHISKER_CAP],
                     color=_WHISKER_COLOR,
                     linewidth=1,
                 )

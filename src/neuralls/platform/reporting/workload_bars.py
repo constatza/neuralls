@@ -15,8 +15,10 @@ import numpy as np
 import polars as pl
 from matplotlib.patches import Patch
 
+from neuralls.platform.reporting.figure_annotations import ColumnAnnotation, annotate_columns
 from neuralls.platform.reporting.figure_formats import FigureTarget
-from neuralls.platform.reporting.figure_sizing import bar_figure_size
+from neuralls.platform.reporting.figure_sizing import bar_columns_figure_size
+from neuralls.platform.reporting.figure_style import rotate_x_labels
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
@@ -40,7 +42,7 @@ class BarSegment(StrEnum):
 
 
 def workload_segments(total: WorkloadTotal) -> tuple[BarSegment, ...]:
-    """The columns stacked, left to right, into a bar of ``total``; they sum to it.
+    """The columns stacked, bottom to top, into a bar of ``total``; they sum to it.
 
     Setup is its own segment: one setup event serves every RHS of a matrix, converged or not,
     so it belongs to neither solve outcome.
@@ -76,7 +78,7 @@ def _segment_look(segment: BarSegment) -> _SegmentLook:
 
 
 def workload_bar_label(*, n_converged: int, n_attempted: int, n_planned: int) -> str:
-    """The count beside a workload bar: converged of planned, and attempted when short of it."""
+    """The count above a workload bar: converged of planned, and attempted when short of it."""
     converged = f"{n_converged}/{n_planned} converged"
     if n_attempted < n_planned:
         return f"{converged}, {n_attempted}/{n_planned} attempted"
@@ -87,7 +89,7 @@ def plot_workload_bars(
     totals: pl.DataFrame,
     *,
     total: WorkloadTotal,
-    xlabel: str,
+    ylabel: str,
     style: GroupStyle,
     target: FigureTarget,
 ) -> FigureTarget | None:
@@ -95,7 +97,7 @@ def plot_workload_bars(
 
     ``totals`` is the workload-totals table and every segment is one of its columns. A total is
     not a per-system amortized share. The seconds of failed attempts are a hatched segment and
-    the count beside each bar says how many planned RHS converged, so a method that fails fast
+    the count above each bar says how many planned RHS converged, so a method that fails fast
     is not read as a cheap one.
     """
     if totals.height == 0:
@@ -105,41 +107,49 @@ def plot_workload_bars(
     palette = method_palette(names, style)
     labels = [style.legend.label(name) for name in names]
     colors = [palette.color(name) for name in names]
-    fig, ax = plt.subplots(figsize=bar_figure_size(labels))
+    fig, ax = plt.subplots(figsize=bar_columns_figure_size(labels, style.label_rotation_deg))
     positions = np.arange(len(names))
-    left = np.zeros(len(names))
+    bottom = np.zeros(len(names))
     segments = workload_segments(total)
     for segment in segments:
         look = _segment_look(segment)
-        widths = np.asarray([row[segment.value] for row in rows], dtype=np.float64)
-        ax.barh(
+        heights = np.asarray([row[segment.value] for row in rows], dtype=np.float64)
+        ax.bar(
             positions,
-            widths,
-            left=left,
+            heights,
+            bottom=bottom,
             color=colors,
             alpha=look.alpha,
             hatch=look.hatch,
             edgecolor=colors,
         )
-        left = left + widths
-    ax.set_yticks(positions, labels, fontsize=LEGEND_FONT_SIZE)
-    for position, end, row in zip(positions, left, rows, strict=True):
-        count = workload_bar_label(
-            n_converged=row["n_converged"],
-            n_attempted=row["n_attempted_rhs"],
-            n_planned=row["n_planned_rhs"],
-        )
-        ax.text(end, position, f" {count}", va="center")
+        bottom = bottom + heights
+    ax.set_xticks(positions, labels, fontsize=LEGEND_FONT_SIZE)
+    rotate_x_labels(ax, style.label_rotation_deg)
+    annotate_columns(
+        ax,
+        [
+            ColumnAnnotation(
+                int(position),
+                float(top),
+                workload_bar_label(
+                    n_converged=row["n_converged"],
+                    n_attempted=row["n_attempted_rhs"],
+                    n_planned=row["n_planned_rhs"],
+                ),
+            )
+            for position, top, row in zip(positions, bottom, rows, strict=True)
+        ],
+    )
+    # Outside the axes on the right: below them it would sit on the rotated method labels.
     ax.legend(
         handles=[_key(segment) for segment in segments],
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.12),
-        ncols=len(segments),
+        loc="upper left",
+        bbox_to_anchor=(1.01, 1.0),
         fontsize=LEGEND_FONT_SIZE,
     )
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel("Method")
-    ax.grid(True, axis="x", alpha=0.3)
+    ax.set_ylabel(ylabel)
+    ax.set_xlabel("Method")
     finish_group_figure(
         fig,
         ax,
