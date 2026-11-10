@@ -41,6 +41,7 @@ from neuralls.platform.tracking.metrics_logging import (
 from neuralls.platform.tracking.mlflow import quote_filter_value
 from neuralls.platform.tracking.report_run import root_report_run
 from neuralls.platform.tracking.report_sink import MLflowReportSink
+from neuralls.platform.tracking.runtime_environment import read_environment_params
 from neuralls.platform.tracking.scope_run_tree import MlflowRunTree
 from neuralls.platform.tracking.session_artifacts import (
     REPORT_PHASE,
@@ -53,7 +54,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import SessionRunId, SystemId
 from neuralls.shared.workflow_failures import ComparisonBatchFailureContext, ComparisonBatchPhase
 
-REPORT_SCHEMA_VERSION = "18"
+REPORT_SCHEMA_VERSION = "19"
 """Identifies the card keys, table schemas, written figure formats and metric keys a report
 writes; an existing report of another version is not reused."""
 NOTATION_DIGEST_LENGTH = 8
@@ -134,6 +135,7 @@ def run_comparison_report(
                 session,
                 MlflowRunTree(client),
                 split_records,
+                read_environment_params(client.get_run(session).data.params),
                 methods=inputs.stored.methods,
                 datasets=inputs.datasets,
                 figure_style=case_figure_style(master_cfg),

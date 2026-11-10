@@ -79,6 +79,11 @@ from neuralls.platform.storage.facts_codec import (
     encode_recipe,
 )
 from neuralls.shared.rhs_recipe import parse_recipe_key, recipe_key
+from neuralls.shared.runtime_environment import (
+    RuntimeEnvironment,
+    decode_environment,
+    encode_environment,
+)
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
 from neuralls.shared.types import DatasetId, PreconditionerName, RunId, SessionRunId
 
@@ -107,7 +112,7 @@ _REQUIRED_COUNTS: frozenset[str] = frozenset(
     {"n_matrices", "n_planned_rhs", "dataset_ids", "recipes", "recipe_counts", "recipe_weights"}
 )
 _REQUIRED_METHOD_FIELDS: frozenset[str] = frozenset({"method_id", "config_digest", "presentation"})
-_REQUIRED_SOURCE_FIELDS: frozenset[str] = frozenset({"session_run_id", "methods"})
+_REQUIRED_SOURCE_FIELDS: frozenset[str] = frozenset({"session_run_id", "environment", "methods"})
 _REQUIRED_SOURCE_METHOD_FIELDS: frozenset[str] = frozenset({"run_id", "artifact_paths"})
 
 
@@ -126,6 +131,8 @@ class FigureCard:
         session_run_id: The compare session the numbers were read from.
         metadata: The scientific context the figure was drawn with; its ``sources`` name the
             method runs and artifacts the figure was computed from.
+        environment: The device, CPU, threads, library versions and code revisions of the
+            session that produced the timings, read from the session run.
     """
 
     stem: str
@@ -133,6 +140,7 @@ class FigureCard:
     scope_display: str
     session_run_id: SessionRunId
     metadata: FigureMetadata
+    environment: RuntimeEnvironment
 
     def __post_init__(self) -> None:
         """Require a file stem and a session run id."""
@@ -158,6 +166,7 @@ def build_figure_card(
     metadata: FigureMetadata,
     *,
     session_run_id: SessionRunId,
+    environment: RuntimeEnvironment,
     notation: NotationPolicy,
 ) -> FigureCard:
     """The card of the figure with file stem ``stem``, rendering its scope as plain text."""
@@ -168,6 +177,7 @@ def build_figure_card(
         scope_display=render_figure_scope(metadata.scope, CARD_PROFILE, plain).text,
         session_run_id=session_run_id,
         metadata=metadata,
+        environment=environment,
     )
 
 
@@ -360,6 +370,7 @@ def card_payload(card: FigureCard) -> dict[str, Any]:
         "parameters": [asdict(context) for context in metadata.solver_contexts],
         "source": {
             "session_run_id": card.session_run_id,
+            "environment": encode_environment(card.environment),
             "methods": [
                 {"run_id": str(source.run_id), "artifact_paths": list(source.artifact_paths)}
                 for source in metadata.sources
@@ -498,6 +509,9 @@ def decode_figure_card(payload: Mapping[str, Any]) -> FigureCard:
         scope_display=str(payload["scope"]["display"]),
         session_run_id=SessionRunId(str(payload["source"]["session_run_id"])),
         metadata=metadata,
+        environment=decode_environment(
+            {key: str(value) for key, value in payload["source"]["environment"].items()}
+        ),
     )
     if tuple(payload["files"]) != card.files:
         raise InvalidFigureCardError(

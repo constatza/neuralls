@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from tests.environment_support import SESSION_ENVIRONMENT
 
 from neuralls.domain.benchmarking.selection import (
     ConfiguredReference,
@@ -75,7 +76,12 @@ def scope(dataset_presentation: DatasetPresentation) -> RecipeScope:
 
 def _card(metadata: FigureMetadata, notation: NotationPolicy) -> FigureCard:
     return build_figure_card(
-        FIGURE, "Online Time", metadata, session_run_id=SESSION_RUN_ID, notation=notation
+        FIGURE,
+        "Online Time",
+        metadata,
+        session_run_id=SESSION_RUN_ID,
+        environment=SESSION_ENVIRONMENT,
+        notation=notation,
     )
 
 
@@ -151,6 +157,17 @@ def test_card_of_each_scope_kind_round_trips_through_toml(
     ]
     assert payload["source"] == {
         "session_run_id": SESSION_RUN_ID,
+        "environment": {
+            "device": "cpu",
+            "cpu_model": "Fixture CPU 9000",
+            "cpu_logical_count": "12",
+            "torch_threads": "6",
+            "torch_version": "2.99.0",
+            "torchalg_version": "0.7.0",
+            "python_version": "3.14.1",
+            "revision": "a" * 40,
+            "torchalg_revision": "b" * 40,
+        },
         "methods": [
             {
                 "run_id": "method-run",
@@ -357,7 +374,9 @@ def test_card_must_name_its_files_by_a_stem_without_directories(
     metadata_of: Callable[[FigureScope], GroupFigureMetadata],
 ) -> None:
     with pytest.raises(ValueError):
-        FigureCard(stem, "Title", "display", SESSION_RUN_ID, metadata_of(scope))
+        FigureCard(
+            stem, "Title", "display", SESSION_RUN_ID, metadata_of(scope), SESSION_ENVIRONMENT
+        )
 
 
 def test_staged_figure_files_must_carry_the_planned_stem(

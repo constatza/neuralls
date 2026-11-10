@@ -70,6 +70,7 @@ from neuralls.platform.tracking.metrics_logging import (
     log_convergence_metrics,
 )
 from neuralls.platform.tracking.scope_run_tree import RunTree, ScopeRunTree
+from neuralls.shared.runtime_environment import RuntimeEnvironment
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, PreconditionerName, SessionRunId
 
@@ -277,7 +278,8 @@ class MLflowReportSink:
     ``notation`` is the case's symbol policy and ``datasets`` presents each dataset a scope
     names; run names and figures render both. ``figure_style`` is the case's figure layout. ``session_run_id`` and ``methods`` identify
     the compare session and the stored method runs every figure is computed from;
-    ``split_records`` are the session's held-out records, copied beside the index. ``runs``
+    ``split_records`` are the session's held-out records, copied beside the index; ``environment`` is the
+    session run's recorded device, CPU, versions and revisions, cited in every figure card. ``runs``
     creates the nested scope runs and ``artifacts`` uploads into the active run.
     """
 
@@ -285,6 +287,7 @@ class MLflowReportSink:
     session_run_id: SessionRunId
     runs: RunTree
     split_records: Sequence[DatasetSplitRecord]
+    environment: RuntimeEnvironment
     methods: Sequence[StoredMethod] = ()
     datasets: Mapping[DatasetId, DatasetPresentation] = field(default_factory=dict)
     figure_style: FigureStyleConfig = field(default_factory=FigureStyleConfig)
@@ -293,7 +296,9 @@ class MLflowReportSink:
 
     def __post_init__(self) -> None:
         """Open the report: its scope run tree and figure uploader start empty."""
-        uploader = FigureUploader(self.session_run_id, self.notation, self.artifacts)
+        uploader = FigureUploader(
+            self.session_run_id, self.notation, self.environment, self.artifacts
+        )
         self._state = OpenReport(
             self.notation,
             self.figure_style,

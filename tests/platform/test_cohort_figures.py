@@ -9,6 +9,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
+from tests.environment_support import SESSION_ENVIRONMENT
 from tests.figure_support import no_offline_cost
 from tests.recipe_support import GAUSSIAN, SINE
 
@@ -382,7 +383,12 @@ def test_a_cohort_figures_card_round_trips_its_cohort_and_names_its_own_table(
     )
 
     card = build_figure_card(
-        plan.stem, plan.title, plan.metadata, session_run_id="session", notation=notation
+        plan.stem,
+        plan.title,
+        plan.metadata,
+        session_run_id="session",
+        environment=SESSION_ENVIRONMENT,
+        notation=notation,
     )
     decoded = decode_figure_card(card_payload(card))
 

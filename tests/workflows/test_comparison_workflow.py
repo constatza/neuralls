@@ -102,7 +102,7 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
-from neuralls.platform.tracking.runtime_environment import RuntimeEnvironment, environment_params
+from neuralls.platform.tracking.runtime_environment import environment_params
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import (
@@ -115,6 +115,7 @@ from neuralls.shared.types import (
     SetupEventId,
     SystemId,
 )
+from tests.environment_support import SESSION_ENVIRONMENT
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 from tests.workflows.comparison_support import (
@@ -1501,17 +1502,6 @@ def test_an_external_rhs_of_the_wrong_length_fails_only_its_own_system(
     by_id = {outcome.comparison_id: outcome for outcome in outcomes}
     assert isinstance(by_id["fits"], ComparisonCompleted)
     assert isinstance(by_id["too-long"], ComparisonEntryFailed)
-
-
-SESSION_ENVIRONMENT = RuntimeEnvironment(
-    device_name="cpu",
-    cpu_model="Fixture CPU 9000",
-    cpu_logical_count=12,
-    torch_threads=6,
-    torch_version="2.99.0",
-    torchalg_version="0.7.0",
-    python_version="3.14.1",
-)
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_setup_tracking")

@@ -19,6 +19,7 @@ from collections.abc import Mapping
 
 import polars as pl
 import pytest
+from tests.environment_support import SESSION_ENVIRONMENT
 from tests.figure_support import VARIANT_METRIC
 
 from neuralls.domain.benchmarking.paired import (
@@ -97,6 +98,7 @@ def _payloads(
                 plan.title,
                 plan.metadata,
                 session_run_id=SESSION_RUN_ID,
+                environment=SESSION_ENVIRONMENT,
                 notation=notation,
             )
         )
@@ -377,7 +379,12 @@ def test_a_card_decodes_to_the_metadata_it_was_built_from(
     }
     plan = plans[_BY_STEM[stem].figure_stem(FILE_KEY)]
     card = build_figure_card(
-        plan.stem, plan.title, plan.metadata, session_run_id=SESSION_RUN_ID, notation=notation
+        plan.stem,
+        plan.title,
+        plan.metadata,
+        session_run_id=SESSION_RUN_ID,
+        environment=SESSION_ENVIRONMENT,
+        notation=notation,
     )
 
     assert decode_figure_card(card_payload(card)) == card

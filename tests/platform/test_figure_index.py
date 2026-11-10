@@ -7,6 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from tests.environment_support import SESSION_ENVIRONMENT
 
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.figure_scope import FigureScope, RecipeScope
@@ -45,7 +46,12 @@ def card_of(
 ) -> Callable[[str], FigureCard]:
     def build(stem: str) -> FigureCard:
         return build_figure_card(
-            stem, "Title", metadata_of(scope), session_run_id="session", notation=notation
+            stem,
+            "Title",
+            metadata_of(scope),
+            session_run_id="session",
+            environment=SESSION_ENVIRONMENT,
+            notation=notation,
         )
 
     return build
@@ -143,6 +149,7 @@ def test_a_table_beside_a_history_figure_is_rejected(
         "Title",
         method_metadata_of(scope),
         session_run_id=SessionRunId("session"),
+        environment=SESSION_ENVIRONMENT,
         notation=notation,
     )
 

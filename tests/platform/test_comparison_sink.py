@@ -10,6 +10,7 @@ from pathlib import Path
 
 import polars as pl
 import pytest
+from tests.environment_support import SESSION_ENVIRONMENT
 from tests.fakes.run_tree import FakeRunTree
 from tests.observation_support import solved_row, synthetic_observations, unconverged_row
 from tests.presentation_support import PreparedMethodFactory
@@ -297,7 +298,12 @@ def sink(
     split_records: tuple[DatasetSplitRecord, ...],
 ) -> MLflowReportSink:
     return MLflowReportSink(
-        notation, "session-run", FakeRunTree(), split_records, methods=stored_methods
+        notation,
+        "session-run",
+        FakeRunTree(),
+        split_records,
+        SESSION_ENVIRONMENT,
+        methods=stored_methods,
     )
 
 
@@ -717,9 +723,9 @@ def test_group_naming_a_method_without_a_stored_run_is_rejected(
     split_records: tuple[DatasetSplitRecord, ...],
 ) -> None:
     with pytest.raises(UnknownStoredMethodError):
-        MLflowReportSink(notation, "session-run", FakeRunTree(), split_records).report(
-            group, presentation=presentation
-        )
+        MLflowReportSink(
+            notation, "session-run", FakeRunTree(), split_records, SESSION_ENVIRONMENT
+        ).report(group, presentation=presentation)
 
 
 def test_sink_finalizes_one_index_listing_exactly_the_logged_figures(

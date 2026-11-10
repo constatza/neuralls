@@ -9,6 +9,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
+from tests.environment_support import SESSION_ENVIRONMENT
 from tests.fakes.artifact_sink import InMemoryArtifactSink
 from tests.figure_support import no_offline_cost
 
@@ -56,7 +57,7 @@ def test_the_table_beside_a_figure_is_the_one_its_card_names(
     table = figure_summaries(profile_report, no_offline_cost(profile_report))["ecdf_time_online"]
     target = _written_target(tmp_path, plan.stem)
     sink = InMemoryArtifactSink()
-    uploader = FigureUploader("session-run", notation, sink)
+    uploader = FigureUploader("session-run", notation, SESSION_ENVIRONMENT, sink)
 
     uploader.upload(
         GROUP_DIRECTORY, GROUP_DIRECTORY, StagedTabledFigure(StagedFigure(plan, target), table)
@@ -93,7 +94,7 @@ def test_a_table_of_another_kind_than_the_cards_is_not_uploaded(
     )
     target = _written_target(tmp_path, plan.stem)
     sink = InMemoryArtifactSink()
-    uploader = FigureUploader("session-run", notation, sink)
+    uploader = FigureUploader("session-run", notation, SESSION_ENVIRONMENT, sink)
     other_kind = figure_summaries(profile_report, no_offline_cost(profile_report))[
         "solve_time_bars"
     ]
@@ -110,7 +111,7 @@ def test_the_index_cites_the_split_records_copied_to_the_report_root(
     notation: NotationPolicy, split_records: tuple[DatasetSplitRecord, ...]
 ) -> None:
     sink = InMemoryArtifactSink()
-    uploader = FigureUploader("session-run", notation, sink)
+    uploader = FigureUploader("session-run", notation, SESSION_ENVIRONMENT, sink)
 
     uploader.write_index(split_records)
 

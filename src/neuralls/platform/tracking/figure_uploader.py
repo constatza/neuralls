@@ -35,6 +35,7 @@ from neuralls.platform.reporting.figure_metadata import (
 )
 from neuralls.platform.reporting.figure_table import check_table_kind, write_group_table
 from neuralls.platform.tracking.split_records import SPLITS_ARTIFACT, encode_split_records
+from neuralls.shared.runtime_environment import RuntimeEnvironment
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import SessionRunId
 
@@ -72,6 +73,7 @@ class FigureUploader:
 
     session_run_id: SessionRunId
     notation: NotationPolicy
+    environment: RuntimeEnvironment
     artifacts: ArtifactSink = field(default_factory=MlflowArtifactSink)
     _staging: tempfile.TemporaryDirectory[str] = field(
         default_factory=lambda: tempfile.TemporaryDirectory(prefix="neuralls-figures-")
@@ -136,6 +138,7 @@ class FigureUploader:
             staged.plan.title,
             staged.plan.metadata,
             session_run_id=self.session_run_id,
+            environment=self.environment,
             notation=self.notation,
         )
         card_path = staged.target.directory / card_name(stem)

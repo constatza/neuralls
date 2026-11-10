@@ -1,20 +1,27 @@
-"""The execution environment every timing of a comparison session depends on.
+"""Collect and log the execution environment every timing of a comparison session depends on.
 
-A wall time is only comparable with another taken on the same device, CPU, thread count and
-library versions, so those facts are constant for one session and are recorded once as
-parameters of the session run, never per row or in a parquet table.
+The facts are constant for one session, so they are recorded once as parameters of the session
+run, never per row or in a parquet table (see `shared.runtime_environment`).
 """
 
 from __future__ import annotations
 
+import json
 import os
 import platform
-from dataclasses import dataclass
-from enum import StrEnum
+import subprocess
+from collections.abc import Mapping
 from importlib import metadata
 from pathlib import Path
 
 import torch
+
+from neuralls.shared.runtime_environment import (
+    RuntimeEnvironment,
+    Unreported,
+    decode_environment,
+    encode_environment,
+)
 
 TORCHALG_DISTRIBUTION = "torchalg"
 """Name of the installed distribution whose version is recorded."""
@@ -28,47 +35,32 @@ CPUINFO_MODEL_KEY = "model name"
 CPU_DEVICE_NAME = "cpu"
 """Device name recorded when the solves run on the CPU."""
 
+ENV_PARAM_PREFIX = "env."
+"""Prefix of the session run params that hold the environment facts."""
 
-class Unreported(StrEnum):
-    """A fact the platform could not report, recorded as an explicit value rather than omitted."""
+PACKAGE_DIRECTORY = Path(__file__).resolve().parent
+"""A directory inside the neuralls checkout, where its git revision is read."""
 
-    UNKNOWN = "unknown"
+GIT_TIMEOUT_SECONDS = 10
+"""Upper bound on the git call that reads the checkout revision."""
 
-
-@dataclass(frozen=True, slots=True)
-class RuntimeEnvironment:
-    """Execution environment of one comparison session.
-
-    Attributes:
-        device_name: CUDA device name, or `CPU_DEVICE_NAME` when the solves run on the CPU.
-        cpu_model: Host CPU model string.
-        cpu_logical_count: Logical CPUs of the host.
-        torch_threads: Intra-op thread count torch uses for CPU kernels.
-        torch_version: Installed torch version.
-        torchalg_version: Installed `torchalg` version.
-        python_version: Interpreter version.
-    """
-
-    device_name: str
-    cpu_model: str | Unreported
-    cpu_logical_count: int | Unreported
-    torch_threads: int
-    torch_version: str
-    torchalg_version: str | Unreported
-    python_version: str
+DIRECT_URL_FILE = "direct_url.json"
+"""Distribution metadata file recording the VCS commit a package was installed from."""
 
 
 def environment_params(env: RuntimeEnvironment) -> dict[str, str]:
     """The MLflow params of a runtime environment; the `env.` keys are stable identifiers."""
-    return {
-        "env.device": env.device_name,
-        "env.cpu_model": str(env.cpu_model),
-        "env.cpu_logical_count": str(env.cpu_logical_count),
-        "env.torch_threads": str(env.torch_threads),
-        "env.torch_version": env.torch_version,
-        "env.torchalg_version": str(env.torchalg_version),
-        "env.python_version": env.python_version,
+    return {f"{ENV_PARAM_PREFIX}{key}": value for key, value in encode_environment(env).items()}
+
+
+def read_environment_params(params: Mapping[str, str]) -> RuntimeEnvironment:
+    """The environment a session run logged; a session that did not log a fact reports it unknown."""
+    fields = {
+        key.removeprefix(ENV_PARAM_PREFIX): value
+        for key, value in params.items()
+        if key.startswith(ENV_PARAM_PREFIX)
     }
+    return decode_environment(fields)
 
 
 def _cpuinfo_model(cpuinfo_path: Path) -> str | Unreported:
@@ -100,6 +92,36 @@ def _torchalg_version() -> str | Unreported:
         return Unreported.UNKNOWN
 
 
+def _git_revision(directory: Path) -> str | Unreported:
+    """`git describe --always --dirty` of the checkout containing `directory`, if there is one."""
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(directory), "describe", "--always", "--dirty", "--abbrev=40"],
+            capture_output=True,
+            encoding="utf-8",
+            check=False,
+            timeout=GIT_TIMEOUT_SECONDS,
+        )
+    except OSError, subprocess.TimeoutExpired:
+        return Unreported.UNKNOWN
+    if done.returncode != 0:
+        return Unreported.UNKNOWN
+    return done.stdout.strip() or Unreported.UNKNOWN
+
+
+def _torchalg_revision() -> str | Unreported:
+    """The git commit `torchalg` was installed from, or `Unreported` when it was not a VCS install."""
+    try:
+        files = metadata.distribution(TORCHALG_DISTRIBUTION).files or ()
+        record = next((file for file in files if file.name == DIRECT_URL_FILE), None)
+        if record is None:
+            return Unreported.UNKNOWN
+        commit = json.loads(record.read_text(encoding="utf-8"))["vcs_info"]["commit_id"]
+    except metadata.PackageNotFoundError, OSError, ValueError, KeyError, TypeError:
+        return Unreported.UNKNOWN
+    return commit if isinstance(commit, str) and commit else Unreported.UNKNOWN
+
+
 def _device_name(device: torch.device) -> str:
     """The CUDA device name, or `CPU_DEVICE_NAME` for any non-CUDA device."""
     if device.type == "cuda":
@@ -124,4 +146,6 @@ def collect_runtime_environment(
         torch_version=torch.__version__,
         torchalg_version=_torchalg_version(),
         python_version=platform.python_version(),
+        revision=_git_revision(PACKAGE_DIRECTORY),
+        torchalg_revision=_torchalg_revision(),
     )

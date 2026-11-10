@@ -7,14 +7,15 @@ from pathlib import Path
 
 import pytest
 import torch
+from tests.environment_support import SESSION_ENVIRONMENT
 
 from neuralls.platform.tracking import runtime_environment
 from neuralls.platform.tracking.runtime_environment import (
-    RuntimeEnvironment,
-    Unreported,
     collect_runtime_environment,
     environment_params,
+    read_environment_params,
 )
+from neuralls.shared.runtime_environment import RuntimeEnvironment, Unreported
 
 CPUINFO = """processor\t: 0
 vendor_id\t: AuthenticAMD
@@ -45,6 +46,8 @@ def pinned_process(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runtime_environment.platform, "python_version", lambda: "3.14.1")
     monkeypatch.setattr(runtime_environment.platform, "processor", lambda: "")
     monkeypatch.setattr(runtime_environment.metadata, "version", lambda name: "0.7.0")
+    monkeypatch.setattr(runtime_environment, "_git_revision", lambda directory: "a" * 40)
+    monkeypatch.setattr(runtime_environment, "_torchalg_revision", lambda: "b" * 40)
 
 
 def test_params_of_a_known_environment() -> None:
@@ -56,6 +59,8 @@ def test_params_of_a_known_environment() -> None:
         torch_version="2.99.0",
         torchalg_version="0.7.0",
         python_version="3.14.1",
+        revision="a" * 40,
+        torchalg_revision="b" * 40,
     )
 
     assert environment_params(env) == {
@@ -66,6 +71,8 @@ def test_params_of_a_known_environment() -> None:
         "env.torch_version": "2.99.0",
         "env.torchalg_version": "0.7.0",
         "env.python_version": "3.14.1",
+        "env.revision": "a" * 40,
+        "env.torchalg_revision": "b" * 40,
     }
 
 
@@ -78,6 +85,8 @@ def test_unreported_facts_are_recorded_as_unknown() -> None:
         torch_version="2.99.0",
         torchalg_version=Unreported.UNKNOWN,
         python_version="3.14.1",
+        revision=Unreported.UNKNOWN,
+        torchalg_revision=Unreported.UNKNOWN,
     )
 
     params = environment_params(env)
@@ -86,7 +95,9 @@ def test_unreported_facts_are_recorded_as_unknown() -> None:
         params["env.cpu_model"],
         params["env.cpu_logical_count"],
         params["env.torchalg_version"],
-    ) == ("unknown", "unknown", "unknown")
+        params["env.revision"],
+        params["env.torchalg_revision"],
+    ) == ("unknown",) * 5
 
 
 @pytest.mark.usefixtures("pinned_process")
@@ -101,6 +112,8 @@ def test_collects_the_cpu_environment(cpuinfo_file: Path) -> None:
         torch_version="2.99.0",
         torchalg_version="0.7.0",
         python_version="3.14.1",
+        revision="a" * 40,
+        torchalg_revision="b" * 40,
     )
 
 
@@ -142,4 +155,30 @@ def test_collection_survives_every_unreported_fact(
         Unreported.UNKNOWN,
         Unreported.UNKNOWN,
         Unreported.UNKNOWN,
+    )
+
+
+def test_the_logged_params_read_back_as_the_environment() -> None:
+    assert read_environment_params(environment_params(SESSION_ENVIRONMENT)) == SESSION_ENVIRONMENT
+
+
+def test_a_session_that_logged_no_environment_reads_back_as_unreported() -> None:
+    env = read_environment_params({"unrelated": "value"})
+
+    assert env == RuntimeEnvironment(*(Unreported.UNKNOWN,) * 9)
+
+
+def test_a_session_logged_before_revisions_were_recorded_reports_them_unknown() -> None:
+    params = {
+        key: value
+        for key, value in environment_params(SESSION_ENVIRONMENT).items()
+        if "revision" not in key
+    }
+
+    env = read_environment_params(params)
+
+    assert (env.revision, env.torchalg_revision, env.device_name) == (
+        Unreported.UNKNOWN,
+        Unreported.UNKNOWN,
+        "cpu",
     )
