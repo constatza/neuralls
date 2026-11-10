@@ -129,11 +129,13 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             | {name.replace(".png", ".parquet") for name in figures}
         )
 
-    def mean_bars(stem: str) -> set[str]:
-        """The mean and time-per-iteration bars and the distributions, drawn at every level."""
+    def cohort_figures(stem: str, *suffixes: str) -> set[str]:
+        """The figures drawn once per cohort, one per stem suffix of the level's cohorts."""
         return {
-            f"{kind}_{stem}.png"
+            f"{kind}_{stem}{suffix}.png"
+            for suffix in suffixes
             for kind in (
+                "convergence_factor",
                 "iteration_means",
                 *(
                     f"time_means_{time}_{population}"
@@ -162,8 +164,7 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"ecdf_time_solve_{recipe_stem}.png",
             f"ecdf_time_online_{recipe_stem}.png",
             f"matrix_heatmap_iterations_{recipe_stem}.png",
-            f"convergence_factor_{recipe_stem}.png",
-            *mean_bars(recipe_stem),
+            *cohort_figures(recipe_stem, ""),
         }
     )
     assert artifact_names(run_of_level("matrix_set").info.run_id) == with_cards(
@@ -171,8 +172,7 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"solve_time_bars_{dataset_stem}.png",
             f"online_time_bars_{dataset_stem}.png",
             f"cost_breakdown_{dataset_stem}.png",
-            *mean_bars(dataset_stem),
-            f"convergence_factor_{dataset_stem}.png",
+            *cohort_figures(dataset_stem, "__mixture"),
         }
     )
     assert artifact_names(report.report_run_id) == with_cards(
@@ -180,7 +180,6 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"solve_time_bars_{all_stem}.png",
             f"online_time_bars_{all_stem}.png",
             f"cost_breakdown_{all_stem}.png",
-            *mean_bars(all_stem),
-            f"convergence_factor_{all_stem}.png",
+            *cohort_figures(all_stem, "__dataset", "__mixture"),
         }
     )

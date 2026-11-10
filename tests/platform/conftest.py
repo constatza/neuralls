@@ -54,6 +54,7 @@ from neuralls.domain.solver.models.split_record import (
 )
 from neuralls.domain.solver.models.workload import MethodWorkloadSummary
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
+from neuralls.domain.solver.reporting.cohorts import WholeGroup
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.observations import Outcome, observations_of_methods
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
@@ -195,6 +196,7 @@ def metadata_of(
 ) -> Callable[[FigureScope], GroupFigureMetadata]:
     def build(scope: FigureScope) -> GroupFigureMetadata:
         return GroupFigureMetadata(
+            cohort=WholeGroup(),
             kind=FigureKind.PERFORMANCE_PROFILE,
             metric_definition="amortized online seconds",
             metric=MetricId.ONLINE_S,

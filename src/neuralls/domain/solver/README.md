@@ -186,7 +186,10 @@ by RHS recipe: one block of `statistic`'s rows per recipe of `obs` (in order of 
 each computed on that recipe's systems only, so `Population.COMMON` is taken within the recipe),
 behind a leading `cohort` column holding the recipe's lossless key; with
 `CohortRows.RECIPES_AND_MIXTURE` a last block is `statistic` of the whole of `obs`, labelled
-`MIXTURE_COHORT` (`"mixture"`, never a recipe key). `COHORT_SUMMARY_SCHEMA` and
+`MIXTURE_COHORT` (`"mixture"`, never a recipe key). A figure draws one block: `Cohort`
+(`WholeGroup | RecipeCohort | MixtureCohort`) names it, `cohort_rows` / `cohort_observations`
+select its rows of a cohort table and of the observations behind it, and `single_cohort` rejects a
+table holding several. `COHORT_SUMMARY_SCHEMA` and
 `COHORT_RATIO_OF_SUMS_SCHEMA` are `cohort_schema` of `SUMMARY_SCHEMA` and `RATIO_OF_SUMS_SCHEMA`.
 `reporting/matrix_breakdown.py::matrix_breakdown(obs, metric)` keeps each matrix apart: one
 `MATRIX_BREAKDOWN_SCHEMA` row per method and planned matrix (`method`, `metric`, `dataset`,

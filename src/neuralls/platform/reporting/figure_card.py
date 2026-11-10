@@ -24,6 +24,13 @@ from neuralls.domain.benchmarking.selection import (
 from neuralls.domain.benchmarking.uncertainty import MatrixClusterBootstrap
 from neuralls.domain.solver.models.figure_scope import render_figure_scope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
+from neuralls.domain.solver.reporting.cohorts import (
+    MIXTURE_COHORT,
+    Cohort,
+    MixtureCohort,
+    RecipeCohort,
+    WholeGroup,
+)
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.observations import Outcome
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
@@ -71,6 +78,7 @@ from neuralls.platform.storage.facts_codec import (
     encode_method_presentation,
     encode_recipe,
 )
+from neuralls.shared.rhs_recipe import parse_recipe_key, recipe_key
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
 from neuralls.shared.types import DatasetId, PreconditionerName, RunId, SessionRunId
 
@@ -230,6 +238,31 @@ def _decode_interval(payload: Mapping[str, Any]) -> FigureInterval:
     )
 
 
+def _encode_cohort(cohort: Cohort) -> dict[str, Any]:
+    """A figure split by cohort names its cohort as the cohort table's ``cohort`` column does."""
+    match cohort:
+        case WholeGroup():
+            return {}
+        case RecipeCohort(recipe=recipe):
+            return {"cohort": recipe_key(recipe)}
+        case MixtureCohort():
+            return {"cohort": MIXTURE_COHORT}
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _decode_cohort(payload: Mapping[str, Any]) -> Cohort:
+    match payload.get("cohort"):
+        case None:
+            return WholeGroup()
+        case str(name) if name == MIXTURE_COHORT:
+            return MixtureCohort()
+        case str(key):
+            return RecipeCohort(parse_recipe_key(key))
+        case other:
+            raise InvalidFigureCardError(f"figure card cohort is not a name: {other!r}")
+
+
 def _encode_setup_sharing(sharing: SetupSharing) -> dict[str, Any]:
     match sharing:
         case NoSharedSetup():
@@ -280,6 +313,7 @@ def _group_payload(metadata: GroupFigureMetadata) -> dict[str, Any]:
     """The fields only a group figure records: what it summarizes and the evidence under it."""
     return {
         "failure_treatment": metadata.failure_treatment.value,
+        **_encode_cohort(metadata.cohort),
         "metric": metadata.metric.value,
         "population": metadata.population.value,
         "statistic": metadata.statistic.value,
@@ -386,6 +420,7 @@ def _decode_group_metadata(kind: FigureKind, payload: Mapping[str, Any]) -> Grou
     )
     return GroupFigureMetadata(
         **_common_fields(kind, payload),
+        cohort=_decode_cohort(payload),
         interval=_decode_interval(payload),
         setup_sharing=_decode_setup_sharing(payload),
         outcome_counts=tuple(

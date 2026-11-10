@@ -18,6 +18,12 @@ from neuralls.domain.solver.models.group_outcomes import (
     RecipeProfileReport,
     WorkloadMixtureReport,
 )
+from neuralls.domain.solver.reporting.cohorts import (
+    MixtureCohort,
+    RecipeCohort,
+    cohort_observations,
+    cohort_rows,
+)
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.summary import Population, select
 from neuralls.platform.reporting.figure_summaries import figure_summaries
@@ -30,7 +36,7 @@ from neuralls.platform.reporting.seaborn_distributions import (
     NoQuantiles,
     Quantiles,
     cell_label,
-    distribution_panels,
+    distribution_panel,
     heatmap_cells,
     matrix_points,
 )
@@ -68,7 +74,7 @@ def test_a_violins_box_and_whiskers_are_the_quantiles_of_its_summary_row(
         "iteration_distribution"
     ]
 
-    (panel,) = distribution_panels(summary)
+    panel = distribution_panel(summary)
 
     row = summary.filter(pl.col("method") == JACOBI).row(0, named=True)
     assert _methods(panel)[JACOBI] == MethodDistribution(
@@ -86,25 +92,28 @@ def test_a_method_with_nothing_defined_has_no_violin_but_keeps_its_counts(
         "time_distribution_online"
     ]
 
-    (panel,) = distribution_panels(summary)
+    panel = distribution_panel(summary)
 
     assert _methods(panel)[BROKEN] == MethodDistribution(
         BROKEN, NoQuantiles(), n_defined=0, n_planned=9
     )
 
 
-def test_a_mixture_draws_one_distribution_panel_per_recipe(
+def test_each_cohort_of_a_mixture_is_its_own_distribution_panel(
     two_recipe_mixture_report: WorkloadMixtureReport,
 ) -> None:
     summary = figure_summaries(
         two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
     )["time_distribution_solve"]
 
-    panels = distribution_panels(summary)
+    panels = [
+        distribution_panel(cohort_rows(summary, cohort))
+        for cohort in (RecipeCohort(GAUSSIAN), RecipeCohort(SINE), MixtureCohort())
+    ]
 
-    assert [panel.cohort for panel in panels] == [recipe_key(GAUSSIAN), recipe_key(SINE)]
+    assert [panel.cohort for panel in panels] == [recipe_key(GAUSSIAN), recipe_key(SINE), "mixture"]
     # amg converged on four systems of the Gaussian matrices and none of the second recipe
-    assert [_methods(panel)[AMG].n_defined for panel in panels] == [4, 0]
+    assert [_methods(panel)[AMG].n_defined for panel in panels] == [4, 0, 4]
 
 
 def test_the_points_of_a_panel_are_the_per_matrix_means_of_its_recipes_systems(
@@ -114,9 +123,10 @@ def test_the_points_of_a_panel_are_the_per_matrix_means_of_its_recipes_systems(
     summary = figure_summaries(
         two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
     )["iteration_distribution"]
-    first, _ = distribution_panels(summary)
+    cohort = RecipeCohort(GAUSSIAN)
+    first = distribution_panel(cohort_rows(summary, cohort))
 
-    points = matrix_points(observations, first, MetricId.ITERATIONS)
+    points = matrix_points(cohort_observations(observations, cohort), first, MetricId.ITERATIONS)
 
     expected = (
         select(observations, MetricId.ITERATIONS, Population.OWN)

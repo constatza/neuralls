@@ -11,6 +11,7 @@ import polars as pl
 from neuralls.domain.solver.models.group_outcomes import GroupReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.models.plot_style import plot_style_maps
+from neuralls.domain.solver.reporting.cohorts import cohort_observations, cohort_rows
 from neuralls.platform.config.models.figure_style import FigureStyleConfig
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import (
@@ -48,6 +49,7 @@ class GroupStyler:
         return GroupStyle(
             title=plan.title,
             scope=plan.metadata.scope,
+            cohort=plan.metadata.cohort,
             setup_sharing=plan.metadata.setup_sharing,
             notation=self.notation,
             legend=method_legend(
@@ -70,8 +72,9 @@ def write_outcome_plots(
 ) -> tuple[StagedTabledFigure, ...]:
     """Draw every planned figure that has a summary and whose data supports it, in plan order.
 
-    ``summaries`` holds the frame of each variant by stem; a drawn figure is staged with the
-    frame it drew as its table.
+    ``summaries`` holds the frame of each variant by stem; a figure of one cohort draws that
+    cohort's rows of it and the observations of its systems, and is staged with the rows it drew
+    as its table.
     """
     use_headless_backend()
     drawn: list[StagedTabledFigure] = []
@@ -81,8 +84,9 @@ def write_outcome_plots(
         summary = summaries.get(recipe.variant(metadata.metric, metadata.population).stem)
         if summary is None:
             continue
+        summary = cohort_rows(summary, metadata.cohort)
         data = FigureData(
-            outcome.observations,
+            cohort_observations(outcome.observations, metadata.cohort),
             summary,
             styler.style(plan),
             metadata.metric,

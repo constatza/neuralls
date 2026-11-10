@@ -1,4 +1,4 @@
-"""Bars of per-method means and of time per iteration, one panel per recipe.
+"""Bars of per-method means and of time per iteration, one figure per cohort.
 
 Every summary mark is read from the figure's summary frame, the table stored beside it: the bar
 is the frame's statistic column, the whisker its matrix-cluster interval columns and the "k/n"
@@ -7,14 +7,13 @@ because its own error bars resample rows independently, which is wrong when the 
 share it. Only the per-system points of time per iteration, which have no table counterpart, are
 read from the observations.
 
-At a mixture level the frame holds one cohort per recipe and a pooled ``MIXTURE_COHORT`` block;
-each recipe gets a panel and the pooled rows stay in the table, since pooling hides how the
-recipes differ.
+A figure draws one cohort: the rows of a recipe, or of the pooled mixture, of the cohort table.
+Planning gives every cohort its own figure (``cohort_variants.py``), so a figure has one axes.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, assert_never
 
@@ -23,8 +22,7 @@ import polars as pl
 import seaborn as sns
 from matplotlib.axes import Axes
 
-from neuralls.domain.presentation.recipes import render_recipe
-from neuralls.domain.solver.reporting.cohorts import COHORT_COLUMN, MIXTURE_COHORT
+from neuralls.domain.solver.reporting.cohorts import single_cohort
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import Population
 from neuralls.platform.reporting.cohort_points import panel_points
@@ -35,17 +33,11 @@ from neuralls.platform.reporting.figure_annotations import (
 )
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import Statistic
-from neuralls.platform.reporting.figure_sizing import (
-    HEADER_RATIO,
-    LABEL_CHAR_WIDTH_IN,
-    POINT_JITTER,
-)
-from neuralls.platform.reporting.figure_text import TITLE_PROFILE
+from neuralls.platform.reporting.figure_sizing import POINT_JITTER, method_rows_figure_size
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.seaborn_figures import plot_frame
 from neuralls.platform.reporting.series_style import MethodPalette, method_palette
-from neuralls.shared.rhs_recipe import parse_recipe_key
 from neuralls.shared.types import PreconditionerName
 
 type BarStatistic = Literal[
@@ -53,11 +45,6 @@ type BarStatistic = Literal[
 ]
 """The statistics drawn as bars; each value names the summary column the bar is read from."""
 
-_PANEL_WIDTH_IN = 4.5
-"""Width in inches of one recipe panel's bars."""
-_ROW_HEIGHT_IN = 0.45
-"""Height in inches of one method's row."""
-_MIN_HEIGHT_IN = 4.0
 _WHISKER_COLOR = "black"
 _WHISKER_CAP = 0.15
 """Half-height of a whisker cap, in units of the distance between two method rows."""
@@ -105,20 +92,16 @@ class MethodBar:
 
 @dataclass(frozen=True, slots=True)
 class BarPanel:
-    """The bars of one cohort, the recipe key that names it, and the population of its rows."""
+    """The bars of one cohort, the name that its table gives it, and the population of its rows."""
 
     cohort: str
     population: Population
     bars: tuple[MethodBar, ...]
 
 
-def bar_panels(summary: pl.DataFrame, statistic: BarStatistic) -> tuple[BarPanel, ...]:
-    """One panel per recipe cohort of ``summary``, in table order; the mixture rows are not drawn."""
-    drawn = summary.filter(pl.col(COHORT_COLUMN) != MIXTURE_COHORT)
-    return tuple(
-        _panel(cohort, drawn.filter(pl.col(COHORT_COLUMN) == cohort), statistic)
-        for cohort in drawn[COHORT_COLUMN].unique(maintain_order=True).to_list()
-    )
+def bar_panel(summary: pl.DataFrame, statistic: BarStatistic) -> BarPanel:
+    """The panel of the one cohort ``summary`` holds, a recipe's or the pooled mixture's."""
+    return _panel(single_cohort(summary), summary, statistic)
 
 
 def _panel(cohort: str, rows: pl.DataFrame, statistic: BarStatistic) -> BarPanel:
@@ -187,11 +170,14 @@ def plot_mean_bars(
 ) -> FigureTarget | None:
     """Bars of each method's mean of ``metric`` with matrix-cluster whiskers and "k/n" counts.
 
-    ``summary`` is the cohort summary table of the figure; ``None`` when it has no recipe cohort.
+    ``summary`` is the rows of one cohort of the figure's cohort summary table; ``None`` when it
+    has none.
     """
-    return _draw_panels(
-        bar_panels(summary, statistic),
-        {},
+    if summary.height == 0:
+        return None
+    return _draw_cohort(
+        bar_panel(summary, statistic),
+        _NO_POINTS,
         statistic=statistic,
         metric=metric,
         style=style,
@@ -210,13 +196,16 @@ def plot_time_per_iteration(
 ) -> FigureTarget | None:
     """Ratio-of-sums bars of time per iteration over each method's per-system rates.
 
-    ``summary`` is the cohort ratio-of-sums table; the points are the systems of ``observations``
-    that returned an iterate, which no table stores.
+    ``summary`` is the rows of one cohort of the cohort ratio-of-sums table; the points are the
+    systems of ``observations`` (those of the same cohort) that returned an iterate, which no
+    table stores.
     """
-    panels = bar_panels(summary, Statistic.RATIO_OF_SUMS)
-    return _draw_panels(
-        panels,
-        {panel.cohort: panel_points(observations, panel, metric) for panel in panels},
+    if summary.height == 0:
+        return None
+    panel = bar_panel(summary, Statistic.RATIO_OF_SUMS)
+    return _draw_cohort(
+        panel,
+        panel_points(observations, panel, metric),
         statistic=Statistic.RATIO_OF_SUMS,
         metric=metric,
         style=style,
@@ -225,52 +214,25 @@ def plot_time_per_iteration(
     )
 
 
-type PanelDrawer = Callable[[Axes, int], None]
-"""Draws the panel at a column index into its axes, including the x label."""
-
-
-def draw_recipe_panels(
-    cohorts: Sequence[str],
-    palette: MethodPalette,
+def _draw_cohort(
+    panel: BarPanel,
+    points: pl.DataFrame,
     *,
-    draw_panel: PanelDrawer,
+    statistic: BarStatistic,
+    metric: MetricId,
     style: GroupStyle,
     target: FigureTarget,
     saved_message: str,
-) -> FigureTarget | None:
-    """Draw one panel per recipe cohort side by side, method rows shared, under one header.
-
-    Each panel is titled by its rendered recipe when there are several; ``None`` when there is no
-    cohort to draw.
-    """
-    if not cohorts:
-        return None
-    widest = max(len(line) for label in palette.order for line in label.split("\n"))
-    fig = plt.figure(
-        figsize=(
-            widest * LABEL_CHAR_WIDTH_IN + _PANEL_WIDTH_IN * len(cohorts),
-            max(_MIN_HEIGHT_IN, len(palette.labels) * _ROW_HEIGHT_IN + 2.0),
-        )
-    )
-    grid = fig.add_gridspec(2, len(cohorts), height_ratios=(HEADER_RATIO, 1.0))
-    header = fig.add_subplot(grid[0, :])
-    header.axis("off")
-    first = fig.add_subplot(grid[1, 0])
-    axes = [
-        first,
-        *(fig.add_subplot(grid[1, column], sharey=first) for column in range(1, len(cohorts))),
-    ]
-    for column, (ax, cohort) in enumerate(zip(axes, cohorts, strict=True)):
-        draw_panel(ax, column)
-        ax.set_ylabel("Method" if column == 0 else "")
-        if column > 0:
-            ax.tick_params(labelleft=False)
-        if len(cohorts) > 1:
-            recipe = parse_recipe_key(cohort)
-            ax.set_title(render_recipe(recipe, TITLE_PROFILE, style.notation), fontsize=9)
+) -> FigureTarget:
+    """Draw ``panel`` on one axes, titled with the scope and the cohort by ``style``."""
+    palette = method_palette(sorted({bar.method for bar in panel.bars}), style)
+    fig, ax = plt.subplots(figsize=method_rows_figure_size(palette.order))
+    _draw_panel(ax, panel, points, palette, metric)
+    ax.set_xlabel(f"{bar_statistic_text(statistic).capitalize()}: {METRICS[metric].label}")
+    ax.set_ylabel("Method")
     finish_group_figure(
         fig,
-        header,
+        ax,
         title=style.title,
         subtitle=style.subtitle,
         target=target,
@@ -278,35 +240,6 @@ def draw_recipe_panels(
         saved_message=saved_message,
     )
     return target
-
-
-def _draw_panels(
-    panels: Sequence[BarPanel],
-    points: Mapping[str, pl.DataFrame],
-    *,
-    statistic: BarStatistic,
-    metric: MetricId,
-    style: GroupStyle,
-    target: FigureTarget,
-    saved_message: str,
-) -> FigureTarget | None:
-    """Draw ``panels`` side by side under one header that carries the scope."""
-    palette = method_palette(sorted({bar.method for panel in panels for bar in panel.bars}), style)
-    xlabel = f"{bar_statistic_text(statistic).capitalize()}: {METRICS[metric].label}"
-
-    def draw_panel(ax: Axes, column: int) -> None:
-        panel = panels[column]
-        _draw_panel(ax, panel, points.get(panel.cohort, _NO_POINTS), palette, metric)
-        ax.set_xlabel(xlabel)
-
-    return draw_recipe_panels(
-        [panel.cohort for panel in panels],
-        palette,
-        draw_panel=draw_panel,
-        style=style,
-        target=target,
-        saved_message=saved_message,
-    )
 
 
 def _draw_panel(

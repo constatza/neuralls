@@ -197,13 +197,13 @@ notation, legend and the family/colour/marker mappings). A failed run is never g
 - `seaborn_cost_curves.plot_convergence_factors` (`convergence_factor_*`, every report level): the
   residual reduction factor per iteration $\gamma_{p,s}$ of the metric catalog
   (`CONVERGENCE_FACTOR`, read from each system's stored `convergence.parquet` history into the
-  observation view), one row per method and one panel per recipe cohort of its `COHORT_SUMMARY`
-  table (`by_cohort` of `summarize`; at a mixture level the pooled `mixture` block stays in the
-  table only, as for the mean bars below). Observation unit: the system. Population: own (every
-  system of the method with a factor, within the panel's recipe). Statistic: each cohort row gives
+  observation view), one row per method for the one cohort the figure draws, read from the
+  cohort's rows of its `COHORT_SUMMARY` table (`by_cohort` of `summarize`; one figure per cohort,
+  as for the mean bars below). Observation unit: the system. Population: own (every system of the
+  method with a factor, within the cohort). Statistic: each cohort row gives
   the drawn mean over systems with its 95% matrix-cluster bootstrap whisker (the card's
   `[interval]` is `bootstrap_of_means`) and the median tick ($q_{0.5}$); seaborn strips the
-  per-system points, which are the observation rows of the panel's recipe the summary was taken
+  per-system points, which are the observation rows of the cohort the summary was taken
   over and are not stored again. Time scenario: none, it is not a time, so the card records no timing evidence.
   Failure treatment: omitted; only `converged` systems with at least one stored iteration and a
   nonzero initial residual have a factor, and the card's outcome counts state how many of each method's
@@ -213,14 +213,14 @@ notation, legend and the family/colour/marker mappings). A failed run is never g
 `seaborn_means.py` draws the bar figures of means and of time per iteration with
 `sns.barplot(..., errorbar=None)` through `seaborn_figures.plot_frame`: seaborn's own error bars
 resample rows independently, wrong when the RHS of one matrix share it, so every bar, whisker and
-"k/n" annotation is read from the figure's cohort table (`bar_panels` turns it into one `BarPanel`
-per recipe cohort, each method a `MethodBar` whose `height` is a `Bar(value, Whisker | NoWhisker)`
-or `NoBar` when nothing is defined, never a zero bar). Each recipe cohort is one panel side by side
-under a header carrying the scope, titled by the rendered recipe when there are several; the
-`mixture` rows are never drawn. The paneling (`draw_recipe_panels`) lives here and is shared with `seaborn_distributions.py`; the
-count words (`count_label`: "solved", "set up", "returned an iterate") and the row annotations
+"k/n" annotation is read from the figure's cohort table (`bar_panel` turns the one cohort it
+holds into a `BarPanel`, each method a `MethodBar` whose `height` is a `Bar(value, Whisker |
+NoWhisker)` or `NoBar` when nothing is defined, never a zero bar). A figure has one axes and draws
+one cohort; there are no side-by-side panels (see "Figures per cohort" below), and the recipe, or
+the mixture, it draws is named in the subtitle (`figure_text.cohort_note`). The count words (`count_label`: "solved", "set up", "returned an iterate") and the row annotations
 (`annotate_rows`) are in `figure_annotations.py`, and the observation rows behind a panel
-(`cohort_systems`, `panel_points`) in `cohort_points.py`. The five points of each kind, with the formulas in
+(`cohort_systems`, `panel_points`, of observations already narrowed to the cohort) in
+`cohort_points.py`. The five points of each kind, with the formulas in
 `domain/solver/README.md`:
 
 | Kind (stems) | Observation unit | Population | Statistic (bar; whisker) | Time scenario | Failure treatment |
@@ -235,28 +235,43 @@ All four are drawn at every report level. Their cards state `[interval]` as the
 number of distinct matrices that give any method a defined value, and the interval is absent below
 `MIN_INTERVAL_MATRICES`, where no whisker exists); `time_per_iteration` records none.
 
-**Cohort tables at mixture levels.** A mixture level (matrix set, all matrix sets) draws one panel
-per recipe, and every mark must be read from the figure's table, so the table has to hold what the
-panels show as well as the pooled numbers. The tables of these figures are therefore cohort tables
-(`TableKind.COHORT_SUMMARY`, `TableKind.COHORT_RATIO_OF_SUMS`): the statistic's own schema behind
-one leading `cohort` column (`domain/solver/reporting/cohorts.py::by_cohort`), one block of rows per
-recipe (the recipe's lossless key) and, only at a mixture level, a last block over all recipes
-labelled `mixture`. The same table kind serves both levels, since a recipe's `TableKind` is fixed:
-a recipe level holds its single recipe block and no `mixture` block, which would repeat it. A figure
-family that facets mixtures by recipe reuses `by_cohort` with its own statistic and `cohort_schema`
-of that statistic's schema, instead of adding per-family recipe columns.
+**Cohort tables and figures per cohort.** The tables of the means, time per iteration,
+distributions and convergence-factor figures are cohort tables (`TableKind.COHORT_SUMMARY`,
+`TableKind.COHORT_RATIO_OF_SUMS`): the statistic's own schema behind one leading `cohort` column
+(`domain/solver/reporting/cohorts.py::by_cohort`), one block of rows per recipe (the recipe's
+lossless key) and, only at a mixture level, a last block over all recipes labelled `mixture`.
+`figure_summaries` computes the whole cohort table once per variant. Each cohort is then its own
+figure (`cohort_variants.py`, pure): which cohorts get a figure is decided by the report's
+`CohortLevel`, matched exhaustively.
+
+| Report level | Figures of a cohort kind | Stem |
+|---|---|---|
+| matrix set and RHS type | one, the report's only recipe | `<stem>_<slug>` (unchanged) |
+| matrix set | the pooled one only: a recipe cohort would repeat the matrix-set-and-RHS-type report of that recipe row for row, since both take the statistic over that recipe's systems of that matrix set | `<stem>_<slug>__mixture` |
+| all matrix sets | one per recipe, then the pooled one | `<stem>_<slug>__<recipe key slug>`, `<stem>_<slug>__mixture` |
+
+Figures whose table is not a cohort table (workload bars, cost breakdown, the profiles, the paired
+kinds, the break-even curve and the heatmap) are one figure of the whole group at every level they
+apply to, with no suffix. A cohort figure has its own card and its own sibling table `<its
+stem>.parquet`, which holds exactly `cohort_rows(table, cohort)`; `table_of(stem, kind)` and the
+uploader's stem-collision check work on the full suffixed stem, and a stem is mapped back to its
+variant through the card's kind, metric and population, never by parsing the stem. The card's
+`cohort` entry (absent for a figure of the whole group) is the recipe key or `mixture`, and its
+`recipes`, counts, weights and evidence describe the systems of that cohort alone, while `scope`
+stays the report group's; `figure_index.toml` entries differ by card path. `group_plots.write_outcome_plots`
+hands each drawer the cohort's rows and the observations of the cohort's systems
+(`cohort_observations`), so a drawer draws one axes and never filters by recipe.
 
 `seaborn_distributions.py` draws the distribution figures and the matrix heatmap. A
 distribution is one violin per method (`sns.violinplot(..., inner=None, cut=0)`, the density of the
 selected systems) with the per-matrix means of those systems as strip points; both have no table
 counterpart and are not persisted. The box (q25, q50, q75), the whiskers (q05 to q95) and the "k/n
 solved" annotation are read from the method's row of the figure's cohort summary table
-(`distribution_panels` gives one `DistributionPanel` per recipe cohort, each method a
+(`distribution_panel` gives the `DistributionPanel` of the one cohort the table holds, each method a
 `MethodDistribution` whose `quantiles` is `Quantiles` or `NoQuantiles` when nothing is defined).
 The whiskers are a distribution summary of the systems, not a confidence interval: the card records
-no `[interval]` (`NoInterval`) and its `metric_definition` says so. Mixture levels draw one panel
-per recipe and keep the pooled `mixture` rows only in the table, through the same
-`seaborn_means.draw_recipe_panels` the mean bars use. The heatmap's rows are the matrices of a
+no `[interval]` (`NoInterval`) and its `metric_definition` says so. Mixture levels draw
+one figure per cohort, like the mean bars. The heatmap's rows are the matrices of a
 recipe level (labelled `matrix <index>`; the dataset is the figure's scope) and its columns the
 methods; `sns.heatmap` colours the cells from the pivoted `MATRIX_BREAKDOWN_SCHEMA` table, and every
 cell's annotation is read from its row (`heatmap_cells`, `cell_label`): the mean, "k/r" under it
@@ -285,7 +300,7 @@ group's methods), under `<metric>/<method>` keys. The iteration statistics are `
 matrices among them, the cluster count the interval rests on), `speed_ratio_median`,
 `speed_ratio_ci_low` and `speed_ratio_ci_high`; a null statistic is not logged. The `ReportSink` port (`composition/comparison/postprocessing/ports.py`) declares `register_method_figures` beside `report`, `report_system` and `finalize`. Its typed plans (`FigurePlan`: editorial title plus the figure's metadata) are also the single source of
 figure scope, stable filenames, metric and statistic, and card
-metadata. `figure_recipes.py` owns the recipes and their variants and lookups; `figure_summaries.py` computes the frame of each planned figure (one exhaustive `match` over `Statistic`); `figure_planning.py` builds the plans, card metadata and `table_of`. `figure_recipes.FIGURE_RECIPES` holds one recipe per `FigureKind`, the single registry a new figure is added to: a `GroupFigureRecipe` (the kind's `FigureVariant`s, failure treatment, the group report types it applies to, its `draw` function, a public function of `group_drawers.py` named after the figure (`group_drawers.speed_ratio_cdf`) and the `TableKind` it writes) or a `HistoryFigureRecipe` (one `HistoryVariant`; drawn from a stored method by `method_figures.METHOD_PLOTS`). A `FigureVariant` is one figure of a kind: file stem, title, metric definition and the `metric` (`MetricId`), `population` (`Population`) and `statistic` (`Statistic`: workload total, ECDF, performance profile, paired values, speed-ratio CDF, mean over systems, mean over matrices, ratio of sums, cumulative cost, mean and median, quantiles, mean per matrix, offline plus online total; the values of the bar statistics are the table columns their bars are read from) it draws; the variants of a kind differ in metric or population (`time_means` has both populations of each time), which is how `GroupFigureRecipe.variant(metric, population)` selects one and how `write_outcome_plots` hands the right metric to the kind's drawer (it draws each planned figure that has a summary and stages it with that summary as its table). `TableKind` (`summary`, `series`, `paired`, `speed_ratio`, `workload_totals`, `cohort_summary`, `cohort_ratio_of_sums`, `cost_curves`, `matrix_breakdown`, `cost_breakdown`) names the table a recipe writes and `figure_metadata.TABLE_SCHEMAS` maps each kind to its columns and dtypes, taken from the domain schema of the frame it stores. Metadata is `GroupFigureMetadata` (metric, population, statistic, failure treatment, `GroupAggregationRule`, and the evidence records of `figure_evidence.py`: `interval`, `setup_sharing`, `outcome_counts`, `timing`) or `MethodFigureMetadata` (`MethodAggregationRule`; no metric or failure treatment), sharing `TimingPolicy`, `DatasetId` dataset ids and `RunId` sources. The evidence fields are closed variants (`figure_evidence.py`), present on a card only when they apply: `[interval]` (`method = "matrix_cluster_bootstrap"`, `level`, `resamples`, `matrices`) is the `MatrixClusterBootstrap` of the speed-ratio CDF, built from the constants `speed_ratio_summary` resamples with and the distinct matrices that give any method a ratio, or of the whiskers of a mean figure and of the convergence factors (`bootstrap_of_means`, above), and is absent from every figure that draws no interval; `r_m` lists the distinct planned RHS counts per matrix and exists only for a metric that divides a matrix's setup over them (`online_s`, the `SetupSharedOverRhs` variant); `[outcome_counts]` is `summary.outcome_counts` per method; `[timing_spread]` holds each method's median relative spread of its timing repeats (`summary.timing_noise`) and exists only on a figure of a metric measured in seconds, with `timing_warning` added when the presentation's solver contexts show a single timing repeat, so the figure's times carry noise it cannot show. A group figure is uploaded as a `StagedTabledFigure` (figure plus its table frame), a history figure as a `StagedFigure` (its plan and the `FigureTarget` its files were written to; `FigurePlan.stem` and the target's stem must agree). Every figure (group, method and system) is uploaded with its **figure card**
+metadata. `figure_recipes.py` owns the recipes and their variants and lookups; `figure_summaries.py` computes the frame of each planned figure (one exhaustive `match` over `Statistic`); `figure_planning.py` builds the plans, card metadata and `table_of`; `cohort_variants.py` fans a cohort kind out into the figures its report level gets. `figure_recipes.FIGURE_RECIPES` holds one recipe per `FigureKind`, the single registry a new figure is added to: a `GroupFigureRecipe` (the kind's `FigureVariant`s, failure treatment, the group report types it applies to, its `draw` function, a public function of `group_drawers.py` named after the figure (`group_drawers.speed_ratio_cdf`) and the `TableKind` it writes) or a `HistoryFigureRecipe` (one `HistoryVariant`; drawn from a stored method by `method_figures.METHOD_PLOTS`). A `FigureVariant` is one figure of a kind: file stem, title, metric definition and the `metric` (`MetricId`), `population` (`Population`) and `statistic` (`Statistic`: workload total, ECDF, performance profile, paired values, speed-ratio CDF, mean over systems, mean over matrices, ratio of sums, cumulative cost, mean and median, quantiles, mean per matrix, offline plus online total; the values of the bar statistics are the table columns their bars are read from) it draws; the variants of a kind differ in metric or population (`time_means` has both populations of each time), which is how `GroupFigureRecipe.variant(metric, population)` selects one and how `write_outcome_plots` hands the right metric to the kind's drawer (it draws each planned figure that has a summary and stages it with that summary as its table). `TableKind` (`summary`, `series`, `paired`, `speed_ratio`, `workload_totals`, `cohort_summary`, `cohort_ratio_of_sums`, `cost_curves`, `matrix_breakdown`, `cost_breakdown`) names the table a recipe writes and `figure_metadata.TABLE_SCHEMAS` maps each kind to its columns and dtypes, taken from the domain schema of the frame it stores. Metadata is `GroupFigureMetadata` (cohort, metric, population, statistic, failure treatment, `GroupAggregationRule`, and the evidence records of `figure_evidence.py`: `interval`, `setup_sharing`, `outcome_counts`, `timing`) or `MethodFigureMetadata` (`MethodAggregationRule`; no metric or failure treatment), sharing `TimingPolicy`, `DatasetId` dataset ids and `RunId` sources. The evidence fields are closed variants (`figure_evidence.py`), present on a card only when they apply: `[interval]` (`method = "matrix_cluster_bootstrap"`, `level`, `resamples`, `matrices`) is the `MatrixClusterBootstrap` of the speed-ratio CDF, built from the constants `speed_ratio_summary` resamples with and the distinct matrices that give any method a ratio, or of the whiskers of a mean figure and of the convergence factors (`bootstrap_of_means`, above), and is absent from every figure that draws no interval; `r_m` lists the distinct planned RHS counts per matrix and exists only for a metric that divides a matrix's setup over them (`online_s`, the `SetupSharedOverRhs` variant); `[outcome_counts]` is `summary.outcome_counts` per method; `[timing_spread]` holds each method's median relative spread of its timing repeats (`summary.timing_noise`) and exists only on a figure of a metric measured in seconds, with `timing_warning` added when the presentation's solver contexts show a single timing repeat, so the figure's times carry noise it cannot show. A group figure is uploaded as a `StagedTabledFigure` (figure plus its table frame), a history figure as a `StagedFigure` (its plan and the `FigureTarget` its files were written to; `FigurePlan.stem` and the target's stem must agree). Every figure (group, method and system) is uploaded with its **figure card**
 (`reporting/figure_card.py`: `<stem>.toml` beside `<stem>.png`, same run directory, same stem) into the
 run of its own scope; stems only need to be unique inside one run directory, so system figures keep the
 short stems `residual_history` and `energy_history`. A card is the single record of a figure's parameters: `stem`

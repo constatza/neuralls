@@ -45,6 +45,7 @@ from neuralls.domain.presentation.run_names import (
 )
 from neuralls.domain.presentation.titles import ComparisonScopePresentation, EditorialPresentation
 from neuralls.domain.solver.models.figure_scope import AllDatasetsScope
+from neuralls.domain.solver.reporting.cohorts import WholeGroup
 from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.figure_evidence import NoSharedSetup, SetupSharing
@@ -726,6 +727,7 @@ def group_style_of(
         return GroupStyle(
             title=title,
             scope=AllDatasetsScope(),
+            cohort=WholeGroup(),
             setup_sharing=setup_sharing,
             notation=notation,
             legend=legend_of(*names),

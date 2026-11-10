@@ -1,4 +1,4 @@
-"""The observation rows behind one recipe-cohort panel of a report figure."""
+"""The observation rows behind the panel of one cohort of a report figure."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from neuralls.domain.solver.reporting.summary import Population, select
 
 
 class CohortPanel(Protocol):
-    """A panel of one recipe cohort, drawn over the systems of one population."""
+    """A panel of one cohort, drawn over the systems of one population."""
 
     @property
     def cohort(self) -> str: ...
@@ -23,8 +23,12 @@ class CohortPanel(Protocol):
 def cohort_systems(
     observations: pl.DataFrame, panel: CohortPanel, metric: MetricId
 ) -> pl.DataFrame:
-    """The observation rows behind ``panel``: its recipe's systems that define ``metric``."""
-    return select(observations, metric, panel.population).filter(pl.col("recipe") == panel.cohort)
+    """The rows of ``observations`` that define ``metric`` for the population of ``panel``.
+
+    ``observations`` are those of the panel's cohort already (``cohort_observations``), so the
+    recipe is not filtered again here.
+    """
+    return select(observations, metric, panel.population)
 
 
 def panel_points(observations: pl.DataFrame, panel: CohortPanel, metric: MetricId) -> pl.DataFrame:

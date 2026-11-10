@@ -20,6 +20,7 @@ from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.reporting.cohorts import (
     COHORT_RATIO_OF_SUMS_SCHEMA,
     COHORT_SUMMARY_SCHEMA,
+    Cohort,
 )
 from neuralls.domain.solver.reporting.matrix_breakdown import MATRIX_BREAKDOWN_SCHEMA
 from neuralls.domain.solver.reporting.metrics import MetricId
@@ -286,9 +287,12 @@ class GroupFigureMetadata(_FigureContext):
     is taken over and ``statistic`` what is drawn of it. ``failure_treatment`` says what the
     figure does with failed systems. The remaining fields record the evidence under the numbers:
     the ``interval`` drawn, the right-hand-side counts the metric divides setup over, how many
-    systems each method has in each outcome, and how reliable the times are.
+    systems each method has in each outcome, and how reliable the times are. ``cohort`` says which
+    recipes' systems the figure draws; the counts, evidence and ``recipes`` of a recipe cohort
+    describe that recipe alone, while ``scope`` stays the report group's.
     """
 
+    cohort: Cohort
     metric: MetricId
     population: Population
     statistic: Statistic

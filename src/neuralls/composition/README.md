@@ -702,8 +702,11 @@ penalty.
 
 Matrix-set-and-RHS-type profiles use one RHS type. Solve-only and amortized-online ECDFs and
 Dolan--Moré profiles show their respective absolute budgets and fastest-method
-ratios. Matrix-set and all-matrix-sets outputs are workload mixtures and emit bars only,
-not pooled per-system profiles or paired distributions.
+ratios. Matrix-set and all-matrix-sets outputs are workload mixtures: they emit the workload and
+cost bars, and the means, time per iteration, distributions and convergence factors one figure per
+cohort (the pooled `__mixture` figure at the matrix-set level, whose recipe cohorts would repeat the
+matrix-set-and-RHS-type reports; one figure per recipe plus the pooled one at the all-matrix-sets
+level), not pooled per-system profiles or paired distributions.
 Every level also emits a total-cost figure (`cost_breakdown`): each method's offline generation and
 training, read from the offline block of its stored `summary.toml` and paid once per artifact, stacked on
 the setup and solve seconds of that level's workload. A report never recomputes training from MLflow, so

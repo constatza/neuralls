@@ -370,7 +370,8 @@ def _report_variant(
 
 _GROUP_FILE_STEM = "Comparison_matrix_set_Test_problem_Gaussian_CG_Residuals_k_20_N_100_-_Gaussian"
 
-_MEAN_STEMS = (
+_COHORT_STEMS = (
+    "convergence_factor",
     "iteration_means",
     "time_means_solve_own",
     "time_means_solve_common",
@@ -384,7 +385,7 @@ _MEAN_STEMS = (
     "time_distribution_solve",
     "time_distribution_online",
 )
-"""The figures of means, time per iteration and distributions, drawn at every report level."""
+"""The figures drawn once per cohort: means, time per iteration, distributions and factors."""
 
 
 def test_mixture_sink_omits_profiles_but_keeps_the_bars(
@@ -402,8 +403,7 @@ def test_mixture_sink_omits_profiles_but_keeps_the_bars(
         f"solve_time_bars_{key}.png",
         f"online_time_bars_{key}.png",
         f"cost_breakdown_{key}.png",
-        *(f"{stem}_{key}.png" for stem in _MEAN_STEMS),
-        f"convergence_factor_{key}.png",
+        *(f"{stem}_{key}__mixture.png" for stem in _COHORT_STEMS),
     }
 
 
@@ -619,7 +619,7 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
             "ecdf_time_online",
             "matrix_heatmap_iterations",
             "convergence_factor",
-            *_MEAN_STEMS,
+            *_COHORT_STEMS,
         )
     }
     assert _figures(logged_artifacts) == expected

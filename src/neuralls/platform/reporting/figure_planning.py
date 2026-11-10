@@ -14,12 +14,18 @@ from neuralls.domain.solver.models.group_outcomes import (
     WorkloadMixtureReport,
 )
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
+from neuralls.domain.solver.reporting.cohorts import Cohort
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.report_levels import (
     level_name,
 )
 from neuralls.platform.reporting.benchmark_events import (
     MethodBenchmarkArtifacts,
+)
+from neuralls.platform.reporting.cohort_variants import (
+    cohort_level,
+    cohort_report,
+    cohort_variants,
 )
 from neuralls.platform.reporting.figure_evidence import (
     FigureInterval,
@@ -69,10 +75,13 @@ def table_of(stem: str, kind: FigureKind) -> FigureTable:
 
 
 def plan_figure[M: FigureMetadata](
-    variant: FigureVariant | HistoryVariant, metadata: M, *, slug: str
+    variant: FigureVariant | HistoryVariant, metadata: M, *, slug: str, stem_suffix: str = ""
 ) -> FigurePlan[M]:
-    """The plan of ``variant`` for the report subject named by ``slug``."""
-    return FigurePlan(variant.figure_stem(slug), variant.title, metadata)
+    """The plan of ``variant`` for the report subject named by ``slug``.
+
+    ``stem_suffix`` ends the stem of one cohort's figure of a variant drawn per cohort.
+    """
+    return FigurePlan(f"{variant.figure_stem(slug)}{stem_suffix}", variant.title, metadata)
 
 
 def figure_plans(
@@ -83,16 +92,21 @@ def figure_plans(
 ) -> tuple[FigurePlan[GroupFigureMetadata], ...]:
     """Build every figure's scientific context before drawing.
 
-    ``stored`` holds the method run of each method ``presentation`` lists.
+    ``stored`` holds the method run of each method ``presentation`` lists. A variant drawn per
+    cohort is planned once per cohort the report's level gives a figure (``cohort_variants.py``),
+    each with its own stem, card and table.
     """
+    level = cohort_level(outcome.label)
     return tuple(
         plan_figure(
             variant,
-            _figure_metadata(recipe, variant, outcome, presentation, stored),
+            _figure_metadata(recipe, variant, cohort_variant.cohort, outcome, presentation, stored),
             slug=file_key,
+            stem_suffix=cohort_variant.stem_suffix,
         )
         for recipe in group_recipes()
         if isinstance(outcome, recipe.applies_to)
+        for cohort_variant in cohort_variants(recipe.table, level, outcome.recipe_membership)
         for variant in recipe.variants
     )
 
@@ -100,10 +114,13 @@ def figure_plans(
 def _figure_metadata(
     recipe: GroupFigureRecipe,
     variant: FigureVariant,
-    outcome: GroupReport,
+    cohort: Cohort,
+    group: GroupReport,
     presentation: GroupPresentation,
     stored: Mapping[PreconditionerName, StoredMethod],
 ) -> GroupFigureMetadata:
+    # The evidence under a cohort's figure comes from the systems it draws, not the whole group.
+    outcome = cohort_report(group, cohort)
     dataset_ids = tuple(outcome.dataset_membership)
     recipes = outcome.recipe_membership
     weights = tuple(count / outcome.n_planned_rhs for count in outcome.recipe_counts)
@@ -124,6 +141,7 @@ def _figure_metadata(
         else GroupAggregationRule.PER_PLANNED_SYSTEM
     )
     return GroupFigureMetadata(
+        cohort=cohort,
         kind=recipe.kind,
         metric_definition=variant.metric_definition,
         metric=variant.metric,

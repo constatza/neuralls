@@ -16,6 +16,13 @@ from neuralls.domain.solver.models.group_outcomes import (
     RecipeProfileReport,
     WorkloadMixtureReport,
 )
+from neuralls.domain.solver.reporting.cohorts import (
+    MixtureCohort,
+    NotOneCohortError,
+    RecipeCohort,
+    cohort_observations,
+    cohort_rows,
+)
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.summary import Population, select
 from neuralls.platform.reporting.cohort_points import panel_points
@@ -28,7 +35,7 @@ from neuralls.platform.reporting.seaborn_means import (
     NoBar,
     NoWhisker,
     Whisker,
-    bar_panels,
+    bar_panel,
     defined_label,
 )
 from neuralls.shared.rhs_recipe import recipe_key
@@ -52,7 +59,7 @@ def test_a_mean_bar_and_its_whisker_are_the_summary_row_of_its_method(
 ) -> None:
     summary = figure_summaries(profile_report, no_offline_cost(profile_report))["iteration_means"]
 
-    (panel,) = bar_panels(summary, Statistic.MEAN_OVER_SYSTEMS)
+    panel = bar_panel(summary, Statistic.MEAN_OVER_SYSTEMS)
 
     row = _row(summary, JACOBI)
     assert _bars(panel)[JACOBI] == MethodBar(
@@ -71,7 +78,7 @@ def test_a_method_with_nothing_defined_has_no_bar_but_keeps_its_counts(
 ) -> None:
     summary = figure_summaries(profile_report, no_offline_cost(profile_report))["iteration_means"]
 
-    (panel,) = bar_panels(summary, Statistic.MEAN_OVER_SYSTEMS)
+    panel = bar_panel(summary, Statistic.MEAN_OVER_SYSTEMS)
 
     assert _bars(panel)[BROKEN] == MethodBar(BROKEN, NoBar(), n_defined=0, n_planned=9)
 
@@ -81,7 +88,7 @@ def test_setup_bars_read_the_mean_over_matrices_of_matrices_set_up(
 ) -> None:
     summary = figure_summaries(profile_report, no_offline_cost(profile_report))["setup_means"]
 
-    (panel,) = bar_panels(summary, Statistic.MEAN_OVER_MATRICES)
+    panel = bar_panel(summary, Statistic.MEAN_OVER_MATRICES)
 
     amg = _bars(panel)[AMG]
     row = _row(summary, AMG)
@@ -100,23 +107,37 @@ def test_time_per_iteration_bars_are_the_ratio_of_sums_without_a_whisker(
         "time_per_iteration"
     ]
 
-    (panel,) = bar_panels(summary, Statistic.RATIO_OF_SUMS)
+    panel = bar_panel(summary, Statistic.RATIO_OF_SUMS)
 
     assert _bars(panel)[AMG].height == Bar(_row(summary, AMG)["ratio_of_sums"], NoWhisker())
 
 
-def test_a_mixture_draws_one_panel_per_recipe_and_no_pooled_panel(
+def test_each_cohort_of_a_mixture_is_its_own_panel(
     two_recipe_mixture_report: WorkloadMixtureReport,
 ) -> None:
     summary = figure_summaries(
         two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
     )["iteration_means"]
 
-    panels = bar_panels(summary, Statistic.MEAN_OVER_SYSTEMS)
+    panels = [
+        bar_panel(cohort_rows(summary, cohort), Statistic.MEAN_OVER_SYSTEMS)
+        for cohort in (RecipeCohort(GAUSSIAN), RecipeCohort(SINE), MixtureCohort())
+    ]
 
-    assert [panel.cohort for panel in panels] == [recipe_key(GAUSSIAN), recipe_key(SINE)]
+    assert [panel.cohort for panel in panels] == [recipe_key(GAUSSIAN), recipe_key(SINE), "mixture"]
     # amg converged on four systems of the Gaussian matrices and none of the second recipe
-    assert [_bars(panel)[AMG].n_defined for panel in panels] == [4, 0]
+    assert [_bars(panel)[AMG].n_defined for panel in panels] == [4, 0, 4]
+
+
+def test_a_panel_of_several_cohorts_is_rejected(
+    two_recipe_mixture_report: WorkloadMixtureReport,
+) -> None:
+    summary = figure_summaries(
+        two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
+    )["iteration_means"]
+
+    with pytest.raises(NotOneCohortError):
+        bar_panel(summary, Statistic.MEAN_OVER_SYSTEMS)
 
 
 def test_a_panel_states_the_population_of_its_rows(
@@ -126,9 +147,9 @@ def test_a_panel_states_the_population_of_its_rows(
         two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
     )["time_means_solve_common"]
 
-    panels = bar_panels(summary, Statistic.MEAN_OVER_SYSTEMS)
+    panel = bar_panel(cohort_rows(summary, MixtureCohort()), Statistic.MEAN_OVER_SYSTEMS)
 
-    assert {panel.population for panel in panels} == {Population.COMMON}
+    assert panel.population == Population.COMMON
 
 
 def test_time_per_iteration_points_are_each_recipes_systems_with_an_iterate(
@@ -138,9 +159,12 @@ def test_time_per_iteration_points_are_each_recipes_systems_with_an_iterate(
     summary = figure_summaries(
         two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report)
     )["time_per_iteration"]
-    first, _ = bar_panels(summary, Statistic.RATIO_OF_SUMS)
+    cohort = RecipeCohort(GAUSSIAN)
+    first = bar_panel(cohort_rows(summary, cohort), Statistic.RATIO_OF_SUMS)
 
-    points = panel_points(observations, first, MetricId.TIME_PER_ITERATION_S)
+    points = panel_points(
+        cohort_observations(observations, cohort), first, MetricId.TIME_PER_ITERATION_S
+    )
 
     expected = (
         select(observations, MetricId.TIME_PER_ITERATION_S, Population.OWN)

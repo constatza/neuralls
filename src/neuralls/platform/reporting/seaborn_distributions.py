@@ -4,8 +4,7 @@ Every summary mark is read from the figure's table. A distribution's box (q25, q
 whiskers (q05 to q95, a distribution summary and not a confidence interval) and its "k/n"
 annotation come from the method's cohort summary row; seaborn draws only the violin density of the
 systems and the per-matrix mean points, which have no table counterpart and are not persisted. At
-a mixture level each recipe gets a panel and the pooled rows stay in the table, as for the mean
-bars (``seaborn_means.py``).
+a mixture level each cohort has its own figure, as for the mean bars (``seaborn_means.py``).
 
 A heatmap's cells are the rows of its matrix breakdown: seaborn colours them from the pivoted
 breakdown, and each cell's annotation, or the hatching and "0/r solved" of a cell where nothing
@@ -25,7 +24,7 @@ from matplotlib.axes import Axes
 from matplotlib.colors import Normalize
 from matplotlib.patches import Rectangle
 
-from neuralls.domain.solver.reporting.cohorts import COHORT_COLUMN, MIXTURE_COHORT
+from neuralls.domain.solver.reporting.cohorts import single_cohort
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import Population
 from neuralls.platform.reporting.cohort_points import cohort_systems
@@ -35,12 +34,12 @@ from neuralls.platform.reporting.figure_annotations import (
     count_label,
 )
 from neuralls.platform.reporting.figure_formats import FigureTarget
+from neuralls.platform.reporting.figure_sizing import method_rows_figure_size
 from neuralls.platform.reporting.figure_style import rotate_x_labels
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.seaborn_figures import plot_frame
-from neuralls.platform.reporting.seaborn_means import draw_recipe_panels
 from neuralls.platform.reporting.series_style import MethodPalette, method_palette
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName
 
@@ -98,20 +97,16 @@ class MethodDistribution:
 
 @dataclass(frozen=True, slots=True)
 class DistributionPanel:
-    """The distributions of one cohort, the recipe key that names it and its rows' population."""
+    """The distributions of one cohort, the name its table gives it and its rows' population."""
 
     cohort: str
     population: Population
     methods: tuple[MethodDistribution, ...]
 
 
-def distribution_panels(summary: pl.DataFrame) -> tuple[DistributionPanel, ...]:
-    """One panel per recipe cohort of ``summary``, in table order; the mixture rows are not drawn."""
-    drawn = summary.filter(pl.col(COHORT_COLUMN) != MIXTURE_COHORT)
-    return tuple(
-        _panel(cohort, drawn.filter(pl.col(COHORT_COLUMN) == cohort))
-        for cohort in drawn[COHORT_COLUMN].unique(maintain_order=True).to_list()
-    )
+def distribution_panel(summary: pl.DataFrame) -> DistributionPanel:
+    """The panel of the one cohort ``summary`` holds, a recipe's or the pooled mixture's."""
+    return _panel(single_cohort(summary), summary)
 
 
 def _panel(cohort: str, rows: pl.DataFrame) -> DistributionPanel:
@@ -176,25 +171,27 @@ def plot_distribution(
 ) -> FigureTarget | None:
     """Violins of each method's systems with the summary's box, whiskers and "k/n" counts.
 
-    ``summary`` is the cohort summary table of the figure; ``None`` when it has no recipe cohort.
+    ``summary`` is the rows of one cohort of the figure's cohort summary table and
+    ``observations`` the systems of that cohort; ``None`` when ``summary`` has no row.
     """
-    panels = distribution_panels(summary)
-    palette = method_palette(
-        sorted({method.method for panel in panels for method in panel.methods}), style
-    )
-
-    def draw_panel(ax: Axes, column: int) -> None:
-        _draw_distribution_panel(ax, panels[column], observations, palette, metric)
-        ax.set_xlabel(distribution_xlabel(metric))
-
-    return draw_recipe_panels(
-        [panel.cohort for panel in panels],
-        palette,
-        draw_panel=draw_panel,
-        style=style,
+    if summary.height == 0:
+        return None
+    panel = distribution_panel(summary)
+    palette = method_palette(sorted(method.method for method in panel.methods), style)
+    fig, ax = plt.subplots(figsize=method_rows_figure_size(palette.order))
+    _draw_distribution_panel(ax, panel, observations, palette, metric)
+    ax.set_xlabel(distribution_xlabel(metric))
+    ax.set_ylabel("Method")
+    finish_group_figure(
+        fig,
+        ax,
+        title=style.title,
+        subtitle=style.subtitle,
         target=target,
+        show=False,
         saved_message="Saved distribution to",
     )
+    return target
 
 
 def _draw_distribution_panel(

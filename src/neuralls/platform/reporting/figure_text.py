@@ -20,10 +20,17 @@ from neuralls.domain.presentation.methods import (
     ConfiguredMethodPresentation,
     MissingMethodPresentationError,
 )
+from neuralls.domain.presentation.recipes import render_recipe
 from neuralls.domain.presentation.render import render_distinct_methods, render_title
 from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.domain.presentation.titles import ComparisonTitle
 from neuralls.domain.solver.models.figure_scope import FigureScope, render_figure_scope
+from neuralls.domain.solver.reporting.cohorts import (
+    Cohort,
+    MixtureCohort,
+    RecipeCohort,
+    WholeGroup,
+)
 from neuralls.platform.reporting.figure_evidence import (
     NoSharedSetup,
     SetupSharedOverRhs,
@@ -49,6 +56,7 @@ __all__ = [
     "LegendLayout",
     "LegendPlacement",
     "ScopeSubtitle",
+    "cohort_note",
     "draw_legend",
     "method_legend",
     "scope_label",
@@ -295,6 +303,26 @@ SETUP_SHARED_TEXT = "each matrix's setup is shared by its r_m planned RHS"
 
 MAX_LISTED_RHS_COUNTS = 4
 """Most distinct r_m values listed one by one; more are stated as their range."""
+
+
+MIXTURE_NOTE = "Mixture of recipes: pooled over every right-hand-side recipe of the scope"
+"""What a figure pooled over the recipes of a mixture says about itself."""
+
+
+def cohort_note(cohort: Cohort, notation: NotationPolicy) -> str | None:
+    """The line naming the recipe, or the mixture, a cohort figure draws; ``None`` for the rest.
+
+    A figure of the whole group needs none: its scope already names what it draws.
+    """
+    match cohort:
+        case WholeGroup():
+            return None
+        case RecipeCohort(recipe=recipe):
+            return f"RHS recipe: {render_recipe(recipe, TITLE_PROFILE, notation)}"
+        case MixtureCohort():
+            return MIXTURE_NOTE
+        case unreachable:
+            assert_never(unreachable)
 
 
 def setup_sharing_note(sharing: SetupSharing) -> str | None:

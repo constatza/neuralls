@@ -16,18 +16,16 @@ import seaborn as sns
 from matplotlib.axes import Axes
 
 from neuralls.domain.benchmarking.cost_curves import BreakEvenState, CostSide
-from neuralls.domain.presentation.recipes import render_recipe
-from neuralls.domain.solver.reporting.cohorts import COHORT_COLUMN, MIXTURE_COHORT
+from neuralls.domain.solver.reporting.cohorts import single_cohort
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import Population, select
 from neuralls.platform.reporting.figure_formats import FigureTarget
-from neuralls.platform.reporting.figure_sizing import HEADER_RATIO, POINT_JITTER
-from neuralls.platform.reporting.figure_text import TITLE_PROFILE, draw_legend
+from neuralls.platform.reporting.figure_sizing import POINT_JITTER
+from neuralls.platform.reporting.figure_text import draw_legend
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.seaborn_figures import plot_frame
 from neuralls.platform.reporting.series_style import method_palette
-from neuralls.shared.rhs_recipe import parse_recipe_key
 from neuralls.shared.types import PreconditionerName
 
 _REFERENCE_DASHES = (4.0, 2.0)
@@ -158,8 +156,8 @@ _POINT_ALPHA = 0.45
 _SUMMARY_COLOR = "black"
 _MEDIAN_MARKER = "|"
 _MEDIAN_MARKER_SIZE = 260
-_FACTOR_PANEL_WIDTH_IN = 7.0
-"""Width in inches of one recipe panel, method labels included."""
+_FACTOR_WIDTH_IN = 7.0
+"""Width in inches of the figure, method labels included."""
 
 
 def plot_convergence_factors(
@@ -170,46 +168,31 @@ def plot_convergence_factors(
     style: GroupStyle,
     target: FigureTarget,
 ) -> FigureTarget | None:
-    """Per-method residual reduction per iteration, one panel per recipe cohort of ``summary``.
+    """Per-method residual reduction per iteration of the one cohort ``summary`` holds.
 
-    ``summary`` is the figure's cohort summary table; the mean over systems with its 95%
-    matrix-cluster interval and the median tick of each method come from it. Seaborn strips the
-    per-system points, the observation rows of the panel's recipe the summary was taken over, which
-    no table stores again. The pooled rows of a mixture stay in the table only, since pooling
-    hides how the recipes differ. ``None`` without a recipe cohort.
+    ``summary`` is the rows of one cohort of the figure's cohort summary table; the mean over
+    systems with its 95% matrix-cluster interval and the median tick of each method come from it.
+    Seaborn strips the per-system points, the ``observations`` of the same cohort the summary was
+    taken over, which no table stores again. ``None`` without a row.
     """
-    drawn = summary.filter(pl.col(COHORT_COLUMN) != MIXTURE_COHORT)
-    cohorts = drawn[COHORT_COLUMN].unique(maintain_order=True).to_list()
-    if not cohorts:
+    if summary.height == 0:
         return None
-    names = sorted(set(drawn["method"].to_list()))
+    single_cohort(summary)  # one axes draws one cohort; several would overlay their rows
+    names = sorted(set(summary["method"].to_list()))
     series = method_palette(names, style)
     palette = {name: series.color(name) for name in names}
-    fig = plt.figure(
-        figsize=(_FACTOR_PANEL_WIDTH_IN * len(cohorts), max(3.0, 1.1 * len(names) + 1.5))
-    )
-    grid = fig.add_gridspec(2, len(cohorts), height_ratios=(HEADER_RATIO, 1.0))
-    header = fig.add_subplot(grid[0, :])
-    header.axis("off")
-    axes = [fig.add_subplot(grid[1, column]) for column in range(len(cohorts))]
-    for column, (ax, cohort) in enumerate(zip(axes, cohorts, strict=True)):
-        rows = drawn.filter(pl.col(COHORT_COLUMN) == cohort)
-        points = select(observations, metric, Population(rows["population"][0])).filter(
-            pl.col("recipe") == cohort
-        )
-        _draw_factor_panel(ax, rows, points, names, palette, metric, style)
-        ax.set_ylabel("Method" if column == 0 else "")
-        if len(cohorts) > 1:
-            recipe = parse_recipe_key(cohort)
-            ax.set_title(render_recipe(recipe, TITLE_PROFILE, style.notation), fontsize=9)
-    axes[-1].plot(
+    fig, ax = plt.subplots(figsize=(_FACTOR_WIDTH_IN, max(3.0, 1.1 * len(names) + 1.5)))
+    points = select(observations, metric, Population(summary["population"][0]))
+    _draw_factor_panel(ax, summary, points, names, palette, metric, style)
+    ax.set_ylabel("Method")
+    ax.plot(
         [], [], "o", color=_SUMMARY_COLOR, label="mean over systems, 95% matrix-cluster interval"
     )
-    axes[-1].plot([], [], _MEDIAN_MARKER, color=_SUMMARY_COLOR, markersize=12, label="median")
-    draw_legend(axes[-1], style.legend, inside_loc="lower right")
+    ax.plot([], [], _MEDIAN_MARKER, color=_SUMMARY_COLOR, markersize=12, label="median")
+    draw_legend(ax, style.legend, inside_loc="lower right")
     finish_group_figure(
         fig,
-        header,
+        ax,
         title=style.title,
         subtitle=style.subtitle,
         target=target,
