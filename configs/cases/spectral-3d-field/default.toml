@@ -23,10 +23,10 @@ type = "identity"
 name = "jacobi"
 type = "jacobi"
 
-# TODO: "ilu" removed - comparisons on this case stall during its evaluation.
-# Suspect torchalg's sparse ILU apply() path (level_schedule() is recomputed
-# from a pure-Python per-row loop on every apply() call, not cached in
-# setup()); root cause not yet confirmed. Re-add once diagnosed.
+# TODO: "ilu" removed - comparisons on this case stalled during its evaluation.
+# The cause is not diagnosed; this comparison builds dense matrices and uses the
+# dense ILU builder, so the sparse apply() path is not established as the culprit.
+# Profile the dense build and solve before re-adding it.
 
 [[comparison_baseline.preconditioners]]
 name = "ic0"

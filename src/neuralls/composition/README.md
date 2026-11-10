@@ -597,7 +597,10 @@ loaded object. Which checkpoints a config needs comes from the
 `preconditioners/preloading.py` (fitted POD-2G basis, neural and neural-AMG
 predictors, neural POD-2G's inference predictor). A fitted POD-2G basis does not
 depend on the matrix (only the coarse operator `Phi^T A Phi` does), so it is read
-once and shared by every matrix of the dataset. The store owns the loaded
+once and shared by every matrix of the dataset. A checkpoint-backed basis is therefore
+loaded outside the measured setup, whereas an inline POD fit (no checkpoint identity on
+the config) transfers, scales and decomposes inside it; the two origins are not
+comparable setup times and are not combined in one cost table. The store owns the loaded
 predictors and builds only borrow them: torchalg's `NeuralPreconditioner` takes an
 already-loaded predictor and never releases it, so a discarded timing repeat cannot
 unload a model the kept build still uses. A neural preconditioner built without a
@@ -605,8 +608,12 @@ preload loads its own predictor and owns it
 (`OwningDLKitNeuralPreconditioner`). Checkpoint and data loading are
 excluded from benchmark cost metrics. The device is
 also warmed once per process before the first system (`shared.device.warm_up_device`),
-so no preconditioner's timing absorbs CUDA/cuSPARSE first-call costs; this is
-separate from the per-run `timing.warmup`, which stays opt-in.
+so no preconditioner's timing absorbs CUDA/cuSPARSE first-call costs. The warm-up
+covers dense matmul, triangular solve, CSR matvec and the CG loop only: first use of
+LU, Cholesky, SVD, eigensolvers or an iterative spectral-radius estimate is not
+pre-paid and lands in whichever timed region needs it first. The device cache is
+released after each matrix and each preconditioner, never between timing repeats of
+one event. This is separate from the per-run `timing.warmup`, which stays opt-in.
 
 The method-owned checkpoint store spans its matrices, so loaded weights are
 shared without sharing a matrix setup event. Each matrix's tensors and prepared
@@ -615,7 +622,8 @@ the next method starts. `WorkloadMemoryObserver` combines operation peaks over
 that lifetime without resetting CUDA peak counters around an already-timed
 setup or solve. CPU `ru_maxrss` is process-wide and monotonic, so a method's CPU
 peak is documented and reported as a lower bound when an earlier workload set a
-higher process high-water mark.
+higher process high-water mark. On CUDA the observed value is PyTorch's allocator
+peak, not total device memory.
 
 One check runs before anything executes:
 `spec_consistency.validate_dataset_specs_consistent` rejects a dataset whose

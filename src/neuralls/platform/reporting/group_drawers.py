@@ -95,7 +95,7 @@ def online_time_bars(data: FigureData, target: FigureTarget) -> FigureTarget | N
     return plot_workload_bars(
         data.summary,
         total=WorkloadTotal.ONLINE,
-        ylabel="Total online workload time [s]",
+        ylabel="Total online workload time, incl. failed solves [s]",
         style=data.style,
         target=target,
     )

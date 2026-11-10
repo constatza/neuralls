@@ -11,7 +11,7 @@ implementations are delegated to `torchalg`.
 - `MatrixSetupEvent` records one method setup for one matrix.
 - `SolveAttempt` records one RHS attempt and requires its `SetupEventId`.
 - setup and solve success/failure are closed variants;
-- peak memory is either measured or explicitly unknown;
+- peak memory is either measured or explicitly unknown (CUDA: PyTorch allocator peak; CPU: process RSS high-water delta, a lower bound);
 - representative seconds and every repeat sample are retained separately.
 
 `run_cg_comparison` uses the failure-aware repeat timer, so a solver exception
@@ -71,7 +71,9 @@ observation view uses the matrix's whole planned RHS count $r_m$, whichever repo
 is in. `allocated_setup_s`, the setup field of `CompleteWorkloadSummary` and
 `IncompleteWorkloadSummary` and the matching column of the workload-totals table, allocates setup
 to one report group by that group's share of the matrix's RHS, so the groups of a matrix add up to
-one setup. Neither is a measurement; both are shares of one measured setup.
+one setup. Neither is a measurement; both are shares of one measured setup. `online_s` is defined
+only for systems that converged, while workload totals also include the solve time of failed
+attempts, so the two are different denominators and are never compared as if they shared one.
 
 `reporting/classification.py` consumes planned tags, setup events, solve
 attempts, and a report level. A `ConvergenceSummary` keeps planned, attempted,
@@ -161,7 +163,7 @@ Seeded with `DEFAULT_RANDOM_SEED`; `None` if $K' < 2$; a matrix with no system i
 |---|---|---|---|---|
 | `ITERATIONS` | iterations to converge | system | `converged` | $k_{p,s},\quad s \in \mathcal{C}_p$ |
 | `SOLVE_S` | solve time per system [s] | system | `converged` | $t^{\mathrm{solve}}_{p,s} = \operatorname{stat}_{j}\,\tau^{\mathrm{solve}}_{p,s,j}$ |
-| `ONLINE_S` | online time per system [s] | system | `converged` | $t^{\mathrm{online}}_{p,s} = t^{\mathrm{solve}}_{p,s} + \frac{t^{\mathrm{setup}}_{p,m(s)}}{r_{m(s)}}$ |
+| `ONLINE_S` | online time per converged system [s] | system | `converged` | $t^{\mathrm{online}}_{p,s} = t^{\mathrm{solve}}_{p,s} + \frac{t^{\mathrm{setup}}_{p,m(s)}}{r_{m(s)}}$ |
 | `STANDALONE_S` | standalone time per system [s] | system | `converged` | $t^{\mathrm{standalone}}_{p,s} = t^{\mathrm{solve}}_{p,s} + t^{\mathrm{setup}}_{p,m(s)}$ |
 | `SETUP_S` | setup time per matrix [s] | matrix (one value per method, dataset, matrix) | `converged`, `unconverged`, `solver_error` (the setup completed) | $t^{\mathrm{setup}}_{p,m} = \operatorname{stat}_{j}\,\tau^{\mathrm{setup}}_{p,m,j}$ |
 | `TIME_PER_ITERATION_S` | time per iteration [s] | system | `converged`, `unconverged` | $\theta_{p,s} = \frac{t^{\mathrm{solve}}_{p,s}}{k_{p,s}}$ |
@@ -267,7 +269,8 @@ job lifecycle (building the data and model, data loading, epochs or the basis fi
 time. A run's span never includes sibling or parent runs, and the checkpoint is uploaded after the run has
 ended, so upload time is outside it. `OfflineStages.fit_origin()` states where a method's fit happened without
 a stored field: `FitJob` when a training stage applies, `InlineFit` when only generation applies (the POD fit
-from `dataset_dir` is inside the measured setup), `NoFit` when neither does. Two checkpoints trained in one run count that
+from `dataset_dir` is inside the measured setup, whereas a checkpoint-backed basis is loaded outside it,
+so the two origins are not combined in one cost table), `NoFit` when neither does. Two checkpoints trained in one run count that
 run once. Separating the fit from the rest of the job needs instrumentation in the dlkit fit path and is
 not done.
 
@@ -392,7 +395,10 @@ $C_p(n) = \bar{t}^{\mathrm{setup}}_p + n\,\bar{t}^{\mathrm{solve},\mathrm{sys}}_
 
 $$n^{*} = \frac{\bar{t}^{\mathrm{setup}}_p - \bar{t}^{\mathrm{setup}}_{\mathrm{ref}}}{\bar{t}^{\mathrm{solve},\mathrm{sys}}_{\mathrm{ref}} - \bar{t}^{\mathrm{solve},\mathrm{sys}}_p}$$
 
-defined only when the denominator is positive; otherwise `break_even_rhs` is null (the method is
+defined only when the denominator is positive. The projection covers online cost only
+(setup and solve): it omits generation and training, so it is not a full-cost break-even, and it
+needs an explicit configured reference (no checked-in case configures one). The offline-plus-online
+totals are the separate `cost_breakdown` figure. Otherwise `break_even_rhs` is null (the method is
 not faster per RHS and never breaks even). With a positive denominator and a setup no dearer than
 the reference's, `break_even_rhs` is 0.0: the method never costs more. A pair with no common unit
 has null means and a null `break_even_rhs`.

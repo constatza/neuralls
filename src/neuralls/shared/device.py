@@ -40,9 +40,10 @@ class ResourceUsage:
 
     Attributes:
         wall_time_seconds: Elapsed wall-clock time for the region.
-        peak_memory_bytes: On CUDA, an exact scoped peak (the allocator's
-            high-water mark reset at region entry). On CPU, a peak-RSS
-            delta — see `track_resource_usage`.
+        peak_memory_bytes: On CUDA, PyTorch's allocator peak scoped to the region
+            (high-water mark reset at region entry); it excludes the CUDA context,
+            library workspaces and non-PyTorch allocations. On CPU, a process peak-RSS
+            delta, a lower bound — see `track_resource_usage`.
     """
 
     wall_time_seconds: float
@@ -102,7 +103,7 @@ def end_resource_usage(token: ResourceUsageToken) -> ResourceUsage:
     visibility, which is a worse signal than an approximate one:
     - CUDA: `torch.cuda.max_memory_allocated` after
       `torch.cuda.reset_peak_memory_stats` (done in `begin_resource_usage`),
-      an exact peak scoped to this call.
+      PyTorch's allocator peak scoped to this call (not total device memory).
     - CPU: peak RSS (`resource.getrusage(RUSAGE_SELF).ru_maxrss` on POSIX,
       `psutil.Process().memory_info().peak_wset` on Windows) sampled before
       and after, delta reported (0 if no new peak was set). Both are
@@ -199,9 +200,10 @@ class TimedRuns[T]:
         seconds: The policy's statistic over `samples_seconds`.
         samples_seconds: Wall time of every timed execution, in run order —
             kept so the spread behind `seconds` stays visible.
-        peak_memory_bytes: Peak memory of the very first execution (warm-up
-            included). CPU peak RSS is a process-wide high-water mark with no
-            reset, so any later execution would report ~0.
+        peak_memory_bytes: Peak memory of the first *timed* execution, after any
+            warm-ups (a warm-up's own peak is discarded). CPU peak RSS is a
+            process-wide high-water mark with no reset, so later executions would
+            report ~0, and a warm-up may already have set the mark.
         agreement: Whether the repeats reproduced the first execution's fingerprint.
     """
 
@@ -230,7 +232,7 @@ class WorkloadMemoryObserver:
     """Observe a method lifetime without resetting per-operation CUDA peaks.
 
     CUDA operation timers keep ownership of ``reset_peak_memory_stats``.  The
-    observer combines their exact peaks with allocator snapshots between
+    observer combines their allocator peaks with allocator snapshots between
     operations, avoiding nested resets.  POSIX ``ru_maxrss`` (and Windows
     ``peak_wset``) is process-wide and monotonic, so the CPU result is only a
     lower bound when an earlier workload established a higher process peak.
@@ -301,8 +303,8 @@ def repeat_timed_outcome[T](
             incomparable.
 
     Returns:
-        The first timed value, the reduced time, every sample, the first execution's
-        peak memory and whether the repeats agreed.
+        The first timed value, the reduced time, every sample, the first timed
+        execution's peak memory and whether the repeats agreed.
     """
     for _ in range(policy.warmup):
         warmup_value, warmup_usage = _measure_outcome(run, device)
@@ -405,7 +407,10 @@ def warm_up_device(device: torch.device) -> None:
     preconditioner is measured first absorbs them and the comparison depends on
     configuration order. This runs a tiny throwaway workload covering the ops the
     preconditioners and CG use (dense matmul and triangular solve, CSR matvec, and
-    the dot/axpy loop of CG) on a small SPD system.
+    the dot/axpy loop of CG) on a small SPD system. It does not pre-pay first use
+    of LU, Cholesky, SVD, eigensolvers or an iterative spectral-radius estimate; such
+    costs fall in whichever timed region first needs them, and the device cache is
+    released after each matrix and each preconditioner, never between repeats.
 
     This is a per-*process* warm-up. It is deliberately not the per-run
     `TimingRepeatPolicy.warmup`, which repeats a whole timed build or solve for

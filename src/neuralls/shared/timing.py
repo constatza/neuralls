@@ -48,7 +48,8 @@ class TimingRepeatPolicy:
             preconditioner), so it is opt-in. Costs that occur once per process
             (CUDA context, cuBLAS/cuSPARSE handles, kernel loading) are instead
             paid once by `shared.device.warm_up_device` before the first
-            measurement, and checkpoint loading is kept outside the timed region
+            measurement (kernels outside that warm-up, such as LU, SVD or
+            eigensolvers, are not pre-paid), and checkpoint loading is kept outside the timed region
             altogether (`PreconditionerService.preload`).
         statistic: Reduction applied to the timed samples.
     """
