@@ -166,7 +166,9 @@ def plot_cost_breakdown(
         bbox_to_anchor=(1.01, 1.0),
         fontsize=LEGEND_FONT_SIZE,
     )
-    ax.set_ylabel("Total seconds: offline (once per method) + setup + solve")
+    # The stage legend already names the offline and online parts; a longer label would run
+    # past the axes' height into the subtitle.
+    ax.set_ylabel("Total cost [s]")
     ax.set_xlabel("Method")
     finish_group_figure(
         fig,
