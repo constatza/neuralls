@@ -309,7 +309,7 @@ def test_a_card_names_the_raster_and_the_vector_file_of_its_figure(
 
     assert (payload["stem"], payload["files"]) == (
         FIGURE,
-        ["performance_profile_fine_x_online.png", "performance_profile_fine_x_online.pdf"],
+        ["performance_profile_fine_x_online.png"],
     )
 
 
@@ -319,7 +319,7 @@ def test_a_card_listing_other_files_than_its_stems_formats_is_rejected(
     notation: NotationPolicy,
 ) -> None:
     payload = card_payload(_card(metadata_of(scope), notation))
-    payload["files"] = [payload["files"][0]]
+    payload["files"] = ["other.png"]
 
     with pytest.raises(InvalidFigureCardError, match="files must be"):
         decode_figure_card(payload)

@@ -628,7 +628,6 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
     assert _figures(logged_artifacts) == expected
     assert set(logged_artifacts) == (
         expected
-        | {name.replace(".png", ".pdf") for name in expected}
         | {name.replace(".png", ".toml") for name in expected}
         | {name.replace(".png", ".parquet") for name in expected}
     )
@@ -775,7 +774,6 @@ def test_system_figures_are_uploaded_with_cards_into_the_run_root(
 
     assert logged_artifacts == {
         "residual_history.png": ("None", False),
-        "residual_history.pdf": ("None", False),
         "residual_history.toml": ("None", True),
     }
     card = _cards(logged_text)["residual_history.toml"]

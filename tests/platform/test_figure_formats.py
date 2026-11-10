@@ -17,18 +17,19 @@ from neuralls.platform.reporting.figure_formats import (
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 
 
-def test_a_figure_is_written_as_a_raster_and_a_vector_file() -> None:
-    assert FIGURE_FORMATS == (FigureFormat.PNG, FigureFormat.PDF)
+def test_a_figure_is_written_as_a_raster_file() -> None:
+    assert FIGURE_FORMATS == (FigureFormat.PNG,)
 
 
 def test_a_stem_names_one_file_per_format() -> None:
-    assert figure_files("residual.v2") == ("residual.v2.png", "residual.v2.pdf")
+    assert figure_files("residual.v2") == ("residual.v2.png",)
 
 
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
-        ("residual.v2.pdf", ("residual.v2", FigureFormat.PDF)),
+        ("residual.v2.png", ("residual.v2", FigureFormat.PNG)),
+        ("residual.pdf", None),
         ("residual.png", ("residual", FigureFormat.PNG)),
         ("residual.parquet", None),
         ("residual.toml", None),
@@ -45,7 +46,7 @@ def test_a_file_name_is_split_into_stem_and_format_or_is_not_a_figure_file(
 def test_a_target_has_one_path_per_format(tmp_path: Path) -> None:
     target = FigureTarget(tmp_path, "residual")
 
-    assert target.paths == (tmp_path / "residual.png", tmp_path / "residual.pdf")
+    assert target.paths == (tmp_path / "residual.png",)
 
 
 @pytest.mark.parametrize("stem", ["", "nested/figure"])

@@ -1,8 +1,8 @@
 """The file formats every report figure is written in, and where those files go.
 
-A figure is one picture saved once per ``FigureFormat``: the PNG is what a browser shows, the
-PDF is the vector original a paper includes. This module is the only place that lists the
-formats; the writer, the card, the index and the uploader all derive the file names from it.
+A figure is one picture saved once per ``FigureFormat``; today that is the PNG a browser shows.
+This module is the only place that lists the formats; the writer, the card, the index and the
+uploader all derive the file names from it.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ class FigureFormat(StrEnum):
     """A format a figure is written in; the value is the file suffix without its dot."""
 
     PNG = "png"
-    PDF = "pdf"
 
 
 FIGURE_FORMATS: tuple[FigureFormat, ...] = tuple(FigureFormat)
