@@ -20,7 +20,7 @@ _METHOD_ROW_HEIGHT_IN = 0.45
 
 _MIN_METHOD_ROWS_HEIGHT_IN = 4.0
 
-_BAR_COLUMN_WIDTH_IN = 1.1
+_BAR_COLUMN_WIDTH_IN = 0.85
 """Width in inches of one method's column in a bar figure with methods along the x axis."""
 
 _MIN_BAR_COLUMNS_WIDTH_IN = 5.0
