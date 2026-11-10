@@ -41,6 +41,7 @@ from neuralls.shared.types import (
     ComparisonRhsSourceKind,
     DatasetId,
     MatrixId,
+    MethodDataEvidence,
     PreconditionerName,
     RowKind,
     SystemId,
@@ -163,6 +164,7 @@ class CompletedMethodWorkload:
     config_digest: Digest
     method_config: dict[str, Json]
     presentation: ExecutedMethod
+    data_evidence: MethodDataEvidence
     workload_identities: tuple[Digest, ...] = ()
     plot_styles: dict[str, PreconditionerPlotStyle] = field(default_factory=dict)
 

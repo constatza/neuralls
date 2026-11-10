@@ -191,8 +191,6 @@ def run_loaded_comparison_batch(
             settings,
             tracking,
             stack,
-            force=params.force,
-            reuse_comparisons=False,
         )
         partition = partition_pending(batch.items)
         if not partition.executions:

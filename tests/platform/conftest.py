@@ -86,6 +86,7 @@ from neuralls.shared.rhs_recipe import SinusoidalRecipe
 from neuralls.shared.types import (
     DatasetId,
     MatrixId,
+    NoFitDataEvidence,
     PreconditionerName,
     RunId,
     SetupEventId,
@@ -147,6 +148,7 @@ def write_method(
             workload_peak_memory=MeasuredPeakMemory(2),
             config_digest="sha256:" + "a" * 64,
             method_config=canonical_method_config(config),
+            data_evidence=NoFitDataEvidence(),
             presentation=ExecutedMethod(prepared_method(str(method)), ()),
         )
         summary = summarize_method_workload(

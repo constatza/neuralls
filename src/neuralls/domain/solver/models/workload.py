@@ -19,7 +19,7 @@ from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.cost import OfflineStages
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.shared.digest import Digest, Json
-from neuralls.shared.types import PreconditionerName, SystemId
+from neuralls.shared.types import MethodDataEvidence, PreconditionerName, SystemId
 
 _DERIVED_SECONDS_REL_TOLERANCE = 4 * float_info.epsilon
 _DERIVED_SECONDS_ABS_TOLERANCE = 0.0
@@ -126,6 +126,9 @@ class MethodWorkload(Protocol):
 
     @property
     def presentation(self) -> ExecutedMethod: ...
+
+    @property
+    def data_evidence(self) -> MethodDataEvidence: ...
 
 
 def _validate_summary_fields(summary: MethodWorkloadSummary) -> None:

@@ -10,12 +10,15 @@ Moving cross-boundary types here prevents upward dependencies, e.g. io → gener
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum, StrEnum
 from pathlib import Path
 from typing import Literal, NewType, TypedDict
 
 import numpy as np
 from scipy.sparse import csr_array
+
+from neuralls.shared.digest import Digest
 
 DatasetFormat = Literal["zarr", "npy", "hdf5"]
 """Supported dataset storage families for generated datasets."""
@@ -34,6 +37,38 @@ SystemId = NewType("SystemId", str)
 
 PreconditionerName = NewType("PreconditionerName", str)
 """A stable configured name for one preconditioner variant."""
+
+
+@dataclass(frozen=True, slots=True)
+class NoFitDataEvidence:
+    """The method has no fit or training dataset."""
+
+
+@dataclass(frozen=True, slots=True)
+class InlineFitEvidence:
+    """The method fits from a dataset during comparison setup."""
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedCheckpointDataEvidence:
+    """A checkpoint's training dataset was verified against this digest."""
+
+    digest: Digest
+
+
+@dataclass(frozen=True, slots=True)
+class UnavailableCheckpointDataEvidence:
+    """A checkpoint has no verifiable single training dataset."""
+
+    reason: str
+
+
+type MethodDataEvidence = (
+    NoFitDataEvidence
+    | InlineFitEvidence
+    | VerifiedCheckpointDataEvidence
+    | UnavailableCheckpointDataEvidence
+)
 
 SessionRunId = NewType("SessionRunId", str)
 """The MLflow run id of one comparison session — never a method, report, or training run id."""

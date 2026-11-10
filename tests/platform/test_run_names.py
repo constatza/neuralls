@@ -41,25 +41,39 @@ SOLE = SystemQualifier(())
 
 
 def test_session_name_is_the_editorial_title_and_stamp() -> None:
-    name = SessionRunName(EditorialPresentation("Spectral comparison"), STAMP)
+    name = SessionRunName(EditorialPresentation("Spectral comparison"), STAMP, "session_comparison")
     assert render_run_name(name, PLAIN) == "Spectral comparison | Mon 26 Oct 2026 - 10:00:00"
 
 
-def test_session_name_without_editorial_title_is_the_dataset(
+def test_comparison_session_name_identifies_its_matrix_set(
     dataset_presentation: DatasetPresentation,
 ) -> None:
-    name = SessionRunName(ComparisonScopePresentation(dataset_presentation), STAMP)
+    name = SessionRunName(
+        ComparisonScopePresentation(dataset_presentation), STAMP, "session_comparison"
+    )
+    assert render_run_name(name, PLAIN) == (
+        "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100) "
+        "| Mon 26 Oct 2026 - 10:00:00"
+    )
+
+
+@pytest.mark.parametrize("phase", ["session_training", "session_evaluation"])
+def test_noncomparison_session_dataset_keeps_its_training_role(
+    dataset_presentation: DatasetPresentation,
+    phase: str,
+) -> None:
+    name = SessionRunName(ComparisonScopePresentation(dataset_presentation), STAMP, phase)
     assert render_run_name(name, PLAIN) == (
         "Test problem | Gaussian CG Residuals (k=20, N=100) | Mon 26 Oct 2026 - 10:00:00"
     )
 
 
-def test_untimed_comparison_name_is_the_bare_title(
+def test_untimed_comparison_name_identifies_matrix_set(
     dataset_presentation: DatasetPresentation,
 ) -> None:
     title = ComparisonScopePresentation(dataset_presentation)
     text = render_run_name(ComparisonRunName(title, SOLE, Untimed()), PLAIN)
-    assert text == "Test problem | Gaussian CG Residuals (k=20, N=100)"
+    assert text == "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100)"
 
 
 def test_editorial_comparison_name_is_followed_by_its_dataset(
@@ -67,7 +81,9 @@ def test_editorial_comparison_name_is_followed_by_its_dataset(
 ) -> None:
     subject = EditorialComparison(EditorialPresentation("Spectral study"), dataset_presentation)
     text = render_run_name(ComparisonRunName(subject, SOLE, Untimed()), PLAIN)
-    assert text == "Spectral study | Test problem | Gaussian CG Residuals (k=20, N=100)"
+    assert text == (
+        "Spectral study | Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100)"
+    )
 
 
 def test_sibling_systems_get_distinct_names(dataset_presentation: DatasetPresentation) -> None:
@@ -145,12 +161,13 @@ def test_a_session_over_different_titles_lists_each_once_in_a_stable_order(
     scope = ComparisonScopePresentation(dataset_presentation)
     forward = session_title([editorial, scope, editorial])
     backward = session_title([scope, editorial])
-    assert render_run_name(SessionRunName(forward, STAMP), PLAIN) == render_run_name(
-        SessionRunName(backward, STAMP), PLAIN
-    )
-    text = render_run_name(SessionRunName(forward, STAMP), PLAIN)
+    assert render_run_name(
+        SessionRunName(forward, STAMP, "session_comparison"), PLAIN
+    ) == render_run_name(SessionRunName(backward, STAMP, "session_comparison"), PLAIN)
+    text = render_run_name(SessionRunName(forward, STAMP, "session_comparison"), PLAIN)
     assert text == (
-        f"Spectral comparison; Test problem | Gaussian CG Residuals (k=20, N=100) | {STAMP.text}"
+        "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100); "
+        f"Spectral comparison | {STAMP.text}"
     )
 
 
@@ -158,7 +175,7 @@ def test_a_many_system_session_is_summarized_by_counts_not_enumerated() -> None:
     families = [EditorialPresentation(name) for name in ("Gaussian RHS", "Sparse Gaussian RHS")]
     titles = [family for family in families for _ in range(10)]
     title = summarized_session_title(titles, SessionCounts(20, 4, 5))
-    assert render_run_name(SessionRunName(title, STAMP), PLAIN) == (
+    assert render_run_name(SessionRunName(title, STAMP, "session_comparison"), PLAIN) == (
         f"20 systems (4 RHS types x 5 matrices) | {STAMP.text}"
     )
 
@@ -166,7 +183,7 @@ def test_a_many_system_session_is_summarized_by_counts_not_enumerated() -> None:
 def test_a_many_system_session_with_one_shared_title_keeps_it_as_head() -> None:
     shared = EditorialPresentation("Spectral comparison")
     title = summarized_session_title([shared] * 6, SessionCounts(6, 2, 3))
-    assert render_run_name(SessionRunName(title, STAMP), PLAIN) == (
+    assert render_run_name(SessionRunName(title, STAMP, "session_comparison"), PLAIN) == (
         f"Spectral comparison | 6 systems (2 RHS types x 3 matrices) | {STAMP.text}"
     )
 

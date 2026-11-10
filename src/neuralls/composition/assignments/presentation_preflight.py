@@ -1,17 +1,25 @@
 """Builds the typed scientific presentation of a comparison before anything runs.
 
-Every method is described from its resolved config; a POD-2G method additionally
-carries the presentation of the dataset its basis was fitted on, read from that
-dataset's manifest. Failures (a dataset without provenance, a neural method without a
+Every method is described from its resolved config and validated data origin. A fit or
+verified training dataset is read from its manifest. Failures (a dataset without provenance, a neural method without a
 display name, two indistinguishable methods) are raised here, before any MLflow run is
 opened or any method executes.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
+from typing import assert_never
 
+from neuralls.composition.comparison.method_data_origin import (
+    CheckpointBased,
+    InlineFit,
+    MethodDataOrigin,
+    NoFitData,
+    TrainingDataUnavailable,
+    VerifiedTrainingDataset,
+)
 from neuralls.composition.preconditioners.descriptions import describe_configured_preconditioner
 from neuralls.domain.presentation.methods import (
     ConfiguredMethodPresentation,
@@ -28,9 +36,7 @@ from neuralls.domain.presentation.titles import (
     ComparisonTitle,
     EditorialPresentation,
 )
-from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
-    AMGPreconditionerConfig,
     ConcretePreconditionerConfig,
     PreconditionerConfig,
 )
@@ -49,31 +55,42 @@ type DatasetPresentationLoader = Callable[[Path], DatasetPresentation]
 
 
 def describe_method(
-    cfg: PreconditionerConfig, load_dataset: DatasetPresentationLoader
+    cfg: PreconditionerConfig, origin: MethodDataOrigin, load_dataset: DatasetPresentationLoader
 ) -> ConfiguredMethodPresentation:
-    """Describe ``cfg``; a POD-2G method is qualified by its fit dataset, exactly once.
-
-    The assignment and checkpoint identity of a fitted basis never reach the description.
-    """
+    """Describe a comparison method using only validated fit or training data."""
     method = describe_configured_preconditioner(cfg)
-    match cfg:
-        case AMGPreconditionerConfig(coarsening=PODCoarseningConfig() as pod):
-            return DatasetQualifiedMethodPresentation(
-                method=method, dataset=load_dataset(Path(pod.dataset_dir))
-            )
-        case _:
+    match origin:
+        case InlineFit(fit_dataset=directory):
+            return DatasetQualifiedMethodPresentation(method, load_dataset(directory))
+        case CheckpointBased(training_data=training_data):
+            match training_data:
+                case VerifiedTrainingDataset(dataset=directory):
+                    return DatasetQualifiedMethodPresentation(method, load_dataset(directory))
+                case TrainingDataUnavailable():
+                    return StandaloneMethodPresentation(method=method)
+                case unreachable:
+                    assert_never(unreachable)
+        case NoFitData():
             return StandaloneMethodPresentation(method=method)
+        case unreachable:
+            assert_never(unreachable)
 
 
 def prepare_comparison_presentation(
     specs: Sequence[ConcretePreconditionerConfig],
+    origins_by_method: Mapping[str, MethodDataOrigin],
     scope: ComparisonScopePresentation,
     load_dataset: DatasetPresentationLoader,
 ) -> PreparedComparisonPresentation:
     """Describe every method of one comparison and validate the whole cohort."""
+    if set(origins_by_method) != {spec.name for spec in specs} or len(specs) != len(
+        origins_by_method
+    ):
+        raise ValueError("method origins must match the resolved specs")
     candidates = tuple(
         MethodPresentationCandidate(
-            PreconditionerName(spec.name), describe_method(spec, load_dataset)
+            PreconditionerName(spec.name),
+            describe_method(spec, origins_by_method[spec.name], load_dataset),
         )
         for spec in specs
     )

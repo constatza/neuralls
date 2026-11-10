@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from neuralls.composition.assignments.presentation_preflight import prepare_comparison_presentation
+from neuralls.composition.comparison.method_data_origin import NoFitData
 from neuralls.composition.comparison.models import CompletedMethodWorkload
 from neuralls.composition.comparison.postprocessing import group_reporting
 from neuralls.composition.comparison.postprocessing.group_reporting import report_all_levels
@@ -38,6 +39,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import (
     DatasetId,
     MatrixId,
+    NoFitDataEvidence,
     PreconditionerName,
     SetupEventId,
     SystemId,
@@ -63,9 +65,9 @@ def test_group_reporting_reduces_completed_workload_events(
     prepared_method: PreparedMethodFactory,
     group_datasets: dict[DatasetId, DatasetPresentation],
 ) -> None:
-    method = PreconditionerName("identity")
+    method = PreconditionerName("jacobi")
     tag = SystemTag(DatasetId("ds"), GAUSSIAN, MatrixId(1), 0, SystemId("system"))
-    event_id = SetupEventId("identity:ds:1")
+    event_id = SetupEventId("jacobi:ds:1")
     workload = CompletedMethodWorkload(
         method=method,
         planned=(tag,),
@@ -103,8 +105,9 @@ def test_group_reporting_reduces_completed_workload_events(
         offline_cost=NO_OFFLINE_COST,
         workload_peak_memory=MeasuredPeakMemory(20),
         config_digest="sha256:" + "0" * 64,
-        method_config={"name": "identity"},
-        presentation=ExecutedMethod(prepared_method("identity"), ()),
+        method_config={"name": "jacobi"},
+        data_evidence=NoFitDataEvidence(),
+        presentation=ExecutedMethod(prepared_method("jacobi"), ()),
     )
     sink = RecordingSink()
 
@@ -117,6 +120,10 @@ def test_group_reporting_reduces_completed_workload_events(
     )
 
     assert [outcome.n_planned_rhs for outcome in sink.outcomes] == [1, 1, 1]
+    assert all(
+        outcome.observations.select("method", "dataset").row(0) == ("jacobi", "ds")
+        for outcome in sink.outcomes
+    )
 
 
 def test_group_reporting_propagates_method_plot_styles(
@@ -148,6 +155,7 @@ def test_group_reporting_propagates_method_plot_styles(
         workload_peak_memory=MeasuredPeakMemory(10),
         config_digest="sha256:" + "1" * 64,
         method_config={"name": "identity"},
+        data_evidence=NoFitDataEvidence(),
         presentation=ExecutedMethod(prepared_method("identity"), ()),
         plot_styles={str(method): style},
     )
@@ -217,6 +225,7 @@ def test_mixture_presentations_keep_only_the_short_scope(
         workload_peak_memory=MeasuredPeakMemory(1),
         config_digest="sha256:" + "2" * 64,
         method_config={"name": "identity"},
+        data_evidence=NoFitDataEvidence(),
         presentation=ExecutedMethod(prepared_method("identity"), ()),
     )
 
@@ -260,6 +269,7 @@ def test_group_reporting_propagates_actual_solver_timing_context(
         workload_peak_memory=MeasuredPeakMemory(1),
         config_digest="sha256:" + "3" * 64,
         method_config={"name": "identity"},
+        data_evidence=NoFitDataEvidence(),
         presentation=ExecutedMethod(prepared_method("identity"), ()),
     )
     context = SolverTimingContext(
@@ -310,7 +320,10 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
         AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig(theta=0.5)),
     ]
     cohort = prepare_comparison_presentation(
-        configs, ComparisonScopePresentation(dataset_presentation), NO_DATASET_READS
+        configs,
+        {config.name: NoFitData() for config in configs},
+        ComparisonScopePresentation(dataset_presentation),
+        NO_DATASET_READS,
     )
 
     def workload(config: AMGPreconditionerConfig) -> CompletedMethodWorkload:
@@ -326,6 +339,7 @@ def test_group_reporting_keeps_aggregation_configuration_in_method_labels(
             workload_peak_memory=MeasuredPeakMemory(1),
             config_digest="sha256:" + str(configs.index(config)) * 64,
             method_config={"name": config.name},
+            data_evidence=NoFitDataEvidence(),
             presentation=ExecutedMethod(prepared, ()),
             plot_styles={config.name: PreconditionerPlotStyle(prepared, PreconditionerType.AMG)},
         )
@@ -378,6 +392,6 @@ def test_a_skipped_group_is_named_by_its_scope_not_its_group_id(
     )
 
     assert messages[0] == (
-        "Test problem | Gaussian CG Residuals (k=20, N=100) - Gaussian: "
+        "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100) - Gaussian: "
         "no canonical setup events among 3 planned systems."
     )

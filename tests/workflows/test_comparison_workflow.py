@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -13,7 +14,7 @@ import pytest
 import tomli_w
 from mlflow.tracking import MlflowClient
 
-from neuralls.composition.assignments import comparison_batch
+from neuralls.composition.assignments import comparison_batch, comparison_prepare
 from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.composition.assignments.comparison_batch import (
     run_comparison_batch,
@@ -30,6 +31,7 @@ from neuralls.composition.assignments.comparison_prepared import (
 )
 from neuralls.composition.assignments.comparison_resolution import (
     ComparisonResolutionContext,
+    ResolvedComparisonSpecs,
     neural_specs_from_assignments,
     resolve_neural_preconditioners,
     validate_neural_preconditioner,
@@ -38,8 +40,14 @@ from neuralls.composition.assignments.comparison_topology import (
     resolve_comparison_topology,
 )
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
+from neuralls.composition.comparison._offline_cost import resolve_offline_cost
 from neuralls.composition.comparison.comparison_run import execute_method_workload
 from neuralls.composition.comparison.config_assembler import resolve_comparison_config
+from neuralls.composition.comparison.method_data_origin import (
+    CheckpointBased,
+    NoFitData,
+    TrainingDataUnavailable,
+)
 from neuralls.composition.comparison.models import (
     ComparisonCompleted,
     ComparisonEntryFailed,
@@ -53,7 +61,7 @@ from neuralls.composition.comparison.models import (
     ResolvedComparisonInput,
     ResolvedMethod,
 )
-from neuralls.domain.identity import StageIdentity
+from neuralls.domain.identity import IdentityTag, Reused, StageIdentity
 from neuralls.domain.presentation.methods import ExecutedMethod, PreparedMethodPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.run_names import NamedRun
@@ -65,7 +73,7 @@ from neuralls.domain.solver.models.benchmark_events import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import ComparisonData, ComparisonGeneral, SolverParams
-from neuralls.domain.solver.models.cost import NO_OFFLINE_COST
+from neuralls.domain.solver.models.cost import NO_OFFLINE_COST, Known, Unavailable
 from neuralls.domain.solver.models.provenance import (
     HeldOutMatrix,
     MatrixProvenance,
@@ -99,8 +107,10 @@ from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import (
     ComparisonRhsSourceKind,
+    CostProvenance,
     DatasetId,
     MatrixId,
+    NoFitDataEvidence,
     RowKind,
     SetupEventId,
     SystemId,
@@ -792,7 +802,6 @@ def prepare_entry(
                 settings=settings,
                 load_dataset=NO_DATASET_READS,
                 tracking=MagicMock(),
-                reuse_comparisons=False,
             )
             pending = prepare_comparison_entry(cfg, planned, context)
             if isinstance(pending, PreparedComparisonExecution):
@@ -800,6 +809,41 @@ def prepare_entry(
             return pending
 
         yield prepare
+
+
+@pytest.fixture
+def legacy_hit_context(
+    experiments_config: Path, settings: NeurallsSettings
+) -> tuple[ComparisonResolutionContext, MagicMock]:
+    """A legacy identity store claiming a per-system comparison hit."""
+    tracking = MagicMock()
+    tracking.identity_store.return_value.find.return_value = Reused(run_id="legacy-comparison")
+    context = ComparisonResolutionContext(
+        topology=resolve_comparison_topology(
+            load_validated_case_config(experiments_config, settings)[0],
+            experiments_config,
+            settings,
+        ),
+        case_config_path=experiments_config,
+        settings=settings,
+        load_dataset=NO_DATASET_READS,
+        tracking=tracking,
+    )
+    return context, tracking
+
+
+def test_legacy_per_system_identity_hit_cannot_skip_method_provenance_gate(
+    identity_cfg: MagicMock,
+    legacy_hit_context: tuple[ComparisonResolutionContext, MagicMock],
+) -> None:
+    context, tracking = legacy_hit_context
+    prepared = prepare_comparison_entry(identity_cfg, _planned(_make_entry()), context)
+    try:
+        assert isinstance(prepared, PreparedComparisonExecution)
+        tracking.identity_store.assert_not_called()
+    finally:
+        if isinstance(prepared, PreparedComparisonExecution):
+            prepared.cleanup.close()
 
 
 def test_prepare_injects_master_topology(
@@ -941,6 +985,72 @@ def test_prepare_does_not_require_split_artifacts(
         pending = prepare_entry(identity_cfg, _planned(_make_entry()))
 
     assert isinstance(pending, PreparedComparisonExecution)
+
+
+@pytest.fixture(params=["missing", "invalid"])
+def unavailable_training_config(tmp_path: Path, request: pytest.FixtureRequest) -> Path:
+    path = tmp_path / "training-data.toml"
+    if request.param == "invalid":
+        path.write_text("id = [", encoding="utf-8")
+    return path
+
+
+def test_preparation_keeps_checkpoint_when_training_data_config_is_unavailable(
+    unavailable_training_config: Path,
+    system_inputs: tuple[Path, Path],
+    experiments_config: Path,
+    settings: NeurallsSettings,
+) -> None:
+    matrix_path, rhs_path = system_inputs
+    method = NeuralPreconditionerConfig(
+        type=PreconditionerType.NEURAL,
+        architecture="Test network",
+        checkpoint_path=Path("model.ckpt"),
+        resolved_run_id="training-run",
+        data_config_path=unavailable_training_config,
+    )
+    cfg = mock_cfg(matrix_path=matrix_path, rhs_path=rhs_path, preconditioners=[method])
+    tracking = MagicMock()
+    run = MagicMock()
+    run.data.tags = {IdentityTag.COMPONENTS: json.dumps({"dataset": "sha256:" + "a" * 16})}
+    run.info.start_time = 1000
+    run.info.end_time = 4000
+    tracking.client.return_value.get_run.return_value = run
+    context = ComparisonResolutionContext(
+        topology=resolve_comparison_topology(
+            load_validated_case_config(experiments_config, settings)[0],
+            experiments_config,
+            settings,
+        ),
+        case_config_path=experiments_config,
+        settings=settings,
+        load_dataset=NO_DATASET_READS,
+        tracking=tracking,
+    )
+    with patch.object(
+        comparison_prepare,
+        "resolve_comparison_specs",
+        return_value=ResolvedComparisonSpecs(specs=[method], warnings=(), checkpoint_digests={}),
+    ):
+        prepared = _executing(prepare_comparison_entry(cfg, _planned(_make_entry()), context))
+        sibling = _executing(prepare_comparison_entry(cfg, _planned(_make_entry()), context))
+    try:
+        origin = prepared.origins_by_method[method.name]
+        assert isinstance(origin, CheckpointBased)
+        assert origin.training_data == TrainingDataUnavailable(
+            "training dataset config is unavailable or invalid"
+        )
+        offline = resolve_offline_cost(
+            origin, runs=tracking.client.return_value, run_costs=prepared.training_run_costs
+        )
+        assert offline.generation == Unavailable(
+            "training dataset config is unavailable or invalid"
+        )
+        assert offline.training == Known(3.0, None, CostProvenance.HISTORICAL)
+        tracking.client.return_value.get_run.assert_called_once_with("training-run")
+    finally:
+        prepared.cleanup.close()
+        sibling.cleanup.close()
 
 
 def test_sanitize_mlflow_metric_segment_replaces_invalid_characters() -> None:
@@ -1188,6 +1298,7 @@ def test_compatibility_projection_carries_canonical_setup_measurement(
         workload_peak_memory=MeasuredPeakMemory(128),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": "identity"},
+        data_evidence=NoFitDataEvidence(),
         presentation=ExecutedMethod(prepared_method("identity"), ()),
     )
     projected = project_setup_measurements(
@@ -1280,6 +1391,8 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
         bundles: Iterable[MatrixWorkload],
         *,
         prepared: PreparedMethodPresentation,
+        origin: NoFitData,
+        training_run_costs: Mapping[str, Known | Unavailable],
         datasets: Mapping[DatasetId, DatasetPresentation],
         notation: NotationPolicy,
         params: SolverParams,
@@ -1292,6 +1405,8 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
             method,
             bundle_sequence,
             prepared=prepared,
+            origin=origin,
+            training_run_costs=training_run_costs,
             datasets=datasets,
             notation=notation,
             params=params,

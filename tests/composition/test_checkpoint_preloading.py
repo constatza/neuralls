@@ -15,6 +15,7 @@ from neuralls.composition.comparison._preconditioner_setup import (
     PreconditionerService,
 )
 from neuralls.composition.comparison.comparison_run import execute_method_workload
+from neuralls.composition.comparison.method_data_origin import NoFitData
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
     MatrixWorkload,
@@ -327,6 +328,7 @@ def _run(
         method,
         bundles,
         prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
         datasets=datasets,
         notation=NotationPolicy.default(),
         params=_solver_params(repeats),

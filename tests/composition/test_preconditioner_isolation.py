@@ -7,6 +7,7 @@ from mlflow.tracking import MlflowClient
 
 from neuralls.composition.comparison import comparison_run
 from neuralls.composition.comparison._preconditioner_setup import PreconditionerService
+from neuralls.composition.comparison.method_data_origin import NoFitData
 from neuralls.composition.comparison.models import MatrixWorkload, ResolvedMethod
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models import SetupCompleted, SetupFailed, SolveFailed
@@ -78,6 +79,7 @@ def test_unexpected_build_error_is_a_setup_failure_and_later_matrices_still_run(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
         training_runs=training_runs,
     )
 
@@ -123,6 +125,7 @@ def test_solver_stage_error_is_isolated(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
         training_runs=training_runs,
     )
 

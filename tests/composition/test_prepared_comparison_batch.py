@@ -5,7 +5,8 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Callable
 from dataclasses import replace
-from unittest.mock import MagicMock
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -16,6 +17,11 @@ from neuralls.composition.assignments.comparison_prepared import (
 from neuralls.composition.assignments.comparison_resolution import (
     ResolvedComparisonSpecs,
 )
+from neuralls.composition.assignments.comparison_schedule import (
+    has_complete_reusable_session,
+    method_major_schedule,
+)
+from neuralls.composition.comparison.method_data_origin import InlineFit, NoFitData
 from neuralls.composition.comparison.models import (
     ComparisonReused,
     MatrixRef,
@@ -44,7 +50,7 @@ from neuralls.platform.tracking.run_names import run_name_text
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from neuralls.shared.types import MatrixId, PreconditionerName
+from neuralls.shared.types import MatrixId, NoFitDataEvidence, PreconditionerName
 
 type PlannedFactory = Callable[[str], PlannedSystem]
 type ExecutionFactory = Callable[[PlannedSystem], PreparedComparisonExecution]
@@ -85,6 +91,8 @@ def execution(
             resolved=ResolvedComparisonSpecs(
                 specs=jacobi_specs, warnings=(), checkpoint_digests={}
             ),
+            origins_by_method={"jacobi": NoFitData()},
+            training_run_costs={},
             identity=StageIdentity.build(
                 "comparison", {"entry": canonical_digest(planned.entry.id)}
             ),
@@ -107,6 +115,22 @@ def test_batch_accepts_executions_and_outcomes_matching_the_plan(
     )
 
     assert batch.planned == (first, second)
+
+
+def test_session_reuse_checks_resolved_method_data_origin(
+    planned_system: PlannedFactory, execution: ExecutionFactory
+) -> None:
+    planned = planned_system("a")
+    batch = PreparedComparisonBatch(
+        items=(execution(planned),), planned=(planned,), split_records=()
+    )
+    with patch(
+        "neuralls.composition.assignments.comparison_schedule.find_reusable_benchmark_method",
+        return_value=None,
+    ) as find_method:
+        assert not has_complete_reusable_session(batch, MagicMock(), MagicMock(), force=False)
+
+    assert find_method.call_args.kwargs["data_evidence"] == NoFitDataEvidence()
 
 
 def test_batch_rejects_an_execution_of_a_different_planned_system(
@@ -147,6 +171,28 @@ def test_execution_rejects_a_presentation_whose_methods_differ_from_the_resolved
 
     with pytest.raises(ValueError, match="resolved specs"):
         replace(prepared, resolved=replace(prepared.resolved, specs=identity_only))
+
+
+def test_execution_rejects_an_origin_key_for_another_method(
+    planned_system: PlannedFactory, execution: ExecutionFactory
+) -> None:
+    prepared = execution(planned_system("a"))
+
+    with pytest.raises(ValueError, match="method origins must match"):
+        replace(prepared, origins_by_method={"identity": NoFitData()})
+
+
+def test_method_schedule_rejects_conflicting_origins_for_one_method(
+    planned_system: PlannedFactory, execution: ExecutionFactory
+) -> None:
+    first = execution(planned_system("a"))
+    second = replace(
+        execution(planned_system("b")),
+        origins_by_method={"jacobi": InlineFit(Path("/virtual/fit"))},
+    )
+
+    with pytest.raises(ValueError, match="different data origins"):
+        method_major_schedule((first, second))
 
 
 def test_execution_rejects_specs_in_a_different_order_than_the_presentation(

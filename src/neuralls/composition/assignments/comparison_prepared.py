@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import assert_never
 
 from loguru import logger
@@ -13,6 +14,7 @@ from neuralls.composition.assignments.comparison_resolution import (
     ResolvedComparisonSpecs,
 )
 from neuralls.composition.assignments.comparison_topology import ComparisonTopology
+from neuralls.composition.comparison.method_data_origin import MethodDataOrigin
 from neuralls.composition.comparison.models import (
     ComparisonCompleted,
     ComparisonEntryFailed,
@@ -39,6 +41,7 @@ from neuralls.domain.presentation.titles import (
     ComparisonTitle,
     EditorialPresentation,
 )
+from neuralls.domain.solver.models.cost import Known, Unavailable
 from neuralls.domain.solver.models.split_record import DatasetSplitRecord
 from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.platform.config.models.experiments import (
@@ -72,6 +75,8 @@ class PreparedComparisonExecution:
     topology: ComparisonTopology
     cleanup: contextlib.ExitStack
     resolved: ResolvedComparisonSpecs
+    origins_by_method: Mapping[str, MethodDataOrigin]
+    training_run_costs: Mapping[str, Known | Unavailable]
     identity: StageIdentity
     settings: NeurallsSettings
     presentation: PreparedComparisonPresentation
@@ -82,6 +87,13 @@ class PreparedComparisonExecution:
     def __post_init__(self) -> None:
         """Require the presentation and title to describe this execution's own methods."""
         spec_names = tuple(spec.name for spec in self.resolved.specs)
+        if set(self.origins_by_method) != set(spec_names) or len(spec_names) != len(
+            self.origins_by_method
+        ):
+            raise ValueError("method origins must match the resolved specs")
+        object.__setattr__(
+            self, "origins_by_method", MappingProxyType(dict(self.origins_by_method))
+        )
         method_ids = tuple(method.method_id for method in self.presentation.methods)
         if method_ids != spec_names:
             raise ValueError(

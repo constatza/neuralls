@@ -22,7 +22,7 @@ from neuralls.platform.config.models.preconditioner import PreconditionerType
 from neuralls.shared.rhs_recipe import RhsRecipe
 from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS, make_fact
 from neuralls.shared.scientific_description.models import ScientificFact
-from neuralls.shared.types import DatasetId, MatrixId, SetupEventId, SystemId
+from neuralls.shared.types import DatasetId, MatrixId, NoFitDataEvidence, SetupEventId, SystemId
 from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL, SINGLE_RUN
 from tests.recipe_support import GAUSSIAN
 
@@ -107,6 +107,7 @@ def completed_workload(
         workload_peak_memory=MeasuredPeakMemory(1),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": str(name)},
+        data_evidence=NoFitDataEvidence(),
         presentation=realized,
         plot_styles={str(name): PreconditionerPlotStyle(prepared, PreconditionerType.JACOBI)},
     )

@@ -28,6 +28,7 @@ from neuralls.domain.presentation.run_names import (
     RhsDrawPart,
     RunStamp,
     RunTimestamp,
+    SessionPhase,
     SessionRunName,
     SystemQualifier,
     TrainingPresentation,
@@ -227,7 +228,7 @@ class SessionRunTags:
         experiment_name: MLflow experiment the session's child runs are grouped under.
     """
 
-    phase: Literal["session_training", "session_comparison", "session_evaluation"]
+    phase: SessionPhase
     case_config: str
     case_config_path: str
     started_at: str
@@ -305,7 +306,7 @@ def build_session_run_spec(
     notation: NotationPolicy,
     case_config_path: Path,
     experiment_name: str,
-    phase: Literal["session_training", "session_comparison", "session_evaluation"],
+    phase: SessionPhase,
     timestamp: str | None = None,
 ) -> tuple[NamedRun, SessionRunTags]:
     """Build (run, SessionRunTags) for one batch session invocation.
@@ -314,7 +315,7 @@ def build_session_run_spec(
     under one parent run named by what the session ran on, plus the launch time.
     """
     ts = timestamp or iso_timestamp()
-    run = NamedRun(SessionRunName(title, RunTimestamp(ts)), notation)
+    run = NamedRun(SessionRunName(title, RunTimestamp(ts), phase), notation)
     tags = SessionRunTags(
         phase=phase,
         case_config=case_config_path.stem,

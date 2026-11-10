@@ -1,4 +1,4 @@
-"""Prepare every system of a case: validate, resolve, reuse-check and describe."""
+"""Prepare every system of a case: validate, resolve and describe."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from loguru import logger
+from mlflow.exceptions import MlflowException
 
 from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.composition.assignments.comparison_prepared import (
@@ -34,10 +35,14 @@ from neuralls.composition.comparison.config_assembler import (
     resolve_dataset_dir,
 )
 from neuralls.composition.comparison.input_gate import require_current_inputs
+from neuralls.composition.comparison.method_data_origin import (
+    CheckpointBased,
+    TrainingDataUnavailable,
+    resolve_method_data_origin,
+)
 from neuralls.composition.comparison.models import (
     ComparisonEntryFailed,
     ComparisonOutcome,
-    ComparisonReused,
     PlannedSystem,
     UndescribedComparison,
 )
@@ -52,7 +57,7 @@ from neuralls.composition.identity.comparison import (
     comparison_identity,
     preconditioner_identities,
 )
-from neuralls.composition.identity.gate import reuse_lookup
+from neuralls.composition.identity.training import assignment_dataset_dir
 from neuralls.composition.tracking.run_specs import (
     comparison_run,
 )
@@ -62,11 +67,11 @@ from neuralls.domain.benchmarking.selection import (
     resolve_reference_selection,
     validate_reference_preconditioner,
 )
-from neuralls.domain.identity import StageIdentity
-from neuralls.domain.presentation.run_names import NamedRun, Untimed
+from neuralls.domain.presentation.run_names import Untimed
 from neuralls.domain.presentation.titles import (
     ComparisonScopePresentation,
 )
+from neuralls.domain.solver.models.cost import Known, Unavailable
 from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.platform.config.models.experiments import (
     AssignmentEntry,
@@ -74,7 +79,9 @@ from neuralls.platform.config.models.experiments import (
     ComparisonRegistryEntry,
 )
 from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.platform.storage.dataset_digest import current_dataset_digest
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
+from neuralls.platform.tracking.run_duration import run_wall_seconds_from_run
 from neuralls.platform.tracking.run_names import run_name_text
 from neuralls.shared.digest import Digest
 
@@ -109,23 +116,18 @@ def prepare_comparison_entry(
     cfg: ComparisonConfig,
     planned: PlannedSystem,
     context: ComparisonResolutionContext,
-    *,
-    force: bool = False,
 ) -> PendingComparison:
-    """Validate, resolve, and reuse-check one entry. Opens no MLflow run.
+    """Validate, resolve and describe one entry. Opens no MLflow run.
 
-    Preconditioners are resolved before deciding whether to run at all: if a
-    FINISHED comparison run already exists carrying this comparison's derived
-    identity (config, data, preconditioners and checkpoint content), execution is skipped and that
-    success is reported directly (unless force=True) — no MLflow run is ever
-    opened for a cache hit.
+    Method-child reuse is checked only after the complete batch is prepared,
+    because a legacy per-system identity cannot prove stored method provenance.
 
     Artifact leases come from `context.artifact_leases` when set (the sweep
     case: one manager, owned and closed by the caller, so each MLflow artifact
     is downloaded once however many entries reference it and every download
-    lives until the sweep ends, cache hits and failures included). Without it,
+    lives until the sweep ends, failures included). Without it,
     the entry owns a private manager: every terminal outcome (validation
-    failure, resolution failure, or a cache hit) closes it before returning,
+    failure or resolution failure) closes it before returning,
     and a `PreparedComparisonExecution` instead detaches that lifetime for the
     caller to keep open through execution.
 
@@ -133,12 +135,9 @@ def prepare_comparison_entry(
         cfg: Fully resolved ComparisonConfig with injected data paths and preconditioners.
         planned: The planned system, whose entry provides display name and method path.
         context: Shared resolution context (topology, case config, settings).
-        force: Treat this entry as needing execution even if a matching comparison
-            already completed successfully.
 
     Returns:
-        A cache-hit/failure `ComparisonOutcome`, or a `PreparedComparisonExecution`
-        ready for execution.
+        A failure `ComparisonOutcome`, or a `PreparedComparisonExecution` ready for execution.
     """
     entry = planned.entry
     logger.info("Preparing comparison '{}': validating input sources.", entry.id)
@@ -164,10 +163,57 @@ def prepare_comparison_entry(
             len(resolved.specs),
             len(resolved.warnings),
         )
+        training_client = context.tracking.client(context.topology.model_store_tracking_uri)
+        run_records = context.training_run_records
+
+        def run_tags(run_id: str) -> dict[str, str]:
+            if run_id not in run_records:
+                try:
+                    run_records[run_id] = training_client.get_run(run_id)
+                except (MlflowException, OSError) as error:
+                    run_records[run_id] = error
+            record = run_records[run_id]
+            if isinstance(record, MlflowException | OSError):
+                raise record
+            return record.data.tags
+
+        origins_by_method = {
+            spec.name: resolve_method_data_origin(
+                spec,
+                run_tags=run_tags,
+                training_dataset_dir=lambda path: assignment_dataset_dir(path, context.settings),
+                dataset_digest=current_dataset_digest,
+            )
+            for spec in resolved.specs
+        }
+        if len(origins_by_method) != len(resolved.specs):
+            raise ValueError("resolved method names must be unique")
+        training_run_costs: dict[str, Known | Unavailable] = {}
+        for run_id, record in run_records.items():
+            if isinstance(record, MlflowException):
+                training_run_costs[run_id] = Unavailable(
+                    f"run {run_id} cannot be read: {record.message}"
+                )
+            elif isinstance(record, OSError):
+                training_run_costs[run_id] = Unavailable(f"run {run_id} cannot be read: {record}")
+            else:
+                training_run_costs[run_id] = run_wall_seconds_from_run(record, run_id)
+        for spec in resolved.specs:
+            origin = origins_by_method[spec.name]
+            if isinstance(origin, CheckpointBased) and isinstance(
+                origin.training_data, TrainingDataUnavailable
+            ):
+                logger.warning(
+                    "Method '{}': training data provenance unavailable: {}",
+                    spec.name,
+                    origin.training_data.reason,
+                )
         reference_selection = _reference_selection(configured_reference, resolved)
 
         scope = matrix_scope(planned, context)
-        presentation = prepare_comparison_presentation(resolved.specs, scope, context.load_dataset)
+        presentation = prepare_comparison_presentation(
+            resolved.specs, origins_by_method, scope, context.load_dataset
+        )
         title = compose_comparison_title(entry.display_name, scope.dataset)
         run = comparison_run(planned, title, scope.dataset, cfg.notation_policy, Untimed())
 
@@ -177,9 +223,6 @@ def prepare_comparison_entry(
         )
         identity = comparison_identity(cfg, resolved.specs, resolved.checkpoint_digests)
         logger.info("{}: built identity {}.", run_name_text(run), identity.key)
-        if _is_reusable(context, identity, run, force=force):
-            return ComparisonReused(comparison_id=entry.id, run=run)
-
         # Needs real execution: detach the lease manager's cleanup from this
         # function's scope-exit and hand it to the caller instead.
         return PreparedComparisonExecution(
@@ -188,6 +231,8 @@ def prepare_comparison_entry(
             topology=context.topology,
             cleanup=local_stack.pop_all(),
             resolved=resolved,
+            origins_by_method=origins_by_method,
+            training_run_costs=training_run_costs,
             identity=identity,
             settings=context.settings,
             presentation=presentation,
@@ -222,30 +267,6 @@ def _reference_selection(
     )
 
 
-def _is_reusable(
-    context: ComparisonResolutionContext, identity: StageIdentity, run: NamedRun, *, force: bool
-) -> bool:
-    """Whether a FINISHED run with this identity already exists and execution can be skipped."""
-    label = run_name_text(run)
-    if not context.reuse_comparisons:
-        logger.info("{}: per-system reuse is disabled for batch execution.", label)
-        return False
-    logger.info("{}: checking MLflow for a reusable run.", label)
-    reused = reuse_lookup(
-        context.tracking,
-        tracking_uri=context.topology.tracking_uri,
-        experiment=context.topology.experiment_name,
-        identity=identity,
-        force=force,
-        label=label,
-    )
-    if reused is None:
-        logger.info("{}: no reusable run selected; execution is required.", label)
-        return False
-    logger.info("{}: reuse lookup selected run {}.", label, reused.run_id)
-    return True
-
-
 def validate_comparison_sources(cfg: ComparisonConfig) -> None:
     """Validate only the concrete input artifacts required by this workflow mode.
 
@@ -269,15 +290,12 @@ def prepare_comparison_batch(
     settings: NeurallsSettings,
     tracking: TrackingServices,
     stack: contextlib.ExitStack,
-    *,
-    force: bool,
-    reuse_comparisons: bool = True,
 ) -> PreparedComparisonBatch:
-    """Plan, resolve, reuse-check and presentation-validate every system of the case.
+    """Plan, resolve and presentation-validate every system of the case.
 
     Opens no MLflow run. `plan_comparisons` turns every `[[comparisons]]` and
     `[[comparison_sweeps]]` entry into concrete systems first, so each is
-    resolved and reuse-checked identically. Systems needing execution have
+    resolved identically. Systems needing execution have
     their cleanup registered onto `stack`, which the caller must keep open
     until after execution.
 
@@ -308,7 +326,6 @@ def prepare_comparison_batch(
         artifact_leases=stack.enter_context(
             tracking.lease_manager(topology.model_store_tracking_uri)
         ),
-        reuse_comparisons=reuse_comparisons,
     )
     pending: list[PendingComparison] = []
     planned_systems = plan_comparisons(master_cfg, config_dir, settings)
@@ -322,7 +339,7 @@ def prepare_comparison_batch(
             tracking=tracking,
             tracking_uri=topology.model_store_tracking_uri,
         )
-        prepared = prepare_comparison_entry(cfg, planned, context, force=force)
+        prepared = prepare_comparison_entry(cfg, planned, context)
         if isinstance(prepared, PreparedComparisonExecution):
             stack.enter_context(prepared.cleanup)
         pending.append(prepared)

@@ -447,18 +447,18 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
     root_names = group_artifacts(report_id)
     assert "figure_manifest.toml" not in root_names
     assert {
-        "aggregate_bars_All_datasets.png",
-        "solve_time_bars_All_datasets.png",
-        "online_time_bars_All_datasets.png",
-        "cost_breakdown_All_datasets.png",
+        "aggregate_bars_All_comparison_matrix_sets.png",
+        "solve_time_bars_All_comparison_matrix_sets.png",
+        "online_time_bars_All_comparison_matrix_sets.png",
+        "cost_breakdown_All_comparison_matrix_sets.png",
     } <= set(root_names)
     assert {
-        "aggregate_bars_Test_problem_Ones_Solutions_N_1.png",
-        "solve_time_bars_Test_problem_Ones_Solutions_N_1.png",
-        "online_time_bars_Test_problem_Ones_Solutions_N_1.png",
-        "cost_breakdown_Test_problem_Ones_Solutions_N_1.png",
+        "aggregate_bars_Comparison_matrix_set_Test_problem_Ones_Solutions_N_1.png",
+        "solve_time_bars_Comparison_matrix_set_Test_problem_Ones_Solutions_N_1.png",
+        "online_time_bars_Comparison_matrix_set_Test_problem_Ones_Solutions_N_1.png",
+        "cost_breakdown_Comparison_matrix_set_Test_problem_Ones_Solutions_N_1.png",
     } <= set(group_artifacts(matrix_set_id))
-    recipe_stem = "Test_problem_Ones_Solutions_N_1_-_Gaussian"
+    recipe_stem = "Comparison_matrix_set_Test_problem_Ones_Solutions_N_1_-_Gaussian"
     assert {
         f"aggregate_bars_{recipe_stem}.png",
         f"performance_profile_solve_{recipe_stem}.png",

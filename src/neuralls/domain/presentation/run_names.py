@@ -9,7 +9,7 @@ string, so no caller can name a run after a registry id.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import assert_never
+from typing import Literal, assert_never
 
 from neuralls.domain.presentation.methods import (
     ConfiguredMethodPresentation,
@@ -102,12 +102,16 @@ class TrainingPresentation:
     notation: NotationPolicy
 
 
+type SessionPhase = Literal["session_training", "session_comparison", "session_evaluation"]
+
+
 @dataclass(frozen=True, slots=True)
 class SessionRunName:
-    """The batch parent run: the case title and when the batch started."""
+    """The batch parent run: phase, case title, and when the batch started."""
 
     title: SessionTitle
     started: RunTimestamp
+    phase: SessionPhase
 
 
 @dataclass(frozen=True, slots=True)

@@ -19,6 +19,7 @@ from neuralls.composition.comparison._preconditioner_setup import (
     PreconditionerService,
     RealizedFactCaptureError,
 )
+from neuralls.composition.comparison.method_data_origin import NoFitData
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
     MatrixWorkload,
@@ -192,6 +193,7 @@ def execute(
             method,
             bundles,
             prepared=prepared,
+            origin=NoFitData(),
             datasets=group_datasets,
             notation=NotationPolicy.default(),
             params=params,

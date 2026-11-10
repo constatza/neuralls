@@ -214,6 +214,8 @@ def _execute_method_run(
                     recorded_exception_ids=recorded_exception_ids,
                 ),
                 prepared=prepared_method,
+                origin=first.origins_by_method[method.name],
+                training_run_costs=first.training_run_costs,
                 datasets={
                     dataset: first_of_dataset.presentation.scope.dataset
                     for (dataset, _), systems in matrices

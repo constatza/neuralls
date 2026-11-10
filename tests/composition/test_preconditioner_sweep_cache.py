@@ -20,6 +20,7 @@ from neuralls.composition.comparison._preconditioner_setup import (
     matrix_key,
 )
 from neuralls.composition.comparison.comparison_run import execute_method_workload
+from neuralls.composition.comparison.method_data_origin import NoFitData
 from neuralls.composition.comparison.models import MatrixRef, PlannedSystem, ResolvedMethod
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.config import SolverParams
@@ -103,6 +104,7 @@ def test_a_method_is_built_once_per_matrix_whatever_its_setup_role(
         method,
         (matrix_bundle(1, n_rhs=2), matrix_bundle(2, n_rhs=2)),
         prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
         datasets=group_datasets,
         notation=NotationPolicy.default(),
         params=_SOLVER_PARAMS,
@@ -129,7 +131,10 @@ def test_the_offline_cost_is_resolved_once_per_method_and_shared_by_every_matrix
     resolved: list[MlflowClient] = []
 
     def resolve(
-        cfg: StandardPreconditionerConfig, *, settings: NeurallsSettings, runs: MlflowClient
+        origin: NoFitData,
+        *,
+        runs: MlflowClient,
+        run_costs: dict[str, Known] | None,
     ) -> OfflineStages:
         resolved.append(runs)
         return offline
@@ -141,6 +146,7 @@ def test_the_offline_cost_is_resolved_once_per_method_and_shared_by_every_matrix
         method,
         (matrix_bundle(1, n_rhs=2), matrix_bundle(2, n_rhs=2)),
         prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
         datasets=group_datasets,
         notation=NotationPolicy.default(),
         params=_SOLVER_PARAMS,

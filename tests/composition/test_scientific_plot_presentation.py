@@ -51,7 +51,7 @@ from neuralls.shared.scientific_description.policy import (
     RenderTarget,
 )
 from neuralls.shared.scientific_description.render import RenderedScientificDescription
-from tests.presentation_support import datasets_by_dir, pod_spec
+from tests.presentation_support import datasets_by_dir, fixture_origins, pod_spec
 
 MATHTEXT = NotationPolicy.default(RenderTarget.MATHTEXT)
 PLAIN = NotationPolicy.default(RenderTarget.PLAIN)
@@ -102,7 +102,10 @@ def acceptance_cohort(
     fit_datasets: DatasetPresentationLoader,
 ) -> PreparedComparisonPresentation:
     return prepare_comparison_presentation(
-        acceptance_configs, ComparisonScopePresentation(dataset_presentation), fit_datasets
+        acceptance_configs,
+        fixture_origins(acceptance_configs),
+        ComparisonScopePresentation(dataset_presentation),
+        fit_datasets,
     )
 
 

@@ -7,13 +7,18 @@ import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, assert_never, cast
 
 import polars as pl
 import pyarrow.parquet as pq
 import tomli_w
 
-from neuralls.domain.presentation.methods import ExecutedMethod, MissingMethodPresentationError
+from neuralls.domain.presentation.methods import (
+    DatasetQualifiedMethodPresentation,
+    ExecutedMethod,
+    MissingMethodPresentationError,
+    StandaloneMethodPresentation,
+)
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.benchmark_events import (
     MeasuredPeakMemory,
@@ -49,7 +54,14 @@ from neuralls.platform.storage.facts_codec import (
     encode_executed_method,
 )
 from neuralls.shared.digest import Digest, Json, ordered_workload_digest
-from neuralls.shared.types import DatasetId
+from neuralls.shared.types import (
+    DatasetId,
+    InlineFitEvidence,
+    MethodDataEvidence,
+    NoFitDataEvidence,
+    UnavailableCheckpointDataEvidence,
+    VerifiedCheckpointDataEvidence,
+)
 
 METHOD_ARTIFACT_DIR = "method_workload"
 
@@ -86,6 +98,18 @@ class StoredMethodPresentation:
 
     method: ExecutedMethod
     datasets: Mapping[DatasetId, DatasetPresentation]
+    data_evidence: MethodDataEvidence
+
+    def __post_init__(self) -> None:
+        """Keep the stored method label consistent with its resolved data status."""
+        qualified = isinstance(
+            self.data_evidence, InlineFitEvidence | VerifiedCheckpointDataEvidence
+        )
+        configured = self.method.prepared.configured
+        if qualified and not isinstance(configured, DatasetQualifiedMethodPresentation):
+            raise ValueError("method data origin requires a fit/training dataset presentation")
+        if not qualified and not isinstance(configured, StandaloneMethodPresentation):
+            raise ValueError("method data origin requires a standalone presentation")
 
 
 def write_method_benchmark_artifacts(
@@ -146,6 +170,7 @@ def read_presentation(path: Path) -> StoredMethodPresentation:
             DatasetId(str(entry["id"])): decode_dataset_presentation(entry["presentation"])
             for entry in payload["datasets"]
         },
+        data_evidence=_decode_data_evidence(payload["data_origin"]),
     )
 
 
@@ -161,12 +186,47 @@ def _write_presentation(
         raise MissingMethodPresentationError(str(missing))
     payload = {
         "method": encode_executed_method(workload.presentation),
+        "data_origin": _encode_data_evidence(workload.data_evidence),
         "datasets": [
             {"id": str(dataset), "presentation": encode_dataset_presentation(datasets[dataset])}
             for dataset in ran_on
         ],
     }
     path.write_bytes(tomli_w.dumps(payload).encode("utf-8"))
+
+
+def _encode_data_evidence(evidence: MethodDataEvidence) -> dict[str, str]:
+    match evidence:
+        case NoFitDataEvidence():
+            return {"status": "no_fit_data"}
+        case InlineFitEvidence():
+            return {"status": "inline_fit"}
+        case VerifiedCheckpointDataEvidence(digest=digest):
+            return {"status": "checkpoint_verified", "digest": digest}
+        case UnavailableCheckpointDataEvidence(reason=reason):
+            return {"status": "checkpoint_unavailable", "reason": reason}
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _decode_data_evidence(value: object) -> MethodDataEvidence:
+    """Reject unknown, incomplete or extra provenance fields at the artifact boundary."""
+    if not isinstance(value, dict):
+        raise TypeError("data_origin must be a TOML table")
+    status = value.get("status")
+    if status == "no_fit_data" and set(value) == {"status"}:
+        return NoFitDataEvidence()
+    if status == "inline_fit" and set(value) == {"status"}:
+        return InlineFitEvidence()
+    if status == "checkpoint_verified" and set(value) == {"status", "digest"}:
+        digest = value["digest"]
+        if isinstance(digest, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+            return VerifiedCheckpointDataEvidence(digest)
+    if status == "checkpoint_unavailable" and set(value) == {"status", "reason"}:
+        reason = value["reason"]
+        if isinstance(reason, str) and reason:
+            return UnavailableCheckpointDataEvidence(reason)
+    raise ValueError("invalid data_origin evidence")
 
 
 def _exclude_none(config: Mapping[str, Json]) -> dict[str, Json]:

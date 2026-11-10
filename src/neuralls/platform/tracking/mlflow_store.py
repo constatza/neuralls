@@ -33,6 +33,7 @@ from neuralls.platform.tracking.session_artifacts import (
     method_artifact_paths,
 )
 from neuralls.shared.digest import Digest, Json, ordered_workload_digest
+from neuralls.shared.types import MethodDataEvidence
 
 _PAGE_SIZE = 50
 _NEWEST_FIRST = ["attributes.start_time DESC", "attributes.run_id ASC"]
@@ -120,6 +121,7 @@ def find_reusable_benchmark_method(
     config_digest: Digest,
     system_ids: tuple[str, ...],
     method_config: Mapping[str, Json],
+    data_evidence: MethodDataEvidence,
     system_identities: tuple[Digest, ...] | None = None,
 ) -> Reused | None:
     """Find a complete method child, ignoring legacy system runs.
@@ -174,6 +176,7 @@ def find_reusable_benchmark_method(
                     system_ids=system_ids,
                     system_identities=system_identities,
                     method_config=method_config,
+                    data_evidence=data_evidence,
                 )
             except (
                 OSError,
@@ -197,6 +200,7 @@ def _validate_method_artifacts(
     config_digest: Digest,
     system_ids: tuple[str, ...],
     method_config: Mapping[str, Json],
+    data_evidence: MethodDataEvidence,
     system_identities: tuple[Digest, ...] | None = None,
 ) -> None:
     """Validate the canonical Task 5 artifacts before accepting a cache hit."""
@@ -211,7 +215,9 @@ def _validate_method_artifacts(
     config = tomllib.loads(config_path.read_text(encoding="utf-8"))
     if config != dict(method_config):
         raise ValueError("method config artifact does not match requested workload")
-    _validate_stored_tables(paths, artifacts, method=method, system_ids=system_ids)
+    _validate_stored_tables(
+        paths, artifacts, method=method, system_ids=system_ids, data_evidence=data_evidence
+    )
     method_summary = summary.get("method")
     workload_summary = summary.get("workload")
     expected_ids = list(system_ids)
@@ -238,12 +244,15 @@ def _validate_stored_tables(
     *,
     method: str,
     system_ids: tuple[str, ...],
+    data_evidence: MethodDataEvidence,
 ) -> None:
     """Validate the planned systems, presentation and convergence tables of a method run."""
     planned = read_planned_systems(Path(paths[str(artifacts.planned_systems)]))
     if tuple(str(system.tag.system_id) for system in planned) != system_ids:
         raise ValueError("planned systems do not match requested workload")
     stored = read_presentation(Path(paths[str(artifacts.presentation)]))
+    if stored.data_evidence != data_evidence:
+        raise ValueError("stored method data origin does not match current resolution")
     if str(stored.method.prepared.method_id) != method:
         raise ValueError("stored presentation does not belong to requested method")
     if {system.tag.dataset for system in planned} != set(stored.datasets):

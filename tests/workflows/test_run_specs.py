@@ -145,10 +145,10 @@ def test_timed_comparison_run_name_ends_with_the_timestamp(
         RunTimestamp(ISO),
     )
 
-    assert run_name_text(run) == f"{DATASET_TEXT} | {ISO}"
+    assert run_name_text(run) == f"Comparison matrix set: {DATASET_TEXT} | {ISO}"
 
 
-def test_untimed_comparison_run_is_the_bare_title(
+def test_untimed_comparison_run_identifies_matrix_set(
     dataset_presentation: DatasetPresentation,
 ) -> None:
     run = comparison_run(
@@ -158,7 +158,7 @@ def test_untimed_comparison_run_is_the_bare_title(
         PLAIN,
         Untimed(),
     )
-    assert run_name_text(run) == DATASET_TEXT
+    assert run_name_text(run) == f"Comparison matrix set: {DATASET_TEXT}"
 
 
 def test_editorial_comparison_run_names_its_dataset_after_the_title(
@@ -172,7 +172,7 @@ def test_editorial_comparison_run_names_its_dataset_after_the_title(
         Untimed(),
     )
 
-    assert run_name_text(run) == f"Spectral | {DATASET_TEXT}"
+    assert run_name_text(run) == f"Spectral | Comparison matrix set: {DATASET_TEXT}"
 
 
 def test_sibling_systems_on_a_dataset_title_get_distinct_run_names(
@@ -191,7 +191,7 @@ def test_sibling_systems_on_a_dataset_title_get_distinct_run_names(
                 Untimed(),
             )
             names.append(run_name_text(run))
-    dataset = "Test problem | Gaussian CG Residuals (k=20, N=100)"
+    dataset = "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100)"
     assert names == [
         f"{dataset} | matrix {matrix}, RHS {ordinal}" for matrix in (3, 4) for ordinal in (0, 1)
     ]
@@ -241,7 +241,12 @@ def test_session_run_spec_name_and_tags(
         timestamp=ISO,
     )
 
-    assert run_name_text(run) == f"{DATASET_TEXT} | {ISO}"
+    expected = (
+        f"Comparison matrix set: {DATASET_TEXT} | {ISO}"
+        if phase == "session_comparison"
+        else f"{DATASET_TEXT} | {ISO}"
+    )
+    assert run_name_text(run) == expected
     assert tags.as_mlflow_tags() == {
         "phase": phase,
         "case_config": "ffnn",

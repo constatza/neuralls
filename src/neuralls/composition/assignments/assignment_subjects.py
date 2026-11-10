@@ -18,11 +18,10 @@ from neuralls.composition.assignments._job_types import AnyJobConfig
 from neuralls.composition.assignments.job_loader import load_experiment_job
 from neuralls.composition.assignments.presentation_preflight import (
     DatasetPresentationLoader,
-    describe_method,
 )
+from neuralls.composition.preconditioners.descriptions import describe_configured_preconditioner
 from neuralls.domain.presentation.methods import (
     DatasetQualifiedMethodPresentation,
-    StandaloneMethodPresentation,
 )
 from neuralls.domain.presentation.run_names import (
     EditorialTrainingSubject,
@@ -152,8 +151,8 @@ def training_subject(
     """What the assignment's training and evaluation runs are about, from typed facts.
 
     An explicit assignment ``display_name`` is an editorial title shown beside the dataset;
-    otherwise the method the job trains is described exactly as a comparison describes it,
-    qualified by the dataset it trains on. No registry id is ever used as text.
+    otherwise the method the job trains is qualified by its assignment dataset.
+    No registry id is ever used as text.
 
     Raises:
         MissingDatasetProvenanceError: When the dataset predates scientific provenance.
@@ -172,12 +171,9 @@ def training_subject(
             stub = neural_spec_from_assignment(
                 entry, extra_input_names=(), architecture=inputs.binding.architecture
             )
-    described = describe_method(stub, load_dataset)
-    match described:
-        case DatasetQualifiedMethodPresentation():
-            return described
-        case StandaloneMethodPresentation(method=method):
-            return DatasetQualifiedMethodPresentation(method=method, dataset=dataset)
+    return DatasetQualifiedMethodPresentation(
+        method=describe_configured_preconditioner(stub), dataset=dataset
+    )
 
 
 def case_notation(cfg: CaseConfig) -> NotationPolicy:

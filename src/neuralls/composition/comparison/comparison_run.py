@@ -20,6 +20,7 @@ from neuralls.composition.comparison._preconditioner_setup import (
     _load_extra_inputs,
     capture_system_realizations,
 )
+from neuralls.composition.comparison.method_data_origin import MethodDataOrigin, origin_evidence
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
     MatrixWorkload,
@@ -52,7 +53,7 @@ from neuralls.domain.solver.models.benchmark_events import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
-from neuralls.domain.solver.models.cost import OfflineStages
+from neuralls.domain.solver.models.cost import Known, OfflineStages, Unavailable
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.models.preconditioner_family import (
@@ -198,7 +199,7 @@ def _setup_failed(
         timing: What the timed setup measured before failing.
     """
     logger.warning(
-        "Recoverable setup failure for {} on {}, matrix {}: {}: {}",
+        "Recoverable setup failure for {} on comparison matrix set {}, matrix {}: {}: {}",
         run.method_text,
         dataset_text,
         int(bundle.matrix_id),
@@ -280,7 +281,7 @@ def _solve_bundle(
         )
         if isinstance(outcome, SolveFailed):
             logger.warning(
-                "Recoverable solve failure for {} on {}, matrix {}, RHS {}: {}",
+                "Recoverable solve failure for {} on comparison matrix set {}, matrix {}, RHS {}: {}",
                 run.method_text,
                 dataset_text,
                 int(bundle.matrix_id),
@@ -384,6 +385,8 @@ def execute_method_workload(
     bundles: Iterable[MatrixWorkload],
     *,
     prepared: PreparedMethodPresentation,
+    origin: MethodDataOrigin,
+    training_run_costs: Mapping[str, Known | Unavailable] | None = None,
     datasets: Mapping[DatasetId, DatasetPresentation],
     notation: NotationPolicy,
     params: SolverParams,
@@ -412,7 +415,7 @@ def execute_method_workload(
     attempts: list[SolveAttempt] = []
     diagnostics: list[tuple[SystemId, CGComparisonResult]] = []
     realizations: list[SystemRealization] = []
-    offline_cost = resolve_offline_cost(method.config, settings=settings, runs=training_runs)
+    offline_cost = resolve_offline_cost(origin, runs=training_runs, run_costs=training_run_costs)
     method_text = render_method_label(prepared.configured, notation)
 
     with CheckpointStore() as checkpoints:
@@ -448,6 +451,7 @@ def execute_method_workload(
         config_digest=method.identity_digest or canonical_digest(method.config),
         method_config=canonical_method_config(method.config),
         presentation=ExecutedMethod(prepared, tuple(realizations)),
+        data_evidence=origin_evidence(origin),
         plot_styles={
             str(method.name): PreconditionerPlotStyle(
                 presentation=prepared,

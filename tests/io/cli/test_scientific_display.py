@@ -118,7 +118,7 @@ def test_compare_logs_the_plain_run_name_with_the_actual_parameters(
     _invoke_compare(case_config, [outcome])
 
     assert logged == [
-        *_banner(f"{DATASET_TEXT} | matrix 3, RHS 1"),
+        *_banner(f"Comparison matrix set: {DATASET_TEXT} | matrix 3, RHS 1"),
         "=" * 60,
         comparison_summary,
         "=" * 60,
@@ -142,7 +142,7 @@ def test_compare_shows_an_editorial_title_beside_its_dataset(
     _invoke_compare(case_config, [outcome])
 
     assert logged == [
-        *_banner(f"{EDITORIAL} | {DATASET_TEXT} | matrix 3, RHS 1"),
+        *_banner(f"{EDITORIAL} | Comparison matrix set: {DATASET_TEXT} | matrix 3, RHS 1"),
         "=" * 60,
         comparison_summary,
         "=" * 60,
@@ -169,14 +169,14 @@ def test_compare_names_a_failure_by_its_description_and_states_when_it_has_none(
     _invoke_compare(case_config, outcomes)
 
     assert logged == [
-        *_banner(f"{DATASET_TEXT} | matrix 3, RHS 1"),
+        *_banner(f"Comparison matrix set: {DATASET_TEXT} | matrix 3, RHS 1"),
         "Comparison failed: solver diverged",
         *_banner(UNDESCRIBED_COMPARISON_TEXT),
         "Comparison failed: no checkpoint",
-        *_banner(f"{DATASET_TEXT} | matrix 3, RHS 1"),
+        *_banner(f"Comparison matrix set: {DATASET_TEXT} | matrix 3, RHS 1"),
         "Using existing MLflow comparison result (skipped rerun).",
         *_final_summary(total=3, successful=1, failed=2),
-        f"  x {DATASET_TEXT} | matrix 3, RHS 1: solver diverged",
+        f"  x Comparison matrix set: {DATASET_TEXT} | matrix 3, RHS 1: solver diverged",
         f"  x {UNDESCRIBED_COMPARISON_TEXT}: no checkpoint",
     ]
 
@@ -216,7 +216,7 @@ def test_run_summary_names_trainings_and_comparisons_by_their_descriptions(
         "  SUCCESS POD-2G | Gaussian CG Residuals (k=20, N=100)",
         f"  FAILED {EDITORIAL} | {DATASET_TEXT} (out of memory)",
         "Completed 1 comparisons:",
-        f"  SUCCESS {DATASET_TEXT} | matrix 3, RHS 1",
+        f"  SUCCESS Comparison matrix set: {DATASET_TEXT} | matrix 3, RHS 1",
     ]
 
 

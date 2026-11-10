@@ -75,9 +75,11 @@ from neuralls.shared.types import (
     CostProvenance,
     DatasetId,
     MatrixId,
+    NoFitDataEvidence,
     PreconditionerName,
     SetupEventId,
     SystemId,
+    VerifiedCheckpointDataEvidence,
 )
 
 ARTIFACT_FILE_NAMES = (
@@ -194,6 +196,7 @@ def workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWorkload:
         workload_peak_memory=MeasuredPeakMemory(512),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": str(method)},
+        data_evidence=NoFitDataEvidence(),
         presentation=ExecutedMethod(prepared_method(str(method)), ()),
     )
 
@@ -767,7 +770,9 @@ def test_presentation_round_trips_standalone_method_with_realized_facts(
     artifacts = write(realized, summarize(realized), tmp_path)
 
     assert read_presentation(tmp_path / artifacts.presentation) == StoredMethodPresentation(
-        realized.presentation, datasets_for(realized.planned, dataset_presentation)
+        realized.presentation,
+        datasets_for(realized.planned, dataset_presentation),
+        NoFitDataEvidence(),
     )
 
 
@@ -778,11 +783,14 @@ def test_presentation_round_trips_dataset_qualified_method(
     summarize: Callable[[CompletedMethodWorkload], MethodWorkloadSummary],
     write: WriteArtifacts,
 ) -> None:
-    realized = completed_workload(qualified_method, REALIZED_DEPTHS)
+    evidence = VerifiedCheckpointDataEvidence("sha256:" + "a" * 64)
+    realized = replace(
+        completed_workload(qualified_method, REALIZED_DEPTHS), data_evidence=evidence
+    )
     artifacts = write(realized, summarize(realized), tmp_path)
 
     assert read_presentation(tmp_path / artifacts.presentation) == StoredMethodPresentation(
-        realized.presentation, datasets_for(realized.planned, dataset_presentation)
+        realized.presentation, datasets_for(realized.planned, dataset_presentation), evidence
     )
 
 

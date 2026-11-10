@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from mlflow.entities import Run
 from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
@@ -19,9 +20,15 @@ def run_wall_seconds(client: MlflowClient, run_id: str) -> Known | Unavailable:
     duration, so it is `Unavailable` and never a zero.
     """
     try:
-        info = client.get_run(run_id).info
+        run = client.get_run(run_id)
     except MlflowException as error:
         return Unavailable(f"run {run_id} cannot be read: {error.message}")
+    return run_wall_seconds_from_run(run, run_id)
+
+
+def run_wall_seconds_from_run(run: Run, run_id: str) -> Known | Unavailable:
+    """Read a run already fetched for training-data provenance."""
+    info = run.info
     if info.end_time is None:
         return Unavailable(f"run {run_id} has no end time")
     return Known((info.end_time - info.start_time) / _MS_PER_S, None, CostProvenance.HISTORICAL)

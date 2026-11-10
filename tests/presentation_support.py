@@ -6,10 +6,18 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from neuralls.composition.assignments.presentation_preflight import DatasetPresentationLoader
+from neuralls.composition.comparison.method_data_origin import (
+    InlineFit,
+    MethodDataOrigin,
+    NoFitData,
+)
 from neuralls.domain.presentation.methods import PreparedMethodPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.platform.config.models.coarsening import PODCoarseningConfig
-from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
+from neuralls.platform.config.models.preconditioner import (
+    AMGPreconditionerConfig,
+    PreconditionerConfig,
+)
 
 type PreparedMethodFactory = Callable[[str], PreparedMethodPresentation]
 """The `prepared_method` fixture: the validated presentation of one method id."""
@@ -20,6 +28,21 @@ def pod_spec(dataset_dir: Path, rank: int, assignment: str = "fit-job") -> AMGPr
     return AMGPreconditionerConfig(
         coarsening=PODCoarseningConfig(dataset_dir=dataset_dir, rank=rank, assignment=assignment)
     )
+
+
+def fixture_origins(
+    specs: tuple[PreconditionerConfig, ...] | list[PreconditionerConfig],
+) -> dict[str, MethodDataOrigin]:
+    """The explicit inline-fit and no-fit origins of fixture methods."""
+    return {
+        spec.name: (
+            InlineFit(Path(spec.coarsening.dataset_dir))
+            if isinstance(spec, AMGPreconditionerConfig)
+            and isinstance(spec.coarsening, PODCoarseningConfig)
+            else NoFitData()
+        )
+        for spec in specs
+    }
 
 
 NO_DATASET_READS: DatasetPresentationLoader = lambda directory: (_ for _ in ()).throw(

@@ -20,6 +20,11 @@ from neuralls.composition.comparison._linear_system import prepare_resolved_line
 from neuralls.composition.comparison._preconditioner_setup import (
     matrix_key,
 )
+from neuralls.composition.comparison.method_data_origin import (
+    CheckpointBased,
+    MethodDataOrigin,
+    origin_evidence,
+)
 from neuralls.composition.comparison.models import (
     LinearSystem,
     MatrixWorkload,
@@ -57,6 +62,7 @@ def method_major_schedule(pending: Sequence[PendingComparison]) -> MethodSchedul
     """Group executable systems as method -> matrix -> ordered RHS members."""
     methods: dict[tuple[str, Digest], ResolvedMethod] = {}
     identities_by_name: dict[str, Digest] = {}
+    origins_by_name: dict[str, MethodDataOrigin] = {}
     semantics_by_name: dict[str, tuple[object, object]] = {}
     expected_method_names: frozenset[str] | None = None
     grouped: dict[
@@ -76,6 +82,19 @@ def method_major_schedule(pending: Sequence[PendingComparison]) -> MethodSchedul
             item.resolved.specs, item.resolved.checkpoint_digests
         )
         for config in item.resolved.specs:
+            origin = item.origins_by_method[config.name]
+            previous_origin = origins_by_name.setdefault(config.name, origin)
+            if isinstance(previous_origin, CheckpointBased) and isinstance(origin, CheckpointBased):
+                same_origin = origin_evidence(previous_origin) == origin_evidence(origin) and tuple(
+                    ref.resolved_run_id for ref in previous_origin.checkpoint_refs
+                ) == tuple(ref.resolved_run_id for ref in origin.checkpoint_refs)
+            else:
+                same_origin = previous_origin == origin
+            if not same_origin:
+                raise ValueError(
+                    f"method {config.name!r} has different data origins "
+                    "within one comparison workload"
+                )
             identity = identities[config.name]
             previous_identity = identities_by_name.setdefault(config.name, identity)
             if previous_identity != identity:
@@ -172,6 +191,8 @@ def has_complete_reusable_session(
     client = tracking.client(topology.tracking_uri)
     parent_ids: set[str] = set()
     for method, matrices in schedule:
+        first = matrices[0][1][0]
+        origin = first.origins_by_method[method.name]
         system_ids = tuple(str(system.entry.id) for _, systems in matrices for system in systems)
         system_identities = tuple(
             system.identity.key for _, systems in matrices for system in systems
@@ -182,6 +203,7 @@ def has_complete_reusable_session(
             method=str(method.name),
             config_digest=method.identity_digest or canonical_digest(method.config),
             method_config=canonical_method_config(method.config),
+            data_evidence=origin_evidence(origin),
             system_ids=system_ids,
             system_identities=system_identities,
         )

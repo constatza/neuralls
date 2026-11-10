@@ -426,7 +426,7 @@ at which the solver stops (`max(rtol, atol/||b||)`, taken from torchalg's own cr
 
 ## Presentation planning
 
-`GroupPresentation` lives in `models/group_presentation.py` (it shares no name with the shared presentation modules) and carries a typed `scope` (`models/figure_scope.py`: `RecipeScope | DatasetScope | AllDatasetsScope`, plus `MethodScope` for method figures) that sinks render; a `RecipeScope`, a `SystemTag`, a `SolveAttempt` and the report labels hold the typed `RhsRecipe` (`shared/rhs_recipe.py`), whose machine key is the event frames' `recipe` column and the recipe segment of a group id; `PreconditionerPlotStyle` carries the method's `PreparedMethodPresentation` with family and colour/marker keys, never text.
+`GroupPresentation` lives in `models/group_presentation.py` (it shares no name with the shared presentation modules) and carries a typed `scope` (`models/figure_scope.py`: `RecipeScope | DatasetScope | AllDatasetsScope`, plus `MethodScope` for method figures) that sinks render. Dataset, recipe, and system scopes explicitly say "Comparison matrix set"; the pooled scope says "All comparison matrix sets". Method scopes render the method alone. A `RecipeScope`, a `SystemTag`, a `SolveAttempt` and the report labels hold the typed `RhsRecipe` (`shared/rhs_recipe.py`), whose machine key is the event frames' `recipe` column and the recipe segment of a group id; `PreconditionerPlotStyle` carries the method's `PreparedMethodPresentation` with family and colour/marker keys, never text.
 
 Presentation planning (`prepare_presentations`, `reduce_realized_facts`) lives in `domain/presentation/planner.py` (see its README). `GroupPresentation.methods` carries a `GroupMethodPresentation` for each method that has systems in that group: its prepared presentation plus the realized facts invariant over the method's systems in the group (only facts that `is_compact_by_policy` accepts join the compact view). A realized fact is invariant only if every system of the method in the group was realized and they agree, so a group containing a system whose setup failed states none.
 
@@ -454,8 +454,10 @@ artifacts.
 read as zero). `OfflineStages(generation, training)` pairs the two offline stages of a method, and
 `OfflineStages.total()` adds them: seconds sum, peak memory is the largest, and the total is
 `Unavailable` when either stage is. `composition/comparison/_offline_cost.py` chooses the variants
-(`resolve_generation_cost`, `resolve_training_cost`, `resolve_offline_cost`).
+from a validated method data origin (`resolve_generation_cost`, `resolve_training_cost`,
+`resolve_offline_cost`); an unverified checkpoint training dataset has unavailable generation cost.
 `recorded_seconds` returns the seconds of a `Known` cost and `None` otherwise.
+`MethodWorkload` also requires the resolved method's path-free data evidence; the artifact writer records it with the scientific presentation so a future reuse decision can compare provenance, not rendered text.
 
 ## Timing-repeat agreement
 

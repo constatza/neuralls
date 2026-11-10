@@ -52,7 +52,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy, Render
 from neuralls.shared.types import DatasetId, PreconditionerName
 from tests.dataset_support import build_test_dataset
 from tests.observation_support import observations_of_workloads
-from tests.presentation_support import pod_spec
+from tests.presentation_support import fixture_origins, pod_spec
 from tests.realized_support import completed_workload
 
 pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
@@ -164,7 +164,10 @@ def cohort(
     configs: tuple[PreconditionerConfig, ...], spectral_dataset: DatasetPresentation
 ) -> PreparedComparisonPresentation:
     return prepare_comparison_presentation(
-        configs, ComparisonScopePresentation(spectral_dataset), load_dataset_presentation
+        configs,
+        fixture_origins(configs),
+        ComparisonScopePresentation(spectral_dataset),
+        load_dataset_presentation,
     )
 
 

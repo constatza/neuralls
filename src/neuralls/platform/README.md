@@ -294,7 +294,7 @@ method child run, the artifact paths its numbers came from). `FigureCard` is the
 (`reporting/figure_index.py`, written once to the root run's artifact root in `finalize`) lists only
 `run_id`, `artifact_paths` (every file of the figure, PNG and PDF), `card`, `kind`, `level` and `scope` per figure, derived from the cards, and cites in a top-level `splits` key the `splits.toml` copied beside it (`FigureUploader.write_index` uploads both, so train/test separation is checkable from the report's own data; `validate_figure_index` rejects an index without the citation); before it is
 written `verify_figure_records` raises unless every uploaded figure file belongs to a figure that has all its format files and a same-stem card naming that stem, and the index
-lists exactly the uploaded figure files, each entry's files being the ones its card names. The card stores each scope as keys and typed values (`facts_codec.encode_figure_scope`, whose recipe is `encode_recipe`: kind, parameters and mask) beside its plain rendered `display` text; file names are slugs of rendered text, never ids: a group figure `{kind}_{slug}` (written as `.png` and `.pdf`) takes `slug` from the plain rendered scope (`scope_label`, e.g. `aggregate_bars_Gaussian_CG_Residuals_k_20_N_100_-_Gaussian`) and a method figure `residual_history_{slug}` from the rendered method label (`POD-2G (r=10)` becomes `POD-2G_r_10`); `figure_metadata.FigureSlugs` allocates one stem per subject (<= 80 characters) and suffixes `_2`, `_3` in encounter order when two subjects render alike. Machine ids live only in metric keys (`{metric}/{method}`, one run per report scope) and in `*_id` fields (`dataset_ids`, encoded `recipes`, `method_id`; `[reference]` holds the selection kind plus the method id and reason when it has them). Card counts retain every dataset, recipe population/weight, and
+lists exactly the uploaded figure files, each entry's files being the ones its card names. The card stores each scope as keys and typed values (`facts_codec.encode_figure_scope`, whose recipe is `encode_recipe`: kind, parameters and mask) beside its plain rendered `display` text; file names are slugs of rendered text, never ids: a group figure `{kind}_{slug}` (written as `.png` and `.pdf`) takes `slug` from the plain rendered scope (`scope_label`, which prefixes dataset, recipe, and system scopes with "Comparison matrix set") and a method figure `residual_history_{slug}` from the rendered method label (`POD-2G (r=10)` becomes `POD-2G_r_10`); `figure_metadata.FigureSlugs` allocates one stem per subject (<= 80 characters) and suffixes `_2`, `_3` in encounter order when two subjects render alike. Machine ids live only in metric keys (`{metric}/{method}`, one run per report scope) and in `*_id` fields (`dataset_ids`, encoded `recipes`, `method_id`; `[reference]` holds the selection kind plus the method id and reason when it has them). Card counts retain every dataset, recipe population/weight, and
 the actual solver, normalization, and timing-repeat settings; method-child
 history figures are registered with unique method-qualified ownership. Raw
 benchmark events and method summaries become
@@ -318,7 +318,7 @@ the persistence source of truth; the removed scaling-law TOML is not emitted.
 | `matrix_heatmap` | iterations | own | mean per matrix | omitted: a cell with no converged RHS is hatched "0/r solved" |
 | `convergence_factor` | residual reduction per iteration | own | mean and median | omitted |
 
-**Cost breakdown.** Offline cost is a property of the method artifact, so the figure reads it from each method's stored `summary.toml` (`StoredMethod.offline`, passed to `figure_summaries`) and the online segments from the report group's workload summaries; at a sub-workload level the full offline cost stands beside only that level's online seconds, which is the cost of serving that workload from a fresh artifact. Training seconds are the wall time of the whole training job (see `domain/solver/README.md`, "Comparison vocabulary").
+**Cost breakdown.** Offline cost is a property of the method artifact, so the figure reads it from each method's stored `summary.toml` (`StoredMethod.offline`, passed to `figure_summaries`) and the online segments from the report group's workload summaries; at a sub-workload level the full offline cost stands beside only that level's online seconds, which is the cost of serving that workload from a fresh artifact. Training seconds are the wall time of the whole training job; `tracking/run_duration.py::run_wall_seconds_from_run` reads a record already fetched during method preparation, so cost attribution does not fetch the same run again (see `domain/solver/README.md`, "Comparison vocabulary").
 
 **Memory scope.** Peak memory is an operation- or method-lifetime reading, never a comparison across platforms. On CUDA it is the allocator peak (`torch.cuda.max_memory_allocated` after `reset_peak_memory_stats`), exact for the timed operation. On CPU it is a process RSS high-water mark (`ru_maxrss`, `peak_wset` on Windows) read as a delta: the process has no reset, so it is a lower bound when an earlier workload set a higher peak, and a CPU peak must not be compared across methods. `shared/device.py` holds both readings.
 
@@ -327,7 +327,11 @@ the persistence source of truth; the removed scaling-law TOML is not emitted.
 notation, one line, no wrapping. `MlflowRunConfig` carries a `NamedRun`; the
 text is produced where MLflow (or dlkit, which opens the training and evaluation runs) is
 handed a name (`run_name_text`), so a run cannot be named from an id, a slug, a path or a
-class name. Tags keep machine ids in `*_id` fields (`method_id`, `assignment_id`,
+class name. `ComparisonRunName` renders its dataset as "Comparison matrix set: ..."
+after any editorial title. A comparison session parent applies that prefix to a
+dataset title too; training and evaluation session parents retain their dataset
+titles. Method-child names and assignment training/evaluation subjects keep
+their own typed labels. Tags keep machine ids in `*_id` fields (`method_id`, `assignment_id`,
 `comparison_id`) and rendered text in `*_label` fields (`method_label`,
 `assignment_label`, `comparison_label`, and the `dataset` tag/param holding the rendered dataset beside the machine `dataset_id` lookup tag); metric keys stay machine-safe and are never labels.
 The method-child tag `method_id` is what reuse queries.
@@ -376,8 +380,11 @@ already-active method child. The artifact set is defined once by
   and an unavailable stage is never a zero), `method_config.toml` (the reuse identity), and
   `presentation.toml` (the
   method's configured presentation, compact fact selection, per-system realized facts, and
-  the presentation of each dataset it ran on, all through `facts_codec`: keys and typed values
-  only).
+  the presentation of each comparison matrix set it ran on, all through `facts_codec`: keys and typed values
+  only). Its `[data_origin]` table records one closed status: `no_fit_data`, `inline_fit`,
+  `checkpoint_verified` with the attested training-dataset digest, or
+  `checkpoint_unavailable` with a reason. The strict reader rejects old or malformed evidence;
+  method reuse compares it with the newly resolved origin before accepting a run.
 
 It also draws the method's residual and energy figures, then logs reducer-owned scalars
 (including `iterations_total`, and `generation_s`, `training_s` and `offline_s` only for the

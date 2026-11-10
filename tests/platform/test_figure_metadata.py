@@ -91,6 +91,22 @@ def test_system_scope_round_trips_and_extends_its_recipe_text(
     )
 
 
+def test_figure_scopes_name_matrix_sets_separately_from_methods(
+    every_scope: dict[str, FigureScope], notation: NotationPolicy
+) -> None:
+    plain = replace(notation, target=RenderTarget.PLAIN)
+    for kind in ("recipe", "dataset", "system"):
+        assert render_figure_scope(every_scope[kind], CARD_PROFILE, plain).text.startswith(
+            "Comparison matrix set: "
+        )
+    assert render_figure_scope(every_scope["all_datasets"], CARD_PROFILE, plain).text == (
+        "All comparison matrix sets"
+    )
+    assert not render_figure_scope(every_scope["method"], CARD_PROFILE, plain).text.startswith(
+        "Comparison matrix set: "
+    )
+
+
 @pytest.fixture
 def every_scope(scope: RecipeScope, figure_method: FigureMethod) -> dict[str, FigureScope]:
     return {
@@ -205,7 +221,7 @@ def test_card_stores_structured_scope_and_its_rendered_text(
     assert stored["kind"] == "recipe"
     assert (
         stored["display"]
-        == "Test problem | Gaussian CG Residuals (k=20, N=100) - Sinusoidal (ω=6.28319)"
+        == "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100) - Sinusoidal (ω=6.28319)"
     )
 
 

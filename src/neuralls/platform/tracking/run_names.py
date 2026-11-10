@@ -27,6 +27,7 @@ from neuralls.domain.presentation.run_names import (
     RunName,
     RunStamp,
     RunTimestamp,
+    SessionPhase,
     SessionRunName,
     SystemQualifier,
     TrainingPresentation,
@@ -53,6 +54,7 @@ RUN_NAME_PROFILE = RenderProfile(name="run_name", include_context=False)
 
 _PART_SEPARATOR = " | "
 _COLLECTION_SEPARATOR = "; "
+_MATRIX_SET_PREFIX = "Comparison matrix set: "
 
 
 def _stamped(text: str, stamp: RunStamp) -> str:
@@ -65,11 +67,16 @@ def _stamped(text: str, stamp: RunStamp) -> str:
             assert_never(stamp)
 
 
-def _title_text(title: SessionTitle, profile: RenderProfile, policy: NotationPolicy) -> str:
+def _title_text(
+    title: SessionTitle,
+    profile: RenderProfile,
+    policy: NotationPolicy,
+    phase: SessionPhase,
+) -> str:
     match title:
         case CollectionTitle(parts=parts):
             return _COLLECTION_SEPARATOR.join(
-                sorted(_title_text(part, profile, policy) for part in parts)
+                sorted(_title_text(part, profile, policy, phase) for part in parts)
             )
         case SummarizedTitle(head=head, counts=counts):
             summary = (
@@ -78,8 +85,11 @@ def _title_text(title: SessionTitle, profile: RenderProfile, policy: NotationPol
             )
             if head is None:
                 return summary
-            return f"{render_title(head, profile, policy).text}{_PART_SEPARATOR}{summary}"
-        case ComparisonScopePresentation() | EditorialPresentation():
+            return f"{_title_text(head, profile, policy, phase)}{_PART_SEPARATOR}{summary}"
+        case ComparisonScopePresentation(dataset=dataset):
+            rendered = render_dataset(dataset, profile, policy).text
+            return f"{_MATRIX_SET_PREFIX}{rendered}" if phase == "session_comparison" else rendered
+        case EditorialPresentation():
             return render_title(title, profile, policy).text
         case _:
             assert_never(title)
@@ -95,13 +105,14 @@ def _qualifier_text(qualifier: SystemQualifier) -> str:
 def _comparison_subject_text(
     subject: ComparisonSubject, profile: RenderProfile, policy: NotationPolicy
 ) -> str:
-    """The subject's title: the dataset alone, or an editorial name and its dataset."""
+    """Name the comparison's matrix set separately from any editorial title."""
     match subject:
-        case ComparisonScopePresentation():
-            return render_title(subject, profile, policy).text
+        case ComparisonScopePresentation(dataset=dataset):
+            return f"{_MATRIX_SET_PREFIX}{render_dataset(dataset, profile, policy).text}"
         case EditorialComparison(editorial=editorial, dataset=dataset):
             return (
-                f"{editorial.title}{_PART_SEPARATOR}{render_dataset(dataset, profile, policy).text}"
+                f"{editorial.title}{_PART_SEPARATOR}{_MATRIX_SET_PREFIX}"
+                f"{render_dataset(dataset, profile, policy).text}"
             )
         case _:
             assert_never(subject)
@@ -154,8 +165,8 @@ def render_run_name(name: RunName, notation: NotationPolicy) -> str:
     policy = replace(notation, target=RenderTarget.PLAIN)
     profile = RUN_NAME_PROFILE
     match name:
-        case SessionRunName(title=title, started=started):
-            return _stamped(_title_text(title, profile, policy), started)
+        case SessionRunName(title=title, started=started, phase=phase):
+            return _stamped(_title_text(title, profile, policy, phase), started)
         case ComparisonRunName(subject=subject, system=system, stamp=stamp):
             text = _comparison_subject_text(subject, profile, policy)
             if system.parts:

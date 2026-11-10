@@ -25,6 +25,7 @@ from neuralls.composition.assignments.comparison_resolution import (
     ComparisonResolutionContext,
     ResolvedComparisonSpecs,
 )
+from neuralls.composition.comparison.method_data_origin import NoFitData
 from neuralls.composition.comparison.models import (
     ComparisonParams,
     ComparisonReused,
@@ -124,6 +125,8 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
                 warnings=(),
                 checkpoint_digests={},
             ),
+            origins_by_method={"jacobi": NoFitData()},
+            training_run_costs={},
             identity=StageIdentity.build(
                 "comparison", {"entry": canonical_digest(planned.entry.id)}
             ),
@@ -197,6 +200,8 @@ def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
                 warnings=(),
                 checkpoint_digests={},
             ),
+            origins_by_method={"jacobi": NoFitData()},
+            training_run_costs={},
             identity=StageIdentity.build(
                 "comparison", {"entry": canonical_digest(planned.entry.id)}
             ),

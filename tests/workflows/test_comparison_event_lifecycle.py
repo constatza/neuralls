@@ -11,6 +11,7 @@ import pytest
 import torch
 from mlflow.tracking import MlflowClient
 
+from neuralls.composition.comparison.method_data_origin import NoFitData
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
     MatrixWorkload,
@@ -51,7 +52,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from neuralls.shared.types import DatasetId, MatrixId, SystemId
+from neuralls.shared.types import DatasetId, MatrixId, NoFitDataEvidence, SystemId
 from tests.measurement_support import NO_REFERENCE_SOLUTION
 from tests.presentation_support import PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
@@ -148,6 +149,7 @@ def test_workload_models_are_frozen_and_slotted(
         workload_peak_memory=MeasuredPeakMemory(0),
         config_digest="sha256:" + "0" * 64,
         method_config={"name": str(method.name)},
+        data_evidence=NoFitDataEvidence(),
         presentation=ExecutedMethod(prepared_method(str(method.name)), ()),
     )
 
@@ -186,6 +188,7 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
         training_runs=training_runs,
     )
 
@@ -213,7 +216,7 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
     assert len(messages) == 1
     assert messages == [
         (
-            "Recoverable setup failure for Jacobi on Test problem | Gaussian CG Residuals "
+            "Recoverable setup failure for Jacobi on comparison matrix set Test problem | Gaussian CG Residuals "
             "(k=20, N=100), matrix 1: RuntimeError: setup broke"
         )
     ]
@@ -264,6 +267,7 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
         training_runs=training_runs,
     )
 
@@ -305,6 +309,7 @@ def test_repeat_samples_are_retained_but_totals_use_one_representative(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
         training_runs=training_runs,
     )
 
@@ -403,6 +408,7 @@ def test_io_reference_and_reporting_stay_outside_online_timers(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
         training_runs=training_runs,
     )
 
@@ -451,6 +457,7 @@ def test_solver_failure_retains_measured_attempt(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
         training_runs=training_runs,
     )
 
@@ -502,6 +509,7 @@ def test_a_non_finite_iterate_is_stored_as_a_solver_error_beside_a_good_solve(
         params=solver_params,
         settings=neuralls_settings,
         prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
         training_runs=training_runs,
     )
 

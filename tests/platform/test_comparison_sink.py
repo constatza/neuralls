@@ -94,7 +94,14 @@ from neuralls.platform.tracking.report_sink import (
     UnknownStoredMethodError,
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from neuralls.shared.types import DatasetId, GroupId, MatrixId, PreconditionerName, SystemId
+from neuralls.shared.types import (
+    DatasetId,
+    GroupId,
+    MatrixId,
+    NoFitDataEvidence,
+    PreconditionerName,
+    SystemId,
+)
 
 type LoggedMetrics = dict[str, float]
 
@@ -309,6 +316,7 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
         workload_peak_memory=UnknownPeakMemory(),
         config_digest="sha256:" + "b" * 64,
         method_config={"name": str(method)},
+        data_evidence=NoFitDataEvidence(),
         presentation=ExecutedMethod(prepared, ()),
         plot_styles={str(method): PreconditionerPlotStyle(prepared, PreconditionerType.NEURAL)},
     )
@@ -360,7 +368,7 @@ def _report_variant(
     return WorkloadMixtureReport(**common)
 
 
-_GROUP_FILE_STEM = "Test_problem_Gaussian_CG_Residuals_k_20_N_100_-_Gaussian"
+_GROUP_FILE_STEM = "Comparison_matrix_set_Test_problem_Gaussian_CG_Residuals_k_20_N_100_-_Gaussian"
 
 _MEAN_STEMS = (
     "iteration_means",

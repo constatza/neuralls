@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import tomli_w
 
-from neuralls.composition.assignments import comparison_prepare
+from neuralls.composition.assignments import comparison_batch, comparison_prepare
 from neuralls.composition.assignments.comparison_batch import (
     run_comparison_batch,
 )
@@ -26,26 +26,31 @@ from neuralls.composition.assignments.comparison_resolution import (
     ComparisonResolutionContext,
     ResolvedComparisonSpecs,
 )
-from neuralls.composition.comparison.models import ComparisonParams
+from neuralls.composition.comparison.models import ComparisonParams, ComparisonReused
 from neuralls.composition.preconditioners.descriptions import MissingArchitectureNameError
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
+from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import DuplicateMethodPresentationError
 from neuralls.domain.presentation.provenance import DatasetSourceProvenance
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
 from neuralls.platform.config.models.checkpoint_refs import TrainedAssignmentRefConfig
+from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.experiments import CaseConfig
 from neuralls.platform.config.models.preconditioner import (
+    AMGPreconditionerConfig,
     NeuralPreconditionerConfig,
     PreconditionerConfig,
 )
 from neuralls.platform.storage.manifest import MissingDatasetProvenanceError
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
+from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.models import ScientificDescription
 from tests.dataset_support import build_test_dataset, strip_provenance
 from tests.presentation_support import pod_spec
 from tests.workflows.comparison_support import (
     MLFLOW_MODULE,
     make_settings,
+    mock_cfg,
     write_experiments_config,
 )
 
@@ -121,10 +126,56 @@ class TestPresentationFailureAbortsTheBatch:
         assert calls, "resolution ran, so the failure came from presentation"
         mock_mlflow.start_run.assert_not_called()
 
-    def test_a_pod_method_over_a_dataset_without_provenance(
+    def test_unverified_checkpoint_pod_does_not_read_nearby_stale_dataset(
         self, tmp_path: Path, resolved_specs: ResolvedSpecs, stale_dataset_dir: Path
     ) -> None:
-        calls = resolved_specs([pod_spec(stale_dataset_dir, 10)])
+        spec = AMGPreconditionerConfig(
+            coarsening=PODCoarseningConfig(
+                dataset_dir=stale_dataset_dir, checkpoint_path=Path("basis.pt"), rank=10
+            )
+        )
+        calls = resolved_specs([spec])
+        experiments_config = tmp_path / "experiments.toml"
+        write_experiments_config(experiments_config, with_comparisons=True)
+        with (
+            patch.object(
+                comparison_prepare,
+                "resolve_comparison_config",
+                return_value=mock_cfg(preconditioners=[spec]),
+            ),
+            patch.object(
+                comparison_prepare,
+                "load_dataset_presentation",
+                side_effect=AssertionError("unverified fit dataset was read"),
+            ),
+            patch.object(
+                comparison_prepare,
+                "comparison_identity",
+                return_value=StageIdentity.build(
+                    "comparison", {"test": canonical_digest("checkpoint-pod")}
+                ),
+            ),
+            patch.object(
+                comparison_prepare,
+                "preconditioner_identities",
+                return_value={spec.name: canonical_digest("checkpoint-pod")},
+            ),
+            patch.object(comparison_batch, "has_complete_reusable_session", return_value=True),
+            patch(MLFLOW_MODULE) as mock_mlflow,
+        ):
+            outcomes = run_comparison_batch(experiments_config, ComparisonParams())
+        assert calls
+        assert len(outcomes) == 2
+        assert all(isinstance(outcome, ComparisonReused) for outcome in outcomes)
+        mock_mlflow.start_run.assert_not_called()
+
+    def test_inline_pod_over_a_dataset_without_provenance_aborts(
+        self, tmp_path: Path, resolved_specs: ResolvedSpecs, stale_dataset_dir: Path
+    ) -> None:
+        spec = AMGPreconditionerConfig(
+            coarsening=PODCoarseningConfig(dataset_dir=stale_dataset_dir, rank=10)
+        )
+        calls = resolved_specs([spec])
 
         mock_mlflow = _run_expecting_abort(tmp_path, MissingDatasetProvenanceError)
 

@@ -14,9 +14,10 @@ from neuralls.shared.scientific_description.policy import NotationPolicy, Render
 from neuralls.shared.scientific_description.render import RenderedScientificDescription
 from neuralls.shared.types import MatrixId
 
-_ALL_DATASETS_TEXT = "All datasets"
+_ALL_DATASETS_TEXT = "All comparison matrix sets"
 _RECIPE_SEPARATOR = " - "
 _METHOD_PREFIX = "Method "
+_MATRIX_SET_PREFIX = "Comparison matrix set: "
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,13 +70,20 @@ def render_figure_scope(
     """Render a scope: a dataset (with its recipe), every dataset, or a method."""
     match scope:
         case RecipeScope(dataset=dataset, recipe=recipe):
-            rendered = render_dataset(dataset, profile, policy)
+            rendered = render_figure_scope(DatasetScope(dataset), profile, policy)
             return RenderedScientificDescription(
                 text=f"{rendered.text}{_RECIPE_SEPARATOR}{render_recipe(recipe, profile, policy)}",
                 preferred_wrap_boundaries=rendered.preferred_wrap_boundaries,
             )
         case DatasetScope(dataset=dataset):
-            return render_dataset(dataset, profile, policy)
+            rendered = render_dataset(dataset, profile, policy)
+            return RenderedScientificDescription(
+                text=f"{_MATRIX_SET_PREFIX}{rendered.text}",
+                preferred_wrap_boundaries=tuple(
+                    len(_MATRIX_SET_PREFIX) + offset
+                    for offset in rendered.preferred_wrap_boundaries
+                ),
+            )
         case AllDatasetsScope():
             return RenderedScientificDescription(text=_ALL_DATASETS_TEXT)
         case SystemScope(

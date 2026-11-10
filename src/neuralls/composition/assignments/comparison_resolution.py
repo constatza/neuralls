@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, assert_never
 
@@ -14,6 +14,8 @@ from dlkit.infrastructure.config.job_config import (
     TrainingJobConfig,
 )
 from loguru import logger
+from mlflow.entities import Run
+from mlflow.exceptions import MlflowException
 
 from neuralls.composition.assignments._job_types import AnyJobConfig
 from neuralls.composition.assignments.assembler import load_validated_case_config
@@ -345,6 +347,8 @@ class ComparisonResolutionContext:
             artifact once however many entries reference it, and keeps the
             files alive until the sweep ends. Standalone callers leave this
             unset and each entry then owns a private manager.
+        training_run_records: Per-batch cache shared by entry preparation and
+            offline cost attribution; one fetch per distinct training run.
     """
 
     topology: ComparisonTopology
@@ -354,7 +358,9 @@ class ComparisonResolutionContext:
     tracking: TrackingServices
     master_cfg: CaseConfig | None = None
     artifact_leases: ArtifactLeaseManager | None = None
-    reuse_comparisons: bool = True
+    training_run_records: dict[str, Run | MlflowException | OSError] = field(
+        default_factory=dict, repr=False, compare=False
+    )
 
 
 @dataclass(frozen=True, slots=True)

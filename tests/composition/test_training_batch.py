@@ -91,6 +91,7 @@ def _patch_sweep_collaborators(
                     SessionRunName(
                         ComparisonScopePresentation(training_dataset(presentation.subject)),
                         RunTimestamp("2026-03-12T12:00:00"),
+                        "session_training",
                     ),
                     presentation.notation,
                 ),

@@ -56,6 +56,7 @@ from neuralls.shared.types import (
     CostProvenance,
     DatasetId,
     MatrixId,
+    NoFitDataEvidence,
     PreconditionerName,
     SetupEventId,
     SystemId,
@@ -131,6 +132,7 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
         workload_peak_memory=MeasuredPeakMemory(2),
         config_digest="sha256:" + "a" * 64,
         method_config={"name": str(method)},
+        data_evidence=NoFitDataEvidence(),
         presentation=ExecutedMethod(prepared_method(str(method)), ()),
     )
 

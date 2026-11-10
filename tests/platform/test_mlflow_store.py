@@ -51,7 +51,15 @@ from neuralls.platform.tracking.mlflow_store import (
 from neuralls.shared.digest import Json, canonical_digest
 from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SetupEventId, SystemId
+from neuralls.shared.types import (
+    DatasetId,
+    MatrixId,
+    NoFitDataEvidence,
+    PreconditionerName,
+    SetupEventId,
+    SystemId,
+    VerifiedCheckpointDataEvidence,
+)
 
 EXPERIMENT = "Train-Case"
 CONFIG_DIGEST = "sha256:" + "a" * 64
@@ -220,6 +228,7 @@ def reuse_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWor
         workload_peak_memory=MeasuredPeakMemory(2),
         config_digest=CONFIG_DIGEST,
         method_config={"name": "jacobi"},
+        data_evidence=NoFitDataEvidence(),
         presentation=ExecutedMethod(prepared_method(str(method)), ()),
     )
 
@@ -301,6 +310,7 @@ def _find_reusable(
         config_digest=config_digest,
         system_ids=system_ids,
         method_config=method_config,
+        data_evidence=NoFitDataEvidence(),
     )
 
 
@@ -315,7 +325,44 @@ def test_reuse_accepts_valid_required_artifact_contents(
         config_digest=CONFIG_DIGEST,
         system_ids=system_ids,
         method_config={"name": "jacobi"},
+        data_evidence=NoFitDataEvidence(),
     )
+
+
+def test_reuse_rejects_legacy_presentation_without_data_origin(
+    method_artifacts: tuple[dict[str, str], tuple[str, ...]],
+) -> None:
+    paths, system_ids = method_artifacts
+    presentation = Path(paths["presentation.toml"])
+    payload = tomllib.loads(presentation.read_text(encoding="utf-8"))
+    del payload["data_origin"]
+    presentation.write_text(tomli_w.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(KeyError, match="data_origin"):
+        _validate_method_artifacts(
+            paths,
+            method="jacobi",
+            config_digest=CONFIG_DIGEST,
+            system_ids=system_ids,
+            method_config={"name": "jacobi"},
+            data_evidence=NoFitDataEvidence(),
+        )
+
+
+def test_reuse_rejects_changed_data_origin(
+    method_artifacts: tuple[dict[str, str], tuple[str, ...]],
+) -> None:
+    paths, system_ids = method_artifacts
+
+    with pytest.raises(ValueError, match="data origin does not match"):
+        _validate_method_artifacts(
+            paths,
+            method="jacobi",
+            config_digest=CONFIG_DIGEST,
+            system_ids=system_ids,
+            method_config={"name": "jacobi"},
+            data_evidence=VerifiedCheckpointDataEvidence("sha256:" + "b" * 64),
+        )
 
 
 def test_reuse_rejects_planned_systems_differing_from_requested_ids(
@@ -330,6 +377,7 @@ def test_reuse_rejects_planned_systems_differing_from_requested_ids(
             config_digest=CONFIG_DIGEST,
             system_ids=("s1",),
             method_config={"name": "jacobi"},
+            data_evidence=NoFitDataEvidence(),
         )
 
 
@@ -346,6 +394,7 @@ def test_reuse_rejects_corrupt_required_presentation(
             config_digest=CONFIG_DIGEST,
             system_ids=system_ids,
             method_config={"name": "jacobi"},
+            data_evidence=NoFitDataEvidence(),
         )
 
 
@@ -361,6 +410,7 @@ def test_reuse_rejects_presentation_of_another_method(
             config_digest=CONFIG_DIGEST,
             system_ids=system_ids,
             method_config={"name": "jacobi"},
+            data_evidence=NoFitDataEvidence(),
         )
 
 
@@ -517,6 +567,7 @@ def test_reuse_rejects_wrong_required_config_contents(
             config_digest="sha256:" + "a" * 64,
             system_ids=system_ids,
             method_config={"name": "jacobi"},
+            data_evidence=NoFitDataEvidence(),
         )
 
 
@@ -537,6 +588,7 @@ def test_reuse_rejects_incomplete_missing_attempts(
             config_digest="sha256:" + "a" * 64,
             system_ids=system_ids,
             method_config={"name": "jacobi"},
+            data_evidence=NoFitDataEvidence(),
         )
 
 
@@ -590,4 +642,5 @@ def test_reuse_rejects_invalid_summary_memory_or_offline_cost(
             config_digest="sha256:" + "a" * 64,
             system_ids=system_ids,
             method_config={"name": "jacobi"},
+            data_evidence=NoFitDataEvidence(),
         )

@@ -34,6 +34,11 @@ from neuralls.composition.assignments.comparison_resolution import (
 from neuralls.composition.assignments.comparison_schedule import (
     method_major_schedule,
 )
+from neuralls.composition.comparison.method_data_origin import (
+    CheckpointBased,
+    NoFitData,
+    TrainingDataUnavailable,
+)
 from neuralls.composition.comparison.models import (
     CompletedMethodWorkload,
     MatrixWorkload,
@@ -55,13 +60,14 @@ from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.cost import NO_OFFLINE_COST
 from neuralls.platform.config.models.comparison import GaussianRhsSourceModel
 from neuralls.platform.config.models.preconditioner import (
+    NeuralPreconditionerConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
 )
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName
+from neuralls.shared.types import DatasetId, MatrixId, NoFitDataEvidence, PreconditionerName
 from neuralls.shared.workflow_failures import (
     ComparisonMatrixFailureContext,
     ComparisonMatrixPhase,
@@ -79,6 +85,7 @@ def _system(dataset: str, matrix: int, entry_id: str = "system") -> MagicMock:
     system.planned.matrix.matrix_id = MatrixId(matrix)
     system.__dict__["resolved"] = MagicMock()
     system.resolved.checkpoint_digests = {}
+    system.origins_by_method = {"identity": NoFitData(), "jacobi": NoFitData()}
     system.__dict__["cfg"] = MagicMock()
     system.cfg.general.params = SolverParams(
         rtol=1e-6,
@@ -147,6 +154,41 @@ def test_method_schedule_does_not_share_same_name_with_different_identity() -> N
     ]
 
     with pytest.raises(ValueError):
+        method_major_schedule((first, second))
+
+
+def test_method_schedule_ignores_checkpoint_lease_paths_but_checks_training_runs() -> None:
+    first = _system("ds", 0, "r0")
+    second = _system("ds", 0, "r1")
+    at_a = NeuralPreconditionerConfig(
+        assignment="pod-run",
+        resolved_checkpoint_path=Path("/tmp/a/model.ckpt"),
+        resolved_run_id="run-one",
+    )
+    at_b = NeuralPreconditionerConfig(
+        assignment="pod-run",
+        resolved_checkpoint_path=Path("/tmp/b/model.ckpt"),
+        resolved_run_id="run-one",
+    )
+    for system, config in ((first, at_a), (second, at_b)):
+        system.resolved.specs = [config]
+        system.resolved.checkpoint_digests = {"0:ckpt0": "sha256:same"}
+        system.origins_by_method = {
+            config.name: CheckpointBased(
+                (config,), TrainingDataUnavailable("training run has no dataset identity")
+            )
+        }
+
+    assert len(method_major_schedule((first, second))) == 1
+
+    other_run = at_b.model_copy(update={"resolved_run_id": "run-two"})
+    second.resolved.specs = [other_run]
+    second.origins_by_method = {
+        other_run.name: CheckpointBased(
+            (other_run,), TrainingDataUnavailable("training run has no dataset identity")
+        )
+    }
+    with pytest.raises(ValueError, match="different data origins"):
         method_major_schedule((first, second))
 
 
@@ -282,6 +324,7 @@ def events(monkeypatch: pytest.MonkeyPatch, prepared_method: PreparedMethodFacto
             workload_peak_memory=MeasuredPeakMemory(0),
             config_digest="sha256:" + "0" * 64,
             method_config={"name": str(name)},
+            data_evidence=NoFitDataEvidence(),
             presentation=ExecutedMethod(prepared_method(str(name)), ()),
         )
 
@@ -527,6 +570,7 @@ def test_method_run_forwards_the_cohort_presentation_of_its_own_method(
             workload_peak_memory=MeasuredPeakMemory(0),
             config_digest="sha256:" + "0" * 64,
             method_config={"name": str(method.name)},
+            data_evidence=NoFitDataEvidence(),
             presentation=ExecutedMethod(prepared, ()),
         )
 

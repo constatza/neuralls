@@ -149,9 +149,9 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             )
         }
 
-    recipe_stem = "Test_problem_Ones_Solutions_N_4_-_Dataset_RHS"
-    dataset_stem = "Test_problem_Ones_Solutions_N_4"
-    all_stem = "All_datasets"
+    recipe_stem = "Comparison_matrix_set_Test_problem_Ones_Solutions_N_4_-_Dataset_RHS"
+    dataset_stem = "Comparison_matrix_set_Test_problem_Ones_Solutions_N_4"
+    all_stem = "All_comparison_matrix_sets"
     assert artifact_names(run_of_level("matrix_set_rhs_type").info.run_id) == with_cards(
         {
             f"aggregate_bars_{recipe_stem}.png",
