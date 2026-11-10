@@ -94,7 +94,9 @@ def test_a_table_of_another_kind_than_the_cards_is_not_uploaded(
     target = _written_target(tmp_path, plan.stem)
     sink = InMemoryArtifactSink()
     uploader = FigureUploader("session-run", notation, sink)
-    other_kind = figure_summaries(profile_report, no_offline_cost(profile_report))["aggregate_bars"]
+    other_kind = figure_summaries(profile_report, no_offline_cost(profile_report))[
+        "solve_time_bars"
+    ]
 
     with pytest.raises(InvalidFigureTableError):
         uploader.upload(

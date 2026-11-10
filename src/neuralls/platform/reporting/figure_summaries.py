@@ -64,8 +64,6 @@ def _summary(
 ) -> pl.DataFrame | None:
     observations = outcome.observations
     match variant.statistic:
-        case Statistic.CONVERGED_COUNT:
-            return summarize(observations, variant.metric, variant.population)
         case Statistic.WORKLOAD_TOTAL:
             return build_group_table(outcome.summaries)
         case Statistic.OFFLINE_ONLINE_TOTAL:

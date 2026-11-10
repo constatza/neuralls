@@ -8,7 +8,6 @@ from neuralls.domain.benchmarking.cost_curves import BreakEvenState
 from neuralls.platform.reporting.seaborn_cost_curves import (
     InconsistentBreakEvenError,
     break_even_legend,
-    factor_axis_label,
     reference_curve_legend,
 )
 
@@ -52,7 +51,3 @@ def test_the_reference_curve_names_the_method_whose_systems_its_means_share() ->
         reference_curve_legend("Jacobi", "AMG")
         == "Jacobi (reference, on the systems shared with AMG)"
     )
-
-
-def test_a_convergence_factor_row_counts_the_systems_with_a_factor() -> None:
-    assert factor_axis_label("AMG", n_defined=4, n_planned=9) == "AMG\n(4/9 systems with a factor)"

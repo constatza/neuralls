@@ -583,7 +583,7 @@ def test_every_allowance_states_its_reason(name: str) -> None:
         ('def f(cfg):\n    logger.warning("Evaluating {}", cfg.name)\n', LOG_ID_TEXT),
         ("def f(entry):\n    return entry.effective_display_name\n", NAME_FALLBACK),
         ("def f(n):\n    return resolve_display_name(n, None)\n", NAME_FALLBACK),
-        ('def f(group_id):\n    return f"aggregate_bars_{group_id}.png"\n', FILE_NAME_ID),
+        ('def f(group_id):\n    return f"solve_time_bars_{group_id}.png"\n', FILE_NAME_ID),
         ('def f(d):\n    return f"{d.dataset_id}/plot.png"\n', FILE_NAME_ID),
         ("def f(group_id):\n    return sanitize_metric_key_segment(group_id)\n", FILE_NAME_ID),
         (
@@ -619,7 +619,7 @@ def test_the_checker_detects_each_rule(source: str, rule: str) -> None:
         'def f(run_id):\n    logger.info("Logged to MLflow run {}", run_id)\n',
         'def f(bundle):\n    logger.info("matrix {}", int(bundle.matrix_id))\n',
         'def f(base):\n    return base.name or "FlexibleDataset"\n',
-        'def f(stem):\n    return f"aggregate_bars_{stem}.png"\n',
+        'def f(stem):\n    return f"solve_time_bars_{stem}.png"\n',
         'def f(mlflow, dataset_id):\n    mlflow.set_tag("dataset_id", dataset_id)\n',
         'def f(mlflow, label):\n    mlflow.set_tag("dataset", f"{label}")\n',
         'def f(run):\n    return {"mlflow.runName": run_name_text(run)}\n',

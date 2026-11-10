@@ -153,7 +153,6 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
     all_stem = "All_comparison_matrix_sets"
     assert artifact_names(run_of_level("matrix_set_rhs_type").info.run_id) == with_cards(
         {
-            f"aggregate_bars_{recipe_stem}.png",
             f"solve_time_bars_{recipe_stem}.png",
             f"online_time_bars_{recipe_stem}.png",
             f"cost_breakdown_{recipe_stem}.png",
@@ -169,7 +168,6 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
     )
     assert artifact_names(run_of_level("matrix_set").info.run_id) == with_cards(
         {
-            f"aggregate_bars_{dataset_stem}.png",
             f"solve_time_bars_{dataset_stem}.png",
             f"online_time_bars_{dataset_stem}.png",
             f"cost_breakdown_{dataset_stem}.png",
@@ -179,7 +177,6 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
     )
     assert artifact_names(report.report_run_id) == with_cards(
         {
-            f"aggregate_bars_{all_stem}.png",
             f"solve_time_bars_{all_stem}.png",
             f"online_time_bars_{all_stem}.png",
             f"cost_breakdown_{all_stem}.png",

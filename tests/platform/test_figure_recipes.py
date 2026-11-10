@@ -58,7 +58,6 @@ def test_mixture_reports_plan_only_the_kinds_common_to_both_reports() -> None:
         if isinstance(recipe, GroupFigureRecipe) and WorkloadMixtureReport in recipe.applies_to
     }
     assert mixture_kinds == {
-        FigureKind.AGGREGATE_BARS,
         FigureKind.SOLVE_TIME,
         FigureKind.ONLINE_TIME,
         FigureKind.ITERATION_MEANS,

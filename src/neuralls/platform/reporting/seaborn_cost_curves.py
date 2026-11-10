@@ -162,14 +162,6 @@ _FACTOR_PANEL_WIDTH_IN = 7.0
 """Width in inches of one recipe panel, method labels included."""
 
 
-def factor_axis_label(label: str, *, n_defined: int, n_planned: int) -> str:
-    """Method-axis text of a convergence-factor row: the method and how many systems have a factor.
-
-    Only converged systems with a stored history have one, so the count keeps the others visible.
-    """
-    return f"{label}\n({n_defined}/{n_planned} systems with a factor)"
-
-
 def plot_convergence_factors(
     summary: pl.DataFrame,
     observations: pl.DataFrame,
@@ -253,20 +245,11 @@ def _draw_factor_panel(
             legend=False,
             ax=ax,
         )
-    labels = []
     for position, name in enumerate(names):
-        row = by_method.get(name)
-        if row is None:
-            # The method planned no system of this recipe, so it has no row to draw or count.
-            labels.append(style.legend.label(name))
-            continue
-        _draw_summary_marks(ax, position, row)
-        labels.append(
-            factor_axis_label(
-                style.legend.label(name), n_defined=row["n_defined"], n_planned=row["n_planned"]
-            )
-        )
-    ax.set_yticks(range(len(names)), labels)
+        # A method that planned no system of this recipe has no row to draw.
+        if (row := by_method.get(name)) is not None:
+            _draw_summary_marks(ax, position, row)
+    ax.set_yticks(range(len(names)), [style.legend.label(name) for name in names])
     ax.set_ylim(len(names) - 0.5, -0.5)
     ax.set_xlim(left=0.0)
     ax.set_xlabel(f"{METRICS[metric].label} (smaller converges faster)")

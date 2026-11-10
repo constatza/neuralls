@@ -506,7 +506,7 @@ speed-ratio CDF). `WorkloadMixtureReport` is used at the matrix-set and all-matr
 retains the complete ordered recipe membership as explicit mixture metadata.
 Both variants carry distinct matrix, planned-RHS, attempted-RHS, and
 converged counts for each method, and both carry `observations`, the group's rows of the
-observation view. Aggregate convergence bars and workload-total bars are emitted for
+observation view. Workload-total bars are emitted for
 all levels, while mixture reports never imply that heterogeneous recipes form
 one profile population.
 

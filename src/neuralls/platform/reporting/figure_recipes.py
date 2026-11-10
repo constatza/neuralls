@@ -189,23 +189,6 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
     recipe.kind: recipe
     for recipe in (
         GroupFigureRecipe(
-            FigureKind.AGGREGATE_BARS,
-            (
-                FigureVariant(
-                    "aggregate_bars",
-                    "Convergence",
-                    "converged systems",
-                    MetricId.ITERATIONS,
-                    Population.OWN,
-                    Statistic.CONVERGED_COUNT,
-                ),
-            ),
-            FailureTreatment.CENSORED,
-            _BOTH,
-            group_drawers.aggregate_bars,
-            TableKind.SUMMARY,
-        ),
-        GroupFigureRecipe(
             FigureKind.SOLVE_TIME,
             (
                 FigureVariant(

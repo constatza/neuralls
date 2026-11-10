@@ -399,7 +399,6 @@ def test_mixture_sink_omits_profiles_but_keeps_the_bars(
 
     key = _GROUP_FILE_STEM
     assert _figures(logged_artifacts) == {
-        f"aggregate_bars_{key}.png",
         f"solve_time_bars_{key}.png",
         f"online_time_bars_{key}.png",
         f"cost_breakdown_{key}.png",
@@ -533,7 +532,7 @@ def test_method_figures_are_uploaded_with_cards_naming_their_method_run(
     ]
 
 
-def test_recipe_profile_sink_keeps_profile_ecdf_and_aggregate_bars(
+def test_recipe_profile_sink_keeps_profiles_and_ecdf(
     group: GroupAggregated,
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
@@ -545,7 +544,6 @@ def test_recipe_profile_sink_keeps_profile_ecdf_and_aggregate_bars(
 
     key = _GROUP_FILE_STEM
     assert {
-        f"aggregate_bars_{key}.png",
         f"performance_profile_solve_{key}.png",
         f"performance_profile_online_{key}.png",
     } <= _figures(logged_artifacts)
@@ -609,7 +607,6 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
     expected = {
         f"{stem}_{key}.png"
         for stem in (
-            "aggregate_bars",
             "solve_time_bars",
             "online_time_bars",
             "cost_breakdown",
@@ -664,7 +661,7 @@ def test_group_figures_carry_cards_with_methods_parameters_and_sources(
         replace(group, reference_selection=NoReferenceConfigured()), presentation=presentation
     )
 
-    card = _cards(logged_text)[f"aggregate_bars_{_GROUP_FILE_STEM}.toml"]
+    card = _cards(logged_text)[f"solve_time_bars_{_GROUP_FILE_STEM}.toml"]
 
     assert card.metadata.report_level.value == "matrix_set_rhs_type"
     assert [method.method_id for method in card.metadata.methods] == ["amg", "jacobi", "never"]
@@ -675,7 +672,7 @@ def test_group_figures_carry_cards_with_methods_parameters_and_sources(
     ]
     assert card.session_run_id == "session-run"
     assert card.table == SiblingTable(
-        f"aggregate_bars_{_GROUP_FILE_STEM}.parquet", TableKind.SUMMARY
+        f"solve_time_bars_{_GROUP_FILE_STEM}.parquet", TableKind.WORKLOAD_TOTALS
     )
 
 

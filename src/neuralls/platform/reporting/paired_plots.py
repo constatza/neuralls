@@ -17,7 +17,6 @@ from matplotlib.axes import Axes
 
 from neuralls.domain.benchmarking.paired import PairKind
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
-from neuralls.platform.reporting.figure_annotations import counted
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE, Legend
 from neuralls.platform.reporting.figure_writer import finish_group_figure
@@ -106,7 +105,7 @@ def plot_paired_time_scatter(
             both["reference_value"].to_list(),
             both["method_value"].to_list(),
             color=color, marker=marker, s=28,
-            label=f"{style.legend.label(name)} ({both.height + method_only.height} solved)",
+            label=style.legend.label(name),
         )  # fmt: skip
         _hollow(
             ax,
@@ -149,20 +148,15 @@ def speed_ratio_legend(
     *,
     median: float | None,
     ci: tuple[float, float] | None,
-    n_ratio: int,
-    n_matrices: int,
 ) -> str:
-    """Legend text of a speed-ratio curve: median, interval and what the interval rests on.
+    """Legend text of a speed-ratio curve: the median and its interval.
 
-    The interval resamples whole matrices, so the matrix count is stated beside the system count:
-    sibling right-hand sides of one matrix are not independent observations.
+    The system and matrix counts the interval rests on are on the figure's card, not in the legend.
     """
     text = f"{label}: median {median:.2f}" if median is not None else f"{label}: no paired ratio"
     if ci is not None:
         text += f" [{ci[0]:.2f}, {ci[1]:.2f}]"
-    systems = counted(n_ratio, "system", "systems")
-    matrices = counted(n_matrices, "matrix", "matrices")
-    return f"{text}, n={systems} on {matrices} (reference / method)"
+    return f"{text} (reference / method)"
 
 
 def _speed_ratio_curve(ratios: Sequence[float]) -> tuple[np.ndarray, np.ndarray]:
@@ -186,8 +180,7 @@ def plot_speed_ratio_cdf(
     of the same pairing, one per method. Only systems both methods solved enter. The median speed
     ratio carries a percentile-bootstrap interval (Efron & Tibshirani 1993) that resamples
     whole matrices, so sibling right-hand sides do not count as independent
-    observations. Each legend entry shows the median, its interval and the number of paired
-    systems and matrices. The vertical line at 1 separates systems where the method was slower
+    observations. Each legend entry shows the median and its interval. The vertical line at 1 separates systems where the method was slower
     (left) from faster (right).
     """
     if summary.height == 0:
@@ -209,8 +202,6 @@ def plot_speed_ratio_cdf(
                 style.legend.label(name),
                 median=row["median_ratio"],
                 ci=ci,
-                n_ratio=row["n_ratio"],
-                n_matrices=row["n_matrices"],
             ),
         )
     ax.axvline(1.0, color="gray", linewidth=1, linestyle="--")

@@ -42,7 +42,6 @@ CARD_PROFILE = RenderProfile(name="card", include_context=True)
 
 
 class FigureKind(StrEnum):
-    AGGREGATE_BARS = "aggregate_bars"
     ONLINE_TIME = "online_time"
     SOLVE_TIME = "solve_time"
     PAIRED_TIME = "paired_time"
@@ -180,7 +179,6 @@ class Statistic(StrEnum):
     totals over the report's workload.
     """
 
-    CONVERGED_COUNT = "converged_count"
     WORKLOAD_TOTAL = "workload_total"
     ECDF = "ecdf"
     PERFORMANCE_PROFILE = "performance_profile"

@@ -192,7 +192,7 @@ def test_method_metadata_rejects_a_group_figure_kind(
     method_metadata_of: Callable[[FigureScope], MethodFigureMetadata], scope: RecipeScope
 ) -> None:
     with pytest.raises(ValueError, match="not a method figure kind"):
-        replace(method_metadata_of(scope), kind=FigureKind.AGGREGATE_BARS)
+        replace(method_metadata_of(scope), kind=FigureKind.SOLVE_TIME)
 
 
 def test_card_is_a_deterministic_function_of_its_value(

@@ -189,8 +189,7 @@ def _interval(variant: FigureVariant, outcome: GroupReport) -> FigureInterval:
         case Statistic.MEAN_OVER_SYSTEMS | Statistic.MEAN_OVER_MATRICES | Statistic.MEAN_AND_MEDIAN:
             return bootstrap_of_means(observations, variant.metric, variant.population)
         case (
-            Statistic.CONVERGED_COUNT
-            | Statistic.WORKLOAD_TOTAL
+            Statistic.WORKLOAD_TOTAL
             | Statistic.OFFLINE_ONLINE_TOTAL
             | Statistic.ECDF
             | Statistic.PERFORMANCE_PROFILE

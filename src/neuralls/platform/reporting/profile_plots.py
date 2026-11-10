@@ -22,11 +22,6 @@ from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.series_style import method_palette
 
 
-def profile_legend(label: str, *, n_solved: int, n_planned: int) -> str:
-    """Legend text of a profile curve: the method and how many of its planned systems it solved."""
-    return f"{label} ({n_solved}/{n_planned} solved)"
-
-
 def excluded_zero_best_note(n_excluded: int) -> str | None:
     """Legend note on systems a performance profile left out, or ``None`` when there are none.
 
@@ -86,9 +81,7 @@ def _step_profile_figure(
             where="post",
             color=palette.color(name),
             linestyle=palette.linestyle(name),
-            label=profile_legend(
-                style.legend.label(name), n_solved=row["n_solved"], n_planned=row["n_planned"]
-            ),
+            label=style.legend.label(name),
         )
     if note is not None:
         ax.plot([], [], " ", label=note)

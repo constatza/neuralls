@@ -13,7 +13,6 @@ from neuralls.platform.reporting.paired_plots import (
 )
 from neuralls.platform.reporting.profile_plots import (
     excluded_zero_best_note,
-    profile_legend,
     profile_step_curve,
 )
 from neuralls.platform.reporting.workload_bars import (
@@ -26,22 +25,22 @@ from neuralls.platform.reporting.workload_bars import (
 M = FAILED_AXIS_MARGIN
 
 
-def test_speed_ratio_legend_states_median_interval_systems_and_matrices() -> None:
-    text = speed_ratio_legend("AMG", median=1.234, ci=(0.98, 1.5), n_ratio=10, n_matrices=5)
+def test_speed_ratio_legend_states_median_and_interval() -> None:
+    text = speed_ratio_legend("AMG", median=1.234, ci=(0.98, 1.5))
 
-    assert text == "AMG: median 1.23 [0.98, 1.50], n=10 systems on 5 matrices (reference / method)"
-
-
-def test_speed_ratio_legend_uses_the_singular_for_one_system_on_one_matrix() -> None:
-    text = speed_ratio_legend("AMG", median=2.0, ci=None, n_ratio=1, n_matrices=1)
-
-    assert text == "AMG: median 2.00, n=1 system on 1 matrix (reference / method)"
+    assert text == "AMG: median 1.23 [0.98, 1.50] (reference / method)"
 
 
-def test_speed_ratio_legend_without_a_ratio_says_so_and_counts_zero() -> None:
-    text = speed_ratio_legend("AMG", median=None, ci=None, n_ratio=0, n_matrices=0)
+def test_speed_ratio_legend_without_an_interval_states_only_the_median() -> None:
+    text = speed_ratio_legend("AMG", median=2.0, ci=None)
 
-    assert text == "AMG: no paired ratio, n=0 systems on 0 matrices (reference / method)"
+    assert text == "AMG: median 2.00 (reference / method)"
+
+
+def test_speed_ratio_legend_without_a_ratio_says_so() -> None:
+    text = speed_ratio_legend("AMG", median=None, ci=None)
+
+    assert text == "AMG: no paired ratio (reference / method)"
 
 
 @pytest.mark.parametrize(
@@ -56,10 +55,6 @@ def test_excluded_zero_best_note_appears_only_when_systems_were_excluded(
     n_excluded: int, expected: str | None
 ) -> None:
     assert excluded_zero_best_note(n_excluded) == expected
-
-
-def test_profile_legend_counts_solved_of_planned_systems() -> None:
-    assert profile_legend("AMG", n_solved=3, n_planned=9) == "AMG (3/9 solved)"
 
 
 def test_profile_step_curve_rises_from_zero_and_extends_its_plateau_to_the_shared_end() -> None:

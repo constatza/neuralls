@@ -69,7 +69,6 @@ def plot_calls(monkeypatch: pytest.MonkeyPatch) -> PlotCalls:
         return record
 
     for name in (
-        "plot_aggregate_bars",
         "plot_workload_bars",
         "plot_cost_breakdown",
         "plot_ecdf_profile",
@@ -282,7 +281,6 @@ def test_reference_figures_need_a_configured_reference_among_the_methods(
 @pytest.mark.parametrize(
     ("kind", "metric", "function"),
     [
-        (FigureKind.AGGREGATE_BARS, MetricId.ITERATIONS, "plot_aggregate_bars"),
         (FigureKind.SOLVE_TIME, MetricId.SOLVE_S, "plot_workload_bars"),
         (FigureKind.ONLINE_TIME, MetricId.ONLINE_S, "plot_workload_bars"),
         (FigureKind.COST_BREAKDOWN, MetricId.ONLINE_S, "plot_cost_breakdown"),

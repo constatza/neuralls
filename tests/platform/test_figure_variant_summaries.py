@@ -106,9 +106,6 @@ _PROFILE_STEMS = {variant.stem for _, variant in _PROFILE_VARIANTS}
 _MIXTURE_STEMS = {variant.stem for _, variant in _MIXTURE_VARIANTS}
 
 _EXPECTED_SUMMARY: dict[str, SummaryOf] = {
-    "aggregate_bars": lambda report: summarize(
-        report.observations, MetricId.ITERATIONS, Population.OWN
-    ),
     "paired_time_scatter": lambda report: paired_systems(
         report.observations, JACOBI, REFERENCE_METRIC
     ),

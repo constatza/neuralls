@@ -22,7 +22,6 @@ from neuralls.domain.benchmarking.paired import (
 from neuralls.domain.benchmarking.profiles import ProfileSeries, ecdf_series, performance_series
 from neuralls.domain.benchmarking.selection import ReferenceSelection
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
-from neuralls.platform.reporting.aggregate_plot import plot_aggregate_bars
 from neuralls.platform.reporting.cost_breakdown_plot import plot_cost_breakdown
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import Statistic
@@ -128,10 +127,6 @@ def performance_profile(data: FigureData, target: FigureTarget) -> FigureTarget 
 
 def cost_breakdown(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_cost_breakdown(data.summary, style=data.style, target=target)
-
-
-def aggregate_bars(data: FigureData, target: FigureTarget) -> FigureTarget | None:
-    return plot_aggregate_bars(data.summary, style=data.style, target=target)
 
 
 def paired_time_scatter(data: FigureData, target: FigureTarget) -> FigureTarget | None:
