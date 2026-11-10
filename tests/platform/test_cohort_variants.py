@@ -20,8 +20,10 @@ from neuralls.domain.solver.reporting.cohorts import (
 from neuralls.platform.reporting.cohort_variants import (
     MIXTURE_STEM_SUFFIX,
     CohortLevel,
+    CohortSplit,
     cohort_level,
     cohort_report,
+    cohort_split,
     cohort_variants,
     is_cohort_table,
     recipe_variant,
@@ -79,12 +81,23 @@ def test_all_matrix_sets_have_one_figure_per_recipe_then_the_pooled_one() -> Non
 @pytest.mark.parametrize("level", list(CohortLevel))
 @pytest.mark.parametrize(
     "table",
-    [table for table in TableKind if not is_cohort_table(table)],
+    [table for table in TableKind if cohort_split(table) is CohortSplit.WHOLE_GROUP],
 )
 def test_a_figure_without_a_cohort_table_is_one_figure_of_the_whole_group_at_every_level(
     table: TableKind, level: CohortLevel
 ) -> None:
     assert _suffixes(table, level) == [""]
+
+
+@pytest.mark.parametrize("table", [TableKind.SERIES, TableKind.PAIRED, TableKind.SPEED_RATIO])
+def test_a_profile_table_is_one_figure_at_recipe_level_and_one_pooled_figure_at_mixture_levels(
+    table: TableKind,
+) -> None:
+    assert {level: _suffixes(table, level) for level in CohortLevel} == {
+        CohortLevel.RECIPE: [""],
+        CohortLevel.MATRIX_SET: ["__mixture"],
+        CohortLevel.ALL_MATRIX_SETS: ["__mixture"],
+    }
 
 
 def test_only_the_two_cohort_tables_are_drawn_per_cohort() -> None:

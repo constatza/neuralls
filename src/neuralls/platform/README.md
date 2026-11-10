@@ -144,7 +144,7 @@ The group outcome plots are drawn from one frame each by `profile_plots.py` (per
 shared with the cost breakdown. Planning (`figure_summaries.figure_summaries`)
 computes, once per report, the frame every planned variant draws and stores (`summarize`, `ecdf_series`,
 `performance_series`, `paired_systems`, `speed_ratio_summary`, `break_even_curves` or the workload totals, by the variant's `Statistic`;
-profiles, pairings and speed ratios only for a `RecipeProfileReport`, since they need one homogeneous recipe, and
+at a mixture level the profile, ECDF, pairing and speed-ratio frames are computed once on the pooled `observations` of all the group's systems (the ECDF and profile denominators stay every planned system, so failures keep the plateau below 1), while the break-even curve and the heatmap stay recipe-level, and
 the three reference figures only when the group's configured reference is among its methods). The sink wraps each
 frame as a `FigureData` (the group's `observations`, the `summary` frame, the `GroupStyle`, the variant's `metric`
 and the group's `ReferenceSelection`) and the kind's drawer in `group_drawers.py`, `(FigureData, Path) -> Path | None`,
@@ -252,9 +252,18 @@ figure (`cohort_variants.py`, pure): which cohorts get a figure is decided by th
 | matrix set | the pooled one only: a recipe cohort would repeat the matrix-set-and-RHS-type report of that recipe row for row, since both take the statistic over that recipe's systems of that matrix set | `<stem>_<slug>__mixture` |
 | all matrix sets | one per recipe, then the pooled one | `<stem>_<slug>__<recipe key slug>`, `<stem>_<slug>__mixture` |
 
-Figures whose table is not a cohort table (workload bars, cost breakdown, the profiles, the paired
-kinds, the break-even curve and the heatmap) are one figure of the whole group at every level they
-apply to, with no suffix. A cohort figure has its own card and its own sibling table `<its
+The ECDFs, performance profiles, paired scatter and speed-ratio CDF (`CohortSplit.POOLED_AT_MIXTURE`:
+tables `series`, `paired`, `speed_ratio`) have no per-recipe row blocks. At recipe level they are the
+one unsuffixed figure; at matrix-set and all-matrix-sets levels each variant is one figure pooled
+over all of the group's systems and all RHS types, stem suffix `__mixture`, card cohort `mixture`,
+a subtitle line stating that it is a mixture of recipes, and a table that is that figure's own
+series, pairs or ratio frame (never `cohort_rows` of anything). A recipe's pairs and curves are
+unaffected by the other recipes' systems because system ids are unique per session and every
+frame is keyed by `(dataset, system_id)`; the speed-ratio interval clusters by `(dataset,
+matrix_id)`, so recipes sharing a matrix share one cluster. The break-even curve and the heatmap
+(a cumulative-cost curve and a per-matrix cell have no meaning pooled) stay recipe-level only.
+Figures whose table is neither (workload bars, cost breakdown, the break-even curve and the
+heatmap) are one figure of the whole group at every level they apply to, with no suffix. A cohort figure has its own card and its own sibling table `<its
 stem>.parquet`, which holds exactly `cohort_rows(table, cohort)`; `table_of(stem, kind)` and the
 uploader's stem-collision check work on the full suffixed stem, and a stem is mapped back to its
 variant through the card's kind, metric and population, never by parsing the stem. The card's

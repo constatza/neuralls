@@ -150,6 +150,19 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             )
         }
 
+    def pooled_figures(stem: str) -> set[str]:
+        """The profile figures pooled over a mixture; the case has no reference to pair against."""
+        return {
+            f"{kind}_{stem}__mixture.png"
+            for kind in (
+                "performance_profile_solve",
+                "performance_profile_online",
+                "ecdf_iterations",
+                "ecdf_time_solve",
+                "ecdf_time_online",
+            )
+        }
+
     recipe_stem = "Comparison_matrix_set_Test_problem_Ones_Solutions_N_4_-_Dataset_RHS"
     dataset_stem = "Comparison_matrix_set_Test_problem_Ones_Solutions_N_4"
     all_stem = "All_comparison_matrix_sets"
@@ -173,6 +186,7 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"online_time_bars_{dataset_stem}.png",
             f"cost_breakdown_{dataset_stem}.png",
             *cohort_figures(dataset_stem, "__mixture"),
+            *pooled_figures(dataset_stem),
         }
     )
     assert artifact_names(report.report_run_id) == with_cards(
@@ -181,5 +195,6 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"online_time_bars_{all_stem}.png",
             f"cost_breakdown_{all_stem}.png",
             *cohort_figures(all_stem, "__dataset", "__mixture"),
+            *pooled_figures(all_stem),
         }
     )

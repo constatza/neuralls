@@ -8,7 +8,10 @@ its own axes, instead of side by side. The level decides which cohorts get a fig
   number for number, so only the pooled figure is drawn;
 - all matrix sets: one figure per recipe and the pooled one, since no other report has them.
 
-Figures whose table is not a cohort table draw the whole group once at every level.
+Figures over profiles, paired systems and speed ratios have no per-recipe rows to split; at the
+two mixture levels they are one figure pooled over every system of the group, and at recipe level
+the one figure of the group. Figures whose table is neither draw the whole group once at every
+level.
 """
 
 from __future__ import annotations
@@ -87,38 +90,57 @@ def recipe_variant(recipe: RhsRecipe) -> CohortVariant:
     )
 
 
-def is_cohort_table(table: TableKind) -> bool:
-    """Whether figures with a ``table`` are drawn per cohort."""
+class CohortSplit(StrEnum):
+    """How the figures of a table are split by cohort."""
+
+    PER_COHORT = "per_cohort"
+    """One figure per recipe and the pooled one, from a table with a row block per cohort."""
+    POOLED_AT_MIXTURE = "pooled_at_mixture"
+    """One figure over all systems of a mixture, from a table computed on the pooled systems."""
+    WHOLE_GROUP = "whole_group"
+    """One figure of the whole group at every level."""
+
+
+def cohort_split(table: TableKind) -> CohortSplit:
+    """How figures with a ``table`` are split by cohort."""
     match table:
         case TableKind.COHORT_SUMMARY | TableKind.COHORT_RATIO_OF_SUMS:
-            return True
+            return CohortSplit.PER_COHORT
+        case TableKind.SERIES | TableKind.PAIRED | TableKind.SPEED_RATIO:
+            return CohortSplit.POOLED_AT_MIXTURE
         case (
             TableKind.SUMMARY
-            | TableKind.SERIES
-            | TableKind.PAIRED
-            | TableKind.SPEED_RATIO
             | TableKind.WORKLOAD_TOTALS
             | TableKind.COST_CURVES
             | TableKind.MATRIX_BREAKDOWN
             | TableKind.COST_BREAKDOWN
         ):
-            return False
+            return CohortSplit.WHOLE_GROUP
         case unreachable:
             assert_never(unreachable)
+
+
+def is_cohort_table(table: TableKind) -> bool:
+    """Whether a ``table`` holds one row block per cohort, which each cohort figure selects."""
+    return cohort_split(table) is CohortSplit.PER_COHORT
 
 
 def cohort_variants(
     table: TableKind, level: CohortLevel, recipes: Sequence[RhsRecipe]
 ) -> tuple[CohortVariant, ...]:
     """The figures a kind with ``table`` gets at ``level`` for a group pooling ``recipes``."""
-    if not is_cohort_table(table):
-        return (WHOLE_GROUP,)
-    match level:
-        case CohortLevel.RECIPE:
+    match cohort_split(table), level:
+        case CohortSplit.WHOLE_GROUP, _:
             return (WHOLE_GROUP,)
-        case CohortLevel.MATRIX_SET:
+        case CohortSplit.POOLED_AT_MIXTURE, CohortLevel.RECIPE:
+            return (WHOLE_GROUP,)
+        case CohortSplit.POOLED_AT_MIXTURE, CohortLevel.MATRIX_SET | CohortLevel.ALL_MATRIX_SETS:
             return (POOLED,)
-        case CohortLevel.ALL_MATRIX_SETS:
+        case CohortSplit.PER_COHORT, CohortLevel.RECIPE:
+            return (WHOLE_GROUP,)
+        case CohortSplit.PER_COHORT, CohortLevel.MATRIX_SET:
+            return (POOLED,)
+        case CohortSplit.PER_COHORT, CohortLevel.ALL_MATRIX_SETS:
             return (*(recipe_variant(recipe) for recipe in recipes), POOLED)
         case unreachable:
             assert_never(unreachable)

@@ -82,8 +82,10 @@ group's first setup. Every `GroupAggregated` report carries `observations`, the 
 all-methods observation view (`classify_level` receives the view of the whole workload and keeps the
 rows of the group's systems): a `RecipeProfileReport` holds its one recipe's rows, a
 `WorkloadMixtureReport` the pooled rows of every recipe it names. The recipe-versus-mixture split
-only gates which figure kinds apply, because a performance profile and a paired comparison need
-one homogeneous recipe. Failed attempts keep their measured time in the observation frame and in
+only gates which figure kinds apply: the break-even curve and the matrix heatmap need one
+recipe, while the ECDFs, performance profiles, pairings and speed ratios are also computed on a
+mixture's pooled `observations` (every function is keyed by `(dataset, system_id)`, and system
+ids are unique per session, so recipes cannot collide). Failed attempts keep their measured time in the observation frame and in
 workload totals, and every per-system metric excludes them through `select`.
 
 ## Observation view and metric catalog

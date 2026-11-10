@@ -51,7 +51,7 @@ def test_method_plots_are_exactly_the_kinds_with_a_history_recipe() -> None:
     assert set(METHOD_PLOTS) == histories
 
 
-def test_mixture_reports_plan_only_the_kinds_common_to_both_reports() -> None:
+def test_mixture_reports_plan_every_kind_but_the_recipe_level_ones() -> None:
     mixture_kinds = {
         kind
         for kind, recipe in FIGURE_RECIPES.items()
@@ -68,6 +68,11 @@ def test_mixture_reports_plan_only_the_kinds_common_to_both_reports() -> None:
         FigureKind.TIME_DISTRIBUTION,
         FigureKind.CONVERGENCE_FACTOR,
         FigureKind.COST_BREAKDOWN,
+        FigureKind.ECDF_ITERATIONS,
+        FigureKind.ECDF_TIME,
+        FigureKind.PERFORMANCE_PROFILE,
+        FigureKind.PAIRED_TIME,
+        FigureKind.SPEED_RATIO,
     }
     assert all(RecipeProfileReport in group_recipe(kind).applies_to for kind in mixture_kinds)
 

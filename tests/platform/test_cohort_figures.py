@@ -48,6 +48,7 @@ from neuralls.platform.reporting.figure_metadata import (
 from neuralls.platform.reporting.figure_planning import figure_plans, table_of
 from neuralls.platform.reporting.figure_recipes import group_recipe, group_recipes
 from neuralls.platform.reporting.figure_summaries import figure_summaries
+from neuralls.platform.reporting.figure_text import MIXTURE_NOTE
 from neuralls.platform.reporting.group_drawers import FigureData
 from neuralls.platform.reporting.group_plots import GroupStyler, write_outcome_plots
 from neuralls.shared.rhs_recipe import recipe_key
@@ -65,7 +66,7 @@ _AGGREGATE_BARS = (
 )
 """Pooled single figures at every level."""
 
-_RECIPE_LEVEL_ONLY = (
+_POOLED_FIGURES = (
     "paired_time_scatter",
     "speed_ratio_cdf",
     "performance_profile_solve",
@@ -73,6 +74,10 @@ _RECIPE_LEVEL_ONLY = (
     "ecdf_iterations",
     "ecdf_time_solve",
     "ecdf_time_online",
+)
+"""Figures with one unsuffixed figure at recipe level and one pooled figure at mixture levels."""
+
+_RECIPE_LEVEL_ONLY = (
     "breakeven",
     "matrix_heatmap_iterations",
 )
@@ -123,7 +128,7 @@ def test_a_matrix_set_and_rhs_type_report_has_one_unsuffixed_figure_of_every_kin
     profile_report: RecipeProfileReport, presentation: GroupPresentation
 ) -> None:
     assert _stems_of(_planned(profile_report, presentation)) == _stems(
-        *_AGGREGATE_BARS, *_RECIPE_LEVEL_ONLY, *_COHORT_FIGURES
+        *_AGGREGATE_BARS, *_POOLED_FIGURES, *_RECIPE_LEVEL_ONLY, *_COHORT_FIGURES
     )
 
 
@@ -131,7 +136,9 @@ def test_a_matrix_set_report_has_only_the_pooled_figure_of_each_cohort_kind(
     two_recipe_mixture_report: WorkloadMixtureReport, presentation: GroupPresentation
 ) -> None:
     assert _stems_of(_planned(two_recipe_mixture_report, presentation)) == (
-        _stems(*_AGGREGATE_BARS) | _stems(*_COHORT_FIGURES, suffix="__mixture")
+        _stems(*_AGGREGATE_BARS)
+        | _stems(*_POOLED_FIGURES, suffix="__mixture")
+        | _stems(*_COHORT_FIGURES, suffix="__mixture")
     )
 
 
@@ -140,6 +147,7 @@ def test_an_all_matrix_sets_report_has_a_figure_per_recipe_and_the_pooled_one(
 ) -> None:
     assert _stems_of(_planned(all_sets_report, presentation)) == (
         _stems(*_AGGREGATE_BARS)
+        | _stems(*_POOLED_FIGURES, suffix="__mixture")
         | _stems(*_COHORT_FIGURES, suffix=f"__{_GAUSSIAN_SLUG}")
         | _stems(*_COHORT_FIGURES, suffix=f"__{_SINE_SLUG}")
         | _stems(*_COHORT_FIGURES, suffix="__mixture")
@@ -277,7 +285,10 @@ def test_a_cohort_figure_draws_and_stores_the_rows_of_its_cohort(
     for stem, table in tables.items():
         plan = metadata[stem]
         variant = group_recipe(plan.kind).variant(plan.metric, plan.population).stem
-        assert_frame_equal(table, cohort_rows(full[variant], plan.cohort))
+        expected = full[variant]
+        if is_cohort_table(group_recipe(plan.kind).table):
+            expected = cohort_rows(expected, plan.cohort)
+        assert_frame_equal(table, expected)
     cohort_stem = f"iteration_means_{KEY}__{_SINE_SLUG}"
     (call,) = (call for call in drawn if call.stem == cohort_stem)
     assert_frame_equal(call.data.summary, tables[cohort_stem])
@@ -317,6 +328,27 @@ def test_a_cohort_figure_names_its_recipe_and_the_pooled_figure_the_mixture(
         .startswith("Mixture of recipes")
     )
     assert len(subtitles[f"solve_time_bars_{KEY}"].splitlines()) == 1
+
+
+@pytest.mark.parametrize(
+    "stem", ["ecdf_iterations", "performance_profile_solve", "speed_ratio_cdf"]
+)
+def test_a_pooled_profile_figure_is_a_mixture_figure_drawn_whole(
+    all_sets_report: WorkloadMixtureReport,
+    drawn: list[Drawn],
+    write_all: Callable[[], tuple[dict[str, GroupFigureMetadata], dict[str, pl.DataFrame]]],
+    stem: str,
+) -> None:
+    metadata, tables = write_all()
+    full = figure_summaries(all_sets_report, no_offline_cost(all_sets_report))
+    pooled = f"{stem}_{KEY}__mixture"
+
+    (call,) = (call for call in drawn if call.stem == pooled)
+
+    assert metadata[pooled].cohort == MixtureCohort()
+    assert_frame_equal(tables[pooled], full[stem])
+    assert_frame_equal(call.data.observations, all_sets_report.observations)
+    assert MIXTURE_NOTE in call.data.style.subtitle.splitlines()
 
 
 def test_the_kinds_of_the_per_cohort_figures_are_exactly_the_cohort_table_kinds() -> None:

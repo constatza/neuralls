@@ -387,8 +387,19 @@ _COHORT_STEMS = (
 )
 """The figures drawn once per cohort: means, time per iteration, distributions and factors."""
 
+_POOLED_STEMS = (
+    "ecdf_iterations",
+    "ecdf_time_solve",
+    "ecdf_time_online",
+    "performance_profile_solve",
+    "performance_profile_online",
+    "paired_time_scatter",
+    "speed_ratio_cdf",
+)
+"""The profile, paired and speed-ratio figures, pooled over every system of a mixture."""
 
-def test_mixture_sink_omits_profiles_but_keeps_the_bars(
+
+def test_mixture_sink_pools_the_profiles_and_omits_the_recipe_level_figures(
     group: GroupAggregated,
     presentation: GroupPresentation,
     logged_metrics: LoggedMetrics,
@@ -404,6 +415,7 @@ def test_mixture_sink_omits_profiles_but_keeps_the_bars(
         f"online_time_bars_{key}.png",
         f"cost_breakdown_{key}.png",
         *(f"{stem}_{key}__mixture.png" for stem in _COHORT_STEMS),
+        *(f"{stem}_{key}__mixture.png" for stem in _POOLED_STEMS),
     }
 
 

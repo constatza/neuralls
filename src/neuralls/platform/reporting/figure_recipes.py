@@ -82,6 +82,8 @@ class NotAHistoryKindError(LookupError):
 
 _BOTH: tuple[type[GroupReport], ...] = (RecipeProfileReport, WorkloadMixtureReport)
 _PROFILE: tuple[type[GroupReport], ...] = (RecipeProfileReport,)
+"""Kinds whose figure has no meaning pooled over recipes: a cumulative-cost curve is one
+recipe's per-matrix setup against its per-RHS solve, and a heatmap cell is one matrix."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,7 +238,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.CENSORED,
-            _PROFILE,
+            _BOTH,
             group_drawers.paired_time_scatter,
             TableKind.PAIRED,
         ),
@@ -253,7 +255,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.OMITTED,
-            _PROFILE,
+            _BOTH,
             group_drawers.speed_ratio_cdf,
             TableKind.SPEED_RATIO,
         ),
@@ -278,7 +280,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.CENSORED,
-            _PROFILE,
+            _BOTH,
             group_drawers.performance_profile,
             TableKind.SERIES,
         ),
@@ -295,7 +297,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.CENSORED,
-            _PROFILE,
+            _BOTH,
             group_drawers.ecdf_iterations,
             TableKind.SERIES,
         ),
@@ -320,7 +322,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
                 ),
             ),
             FailureTreatment.CENSORED,
-            _PROFILE,
+            _BOTH,
             group_drawers.ecdf_time,
             TableKind.SERIES,
         ),
