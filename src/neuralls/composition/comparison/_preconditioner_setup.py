@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
@@ -41,46 +41,6 @@ if TYPE_CHECKING:
 
 # Arrays always available from LinearSystem — never need loading from disk.
 _SYSTEM_ARRAYS_ALWAYS_AVAILABLE: frozenset[str] = frozenset({"matrix"})
-
-StoppingCriterion = Literal["tolerance", "fixed_iterations"]
-
-# Registry mapping config-level stopping criterion names to internal literals.
-_STOPPING_CRITERION_REGISTRY: dict[str, StoppingCriterion] = {
-    "tolerance": "tolerance",
-    "residual_norm": "tolerance",
-    "fixed": "fixed_iterations",
-    "fixed_iterations": "fixed_iterations",
-}
-
-
-def register_stopping_criterion(name: str, criterion: StoppingCriterion) -> None:
-    """Register a stopping criterion name mapping.
-
-    Args:
-        name: Config-level criterion name (case-insensitive).
-        criterion: Internal typed literal — ``"tolerance"`` or ``"fixed_iterations"``.
-    """
-    _STOPPING_CRITERION_REGISTRY[name.lower()] = criterion
-
-
-def _map_stopping_criterion(name: str) -> StoppingCriterion:
-    """Map a string stopping criterion to the typed literal.
-
-    Args:
-        name: Stopping criterion name from config (e.g. ``"residual_norm"``).
-
-    Returns:
-        Typed literal ``"tolerance"`` or ``"fixed_iterations"``.
-
-    Raises:
-        ValueError: If the criterion name is not registered.
-    """
-    normalized = name.lower()
-    criterion = _STOPPING_CRITERION_REGISTRY.get(normalized)
-    if criterion is None:
-        valid_names = ", ".join(sorted(_STOPPING_CRITERION_REGISTRY.keys()))
-        raise ValueError(f"Unknown stopping criterion: '{name}'. Valid options: {valid_names}")
-    return criterion
 
 
 def matrix_key(system: PlannedSystem) -> MatrixId:

@@ -207,7 +207,8 @@ class ComparisonBaseline(BaseModel):
         rtol: Relative convergence tolerance.
         atol: Absolute convergence tolerance.
         max_iterations: Maximum solver iterations.
-        stopping_criterion: Convergence check strategy.
+        stopping_criterion: Convergence check strategy; only ``residual_norm`` (the
+            solver's tolerance test) exists, so any other value is rejected at load.
         m_max: FCG orthogonalization window.
         normalize_system: Normalization applied to the test system.
         preconditioners: Classical preconditioner list (neural preconditioners are
@@ -232,7 +233,7 @@ class ComparisonBaseline(BaseModel):
     rtol: float = Field(default=DEFAULT_RTOL, gt=0.0)
     atol: float = Field(default=DEFAULT_ATOL, ge=0.0)
     max_iterations: int = Field(default=100, ge=1)
-    stopping_criterion: Literal["residual_norm", "fixed_iterations"] = "residual_norm"
+    stopping_criterion: Literal["residual_norm"] = "residual_norm"
     m_max: int = Field(default=DEFAULT_M_MAX, ge=-1)
     normalize_system: Literal["none", "matrix", "rhs", "both"] = "matrix"
     preconditioners: list[PreconditionerConfig] = Field(default_factory=list)

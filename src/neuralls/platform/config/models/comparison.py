@@ -54,7 +54,7 @@ class _SolverParamsModel(BaseModel):
     rtol: float = Field(default=DEFAULT_RTOL, gt=0.0)
     atol: float = Field(default=DEFAULT_ATOL, ge=0.0)
     max_iterations: int = Field(default=100, ge=1)
-    stopping_criterion: Literal["residual_norm", "fixed_iterations"] = "residual_norm"
+    stopping_criterion: Literal["residual_norm"] = "residual_norm"
     m_max: int = Field(default=DEFAULT_M_MAX, ge=-1)
     reference_precision_margin: float = Field(default=REFERENCE_PRECISION_MARGIN, gt=0.0, lt=1.0)
     timing: TimingRepeatPolicy = Field(default_factory=TimingRepeatPolicy)

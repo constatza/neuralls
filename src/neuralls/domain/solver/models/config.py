@@ -67,7 +67,7 @@ class SolverParams:
     rtol: float
     atol: float
     max_iterations: int
-    stopping_criterion: Literal["residual_norm", "fixed_iterations"]
+    stopping_criterion: Literal["residual_norm"]
     m_max: int
     reference_precision_margin: float = REFERENCE_PRECISION_MARGIN
     timing: Annotated[TimingRepeatPolicy, Cosmetic()] = field(default_factory=TimingRepeatPolicy)
