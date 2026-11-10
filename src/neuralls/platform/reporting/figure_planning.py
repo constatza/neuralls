@@ -37,6 +37,7 @@ from neuralls.domain.solver.reporting.summary import (
     summarize,
     time_per_iteration_summary,
 )
+from neuralls.platform.reporting import group_drawers
 from neuralls.platform.reporting.benchmark_events import (
     MethodBenchmarkArtifacts,
 )
@@ -66,25 +67,7 @@ from neuralls.platform.reporting.figure_metadata import (
     method_source,
 )
 from neuralls.platform.reporting.figure_table import build_cost_breakdown_table, build_group_table
-from neuralls.platform.reporting.group_drawers import (
-    AGGREGATE_BARS_DRAWER,
-    BREAK_EVEN_DRAWER,
-    CONVERGENCE_FACTOR_DRAWER,
-    COST_BREAKDOWN_DRAWER,
-    DISTRIBUTION_DRAWER,
-    ECDF_ITERATIONS_DRAWER,
-    ECDF_TIME_DRAWER,
-    MATRIX_HEATMAP_DRAWER,
-    MEAN_OVER_MATRICES_DRAWER,
-    MEAN_OVER_SYSTEMS_DRAWER,
-    ONLINE_TIME_BARS_DRAWER,
-    PAIRED_TIME_DRAWER,
-    PERFORMANCE_PROFILE_DRAWER,
-    SOLVE_TIME_BARS_DRAWER,
-    SPEED_RATIO_DRAWER,
-    TIME_PER_ITERATION_DRAWER,
-    GroupDrawer,
-)
+from neuralls.platform.reporting.group_drawers import GroupDrawer
 from neuralls.platform.reporting.seaborn_means import BarStatistic, bar_statistic_text
 from neuralls.platform.reporting.stored_benchmark import StoredMethod
 from neuralls.shared.types import PreconditionerName
@@ -266,7 +249,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.CENSORED,
             _BOTH,
-            AGGREGATE_BARS_DRAWER,
+            group_drawers.aggregate_bars,
             TableKind.SUMMARY,
         ),
         GroupFigureRecipe(
@@ -283,7 +266,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.NONE,
             _BOTH,
-            SOLVE_TIME_BARS_DRAWER,
+            group_drawers.solve_time_bars,
             TableKind.WORKLOAD_TOTALS,
         ),
         GroupFigureRecipe(
@@ -300,7 +283,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.NONE,
             _BOTH,
-            ONLINE_TIME_BARS_DRAWER,
+            group_drawers.online_time_bars,
             TableKind.WORKLOAD_TOTALS,
         ),
         GroupFigureRecipe(
@@ -318,7 +301,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.CENSORED,
             _PROFILE,
-            PAIRED_TIME_DRAWER,
+            group_drawers.paired_time_scatter,
             TableKind.PAIRED,
         ),
         GroupFigureRecipe(
@@ -335,7 +318,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.OMITTED,
             _PROFILE,
-            SPEED_RATIO_DRAWER,
+            group_drawers.speed_ratio_cdf,
             TableKind.SPEED_RATIO,
         ),
         GroupFigureRecipe(
@@ -360,7 +343,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.CENSORED,
             _PROFILE,
-            PERFORMANCE_PROFILE_DRAWER,
+            group_drawers.performance_profile,
             TableKind.SERIES,
         ),
         GroupFigureRecipe(
@@ -377,7 +360,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.CENSORED,
             _PROFILE,
-            ECDF_ITERATIONS_DRAWER,
+            group_drawers.ecdf_iterations,
             TableKind.SERIES,
         ),
         GroupFigureRecipe(
@@ -402,7 +385,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.CENSORED,
             _PROFILE,
-            ECDF_TIME_DRAWER,
+            group_drawers.ecdf_time,
             TableKind.SERIES,
         ),
         GroupFigureRecipe(
@@ -420,7 +403,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.OMITTED,
             _PROFILE,
-            BREAK_EVEN_DRAWER,
+            group_drawers.break_even,
             TableKind.COST_CURVES,
         ),
         GroupFigureRecipe(
@@ -438,7 +421,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.OMITTED,
             _BOTH,
-            CONVERGENCE_FACTOR_DRAWER,
+            group_drawers.convergence_factors,
             TableKind.COHORT_SUMMARY,
         ),
         GroupFigureRecipe(
@@ -454,7 +437,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.OMITTED,
             _BOTH,
-            MEAN_OVER_SYSTEMS_DRAWER,
+            group_drawers.mean_over_systems_bars,
             TableKind.COHORT_SUMMARY,
         ),
         GroupFigureRecipe(
@@ -472,7 +455,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.OMITTED,
             _BOTH,
-            MEAN_OVER_SYSTEMS_DRAWER,
+            group_drawers.mean_over_systems_bars,
             TableKind.COHORT_SUMMARY,
         ),
         GroupFigureRecipe(
@@ -488,7 +471,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.OMITTED,
             _BOTH,
-            MEAN_OVER_MATRICES_DRAWER,
+            group_drawers.mean_over_matrices_bars,
             TableKind.COHORT_SUMMARY,
         ),
         GroupFigureRecipe(
@@ -504,7 +487,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.OMITTED,
             _BOTH,
-            TIME_PER_ITERATION_DRAWER,
+            group_drawers.time_per_iteration,
             TableKind.COHORT_RATIO_OF_SUMS,
         ),
         GroupFigureRecipe(
@@ -512,7 +495,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             (_distribution_variant("iteration_distribution", "Iteration", MetricId.ITERATIONS),),
             FailureTreatment.OMITTED,
             _BOTH,
-            DISTRIBUTION_DRAWER,
+            group_drawers.distribution,
             TableKind.COHORT_SUMMARY,
         ),
         GroupFigureRecipe(
@@ -523,7 +506,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.OMITTED,
             _BOTH,
-            DISTRIBUTION_DRAWER,
+            group_drawers.distribution,
             TableKind.COHORT_SUMMARY,
         ),
         GroupFigureRecipe(
@@ -544,7 +527,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             # A mixture level would pool recipes inside a matrix's cell; the recipe levels below
             # it already draw every matrix once per recipe.
             _PROFILE,
-            MATRIX_HEATMAP_DRAWER,
+            group_drawers.matrix_heatmap,
             TableKind.MATRIX_BREAKDOWN,
         ),
         GroupFigureRecipe(
@@ -564,7 +547,7 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             ),
             FailureTreatment.NONE,
             _BOTH,
-            COST_BREAKDOWN_DRAWER,
+            group_drawers.cost_breakdown,
             TableKind.COST_BREAKDOWN,
         ),
         HistoryFigureRecipe(

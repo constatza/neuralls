@@ -19,6 +19,7 @@ from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.models.plot_style import plot_style_maps
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.reporting.benchmark_events import MethodBenchmarkArtifacts
+from neuralls.platform.reporting.convergence_plots import ConvergenceCurve, plot_convergence_curves
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import (
     FigureKind,
@@ -31,7 +32,6 @@ from neuralls.platform.reporting.figure_metadata import (
     method_source,
 )
 from neuralls.platform.reporting.figure_text import EditorialTitle, ScopeSubtitle, method_legend
-from neuralls.platform.reporting.plots import ConvergenceCurve, plot_convergence_curves
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, SystemId
 

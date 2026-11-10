@@ -369,7 +369,7 @@ sweep (many dataset x weighting combinations in one plot) separates into
 distinct color/marker combinations instead of collapsing onto one
 family-wide marker with only color-shade differences. Non-POD-2G configs
 yield `(None, None)` and fall back to family-based styling in
-`platform.reporting.plots._resolve_styles`.
+`platform.reporting.series_style.resolve_styles`.
 
 Case-driven comparison selection is made once, by the planner (below): the
 runner receives one `PlannedSystem` per linear system and never decides which

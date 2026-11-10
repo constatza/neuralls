@@ -90,7 +90,7 @@ comparison workflow because iterative spectral estimation can dominate or
 stall otherwise healthy solver runs.
 Plotting defaults keep markers compact so convergence and diagnostic figures
 stay readable when several methods or dense prediction samples are shown.
-Comparison-plot styling (`reporting/plots.py`) resolves three independent
+Comparison-plot styling (`reporting/series_style.py`) resolves three independent
 visual axes instead of deriving everything from one attribute: linestyle
 always follows preconditioner family (lowest-cardinality attribute, matching
 matplotlib's own default solid/dashed/dashdot/dotted order), while marker and
@@ -107,12 +107,13 @@ an identical (linestyle, marker, color) triple — the case when no override
 keys are given at all — still gets spread across a lightness ramp so it
 stays distinguishable.
 
-The failure-aware functions in `outcome_plots.py` use that same resolution through
-two public helpers in `plots.py`: `group_series_styles` (per-preconditioner
-colour, marker and linestyle from the recorded families and colour/marker keys)
-and `finish_group_figure` (title, subtitle, save, close). A preconditioner thus
-looks the same in every plot. Their legends are rendered from the group's method presentations
-(`GroupStyle.legend`) and append explicit success counts; a `GroupStyle` is the fixed
+The group figures use that same resolution through two modules: `series_style.method_palette` (the one
+way to get a method's legend label, row order, colour, marker and linestyle from the recorded families and
+colour/marker keys; callers that want a method to look the same whatever subset a figure shows pass the names
+sorted) and `figure_writer.finish_group_figure` (title, subtitle, save, close). A preconditioner thus
+looks the same in every plot. The history curves (`convergence_plots.py`) call `series_style.resolve_styles`
+directly, and batch training and evaluation metric bars live in `metric_bars.py`. Their legends are rendered from the group's method presentations
+(`GroupStyle.legend`) and append explicit success counts; a `GroupStyle` (`group_style.py`) is the fixed
 title, the typed `scope` (rendered as the subtitle), the figure's `setup_sharing` record, the legend and the series
 style maps. `GroupStyler.style` copies `setup_sharing` from the plan's metadata, the record the card stores as `r_m`,
 and the subtitle adds `figure_text.setup_sharing_note` of it under the scope: for every `online_s` figure (bars, ECDF,
@@ -124,8 +125,10 @@ takes the aggregated group plus a `GroupPresentation` and logs it into the neste
 group's report scope; figure file names are slugs of the rendered scope (see the figure-card
 paragraph below), never group ids.
 
-Every report figure is written by `finish_group_figure` (an architecture test forbids `savefig`
-elsewhere), once per `FigureFormat` (`reporting/figure_formats.py`: `png`, the raster a browser shows,
+Every report figure is written by `figure_writer.finish_group_figure` (an architecture test forbids `savefig`
+elsewhere). `figure_writer.use_headless_backend` selects matplotlib's off-screen Agg backend; it is called where
+figures are created (`write_outcome_plots`, `plot_convergence_curves`, `plot_metric_comparison`), never when a
+plotting module is imported, and does nothing in a process that is already headless, once per `FigureFormat` (`reporting/figure_formats.py`: `png`, the raster a browser shows,
 and `pdf`, the vector original a paper includes). `FigureFormat` is the one place that lists the written formats:
 `figure_files(stem)` derives a figure's file names from it, `split_figure_file` reads a stem and format back from a
 name, and a `FigureTarget(directory, stem)` is what every plot function and `GroupDrawer` receives and returns, so
@@ -133,7 +136,10 @@ no caller spells a suffix. Adding a format is one enum member and a report schem
 metric bars written through the same function upload both files too. Seaborn figures take their data through
 `seaborn_figures.plot_frame`, the one polars-to-pandas conversion, because seaborn raises on a polars frame.
 
-`outcome_plots.py` draws the group outcome plots from one frame each. Planning (`figure_planning.figure_summaries`)
+The group outcome plots are drawn from one frame each by `profile_plots.py` (performance profile, ECDF),
+`workload_bars.py` (workload totals), `paired_plots.py` (paired scatter, speed-ratio CDF) and `aggregate_plot.py`
+(convergence counts); `figure_sizing.py` holds the sizes they share and `stacked_segments.py` the segment key
+shared with the cost breakdown. Planning (`figure_planning.figure_summaries`)
 computes, once per report, the frame every planned variant draws and stores (`summarize`, `ecdf_series`,
 `performance_series`, `paired_systems`, `speed_ratio_summary`, `break_even_curves` or the workload totals, by the variant's `Statistic`;
 profiles, pairings and speed ratios only for a `RecipeProfileReport`, since they need one homogeneous recipe, and
@@ -215,9 +221,10 @@ resample rows independently, wrong when the RHS of one matrix share it, so every
 per recipe cohort, each method a `MethodBar` whose `height` is a `Bar(value, Whisker | NoWhisker)`
 or `NoBar` when nothing is defined, never a zero bar). Each recipe cohort is one panel side by side
 under a header carrying the scope, titled by the rendered recipe when there are several; the
-`mixture` rows are never drawn. The paneling (`draw_recipe_panels`, `method_palette`), the count
-words (`count_label`: "solved", "set up", "returned an iterate") and the row annotations
-(`annotate_rows`) live here and are shared with `seaborn_distributions.py`. The five points of each kind, with the formulas in
+`mixture` rows are never drawn. The paneling (`draw_recipe_panels`) lives here and is shared with `seaborn_distributions.py`; the
+count words (`count_label`: "solved", "set up", "returned an iterate") and the row annotations
+(`annotate_rows`) are in `figure_annotations.py`, and the observation rows behind a panel
+(`cohort_systems`, `panel_points`) in `cohort_points.py`. The five points of each kind, with the formulas in
 `domain/solver/README.md`:
 
 | Kind (stems) | Observation unit | Population | Statistic (bar; whisker) | Time scenario | Failure treatment |
@@ -282,7 +289,7 @@ group's methods), under `<metric>/<method>` keys. The iteration statistics are `
 matrices among them, the cluster count the interval rests on), `speed_ratio_median`,
 `speed_ratio_ci_low` and `speed_ratio_ci_high`; a null statistic is not logged. The `ReportSink` port (`composition/comparison/postprocessing/ports.py`) declares `register_method_figures` beside `report`, `report_system` and `finalize`. Its typed plans (`FigurePlan`: editorial title plus the figure's metadata) are also the single source of
 figure scope, stable filenames, metric and statistic, and card
-metadata. `figure_planning.FIGURE_RECIPES` holds one recipe per `FigureKind`, the single registry a new figure is added to: a `GroupFigureRecipe` (the kind's `FigureVariant`s, failure treatment, the group report types it applies to, its `draw` function from `group_drawers.py` and the `TableKind` it writes) or a `HistoryFigureRecipe` (one `HistoryVariant`; drawn from a stored method by `method_figures.METHOD_PLOTS`). A `FigureVariant` is one figure of a kind: file stem, title, metric definition and the `metric` (`MetricId`), `population` (`Population`) and `statistic` (`Statistic`: converged count, workload total, ECDF, performance profile, paired values, speed-ratio CDF, mean over systems, mean over matrices, ratio of sums, cumulative cost, mean and median, quantiles, mean per matrix, offline plus online total; the values of the three bar statistics are the table columns their bars are read from) it draws; the variants of a kind differ in metric or population (`time_means` has both populations of each time), which is how `GroupFigureRecipe.variant(metric, population)` selects one and how `write_outcome_plots` hands the right metric to the kind's drawer (it draws each planned figure that has a summary and stages it with that summary as its table). `TableKind` (`summary`, `series`, `paired`, `speed_ratio`, `workload_totals`, `cohort_summary`, `cohort_ratio_of_sums`, `cost_curves`, `matrix_breakdown`, `cost_breakdown`) names the table a recipe writes and `figure_metadata.TABLE_SCHEMAS` maps each kind to its columns and dtypes, taken from the domain schema of the frame it stores. Metadata is `GroupFigureMetadata` (metric, population, statistic, failure treatment, `GroupAggregationRule`, and the evidence records of `figure_evidence.py`: `interval`, `setup_sharing`, `outcome_counts`, `timing`) or `MethodFigureMetadata` (`MethodAggregationRule`; no metric or failure treatment), sharing `TimingPolicy`, `DatasetId` dataset ids and `RunId` sources. The evidence fields are closed variants (`figure_evidence.py`), present on a card only when they apply: `[interval]` (`method = "matrix_cluster_bootstrap"`, `level`, `resamples`, `matrices`) is the `MatrixClusterBootstrap` of the speed-ratio CDF, built from the constants `speed_ratio_summary` resamples with and the distinct matrices that give any method a ratio, or of the whiskers of a mean figure and of the convergence factors (`bootstrap_of_means`, above), and is absent from every figure that draws no interval; `r_m` lists the distinct planned RHS counts per matrix and exists only for a metric that divides a matrix's setup over them (`online_s`, the `SetupSharedOverRhs` variant); `[outcome_counts]` is `summary.outcome_counts` per method; `[timing_spread]` holds each method's median relative spread of its timing repeats (`summary.timing_noise`) and exists only on a figure of a metric measured in seconds, with `timing_warning` added when the presentation's solver contexts show a single timing repeat, so the figure's times carry noise it cannot show. A group figure is uploaded as a `StagedTabledFigure` (figure plus its table frame), a history figure as a `StagedFigure` (its plan and the `FigureTarget` its files were written to; `FigurePlan.stem` and the target's stem must agree). Every figure (group, method and system) is uploaded with its **figure card**
+metadata. `figure_planning.FIGURE_RECIPES` holds one recipe per `FigureKind`, the single registry a new figure is added to: a `GroupFigureRecipe` (the kind's `FigureVariant`s, failure treatment, the group report types it applies to, its `draw` function, a public function of `group_drawers.py` named after the figure (`group_drawers.speed_ratio_cdf`) and the `TableKind` it writes) or a `HistoryFigureRecipe` (one `HistoryVariant`; drawn from a stored method by `method_figures.METHOD_PLOTS`). A `FigureVariant` is one figure of a kind: file stem, title, metric definition and the `metric` (`MetricId`), `population` (`Population`) and `statistic` (`Statistic`: converged count, workload total, ECDF, performance profile, paired values, speed-ratio CDF, mean over systems, mean over matrices, ratio of sums, cumulative cost, mean and median, quantiles, mean per matrix, offline plus online total; the values of the three bar statistics are the table columns their bars are read from) it draws; the variants of a kind differ in metric or population (`time_means` has both populations of each time), which is how `GroupFigureRecipe.variant(metric, population)` selects one and how `write_outcome_plots` hands the right metric to the kind's drawer (it draws each planned figure that has a summary and stages it with that summary as its table). `TableKind` (`summary`, `series`, `paired`, `speed_ratio`, `workload_totals`, `cohort_summary`, `cohort_ratio_of_sums`, `cost_curves`, `matrix_breakdown`, `cost_breakdown`) names the table a recipe writes and `figure_metadata.TABLE_SCHEMAS` maps each kind to its columns and dtypes, taken from the domain schema of the frame it stores. Metadata is `GroupFigureMetadata` (metric, population, statistic, failure treatment, `GroupAggregationRule`, and the evidence records of `figure_evidence.py`: `interval`, `setup_sharing`, `outcome_counts`, `timing`) or `MethodFigureMetadata` (`MethodAggregationRule`; no metric or failure treatment), sharing `TimingPolicy`, `DatasetId` dataset ids and `RunId` sources. The evidence fields are closed variants (`figure_evidence.py`), present on a card only when they apply: `[interval]` (`method = "matrix_cluster_bootstrap"`, `level`, `resamples`, `matrices`) is the `MatrixClusterBootstrap` of the speed-ratio CDF, built from the constants `speed_ratio_summary` resamples with and the distinct matrices that give any method a ratio, or of the whiskers of a mean figure and of the convergence factors (`bootstrap_of_means`, above), and is absent from every figure that draws no interval; `r_m` lists the distinct planned RHS counts per matrix and exists only for a metric that divides a matrix's setup over them (`online_s`, the `SetupSharedOverRhs` variant); `[outcome_counts]` is `summary.outcome_counts` per method; `[timing_spread]` holds each method's median relative spread of its timing repeats (`summary.timing_noise`) and exists only on a figure of a metric measured in seconds, with `timing_warning` added when the presentation's solver contexts show a single timing repeat, so the figure's times carry noise it cannot show. A group figure is uploaded as a `StagedTabledFigure` (figure plus its table frame), a history figure as a `StagedFigure` (its plan and the `FigureTarget` its files were written to; `FigurePlan.stem` and the target's stem must agree). Every figure (group, method and system) is uploaded with its **figure card**
 (`reporting/figure_card.py`: `<stem>.toml` beside `<stem>.png` and `<stem>.pdf`, same run directory, same stem) into the
 run of its own scope; stems only need to be unique inside one run directory, so system figures keep the
 short stems `residual_history` and `energy_history`. A card is the single record of a figure's parameters: `stem`

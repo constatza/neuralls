@@ -2,7 +2,7 @@
 
 A dense POD-2G sweep (many fit-dataset x weighting-scheme combinations in one
 comparison plot) needs a color/marker key per entry beyond just its family —
-see `neuralls.platform.reporting.plots._resolve_styles`. These pin what
+see `neuralls.platform.reporting.series_style.resolve_styles`. These pin what
 `pod2g_style_keys` extracts from a raw preconditioner config, and that it
 stays `(None, None)` for anything that isn't POD-2G.
 """

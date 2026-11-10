@@ -17,6 +17,10 @@ from neuralls.domain.solver.models.figure_scope import (
 )
 from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.domain.solver.true_residual import shared_threshold, stopping_threshold_rel
+from neuralls.platform.reporting.convergence_plots import (
+    plot_convergence_comparison,
+    plot_error_convergence_comparison,
+)
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import (
     FigureKind,
@@ -27,10 +31,6 @@ from neuralls.platform.reporting.figure_text import (
     Legend,
     ScopeSubtitle,
     series_legend,
-)
-from neuralls.platform.reporting.plots import (
-    plot_convergence_comparison,
-    plot_error_convergence_comparison,
 )
 from neuralls.platform.reporting.stored_benchmark import StoredMethod
 from neuralls.shared.rhs_recipe import recipe_key

@@ -18,6 +18,7 @@ from neuralls.domain.solver.models.group_outcomes import (
 )
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.summary import Population, select
+from neuralls.platform.reporting.cohort_points import panel_points
 from neuralls.platform.reporting.figure_metadata import Statistic
 from neuralls.platform.reporting.figure_planning import figure_summaries
 from neuralls.platform.reporting.seaborn_means import (
@@ -29,7 +30,6 @@ from neuralls.platform.reporting.seaborn_means import (
     Whisker,
     bar_panels,
     defined_label,
-    panel_points,
 )
 from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.types import PreconditionerName

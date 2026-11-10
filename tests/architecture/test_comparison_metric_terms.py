@@ -8,7 +8,9 @@ DOCUMENTS = (
     ROOT / "src/neuralls/domain/solver/README.md",
     ROOT / "src/neuralls/composition/README.md",
     ROOT / "src/neuralls/domain/solver/reporting/__init__.py",
-    ROOT / "src/neuralls/platform/reporting/outcome_plots.py",
+    ROOT / "src/neuralls/platform/reporting/profile_plots.py",
+    ROOT / "src/neuralls/platform/reporting/workload_bars.py",
+    ROOT / "src/neuralls/platform/reporting/paired_plots.py",
 )
 
 

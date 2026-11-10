@@ -31,7 +31,8 @@ from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, FigureKind, Statistic
 from neuralls.platform.reporting.figure_planning import figure_summaries, group_recipe
 from neuralls.platform.reporting.group_drawers import FigureData
-from neuralls.platform.reporting.outcome_plots import GroupStyle, WorkloadTotal
+from neuralls.platform.reporting.group_style import GroupStyle
+from neuralls.platform.reporting.workload_bars import WorkloadTotal
 from neuralls.shared.types import DatasetId, PreconditionerName
 
 AMG = PreconditionerName("amg")

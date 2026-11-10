@@ -28,20 +28,19 @@ from matplotlib.patches import Rectangle
 from neuralls.domain.solver.reporting.cohorts import COHORT_COLUMN, MIXTURE_COHORT
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import Population
-from neuralls.platform.reporting.figure_formats import FigureTarget
-from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
-from neuralls.platform.reporting.outcome_plots import GroupStyle
-from neuralls.platform.reporting.plots import finish_group_figure
-from neuralls.platform.reporting.seaborn_figures import plot_frame
-from neuralls.platform.reporting.seaborn_means import (
-    MethodPalette,
+from neuralls.platform.reporting.cohort_points import cohort_systems
+from neuralls.platform.reporting.figure_annotations import (
     RowAnnotation,
     annotate_rows,
-    cohort_systems,
     count_label,
-    draw_recipe_panels,
-    method_palette,
 )
+from neuralls.platform.reporting.figure_formats import FigureTarget
+from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
+from neuralls.platform.reporting.figure_writer import finish_group_figure
+from neuralls.platform.reporting.group_style import GroupStyle
+from neuralls.platform.reporting.seaborn_figures import plot_frame
+from neuralls.platform.reporting.seaborn_means import draw_recipe_panels
+from neuralls.platform.reporting.series_style import MethodPalette, method_palette
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName
 
 _MARK_COLOR = "black"
@@ -180,7 +179,7 @@ def plot_distribution(
     """
     panels = distribution_panels(summary)
     palette = method_palette(
-        list({method.method for panel in panels for method in panel.methods}), style
+        sorted({method.method for panel in panels for method in panel.methods}), style
     )
 
     def draw_panel(ax: Axes, column: int) -> None:
@@ -369,7 +368,7 @@ def plot_matrix_heatmap(
     cells = heatmap_cells(breakdown)
     if not cells:
         return None
-    palette = method_palette(list({cell.method for cell in cells}), style)
+    palette = method_palette(sorted({cell.method for cell in cells}), style)
     matrices = sorted({cell.matrix_id for cell in cells})
     rows = {matrix: position for position, matrix in enumerate(matrices)}
     columns = {label: position for position, label in enumerate(palette.order)}

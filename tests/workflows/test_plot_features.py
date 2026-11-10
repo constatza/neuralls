@@ -10,12 +10,12 @@ import pytest
 
 from neuralls.domain.presentation.methods import MissingMethodPresentationError
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
-from neuralls.platform.reporting import plots as reporting_plots
+from neuralls.platform.reporting import convergence_plots as reporting_plots
+from neuralls.platform.reporting.convergence_plots import (
+    plot_convergence_comparison,
+)
 from neuralls.platform.reporting.figure_text import (
     Legend,
-)
-from neuralls.platform.reporting.plots import (
-    plot_convergence_comparison,
 )
 
 # ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ def test_plot_convergence_comparison_without_a_legend_entry_raises(
     first = next(iter(two_result_entries))
 
     with (
-        patch("neuralls.platform.reporting.plots.plt.close"),
+        patch("neuralls.platform.reporting.convergence_plots.plt.close"),
         pytest.raises(MissingMethodPresentationError) as raised,
     ):
         plot_convergence_comparison(two_result_entries, legend=legend_of(first))

@@ -21,10 +21,12 @@ from neuralls.domain.solver.reporting.cohorts import COHORT_COLUMN, MIXTURE_COHO
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import Population, select
 from neuralls.platform.reporting.figure_formats import FigureTarget
+from neuralls.platform.reporting.figure_sizing import HEADER_RATIO, POINT_JITTER
 from neuralls.platform.reporting.figure_text import TITLE_PROFILE, draw_legend
-from neuralls.platform.reporting.outcome_plots import GroupStyle
-from neuralls.platform.reporting.plots import finish_group_figure, group_series_styles
+from neuralls.platform.reporting.figure_writer import finish_group_figure
+from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.seaborn_figures import plot_frame
+from neuralls.platform.reporting.series_style import method_palette
 from neuralls.shared.rhs_recipe import parse_recipe_key
 from neuralls.shared.types import PreconditionerName
 
@@ -85,8 +87,8 @@ def plot_break_even_curves(
         return None
     marks = curves.unique("method", keep="first", maintain_order=True)
     names = marks["method"].to_list()
-    styles = group_series_styles(names, style.families, style.color_keys, style.marker_keys)
-    palette = {name: styles[name]["color"] for name in names}
+    series = method_palette(names, style)
+    palette = {name: series.color(name) for name in names}
     fig, ax = plt.subplots(figsize=(8, 5))
     sns.lineplot(
         data=plot_frame(drawn),
@@ -153,14 +155,11 @@ def plot_break_even_curves(
 
 
 _POINT_ALPHA = 0.45
-_POINT_JITTER = 0.2
 _SUMMARY_COLOR = "black"
 _MEDIAN_MARKER = "|"
 _MEDIAN_MARKER_SIZE = 260
 _FACTOR_PANEL_WIDTH_IN = 7.0
 """Width in inches of one recipe panel, method labels included."""
-_HEADER_RATIO = 0.02
-"""Height of the header row that carries the scope above all panels, relative to a panel."""
 
 
 def factor_axis_label(label: str, *, n_defined: int, n_planned: int) -> str:
@@ -192,12 +191,12 @@ def plot_convergence_factors(
     if not cohorts:
         return None
     names = sorted(set(drawn["method"].to_list()))
-    styles = group_series_styles(names, style.families, style.color_keys, style.marker_keys)
-    palette = {name: styles[name]["color"] for name in names}
+    series = method_palette(names, style)
+    palette = {name: series.color(name) for name in names}
     fig = plt.figure(
         figsize=(_FACTOR_PANEL_WIDTH_IN * len(cohorts), max(3.0, 1.1 * len(names) + 1.5))
     )
-    grid = fig.add_gridspec(2, len(cohorts), height_ratios=(_HEADER_RATIO, 1.0))
+    grid = fig.add_gridspec(2, len(cohorts), height_ratios=(HEADER_RATIO, 1.0))
     header = fig.add_subplot(grid[0, :])
     header.axis("off")
     axes = [fig.add_subplot(grid[1, column]) for column in range(len(cohorts))]
@@ -250,7 +249,7 @@ def _draw_factor_panel(
             hue_order=list(names),
             palette=dict(palette),
             alpha=_POINT_ALPHA,
-            jitter=_POINT_JITTER,
+            jitter=POINT_JITTER,
             legend=False,
             ax=ax,
         )

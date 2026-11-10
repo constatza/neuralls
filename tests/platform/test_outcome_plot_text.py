@@ -5,16 +5,20 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from neuralls.platform.reporting.outcome_plots import (
+from neuralls.platform.reporting.paired_plots import (
     FAILED_AXIS_MARGIN,
-    BarSegment,
     PairedLogAxes,
-    WorkloadTotal,
-    excluded_zero_best_note,
     paired_log_axes,
+    speed_ratio_legend,
+)
+from neuralls.platform.reporting.profile_plots import (
+    excluded_zero_best_note,
     profile_legend,
     profile_step_curve,
-    speed_ratio_legend,
+)
+from neuralls.platform.reporting.workload_bars import (
+    BarSegment,
+    WorkloadTotal,
     workload_bar_label,
     workload_segments,
 )

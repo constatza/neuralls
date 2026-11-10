@@ -76,7 +76,7 @@ from neuralls.platform.config.models.workspace import AssignmentSpec
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.platform.reporting.figure_formats import FigureTarget, figure_files
 from neuralls.platform.reporting.figure_text import Legend, training_legend
-from neuralls.platform.reporting.plots import plot_method_bars
+from neuralls.platform.reporting.metric_bars import plot_method_bars
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.tracking.environment import scoped_mlflow_environment

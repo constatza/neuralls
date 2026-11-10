@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal, Protocol, assert_never
+from typing import Literal, assert_never
 
 import matplotlib.pyplot as plt
 import polars as pl
@@ -26,13 +26,25 @@ from matplotlib.axes import Axes
 from neuralls.domain.presentation.recipes import render_recipe
 from neuralls.domain.solver.reporting.cohorts import COHORT_COLUMN, MIXTURE_COHORT
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
-from neuralls.domain.solver.reporting.summary import Population, select
+from neuralls.domain.solver.reporting.summary import Population
+from neuralls.platform.reporting.cohort_points import panel_points
+from neuralls.platform.reporting.figure_annotations import (
+    RowAnnotation,
+    annotate_rows,
+    count_label,
+)
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import Statistic
-from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE, TITLE_PROFILE
-from neuralls.platform.reporting.outcome_plots import GroupStyle
-from neuralls.platform.reporting.plots import finish_group_figure, group_series_styles
+from neuralls.platform.reporting.figure_sizing import (
+    HEADER_RATIO,
+    LABEL_CHAR_WIDTH_IN,
+    POINT_JITTER,
+)
+from neuralls.platform.reporting.figure_text import TITLE_PROFILE
+from neuralls.platform.reporting.figure_writer import finish_group_figure
+from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.seaborn_figures import plot_frame
+from neuralls.platform.reporting.series_style import MethodPalette, method_palette
 from neuralls.shared.rhs_recipe import parse_recipe_key
 from neuralls.shared.types import PreconditionerName
 
@@ -43,21 +55,14 @@ type BarStatistic = Literal[
 
 _PANEL_WIDTH_IN = 4.5
 """Width in inches of one recipe panel's bars."""
-_LABEL_CHAR_WIDTH_IN = 0.055
-"""Width in inches of one legend-size character, reserved for the method labels."""
 _ROW_HEIGHT_IN = 0.45
 """Height in inches of one method's row."""
 _MIN_HEIGHT_IN = 4.0
-_HEADER_RATIO = 0.02
-"""Height of the header row that carries the scope above all panels, relative to a panel."""
 _WHISKER_COLOR = "black"
 _WHISKER_CAP = 0.15
 """Half-height of a whisker cap, in units of the distance between two method rows."""
-_ANNOTATION_ROOM = 1.45
-"""Factor past the rightmost annotation start the x axis extends to, so "k/n" text fits inside."""
 _POINT_SIZE = 3.0
 _POINT_ALPHA = 0.6
-_POINT_JITTER = 0.2
 _NO_POINTS = pl.DataFrame(schema={"method": pl.String, "value": pl.Float64})
 """The points of a mean figure, whose bars stand alone."""
 
@@ -154,52 +159,9 @@ def _whisker(row: Mapping[str, object], statistic: BarStatistic) -> Whisker | No
             assert_never(unreachable)
 
 
-class CohortPanel(Protocol):
-    """A panel of one recipe cohort, drawn over the systems of one population."""
-
-    @property
-    def cohort(self) -> str: ...
-
-    @property
-    def population(self) -> Population: ...
-
-
-def cohort_systems(
-    observations: pl.DataFrame, panel: CohortPanel, metric: MetricId
-) -> pl.DataFrame:
-    """The observation rows behind ``panel``: its recipe's systems that define ``metric``."""
-    return select(observations, metric, panel.population).filter(pl.col("recipe") == panel.cohort)
-
-
-def panel_points(observations: pl.DataFrame, panel: CohortPanel, metric: MetricId) -> pl.DataFrame:
-    """The per-system values behind ``panel``: its recipe's selected systems, ``method, value``."""
-    return cohort_systems(observations, panel, metric).select(
-        "method", value=METRICS[metric].column
-    )
-
-
 def defined_label(bar: MethodBar, metric: MetricId) -> str:
     """The annotation of ``bar``: how many of its planned units define ``metric``."""
     return count_label(bar.n_defined, bar.n_planned, metric)
-
-
-def count_label(n_defined: int, n_planned: int, metric: MetricId) -> str:
-    """How many of ``n_planned`` units define ``metric``, in the metric's words: "k/n solved"."""
-    return f"{n_defined}/{n_planned} {_defined_word(metric)}"
-
-
-def _defined_word(metric: MetricId) -> str:
-    match metric:
-        case MetricId.ITERATIONS | MetricId.SOLVE_S | MetricId.ONLINE_S | MetricId.STANDALONE_S:
-            return "solved"
-        case MetricId.SETUP_S:
-            return "set up"
-        case MetricId.TIME_PER_ITERATION_S:
-            return "returned an iterate"
-        case MetricId.CONVERGENCE_FACTOR:
-            return "converged with a residual history"
-        case unreachable:
-            assert_never(unreachable)
 
 
 def bar_statistic_text(statistic: BarStatistic) -> str:
@@ -263,27 +225,6 @@ def plot_time_per_iteration(
     )
 
 
-@dataclass(frozen=True, slots=True)
-class MethodPalette:
-    """The drawn label of each method, in row order, and the colour of each label."""
-
-    labels: Mapping[PreconditionerName, str]
-    colors: Mapping[str, object]
-
-    @property
-    def order(self) -> list[str]:
-        """The labels from the top row down."""
-        return list(self.labels.values())
-
-
-def method_palette(names: Sequence[PreconditionerName], style: GroupStyle) -> MethodPalette:
-    """The labels and series colours of ``names``, sorted, as every report figure draws them."""
-    ordered = sorted(names)
-    labels = {name: style.legend.label(name) for name in ordered}
-    styles = group_series_styles(ordered, style.families, style.color_keys, style.marker_keys)
-    return MethodPalette(labels, {labels[name]: styles[name]["color"] for name in ordered})
-
-
 type PanelDrawer = Callable[[Axes, int], None]
 """Draws the panel at a column index into its axes, including the x label."""
 
@@ -307,11 +248,11 @@ def draw_recipe_panels(
     widest = max(len(line) for label in palette.order for line in label.split("\n"))
     fig = plt.figure(
         figsize=(
-            widest * _LABEL_CHAR_WIDTH_IN + _PANEL_WIDTH_IN * len(cohorts),
+            widest * LABEL_CHAR_WIDTH_IN + _PANEL_WIDTH_IN * len(cohorts),
             max(_MIN_HEIGHT_IN, len(palette.labels) * _ROW_HEIGHT_IN + 2.0),
         )
     )
-    grid = fig.add_gridspec(2, len(cohorts), height_ratios=(_HEADER_RATIO, 1.0))
+    grid = fig.add_gridspec(2, len(cohorts), height_ratios=(HEADER_RATIO, 1.0))
     header = fig.add_subplot(grid[0, :])
     header.axis("off")
     first = fig.add_subplot(grid[1, 0])
@@ -350,7 +291,7 @@ def _draw_panels(
     saved_message: str,
 ) -> FigureTarget | None:
     """Draw ``panels`` side by side under one header that carries the scope."""
-    palette = method_palette(list({bar.method for panel in panels for bar in panel.bars}), style)
+    palette = method_palette(sorted({bar.method for panel in panels for bar in panel.bars}), style)
     xlabel = f"{bar_statistic_text(statistic).capitalize()}: {METRICS[metric].label}"
 
     def draw_panel(ax: Axes, column: int) -> None:
@@ -408,7 +349,7 @@ def _draw_panel(
             color=_WHISKER_COLOR,
             size=_POINT_SIZE,
             alpha=_POINT_ALPHA,
-            jitter=_POINT_JITTER,
+            jitter=POINT_JITTER,
             orient="h",
             ax=ax,
         )
@@ -421,33 +362,6 @@ def _draw_panel(
         start = max(_draw_whisker(ax, bar, row), point_ends.get(bar.method, 0.0))
         annotations.append(RowAnnotation(row, start, defined_label(bar, metric)))
     annotate_rows(ax, annotations)
-
-
-@dataclass(frozen=True, slots=True)
-class RowAnnotation:
-    """The text right of a method's row, starting where the row's last mark ends."""
-
-    row: int
-    start: float
-    text: str
-
-
-def annotate_rows(ax: Axes, annotations: Sequence[RowAnnotation]) -> None:
-    """Write each annotation and widen the x axis from 0 so the rightmost one fits inside."""
-    for annotation in annotations:
-        ax.text(
-            annotation.start,
-            annotation.row,
-            f" {annotation.text}",
-            va="center",
-            fontsize=LEGEND_FONT_SIZE,
-        )
-    rightmost = max((annotation.start for annotation in annotations), default=0.0)
-    if rightmost > 0.0:
-        ax.set_xlim(0.0, rightmost * _ANNOTATION_ROOM)
-    else:
-        ax.set_xlim(left=0.0)
-    ax.grid(True, axis="x", alpha=0.3)
 
 
 def _value(bar: MethodBar) -> float | None:

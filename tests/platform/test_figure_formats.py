@@ -14,7 +14,7 @@ from neuralls.platform.reporting.figure_formats import (
     figure_files,
     split_figure_file,
 )
-from neuralls.platform.reporting.plots import finish_group_figure
+from neuralls.platform.reporting.figure_writer import finish_group_figure
 
 
 def test_a_figure_is_written_as_a_raster_and_a_vector_file() -> None:

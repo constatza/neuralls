@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import pytest
 
-from neuralls.platform.reporting.plots import (
+from neuralls.platform.reporting.series_style import (
     _OKABE_ITO_HEX,
     _assign_axis,
     _color_pool,
-    _resolve_styles,
+    resolve_styles,
 )
 from neuralls.shared.types import PreconditionerFamily
 
@@ -102,7 +102,7 @@ def test_same_dataset_different_weighting_shares_color_not_marker(
     pod2g_marker_keys: dict[str, str],
 ) -> None:
     """Two POD-2G entries fit on the same dataset get the same color but different markers."""
-    styles = _resolve_styles(pod2g_family_map, pod2g_color_keys, pod2g_marker_keys)
+    styles = resolve_styles(pod2g_family_map, pod2g_color_keys, pod2g_marker_keys)
 
     assert styles["pod2g-ds1-raw"]["color"] == styles["pod2g-ds1-power"]["color"]
     assert styles["pod2g-ds1-raw"]["marker"] != styles["pod2g-ds1-power"]["marker"]
@@ -114,7 +114,7 @@ def test_same_weighting_different_dataset_shares_marker_not_color(
     pod2g_marker_keys: dict[str, str],
 ) -> None:
     """Two POD-2G entries with the same weighting scheme get the same marker but different colors."""
-    styles = _resolve_styles(pod2g_family_map, pod2g_color_keys, pod2g_marker_keys)
+    styles = resolve_styles(pod2g_family_map, pod2g_color_keys, pod2g_marker_keys)
 
     assert styles["pod2g-ds1-raw"]["marker"] == styles["pod2g-ds2-raw"]["marker"]
     assert styles["pod2g-ds1-raw"]["color"] != styles["pod2g-ds2-raw"]["color"]
@@ -126,7 +126,7 @@ def test_all_pod2g_entries_share_family_linestyle(
     pod2g_marker_keys: dict[str, str],
 ) -> None:
     """Linestyle is unaffected by color/marker keys — it always follows family."""
-    styles = _resolve_styles(pod2g_family_map, pod2g_color_keys, pod2g_marker_keys)
+    styles = resolve_styles(pod2g_family_map, pod2g_color_keys, pod2g_marker_keys)
     pod2g_linestyles = {
         styles[name]["linestyle"]
         for name, family in pod2g_family_map.items()
@@ -140,7 +140,7 @@ def test_entries_without_override_keys_fall_back_to_family_grouping(
     pod2g_family_map: dict[str, PreconditionerFamily],
 ) -> None:
     """With no color_keys/marker_keys at all, same-family entries still get distinguishable colors."""
-    styles = _resolve_styles(pod2g_family_map, color_keys=None, marker_keys=None)
+    styles = resolve_styles(pod2g_family_map, color_keys=None, marker_keys=None)
 
     pod2g_names = [
         name for name, family in pod2g_family_map.items() if family == PreconditionerFamily.POD2G
@@ -155,5 +155,5 @@ def test_markersize_scale_present_for_every_style(
     pod2g_marker_keys: dict[str, str],
 ) -> None:
     """Every resolved style carries a markersize_scale multiplier."""
-    styles = _resolve_styles(pod2g_family_map, pod2g_color_keys, pod2g_marker_keys)
+    styles = resolve_styles(pod2g_family_map, pod2g_color_keys, pod2g_marker_keys)
     assert all(isinstance(style["markersize_scale"], float) for style in styles.values())

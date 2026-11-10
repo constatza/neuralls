@@ -33,10 +33,10 @@ from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.domain.solver.reporting.event_frames import build_convergence_frame
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.config.models.preconditioner import PreconditionerType
+from neuralls.platform.reporting.convergence_plots import ConvergenceCurve
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import FigureKind
 from neuralls.platform.reporting.figure_text import EditorialTitle
-from neuralls.platform.reporting.plots import ConvergenceCurve
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SystemId

@@ -22,8 +22,9 @@ from neuralls.platform.reporting.figure_planning import group_recipe
 from neuralls.platform.reporting.figure_text import (
     method_legend,
 )
+from neuralls.platform.reporting.figure_writer import use_headless_backend
 from neuralls.platform.reporting.group_drawers import FigureData
-from neuralls.platform.reporting.outcome_plots import GroupStyle
+from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.shared.scientific_description.policy import NotationPolicy
 
 
@@ -68,6 +69,7 @@ def write_outcome_plots(
     ``summaries`` holds the frame of each variant by stem; a drawn figure is staged with the
     frame it drew as its table.
     """
+    use_headless_backend()
     drawn: list[StagedTabledFigure] = []
     for plan in plans:
         metadata = plan.metadata

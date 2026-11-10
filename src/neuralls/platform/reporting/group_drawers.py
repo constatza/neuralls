@@ -22,19 +22,13 @@ from neuralls.domain.benchmarking.paired import (
 from neuralls.domain.benchmarking.profiles import ProfileSeries, ecdf_series, performance_series
 from neuralls.domain.benchmarking.selection import ReferenceSelection
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
+from neuralls.platform.reporting.aggregate_plot import plot_aggregate_bars
 from neuralls.platform.reporting.cost_breakdown_plot import plot_cost_breakdown
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import Statistic
-from neuralls.platform.reporting.outcome_plots import (
-    GroupStyle,
-    WorkloadTotal,
-    plot_aggregate_bars,
-    plot_ecdf_profile,
-    plot_paired_time_scatter,
-    plot_performance_profile,
-    plot_speed_ratio_cdf,
-    plot_workload_bars,
-)
+from neuralls.platform.reporting.group_style import GroupStyle
+from neuralls.platform.reporting.paired_plots import plot_paired_time_scatter, plot_speed_ratio_cdf
+from neuralls.platform.reporting.profile_plots import plot_ecdf_profile, plot_performance_profile
 from neuralls.platform.reporting.seaborn_cost_curves import (
     plot_break_even_curves,
     plot_convergence_factors,
@@ -43,11 +37,8 @@ from neuralls.platform.reporting.seaborn_distributions import (
     plot_distribution,
     plot_matrix_heatmap,
 )
-from neuralls.platform.reporting.seaborn_means import (
-    BarStatistic,
-    plot_mean_bars,
-    plot_time_per_iteration,
-)
+from neuralls.platform.reporting.seaborn_means import plot_mean_bars, plot_time_per_iteration
+from neuralls.platform.reporting.workload_bars import WorkloadTotal, plot_workload_bars
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,42 +82,59 @@ def _profile_series(data: FigureData, series_of: _SeriesOf) -> ProfileSeries:
     return replace(series_of(data.observations, data.metric), frame=data.summary)
 
 
-def _time_bars(total: WorkloadTotal, xlabel: str) -> GroupDrawer:
-    def drawer(data: FigureData, target: FigureTarget) -> FigureTarget | None:
-        return plot_workload_bars(
-            data.summary, total=total, xlabel=xlabel, style=data.style, target=target
-        )
-
-    return drawer
-
-
-def _ecdf(xlabels: Mapping[MetricId, str]) -> GroupDrawer:
-    def drawer(data: FigureData, target: FigureTarget) -> FigureTarget | None:
-        return plot_ecdf_profile(
-            _profile_series(data, ecdf_series),
-            style=data.style,
-            xlabel=xlabels[data.metric],
-            target=target,
-        )
-
-    return drawer
+def solve_time_bars(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+    return plot_workload_bars(
+        data.summary,
+        total=WorkloadTotal.SOLVE,
+        xlabel="Solve time [s]",
+        style=data.style,
+        target=target,
+    )
 
 
-def _performance_profile(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+def online_time_bars(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+    return plot_workload_bars(
+        data.summary,
+        total=WorkloadTotal.ONLINE,
+        xlabel="Total online workload time [s]",
+        style=data.style,
+        target=target,
+    )
+
+
+def ecdf_iterations(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+    return plot_ecdf_profile(
+        _profile_series(data, ecdf_series),
+        style=data.style,
+        xlabel=_ITERATIONS_XLABEL[data.metric],
+        target=target,
+    )
+
+
+def ecdf_time(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+    return plot_ecdf_profile(
+        _profile_series(data, ecdf_series),
+        style=data.style,
+        xlabel=_TIME_XLABELS[data.metric],
+        target=target,
+    )
+
+
+def performance_profile(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_performance_profile(
         _profile_series(data, performance_series), style=data.style, target=target
     )
 
 
-def _cost_breakdown(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+def cost_breakdown(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_cost_breakdown(data.summary, style=data.style, target=target)
 
 
-def _aggregate_bars(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+def aggregate_bars(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_aggregate_bars(data.summary, style=data.style, target=target)
 
 
-def _paired_scatter(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+def paired_time_scatter(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     match reference_among_methods(data.observations, data.reference):
         case None:
             return None
@@ -140,7 +148,7 @@ def _paired_scatter(data: FigureData, target: FigureTarget) -> FigureTarget | No
             )
 
 
-def _speed_ratio(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+def speed_ratio_cdf(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     match reference_among_methods(data.observations, data.reference):
         case None:
             return None
@@ -155,7 +163,7 @@ def _speed_ratio(data: FigureData, target: FigureTarget) -> FigureTarget | None:
             )
 
 
-def _break_even(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+def break_even(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     match reference_among_methods(data.observations, data.reference):
         case None:
             return None
@@ -165,52 +173,43 @@ def _break_even(data: FigureData, target: FigureTarget) -> FigureTarget | None:
             )
 
 
-def _convergence_factors(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+def convergence_factors(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_convergence_factors(
         data.summary, data.observations, metric=data.metric, style=data.style, target=target
     )
 
 
-def _mean_bars(statistic: BarStatistic) -> GroupDrawer:
-    def drawer(data: FigureData, target: FigureTarget) -> FigureTarget | None:
-        return plot_mean_bars(
-            data.summary, statistic=statistic, metric=data.metric, style=data.style, target=target
-        )
+def mean_over_systems_bars(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+    return plot_mean_bars(
+        data.summary,
+        statistic=Statistic.MEAN_OVER_SYSTEMS,
+        metric=data.metric,
+        style=data.style,
+        target=target,
+    )
 
-    return drawer
+
+def mean_over_matrices_bars(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+    return plot_mean_bars(
+        data.summary,
+        statistic=Statistic.MEAN_OVER_MATRICES,
+        metric=data.metric,
+        style=data.style,
+        target=target,
+    )
 
 
-def _time_per_iteration(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+def time_per_iteration(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_time_per_iteration(
         data.summary, data.observations, metric=data.metric, style=data.style, target=target
     )
 
 
-def _distribution(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+def distribution(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_distribution(
         data.summary, data.observations, metric=data.metric, style=data.style, target=target
     )
 
 
-def _matrix_heatmap(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+def matrix_heatmap(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_matrix_heatmap(data.summary, metric=data.metric, style=data.style, target=target)
-
-
-AGGREGATE_BARS_DRAWER: GroupDrawer = _aggregate_bars
-SOLVE_TIME_BARS_DRAWER: GroupDrawer = _time_bars(WorkloadTotal.SOLVE, "Solve time [s]")
-ONLINE_TIME_BARS_DRAWER: GroupDrawer = _time_bars(
-    WorkloadTotal.ONLINE, "Total online workload time [s]"
-)
-PAIRED_TIME_DRAWER: GroupDrawer = _paired_scatter
-SPEED_RATIO_DRAWER: GroupDrawer = _speed_ratio
-PERFORMANCE_PROFILE_DRAWER: GroupDrawer = _performance_profile
-ECDF_ITERATIONS_DRAWER: GroupDrawer = _ecdf(_ITERATIONS_XLABEL)
-ECDF_TIME_DRAWER: GroupDrawer = _ecdf(_TIME_XLABELS)
-BREAK_EVEN_DRAWER: GroupDrawer = _break_even
-CONVERGENCE_FACTOR_DRAWER: GroupDrawer = _convergence_factors
-MEAN_OVER_SYSTEMS_DRAWER: GroupDrawer = _mean_bars(Statistic.MEAN_OVER_SYSTEMS)
-MEAN_OVER_MATRICES_DRAWER: GroupDrawer = _mean_bars(Statistic.MEAN_OVER_MATRICES)
-TIME_PER_ITERATION_DRAWER: GroupDrawer = _time_per_iteration
-DISTRIBUTION_DRAWER: GroupDrawer = _distribution
-MATRIX_HEATMAP_DRAWER: GroupDrawer = _matrix_heatmap
-COST_BREAKDOWN_DRAWER: GroupDrawer = _cost_breakdown

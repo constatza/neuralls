@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from neuralls.platform.reporting.plots import _build_convergence_label
+from neuralls.platform.reporting.convergence_plots import _build_convergence_label
 
 
 def test_build_convergence_label_adds_limit_for_neural_only() -> None:

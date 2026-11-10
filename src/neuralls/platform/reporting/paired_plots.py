@@ -1,0 +1,235 @@
+"""Paired time scatter and speed-ratio CDF against the reference method.
+
+A scatter pins a failed run to an axis edge as a hollow marker; the paired values and ratios are
+frames from ``domain.benchmarking.paired``, which this module only draws.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any
+
+import matplotlib.pyplot as plt
+import numpy as np
+import polars as pl
+from matplotlib.axes import Axes
+
+from neuralls.domain.benchmarking.paired import PairKind
+from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
+from neuralls.platform.reporting.figure_annotations import counted
+from neuralls.platform.reporting.figure_formats import FigureTarget
+from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE, Legend
+from neuralls.platform.reporting.figure_writer import finish_group_figure
+from neuralls.platform.reporting.group_style import GroupStyle
+from neuralls.platform.reporting.series_style import method_palette
+from neuralls.shared.types import PreconditionerName
+
+FAILED_AXIS_MARGIN = 1.6
+"""Factor above the slowest solved run at which failures are drawn, and below the fastest at
+which the log axes start; the upper one is a position marking "did not converge", not a time."""
+
+
+def _legend_outside(ax: Axes, legend: Legend) -> None:
+    """Place the legend right of the axes so it never covers the points."""
+    ax.legend(
+        loc="upper left",
+        bbox_to_anchor=(1.01, 1.0),
+        fontsize=LEGEND_FONT_SIZE,
+        ncols=legend.layout.columns,
+    )
+
+
+def _hollow(ax: Axes, xs: Sequence[float], ys: Sequence[float], *, color: Any, marker: Any) -> None:
+    """Draw unfilled markers: the run behind each did not converge, so its value is an axis edge."""
+    ax.scatter(xs, ys, facecolors="none", edgecolors=color, marker=marker, s=28)
+
+
+@dataclass(frozen=True, slots=True)
+class PairedLogAxes:
+    """The shared log range of both scatter axes and where a failed run is drawn on them."""
+
+    low: float
+    high: float
+    edge: float
+
+
+def paired_log_axes(times: Sequence[float]) -> PairedLogAxes | None:
+    """Axes spanning the positive ``times`` with a margin, or ``None`` when there are none.
+
+    A log axis cannot place a time of 0, so such a time neither sets the range nor is drawn.
+    The upper end is the failure position, so a hollow marker sits on the axis edge.
+    """
+    positive = [time for time in times if time > 0]
+    if not positive:
+        return None
+    high = max(positive) * FAILED_AXIS_MARGIN
+    return PairedLogAxes(low=min(positive) / FAILED_AXIS_MARGIN, high=high, edge=high)
+
+
+def plot_paired_time_scatter(
+    paired: pl.DataFrame,
+    *,
+    reference_name: PreconditionerName,
+    metric: MetricId,
+    style: GroupStyle,
+    target: FigureTarget,
+) -> FigureTarget | None:
+    """Time of each method against the reference method's time, system by system, on log axes.
+
+    ``paired`` is a ``paired_systems`` frame of ``metric``. The reference is the method explicitly
+    selected in configuration. A point below the diagonal is a system on which the method beat
+    the reference. Log axes keep systems that differ by orders of magnitude apart and put equal
+    speed ratios at equal distances from the diagonal. Where only one of the two failed the point
+    sits on the failing axis's upper edge as a hollow marker; where both failed there is nothing
+    to compare and the system is not in the frame.
+    """
+    all_times = pl.concat([paired["reference_value"], paired["method_value"]]).drop_nulls()
+    axes = paired_log_axes(all_times.to_list())
+    if axes is None:
+        return None
+    others = paired["method"].unique().sort().to_list()
+    palette = method_palette(others, style)
+    label = METRICS[metric].label
+
+    fig, ax = plt.subplots(figsize=(6.5, 6.5))
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.plot([axes.low, axes.high], [axes.low, axes.high], color="gray", linewidth=1, linestyle="--")
+    for name in others:
+        pairs = paired.filter(pl.col("method") == name)
+        both = pairs.filter(pl.col("pair_kind") == PairKind.BOTH.value)
+        method_only = pairs.filter(pl.col("pair_kind") == PairKind.METHOD_ONLY.value)
+        reference_only = pairs.filter(pl.col("pair_kind") == PairKind.REFERENCE_ONLY.value)
+        color, marker = palette.color(name), palette.marker(name)
+        ax.scatter(
+            both["reference_value"].to_list(),
+            both["method_value"].to_list(),
+            color=color, marker=marker, s=28,
+            label=f"{style.legend.label(name)} ({both.height + method_only.height} solved)",
+        )  # fmt: skip
+        _hollow(
+            ax,
+            [axes.edge] * method_only.height,
+            method_only["method_value"].to_list(),
+            color=color,
+            marker=marker,
+        )
+        _hollow(
+            ax,
+            reference_only["reference_value"].to_list(),
+            [axes.edge] * reference_only.height,
+            color=color,
+            marker=marker,
+        )
+    ax.set_xlim(axes.low, axes.high)
+    ax.set_ylim(axes.low, axes.high)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlabel(
+        f"{style.legend.label(reference_name)} (reference): {label}"
+        "\nhollow markers: the other axis's run did not converge"
+    )
+    ax.set_ylabel(f"Method: {label}")
+    ax.grid(True, which="both", alpha=0.3)
+    _legend_outside(ax, style.legend)
+    finish_group_figure(
+        fig,
+        ax,
+        title=style.title,
+        subtitle=style.subtitle,
+        target=target,
+        show=False,
+        saved_message="Saved paired time scatter to",
+    )
+    return target
+
+
+def speed_ratio_legend(
+    label: str,
+    *,
+    median: float | None,
+    ci: tuple[float, float] | None,
+    n_ratio: int,
+    n_matrices: int,
+) -> str:
+    """Legend text of a speed-ratio curve: median, interval and what the interval rests on.
+
+    The interval resamples whole matrices, so the matrix count is stated beside the system count:
+    sibling right-hand sides of one matrix are not independent observations.
+    """
+    text = f"{label}: median {median:.2f}" if median is not None else f"{label}: no paired ratio"
+    if ci is not None:
+        text += f" [{ci[0]:.2f}, {ci[1]:.2f}]"
+    systems = counted(n_ratio, "system", "systems")
+    matrices = counted(n_matrices, "matrix", "matrices")
+    return f"{text}, n={systems} on {matrices} (reference / method)"
+
+
+def _speed_ratio_curve(ratios: Sequence[float]) -> tuple[np.ndarray, np.ndarray]:
+    """Sorted reference/method ratios and their cumulative fractions."""
+    ordered = np.sort(np.asarray(ratios, dtype=np.float64))
+    fractions = np.arange(1, len(ordered) + 1) / len(ordered) if len(ordered) else np.asarray([])
+    return ordered, fractions
+
+
+def plot_speed_ratio_cdf(
+    ratios: pl.DataFrame,
+    summary: pl.DataFrame,
+    *,
+    style: GroupStyle,
+    reference_name: PreconditionerName,
+    target: FigureTarget,
+) -> FigureTarget | None:
+    """ECDF of per-system reference/method speed ratios.
+
+    ``ratios`` holds the ``speed_ratios`` rows and ``summary`` the ``speed_ratio_summary`` rows
+    of the same pairing, one per method. Only systems both methods solved enter. The median speed
+    ratio carries a percentile-bootstrap interval (Efron & Tibshirani 1993) that resamples
+    whole matrices, so sibling right-hand sides do not count as independent
+    observations. Each legend entry shows the median, its interval and the number of paired
+    systems and matrices. The vertical line at 1 separates systems where the method was slower
+    (left) from faster (right).
+    """
+    if summary.height == 0:
+        return None
+    names = summary["method"].to_list()
+    palette = method_palette(names, style)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for row in summary.iter_rows(named=True):
+        name = row["method"]
+        xs, ys = _speed_ratio_curve(ratios.filter(pl.col("method") == name)["ratio"].to_list())
+        ci = None if row["ci_low"] is None else (row["ci_low"], row["ci_high"])
+        ax.step(
+            xs,
+            ys,
+            where="post",
+            color=palette.color(name),
+            linestyle=palette.linestyle(name),
+            label=speed_ratio_legend(
+                style.legend.label(name),
+                median=row["median_ratio"],
+                ci=ci,
+                n_ratio=row["n_ratio"],
+                n_matrices=row["n_matrices"],
+            ),
+        )
+    ax.axvline(1.0, color="gray", linewidth=1, linestyle="--")
+    ax.set_xscale("log")
+    ax.set_ylim(0.0, 1.02)
+    ax.set_xlabel(
+        f"{style.legend.label(reference_name)} reference / method speed ratio "
+        "(slower < 1, faster > 1)"
+    )
+    ax.set_ylabel("Fraction of paired systems")
+    ax.grid(True, which="both", alpha=0.3)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.15), fontsize=LEGEND_FONT_SIZE)
+    finish_group_figure(
+        fig,
+        ax,
+        title=style.title,
+        subtitle=style.subtitle,
+        target=target,
+        show=False,
+        saved_message="Saved speed ratio CDF to",
+    )
+    return target

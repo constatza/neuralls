@@ -17,7 +17,7 @@ from neuralls.platform.reporting.figure_evidence import (
 from neuralls.platform.reporting.figure_planning import figure_plans
 from neuralls.platform.reporting.figure_text import ScopeSubtitle, setup_sharing_note
 from neuralls.platform.reporting.group_plots import GroupStyler
-from neuralls.platform.reporting.outcome_plots import GroupStyle
+from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.shared.scientific_description.policy import NotationPolicy
 
 SHARED = "each matrix's setup is shared by its r_m planned RHS"

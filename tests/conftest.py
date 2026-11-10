@@ -12,6 +12,7 @@ from types import ModuleType
 from unittest.mock import MagicMock
 
 import h5py
+import matplotlib
 import matplotlib.figure
 import numpy as np
 import pytest
@@ -48,7 +49,7 @@ from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.figure_evidence import NoSharedSetup, SetupSharing
 from neuralls.platform.reporting.figure_text import Legend, method_legend
-from neuralls.platform.reporting.outcome_plots import GroupStyle
+from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
 from neuralls.platform.tracking.services import MlflowTrackingServices
 from neuralls.shared.enum_codecs import encode_row_kind_array
@@ -67,6 +68,9 @@ from tests.fakes.mlflow_client import FakeMlflowClient
 from tests.workflows.comparison_support import SETUP_TRACKING
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Tests that draw figures directly (without a report entry point) must not open a GUI window.
+matplotlib.use("Agg", force=True)
 
 
 def _patch_default_paths_for_loaded_modules(

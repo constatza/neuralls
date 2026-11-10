@@ -18,11 +18,14 @@ import polars as pl
 from matplotlib.patches import Patch
 
 from neuralls.platform.reporting.figure_formats import FigureTarget
+from neuralls.platform.reporting.figure_sizing import bar_figure_size
 from neuralls.platform.reporting.figure_table import TotalStatus
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
+from neuralls.platform.reporting.figure_writer import finish_group_figure
+from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.offline_cost_codec import StageStatus
-from neuralls.platform.reporting.outcome_plots import GroupStyle, bar_figure_size, series_styles
-from neuralls.platform.reporting.plots import finish_group_figure
+from neuralls.platform.reporting.series_style import method_palette
+from neuralls.platform.reporting.stacked_segments import segment_key
 
 type CostRow = Mapping[str, object]
 
@@ -80,9 +83,9 @@ def plot_cost_breakdown(
         return None
     rows = list(table.iter_rows(named=True))
     names = [row["method_id"] for row in rows]
-    styles = series_styles(names, style)
+    palette = method_palette(names, style)
     labels = [style.legend.label(name) for name in names]
-    colors = [styles[name]["color"] for name in names]
+    colors = [palette.color(name) for name in names]
     fig, ax = plt.subplots(figsize=bar_figure_size(labels))
     positions = np.arange(len(names))
     left = np.zeros(len(names))
@@ -118,16 +121,6 @@ def plot_cost_breakdown(
     return target
 
 
-_SEGMENT_KEY_COLOR = "gray"
-"""Colour of the segment key; the bars themselves carry each method's colour."""
-
-
 def _segment_key(segment: CostSegment) -> Patch:
     label, alpha, hatch = _segment_look(segment)
-    return Patch(
-        facecolor=_SEGMENT_KEY_COLOR,
-        edgecolor=_SEGMENT_KEY_COLOR,
-        alpha=alpha,
-        hatch=hatch,
-        label=label,
-    )
+    return segment_key(label, alpha, hatch)
