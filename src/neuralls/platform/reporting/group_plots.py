@@ -14,6 +14,7 @@ from neuralls.domain.solver.models.plot_style import plot_style_maps
 from neuralls.domain.solver.reporting.cohorts import cohort_observations, cohort_rows
 from neuralls.platform.config.models.figure_style import FigureStyleConfig
 from neuralls.platform.reporting.cohort_variants import is_cohort_table
+from neuralls.platform.reporting.distribution_mode import RowLimits
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import (
     FigurePlan,
@@ -61,6 +62,9 @@ class GroupStyler:
             color_keys=maps.color_keys,
             marker_keys=maps.marker_keys,
             label_rotation_deg=self.figure_style.label_rotation_deg,
+            row_limits=RowLimits(
+                self.figure_style.min_box_samples, self.figure_style.min_violin_samples
+            ),
         )
 
 

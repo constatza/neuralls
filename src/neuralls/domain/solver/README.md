@@ -143,7 +143,7 @@ A mean of $t^{\mathrm{online}}$ over converged systems is **not** $T^{\mathrm{on
 
 $$\bar{x}^{\mathrm{sys}}_p = \frac{1}{|\mathcal{P}_p|} \sum_{s \in \mathcal{P}_p} x_{p,s}\ \text{(crude pooled)}, \qquad \bar{x}^{\mathrm{mat}}_p = \frac{1}{|\mathcal{M}_{\mathcal{P}}|} \sum_{m \in \mathcal{M}_{\mathcal{P}}} \frac{1}{|\mathcal{P}_{p,m}|} \sum_{s \in \mathcal{P}_{p,m}} x_{p,s}\ \text{(every matrix weighs the same)}$$
 
-**Quantiles** (linear interpolation, the numpy/polars default, which is also what seaborn's violin box draws), $h = (n-1)\alpha + 1$: $q_\alpha = x_{(\lfloor h \rfloor)} + (h - \lfloor h \rfloor)(x_{(\lfloor h \rfloor + 1)} - x_{(\lfloor h \rfloor)})$. Box = $q_{0.25}, q_{0.5}, q_{0.75}$; whiskers $q_{0.05}, q_{0.95}$.
+**Quantiles** (linear interpolation, the numpy/polars default, which is also what seaborn's box draws), $h = (n-1)\alpha + 1$: $q_\alpha = x_{(\lfloor h \rfloor)} + (h - \lfloor h \rfloor)(x_{(\lfloor h \rfloor + 1)} - x_{(\lfloor h \rfloor)})$. Box = $q_{0.25}, q_{0.5}, q_{0.75}$; whiskers reach the most extreme system within $[q_{0.05}, q_{0.95}]$.
 
 **Matrix-cluster bootstrap interval** (reads stored values only; $B$ = `BOOTSTRAP_RESAMPLES`, $\alpha = 1 -$ `CONFIDENCE_LEVEL`). For resample $b = 1..B$ draw $m^{(b)}_1..m^{(b)}_{K'}$ uniformly with replacement from $\mathcal{M}_{\mathcal{P}}$, $K' = |\mathcal{M}_{\mathcal{P}}|$, and recompute the bar's statistic:
 

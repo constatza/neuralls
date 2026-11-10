@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from neuralls.domain.solver.models.figure_scope import FigureScope
 from neuralls.domain.solver.reporting.cohorts import Cohort
+from neuralls.platform.reporting.distribution_mode import RowLimits
 from neuralls.platform.reporting.figure_evidence import SetupSharing
 from neuralls.platform.reporting.figure_text import (
     Legend,
@@ -25,7 +26,8 @@ class GroupStyle:
     when a figure is drawn, followed by the recipe or mixture a cohort figure draws and by what
     ``setup_sharing`` (the record the figure's card stores) says about the setup the metric
     divides, and every series is named by ``legend``. ``label_rotation_deg`` is the configured
-    rotation of x-axis labels.
+    rotation of x-axis labels and ``row_limits`` the sample sizes from which
+    a distribution row gains a box and a violin.
     """
 
     title: str
@@ -38,6 +40,7 @@ class GroupStyle:
     color_keys: Mapping[str, Hashable]
     marker_keys: Mapping[str, Hashable]
     label_rotation_deg: float
+    row_limits: RowLimits
 
     @property
     def subtitle(self) -> str:

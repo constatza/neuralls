@@ -125,9 +125,11 @@ takes the aggregated group plus a `GroupPresentation` and logs it into the neste
 group's report scope; figure file names are slugs of the rendered scope (see the figure-card
 paragraph below), never group ids.
 
-Report figures are drawn inside `figure_style.paper_style()`, one `rc_context` (seaborn `paper` context and `ticks` style, serif font, top and right spines removed, thin lines, fixed font sizes as named constants). It is entered only by the code that calls a drawer: `group_plots.write_outcome_plots` around `recipe.draw`, `method_figures.draw_method_figure`, and `composition/comparison/postprocessing/system_figures.write_system_figures`; drawers never enter it, and an architecture test allows `rc_context`, `set_theme` and `style.use` only in `figure_style.py`. `figure_style.rotate_x_labels(ax, degrees)` rotates x labels anchored at their right end. The rotation is `FigureStyleConfig.label_rotation_deg` (`platform/config/models/figure_style.py`; `[comparison_baseline.figure_style]`, default `DEFAULT_LABEL_ROTATION_DEG` = 30, validated 0 to 90, section optional like `[comparison_baseline.presentation]`): `composition/assignments/assignment_subjects.case_figure_style` reads it from the case, `MLflowReportSink` carries it to `GroupStyler`, and `GroupStyler.style` copies it into `GroupStyle.label_rotation_deg`, the only way a drawer sees it (the matrix heatmap's method labels and the x axis of every vertical bar figure use it).
+Report figures are drawn inside `figure_style.paper_style()`, one `rc_context` (seaborn `paper` context and `ticks` style, serif font, top and right spines removed, thin lines, fixed font sizes as named constants). It is entered only by the code that calls a drawer: `group_plots.write_outcome_plots` around `recipe.draw`, `method_figures.draw_method_figure`, and `composition/comparison/postprocessing/system_figures.write_system_figures`; drawers never enter it, and an architecture test allows `rc_context`, `set_theme` and `style.use` only in `figure_style.py`. `figure_style.rotate_x_labels(ax, degrees)` rotates x labels anchored at their right end. The settings are `FigureStyleConfig.label_rotation_deg` (`platform/config/models/figure_style.py`; `[comparison_baseline.figure_style]`, default `DEFAULT_LABEL_ROTATION_DEG` = 30, validated 0 to 90), `min_box_samples` (default `DEFAULT_MIN_BOX_SAMPLES` = 5) and `min_violin_samples` (default `DEFAULT_MIN_VIOLIN_SAMPLES` = 30), validated `1 <= min_box_samples <= min_violin_samples`; the section is optional like `[comparison_baseline.presentation]`: `composition/assignments/assignment_subjects.case_figure_style` reads it from the case, `MLflowReportSink` carries it to `GroupStyler`, and `GroupStyler.style` copies it into `GroupStyle.label_rotation_deg` and the two limits into `GroupStyle.row_limits` (`distribution_mode.RowLimits`), the only way a drawer sees them (the matrix heatmap's method labels and the x axis of every vertical figure use the rotation; distribution figures use the limits).
 
-Bar figures (means, time per iteration, workload totals, cost breakdown) are vertical: one column per method, method labels on the x axis rotated by `label_rotation_deg` through `rotate_x_labels`, the metric on the y axis, stacked segments stacked upward. The text above a bar ("k/n solved", workload counts, the cost total or "total unknown: ...") is a `figure_annotations.ColumnAnnotation` standing on the top of the column's highest mark (whisker end or point) and placed by `annotate_columns`, which wraps it to about a column's width and extends the value axis from 0 through `value_axis_top` so it does not clip; annotations never widen the figure. The stacked-bar legends sit outside the axes on the right so they do not cover the rotated labels. Violin and distribution rows stay horizontal with `RowAnnotation`/`annotate_rows`.
+Bar figures (means, time per iteration, workload totals, cost breakdown) are vertical: one column per method, method labels on the x axis rotated by `label_rotation_deg` through `rotate_x_labels`, the metric on the y axis, stacked segments stacked upward. The text above a bar ("k/n solved", workload counts, the cost total or "total unknown: ...") is a `figure_annotations.ColumnAnnotation` standing on the top of the column's highest mark (whisker end or point) and placed by `annotate_columns`, which wraps it to about a column's width and extends the value axis from 0 through `value_axis_top` so it does not clip; annotations never widen the figure. The stacked-bar legends sit outside the axes on the right so they do not cover the rotated labels. Distribution figures and the convergence-factor figure are vertical the same way, sized by `bar_columns_figure_size` and annotated by `annotate_columns`. `annotate_rows` serves only the remaining horizontal figures.
+
+Every figure that draws summary marks explains them with one legend built by `mark_legend.py`: a drawer returns the set of `Mark`s it drew (`MEAN_BAR`, `RATIO_BAR`, `CONFIDENCE_INTERVAL`, `IQR`, `MEDIAN`, `QUANTILE_WHISKER`, `MEAN_POINT`, `SYSTEM_POINTS`, `MATRIX_MEAN_POINTS`) and `draw_mark_legend` places one proxy artist per mark, in the order of `Mark`, outside the axes on the right (`figure_text.LEGEND_ANCHOR`). A mark that was not drawn has no entry: a mean bar has an interval entry only when some method has an interval (`MIN_INTERVAL_MATRICES` matrices). Legend text is plain language ("mean", "95% matrix-cluster interval", "IQR (q25-q75)", "median", "whiskers within q05-q95", "systems", "matrix means") and never a count; counts are the "k/n" annotations above the columns.
 
 Every report figure is written by `figure_writer.finish_group_figure` (an architecture test forbids `savefig`
 elsewhere). `figure_writer.use_headless_backend` selects matplotlib's off-screen Agg backend; it is called where
@@ -199,7 +201,7 @@ notation, legend and the family/colour/marker mappings). A failed run is never g
 - `seaborn_cost_curves.plot_convergence_factors` (`convergence_factor_*`, every report level): the
   residual reduction factor per iteration $\gamma_{p,s}$ of the metric catalog
   (`CONVERGENCE_FACTOR`, read from each system's stored `convergence.parquet` history into the
-  observation view), one row per method for the one cohort the figure draws, read from the
+  observation view), one vertical column per method (labels rotated like the bars) for the one cohort the figure draws, read from the
   cohort's rows of its `COHORT_SUMMARY` table (`by_cohort` of `summarize`; one figure per cohort,
   as for the mean bars below). Observation unit: the system. Population: own (every system of the
   method with a factor, within the cohort). Statistic: each cohort row gives
@@ -209,7 +211,8 @@ notation, legend and the family/colour/marker mappings). A failed run is never g
   over and are not stored again. Time scenario: none, it is not a time, so the card records no timing evidence.
   Failure treatment: omitted; only `converged` systems with at least one stored iteration and a
   nonzero initial residual have a factor, and the card's outcome counts state how many of each method's
-  planned systems do, and the axis label is the method name alone. The card cites
+  planned systems do, and the axis label is the method name alone. The legend is the mark legend
+  (see below) of the marks drawn. The card cites
   `convergence.parquet` among the sources.
 
 `seaborn_means.py` draws the bar figures of means and of time per iteration with
@@ -274,9 +277,17 @@ hands each drawer the cohort's rows and the observations of the cohort's systems
 (`cohort_observations`), so a drawer draws one axes and never filters by recipe.
 
 `seaborn_distributions.py` draws the distribution figures and the matrix heatmap. A
-distribution is one violin per method (`sns.violinplot(..., inner=None, cut=0)`, the density of the
-selected systems) with the per-matrix means of those systems as strip points; both have no table
-counterpart and are not persisted. The box (q25, q50, q75), the whiskers (q05 to q95) and the "k/n
+distribution figure has one column per method (methods on the x axis, the metric on y). The pure
+`distribution_mode.row_mode(n_defined, RowLimits)` picks each column's mode from the method's number
+of defined systems: below `min_box_samples`, `PointsOnly` (`sns.swarmplot` of the systems and a short
+median tick read from the summary row); from `min_box_samples`, `BoxAndSwarm` (`sns.boxplot(whis=(5, 95),
+showfliers=False, fill=False)` over the swarm: box = IQR q25 to q75, line = median); from
+`min_violin_samples`, `Violin` (`sns.violinplot(inner=None, cut=0)` with the same box and the per-matrix
+means as strip points). Seaborn recomputes the box from the systems; linear interpolation is also the
+interpolation of the stored `q25`/`q50`/`q75` (`summarize`), and a test pins that the two agree. A
+whisker is drawn to the most extreme system inside q05 to q95 (matplotlib clips it to a data point),
+hence its legend text "whiskers within q05-q95". The swarm, the violin density and the matrix points
+have no table counterpart and are not persisted. The median tick of a points-only column and the "k/n
 solved" annotation are read from the method's row of the figure's cohort summary table
 (`distribution_panel` gives the `DistributionPanel` of the one cohort the table holds, each method a
 `MethodDistribution` whose `quantiles` is `Quantiles` or `NoQuantiles` when nothing is defined).
@@ -342,7 +353,7 @@ the persistence source of truth; the removed scaling-law TOML is not emitted.
 | `iteration_means`, `time_means` | iterations; solve, online, standalone | own and common | mean over systems with a matrix-cluster interval | omitted; the card states k/n |
 | `setup_means` | setup (one value per matrix) | own | mean over matrices | omitted |
 | `time_per_iteration` | solve time / iterations | own | ratio of sums | omitted; unconverged runs with a real iteration count enter |
-| `iteration_distribution`, `time_distribution` | iterations; solve, online | own | quartiles and q05-q95 whiskers, a distribution summary and not a confidence interval | omitted |
+| `iteration_distribution`, `time_distribution` | iterations; solve, online | own | points, box (quartiles, whiskers inside q05-q95) or violin by sample size, a distribution summary and not a confidence interval | omitted |
 | `matrix_heatmap` | iterations | own | mean per matrix | omitted: a cell with no converged RHS is hatched "0/r solved" |
 | `convergence_factor` | residual reduction per iteration | own | mean and median | omitted |
 

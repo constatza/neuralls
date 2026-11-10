@@ -220,7 +220,8 @@ class ComparisonBaseline(BaseModel):
             table at all. A per-entry ``method`` file may override it the same
             way it overrides ``preconditioners``/``normalize_system``.
         figure_style: Report figure layout (``label_rotation_deg`` of x-axis method
-            labels). Complete defaults, so no case needs a
+            labels; ``min_box_samples`` and ``min_violin_samples``, the sample sizes
+            from which a distribution column gains a box and a violin). Complete defaults, so no case needs a
             ``[comparison_baseline.figure_style]`` table at all.
         timing: How often each preconditioner build and each solve is timed
             (``repeats``, ``warmup``, ``statistic``). Defaults to one timed run;

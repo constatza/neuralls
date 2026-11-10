@@ -7,6 +7,7 @@ interval whisker) is read from the frame stored as the figure's table.
 
 from __future__ import annotations
 
+import textwrap
 from collections.abc import Mapping, Sequence
 from typing import assert_never
 
@@ -20,10 +21,12 @@ from neuralls.domain.solver.reporting.cohorts import single_cohort
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import Population, select
 from neuralls.platform.reporting.figure_formats import FigureTarget
-from neuralls.platform.reporting.figure_sizing import POINT_JITTER
+from neuralls.platform.reporting.figure_sizing import POINT_JITTER, bar_columns_figure_size
+from neuralls.platform.reporting.figure_style import rotate_x_labels
 from neuralls.platform.reporting.figure_text import draw_legend
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
+from neuralls.platform.reporting.mark_legend import Mark, draw_mark_legend
 from neuralls.platform.reporting.seaborn_figures import plot_frame
 from neuralls.platform.reporting.series_style import method_palette
 from neuralls.shared.types import PreconditionerName
@@ -153,11 +156,11 @@ def plot_break_even_curves(
 
 
 _POINT_ALPHA = 0.45
+_YLABEL_WRAP = 30
+"""Characters per line of the y label, so a long metric name stays beside a narrow figure."""
 _SUMMARY_COLOR = "black"
-_MEDIAN_MARKER = "|"
+_MEDIAN_MARKER = "_"
 _MEDIAN_MARKER_SIZE = 260
-_FACTOR_WIDTH_IN = 7.0
-"""Width in inches of the figure, method labels included."""
 
 
 def plot_convergence_factors(
@@ -170,26 +173,27 @@ def plot_convergence_factors(
 ) -> FigureTarget | None:
     """Per-method residual reduction per iteration of the one cohort ``summary`` holds.
 
-    ``summary`` is the rows of one cohort of the figure's cohort summary table; the mean over
-    systems with its 95% matrix-cluster interval and the median tick of each method come from it.
-    Seaborn strips the per-system points, the ``observations`` of the same cohort the summary was
-    taken over, which no table stores again. ``None`` without a row.
+    One column per method. ``summary`` is the rows of one cohort of the figure's cohort summary
+    table; the mean over systems with its 95% matrix-cluster interval and the median tick of each
+    method come from it. Seaborn strips the per-system points, the ``observations`` of the same
+    cohort the summary was taken over, which no table stores again. ``None`` without a row.
     """
     if summary.height == 0:
         return None
-    single_cohort(summary)  # one axes draws one cohort; several would overlay their rows
+    single_cohort(summary)  # one axes draws one cohort; several would overlay their columns
     names = sorted(set(summary["method"].to_list()))
     series = method_palette(names, style)
     palette = {name: series.color(name) for name in names}
-    fig, ax = plt.subplots(figsize=(_FACTOR_WIDTH_IN, max(3.0, 1.1 * len(names) + 1.5)))
-    points = select(observations, metric, Population(summary["population"][0]))
-    _draw_factor_panel(ax, summary, points, names, palette, metric, style)
-    ax.set_ylabel("Method")
-    ax.plot(
-        [], [], "o", color=_SUMMARY_COLOR, label="mean over systems, 95% matrix-cluster interval"
+    fig, ax = plt.subplots(
+        figsize=bar_columns_figure_size(
+            [style.legend.label(n) for n in names], style.label_rotation_deg
+        )
     )
-    ax.plot([], [], _MEDIAN_MARKER, color=_SUMMARY_COLOR, markersize=12, label="median")
-    draw_legend(ax, style.legend, inside_loc="lower right")
+    points = select(observations, metric, Population(summary["population"][0]))
+    marks = _draw_factor_panel(ax, summary, points, names, palette, metric, style)
+    ax.set_xlabel("Method")
+    rotate_x_labels(ax, style.label_rotation_deg)
+    draw_mark_legend(ax, marks)
     finish_group_figure(
         fig,
         ax,
@@ -210,15 +214,20 @@ def _draw_factor_panel(
     palette: Mapping[str, object],
     metric: MetricId,
     style: GroupStyle,
-) -> None:
-    """One cohort's points and summary marks, a method per row in the order of ``names``."""
+) -> frozenset[Mark]:
+    """One cohort's points and summary marks, a method per column in the order of ``names``.
+
+    Returns the marks drawn.
+    """
     column = METRICS[metric].column
     by_method = {row["method"]: row for row in rows.iter_rows(named=True)}
+    marks: set[Mark] = set()
     if points.height > 0:
+        marks.add(Mark.SYSTEM_POINTS)
         sns.stripplot(
             data=plot_frame(points.select("method", column)),
-            x=column,
-            y="method",
+            x="method",
+            y=column,
             order=list(names),
             hue="method",
             hue_order=list(names),
@@ -226,21 +235,28 @@ def _draw_factor_panel(
             alpha=_POINT_ALPHA,
             jitter=POINT_JITTER,
             legend=False,
+            orient="v",
             ax=ax,
         )
     for position, name in enumerate(names):
         # A method that planned no system of this recipe has no row to draw.
         if (row := by_method.get(name)) is not None:
-            _draw_summary_marks(ax, position, row)
-    ax.set_yticks(range(len(names)), [style.legend.label(name) for name in names])
-    ax.set_ylim(len(names) - 0.5, -0.5)
-    ax.set_xlim(left=0.0)
-    ax.set_xlabel(f"{METRICS[metric].label} (smaller converges faster)")
-    ax.grid(True, axis="x", alpha=0.3)
+            marks |= _draw_summary_marks(ax, position, row)
+    ax.set_xticks(range(len(names)), [style.legend.label(name) for name in names])
+    ax.set_ylim(bottom=0.0)
+    ax.set_ylabel(
+        textwrap.fill(f"{METRICS[metric].label} (smaller converges faster)", _YLABEL_WRAP)
+    )
+    ax.grid(True, axis="y", alpha=0.3)
+    return frozenset(marks)
 
 
-def _draw_summary_marks(ax: Axes, position: int, row: Mapping[str, object]) -> None:
-    """The mean with its interval whisker and the median tick of one summary row, if it has any."""
+def _draw_summary_marks(ax: Axes, position: int, row: Mapping[str, object]) -> set[Mark]:
+    """Draw the mean with its interval whisker and the median tick of one summary row.
+
+    Returns the marks drawn: none for a row with nothing defined.
+    """
+    marks: set[Mark] = set()
     mean_and_interval = (
         row["mean_over_systems"],
         row["mean_over_systems_ci_low"],
@@ -249,19 +265,21 @@ def _draw_summary_marks(ax: Axes, position: int, row: Mapping[str, object]) -> N
     match mean_and_interval:
         case float(mean), float(low), float(high):
             ax.errorbar(
-                [mean],
                 [position],
-                xerr=[[mean - low], [high - mean]],
+                [mean],
+                yerr=[[mean - low], [high - mean]],
                 fmt="o",
                 color=_SUMMARY_COLOR,
                 capsize=4,
                 zorder=3,
             )
+            marks |= {Mark.MEAN_POINT, Mark.CONFIDENCE_INTERVAL}
         case float(mean), None, None:
             # Below two matrices the bootstrap gives no interval, so the mean stands alone.
-            ax.scatter([mean], [position], color=_SUMMARY_COLOR, zorder=3)
+            ax.scatter([position], [mean], color=_SUMMARY_COLOR, zorder=3)
+            marks.add(Mark.MEAN_POINT)
         case None, None, None:
-            return
+            return marks
         case other:
             raise InconsistentSummaryRowError(
                 f"summary row has an inconsistent mean and interval: {other!r}"
@@ -269,15 +287,15 @@ def _draw_summary_marks(ax: Axes, position: int, row: Mapping[str, object]) -> N
     match row["q50"]:
         case float(median):
             ax.scatter(
-                [median],
                 [position],
+                [median],
                 marker=_MEDIAN_MARKER,
                 s=_MEDIAN_MARKER_SIZE,
                 color=_SUMMARY_COLOR,
                 zorder=3,
             )
-        case _:
-            return
+            marks.add(Mark.MEDIAN)
+    return marks
 
 
 class InconsistentSummaryRowError(ValueError):

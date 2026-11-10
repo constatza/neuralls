@@ -173,6 +173,12 @@ DEFAULT_LABEL_ROTATION_DEG = 30.0
 MAX_LABEL_ROTATION_DEG = 90.0
 """Largest label rotation: vertical text. Beyond it labels would read upside down."""
 
+DEFAULT_MIN_BOX_SAMPLES = 5
+"""Fewest systems of a method for which a distribution figure draws a box; fewer are points only."""
+
+DEFAULT_MIN_VIOLIN_SAMPLES = 30
+"""Fewest systems of a method for which a distribution figure draws a violin density."""
+
 # =============================================================================
 # Comparison RHS masking
 # =============================================================================

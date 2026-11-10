@@ -48,12 +48,17 @@ from neuralls.domain.solver.models.figure_scope import AllDatasetsScope
 from neuralls.domain.solver.reporting.cohorts import WholeGroup
 from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.settings import NeurallsSettings
+from neuralls.platform.reporting.distribution_mode import RowLimits
 from neuralls.platform.reporting.figure_evidence import NoSharedSetup, SetupSharing
 from neuralls.platform.reporting.figure_text import Legend, method_legend
 from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.storage.dataset_readers import resolve_dataset_artifacts
 from neuralls.platform.tracking.services import MlflowTrackingServices
-from neuralls.shared.constants import DEFAULT_LABEL_ROTATION_DEG
+from neuralls.shared.constants import (
+    DEFAULT_LABEL_ROTATION_DEG,
+    DEFAULT_MIN_BOX_SAMPLES,
+    DEFAULT_MIN_VIOLIN_SAMPLES,
+)
 from neuralls.shared.enum_codecs import encode_row_kind_array
 from neuralls.shared.scientific_description.catalog import (
     ITERATION_COUNT,
@@ -735,6 +740,7 @@ def group_style_of(
             color_keys={},
             marker_keys={},
             label_rotation_deg=DEFAULT_LABEL_ROTATION_DEG,
+            row_limits=RowLimits(DEFAULT_MIN_BOX_SAMPLES, DEFAULT_MIN_VIOLIN_SAMPLES),
         )
 
     return build

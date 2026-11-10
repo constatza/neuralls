@@ -9,14 +9,39 @@ from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.platform.config.models.experiments import ComparisonBaseline
 from neuralls.platform.config.models.figure_style import FigureStyleConfig
+from neuralls.platform.reporting.distribution_mode import RowLimits
 from neuralls.platform.reporting.figure_planning import figure_plans
 from neuralls.platform.reporting.group_plots import GroupStyler
-from neuralls.shared.constants import DEFAULT_LABEL_ROTATION_DEG, MAX_LABEL_ROTATION_DEG
+from neuralls.shared.constants import (
+    DEFAULT_LABEL_ROTATION_DEG,
+    DEFAULT_MIN_BOX_SAMPLES,
+    DEFAULT_MIN_VIOLIN_SAMPLES,
+    MAX_LABEL_ROTATION_DEG,
+)
 from neuralls.shared.scientific_description.policy import NotationPolicy
 
 
 def test_default_needs_no_section() -> None:
-    assert FigureStyleConfig().label_rotation_deg == DEFAULT_LABEL_ROTATION_DEG
+    config = FigureStyleConfig()
+
+    assert (config.label_rotation_deg, config.min_box_samples, config.min_violin_samples) == (
+        DEFAULT_LABEL_ROTATION_DEG,
+        DEFAULT_MIN_BOX_SAMPLES,
+        DEFAULT_MIN_VIOLIN_SAMPLES,
+    )
+
+
+@pytest.mark.parametrize(("box", "violin"), [(1, 1), (5, 5), (3, 40)])
+def test_sample_limits_in_order_are_kept(box: int, violin: int) -> None:
+    config = FigureStyleConfig(min_box_samples=box, min_violin_samples=violin)
+
+    assert (config.min_box_samples, config.min_violin_samples) == (box, violin)
+
+
+@pytest.mark.parametrize(("box", "violin"), [(0, 30), (5, 0), (31, 30)])
+def test_sample_limits_out_of_order_or_below_one_are_rejected(box: int, violin: int) -> None:
+    with pytest.raises(ValidationError):
+        FigureStyleConfig(min_box_samples=box, min_violin_samples=violin)
 
 
 @pytest.mark.parametrize("degrees", [0.0, 45.0, MAX_LABEL_ROTATION_DEG])
@@ -56,3 +81,18 @@ def test_styler_carries_the_configured_rotation_into_every_figure_style(
 
     assert {styler.style(plan).label_rotation_deg for plan in plans} == {55.0}
     assert plans
+
+
+def test_styler_carries_the_configured_sample_limits_into_every_figure_style(
+    profile_report: RecipeProfileReport,
+    repeated_timing_presentation: GroupPresentation,
+    notation: NotationPolicy,
+) -> None:
+    styler = GroupStyler(
+        repeated_timing_presentation,
+        notation,
+        FigureStyleConfig(min_box_samples=3, min_violin_samples=12),
+    )
+    plans = figure_plans(profile_report, repeated_timing_presentation, "key", {})
+
+    assert {styler.style(plan).row_limits for plan in plans} == {RowLimits(3, 12)}

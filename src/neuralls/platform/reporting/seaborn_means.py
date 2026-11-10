@@ -37,6 +37,7 @@ from neuralls.platform.reporting.figure_sizing import POINT_JITTER, bar_columns_
 from neuralls.platform.reporting.figure_style import rotate_x_labels
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
+from neuralls.platform.reporting.mark_legend import Mark, draw_mark_legend
 from neuralls.platform.reporting.seaborn_figures import plot_frame
 from neuralls.platform.reporting.series_style import MethodPalette, method_palette
 from neuralls.shared.types import PreconditionerName
@@ -228,10 +229,11 @@ def _draw_cohort(
     """Draw ``panel`` on one axes, titled with the scope and the cohort by ``style``."""
     palette = method_palette(sorted({bar.method for bar in panel.bars}), style)
     fig, ax = plt.subplots(figsize=bar_columns_figure_size(palette.order, style.label_rotation_deg))
-    _draw_panel(ax, panel, points, palette, metric)
+    marks = _draw_panel(ax, panel, points, palette, metric)
     ax.set_ylabel(f"{bar_statistic_text(statistic).capitalize()}: {METRICS[metric].label}")
     ax.set_xlabel("Method")
     rotate_x_labels(ax, style.label_rotation_deg)
+    draw_mark_legend(ax, marks | {_bar_mark(statistic)})
     finish_group_figure(
         fig,
         ax,
@@ -250,7 +252,8 @@ def _draw_panel(
     points: pl.DataFrame,
     palette: MethodPalette,
     metric: MetricId,
-) -> None:
+) -> frozenset[Mark]:
+    """Draw the bars, whiskers and points of ``panel``; the marks other than the bar drawn."""
     labels = palette.labels
     order = palette.order
     bars = pl.DataFrame(
@@ -297,6 +300,34 @@ def _draw_panel(
         base = max(_draw_whisker(ax, bar, column), point_tops.get(bar.method, 0.0))
         annotations.append(ColumnAnnotation(column, base, defined_label(bar, metric)))
     annotate_columns(ax, annotations)
+    return frozenset(
+        mark
+        for mark, drawn in (
+            (Mark.CONFIDENCE_INTERVAL, any(_has_whisker(bar) for bar in panel.bars)),
+            (Mark.SYSTEM_POINTS, points.height > 0),
+        )
+        if drawn
+    )
+
+
+def _bar_mark(statistic: BarStatistic) -> Mark:
+    match statistic:
+        case Statistic.MEAN_OVER_SYSTEMS | Statistic.MEAN_OVER_MATRICES:
+            return Mark.MEAN_BAR
+        case Statistic.RATIO_OF_SUMS:
+            return Mark.RATIO_BAR
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _has_whisker(bar: MethodBar) -> bool:
+    match bar.height:
+        case Bar(whisker=Whisker()):
+            return True
+        case Bar() | NoBar():
+            return False
+        case unreachable:
+            assert_never(unreachable)
 
 
 def _value(bar: MethodBar) -> float | None:

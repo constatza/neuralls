@@ -80,7 +80,7 @@ MAX_INLINE_ENTRIES = 6
 MAX_LINES_PER_COLUMN = 24
 """Most legend text lines an external legend stacks before it opens another column."""
 
-_LEGEND_ANCHOR = (1.02, 1.0)
+LEGEND_ANCHOR = (1.02, 1.0)
 
 LEGEND_FONT_SIZE = 7
 """Point size of every method legend entry and of the method labels on bar-chart axes."""
@@ -250,7 +250,7 @@ def draw_legend(
         case LegendPlacement.OUTSIDE_RIGHT:
             ax.legend(
                 loc="upper left",
-                bbox_to_anchor=_LEGEND_ANCHOR,
+                bbox_to_anchor=LEGEND_ANCHOR,
                 ncols=layout.columns,
                 fontsize=fontsize,
             )

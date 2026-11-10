@@ -1,10 +1,14 @@
 """Distributions of a per-system metric, and the per-matrix breakdown as a method-by-matrix heatmap.
 
-Every summary mark is read from the figure's table. A distribution's box (q25, q50, q75), its
-whiskers (q05 to q95, a distribution summary and not a confidence interval) and its "k/n"
-annotation come from the method's cohort summary row; seaborn draws only the violin density of the
-systems and the per-matrix mean points, which have no table counterpart and are not persisted. At
-a mixture level each cohort has its own figure, as for the mean bars (``seaborn_means.py``).
+A distribution figure has one column per method, methods on the x axis and the metric on the y
+axis. How a column is drawn depends on how many systems it holds (``distribution_mode.row_mode``):
+the systems as a beeswarm with a median tick, a box over the beeswarm, or a violin with a box
+inside it. The "k/n" annotation above a column and the median tick come from the method's row of
+the figure's cohort summary table. Seaborn's box recomputes the quantiles from the systems with
+linear interpolation, which is the interpolation of the table, so the two agree (a test pins it).
+A whisker ends on the most extreme system inside q05 to q95 (matplotlib clips it to a data point), a distribution summary and not a confidence interval. The violin density,
+the beeswarm and the per-matrix mean points have no table counterpart and are not persisted. At a
+mixture level each cohort has its own figure, as for the mean bars (``seaborn_means.py``).
 
 A heatmap's cells are the rows of its matrix breakdown: seaborn colours them from the pivoted
 breakdown, and each cell's annotation, or the hatching and "0/r solved" of a cell where nothing
@@ -13,7 +17,7 @@ converged, is read from the same row.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import assert_never
 
@@ -28,26 +32,37 @@ from neuralls.domain.solver.reporting.cohorts import single_cohort
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.domain.solver.reporting.summary import Population
 from neuralls.platform.reporting.cohort_points import cohort_systems
+from neuralls.platform.reporting.distribution_mode import (
+    BoxAndSwarm,
+    PointsOnly,
+    RowLimits,
+    RowMode,
+    Violin,
+    row_mode,
+)
 from neuralls.platform.reporting.figure_annotations import (
-    RowAnnotation,
-    annotate_rows,
+    ColumnAnnotation,
+    annotate_columns,
     count_label,
 )
 from neuralls.platform.reporting.figure_formats import FigureTarget
-from neuralls.platform.reporting.figure_sizing import method_rows_figure_size
+from neuralls.platform.reporting.figure_sizing import bar_columns_figure_size
 from neuralls.platform.reporting.figure_style import rotate_x_labels
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
+from neuralls.platform.reporting.mark_legend import Mark, draw_mark_legend
 from neuralls.platform.reporting.seaborn_figures import plot_frame
 from neuralls.platform.reporting.series_style import MethodPalette, method_palette
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName
 
 _MARK_COLOR = "black"
-_WHISKER_CAP = 0.15
-"""Half-height of a whisker cap, in units of the distance between two method rows."""
-_BOX_LINE_WIDTH = 5.0
-_MEDIAN_MARKER_SIZE = 5.0
+_BOX_WIDTH = 0.4
+_BOX_WHISKER_PERCENTILES = (5, 95)
+"""Percentiles of the box's whiskers; the table's ``q05`` and ``q95``."""
+_MEDIAN_TICK_HALF_WIDTH = 0.2
+"""Half-width of a median tick, in units of the distance between two method columns."""
+_MEDIAN_TICK_WIDTH = 1.5
 _POINT_SIZE = 3.0
 _POINT_ALPHA = 0.7
 _POINT_JITTER = 0.15
@@ -70,7 +85,7 @@ _LIGHT_CELL = 0.6
 
 @dataclass(frozen=True, slots=True)
 class Quantiles:
-    """The quantiles a violin's box and whiskers mark, and the largest value its density reaches."""
+    """The quantiles a method's median tick marks and the largest system, where its column ends."""
 
     q05: float
     q25: float
@@ -87,7 +102,7 @@ class NoQuantiles:
 
 @dataclass(frozen=True, slots=True)
 class MethodDistribution:
-    """One method's row of a distribution panel and the units its quantiles rest on."""
+    """One method's column of a distribution panel and the units its quantiles rest on."""
 
     method: PreconditionerName
     quantiles: Quantiles | NoQuantiles
@@ -156,8 +171,8 @@ def matrix_points(
     )
 
 
-def distribution_xlabel(metric: MetricId) -> str:
-    """The x label of a distribution of ``metric``."""
+def distribution_ylabel(metric: MetricId) -> str:
+    """The y label of a distribution of ``metric``."""
     return METRICS[metric].label.capitalize()
 
 
@@ -169,7 +184,7 @@ def plot_distribution(
     style: GroupStyle,
     target: FigureTarget,
 ) -> FigureTarget | None:
-    """Violins of each method's systems with the summary's box, whiskers and "k/n" counts.
+    """One column per method: points, a box over points, or a violin, by its number of systems.
 
     ``summary`` is the rows of one cohort of the figure's cohort summary table and
     ``observations`` the systems of that cohort; ``None`` when ``summary`` has no row.
@@ -178,10 +193,12 @@ def plot_distribution(
         return None
     panel = distribution_panel(summary)
     palette = method_palette(sorted(method.method for method in panel.methods), style)
-    fig, ax = plt.subplots(figsize=method_rows_figure_size(palette.order))
-    _draw_distribution_panel(ax, panel, observations, palette, metric)
-    ax.set_xlabel(distribution_xlabel(metric))
-    ax.set_ylabel("Method")
+    fig, ax = plt.subplots(figsize=bar_columns_figure_size(palette.order, style.label_rotation_deg))
+    marks = _draw_distribution_panel(ax, panel, observations, palette, metric, style.row_limits)
+    ax.set_ylabel(distribution_ylabel(metric))
+    ax.set_xlabel("Method")
+    rotate_x_labels(ax, style.label_rotation_deg)
+    draw_mark_legend(ax, marks)
     finish_group_figure(
         fig,
         ax,
@@ -200,90 +217,186 @@ def _draw_distribution_panel(
     observations: pl.DataFrame,
     palette: MethodPalette,
     metric: MetricId,
-) -> None:
+    limits: RowLimits,
+) -> frozenset[Mark]:
+    """Draw every column of ``panel`` and return the marks that were drawn."""
     labels, order = palette.labels, palette.order
+    modes = {labels[m.method]: row_mode(m.n_defined, limits) for m in panel.methods}
     systems = cohort_systems(observations, panel, metric).select(
         pl.col("method").replace_strict(labels).alias("label"),
         value=pl.col(METRICS[metric].column).cast(pl.Float64),
     )
-    points = matrix_points(observations, panel, metric)
+    swarmed = _labels_in(modes, PointsOnly, BoxAndSwarm)
+    boxed = _labels_in(modes, BoxAndSwarm, Violin)
+    violins = _labels_in(modes, Violin)
     if systems.height > 0:
-        sns.violinplot(
-            data=plot_frame(systems),
-            x="value",
-            y="label",
-            order=order,
-            hue="label",
-            hue_order=order,
-            palette=dict(palette.colors),
-            legend=False,
-            inner=None,
-            cut=0,
-            density_norm="width",
-            linewidth=0.5,
-            alpha=_VIOLIN_ALPHA,
-            orient="h",
-            ax=ax,
+        _draw_violins(ax, systems, violins, palette)
+        _draw_swarm(ax, systems, swarmed, palette)
+        _draw_boxes(ax, systems, boxed, order)
+        _draw_matrix_points(ax, matrix_points(observations, panel, metric), violins, palette)
+    _draw_median_ticks(ax, panel, modes, palette)
+    marks = frozenset(mark for label in set(systems["label"]) for mark in _marks_of(modes[label]))
+    columns = {label: position for position, label in enumerate(order)}
+    ax.set_xticks(range(len(order)), order)
+    annotations = [
+        ColumnAnnotation(
+            columns[labels[method.method]],
+            _column_top(method.quantiles),
+            count_label(method.n_defined, method.n_planned, metric),
         )
-        sns.stripplot(
-            data=plot_frame(
-                points.select(pl.col("method").replace_strict(labels).alias("label"), "value")
-            ),
-            x="value",
-            y="label",
-            order=order,
-            color=_MARK_COLOR,
-            size=_POINT_SIZE,
-            alpha=_POINT_ALPHA,
-            jitter=_POINT_JITTER,
-            orient="h",
-            ax=ax,
-        )
-    rows = {label: position for position, label in enumerate(order)}
-    point_ends = dict(points.group_by("method").agg(pl.col("value").max()).iter_rows())
-    annotations = []
-    for method in panel.methods:
-        row = rows[labels[method.method]]
-        start = max(_draw_box(ax, method.quantiles, row), point_ends.get(method.method, 0.0))
-        annotations.append(
-            RowAnnotation(row, start, count_label(method.n_defined, method.n_planned, metric))
-        )
-    annotate_rows(ax, annotations)
+        for method in panel.methods
+    ]
+    annotate_columns(ax, annotations)
+    return marks
 
 
-def _draw_box(ax: Axes, quantiles: Quantiles | NoQuantiles, row: int) -> float:
-    """Draw the whiskers, box and median of ``quantiles`` on ``row``; where its density ends."""
+def _labels_in(modes: Mapping[str, RowMode], *kinds: type[RowMode]) -> frozenset[str]:
+    """The labels whose mode is an instance of one of ``kinds``."""
+    return frozenset(label for label, mode in modes.items() if isinstance(mode, kinds))
+
+
+def _marks_of(mode: RowMode) -> frozenset[Mark]:
+    """The marks a column in ``mode`` shows, for the legend."""
+    match mode:
+        case PointsOnly():
+            return frozenset({Mark.MEDIAN, Mark.SYSTEM_POINTS})
+        case BoxAndSwarm():
+            return frozenset({Mark.IQR, Mark.MEDIAN, Mark.QUANTILE_WHISKER, Mark.SYSTEM_POINTS})
+        case Violin():
+            return frozenset(
+                {Mark.IQR, Mark.MEDIAN, Mark.QUANTILE_WHISKER, Mark.MATRIX_MEAN_POINTS}
+            )
+        case unreachable:
+            assert_never(unreachable)
+
+
+def _column_top(quantiles: Quantiles | NoQuantiles) -> float:
+    """Where a column's annotation stands: the largest system, or the axis floor when none."""
     match quantiles:
-        case Quantiles(q05=q05, q25=q25, q50=q50, q75=q75, q95=q95, maximum=maximum):
-            ax.plot([q05, q95], [row, row], color=_MARK_COLOR, linewidth=1)
-            for end in (q05, q95):
-                ax.plot(
-                    [end, end],
-                    [row - _WHISKER_CAP, row + _WHISKER_CAP],
-                    color=_MARK_COLOR,
-                    linewidth=1,
-                )
-            ax.plot(
-                [q25, q75],
-                [row, row],
-                color=_MARK_COLOR,
-                linewidth=_BOX_LINE_WIDTH,
-                solid_capstyle="butt",
-            )
-            ax.plot(
-                [q50],
-                [row],
-                marker="o",
-                markersize=_MEDIAN_MARKER_SIZE,
-                markerfacecolor="white",
-                markeredgecolor=_MARK_COLOR,
-                linestyle="none",
-            )
+        case Quantiles(maximum=maximum):
             return maximum
         case NoQuantiles():
             return 0.0
         case unreachable:
             assert_never(unreachable)
+
+
+def _only(systems: pl.DataFrame, labels: Collection[str]) -> pl.DataFrame:
+    """The systems of the methods in ``labels``; the others keep their column but get no mark."""
+    return systems.filter(pl.col("label").is_in(list(labels)))
+
+
+def _draw_violins(
+    ax: Axes, systems: pl.DataFrame, labels: Collection[str], palette: MethodPalette
+) -> None:
+    if not labels:
+        return
+    sns.violinplot(
+        data=plot_frame(_only(systems, labels)),
+        x="label",
+        y="value",
+        order=palette.order,
+        hue="label",
+        hue_order=palette.order,
+        palette=dict(palette.colors),
+        legend=False,
+        inner=None,
+        cut=0,
+        density_norm="width",
+        linewidth=0.5,
+        alpha=_VIOLIN_ALPHA,
+        orient="v",
+        ax=ax,
+    )
+
+
+def _draw_swarm(
+    ax: Axes, systems: pl.DataFrame, labels: Collection[str], palette: MethodPalette
+) -> None:
+    """A beeswarm of the systems of ``labels``: every system visible, none jittered at random."""
+    if not labels:
+        return
+    sns.swarmplot(
+        data=plot_frame(_only(systems, labels)),
+        x="label",
+        y="value",
+        order=palette.order,
+        hue="label",
+        hue_order=palette.order,
+        palette=dict(palette.colors),
+        legend=False,
+        size=_POINT_SIZE,
+        alpha=_POINT_ALPHA,
+        orient="v",
+        ax=ax,
+    )
+
+
+def _draw_boxes(ax: Axes, systems: pl.DataFrame, labels: Collection[str], order: list[str]) -> None:
+    """Boxes of the systems of ``labels``: IQR box, median line, whiskers q05 to q95, no fliers."""
+    if not labels:
+        return
+    sns.boxplot(
+        data=plot_frame(_only(systems, labels)),
+        x="label",
+        y="value",
+        order=order,
+        whis=_BOX_WHISKER_PERCENTILES,
+        showfliers=False,
+        fill=False,
+        color=_MARK_COLOR,
+        width=_BOX_WIDTH,
+        linewidth=1.0,
+        orient="v",
+        ax=ax,
+    )
+
+
+def _draw_matrix_points(
+    ax: Axes, points: pl.DataFrame, labels: Collection[str], palette: MethodPalette
+) -> None:
+    """Strip the per-matrix means over the violins of ``labels``."""
+    drawn = _only(
+        points.select(pl.col("method").replace_strict(palette.labels).alias("label"), "value"),
+        labels,
+    )
+    if drawn.height == 0:
+        return
+    sns.stripplot(
+        data=plot_frame(drawn),
+        x="label",
+        y="value",
+        order=palette.order,
+        color=_MARK_COLOR,
+        size=_POINT_SIZE,
+        alpha=_POINT_ALPHA,
+        jitter=_POINT_JITTER,
+        orient="v",
+        ax=ax,
+    )
+
+
+def _draw_median_ticks(
+    ax: Axes,
+    panel: DistributionPanel,
+    modes: Mapping[str, RowMode],
+    palette: MethodPalette,
+) -> None:
+    """A short horizontal tick at the summary's median of each points-only column."""
+    columns = {label: position for position, label in enumerate(palette.order)}
+    for method in panel.methods:
+        label = palette.labels[method.method]
+        match method.quantiles:
+            case Quantiles(q50=median) if isinstance(modes[label], PointsOnly):
+                ax.hlines(
+                    median,
+                    columns[label] - _MEDIAN_TICK_HALF_WIDTH,
+                    columns[label] + _MEDIAN_TICK_HALF_WIDTH,
+                    color=_MARK_COLOR,
+                    linewidth=_MEDIAN_TICK_WIDTH,
+                )
+            case _:
+                continue
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,15 +1,17 @@
 """The marks of distribution figures and of the matrix heatmap are read from their stored tables.
 
-A violin's box and whiskers are the quantiles of its method's summary row and its count
-annotation the row's ``n_defined`` and ``n_planned``; only the violin density and the per-matrix
+A method's median tick is the median of its summary row and its count annotation the row's
+``n_defined`` and ``n_planned``; the box, the violin density, the beeswarm and the per-matrix
 points, which no table stores, come from the observations. A heatmap cell's annotation and its
 hatching are read from the breakdown row of its method and matrix. No figure is drawn.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import polars as pl
 import pytest
+from matplotlib.cbook import boxplot_stats
 from polars.testing import assert_frame_equal
 from tests.figure_support import no_offline_cost
 from tests.recipe_support import GAUSSIAN, SINE
@@ -25,7 +27,7 @@ from neuralls.domain.solver.reporting.cohorts import (
     cohort_rows,
 )
 from neuralls.domain.solver.reporting.metrics import MetricId
-from neuralls.domain.solver.reporting.summary import Population, select
+from neuralls.domain.solver.reporting.summary import Population, select, summarize
 from neuralls.platform.reporting.figure_summaries import figure_summaries
 from neuralls.platform.reporting.seaborn_distributions import (
     CellMean,
@@ -67,7 +69,7 @@ def heatmap(profile_report: RecipeProfileReport) -> tuple[HeatmapCell, ...]:
     )
 
 
-def test_a_violins_box_and_whiskers_are_the_quantiles_of_its_summary_row(
+def test_a_methods_quantiles_are_those_of_its_summary_row(
     profile_report: RecipeProfileReport,
 ) -> None:
     summary = figure_summaries(profile_report, no_offline_cost(profile_report))[
@@ -166,3 +168,24 @@ def test_a_cell_is_labelled_with_its_mean_and_the_rhs_it_rests_on(
     heatmap: tuple[HeatmapCell, ...], method: str, matrix: int, label: str
 ) -> None:
     assert cell_label(_cell(heatmap, method, matrix), MetricId.ITERATIONS) == label
+
+
+def test_the_boxs_quantiles_equal_the_stored_tables_for_the_same_sample(
+    profile_report: RecipeProfileReport,
+) -> None:
+    """Seaborn recomputes the box from the systems; the table must say the same numbers."""
+    observations = profile_report.observations
+    table = summarize(observations, MetricId.ITERATIONS, Population.OWN)
+    row = table.filter(pl.col("method") == JACOBI).row(0, named=True)
+    sample = select(observations, MetricId.ITERATIONS, Population.OWN).filter(
+        pl.col("method") == JACOBI
+    )["iterations"]
+
+    (box,) = boxplot_stats(sample.to_numpy(), whis=(5, 95))
+
+    stored = [row["q05"], row["q25"], row["q50"], row["q75"], row["q95"]]
+    assert stored == pytest.approx(np.percentile(sample.to_numpy(), [5, 25, 50, 75, 95]))
+    assert [box["q1"], box["med"], box["q3"]] == pytest.approx(stored[1:4])
+    # matplotlib ends a whisker on the most extreme system inside the percentile range
+    inside = sample.filter(sample.is_between(row["q05"], row["q95"]))
+    assert (box["whislo"], box["whishi"]) == (inside.min(), inside.max())
