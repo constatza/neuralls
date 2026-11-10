@@ -349,6 +349,10 @@ class ComparisonResolutionContext:
             unset and each entry then owns a private manager.
         training_run_records: Per-batch cache shared by entry preparation and
             offline cost attribution; one fetch per distinct training run.
+        resolved_specs: Per-batch cache of resolved preconditioners, so the
+            entries of a sweep, which differ in matrix data but not in which
+            checkpoints they use, look each checkpoint up and hash it once.
+            Keyed by `resolution_key`.
     """
 
     topology: ComparisonTopology
@@ -360,6 +364,21 @@ class ComparisonResolutionContext:
     artifact_leases: ArtifactLeaseManager | None = None
     training_run_records: dict[str, Run | MlflowException | OSError] = field(
         default_factory=dict, repr=False, compare=False
+    )
+    resolved_specs: dict[ResolutionKey, ResolvedComparisonSpecs] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+
+
+type ResolutionKey = tuple[tuple[str, ...], str | None]
+"""Everything checkpoint resolution reads from a comparison config: the specs and dataset alias."""
+
+
+def resolution_key(cfg: ComparisonConfig) -> ResolutionKey:
+    """The key under which a comparison's resolved specs are shared within a batch."""
+    return (
+        tuple(spec.model_dump_json() for spec in cfg.preconditioners),
+        cfg.general.data.dataset_alias,
     )
 
 
@@ -443,22 +462,12 @@ def checkpoint_digests(specs: Sequence[PreconditionerConfig]) -> dict[str, Diges
                 continue
             digest_key = f"{index}:{label}"
             logger.info(
-                "Inspecting checkpoint '{}' for preconditioner '{}' before hashing.",
-                checkpoint_path,
-                spec.name,
-            )
-            checkpoint_size = checkpoint_path.stat().st_size
-            logger.info(
                 "Hashing checkpoint '{}' for preconditioner '{}' ({} bytes).",
                 checkpoint_path,
                 spec.name,
-                checkpoint_size,
+                checkpoint_path.stat().st_size,
             )
             digests[digest_key] = content_digest(checkpoint_path)
-            logger.info(
-                "Finished hashing checkpoint for preconditioner '{}'.",
-                spec.name,
-            )
     return digests
 
 
@@ -478,12 +487,22 @@ def resolve_comparison_specs(
     """Resolve preconditioner checkpoints, rejecting a comparison with nothing left to run.
 
     Must run inside the same lease-manager scope as execution — leased
-    checkpoint files are released when that scope closes.
+    checkpoint files are released when that scope closes. A comparison with the
+    same preconditioners and dataset alias as an earlier one in the batch reuses
+    that resolution, so its checkpoints are neither looked up nor hashed again.
 
     Raises:
         ValueError: When all preconditioners fail to resolve.
     """
-    resolved = _resolve_specs(cfg, context, artifact_leases)
+    key = resolution_key(cfg)
+    if key not in context.resolved_specs:
+        context.resolved_specs[key] = _resolve_specs(cfg, context, artifact_leases)
+    cached = context.resolved_specs[key]
+    resolved = ResolvedComparisonSpecs(
+        specs=list(cached.specs),
+        warnings=cached.warnings,
+        checkpoint_digests=cached.checkpoint_digests,
+    )
     if not resolved.specs:
         raise ValueError("No runnable preconditioners remain after model resolution.")
     return resolved

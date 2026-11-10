@@ -140,19 +140,16 @@ def prepare_comparison_entry(
         A failure `ComparisonOutcome`, or a `PreparedComparisonExecution` ready for execution.
     """
     entry = planned.entry
-    logger.info("Preparing comparison '{}': validating input sources.", entry.id)
     try:
         validate_comparison_sources(cfg)
     except (FileNotFoundError, ValueError) as exc:
         return _undescribed_failure(entry, exc)
-    logger.info("Comparison '{}': input-source validation complete.", entry.id)
     configured_reference = _configured_reference(cfg)
 
     with contextlib.ExitStack() as local_stack:
         artifact_leases = context.artifact_leases or local_stack.enter_context(
             context.tracking.lease_manager(context.topology.model_store_tracking_uri)
         )
-        logger.info("Comparison '{}': resolving preconditioner checkpoints.", entry.id)
         try:
             resolved = resolve_comparison_specs(cfg, context, artifact_leases)
         except (ValueError, RuntimeError, KeyError, IndexError) as exc:

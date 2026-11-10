@@ -637,7 +637,6 @@ def _resolve_checkpoint_ref(
     if ref.model_ref is None:
         raise ValueError(f"'{display_name}' requires either checkpoint_path or model_ref.")
 
-    logger.info("Resolving checkpoint artifact for preconditioner '{}'.", display_name)
     context = (
         assignment_contexts.get(ref.assignment)
         if assignment_contexts is not None and ref.assignment is not None

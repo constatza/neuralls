@@ -802,14 +802,21 @@ change only redoes the affected work:
    matrix/RHS data and the *content digest of each resolved checkpoint* — so
    a static-only comparison is keyed too, a retrained model with different
    weights invalidates exactly the comparisons that used it, and an identical
-   rerun does not. INFO logs bracket checkpoint artifact resolution, each
-   checkpoint-content hash, matrix/dataset identity construction, and the
-   session-level MLflow reuse lookup so normal log timestamps expose slow preparation phases
-   without a separate timing mechanism. `run_comparison_batch` wraps the whole
-   batch in `shared.digest.digest_memo()`, so each checkpoint file is hashed
-   once per `(resolved path, size, mtime_ns)` and each dataset's input digest
-   once per directory, however many systems share them (the memo ends with the
-   batch, so a file rewritten between runs is never served stale). All entries
+   rerun does not. A sweep's entries differ in matrix data, not in which
+   checkpoints they use, so `ComparisonResolutionContext.resolved_specs`
+   caches `resolve_comparison_specs` per batch, keyed by the entry's
+   preconditioner specs and dataset alias (`resolution_key`): the MLflow run
+   lookup, the artifact lease and the checkpoint hash happen once per distinct
+   preconditioner set, and later entries reuse the resolved specs and digests.
+   INFO logs mark only that first resolution (one "Resolved checkpoint
+   artifact" line and one "Hashing checkpoint" line per checkpoint), then
+   matrix/dataset identity construction and the session-level MLflow reuse
+   lookup, so normal log timestamps expose slow preparation phases without a
+   separate timing mechanism. `run_comparison_batch` also wraps the batch in
+   `shared.digest.digest_memo()`, so a checkpoint file shared by differently
+   keyed resolutions and each dataset's input digest are hashed once per
+   `(resolved path, size, mtime_ns)` (the memo ends with the batch, so a file
+   rewritten between runs is never served stale). All entries
    of a batch also share one `MlflowArtifactLeaseManager`
    (`ComparisonResolutionContext.artifact_leases`): one download per run id,
    kept until the batch ends. Download and hashing happen in the prepare phase,

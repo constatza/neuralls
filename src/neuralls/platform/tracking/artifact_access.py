@@ -164,7 +164,7 @@ class MlflowArtifactLeaseManager:
         normalized_path = normalize_artifact_path(artifact_path)
         cache_key = (run_id, normalized_path, kind)
         if cache_key in self._leases:
-            logger.info(
+            logger.debug(
                 "Reusing materialized MLflow artifact '{}' from run {}.",
                 normalized_path,
                 run_id,
