@@ -25,7 +25,7 @@ from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import (
     FigureKind,
 )
-from neuralls.platform.reporting.figure_planning import history_variant
+from neuralls.platform.reporting.figure_recipes import history_variant
 from neuralls.platform.reporting.figure_text import (
     EditorialTitle,
     Legend,

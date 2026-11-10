@@ -20,7 +20,7 @@ from neuralls.domain.solver.models.group_outcomes import (
 )
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.summary import Population, select
-from neuralls.platform.reporting.figure_planning import figure_summaries
+from neuralls.platform.reporting.figure_summaries import figure_summaries
 from neuralls.platform.reporting.seaborn_distributions import (
     CellMean,
     DistributionPanel,

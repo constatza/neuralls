@@ -51,14 +51,14 @@ from neuralls.platform.reporting.figure_metadata import (
     FigureKind,
     TableKind,
 )
-from neuralls.platform.reporting.figure_planning import (
+from neuralls.platform.reporting.figure_recipes import (
     FIGURE_RECIPES,
     FigureVariant,
     GroupFigureRecipe,
-    figure_summaries,
     group_recipe,
     history_variant,
 )
+from neuralls.platform.reporting.figure_summaries import figure_summaries
 from neuralls.platform.reporting.figure_table import build_cost_breakdown_table, build_group_table
 from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.types import CostProvenance, PreconditionerName

@@ -29,7 +29,8 @@ from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.summary import Population
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, FigureKind, Statistic
-from neuralls.platform.reporting.figure_planning import figure_summaries, group_recipe
+from neuralls.platform.reporting.figure_recipes import group_recipe
+from neuralls.platform.reporting.figure_summaries import figure_summaries
 from neuralls.platform.reporting.group_drawers import FigureData
 from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.workload_bars import WorkloadTotal

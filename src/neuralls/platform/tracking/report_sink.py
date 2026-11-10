@@ -52,12 +52,9 @@ from neuralls.platform.reporting.figure_metadata import (
     TimingPolicy,
     method_source,
 )
-from neuralls.platform.reporting.figure_planning import (
-    figure_plans,
-    figure_summaries,
-    history_variant,
-    plan_figure,
-)
+from neuralls.platform.reporting.figure_planning import figure_plans, plan_figure
+from neuralls.platform.reporting.figure_recipes import history_variant
+from neuralls.platform.reporting.figure_summaries import figure_summaries
 from neuralls.platform.reporting.figure_text import scope_label
 from neuralls.platform.reporting.group_plots import GroupStyler, write_outcome_plots
 from neuralls.platform.reporting.method_figures import METHOD_PLOTS, draw_method_figure

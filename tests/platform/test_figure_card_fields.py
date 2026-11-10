@@ -37,11 +37,8 @@ from neuralls.platform.reporting.figure_card import (
     decode_figure_card,
 )
 from neuralls.platform.reporting.figure_metadata import GroupFigureMetadata, Statistic
-from neuralls.platform.reporting.figure_planning import (
-    FIGURE_RECIPES,
-    GroupFigureRecipe,
-    figure_plans,
-)
+from neuralls.platform.reporting.figure_planning import figure_plans
+from neuralls.platform.reporting.figure_recipes import FIGURE_RECIPES, GroupFigureRecipe
 from neuralls.shared.constants import BOOTSTRAP_RESAMPLES, CONFIDENCE_LEVEL
 from neuralls.shared.digest import Json
 from neuralls.shared.scientific_description.policy import NotationPolicy

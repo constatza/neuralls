@@ -18,7 +18,7 @@ from neuralls.platform.reporting.figure_metadata import (
     StagedFigure,
     StagedTabledFigure,
 )
-from neuralls.platform.reporting.figure_planning import group_recipe
+from neuralls.platform.reporting.figure_recipes import group_recipe
 from neuralls.platform.reporting.figure_text import (
     method_legend,
 )

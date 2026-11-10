@@ -25,7 +25,8 @@ from neuralls.platform.reporting.figure_metadata import (
     SiblingTable,
     TableKind,
 )
-from neuralls.platform.reporting.figure_planning import group_recipe, table_of
+from neuralls.platform.reporting.figure_planning import table_of
+from neuralls.platform.reporting.figure_recipes import group_recipe
 from neuralls.platform.reporting.figure_table import (
     InvalidFigureTableError,
     build_cost_breakdown_table,

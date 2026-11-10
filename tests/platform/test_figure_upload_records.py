@@ -24,7 +24,8 @@ from neuralls.platform.reporting.figure_metadata import (
     StagedFigure,
     StagedTabledFigure,
 )
-from neuralls.platform.reporting.figure_planning import figure_plans, figure_summaries
+from neuralls.platform.reporting.figure_planning import figure_plans
+from neuralls.platform.reporting.figure_summaries import figure_summaries
 from neuralls.platform.reporting.figure_table import InvalidFigureTableError
 from neuralls.platform.tracking.figure_uploader import FigureUploader
 from neuralls.platform.tracking.split_records import SPLITS_ARTIFACT, encode_split_records

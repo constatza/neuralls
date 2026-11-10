@@ -39,12 +39,12 @@ from neuralls.domain.solver.reporting.summary import (
     time_per_iteration_summary,
 )
 from neuralls.platform.reporting.figure_metadata import TABLE_SCHEMAS, FigureKind, TableKind
-from neuralls.platform.reporting.figure_planning import (
+from neuralls.platform.reporting.figure_recipes import (
     FIGURE_RECIPES,
     GroupFigureRecipe,
-    figure_summaries,
     group_recipe,
 )
+from neuralls.platform.reporting.figure_summaries import figure_summaries
 from neuralls.platform.reporting.figure_table import (
     InvalidFigureTableError,
     build_cost_breakdown_table,

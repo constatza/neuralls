@@ -19,7 +19,7 @@ from neuralls.platform.reporting.figure_metadata import (
     Statistic,
     TableKind,
 )
-from neuralls.platform.reporting.figure_planning import (
+from neuralls.platform.reporting.figure_recipes import (
     FIGURE_RECIPES,
     GroupFigureRecipe,
     HistoryFigureRecipe,
