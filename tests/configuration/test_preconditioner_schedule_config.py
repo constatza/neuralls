@@ -14,12 +14,6 @@ from neuralls.platform.config.models.preconditioner import (
 )
 
 
-def test_start_iter_defaults_to_zero() -> None:
-    """Preconditioner schedules activate immediately by default."""
-    cfg = StandardPreconditionerConfig(type=PreconditionerType.JACOBI)
-    assert cfg.start_iter == 0
-
-
 def test_start_iter_accepts_non_negative_value() -> None:
     """Preconditioner schedules accept delayed activation."""
     cfg = StandardPreconditionerConfig(

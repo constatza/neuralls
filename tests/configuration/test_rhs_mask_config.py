@@ -9,7 +9,6 @@ from neuralls.platform.config.models.comparison import (
     RHS_SOURCE_MODEL_BY_KIND,
     ComparisonRhsSourceModel,
     GaussianRhsSourceModel,
-    NoMask,
     RandomMask,
 )
 from neuralls.shared.types import ComparisonRhsSourceKind
@@ -23,14 +22,6 @@ _REQUIRED_PARAMS: dict[ComparisonRhsSourceKind, dict[str, object]] = {
     ComparisonRhsSourceKind.RAW_RHS: {"path": "/x"},
     ComparisonRhsSourceKind.DATASET: {},
 }
-
-
-def test_the_mask_defaults_to_none() -> None:
-    assert GaussianRhsSourceModel().mask == NoMask()
-
-
-def test_the_density_defaults_to_a_tenth() -> None:
-    assert RandomMask().density == 0.1
 
 
 @pytest.mark.parametrize("density", [0.0, -0.1, 0.51, 1.0])

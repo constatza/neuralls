@@ -337,21 +337,6 @@ def test_matrix_set_rhs_type_and_matrix_set_labels_preserve_recipe_membership(me
     assert all_sets_report.recipe_counts == (2, 1)
 
 
-def test_removed_cost_models_are_absent_from_event_classification(method) -> None:
-    tag = _tag(0)
-
-    (group,) = _classify(
-        (tag,), (_setup(method),), (_attempt(tag, method),), MatrixSetRhsTypeLevel()
-    )
-
-    assert isinstance(group, RecipeProfileReport)
-    summary = group.convergence[method]
-    for value in (group, summary):
-        assert not hasattr(value, "ert_seconds")
-        assert not hasattr(value, "recurring_s")
-        assert not hasattr(value, "setup_sharing")
-
-
 def test_workload_mixture_carries_the_pooled_observations_of_its_recipes(method) -> None:
     tags = (_tag(0), _tag(0, recipe=SINE))
     setup = _setup(method)

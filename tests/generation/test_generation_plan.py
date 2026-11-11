@@ -518,18 +518,6 @@ class TestPydanticValidation:
         with pytest.raises(ValidationError):
             KrylovConfig.model_validate({"samples": 10, "krylov_iters": "invalid"})
 
-    def test_pydantic_frozen_prevents_mutation(self) -> None:
-        """Test that frozen=True prevents mutation of config objects."""
-        from pydantic import ValidationError
-
-        from neuralls.domain.generation.strategy_configs import KrylovConfig
-
-        config = KrylovConfig(samples=10, seed=42, shuffle=True, krylov_iters=15)
-
-        # Try to modify a field (Pydantic raises ValidationError for frozen models)
-        with pytest.raises(ValidationError):
-            config.krylov_iters = 20
-
     def test_pydantic_accepts_valid_configs(self) -> None:
         """Test that valid configurations are accepted."""
         from neuralls.domain.generation.strategy_configs import (

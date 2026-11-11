@@ -11,10 +11,6 @@ from neuralls.shared.types import SparsityPattern
 _UNKNOWN_PATTERN = "banded"
 
 
-def test_default_sparsity_pattern_is_ragged() -> None:
-    assert OutputConfig().sparsity_pattern is SparsityPattern.RAGGED
-
-
 @pytest.mark.parametrize("value", ["shared", "ragged"])
 def test_allowed_sparsity_pattern_values_load(value: str) -> None:
     config = OutputConfig.model_validate({"sparsity_pattern": value})

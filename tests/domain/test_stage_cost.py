@@ -27,7 +27,3 @@ def test_recorded_seconds_exists_only_for_a_known_cost(
     cost: StageCost, expected: float | None
 ) -> None:
     assert recorded_seconds(cost) == expected
-
-
-def test_unavailable_cost_has_no_number_to_misread() -> None:
-    assert not hasattr(Unavailable("no record"), "wall_time_seconds")

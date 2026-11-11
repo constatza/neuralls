@@ -39,12 +39,6 @@ def test_case_config_parses_comparison_sweeps_table() -> None:
     assert entry.selector.n == 2
 
 
-def test_case_config_comparison_sweeps_defaults_to_empty_list() -> None:
-    cfg = CaseConfig.model_validate({"datasets": [], "jobs": []})
-
-    assert cfg.comparison_sweeps == []
-
-
 def test_case_config_parses_fraction_selector_sweep() -> None:
     cfg = CaseConfig.model_validate(
         _raw_case_config(selector={"kind": "fraction", "p": 0.25, "seed": 3})

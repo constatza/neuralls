@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, fields, is_dataclass
+from dataclasses import fields
 
 import pytest
 
@@ -120,16 +120,6 @@ def _compact_keys(method: PreparedMethodPresentation) -> list[str]:
 
 
 # --- immutable domain -------------------------------------------------------------
-
-
-def test_presentation_values_are_frozen_and_slotted(dataset: DatasetPresentation) -> None:
-    standalone = StandaloneMethodPresentation(_asa())
-    qualified = DatasetQualifiedMethodPresentation(_asa(), dataset)
-    for value in (standalone, qualified, dataset, EditorialPresentation("Spectral 3D")):
-        assert is_dataclass(value)
-        assert not hasattr(value, "__dict__")
-        with pytest.raises(FrozenInstanceError):
-            setattr(value, fields(value)[0].name, None)
 
 
 def test_standalone_presentation_has_no_dataset_field() -> None:

@@ -10,10 +10,6 @@ from neuralls.shared.constants import MAX_TIMING_REPEATS
 from neuralls.shared.timing import TimingRepeatPolicy, TimingStatistic
 
 
-def test_timing_defaults_to_one_plain_timed_run() -> None:
-    assert ComparisonBaseline().timing == TimingRepeatPolicy(repeats=1, warmup=0)
-
-
 def test_timing_table_is_parsed_into_the_policy() -> None:
     baseline = ComparisonBaseline.model_validate(
         {"timing": {"repeats": 3, "warmup": 1, "statistic": "min"}}

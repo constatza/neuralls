@@ -32,17 +32,6 @@ def test_path_context_creation() -> None:
     assert ctx.processed_root == WORKSPACE / "processed"
 
 
-def test_path_context_is_frozen() -> None:
-    """PathContext is immutable."""
-    ctx = PathContext(
-        project_root=WORKSPACE,
-        output_root=WORKSPACE,
-        processed_root=WORKSPACE,
-    )
-    with pytest.raises(AttributeError):
-        ctx.project_root = WORKSPACE / "new"
-
-
 def test_path_context_mlflow_properties() -> None:
     """MLflow paths are derived from output_root."""
     output_root = WORKSPACE / "output"

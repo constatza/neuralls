@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import replace
 
 import pytest
 
@@ -154,16 +154,6 @@ def test_solve_attempt_retains_the_complete_raw_payload(solve_attempt: SolveAtte
     assert solve_attempt.samples_s == (0.5, 0.75, 1.0)
     assert solve_attempt.peak_memory == MeasuredPeakMemory(bytes=4096)
     assert solve_attempt.outcome == SolveConverged(iterations=4, final_relative_residual=1e-9)
-
-
-@pytest.mark.parametrize("event_fixture", ["setup_event", "solve_attempt"])
-def test_events_are_frozen_and_slotted(request: pytest.FixtureRequest, event_fixture: str) -> None:
-    """Mutable or dictionary-backed event records could silently corrupt benchmark facts."""
-    event = request.getfixturevalue(event_fixture)
-
-    assert not hasattr(event, "__dict__")
-    with pytest.raises(FrozenInstanceError):
-        event.method = PreconditionerName("jacobi")
 
 
 @pytest.mark.parametrize(

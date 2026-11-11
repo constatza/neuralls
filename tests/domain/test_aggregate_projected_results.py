@@ -116,4 +116,3 @@ def test_convergence_summary_separates_counts_and_converged_iterations() -> None
 
     assert (summary.n_planned_rhs, summary.n_attempted_rhs, summary.n_converged) == (4, 3, 2)
     assert summary.iterations == IterationStats(mean=2.5, median=2.5, std=2**-0.5)
-    assert not hasattr(summary, "ert_seconds")

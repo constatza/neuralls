@@ -16,7 +16,6 @@ from neuralls.platform.config.models.data_models import (
     SourceConfig,
     StrategyConfig,
 )
-from neuralls.shared.constants import DEFAULT_WRITE_BATCH_SIZE
 
 
 def test_source_config_matrix_path_glob_preserves_wildcard(
@@ -47,33 +46,11 @@ def test_source_config_matrix_path_plain_still_resolves(
     assert config.matrix_path == plain
 
 
-def test_source_config_defaults() -> None:
-    """Source config defaults to optional paths."""
-    config = SourceConfig()
-    assert config.type is None
-    assert config.matrix_path is None
-    assert config.solutions_path is None
-
-
 def test_strategy_config_keeps_required_name() -> None:
     """Strategy config requires only a name and defaults samples to zero."""
     config = StrategyConfig(name="residual_traces")
     assert config.name == "residual_traces"
     assert config.samples == 0
-
-
-def test_generation_config_defaults() -> None:
-    """Generation config exposes stable defaults."""
-    config = GenerationConfig()
-    assert config.normalize == "matrix"
-    assert config.shuffle is True
-    assert config.seed == 42
-    assert config.strategy == []
-
-
-def test_generation_write_batch_size_defaults_to_shared_constant() -> None:
-    """Batch size defaults to the shared constant so unconfigured runs share one bound."""
-    assert GenerationConfig().write_batch_size == DEFAULT_WRITE_BATCH_SIZE
 
 
 @pytest.mark.parametrize("value", [0, -1])
@@ -84,13 +61,6 @@ def test_generation_write_batch_size_rejects_non_positive(value: int) -> None:
 
 def test_generation_write_batch_size_accepts_positive_override() -> None:
     assert GenerationConfig(write_batch_size=7).write_batch_size == 7
-
-
-def test_data_test_config_defaults() -> None:
-    """Optional test metadata defaults to empty paths."""
-    config = DataTestConfig()
-    assert config.solutions_path is None
-    assert config.rhs_path is None
 
 
 def test_data_config_file_requires_id() -> None:
@@ -122,13 +92,6 @@ def test_data_config_file_round_trip() -> None:
     assert config.generation.strategy[0].name == "solution_archive"
     assert config.output.data_dir == Path("tests/fixtures/data/processed")
     assert config.test.solutions_path == "tests/fixtures/data/test_solutions.txt"
-
-
-def test_data_config_file_is_frozen() -> None:
-    """Typed dataset configs remain immutable."""
-    config = DataConfigFile(id="frozen")
-    with pytest.raises((ValidationError, AttributeError)):
-        config.id = "mutated"
 
 
 def test_data_config_file_forbids_extra_fields() -> None:

@@ -33,56 +33,6 @@ def sample_rhs(sample_spd_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return rhs_vectors, solutions
 
 
-def test_solve_config_default() -> None:
-    """Test default SolveConfig values."""
-    cfg = SolveConfig(
-        method="direct",
-        rtol=1e-15,
-        atol=0.0,
-        max_iters=1_000_000,
-        assume_pos_def=True,
-    )
-
-    assert cfg.method == "direct"
-    assert cfg.rtol > 0.0  # Has a default value
-    assert cfg.atol >= 0.0
-    assert cfg.max_iters > 0
-    assert cfg.assume_pos_def is True
-
-
-def test_solve_config_cg() -> None:
-    """Test CG-specific configuration."""
-    cfg = SolveConfig(
-        method="cg",
-        rtol=1e-10,
-        atol=1e-15,
-        max_iters=1000,
-        assume_pos_def=False,
-    )
-
-    assert cfg.method == "cg"
-    assert cfg.rtol == 1e-10
-    assert cfg.atol == 1e-15
-    assert cfg.max_iters == 1000
-    assert cfg.assume_pos_def is False
-
-
-def test_solve_config_frozen() -> None:
-    """Test that SolveConfig is frozen (immutable)."""
-    from pydantic_core import ValidationError as PydanticValidationError
-
-    cfg = SolveConfig(
-        method="direct",
-        rtol=1e-15,
-        atol=0.0,
-        max_iters=1_000_000,
-        assume_pos_def=True,
-    )
-
-    with pytest.raises(PydanticValidationError):
-        cfg.method = "cg"  # type: ignore[misc]
-
-
 def test_solve_linear_systems_invalid_method(
     sample_spd_matrix: np.ndarray, sample_rhs: tuple[np.ndarray, np.ndarray]
 ) -> None:

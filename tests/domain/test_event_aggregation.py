@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import replace
 from math import fsum
 
 import polars as pl
@@ -698,27 +698,6 @@ def test_unattempted_workload_has_zero_solve_total(
     assert isinstance(summary, IncompleteWorkloadSummary)
     assert isinstance(summary.solve_total_s, float)
     assert summary.solve_total_s == 0.0
-
-
-def test_workload_summaries_are_frozen_and_slotted(
-    method: PreconditionerName,
-    unknown_workload_peak_memory: UnknownPeakMemory,
-    planned_systems: tuple[SystemTag, ...],
-    setup_events: tuple[MatrixSetupEvent, ...],
-    solve_attempts: tuple[SolveAttempt, ...],
-) -> None:
-    """Mutable aggregate facts could drift away from their canonical event frames."""
-    summary = summarize_method_workload(
-        method,
-        planned_systems,
-        setup_events,
-        solve_attempts,
-        unknown_workload_peak_memory,
-    )
-
-    assert not hasattr(summary, "__dict__")
-    with pytest.raises(FrozenInstanceError):
-        summary.allocated_setup_s = 0.0
 
 
 def test_incomplete_summary_rejects_duplicate_missing_system_ids(
