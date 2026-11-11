@@ -146,6 +146,8 @@ Case configs bind:
 - comparison ids, inferred when omitted
 - case-level MLflow topology
 
+Comparison solver budgets in these cases allow up to 5000 iterations.
+
 Every family's `default.toml` is a short showcase of each algorithm, not a
 search: identity/Jacobi/IC0, AMG at coarse dim 10 and 100, and POD-2G at rank 10
 and 100, fitted from `gaussian-cg10` and `smoother-filtered-probes` snapshots.

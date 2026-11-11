@@ -8,7 +8,7 @@ comparison = "Compare-Spectral3DField-POD-2G-CG"
 [comparison_baseline]
 rtol = 1.0e-6
 atol = 1.0e-14
-max_iterations = 200
+max_iterations = 5000
 stopping_criterion = "residual_norm"
 m_max = 20
 
