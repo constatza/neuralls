@@ -118,6 +118,7 @@ error-on-warning = true
 minversion = "8.0"
 testpaths = ["tests"]
 addopts = ["-m", "not benchmark and not integration", "-n", "auto", "--dist", "loadfile"]
+filterwarnings = ["ignore:Sparse CSR tensor support is in beta state:UserWarning"]
 markers = [
     "benchmark: numerical algorithm benchmarks and exactness tests",
     "integration: integration tests that test full workflows",

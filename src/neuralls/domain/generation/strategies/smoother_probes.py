@@ -94,6 +94,7 @@ def _sparse_damping_trajectories(
         torch.as_tensor(matrix.indices, dtype=torch.int64),
         torch.as_tensor(matrix.data),
         size=matrix.shape,
+        check_invariants=True,
     )
     smoother = SparseJacobiSmoother(omega=omega).prepare(operator)
     trajectories = []

@@ -30,7 +30,7 @@ directories, artifact resolution) stay in `platform/storage/`.
 - `registry.py`: `backend_for`, the format-name to backend mapping, and
   `open_stream_writer`, the streamed counterpart.
 - `torch_convert.py`: `to_torch_csr`, a float64 `torch.sparse_csr` tensor built from
-  components without densifying.
+  components without densifying, with CSR invariants checked at construction.
 
 ## Protocol
 

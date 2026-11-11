@@ -35,4 +35,5 @@ def to_torch_csr(components: CsrComponents) -> torch.Tensor:
         torch.as_tensor(components.indices, dtype=TORCH_INDEX_DTYPE),
         torch.as_tensor(components.data, dtype=TORCH_VALUE_DTYPE),
         size=components.shape,
+        check_invariants=True,
     )

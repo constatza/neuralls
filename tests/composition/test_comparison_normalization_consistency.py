@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
 from neuralls.composition.comparison._linear_system import prepare_resolved_linear_system
@@ -163,7 +164,10 @@ def test_raw_lhs_source_satisfies_ax_equals_b(tmp_path: Path) -> None:
     )
     assert resolved_raw.matrix_normalization is None
     system_raw = prepare_resolved_linear_system(resolved_raw, "matrix")
-    np.testing.assert_allclose(system_raw.matrix @ lhs, system_raw.rhs / 3.0, rtol=1e-8, atol=1e-8)
+    lhs_tensor = torch.from_numpy(lhs)
+    np.testing.assert_allclose(
+        system_raw.matrix @ lhs_tensor, system_raw.rhs / 3.0, rtol=1e-8, atol=1e-8
+    )
 
     # Case 2: dataset-sourced matrix (already normalized) — matrix/rhs untouched.
     dataset_dir = _build_normalized_dataset(tmp_path)
@@ -180,5 +184,5 @@ def test_raw_lhs_source_satisfies_ax_equals_b(tmp_path: Path) -> None:
     assert resolved_dataset.matrix_normalization is not None
     system_dataset = prepare_resolved_linear_system(resolved_dataset, "matrix")
     np.testing.assert_allclose(
-        system_dataset.matrix @ lhs, system_dataset.rhs / 3.0, rtol=1e-8, atol=1e-8
+        system_dataset.matrix @ lhs_tensor, system_dataset.rhs / 3.0, rtol=1e-8, atol=1e-8
     )

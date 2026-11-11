@@ -70,7 +70,7 @@ def test_csr_generation_stores_the_source_matrix_and_consistent_systems(
 
 
 def _read_mtx(path: Path) -> sparse.csr_array:
-    return sparse.csr_array(mmread(str(path)))
+    return sparse.csr_array(mmread(str(path), spmatrix=False))
 
 
 def test_dense_and_csr_builds_generate_the_same_rows(sparse_spd_mtx: Path, tmp_path: Path) -> None:
