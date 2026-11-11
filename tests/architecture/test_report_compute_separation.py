@@ -6,6 +6,8 @@ import ast
 import sys
 from pathlib import Path
 
+from tests.architecture_support import parsed
+
 PACKAGE = Path(sys.modules["neuralls"].__file__).parent
 POSTPROCESSING = "neuralls.composition.comparison.postprocessing"
 REPORT_ENTRY = PACKAGE / "composition" / "assignments" / "comparison_report.py"
@@ -14,7 +16,7 @@ FORBIDDEN_COMPUTE_TYPES = frozenset({"CompletedMethodWorkload", "CGComparisonRes
 
 def _imported(path: Path) -> list[tuple[str, str | None]]:
     """(module, imported name) for every import statement; name is None for plain imports."""
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = parsed(path)
     found: list[tuple[str, str | None]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

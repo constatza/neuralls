@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.architecture_support import parsed
+
 _SOURCE = Path(__file__).resolve().parents[2] / "src" / "neuralls"
 _TIMERS = {
     "repeat_timed_outcome",
@@ -53,7 +55,7 @@ def test_no_io_call_inside_a_timer_argument() -> None:
     offenders = [
         f"{source.relative_to(_SOURCE)}:{line}"
         for source in sorted(_SOURCE.rglob("*.py"))
-        for line in _io_calls_in_timer_arguments(ast.parse(source.read_text(encoding="utf-8")))
+        for line in _io_calls_in_timer_arguments(parsed(source))
     ]
     assert offenders == []
 

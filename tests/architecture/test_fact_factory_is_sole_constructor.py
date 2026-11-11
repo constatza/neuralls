@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.architecture_support import parsed
+
 import neuralls
 
 _FACT_CONSTRUCTORS = frozenset({"IntegerFact", "DecimalFact", "TextFact", "DisplayTextFact"})
@@ -18,7 +20,7 @@ def test_production_code_builds_facts_only_through_the_catalog_factory() -> None
     for source in package.rglob("*.py"):
         if source in allowed:
             continue
-        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+        for node in ast.walk(parsed(source)):
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Name)

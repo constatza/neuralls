@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.architecture_support import parsed
+
 _REPO = Path(__file__).resolve().parents[2]
 _ROOTS = ("src", "tests", "scripts")
 _PATH_TEXT_METHODS = {"read_text", "write_text"}
@@ -38,7 +40,7 @@ def test_text_io_always_names_its_encoding() -> None:
         f"{source.relative_to(_REPO)}:{node.lineno}"
         for root in _ROOTS
         for source in sorted((_REPO / root).rglob("*.py"))
-        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8")))
+        for node in ast.walk(parsed(source))
         if isinstance(node, ast.Call) and _is_unencoded_text_io(node)
     ]
     assert offenders == []

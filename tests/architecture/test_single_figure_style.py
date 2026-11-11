@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.architecture_support import parsed
+
 _REPO = Path(__file__).resolve().parents[2]
 _STYLE_MODULE = _REPO / "src/neuralls/platform/reporting/figure_style.py"
 _STYLE_CALLS = frozenset({"rc_context", "set_theme"})
@@ -29,6 +31,6 @@ def test_style_context_appears_only_in_the_figure_style_module() -> None:
         f"{source.relative_to(_REPO)}:{line}"
         for source in sorted((_REPO / "src").rglob("*.py"))
         if source != _STYLE_MODULE
-        for line in _style_lines(ast.parse(source.read_text(encoding="utf-8")))
+        for line in _style_lines(parsed(source))
     ]
     assert offenders == []

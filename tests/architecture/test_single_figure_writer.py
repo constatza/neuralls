@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.architecture_support import parsed
+
 _REPO = Path(__file__).resolve().parents[2]
 _WRITER = "finish_group_figure"
 _WRITER_MODULE = _REPO / "src/neuralls/platform/reporting/figure_writer.py"
@@ -31,8 +33,6 @@ def test_savefig_appears_only_inside_the_figure_writer() -> None:
     offenders = [
         f"{source.relative_to(_REPO)}:{line}"
         for source in sorted((_REPO / "src").rglob("*.py"))
-        for line in _savefig_lines(
-            ast.parse(source.read_text(encoding="utf-8")), is_writer_module=source == _WRITER_MODULE
-        )
+        for line in _savefig_lines(parsed(source), is_writer_module=source == _WRITER_MODULE)
     ]
     assert offenders == []
