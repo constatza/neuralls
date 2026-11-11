@@ -53,6 +53,7 @@ class MethodPlot(Protocol):
         legend: Legend,
         families: Mapping[str, str],
         color_keys: Mapping[str, str],
+        show_titles: bool,
     ) -> None: ...
 
 
@@ -113,6 +114,7 @@ def draw_method_figure(
     method: StoredMethod,
     notation: NotationPolicy,
     datasets: Mapping[DatasetId, DatasetPresentation],
+    show_titles: bool,
 ) -> None:
     """Draw one method's residual or energy histories, one curve per attempted system."""
     converged = frozenset(
@@ -149,4 +151,5 @@ def draw_method_figure(
             legend=_system_legend(method, notation, datasets),
             families=series_recipes,
             color_keys=series_recipes,
+            show_titles=show_titles,
         )

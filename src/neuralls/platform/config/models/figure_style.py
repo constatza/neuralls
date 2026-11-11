@@ -32,7 +32,7 @@ class FigureStyleConfig(BaseModel):
 
     A distribution figure draws a method's systems as points only below ``min_box_samples``, as
     points over a box from there, and as a violin over a box from ``min_violin_samples`` on.
-    Group and per-system figures are drawn without title and subtitle unless ``show_titles = true``,
+    Report figures (group, per-system and per-method) are drawn without title and subtitle unless ``show_titles = true``,
     because a paper's caption carries them; the figure card keeps the title either way.
     """
 

@@ -128,6 +128,7 @@ def plot_convergence_comparison(
     ylabel: str = "Relative Residual $\\|r\\| / \\|b\\|$",
     *,
     legend: Legend,
+    show_titles: bool = False,
 ) -> None:
     """Plot the ``history_attr`` histories of solver results on one figure.
 
@@ -159,6 +160,7 @@ def plot_convergence_comparison(
         marker_size=marker_size,
         ylabel=ylabel,
         metadata=metadata,
+        show_titles=show_titles,
     )
 
 
@@ -180,7 +182,7 @@ def plot_convergence_curves(
     marker_size: float = DEFAULT_LINE_MARKER_SIZE,
     ylabel: str = "Relative Residual $\\|r\\| / \\|b\\|$",
     metadata: Mapping[str, Any] | None = None,
-    show_titles: bool = True,
+    show_titles: bool = False,
 ) -> None:
     """Plot one semilog curve per key of ``curves``.
 
