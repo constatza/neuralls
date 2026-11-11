@@ -34,6 +34,7 @@ from .file_sources import (
     _RawSample,
     _SingleFileSource,
 )
+from .ports import ArchiveSource
 from .sample_ids import EnumerateBy, _is_glob_expression
 
 
@@ -294,11 +295,13 @@ class GlobMatrixStream(_MatrixStream):
         include_indices: tuple[int, ...] | None = None,
         exclude_indices: tuple[int, ...] = (),
         *,
+        archive_source: ArchiveSource,
         reader: MatrixReader,
     ) -> None:
         super().__init__(
             _GlobFileSource(
                 expr,
+                source=archive_source,
                 noun="matrix",
                 sample_id_regex=sample_id_regex,
                 enumerate_by=enumerate_by,
@@ -349,11 +352,13 @@ class GlobVectorStream(_VectorStream):
         include_indices: tuple[int, ...] | None = None,
         exclude_indices: tuple[int, ...] = (),
         *,
+        archive_source: ArchiveSource,
         reader: MatrixReader,
     ) -> None:
         super().__init__(
             _GlobFileSource(
                 expr,
+                source=archive_source,
                 noun="vector",
                 sample_id_regex=sample_id_regex,
                 enumerate_by=enumerate_by,
@@ -381,7 +386,7 @@ class _SingleFileExpr:
 _PathExpr = _GlobExpr | _SingleFileExpr
 
 
-def _resolve_path_expr(expr: str, *, noun: str) -> _PathExpr:
+def _resolve_path_expr(expr: str, *, noun: str, archive_source: ArchiveSource) -> _PathExpr:
     """Classify a config path expression by cardinality: glob or single file.
 
     A glob may match any number of files; a plain path names exactly one,
@@ -392,7 +397,7 @@ def _resolve_path_expr(expr: str, *, noun: str) -> _PathExpr:
     if _is_glob_expression(expr):
         return _GlobExpr(expr)
     path = Path(expr)
-    if not path.exists():
+    if not archive_source.exists(path):
         raise FileNotFoundError(f"{noun.capitalize()} source not found: {path}")
     return _SingleFileExpr(path)
 
@@ -405,9 +410,10 @@ def open_matrix_stream(
     exclude_indices: tuple[int, ...] = (),
     *,
     readers: MatrixReaders,
+    archive_source: ArchiveSource,
 ) -> MatrixSampleStream:
     """Create a matrix sample stream from path expression."""
-    match _resolve_path_expr(matrix_path_expr, noun="matrix"):
+    match _resolve_path_expr(matrix_path_expr, noun="matrix", archive_source=archive_source):
         case _GlobExpr(expr):
             return GlobMatrixStream(
                 expr,
@@ -415,6 +421,7 @@ def open_matrix_stream(
                 enumerate_by=enumerate_by,
                 include_indices=include_indices,
                 exclude_indices=exclude_indices,
+                archive_source=archive_source,
                 reader=readers.generic,
             )
         case _SingleFileExpr(path):
@@ -442,9 +449,10 @@ def open_vector_stream(
     exclude_indices: tuple[int, ...] = (),
     *,
     readers: MatrixReaders,
+    archive_source: ArchiveSource,
 ) -> VectorSampleStream:
     """Create a vector sample stream from path expression."""
-    match _resolve_path_expr(vector_path_expr, noun="vector"):
+    match _resolve_path_expr(vector_path_expr, noun="vector", archive_source=archive_source):
         case _GlobExpr(expr):
             return GlobVectorStream(
                 expr,
@@ -452,6 +460,7 @@ def open_vector_stream(
                 enumerate_by=enumerate_by,
                 include_indices=include_indices,
                 exclude_indices=exclude_indices,
+                archive_source=archive_source,
                 reader=readers.generic,
             )
         case _SingleFileExpr(path):

@@ -16,8 +16,10 @@ import pytest
 from neuralls.domain.generation.batch_plan import ALL_SAMPLES, plan_batches
 from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.bindings import SystemBinding
-from neuralls.domain.generation.helpers import solution_row_count
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
+from neuralls.platform.storage.archive_source import FsArchiveSource
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 pytestmark = pytest.mark.deferred_io("generation-io")
 
@@ -77,7 +79,8 @@ def test_solution_path_total_is_known_before_generation(
         spec=spec,
         num_matrix_samples=_NUM_BINDINGS,
         has_solution_source=True,
-        solution_rows_total=solution_row_count(solution_npy),
+        solution_rows_total=ARCHIVE_SOURCE.row_count(solution_npy),
+        archive_source=ARCHIVE_SOURCE,
     )
     plan = plan_batches(allocation)
 
@@ -97,7 +100,8 @@ def test_solution_path_text_file_row_count(
         spec=spec,
         num_matrix_samples=_NUM_BINDINGS,
         has_solution_source=True,
-        solution_rows_total=solution_row_count(solution_txt),
+        solution_rows_total=ARCHIVE_SOURCE.row_count(solution_txt),
+        archive_source=ARCHIVE_SOURCE,
     )
     plan = plan_batches(allocation)
 
@@ -118,5 +122,6 @@ def test_solution_path_row_count_failure_is_named(
             spec=spec,
             num_matrix_samples=_NUM_BINDINGS,
             has_solution_source=True,
-            solution_rows_total=solution_row_count(unsized_solution),
+            solution_rows_total=ARCHIVE_SOURCE.row_count(unsized_solution),
+            archive_source=ARCHIVE_SOURCE,
         )

@@ -14,13 +14,14 @@ import numpy as np
 from loguru import logger
 
 from ..interfaces import ArchiveData, GeneratedSamples
+from ..ports import ArchiveSource
 from ..providers import FileInputProvider
-from ..runner import register_strategy
+from ..runner import register_archive_strategy
 from ..strategy_configs import ScaledSolutionsConfig
 from ..transforms import ComputeRhsTransform
 
 
-@register_strategy
+@register_archive_strategy
 class ScaledSolutionsStrategy:
     """Load solution vectors from archive and return scaled (b, x) pairs.
 
@@ -56,6 +57,7 @@ class ScaledSolutionsStrategy:
         matrix: np.ndarray,
         *,
         cfg: dict[str, Any],
+        archive_source: ArchiveSource,
         archive: ArchiveData | None = None,
     ) -> GeneratedSamples:
         """Load solutions, compute RHS, and return scale * (b, x) pairs.
@@ -68,6 +70,7 @@ class ScaledSolutionsStrategy:
                 - samples: Number of files to load
                 - shuffle: Whether to shuffle file selection
                 - seed: Random seed for shuffling
+            archive_source: Lists and loads the archive files.
             archive: Optional pre-loaded archive data (ignored; loads from disk).
 
         Returns:
@@ -99,6 +102,7 @@ class ScaledSolutionsStrategy:
 
         # Layer 1: load solutions from disk
         provider = FileInputProvider(
+            archive_source,
             glob_pattern=config.solutions_glob,
             shuffle=config.shuffle,
             seed=config.seed,

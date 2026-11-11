@@ -17,6 +17,9 @@ from neuralls.domain.generation.providers import (
     _load_archive_files_cached,
     provide_solutions,
 )
+from neuralls.platform.storage.archive_source import FsArchiveSource
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 pytestmark = pytest.mark.deferred_io("generation-io")
 
@@ -90,6 +93,7 @@ def test_file_input_provider_loads_from_files(tmp_path) -> None:
         np.savetxt(tmp_path / f"sol_{i}.txt", data)
 
     provider = FileInputProvider(
+        ARCHIVE_SOURCE,
         glob_pattern=str(tmp_path / "sol_*.txt"),
         shuffle=False,
         seed=None,
@@ -109,7 +113,9 @@ def test_file_input_provider_caches_repeated_identical_calls(tmp_path) -> None:
     for i in range(5):
         np.savetxt(tmp_path / f"sol_{i}.txt", np.full(10, i, dtype=np.float64))
 
-    provider = FileInputProvider(glob_pattern=str(tmp_path / "sol_*.txt"), shuffle=False, seed=None)
+    provider = FileInputProvider(
+        ARCHIVE_SOURCE, glob_pattern=str(tmp_path / "sol_*.txt"), shuffle=False, seed=None
+    )
     matrix = np.eye(10)
     rng = np.random.default_rng(42)
 
@@ -131,6 +137,7 @@ def test_file_input_provider_with_shuffling(tmp_path) -> None:
         np.savetxt(tmp_path / f"sol_{i}.txt", data)
 
     provider = FileInputProvider(
+        ARCHIVE_SOURCE,
         glob_pattern=str(tmp_path / "sol_*.txt"),
         shuffle=True,
         seed=42,
@@ -197,6 +204,7 @@ def test_paired_file_input_provider_loads_pairs(tmp_path) -> None:
         np.savetxt(tmp_path / f"rhs_{i}.txt", rhs)
 
     provider = PairedFileInputProvider(
+        ARCHIVE_SOURCE,
         solution_glob=str(tmp_path / "sol_*.txt"),
         rhs_glob=str(tmp_path / "rhs_*.txt"),
         shuffle=False,
@@ -227,6 +235,7 @@ def test_provide_solutions_prefers_archive_over_glob(tmp_path) -> None:
         matrix,
         3,
         rng,
+        archive_source=ARCHIVE_SOURCE,
         solutions_glob=str(tmp_path / "sol_*.txt"),
         archive=archive,
         shuffle=False,
@@ -246,12 +255,12 @@ def test_file_input_provider_cache_key_includes_file_indices(
     matrix = np.eye(4)
     rng = np.random.default_rng(0)
 
-    first = FileInputProvider(glob_pattern=glob_pattern, file_indices=(0, 1)).provide(
-        matrix=matrix, count=2, rng=rng
-    )
-    second = FileInputProvider(glob_pattern=glob_pattern, file_indices=(3, 4)).provide(
-        matrix=matrix, count=2, rng=rng
-    )
+    first = FileInputProvider(
+        ARCHIVE_SOURCE, glob_pattern=glob_pattern, file_indices=(0, 1)
+    ).provide(matrix=matrix, count=2, rng=rng)
+    second = FileInputProvider(
+        ARCHIVE_SOURCE, glob_pattern=glob_pattern, file_indices=(3, 4)
+    ).provide(matrix=matrix, count=2, rng=rng)
 
     np.testing.assert_array_equal(first[:, 0], [1.0, 2.0])
     np.testing.assert_array_equal(second[:, 0], [4.0, 5.0])

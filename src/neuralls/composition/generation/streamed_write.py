@@ -12,6 +12,7 @@ from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 
+from neuralls.composition.generation.default_services import FS_ARCHIVE_SOURCE
 from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.orchestration import BatchStream, open_batch_stream
 from neuralls.domain.generation.ports import ArrayStore
@@ -42,6 +43,7 @@ def open_prepared_stream(
         batch_size=spec.write_batch_size,
         matrix_format=matrix_format,
         readers=_READERS,
+        archive_source=FS_ARCHIVE_SOURCE,
     )
     stream.plan.require_exact()
     return stream

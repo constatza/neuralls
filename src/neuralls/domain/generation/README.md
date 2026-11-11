@@ -390,7 +390,7 @@ above the file's `K` rows is capped at `K` per binding with one warning.
   returning a guess. `BatchPlan.require_exact()` raises a ValueError that names the open-ended
   strategies, so the streamed writers refuse such a plan instead of falling back.
   Every archive-style source is sized from its file list before generation, so its plan is
-  exact and is never refused. An explicit `solution_path` file is sized by `solution_row_count()`
+  exact and is never refused. An explicit `solution_path` file is sized by `ArchiveSource.row_count()`
   in `archive_files.py` (a .npy header read, no values; a .txt file is one sample). A glob
   `solution_path` is sized by its matched file count K, from the stream's sample ids (a listing,
   no content read). Its rows feed each binding by position: `samples = -1` takes all K rows on
@@ -419,8 +419,13 @@ above the file's `K` rows is capped at `K` per binding with one warning.
   `DatasetSpec` (assembly: mixture + replacement/normalize/norm-type). `open_batch_stream()`
   and `build_dataset()` accept these instead of the same ~15-20 fields re-declared as loose
   kwargs at every call-chain layer
-- `ports.py`: `ArrayStore` (the write-only dense store that `SampleWriter` depends on) and
-  `TracingSolverPort` protocol definitions consumed by the composition layer
+- `ports.py`: `ArrayStore` (the write-only dense store that `SampleWriter` depends on),
+  `ArchiveSource` (the read-only view of the archive files: `exists`, `is_file`, `glob`,
+  `modified_time`, `creation_time`, `row_count`, `load_vector`) and `TracingSolverPort`
+  protocol definitions consumed by the composition layer. `ArchiveSource` is injected beside
+  `readers` into `open_batch_stream()` and reaches the file-backed strategies through
+  `run_generation(archive_source=...)`; the archive-backed and single-RHS registrations
+  require it, so `domain/` never lists, stats or opens a file itself
 - `runner.py`: strategy registry and dispatch
 - `source_streams.py`: sample discovery and loading. The `_RawSampleSource` protocol
   (defined here, next to its consumer) is composed into a generic `_SampleStream[T]`
@@ -517,8 +522,8 @@ above the file's `K` rows is capped at `K` per binding with one warning.
   "smallest"/"largest" reuse `matrix_operator.end_indices` for the index slice, the same rule
   `MatrixOperator._take_end` applies to the dense full spectrum, so the two places agree.
 - `archive_files.py`: `select_archive_files` (deterministic, optionally shuffled file
-  selection from a glob) and `solution_row_count` (a cheap header-only row count for an
-  explicit solution file).
+  selection from a glob, listed through the `ArchiveSource`). The cheap row count of an
+  explicit solution file is `ArchiveSource.row_count`.
 - `krylov.py`: `_lanczos_iteration` builds a Krylov subspace basis with early termination on
   breakdown; `_generate_krylov_combinations` draws random combinations from it.
 - `strategy_configs.py`: `require_which_supported_by_format` rejects `which="random"` for CSR.
@@ -555,6 +560,7 @@ Platform storage owns the concrete implementations:
 | --- | --- | --- |
 | `write_dense_streamed` / `write_csr_streamed` | `composition/generation/` | Stream batches into a staged directory and commit it |
 | `ArrayStore` (`ZarrArrayStore`, `Hdf5ArrayStore`) | `platform/storage/array_store.py` | Dense write backends for `SampleWriter` |
+| `ArchiveSource` (`FsArchiveSource`) | `platform/storage/archive_source.py` | Filesystem listing, timestamps, row counts and vector loads for archive-backed generation; production instance `FS_ARCHIVE_SOURCE` in `composition/generation/default_services.py` |
 | `DatasetManifest` | `platform/storage/manifest.py` | Typed manifest contract for persisted datasets |
 
 The manifest is the canonical dataset contract. Read paths do not assume fixed
@@ -615,5 +621,6 @@ manifest is written last. Memory is bounded by `write_batch_size`. A run whose p
 The generation domain never imports or instantiates storage objects, and never parses raw sample
 bytes itself either: `open_batch_stream()` takes an injected `readers: MatrixReaders` (built once
 in `composition/generation/streamed_write.py` from `platform.storage.matrix_readers`) and threads
-it down to every raw sample source. All file I/O — writing the dataset and reading raw matrix/
+it down to every raw sample source, together with an injected `archive_source: ArchiveSource`
+that lists and loads the archive files. All file I/O — writing the dataset and reading raw matrix/
 vector files — is confined to the composition and platform layers.

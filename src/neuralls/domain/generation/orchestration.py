@@ -12,7 +12,6 @@ from loguru import logger
 
 from neuralls.shared.types import MatrixFormat, SystemMatrix
 
-from .archive_files import solution_row_count
 from .batch import SampleBatch
 from .batch_generator import StrategyRunner, generate_batches
 from .batch_plan import ALL_SAMPLES, BatchPlan, BindingAllocation, plan_batches
@@ -21,6 +20,7 @@ from .bindings import SystemBinding, bind_sources
 from .counts import resolve_strategy_counts
 from .file_sources import MatrixReaders
 from .matrix_cache import _cached_matrix_loader, _CachedMatrix
+from .ports import ArchiveSource
 from .scalar_aggregate import BindingScale, ScalarAggregator
 from .seeds import derive_seed
 from .single_slot import SingleSlot
@@ -60,7 +60,11 @@ class OpenedStreams:
 
 
 def _open_streams(
-    source: SourceSpec, *, readers: MatrixReaders, solution_unbound: bool = False
+    source: SourceSpec,
+    *,
+    readers: MatrixReaders,
+    archive_source: ArchiveSource,
+    solution_unbound: bool = False,
 ) -> OpenedStreams:
     """Open matrix, optional RHS, optional solution, and optional parameter streams and bind them.
 
@@ -68,6 +72,7 @@ def _open_streams(
         source: Resolved source paths and per-stream sample filters.
         readers: Reads raw arrays/matrices at a path; injected so this domain
             module never depends on platform's I/O directly.
+        archive_source: Lists and loads the archive files; injected for the same reason.
         solution_unbound: Whether an explicit solution file supplies its rows to the
             bindings by row position (``samples=-1`` or an explicit archive count). Its
             ids then take no part in binding, so they are not matched against matrix ids.
@@ -84,6 +89,7 @@ def _open_streams(
             include_indices=source.include_indices,
             exclude_indices=source.exclude_indices,
             readers=readers,
+            archive_source=archive_source,
         )
 
     matrix_stream = open_matrix_stream(
@@ -93,6 +99,7 @@ def _open_streams(
         include_indices=source.include_indices,
         exclude_indices=source.exclude_indices,
         readers=readers,
+        archive_source=archive_source,
     )
     rhs_stream = _vector_stream(source.rhs_path) if source.rhs_path is not None else None
     solution_stream = (
@@ -151,6 +158,7 @@ class _GenerationRunContext:
     Attributes:
         streams: Every opened source stream and the resolved bindings.
         allocation: Per-binding strategy count and archive file-index maps.
+        archive_source: Lists and loads the files the archive strategies draw from.
         solution_by_position: Whether the explicit solution file's rows feed the bindings by
             position. Its rows are read per binding, never all at once.
         cyclic_solution_strategies: Strategies whose explicit count draws the cyclic
@@ -159,11 +167,14 @@ class _GenerationRunContext:
 
     streams: OpenedStreams
     allocation: BindingAllocation
+    archive_source: ArchiveSource
     solution_by_position: bool = False
     cyclic_solution_strategies: frozenset[str] = frozenset()
 
 
-def _solution_row_total(solution_path: str | None, stream: VectorSampleStream | None) -> int | None:
+def _solution_row_total(
+    solution_path: str | None, stream: VectorSampleStream | None, archive_source: ArchiveSource
+) -> int | None:
     """Rows the solution source supplies by position: header-sized file or matched file count.
 
     An explicit file is sized from its header; a glob is sized by the number of files it
@@ -172,8 +183,8 @@ def _solution_row_total(solution_path: str | None, stream: VectorSampleStream | 
     if solution_path is None or stream is None:
         return None
     path = Path(solution_path)
-    if path.is_file():
-        return solution_row_count(path)
+    if archive_source.is_file(path):
+        return archive_source.row_count(path)
     return len(stream.sample_ids)
 
 
@@ -182,6 +193,7 @@ def _prepare_generation_context(
     spec: DatasetSpec,
     *,
     readers: MatrixReaders,
+    archive_source: ArchiveSource,
 ) -> _GenerationRunContext:
     """Open all source streams, bind them, and resolve per-binding strategy counts.
 
@@ -190,6 +202,7 @@ def _prepare_generation_context(
         spec: Dataset assembly settings supplying the strategy budgets.
         readers: Reads raw arrays/matrices at a path; injected so this domain
             module never depends on platform's I/O directly.
+        archive_source: Lists and loads the archive files; injected for the same reason.
 
     Returns:
         _GenerationRunContext pairing the opened streams with their allocation.
@@ -200,11 +213,19 @@ def _prepare_generation_context(
     rows_by_position = source.solution_path is not None and _explicit_solution_rows_requested(
         strategy_counts
     )
-    streams = _open_streams(source, readers=readers, solution_unbound=rows_by_position)
+    streams = _open_streams(
+        source,
+        readers=readers,
+        archive_source=archive_source,
+        solution_unbound=rows_by_position,
+    )
     solution_rows_total = (
-        _solution_row_total(source.solution_path, streams.solution) if rows_by_position else None
+        _solution_row_total(source.solution_path, streams.solution, archive_source)
+        if rows_by_position
+        else None
     )
     allocation = _resolve_binding_strategy_counts(
+        archive_source=archive_source,
         bindings=streams.bindings,
         spec=spec,
         num_matrix_samples=len(streams.matrix.sample_ids),
@@ -214,6 +235,7 @@ def _prepare_generation_context(
     return _GenerationRunContext(
         streams=streams,
         allocation=allocation,
+        archive_source=archive_source,
         solution_by_position=rows_by_position and streams.solution is not None,
         cyclic_solution_strategies=_explicit_solution_strategies(strategy_counts),
     )
@@ -374,6 +396,7 @@ def _make_strategy_runner(
             archive_solutions=_solution_archive_rows(context, binding_index, strategy_name, count),
             single_rhs=inputs.single_rhs,
             single_solution=inputs.single_solution,
+            archive_source=context.archive_source,
         )
         if strategy_rows is None:
             strategy_rows = _StrategyRows(
@@ -423,6 +446,7 @@ def open_batch_stream(
     *,
     batch_size: int,
     readers: MatrixReaders,
+    archive_source: ArchiveSource,
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
 ) -> BatchStream:
     """Plan a generation run and expose its batches without buffering them.
@@ -436,6 +460,7 @@ def open_batch_stream(
         batch_size: Maximum rows per yielded batch.
         readers: Reads raw arrays/matrices at a path; injected so this domain
             module never depends on platform's I/O directly.
+        archive_source: Lists and loads the archive files; injected for the same reason.
         matrix_format: Storage format of the normalized matrices handed to ``matrix_for``.
 
     Returns:
@@ -448,7 +473,9 @@ def open_batch_stream(
     """
     if batch_size <= 0:
         raise ValueError(f"batch_size must be positive, got {batch_size}")
-    context = _prepare_generation_context(source, spec, readers=readers)
+    context = _prepare_generation_context(
+        source, spec, readers=readers, archive_source=archive_source
+    )
     streams = context.streams
     get_matrix = _cached_matrix_loader(streams.matrix, spec, matrix_format)
     plan = plan_batches(context.allocation)

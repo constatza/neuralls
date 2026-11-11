@@ -14,8 +14,11 @@ from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.helpers import normalize_matrix_for_generation
 from neuralls.domain.generation.source_streams import open_matrix_stream
 from neuralls.domain.normalization import matrix_norm
+from neuralls.platform.storage.archive_source import FsArchiveSource
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
 from neuralls.shared.types import MatrixFormat, MatrixNormType
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 pytestmark = pytest.mark.deferred_io("generation-io")
 
@@ -112,7 +115,7 @@ def test_csr_normalization_never_densifies(spd_csr: csr_array, toarray_calls: li
 def test_mtx_source_loads_csr_without_densifying(
     mtx_source: Path, spd_dense: np.ndarray, toarray_calls: list[int]
 ) -> None:
-    stream = open_matrix_stream(str(mtx_source), readers=_READERS)
+    stream = open_matrix_stream(str(mtx_source), readers=_READERS, archive_source=ARCHIVE_SOURCE)
     loaded = stream.load_sample(0, MatrixFormat.CSR)
 
     assert isinstance(loaded, csr_array)
@@ -123,7 +126,7 @@ def test_mtx_source_loads_csr_without_densifying(
 def test_dense_npy_source_requested_as_csr_converts_explicitly(
     npy_source: Path, spd_dense: np.ndarray
 ) -> None:
-    stream = open_matrix_stream(str(npy_source), readers=_READERS)
+    stream = open_matrix_stream(str(npy_source), readers=_READERS, archive_source=ARCHIVE_SOURCE)
     loaded = stream.load_sample(0, MatrixFormat.CSR)
 
     assert isinstance(loaded, csr_array)
@@ -131,7 +134,7 @@ def test_dense_npy_source_requested_as_csr_converts_explicitly(
 
 
 def test_dense_format_returns_ndarray(mtx_source: Path, spd_dense: np.ndarray) -> None:
-    stream = open_matrix_stream(str(mtx_source), readers=_READERS)
+    stream = open_matrix_stream(str(mtx_source), readers=_READERS, archive_source=ARCHIVE_SOURCE)
     loaded = stream.load_sample(0, MatrixFormat.DENSE)
 
     assert isinstance(loaded, np.ndarray)

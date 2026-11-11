@@ -6,6 +6,9 @@ import numpy as np
 
 from neuralls.domain.generation import run_generation
 from neuralls.domain.generation.runner import _registry
+from neuralls.platform.storage.archive_source import FsArchiveSource
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 EXPECTED_STRATEGIES = {
     "random",
@@ -46,6 +49,7 @@ def test_gaussian_inverse_runs_after_package_import(
         "gaussian_inverse",
         spd_matrix,
         cfg={"samples": sample_count, "seed": 0, "mu": 0.0, "sigma": 1.0},
+        archive_source=ARCHIVE_SOURCE,
     )
     assert result.solutions is not None
     assert result.rhs is not None

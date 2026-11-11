@@ -13,6 +13,7 @@ from .archive_files import select_archive_files
 from .batch_plan import ALL_SAMPLES, BindingAllocation
 from .bindings import SystemBinding
 from .counts import resolve_strategy_counts
+from .ports import ArchiveSource
 from .runner import rows_per_base_system
 from .seeds import derive_seed
 from .specs import DatasetSpec
@@ -53,13 +54,15 @@ def _glob_key_phrase(strategy_name: str) -> str:
     return f"'{props.glob_key}'"
 
 
-def _archive_pool_size(glob_pattern: str, skip: int) -> int:
+def _archive_pool_size(source: ArchiveSource, glob_pattern: str, skip: int) -> int:
     """Count the archive files a strategy draws from after its configured skip.
 
     A cheap directory listing (no ``np.loadtxt``). Explicit archive indices refer
     to positions in this pool, so its size is the ``K`` of the (matrix, file) grid.
     """
-    return len(select_archive_files(glob_pattern, count=-1, shuffle=False, seed=None, skip=skip))
+    return len(
+        select_archive_files(source, glob_pattern, count=-1, shuffle=False, seed=None, skip=skip)
+    )
 
 
 def _binding_indices_by_matrix(bindings: Sequence[SystemBinding]) -> dict[int, list[int]]:
@@ -134,6 +137,7 @@ def _split_generated_rows(
 
 def _allocate_archive_rows(
     *,
+    archive_source: ArchiveSource,
     strategy_name: str,
     glob_pattern: str,
     skip: int,
@@ -152,7 +156,7 @@ def _allocate_archive_rows(
         Per-binding row counts and per-binding explicit file indices, both parallel to the bindings.
     """
     num_matrices = len(groups)
-    num_files = _archive_pool_size(glob_pattern, skip)
+    num_files = _archive_pool_size(archive_source, glob_pattern, skip)
     capacity = num_matrices * num_files
     requested_rows = capacity * rows_per_system if rows == ALL_SAMPLES else rows
     requested_base = math.ceil(requested_rows / rows_per_system)
@@ -257,6 +261,7 @@ def _solution_file_count(strategy_name: str, count: int, file_rows: int) -> int:
 
 
 def _single_matrix_allocation(
+    archive_source: ArchiveSource,
     bindings: Sequence[SystemBinding],
     strategy_counts: Mapping[str, int],
     strategy_overrides: Mapping[str, Mapping[str, Any]] | None,
@@ -284,6 +289,7 @@ def _single_matrix_allocation(
         if strategy_counts[strategy_name] != ALL_SAMPLES:
             continue
         sized_counts, sized_files = _allocate_archive_rows(
+            archive_source=archive_source,
             strategy_name=strategy_name,
             glob_pattern=glob_pattern,
             skip=_archive_skip(strategy_overrides, strategy_name),
@@ -302,6 +308,7 @@ def _single_matrix_allocation(
 
 def _resolve_binding_strategy_counts(
     *,
+    archive_source: ArchiveSource,
     bindings: Sequence[SystemBinding],
     spec: DatasetSpec,
     num_matrix_samples: int,
@@ -315,6 +322,7 @@ def _resolve_binding_strategy_counts(
     onto the (matrix, file) grid with ``archive_units``, so no pair is emitted twice.
 
     Args:
+        archive_source: Lists the archive files a file-backed strategy draws from.
         bindings: Bindings the global budget is divided across.
         spec: Dataset assembly settings supplying the counts and replacement policy.
         num_matrix_samples: Number of distinct matrix samples in the source.
@@ -347,6 +355,7 @@ def _resolve_binding_strategy_counts(
 
     if num_matrix_samples <= 1:
         return _single_matrix_allocation(
+            archive_source,
             bindings,
             strategy_counts,
             strategy_overrides,
@@ -364,6 +373,7 @@ def _resolve_binding_strategy_counts(
         per_binding_counts, per_binding_files = _binding_counts_for_strategy(
             strategy_name,
             count,
+            archive_source=archive_source,
             strategy_overrides=strategy_overrides,
             groups=groups,
             num_bindings=len(bindings),
@@ -386,6 +396,7 @@ def _binding_counts_for_strategy(
     strategy_name: str,
     count: int,
     *,
+    archive_source: ArchiveSource,
     strategy_overrides: Mapping[str, Mapping[str, Any]] | None,
     groups: Sequence[Sequence[int]],
     num_bindings: int,
@@ -428,6 +439,7 @@ def _binding_counts_for_strategy(
         case (_, _, True, _):
             rows_per_system = _rows_per_system_for(strategy_name, strategy_overrides, count)
             counts, files = _allocate_archive_rows(
+                archive_source=archive_source,
                 strategy_name=strategy_name,
                 glob_pattern=archive_globs[strategy_name],
                 skip=_archive_skip(strategy_overrides, strategy_name),

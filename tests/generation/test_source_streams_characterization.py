@@ -27,7 +27,10 @@ from neuralls.domain.generation.source_streams import (
     open_matrix_stream,
     open_vector_stream,
 )
+from neuralls.platform.storage.archive_source import FsArchiveSource
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 pytestmark = pytest.mark.deferred_io("generation-io")
 
@@ -95,7 +98,9 @@ def test_glob_matrix_stream_derives_ids_from_trailing_digits(
     digit_named_matrix_dir: Path,
 ) -> None:
     """The default regex takes the last digit run of the stem, ids stay unsorted-file-order free."""
-    stream = GlobMatrixStream(str(digit_named_matrix_dir / "A_*.txt"), reader=_READER)
+    stream = GlobMatrixStream(
+        str(digit_named_matrix_dir / "A_*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     assert stream.sample_ids == (2, 7, 10)
     np.testing.assert_array_equal(stream.load_dense_sample(7).matrix, _marker_matrix(7.0))
@@ -105,7 +110,9 @@ def test_glob_matrix_stream_derives_ids_from_trailing_digits(
 def test_glob_vector_stream_derives_ids_from_trailing_digits(
     digit_named_vector_dir: Path,
 ) -> None:
-    stream = GlobVectorStream(str(digit_named_vector_dir / "b_*.txt"), reader=_READER)
+    stream = GlobVectorStream(
+        str(digit_named_vector_dir / "b_*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     assert stream.sample_ids == (2, 7, 10)
     np.testing.assert_array_equal(stream.load_sample(7).vector, _marker_vector(7.0))
@@ -119,7 +126,10 @@ def test_glob_matrix_stream_custom_regex_selects_leading_digits(tmp_path: Path) 
     np.savetxt(mat_dir / "40_case_3.txt", _marker_matrix(40.0))
 
     stream = GlobMatrixStream(
-        str(mat_dir / "*_case_3.txt"), sample_id_regex=r"(\d+)", reader=_READER
+        str(mat_dir / "*_case_3.txt"),
+        sample_id_regex=r"(\d+)",
+        reader=_READER,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert stream.sample_ids == (12, 40)
@@ -133,7 +143,10 @@ def test_glob_vector_stream_custom_regex_selects_leading_digits(tmp_path: Path) 
     np.savetxt(vec_dir / "40_case_3.txt", _marker_vector(40.0))
 
     stream = GlobVectorStream(
-        str(vec_dir / "*_case_3.txt"), sample_id_regex=r"(\d+)", reader=_READER
+        str(vec_dir / "*_case_3.txt"),
+        sample_id_regex=r"(\d+)",
+        reader=_READER,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert stream.sample_ids == (12, 40)
@@ -146,7 +159,7 @@ def test_glob_matrix_stream_rejects_filename_without_digits(tmp_path: Path) -> N
     np.savetxt(mat_dir / "alpha.txt", _marker_matrix(1.0))
 
     with pytest.raises(ValueError):
-        GlobMatrixStream(str(mat_dir / "*.txt"), reader=_READER)
+        GlobMatrixStream(str(mat_dir / "*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE)
 
 
 def test_glob_vector_stream_rejects_filename_without_digits(tmp_path: Path) -> None:
@@ -155,7 +168,7 @@ def test_glob_vector_stream_rejects_filename_without_digits(tmp_path: Path) -> N
     np.savetxt(vec_dir / "alpha.txt", _marker_vector(1.0))
 
     with pytest.raises(ValueError):
-        GlobVectorStream(str(vec_dir / "*.txt"), reader=_READER)
+        GlobVectorStream(str(vec_dir / "*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE)
 
 
 def test_glob_matrix_stream_rejects_duplicate_sample_ids(tmp_path: Path) -> None:
@@ -165,7 +178,7 @@ def test_glob_matrix_stream_rejects_duplicate_sample_ids(tmp_path: Path) -> None
     np.savetxt(mat_dir / "B_1.txt", _marker_matrix(2.0))
 
     with pytest.raises(ValueError):
-        GlobMatrixStream(str(mat_dir / "*_1.txt"), reader=_READER)
+        GlobMatrixStream(str(mat_dir / "*_1.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE)
 
 
 def test_glob_vector_stream_rejects_duplicate_sample_ids(tmp_path: Path) -> None:
@@ -175,27 +188,35 @@ def test_glob_vector_stream_rejects_duplicate_sample_ids(tmp_path: Path) -> None
     np.savetxt(vec_dir / "b_1.txt", _marker_vector(2.0))
 
     with pytest.raises(ValueError):
-        GlobVectorStream(str(vec_dir / "*_1.txt"), reader=_READER)
+        GlobVectorStream(str(vec_dir / "*_1.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE)
 
 
 def test_glob_matrix_stream_missing_parent_directory_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
-        GlobMatrixStream(str(tmp_path / "absent" / "A_*.txt"), reader=_READER)
+        GlobMatrixStream(
+            str(tmp_path / "absent" / "A_*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE
+        )
 
 
 def test_glob_vector_stream_missing_parent_directory_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
-        GlobVectorStream(str(tmp_path / "absent" / "b_*.txt"), reader=_READER)
+        GlobVectorStream(
+            str(tmp_path / "absent" / "b_*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE
+        )
 
 
 def test_glob_matrix_stream_without_matches_raises(digit_named_matrix_dir: Path) -> None:
     with pytest.raises(FileNotFoundError):
-        GlobMatrixStream(str(digit_named_matrix_dir / "Z_*.txt"), reader=_READER)
+        GlobMatrixStream(
+            str(digit_named_matrix_dir / "Z_*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE
+        )
 
 
 def test_glob_vector_stream_without_matches_raises(digit_named_vector_dir: Path) -> None:
     with pytest.raises(FileNotFoundError):
-        GlobVectorStream(str(digit_named_vector_dir / "z_*.txt"), reader=_READER)
+        GlobVectorStream(
+            str(digit_named_vector_dir / "z_*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE
+        )
 
 
 def test_glob_matrix_stream_enumerate_by_overrides_filename_digits(
@@ -203,7 +224,10 @@ def test_glob_matrix_stream_enumerate_by_overrides_filename_digits(
 ) -> None:
     """enumerate_by renumbers by sorted name, ignoring the ids the filenames encode."""
     stream = GlobMatrixStream(
-        str(digit_named_matrix_dir / "A_*.txt"), enumerate_by=EnumerateBy.NAME, reader=_READER
+        str(digit_named_matrix_dir / "A_*.txt"),
+        enumerate_by=EnumerateBy.NAME,
+        reader=_READER,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert stream.sample_ids == (0, 1, 2)
@@ -217,7 +241,10 @@ def test_glob_vector_stream_enumerate_by_overrides_filename_digits(
     digit_named_vector_dir: Path,
 ) -> None:
     stream = GlobVectorStream(
-        str(digit_named_vector_dir / "b_*.txt"), enumerate_by=EnumerateBy.NAME, reader=_READER
+        str(digit_named_vector_dir / "b_*.txt"),
+        enumerate_by=EnumerateBy.NAME,
+        reader=_READER,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert stream.sample_ids == (0, 1, 2)
@@ -231,7 +258,10 @@ def test_glob_matrix_stream_include_indices_keeps_regex_derived_ids(
 ) -> None:
     """Filtering never renumbers: filename-derived ids survive include_indices."""
     stream = GlobMatrixStream(
-        str(digit_named_matrix_dir / "A_*.txt"), include_indices=(10, 2), reader=_READER
+        str(digit_named_matrix_dir / "A_*.txt"),
+        include_indices=(10, 2),
+        reader=_READER,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert stream.sample_ids == (2, 10)
@@ -242,7 +272,10 @@ def test_glob_vector_stream_exclude_indices_keeps_regex_derived_ids(
     digit_named_vector_dir: Path,
 ) -> None:
     stream = GlobVectorStream(
-        str(digit_named_vector_dir / "b_*.txt"), exclude_indices=(7,), reader=_READER
+        str(digit_named_vector_dir / "b_*.txt"),
+        exclude_indices=(7,),
+        reader=_READER,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert stream.sample_ids == (2, 10)
@@ -251,7 +284,10 @@ def test_glob_vector_stream_exclude_indices_keeps_regex_derived_ids(
 def test_glob_vector_stream_rejects_emptying_all_samples(digit_named_vector_dir: Path) -> None:
     with pytest.raises(ValueError):
         GlobVectorStream(
-            str(digit_named_vector_dir / "b_*.txt"), exclude_indices=(2, 7, 10), reader=_READER
+            str(digit_named_vector_dir / "b_*.txt"),
+            exclude_indices=(2, 7, 10),
+            reader=_READER,
+            archive_source=ARCHIVE_SOURCE,
         )
 
 
@@ -263,7 +299,9 @@ def test_glob_vector_stream_rejects_emptying_all_samples(digit_named_vector_dir:
 def test_glob_matrix_stream_loads_npy_and_txt_from_one_glob(
     mixed_extension_matrix_dir: Path,
 ) -> None:
-    stream = GlobMatrixStream(str(mixed_extension_matrix_dir / "A_*"), reader=_READER)
+    stream = GlobMatrixStream(
+        str(mixed_extension_matrix_dir / "A_*"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     assert stream.sample_ids == (1, 2)
     np.testing.assert_array_equal(stream.load_dense_sample(1).matrix, _marker_matrix(1.0))
@@ -273,7 +311,9 @@ def test_glob_matrix_stream_loads_npy_and_txt_from_one_glob(
 def test_glob_vector_stream_loads_npy_and_txt_from_one_glob(
     mixed_extension_vector_dir: Path,
 ) -> None:
-    stream = GlobVectorStream(str(mixed_extension_vector_dir / "b_*"), reader=_READER)
+    stream = GlobVectorStream(
+        str(mixed_extension_vector_dir / "b_*"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     assert stream.sample_ids == (1, 2)
     np.testing.assert_array_equal(stream.load_sample(1).vector, _marker_vector(1.0))
@@ -285,7 +325,7 @@ def test_glob_matrix_stream_rejects_unsupported_extension(tmp_path: Path) -> Non
     mat_dir.mkdir()
     np.savetxt(mat_dir / "A_1.csv", _marker_matrix(1.0), delimiter=",")
 
-    stream = GlobMatrixStream(str(mat_dir / "A_*"), reader=_READER)
+    stream = GlobMatrixStream(str(mat_dir / "A_*"), reader=_READER, archive_source=ARCHIVE_SOURCE)
 
     with pytest.raises(ValueError):
         stream.load_dense_sample(1)
@@ -296,7 +336,7 @@ def test_glob_vector_stream_rejects_unsupported_extension(tmp_path: Path) -> Non
     vec_dir.mkdir()
     np.savetxt(vec_dir / "b_1.csv", _marker_vector(1.0), delimiter=",")
 
-    stream = GlobVectorStream(str(vec_dir / "b_*"), reader=_READER)
+    stream = GlobVectorStream(str(vec_dir / "b_*"), reader=_READER, archive_source=ARCHIVE_SOURCE)
 
     with pytest.raises(ValueError):
         stream.load_sample(1)
@@ -307,7 +347,9 @@ def test_glob_matrix_stream_rejects_non_2d_npy_file(tmp_path: Path) -> None:
     mat_dir.mkdir()
     np.save(mat_dir / "A_1.npy", np.stack([_marker_matrix(1.0), _marker_matrix(2.0)]))
 
-    stream = GlobMatrixStream(str(mat_dir / "A_*.npy"), reader=_READER)
+    stream = GlobMatrixStream(
+        str(mat_dir / "A_*.npy"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     with pytest.raises(ValueError):
         stream.load_dense_sample(1)
@@ -318,7 +360,9 @@ def test_glob_matrix_stream_rejects_non_2d_txt_file(tmp_path: Path) -> None:
     mat_dir.mkdir()
     np.savetxt(mat_dir / "A_1.txt", np.array([1.0, 2.0, 3.0]))
 
-    stream = GlobMatrixStream(str(mat_dir / "A_*.txt"), reader=_READER)
+    stream = GlobMatrixStream(
+        str(mat_dir / "A_*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     with pytest.raises(ValueError):
         stream.load_dense_sample(1)
@@ -330,7 +374,9 @@ def test_glob_vector_stream_reshapes_2d_column_npy_to_1d(tmp_path: Path) -> None
     vec_dir.mkdir()
     np.save(vec_dir / "b_1.npy", _marker_vector(1.0).reshape(3, 1))
 
-    stream = GlobVectorStream(str(vec_dir / "b_*.npy"), reader=_READER)
+    stream = GlobVectorStream(
+        str(vec_dir / "b_*.npy"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     assert stream.sample_ids == (1,)
     np.testing.assert_array_equal(stream.load_sample(1).vector, _marker_vector(1.0))
@@ -341,7 +387,9 @@ def test_glob_vector_stream_rejects_genuinely_2d_npy(tmp_path: Path) -> None:
     vec_dir.mkdir()
     np.save(vec_dir / "b_1.npy", np.ones((3, 2), dtype=np.float64))
 
-    stream = GlobVectorStream(str(vec_dir / "b_*.npy"), reader=_READER)
+    stream = GlobVectorStream(
+        str(vec_dir / "b_*.npy"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     with pytest.raises(ValueError):
         stream.load_sample(1)
@@ -350,7 +398,9 @@ def test_glob_vector_stream_rejects_genuinely_2d_npy(tmp_path: Path) -> None:
 def test_glob_matrix_stream_unknown_sample_id_raises_key_error(
     digit_named_matrix_dir: Path,
 ) -> None:
-    stream = GlobMatrixStream(str(digit_named_matrix_dir / "A_*.txt"), reader=_READER)
+    stream = GlobMatrixStream(
+        str(digit_named_matrix_dir / "A_*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     with pytest.raises(KeyError):
         stream.load_dense_sample(99)
@@ -359,7 +409,9 @@ def test_glob_matrix_stream_unknown_sample_id_raises_key_error(
 def test_glob_vector_stream_unknown_sample_id_raises_key_error(
     digit_named_vector_dir: Path,
 ) -> None:
-    stream = GlobVectorStream(str(digit_named_vector_dir / "b_*.txt"), reader=_READER)
+    stream = GlobVectorStream(
+        str(digit_named_vector_dir / "b_*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     with pytest.raises(KeyError):
         stream.load_sample(99)
@@ -368,7 +420,9 @@ def test_glob_vector_stream_unknown_sample_id_raises_key_error(
 def test_glob_matrix_stream_iterates_in_sorted_sample_id_order(
     digit_named_matrix_dir: Path,
 ) -> None:
-    stream = GlobMatrixStream(str(digit_named_matrix_dir / "A_*.txt"), reader=_READER)
+    stream = GlobMatrixStream(
+        str(digit_named_matrix_dir / "A_*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     dense = list(stream.iter_dense_samples())
     sparse = list(stream.iter_sparse_samples())
@@ -381,7 +435,9 @@ def test_glob_matrix_stream_iterates_in_sorted_sample_id_order(
 def test_glob_vector_stream_iterates_in_sorted_sample_id_order(
     digit_named_vector_dir: Path,
 ) -> None:
-    stream = GlobVectorStream(str(digit_named_vector_dir / "b_*.txt"), reader=_READER)
+    stream = GlobVectorStream(
+        str(digit_named_vector_dir / "b_*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     samples = list(stream.iter_samples())
 
@@ -395,7 +451,9 @@ def test_glob_matrix_stream_sparse_components_reconstruct_dense(tmp_path: Path) 
     dense = np.array([[0.0, 2.0], [3.0, 0.0]], dtype=np.float64)
     np.savetxt(mat_dir / "A_1.txt", dense)
 
-    sample = GlobMatrixStream(str(mat_dir / "A_*.txt"), reader=_READER).load_sparse_sample(1)
+    sample = GlobMatrixStream(
+        str(mat_dir / "A_*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    ).load_sparse_sample(1)
 
     assert sample.size == (2, 2)
     reconstructed = np.zeros(sample.size, dtype=np.float64)
@@ -529,10 +587,19 @@ def test_open_matrix_stream_selects_stream_type_by_expression(tmp_path: Path) ->
     glob_dir.mkdir()
     np.savetxt(glob_dir / "A_1.txt", _marker_matrix(1.0))
 
-    assert isinstance(open_matrix_stream(str(npy_path), readers=_READERS), NpyMatrixStream)
-    assert isinstance(open_matrix_stream(str(txt_path), readers=_READERS), TxtMatrixStream)
     assert isinstance(
-        open_matrix_stream(str(glob_dir / "A_*.txt"), readers=_READERS), GlobMatrixStream
+        open_matrix_stream(str(npy_path), readers=_READERS, archive_source=ARCHIVE_SOURCE),
+        NpyMatrixStream,
+    )
+    assert isinstance(
+        open_matrix_stream(str(txt_path), readers=_READERS, archive_source=ARCHIVE_SOURCE),
+        TxtMatrixStream,
+    )
+    assert isinstance(
+        open_matrix_stream(
+            str(glob_dir / "A_*.txt"), readers=_READERS, archive_source=ARCHIVE_SOURCE
+        ),
+        GlobMatrixStream,
     )
 
 
@@ -545,10 +612,19 @@ def test_open_vector_stream_selects_stream_type_by_expression(tmp_path: Path) ->
     glob_dir.mkdir()
     np.savetxt(glob_dir / "b_1.txt", _marker_vector(1.0))
 
-    assert isinstance(open_vector_stream(str(npy_path), readers=_READERS), NpyVectorStream)
-    assert isinstance(open_vector_stream(str(txt_path), readers=_READERS), TxtVectorStream)
     assert isinstance(
-        open_vector_stream(str(glob_dir / "b_*.txt"), readers=_READERS), GlobVectorStream
+        open_vector_stream(str(npy_path), readers=_READERS, archive_source=ARCHIVE_SOURCE),
+        NpyVectorStream,
+    )
+    assert isinstance(
+        open_vector_stream(str(txt_path), readers=_READERS, archive_source=ARCHIVE_SOURCE),
+        TxtVectorStream,
+    )
+    assert isinstance(
+        open_vector_stream(
+            str(glob_dir / "b_*.txt"), readers=_READERS, archive_source=ARCHIVE_SOURCE
+        ),
+        GlobVectorStream,
     )
 
 
@@ -557,7 +633,7 @@ def test_open_matrix_stream_rejects_unknown_suffix(tmp_path: Path) -> None:
     np.savetxt(path, _marker_matrix(1.0), delimiter=",")
 
     with pytest.raises(ValueError):
-        open_matrix_stream(str(path), readers=_READERS)
+        open_matrix_stream(str(path), readers=_READERS, archive_source=ARCHIVE_SOURCE)
 
 
 def test_open_vector_stream_rejects_unknown_suffix(tmp_path: Path) -> None:
@@ -565,17 +641,21 @@ def test_open_vector_stream_rejects_unknown_suffix(tmp_path: Path) -> None:
     np.savetxt(path, _marker_vector(1.0), delimiter=",")
 
     with pytest.raises(ValueError):
-        open_vector_stream(str(path), readers=_READERS)
+        open_vector_stream(str(path), readers=_READERS, archive_source=ARCHIVE_SOURCE)
 
 
 def test_open_matrix_stream_missing_file_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
-        open_matrix_stream(str(tmp_path / "absent.npy"), readers=_READERS)
+        open_matrix_stream(
+            str(tmp_path / "absent.npy"), readers=_READERS, archive_source=ARCHIVE_SOURCE
+        )
 
 
 def test_open_vector_stream_missing_file_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
-        open_vector_stream(str(tmp_path / "absent.npy"), readers=_READERS)
+        open_vector_stream(
+            str(tmp_path / "absent.npy"), readers=_READERS, archive_source=ARCHIVE_SOURCE
+        )
 
 
 def test_open_vector_stream_include_indices_requires_glob_source(tmp_path: Path) -> None:
@@ -583,4 +663,6 @@ def test_open_vector_stream_include_indices_requires_glob_source(tmp_path: Path)
     np.save(path, _marker_vector(1.0))
 
     with pytest.raises(ValueError):
-        open_vector_stream(str(path), include_indices=(0,), readers=_READERS)
+        open_vector_stream(
+            str(path), include_indices=(0,), readers=_READERS, archive_source=ARCHIVE_SOURCE
+        )

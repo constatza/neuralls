@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
-
+from .ports import ArchiveSource
 from .seeds import rng_from_seed
 
 
 def select_archive_files(
+    source: ArchiveSource,
     glob_pattern: str,
     count: int,
     shuffle: bool,
@@ -22,6 +22,7 @@ def select_archive_files(
     Pure function for deterministic file selection from archives.
 
     Args:
+        source: Lists the archive's files.
         glob_pattern: Path pattern like "/data/*.txt" or "/data/rhs_*.npy"
         count: Number of files to select (-1 means all available files)
         shuffle: Whether to shuffle before selection
@@ -40,24 +41,24 @@ def select_archive_files(
 
     Examples:
         >>> # Select first 10 files
-        >>> files = select_archive_files("/data/rhs_*.txt", 10, False, None)
+        >>> files = select_archive_files(source, "/data/rhs_*.txt", 10, False, None)
 
         >>> # Select all files with shuffling
-        >>> files = select_archive_files("/data/sol_*.npy", -1, True, 42)
+        >>> files = select_archive_files(source, "/data/sol_*.npy", -1, True, 42)
 
         >>> # Select 50 shuffled files
-        >>> files = select_archive_files("/data/vec_*.txt", 50, True, 42)
+        >>> files = select_archive_files(source, "/data/vec_*.txt", 50, True, 42)
     """
     pattern_path = Path(glob_pattern)
     directory = pattern_path.parent
     pattern = pattern_path.name
 
     # Validate directory exists
-    if not directory.exists():
+    if not source.exists(directory):
         raise FileNotFoundError(f"Archive directory not found: {directory}")
 
     # Scan for matching files
-    candidates = sorted(directory.glob(pattern))
+    candidates = source.glob(directory, pattern)
     if not candidates:
         raise FileNotFoundError(f"No files found matching pattern: {directory / pattern}")
 
@@ -98,46 +99,6 @@ def _ordered_candidates(candidates: list, shuffle: bool, seed: int | None) -> li
         return candidates
     rng = rng_from_seed(seed)
     return [candidates[idx] for idx in rng.permutation(len(candidates))]
-
-
-def solution_row_count(path: Path) -> int:
-    """Count the rows of an explicit solution file without reading its values.
-
-    .npy rows come from the array header; a 1-D array is one sample, matching the
-    vector reader. A .txt file is one sample whatever its line count: the vector
-    reader loads the whole file with ``np.loadtxt`` as a single vector, so counting
-    lines would promise rows the reader never yields. Other formats have no cheap
-    row count here and are rejected by name.
-
-    Raises:
-        ValueError: If the format has no cheap row count, or the .npy rank is not 1 or 2.
-    """
-    match path.suffix:
-        case ".npy":
-            with path.open("rb") as handle:
-                version = np.lib.format.read_magic(handle)
-                if version == (1, 0):
-                    shape, _, _ = np.lib.format.read_array_header_1_0(handle)
-                elif version == (2, 0):
-                    shape, _, _ = np.lib.format.read_array_header_2_0(handle)
-                else:
-                    raise ValueError(f"Unsupported .npy version {version} in solution file {path}.")
-            match len(shape):
-                case 1:
-                    return 1
-                case 2:
-                    return int(shape[0])
-                case _:
-                    raise ValueError(
-                        f"Solution .npy file {path} must have shape (n,) or (N,n), got {shape}."
-                    )
-        case ".txt":
-            return 1
-        case _:
-            raise ValueError(
-                f"Cannot read the row count of solution file {path} (format '{path.suffix}'): "
-                "only .npy and .txt are supported."
-            )
 
 
 def _pick_explicit_files(

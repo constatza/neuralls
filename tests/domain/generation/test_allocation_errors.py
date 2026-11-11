@@ -9,6 +9,9 @@ import pytest
 from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
+from neuralls.platform.storage.archive_source import FsArchiveSource
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 
 @pytest.mark.parametrize(
@@ -27,4 +30,5 @@ def test_samples_all_without_glob_is_rejected(
             bindings=make_bindings(2, 1),
             spec=spec,
             num_matrix_samples=2,
+            archive_source=ARCHIVE_SOURCE,
         )

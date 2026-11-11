@@ -14,13 +14,14 @@ import numpy as np
 from loguru import logger
 
 from ..interfaces import ArchiveData, GeneratedSamples
+from ..ports import ArchiveSource
 from ..providers import PairedFileInputProvider
-from ..runner import register_strategy
+from ..runner import register_archive_strategy
 from ..strategy_configs import ValidatedArchiveConfig
 from ..transforms import VerifyTransform
 
 
-@register_strategy
+@register_archive_strategy
 class ValidatedArchiveStrategy:
     """Load pre-computed (x, b) pairs from archive and verify consistency.
 
@@ -83,6 +84,7 @@ class ValidatedArchiveStrategy:
         matrix: np.ndarray,
         *,
         cfg: dict[str, Any],
+        archive_source: ArchiveSource,
         archive: ArchiveData | None = None,
     ) -> GeneratedSamples:
         """Load and verify pre-computed (x, b) pairs.
@@ -90,6 +92,7 @@ class ValidatedArchiveStrategy:
         Args:
             matrix: System matrix (already normalized by orchestrator)
             cfg: Configuration dictionary
+            archive_source: Lists and loads the archive files.
             archive: Optional pre-loaded archive data (ignored)
 
         Returns:
@@ -121,6 +124,7 @@ class ValidatedArchiveStrategy:
 
         # Layer 1: Input provision (load paired vectors from files)
         provider = PairedFileInputProvider(
+            archive_source,
             solution_glob=solutions_glob,
             rhs_glob=rhs_glob,
             shuffle=shuffle,

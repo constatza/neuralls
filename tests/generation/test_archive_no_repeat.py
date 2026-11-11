@@ -11,6 +11,9 @@ from neuralls.domain.generation.batch_plan import BindingAllocation
 from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
+from neuralls.platform.storage.archive_source import FsArchiveSource
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 RHS_ARCHIVE = "rhs_archive"
 SOLUTION_ARCHIVE = "solution_archive"
@@ -72,6 +75,7 @@ def test_rhs_archive_cyclic_assignment_over_rhs_glob(
         bindings=matrix_bindings,
         spec=_spec(RHS_ARCHIVE, write_rhs_files(5), 5),
         num_matrix_samples=3,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert _counts(allocation, RHS_ARCHIVE) == [2, 2, 1]
@@ -89,6 +93,7 @@ def test_rhs_archive_all_samples_emits_every_pair_once(
         bindings=matrix_bindings,
         spec=_spec(RHS_ARCHIVE, write_rhs_files(5), -1),
         num_matrix_samples=3,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert _counts(allocation, RHS_ARCHIVE) == [5, 5, 5]
@@ -111,6 +116,7 @@ def test_rhs_archive_request_above_m_times_k_is_capped_with_one_warning(
         bindings=matrix_bindings,
         spec=_spec(RHS_ARCHIVE, write_rhs_files(5), 20),
         num_matrix_samples=3,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert _counts(allocation, RHS_ARCHIVE) == [5, 5, 5]
@@ -133,6 +139,7 @@ def test_rhs_archive_single_matrix_several_bindings_rejected_before_glob_read(
             bindings=one_matrix_two_bindings,
             spec=_spec(RHS_ARCHIVE, "/fake/rhs_*.txt", 3),
             num_matrix_samples=1,
+            archive_source=ARCHIVE_SOURCE,
         )
 
 
@@ -151,6 +158,7 @@ def test_solution_archive_with_solution_source_and_glob_is_rejected(
             spec=_spec(SOLUTION_ARCHIVE, write_solution_files(5), 3),
             num_matrix_samples=3,
             has_solution_source=True,
+            archive_source=ARCHIVE_SOURCE,
         )
 
 
@@ -165,6 +173,7 @@ def test_rhs_archive_with_solution_source_and_glob_is_rejected(
             spec=_spec(RHS_ARCHIVE, write_rhs_files(5), 3),
             num_matrix_samples=3,
             has_solution_source=True,
+            archive_source=ARCHIVE_SOURCE,
         )
 
 
@@ -182,6 +191,7 @@ def test_archive_pairs_never_repeat_across_matrices(
             bindings=matrix_bindings,
             spec=_spec(strategy, glob, count),
             num_matrix_samples=3,
+            archive_source=ARCHIVE_SOURCE,
         )
         pairs = _pairs(allocation, strategy)
         assert len(set(pairs)) == len(pairs), f"{strategy} count={count} repeated a pair"
@@ -213,6 +223,7 @@ def test_both_archives_in_one_build_never_repeat_pairs(
         bindings=matrix_bindings,
         spec=spec,
         num_matrix_samples=3,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     for strategy in ARCHIVE_STRATEGIES:

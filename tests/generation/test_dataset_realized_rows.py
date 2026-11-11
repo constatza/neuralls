@@ -23,11 +23,14 @@ from neuralls.domain.generation.plan import canonicalize_strategy_kind
 from neuralls.domain.generation.seeds import derive_seed, derive_strategy_seed
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.presentation.provenance import DerivedSeed, ExplicitSeed
+from neuralls.platform.storage.archive_source import FsArchiveSource
 from neuralls.platform.storage.datasets import load_dense_training_arrays
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
 from neuralls.shared.types import GenerationStrategyKind
 from tests.dataset_support import build_test_dataset
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 pytestmark = pytest.mark.deferred_io("generation-io")
 
@@ -121,7 +124,9 @@ def _produced_rows(source: SourceSpec, spec: DatasetSpec) -> Counter[str]:
         ),
         normalize=spec.normalize,
     )
-    stream = open_batch_stream(source, with_solvers, batch_size=2, readers=_READERS)
+    stream = open_batch_stream(
+        source, with_solvers, batch_size=2, readers=_READERS, archive_source=ARCHIVE_SOURCE
+    )
     produced: Counter[str] = Counter()
     for batch in stream.batches:
         produced[batch.strategy_name] += len(batch)

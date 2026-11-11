@@ -8,8 +8,11 @@ import numpy as np
 import pytest
 
 from neuralls.domain.generation import run_generation
-from neuralls.domain.generation.runner import MatrixStrategyRegistration
+from neuralls.domain.generation.runner import ArchiveStrategyRegistration
 from neuralls.domain.generation.strategies.solution_archive import SolutionArchiveStrategy
+from neuralls.platform.storage.archive_source import FsArchiveSource
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 pytestmark = pytest.mark.deferred_io("generation-io")
 
@@ -33,7 +36,7 @@ def test_solution_archive_registered() -> None:
 
     assert "solution_archive" in _registry._strategies
     registration = _registry._strategies["solution_archive"]
-    assert isinstance(registration, MatrixStrategyRegistration)
+    assert isinstance(registration, ArchiveStrategyRegistration)
     assert isinstance(registration.strategy, SolutionArchiveStrategy)
 
 
@@ -45,7 +48,10 @@ def test_solution_archive_shapes(
     _files, glob_pattern = solution_files
 
     result = run_generation(
-        "solution_archive", spd_matrix, cfg={"solutions_glob": glob_pattern, "samples": 3}
+        "solution_archive",
+        spd_matrix,
+        cfg={"solutions_glob": glob_pattern, "samples": 3},
+        archive_source=ARCHIVE_SOURCE,
     )
     assert result.rhs is not None
     assert result.solutions is not None
@@ -63,7 +69,10 @@ def test_solution_archive_rhs_equals_ax(
     _files, glob_pattern = solution_files
 
     result = run_generation(
-        "solution_archive", spd_matrix, cfg={"solutions_glob": glob_pattern, "samples": 3}
+        "solution_archive",
+        spd_matrix,
+        cfg={"solutions_glob": glob_pattern, "samples": 3},
+        archive_source=ARCHIVE_SOURCE,
     )
     assert result.rhs is not None
     assert result.solutions is not None
@@ -82,7 +91,10 @@ def test_solution_archive_all_files(
     files, glob_pattern = solution_files
 
     result = run_generation(
-        "solution_archive", spd_matrix, cfg={"solutions_glob": glob_pattern, "samples": -1}
+        "solution_archive",
+        spd_matrix,
+        cfg={"solutions_glob": glob_pattern, "samples": -1},
+        archive_source=ARCHIVE_SOURCE,
     )
     assert result.solutions is not None
 
@@ -96,9 +108,9 @@ def test_solution_archive_deterministic_shuffle(
     _files, glob_pattern = solution_files
     cfg = {"solutions_glob": glob_pattern, "samples": 3, "shuffle": True, "seed": 42}
 
-    r1 = run_generation("solution_archive", spd_matrix, cfg=cfg)
+    r1 = run_generation("solution_archive", spd_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
     assert r1.solutions is not None
-    r2 = run_generation("solution_archive", spd_matrix, cfg=cfg)
+    r2 = run_generation("solution_archive", spd_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
     assert r2.solutions is not None
 
     assert r1.solutions.ndim == 2 and r2.solutions.ndim == 2
@@ -115,6 +127,7 @@ def test_solution_archive_skip_selects_later_files(
         "solution_archive",
         spd_matrix,
         cfg={"solutions_glob": glob_pattern, "samples": 2, "shuffle": False, "skip": 2},
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert result.solutions is not None
@@ -141,6 +154,7 @@ def test_solution_archive_skip_applies_after_shuffle(
             "seed": seed,
             "skip": skip,
         },
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert result.solutions is not None
@@ -159,13 +173,16 @@ def test_solution_archive_skip_plus_samples_beyond_available_raises(
             "solution_archive",
             spd_matrix,
             cfg={"solutions_glob": glob_pattern, "samples": 2, "skip": 4},
+            archive_source=ARCHIVE_SOURCE,
         )
 
 
 def test_solution_archive_missing_glob_raises() -> None:
     """Missing solutions_glob raises ValidationError."""
     with pytest.raises(ValueError):
-        run_generation("solution_archive", np.eye(5), cfg={"samples": 1})
+        run_generation(
+            "solution_archive", np.eye(5), cfg={"samples": 1}, archive_source=ARCHIVE_SOURCE
+        )
 
 
 def test_solution_archive_insufficient_files_raises(
@@ -175,5 +192,8 @@ def test_solution_archive_insufficient_files_raises(
     _files, glob_pattern = solution_files
     with pytest.raises(ValueError):
         run_generation(
-            "solution_archive", spd_matrix, cfg={"solutions_glob": glob_pattern, "samples": 100}
+            "solution_archive",
+            spd_matrix,
+            cfg={"solutions_glob": glob_pattern, "samples": 100},
+            archive_source=ARCHIVE_SOURCE,
         )

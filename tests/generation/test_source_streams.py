@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from functools import partial
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -11,7 +12,7 @@ from pydantic import ValidationError
 
 from neuralls.domain.generation.bindings import bind_sources
 from neuralls.domain.generation.file_sources import MatrixReaders
-from neuralls.domain.generation.sample_ids import _creation_time, _enumerate_files
+from neuralls.domain.generation.sample_ids import _enumerate_files
 from neuralls.domain.generation.source_streams import (
     EnumerateBy,
     GlobMatrixStream,
@@ -27,6 +28,7 @@ pytestmark = pytest.mark.deferred_io("generation-io")
 _READER = partial(read_matrix, lazy=True)
 _READERS = MatrixReaders(generic=_READER, dense=partial(read_dense_npy, lazy=True))
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.platform.storage.archive_source import FsArchiveSource
 from neuralls.platform.storage.dataset_readers import (
     load_matrix_sample_index,
     load_parameter_arrays,
@@ -41,6 +43,8 @@ from neuralls.platform.storage.datasets import (
 from neuralls.platform.storage.enum_codecs import decode_row_kind_array
 from neuralls.platform.storage.generation_formats import HDF5_FILENAME as DENSE_DATASET_FILE
 from neuralls.shared.types import RowKind
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 
 @pytest.fixture
@@ -68,7 +72,7 @@ def test_open_matrix_stream_from_npy_stack(tmp_path: Path) -> None:
     matrix_path = tmp_path / "matrices.npy"
     np.save(matrix_path, matrix_stack)
 
-    stream = open_matrix_stream(str(matrix_path), readers=_READERS)
+    stream = open_matrix_stream(str(matrix_path), readers=_READERS, archive_source=ARCHIVE_SOURCE)
     assert stream.sample_ids == (0, 1)
 
     dense_one = stream.load_dense_sample(1)
@@ -163,7 +167,7 @@ def test_open_vector_stream_from_npy_stack(tmp_path: Path) -> None:
     rhs_path = tmp_path / "rhs.npy"
     np.save(rhs_path, rhs)
 
-    stream = open_vector_stream(str(rhs_path), readers=_READERS)
+    stream = open_vector_stream(str(rhs_path), readers=_READERS, archive_source=ARCHIVE_SOURCE)
     assert stream.sample_ids == (0, 1)
     np.testing.assert_allclose(stream.load_sample(1).vector, rhs[1])
 
@@ -460,7 +464,7 @@ def test_enumerate_files_assigns_sequential_ids_in_name_order(tmp_path: Path) ->
     for p in paths:
         p.touch()
 
-    result = _enumerate_files(paths, EnumerateBy.NAME)
+    result = _enumerate_files(paths, EnumerateBy.NAME, ARCHIVE_SOURCE)
 
     assert sorted(result.keys()) == [0, 1, 2]
     assert [result[i].name for i in range(3)] == [
@@ -480,7 +484,7 @@ def test_enumerate_files_assigns_sequential_ids_by_mtime(tmp_path: Path) -> None
         paths.append(p)
         time.sleep(0.01)
 
-    result = _enumerate_files(paths, EnumerateBy.MTIME)
+    result = _enumerate_files(paths, EnumerateBy.MTIME, ARCHIVE_SOURCE)
 
     # Creation order was c, a, b — IDs should follow mtime order
     assert result[0].name == "file_c.txt"
@@ -495,8 +499,11 @@ def test_creation_time_rejects_stat_without_birthtime() -> None:
     """A stat result without st_birthtime (as on Linux) names the file and the alternatives."""
     stat_without_birthtime = os.stat_result((0o100644, 1, 1, 1, 0, 0, 0, 1.0, 2.0, 3.0))
 
-    with pytest.raises(ValueError) as excinfo:
-        _creation_time(Path("a.txt"), stat_without_birthtime)
+    with (
+        patch.object(Path, "stat", return_value=stat_without_birthtime),
+        pytest.raises(ValueError) as excinfo,
+    ):
+        ARCHIVE_SOURCE.creation_time(Path("a.txt"))
 
     assert str(excinfo.value) == (
         "enumerate_by='ctime' needs file creation times, which this platform does not "
@@ -515,7 +522,7 @@ def test_enumerate_files_assigns_sequential_ids_by_ctime(tmp_path: Path) -> None
         paths.append(p)
         time.sleep(0.01)
 
-    result = _enumerate_files(paths, EnumerateBy.CTIME)
+    result = _enumerate_files(paths, EnumerateBy.CTIME, ARCHIVE_SOURCE)
 
     assert [result[i].name for i in range(3)] == ["file_c.txt", "file_a.txt", "file_b.txt"]
 
@@ -527,7 +534,7 @@ def test_enumerate_files_by_ctime_raises_without_creation_times(tmp_path: Path) 
         p.touch()
 
     with pytest.raises(ValueError, match="creation times"):
-        _enumerate_files(paths, EnumerateBy.CTIME)
+        _enumerate_files(paths, EnumerateBy.CTIME, ARCHIVE_SOURCE)
 
 
 def test_enumerate_files_breaks_timestamp_ties_by_name(tmp_path: Path) -> None:
@@ -538,7 +545,7 @@ def test_enumerate_files_breaks_timestamp_ties_by_name(tmp_path: Path) -> None:
         os.utime(p, (1_000_000.0, 1_000_000.0))
         paths.append(p)
 
-    result = _enumerate_files(paths, EnumerateBy.MTIME)
+    result = _enumerate_files(paths, EnumerateBy.MTIME, ARCHIVE_SOURCE)
 
     assert [result[i].name for i in range(3)] == ["file_a.txt", "file_b.txt", "file_c.txt"]
 
@@ -548,7 +555,10 @@ def test_glob_matrix_stream_enumerate_by_name_with_arbitrary_filenames(
 ) -> None:
     mat_dir, n = arbitrary_named_txt_matrices
     stream = GlobMatrixStream(
-        str(mat_dir / "E1_*_matrix.txt"), enumerate_by=EnumerateBy.NAME, reader=_READER
+        str(mat_dir / "E1_*_matrix.txt"),
+        enumerate_by=EnumerateBy.NAME,
+        reader=_READER,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert stream.sample_ids == (0, 1, 2)
@@ -564,7 +574,10 @@ def test_glob_vector_stream_enumerate_by_name_with_arbitrary_filenames(tmp_path:
         np.savetxt(vec_dir / f"E1_{E1}_E2_{E2}_rhs.txt", rng.standard_normal(5))
 
     stream = GlobVectorStream(
-        str(vec_dir / "E1_*_rhs.txt"), enumerate_by=EnumerateBy.NAME, reader=_READER
+        str(vec_dir / "E1_*_rhs.txt"),
+        enumerate_by=EnumerateBy.NAME,
+        reader=_READER,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert stream.sample_ids == (0, 1, 2)
@@ -579,6 +592,7 @@ def test_open_matrix_stream_glob_with_enumerate_by_name(
         str(mat_dir / "E1_*_matrix.txt"),
         enumerate_by=EnumerateBy.NAME,
         readers=_READERS,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert stream.sample_ids == (0, 1, 2)
@@ -590,8 +604,12 @@ def test_glob_matrix_stream_enumerate_by_name_is_reproducible(
     mat_dir, _ = arbitrary_named_txt_matrices
     expr = str(mat_dir / "E1_*_matrix.txt")
 
-    stream1 = GlobMatrixStream(expr, enumerate_by=EnumerateBy.NAME, reader=_READER)
-    stream2 = GlobMatrixStream(expr, enumerate_by=EnumerateBy.NAME, reader=_READER)
+    stream1 = GlobMatrixStream(
+        expr, enumerate_by=EnumerateBy.NAME, reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
+    stream2 = GlobMatrixStream(
+        expr, enumerate_by=EnumerateBy.NAME, reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     assert stream1.sample_ids == stream2.sample_ids
     for sid in stream1.sample_ids:
@@ -661,6 +679,7 @@ def test_glob_matrix_stream_exclude_indices_drops_sample_without_renumbering(
         enumerate_by=EnumerateBy.NAME,
         exclude_indices=(1,),
         reader=_READER,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert stream.sample_ids == (0, 2)
@@ -675,6 +694,7 @@ def test_glob_matrix_stream_include_indices_restricts_to_subset(
         enumerate_by=EnumerateBy.NAME,
         include_indices=(0, 2),
         reader=_READER,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert stream.sample_ids == (0, 2)
@@ -692,6 +712,7 @@ def test_glob_vector_stream_exclude_indices_drops_sample(tmp_path: Path) -> None
         enumerate_by=EnumerateBy.NAME,
         exclude_indices=(0,),
         reader=_READER,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert stream.sample_ids == (1, 2)
@@ -708,6 +729,7 @@ def test_glob_matrix_stream_include_and_exclude_indices_are_mutually_exclusive(
             include_indices=(0,),
             exclude_indices=(1,),
             reader=_READER,
+            archive_source=ARCHIVE_SOURCE,
         )
 
 
@@ -721,6 +743,7 @@ def test_glob_matrix_stream_include_indices_rejects_unknown_id(
             enumerate_by=EnumerateBy.NAME,
             include_indices=(0, 99),
             reader=_READER,
+            archive_source=ARCHIVE_SOURCE,
         )
 
 
@@ -735,6 +758,7 @@ def test_glob_matrix_stream_exclude_indices_rejects_unknown_id(
             enumerate_by=EnumerateBy.NAME,
             exclude_indices=(99,),
             reader=_READER,
+            archive_source=ARCHIVE_SOURCE,
         )
 
 
@@ -748,6 +772,7 @@ def test_glob_matrix_stream_exclude_indices_rejects_emptying_all_samples(
             enumerate_by=EnumerateBy.NAME,
             exclude_indices=(0, 1, 2),
             reader=_READER,
+            archive_source=ARCHIVE_SOURCE,
         )
 
 
@@ -756,7 +781,9 @@ def test_open_matrix_stream_exclude_indices_requires_glob_source(tmp_path: Path)
     np.save(matrix_path, np.eye(3))
 
     with pytest.raises(ValueError):
-        open_matrix_stream(str(matrix_path), exclude_indices=(0,), readers=_READERS)
+        open_matrix_stream(
+            str(matrix_path), exclude_indices=(0,), readers=_READERS, archive_source=ARCHIVE_SOURCE
+        )
 
 
 def test_source_config_rejects_both_include_and_exclude_indices() -> None:

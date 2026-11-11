@@ -13,6 +13,9 @@ from neuralls.domain.generation.helpers import (
 from neuralls.domain.generation.interfaces import ArchiveData, TracingSolverCallable
 from neuralls.domain.generation.runner import GeneratedSamples
 from neuralls.domain.generation.strategy_configs import KrylovConfig
+from neuralls.platform.storage.archive_source import FsArchiveSource
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 
 def _pairs(generated: GeneratedSamples) -> tuple[np.ndarray, np.ndarray]:
@@ -58,6 +61,7 @@ def _generate(
             cfg=cfg,
             solver=(solver_overrides or {}).get(name),
             archive=archive,
+            archive_source=ARCHIVE_SOURCE,
         )
         rhs, solutions = _pairs(generated)
         rhs_blocks.append(rhs)

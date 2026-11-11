@@ -14,13 +14,14 @@ import numpy as np
 from loguru import logger
 
 from ..interfaces import ArchiveData, GeneratedSamples
+from ..ports import ArchiveSource
 from ..providers import FileInputProvider
-from ..runner import register_strategy
+from ..runner import register_archive_strategy
 from ..strategy_configs import RhsArchiveConfig
 from ..transforms import SolveTransform
 
 
-@register_strategy
+@register_archive_strategy
 class RhsArchiveStrategy:
     """Load RHS vectors from archive and solve systems.
 
@@ -72,6 +73,7 @@ class RhsArchiveStrategy:
         matrix: np.ndarray,
         *,
         cfg: dict[str, Any],
+        archive_source: ArchiveSource,
         archive: ArchiveData | None = None,
     ) -> GeneratedSamples:
         """Load RHS vectors from archive and solve systems.
@@ -84,6 +86,7 @@ class RhsArchiveStrategy:
                 - shuffle: Whether to shuffle file selection
                 - seed: Random seed for shuffling
                 - solve_config: SolveConfig or dict with solve parameters
+            archive_source: Lists and loads the archive files.
             archive: Optional pre-loaded archive data (ignored by this strategy as it loads from disk)
 
         Returns:
@@ -107,6 +110,7 @@ class RhsArchiveStrategy:
 
         # Layer 1: Input provision (load from files)
         provider = FileInputProvider(
+            archive_source,
             glob_pattern=rhs_glob,
             shuffle=shuffle,
             seed=seed,

@@ -8,11 +8,15 @@ import numpy as np
 
 from neuralls.composition.generation.ports import SplitStore
 from neuralls.composition.solvers import run_traced_pcg
-from neuralls.domain.generation.ports import TracingSolverPort
+from neuralls.domain.generation.ports import ArchiveSource, TracingSolverPort
+from neuralls.platform.storage.archive_source import FsArchiveSource
 from neuralls.platform.storage.split_store import FsSplitStore
 
 FS_SPLIT_STORE: SplitStore = FsSplitStore()
 """The split store every production workflow shares: the split file inside the dataset directory."""
+
+FS_ARCHIVE_SOURCE: ArchiveSource = FsArchiveSource()
+"""The archive source every production workflow shares: the local filesystem."""
 
 
 def make_solver() -> TracingSolverPort:

@@ -7,7 +7,7 @@ code should import directly from the focused module (``seeds``, ``counts``, ``sc
 
 from __future__ import annotations
 
-from .archive_files import select_archive_files, solution_row_count
+from .archive_files import select_archive_files
 from .counts import (
     _build_trace_indices,
     required_trace_systems,
@@ -51,7 +51,6 @@ __all__ = [
     "rounded_counts",
     "select_archive_files",
     "serialize_scale_metadata",
-    "solution_row_count",
     "trace_rows_per_base_system",
     "trace_rows_per_system",
 ]

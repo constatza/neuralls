@@ -17,8 +17,11 @@ from neuralls.domain.generation.helpers import required_trace_systems
 from neuralls.domain.generation.runner import rows_per_base_system
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.domain.generation.step_window import StepWindow
+from neuralls.platform.storage.archive_source import FsArchiveSource
 
 from .conftest import TRACE_WINDOW_OVERRIDES
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 TRACE_WINDOW = StepWindow(start=1, stop=4, step=1)
 TRACE_ROWS_PER_SYSTEM = 4
@@ -43,6 +46,7 @@ def _allocate(
         bindings=bindings,
         spec=DatasetSpec(mixture=mixture),
         num_matrix_samples=num_matrices,
+        archive_source=ARCHIVE_SOURCE,
     )
 
 

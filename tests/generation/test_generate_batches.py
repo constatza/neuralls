@@ -26,8 +26,11 @@ from neuralls.domain.generation.orchestration import (
     _prepare_generation_context,
 )
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
+from neuralls.platform.storage.archive_source import FsArchiveSource
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
 from neuralls.shared.types import MatrixFormat
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 pytestmark = pytest.mark.deferred_io("generation-io")
 
@@ -91,7 +94,9 @@ def _stream_batches(
     source: SourceSpec, spec: DatasetSpec, batch_size: int
 ) -> Iterator[SampleBatch]:
     """Run the batch pipeline for one source and spec, as the orchestrator wires it."""
-    context = _prepare_generation_context(source, spec, readers=_READERS)
+    context = _prepare_generation_context(
+        source, spec, readers=_READERS, archive_source=ARCHIVE_SOURCE
+    )
     get_matrix = _cached_matrix_loader(context.streams.matrix, spec, MatrixFormat.DENSE)
     plan = plan_batches(context.allocation)
     runner = _make_strategy_runner(context, get_matrix, spec.mixture, lambda _index, _cached: None)

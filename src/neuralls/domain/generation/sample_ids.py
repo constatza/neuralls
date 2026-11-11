@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import re
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
+
+from .ports import ArchiveSource
 
 _GLOB_CHARS = ("*", "?", "[", "]")
 _DEFAULT_SAMPLE_ID_REGEX = r"(\d+)(?!.*\d)"
@@ -26,40 +27,26 @@ class EnumerateBy(StrEnum):
     MTIME = "mtime"
 
 
-def _creation_time(path: Path, st: os.stat_result) -> float:
-    """Return the creation timestamp of *path* from its stat result *st*.
-
-    Raises:
-        ValueError: The platform records no creation time (Linux). Falling back
-            to mtime would silently give the same TOML different sample ids per OS.
-    """
-    try:
-        return st.st_birthtime
-    except AttributeError:
-        raise ValueError(
-            f"enumerate_by='ctime' needs file creation times, which this platform does not "
-            f"record ({path}). Use enumerate_by='mtime' or 'name', or sample_id_regex."
-        ) from None
-
-
-def _sort_key_for(path: Path, by: EnumerateBy) -> float | str:
+def _sort_key_for(path: Path, by: EnumerateBy, source: ArchiveSource) -> float | str:
     """Return the sort key for *path* under the given *by* strategy."""
     match by:
         case EnumerateBy.NAME:
             return path.name
         case EnumerateBy.CTIME:
-            return _creation_time(path, path.stat())
+            return source.creation_time(path)
         case EnumerateBy.MTIME:
-            return path.stat().st_mtime
+            return source.modified_time(path)
 
 
-def _enumerate_files(paths: Sequence[Path], by: EnumerateBy) -> dict[int, Path]:
+def _enumerate_files(
+    paths: Sequence[Path], by: EnumerateBy, source: ArchiveSource
+) -> dict[int, Path]:
     """Assign sequential IDs to *paths* sorted by *by*, returning ``{id: path}``.
 
     Keys are computed once per file; equal keys (common after a bulk copy) break
     by file name so ids never depend on the caller's path order.
     """
-    keyed = [(_sort_key_for(p, by), p.name, p) for p in paths]
+    keyed = [(_sort_key_for(p, by, source), p.name, p) for p in paths]
     keyed.sort(key=lambda item: item[:2])
     return {i: p for i, (_, _, p) in enumerate(keyed)}
 
@@ -162,6 +149,7 @@ def _index_by_sample_id_regex(
 def _build_glob_index(
     expr: str,
     *,
+    source: ArchiveSource,
     noun: str,
     sample_id_regex: str | None,
     enumerate_by: EnumerateBy | None,
@@ -171,6 +159,7 @@ def _build_glob_index(
     """Resolve a glob expression to ``{sample_id: path}``.
 
     Args:
+        source: Lists the matched files and reports their timestamps.
         expr: Glob expression. Everything before its first wildcard segment
             is the literal root directory, which must already exist; the
             rest may span multiple path segments and use "**" for recursive
@@ -190,13 +179,13 @@ def _build_glob_index(
         Mapping of sample id to source file, without renumbering.
     """
     root, pattern = _split_glob_root(expr)
-    if not root.exists():
+    if not source.exists(root):
         raise FileNotFoundError(f"{noun.capitalize()} glob root directory not found: {root}")
-    paths = sorted(root.glob(pattern))
+    paths = source.glob(root, pattern)
     if not paths:
         raise FileNotFoundError(f"No {noun} files match glob: {expr}")
     mapping = (
-        _enumerate_files(paths, enumerate_by)
+        _enumerate_files(paths, enumerate_by, source)
         if enumerate_by is not None
         else _index_by_sample_id_regex(
             paths,

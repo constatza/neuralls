@@ -18,6 +18,9 @@ from neuralls.composition.generation.default_services import make_solver
 from neuralls.domain.generation.interfaces import TracingSolverCallable
 from neuralls.domain.generation.runner import run_generation
 from neuralls.domain.generation.trace_utils import TrajectoryShortfallError
+from neuralls.platform.storage.archive_source import FsArchiveSource
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 WINDOW_START = 1
 WINDOW_STOP = 3
@@ -48,6 +51,7 @@ def test_trajectory_expansion_drops_no_rows_per_base_system(
         cfg=_residuals_cfg(10),
         solver=solver,
         single_rhs=small_rhs,
+        archive_source=ARCHIVE_SOURCE,
     )
     assert generated.error_traces is not None
     assert generated.error_traces.residuals is not None
@@ -73,6 +77,7 @@ def test_early_converging_base_system_raises_trajectory_shortfall(
             cfg=_residuals_cfg(4),
             solver=solver,
             single_rhs=small_rhs,
+            archive_source=ARCHIVE_SOURCE,
         )
 
 
@@ -89,4 +94,11 @@ def test_real_solver_converging_early_raises_shortfall_naming_the_system() -> No
     solver = make_solver()
 
     with pytest.raises(TrajectoryShortfallError):
-        run_generation("residuals", matrix, cfg=cfg, solver=solver, single_rhs=rhs)
+        run_generation(
+            "residuals",
+            matrix,
+            cfg=cfg,
+            solver=solver,
+            single_rhs=rhs,
+            archive_source=ARCHIVE_SOURCE,
+        )

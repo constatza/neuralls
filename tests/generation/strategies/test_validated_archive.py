@@ -10,8 +10,11 @@ import pytest
 
 from neuralls.domain.generation.strategies.validated_archive import ValidatedArchiveStrategy
 from neuralls.domain.generation.strategy_configs import ValidatedArchiveConfig
+from neuralls.platform.storage.archive_source import FsArchiveSource
 
 pytestmark = pytest.mark.deferred_io("generation-io")
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 
 @pytest.fixture
@@ -86,7 +89,7 @@ def test_validated_archive_generate_valid(
     }
 
     strategy = ValidatedArchiveStrategy()
-    samples = strategy.generate(sample_matrix, cfg=cfg)
+    samples = strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
     assert samples.solutions is not None
     assert samples.rhs is not None
 
@@ -123,7 +126,7 @@ def test_validated_archive_generate_invalid_fail(
     strategy = ValidatedArchiveStrategy()
 
     with pytest.raises(ValueError):
-        strategy.generate(sample_matrix, cfg=cfg)
+        strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
 
 
 def test_validated_archive_generate_invalid_warn(
@@ -145,7 +148,7 @@ def test_validated_archive_generate_invalid_warn(
     with patch(
         "neuralls.domain.generation.strategies.validated_archive.logger.warning"
     ) as mock_warning:
-        samples = strategy.generate(sample_matrix, cfg=cfg)
+        samples = strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
 
     assert samples.solutions is not None
     mock_warning.assert_called_once()
@@ -170,8 +173,8 @@ def test_validated_archive_shuffle(
     strategy = ValidatedArchiveStrategy()
 
     # Run twice with same seed
-    samples1 = strategy.generate(sample_matrix, cfg=cfg)
-    samples2 = strategy.generate(sample_matrix, cfg=cfg)
+    samples1 = strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
+    samples2 = strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
 
     # Should get same results
     np.testing.assert_array_equal(samples1.rhs, samples2.rhs)
@@ -194,7 +197,7 @@ def test_validated_archive_all_files(
     }
 
     strategy = ValidatedArchiveStrategy()
-    samples = strategy.generate(sample_matrix, cfg=cfg)
+    samples = strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
     assert samples.rhs is not None
 
     assert samples.rhs.shape[0] == 5  # All 5 files
@@ -217,7 +220,7 @@ def test_validated_archive_missing_glob(
     strategy = ValidatedArchiveStrategy()
 
     with pytest.raises(FileNotFoundError):
-        strategy.generate(sample_matrix, cfg=cfg)
+        strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
 
 
 def test_validated_archive_insufficient_files(
@@ -238,4 +241,4 @@ def test_validated_archive_insufficient_files(
     strategy = ValidatedArchiveStrategy()
 
     with pytest.raises(ValueError):
-        strategy.generate(sample_matrix, cfg=cfg)
+        strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)

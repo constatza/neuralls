@@ -21,8 +21,11 @@ from neuralls.domain.generation.helpers import trace_rows_per_system
 from neuralls.domain.generation.interfaces import TracingSolverCallable
 from neuralls.domain.generation.step_window import StepWindow
 from neuralls.domain.generation.strategy_configs import ResidualErrorConfig
+from neuralls.platform.storage.archive_source import FsArchiveSource
 
 from .conftest import _SolverCallRecorder
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 pytestmark = pytest.mark.deferred_io("generation-io")
 
@@ -75,7 +78,12 @@ def test_residuals_single_rhs_shapes(
     cfg = {"samples": requested_rows, "stop": stop, "start": 1, "seed": 0}
 
     result = run_generation(
-        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
+        "residuals",
+        spd_matrix,
+        cfg=cfg,
+        solver=residual_solver,
+        single_rhs=single_rhs,
+        archive_source=ARCHIVE_SOURCE,
     )
     assert result.solutions is not None
     assert result.rhs is not None
@@ -121,7 +129,9 @@ def test_residuals_multi_rhs_shapes(
         "solutions_glob": glob_pattern,
     }
 
-    result = run_generation("residuals", spd_matrix, cfg=cfg, solver=residual_solver)
+    result = run_generation(
+        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=ARCHIVE_SOURCE
+    )
     assert result.rhs is not None
 
     rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=1))
@@ -148,7 +158,13 @@ def test_gaussian_residuals_multi_rhs_shapes(
     stop = 3
     cfg = {"samples": requested_rows, "stop": stop, "start": 1, "seed": 0}
 
-    result = run_generation("gaussian_residuals", spd_matrix, cfg=cfg, solver=residual_solver)
+    result = run_generation(
+        "gaussian_residuals",
+        spd_matrix,
+        cfg=cfg,
+        solver=residual_solver,
+        archive_source=ARCHIVE_SOURCE,
+    )
     assert result.rhs is not None
 
     rows_per_system = trace_rows_per_system(StepWindow(stop=stop, start=1))
@@ -171,7 +187,13 @@ def test_gaussian_residuals_math_holds(
     """Gaussian residuals still satisfy e_k = x_true - x_k and r_k = A @ e_k."""
     cfg = {"samples": 10, "stop": 4, "start": 1, "seed": 0}
 
-    result = run_generation("gaussian_residuals", spd_matrix, cfg=cfg, solver=residual_solver)
+    result = run_generation(
+        "gaussian_residuals",
+        spd_matrix,
+        cfg=cfg,
+        solver=residual_solver,
+        archive_source=ARCHIVE_SOURCE,
+    )
 
     et = result.error_traces
     assert et is not None
@@ -204,7 +226,9 @@ def test_error_equals_true_minus_current(
         "solutions_glob": glob_pattern,
     }
 
-    result = run_generation("residuals", spd_matrix, cfg=cfg, solver=residual_solver)
+    result = run_generation(
+        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=ARCHIVE_SOURCE
+    )
 
     et = result.error_traces
     assert et is not None
@@ -230,7 +254,9 @@ def test_residual_equals_b_minus_ax(
         "solutions_glob": glob_pattern,
     }
 
-    result = run_generation("residuals", spd_matrix, cfg=cfg, solver=residual_solver)
+    result = run_generation(
+        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=ARCHIVE_SOURCE
+    )
 
     et = result.error_traces
     assert et is not None
@@ -259,7 +285,9 @@ def test_residual_equals_a_times_error(
         "solutions_glob": glob_pattern,
     }
 
-    result = run_generation("residuals", spd_matrix, cfg=cfg, solver=residual_solver)
+    result = run_generation(
+        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=ARCHIVE_SOURCE
+    )
 
     et = result.error_traces
     assert et is not None
@@ -283,7 +311,12 @@ def test_residuals_trace_count(
     cfg = {"samples": requested_rows, "stop": stop, "start": 1, "seed": 0}
 
     result = run_generation(
-        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
+        "residuals",
+        spd_matrix,
+        cfg=cfg,
+        solver=residual_solver,
+        single_rhs=single_rhs,
+        archive_source=ARCHIVE_SOURCE,
     )
     assert result.rhs is not None
 
@@ -304,7 +337,12 @@ def test_residuals_sample_indices(
     cfg = {"samples": requested_rows, "stop": stop, "start": 1, "seed": 0}
 
     result = run_generation(
-        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
+        "residuals",
+        spd_matrix,
+        cfg=cfg,
+        solver=residual_solver,
+        single_rhs=single_rhs,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     et = result.error_traces
@@ -330,7 +368,12 @@ def test_residuals_iteration_indices(
     cfg = {"samples": requested_rows, "stop": stop, "start": 1, "seed": 0}
 
     result = run_generation(
-        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
+        "residuals",
+        spd_matrix,
+        cfg=cfg,
+        solver=residual_solver,
+        single_rhs=single_rhs,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     et = result.error_traces
@@ -365,11 +408,21 @@ def test_residuals_step_reduces_count(
     cfg_half = {"samples": 6, "stop": stop, "start": 1, "seed": 0, "step": 2}
 
     r_full = run_generation(
-        "residuals", spd_matrix, cfg=cfg_full, solver=residual_solver, single_rhs=single_rhs
+        "residuals",
+        spd_matrix,
+        cfg=cfg_full,
+        solver=residual_solver,
+        single_rhs=single_rhs,
+        archive_source=ARCHIVE_SOURCE,
     )
     assert r_full.error_traces is not None
     r_half = run_generation(
-        "residuals", spd_matrix, cfg=cfg_half, solver=residual_solver, single_rhs=single_rhs
+        "residuals",
+        spd_matrix,
+        cfg=cfg_half,
+        solver=residual_solver,
+        single_rhs=single_rhs,
+        archive_source=ARCHIVE_SOURCE,
     )
     assert r_half.error_traces is not None
 
@@ -383,7 +436,12 @@ def test_residuals_step_indices_correct(
     cfg = {"samples": 3, "stop": 5, "start": 1, "seed": 0, "step": 2}
 
     result = run_generation(
-        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
+        "residuals",
+        spd_matrix,
+        cfg=cfg,
+        solver=residual_solver,
+        single_rhs=single_rhs,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     et = result.error_traces
@@ -407,7 +465,9 @@ def test_residuals_step_math_still_holds(
         "step": 2,
     }
 
-    result = run_generation("residuals", spd_matrix, cfg=cfg, solver=residual_solver)
+    result = run_generation(
+        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=ARCHIVE_SOURCE
+    )
 
     et = result.error_traces
     assert et is not None
@@ -432,7 +492,12 @@ def test_residuals_start_near_stop_keeps_last_two_iterates(
     cfg = {"samples": 3, "stop": 8, "start": 7, "seed": 0}
 
     result = run_generation(
-        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
+        "residuals",
+        spd_matrix,
+        cfg=cfg,
+        solver=residual_solver,
+        single_rhs=single_rhs,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     et = result.error_traces
@@ -451,6 +516,7 @@ def test_residuals_samples_minus_one_requires_finite_source(
             cfg={"samples": -1, "stop": 4, "start": 1, "seed": 0},
             solver=residual_solver,
             single_rhs=single_rhs,
+            archive_source=ARCHIVE_SOURCE,
         )
 
 
@@ -470,6 +536,7 @@ def test_residuals_requires_stop(
             cfg={"samples": 3, "seed": 0},
             solver=residual_solver,
             single_rhs=single_rhs,
+            archive_source=ARCHIVE_SOURCE,
         )
 
 
@@ -488,7 +555,14 @@ def test_residuals_maxiter_equals_window_stop(
     stop = 9
     cfg = {"samples": 4, "stop": stop, "start": 1, "seed": 0}
 
-    run_generation("residuals", spd_matrix, cfg=cfg, solver=solver, single_rhs=single_rhs)
+    run_generation(
+        "residuals",
+        spd_matrix,
+        cfg=cfg,
+        solver=solver,
+        single_rhs=single_rhs,
+        archive_source=ARCHIVE_SOURCE,
+    )
 
     assert recorder.calls, "solver was never called"
     assert all(m == stop for m in recorder.maxiters())
@@ -527,7 +601,12 @@ def test_single_rhs_true_solution_is_the_same_for_csr_and_dense(
     cfg = {"samples": 2, "stop": 3, "start": 1, "seed": 0}
 
     dense = run_generation(
-        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, single_rhs=single_rhs
+        "residuals",
+        spd_matrix,
+        cfg=cfg,
+        solver=residual_solver,
+        single_rhs=single_rhs,
+        archive_source=ARCHIVE_SOURCE,
     )
     sparse = run_generation(
         "residuals",
@@ -535,6 +614,7 @@ def test_single_rhs_true_solution_is_the_same_for_csr_and_dense(
         cfg=cfg,
         solver=residual_solver,
         single_rhs=single_rhs,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert dense.error_traces is not None

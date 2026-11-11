@@ -10,6 +10,7 @@ from typing import Any, assert_never
 import numpy as np
 
 from neuralls.composition.generation._context_builder import DataGenerationContext
+from neuralls.composition.generation.default_services import FS_ARCHIVE_SOURCE
 from neuralls.domain.generation.plan import StrategySpec
 from neuralls.domain.generation.runner import run_generation
 from neuralls.platform.config.models.data_models import GenerationConfig
@@ -135,6 +136,7 @@ def compute_rhs_from_solution(
         "solution_archive",
         matrix,
         cfg={"solutions_glob": str(representative), "samples": 1},
+        archive_source=FS_ARCHIVE_SOURCE,
         archive=None,
     )
 

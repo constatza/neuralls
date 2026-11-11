@@ -16,11 +16,13 @@ from neuralls.shared.types import SystemMatrix
 from .descriptions import RESIDUAL_TRACE_STRATEGY_NAMES, describe_generation_result
 from .interfaces import (
     ArchiveData,
+    ArchiveGenerationStrategy,
     GeneratedSamples,
     MatrixGenerationStrategy,
     SingleRhsGenerationStrategy,
     TracingSolverCallable,
 )
+from .ports import ArchiveSource
 from .strategy_configs import BaseStrategyConfig
 
 RowsPerBaseSystem = Callable[[Mapping[str, Any]], int]
@@ -43,6 +45,15 @@ class MatrixStrategyRegistration:
 
 
 @dataclass(frozen=True, slots=True)
+class ArchiveStrategyRegistration:
+    """Registered strategy entry for generators that read archive files."""
+
+    strategy: ArchiveGenerationStrategy
+    supports_single_rhs: Literal[False] = False
+    rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system
+
+
+@dataclass(frozen=True, slots=True)
 class SingleRhsStrategyRegistration:
     """Registered strategy entry for single-RHS-capable generators."""
 
@@ -51,7 +62,9 @@ class SingleRhsStrategyRegistration:
     rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system
 
 
-StrategyRegistration = MatrixStrategyRegistration | SingleRhsStrategyRegistration
+StrategyRegistration = (
+    MatrixStrategyRegistration | ArchiveStrategyRegistration | SingleRhsStrategyRegistration
+)
 
 
 class StrategyRegistry:
@@ -67,6 +80,17 @@ class StrategyRegistry:
         rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system,
     ) -> None:
         self._strategies[strategy.name] = MatrixStrategyRegistration(
+            strategy,
+            rows_per_base_system=rows_per_base_system,
+        )
+
+    def register_archive(
+        self,
+        strategy: ArchiveGenerationStrategy,
+        *,
+        rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system,
+    ) -> None:
+        self._strategies[strategy.name] = ArchiveStrategyRegistration(
             strategy,
             rows_per_base_system=rows_per_base_system,
         )
@@ -129,6 +153,25 @@ def register_strategy[StrategyClass](
     return _decorate(strategy_cls)
 
 
+def register_archive_strategy[StrategyClass](
+    strategy_cls: type[StrategyClass] | None = None,
+    *,
+    rows_per_base_system: RowsPerBaseSystem = _one_row_per_base_system,
+) -> type[StrategyClass] | Any:
+    """Register a generation strategy that reads archive files through an ``ArchiveSource``."""
+
+    def _decorate(cls: type[StrategyClass]) -> type[StrategyClass]:
+        _registry.register_archive(
+            cast(ArchiveGenerationStrategy, cls()),
+            rows_per_base_system=rows_per_base_system,
+        )
+        return cls
+
+    if strategy_cls is None:
+        return _decorate
+    return _decorate(strategy_cls)
+
+
 def register_single_rhs_strategy[StrategyClass](
     strategy_cls: type[StrategyClass] | None = None,
     *,
@@ -176,12 +219,26 @@ def registered_config_type(strategy_name: str) -> type[BaseStrategyConfig]:
     return cast(type[BaseStrategyConfig], _registry.get(strategy_name).strategy.ConfigType)
 
 
+def _require_archive_source(
+    strategy_name: str, archive_source: ArchiveSource | None
+) -> ArchiveSource:
+    """The injected archive source, or the error naming how to inject one."""
+    if archive_source is None:
+        raise ValueError(
+            f"Strategy '{strategy_name}' requires an explicit archive source; neuralls "
+            "does not construct a default one. Inject one via "
+            "neuralls.composition.generation.default_services.FS_ARCHIVE_SOURCE."
+        )
+    return archive_source
+
+
 def run_generation(
     strategy_name: str,
     matrix: SystemMatrix,
     *,
     cfg: dict[str, Any],
     solver: TracingSolverCallable | None = None,
+    archive_source: ArchiveSource | None = None,
     archive: ArchiveData | None = None,
     single_rhs: np.ndarray | None = None,
 ) -> GeneratedSamples:
@@ -196,6 +253,9 @@ def run_generation(
         solver: Tracing solver callable. Required for single-RHS (trace) strategies;
             neuralls does not construct a default solver of its own — inject one via
             ``neuralls.composition.generation.default_services.make_solver``.
+        archive_source: Lists and loads archive files. Required for archive-backed and
+            single-RHS strategies; inject the real one from
+            ``neuralls.composition.generation.default_services.FS_ARCHIVE_SOURCE``.
         archive: Optional pre-loaded archive data to pass to the strategy
         single_rhs: Optional single RHS vector, shape (n,). If provided to single-RHS strategies
             (trace strategies), all samples will solve the same system A @ x = single_rhs
@@ -205,25 +265,35 @@ def run_generation(
 
     Raises:
         KeyError: If strategy name is unknown
-        ValueError: If a single-RHS strategy is run without an explicit solver
+        ValueError: If a single-RHS strategy is run without an explicit solver, or an
+            archive-backed or single-RHS strategy without an archive source
     """
     registration = _registry.get(strategy_name)
-    if isinstance(registration, SingleRhsStrategyRegistration):
-        if solver is None:
-            raise ValueError(
-                f"Strategy '{strategy_name}' requires an explicit solver; neuralls does not "
-                "construct a default one. Inject one via "
-                "neuralls.composition.generation.default_services.make_solver()."
+    match registration:
+        case ArchiveStrategyRegistration(strategy=strategy):
+            result = strategy.generate(
+                matrix,
+                cfg=cfg,
+                archive_source=_require_archive_source(strategy_name, archive_source),
+                archive=archive,
             )
-        result = registration.strategy.generate(
-            matrix,
-            cfg=cfg,
-            solver=solver,
-            single_rhs=single_rhs,
-            archive=archive,
-        )
-    else:
-        result = registration.strategy.generate(matrix, cfg=cfg, archive=archive)
+        case SingleRhsStrategyRegistration(strategy=strategy):
+            if solver is None:
+                raise ValueError(
+                    f"Strategy '{strategy_name}' requires an explicit solver; neuralls does not "
+                    "construct a default one. Inject one via "
+                    "neuralls.composition.generation.default_services.make_solver()."
+                )
+            result = strategy.generate(
+                matrix,
+                cfg=cfg,
+                solver=solver,
+                archive_source=_require_archive_source(strategy_name, archive_source),
+                single_rhs=single_rhs,
+                archive=archive,
+            )
+        case MatrixStrategyRegistration(strategy=strategy):
+            result = strategy.generate(matrix, cfg=cfg, archive=archive)
     _log_generation_result(strategy_name, result)
     return result
 

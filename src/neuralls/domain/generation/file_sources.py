@@ -37,6 +37,7 @@ from scipy.sparse import csr_array
 
 from neuralls.shared.types import MatrixReader
 
+from .ports import ArchiveSource
 from .sample_ids import EnumerateBy, _build_glob_index
 
 # ``MatrixReader`` is defined once in ``shared/types.py`` (platform implements it); the dense
@@ -154,6 +155,7 @@ class _GlobFileSource:
         self,
         expr: str,
         *,
+        source: ArchiveSource,
         noun: str,
         sample_id_regex: str | None,
         enumerate_by: EnumerateBy | None,
@@ -165,6 +167,7 @@ class _GlobFileSource:
         self._reader = reader
         self._mapping = _build_glob_index(
             expr,
+            source=source,
             noun=noun,
             sample_id_regex=sample_id_regex,
             enumerate_by=enumerate_by,

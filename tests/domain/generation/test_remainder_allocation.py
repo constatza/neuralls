@@ -14,6 +14,9 @@ from neuralls.domain.generation.binding_allocation import _resolve_binding_strat
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.platform.config.models.data_models import GenerationConfig
+from neuralls.platform.storage.archive_source import FsArchiveSource
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 GENERATED_STRATEGY = "gaussian_forward"
 ARCHIVE_STRATEGY = "solution_archive"
@@ -197,4 +200,5 @@ def test_replacement_true_is_rejected_by_domain_spec(
             bindings=bindings,
             spec=DatasetSpec(mixture=make_mixture(strategy, 6, glob=glob), replacement=True),
             num_matrix_samples=3,
+            archive_source=ARCHIVE_SOURCE,
         )

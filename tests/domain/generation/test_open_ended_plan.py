@@ -20,6 +20,9 @@ from neuralls.domain.generation.binding_allocation import (
 )
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
+from neuralls.platform.storage.archive_source import FsArchiveSource
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 pytestmark = pytest.mark.deferred_io("generation-io")
 
@@ -72,6 +75,7 @@ def test_all_samples_archive_total_is_known_before_generation(
         bindings=bindings,
         spec=spec,
         num_matrix_samples=_NUM_MATRICES,
+        archive_source=ARCHIVE_SOURCE,
     )
     plan = plan_batches(allocation)
 
@@ -90,11 +94,12 @@ def test_all_samples_per_strategy_counts_match_the_cyclic_map(
         bindings=bindings,
         spec=spec,
         num_matrix_samples=_NUM_MATRICES,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     # Unit t maps to matrix t % M and file (matrix + t // M) % K, so matrix m walks the
     # pool starting at file m. Every matrix ends up with all K files, each once.
-    assert _archive_pool_size(archive_glob, skip=0) == _NUM_FILES
+    assert _archive_pool_size(ARCHIVE_SOURCE, archive_glob, skip=0) == _NUM_FILES
     expected_files = [
         tuple((matrix + pass_idx) % _NUM_FILES for pass_idx in range(_NUM_FILES))
         for matrix in range(_NUM_MATRICES)
@@ -119,6 +124,7 @@ def test_single_matrix_all_samples_archive_is_sized(
         bindings=bindings,
         spec=spec,
         num_matrix_samples=1,
+        archive_source=ARCHIVE_SOURCE,
     )
     plan = plan_batches(allocation)
 

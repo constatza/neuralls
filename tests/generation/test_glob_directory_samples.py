@@ -20,8 +20,11 @@ from scipy.io import mmwrite
 from scipy.sparse import csr_array
 
 from neuralls.domain.generation.source_streams import GlobMatrixStream
+from neuralls.platform.storage.archive_source import FsArchiveSource
 from neuralls.platform.storage.matrix_readers import read_matrix
 from neuralls.shared.types import MatrixFormat
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 pytestmark = pytest.mark.deferred_io("generation-io")
 
@@ -62,7 +65,9 @@ def nested_case_dirs(tmp_path: Path) -> Path:
 def test_one_level_wildcard_derives_ids_from_directory_name(
     one_level_case_dirs: Path,
 ) -> None:
-    stream = GlobMatrixStream(str(one_level_case_dirs / "*" / "K_ff.mtx"), reader=_READER)
+    stream = GlobMatrixStream(
+        str(one_level_case_dirs / "*" / "K_ff.mtx"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     assert stream.sample_ids == (0, 1, 2)
     sample = stream.load_sample(1, matrix_format=MatrixFormat.CSR)
@@ -70,7 +75,9 @@ def test_one_level_wildcard_derives_ids_from_directory_name(
 
 
 def test_recursive_wildcard_resolves_nested_directories(nested_case_dirs: Path) -> None:
-    stream = GlobMatrixStream(str(nested_case_dirs / "**" / "K_ff.mtx"), reader=_READER)
+    stream = GlobMatrixStream(
+        str(nested_case_dirs / "**" / "K_ff.mtx"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     assert stream.sample_ids == (0, 1)
 
@@ -79,7 +86,10 @@ def test_one_level_wildcard_include_indices_keeps_directory_derived_ids(
     one_level_case_dirs: Path,
 ) -> None:
     stream = GlobMatrixStream(
-        str(one_level_case_dirs / "*" / "K_ff.mtx"), include_indices=(0, 2), reader=_READER
+        str(one_level_case_dirs / "*" / "K_ff.mtx"),
+        include_indices=(0, 2),
+        reader=_READER,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert stream.sample_ids == (0, 2)
@@ -95,7 +105,10 @@ def test_one_level_wildcard_custom_regex_on_directory_name(tmp_path: Path) -> No
         mmwrite(str(case_dir / "K_ff.mtx"), _marker_matrix(float(i)))
 
     stream = GlobMatrixStream(
-        str(root / "*" / "K_ff.mtx"), sample_id_regex=r"case_(\d+)", reader=_READER
+        str(root / "*" / "K_ff.mtx"),
+        sample_id_regex=r"case_(\d+)",
+        reader=_READER,
+        archive_source=ARCHIVE_SOURCE,
     )
 
     assert stream.sample_ids == (3, 7)
@@ -108,6 +121,8 @@ def test_flat_filename_glob_is_unaffected_by_directory_id_support(tmp_path: Path
     np.savetxt(mat_dir / "A_5.txt", np.eye(2))
     np.savetxt(mat_dir / "A_9.txt", 2 * np.eye(2))
 
-    stream = GlobMatrixStream(str(mat_dir / "A_*.txt"), reader=_READER)
+    stream = GlobMatrixStream(
+        str(mat_dir / "A_*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE
+    )
 
     assert stream.sample_ids == (5, 9)

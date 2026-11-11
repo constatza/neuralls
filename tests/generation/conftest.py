@@ -25,9 +25,12 @@ from neuralls.platform.config.models.data_models import (
     SourceConfig,
     StrategyConfig,
 )
+from neuralls.platform.storage.archive_source import FsArchiveSource
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
 from neuralls.shared.types import DatasetFormat, MatrixFormat
 from tests.dataset_support import build_test_dataset
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 _READER = partial(read_matrix, lazy=True)
 _READERS = MatrixReaders(generic=_READER, dense=partial(read_dense_npy, lazy=True))
@@ -302,7 +305,12 @@ def open_binding_stream() -> Callable[..., BatchStream]:
             ),
         )
         return open_batch_stream(
-            source, spec, batch_size=batch_size, matrix_format=matrix_format, readers=_READERS
+            source,
+            spec,
+            batch_size=batch_size,
+            matrix_format=matrix_format,
+            readers=_READERS,
+            archive_source=ARCHIVE_SOURCE,
         )
 
     return _open

@@ -27,6 +27,9 @@ from neuralls.domain.generation.trace_utils import (
     TrajectoryShortfallError,
     require_full_trajectory,
 )
+from neuralls.platform.storage.archive_source import FsArchiveSource
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 TRAJECTORY_CONFIG_TYPES = (
     ResidualErrorConfig,
@@ -210,6 +213,7 @@ def test_residuals_start_one_emits_k_rows_per_base_system(
         cfg=cfg,
         solver=make_solver(),
         single_rhs=seeded_rhs,
+        archive_source=ARCHIVE_SOURCE,
     )
     traces = result.error_traces
     assert traces is not None

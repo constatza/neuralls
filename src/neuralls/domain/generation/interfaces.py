@@ -12,6 +12,8 @@ from numpy.typing import NDArray
 from neuralls.domain.normalization import ErrorTraceSamples, ResidualTraceSamples
 from neuralls.shared.types import SystemMatrix
 
+from .ports import ArchiveSource
+
 
 class TracingSolverCallable(Protocol):
     """Callable that runs a tracing iterative solver.
@@ -92,6 +94,25 @@ class MatrixGenerationStrategy(Protocol):
 
 
 @runtime_checkable
+class ArchiveGenerationStrategy(Protocol):
+    """Protocol for strategies that draw their vectors from archive files."""
+
+    name: str
+    ConfigType: object
+
+    def generate(
+        self,
+        matrix: SystemMatrix,
+        *,
+        cfg: dict[str, Any],
+        archive_source: ArchiveSource,
+        archive: ArchiveData | None = None,
+    ) -> GeneratedSamples:
+        """Generate samples from matrix and the archive files ``cfg`` names."""
+        ...
+
+
+@runtime_checkable
 class SingleRhsGenerationStrategy(Protocol):
     """Protocol for strategies that support explicit single-RHS generation."""
 
@@ -104,6 +125,7 @@ class SingleRhsGenerationStrategy(Protocol):
         *,
         cfg: dict[str, Any],
         solver: TracingSolverCallable,
+        archive_source: ArchiveSource,
         single_rhs: np.ndarray | None = None,
         archive: ArchiveData | None = None,
     ) -> GeneratedSamples:

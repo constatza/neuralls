@@ -8,8 +8,11 @@ import numpy as np
 import pytest
 
 from neuralls.domain.generation import run_generation
-from neuralls.domain.generation.runner import MatrixStrategyRegistration
+from neuralls.domain.generation.runner import ArchiveStrategyRegistration
 from neuralls.domain.generation.strategies.rhs_archive import RhsArchiveStrategy
+from neuralls.platform.storage.archive_source import FsArchiveSource
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 pytestmark = pytest.mark.deferred_io("generation-io")
 
@@ -33,7 +36,7 @@ def test_rhs_archive_registered() -> None:
 
     assert "rhs_archive" in _registry._strategies
     registration = _registry._strategies["rhs_archive"]
-    assert isinstance(registration, MatrixStrategyRegistration)
+    assert isinstance(registration, ArchiveStrategyRegistration)
     assert isinstance(registration.strategy, RhsArchiveStrategy)
 
 
@@ -42,7 +45,12 @@ def test_rhs_archive_shapes(spd_matrix: np.ndarray, rhs_files: tuple[list[Path],
     n = spd_matrix.shape[0]
     _files, glob_pattern = rhs_files
 
-    result = run_generation("rhs_archive", spd_matrix, cfg={"rhs_glob": glob_pattern, "samples": 3})
+    result = run_generation(
+        "rhs_archive",
+        spd_matrix,
+        cfg={"rhs_glob": glob_pattern, "samples": 3},
+        archive_source=ARCHIVE_SOURCE,
+    )
     assert result.solutions is not None
     assert result.rhs is not None
 
@@ -67,7 +75,7 @@ def test_rhs_archive_solves_ax_equals_b(
         },
     }
 
-    result = run_generation("rhs_archive", spd_matrix, cfg=cfg)
+    result = run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
     assert result.solutions is not None
     assert result.rhs is not None
 
@@ -85,7 +93,10 @@ def test_rhs_archive_all_files(spd_matrix: np.ndarray, rhs_files: tuple[list[Pat
     files, glob_pattern = rhs_files
 
     result = run_generation(
-        "rhs_archive", spd_matrix, cfg={"rhs_glob": glob_pattern, "samples": -1}
+        "rhs_archive",
+        spd_matrix,
+        cfg={"rhs_glob": glob_pattern, "samples": -1},
+        archive_source=ARCHIVE_SOURCE,
     )
     assert result.rhs is not None
 
@@ -99,9 +110,9 @@ def test_rhs_archive_deterministic_shuffle(
     _files, glob_pattern = rhs_files
     cfg = {"rhs_glob": glob_pattern, "samples": 3, "shuffle": True, "seed": 42}
 
-    r1 = run_generation("rhs_archive", spd_matrix, cfg=cfg)
+    r1 = run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
     assert r1.rhs is not None
-    r2 = run_generation("rhs_archive", spd_matrix, cfg=cfg)
+    r2 = run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
     assert r2.rhs is not None
 
     assert r1.rhs.ndim == 2 and r2.rhs.ndim == 2
@@ -111,7 +122,7 @@ def test_rhs_archive_deterministic_shuffle(
 def test_rhs_archive_missing_glob_raises() -> None:
     """Missing rhs_glob raises ValidationError (pydantic extra=forbid)."""
     with pytest.raises(ValueError):
-        run_generation("rhs_archive", np.eye(5), cfg={"samples": 1})
+        run_generation("rhs_archive", np.eye(5), cfg={"samples": 1}, archive_source=ARCHIVE_SOURCE)
 
 
 def test_rhs_archive_insufficient_files_raises(
@@ -120,4 +131,9 @@ def test_rhs_archive_insufficient_files_raises(
     """Requesting more files than available raises ValueError."""
     _files, glob_pattern = rhs_files
     with pytest.raises(ValueError):
-        run_generation("rhs_archive", spd_matrix, cfg={"rhs_glob": glob_pattern, "samples": 100})
+        run_generation(
+            "rhs_archive",
+            spd_matrix,
+            cfg={"rhs_glob": glob_pattern, "samples": 100},
+            archive_source=ARCHIVE_SOURCE,
+        )

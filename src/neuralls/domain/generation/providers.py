@@ -34,6 +34,7 @@ import numpy as np
 from .archive_files import select_archive_files
 from .batch_plan import ALL_SAMPLES
 from .interfaces import ArchiveData, ArchiveField
+from .ports import ArchiveSource
 
 T_co = TypeVar("T_co", covariant=True)
 
@@ -186,6 +187,7 @@ class UniformInputProvider:
 
 @lru_cache(maxsize=128)
 def _load_archive_files_cached(
+    source: ArchiveSource,
     glob_pattern: str,
     count: int,
     shuffle: bool,
@@ -196,6 +198,8 @@ def _load_archive_files_cached(
     """Load and cache solution files for a given glob/selection key.
 
     Args:
+        source: Lists and loads the archive files. Part of the cache key, so two sources
+            never share an entry.
         glob_pattern: Pattern like "/data/sols_*.npy".
         count: Number of vectors (-1 for all available).
         shuffle: Whether to shuffle files before selection.
@@ -208,6 +212,7 @@ def _load_archive_files_cached(
         Loaded vectors as a tuple (hashable/immutable for caching).
     """
     files = select_archive_files(
+        source,
         glob_pattern,
         count=count,
         shuffle=shuffle,
@@ -215,7 +220,7 @@ def _load_archive_files_cached(
         skip=skip,
         file_indices=file_indices,
     )
-    return tuple(np.loadtxt(f) for f in files)
+    return tuple(source.load_vector(f) for f in files)
 
 
 class FileInputProvider:
@@ -230,6 +235,7 @@ class FileInputProvider:
 
     def __init__(
         self,
+        source: ArchiveSource,
         glob_pattern: str,
         shuffle: bool = False,
         seed: int | None = None,
@@ -239,6 +245,7 @@ class FileInputProvider:
         """Initialize file provider.
 
         Args:
+            source: Lists and loads the archive files.
             glob_pattern: Pattern like "/data/sols_*.npy"
             shuffle: Whether to shuffle files before selection
             seed: Random seed for shuffling
@@ -246,6 +253,7 @@ class FileInputProvider:
             file_indices: Explicit positions in the pool after ``skip``; ``count`` must
                 equal their number. None selects the contiguous range instead.
         """
+        self.source = source
         self.glob_pattern = glob_pattern
         self.shuffle = shuffle
         self.seed = seed
@@ -273,7 +281,13 @@ class FileInputProvider:
             ValueError: If insufficient files available
         """
         vectors = _load_archive_files_cached(
-            self.glob_pattern, count, self.shuffle, self.seed, self.skip, self.file_indices
+            self.source,
+            self.glob_pattern,
+            count,
+            self.shuffle,
+            self.seed,
+            self.skip,
+            self.file_indices,
         )
         return np.array(vectors, dtype=np.float64)
 
@@ -371,6 +385,7 @@ class PairedFileInputProvider:
 
     def __init__(
         self,
+        source: ArchiveSource,
         solution_glob: str,
         rhs_glob: str,
         shuffle: bool = False,
@@ -381,6 +396,7 @@ class PairedFileInputProvider:
         """Initialize paired file provider.
 
         Args:
+            source: Lists and loads the archive files.
             solution_glob: Pattern for solution files
             rhs_glob: Pattern for RHS files
             shuffle: Whether to shuffle files
@@ -388,8 +404,10 @@ class PairedFileInputProvider:
             skip: Number of pairs to skip after deterministic ordering/shuffling
             file_indices: Explicit pair positions after ``skip``, applied to both globs.
         """
-        self.solution_provider = FileInputProvider(solution_glob, shuffle, seed, skip, file_indices)
-        self.rhs_provider = FileInputProvider(rhs_glob, shuffle, seed, skip, file_indices)
+        self.solution_provider = FileInputProvider(
+            source, solution_glob, shuffle, seed, skip, file_indices
+        )
+        self.rhs_provider = FileInputProvider(source, rhs_glob, shuffle, seed, skip, file_indices)
 
     def provide(
         self,
@@ -417,6 +435,7 @@ def provide_solutions(
     count: int,
     rng: np.random.Generator,
     *,
+    archive_source: ArchiveSource,
     solutions_glob: str | None,
     archive: ArchiveData | None,
     shuffle: bool,
@@ -434,6 +453,7 @@ def provide_solutions(
         matrix: System matrix (used for dimension validation by providers).
         count: Number of solution vectors to return.
         rng: Random number generator for providers that need it.
+        archive_source: Lists and loads the files ``solutions_glob`` matches.
         solutions_glob: Optional glob pattern. Used only when no archive is available.
         archive: Optional in-memory archive. Preferred over solutions_glob when present.
         shuffle: Whether to shuffle the loaded files (passed to FileInputProvider).
@@ -455,6 +475,7 @@ def provide_solutions(
         )
     if solutions_glob is not None:
         return FileInputProvider(
+            archive_source,
             solutions_glob,
             shuffle=shuffle,
             seed=seed,

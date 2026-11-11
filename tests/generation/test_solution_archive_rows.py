@@ -15,7 +15,10 @@ from neuralls.domain.generation.orchestration import (
     _solution_archive_rows,
 )
 from neuralls.domain.generation.source_streams import MatrixSampleStream, VectorSampleStream
+from neuralls.platform.storage.archive_source import FsArchiveSource
 from neuralls.shared.types import GenerationStrategyKind
+
+ARCHIVE_SOURCE = FsArchiveSource()
 
 _STRATEGY = GenerationStrategyKind.SOLUTION_ARCHIVE.value
 
@@ -44,6 +47,7 @@ def empty_solution_context() -> _GenerationRunContext:
     return _GenerationRunContext(
         streams=streams,
         allocation=allocation,
+        archive_source=ARCHIVE_SOURCE,
         solution_by_position=True,
         cyclic_solution_strategies=frozenset({_STRATEGY}),
     )

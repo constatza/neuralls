@@ -12,6 +12,7 @@ from neuralls.shared.enum_codecs import encode_row_kind_array
 from neuralls.shared.types import GenerationStrategyKind, RowKind, SystemMatrix
 
 from .interfaces import ArchiveData
+from .ports import ArchiveSource
 from .runner import GeneratedSamples, run_generation
 from .seeds import derive_strategy_seed
 from .semantics import classify_strategy_row_kind
@@ -77,6 +78,7 @@ def _generate_strategy_rows(
     archive_rhs: np.ndarray | None = None,
     single_rhs: np.ndarray | None = None,
     single_solution: np.ndarray | None = None,
+    archive_source: ArchiveSource | None = None,
 ) -> _StrategyRows | None:
     """Run one strategy for ``count`` samples and return its pairs and row kinds.
 
@@ -89,6 +91,7 @@ def _generate_strategy_rows(
         archive_rhs: Pre-computed RHS vectors for archive-based generation.
         single_rhs: Single RHS vector for single-RHS (trace) strategies.
         single_solution: Single pre-computed solution used as a one-row archive.
+        archive_source: Lists and loads the archive files of archive-backed strategies.
 
     Returns:
         The strategy's rows, or ``None`` when it produced neither pairs nor traces.
@@ -117,6 +120,7 @@ def _generate_strategy_rows(
             solver=(
                 mixture.solver_overrides.get(strategy_name) if mixture.solver_overrides else None
             ),
+            archive_source=archive_source,
             archive=archive_data,
             single_rhs=single_rhs,
         )

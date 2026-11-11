@@ -30,6 +30,7 @@ from ..counts import (
 from ..descriptions import describe_residual_trace
 from ..interfaces import ArchiveData, ArchiveField, GeneratedSamples, TracingSolverCallable
 from ..matrix_operator import MatrixOperator
+from ..ports import ArchiveSource
 from ..providers import HybridInputProvider, RandomInputProvider, provide_solutions
 from ..runner import register_single_rhs_strategy
 from ..strategy_configs import ResidualErrorConfig
@@ -61,6 +62,7 @@ class _BaseResidualsStrategy:
         self,
         matrix: np.ndarray,
         config: ResidualErrorConfig,
+        archive_source: ArchiveSource,
         archive: ArchiveData | None,
         rng: np.random.Generator,
     ) -> int | None:
@@ -70,6 +72,7 @@ class _BaseResidualsStrategy:
                     matrix,
                     -1,
                     rng,
+                    archive_source=archive_source,
                     solutions_glob=config.solutions_glob,
                     archive=archive,
                     shuffle=config.shuffle,
@@ -86,6 +89,7 @@ class _BaseResidualsStrategy:
         matrix: np.ndarray,
         count: int,
         config: ResidualErrorConfig,
+        archive_source: ArchiveSource,
         archive: ArchiveData | None,
         rng: np.random.Generator,
     ) -> np.ndarray:
@@ -93,6 +97,7 @@ class _BaseResidualsStrategy:
             matrix,
             count,
             rng,
+            archive_source=archive_source,
             solutions_glob=config.solutions_glob,
             archive=archive,
             shuffle=config.shuffle,
@@ -107,6 +112,7 @@ class _BaseResidualsStrategy:
         *,
         cfg: dict,
         solver: TracingSolverCallable,
+        archive_source: ArchiveSource,
         single_rhs: np.ndarray | None = None,
         archive: ArchiveData | None = None,
     ) -> GeneratedSamples:
@@ -119,6 +125,7 @@ class _BaseResidualsStrategy:
         Args:
             matrix: System matrix
             cfg: Configuration dictionary
+            archive_source: Lists and loads the files ``solutions_glob`` matches
             single_rhs: Optional single RHS vector. If provided, all samples solve A @ x = single_rhs
             archive: Optional archive data to seed generation
 
@@ -133,7 +140,9 @@ class _BaseResidualsStrategy:
         available_systems: int | None = None
 
         if single_rhs is None and config.samples == -1:
-            available_systems = self._resolve_available_systems(matrix, config, archive, rng)
+            available_systems = self._resolve_available_systems(
+                matrix, config, archive_source, archive, rng
+            )
 
         num_base_systems, final_rows = resolve_trace_generation_counts(
             config.samples,
@@ -159,6 +168,7 @@ class _BaseResidualsStrategy:
                 matrix,
                 num_base_systems,
                 config,
+                archive_source,
                 archive,
                 rng,
             )
@@ -270,6 +280,7 @@ class GaussianResidualsStrategy(_BaseResidualsStrategy):
         self,
         matrix: np.ndarray,
         config: ResidualErrorConfig,
+        archive_source: ArchiveSource,
         archive: ArchiveData | None,
         rng: np.random.Generator,
     ) -> int | None:
@@ -281,6 +292,7 @@ class GaussianResidualsStrategy(_BaseResidualsStrategy):
         matrix: np.ndarray,
         count: int,
         config: ResidualErrorConfig,
+        archive_source: ArchiveSource,
         archive: ArchiveData | None,
         rng: np.random.Generator,
     ) -> np.ndarray:
