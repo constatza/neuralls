@@ -10,24 +10,29 @@ import pytest
 from neuralls.domain.generation import run_generation
 from neuralls.domain.generation.runner import ArchiveStrategyRegistration
 from neuralls.domain.generation.strategies.solution_archive import SolutionArchiveStrategy
-from neuralls.platform.storage.archive_source import FsArchiveSource
+from tests.fakes.archive_source import InMemoryArchiveSource
 
-ARCHIVE_SOURCE = FsArchiveSource()
-
-pytestmark = pytest.mark.deferred_io("generation-io")
+ARCHIVE_DIR = Path("/archive")
 
 
 @pytest.fixture
-def solution_files(tmp_path: Path, spd_matrix: np.ndarray) -> tuple[list[Path], str]:
-    """Create temporary solution archive files."""
+def archive_source() -> InMemoryArchiveSource:
+    """An empty in-memory archive."""
+    return InMemoryArchiveSource()
+
+
+@pytest.fixture
+def solution_files(
+    archive_source: InMemoryArchiveSource, spd_matrix: np.ndarray
+) -> tuple[list[Path], str]:
+    """Register five solution archive files in memory."""
     n = spd_matrix.shape[0]
     rng = np.random.default_rng(5)
-    files = []
-    for i in range(5):
-        p = tmp_path / f"sol_{i:03d}.txt"
-        np.savetxt(p, rng.standard_normal(n))
-        files.append(p)
-    return files, str(tmp_path / "sol_*.txt")
+    files = [
+        archive_source.add(ARCHIVE_DIR / f"sol_{i:03d}.txt", rng.standard_normal(n))
+        for i in range(5)
+    ]
+    return files, str(ARCHIVE_DIR / "sol_*.txt")
 
 
 def test_solution_archive_registered() -> None:
@@ -41,7 +46,9 @@ def test_solution_archive_registered() -> None:
 
 
 def test_solution_archive_shapes(
-    spd_matrix: np.ndarray, solution_files: tuple[list[Path], str]
+    spd_matrix: np.ndarray,
+    solution_files: tuple[list[Path], str],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Loaded solutions and computed RHS have correct shapes."""
     n = spd_matrix.shape[0]
@@ -51,7 +58,7 @@ def test_solution_archive_shapes(
         "solution_archive",
         spd_matrix,
         cfg={"solutions_glob": glob_pattern, "samples": 3},
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
     assert result.rhs is not None
     assert result.solutions is not None
@@ -63,7 +70,9 @@ def test_solution_archive_shapes(
 
 
 def test_solution_archive_rhs_equals_ax(
-    spd_matrix: np.ndarray, solution_files: tuple[list[Path], str]
+    spd_matrix: np.ndarray,
+    solution_files: tuple[list[Path], str],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """RHS = A @ x for every loaded solution."""
     _files, glob_pattern = solution_files
@@ -72,7 +81,7 @@ def test_solution_archive_rhs_equals_ax(
         "solution_archive",
         spd_matrix,
         cfg={"solutions_glob": glob_pattern, "samples": 3},
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
     assert result.rhs is not None
     assert result.solutions is not None
@@ -85,7 +94,9 @@ def test_solution_archive_rhs_equals_ax(
 
 
 def test_solution_archive_all_files(
-    spd_matrix: np.ndarray, solution_files: tuple[list[Path], str]
+    spd_matrix: np.ndarray,
+    solution_files: tuple[list[Path], str],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """samples=-1 loads every available file."""
     files, glob_pattern = solution_files
@@ -94,7 +105,7 @@ def test_solution_archive_all_files(
         "solution_archive",
         spd_matrix,
         cfg={"solutions_glob": glob_pattern, "samples": -1},
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
     assert result.solutions is not None
 
@@ -102,15 +113,17 @@ def test_solution_archive_all_files(
 
 
 def test_solution_archive_deterministic_shuffle(
-    spd_matrix: np.ndarray, solution_files: tuple[list[Path], str]
+    spd_matrix: np.ndarray,
+    solution_files: tuple[list[Path], str],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Shuffling with the same seed produces identical output on repeated calls."""
     _files, glob_pattern = solution_files
     cfg = {"solutions_glob": glob_pattern, "samples": 3, "shuffle": True, "seed": 42}
 
-    r1 = run_generation("solution_archive", spd_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
+    r1 = run_generation("solution_archive", spd_matrix, cfg=cfg, archive_source=archive_source)
     assert r1.solutions is not None
-    r2 = run_generation("solution_archive", spd_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
+    r2 = run_generation("solution_archive", spd_matrix, cfg=cfg, archive_source=archive_source)
     assert r2.solutions is not None
 
     assert r1.solutions.ndim == 2 and r2.solutions.ndim == 2
@@ -118,7 +131,9 @@ def test_solution_archive_deterministic_shuffle(
 
 
 def test_solution_archive_skip_selects_later_files(
-    spd_matrix: np.ndarray, solution_files: tuple[list[Path], str]
+    spd_matrix: np.ndarray,
+    solution_files: tuple[list[Path], str],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """skip offsets deterministic archive selection before loading vectors."""
     files, glob_pattern = solution_files
@@ -127,16 +142,21 @@ def test_solution_archive_skip_selects_later_files(
         "solution_archive",
         spd_matrix,
         cfg={"solutions_glob": glob_pattern, "samples": 2, "shuffle": False, "skip": 2},
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     assert result.solutions is not None
-    expected = np.array([np.loadtxt(files[2]), np.loadtxt(files[3])], dtype=np.float64)
+    expected = np.array(
+        [archive_source.load_vector(files[2]), archive_source.load_vector(files[3])],
+        dtype=np.float64,
+    )
     np.testing.assert_array_equal(result.solutions, expected)
 
 
 def test_solution_archive_skip_applies_after_shuffle(
-    spd_matrix: np.ndarray, solution_files: tuple[list[Path], str]
+    spd_matrix: np.ndarray,
+    solution_files: tuple[list[Path], str],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Shuffled archives skip within the deterministic permutation."""
     files, glob_pattern = solution_files
@@ -154,17 +174,21 @@ def test_solution_archive_skip_applies_after_shuffle(
             "seed": seed,
             "skip": skip,
         },
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     assert result.solutions is not None
     indices = np.random.default_rng(seed).permutation(len(files))[skip : skip + count]
-    expected = np.array([np.loadtxt(files[idx]) for idx in indices], dtype=np.float64)
+    expected = np.array(
+        [archive_source.load_vector(files[idx]) for idx in indices], dtype=np.float64
+    )
     np.testing.assert_array_equal(result.solutions, expected)
 
 
 def test_solution_archive_skip_plus_samples_beyond_available_raises(
-    spd_matrix: np.ndarray, solution_files: tuple[list[Path], str]
+    spd_matrix: np.ndarray,
+    solution_files: tuple[list[Path], str],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """skip and samples are validated together against available files."""
     _, glob_pattern = solution_files
@@ -173,20 +197,22 @@ def test_solution_archive_skip_plus_samples_beyond_available_raises(
             "solution_archive",
             spd_matrix,
             cfg={"solutions_glob": glob_pattern, "samples": 2, "skip": 4},
-            archive_source=ARCHIVE_SOURCE,
+            archive_source=archive_source,
         )
 
 
-def test_solution_archive_missing_glob_raises() -> None:
+def test_solution_archive_missing_glob_raises(archive_source: InMemoryArchiveSource) -> None:
     """Missing solutions_glob raises ValidationError."""
     with pytest.raises(ValueError):
         run_generation(
-            "solution_archive", np.eye(5), cfg={"samples": 1}, archive_source=ARCHIVE_SOURCE
+            "solution_archive", np.eye(5), cfg={"samples": 1}, archive_source=archive_source
         )
 
 
 def test_solution_archive_insufficient_files_raises(
-    spd_matrix: np.ndarray, solution_files: tuple[list[Path], str]
+    spd_matrix: np.ndarray,
+    solution_files: tuple[list[Path], str],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Requesting more files than available raises ValueError."""
     _files, glob_pattern = solution_files
@@ -195,5 +221,5 @@ def test_solution_archive_insufficient_files_raises(
             "solution_archive",
             spd_matrix,
             cfg={"solutions_glob": glob_pattern, "samples": 100},
-            archive_source=ARCHIVE_SOURCE,
+            archive_source=archive_source,
         )

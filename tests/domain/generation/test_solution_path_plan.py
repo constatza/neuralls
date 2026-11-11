@@ -17,11 +17,7 @@ from neuralls.domain.generation.batch_plan import ALL_SAMPLES, plan_batches
 from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
-from neuralls.platform.storage.archive_source import FsArchiveSource
-
-ARCHIVE_SOURCE = FsArchiveSource()
-
-pytestmark = pytest.mark.deferred_io("generation-io")
+from tests.fakes.archive_source import InMemoryArchiveSource
 
 _SOLUTION_STRATEGY = "solution_archive"
 _NUM_BINDINGS = 2
@@ -38,26 +34,30 @@ def solution_rows() -> np.ndarray:
 
 
 @pytest.fixture
-def solution_npy(tmp_path: Path, solution_rows: np.ndarray) -> Path:
-    path = tmp_path / "solutions.npy"
-    np.save(path, solution_rows)
-    return path
+def archive_source() -> InMemoryArchiveSource:
+    """An empty in-memory archive."""
+    return InMemoryArchiveSource()
 
 
 @pytest.fixture
-def solution_txt(tmp_path: Path) -> Path:
+def solution_npy(archive_source: InMemoryArchiveSource, solution_rows: np.ndarray) -> Path:
+    return archive_source.add(Path("/archive/solutions.npy"), solution_rows)
+
+
+@pytest.fixture
+def solution_txt(archive_source: InMemoryArchiveSource) -> Path:
     """A .txt solution file holding one vector: the vector reader loads it as one sample."""
-    path = tmp_path / "solutions.txt"
-    np.savetxt(path, np.arange(_ROW_LENGTH, dtype=np.float64))
-    return path
+    return archive_source.add(
+        Path("/archive/solutions.txt"), np.arange(_ROW_LENGTH, dtype=np.float64)
+    )
 
 
 @pytest.fixture
-def unsized_solution(tmp_path: Path) -> Path:
+def unsized_solution(archive_source: InMemoryArchiveSource) -> Path:
     """A solution file in a format whose row count is not read cheaply."""
-    path = tmp_path / "solutions.csv"
-    path.write_text("1.0,2.0,3.0\n4.0,5.0,6.0\n", encoding="utf-8")
-    return path
+    return archive_source.add(
+        Path("/archive/solutions.csv"), np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    )
 
 
 def _open_ended_solution_spec() -> DatasetSpec:
@@ -69,6 +69,7 @@ def _open_ended_solution_spec() -> DatasetSpec:
 
 def test_solution_path_total_is_known_before_generation(
     solution_npy: Path,
+    archive_source: InMemoryArchiveSource,
     make_bindings: Callable[[int, int], list[SystemBinding]],
 ) -> None:
     spec = _open_ended_solution_spec()
@@ -79,8 +80,8 @@ def test_solution_path_total_is_known_before_generation(
         spec=spec,
         num_matrix_samples=_NUM_BINDINGS,
         has_solution_source=True,
-        solution_rows_total=ARCHIVE_SOURCE.row_count(solution_npy),
-        archive_source=ARCHIVE_SOURCE,
+        solution_rows_total=archive_source.row_count(solution_npy),
+        archive_source=archive_source,
     )
     plan = plan_batches(allocation)
 
@@ -90,6 +91,7 @@ def test_solution_path_total_is_known_before_generation(
 
 def test_solution_path_text_file_row_count(
     solution_txt: Path,
+    archive_source: InMemoryArchiveSource,
     make_bindings: Callable[[int, int], list[SystemBinding]],
 ) -> None:
     spec = _open_ended_solution_spec()
@@ -100,8 +102,8 @@ def test_solution_path_text_file_row_count(
         spec=spec,
         num_matrix_samples=_NUM_BINDINGS,
         has_solution_source=True,
-        solution_rows_total=ARCHIVE_SOURCE.row_count(solution_txt),
-        archive_source=ARCHIVE_SOURCE,
+        solution_rows_total=archive_source.row_count(solution_txt),
+        archive_source=archive_source,
     )
     plan = plan_batches(allocation)
 
@@ -111,6 +113,7 @@ def test_solution_path_text_file_row_count(
 
 def test_solution_path_row_count_failure_is_named(
     unsized_solution: Path,
+    archive_source: InMemoryArchiveSource,
     make_bindings: Callable[[int, int], list[SystemBinding]],
 ) -> None:
     spec = _open_ended_solution_spec()
@@ -122,6 +125,6 @@ def test_solution_path_row_count_failure_is_named(
             spec=spec,
             num_matrix_samples=_NUM_BINDINGS,
             has_solution_source=True,
-            solution_rows_total=ARCHIVE_SOURCE.row_count(unsized_solution),
-            archive_source=ARCHIVE_SOURCE,
+            solution_rows_total=archive_source.row_count(unsized_solution),
+            archive_source=archive_source,
         )

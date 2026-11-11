@@ -10,24 +10,29 @@ import pytest
 from neuralls.domain.generation import run_generation
 from neuralls.domain.generation.runner import ArchiveStrategyRegistration
 from neuralls.domain.generation.strategies.rhs_archive import RhsArchiveStrategy
-from neuralls.platform.storage.archive_source import FsArchiveSource
+from tests.fakes.archive_source import InMemoryArchiveSource
 
-ARCHIVE_SOURCE = FsArchiveSource()
-
-pytestmark = pytest.mark.deferred_io("generation-io")
+ARCHIVE_DIR = Path("/archive")
 
 
 @pytest.fixture
-def rhs_files(tmp_path: Path, spd_matrix: np.ndarray) -> tuple[list[Path], str]:
-    """Create temporary RHS archive files."""
+def archive_source() -> InMemoryArchiveSource:
+    """An empty in-memory archive."""
+    return InMemoryArchiveSource()
+
+
+@pytest.fixture
+def rhs_files(
+    archive_source: InMemoryArchiveSource, spd_matrix: np.ndarray
+) -> tuple[list[Path], str]:
+    """Register five RHS archive files in memory."""
     n = spd_matrix.shape[0]
     rng = np.random.default_rng(3)
-    files = []
-    for i in range(5):
-        p = tmp_path / f"rhs_{i:03d}.txt"
-        np.savetxt(p, rng.standard_normal(n))
-        files.append(p)
-    return files, str(tmp_path / "rhs_*.txt")
+    files = [
+        archive_source.add(ARCHIVE_DIR / f"rhs_{i:03d}.txt", rng.standard_normal(n))
+        for i in range(5)
+    ]
+    return files, str(ARCHIVE_DIR / "rhs_*.txt")
 
 
 def test_rhs_archive_registered() -> None:
@@ -40,7 +45,9 @@ def test_rhs_archive_registered() -> None:
     assert isinstance(registration.strategy, RhsArchiveStrategy)
 
 
-def test_rhs_archive_shapes(spd_matrix: np.ndarray, rhs_files: tuple[list[Path], str]) -> None:
+def test_rhs_archive_shapes(
+    spd_matrix: np.ndarray, rhs_files: tuple[list[Path], str], archive_source: InMemoryArchiveSource
+) -> None:
     """Loaded RHS and solved solutions have correct shapes."""
     n = spd_matrix.shape[0]
     _files, glob_pattern = rhs_files
@@ -49,7 +56,7 @@ def test_rhs_archive_shapes(spd_matrix: np.ndarray, rhs_files: tuple[list[Path],
         "rhs_archive",
         spd_matrix,
         cfg={"rhs_glob": glob_pattern, "samples": 3},
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
     assert result.solutions is not None
     assert result.rhs is not None
@@ -61,7 +68,7 @@ def test_rhs_archive_shapes(spd_matrix: np.ndarray, rhs_files: tuple[list[Path],
 
 
 def test_rhs_archive_solves_ax_equals_b(
-    spd_matrix: np.ndarray, rhs_files: tuple[list[Path], str]
+    spd_matrix: np.ndarray, rhs_files: tuple[list[Path], str], archive_source: InMemoryArchiveSource
 ) -> None:
     """Returned solutions satisfy A @ x = b within tolerance."""
     _files, glob_pattern = rhs_files
@@ -75,7 +82,7 @@ def test_rhs_archive_solves_ax_equals_b(
         },
     }
 
-    result = run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
+    result = run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=archive_source)
     assert result.solutions is not None
     assert result.rhs is not None
 
@@ -88,7 +95,9 @@ def test_rhs_archive_solves_ax_equals_b(
         assert rel < 1e-6, f"Sample {i}: relative residual {rel:.2e}"
 
 
-def test_rhs_archive_all_files(spd_matrix: np.ndarray, rhs_files: tuple[list[Path], str]) -> None:
+def test_rhs_archive_all_files(
+    spd_matrix: np.ndarray, rhs_files: tuple[list[Path], str], archive_source: InMemoryArchiveSource
+) -> None:
     """samples=-1 loads every available file."""
     files, glob_pattern = rhs_files
 
@@ -96,7 +105,7 @@ def test_rhs_archive_all_files(spd_matrix: np.ndarray, rhs_files: tuple[list[Pat
         "rhs_archive",
         spd_matrix,
         cfg={"rhs_glob": glob_pattern, "samples": -1},
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
     assert result.rhs is not None
 
@@ -104,29 +113,29 @@ def test_rhs_archive_all_files(spd_matrix: np.ndarray, rhs_files: tuple[list[Pat
 
 
 def test_rhs_archive_deterministic_shuffle(
-    spd_matrix: np.ndarray, rhs_files: tuple[list[Path], str]
+    spd_matrix: np.ndarray, rhs_files: tuple[list[Path], str], archive_source: InMemoryArchiveSource
 ) -> None:
     """Shuffling with the same seed produces identical output on repeated calls."""
     _files, glob_pattern = rhs_files
     cfg = {"rhs_glob": glob_pattern, "samples": 3, "shuffle": True, "seed": 42}
 
-    r1 = run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
+    r1 = run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=archive_source)
     assert r1.rhs is not None
-    r2 = run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
+    r2 = run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=archive_source)
     assert r2.rhs is not None
 
     assert r1.rhs.ndim == 2 and r2.rhs.ndim == 2
     np.testing.assert_array_equal(r1.rhs, r2.rhs)
 
 
-def test_rhs_archive_missing_glob_raises() -> None:
+def test_rhs_archive_missing_glob_raises(archive_source: InMemoryArchiveSource) -> None:
     """Missing rhs_glob raises ValidationError (pydantic extra=forbid)."""
     with pytest.raises(ValueError):
-        run_generation("rhs_archive", np.eye(5), cfg={"samples": 1}, archive_source=ARCHIVE_SOURCE)
+        run_generation("rhs_archive", np.eye(5), cfg={"samples": 1}, archive_source=archive_source)
 
 
 def test_rhs_archive_insufficient_files_raises(
-    spd_matrix: np.ndarray, rhs_files: tuple[list[Path], str]
+    spd_matrix: np.ndarray, rhs_files: tuple[list[Path], str], archive_source: InMemoryArchiveSource
 ) -> None:
     """Requesting more files than available raises ValueError."""
     _files, glob_pattern = rhs_files
@@ -135,5 +144,5 @@ def test_rhs_archive_insufficient_files_raises(
             "rhs_archive",
             spd_matrix,
             cfg={"rhs_glob": glob_pattern, "samples": 100},
-            archive_source=ARCHIVE_SOURCE,
+            archive_source=archive_source,
         )

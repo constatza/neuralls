@@ -11,24 +11,17 @@ filename-glob behavior (``A_*.txt``) is untouched.
 
 from __future__ import annotations
 
-from functools import partial
 from pathlib import Path
 
 import numpy as np
 import pytest
-from scipy.io import mmwrite
 from scipy.sparse import csr_array
 
 from neuralls.domain.generation.source_streams import GlobMatrixStream
-from neuralls.platform.storage.archive_source import FsArchiveSource
-from neuralls.platform.storage.matrix_readers import read_matrix
 from neuralls.shared.types import MatrixFormat
+from tests.fakes.archive_source import InMemoryArchiveSource
 
-ARCHIVE_SOURCE = FsArchiveSource()
-
-pytestmark = pytest.mark.deferred_io("generation-io")
-
-_READER = partial(read_matrix, lazy=True)
+RAW_ROOT = Path("/archive/raw")
 
 
 def _marker_matrix(value: float) -> csr_array:
@@ -37,36 +30,50 @@ def _marker_matrix(value: float) -> csr_array:
 
 
 @pytest.fixture
-def one_level_case_dirs(tmp_path: Path) -> Path:
-    """<root>/{0,1,2}/K_ff.mtx, each a distinct sparse matrix."""
-    root = tmp_path / "raw"
-    root.mkdir()
-    for i in (0, 1, 2):
-        case_dir = root / str(i)
-        case_dir.mkdir()
-        mmwrite(str(case_dir / "K_ff.mtx"), _marker_matrix(float(i)))
-    return root
+def archive_source() -> InMemoryArchiveSource:
+    """An empty in-memory archive."""
+    return InMemoryArchiveSource()
 
 
 @pytest.fixture
-def nested_case_dirs(tmp_path: Path) -> Path:
+def one_level_case_dirs(archive_source: InMemoryArchiveSource) -> Path:
+    """<root>/{0,1,2}/K_ff.mtx, each a distinct sparse matrix."""
+    for i in (0, 1, 2):
+        archive_source.add(RAW_ROOT / str(i) / "K_ff.mtx", _marker_matrix(float(i)))
+    return RAW_ROOT
+
+
+@pytest.fixture
+def nested_case_dirs(archive_source: InMemoryArchiveSource) -> Path:
     """<root>/case_a/{0,1}/K_ff.mtx, one level deeper than one_level_case_dirs."""
-    root = tmp_path / "raw_nested"
-    root.mkdir()
-    case_a = root / "case_a"
-    case_a.mkdir()
     for i in (0, 1):
-        case_dir = case_a / str(i)
-        case_dir.mkdir()
-        mmwrite(str(case_dir / "K_ff.mtx"), _marker_matrix(float(i)))
-    return root
+        archive_source.add(RAW_ROOT / "case_a" / str(i) / "K_ff.mtx", _marker_matrix(float(i)))
+    return RAW_ROOT
+
+
+@pytest.fixture
+def prefixed_case_dirs(archive_source: InMemoryArchiveSource) -> Path:
+    """<root>/case_{3,7}/K_ff.mtx: directory names that are not bare integers."""
+    for i in (3, 7):
+        archive_source.add(RAW_ROOT / f"case_{i}" / "K_ff.mtx", _marker_matrix(float(i)))
+    return RAW_ROOT
+
+
+@pytest.fixture
+def flat_filename_dir(archive_source: InMemoryArchiveSource) -> Path:
+    """<root>/A_5.txt and A_9.txt: the flat filename-glob layout."""
+    archive_source.add(RAW_ROOT / "A_5.txt", np.eye(2))
+    archive_source.add(RAW_ROOT / "A_9.txt", 2 * np.eye(2))
+    return RAW_ROOT
 
 
 def test_one_level_wildcard_derives_ids_from_directory_name(
-    one_level_case_dirs: Path,
+    one_level_case_dirs: Path, archive_source: InMemoryArchiveSource
 ) -> None:
     stream = GlobMatrixStream(
-        str(one_level_case_dirs / "*" / "K_ff.mtx"), reader=_READER, archive_source=ARCHIVE_SOURCE
+        str(one_level_case_dirs / "*" / "K_ff.mtx"),
+        reader=archive_source.readers().generic,
+        archive_source=archive_source,
     )
 
     assert stream.sample_ids == (0, 1, 2)
@@ -74,55 +81,53 @@ def test_one_level_wildcard_derives_ids_from_directory_name(
     np.testing.assert_array_equal(csr_array(sample).toarray(), _marker_matrix(1.0).toarray())
 
 
-def test_recursive_wildcard_resolves_nested_directories(nested_case_dirs: Path) -> None:
+def test_recursive_wildcard_resolves_nested_directories(
+    nested_case_dirs: Path, archive_source: InMemoryArchiveSource
+) -> None:
     stream = GlobMatrixStream(
-        str(nested_case_dirs / "**" / "K_ff.mtx"), reader=_READER, archive_source=ARCHIVE_SOURCE
+        str(nested_case_dirs / "**" / "K_ff.mtx"),
+        reader=archive_source.readers().generic,
+        archive_source=archive_source,
     )
 
     assert stream.sample_ids == (0, 1)
 
 
 def test_one_level_wildcard_include_indices_keeps_directory_derived_ids(
-    one_level_case_dirs: Path,
+    one_level_case_dirs: Path, archive_source: InMemoryArchiveSource
 ) -> None:
     stream = GlobMatrixStream(
         str(one_level_case_dirs / "*" / "K_ff.mtx"),
         include_indices=(0, 2),
-        reader=_READER,
-        archive_source=ARCHIVE_SOURCE,
+        reader=archive_source.readers().generic,
+        archive_source=archive_source,
     )
 
     assert stream.sample_ids == (0, 2)
 
 
-def test_one_level_wildcard_custom_regex_on_directory_name(tmp_path: Path) -> None:
+def test_one_level_wildcard_custom_regex_on_directory_name(
+    prefixed_case_dirs: Path, archive_source: InMemoryArchiveSource
+) -> None:
     """A non-numeric-only directory name (``case_3``) still yields a usable id."""
-    root = tmp_path / "raw_prefixed"
-    root.mkdir()
-    for i in (3, 7):
-        case_dir = root / f"case_{i}"
-        case_dir.mkdir()
-        mmwrite(str(case_dir / "K_ff.mtx"), _marker_matrix(float(i)))
-
     stream = GlobMatrixStream(
-        str(root / "*" / "K_ff.mtx"),
+        str(prefixed_case_dirs / "*" / "K_ff.mtx"),
         sample_id_regex=r"case_(\d+)",
-        reader=_READER,
-        archive_source=ARCHIVE_SOURCE,
+        reader=archive_source.readers().generic,
+        archive_source=archive_source,
     )
 
     assert stream.sample_ids == (3, 7)
 
 
-def test_flat_filename_glob_is_unaffected_by_directory_id_support(tmp_path: Path) -> None:
+def test_flat_filename_glob_is_unaffected_by_directory_id_support(
+    flat_filename_dir: Path, archive_source: InMemoryArchiveSource
+) -> None:
     """Regression: a flat A_*.txt layout still derives ids from the filename, not a directory."""
-    mat_dir = tmp_path / "flat"
-    mat_dir.mkdir()
-    np.savetxt(mat_dir / "A_5.txt", np.eye(2))
-    np.savetxt(mat_dir / "A_9.txt", 2 * np.eye(2))
-
     stream = GlobMatrixStream(
-        str(mat_dir / "A_*.txt"), reader=_READER, archive_source=ARCHIVE_SOURCE
+        str(flat_filename_dir / "A_*.txt"),
+        reader=archive_source.readers().generic,
+        archive_source=archive_source,
     )
 
     assert stream.sample_ids == (5, 9)

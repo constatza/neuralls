@@ -10,55 +10,50 @@ import pytest
 
 from neuralls.domain.generation.strategies.validated_archive import ValidatedArchiveStrategy
 from neuralls.domain.generation.strategy_configs import ValidatedArchiveConfig
-from neuralls.platform.storage.archive_source import FsArchiveSource
+from tests.fakes.archive_source import InMemoryArchiveSource
 
-pytestmark = pytest.mark.deferred_io("generation-io")
-
-ARCHIVE_SOURCE = FsArchiveSource()
+MISSING_DIR = Path("/archive/missing")
+SOLUTIONS_DIR = Path("/archive/solutions")
+RHS_DIR = Path("/archive/rhs")
 
 
 @pytest.fixture
-def valid_pairs(tmp_path: Path, sample_matrix: np.ndarray) -> tuple[Path, Path]:
-    """Create valid (solution, RHS) pairs on disk."""
-    n = sample_matrix.shape[0]
-    num_samples = 5
+def archive_source() -> InMemoryArchiveSource:
+    """An empty in-memory archive."""
+    return InMemoryArchiveSource()
 
-    solutions_dir = tmp_path / "solutions"
-    rhs_dir = tmp_path / "rhs"
-    solutions_dir.mkdir()
-    rhs_dir.mkdir()
+
+@pytest.fixture
+def valid_pairs(
+    archive_source: InMemoryArchiveSource, sample_matrix: np.ndarray
+) -> tuple[Path, Path]:
+    """Register valid (solution, RHS) pairs in memory."""
+    n = sample_matrix.shape[0]
+    rng = np.random.default_rng(11)
 
     # Generate consistent pairs: b = A @ x
-    for i in range(num_samples):
-        x = np.random.randn(n)
-        b = sample_matrix @ x
+    for i in range(5):
+        x = rng.standard_normal(n)
+        archive_source.add(SOLUTIONS_DIR / f"sol_{i:03d}.txt", x)
+        archive_source.add(RHS_DIR / f"rhs_{i:03d}.txt", sample_matrix @ x)
 
-        np.savetxt(solutions_dir / f"sol_{i:03d}.txt", x)
-        np.savetxt(rhs_dir / f"rhs_{i:03d}.txt", b)
-
-    return solutions_dir, rhs_dir
+    return SOLUTIONS_DIR, RHS_DIR
 
 
 @pytest.fixture
-def invalid_pairs(tmp_path: Path, sample_matrix: np.ndarray) -> tuple[Path, Path]:
-    """Create invalid (solution, RHS) pairs on disk."""
+def invalid_pairs(
+    archive_source: InMemoryArchiveSource, sample_matrix: np.ndarray
+) -> tuple[Path, Path]:
+    """Register inconsistent (solution, RHS) pairs in memory."""
     n = sample_matrix.shape[0]
-    num_samples = 5
-
-    solutions_dir = tmp_path / "solutions"
-    rhs_dir = tmp_path / "rhs"
-    solutions_dir.mkdir()
-    rhs_dir.mkdir()
+    rng = np.random.default_rng(12)
 
     # Generate INCONSISTENT pairs: b != A @ x
-    for i in range(num_samples):
-        x = np.random.randn(n)
-        b = np.random.randn(n)  # Random, not A @ x!
+    for i in range(5):
+        archive_source.add(SOLUTIONS_DIR / f"sol_{i:03d}.txt", rng.standard_normal(n))
+        archive_source.add(RHS_DIR / f"rhs_{i:03d}.txt", rng.standard_normal(n))
 
-        np.savetxt(solutions_dir / f"sol_{i:03d}.txt", x)
-        np.savetxt(rhs_dir / f"rhs_{i:03d}.txt", b)
-
-    return solutions_dir, rhs_dir
+    return SOLUTIONS_DIR, RHS_DIR
 
 
 def test_validated_archive_strategy_registered() -> None:
@@ -74,7 +69,7 @@ def test_validated_archive_strategy_registered() -> None:
 
 
 def test_validated_archive_generate_valid(
-    sample_matrix: np.ndarray, valid_pairs: tuple[Path, Path]
+    sample_matrix: np.ndarray, valid_pairs: tuple[Path, Path], archive_source: InMemoryArchiveSource
 ) -> None:
     """Test generation with valid pairs."""
     solutions_dir, rhs_dir = valid_pairs
@@ -89,7 +84,7 @@ def test_validated_archive_generate_valid(
     }
 
     strategy = ValidatedArchiveStrategy()
-    samples = strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
+    samples = strategy.generate(sample_matrix, cfg=cfg, archive_source=archive_source)
     assert samples.solutions is not None
     assert samples.rhs is not None
 
@@ -109,7 +104,9 @@ def test_validated_archive_generate_valid(
 
 
 def test_validated_archive_generate_invalid_fail(
-    sample_matrix: np.ndarray, invalid_pairs: tuple[Path, Path]
+    sample_matrix: np.ndarray,
+    invalid_pairs: tuple[Path, Path],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Test that invalid pairs raise error when fail_on_invalid=True."""
     solutions_dir, rhs_dir = invalid_pairs
@@ -126,11 +123,13 @@ def test_validated_archive_generate_invalid_fail(
     strategy = ValidatedArchiveStrategy()
 
     with pytest.raises(ValueError):
-        strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
+        strategy.generate(sample_matrix, cfg=cfg, archive_source=archive_source)
 
 
 def test_validated_archive_generate_invalid_warn(
-    sample_matrix: np.ndarray, invalid_pairs: tuple[Path, Path]
+    sample_matrix: np.ndarray,
+    invalid_pairs: tuple[Path, Path],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Invalid pairs warn and still return loaded samples when configured to continue."""
     solutions_dir, rhs_dir = invalid_pairs
@@ -148,14 +147,14 @@ def test_validated_archive_generate_invalid_warn(
     with patch(
         "neuralls.domain.generation.strategies.validated_archive.logger.warning"
     ) as mock_warning:
-        samples = strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
+        samples = strategy.generate(sample_matrix, cfg=cfg, archive_source=archive_source)
 
     assert samples.solutions is not None
     mock_warning.assert_called_once()
 
 
 def test_validated_archive_shuffle(
-    sample_matrix: np.ndarray, valid_pairs: tuple[Path, Path]
+    sample_matrix: np.ndarray, valid_pairs: tuple[Path, Path], archive_source: InMemoryArchiveSource
 ) -> None:
     """Test that shuffle produces deterministic results with seed."""
     solutions_dir, rhs_dir = valid_pairs
@@ -173,8 +172,8 @@ def test_validated_archive_shuffle(
     strategy = ValidatedArchiveStrategy()
 
     # Run twice with same seed
-    samples1 = strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
-    samples2 = strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
+    samples1 = strategy.generate(sample_matrix, cfg=cfg, archive_source=archive_source)
+    samples2 = strategy.generate(sample_matrix, cfg=cfg, archive_source=archive_source)
 
     # Should get same results
     np.testing.assert_array_equal(samples1.rhs, samples2.rhs)
@@ -182,7 +181,7 @@ def test_validated_archive_shuffle(
 
 
 def test_validated_archive_all_files(
-    sample_matrix: np.ndarray, valid_pairs: tuple[Path, Path]
+    sample_matrix: np.ndarray, valid_pairs: tuple[Path, Path], archive_source: InMemoryArchiveSource
 ) -> None:
     """Test loading all files with samples=-1."""
     solutions_dir, rhs_dir = valid_pairs
@@ -197,21 +196,20 @@ def test_validated_archive_all_files(
     }
 
     strategy = ValidatedArchiveStrategy()
-    samples = strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
+    samples = strategy.generate(sample_matrix, cfg=cfg, archive_source=archive_source)
     assert samples.rhs is not None
 
     assert samples.rhs.shape[0] == 5  # All 5 files
 
 
 def test_validated_archive_missing_glob(
-    sample_matrix: np.ndarray,
-    tmp_path: Path,
+    sample_matrix: np.ndarray, archive_source: InMemoryArchiveSource
 ) -> None:
     """Test that missing glob pattern raises error."""
     cfg = {
         "samples": 5,
-        "solutions_glob": str(tmp_path / "missing" / "sol_*.txt"),
-        "rhs_glob": str(tmp_path / "missing" / "rhs_*.txt"),
+        "solutions_glob": str(MISSING_DIR / "sol_*.txt"),
+        "rhs_glob": str(MISSING_DIR / "rhs_*.txt"),
         "verification_tolerance": 1e-10,
         "fail_on_invalid": True,
         "seed": 42,
@@ -220,11 +218,11 @@ def test_validated_archive_missing_glob(
     strategy = ValidatedArchiveStrategy()
 
     with pytest.raises(FileNotFoundError):
-        strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
+        strategy.generate(sample_matrix, cfg=cfg, archive_source=archive_source)
 
 
 def test_validated_archive_insufficient_files(
-    sample_matrix: np.ndarray, valid_pairs: tuple[Path, Path]
+    sample_matrix: np.ndarray, valid_pairs: tuple[Path, Path], archive_source: InMemoryArchiveSource
 ) -> None:
     """Test that requesting more files than available raises error."""
     solutions_dir, rhs_dir = valid_pairs
@@ -241,4 +239,4 @@ def test_validated_archive_insufficient_files(
     strategy = ValidatedArchiveStrategy()
 
     with pytest.raises(ValueError):
-        strategy.generate(sample_matrix, cfg=cfg, archive_source=ARCHIVE_SOURCE)
+        strategy.generate(sample_matrix, cfg=cfg, archive_source=archive_source)

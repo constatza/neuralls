@@ -21,13 +21,11 @@ from neuralls.domain.generation.helpers import trace_rows_per_system
 from neuralls.domain.generation.interfaces import TracingSolverCallable
 from neuralls.domain.generation.step_window import StepWindow
 from neuralls.domain.generation.strategy_configs import ResidualErrorConfig
-from neuralls.platform.storage.archive_source import FsArchiveSource
+from tests.fakes.archive_source import InMemoryArchiveSource
 
 from .conftest import _SolverCallRecorder
 
-ARCHIVE_SOURCE = FsArchiveSource()
-
-pytestmark = pytest.mark.deferred_io("generation-io")
+ARCHIVE_DIR = Path("/archive")
 
 
 def _expected_trace_systems(samples: int, rows_per_system: int) -> int:
@@ -42,20 +40,26 @@ def single_rhs(spd_matrix: np.ndarray) -> np.ndarray:
 
 
 @pytest.fixture
-def solution_files(tmp_path: Path, spd_matrix: np.ndarray) -> tuple[list[Path], str]:
-    """Save random solution vectors to disk and return (files, glob_pattern).
+def archive_source() -> InMemoryArchiveSource:
+    """An empty in-memory archive."""
+    return InMemoryArchiveSource()
+
+
+@pytest.fixture
+def solution_files(
+    archive_source: InMemoryArchiveSource, spd_matrix: np.ndarray
+) -> tuple[list[Path], str]:
+    """Register random solution vectors in memory and return (files, glob_pattern).
 
     Each stored x is a random vector; RHS b = A @ x is computed by the strategy.
     """
     rng = np.random.default_rng(31)
     n = spd_matrix.shape[0]
-    files = []
-    for i in range(4):
-        x = rng.standard_normal(n)
-        p = tmp_path / f"sol_{i:03d}.txt"
-        np.savetxt(p, x)
-        files.append(p)
-    return files, str(tmp_path / "sol_*.txt")
+    files = [
+        archive_source.add(ARCHIVE_DIR / f"sol_{i:03d}.txt", rng.standard_normal(n))
+        for i in range(4)
+    ]
+    return files, str(ARCHIVE_DIR / "sol_*.txt")
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +73,10 @@ def solution_files(tmp_path: Path, spd_matrix: np.ndarray) -> tuple[list[Path], 
 
 
 def test_residuals_single_rhs_shapes(
-    spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
+    spd_matrix: np.ndarray,
+    single_rhs: np.ndarray,
+    residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Single-RHS mode: all output arrays have the correct shapes."""
     n = spd_matrix.shape[0]
@@ -83,7 +90,7 @@ def test_residuals_single_rhs_shapes(
         cfg=cfg,
         solver=residual_solver,
         single_rhs=single_rhs,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
     assert result.solutions is not None
     assert result.rhs is not None
@@ -115,6 +122,7 @@ def test_residuals_multi_rhs_shapes(
     spd_matrix: np.ndarray,
     solution_files: tuple[list[Path], str],
     residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Multiple-RHS mode: all output arrays have correct shapes."""
     _files, glob_pattern = solution_files
@@ -130,7 +138,7 @@ def test_residuals_multi_rhs_shapes(
     }
 
     result = run_generation(
-        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=ARCHIVE_SOURCE
+        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=archive_source
     )
     assert result.rhs is not None
 
@@ -150,7 +158,9 @@ def test_residuals_multi_rhs_shapes(
 
 
 def test_gaussian_residuals_multi_rhs_shapes(
-    spd_matrix: np.ndarray, residual_solver: TracingSolverCallable
+    spd_matrix: np.ndarray,
+    residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Gaussian residuals do not require archive solutions or solution globs."""
     n = spd_matrix.shape[0]
@@ -163,7 +173,7 @@ def test_gaussian_residuals_multi_rhs_shapes(
         spd_matrix,
         cfg=cfg,
         solver=residual_solver,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
     assert result.rhs is not None
 
@@ -182,7 +192,9 @@ def test_gaussian_residuals_multi_rhs_shapes(
 
 
 def test_gaussian_residuals_math_holds(
-    spd_matrix: np.ndarray, residual_solver: TracingSolverCallable
+    spd_matrix: np.ndarray,
+    residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Gaussian residuals still satisfy e_k = x_true - x_k and r_k = A @ e_k."""
     cfg = {"samples": 10, "stop": 4, "start": 1, "seed": 0}
@@ -192,7 +204,7 @@ def test_gaussian_residuals_math_holds(
         spd_matrix,
         cfg=cfg,
         solver=residual_solver,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     et = result.error_traces
@@ -215,6 +227,7 @@ def test_error_equals_true_minus_current(
     spd_matrix: np.ndarray,
     solution_files: tuple[list[Path], str],
     residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """e_k = x_true - x_k holds for every recorded trace pair."""
     _files, glob_pattern = solution_files
@@ -227,7 +240,7 @@ def test_error_equals_true_minus_current(
     }
 
     result = run_generation(
-        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=ARCHIVE_SOURCE
+        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=archive_source
     )
 
     et = result.error_traces
@@ -243,6 +256,7 @@ def test_residual_equals_b_minus_ax(
     spd_matrix: np.ndarray,
     solution_files: tuple[list[Path], str],
     residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """r_k = b - A @ x_k: CG residual matches b - A @ current iterate."""
     _files, glob_pattern = solution_files
@@ -255,7 +269,7 @@ def test_residual_equals_b_minus_ax(
     }
 
     result = run_generation(
-        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=ARCHIVE_SOURCE
+        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=archive_source
     )
 
     et = result.error_traces
@@ -274,6 +288,7 @@ def test_residual_equals_a_times_error(
     spd_matrix: np.ndarray,
     solution_files: tuple[list[Path], str],
     residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """r_k = A @ e_k: holds exactly because b = A @ x_true in archive mode."""
     _files, glob_pattern = solution_files
@@ -286,7 +301,7 @@ def test_residual_equals_a_times_error(
     }
 
     result = run_generation(
-        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=ARCHIVE_SOURCE
+        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=archive_source
     )
 
     et = result.error_traces
@@ -303,7 +318,10 @@ def test_residual_equals_a_times_error(
 
 
 def test_residuals_trace_count(
-    spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
+    spd_matrix: np.ndarray,
+    single_rhs: np.ndarray,
+    residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Positive samples are exact final trace rows, trimming partial final systems."""
     requested_rows = 7
@@ -316,7 +334,7 @@ def test_residuals_trace_count(
         cfg=cfg,
         solver=residual_solver,
         single_rhs=single_rhs,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
     assert result.rhs is not None
 
@@ -329,7 +347,10 @@ def test_residuals_trace_count(
 
 
 def test_residuals_sample_indices(
-    spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
+    spd_matrix: np.ndarray,
+    single_rhs: np.ndarray,
+    residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """sample_indices correctly identifies which base system each trace pair belongs to."""
     requested_rows = 15
@@ -342,7 +363,7 @@ def test_residuals_sample_indices(
         cfg=cfg,
         solver=residual_solver,
         single_rhs=single_rhs,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     et = result.error_traces
@@ -357,7 +378,10 @@ def test_residuals_sample_indices(
 
 
 def test_residuals_iteration_indices(
-    spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
+    spd_matrix: np.ndarray,
+    single_rhs: np.ndarray,
+    residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """iteration_indices run start..stop (1..4) for each system when start=1, step=1.
 
@@ -373,7 +397,7 @@ def test_residuals_iteration_indices(
         cfg=cfg,
         solver=residual_solver,
         single_rhs=single_rhs,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     et = result.error_traces
@@ -396,7 +420,10 @@ def test_residuals_iteration_indices(
 
 
 def test_residuals_step_reduces_count(
-    spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
+    spd_matrix: np.ndarray,
+    single_rhs: np.ndarray,
+    residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """step=2 yields half the trace entries (stop=5, start=1 -> 5 residuals; 1,3,5 kept as 3).
 
@@ -413,7 +440,7 @@ def test_residuals_step_reduces_count(
         cfg=cfg_full,
         solver=residual_solver,
         single_rhs=single_rhs,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
     assert r_full.error_traces is not None
     r_half = run_generation(
@@ -422,7 +449,7 @@ def test_residuals_step_reduces_count(
         cfg=cfg_half,
         solver=residual_solver,
         single_rhs=single_rhs,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
     assert r_half.error_traces is not None
 
@@ -430,7 +457,10 @@ def test_residuals_step_reduces_count(
 
 
 def test_residuals_step_indices_correct(
-    spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
+    spd_matrix: np.ndarray,
+    single_rhs: np.ndarray,
+    residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """step=2 with stop=5, start=1: iteration_indices are [1, 3, 5] not [1, 2, 3]."""
     cfg = {"samples": 3, "stop": 5, "start": 1, "seed": 0, "step": 2}
@@ -441,7 +471,7 @@ def test_residuals_step_indices_correct(
         cfg=cfg,
         solver=residual_solver,
         single_rhs=single_rhs,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     et = result.error_traces
@@ -453,6 +483,7 @@ def test_residuals_step_math_still_holds(
     spd_matrix: np.ndarray,
     solution_files: tuple[list[Path], str],
     residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """e_k = x_true - x_k and r_k = A @ e_k hold even after step downsampling."""
     _files, glob_pattern = solution_files
@@ -466,7 +497,7 @@ def test_residuals_step_math_still_holds(
     }
 
     result = run_generation(
-        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=ARCHIVE_SOURCE
+        "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=archive_source
     )
 
     et = result.error_traces
@@ -481,7 +512,10 @@ def test_residuals_step_math_still_holds(
 
 
 def test_residuals_start_near_stop_keeps_last_two_iterates(
-    spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
+    spd_matrix: np.ndarray,
+    single_rhs: np.ndarray,
+    residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """start=7, stop=8 keeps K = 8 - 7 + 1 = 2 rows per system: iterates [7, 8].
 
@@ -497,7 +531,7 @@ def test_residuals_start_near_stop_keeps_last_two_iterates(
         cfg=cfg,
         solver=residual_solver,
         single_rhs=single_rhs,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     et = result.error_traces
@@ -506,7 +540,10 @@ def test_residuals_start_near_stop_keeps_last_two_iterates(
 
 
 def test_residuals_samples_minus_one_requires_finite_source(
-    spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
+    spd_matrix: np.ndarray,
+    single_rhs: np.ndarray,
+    residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """samples=-1 is rejected for single-RHS mode because the source is unbounded."""
     with pytest.raises(ValueError):
@@ -516,7 +553,7 @@ def test_residuals_samples_minus_one_requires_finite_source(
             cfg={"samples": -1, "stop": 4, "start": 1, "seed": 0},
             solver=residual_solver,
             single_rhs=single_rhs,
-            archive_source=ARCHIVE_SOURCE,
+            archive_source=archive_source,
         )
 
 
@@ -526,7 +563,10 @@ def test_residuals_samples_minus_one_requires_finite_source(
 
 
 def test_residuals_requires_stop(
-    spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
+    spd_matrix: np.ndarray,
+    single_rhs: np.ndarray,
+    residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Omitting the required `stop` field must raise, not run with a silent default."""
     with pytest.raises(ValidationError):
@@ -536,7 +576,7 @@ def test_residuals_requires_stop(
             cfg={"samples": 3, "seed": 0},
             solver=residual_solver,
             single_rhs=single_rhs,
-            archive_source=ARCHIVE_SOURCE,
+            archive_source=archive_source,
         )
 
 
@@ -549,6 +589,7 @@ def test_residuals_maxiter_equals_window_stop(
     spd_matrix: np.ndarray,
     single_rhs: np.ndarray,
     spy_solver: tuple[TracingSolverCallable, _SolverCallRecorder],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """The solver is always called with maxiter == config.window.stop, never more."""
     solver, recorder = spy_solver
@@ -561,7 +602,7 @@ def test_residuals_maxiter_equals_window_stop(
         cfg=cfg,
         solver=solver,
         single_rhs=single_rhs,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     assert recorder.calls, "solver was never called"
@@ -595,7 +636,10 @@ def test_residual_error_config_still_accepts_archive_fields() -> None:
 
 
 def test_single_rhs_true_solution_is_the_same_for_csr_and_dense(
-    spd_matrix: np.ndarray, single_rhs: np.ndarray, residual_solver: TracingSolverCallable
+    spd_matrix: np.ndarray,
+    single_rhs: np.ndarray,
+    residual_solver: TracingSolverCallable,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """The exact solution used as the error target must not depend on the storage format."""
     cfg = {"samples": 2, "stop": 3, "start": 1, "seed": 0}
@@ -606,7 +650,7 @@ def test_single_rhs_true_solution_is_the_same_for_csr_and_dense(
         cfg=cfg,
         solver=residual_solver,
         single_rhs=single_rhs,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
     sparse = run_generation(
         "residuals",
@@ -614,7 +658,7 @@ def test_single_rhs_true_solution_is_the_same_for_csr_and_dense(
         cfg=cfg,
         solver=residual_solver,
         single_rhs=single_rhs,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     assert dense.error_traces is not None

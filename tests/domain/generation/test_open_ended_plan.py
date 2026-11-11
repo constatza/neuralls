@@ -20,11 +20,7 @@ from neuralls.domain.generation.binding_allocation import (
 )
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
-from neuralls.platform.storage.archive_source import FsArchiveSource
-
-ARCHIVE_SOURCE = FsArchiveSource()
-
-pytestmark = pytest.mark.deferred_io("generation-io")
+from tests.fakes.archive_source import InMemoryArchiveSource
 
 _NUM_MATRICES = 3
 _NUM_FILES = 5
@@ -34,22 +30,23 @@ _FILE_SEED = 7
 _FILE_LENGTH = 4
 
 
+_ARCHIVE_DIR = Path("/archive")
+
+
 @pytest.fixture
-def archive_dir(tmp_path: Path) -> Path:
-    """Directory holding ``_NUM_FILES`` small seeded vector files."""
-    directory = tmp_path / "archive"
-    directory.mkdir()
+def archive_source() -> InMemoryArchiveSource:
+    """In-memory archive holding ``_NUM_FILES`` small seeded vector files."""
+    source = InMemoryArchiveSource()
     rng = np.random.default_rng(_FILE_SEED)
     for file_idx in range(_NUM_FILES):
-        vector = rng.standard_normal(_FILE_LENGTH)
-        np.savetxt(directory / f"rhs_{file_idx:02d}.txt", vector)
-    return directory
+        source.add(_ARCHIVE_DIR / f"rhs_{file_idx:02d}.txt", rng.standard_normal(_FILE_LENGTH))
+    return source
 
 
 @pytest.fixture
-def archive_glob(archive_dir: Path) -> str:
-    """Glob matching every archive file in ``archive_dir``."""
-    return str(archive_dir / "rhs_*.txt")
+def archive_glob() -> str:
+    """Glob matching every file of ``archive_source``."""
+    return str(_ARCHIVE_DIR / "rhs_*.txt")
 
 
 def _open_ended_spec(strategy: str, glob: str) -> DatasetSpec:
@@ -66,6 +63,7 @@ def _open_ended_spec(strategy: str, glob: str) -> DatasetSpec:
 
 def test_all_samples_archive_total_is_known_before_generation(
     archive_glob: str,
+    archive_source: InMemoryArchiveSource,
     make_bindings: Callable[[int, int], list[SystemBinding]],
 ) -> None:
     spec = _open_ended_spec(_ARCHIVE_STRATEGY, archive_glob)
@@ -75,7 +73,7 @@ def test_all_samples_archive_total_is_known_before_generation(
         bindings=bindings,
         spec=spec,
         num_matrix_samples=_NUM_MATRICES,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
     plan = plan_batches(allocation)
 
@@ -85,6 +83,7 @@ def test_all_samples_archive_total_is_known_before_generation(
 
 def test_all_samples_per_strategy_counts_match_the_cyclic_map(
     archive_glob: str,
+    archive_source: InMemoryArchiveSource,
     make_bindings: Callable[[int, int], list[SystemBinding]],
 ) -> None:
     spec = _open_ended_spec(_ARCHIVE_STRATEGY, archive_glob)
@@ -94,12 +93,12 @@ def test_all_samples_per_strategy_counts_match_the_cyclic_map(
         bindings=bindings,
         spec=spec,
         num_matrix_samples=_NUM_MATRICES,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     # Unit t maps to matrix t % M and file (matrix + t // M) % K, so matrix m walks the
     # pool starting at file m. Every matrix ends up with all K files, each once.
-    assert _archive_pool_size(ARCHIVE_SOURCE, archive_glob, skip=0) == _NUM_FILES
+    assert _archive_pool_size(archive_source, archive_glob, skip=0) == _NUM_FILES
     expected_files = [
         tuple((matrix + pass_idx) % _NUM_FILES for pass_idx in range(_NUM_FILES))
         for matrix in range(_NUM_MATRICES)
@@ -114,6 +113,7 @@ def test_all_samples_per_strategy_counts_match_the_cyclic_map(
 
 def test_single_matrix_all_samples_archive_is_sized(
     archive_glob: str,
+    archive_source: InMemoryArchiveSource,
     make_bindings: Callable[[int, int], list[SystemBinding]],
 ) -> None:
     # One matrix means one pool of K files, so the cyclic map yields K units in glob order.
@@ -124,7 +124,7 @@ def test_single_matrix_all_samples_archive_is_sized(
         bindings=bindings,
         spec=spec,
         num_matrix_samples=1,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
     plan = plan_batches(allocation)
 

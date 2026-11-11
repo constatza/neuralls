@@ -12,16 +12,17 @@ from neuralls.domain.generation import binding_allocation
 from neuralls.domain.generation.batch_plan import BindingAllocation
 from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.bindings import SystemBinding
+from neuralls.domain.generation.ports import ArchiveSource
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.domain.generation.strategy_rows import _generate_strategy_rows, _StrategyRows
-from neuralls.platform.storage.archive_source import FsArchiveSource
+from tests.fakes.archive_source import InMemoryArchiveSource
 
-ARCHIVE_SOURCE = FsArchiveSource()
-
-pytestmark = pytest.mark.deferred_io("generation-io")
+ARCHIVE_DIR = Path("/archive")
 
 
-def _stack_strategies(matrix: np.ndarray, mixture: MixtureSpec) -> _StrategyRows:
+def _stack_strategies(
+    matrix: np.ndarray, mixture: MixtureSpec, archive_source: ArchiveSource
+) -> _StrategyRows:
     """Run each strategy for its count and stack rows in mixture order, row kinds included."""
     assert mixture.counts is not None
     parts = [
@@ -30,7 +31,7 @@ def _stack_strategies(matrix: np.ndarray, mixture: MixtureSpec) -> _StrategyRows
         if count != 0
         if (
             rows := _generate_strategy_rows(
-                matrix, mixture, name, count, archive_source=ARCHIVE_SOURCE
+                matrix, mixture, name, count, archive_source=archive_source
             )
         )
         is not None
@@ -40,6 +41,28 @@ def _stack_strategies(matrix: np.ndarray, mixture: MixtureSpec) -> _StrategyRows
         solutions=np.vstack([part.solutions for part in parts]),
         row_kind_codes=np.concatenate([part.row_kind_codes for part in parts]),
     )
+
+
+@pytest.fixture
+def archive_source() -> InMemoryArchiveSource:
+    """An empty in-memory archive."""
+    return InMemoryArchiveSource()
+
+
+@pytest.fixture
+def write_solution_files(archive_source: InMemoryArchiveSource) -> Callable[[int], str]:
+    """Register ``n`` sorted solution files and return their glob pattern.
+
+    File ``k`` holds the constant vector ``k + 1`` of length 4, so its position in
+    the sorted pool is recoverable from its contents.
+    """
+
+    def _write(n_files: int) -> str:
+        for idx in range(n_files):
+            archive_source.add(ARCHIVE_DIR / f"solution_{idx:03d}.txt", np.full(4, float(idx + 1)))
+        return str(ARCHIVE_DIR / "solution_*.txt")
+
+    return _write
 
 
 @pytest.fixture
@@ -62,6 +85,7 @@ def three_bindings() -> list[SystemBinding]:
 
 def test_resolve_binding_strategy_counts_rejects_unsupported_replacement(
     three_bindings: list[SystemBinding],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     with pytest.raises(ValueError):
         _resolve_binding_strategy_counts(
@@ -75,12 +99,13 @@ def test_resolve_binding_strategy_counts_rejects_unsupported_replacement(
                 replacement=True,
             ),
             num_matrix_samples=3,
-            archive_source=ARCHIVE_SOURCE,
+            archive_source=archive_source,
         )
 
 
 def test_resolve_binding_strategy_counts_rejects_finite_trace_replacement(
     three_bindings: list[SystemBinding],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     with pytest.raises(ValueError):
         _resolve_binding_strategy_counts(
@@ -94,13 +119,14 @@ def test_resolve_binding_strategy_counts_rejects_finite_trace_replacement(
                 replacement=True,
             ),
             num_matrix_samples=3,
-            archive_source=ARCHIVE_SOURCE,
+            archive_source=archive_source,
         )
 
 
 def test_row_kind_codes_length_matches_trace_rows(
     spd_matrix: np.ndarray,
     solver_overrides: dict,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """row_kind_codes must align with the trace rows, not with the base-system count.
 
@@ -116,6 +142,7 @@ def test_row_kind_codes_length_matches_trace_rows(
             strategy_overrides={"gaussian_residuals": {"stop": 4, "start": 1}},
             solver_overrides=solver_overrides,
         ),
+        archive_source,
     )
 
     assert result.row_kind_codes.shape[0] == result.rhs.shape[0]
@@ -124,6 +151,7 @@ def test_row_kind_codes_length_matches_trace_rows(
 def test_mixed_strategy_row_kind_codes_concatenated_correctly(
     spd_matrix: np.ndarray,
     solver_overrides: dict,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """row_kind_codes must cover every row in order: forward rows first, then trace rows."""
     from neuralls.shared.enum_codecs import decode_row_kind_array
@@ -141,6 +169,7 @@ def test_mixed_strategy_row_kind_codes_concatenated_correctly(
             strategy_overrides={"gaussian_residuals": {"stop": 2, "start": 1}},
             solver_overrides=solver_overrides,
         ),
+        archive_source,
     )
 
     assert result.rhs.shape[0] == 7
@@ -155,7 +184,7 @@ def test_mixed_strategy_row_kind_codes_concatenated_correctly(
 
 
 def test_gaussian_split_mix_preserves_requested_total_rows(
-    spd_matrix: np.ndarray, solver_overrides: dict
+    spd_matrix: np.ndarray, solver_overrides: dict, archive_source: InMemoryArchiveSource
 ) -> None:
     """A residual/pure Gaussian split uses exact row budgets for both strategies."""
     from neuralls.shared.enum_codecs import decode_row_kind_array
@@ -173,6 +202,7 @@ def test_gaussian_split_mix_preserves_requested_total_rows(
             },
             solver_overrides=solver_overrides,
         ),
+        archive_source,
     )
 
     assert result.rhs.shape[0] == 10
@@ -195,19 +225,18 @@ def test_gaussian_split_mix_preserves_requested_total_rows(
 
 
 def test_archive_split_mix_uses_solution_archive_skip(
-    tmp_path: Path,
     spd_matrix: np.ndarray,
     solver_overrides: dict,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Archive-backed split rows can skip residual base systems to avoid duplicate pairs."""
     vectors = []
     for idx in range(4):
         vector = np.full(spd_matrix.shape[0], float(idx + 1), dtype=np.float64)
-        path = tmp_path / f"solution_{idx:03d}.txt"
-        np.savetxt(path, vector)
+        archive_source.add(ARCHIVE_DIR / f"solution_{idx:03d}.txt", vector)
         vectors.append(vector)
 
-    glob_pattern = str(tmp_path / "solution_*.txt")
+    glob_pattern = str(ARCHIVE_DIR / "solution_*.txt")
     result = _stack_strategies(
         spd_matrix,
         MixtureSpec(
@@ -229,6 +258,7 @@ def test_archive_split_mix_uses_solution_archive_skip(
             },
             solver_overrides=solver_overrides,
         ),
+        archive_source,
     )
 
     assert result.rhs.shape[0] == 5
@@ -238,6 +268,7 @@ def test_archive_split_mix_uses_solution_archive_skip(
 def test_archive_mixes_with_generated_strategies_across_matrices(
     three_bindings: list[SystemBinding],
     write_solution_files: Callable[[int], str],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """An archive and a generated strategy share one multi-matrix mixture, each fully allocated."""
     glob = write_solution_files(5)
@@ -252,7 +283,7 @@ def test_archive_mixes_with_generated_strategies_across_matrices(
             replacement=False,
         ),
         num_matrix_samples=3,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     generated = [counts["gaussian_forward"] for counts in allocation.counts]
@@ -263,6 +294,7 @@ def test_archive_mixes_with_generated_strategies_across_matrices(
 
 def test_resolve_binding_strategy_counts_rejects_all_samples_with_replacement(
     three_bindings: list[SystemBinding],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """samples=-1 must not be invisible to the replacement guard.
 
@@ -283,7 +315,7 @@ def test_resolve_binding_strategy_counts_rejects_all_samples_with_replacement(
                 replacement=True,
             ),
             num_matrix_samples=3,
-            archive_source=ARCHIVE_SOURCE,
+            archive_source=archive_source,
         )
 
 
@@ -316,6 +348,7 @@ def _archive_pairs(allocation: BindingAllocation) -> list[tuple[int, int]]:
 def test_resolve_archive_counts_and_files_are_distinct_pairs(
     write_solution_files: Callable[[int], str],
     three_bindings: list[SystemBinding],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Archive units are spread over the pool with cyclic, non-repeating (matrix, file) pairs."""
     glob_pattern = write_solution_files(5)
@@ -324,7 +357,7 @@ def test_resolve_archive_counts_and_files_are_distinct_pairs(
         bindings=three_bindings,
         spec=_archive_spec(glob_pattern, 5),
         num_matrix_samples=3,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     assert [counts["solution_archive"] for counts in allocation.counts] == [2, 2, 1]
@@ -337,6 +370,7 @@ def test_resolve_archive_counts_and_files_are_distinct_pairs(
 def test_archive_base_split_uses_full_pool_without_repeats(
     write_solution_files: Callable[[int], str],
     three_bindings: list[SystemBinding],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """A count equal to the full M*K pool gives matrix i ceil((50 - i) / 3) distinct files."""
     glob_pattern = write_solution_files(50)
@@ -345,7 +379,7 @@ def test_archive_base_split_uses_full_pool_without_repeats(
         bindings=three_bindings,
         spec=_archive_spec(glob_pattern, 50),
         num_matrix_samples=3,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     assert [counts["solution_archive"] for counts in allocation.counts] == [17, 17, 16]
@@ -356,6 +390,7 @@ def test_archive_base_split_uses_full_pool_without_repeats(
 def test_archive_all_samples_emits_every_pair_once(
     write_solution_files: Callable[[int], str],
     three_bindings: list[SystemBinding],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """samples = -1 on an archive emits all M*K (matrix, file) pairs, each exactly once."""
     glob_pattern = write_solution_files(5)
@@ -364,7 +399,7 @@ def test_archive_all_samples_emits_every_pair_once(
         bindings=three_bindings,
         spec=_archive_spec(glob_pattern, -1),
         num_matrix_samples=3,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     assert [counts["solution_archive"] for counts in allocation.counts] == [5, 5, 5]
@@ -383,6 +418,7 @@ def test_archive_request_above_m_times_k_is_capped_with_one_warning(
     write_solution_files: Callable[[int], str],
     three_bindings: list[SystemBinding],
     warning_messages: list[str],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """A count above M*K is capped at M*K and reported once, naming both counts."""
     glob_pattern = write_solution_files(5)
@@ -391,7 +427,7 @@ def test_archive_request_above_m_times_k_is_capped_with_one_warning(
         bindings=three_bindings,
         spec=_archive_spec(glob_pattern, 20),
         num_matrix_samples=3,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     assert [counts["solution_archive"] for counts in allocation.counts] == [5, 5, 5]
@@ -405,6 +441,7 @@ def test_archive_request_at_or_below_m_times_k_has_no_warning(
     three_bindings: list[SystemBinding],
     warning_messages: list[str],
     requested: int,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """A count at or below M*K is emitted in full with no warning."""
     glob_pattern = write_solution_files(5)
@@ -413,7 +450,7 @@ def test_archive_request_at_or_below_m_times_k_has_no_warning(
         bindings=three_bindings,
         spec=_archive_spec(glob_pattern, requested),
         num_matrix_samples=3,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     total = sum(counts["solution_archive"] for counts in allocation.counts)
@@ -423,6 +460,7 @@ def test_archive_request_at_or_below_m_times_k_has_no_warning(
 
 def test_archive_single_matrix_several_bindings_is_rejected_before_draw(
     monkeypatch: pytest.MonkeyPatch,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """One matrix with several archive bindings would repeat files: reject before any glob read."""
 
@@ -440,12 +478,13 @@ def test_archive_single_matrix_several_bindings_is_rejected_before_draw(
             bindings=bindings,
             spec=_archive_spec("/fake/solution_*.txt", 3),
             num_matrix_samples=1,
-            archive_source=ARCHIVE_SOURCE,
+            archive_source=archive_source,
         )
 
 
 def test_archive_single_matrix_single_binding_still_works(
     write_solution_files: Callable[[int], str],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """A single matrix with one binding keeps the requested archive count."""
     glob_pattern = write_solution_files(5)
@@ -454,7 +493,7 @@ def test_archive_single_matrix_single_binding_still_works(
         bindings=[SystemBinding(sample_id=0, matrix_sample_id=0)],
         spec=_archive_spec(glob_pattern, 3),
         num_matrix_samples=1,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     assert [counts["solution_archive"] for counts in allocation.counts] == [3]
@@ -463,6 +502,7 @@ def test_archive_single_matrix_single_binding_still_works(
 def test_resolve_generated_remainder_is_fully_allocated(
     three_bindings: list[SystemBinding],
     warning_messages: list[str],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """A generated count with a remainder is split without dropping any samples."""
     allocation = _resolve_binding_strategy_counts(
@@ -472,7 +512,7 @@ def test_resolve_generated_remainder_is_fully_allocated(
             replacement=False,
         ),
         num_matrix_samples=3,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
     counts = [counts["gaussian_forward"] for counts in allocation.counts]
@@ -483,6 +523,7 @@ def test_resolve_generated_remainder_is_fully_allocated(
 
 def test_resolve_binding_strategy_counts_rejects_unresolvable_all_samples(
     three_bindings: list[SystemBinding],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """samples=-1 across multiple bindings must fail fast without a resolvable glob."""
     with pytest.raises(ValueError):
@@ -497,5 +538,5 @@ def test_resolve_binding_strategy_counts_rejects_unresolvable_all_samples(
                 replacement=False,
             ),
             num_matrix_samples=3,
-            archive_source=ARCHIVE_SOURCE,
+            archive_source=archive_source,
         )

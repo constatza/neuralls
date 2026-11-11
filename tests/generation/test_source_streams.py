@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from functools import partial
 from pathlib import Path
 from unittest.mock import patch
 
@@ -20,13 +19,6 @@ from neuralls.domain.generation.source_streams import (
     open_matrix_stream,
     open_vector_stream,
 )
-from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
-from tests.dataset_support import build_test_dataset
-
-pytestmark = pytest.mark.deferred_io("generation-io")
-
-_READER = partial(read_matrix, lazy=True)
-_READERS = MatrixReaders(generic=_READER, dense=partial(read_dense_npy, lazy=True))
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.archive_source import FsArchiveSource
 from neuralls.platform.storage.dataset_readers import (
@@ -43,8 +35,37 @@ from neuralls.platform.storage.datasets import (
 from neuralls.platform.storage.enum_codecs import decode_row_kind_array
 from neuralls.platform.storage.generation_formats import HDF5_FILENAME as DENSE_DATASET_FILE
 from neuralls.shared.types import RowKind
+from tests.dataset_support import build_test_dataset
+from tests.fakes.archive_source import InMemoryArchiveSource
 
-ARCHIVE_SOURCE = FsArchiveSource()
+pytestmark = pytest.mark.deferred_io("generation-io")
+
+ARCHIVE_DIR = Path("/archive")
+
+_ARBITRARY_PARAMETER_SETS = [(3000, 78000), (5000, 100000), (1000, 50000)]
+_SUBDOMAIN_PARAMETER_SETS = [
+    (10554158, 20662154, 19907116, 20715669),
+    (10846921, 25611823, 31377296, 28205425),
+    (12000001, 22000002, 32000003, 42000004),
+]
+
+
+def _spd_matrix(rng: np.random.Generator, n: int) -> np.ndarray:
+    """A random symmetric positive-definite ``n``×``n`` matrix."""
+    a = rng.standard_normal((n, n))
+    return a @ a.T + n * np.eye(n)
+
+
+@pytest.fixture
+def archive() -> InMemoryArchiveSource:
+    """An empty in-memory archive; each test registers the files it reads."""
+    return InMemoryArchiveSource()
+
+
+@pytest.fixture
+def readers(archive: InMemoryArchiveSource) -> MatrixReaders:
+    """Readers over the arrays registered in ``archive``."""
+    return archive.readers()
 
 
 @pytest.fixture
@@ -55,13 +76,13 @@ def three_spd_txt_matrices(tmp_path: Path) -> tuple[Path, int]:
     mat_dir.mkdir()
     n = 5
     for i in range(3):
-        A = rng.standard_normal((n, n))
-        A = A @ A.T + n * np.eye(n)
-        np.savetxt(mat_dir / f"A_{i:03d}.txt", A)
+        np.savetxt(mat_dir / f"A_{i:03d}.txt", _spd_matrix(rng, n))
     return mat_dir, n
 
 
-def test_open_matrix_stream_from_npy_stack(tmp_path: Path) -> None:
+def test_open_matrix_stream_from_npy_stack(
+    archive: InMemoryArchiveSource, readers: MatrixReaders
+) -> None:
     matrix_stack = np.array(
         [
             [[2.0, 0.0], [0.0, 3.0]],
@@ -69,10 +90,9 @@ def test_open_matrix_stream_from_npy_stack(tmp_path: Path) -> None:
         ],
         dtype=np.float64,
     )
-    matrix_path = tmp_path / "matrices.npy"
-    np.save(matrix_path, matrix_stack)
+    matrix_path = archive.add(ARCHIVE_DIR / "matrices.npy", matrix_stack)
 
-    stream = open_matrix_stream(str(matrix_path), readers=_READERS, archive_source=ARCHIVE_SOURCE)
+    stream = open_matrix_stream(str(matrix_path), readers=readers, archive_source=archive)
     assert stream.sample_ids == (0, 1)
 
     dense_one = stream.load_dense_sample(1)
@@ -162,12 +182,13 @@ def test_build_dataset_hdf5_output_holds_the_generated_matrix(tmp_path: Path) ->
     np.testing.assert_allclose(load_matrix_dense_sample(out_dir, 0), matrix)
 
 
-def test_open_vector_stream_from_npy_stack(tmp_path: Path) -> None:
+def test_open_vector_stream_from_npy_stack(
+    archive: InMemoryArchiveSource, readers: MatrixReaders
+) -> None:
     rhs = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)
-    rhs_path = tmp_path / "rhs.npy"
-    np.save(rhs_path, rhs)
+    rhs_path = archive.add(ARCHIVE_DIR / "rhs.npy", rhs)
 
-    stream = open_vector_stream(str(rhs_path), readers=_READERS, archive_source=ARCHIVE_SOURCE)
+    stream = open_vector_stream(str(rhs_path), readers=readers, archive_source=archive)
     assert stream.sample_ids == (0, 1)
     np.testing.assert_allclose(stream.load_sample(1).vector, rhs[1])
 
@@ -424,47 +445,65 @@ def test_glob_matrix_solution_archive_uses_global_sample_budget(
 
 
 @pytest.fixture
-def arbitrary_named_txt_matrices(tmp_path: Path) -> tuple[Path, int]:
+def arbitrary_named_txt_matrices(archive: InMemoryArchiveSource) -> tuple[Path, int]:
     """Three 5×5 SPD matrices with parameter-encoded filenames (no sequential integer ID)."""
     rng = np.random.default_rng(99)
-    mat_dir = tmp_path / "arbitrary_matrices"
-    mat_dir.mkdir()
+    mat_dir = ARCHIVE_DIR / "arbitrary_matrices"
     n = 5
-    for E1, E2 in [(3000, 78000), (5000, 100000), (1000, 50000)]:
-        A = rng.standard_normal((n, n))
-        A = A @ A.T + n * np.eye(n)
-        np.savetxt(mat_dir / f"E1_{E1}_E2_{E2}_matrix.txt", A)
+    for e1, e2 in _ARBITRARY_PARAMETER_SETS:
+        archive.add(mat_dir / f"E1_{e1}_E2_{e2}_matrix.txt", _spd_matrix(rng, n))
     return mat_dir, n
 
 
 @pytest.fixture
-def subdomain_named_txt_matrices(tmp_path: Path) -> tuple[Path, int]:
-    """Three SPD matrices whose stems would collide under the default trailing-digit regex."""
+def arbitrary_named_txt_vectors(archive: InMemoryArchiveSource) -> Path:
+    """Three length-5 vectors with parameter-encoded filenames (no sequential integer ID)."""
+    rng = np.random.default_rng(42)
+    vec_dir = ARCHIVE_DIR / "vecs"
+    for e1, e2 in _ARBITRARY_PARAMETER_SETS:
+        archive.add(vec_dir / f"E1_{e1}_E2_{e2}_rhs.txt", rng.standard_normal(5))
+    return vec_dir
+
+
+@pytest.fixture
+def subdomain_matrices() -> dict[str, np.ndarray]:
+    """SPD matrices by filename whose stems would collide under the default trailing-digit regex."""
     rng = np.random.default_rng(123)
+    return {
+        f"E1_{e1}_E2_{e2}_E3_{e3}_E4_{e4}_subdomain_1_Kaa.txt": _spd_matrix(rng, 4)
+        for e1, e2, e3, e4 in _SUBDOMAIN_PARAMETER_SETS
+    }
+
+
+@pytest.fixture
+def subdomain_named_txt_matrices(
+    tmp_path: Path, subdomain_matrices: dict[str, np.ndarray]
+) -> tuple[Path, int]:
+    """The subdomain matrices written to .txt files, for building a real dataset."""
     mat_dir = tmp_path / "subdomain_matrices"
     mat_dir.mkdir()
-    n = 4
-    parameter_sets = [
-        (10554158, 20662154, 19907116, 20715669),
-        (10846921, 25611823, 31377296, 28205425),
-        (12000001, 22000002, 32000003, 42000004),
-    ]
-    for e1, e2, e3, e4 in parameter_sets:
-        A = rng.standard_normal((n, n))
-        A = A @ A.T + n * np.eye(n)
-        np.savetxt(
-            mat_dir / f"E1_{e1}_E2_{e2}_E3_{e3}_E4_{e4}_subdomain_1_Kaa.txt",
-            A,
-        )
-    return mat_dir, n
+    for name, matrix in subdomain_matrices.items():
+        np.savetxt(mat_dir / name, matrix)
+    return mat_dir, 4
 
 
-def test_enumerate_files_assigns_sequential_ids_in_name_order(tmp_path: Path) -> None:
-    paths = [tmp_path / f"file_z_{suffix}.txt" for suffix in ["c", "a", "b"]]
-    for p in paths:
-        p.touch()
+@pytest.fixture
+def in_memory_subdomain_matrices(
+    archive: InMemoryArchiveSource, subdomain_matrices: dict[str, np.ndarray]
+) -> Path:
+    """The subdomain matrices registered in the in-memory archive."""
+    mat_dir = ARCHIVE_DIR / "subdomain_matrices"
+    for name, matrix in subdomain_matrices.items():
+        archive.add(mat_dir / name, matrix)
+    return mat_dir
 
-    result = _enumerate_files(paths, EnumerateBy.NAME, ARCHIVE_SOURCE)
+
+def test_enumerate_files_assigns_sequential_ids_in_name_order(
+    archive: InMemoryArchiveSource,
+) -> None:
+    paths = [ARCHIVE_DIR / f"file_z_{suffix}.txt" for suffix in ["c", "a", "b"]]
+
+    result = _enumerate_files(paths, EnumerateBy.NAME, archive)
 
     assert sorted(result.keys()) == [0, 1, 2]
     assert [result[i].name for i in range(3)] == [
@@ -474,25 +513,24 @@ def test_enumerate_files_assigns_sequential_ids_in_name_order(tmp_path: Path) ->
     ]
 
 
-def test_enumerate_files_assigns_sequential_ids_by_mtime(tmp_path: Path) -> None:
-    import time
+@pytest.fixture
+def staggered_files(archive: InMemoryArchiveSource) -> list[Path]:
+    """Files c, a, b created in that order, each later than the last, in both clocks."""
+    return [
+        archive.add(ARCHIVE_DIR / f"file_{suffix}.txt", np.zeros(1), mtime=float(i), ctime=float(i))
+        for i, suffix in enumerate(["c", "a", "b"])
+    ]
 
-    paths = []
-    for suffix in ["c", "a", "b"]:
-        p = tmp_path / f"file_{suffix}.txt"
-        p.touch()
-        paths.append(p)
-        time.sleep(0.01)
 
-    result = _enumerate_files(paths, EnumerateBy.MTIME, ARCHIVE_SOURCE)
+def test_enumerate_files_assigns_sequential_ids_by_mtime(
+    archive: InMemoryArchiveSource, staggered_files: list[Path]
+) -> None:
+    result = _enumerate_files(staggered_files, EnumerateBy.MTIME, archive)
 
     # Creation order was c, a, b — IDs should follow mtime order
     assert result[0].name == "file_c.txt"
     assert result[1].name == "file_a.txt"
     assert result[2].name == "file_b.txt"
-
-
-_HAS_BIRTHTIME = hasattr(os.stat("."), "st_birthtime")
 
 
 def test_creation_time_rejects_stat_without_birthtime() -> None:
@@ -503,7 +541,7 @@ def test_creation_time_rejects_stat_without_birthtime() -> None:
         patch.object(Path, "stat", return_value=stat_without_birthtime),
         pytest.raises(ValueError) as excinfo,
     ):
-        ARCHIVE_SOURCE.creation_time(Path("a.txt"))
+        FsArchiveSource().creation_time(Path("a.txt"))
 
     assert str(excinfo.value) == (
         "enumerate_by='ctime' needs file creation times, which this platform does not "
@@ -511,54 +549,45 @@ def test_creation_time_rejects_stat_without_birthtime() -> None:
     )
 
 
-@pytest.mark.skipif(not _HAS_BIRTHTIME, reason="platform records no file creation time")
-def test_enumerate_files_assigns_sequential_ids_by_ctime(tmp_path: Path) -> None:
-    import time
-
-    paths = []
-    for suffix in ["c", "a", "b"]:
-        p = tmp_path / f"file_{suffix}.txt"
-        p.touch()
-        paths.append(p)
-        time.sleep(0.01)
-
-    result = _enumerate_files(paths, EnumerateBy.CTIME, ARCHIVE_SOURCE)
+def test_enumerate_files_assigns_sequential_ids_by_ctime(
+    archive: InMemoryArchiveSource, staggered_files: list[Path]
+) -> None:
+    result = _enumerate_files(staggered_files, EnumerateBy.CTIME, archive)
 
     assert [result[i].name for i in range(3)] == ["file_c.txt", "file_a.txt", "file_b.txt"]
 
 
-@pytest.mark.skipif(_HAS_BIRTHTIME, reason="platform records file creation times")
-def test_enumerate_files_by_ctime_raises_without_creation_times(tmp_path: Path) -> None:
-    paths = [tmp_path / "a.txt", tmp_path / "b.txt"]
-    for p in paths:
-        p.touch()
+def test_enumerate_files_by_ctime_raises_without_creation_times(
+    archive: InMemoryArchiveSource,
+) -> None:
+    paths = [archive.add(ARCHIVE_DIR / name, np.zeros(1), mtime=0.0) for name in ("a.txt", "b.txt")]
 
     with pytest.raises(ValueError, match="creation times"):
-        _enumerate_files(paths, EnumerateBy.CTIME, ARCHIVE_SOURCE)
+        _enumerate_files(paths, EnumerateBy.CTIME, archive)
 
 
-def test_enumerate_files_breaks_timestamp_ties_by_name(tmp_path: Path) -> None:
-    paths = []
-    for suffix in ["c", "b", "a"]:
-        p = tmp_path / f"file_{suffix}.txt"
-        p.touch()
-        os.utime(p, (1_000_000.0, 1_000_000.0))
-        paths.append(p)
+def test_enumerate_files_breaks_timestamp_ties_by_name(archive: InMemoryArchiveSource) -> None:
+    paths = [
+        archive.add(ARCHIVE_DIR / f"file_{suffix}.txt", np.zeros(1), mtime=1_000_000.0)
+        for suffix in ["c", "b", "a"]
+    ]
 
-    result = _enumerate_files(paths, EnumerateBy.MTIME, ARCHIVE_SOURCE)
+    result = _enumerate_files(paths, EnumerateBy.MTIME, archive)
 
     assert [result[i].name for i in range(3)] == ["file_a.txt", "file_b.txt", "file_c.txt"]
 
 
 def test_glob_matrix_stream_enumerate_by_name_with_arbitrary_filenames(
+    archive: InMemoryArchiveSource,
+    readers: MatrixReaders,
     arbitrary_named_txt_matrices: tuple[Path, int],
 ) -> None:
     mat_dir, n = arbitrary_named_txt_matrices
     stream = GlobMatrixStream(
         str(mat_dir / "E1_*_matrix.txt"),
         enumerate_by=EnumerateBy.NAME,
-        reader=_READER,
-        archive_source=ARCHIVE_SOURCE,
+        reader=readers.generic,
+        archive_source=archive,
     )
 
     assert stream.sample_ids == (0, 1, 2)
@@ -566,18 +595,14 @@ def test_glob_matrix_stream_enumerate_by_name_with_arbitrary_filenames(
     assert sample.matrix.shape == (n, n)
 
 
-def test_glob_vector_stream_enumerate_by_name_with_arbitrary_filenames(tmp_path: Path) -> None:
-    vec_dir = tmp_path / "vecs"
-    vec_dir.mkdir()
-    rng = np.random.default_rng(42)
-    for E1, E2 in [(3000, 78000), (5000, 100000), (1000, 50000)]:
-        np.savetxt(vec_dir / f"E1_{E1}_E2_{E2}_rhs.txt", rng.standard_normal(5))
-
+def test_glob_vector_stream_enumerate_by_name_with_arbitrary_filenames(
+    archive: InMemoryArchiveSource, readers: MatrixReaders, arbitrary_named_txt_vectors: Path
+) -> None:
     stream = GlobVectorStream(
-        str(vec_dir / "E1_*_rhs.txt"),
+        str(arbitrary_named_txt_vectors / "E1_*_rhs.txt"),
         enumerate_by=EnumerateBy.NAME,
-        reader=_READER,
-        archive_source=ARCHIVE_SOURCE,
+        reader=readers.generic,
+        archive_source=archive,
     )
 
     assert stream.sample_ids == (0, 1, 2)
@@ -585,30 +610,34 @@ def test_glob_vector_stream_enumerate_by_name_with_arbitrary_filenames(tmp_path:
 
 
 def test_open_matrix_stream_glob_with_enumerate_by_name(
+    archive: InMemoryArchiveSource,
+    readers: MatrixReaders,
     arbitrary_named_txt_matrices: tuple[Path, int],
 ) -> None:
     mat_dir, _ = arbitrary_named_txt_matrices
     stream = open_matrix_stream(
         str(mat_dir / "E1_*_matrix.txt"),
         enumerate_by=EnumerateBy.NAME,
-        readers=_READERS,
-        archive_source=ARCHIVE_SOURCE,
+        readers=readers,
+        archive_source=archive,
     )
 
     assert stream.sample_ids == (0, 1, 2)
 
 
 def test_glob_matrix_stream_enumerate_by_name_is_reproducible(
+    archive: InMemoryArchiveSource,
+    readers: MatrixReaders,
     arbitrary_named_txt_matrices: tuple[Path, int],
 ) -> None:
     mat_dir, _ = arbitrary_named_txt_matrices
     expr = str(mat_dir / "E1_*_matrix.txt")
 
     stream1 = GlobMatrixStream(
-        expr, enumerate_by=EnumerateBy.NAME, reader=_READER, archive_source=ARCHIVE_SOURCE
+        expr, enumerate_by=EnumerateBy.NAME, reader=readers.generic, archive_source=archive
     )
     stream2 = GlobMatrixStream(
-        expr, enumerate_by=EnumerateBy.NAME, reader=_READER, archive_source=ARCHIVE_SOURCE
+        expr, enumerate_by=EnumerateBy.NAME, reader=readers.generic, archive_source=archive
     )
 
     assert stream1.sample_ids == stream2.sample_ids
@@ -671,118 +700,121 @@ def test_source_config_accepts_enumerate_by_without_regex() -> None:
 
 
 def test_glob_matrix_stream_exclude_indices_drops_sample_without_renumbering(
-    subdomain_named_txt_matrices: tuple[Path, int],
+    archive: InMemoryArchiveSource,
+    readers: MatrixReaders,
+    in_memory_subdomain_matrices: Path,
 ) -> None:
-    mat_dir, _ = subdomain_named_txt_matrices
     stream = GlobMatrixStream(
-        str(mat_dir / "*_subdomain_1_Kaa.txt"),
+        str(in_memory_subdomain_matrices / "*_subdomain_1_Kaa.txt"),
         enumerate_by=EnumerateBy.NAME,
         exclude_indices=(1,),
-        reader=_READER,
-        archive_source=ARCHIVE_SOURCE,
+        reader=readers.generic,
+        archive_source=archive,
     )
 
     assert stream.sample_ids == (0, 2)
 
 
 def test_glob_matrix_stream_include_indices_restricts_to_subset(
-    subdomain_named_txt_matrices: tuple[Path, int],
+    archive: InMemoryArchiveSource,
+    readers: MatrixReaders,
+    in_memory_subdomain_matrices: Path,
 ) -> None:
-    mat_dir, _ = subdomain_named_txt_matrices
     stream = GlobMatrixStream(
-        str(mat_dir / "*_subdomain_1_Kaa.txt"),
+        str(in_memory_subdomain_matrices / "*_subdomain_1_Kaa.txt"),
         enumerate_by=EnumerateBy.NAME,
         include_indices=(0, 2),
-        reader=_READER,
-        archive_source=ARCHIVE_SOURCE,
+        reader=readers.generic,
+        archive_source=archive,
     )
 
     assert stream.sample_ids == (0, 2)
 
 
-def test_glob_vector_stream_exclude_indices_drops_sample(tmp_path: Path) -> None:
-    vec_dir = tmp_path / "vecs"
-    vec_dir.mkdir()
-    rng = np.random.default_rng(42)
-    for E1, E2 in [(3000, 78000), (5000, 100000), (1000, 50000)]:
-        np.savetxt(vec_dir / f"E1_{E1}_E2_{E2}_rhs.txt", rng.standard_normal(5))
-
+def test_glob_vector_stream_exclude_indices_drops_sample(
+    archive: InMemoryArchiveSource, readers: MatrixReaders, arbitrary_named_txt_vectors: Path
+) -> None:
     stream = GlobVectorStream(
-        str(vec_dir / "E1_*_rhs.txt"),
+        str(arbitrary_named_txt_vectors / "E1_*_rhs.txt"),
         enumerate_by=EnumerateBy.NAME,
         exclude_indices=(0,),
-        reader=_READER,
-        archive_source=ARCHIVE_SOURCE,
+        reader=readers.generic,
+        archive_source=archive,
     )
 
     assert stream.sample_ids == (1, 2)
 
 
 def test_glob_matrix_stream_include_and_exclude_indices_are_mutually_exclusive(
-    subdomain_named_txt_matrices: tuple[Path, int],
+    archive: InMemoryArchiveSource,
+    readers: MatrixReaders,
+    in_memory_subdomain_matrices: Path,
 ) -> None:
-    mat_dir, _ = subdomain_named_txt_matrices
     with pytest.raises(ValueError):
         GlobMatrixStream(
-            str(mat_dir / "*_subdomain_1_Kaa.txt"),
+            str(in_memory_subdomain_matrices / "*_subdomain_1_Kaa.txt"),
             enumerate_by=EnumerateBy.NAME,
             include_indices=(0,),
             exclude_indices=(1,),
-            reader=_READER,
-            archive_source=ARCHIVE_SOURCE,
+            reader=readers.generic,
+            archive_source=archive,
         )
 
 
 def test_glob_matrix_stream_include_indices_rejects_unknown_id(
-    subdomain_named_txt_matrices: tuple[Path, int],
+    archive: InMemoryArchiveSource,
+    readers: MatrixReaders,
+    in_memory_subdomain_matrices: Path,
 ) -> None:
-    mat_dir, _ = subdomain_named_txt_matrices
     with pytest.raises(ValueError):
         GlobMatrixStream(
-            str(mat_dir / "*_subdomain_1_Kaa.txt"),
+            str(in_memory_subdomain_matrices / "*_subdomain_1_Kaa.txt"),
             enumerate_by=EnumerateBy.NAME,
             include_indices=(0, 99),
-            reader=_READER,
-            archive_source=ARCHIVE_SOURCE,
+            reader=readers.generic,
+            archive_source=archive,
         )
 
 
 def test_glob_matrix_stream_exclude_indices_rejects_unknown_id(
-    subdomain_named_txt_matrices: tuple[Path, int],
+    archive: InMemoryArchiveSource,
+    readers: MatrixReaders,
+    in_memory_subdomain_matrices: Path,
 ) -> None:
     """A typo'd exclude id must fail loudly, not silently leave the leak in place."""
-    mat_dir, _ = subdomain_named_txt_matrices
     with pytest.raises(ValueError):
         GlobMatrixStream(
-            str(mat_dir / "*_subdomain_1_Kaa.txt"),
+            str(in_memory_subdomain_matrices / "*_subdomain_1_Kaa.txt"),
             enumerate_by=EnumerateBy.NAME,
             exclude_indices=(99,),
-            reader=_READER,
-            archive_source=ARCHIVE_SOURCE,
+            reader=readers.generic,
+            archive_source=archive,
         )
 
 
 def test_glob_matrix_stream_exclude_indices_rejects_emptying_all_samples(
-    subdomain_named_txt_matrices: tuple[Path, int],
+    archive: InMemoryArchiveSource,
+    readers: MatrixReaders,
+    in_memory_subdomain_matrices: Path,
 ) -> None:
-    mat_dir, _ = subdomain_named_txt_matrices
     with pytest.raises(ValueError):
         GlobMatrixStream(
-            str(mat_dir / "*_subdomain_1_Kaa.txt"),
+            str(in_memory_subdomain_matrices / "*_subdomain_1_Kaa.txt"),
             enumerate_by=EnumerateBy.NAME,
             exclude_indices=(0, 1, 2),
-            reader=_READER,
-            archive_source=ARCHIVE_SOURCE,
+            reader=readers.generic,
+            archive_source=archive,
         )
 
 
-def test_open_matrix_stream_exclude_indices_requires_glob_source(tmp_path: Path) -> None:
-    matrix_path = tmp_path / "matrix.npy"
-    np.save(matrix_path, np.eye(3))
+def test_open_matrix_stream_exclude_indices_requires_glob_source(
+    archive: InMemoryArchiveSource, readers: MatrixReaders
+) -> None:
+    matrix_path = archive.add(ARCHIVE_DIR / "matrix.npy", np.eye(3))
 
     with pytest.raises(ValueError):
         open_matrix_stream(
-            str(matrix_path), exclude_indices=(0,), readers=_READERS, archive_source=ARCHIVE_SOURCE
+            str(matrix_path), exclude_indices=(0,), readers=readers, archive_source=archive
         )
 
 

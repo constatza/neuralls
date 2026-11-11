@@ -2,28 +2,17 @@
 
 from __future__ import annotations
 
-from functools import partial
 from pathlib import Path
 
 import numpy as np
 import pytest
-from scipy.io import mmwrite
 from scipy.sparse import csr_array
 
-from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.helpers import normalize_matrix_for_generation
 from neuralls.domain.generation.source_streams import open_matrix_stream
 from neuralls.domain.normalization import matrix_norm
-from neuralls.platform.storage.archive_source import FsArchiveSource
-from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
 from neuralls.shared.types import MatrixFormat, MatrixNormType
-
-ARCHIVE_SOURCE = FsArchiveSource()
-
-pytestmark = pytest.mark.deferred_io("generation-io")
-
-_READER = partial(read_matrix, lazy=True)
-_READERS = MatrixReaders(generic=_READER, dense=partial(read_dense_npy, lazy=True))
+from tests.fakes.archive_source import InMemoryArchiveSource
 
 _SEED = 20260610
 _SIZE = 40
@@ -60,17 +49,21 @@ def toarray_calls(monkeypatch: pytest.MonkeyPatch) -> list[int]:
 
 
 @pytest.fixture
-def mtx_source(tmp_path: Path, spd_csr: csr_array) -> Path:
-    path = tmp_path / "system.mtx"
-    mmwrite(str(path), spd_csr)
-    return path
+def archive_source() -> InMemoryArchiveSource:
+    """An empty in-memory archive."""
+    return InMemoryArchiveSource()
 
 
 @pytest.fixture
-def npy_source(tmp_path: Path, spd_dense: np.ndarray) -> Path:
-    path = tmp_path / "system.npy"
-    np.save(path, spd_dense)
-    return path
+def mtx_source(archive_source: InMemoryArchiveSource, spd_csr: csr_array) -> Path:
+    """The sparse system registered under a ``.mtx`` path."""
+    return archive_source.add(Path("/archive/system.mtx"), spd_csr)
+
+
+@pytest.fixture
+def npy_source(archive_source: InMemoryArchiveSource, spd_dense: np.ndarray) -> Path:
+    """The dense system registered under a ``.npy`` path."""
+    return archive_source.add(Path("/archive/system.npy"), spd_dense)
 
 
 @pytest.mark.parametrize("normalize_type", ["matrix", "none"])
@@ -112,29 +105,24 @@ def test_csr_normalization_never_densifies(spd_csr: csr_array, toarray_calls: li
     assert toarray_calls == []
 
 
-def test_mtx_source_loads_csr_without_densifying(
-    mtx_source: Path, spd_dense: np.ndarray, toarray_calls: list[int]
-) -> None:
-    stream = open_matrix_stream(str(mtx_source), readers=_READERS, archive_source=ARCHIVE_SOURCE)
-    loaded = stream.load_sample(0, MatrixFormat.CSR)
-
-    assert isinstance(loaded, csr_array)
-    assert toarray_calls == []
-    np.testing.assert_array_equal(loaded.toarray(), spd_dense)
-
-
 def test_dense_npy_source_requested_as_csr_converts_explicitly(
-    npy_source: Path, spd_dense: np.ndarray
+    npy_source: Path, spd_dense: np.ndarray, archive_source: InMemoryArchiveSource
 ) -> None:
-    stream = open_matrix_stream(str(npy_source), readers=_READERS, archive_source=ARCHIVE_SOURCE)
+    stream = open_matrix_stream(
+        str(npy_source), readers=archive_source.readers(), archive_source=archive_source
+    )
     loaded = stream.load_sample(0, MatrixFormat.CSR)
 
     assert isinstance(loaded, csr_array)
     np.testing.assert_array_equal(loaded.toarray(), spd_dense)
 
 
-def test_dense_format_returns_ndarray(mtx_source: Path, spd_dense: np.ndarray) -> None:
-    stream = open_matrix_stream(str(mtx_source), readers=_READERS, archive_source=ARCHIVE_SOURCE)
+def test_dense_format_returns_ndarray(
+    mtx_source: Path, spd_dense: np.ndarray, archive_source: InMemoryArchiveSource
+) -> None:
+    stream = open_matrix_stream(
+        str(mtx_source), readers=archive_source.readers(), archive_source=archive_source
+    )
     loaded = stream.load_sample(0, MatrixFormat.DENSE)
 
     assert isinstance(loaded, np.ndarray)

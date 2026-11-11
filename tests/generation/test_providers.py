@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -17,17 +17,21 @@ from neuralls.domain.generation.providers import (
     _load_archive_files_cached,
     provide_solutions,
 )
-from neuralls.platform.storage.archive_source import FsArchiveSource
+from tests.fakes.archive_source import InMemoryArchiveSource
 
-ARCHIVE_SOURCE = FsArchiveSource()
-
-pytestmark = pytest.mark.deferred_io("generation-io")
+ARCHIVE_DIR = Path("/archive")
 
 
 @pytest.fixture
 def sample_matrix() -> np.ndarray:
     """Sample 10x10 identity matrix."""
     return np.eye(10)
+
+
+@pytest.fixture
+def archive_source() -> InMemoryArchiveSource:
+    """An empty in-memory archive."""
+    return InMemoryArchiveSource()
 
 
 @pytest.fixture
@@ -85,16 +89,15 @@ def test_constant_input_provider_custom_value(
     assert np.all(solutions == 3.14)
 
 
-def test_file_input_provider_loads_from_files(tmp_path) -> None:
-    """Test file provider loads from disk."""
-    # Create test files
+def test_file_input_provider_loads_from_files(archive_source: InMemoryArchiveSource) -> None:
+    """Test file provider loads from the archive."""
+    rng = np.random.default_rng(1)
     for i in range(10):
-        data = np.random.randn(10)
-        np.savetxt(tmp_path / f"sol_{i}.txt", data)
+        archive_source.add(ARCHIVE_DIR / f"sol_{i}.txt", rng.standard_normal(10))
 
     provider = FileInputProvider(
-        ARCHIVE_SOURCE,
-        glob_pattern=str(tmp_path / "sol_*.txt"),
+        archive_source,
+        glob_pattern=str(ARCHIVE_DIR / "sol_*.txt"),
         shuffle=False,
         seed=None,
     )
@@ -107,38 +110,39 @@ def test_file_input_provider_loads_from_files(tmp_path) -> None:
     assert solutions.dtype == np.float64
 
 
-def test_file_input_provider_caches_repeated_identical_calls(tmp_path) -> None:
-    """Two calls with identical (glob, count, shuffle, seed, skip) hit disk only once."""
+def test_file_input_provider_caches_repeated_identical_calls(
+    archive_source: InMemoryArchiveSource,
+) -> None:
+    """Two calls with identical (glob, count, shuffle, seed, skip) load the files only once."""
     _load_archive_files_cached.cache_clear()
     for i in range(5):
-        np.savetxt(tmp_path / f"sol_{i}.txt", np.full(10, i, dtype=np.float64))
+        archive_source.add(ARCHIVE_DIR / f"sol_{i}.txt", np.full(10, i, dtype=np.float64))
 
     provider = FileInputProvider(
-        ARCHIVE_SOURCE, glob_pattern=str(tmp_path / "sol_*.txt"), shuffle=False, seed=None
+        archive_source, glob_pattern=str(ARCHIVE_DIR / "sol_*.txt"), shuffle=False, seed=None
     )
     matrix = np.eye(10)
     rng = np.random.default_rng(42)
 
     first = provider.provide(matrix=matrix, count=3, rng=rng)
 
-    # Mutate a file on disk; a cached second call must not see the change.
-    np.savetxt(tmp_path / "sol_0.txt", np.full(10, 999.0, dtype=np.float64))
+    # Mutate a file in the archive; a cached second call must not see the change.
+    archive_source.add(ARCHIVE_DIR / "sol_0.txt", np.full(10, 999.0, dtype=np.float64))
     second = provider.provide(matrix=matrix, count=3, rng=rng)
 
     assert np.array_equal(first, second)
     assert _load_archive_files_cached.cache_info().hits == 1
 
 
-def test_file_input_provider_with_shuffling(tmp_path) -> None:
+def test_file_input_provider_with_shuffling(archive_source: InMemoryArchiveSource) -> None:
     """Test file provider shuffles files deterministically."""
-    # Create test files
     for i in range(10):
-        data = np.full(10, i, dtype=np.float64)  # Each file has constant value i
-        np.savetxt(tmp_path / f"sol_{i}.txt", data)
+        # Each file has constant value i
+        archive_source.add(ARCHIVE_DIR / f"sol_{i}.txt", np.full(10, i, dtype=np.float64))
 
     provider = FileInputProvider(
-        ARCHIVE_SOURCE,
-        glob_pattern=str(tmp_path / "sol_*.txt"),
+        archive_source,
+        glob_pattern=str(ARCHIVE_DIR / "sol_*.txt"),
         shuffle=True,
         seed=42,
     )
@@ -154,7 +158,7 @@ def test_file_input_provider_with_shuffling(tmp_path) -> None:
 
 def test_hybrid_input_provider_uses_archive_when_available() -> None:
     """Test hybrid provider uses archive when available."""
-    archive_data = np.random.randn(20, 10)
+    archive_data = np.random.default_rng(4).standard_normal((20, 10))
     archive = ArchiveData(lhs=archive_data, rhs=None)
     provider = HybridInputProvider(archive, field=ArchiveField.LHS, scale=1.0)
 
@@ -183,7 +187,7 @@ def test_hybrid_input_provider_fallback_to_random() -> None:
 
 def test_hybrid_input_provider_raises_on_insufficient_archive() -> None:
     """Test hybrid provider raises when archive has too few vectors."""
-    archive_data = np.random.randn(3, 10)  # Only 3 vectors
+    archive_data = np.random.default_rng(5).standard_normal((3, 10))  # Only 3 vectors
     archive = ArchiveData(lhs=archive_data, rhs=None)
     provider = HybridInputProvider(archive, field=ArchiveField.LHS, scale=1.0)
 
@@ -194,19 +198,17 @@ def test_hybrid_input_provider_raises_on_insufficient_archive() -> None:
         provider.provide(matrix=matrix, count=5, rng=rng)
 
 
-def test_paired_file_input_provider_loads_pairs(tmp_path) -> None:
+def test_paired_file_input_provider_loads_pairs(archive_source: InMemoryArchiveSource) -> None:
     """Test paired file provider loads solution-RHS pairs."""
-    # Create test files
+    rng = np.random.default_rng(2)
     for i in range(5):
-        sol = np.random.randn(10)
-        rhs = np.random.randn(10)
-        np.savetxt(tmp_path / f"sol_{i}.txt", sol)
-        np.savetxt(tmp_path / f"rhs_{i}.txt", rhs)
+        archive_source.add(ARCHIVE_DIR / f"sol_{i}.txt", rng.standard_normal(10))
+        archive_source.add(ARCHIVE_DIR / f"rhs_{i}.txt", rng.standard_normal(10))
 
     provider = PairedFileInputProvider(
-        ARCHIVE_SOURCE,
-        solution_glob=str(tmp_path / "sol_*.txt"),
-        rhs_glob=str(tmp_path / "rhs_*.txt"),
+        archive_source,
+        solution_glob=str(ARCHIVE_DIR / "sol_*.txt"),
+        rhs_glob=str(ARCHIVE_DIR / "rhs_*.txt"),
         shuffle=False,
         seed=None,
     )
@@ -221,12 +223,14 @@ def test_paired_file_input_provider_loads_pairs(tmp_path) -> None:
     assert rhs.dtype == np.float64
 
 
-def test_provide_solutions_prefers_archive_over_glob(tmp_path) -> None:
+def test_provide_solutions_prefers_archive_over_glob(
+    archive_source: InMemoryArchiveSource,
+) -> None:
     """When both an archive and a solutions_glob are available, archive wins."""
     for i in range(5):
-        np.savetxt(tmp_path / f"sol_{i}.txt", np.full(10, -1.0, dtype=np.float64))
+        archive_source.add(ARCHIVE_DIR / f"sol_{i}.txt", np.full(10, -1.0, dtype=np.float64))
 
-    archive_data = np.random.randn(5, 10)
+    archive_data = np.random.default_rng(3).standard_normal((5, 10))
     archive = ArchiveData(lhs=archive_data, rhs=None)
     matrix = np.eye(10)
     rng = np.random.default_rng(42)
@@ -235,8 +239,8 @@ def test_provide_solutions_prefers_archive_over_glob(tmp_path) -> None:
         matrix,
         3,
         rng,
-        archive_source=ARCHIVE_SOURCE,
-        solutions_glob=str(tmp_path / "sol_*.txt"),
+        archive_source=archive_source,
+        solutions_glob=str(ARCHIVE_DIR / "sol_*.txt"),
         archive=archive,
         shuffle=False,
         seed=None,
@@ -247,19 +251,22 @@ def test_provide_solutions_prefers_archive_over_glob(tmp_path) -> None:
 
 
 def test_file_input_provider_cache_key_includes_file_indices(
-    write_solution_files: Callable[[int], str],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Bindings with the same glob and count but different explicit files must not share a cache entry."""
     _load_archive_files_cached.cache_clear()
-    glob_pattern = write_solution_files(5)
+    # File k holds the constant vector k + 1, so its position in the sorted pool is recoverable.
+    for idx in range(5):
+        archive_source.add(ARCHIVE_DIR / f"solution_{idx:03d}.txt", np.full(4, float(idx + 1)))
+    glob_pattern = str(ARCHIVE_DIR / "solution_*.txt")
     matrix = np.eye(4)
     rng = np.random.default_rng(0)
 
     first = FileInputProvider(
-        ARCHIVE_SOURCE, glob_pattern=glob_pattern, file_indices=(0, 1)
+        archive_source, glob_pattern=glob_pattern, file_indices=(0, 1)
     ).provide(matrix=matrix, count=2, rng=rng)
     second = FileInputProvider(
-        ARCHIVE_SOURCE, glob_pattern=glob_pattern, file_indices=(3, 4)
+        archive_source, glob_pattern=glob_pattern, file_indices=(3, 4)
     ).provide(matrix=matrix, count=2, rng=rng)
 
     np.testing.assert_array_equal(first[:, 0], [1.0, 2.0])
