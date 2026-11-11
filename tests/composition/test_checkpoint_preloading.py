@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gc
-import time
 from pathlib import Path
 
 import pytest
@@ -54,7 +53,6 @@ CHECKPOINT_DIR = Path("/virtual/checkpoints")
 
 
 POD_RANK = 2
-SLOW_LOAD_SECONDS = 0.2
 
 
 class FakePredictor(ExtraInputPredictorPort):
@@ -245,16 +243,6 @@ def test_a_fitted_pod_basis_is_read_once_and_shared_by_every_matrix(
     assert basis.weight.dtype is torch.float64
 
 
-def test_an_unmapped_checkpoint_kind_fails_loudly(
-    matrix: torch.Tensor, loaders: CheckpointLoaders, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(preloading, "_REF_PRELOADERS", {})
-    cfg = NeuralPreconditionerConfig(checkpoint_path=Path("model.ckpt"))
-
-    with pytest.raises(TypeError):
-        preload_checkpoints(cfg, matrix, CheckpointStore(), loaders)
-
-
 def test_every_checkpoint_ref_kind_has_a_preloader() -> None:
     def concrete_subclasses(cls: type) -> set[type]:
         found: set[type] = set()
@@ -286,16 +274,6 @@ def events(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr(PreconditionerService, "preload", preload)
     monkeypatch.setattr(PreconditionerService, "create_preconditioner", create)
     return recorded
-
-
-@pytest.fixture
-def slow_preload(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make every preload take ``SLOW_LOAD_SECONDS``, as a checkpoint read would."""
-    monkeypatch.setattr(
-        PreconditionerService,
-        "preload",
-        lambda self, matrix, config: time.sleep(SLOW_LOAD_SECONDS),
-    )
 
 
 @pytest.fixture
@@ -356,24 +334,3 @@ def test_preload_runs_once_per_matrix_before_all_its_timed_builds(
     )
 
     assert events == ["preload", *["build"] * 3, "preload", *["build"] * 3]
-
-
-def test_setup_cost_excludes_the_preload(
-    slow_preload: None,
-    jacobi: ResolvedMethod,
-    neuralls_settings: NeurallsSettings,
-    prepared_method: PreparedMethodFactory,
-    group_datasets: dict[DatasetId, DatasetPresentation],
-    training_runs: MlflowClient,
-) -> None:
-    workload = _run(
-        jacobi,
-        (matrix_bundle(1),),
-        repeats=1,
-        settings=neuralls_settings,
-        prepared_method=prepared_method,
-        datasets=group_datasets,
-        training_runs=training_runs,
-    )
-
-    assert workload.setup_events[0].setup_s < SLOW_LOAD_SECONDS

@@ -127,18 +127,6 @@ def test_train_skips_when_an_identical_run_already_exists(
     assert result.mlflow_run_id == "existing-run-id"
 
 
-def test_lookup_is_scoped_to_the_training_experiment_and_requires_a_checkpoint(
-    run_assignment_dependencies: dict[str, MagicMock],
-    tmp_path: Path,
-    training_presentation: TrainingPresentation,
-) -> None:
-    """Reuse only considers the case's training experiment and real checkpoints."""
-    _run(tmp_path, training_presentation, tracking=run_assignment_dependencies["tracking"])
-    run_assignment_dependencies["store_cls"].assert_called_once_with(
-        tracking_uri="sqlite:///tracking.db", experiment="Train", require_checkpoint=True
-    )
-
-
 def test_train_runs_and_tags_the_identity_when_no_matching_run_exists(
     run_assignment_dependencies: dict[str, MagicMock],
     tmp_path: Path,

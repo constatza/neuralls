@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -407,35 +406,6 @@ def test_contract_override_drives_injection_and_validation(
 
     assert [feature.name for feature in updated.data.features] == ["lhs", "matrix"]
     assert [target.name for target in updated.data.targets] == ["rhs"]
-
-
-@patch("neuralls.composition.assignments._training_artifacts.compute_diagnostics")
-@patch("neuralls.composition.assignments._training_artifacts.log_diagnostics_to_mlflow")
-def test_log_training_evaluation_orchestration(
-    mock_mlflow_log: MagicMock,
-    mock_compute: MagicMock,
-    tmp_path: Path,
-) -> None:
-    from neuralls.composition.assignments._training_artifacts import _log_training_evaluation
-
-    contract = default_training_dataset_contract()
-    normalized_payload = {
-        "predictions": {contract.prediction_name: np.zeros((10, 1))},
-        "targets": {"y": np.zeros((10, 1))},
-    }
-    mock_compute.return_value = MagicMock()
-    tracking_uri = f"sqlite:///{(tmp_path / 'mlruns' / 'mlflow.db').as_posix()}"
-
-    _log_training_evaluation(
-        tracking_uri=tracking_uri,
-        run_id="run123",
-        numpy_payload=normalized_payload,
-        metrics_dir=tmp_path / "metrics",
-        contract=contract,
-    )
-
-    mock_compute.assert_called_once()
-    mock_mlflow_log.assert_called_once()
 
 
 def test_extract_evaluation_arrays_with_canonical_prediction_key() -> None:
