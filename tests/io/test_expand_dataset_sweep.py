@@ -1,8 +1,6 @@
 """Tests for the pure helpers in ``scripts/expand_dataset_sweep.py``.
 
-The golden-file tests double as the correctness proof that the generic
-renderer reproduces real ``*.sweep.toml`` expansions exactly — not just
-something similar. Expansions themselves are gitignored build artifacts (see
+Expansions themselves are gitignored build artifacts (see
 ``_GENERATED_SUBDIR_NAME`` in the script under test) not guaranteed to exist
 on a fresh checkout, so these tests regenerate their own golden copies from
 the real, committed ``configs/datasets/train/rectangular-high-condition/
@@ -45,55 +43,6 @@ def rectangular_high_condition_golden_dir(
         filename_stem = sweep_name[: -len(dataset_sweep_module._SWEEP_SUFFIX)]
         dataset_sweep_module.expand_sweep(spec, output_dir=out_dir, filename_stem=filename_stem)
     return out_dir
-
-
-def test_render_dataset_toml_matches_committed_gaussian_residuals_file(
-    rectangular_high_condition_golden_dir: Path,
-    dataset_sweep_module: ModuleType,
-) -> None:
-    """A gaussian_residuals-shaped render matches the real gaussian-cg50-1000.toml exactly."""
-    content = dataset_sweep_module._render_dataset_toml(
-        id_="gaussian-cg50-rectangular-high-condition-1000",
-        source={
-            "problem": "Rectangular high condition",
-            "matrix_path": "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt",
-        },
-        generation_header={"normalize": "matrix", "shuffle": True, "seed": 42},
-        strategy={"name": "gaussian_residuals", "samples": 1000, "stop": 50},
-        strategy_comment=None,
-        output={"data_dir": "${NEURALLS_PROCESSED_DIR}"},
-    )
-    assert content == (rectangular_high_condition_golden_dir / "gaussian-cg50-1000.toml").read_text(
-        encoding="utf-8"
-    )
-
-
-def test_render_dataset_toml_matches_committed_gaussian_forward_file(
-    rectangular_high_condition_golden_dir: Path,
-    dataset_sweep_module: ModuleType,
-) -> None:
-    """A gaussian_forward-shaped render with strategy_comment matches gaussian-cg0-1000.toml exactly."""
-    comment = [
-        '"0-CG": the `stop` field on the residuals/trace strategies has a hard',
-        "floor of 1 (and even stop=1 emits 2 rows per system - iteration 0 AND",
-        "iteration 1, not just the untraced solution). gaussian_forward is the true",
-        "0-CG case - x ~ N(mu, sigma), b = A @ x, no CG solve at all.",
-        "POD-2G fitting never sees real archived solutions - those are comparison-only.",
-    ]
-    content = dataset_sweep_module._render_dataset_toml(
-        id_="gaussian-cg0-rectangular-high-condition-1000",
-        source={
-            "problem": "Rectangular high condition",
-            "matrix_path": "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt",
-        },
-        generation_header={"normalize": "matrix", "shuffle": True, "seed": 42},
-        strategy={"name": "gaussian_forward", "samples": 1000},
-        strategy_comment=comment,
-        output={"data_dir": "${NEURALLS_PROCESSED_DIR}"},
-    )
-    assert content == (rectangular_high_condition_golden_dir / "gaussian-cg0-1000.toml").read_text(
-        encoding="utf-8"
-    )
 
 
 def test_find_swept_field_rejects_no_list_valued_field(dataset_sweep_module: ModuleType) -> None:

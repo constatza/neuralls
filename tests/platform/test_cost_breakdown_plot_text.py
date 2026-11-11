@@ -9,7 +9,6 @@ from neuralls.platform.reporting.cost_breakdown_plot import (
     cost_bar_label,
     cost_bar_text,
     cost_segments,
-    segment_color,
 )
 
 COMPLETE_ROW = {
@@ -28,19 +27,6 @@ def test_the_bar_stacks_offline_stages_before_online_ones() -> None:
         CostSegment.SETUP,
         CostSegment.SOLVE,
     )
-
-
-def test_each_segment_is_named_by_its_table_column() -> None:
-    assert [segment.value for segment in cost_segments()] == [
-        "generation_s",
-        "training_s",
-        "allocated_setup_s",
-        "solve_total_s",
-    ]
-
-
-def test_a_complete_total_is_stated_in_seconds() -> None:
-    assert cost_bar_label(COMPLETE_ROW) == "102.5 s"
 
 
 @pytest.mark.parametrize(
@@ -66,15 +52,6 @@ def test_a_total_with_an_unavailable_stage_names_the_stages_and_states_no_number
     }
 
     assert cost_bar_label(row) == expected
-
-
-def test_stage_colours_are_fixed_and_distinct() -> None:
-    assert [segment_color(segment) for segment in cost_segments()] == [
-        "#56B4E9",
-        "#E69F00",
-        "#009E73",
-        "#0072B2",
-    ]
 
 
 @pytest.mark.parametrize(

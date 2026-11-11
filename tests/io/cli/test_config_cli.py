@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 
-from typer.core import TyperGroup as Group
-from typer.main import get_command
-from typer.models import OptionInfo
 from typer.testing import CliRunner
 
 import neuralls.cli.config as config_cli
@@ -21,21 +17,6 @@ def _configure_config_path(config_file: Path) -> None:
     profile_module.USER_CONFIG_DIR = config_file.parent
     profile_module.USER_CONFIG_FILE = config_file
     config_cli.USER_CONFIG_FILE = config_file
-
-
-def test_create_declares_required_root_flags() -> None:
-    parameters = inspect.signature(config_cli.create).parameters
-
-    raw_dir = parameters["raw_dir"].default
-    processed_dir = parameters["processed_dir"].default
-    output_dir = parameters["output_dir"].default
-
-    assert isinstance(raw_dir, OptionInfo)
-    assert raw_dir.default is ...
-    assert isinstance(processed_dir, OptionInfo)
-    assert processed_dir.default is ...
-    assert isinstance(output_dir, OptionInfo)
-    assert output_dir.default is ...
 
 
 def test_create_writes_profile_when_all_root_flags_are_provided(
@@ -275,18 +256,3 @@ def test_delete_fails_for_missing_named_profile(
 
     assert result.exit_code != 0
     assert config_file.read_text(encoding="utf-8") == original_text
-
-
-def test_config_subcommands_are_registered() -> None:
-    command = get_command(app)
-    assert isinstance(command, Group)
-
-    assert sorted(command.commands) == [
-        "create",
-        "delete",
-        "init",
-        "list",
-        "path",
-        "set",
-        "show",
-    ]

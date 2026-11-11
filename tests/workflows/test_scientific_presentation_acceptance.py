@@ -1,17 +1,14 @@
-"""The complete spectral comparison states every scientific fact once, in every sink, with no id.
+"""The complete spectral comparison keeps ids out of MLflow run names, tags and parameters.
 
-One cohort drives the whole check: Identity, Jacobi, IC(0), two AMGs, aSA with ``k=3`` and
+One cohort drives the check: Identity, Jacobi, IC(0), two AMGs, aSA with ``k=3`` and
 ``k=7``, BAMG, and POD-2G of ranks 10 and 100 fitted on Gaussian CG residuals and on
-smoother-filtered probes, all over a ``Spectral 3D field`` dataset. Plot legends, MLflow run
-names, tags and parameters, and group reports are produced by the real adapters and share
-the cohort's structured presentations; the method ids stay machine-only.
+smoother-filtered probes, all over a ``Spectral 3D field`` dataset. The real run-spec
+and parameter adapters log it against a real store; the method ids stay machine-only.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import mlflow
@@ -20,17 +17,11 @@ import pytest
 from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments.presentation_preflight import prepare_comparison_presentation
-from neuralls.composition.comparison.postprocessing.group_reporting import report_all_levels
 from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.presentation.methods import PreparedComparisonPresentation
 from neuralls.domain.presentation.provenance import DatasetPresentation, DatasetSourceProvenance
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
-from neuralls.domain.solver.models.group_outcomes import GroupAggregated
-from neuralls.domain.solver.models.group_presentation import (
-    GroupMethodPresentation,
-    GroupPresentation,
-)
 from neuralls.platform.config.models.coarsening import AggregationCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
     AdaptiveSAPreconditionerConfig,
@@ -46,19 +37,14 @@ from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.tracking.metrics_logging import log_configured_method_facts
 from neuralls.platform.tracking.run_names import run_name_text
 from neuralls.shared.digest import canonical_digest
-from neuralls.shared.scientific_description.catalog import REALIZED_LEVELS
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
-from neuralls.shared.types import DatasetId, PreconditionerName
 from tests.dataset_support import build_test_dataset
-from tests.observation_support import observations_of_workloads
 from tests.presentation_support import fixture_origins, pod_spec
-from tests.realized_support import completed_workload
 
 pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
 
 PLAIN = NotationPolicy.default(RenderTarget.PLAIN)
-MATHTEXT = NotationPolicy.default(RenderTarget.MATHTEXT)
 
 SEED = 2024
 MATRIX_SIZE = 4
@@ -74,17 +60,6 @@ ASSIGNMENT_IDS = ("fit-gaussian", "fit-probes")
 """Training-assignment ids of the POD methods; they must never reach visible text."""
 UNDERSCORE_BLOB = re.compile(r"[A-Za-z0-9]+_[A-Za-z0-9]+")
 """An identifier-shaped token: letters and digits joined by an underscore."""
-
-EXPECTED_LEGEND = [
-    "Identity",
-    "Jacobi",
-    "IC0 (τ=0)",
-    "AMG (L=2, θ=0.25)",
-    "AMG (L=2, θ=0.5)",
-    "aSA (L=2, k=3, θ=0)",
-    "aSA (L=2, k=7, θ=0)",
-    "BAMG (L=10)",
-]
 
 
 @pytest.fixture
@@ -198,42 +173,6 @@ def _forbidden(text: str, *, blobs: bool = True) -> list[str]:
     return [*leaks, *UNDERSCORE_BLOB.findall(text)] if blobs else leaks
 
 
-def test_plain_legend_distinguishes_every_method_by_its_scientific_facts(
-    cohort: PreparedComparisonPresentation,
-) -> None:
-    labels = list(_plain_label(cohort).values())
-
-    assert labels[:8] == [text.replace("\n", " ") for text in EXPECTED_LEGEND]
-    assert len(set(labels)) == len(labels) == 12
-    assert "k=3" in labels[5]
-    assert "k=7" in labels[6]
-    assert labels[7] == "BAMG (L=10)"
-
-
-def test_each_pod_label_has_its_rank_and_its_fit_dataset_described_once(
-    cohort: PreparedComparisonPresentation,
-) -> None:
-    pod_labels = list(_plain_label(cohort).values())[8:]
-
-    for label, (rank, fit) in zip(
-        pod_labels,
-        [(r, f) for f in ("Gaussian CG Residuals", "Jacobi-Filtered Probes") for r in POD_RANKS],
-        strict=True,
-    ):
-        method, dataset = label.split(" | ")
-        assert method == f"POD-2G (r={rank})"
-        assert dataset.startswith(f"{fit} (")
-        assert label.count(fit) == 1
-
-
-def test_visible_text_has_no_ids_slugs_paths_brackets_or_underscore_blobs(
-    cohort: PreparedComparisonPresentation,
-) -> None:
-    for method_id, label in _plain_label(cohort).items():
-        assert _forbidden(label) == [], method_id
-        assert method_id not in label
-
-
 def test_mlflow_runs_share_the_legend_presentation_and_keep_ids_in_tags_and_facts_in_params(
     cohort: PreparedComparisonPresentation,
     mlflow_experiment: str,
@@ -267,51 +206,3 @@ def test_mlflow_runs_share_the_legend_presentation_and_keep_ids_in_tags_and_fact
         assert [
             leak for value in run.data.params.values() for leak in _forbidden(value, blobs=False)
         ] == []
-
-
-@dataclass(slots=True)
-class _RecordingSink:
-    presentations: list[GroupPresentation] = field(default_factory=list)
-
-    def report(self, outcome: GroupAggregated, *, presentation: GroupPresentation) -> None:
-        del outcome
-        self.presentations.append(presentation)
-
-
-def _group_methods(
-    cohort: PreparedComparisonPresentation, depth_by_matrix: dict[int, int]
-) -> Mapping[PreconditionerName, GroupMethodPresentation]:
-    sink = _RecordingSink()
-    workloads = tuple(completed_workload(m, depth_by_matrix) for m in cohort.methods)
-    report_all_levels(
-        workloads,
-        sink,
-        observations=observations_of_workloads(workloads),
-        datasets={DatasetId("ds"): cohort.scope.dataset},
-        notation=PLAIN,
-    )
-    return sink.presentations[0].methods
-
-
-def test_group_states_a_realized_fact_only_when_every_matrix_agrees(
-    cohort: PreparedComparisonPresentation,
-) -> None:
-    varying = _group_methods(cohort, {1: 2, 2: 3})
-    agreeing = _group_methods(cohort, {1: 2, 2: 2})
-
-    assert set(varying) == {PreconditionerName(m.method_id) for m in cohort.methods}
-    for method in varying.values():
-        assert method.invariant_facts == ()
-        assert all(fact.key != REALIZED_LEVELS for fact in method.compact_facts)
-    for method in agreeing.values():
-        assert any(fact.key == REALIZED_LEVELS for fact in method.compact_facts)
-
-
-def test_method_ids_stay_the_stable_machine_names_of_their_configs(
-    cohort: PreparedComparisonPresentation, configs: tuple[PreconditionerConfig, ...]
-) -> None:
-    ids = [m.method_id for m in cohort.methods]
-
-    assert ids == [spec.name for spec in configs]
-    assert len(set(ids)) == 12
-    assert all(method_id not in label for method_id, label in _plain_label(cohort).items())

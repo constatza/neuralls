@@ -25,22 +25,18 @@ from neuralls.platform.reporting.workload_bars import (
 M = FAILED_AXIS_MARGIN
 
 
-def test_speed_ratio_legend_states_median_and_interval() -> None:
-    text = speed_ratio_legend("AMG", median=1.234, ci=(0.98, 1.5))
-
-    assert text == "AMG: median 1.23 [0.98, 1.50]"
-
-
-def test_speed_ratio_legend_without_an_interval_states_only_the_median() -> None:
-    text = speed_ratio_legend("AMG", median=2.0, ci=None)
-
-    assert text == "AMG: median 2.00"
-
-
-def test_speed_ratio_legend_without_a_ratio_says_so() -> None:
-    text = speed_ratio_legend("AMG", median=None, ci=None)
-
-    assert text == "AMG: no paired ratio"
+@pytest.mark.parametrize(
+    ("median", "ci", "expected"),
+    [
+        (1.234, (0.98, 1.5), "AMG: median 1.23 [0.98, 1.50]"),
+        (2.0, None, "AMG: median 2.00"),
+        (None, None, "AMG: no paired ratio"),
+    ],
+)
+def test_speed_ratio_legend_states_the_median_and_interval_it_has(
+    median: float | None, ci: tuple[float, float] | None, expected: str
+) -> None:
+    assert speed_ratio_legend("AMG", median=median, ci=ci) == expected
 
 
 @pytest.mark.parametrize(

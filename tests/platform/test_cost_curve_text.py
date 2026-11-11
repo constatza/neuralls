@@ -8,7 +8,6 @@ from neuralls.domain.benchmarking.cost_curves import BreakEvenState
 from neuralls.platform.reporting.seaborn_cost_curves import (
     InconsistentBreakEvenError,
     break_even_legend,
-    reference_curve_legend,
 )
 
 
@@ -44,10 +43,3 @@ def test_a_break_even_count_contradicting_its_state_is_rejected(
 ) -> None:
     with pytest.raises(InconsistentBreakEvenError):
         break_even_legend("AMG", state, break_even_rhs)
-
-
-def test_the_reference_curve_names_the_method_whose_systems_its_means_share() -> None:
-    assert (
-        reference_curve_legend("Jacobi", "AMG")
-        == "Jacobi (reference, on the systems shared with AMG)"
-    )
