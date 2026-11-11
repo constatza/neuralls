@@ -8,7 +8,6 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import copy2
-from types import ModuleType
 from unittest.mock import MagicMock
 
 import h5py
@@ -78,26 +77,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Tests that draw figures directly (without a report entry point) must not open a GUI window.
 matplotlib.use("Agg", force=True)
-
-
-def _patch_default_paths_for_loaded_modules(
-    path_values: dict[str, Path],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Patch already-imported modules that cache default path constants."""
-    str_values = {
-        "DEFAULT_PROCESSED_DIR": str(path_values["DEFAULT_PROCESSED_DATA_DIR"]),
-        "DEFAULT_RESULTS_DIR": str(path_values["DEFAULT_OUTPUT_DIR"]),
-        "DEFAULT_FIGURES_DIR_STR": str(path_values["DEFAULT_FIGURES_DIR"]),
-    }
-    all_values: dict[str, object] = {**path_values, **str_values}
-    all_values["DEFAULT_CHECKPOINTS_DIR"] = path_values["DEFAULT_OUTPUT_DIR"] / "checkpoints"
-    for module in tuple(sys.modules.values()):
-        if not isinstance(module, ModuleType):
-            continue
-        for name, value in all_values.items():
-            if hasattr(module, name):
-                monkeypatch.setattr(module, name, value, raising=False)
 
 
 def _patch_dlkit_environment(
@@ -185,7 +164,6 @@ def isolate_default_paths_with_tmp_path(
     for name, value in path_values.items():
         monkeypatch.setattr(neuralls_constants, name, value, raising=False)
 
-    _patch_default_paths_for_loaded_modules(path_values, monkeypatch)
     _patch_dlkit_environment(runtime_root, monkeypatch)
 
 
@@ -221,6 +199,9 @@ def skip_figure_encoding(request: pytest.FixtureRequest, monkeypatch: pytest.Mon
         original(self, fname, *args, **kwargs)
 
     monkeypatch.setattr(matplotlib.figure.Figure, "savefig", skip_path_targets)
+    # Layout only positions artists for the encoded image; nothing asserts on it and it
+    # dominates the cost of drawing a figure that is never written.
+    monkeypatch.setattr(matplotlib.figure.Figure, "tight_layout", lambda self, *a, **k: None)
 
 
 # Real local MLflow store: migrate the schema once per session, copy it per test.
@@ -559,7 +540,7 @@ def stub_planning(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def dataset_presentation() -> DatasetPresentation:
     """A small dataset presentation for tests that need one but not its content."""
     return DatasetPresentation(
@@ -659,7 +640,7 @@ def stub_matrix_scope(
     return scope
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def notation() -> NotationPolicy:
     """The default MathText notation plots render with."""
     return NotationPolicy.default(RenderTarget.MATHTEXT)

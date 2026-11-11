@@ -268,7 +268,7 @@ AMG_TIMING_SPREAD = 0.25
 """The relative spread of the timing repeats of every ``amg`` solve in ``report_observations``."""
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def report_observations() -> pl.DataFrame:
     """The unbalanced three-method workload; ``amg`` solves carry a spread of repeated timings."""
     frames = {method: events.frames() for method, events in unbalanced_events().items()}
@@ -279,7 +279,7 @@ def report_observations() -> pl.DataFrame:
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def workload_summaries() -> tuple[MethodWorkloadSummary, ...]:
     """The workload totals of the three methods of ``report_observations``."""
     return tuple(
@@ -294,7 +294,7 @@ def workload_summaries() -> tuple[MethodWorkloadSummary, ...]:
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def profile_report(
     report_observations: pl.DataFrame, workload_summaries: tuple[MethodWorkloadSummary, ...]
 ) -> RecipeProfileReport:
@@ -312,7 +312,7 @@ def profile_report(
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def mixture_report(
     profile_report: RecipeProfileReport,
 ) -> WorkloadMixtureReport:
@@ -331,7 +331,7 @@ def mixture_report(
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def two_recipe_mixture_report(mixture_report: WorkloadMixtureReport) -> WorkloadMixtureReport:
     """The same workload as a matrix-set mixture of two recipes: matrices 3 and 4 use ``SINE``."""
     second = sum(RHS_PER_MATRIX[matrix] for matrix in SECOND_RECIPE_MATRICES)
@@ -344,7 +344,7 @@ def two_recipe_mixture_report(mixture_report: WorkloadMixtureReport) -> Workload
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def repeated_timing_presentation(dataset_presentation: DatasetPresentation) -> GroupPresentation:
     """A group presentation whose systems were each timed three times."""
     return GroupPresentation(
@@ -355,7 +355,7 @@ def repeated_timing_presentation(dataset_presentation: DatasetPresentation) -> G
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def single_timing_presentation(
     repeated_timing_presentation: GroupPresentation,
 ) -> GroupPresentation:

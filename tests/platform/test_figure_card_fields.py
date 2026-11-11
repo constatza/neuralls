@@ -107,7 +107,7 @@ def _payloads(
     }
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def payloads(
     profile_report: RecipeProfileReport,
     repeated_timing_presentation: GroupPresentation,
@@ -117,7 +117,7 @@ def payloads(
     return _payloads(profile_report, repeated_timing_presentation, notation)
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def single_repeat_payloads(
     profile_report: RecipeProfileReport,
     single_timing_presentation: GroupPresentation,

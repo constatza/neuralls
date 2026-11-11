@@ -59,7 +59,7 @@ JACOBI = PreconditionerName("jacobi")
 TABLE_KINDS = tuple(kind.name for kind in TableKind)
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def table_frames(profile_report: RecipeProfileReport) -> dict[str, pl.DataFrame]:
     """One conforming frame of each table kind, from the domain statistics of one report."""
     observations = profile_report.observations
