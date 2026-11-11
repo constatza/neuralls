@@ -65,6 +65,7 @@ class DrawRequest:
     target: FigureTarget
     title: str
     ylabel: str
+    show_titles: bool
 
 
 @dataclass(slots=True)
@@ -82,9 +83,10 @@ def draws(monkeypatch: pytest.MonkeyPatch) -> RecordedDraws:
         target: FigureTarget,
         title: EditorialTitle,
         ylabel: str,
+        show_titles: bool = False,
         **_: object,
     ) -> None:
-        recorded.requests.append(DrawRequest(curves, target, title.text, ylabel))
+        recorded.requests.append(DrawRequest(curves, target, title.text, ylabel, show_titles))
 
     monkeypatch.setattr(system_figures, "plot_convergence_curves", record)
     return recorded
@@ -147,6 +149,7 @@ def _draw(
     frame: pl.DataFrame,
     dataset_presentation: DatasetPresentation,
     notation: NotationPolicy,
+    show_titles: bool = True,
 ) -> tuple[SystemFigure, ...]:
     tags = {tag.system_id: tag for workload in workloads for tag in workload.planned}
     return write_system_figures(
@@ -156,7 +159,7 @@ def _draw(
         references={system_id: NoReferenceConfigured() for system_id in tags},
         solver_contexts={system_id: CONTEXT for system_id in tags},
         notation=notation,
-        show_titles=True,
+        show_titles=show_titles,
         root=FIGURE_ROOT,
     )
 
@@ -183,6 +186,23 @@ def test_each_system_gets_one_residual_and_one_energy_figure_with_every_method(
     assert {parts[1] for parts in names} == {"residual_history", "energy_history"}
     assert all("sys-" not in part and "ds" != part for parts in names for part in parts)
     assert len({parts[0] for parts in names}) == 2
+
+
+@pytest.mark.parametrize("show_titles", [True, False])
+def test_title_switch_is_forwarded_to_every_convergence_drawing(
+    draws: RecordedDraws,
+    systems: tuple[SystemTag, ...],
+    dataset_presentation: DatasetPresentation,
+    notation: NotationPolicy,
+    show_titles: bool,
+) -> None:
+    energy = [1.0, 0.2, 0.02]
+    workloads, frame = _workloads(systems, dataset_presentation, {"sys-1": energy, "sys-2": energy})
+
+    _draw(workloads, frame, dataset_presentation, notation, show_titles)
+
+    assert {r.show_titles for r in draws.requests} == {show_titles}
+    assert draws.requests
 
 
 def test_a_system_with_only_null_energy_skips_just_its_energy_figure(

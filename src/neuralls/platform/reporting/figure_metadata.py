@@ -290,7 +290,9 @@ class GroupFigureMetadata(_FigureContext):
     is taken over and ``statistic`` what is drawn of it. ``failure_treatment`` says what the
     figure does with failed systems. The remaining fields record the evidence under the numbers:
     the ``interval`` drawn, the right-hand-side counts the metric divides setup over, how many
-    systems each method has in each outcome, and how reliable the times are. ``cohort`` says which
+    systems each method has in each outcome, how reliable the times are, and how many systems a
+    performance profile left out because the best value on them is 0 (``excluded_zero_best``, 0 for
+    every other statistic). ``cohort`` says which
     recipes' systems the figure draws; the counts, evidence and ``recipes`` of a recipe cohort
     describe that recipe alone, while ``scope`` stays the report group's.
     """
@@ -305,6 +307,7 @@ class GroupFigureMetadata(_FigureContext):
     setup_sharing: SetupSharing
     outcome_counts: tuple[MethodOutcomeCounts, ...]
     timing: FigureTimingEvidence
+    excluded_zero_best: int
 
     def __post_init__(self) -> None:
         """Require a kind drawn from a group outcome."""

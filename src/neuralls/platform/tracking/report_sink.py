@@ -209,7 +209,12 @@ class OpenReport:
             self.uploader.check_free(root_id, METHOD_FIGURE_ARTIFACT_DIR, [plan.stem])
             target = FigureTarget(figures_dir, plan.stem)
             draw_method_figure(
-                target, kind, method, self.notation, datasets, self.figure_style.show_titles
+                target,
+                kind,
+                method,
+                self.notation,
+                datasets,
+                show_titles=self.figure_style.show_titles,
             )
             self.uploader.upload(root_id, METHOD_FIGURE_ARTIFACT_DIR, StagedFigure(plan, target))
 

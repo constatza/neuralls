@@ -10,6 +10,7 @@ from typing import assert_never
 from matplotlib.axes import Axes
 
 from neuralls.domain.solver.reporting.metrics import MetricId
+from neuralls.platform.reporting.figure_sizing import COLUMN_TEXT_WIDTH_IN, LABEL_CHAR_WIDTH_IN
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
 
 _ANNOTATION_ROOM = 1.45
@@ -67,8 +68,12 @@ def annotate_rows(ax: Axes, annotations: Sequence[RowAnnotation]) -> None:
     ax.grid(True, axis="x", alpha=0.3)
 
 
-_COLUMN_ANNOTATION_WRAP = 12
-"""Characters per line of a text above a bar, narrow enough that neighbours' texts never touch."""
+_COLUMN_ANNOTATION_WRAP = int(COLUMN_TEXT_WIDTH_IN / LABEL_CHAR_WIDTH_IN)
+"""Characters per line of a text above a bar, narrow enough that neighbours' texts never touch.
+
+Derived from the label font size, so a larger font wraps sooner instead of crowding the
+neighbouring column.
+"""
 
 _NO_BREAK_SPACE = "\u00a0"
 

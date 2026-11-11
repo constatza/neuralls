@@ -59,6 +59,7 @@ from neuralls.domain.solver.reporting.event_frames import (
 )
 from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
+from neuralls.platform.config.models.figure_style import FigureStyleConfig
 from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     parse_preconditioner_config,
@@ -506,6 +507,37 @@ def test_paired_scatter_manifest_describes_axis_censored_pairs(
     assert ratio.metadata.metric_definition != paired.metadata.metric_definition
 
 
+@pytest.mark.parametrize("show_titles", [True, False])
+def test_method_figures_are_drawn_with_the_configured_title_switch(
+    stored_methods: tuple[StoredMethod, ...],
+    split_records: tuple[DatasetSplitRecord, ...],
+    notation: NotationPolicy,
+    logged_artifacts: dict[str, tuple[str, bool]],
+    monkeypatch: pytest.MonkeyPatch,
+    show_titles: bool,
+) -> None:
+    flags: list[bool] = []
+    monkeypatch.setattr(
+        report_sink,
+        "draw_method_figure",
+        lambda *_, show_titles: flags.append(show_titles),
+    )
+    configured = MLflowReportSink(
+        notation,
+        "session-run",
+        FakeRunTree(),
+        split_records,
+        SESSION_ENVIRONMENT,
+        methods=stored_methods,
+        figure_style=FigureStyleConfig(show_titles=show_titles),
+    )
+
+    configured.register_method_figures(datasets={})
+
+    assert flags
+    assert set(flags) == {show_titles}
+
+
 def test_method_figures_are_uploaded_with_cards_naming_their_method_run(
     stored_methods: tuple[StoredMethod, ...],
     logged_artifacts: dict[str, tuple[str, bool]],
@@ -515,7 +547,7 @@ def test_method_figures_are_uploaded_with_cards_naming_their_method_run(
 ) -> None:
     drawn: list[FigureTarget] = []
     monkeypatch.setattr(
-        report_sink, "draw_method_figure", lambda target, *args: drawn.append(target)
+        report_sink, "draw_method_figure", lambda target, *_, **__: drawn.append(target)
     )
     jacobi = next(method for method in stored_methods if str(method.name) == "jacobi")
 

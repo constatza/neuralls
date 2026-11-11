@@ -33,6 +33,9 @@ _MIN_METHOD_ROWS_HEIGHT_IN = 4.0
 _BAR_COLUMN_WIDTH_IN = 0.85
 """Width in inches of one method's column in a bar figure with methods along the x axis."""
 
+COLUMN_TEXT_WIDTH_IN = 0.66
+"""Widest text in inches above a bar, under the column width so neighbours' texts never touch."""
+
 _MIN_BAR_COLUMNS_WIDTH_IN = 5.0
 """Narrowest bar figure, so a figure of one or two methods keeps room for its axis labels."""
 

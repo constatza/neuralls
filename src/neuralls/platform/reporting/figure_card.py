@@ -334,6 +334,7 @@ def _group_payload(metadata: GroupFigureMetadata) -> dict[str, Any]:
         **_encode_interval(metadata.interval),
         **_encode_setup_sharing(metadata.setup_sharing),
         **_encode_timing(metadata.timing),
+        "excluded_zero_best": metadata.excluded_zero_best,
     }
 
 
@@ -426,7 +427,16 @@ def validate_figure_card(payload: Mapping[str, Any]) -> None:
 def _decode_group_metadata(kind: FigureKind, payload: Mapping[str, Any]) -> GroupFigureMetadata:
     _require(
         payload,
-        frozenset({"failure_treatment", "metric", "population", "statistic", "outcome_counts"}),
+        frozenset(
+            {
+                "failure_treatment",
+                "metric",
+                "population",
+                "statistic",
+                "outcome_counts",
+                "excluded_zero_best",
+            }
+        ),
         "group document",
     )
     return GroupFigureMetadata(
@@ -442,6 +452,7 @@ def _decode_group_metadata(kind: FigureKind, payload: Mapping[str, Any]) -> Grou
             for method, counts in payload["outcome_counts"].items()
         ),
         timing=_decode_timing(payload),
+        excluded_zero_best=int(payload["excluded_zero_best"]),
         metric=MetricId(payload["metric"]),
         population=Population(payload["population"]),
         statistic=Statistic(payload["statistic"]),

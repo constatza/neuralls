@@ -231,6 +231,7 @@ def metadata_of(
                 ),
             ),
             timing=TimingEvidence((), TimingRepeats.REPEATED),
+            excluded_zero_best=0,
         )
 
     return build

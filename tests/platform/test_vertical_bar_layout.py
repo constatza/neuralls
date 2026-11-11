@@ -90,13 +90,13 @@ def test_unrotated_labels_need_height_for_their_stacked_lines_only() -> None:
 def test_annotation_text_is_wrapped_to_about_a_column() -> None:
     annotation = ColumnAnnotation(0, 1.0, "3/4 returned an iterate")
 
-    assert annotation.wrapped == "3/4 returned\nan iterate"
+    assert annotation.wrapped == "3/4\nreturned\nan\niterate"
 
 
 def test_annotation_lines_are_wrapped_separately_and_kept_apart() -> None:
     annotation = ColumnAnnotation(0, 1.0, "102.5 s\nfit inline, counted in setup")
 
-    assert annotation.wrapped == "102.5 s\nfit inline,\ncounted in\nsetup"
+    assert annotation.wrapped == "102.5 s\nfit\ninline,\ncounted\nin setup"
 
 
 def test_alternatives_around_a_slash_are_not_split() -> None:

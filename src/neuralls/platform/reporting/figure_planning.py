@@ -6,9 +6,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import assert_never
 
+import polars as pl
+
 from neuralls.domain.benchmarking.paired import (
     reference_among_methods,
 )
+from neuralls.domain.benchmarking.profiles import performance_series
 from neuralls.domain.solver.models.group_outcomes import (
     GroupReport,
     WorkloadMixtureReport,
@@ -168,7 +171,15 @@ def _figure_metadata(
         timing=timing_evidence_of(
             variant.metric, outcome.observations, presentation.solver_contexts
         ),
+        excluded_zero_best=_excluded_zero_best(variant, outcome.observations),
     )
+
+
+def _excluded_zero_best(variant: FigureVariant, observations: pl.DataFrame) -> int:
+    """The systems a performance profile leaves out because the best value on them is 0."""
+    if variant.statistic is not Statistic.PERFORMANCE_PROFILE:
+        return 0
+    return performance_series(observations, variant.metric).n_excluded_zero_best
 
 
 def _source_artifacts(metric: MetricId, artifacts: MethodBenchmarkArtifacts) -> tuple[Path, ...]:

@@ -114,6 +114,7 @@ def draw_method_figure(
     method: StoredMethod,
     notation: NotationPolicy,
     datasets: Mapping[DatasetId, DatasetPresentation],
+    *,
     show_titles: bool,
 ) -> None:
     """Draw one method's residual or energy histories, one curve per attempted system."""

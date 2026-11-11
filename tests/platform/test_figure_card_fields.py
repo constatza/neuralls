@@ -27,6 +27,7 @@ from neuralls.domain.benchmarking.paired import (
     paired_systems,
     speed_ratios,
 )
+from neuralls.domain.benchmarking.profiles import performance_series
 from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId, Unit
@@ -339,6 +340,22 @@ def test_a_card_counts_the_systems_of_each_method_by_outcome(
 
     assert counts == expected
     assert _leaf_types(counts) == {int}
+
+
+@pytest.mark.parametrize("stem", sorted(_BY_STEM))
+def test_a_card_records_the_systems_a_performance_profile_left_out(
+    profile_report: RecipeProfileReport, payloads: dict[str, Payload], stem: str
+) -> None:
+    payload = payloads[stem]
+    expected = (
+        performance_series(
+            profile_report.observations, MetricId(str(payload["metric"]))
+        ).n_excluded_zero_best
+        if payload["statistic"] == Statistic.PERFORMANCE_PROFILE.value
+        else 0
+    )
+
+    assert payload["excluded_zero_best"] == expected
 
 
 @pytest.mark.parametrize("stem", _TIME_STEMS)
