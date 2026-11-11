@@ -82,7 +82,11 @@ the `PreparedComparisonPresentation` built at preflight, never the configs again
 Every comparison run writes two convergence figures with identical styling:
 relative residual `||r||/||b||` (`plot_convergence_comparison`) and relative
 energy-norm error `||e_k||_A/||e_0||_A` (`plot_error_convergence_comparison`,
-reading `CGComparisonResult.error_history_a_rel`). The method residual figure draws a dashed
+reading `CGComparisonResult.error_history_a_rel`). A per-method history figure draws every
+attempted system of the method's stored workload at the root report level. Its legend has one
+entry per plotted dataset and RHS recipe pair, with only the varying dataset or recipe context
+shown; matrix and RHS positions stay in the per-system records rather than repeating across an
+oversized legend. The method residual figure draws a dashed
 stopping-threshold line (`method_figures.residual_threshold`, from the stored `rhs_norm` and the
 planned `rtol`/`atol`) only when every plotted system shares one threshold.
 Condition-number figures and MLflow metrics are deliberately absent from the

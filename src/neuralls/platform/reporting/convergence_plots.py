@@ -128,6 +128,7 @@ def plot_convergence_comparison(
     ylabel: str = "Relative Residual $\\|r\\| / \\|b\\|$",
     *,
     legend: Legend,
+    group_for_system: Mapping[str, str] | None = None,
     show_titles: bool = False,
 ) -> None:
     """Plot the ``history_attr`` histories of solver results on one figure.
@@ -146,6 +147,7 @@ def plot_convergence_comparison(
     plot_convergence_curves(
         curves,
         legend=legend,
+        group_for_system=group_for_system,
         target=target,
         show=show,
         title=title,
@@ -168,6 +170,7 @@ def plot_convergence_curves(
     curves: Mapping[str, ConvergenceCurve],
     *,
     legend: Legend,
+    group_for_system: Mapping[str, str] | None = None,
     target: FigureTarget | None = None,
     show: bool = False,
     title: FigureTitle | None = None,
@@ -216,8 +219,15 @@ def plot_convergence_curves(
     metadata = dict(metadata or {})
     line_styles = resolve_styles(families, color_keys, marker_keys) if families else {}
 
+    labelled_groups: set[str] = set()
     for key, curve in curves.items():
-        label = _build_convergence_label(legend.label(key), metadata.get(key))
+        group_id = group_for_system[key] if group_for_system is not None else key
+        label = (
+            "_nolegend_"
+            if group_id in labelled_groups
+            else _build_convergence_label(legend.label(group_id), metadata.get(key))
+        )
+        labelled_groups.add(group_id)
         style = dict(line_styles.get(key, {"marker": "o", "linestyle": "-"}))
         size_scale = style.pop("markersize_scale", 1.0)
         if not curve.converged:
