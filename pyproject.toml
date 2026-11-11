@@ -79,6 +79,7 @@ convention = "google"
 dev = [
     "hypothesis>=6.151.6",
     "pytest>=9.0",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.13.1",
     "tach>=0.34.0",
     "ty>=0.0.22",
@@ -116,9 +117,8 @@ error-on-warning = true
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-addopts = ["-m", "not benchmark and not integration"]
+addopts = ["-m", "not benchmark and not integration", "-n", "auto", "--dist", "loadfile"]
 markers = [
-    "slow: tests that take >5 seconds (deselect with '-m \"not slow\"')",
     "benchmark: numerical algorithm benchmarks and exactness tests",
     "integration: integration tests that test full workflows",
     "deferred_io(plan): test file does real IO outside the IO-boundary test directories until the named future refactor (mlflow-run-tracking, generation-io, config-loading, digest-hashing) removes it",

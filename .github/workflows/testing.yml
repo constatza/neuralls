@@ -39,7 +39,7 @@ jobs:
         run: uv run ty check src/ tests/ scripts/
 
       - name: Run pytest fast smoke
-        run: uv run pytest tests -m "not slow" --maxfail=1 --disable-warnings -q
+        run: uv run pytest tests --maxfail=1 --disable-warnings -q
 
   test-windows:
     runs-on: windows-latest
@@ -70,4 +70,4 @@ jobs:
         run: uv run ty check src/ tests/ scripts/
 
       - name: Run pytest
-        run: uv run pytest tests -m "not slow" --maxfail=1 --disable-warnings -q
+        run: uv run pytest tests --maxfail=1 --disable-warnings -q
