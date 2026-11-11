@@ -41,7 +41,7 @@ from neuralls.platform.storage.training_artifacts import (
 )
 from neuralls.shared.types import MatrixFormat
 
-pytestmark = pytest.mark.deferred_io("generation-io")
+pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
 
 
 def _build_training_job(tmp_path: Path) -> TrainingJobConfig:

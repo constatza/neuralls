@@ -18,7 +18,7 @@ from neuralls.shared.digest import canonical_digest
 from neuralls.shared.errors import StageInputsStale
 from tests.composition.conftest import JobWriter
 
-pytestmark = pytest.mark.deferred_io("generation-io")
+pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
 
 
 @pytest.fixture(autouse=True)

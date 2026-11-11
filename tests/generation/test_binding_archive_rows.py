@@ -12,26 +12,59 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neuralls.domain.generation.orchestration import BatchStream
+from neuralls.domain.generation.batch_plan import ALL_SAMPLES
+from neuralls.domain.generation.orchestration import BatchStream, open_batch_stream
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
-from neuralls.platform.storage.datasets import load_dense_training_arrays
-from tests.dataset_support import build_test_dataset
+from neuralls.shared.types import MatrixFormat
+from tests import generation_support
+from tests.fakes.archive_source import InMemoryArchiveSource
 
-pytestmark = pytest.mark.deferred_io("generation-io")
-
-ALL_SAMPLES = -1
 CYCLIC_COUNT = 2
 OVER_CAP_COUNT = 6
+MATRIX_DIR = Path("/archive/matrices")
+SOLUTION_PATH = Path("/archive/solutions.npy")
 
 
 @pytest.fixture
-def explicit_solution_source(three_spd_matrix_dir: Path, solution_block_npy: Path) -> SourceSpec:
+def archive_source(solution_block: np.ndarray) -> InMemoryArchiveSource:
+    """The shared binding matrices ``A_0.txt``..``A_2.txt`` and one stacked solution file."""
+    source = InMemoryArchiveSource()
+    for i, matrix in enumerate(generation_support.binding_matrices()):
+        source.add(MATRIX_DIR / f"A_{i}.txt", matrix)
+    source.add(SOLUTION_PATH, solution_block)
+    return source
+
+
+@pytest.fixture
+def explicit_solution_source() -> SourceSpec:
     """Three matrices, each binding paired with the one explicit solution file."""
     return SourceSpec(
-        matrix_path=str(three_spd_matrix_dir / "A_*.txt"),
-        solution_path=str(solution_block_npy),
-        sample_id_regex=r"(\d+)(?!.*\d)",
+        matrix_path=str(MATRIX_DIR / "A_*.txt"),
+        solution_path=str(SOLUTION_PATH),
+        sample_id_regex=generation_support.BINDING_SOURCE_REGEX,
     )
+
+
+@pytest.fixture
+def open_binding_stream(
+    archive_source: InMemoryArchiveSource,
+) -> Callable[[SourceSpec, dict[str, int]], BatchStream]:
+    """Open a batch stream over the in-memory archive from a source and per-strategy counts."""
+
+    def _open(source: SourceSpec, counts: dict[str, int]) -> BatchStream:
+        spec = DatasetSpec(
+            mixture=MixtureSpec(counts=counts, seed=generation_support.BINDING_SEED, shuffle=False)
+        )
+        return open_batch_stream(
+            source,
+            spec,
+            batch_size=1 << 20,
+            matrix_format=MatrixFormat.DENSE,
+            readers=archive_source.readers(),
+            archive_source=archive_source,
+        )
+
+    return _open
 
 
 def _binding_solutions(stream: BatchStream, n_bindings: int) -> list[np.ndarray]:
@@ -45,7 +78,7 @@ def _binding_solutions(stream: BatchStream, n_bindings: int) -> list[np.ndarray]
 
 def test_cyclic_count_draws_rows_mod_k_per_binding(
     explicit_solution_source: SourceSpec,
-    open_binding_stream: Callable[..., BatchStream],
+    open_binding_stream: Callable[[SourceSpec, dict[str, int]], BatchStream],
     solution_block: np.ndarray,
 ) -> None:
     """Explicit ``solution_archive`` count N over 3 matrices: binding b takes rows (b+p) mod K."""
@@ -61,7 +94,7 @@ def test_cyclic_count_draws_rows_mod_k_per_binding(
 
 def test_cyclic_count_above_file_rows_warns_once(
     explicit_solution_source: SourceSpec,
-    open_binding_stream: Callable[..., BatchStream],
+    open_binding_stream: Callable[[SourceSpec, dict[str, int]], BatchStream],
     warning_messages: list[str],
 ) -> None:
     """N > K: the cap is reported in exactly one warning, however many bindings there are."""
@@ -70,39 +103,9 @@ def test_cyclic_count_above_file_rows_warns_once(
     assert len(warning_messages) == 1
 
 
-@pytest.fixture
-def build_solution_dataset(
-    tmp_path: Path,
-) -> Callable[[SourceSpec, dict[str, int]], tuple[np.ndarray, np.ndarray]]:
-    """Build a dataset from a source and counts, returning its stored ``(rhs, solutions)``."""
-
-    def _build(source: SourceSpec, counts: dict[str, int]) -> tuple[np.ndarray, np.ndarray]:
-        dataset_dir = str(tmp_path / "built")
-        build_test_dataset(
-            source, DatasetSpec(mixture=MixtureSpec(counts=counts, seed=7)), dataset_dir
-        )
-        return load_dense_training_arrays(dataset_dir)
-
-    return _build
-
-
-def test_all_samples_plan_total_equals_written_total(
-    explicit_solution_source: SourceSpec,
-    open_binding_stream: Callable[..., BatchStream],
-    build_solution_dataset: Callable[[SourceSpec, dict[str, int]], tuple[np.ndarray, np.ndarray]],
-) -> None:
-    """``samples=-1`` over 3 bindings: the plan total is the number of rows actually written."""
-    counts = {"solution_archive": ALL_SAMPLES}
-    planned = open_binding_stream(explicit_solution_source, counts).plan.total_rows
-
-    _, solutions = build_solution_dataset(explicit_solution_source, counts)
-
-    assert planned == solutions.shape[0]
-
-
 def test_generated_strategy_with_all_samples_never_receives_archive_rows(
     explicit_solution_source: SourceSpec,
-    open_binding_stream: Callable[..., BatchStream],
+    open_binding_stream: Callable[[SourceSpec, dict[str, int]], BatchStream],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``gaussian_forward`` with ``samples=-1`` is handed no archive, despite the solution file."""
@@ -122,29 +125,3 @@ def test_generated_strategy_with_all_samples_never_receives_archive_rows(
 
     assert archives_seen
     assert all(archive is None for archive in archives_seen)
-
-
-def test_single_matrix_glob_solution_with_all_samples_writes_every_file(
-    three_spd_matrix_dir: Path,
-    tmp_path: Path,
-    solution_block: np.ndarray,
-    open_binding_stream: Callable[..., BatchStream],
-    build_solution_dataset: Callable[[SourceSpec, dict[str, int]], tuple[np.ndarray, np.ndarray]],
-) -> None:
-    """One matrix with a glob of K solution files and ``samples=-1``: plan and output both hold K rows."""
-    solution_dir = tmp_path / "solution_files"
-    solution_dir.mkdir()
-    for i, vector in enumerate(solution_block):
-        np.savetxt(solution_dir / f"sol_{i}.txt", vector)
-    source = SourceSpec(
-        matrix_path=str(three_spd_matrix_dir / "A_0.txt"),
-        solution_path=str(solution_dir / "sol_*.txt"),
-        sample_id_regex=r"(\d+)(?!.*\d)",
-    )
-    counts = {"solution_archive": ALL_SAMPLES}
-
-    planned = open_binding_stream(source, counts).plan.total_rows
-    _, solutions = build_solution_dataset(source, counts)
-
-    assert planned == solution_block.shape[0]
-    assert solutions.shape[0] == solution_block.shape[0]

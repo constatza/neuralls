@@ -30,7 +30,7 @@ from tests.workflows.comparison_support import (
     write_dataset_config,
 )
 
-pytestmark = pytest.mark.deferred_io("generation-io")
+pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
 
 _LEVELS = ("all_matrix_sets", "matrix_set", "matrix_set_rhs_type")
 _N_PLANNED_RHS = 4

@@ -2,8 +2,8 @@
 
 A test file outside the boundary that creates files, a dataset, or an MLflow store must carry
 ``pytestmark = pytest.mark.deferred_io("<reason>")`` naming the future refactor that will
-remove that IO: ``mlflow-run-tracking`` (MLflow runs behind ports), ``generation-io`` (dataset
-generation file access behind ports) or ``digest-hashing`` (file hashing behind a port). A file
+remove that IO: ``mlflow-run-tracking`` (MLflow runs behind ports), ``dataset-fixture-io`` (a test
+that needs a dataset directory on disk as its input fixture) or ``digest-hashing`` (file hashing behind a port). A file
 that no longer does IO must drop the marker, so the set only shrinks.
 """
 
@@ -15,7 +15,7 @@ from pathlib import Path
 
 _TESTS = Path(__file__).resolve().parents[1]
 _BOUNDARY_DIRS = ("io", "integration", "platform", "architecture", "manual")
-_REASONS = frozenset({"mlflow-run-tracking", "generation-io", "digest-hashing"})
+_REASONS = frozenset({"mlflow-run-tracking", "dataset-fixture-io", "digest-hashing"})
 _IO_USE = re.compile(
     r"\b(tmp_path|tmp_path_factory|mlflow_tracking_uri|mlflow_experiment|"
     r"log_run_with_checkpoint|log_run_with_named_checkpoints|build_test_dataset)\b"

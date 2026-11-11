@@ -15,15 +15,13 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from tests.dataset_support import build_test_dataset
 
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.datasets import (
     load_dense_training_arrays,
     load_matrix_dense_sample,
 )
-from tests.dataset_support import build_test_dataset
-
-pytestmark = pytest.mark.deferred_io("generation-io")
 
 
 @pytest.fixture

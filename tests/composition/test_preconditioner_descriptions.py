@@ -66,7 +66,7 @@ from neuralls.shared.scientific_description.policy import (
 )
 from neuralls.shared.scientific_description.render import render
 
-pytestmark = pytest.mark.deferred_io("generation-io")
+pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
 
 PLAIN = NotationPolicy.default(RenderTarget.PLAIN)
 PROFILE = RenderProfile(name="description", include_context=True)

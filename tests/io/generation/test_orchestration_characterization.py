@@ -20,6 +20,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from tests.dataset_support import build_test_dataset
 
 from neuralls.composition.generation import _strategy_executor as executor_module
 from neuralls.composition.generation.process_data import process_data_from_config
@@ -35,9 +36,6 @@ from neuralls.platform.storage.datasets import (
     load_matrix_dense_sample,
 )
 from neuralls.shared.types import MatrixFormat, RowKind
-from tests.dataset_support import build_test_dataset
-
-pytestmark = pytest.mark.deferred_io("generation-io")
 
 _FLOAT_DIGEST_DECIMALS = 12
 """Rounding applied before hashing floating arrays, so BLAS/LAPACK builds that

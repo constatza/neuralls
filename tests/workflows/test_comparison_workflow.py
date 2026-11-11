@@ -125,7 +125,7 @@ from tests.workflows.comparison_support import (
     write_experiments_config,
 )
 
-pytestmark = pytest.mark.deferred_io("generation-io")
+pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
 
 TRACKING_URI = "sqlite:///unused"
 

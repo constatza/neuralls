@@ -15,6 +15,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from tests.dataset_support import build_test_dataset
 
 from neuralls.composition.generation.default_services import make_solver
 from neuralls.domain.generation.file_sources import MatrixReaders
@@ -28,11 +29,9 @@ from neuralls.platform.storage.datasets import load_dense_training_arrays
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
 from neuralls.shared.types import GenerationStrategyKind
-from tests.dataset_support import build_test_dataset
 
 ARCHIVE_SOURCE = FsArchiveSource()
 
-pytestmark = pytest.mark.deferred_io("generation-io")
 
 _READERS = MatrixReaders(
     generic=partial(read_matrix, lazy=True), dense=partial(read_dense_npy, lazy=True)

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
+from tests.dataset_support import build_test_dataset
 
 from neuralls.composition.generation.dataset_builder import (
     DatasetProvenanceMismatchError,
@@ -22,9 +23,6 @@ from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
 from neuralls.shared.digest import canonical_digest
-from tests.dataset_support import build_test_dataset
-
-pytestmark = pytest.mark.deferred_io("generation-io")
 
 
 def _artifact(fmt: str, path: str = "x", *, rows: int | None = None) -> DatasetArtifact:

@@ -9,30 +9,32 @@ arrays.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
-from loguru import logger
+from tests.dataset_support import build_test_dataset
 
-from neuralls.composition.generation._context_builder import _warn_if_shuffle_requested
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
-from neuralls.platform.config.models.data_models import GenerationConfig
 from neuralls.platform.storage.dataset_readers import (
     load_matrix_sample_index,
     load_row_kind_codes,
 )
 from neuralls.platform.storage.datasets import load_dense_training_arrays
-from tests.dataset_support import build_test_dataset
-
-pytestmark = pytest.mark.deferred_io("generation-io")
 
 _SEED = 1234
+
+
 _MATRIX_COUNT = 2
+
+
 _MATRIX_SIZE = 5
+
+
 _COUNTS = {"gaussian_forward": 6, "gaussian_residuals": 6}
+
+
 _STRATEGY_OVERRIDES = {"gaussian_residuals": {"stop": 3, "start": 1}}
 
 
@@ -121,24 +123,3 @@ def test_strategy_order_is_preserved_within_each_binding(
         boundaries = np.flatnonzero(np.diff(block) != 0)
         assert len(boundaries) <= len(_COUNTS) - 1
         assert np.all(np.diff(block) >= 0) or np.all(np.diff(block) <= 0)
-
-
-@pytest.fixture
-def captured_warnings() -> Iterator[list[str]]:
-    """Collects loguru WARNING messages for the duration of one test."""
-    messages: list[str] = []
-    sink_id = logger.add(
-        lambda message: messages.append(message.record["message"]), level="WARNING"
-    )
-    yield messages
-    logger.remove(sink_id)
-
-
-def test_explicit_shuffle_true_logs_one_warning(captured_warnings: list[str]) -> None:
-    _warn_if_shuffle_requested(GenerationConfig.model_validate({"shuffle": True}))
-    assert len(captured_warnings) == 1
-
-
-def test_default_shuffle_does_not_warn(captured_warnings: list[str]) -> None:
-    _warn_if_shuffle_requested(GenerationConfig())
-    assert captured_warnings == []

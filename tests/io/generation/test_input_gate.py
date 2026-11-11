@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+from tests.dataset_support import strip_provenance
 
 from neuralls.composition.comparison import config_assembler, input_gate
 from neuralls.composition.comparison.input_gate import require_current_inputs
@@ -20,9 +21,6 @@ from neuralls.platform.storage.dataset_readers import load_matrix_sample_index
 from neuralls.shared.constants import REGENERATE_DATASETS_COMMAND, SPLIT_FILENAME
 from neuralls.shared.digest import content_digest
 from neuralls.shared.errors import StageInputsStale
-from tests.dataset_support import strip_provenance
-
-pytestmark = pytest.mark.deferred_io("generation-io")
 
 type ConfigFactory = Callable[..., DataConfigFile]
 

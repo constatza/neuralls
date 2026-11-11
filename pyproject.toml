@@ -121,7 +121,7 @@ addopts = ["-m", "not benchmark and not integration", "-n", "auto", "--dist", "l
 markers = [
     "benchmark: numerical algorithm benchmarks and exactness tests",
     "integration: integration tests that test full workflows",
-    "deferred_io(plan): test file does real IO outside the IO-boundary test directories until the named future refactor (mlflow-run-tracking, generation-io, config-loading, digest-hashing) removes it",
+    "deferred_io(plan): test file does real IO outside the IO-boundary test directories until the named future refactor (mlflow-run-tracking, dataset-fixture-io, config-loading, digest-hashing) removes it",
     "figure_placeholders: real MLflow store logs figure paths, so Figure.savefig leaves an empty placeholder file",
 ]
 

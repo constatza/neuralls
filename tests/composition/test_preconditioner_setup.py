@@ -24,7 +24,7 @@ from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormaliza
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
 from neuralls.shared.constants import PARAMETERS_ZARR_PREFIX
 
-pytestmark = pytest.mark.deferred_io("generation-io")
+pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
 
 
 class _StubBindable(Preconditioner, BindableInputs):

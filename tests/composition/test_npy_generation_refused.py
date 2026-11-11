@@ -15,7 +15,7 @@ import pytest
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from tests.dataset_support import build_test_dataset
 
-pytestmark = pytest.mark.deferred_io("generation-io")
+pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
 
 
 def test_npy_generation_is_refused_with_supported_formats_named(

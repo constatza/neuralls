@@ -14,7 +14,7 @@ from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 from tests.dataset_support import build_test_dataset
 
-pytestmark = pytest.mark.deferred_io("generation-io")
+pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
 
 DIM = 40
 SEED = 17

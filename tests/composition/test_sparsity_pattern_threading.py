@@ -19,7 +19,7 @@ from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.types import DatasetFormat, SparsityPattern
 
-pytestmark = pytest.mark.deferred_io("generation-io")
+pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
 
 _DATASET_ID = "sparsity-threading"
 _MakeConfig = Callable[[str | None], Path]
