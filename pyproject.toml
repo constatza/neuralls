@@ -107,7 +107,7 @@ include = ["tests"]
 [tool.ty.overrides.rules]
 invalid-argument-type = "ignore"
 invalid-assignment = "ignore"
-invalid-method-override = "ignore"
+incompatible-method-override = "ignore"
 unknown-argument = "ignore"
 
 [tool.ty.terminal]

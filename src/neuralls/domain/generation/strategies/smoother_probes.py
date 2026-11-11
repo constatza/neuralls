@@ -95,14 +95,14 @@ def _sparse_damping_trajectories(
         torch.as_tensor(matrix.data),
         size=matrix.shape,
     )
-    smoother = SparseJacobiSmoother(omega=omega)
+    smoother = SparseJacobiSmoother(omega=omega).prepare(operator)
     trajectories = []
     for row in probes:
         zero_rhs = torch.zeros_like(row)
         x = row
         history = [x]
         for _ in range(steps):
-            x = smoother.smooth(operator, zero_rhs, x, steps=1)
+            x = smoother.smooth(zero_rhs, x, steps=1)
             history.append(x)
         trajectories.append(torch.stack(history))
     return torch.stack(trajectories)

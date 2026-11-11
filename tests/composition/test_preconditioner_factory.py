@@ -189,6 +189,12 @@ def dense_spd_matrix_20() -> torch.Tensor:
 
 
 @pytest.fixture
+def aggregation_matrix(dense_spd_matrix: torch.Tensor) -> torch.Tensor:
+    """Connected 4x4 SPD matrix for aggregation with the shared residual fixture."""
+    return dense_spd_matrix[:4, :4]
+
+
+@pytest.fixture
 def residual_vector() -> torch.Tensor:
     """4D residual vector."""
     return torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float64)
@@ -345,14 +351,14 @@ def test_neural_preconditioner_cleanup_on_delete(
 
 
 def test_factory_creates_amg_preconditioner_with_aggregation_coarsening(
-    well_conditioned_matrix: torch.Tensor, residual_vector: torch.Tensor
+    aggregation_matrix: torch.Tensor, residual_vector: torch.Tensor
 ) -> None:
     """Factory creates AMGPreconditioner for AMG type with aggregation coarsening."""
     config = AMGPreconditionerConfig(
         coarsening=AggregationCoarseningConfig(theta=0.05, omega=0.5),
     )
 
-    precond = create_preconditioner(well_conditioned_matrix, config)
+    precond = create_preconditioner(aggregation_matrix, config)
 
     assert isinstance(precond, AMGPreconditioner)
     assert isinstance(precond._coarsening, AggregationCoarsening)
@@ -363,7 +369,7 @@ def test_factory_creates_amg_preconditioner_with_aggregation_coarsening(
 
 
 def test_factory_creates_amg_preconditioner_with_target_dim_coarsening(
-    well_conditioned_matrix: torch.Tensor, residual_vector: torch.Tensor
+    aggregation_matrix: torch.Tensor, residual_vector: torch.Tensor
 ) -> None:
     """Factory creates AMGPreconditioner for AMG type with target-dimension coarsening.
 
@@ -377,7 +383,7 @@ def test_factory_creates_amg_preconditioner_with_target_dim_coarsening(
         ),
     )
 
-    precond = create_preconditioner(well_conditioned_matrix, config)
+    precond = create_preconditioner(aggregation_matrix, config)
 
     assert isinstance(precond, AMGPreconditioner)
     assert isinstance(precond._coarsening, TargetDimensionCoarsening)

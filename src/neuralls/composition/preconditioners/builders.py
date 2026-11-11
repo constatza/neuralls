@@ -39,7 +39,7 @@ from torchalg.sparse.preconditioners.amg.adaptive import (
 from torchalg.sparse.preconditioners.amg.bootstrap import (
     BootstrapAMGPreconditioner as SparseBootstrapAMGPreconditioner,
 )
-from torchalg.sparse.preconditioners.amg.coarse_solve import dense_coarse_solve
+from torchalg.sparse.preconditioners.amg.coarse_solve import dense_lu_coarse_solver
 from torchalg.sparse.preconditioners.amg.smoothers import resolve_jacobi_default
 from torchalg.sparse.preconditioners.amg.variants import vcycle_amg as sparse_vcycle_amg
 from torchalg.sparse.preconditioners.ic0 import IC0Preconditioner as SparseIC0Preconditioner
@@ -194,7 +194,7 @@ def _build_sparse_amg(
         resolve_jacobi_default(None, config.smoother_omega),
         n_pre=config.pre_smoothing_steps,
         n_post=config.post_smoothing_steps,
-        coarse_solver=dense_coarse_solve,
+        coarse_solver_factory=dense_lu_coarse_solver,
     )
     preconditioner = MultigridAMGPreconditioner(
         matrix=matrix, coarsening=coarsening, cycle=cycle, n_levels=config.n_levels, linear=True

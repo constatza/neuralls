@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 from scipy.sparse import csr_array, diags, identity, kron
@@ -24,7 +25,9 @@ from torchalg.sparse.preconditioners.jacobi import JacobiPreconditioner as Spars
 from neuralls.composition.preconditioners.builders import _lookup_builder
 from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.composition.solvers.torchalg_runner import _to_torch_operator
+from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.preconditioner import (
+    AMGPreconditionerConfig,
     NeuralPreconditionerConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
@@ -97,6 +100,37 @@ def stub_adapter() -> PredictorAdapter:
 def mock_checkpoint() -> Path:
     """Placeholder checkpoint path for neural config validation (never opened)."""
     return Path("model.ckpt")
+
+
+@pytest.fixture
+def pod_fit_arrays(laplacian_csr: csr_array) -> tuple[np.ndarray, np.ndarray]:
+    """In-memory POD snapshots sized for the CSR operator."""
+    snapshots = np.random.default_rng(0).standard_normal((4, laplacian_csr.shape[0]))
+    return snapshots, snapshots
+
+
+@pytest.fixture
+def pod_residual(laplacian_csr: csr_array) -> torch.Tensor:
+    """Residual vector for the CSR POD hierarchy."""
+    return torch.ones(laplacian_csr.shape[0], dtype=torch.float64)
+
+
+def test_sparse_pod_amg_prepares_a_coarse_solver(
+    laplacian_csr: csr_array,
+    pod_fit_arrays: tuple[np.ndarray, np.ndarray],
+    pod_residual: torch.Tensor,
+) -> None:
+    """Sparse POD AMG builds and applies its prepared coarse solve."""
+    matrix = _to_torch_operator(laplacian_csr)
+    config = AMGPreconditionerConfig(
+        coarsening=PODCoarseningConfig(dataset_dir=Path("pod-fit"), rank=2)
+    )
+
+    precond = create_preconditioner(
+        matrix, config, matrix_format=MatrixFormat.CSR, staged_fit_data=pod_fit_arrays
+    )
+
+    assert precond.apply(pod_residual).shape == pod_residual.shape
 
 
 def test_csr_jacobi_request_returns_torchalg_sparse_class(laplacian_csr: csr_array) -> None:

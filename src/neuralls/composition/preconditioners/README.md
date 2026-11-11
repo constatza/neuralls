@@ -12,6 +12,6 @@ Turns a preconditioner configuration into a torchalg preconditioner for a matrix
 - `pod_fittable.py`: the dlkit `Fittable` adapter over torchalg's `PODCoarseningStrategy`. It must stay importable at its module path, because `FitJobConfig` jobs reference it by name.
 - `_weighting.py`: maps `SnapshotWeightingConfig` to torchalg's POD row-scale functions.
 
-The sparse AMG preset builds its aggregation internally, so for CSR AMG the coarsening is `None`.
+- Sparse AMG's aggregation preset builds its coarsening internally, so the builder returns `None` for it. Sparse POD AMG prepares a dense LU coarse solver once for the hierarchy.
 - `checkpoint_store.py`: `CheckpointStore` (owns loaded POD bases and predictors and releases each predictor once), the read-only `PreloadedCheckpoints` protocol builders consume (`NO_PRELOADED` null object by default), typed keys (`PodBasisKey`, `PredictorKey`) and `preloaded_inference_factory`. Builders borrow the store's predictors: torchalg's `NeuralPreconditioner` and neural coarsening never release a predictor they were given, so a discarded timing repeat cannot unload a shared model. Only neural POD-2G's `with factory(path) as predictor:` releases on exit, so it gets a non-owning view.
 - `preloading.py`: `preload_checkpoints` loads every checkpoint a config exposes through `CheckpointRefBearing`, using the `_REF_PRELOADERS` mapping (ref type to loader); a checkpoint kind without an entry fails loudly.
