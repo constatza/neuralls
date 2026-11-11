@@ -32,8 +32,9 @@ amortized online time) use the reference/method speed ratio;
 performance profiles still normalize independently by the fastest method on
 each problem.
 
-Comparison figures are planned with typed metadata before drawing. Titles stay
-short (for example `Online Time`, `Performance Profile`, and `Speed Ratio`),
+Comparison figures are planned with typed metadata before drawing. Titles name
+the timing quantity and unit of analysis (for example `Amortized Online Time per System`
+and `Solve-only Workload Total`),
 while each figure's card (`<stem>.toml`, uploaded beside the figure's PNG file into the run of the figure's
 scope) carries report scope, counts, actual dataset/recipe membership and weights, solver
 tolerances, iteration and normalization settings, repeat policy, reference/failure semantics, the metric, population and statistic drawn, the evidence under the numbers (the bootstrap interval where one is drawn, the RHS counts that share a matrix's setup on online metrics, per-method outcome counts, and timing spread with a warning when each solve was timed once),
@@ -67,12 +68,15 @@ a finished report with the same tags and a valid `figure_index.toml`; a report f
 `preconditioners/factory.py` selects a builder by `(PreconditionerType,
 MatrixFormat)` from one module-level table. A missing pair raises `ValueError`
 naming both halves; nothing falls back to another format. Every sparse-mapped
-type has a CSR entry backed by the torchalg sparse sibling. The sparse AMG
-preset supports aggregation coarsening only, so other coarsening kinds are
-rejected for CSR input. Neural types have a dense entry only: CSR input is
-densified in this layer, with one INFO log line per call stating the O(n^2)
-cost, and the dense builder then runs. The predictor and its model-input
-adapter never densify.
+type has a CSR entry backed by the torchalg sparse sibling. Sparse AMG uses
+the aggregation preset or the sparse POD strategy; target-dimension
+coarsening has no CSR builder. Comparison loading and scheduling retain CSR
+through classical method setup and solve. Neural types have a dense entry
+only: comparison densifies their matrix before setup and solve, while direct
+CSR factory calls densify with an INFO log. Their predictor and model-input
+adapter never densify. Because the densified matrix also drives their PCG matrix-vector
+products, neural solve times are not directly comparable to classical CSR solve times;
+whether the solver loop can stay sparse is an open investigation.
 
 ## Dense streamed dataset commit
 
@@ -540,8 +544,10 @@ Completed method workloads are persisted by
 versioned, artifact-relative `setup_events.parquet`, `solve_attempts.parquet`,
 `convergence.parquet`, `planned_systems.parquet`, `summary.toml`, `method_config.toml` and
 `presentation.toml` files (see `platform/README.md`). The Parquet frames are canonical; the TOML summary is
-reconciled from the Task 2 reducers and records the method name/config digest,
-planned/attempted/converged counts, setup/solve/online timings, and
+reconciled from the workload reducers (`domain/solver/reporting/aggregation.py`) and records the method name/config digest,
+planned/attempted/converged counts and online workload totals. Its `[online]`
+`setup_s`, `solve_s`, and `workload_s` are sums of representative matrix setup and
+attempted RHS solve-only events; they are not per-system values or one end-to-end timer. It also records
 workload peak memory. The method's path-free data evidence is in `presentation.toml`; the
 method-child reuse gate requires it to match the current resolution, so older runs without it
 execute again. The method's offline cost is an `OfflineStages` of two `StageCost`s, written as

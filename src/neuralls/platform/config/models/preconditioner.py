@@ -214,13 +214,8 @@ class StandardPreconditionerConfig(BasePreconditionerConfig):
 class IC0PreconditionerConfig(BasePreconditionerConfig):
     """IC(0) preconditioner configuration with threshold parameter.
 
-    Complexity: ``torchalg``'s ``IC0Preconditioner`` is a *dense masked* port
-    (see its module docstring) — it stores and factorizes a dense ``n x n``
-    buffer with the IC(0) sparsity mask applied, not a true sparse structure.
-    Real cost is therefore O(n^2) storage and O(n^2) setup/application, not
-    the sparse-textbook O(nnz) the IC(0) *algorithm* would suggest on a real
-    sparse implementation — see ``torchalg.preconditioners.implementations
-    .ic0.IC0Preconditioner`` for the derivation.
+    Comparison uses torchalg's CSR IC(0) implementation. The dense masked
+    implementation remains available for explicitly dense callers.
     """
 
     type: Annotated[Literal[PreconditionerType.IC0], IDENTITY_ROLE] = PreconditionerType.IC0
@@ -351,20 +346,10 @@ class AMGPreconditionerConfig(BasePreconditionerConfig):
     fields on this class — the underlying ``AMGPreconditioner`` is already
     generic over any ``CoarseningStrategy``.
 
-    Complexity: application (one V-cycle) is **not** the textbook O(n) —
-    that bound assumes sparse matvecs with a bounded coarsening ratio, but
-    ``torchalg``'s AMG hierarchy is dense-only throughout: every level,
-    transfer operator, and the coarsest-level solve via
-    `torch.linalg.solve`/`pinv` all operate on dense `torch.Tensor` storage,
-    never a sparse structure, regardless of the fine matrix's true sparsity.
-    The finest level's residual matvec (`rhs - matrix @ x`,
-    once per pre-smooth and post-smooth pass) is O(n^2), and dominates the
-    cycle: coarser levels contribute smaller but still-dense O(level_size^2)
-    terms, and the coarsest-level direct solve is O(coarsest_size^3) — see
-    ``torchalg.preconditioners.implementations.amg.cycle``'s `VCycle._vcycle`
-    for the actual recursion this is derived from. Setup cost is whichever
-    coarsening strategy's own complexity note applies (``AggregationCoarseningConfig``
-    / ``TargetDimCoarseningConfig`` / ``PODCoarseningConfig`` / ``NeuralPODCoarseningConfig``).
+    Comparison uses torchalg's CSR multigrid hierarchy for aggregation and
+    POD coarsening; target-dimension coarsening has no CSR builder. The
+    coarsest solve can still be dense because that matrix is small. Dense
+    callers retain the dense hierarchy and its O(n^2) fine-level matvecs.
     """
 
     type: Annotated[Literal[PreconditionerType.AMG], IDENTITY_ROLE] = PreconditionerType.AMG
@@ -468,9 +453,8 @@ class AdaptiveSAPreconditionerConfig(BasePreconditionerConfig):
     (`num_candidates` full aggregation + relaxation passes, `candidate_iters`
     relaxation sweeps each), so setup cost scales roughly linearly in
     `num_candidates` on top of one classical-SA-AMG-sized build — a real
-    multiple, not free adaptivity. Application (V-cycle) is O(n^2)
-    (dense-matrix-dominated, not the textbook sparse O(n)) once built —
-    see `AMGPreconditionerConfig`'s complexity note.
+    multiple, not free adaptivity. Comparison applies a CSR V-cycle;
+    application cost still depends on hierarchy size and sparsity.
     """
 
     type: Annotated[Literal[PreconditionerType.ADAPTIVE_SA_AMG], IDENTITY_ROLE] = (
@@ -549,8 +533,8 @@ class BootstrapAMGPreconditionerConfig(BasePreconditionerConfig):
     a compatible-relaxation coarsening and algebraic-distance interpolation
     per level — several multiples of classical AMG's single-pass setup, as
     the class docstring above already states. Application (V-cycle) is
-    O(n^2) (dense-matrix-dominated, not the textbook sparse O(n)) once
-    built — see `AMGPreconditionerConfig`'s complexity note.
+    governed by the realized sparse hierarchy in comparison, including
+    its transfer operators and coarse solve.
     """
 
     type: Annotated[Literal[PreconditionerType.BOOTSTRAP_AMG], IDENTITY_ROLE] = (

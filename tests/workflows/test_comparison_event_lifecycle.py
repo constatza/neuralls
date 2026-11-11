@@ -28,6 +28,7 @@ from neuralls.domain.solver.models import (
     SystemTag,
 )
 from neuralls.domain.solver.models.benchmark_events import (
+    ExactSolutionUnavailable,
     MeasuredResidual,
     SolveConverged,
     UnmeasuredResidual,
@@ -53,7 +54,7 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, NoFitDataEvidence, SystemId
-from tests.measurement_support import NO_REFERENCE_SOLUTION
+from tests.measurement_support import NO_REFERENCE, NO_REFERENCE_SOLUTION
 from tests.presentation_support import PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 
@@ -77,7 +78,7 @@ def one_system_bundle() -> MatrixWorkload:
     return MatrixWorkload(
         dataset=DatasetId("ds"),
         matrix_id=MatrixId(1),
-        matrix=np.diag(np.array([2.0, 3.0])),
+        matrix=torch.diag(torch.tensor([2.0, 3.0], dtype=torch.float64)),
         matrix_path=Path("/workspace/not-a-dataset"),
         matrix_index=0,
         members=(MatrixWorkloadMember(tag=tag, rhs=np.ones(2)),),
@@ -105,7 +106,7 @@ def two_matrix_bundles() -> tuple[MatrixWorkload, MatrixWorkload]:
             MatrixWorkload(
                 dataset=DatasetId("ds"),
                 matrix_id=MatrixId(matrix_id),
-                matrix=np.diag(np.array([2.0, 3.0])) * matrix_id,
+                matrix=torch.diag(torch.tensor([2.0, 3.0], dtype=torch.float64)) * matrix_id,
                 matrix_path=Path("/workspace") / f"matrix-{matrix_id}",
                 matrix_index=matrix_id,
                 members=members,
@@ -277,6 +278,53 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
     assert states[0] is states[1]
     assert states[2] is states[3]
     assert states[0] is not states[2]
+
+
+def test_reference_is_factored_once_per_matrix_from_the_stored_matrix(
+    monkeypatch: pytest.MonkeyPatch,
+    two_matrix_bundles: tuple[MatrixWorkload, MatrixWorkload],
+    solver_params: SolverParams,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
+) -> None:
+    """Each matrix is factored once for all its RHS, from the stored matrix object itself,
+    never from the representation a method solves with (neural methods densify theirs)."""
+    from neuralls.composition.comparison import comparison_run
+
+    factored: list[torch.Tensor] = []
+
+    def record(matrix: torch.Tensor) -> ExactSolutionUnavailable:
+        factored.append(matrix)
+        return NO_REFERENCE
+
+    monkeypatch.setattr(comparison_run, "prepare_reference", record)
+    monkeypatch.setattr(
+        comparison_run,
+        "run_cg_comparison",
+        lambda *a, preconditioners, **k: {
+            next(iter(preconditioners)): _solved_result(next(iter(preconditioners)))
+        },
+    )
+    method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
+
+    comparison_run.execute_method_workload(
+        method,
+        two_matrix_bundles,
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+        params=solver_params,
+        settings=neuralls_settings,
+        prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
+        training_runs=training_runs,
+    )
+
+    assert len(factored) == len(two_matrix_bundles)
+    assert all(
+        seen is bundle.matrix for seen, bundle in zip(factored, two_matrix_bundles, strict=True)
+    )
 
 
 def test_repeat_samples_are_retained_but_totals_use_one_representative(

@@ -8,11 +8,14 @@ import h5py
 import numpy as np
 import zarr
 from loguru import logger
+from scipy.sparse import csr_array
 
+from neuralls.shared.types import MatrixFormat, SystemMatrix
+
+from .dataset_readers import load_matrix_sparse_sample
 from .datasets import (
     load_dataset_manifest,
     load_dense_training_arrays,
-    load_matrix_dense_sample,
 )
 from .generation_formats import HDF5_FILENAME
 
@@ -128,29 +131,43 @@ def matrix_file_order(matrix_path: Path) -> int:
     return int(_load_array_file(Path(matrix_path), mmap=True).shape[-1])
 
 
+COMPARISON_MATRIX_FORMAT = MatrixFormat.CSR
+"""Representation `load_comparison_matrix` returns. Part of every comparison and
+method identity digest, because the same preconditioner config builds a different
+implementation (and measures different times) on CSR than on dense input: change it
+together with that function so earlier results are not reused."""
+
+
+def load_comparison_matrix(matrix_path: Path, matrix_index: int = 0) -> csr_array:
+    """Load one comparison matrix as CSR (`COMPARISON_MATRIX_FORMAT`), keeping sparse storage."""
+    path = Path(matrix_path)
+    if path.is_dir():
+        load_dataset_manifest(path)
+        return load_matrix_sparse_sample(path, matrix_index)
+    return csr_array(_load_array_file(path))
+
+
 def load_system_arrays(
     matrix_path: Path,
     rhs_path: Path | None = None,
     rhs_sample_index: int = 0,
     matrix_index: int = 0,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[SystemMatrix, np.ndarray]:
     """Load matrix and RHS from explicit file paths (dataset dir, npy, txt)."""
     matrix_path = Path(matrix_path)
     if rhs_path is None:
         raise ValueError("rhs_path is required for loading system arrays.")
     rhs_path = Path(rhs_path)
 
-    def _load_array(path: Path, key: str) -> np.ndarray:
+    def _load_rhs(path: Path) -> np.ndarray:
         if path.is_dir():
             load_dataset_manifest(path)
-            if key == "matrix":
-                return load_matrix_dense_sample(path, sample_index=matrix_index)
             rhs, _ = load_dense_training_arrays(path)
             return np.asarray(rhs, dtype=np.float64)
         return _load_array_file(path)
 
-    A = _load_array(matrix_path, "matrix")
-    b_raw = _load_array(rhs_path, "rhs")
+    A = load_comparison_matrix(matrix_path, matrix_index)
+    b_raw = _load_rhs(rhs_path)
     b = _flatten_rhs_if_needed(b_raw, rhs_path)
     b = _select_rhs_sample(b, rhs_sample_index, rhs_path)
 

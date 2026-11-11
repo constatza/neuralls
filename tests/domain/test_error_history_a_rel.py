@@ -9,7 +9,7 @@ import torch
 
 from neuralls.domain.solver import comparison
 from neuralls.domain.solver.comparison import run_cg_comparison
-from neuralls.domain.solver.error_metrics import REFERENCE_PRECISION_MARGIN, reference_solution
+from neuralls.domain.solver.error_metrics import REFERENCE_PRECISION_MARGIN, reference_solver
 
 
 def test_history_starts_at_one_and_is_monotone_for_pcg(
@@ -53,7 +53,7 @@ def test_timed_solve_never_receives_the_exact_solution(
 def test_reference_solution_beats_rtol_by_margin(
     spd_matrix: torch.Tensor, rhs: torch.Tensor, known_solution: torch.Tensor
 ) -> None:
-    x = reference_solution(spd_matrix, rhs, rtol=1e-6)
+    x = reference_solver(spd_matrix).solve(rhs, rtol=1e-6)
     relative_residual = torch.linalg.vector_norm(rhs - spd_matrix @ x) / torch.linalg.vector_norm(
         rhs
     )

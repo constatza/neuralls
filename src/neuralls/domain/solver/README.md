@@ -22,6 +22,17 @@ Online time is setup plus solve only. Checkpoint and dataset reads, reference
 solves, staging, plotting, persistence, MLflow calls, and historical generation
 or training remain outside it. Required computation after I/O belongs to a
 timed setup or solve event.
+The diagnostic reference `x*` serves only exact-error metrics; preconditioners and
+the compared solves never see it. `error_metrics.reference_solver` factors a matrix
+once on the host (SciPy sparse LU for CSR, Cholesky for dense) into a `ReferenceSolver`
+whose `solve` is reused for every right-hand side of that matrix.
+`comparison.prepare_reference` turns a failed factorization into
+`ExactSolutionUnavailable` for all of the matrix's systems. The comparison run factors
+the stored matrix, not the representation a method solves with, so every method of a
+matrix is compared against the same `x*`. Each solve checks the true relative residual
+against `max(rtol * reference_precision_margin, 10 * eps)`; the default margin is `1e-3`.
+A reference that misses this target is unavailable for exact-error metrics, while the
+comparison solve still runs.
 
 `comparison_summary.py::format_results_summary` heads each summary line with the method's description, rendered from the `ConfiguredMethodPresentation` it is given for every result (a result without one raises `MissingMethodPresentationError`).
 
@@ -54,10 +65,10 @@ links before deriving costs. Planned RHS membership is counted by
 `(dataset, matrix_id)` before attempts are joined:
 
 ```text
-allocated_setup_s = setup_s / planned_rhs_count
-amortized_online_s = solve_s + allocated_setup_s
-matrix_online_s = setup_s + sum(solve_s)
-workload_online_s = sum(matrix_online_s)
+per_rhs_setup_share_s = setup_s / full_matrix_planned_rhs_count
+amortized_online_s = solve_s + per_rhs_setup_share_s
+group_allocated_setup_s = setup_s * group_planned_rhs_count / full_matrix_planned_rhs_count
+workload_online_s = sum(group_allocated_setup_s + group_solve_total_s)
 ```
 
 One matrix setup is therefore charged once even when sibling RHS values belong
@@ -117,12 +128,25 @@ unplanned system raise `ValueError`.
 | `stopping_threshold_rel` | `true_residual.stopping_threshold_rel(rtol, atol, rhs_norm)` from `planned_systems` and `solve_attempts.rhs_norm`; null without a nonzero measured RHS norm |
 | `timing_spread` | `(max - min) / median` of `solve_attempts.samples_s`; 0 for one sample, null without a solve row or for a zero median |
 
-Vocabulary. A **timing repeat** is the same solve timed again to cut noise; it is already reduced
-inside `solve_s` and is never an element of a resample. A **bootstrap resample** is an in-memory
-redraw of whole matrices. An **RHS** is one system of a matrix. **Allocated** or **amortized
-online** time shares a matrix setup among its planned RHS; **standalone** time charges every RHS
-the whole setup. `mean_over_systems` pools all selected systems; `mean_over_matrices` averages
-the per-matrix means.
+Vocabulary. A **timing repeat** is the same operation timed again to cut noise; its samples are
+reduced to one representative `setup_s` or `solve_s` and are never summed as separate RHS solves.
+A **bootstrap resample** is an in-memory redraw of whole matrices. An **RHS system** is one
+matrix and one right-hand side. The report uses these time names consistently:
+
+| Name | Value | Status |
+|---|---|---|
+| **Setup time per matrix** | Representative preparation time for one method and matrix, shared by its RHS systems | Measured |
+| **Solve-only time per system** | Representative solve time for one RHS after setup; excludes setup and offline work | Measured |
+| **Amortized online time per system** | Solve-only time plus that matrix's setup divided by its full planned RHS count, across recipes | Derived allocation, not a separately timed operation |
+| **Standalone online time per system** | Solve-only time plus the full matrix setup, the cost if this RHS ran alone | Derived scenario, not a separately timed operation |
+| **Solve-only workload total** | Sum of representative solve-only times of attempted RHS systems, including failed attempts | Derived sum; not an end-to-end wall-clock timer |
+| **Online workload total** | One representative setup per matrix plus the solve-only workload total; for a report subgroup, its proportional share of each matrix setup | Derived sum; not an end-to-end wall-clock timer |
+| **Total cost** | Online workload total plus known offline generation and training costs | Derived; unavailable when an applicable offline cost is unknown |
+
+The terms **setup** and **solve** follow the conventional phase split used in multigrid studies;
+the setup cost is amortized when a matrix is reused for multiple RHS solves. **Solve-only** states
+that setup is excluded, while **standalone** names the single-RHS setup-plus-solve scenario.
+`mean_over_systems` pools selected systems; `mean_over_matrices` averages their per-matrix means.
 
 Notation. Method $p$; matrix $m \in \mathcal{M}$, $K = |\mathcal{M}|$; system $s$ = (matrix, RHS), $m(s)$ its matrix; $r_m$ the planned RHS count of $m$; $\mathcal{A}_p$ attempted systems, $\mathcal{C}_p \subseteq \mathcal{A}_p$ converged systems of $p$; $k_{p,s}$ iterations. $\tau_{p,s,j}$ is the wall time of **timing repeat** $j = 1..R$ of the same solve; $\operatorname{stat}$ is the configured `TimingStatistic` (median default).
 
@@ -162,9 +186,9 @@ Seeded with `DEFAULT_RANDOM_SEED`; `None` if $K' < 2$; a matrix with no system i
 | `MetricId` | Label | Observation unit | Defined on | Formula |
 |---|---|---|---|---|
 | `ITERATIONS` | iterations to converge | system | `converged` | $k_{p,s},\quad s \in \mathcal{C}_p$ |
-| `SOLVE_S` | solve time per system [s] | system | `converged` | $t^{\mathrm{solve}}_{p,s} = \operatorname{stat}_{j}\,\tau^{\mathrm{solve}}_{p,s,j}$ |
-| `ONLINE_S` | online time per converged system [s] | system | `converged` | $t^{\mathrm{online}}_{p,s} = t^{\mathrm{solve}}_{p,s} + \frac{t^{\mathrm{setup}}_{p,m(s)}}{r_{m(s)}}$ |
-| `STANDALONE_S` | standalone time per system [s] | system | `converged` | $t^{\mathrm{standalone}}_{p,s} = t^{\mathrm{solve}}_{p,s} + t^{\mathrm{setup}}_{p,m(s)}$ |
+| `SOLVE_S` | solve-only time per system [s] | system | `converged` | $t^{\mathrm{solve}}_{p,s} = \operatorname{stat}_{j}\,\tau^{\mathrm{solve}}_{p,s,j}$ |
+| `ONLINE_S` | amortized online time per system [s] | system | `converged` | $t^{\mathrm{online}}_{p,s} = t^{\mathrm{solve}}_{p,s} + \frac{t^{\mathrm{setup}}_{p,m(s)}}{r_{m(s)}}$ |
+| `STANDALONE_S` | standalone online time per system [s] | system | `converged` | $t^{\mathrm{standalone}}_{p,s} = t^{\mathrm{solve}}_{p,s} + t^{\mathrm{setup}}_{p,m(s)}$ |
 | `SETUP_S` | setup time per matrix [s] | matrix (one value per method, dataset, matrix) | `converged`, `unconverged`, `solver_error` (the setup completed) | $t^{\mathrm{setup}}_{p,m} = \operatorname{stat}_{j}\,\tau^{\mathrm{setup}}_{p,m,j}$ |
 | `TIME_PER_ITERATION_S` | time per iteration [s] | system | `converged`, `unconverged` | $\theta_{p,s} = \frac{t^{\mathrm{solve}}_{p,s}}{k_{p,s}}$ |
 | `CONVERGENCE_FACTOR` | residual reduction factor per iteration | system | `converged` | $\gamma_{p,s} = \left(\frac{\hat{r}_{p,s,J}}{\hat{r}_{p,s,0}}\right)^{1/J_{p,s}},\quad s \in \mathcal{C}_p$ |
@@ -417,7 +441,9 @@ null) or `no_common_systems` (a mean is null, so `cost_s` is null too).
 ## Diagnostic solver results
 
 `CGComparisonResult` remains a solver-diagnostic DTO. Its
-`solve_time_seconds` is the explicit PCG/FCG measurement and
+`solve_time_seconds` is the representative solve-only PCG/FCG measurement;
+`setup_cost` copies the full linked matrix setup into every sibling RHS diagnostic result and
+must not be summed across them. The canonical setup event is counted once. The result's
 `offline_generation_time_seconds` exposes available historical generation
 cost separately. It does not aggregate generation, setup, and solve into an
 online total; setup-aware aggregate reporting derives totals only from linked
@@ -436,7 +462,7 @@ right-hand side is zero. `measure_residual` returns `NonFiniteResidual` for a no
 a residual that overflows; `run_cg_comparison` then records the solve as a failed one with an
 unmeasured residual, no histories and no energy-error second solve, instead of storing a NaN. `SolveAttempt.exact_reference` (`ExactSolutionSolved` with the
 reference solution's achieved residual, or `ExactSolutionUnavailable` with the reason) records
-the Jacobi-PCG solve that supplies `x_exact`. An exact energy-error history exists only when
+the direct solve that supplies `x_exact`. An exact energy-error history exists only when
 that reference solved, and it always comes from the second, untimed diagnostic solve, because
 the timed solve never receives `x_exact`. `true_residual.stopping_threshold_rel` gives the level
 at which the solver stops (`max(rtol, atol/||b||)`, taken from torchalg's own criterion).

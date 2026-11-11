@@ -10,9 +10,13 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import torch
 from scipy.sparse import csr_array
 
-from neuralls.composition.comparison._linear_system import _normalize_linear_system
+from neuralls.composition.comparison._linear_system import (
+    _normalize_linear_system,
+    _prepare_linear_system,
+)
 from neuralls.platform.storage.manifest import DatasetNormalization
 from neuralls.shared.types import ComparisonRhsSourceKind
 
@@ -27,6 +31,15 @@ def matrix() -> np.ndarray:
 def rhs() -> np.ndarray:
     """An RHS whose norm is deliberately not 1, so self-normalization is visible."""
     return np.array([3.0, 4.0], dtype=np.float64)
+
+
+def test_prepared_csr_system_keeps_sparse_matrix(matrix: np.ndarray, rhs: np.ndarray) -> None:
+    system = _prepare_linear_system(
+        csr_array(matrix), rhs, "none", rhs_source_kind=None, matrix_normalization=None, lhs=None
+    )
+
+    assert system.matrix.layout is torch.sparse_csr
+    torch.testing.assert_close(system.matrix.to_dense(), torch.as_tensor(matrix))
 
 
 @pytest.fixture

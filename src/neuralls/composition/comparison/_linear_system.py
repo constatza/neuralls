@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
+from scipy.sparse import csr_array
 
 from neuralls.composition.comparison.models import (
     LinearSystem,
@@ -19,6 +20,8 @@ from neuralls.domain.solver.utils.validation import (
     validate_rhs_vector,
 )
 from neuralls.platform.config.models.comparison import RHS_SOURCE_MODEL_BY_KIND
+from neuralls.platform.sparse_io.components import to_components
+from neuralls.platform.sparse_io.torch_convert import to_torch_csr
 from neuralls.platform.storage.manifest import DatasetNormalization
 from neuralls.shared.types import ComparisonRhsSourceKind, SystemMatrix
 
@@ -261,6 +264,10 @@ def _prepare_linear_system(
     if lhs is not None:
         validate_ax_equals_b(matrix, rhs, lhs)
     return LinearSystem(
-        matrix=torch.tensor(matrix, dtype=torch.float64),
+        matrix=(
+            to_torch_csr(to_components(matrix))
+            if isinstance(matrix, csr_array)
+            else torch.tensor(matrix, dtype=torch.float64)
+        ),
         rhs=torch.tensor(rhs, dtype=torch.float64),
     )

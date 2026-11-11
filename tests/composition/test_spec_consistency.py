@@ -12,6 +12,7 @@ import pytest
 
 from neuralls.composition.comparison.models import MatrixRef, PlannedSystem
 from neuralls.composition.comparison.spec_consistency import validate_dataset_specs_consistent
+from neuralls.composition.identity import comparison as comparison_identity
 from neuralls.composition.identity.comparison import preconditioner_identities
 from neuralls.domain.solver.models.provenance import HeldOutMatrix, SharedSingleMatrix
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
@@ -22,7 +23,7 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
 )
 from neuralls.shared.digest import Digest
-from neuralls.shared.types import MatrixId
+from neuralls.shared.types import MatrixFormat, MatrixId
 
 
 def _entry(entry_id: str, *, matrix_dataset: str, rhs_kind: str) -> ComparisonRegistryEntry:
@@ -68,6 +69,18 @@ def _identities(spec: PreconditionerConfig, *digests: str) -> dict[str, Digest]:
 
 def _two_entries() -> list[PlannedSystem]:
     return [_single("a"), _single("b")]
+
+
+def test_method_identity_changes_with_the_comparison_matrix_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A method measured on another matrix representation is a different method result."""
+    spec = _jacobi()
+    csr_identity = _identities(spec)[spec.name]
+
+    monkeypatch.setattr(comparison_identity, "COMPARISON_MATRIX_FORMAT", MatrixFormat.DENSE)
+
+    assert _identities(spec)[spec.name] != csr_identity
 
 
 def test_dataset_whose_systems_define_one_name_differently_is_rejected() -> None:

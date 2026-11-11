@@ -9,6 +9,7 @@ from pathlib import Path
 from neuralls.domain.identity import StageIdentity
 from neuralls.platform.config.models.comparison import ComparisonConfig
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
+from neuralls.platform.storage.comparison import COMPARISON_MATRIX_FORMAT
 from neuralls.platform.storage.dataset_digest import current_dataset_digest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME, SPLIT_FILENAME
 from neuralls.shared.digest import Digest, canonical_digest, content_digest, memoized
@@ -77,6 +78,7 @@ def comparison_identity(
             "general": canonical_digest(general),
             "preconditioners": canonical_digest(tuple(specs)),
             "matrix": input_digest(Path(data.matrix_path)),
+            "matrix_format": COMPARISON_MATRIX_FORMAT.value,
             "checkpoints": canonical_digest(dict(checkpoint_digests)),
         },
     )
@@ -110,6 +112,7 @@ def preconditioner_identities(
         spec.name: canonical_digest(
             {
                 "spec": canonical_digest(spec),
+                "matrix_format": COMPARISON_MATRIX_FORMAT.value,
                 "checkpoints": canonical_digest(
                     {
                         key: digest

@@ -44,7 +44,7 @@ def test_reference_failure_drops_exact_metrics_but_falls_back_to_gm_bound(
     falling back to the Golub-Meurant bound for the energy-error signal instead of
     losing it entirely.
     """
-    with patch.object(comparison, "reference_solution", side_effect=RuntimeError("too ill")):
+    with patch.object(comparison, "reference_solver", side_effect=RuntimeError("too ill")):
         results = run_cg_comparison(spd_matrix, rhs, preconditioners=preconditioners, rtol=1e-8)
 
     assert all(result.converged for result in results.values())

@@ -38,6 +38,7 @@ from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.comparison import (
     _to_numpy,
     compute_reference_solution,
+    prepare_reference,
     run_cg_comparison,
 )
 from neuralls.domain.solver.models.benchmark_events import (
@@ -55,7 +56,7 @@ from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.cost import Known, OfflineStages, Unavailable
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
-from neuralls.platform.config.models.preconditioner import PreconditionerConfig
+from neuralls.platform.config.models.preconditioner import PreconditionerConfig, PreconditionerType
 from neuralls.platform.config.models.preconditioner_family import (
     pod2g_style_keys,
     preconditioner_family,
@@ -248,10 +249,13 @@ def _solve_bundle(
     )
     attempts: list[SolveAttempt] = []
     diagnostics: list[tuple[SystemId, CGComparisonResult]] = []
+    # Factored from the stored matrix, not the method's `matrix`, so every method of this
+    # matrix compares against the same x* whatever representation it solves with.
+    reference = prepare_reference(bundle.matrix)
     for member in bundle.members:
         rhs = torch.as_tensor(member.rhs).to(device=run.device, dtype=matrix.dtype)
         x_exact, exact_reference = compute_reference_solution(
-            matrix,
+            reference,
             rhs,
             rtol=params.rtol,
             margin=params.reference_precision_margin,
@@ -371,7 +375,14 @@ def _execute_matrix_bundle(
     returned as plain values; only those outlive the release below.
     """
     try:
-        matrix = torch.as_tensor(bundle.matrix).to(run.device)
+        matrix = bundle.matrix.to(run.device)
+        # TODO(investigate): neural methods get a dense matrix for setup *and* solve. The
+        # predictor needs dense input, but PCG's own `A @ p` does not have to be dense.
+        # Until settled: neural solve-only time includes an O(n^2) matvec where classical
+        # methods pay O(nnz), and the `to_dense()` below is not timed. The type set repeats
+        # `_DENSIFY_FOR_CSR` in composition/preconditioners/builders.py.
+        if run.method.config.type in {PreconditionerType.NEURAL, PreconditionerType.NEURAL_AMG}:
+            matrix = matrix.to_dense() if matrix.layout is torch.sparse_csr else matrix
         try:
             return _execute_on_device(run, bundle, matrix, dataset_text)
         finally:

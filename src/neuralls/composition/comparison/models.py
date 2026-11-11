@@ -45,6 +45,7 @@ from neuralls.shared.types import (
     PreconditionerName,
     RowKind,
     SystemId,
+    SystemMatrix,
 )
 
 __all__ = [
@@ -124,7 +125,7 @@ class MatrixWorkload:
 
     dataset: DatasetId
     matrix_id: MatrixId
-    matrix: np.ndarray
+    matrix: torch.Tensor
     matrix_path: Path
     matrix_index: int
     members: tuple[MatrixWorkloadMember, ...]
@@ -240,7 +241,7 @@ class ComparisonPresentation:
 class ResolvedComparisonInput:
     """Resolved comparison system and provenance used for execution and tracking."""
 
-    matrix: np.ndarray
+    matrix: SystemMatrix
     rhs: np.ndarray
     matrix_dataset_id: str
     matrix_index: int

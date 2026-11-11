@@ -16,8 +16,9 @@ from torchalg.utils.device import resolve_device
 
 from neuralls.domain.solver.error_metrics import (
     REFERENCE_PRECISION_MARGIN,
+    ReferenceSolver,
     extract_energy_error,
-    reference_solution,
+    reference_solver,
     relative_exact_error,
 )
 from neuralls.domain.solver.models.benchmark_events import (
@@ -87,8 +88,9 @@ def run_cg_comparison(
         x_exact: Precomputed reference solution (any device/dtype; matched to
             ``A``'s before use), from a prior ``compute_reference_solution()``
             call — pass this when comparing multiple preconditioners against
-            the same ``A``/``b`` so the dense reference solve runs once
-            instead of once per call. ``None`` (default) computes it here.
+            the same ``A``/``b`` so the reference solve runs once
+            instead of once per call; the caller then also chooses which
+            representation of ``A`` is factored. ``None`` (default) computes it here.
         exact_reference: Outcome of the reference solve that produced ``x_exact``; recorded
             on every result. Ignored when ``x_exact`` is computed here.
         rtol: Relative tolerance.
@@ -121,7 +123,7 @@ def run_cg_comparison(
 
     if x_exact is None:
         x_exact, exact_reference = compute_reference_solution(
-            A.detach(), b.detach(), rtol=rtol, margin=reference_precision_margin
+            prepare_reference(A), b, rtol=rtol, margin=reference_precision_margin
         )
     elif exact_reference is None:
         exact_reference = ExactSolutionUnavailable("reference supplied without its outcome")
@@ -216,27 +218,47 @@ def run_cg_comparison(
     return results
 
 
+type PreparedReference = ReferenceSolver | ExactSolutionUnavailable
+"""A matrix's reference factorization, or why it could not be built."""
+
+
+def prepare_reference(A: torch.Tensor) -> PreparedReference:
+    """Factor ``A`` once for the reference solves of all its right-hand sides.
+
+    A failed factorization is a domain outcome, not an error: every system of the matrix
+    then runs without exact-error metrics (reason logged) instead of failing.
+    """
+    try:
+        return reference_solver(A)
+    except (RuntimeError, ValueError) as exc:
+        logger.warning("Reference factorization unavailable; exact-error metrics skipped: {}", exc)
+        return ExactSolutionUnavailable(str(exc))
+
+
 def compute_reference_solution(
-    A: torch.Tensor, b: torch.Tensor, *, rtol: float, margin: float
+    reference: PreparedReference, b: torch.Tensor, *, rtol: float, margin: float
 ) -> tuple[torch.Tensor | None, ExactReference]:
-    """Jacobi-PCG reference solution, on whichever device ``A``/``b`` are on.
+    """Reference solution for one right-hand side, on the factored matrix's device.
 
     A single ``A``/``b`` pair has one true solution, so callers comparing
     multiple preconditioners against the same system should call this once
-    and pass the solution to every ``run_cg_comparison(..., x_exact=...)`` call
-    instead of letting each one recompute this Jacobi-PCG solve from scratch.
+    and pass the solution to every ``run_cg_comparison(..., x_exact=...)`` call;
+    callers solving several right-hand sides of one matrix should share one
+    ``prepare_reference`` result between them.
 
     Returns:
         The reference solution with ``ExactSolutionSolved`` (its achieved true residual), or
         ``None`` with ``ExactSolutionUnavailable`` (reason logged) if it cannot be computed —
         the comparison then runs without exact-error metrics instead of failing.
     """
+    if isinstance(reference, ExactSolutionUnavailable):
+        return None, reference
     try:
-        x = reference_solution(A, b, rtol=rtol, margin=margin)
+        x = reference.solve(b, rtol=rtol, margin=margin)
     except (RuntimeError, ValueError) as exc:
         logger.warning("Reference solution unavailable; exact-error metrics skipped: {}", exc)
         return None, ExactSolutionUnavailable(str(exc))
-    match measure_residual(A.double(), b.double(), x):
+    match measure_residual(reference.matrix, b.double().to(reference.matrix.device), x):
         case MeasuredResidual(true_residual_rel=residual):
             return x, ExactSolutionSolved(residual)
         case UnmeasuredResidual():

@@ -102,7 +102,7 @@ def matrix_bundles() -> tuple[MatrixWorkload, MatrixWorkload]:
             MatrixWorkload(
                 dataset=DatasetId("ds"),
                 matrix_id=MatrixId(matrix_id),
-                matrix=np.diag(np.array([2.0, 3.0])) * matrix_id,
+                matrix=torch.diag(torch.tensor([2.0, 3.0], dtype=torch.float64)) * matrix_id,
                 matrix_path=Path("/workspace") / f"matrix-{matrix_id}",
                 matrix_index=matrix_id,
                 members=members,

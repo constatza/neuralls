@@ -33,7 +33,7 @@ from neuralls.platform.storage.training_artifacts import (
     load_array_source_sample,
     load_training_arrays,
 )
-from neuralls.shared.types import MatrixId, PreconditionerName
+from neuralls.shared.types import MatrixFormat, MatrixId, PreconditionerName
 from neuralls.shared.workflow_failures import ComparisonMatrixFailureContext, ComparisonMatrixPhase
 
 if TYPE_CHECKING:
@@ -126,6 +126,9 @@ class PreconditionerService:
             matrix,
             config,
             adapter=self._adapter,
+            matrix_format=(
+                MatrixFormat.CSR if matrix.layout is torch.sparse_csr else MatrixFormat.DENSE
+            ),
             preloaded=preloaded,
             staged_fit_data=self._staged_fit_data.get(config.name),
         )

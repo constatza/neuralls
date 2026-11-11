@@ -71,7 +71,7 @@ def test_dataset_sourced_comparison_recovers_true_solution(tmp_path: Path) -> No
     assert resolved.lhs is not None
 
     system = prepare_resolved_linear_system(resolved, "matrix")
-    x_exact = np.linalg.solve(system.matrix, system.rhs)
+    x_exact = np.linalg.solve(system.matrix.to_dense(), system.rhs)
     np.testing.assert_allclose(x_exact, resolved.lhs, rtol=1e-8, atol=1e-8)
 
 
@@ -91,7 +91,7 @@ def test_dataset_sourced_comparison_matches_no_renormalization(tmp_path: Path) -
 
     system_matrix = prepare_resolved_linear_system(resolved, "matrix")
     system_none = prepare_resolved_linear_system(resolved, "none")
-    np.testing.assert_array_equal(system_matrix.matrix, system_none.matrix)
+    torch.testing.assert_close(system_matrix.matrix, system_none.matrix)
     np.testing.assert_array_equal(system_matrix.rhs, system_none.rhs)
 
 

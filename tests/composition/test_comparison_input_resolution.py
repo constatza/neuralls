@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from scipy.sparse import csr_array
 
 from neuralls.composition.comparison._input_resolution import resolve_comparison_input
 from neuralls.composition.comparison.models import ResolvedComparisonInput
@@ -60,6 +61,7 @@ def test_resolve_comparison_input_selects_canonical_dataset_triplet(tmp_path: Pa
     assert resolved.rhs_sample_index == 0
     assert resolved.row_kind is RowKind.STANDARD
     assert resolved.matrix.shape == (2, 2)
+    assert isinstance(resolved.matrix, csr_array)
     assert resolved.rhs.shape == (2,)
 
 
@@ -256,7 +258,7 @@ def test_resolve_comparison_input_matrix_index_selects_distinct_matrix_with_one_
             rhs_source_kind=ComparisonRhsSourceKind.GAUSSIAN,
             rhs_source_params={"mean": 0.0, "std": 1.0},
         )
-        np.testing.assert_allclose(resolved.matrix, expected)
+        np.testing.assert_allclose(csr_array(resolved.matrix).toarray(), expected)
 
 
 def test_resolve_comparison_input_matrix_index_can_collide_when_samples_are_pooled(
@@ -309,8 +311,10 @@ def test_resolve_comparison_input_matrix_index_can_collide_when_samples_are_pool
         rhs_source_params={"mean": 0.0, "std": 1.0},
     )
     # Both positions fall inside the first matrix's 3-row block: same physical matrix.
-    np.testing.assert_allclose(resolved_0.matrix, resolved_1.matrix)
-    np.testing.assert_allclose(resolved_0.matrix, matrices[0])
+    np.testing.assert_allclose(
+        csr_array(resolved_0.matrix).toarray(), csr_array(resolved_1.matrix).toarray()
+    )
+    np.testing.assert_allclose(csr_array(resolved_0.matrix).toarray(), matrices[0])
 
 
 def test_resolve_comparison_input_loads_the_requested_row_of_the_entrys_own_dataset(

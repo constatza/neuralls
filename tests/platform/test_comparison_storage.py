@@ -8,9 +8,21 @@ import h5py
 import numpy as np
 import pytest
 import zarr
+from scipy.sparse import csr_array
 
-from neuralls.platform.storage.comparison import load_system_extras
+from neuralls.platform.storage.comparison import (
+    COMPARISON_MATRIX_FORMAT,
+    load_comparison_matrix,
+    load_system_extras,
+)
 from neuralls.platform.storage.generation_formats import HDF5_FILENAME
+from neuralls.shared.types import MatrixFormat
+
+_REPRESENTATION: dict[MatrixFormat, type] = {
+    MatrixFormat.CSR: csr_array,
+    MatrixFormat.DENSE: np.ndarray,
+}
+"""In-memory type of each matrix format."""
 
 
 @pytest.fixture
@@ -28,6 +40,22 @@ def hdf5_dataset_dir(tmp_path: Path) -> Path:
     with h5py.File(str(tmp_path / HDF5_FILENAME), "w") as f:
         f.create_dataset("weights", data=np.arange(15.0, dtype=np.float64).reshape(3, 5))
     return tmp_path
+
+
+@pytest.fixture
+def matrix_file(tmp_path: Path) -> Path:
+    """A raw 2x2 matrix stored densely in a .npy file."""
+    path = tmp_path / "matrix.npy"
+    np.save(path, np.array([[2.0, 0.0], [0.0, 3.0]]))
+    return path
+
+
+def test_comparison_matrix_loads_in_the_format_its_identity_declares(matrix_file: Path) -> None:
+    """The format hashed into comparison identities is the one the loader returns."""
+    matrix = load_comparison_matrix(matrix_file)
+
+    assert isinstance(matrix, _REPRESENTATION[COMPARISON_MATRIX_FORMAT])
+    np.testing.assert_array_equal(matrix.toarray(), [[2.0, 0.0], [0.0, 3.0]])
 
 
 def test_load_zarr_extra_by_name(dataset_dir: Path) -> None:

@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import numpy as np
 import polars as pl
 import pytest
 import torch
 from torchalg import pcg
 
-from neuralls.domain.solver.comparison import compute_reference_solution
+from neuralls.domain.solver.comparison import compute_reference_solution, prepare_reference
+from neuralls.domain.solver.error_metrics import ReferenceSolver
 from neuralls.domain.solver.models.benchmark_events import (
     ExactReference,
     ExactSolutionSolved,
@@ -241,7 +243,9 @@ def test_shared_threshold_needs_every_system_to_agree() -> None:
 def test_reference_solve_reports_its_achieved_residual(
     spd_matrix: torch.Tensor, rhs: torch.Tensor
 ) -> None:
-    solution, reference = compute_reference_solution(spd_matrix, rhs, rtol=1e-6, margin=1e-2)
+    solution, reference = compute_reference_solution(
+        prepare_reference(spd_matrix), rhs, rtol=1e-6, margin=1e-2
+    )
 
     assert solution is not None
     assert isinstance(reference, ExactSolutionSolved)
@@ -251,7 +255,9 @@ def test_reference_solve_reports_its_achieved_residual(
 def test_failed_reference_solve_keeps_its_reason(
     spd_matrix: torch.Tensor, rhs: torch.Tensor
 ) -> None:
-    solution, reference = compute_reference_solution(spd_matrix, rhs, rtol=1e-6, margin=2.0)
+    solution, reference = compute_reference_solution(
+        prepare_reference(spd_matrix), rhs, rtol=1e-6, margin=2.0
+    )
 
     assert solution is None
     assert isinstance(reference, ExactSolutionUnavailable)
@@ -259,18 +265,26 @@ def test_failed_reference_solve_keeps_its_reason(
 
 
 def test_non_finite_reference_solution_is_unavailable_not_an_error(
-    spd_matrix: torch.Tensor, rhs: torch.Tensor, monkeypatch: pytest.MonkeyPatch
+    spd_matrix: torch.Tensor, rhs: torch.Tensor
 ) -> None:
-    from neuralls.domain.solver import comparison
+    nan_solver = ReferenceSolver(spd_matrix, lambda b: np.full_like(b, np.nan))
 
-    monkeypatch.setattr(
-        comparison, "reference_solution", lambda *a, **k: torch.full_like(rhs, float("nan"))
-    )
-
-    solution, reference = compute_reference_solution(spd_matrix, rhs, rtol=1e-6, margin=1e-2)
+    solution, reference = compute_reference_solution(nan_solver, rhs, rtol=1e-6, margin=1e-2)
 
     assert solution is None
-    assert reference == ExactSolutionUnavailable("reference solution is not finite")
+    assert reference == ExactSolutionUnavailable(
+        "Reference direct solve could not reach relative residual 1.0e-08; achieved nan."
+    )
+
+
+def test_failed_factorization_is_unavailable_for_every_rhs(rhs: torch.Tensor) -> None:
+    singular = torch.zeros(rhs.numel(), rhs.numel(), dtype=torch.float64).to_sparse_csr()
+
+    prepared = prepare_reference(singular)
+    solution, reference = compute_reference_solution(prepared, rhs, rtol=1e-6, margin=1e-2)
+
+    assert solution is None
+    assert reference is prepared
 
 
 @pytest.fixture

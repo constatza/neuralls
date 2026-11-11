@@ -162,7 +162,7 @@ def _load_one_matrix_workload(
     return MatrixWorkload(
         dataset=dataset,
         matrix_id=matrix_id,
-        matrix=first_system.matrix.numpy(),
+        matrix=first_system.matrix,
         matrix_path=Path(first_data.matrix_path),
         matrix_index=first_data.matrix_index,
         members=tuple(members),

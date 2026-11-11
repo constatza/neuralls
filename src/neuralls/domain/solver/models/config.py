@@ -60,7 +60,7 @@ class SolverParams:
         m_max: FCG orthogonalization restart parameter.
         reference_precision_margin: How many orders of magnitude tighter than
             ``rtol`` the host reference solution must be (see
-            ``error_metrics.reference_solution``).
+            ``error_metrics.ReferenceSolver.solve``).
         timing: How often each setup and solve is timed.
     """
 

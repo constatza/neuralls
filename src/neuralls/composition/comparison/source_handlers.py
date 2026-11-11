@@ -28,6 +28,7 @@ from neuralls.platform.config.models.comparison import (
 )
 from neuralls.platform.storage.comparison import (
     external_vector_length,
+    load_comparison_matrix,
     load_system_arrays,
     matrix_file_order,
 )
@@ -43,7 +44,7 @@ from neuralls.platform.storage.validation import (
     validate_comparison_rhs_input,
 )
 from neuralls.shared.constants import MASK_STREAM_TAG
-from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
+from neuralls.shared.types import ComparisonRhsSourceKind, RowKind, SystemMatrix
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,14 +107,8 @@ def require_stored_matrix_row(matrix_path: Path, matrix_index: int) -> int:
     return matrix_index
 
 
-def _load_matrix(matrix_path: Path, matrix_index: int) -> np.ndarray:
-    matrix, _dummy_rhs = load_system_arrays(
-        matrix_path=matrix_path,
-        rhs_path=matrix_path,
-        rhs_sample_index=0,
-        matrix_index=matrix_index,
-    )
-    return matrix
+def _load_matrix(matrix_path: Path, matrix_index: int) -> SystemMatrix:
+    return load_comparison_matrix(matrix_path, matrix_index)
 
 
 def _require_external_vector_fits(spec: ComparisonSourceSpec, source: RawVectorSourceBase) -> None:

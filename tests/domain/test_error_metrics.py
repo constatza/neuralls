@@ -6,15 +6,20 @@ math directly against fixture tensors/results.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 import torch
+from scipy.sparse.linalg import splu as scipy_splu
 from torchalg.models.result import SolverResult
 
 from neuralls.domain.solver.error_metrics import (
     MIN_SAFE_RELATIVE_RESIDUAL,
+    REFERENCE_PRECISION_MARGIN,
+    ReferenceSolver,
     extract_energy_error,
     normalize_error_history,
-    reference_solution,
+    reference_solver,
     relative_exact_error,
 )
 
@@ -92,11 +97,53 @@ def test_reference_precision_margin_is_configurable(
 ) -> None:
     """A looser margin still meets its own (looser) precision target."""
     rtol, margin = 1e-6, 1e-2
-    x = reference_solution(spd_matrix, rhs, rtol=rtol, margin=margin)
+    x = reference_solver(spd_matrix).solve(rhs, rtol=rtol, margin=margin)
     relative_residual = float(
         torch.linalg.vector_norm(rhs - spd_matrix @ x) / torch.linalg.vector_norm(rhs)
     )
     assert relative_residual <= rtol * margin
+
+
+@pytest.fixture
+def second_rhs(spd_matrix: torch.Tensor) -> torch.Tensor:
+    """A second right-hand side of the SPD fixture, from a seeded solution."""
+    generator = torch.Generator().manual_seed(2)
+    return spd_matrix @ torch.randn(spd_matrix.shape[0], dtype=torch.float64, generator=generator)
+
+
+@pytest.fixture
+def singular_csr_matrix() -> torch.Tensor:
+    """A CSR matrix with an all-zero row, which no LU can factor."""
+    return torch.tensor([[1.0, 0.0], [0.0, 0.0]], dtype=torch.float64).to_sparse_csr()
+
+
+def test_one_sparse_factorization_serves_every_rhs(
+    spd_matrix: torch.Tensor, rhs: torch.Tensor, second_rhs: torch.Tensor
+) -> None:
+    sparse_matrix = spd_matrix.to_sparse_csr()
+
+    with patch("neuralls.domain.solver.error_metrics.splu", wraps=scipy_splu) as factor:
+        solver = reference_solver(sparse_matrix)
+        solutions = [solver.solve(b, rtol=1e-6) for b in (rhs, second_rhs)]
+
+    assert factor.call_count == 1
+    for b, x in zip((rhs, second_rhs), solutions, strict=True):
+        residual = torch.linalg.vector_norm(b - spd_matrix @ x) / torch.linalg.vector_norm(b)
+        assert float(residual) <= 1e-6 * REFERENCE_PRECISION_MARGIN
+
+
+def test_singular_sparse_matrix_fails_to_factor(singular_csr_matrix: torch.Tensor) -> None:
+    with pytest.raises(RuntimeError, match="Reference factorization failed"):
+        reference_solver(singular_csr_matrix)
+
+
+def test_reference_rejects_direct_solve_with_excess_residual(
+    spd_matrix: torch.Tensor, rhs: torch.Tensor
+) -> None:
+    zero_solver = ReferenceSolver(spd_matrix, lambda b: b * 0.0)
+
+    with pytest.raises(RuntimeError, match="could not reach relative residual"):
+        zero_solver.solve(rhs, rtol=1e-6)
 
 
 def test_reference_precision_margin_clamps_to_machine_epsilon(
@@ -104,7 +151,7 @@ def test_reference_precision_margin_clamps_to_machine_epsilon(
 ) -> None:
     """A margin*rtol below machine precision is clamped, not asked for literally."""
     rtol, margin = 1e-14, 1e-4  # requested target ~1e-18, below float64 precision
-    x = reference_solution(spd_matrix, rhs, rtol=rtol, margin=margin)
+    x = reference_solver(spd_matrix).solve(rhs, rtol=rtol, margin=margin)
     relative_residual = float(
         torch.linalg.vector_norm(rhs - spd_matrix @ x) / torch.linalg.vector_norm(rhs)
     )
@@ -115,4 +162,4 @@ def test_reference_precision_margin_rejects_non_tightening_margin(
     spd_matrix: torch.Tensor, rhs: torch.Tensor
 ) -> None:
     with pytest.raises(ValueError):
-        reference_solution(spd_matrix, rhs, rtol=1e-6, margin=1.0)
+        reference_solver(spd_matrix).solve(rhs, rtol=1e-6, margin=1.0)

@@ -73,7 +73,7 @@ class DatasetPaths:
 class CanonicalTrainingTriplet:
     """One manifest-backed `(A, b, x)` dataset row with provenance."""
 
-    matrix: np.ndarray
+    matrix: csr_array
     rhs: np.ndarray
     lhs: np.ndarray
     sample_index: int
@@ -281,8 +281,8 @@ def resolve_canonical_training_triplet(
         matrix_index=matrix_index,
         dataset_dir=dataset_dir,
     )
-    matrix = _load_matrix_dense_sample(
-        artifacts.matrix,
+    matrix = load_matrix_sparse_sample(
+        dataset_dir,
         matrix_row(artifacts.matrix, row_index=row_index, matrix_id=resolved_matrix_index)
         if matrix_binding_enforced
         else resolved_matrix_index,

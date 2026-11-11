@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, call, patch
 import numpy as np
 import pytest
 import tomli_w
+import torch
 from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments import comparison_batch, comparison_prepare
@@ -1438,7 +1439,7 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
     # The comparison config's matrix normalization is applied while staging
     # each bundle, so the diagonal 2x2 matrices have spectral norm 1/sqrt(2).
     assert [
-        float(np.linalg.norm(bundle.matrix, ord=2)) for bundle in bundles_seen
+        float(torch.linalg.matrix_norm(bundle.matrix.to_dense(), ord=2)) for bundle in bundles_seen
     ] == pytest.approx([1 / np.sqrt(2), 1 / np.sqrt(2)])
     # Each system draws its own RHS, so no two vectors coincide.
     assert len({tuple(i.rhs) for i in inputs}) == 4

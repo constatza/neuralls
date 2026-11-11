@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import torch
 
 from neuralls.composition.comparison.models import MatrixWorkload, MatrixWorkloadMember
 from neuralls.domain.solver.models import SystemTag
@@ -45,7 +46,7 @@ def matrix_bundle(matrix_id: int, *, n_rhs: int = 1) -> MatrixWorkload:
     return MatrixWorkload(
         dataset=DATASET,
         matrix_id=MatrixId(matrix_id),
-        matrix=np.diag(np.array(DIAGONAL)) * matrix_id,
+        matrix=torch.diag(torch.tensor(DIAGONAL, dtype=torch.float64)) * matrix_id,
         matrix_path=MATRIX_PATH,
         matrix_index=matrix_id,
         members=members,
