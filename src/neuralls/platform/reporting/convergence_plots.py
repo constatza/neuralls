@@ -12,6 +12,7 @@ from loguru import logger
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_text import (
+    LEGEND_FONT_SIZE,
     FigureTitle,
     Legend,
     ScopeSubtitle,
@@ -179,6 +180,7 @@ def plot_convergence_curves(
     marker_size: float = DEFAULT_LINE_MARKER_SIZE,
     ylabel: str = "Relative Residual $\\|r\\| / \\|b\\|$",
     metadata: Mapping[str, Any] | None = None,
+    show_titles: bool = True,
 ) -> None:
     """Plot one semilog curve per key of ``curves``.
 
@@ -205,6 +207,7 @@ def plot_convergence_curves(
         marker_size: Marker diameter for convergence-history points.
         ylabel: Y-axis label.
         metadata: Optional per-key training annotations appended to the legend label.
+        show_titles: Whether the figure carries its title and subtitle.
     """
     use_headless_backend()
     fig, ax = plt.subplots(figsize=(10, 6))
@@ -234,7 +237,7 @@ def plot_convergence_curves(
             xytext=(-4, 3),
             textcoords="offset points",
             ha="right",
-            fontsize=8,
+            fontsize=LEGEND_FONT_SIZE,
         )
 
     ax.set_xlabel("Iteration")
@@ -257,6 +260,7 @@ def plot_convergence_curves(
         ax,
         title=title_text(title) if title is not None else "Convergence Comparison",
         subtitle=", ".join(subtitle_parts),
+        show_titles=show_titles,
         target=target,
         show=show,
         saved_message="Saved convergence comparison plot to",

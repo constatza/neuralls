@@ -27,7 +27,8 @@ class GroupStyle:
     ``setup_sharing`` (the record the figure's card stores) says about the setup the metric
     divides, and every series is named by ``legend``. ``label_rotation_deg`` is the configured
     rotation of x-axis labels and ``row_limits`` the sample sizes from which
-    a distribution row gains a box and a violin.
+    a distribution row gains a box and a violin. ``show_titles`` off draws the figure without
+    its title and subtitle.
     """
 
     title: str
@@ -41,6 +42,7 @@ class GroupStyle:
     marker_keys: Mapping[str, Hashable]
     label_rotation_deg: float
     row_limits: RowLimits
+    show_titles: bool
 
     @property
     def subtitle(self) -> str:

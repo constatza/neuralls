@@ -155,6 +155,7 @@ def plot_workload_bars(
         ax,
         title=style.title,
         subtitle=style.subtitle,
+        show_titles=style.show_titles,
         target=target,
         show=False,
         saved_message="Saved workload bars to",

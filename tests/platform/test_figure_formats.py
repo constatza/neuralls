@@ -74,6 +74,7 @@ def test_the_figure_writer_saves_every_format_of_the_target(
         fig.subplots(),
         title="Title",
         subtitle=None,
+        show_titles=True,
         target=target,
         show=False,
         saved_message="Saved",

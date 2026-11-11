@@ -741,6 +741,7 @@ def group_style_of(
             marker_keys={},
             label_rotation_deg=DEFAULT_LABEL_ROTATION_DEG,
             row_limits=RowLimits(DEFAULT_MIN_BOX_SAMPLES, DEFAULT_MIN_VIOLIN_SAMPLES),
+            show_titles=True,
         )
 
     return build

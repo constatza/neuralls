@@ -48,7 +48,7 @@ from neuralls.platform.reporting.figure_annotations import (
 )
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_sizing import bar_columns_figure_size, heatmap_figure_size
-from neuralls.platform.reporting.figure_style import rotate_x_labels
+from neuralls.platform.reporting.figure_style import TICK_FONT_SIZE, rotate_x_labels
 from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
 from neuralls.platform.reporting.figure_writer import finish_group_figure
 from neuralls.platform.reporting.group_style import GroupStyle
@@ -73,7 +73,6 @@ _COLORBAR_LABEL_WRAP = 22
 """Characters per line of the colour bar label, so it is not taller than the bar."""
 _HATCH = "///"
 _HATCH_COLOR = "0.6"
-_CELL_FONT_SIZE = 7
 _HEATMAP_CMAP = "viridis"
 _LIGHT_CELL = 0.6
 """Normalized value above which a viridis cell is light enough for black text."""
@@ -200,6 +199,7 @@ def plot_distribution(
         ax,
         title=style.title,
         subtitle=style.subtitle,
+        show_titles=style.show_titles,
         target=target,
         show=False,
         saved_message="Saved distribution to",
@@ -523,6 +523,7 @@ def plot_matrix_heatmap(
         ax,
         title=style.title,
         subtitle=style.subtitle,
+        show_titles=style.show_titles,
         target=target,
         show=False,
         saved_message="Saved matrix heatmap to",
@@ -562,6 +563,6 @@ def _draw_cell(
         cell_label(cell, metric),
         ha="center",
         va="center",
-        fontsize=_CELL_FONT_SIZE,
+        fontsize=TICK_FONT_SIZE,
         color=color,
     )

@@ -31,14 +31,20 @@ def finish_group_figure(
     *,
     title: str,
     subtitle: str | None,
+    show_titles: bool,
     target: FigureTarget | None,
     show: bool,
     saved_message: str,
 ) -> None:
-    """Title, save and close/show a figure; the only place a report figure is written."""
-    fig.suptitle(title, fontsize=TITLE_FONT_SIZE, fontweight="bold")
-    if subtitle:
-        ax.set_title(subtitle, fontsize=SUBTITLE_FONT_SIZE)
+    """Title, save and close/show a figure; the only place a report figure is written.
+
+    ``show_titles`` off leaves the drawing without title or subtitle, for a paper whose caption
+    carries them; the figure's card still records its title.
+    """
+    if show_titles:
+        fig.suptitle(title, fontsize=TITLE_FONT_SIZE, fontweight="bold")
+        if subtitle:
+            ax.set_title(subtitle, fontsize=SUBTITLE_FONT_SIZE)
     fig.tight_layout()
 
     if target is not None:

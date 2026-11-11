@@ -238,6 +238,7 @@ def _draw_cohort(
         ax,
         title=style.title,
         subtitle=style.subtitle,
+        show_titles=style.show_titles,
         target=target,
         show=False,
         saved_message=saved_message,

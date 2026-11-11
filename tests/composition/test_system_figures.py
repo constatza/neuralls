@@ -156,6 +156,7 @@ def _draw(
         references={system_id: NoReferenceConfigured() for system_id in tags},
         solver_contexts={system_id: CONTEXT for system_id in tags},
         notation=notation,
+        show_titles=True,
         root=FIGURE_ROOT,
     )
 

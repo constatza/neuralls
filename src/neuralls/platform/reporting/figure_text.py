@@ -83,7 +83,7 @@ MAX_LINES_PER_COLUMN = 24
 
 LEGEND_ANCHOR = (1.02, 1.0)
 
-LEGEND_FONT_SIZE = 7
+LEGEND_FONT_SIZE = 9
 """Point size of every method legend entry and of the method labels on bar-chart axes."""
 
 

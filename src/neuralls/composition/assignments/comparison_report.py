@@ -30,6 +30,7 @@ from neuralls.composition.comparison.postprocessing.system_figures import write_
 from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
 from neuralls.domain.solver.models.benchmark_events import SolveConverged
 from neuralls.domain.solver.models.report_scope import System
+from neuralls.platform.config.models.figure_style import FigureStyleConfig
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.platform.reporting.figure_index import FIGURE_INDEX_FILE, read_figure_index
 from neuralls.platform.reporting.stored_benchmark import read_stored_benchmark
@@ -93,6 +94,7 @@ def run_comparison_report(
     master_cfg, _ = load_validated_case_config(case_config_path, settings)
     topology = resolve_comparison_topology(master_cfg, case_config_path, settings)
     notation = case_notation(master_cfg)
+    figure_style = case_figure_style(master_cfg)
     client = tracking.client(topology.tracking_uri)
     session = session_run_id or latest_session_run_id(
         client, topology.experiment_name, case_config_path.resolve().as_posix()
@@ -138,7 +140,7 @@ def run_comparison_report(
                 read_environment_params(client.get_run(session).data.params),
                 methods=inputs.stored.methods,
                 datasets=inputs.datasets,
-                figure_style=case_figure_style(master_cfg),
+                figure_style=figure_style,
             )
             with failure_boundary(
                 failure_sink,
@@ -157,7 +159,7 @@ def run_comparison_report(
                     reference_selection=dict(inputs.references),
                     contexts_by_system=inputs.solver_contexts,
                 )
-                _report_systems(sink, inputs, notation)
+                _report_systems(sink, inputs, notation, figure_style)
             with failure_boundary(
                 failure_sink,
                 ComparisonBatchFailureContext(
@@ -202,7 +204,12 @@ def _has_valid_figure_index(client: MlflowClient, run_id: str) -> bool:
     return True
 
 
-def _report_systems(sink: ReportSink, inputs: ReportInputs, notation: NotationPolicy) -> None:
+def _report_systems(
+    sink: ReportSink,
+    inputs: ReportInputs,
+    notation: NotationPolicy,
+    figure_style: FigureStyleConfig,
+) -> None:
     """Record every system's per-method metrics and convergence figures at its own scope."""
     methods = inputs.methods
     attempts = [attempt for method in methods for attempt in method.solve_attempts]
@@ -224,6 +231,7 @@ def _report_systems(sink: ReportSink, inputs: ReportInputs, notation: NotationPo
             references=inputs.references,
             solver_contexts=inputs.solver_contexts,
             notation=notation,
+            show_titles=figure_style.show_titles,
             root=Path(tmp),
         )
         tags = {tag.system_id: tag for method in methods for tag in method.planned}

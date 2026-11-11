@@ -83,6 +83,7 @@ def write_system_figures(
     references: Mapping[SystemId, ReferenceSelection],
     solver_contexts: Mapping[SystemId, SolverTimingContext],
     notation: NotationPolicy,
+    show_titles: bool,
     root: Path,
 ) -> tuple[SystemFigure, ...]:
     """Draw a residual and an energy figure per system under ``root/system_<n>/``.
@@ -90,6 +91,7 @@ def write_system_figures(
     A figure needs at least one method with a history for the system; the energy figure
     is also skipped when every energy value of the system is null. Each figure is planned
     with the methods that drew a curve, the system's solver settings and its reference.
+    ``show_titles`` off draws the curves without title and subtitle.
     """
     methods = {w.method: w.presentation.prepared.compact for w in workloads}
     legend = method_legend({str(name): compact for name, compact in methods.items()}, notation)
@@ -130,6 +132,7 @@ def write_system_figures(
                     color_keys=maps.color_keys,
                     marker_keys=maps.marker_keys,
                     ylabel=_METRIC_YLABEL[metric],
+                    show_titles=show_titles,
                 )
             metadata = _metadata(
                 metric,

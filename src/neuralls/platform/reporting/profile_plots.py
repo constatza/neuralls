@@ -101,6 +101,7 @@ def _step_profile_figure(
         ax,
         title=style.title,
         subtitle="\n".join(line for line in (style.subtitle, note) if line),
+        show_titles=style.show_titles,
         target=target,
         show=False,
         saved_message=saved_message,

@@ -18,7 +18,7 @@ TITLE_FONT_SIZE = 13
 SUBTITLE_FONT_SIZE = 9
 """Point size of the scope line under a figure's title and of per-panel titles."""
 
-AXIS_LABEL_FONT_SIZE = 9
+AXIS_LABEL_FONT_SIZE = 11
 """Point size of axis labels."""
 
 TICK_FONT_SIZE = LEGEND_FONT_SIZE

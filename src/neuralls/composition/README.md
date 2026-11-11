@@ -320,7 +320,7 @@ dimension and, for aSA/BAMG, the realized level count). No fact is dropped for
 length. Figures render the structured objects under the case's
 `notation_policy` (`[comparison_baseline.presentation]`, carried to the sinks as
 `ComparisonPresentation.notation` and the sinks' constructor argument), at the
-final Matplotlib call (`platform/reporting/figure_text.py`). The case's `[comparison_baseline.figure_style]` (`FigureStyleConfig`, x-label rotation) is read by `case_figure_style` and passed to `MLflowReportSink` the same way. Composition supplies
+final Matplotlib call (`platform/reporting/figure_text.py`). The case's `[comparison_baseline.figure_style]` (`FigureStyleConfig`: x-label rotation, distribution row limits, `show_titles`) is read by `case_figure_style` and passed to `MLflowReportSink` the same way. Composition supplies
 only validated workflow provenance: inline POD-2G carries its fit dataset, and a checkpoint method carries a training dataset only when its digest is verified. The comparison matrix set remains the scope for every method.
 The comparison summary and the figure sinks keep solver results and style metadata keyed by
 their original preconditioner key and pass a typed `Legend`; they never re-key

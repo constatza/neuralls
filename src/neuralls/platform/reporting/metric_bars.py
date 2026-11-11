@@ -10,6 +10,7 @@ import numpy as np
 import seaborn as sns
 
 from neuralls.platform.reporting.figure_formats import FigureTarget
+from neuralls.platform.reporting.figure_style import AXIS_LABEL_FONT_SIZE, TICK_FONT_SIZE
 from neuralls.platform.reporting.figure_text import FigureTitle, Legend, title_text
 from neuralls.platform.reporting.figure_writer import finish_group_figure, use_headless_backend
 
@@ -67,17 +68,17 @@ def plot_metric_comparison(
 
     if horizontal:
         sns.barplot(x=values, y=labels, **bar_kwargs)
-        ax.tick_params(axis="y", labelsize=11)
-        ax.set_ylabel("Experiment", fontsize=12)
-        ax.set_xlabel(metric_name, fontsize=12)
+        ax.tick_params(axis="y", labelsize=TICK_FONT_SIZE)
+        ax.set_ylabel("Experiment", fontsize=AXIS_LABEL_FONT_SIZE)
+        ax.set_xlabel(metric_name, fontsize=AXIS_LABEL_FONT_SIZE)
         ax.set_xscale("log")
         ax.grid(True, alpha=0.3, axis="x")
     else:
         sns.barplot(x=labels, y=values, **bar_kwargs)
-        ax.tick_params(axis="x", labelsize=11, rotation=45)
+        ax.tick_params(axis="x", labelsize=TICK_FONT_SIZE, rotation=45)
         plt.setp(ax.get_xticklabels(), ha="right")
-        ax.set_xlabel("Experiment", fontsize=12)
-        ax.set_ylabel(metric_name, fontsize=12)
+        ax.set_xlabel("Experiment", fontsize=AXIS_LABEL_FONT_SIZE)
+        ax.set_ylabel(metric_name, fontsize=AXIS_LABEL_FONT_SIZE)
         ax.grid(True, alpha=0.3, axis="y")
 
     finish_group_figure(
@@ -85,6 +86,7 @@ def plot_metric_comparison(
         ax,
         title=title or f"Metric Comparison: {metric_name}",
         subtitle=None,
+        show_titles=True,
         target=target,
         show=show,
         saved_message="Saved metric comparison plot to",

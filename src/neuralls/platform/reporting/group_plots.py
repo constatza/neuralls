@@ -65,6 +65,7 @@ class GroupStyler:
             row_limits=RowLimits(
                 self.figure_style.min_box_samples, self.figure_style.min_violin_samples
             ),
+            show_titles=self.figure_style.show_titles,
         )
 
 
