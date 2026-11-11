@@ -9,13 +9,6 @@ from pydantic import ValidationError
 from neuralls.domain.generation import run_generation
 
 
-def test_smoother_filtered_probes_registered() -> None:
-    """SmootherFilteredProbesStrategy is registered under 'smoother_filtered_probes'."""
-    from neuralls.domain.generation.runner import _registry
-
-    assert "smoother_filtered_probes" in _registry._strategies
-
-
 def test_smoother_filtered_probes_shapes(spd_matrix: np.ndarray) -> None:
     """Output is a residual_traces block, 2D, one row per probe by default."""
     n = spd_matrix.shape[0]

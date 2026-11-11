@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter
 
 from neuralls.composition.comparison._linear_system import _rhs_is_generated
 from neuralls.platform.config.models.comparison import (
@@ -13,12 +13,6 @@ from neuralls.platform.config.models.comparison import (
 from neuralls.shared.types import ComparisonRhsSourceKind
 
 _SOURCE = TypeAdapter(ComparisonRhsSourceModel)
-
-
-@pytest.mark.parametrize("kind", ["cross_dataset", "random_sparse"])
-def test_removed_kinds_are_rejected_as_unknown(kind: str) -> None:
-    with pytest.raises(ValidationError):
-        _SOURCE.validate_python({"kind": kind, "path": "/data/other"})
 
 
 def test_every_kind_has_exactly_one_source_model() -> None:

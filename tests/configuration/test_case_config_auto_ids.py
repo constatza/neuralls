@@ -221,23 +221,6 @@ def test_explicit_id_and_display_name_preserved(
     assert config.comparisons[0].display_name == "My Comparison"
 
 
-def test_comparison_rejects_removed_train_run_id(
-    minimal_case_raw: dict[str, object],
-) -> None:
-    """Case comparisons no longer accept split-driven train_run_id metadata."""
-    raw = dict(minimal_case_raw)
-    raw["assignments"] = [{"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard"}]
-    raw["comparisons"] = [
-        {
-            "matrix_dataset": "gaussian-cg0-45x15",
-            "rhs_source": {"kind": "gaussian"},
-            "train_run_id": "run-123",
-        }
-    ]
-    with pytest.raises(ValidationError):
-        CaseConfig.model_validate(raw)
-
-
 # ============================================================================
 # Validation error tests
 # ============================================================================

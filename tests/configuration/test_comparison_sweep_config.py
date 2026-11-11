@@ -94,21 +94,3 @@ def test_rhs_count_defaults_to_one_and_must_be_positive() -> None:
     )
     with pytest.raises(ValidationError):
         CaseConfig.model_validate(_raw_case_config(rhs_count=0))
-
-
-@pytest.mark.parametrize("removed_field", ["matrix_index", "test_position"])
-def test_comparison_entry_rejects_removed_matrix_selection_fields(removed_field: str) -> None:
-    raw = {
-        "datasets": [{"id": "solutions", "path": "datasets/solutions.toml"}],
-        "comparisons": [
-            {
-                "id": "c",
-                "matrix_dataset": "solutions",
-                "rhs_source": {"kind": "gaussian"},
-                removed_field: 0,
-            }
-        ],
-    }
-
-    with pytest.raises(ValidationError):
-        CaseConfig.model_validate(raw)

@@ -7,20 +7,6 @@ import numpy as np
 from neuralls.domain.generation import run_generation
 
 
-def test_random_normal_registered() -> None:
-    """RandomNormalStrategy is registered under 'random'."""
-    from neuralls.domain.generation.runner import _registry
-
-    assert "random" in _registry._strategies
-
-
-def test_normal_alias_registered() -> None:
-    """NormalStrategy is registered under 'normal'."""
-    from neuralls.domain.generation.runner import _registry
-
-    assert "normal" in _registry._strategies
-
-
 def test_random_normal_shapes(spd_matrix: np.ndarray) -> None:
     """Output arrays have correct shapes."""
     n = spd_matrix.shape[0]

@@ -10,13 +10,6 @@ import numpy as np
 from neuralls.domain.generation import run_generation
 
 
-def test_eigenvector_inverse_registered() -> None:
-    """EigenvectorInverseStrategy is registered under 'eigenvector_inverse'."""
-    from neuralls.domain.generation.runner import _registry
-
-    assert "eigenvector_inverse" in _registry._strategies
-
-
 def test_eigenvector_inverse_shapes(spd_matrix: np.ndarray) -> None:
     """Solutions and RHS have correct shapes."""
     n = spd_matrix.shape[0]

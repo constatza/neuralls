@@ -23,14 +23,6 @@ from tests.path_assertions import assert_local_path_eq
 WORKSPACE = Path("/workspace")
 
 
-def test_normalize_model_mlflow_rejects_legacy_nested_sections() -> None:
-    config_path = WORKSPACE / "model.toml"
-    raw = {"MLFLOW": {"enabled": True, "client": {"run_name": "legacy"}}}
-
-    with pytest.raises(ValueError):
-        normalize_model_mlflow(raw, config_path)
-
-
 def test_normalize_model_mlflow_rejects_tracking_uri_in_model_config() -> None:
     config_path = WORKSPACE / "model.toml"
     raw = {

@@ -10,13 +10,6 @@ import numpy as np
 from neuralls.domain.generation import run_generation
 
 
-def test_eigenvector_forward_registered() -> None:
-    """EigenvectorForwardStrategy is registered under 'eigenvector_forward'."""
-    from neuralls.domain.generation.runner import _registry
-
-    assert "eigenvector_forward" in _registry._strategies
-
-
 def test_eigenvector_forward_shapes(spd_matrix: np.ndarray) -> None:
     """Solutions and RHS have correct shapes."""
     n = spd_matrix.shape[0]

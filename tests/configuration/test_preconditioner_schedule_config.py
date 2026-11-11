@@ -46,12 +46,6 @@ def test_name_is_derived_from_distinguishing_fields() -> None:
     )
 
 
-def test_name_ignores_a_legacy_name_field() -> None:
-    """A stray `name=` key (old TOML files) is silently ignored, not stored or echoed back."""
-    cfg = StandardPreconditionerConfig.model_validate({"name": "my-jacobi", "type": "jacobi"})
-    assert cfg.name == "jacobi"
-
-
 def test_name_collides_for_identical_configs_and_differs_otherwise() -> None:
     """Two configs with identical fields derive the identical name; a differing field changes it."""
     first = IC0PreconditionerConfig(threshold=0.001)

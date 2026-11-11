@@ -9,13 +9,6 @@ from neuralls.domain.generation.semantics import classify_strategy_row_kind
 from neuralls.shared.types import GenerationStrategyKind, RowKind
 
 
-def test_sinusoidal_field_registered() -> None:
-    """SinusoidalFieldStrategy is registered under 'sinusoidal_field'."""
-    from neuralls.domain.generation.runner import _registry
-
-    assert "sinusoidal_field" in _registry._strategies
-
-
 def test_sinusoidal_field_shapes(spd_matrix: np.ndarray) -> None:
     """Output arrays have correct shapes."""
     n = spd_matrix.shape[0]

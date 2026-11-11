@@ -7,13 +7,6 @@ import numpy as np
 from neuralls.domain.generation import run_generation
 
 
-def test_krylov_registered() -> None:
-    """KrylovStrategy is registered under 'krylov'."""
-    from neuralls.domain.generation.runner import _registry
-
-    assert "krylov" in _registry._strategies
-
-
 def test_krylov_shapes(spd_matrix: np.ndarray) -> None:
     """Output arrays have correct shapes."""
     n = spd_matrix.shape[0]

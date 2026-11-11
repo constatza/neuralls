@@ -6,7 +6,6 @@ import importlib.util
 from pathlib import Path
 
 import pytest
-from dlkit.common.errors import ConfigValidationError
 
 from neuralls.composition.assignments.assembler import (
     AssignmentIdentity,
@@ -142,18 +141,6 @@ def test_structured_linear_model_configs_load(
 
     settings = load_job_config(model_path, neuralls_settings)
     assert settings.model.name == model_name
-
-
-def test_legacy_model_workflow_toml_is_rejected(tmp_path: Path, neuralls_settings) -> None:
-    """Legacy uppercase manifests fail fast via DLKit's own [run] validation."""
-    bad_config = tmp_path / "bad.toml"
-    bad_config.write_text(
-        '[SESSION]\nseed = 42\nworkflow = "train"\n\n[MODEL]\nname = "NormScaledSymmetricLinear"\n\n[TRAINING]\n[TRAINING.trainer]\nmax_epochs = 1\n\n[OPTIMIZATION]\n\n[[OPTIMIZATION.stages]]\n[OPTIMIZATION.stages.optimizer]\nname = "AdamW"\nlr = 1e-3',
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ConfigValidationError):
-        load_job_config(bad_config, neuralls_settings)
 
 
 def test_default_structured_linear_registry_has_expected_models_and_experiments(

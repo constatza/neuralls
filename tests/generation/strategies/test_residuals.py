@@ -60,20 +60,6 @@ def solution_files(tmp_path: Path, spd_matrix: np.ndarray) -> tuple[list[Path], 
 # ---------------------------------------------------------------------------
 
 
-def test_residuals_strategy_registered() -> None:
-    """The primary residual-error trace strategy is registered as 'residuals'."""
-    from neuralls.domain.generation.runner import _registry
-
-    assert "residuals" in _registry._strategies
-
-
-def test_gaussian_residuals_strategy_registered() -> None:
-    """Gaussian residual traces are available as an explicit strategy."""
-    from neuralls.domain.generation.runner import _registry
-
-    assert "gaussian_residuals" in _registry._strategies
-
-
 # ---------------------------------------------------------------------------
 # Shapes – single-RHS mode
 # ---------------------------------------------------------------------------

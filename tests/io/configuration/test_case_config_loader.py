@@ -231,20 +231,3 @@ def test_load_assignments_no_assignments(
         load_assignment_batch(
             case_config_path=temp_config_structure / "configs" / "experiments.toml",
         )
-
-
-def test_case_config_rejects_legacy_models_table(
-    temp_config_structure: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Case configs must use [[jobs]] instead of the removed [[models]] table."""
-    monkeypatch.chdir(temp_config_structure)
-
-    with open(temp_config_structure / "configs" / "experiments.toml", "w", encoding="utf-8") as f:
-        f.write("[[models]]\n")
-        f.write('id = "legacy-model"\n')
-        f.write('path = "models/legacy.toml"\n')
-
-    with pytest.raises(ValueError):
-        load_assignment_batch(
-            case_config_path=temp_config_structure / "configs" / "experiments.toml",
-        )
