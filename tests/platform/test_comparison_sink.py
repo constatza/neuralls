@@ -64,6 +64,7 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     parse_preconditioner_config,
 )
+from neuralls.platform.reporting import group_plots
 from neuralls.platform.reporting.figure_card import FigureCard, decode_figure_card
 from neuralls.platform.reporting.figure_formats import (
     FigureFormat,
@@ -84,6 +85,8 @@ from neuralls.platform.reporting.figure_metadata import (
     TableKind,
 )
 from neuralls.platform.reporting.figure_planning import figure_plans
+from neuralls.platform.reporting.figure_recipes import FigureKind, group_recipe
+from neuralls.platform.reporting.group_drawers import FigureData
 from neuralls.platform.reporting.stored_benchmark import StoredMethod
 from neuralls.platform.tracking import report_sink
 from neuralls.platform.tracking.figure_uploader import DuplicateFigureNameError
@@ -333,6 +336,19 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
 def _no_system_metrics_logging(monkeypatch: pytest.MonkeyPatch) -> None:
     """Per-system metrics are covered by the integration tree; none may start a real run here."""
     monkeypatch.setattr(report_sink.mlflow, "log_metrics", lambda metrics: None)
+
+
+@pytest.fixture(autouse=True)
+def _no_group_figure_drawing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drawing is covered by the figure tests; here only what the sink logs about a figure matters."""
+
+    def stubbed_recipe(kind: FigureKind):
+        def draw(data: FigureData, target: FigureTarget) -> FigureTarget:
+            return target
+
+        return replace(group_recipe(kind), draw=draw)
+
+    monkeypatch.setattr(group_plots, "group_recipe", stubbed_recipe)
 
 
 @pytest.fixture(autouse=True)
@@ -650,7 +666,11 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
     logged_metrics: LoggedMetrics,
     logged_artifacts: dict[str, tuple[str, bool]],
     sink: MLflowReportSink,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Whether a drawer declines (the break-even without a reference among the methods) is
+    # drawer behaviour, which the drawing stub would hide.
+    monkeypatch.setattr(group_plots, "group_recipe", group_recipe)
     sink.report(group, presentation=presentation)
 
     key = _GROUP_FILE_STEM
