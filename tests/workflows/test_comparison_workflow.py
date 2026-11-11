@@ -130,13 +130,6 @@ pytestmark = pytest.mark.deferred_io("generation-io")
 TRACKING_URI = "sqlite:///unused"
 
 
-def test_resolve_comparison_config_importable_from_composition() -> None:
-    """resolve_comparison_config must live in composition, not platform."""
-    from neuralls.composition.comparison.config_assembler import (
-        resolve_comparison_config,  # noqa: F401
-    )
-
-
 _RESOLVE_COMPARISON_CONFIG = (
     "neuralls.composition.comparison.config_assembler.resolve_comparison_config"
 )

@@ -19,14 +19,6 @@ from neuralls.platform.reporting.figure_text import (
 )
 
 # ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-RESIDUAL_HISTORY: list[float] = [1.0, 0.5, 0.1, 0.01, 1e-6]
-RESIDUAL_HISTORY_ABS: list[float] = [1.0, 0.5, 0.1, 0.01, 1e-6]
-
-
-# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
@@ -60,40 +52,6 @@ def two_result_entries() -> dict[str, CGComparisonResult]:
     return {
         "identity": _make("identity", 5),
         "jacobi": _make("jacobi", 3),
-    }
-
-
-@pytest.fixture
-def two_result_entries_with_times() -> dict[str, CGComparisonResult]:
-    """Two minimal CGComparisonResult entries with setup/solve times set.
-
-    Returns:
-        A dict with two entries: "identity" and "jacobi", each carrying
-        distinct ``setup_time_seconds``/``solve_time_seconds`` for
-        time-breakdown plot tests.
-    """
-
-    def _make(name: str, setup: float, solve: float) -> CGComparisonResult:
-        return CGComparisonResult(
-            x=np.zeros(2),
-            converged=True,
-            iterations=3,
-            residual=1e-6,
-            residual_abs=1e-6,
-            residual_history_rel=[1.0, 0.1, 1e-6],
-            residual_history_abs=[1.0, 0.1, 1e-6],
-            preconditioner=name,
-            initial_guess=np.zeros(2),
-            exact_error=None,
-            rhs_norm=1.0,
-            breakdown=False,
-            setup_cost=setup,
-            solve_time_seconds=solve,
-        )
-
-    return {
-        "identity": _make("identity", setup=0.5, solve=0.1),
-        "jacobi": _make("jacobi", setup=0.2, solve=2.0),
     }
 
 
