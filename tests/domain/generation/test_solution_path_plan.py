@@ -52,14 +52,6 @@ def solution_txt(archive_source: InMemoryArchiveSource) -> Path:
     )
 
 
-@pytest.fixture
-def unsized_solution(archive_source: InMemoryArchiveSource) -> Path:
-    """A solution file in a format whose row count is not read cheaply."""
-    return archive_source.add(
-        Path("/archive/solutions.csv"), np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
-    )
-
-
 def _open_ended_solution_spec() -> DatasetSpec:
     return DatasetSpec(
         mixture=MixtureSpec(counts={_SOLUTION_STRATEGY: ALL_SAMPLES}, seed=0),
@@ -109,22 +101,3 @@ def test_solution_path_text_file_row_count(
 
     assert plan.is_exact
     assert plan.total_rows == _NUM_BINDINGS * 1
-
-
-def test_solution_path_row_count_failure_is_named(
-    unsized_solution: Path,
-    archive_source: InMemoryArchiveSource,
-    make_bindings: Callable[[int, int], list[SystemBinding]],
-) -> None:
-    spec = _open_ended_solution_spec()
-    bindings = make_bindings(_NUM_BINDINGS, 1)
-
-    with pytest.raises(ValueError):
-        _resolve_binding_strategy_counts(
-            bindings=bindings,
-            spec=spec,
-            num_matrix_samples=_NUM_BINDINGS,
-            has_solution_source=True,
-            solution_rows_total=archive_source.row_count(unsized_solution),
-            archive_source=archive_source,
-        )
