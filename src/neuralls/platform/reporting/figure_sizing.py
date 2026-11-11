@@ -48,8 +48,11 @@ _CELL_WIDTH_IN = 1.1
 _CELL_HEIGHT_IN = 0.4
 """Height in inches of one matrix's heatmap row; the figure grows with the number of matrices."""
 
-_HEATMAP_MARGIN_IN = 2.5
-"""Room in inches for the title and the colour bar, rotated labels excluded."""
+_HEATMAP_COLORBAR_WIDTH_IN = 2.5
+"""Room in inches right of the cells for the colour bar and its label."""
+
+_HEATMAP_FRAME_HEIGHT_IN = 1.5
+"""Room in inches above and below the cells for the axis label and padding, rotated labels excluded."""
 
 _MIN_HEATMAP_HEIGHT_IN = 4.0
 
@@ -126,14 +129,14 @@ def heatmap_figure_size(
     """Figure size of a heatmap of ``n_rows`` matrices by one column per method label.
 
     The width adds the rotated labels' overhang to the cells and the margin of the colour bar;
-    the height adds the labels' extent below the cells.
+    the height adds the labels' extent below the cells. Figures carry no title, so no room is kept for one.
     """
     wrapped = [wrap_axis_label(label) for label in labels]
     return (
         len(labels) * _CELL_WIDTH_IN
-        + _HEATMAP_MARGIN_IN
+        + _HEATMAP_COLORBAR_WIDTH_IN
         + rotated_label_overhang_in(wrapped, rotation_deg),
-        max(_MIN_HEATMAP_HEIGHT_IN, n_rows * _CELL_HEIGHT_IN + _HEATMAP_MARGIN_IN)
+        max(_MIN_HEATMAP_HEIGHT_IN, n_rows * _CELL_HEIGHT_IN + _HEATMAP_FRAME_HEIGHT_IN)
         + rotated_labels_height_in(wrapped, rotation_deg),
     )
 
@@ -153,8 +156,8 @@ _PAIRED_AXES_SIDE_IN = 5.5
 _PAIRED_FRAME_WIDTH_IN = 1.4
 """Width the y label and tick labels take left of the paired scatter's axes."""
 
-_PAIRED_FRAME_HEIGHT_IN = 2.0
-"""Height the title, subtitle, x label and tick labels take around the paired scatter's axes."""
+_PAIRED_FRAME_HEIGHT_IN = 1.2
+"""Height the x label and tick labels take around the paired scatter's axes."""
 
 
 def paired_scatter_figure_size(labels: Sequence[str]) -> tuple[float, float]:
