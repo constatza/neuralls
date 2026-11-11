@@ -213,7 +213,9 @@ class ReferenceSelectionKind(StrEnum):
 class TimingPolicy(StrEnum):
     """How a figure's timing numbers treat one-off setup against per-RHS solves."""
 
-    SETUP_PER_MATRIX_PLUS_SOLVE_PER_RHS = "setup once per dataset/matrix + solve per planned RHS"
+    SETUP_PER_MATRIX_PLUS_SOLVE_PER_RHS = (
+        "setup once per dataset/matrix + solve-only time per attempted RHS"
+    )
     DIAGNOSTIC_EXCLUDED_FROM_ONLINE = "diagnostic histories; excluded from online timing"
 
 
@@ -222,7 +224,7 @@ class GroupAggregationRule(StrEnum):
 
     PER_PLANNED_SYSTEM = "one observation per planned (matrix, RHS) system"
     WORKLOAD_SUM = (
-        "sum observed setup and solve event costs; recipe contributions follow planned RHS "
+        "sum representative setup and solve-only event costs; recipe contributions follow planned RHS "
         "membership"
     )
 

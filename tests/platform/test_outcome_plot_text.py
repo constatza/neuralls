@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
+
 import numpy as np
+import polars as pl
 import pytest
 
+from neuralls.domain.benchmarking.profiles import ProfileSeries
+from neuralls.domain.solver.reporting.metrics import MetricId
+from neuralls.platform.reporting import profile_plots
+from neuralls.platform.reporting.figure_formats import FigureTarget
+from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.paired_plots import (
     FAILED_AXIS_MARGIN,
     PairedLogAxes,
@@ -23,6 +32,52 @@ from neuralls.platform.reporting.workload_bars import (
 )
 
 M = FAILED_AXIS_MARGIN
+
+
+@pytest.fixture
+def profile_series() -> ProfileSeries:
+    return ProfileSeries(pl.DataFrame(), pl.DataFrame(), 0)
+
+
+@pytest.fixture
+def profile_style(group_style_of: Callable[..., GroupStyle]) -> GroupStyle:
+    return group_style_of("amg")
+
+
+@pytest.fixture
+def profile_target() -> FigureTarget:
+    return FigureTarget(Path("unused"), "profile")
+
+
+@pytest.mark.parametrize(
+    ("metric", "expected"),
+    [
+        (MetricId.SOLVE_S, r"Solve-only time relative to the best method, $\tau$"),
+        (MetricId.ONLINE_S, r"Amortized online time relative to the best method, $\tau$"),
+    ],
+)
+def test_performance_profile_axis_names_its_timing_metric(
+    metric: MetricId,
+    expected: str,
+    profile_series: ProfileSeries,
+    profile_style: GroupStyle,
+    profile_target: FigureTarget,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    labels: list[str] = []
+
+    def record(*args: object, xlabel: str, **kwargs: object) -> FigureTarget:
+        labels.append(xlabel)
+        return profile_target
+
+    monkeypatch.setattr(profile_plots, "_step_profile_figure", record)
+    assert (
+        profile_plots.plot_performance_profile(
+            profile_series, metric=metric, style=profile_style, target=profile_target
+        )
+        == profile_target
+    )
+    assert labels == [expected]
 
 
 @pytest.mark.parametrize(

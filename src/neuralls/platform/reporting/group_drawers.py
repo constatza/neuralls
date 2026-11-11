@@ -85,7 +85,7 @@ def solve_time_bars(data: FigureData, target: FigureTarget) -> FigureTarget | No
     return plot_workload_bars(
         data.summary,
         total=WorkloadTotal.SOLVE,
-        ylabel="Solve time [s]",
+        ylabel="Solve-only workload total, incl. failed solves [s]",
         style=data.style,
         target=target,
     )
@@ -121,7 +121,10 @@ def ecdf_time(data: FigureData, target: FigureTarget) -> FigureTarget | None:
 
 def performance_profile(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_performance_profile(
-        _profile_series(data, performance_series), style=data.style, target=target
+        _profile_series(data, performance_series),
+        metric=data.metric,
+        style=data.style,
+        target=target,
     )
 
 

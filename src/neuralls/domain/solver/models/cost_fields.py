@@ -1,4 +1,4 @@
-"""The scalar costs reported per preconditioner per comparison run."""
+"""Scalar costs of one RHS diagnostic result, distinct from workload totals."""
 
 from __future__ import annotations
 
@@ -12,10 +12,10 @@ from neuralls.domain.solver.models.cg_result import CGComparisonResult
 class CostFieldSpec:
     """One reportable scalar cost, shared by every consumer that reports costs.
 
-    `field_name` is the stable key written to `comparison.toml`; `extractor`
-    is the same accessor the cost bar-charts use. Titles and filenames are
-    presentation and live with the plots (`composition/comparison/_plots.py`),
-    keyed by `field_name` — a test keeps the two in step.
+    `field_name` is the scalar's key on one result. `setup_time_seconds` is the
+    full setup of the result's matrix, copied to each sibling RHS result; workload
+    totals come from the setup and solve events (`reporting/aggregation.py`), which
+    count each matrix's setup once.
     """
 
     field_name: str
@@ -44,7 +44,4 @@ COST_FIELD_REGISTRY: tuple[CostFieldSpec, ...] = (
         extractor=lambda r: r.peak_memory_bytes,
     ),
 )
-"""Every scalar cost reported per preconditioner per comparison run.
-
-Iterated by `_plots.py`'s bar-chart generation.
-"""
+"""The scalar vocabulary of a single RHS result, not a workload reduction."""

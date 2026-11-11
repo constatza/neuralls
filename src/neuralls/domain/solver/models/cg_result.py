@@ -51,11 +51,10 @@ class CGComparisonResult:
         error: Error message if solver failed.
         offline_cost: Dataset-generation and training cost behind this preconditioner's
             artifact; nothing is charged when the method has no such stage.
-        setup_cost: Wall-clock seconds to construct and `.setup()` this
-            preconditioner. Always measured — every `torchalg.Preconditioner`
-            requires an explicit `setup(matrix)` call before `apply()`, so
-            this cost is deterministic and present for every result.
-        solve_time_seconds: Wall time for the CG/PCG/FCG solve itself.
+        setup_cost: Representative setup time for this method and matrix. The
+            same measured event is copied to sibling RHS diagnostic results;
+            summing these fields would count setup repeatedly.
+        solve_time_seconds: Representative solve-only time for this RHS.
             `None` if never measured.
         solve_peak_memory_bytes: Peak memory during the solve. `None` if
             never measured.
@@ -143,9 +142,9 @@ class CGComparisonResult:
     dataset or trains a model itself — those are separate, earlier pipeline stages."""
 
     setup_cost: float = 0.0
-    """Wall-clock seconds to construct and `.setup()` this preconditioner. Always
-    measured; 0.0 only for a placeholder result where no build was ever attempted
-    (see comparison_run.py::_breakdown_result)."""
+    """Full matrix setup time copied to this RHS diagnostic result, never an
+    amortized share. Aggregate totals use the linked setup event once per matrix.
+    A placeholder with no attempted build has 0.0 (see comparison_run.py::_breakdown_result)."""
 
     setup_peak_memory_bytes: int | None = None
     """Peak memory while constructing and `.setup()`-ing this preconditioner.

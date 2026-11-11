@@ -261,7 +261,7 @@ def test_mean_figures_exist_for_every_mean_kind() -> None:
         (
             "time_distribution_online",
             (
-                "distribution of online time per converged system [s] over systems, own population; box at "
+                "distribution of amortized online time per system [s] over systems, own population; box at "
                 "q25, q50, q75 and whiskers from q05 to q95 of the systems, a distribution "
                 "summary and not a confidence interval; points are per-matrix means"
             ),

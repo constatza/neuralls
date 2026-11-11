@@ -55,7 +55,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import SessionRunId, SystemId
 from neuralls.shared.workflow_failures import ComparisonBatchFailureContext, ComparisonBatchPhase
 
-REPORT_SCHEMA_VERSION = "20"
+REPORT_SCHEMA_VERSION = "21"
 """Identifies the card keys, table schemas, written figure formats and metric keys a report
 writes; an existing report of another version is not reused."""
 NOTATION_DIGEST_LENGTH = 8

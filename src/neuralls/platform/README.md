@@ -162,7 +162,7 @@ notation, legend and the family/colour/marker mappings). A failed run is never g
 
 - `plot_workload_bars` (`solve_time_bars_*`, `online_time_bars_*`): one stacked workload total per method from
   the workload-totals table, the `WorkloadTotal` (`solve_total_s` or `workload_online_s`) chosen by the kind's drawer
-  in `group_drawers.py` ("Solve time [s]", "Total online workload time [s]"). `workload_segments` names the columns
+  in `group_drawers.py` ("Solve-only workload total, incl. failed solves [s]", "Total online workload time, incl. failed solves [s]"). `workload_segments` names the columns
   stacked: `converged_solve_s` then `failed_solve_s` (hatched) for solve time, preceded by `allocated_setup_s` for
   online time. Setup is its own segment because one setup event serves every RHS of a matrix, converged or not. The
   label beside each bar (`workload_bar_label`) reads "k/n converged" of the planned RHS, followed by "a/n attempted"
@@ -615,16 +615,14 @@ Dataset storage is split by responsibility:
 
 `storage/manifest_io.py::load_dataset_manifest` and
 `storage/dataset_readers.py::load_matrix_dense_sample` are `functools.lru_cache`-memoized
-(keyed on `dataset_dir`, and `(dataset_dir, sample_index)` respectively). Every other
-manifest-driven reader (`resolve_dataset_artifacts`, `list_available_matrix_indices`,
-`load_dense_training_arrays`, etc.) routes through these two, so a batch of comparison
-entries that share one `matrix_dataset` reads its manifest and matrix samples once per
-process instead of once per entry. `save_dataset_manifest` clears the manifest cache as
+(keyed on `dataset_dir`, and `(dataset_dir, sample_index)` respectively). Comparison
+reads CSR matrices through `load_matrix_sparse_sample`, which does not use the dense
+matrix cache. `save_dataset_manifest` clears the manifest cache as
 it writes, so a read after a write in the same process sees the manifest just written —
 which is what lets the generate stage stamp its identity and digests into the manifest it
-has only just saved. Caveat: because the cache is keyed only on the path, mutating a
-dataset's *array* files on disk mid-process (rare — datasets are normally
-write-once/read-many) is still not picked up without a process restart.
+has only just saved. Caveat: the dense matrix cache is keyed only on the path,
+so mutating dataset array files mid-process is not picked up by dense readers
+without a process restart. Comparison's CSR reader does not share that cache.
 
 Safe comparison selection relies on manifest-declared metadata artifacts stored
 in the dataset's native format. Mature datasets may expose:
@@ -646,7 +644,7 @@ unique ids in `matrix_sample_index`), `load_held_out_fold` (the pinned
 `split.json` test rows grouped by the matrix id each is bound to) and
 `system_dimension` (the system order, from the manifest's RHS shape). A matrix
 id is the sample id the generator bound rows to; the physical row passed to
-`load_system_arrays`/`load_matrix_dense_sample` is a different number, and the
+`load_system_arrays`/`load_matrix_sparse_sample` is a different number, and the
 planner hands readers the row. Platform itself performs no leakage inference
 and has no notion of a test position. Dataset-backed `rhs_source` entries
 resolve a canonical manifest-backed triplet for the one planned row;

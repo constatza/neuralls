@@ -3,8 +3,8 @@
 A failed run (iteration cap or breakdown) has no time-to-solution, so a profile gives it no value
 and leaves it unsolved (Dolan & Moré 2002, Math. Program. 91; Hansen et al. 2016,
 arXiv:1605.03560). The curves are frames from ``domain.benchmarking.profiles``; this module only
-draws them. The performance profile uses amortized online seconds: solve plus the planned share of
-the matrix setup event.
+draws them. Each performance-profile variant names the solve-only or amortized
+online metric that supplies its ratios.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import numpy as np
 import polars as pl
 
 from neuralls.domain.benchmarking.profiles import ProfileSeries
+from neuralls.domain.solver.reporting.metrics import MetricId
 from neuralls.platform.reporting.figure_annotations import counted
 from neuralls.platform.reporting.figure_formats import FigureTarget
 from neuralls.platform.reporting.figure_sizing import with_outside_legend
@@ -24,6 +25,11 @@ from neuralls.platform.reporting.series_style import method_palette
 
 _PROFILE_SIZE_IN = (8.0, 5.0)
 """Width and height in inches of a profile's plotting area, legend excluded."""
+
+_PERFORMANCE_XLABELS = {
+    MetricId.SOLVE_S: r"Solve-only time relative to the best method, $\tau$",
+    MetricId.ONLINE_S: r"Amortized online time relative to the best method, $\tau$",
+}
 
 
 def excluded_zero_best_note(n_excluded: int) -> str | None:
@@ -112,6 +118,7 @@ def _step_profile_figure(
 def plot_performance_profile(
     series: ProfileSeries,
     *,
+    metric: MetricId,
     style: GroupStyle,
     target: FigureTarget,
 ) -> FigureTarget | None:
@@ -126,7 +133,7 @@ def plot_performance_profile(
     return _step_profile_figure(
         series,
         style=style,
-        xlabel=r"Amortized online cost relative to the best method, $\tau$",
+        xlabel=_PERFORMANCE_XLABELS[metric],
         ylabel=r"Fraction of systems with ratio $\leq \tau$",
         note=excluded_zero_best_note(series.n_excluded_zero_best),
         target=target,

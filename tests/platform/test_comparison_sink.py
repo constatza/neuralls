@@ -474,11 +474,15 @@ def test_mixture_figure_plans_use_literal_population_and_metric_semantics(
     assert online.metadata.recipes == (ALPHA, BETA)
     assert online.metadata.recipe_counts == (1, 3)
     assert online.metadata.recipe_weights == (0.25, 0.75)
-    assert online.metadata.metric_definition == "workload online seconds (setup + solve total)"
+    assert online.metadata.metric_definition == (
+        "sum of matrix setup seconds once and solve-only seconds across attempted RHS systems"
+    )
     assert online.metadata.metric is MetricId.ONLINE_S
     assert online.metadata.failure_treatment is FailureTreatment.NONE
     assert online.metadata.solver_contexts == (context,)
-    assert solve.metadata.metric_definition == "solve seconds (workload total)"
+    assert solve.metadata.metric_definition == (
+        "sum of solve-only seconds across attempted RHS systems, including failures"
+    )
     assert solve.metadata.metric is MetricId.SOLVE_S
 
 
@@ -503,8 +507,8 @@ def test_figure_plans_name_solve_and_online_ecdfs_by_metric(
     )
 
     scope = RecipeScope(dataset_presentation, GAUSSIAN)
-    assert (solve.title, solve.metadata.scope) == ("Solve Time", scope)
-    assert (online.title, online.metadata.scope) == ("Online Time", scope)
+    assert (solve.title, solve.metadata.scope) == ("Solve-only Time per System", scope)
+    assert (online.title, online.metadata.scope) == ("Amortized Online Time per System", scope)
 
 
 def test_paired_scatter_manifest_describes_axis_censored_pairs(

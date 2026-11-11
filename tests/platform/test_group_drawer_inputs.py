@@ -194,11 +194,13 @@ def test_the_online_performance_profile_is_drawn_from_ratios_to_the_best_method(
 ) -> None:
     _draw(report, FigureKind.PERFORMANCE_PROFILE, MetricId.ONLINE_S)
 
-    series = _series_of(plot_calls.by_function["plot_performance_profile"])
+    call = plot_calls.by_function["plot_performance_profile"]
+    series = _series_of(call)
     # s0: amg 1.5 beats jacobi 4.5; s1 only amg; s2 only jacobi
     assert _x(series, AMG) == [1.0, 1.0]
     assert _x(series, JACOBI) == [1.0, 3.0]
     assert series.n_excluded_zero_best == 0
+    assert call.options["metric"] is MetricId.ONLINE_S
 
 
 def test_the_paired_scatter_is_drawn_from_the_online_pairs_against_the_reference(

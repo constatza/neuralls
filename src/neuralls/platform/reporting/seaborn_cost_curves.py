@@ -161,7 +161,7 @@ def plot_break_even_curves(
     ax.set_xlim(left=0.0)
     ax.set_ylim(bottom=0.0)
     ax.set_xlabel("Right-hand sides solved on one matrix, n")
-    ax.set_ylabel("Cumulative cost: mean setup + n x mean solve [s]")
+    ax.set_ylabel("Cumulative cost: mean setup + n x mean solve-only [s]")
     ax.grid(True, alpha=0.3)
     draw_legend(ax, style.legend, inside_loc="lower right")
     finish_group_figure(
