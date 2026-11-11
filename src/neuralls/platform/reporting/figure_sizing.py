@@ -6,8 +6,18 @@ import math
 import textwrap
 from collections.abc import Sequence
 
-LABEL_CHAR_WIDTH_IN = 0.055
-"""Width in inches of one legend-size character, used to reserve room for method labels."""
+from neuralls.platform.reporting.figure_text import LEGEND_FONT_SIZE
+
+_POINTS_PER_INCH = 72
+_LABEL_CHAR_WIDTH_EM = 0.566
+"""Mean width of a serif label character in ems, measured at the legend size (0.055 in at 7 pt)."""
+
+LABEL_CHAR_WIDTH_IN = LEGEND_FONT_SIZE * _LABEL_CHAR_WIDTH_EM / _POINTS_PER_INCH
+"""Width in inches of one legend-size character, used to reserve room for method labels.
+
+Derived from ``LEGEND_FONT_SIZE`` so a change of the label font size resizes the figures that
+reserve room for those labels.
+"""
 
 POINT_JITTER = 0.2
 """Jitter of the per-system points drawn over mean bars and convergence factors."""
