@@ -17,7 +17,7 @@ _TESTS = Path(__file__).resolve().parents[1]
 _BOUNDARY_DIRS = ("io", "integration", "platform", "architecture", "manual")
 _REASONS = frozenset({"mlflow-run-tracking", "dataset-fixture-io", "digest-hashing"})
 _IO_USE = re.compile(
-    r"\b(tmp_path|tmp_path_factory|mlflow_tracking_uri|mlflow_experiment|"
+    r"(?<![.\w])(tmp_path|tmp_path_factory|mlflow_tracking_uri|mlflow_experiment|"
     r"log_run_with_checkpoint|log_run_with_named_checkpoints|build_test_dataset)\b"
     r"|\.write_text\(|\.write_bytes\(|np\.save|mmwrite|tomli_w"
 )

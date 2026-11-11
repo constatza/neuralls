@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from neuralls.platform.config.models.data_models import DataConfigFile, OutputConfig
 from neuralls.platform.config.resolution import (
     PathContext,
@@ -14,8 +12,6 @@ from neuralls.platform.config.resolution import (
 )
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.constants import DEFAULT_PROJECT_ROOT
-
-pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
 
 WORKSPACE = Path("/workspace")
 
@@ -63,11 +59,9 @@ def test_resolve_path_context_uses_settings_defaults(
 
 def test_resolve_path_context_honours_output_override(
     neuralls_settings: NeurallsSettings,
-    tmp_path: Path,
 ) -> None:
     """Explicit output overrides beat settings.output_dir."""
-    custom_output = tmp_path / "custom-output"
-    custom_output.mkdir()
+    custom_output = WORKSPACE / "custom-output"
     data_cfg = DataConfigFile(id="test", output=OutputConfig())
     ctx = resolve_path_context(
         processed_root=neuralls_settings.processed_dir,
@@ -80,11 +74,9 @@ def test_resolve_path_context_honours_output_override(
 
 def test_resolve_path_context_honours_data_dir_override(
     neuralls_settings: NeurallsSettings,
-    tmp_path: Path,
 ) -> None:
     """Dataset-level data_dir overrides settings.processed_dir."""
-    processed_dir = tmp_path / "processed"
-    processed_dir.mkdir()
+    processed_dir = WORKSPACE / "processed"
     data_cfg = DataConfigFile(id="test", output=OutputConfig(data_dir=processed_dir))
     ctx = resolve_path_context(
         processed_root=neuralls_settings.processed_dir,

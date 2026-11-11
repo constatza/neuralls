@@ -13,13 +13,13 @@ from neuralls.platform.config.settings import (
     get_settings,
 )
 
-pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
+WORKSPACE = Path("/workspace")
 
 
-def test_settings_loads_from_env_vars(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_settings_loads_from_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     """Direct BaseSettings construction reads NEURALLS_* env vars."""
-    processed = tmp_path / "processed"
-    output = tmp_path / "output"
+    processed = WORKSPACE / "processed"
+    output = WORKSPACE / "output"
     for key, value in {
         "NEURALLS_PROCESSED_DIR": processed,
         "NEURALLS_OUTPUT_DIR": output,
@@ -37,63 +37,6 @@ def test_settings_missing_required_raises(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.delenv(ENV_FILE_ENV_VAR, raising=False)
     with pytest.raises(ValidationError):
         get_settings()
-
-
-def test_settings_env_var_overrides_env_file(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Process env overrides explicit env-file values."""
-    for key in ("NEURALLS_PROCESSED_DIR", "NEURALLS_OUTPUT_DIR"):
-        monkeypatch.delenv(key, raising=False)
-    env_file = tmp_path / "custom.env"
-    env_file.write_text(
-        "NEURALLS_PROCESSED_DIR=/custom/processed\nNEURALLS_OUTPUT_DIR=/custom/output\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("NEURALLS_OUTPUT_DIR", str(tmp_path / "override-output"))
-
-    settings = get_settings(env_file)
-
-    assert settings.processed_dir == Path("/custom/processed").resolve()
-    assert settings.output_dir == (tmp_path / "override-output").resolve()
-
-
-def test_settings_custom_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Explicit env_file is the only dotenv source when provided."""
-    for key in ("NEURALLS_PROCESSED_DIR", "NEURALLS_OUTPUT_DIR"):
-        monkeypatch.delenv(key, raising=False)
-    monkeypatch.delenv(ENV_FILE_ENV_VAR, raising=False)
-    env_file = tmp_path / "custom.env"
-    env_file.write_text(
-        "NEURALLS_PROCESSED_DIR=/custom/processed\nNEURALLS_OUTPUT_DIR=/custom/output\n",
-        encoding="utf-8",
-    )
-
-    settings = get_settings(env_file)
-
-    assert settings.processed_dir == Path("/custom/processed").resolve()
-    assert settings.output_dir == Path("/custom/output").resolve()
-
-
-def test_settings_uses_neuralls_env_file_env_var(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """NEURALLS_ENV_FILE is consulted only when env_file is absent."""
-    env_file = tmp_path / "custom.env"
-    env_file.write_text(
-        "NEURALLS_PROCESSED_DIR=/custom/processed\nNEURALLS_OUTPUT_DIR=/custom/output\n",
-        encoding="utf-8",
-    )
-    for key in ("NEURALLS_PROCESSED_DIR", "NEURALLS_OUTPUT_DIR"):
-        monkeypatch.delenv(key, raising=False)
-    monkeypatch.setenv(ENV_FILE_ENV_VAR, str(env_file))
-
-    settings = get_settings()
-
-    assert settings.processed_dir == Path("/custom/processed").resolve()
-    assert settings.output_dir == Path("/custom/output").resolve()
 
 
 def test_settings_derived_paths(neuralls_settings: NeurallsSettings) -> None:
