@@ -43,14 +43,14 @@ def test_precedence_env_var_over_env_file_over_profile(
     )
     env_file = tmp_path / "case.env"
     env_file.write_text(
-        f"NEURALLS_PROCESSED_DIR={Path('env-file/processed')}\nNEURALLS_OUTPUT_DIR={Path('env-file/output')}\n",
+        f"NEURALLS_PROCESSED_DIR={tmp_path / 'env-file/processed'}\nNEURALLS_OUTPUT_DIR={tmp_path / 'env-file/output'}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("NEURALLS_OUTPUT_DIR", str(tmp_path / "env-output"))
 
     settings = load_case_settings(case_config, env_file)
 
-    assert settings.processed_dir == Path("env-file/processed").resolve()
+    assert settings.processed_dir == (tmp_path / "env-file/processed").resolve()
     assert settings.output_dir == (tmp_path / "env-output").resolve()
 
 
@@ -76,14 +76,14 @@ def test_precedence_env_file_over_profile(
     )
     env_file = tmp_path / "case.env"
     env_file.write_text(
-        f"NEURALLS_PROCESSED_DIR={Path('env-file/processed')}\nNEURALLS_OUTPUT_DIR={Path('env-file/output')}\n",
+        f"NEURALLS_PROCESSED_DIR={tmp_path / 'env-file/processed'}\nNEURALLS_OUTPUT_DIR={tmp_path / 'env-file/output'}\n",
         encoding="utf-8",
     )
 
     settings = load_case_settings(case_config, env_file)
 
-    assert settings.processed_dir == Path("env-file/processed").resolve()
-    assert settings.output_dir == Path("env-file/output").resolve()
+    assert settings.processed_dir == (tmp_path / "env-file/processed").resolve()
+    assert settings.output_dir == (tmp_path / "env-file/output").resolve()
 
 
 def test_no_env_files_required_env_vars_only(

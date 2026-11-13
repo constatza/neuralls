@@ -10,7 +10,7 @@ from neuralls.platform.storage.errors import _raise_storage_error
 
 _OPERATION = "Writing rhs"
 _TARGET = Path("data/dataset.zarr/rhs")
-_MISSING_SOURCE = str(Path("data/source.npy"))
+_MISSING_SOURCE = "data/source.npy"
 
 
 @pytest.fixture
