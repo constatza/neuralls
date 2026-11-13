@@ -341,7 +341,8 @@ and caches nothing itself. Every archive-backed strategy (`solution_archive`, `r
 `solutions_glob` is set) routes through it. Composition gives each generation run its own
 `CachingArchiveSource` (`platform/storage/archive_source.py`), so an archive shared across many
 matrix bindings is read from disk once per file within the run, and nothing loaded outlives the
-run; two dataset configs in one batch read the same files once each. `ArchiveData`
+run. The cache is not shared between runs: each dataset config in a `generate-all` batch
+reads a shared archive again. `ArchiveData`
 (pre-loaded in-memory archives, e.g. from `single_solution`) always takes priority over
 `solutions_glob` when both are available for a strategy. With an explicit `solution_path`,
 `_prepare_generation_context` loads every row of the file once (file order) into

@@ -86,12 +86,24 @@ def test_load_vector_returns_the_stored_values(source: ArchiveSource, tmp_path: 
     np.testing.assert_array_equal(source.load_vector(tmp_path / "vec.txt"), _VECTOR)
 
 
-def test_caching_source_loads_each_path_once(tmp_path: Path):
+@pytest.fixture
+def cached_inner(tmp_path: Path) -> InMemoryArchiveSource:
     inner = InMemoryArchiveSource()
     inner.add(tmp_path / "vec.txt", _VECTOR)
-    source = CachingArchiveSource(inner)
+    return inner
 
+
+def test_caching_source_loads_each_path_once(cached_inner: InMemoryArchiveSource, tmp_path: Path):
+    source = CachingArchiveSource(cached_inner)
     first = source.load_vector(tmp_path / "vec.txt")
-    inner.add(tmp_path / "vec.txt", _VECTOR * 2)  # a reload would see the new values
+    cached_inner.add(tmp_path / "vec.txt", _VECTOR * 2)  # a reload would see the new values
 
     np.testing.assert_array_equal(source.load_vector(tmp_path / "vec.txt"), first)
+
+
+def test_caching_source_hands_out_read_only_arrays(
+    cached_inner: InMemoryArchiveSource, tmp_path: Path
+):
+    vector = CachingArchiveSource(cached_inner).load_vector(tmp_path / "vec.txt")
+    with pytest.raises(ValueError):
+        vector[0] = 0.0

@@ -88,11 +88,13 @@ class CachingArchiveSource:
 
     Build one per generation run: every binding of a one-matrix source draws the same
     files, and the cache lives exactly as long as the run that holds this source, so no
-    loaded vector outlives it. Listing, timestamps and row counts pass through uncached.
+    loaded vector outlives it. Nothing is evicted: peak memory is every distinct file the
+    run loads. Cached arrays are read-only, so a caller that mutates one fails instead of
+    corrupting later loads. Listing, timestamps and row counts pass through uncached.
     """
 
     inner: ArchiveSource
-    _vectors: dict[Path, NDArray] = field(default_factory=dict)
+    _vectors: dict[Path, NDArray] = field(default_factory=dict, init=False)
 
     def exists(self, path: Path) -> bool:
         return self.inner.exists(path)
@@ -114,5 +116,7 @@ class CachingArchiveSource:
 
     def load_vector(self, path: Path) -> NDArray:
         if path not in self._vectors:
-            self._vectors[path] = self.inner.load_vector(path)
+            vector = self.inner.load_vector(path)
+            vector.flags.writeable = False
+            self._vectors[path] = vector
         return self._vectors[path]
