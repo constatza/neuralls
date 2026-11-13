@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from loguru import logger
 
 from neuralls.application.inference.models import DataSource, InferenceConfig
 from neuralls.application.inference.prediction import run_prediction
@@ -125,6 +126,7 @@ def _execute_inference_pipeline(
     )
 
     # Run prediction (transforms applied automatically from checkpoint)
+    logger.info(f"Running inference on {data.source} data...")
     with create_inference_predictor(checkpoint_path) as predictor:
         predictions = run_prediction(predictor, data, batch_size=resolve_batch_size(settings))
 

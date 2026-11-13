@@ -12,7 +12,6 @@ from neuralls.domain.generation.providers import (
     HybridInputProvider,
     PairedFileInputProvider,
     RandomInputProvider,
-    _load_archive_files_cached,
     provide_solutions,
 )
 from tests.fakes.archive_source import InMemoryArchiveSource
@@ -107,30 +106,6 @@ def test_file_input_provider_loads_from_files(archive_source: InMemoryArchiveSou
 
     assert solutions.shape == (5, 10)
     assert solutions.dtype == np.float64
-
-
-def test_file_input_provider_caches_repeated_identical_calls(
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    """Two calls with identical (glob, count, shuffle, seed, skip) load the files only once."""
-    _load_archive_files_cached.cache_clear()
-    for i in range(5):
-        archive_source.add(ARCHIVE_DIR / f"sol_{i}.txt", np.full(10, i, dtype=np.float64))
-
-    provider = FileInputProvider(
-        archive_source, glob_pattern=str(ARCHIVE_DIR / "sol_*.txt"), shuffle=False, seed=None
-    )
-    matrix = np.eye(10)
-    rng = np.random.default_rng(42)
-
-    first = provider.provide(matrix=matrix, count=3, rng=rng)
-
-    # Mutate a file in the archive; a cached second call must not see the change.
-    archive_source.add(ARCHIVE_DIR / "sol_0.txt", np.full(10, 999.0, dtype=np.float64))
-    second = provider.provide(matrix=matrix, count=3, rng=rng)
-
-    assert np.array_equal(first, second)
-    assert _load_archive_files_cached.cache_info().hits == 1
 
 
 def test_file_input_provider_with_shuffling(archive_source: InMemoryArchiveSource) -> None:
@@ -249,11 +224,10 @@ def test_provide_solutions_prefers_archive_over_glob(
     assert np.array_equal(result, archive_data[:3])
 
 
-def test_file_input_provider_cache_key_includes_file_indices(
+def test_file_input_provider_selects_the_given_file_indices(
     archive_source: InMemoryArchiveSource,
 ) -> None:
-    """Bindings with the same glob and count but different explicit files must not share a cache entry."""
-    _load_archive_files_cached.cache_clear()
+    """Bindings with the same glob and count but different explicit files load different vectors."""
     # File k holds the constant vector k + 1, so its position in the sorted pool is recoverable.
     for idx in range(5):
         archive_source.add(ARCHIVE_DIR / f"solution_{idx:03d}.txt", np.full(4, float(idx + 1)))

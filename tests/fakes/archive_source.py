@@ -22,8 +22,6 @@ type Contents = NDArray | csr_array
 class InMemoryArchiveSource:
     """Archive files held in memory.
 
-    Hashes by identity, so the loaded-vector cache never shares an entry between two fakes.
-
     Attributes:
         contents: Array stored at each registered path.
         mtimes: Modification time of each registered path.

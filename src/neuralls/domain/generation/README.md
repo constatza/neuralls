@@ -335,13 +335,13 @@ the configured seed. The pool is the remaining `permutation[skip:]`. Explicit
 `file_indices` (set per binding by the orchestrator, not by users) index into that
 pool, so every binding of a multi-matrix archive draws its own disjoint files.
 
-`FileInputProvider` (in `providers.py`) memoizes its file reads with
-`functools.lru_cache`, keyed on `(glob_pattern, count, shuffle, seed, skip, file_indices)`. Every
-archive-backed strategy (`solution_archive`, `rhs_archive`, `scaled_solutions`,
-`validated_archive`, and `residuals`/`gaussian_residuals` when `solutions_glob` is set)
-routes through it, so an archive shared across many matrix bindings — or across several
-dataset configs in one `generate-all` batch that point at the same glob — is read from
-disk once per distinct selection, not once per binding or per dataset file. `ArchiveData`
+`FileInputProvider` (in `providers.py`) reads every file through the injected `ArchiveSource`
+and caches nothing itself. Every archive-backed strategy (`solution_archive`, `rhs_archive`,
+`scaled_solutions`, `validated_archive`, and `residuals`/`gaussian_residuals` when
+`solutions_glob` is set) routes through it. Composition gives each generation run its own
+`CachingArchiveSource` (`platform/storage/archive_source.py`), so an archive shared across many
+matrix bindings is read from disk once per file within the run, and nothing loaded outlives the
+run; two dataset configs in one batch read the same files once each. `ArchiveData`
 (pre-loaded in-memory archives, e.g. from `single_solution`) always takes priority over
 `solutions_glob` when both are available for a strategy. With an explicit `solution_path`,
 `_prepare_generation_context` loads every row of the file once (file order) into

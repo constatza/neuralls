@@ -9,7 +9,6 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import numpy as np
-from loguru import logger
 from torchalg.utils.device import resolve_device
 
 from neuralls.application.inference.models import InferenceData, InferencePredictions
@@ -137,7 +136,6 @@ def run_prediction(
     """
     feature_arrays = data.features
 
-    logger.info(f"Running inference on {data.source} data...")
     raw_preds, duration = collect_predictions(predictor, feature_arrays, batch_size)
 
     predictions = process_predictions(raw_preds)

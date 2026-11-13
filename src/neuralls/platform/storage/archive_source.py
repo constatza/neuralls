@@ -5,11 +5,13 @@ I/O actions - these functions read from disk.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
+
+from neuralls.domain.generation.ports import ArchiveSource
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,3 +80,39 @@ def _npy_shape(path: Path) -> tuple[int, ...]:
         else:
             raise ValueError(f"Unsupported .npy version {version} in solution file {path}.")
     return shape
+
+
+@dataclass(frozen=True, eq=False, slots=True)
+class CachingArchiveSource:
+    """An ``ArchiveSource`` that loads each vector once and serves repeats from memory.
+
+    Build one per generation run: every binding of a one-matrix source draws the same
+    files, and the cache lives exactly as long as the run that holds this source, so no
+    loaded vector outlives it. Listing, timestamps and row counts pass through uncached.
+    """
+
+    inner: ArchiveSource
+    _vectors: dict[Path, NDArray] = field(default_factory=dict)
+
+    def exists(self, path: Path) -> bool:
+        return self.inner.exists(path)
+
+    def is_file(self, path: Path) -> bool:
+        return self.inner.is_file(path)
+
+    def glob(self, root: Path, pattern: str) -> list[Path]:
+        return self.inner.glob(root, pattern)
+
+    def modified_time(self, path: Path) -> float:
+        return self.inner.modified_time(path)
+
+    def creation_time(self, path: Path) -> float:
+        return self.inner.creation_time(path)
+
+    def row_count(self, path: Path) -> int:
+        return self.inner.row_count(path)
+
+    def load_vector(self, path: Path) -> NDArray:
+        if path not in self._vectors:
+            self._vectors[path] = self.inner.load_vector(path)
+        return self._vectors[path]
