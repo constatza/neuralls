@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -15,9 +17,8 @@ from neuralls.domain.generation.providers import (
     provide_solutions,
 )
 from tests.fakes.archive_source import InMemoryArchiveSource
-from tests.os_paths import FAKE_ROOT
 
-ARCHIVE_DIR = FAKE_ROOT / "archive"
+ARCHIVE_DIR = Path("archive")
 
 
 @pytest.fixture

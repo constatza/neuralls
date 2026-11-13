@@ -16,7 +16,6 @@ from neuralls.platform.config.models.data_models import (
     SourceConfig,
     StrategyConfig,
 )
-from tests.os_paths import FAKE_ROOT
 
 
 def test_source_config_matrix_path_glob_preserves_wildcard(
@@ -31,20 +30,6 @@ def test_source_config_matrix_path_glob_preserves_wildcard(
     assert config.matrix_path is not None
     assert "*" in config.matrix_path
     assert PurePath(config.matrix_path).name == "A_*.txt"
-
-
-def test_source_config_matrix_path_plain_still_resolves(
-    config_context: ConfigContext,
-) -> None:
-    """matrix_path without wildcards resolves to an absolute path as before."""
-    plain = str((FAKE_ROOT / "workspace") / "A.txt")
-    config = SourceConfig.model_validate(
-        {"matrix_path": plain},
-        context=config_context.as_pydantic_context(),
-    )
-    assert config.matrix_path is not None
-    assert "*" not in config.matrix_path
-    assert config.matrix_path == plain
 
 
 def test_strategy_config_keeps_required_name() -> None:

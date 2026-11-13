@@ -23,11 +23,10 @@ from neuralls.domain.generation.step_window import StepWindow
 from neuralls.domain.generation.strategy_configs import ResidualErrorConfig
 from tests.fakes.archive_source import InMemoryArchiveSource
 from tests.generation_support import error_trace_rows
-from tests.os_paths import FAKE_ROOT
 
 from .conftest import _SolverCallRecorder
 
-ARCHIVE_DIR = FAKE_ROOT / "archive"
+ARCHIVE_DIR = Path("archive")
 
 
 def _expected_trace_systems(samples: int, rows_per_system: int) -> int:

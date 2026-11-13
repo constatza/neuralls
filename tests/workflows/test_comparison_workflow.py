@@ -117,7 +117,6 @@ from neuralls.shared.types import (
     SystemId,
 )
 from tests.environment_support import SESSION_ENVIRONMENT
-from tests.os_paths import FAKE_ROOT
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 from tests.workflows.comparison_support import (
@@ -576,7 +575,7 @@ def test_validate_neural_preconditioner_requires_model_ref() -> None:
 def test_validate_neural_preconditioner_rejects_checkpoint_path() -> None:
     spec = NeuralPreconditionerConfig(
         type=PreconditionerType.NEURAL,
-        checkpoint_path=(FAKE_ROOT / "workspace/model.ckpt"),
+        checkpoint_path=Path("workspace/model.ckpt"),
         model_ref=_logged_ref("run-1"),
     )
     with pytest.raises(ValueError):

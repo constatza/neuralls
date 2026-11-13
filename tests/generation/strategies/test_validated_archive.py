@@ -11,11 +11,10 @@ from neuralls.domain.generation.notices import InvalidPairs
 from neuralls.domain.generation.strategies.validated_archive import ValidatedArchiveStrategy
 from neuralls.domain.generation.strategy_configs import ValidatedArchiveConfig
 from tests.fakes.archive_source import InMemoryArchiveSource
-from tests.os_paths import FAKE_ROOT
 
-MISSING_DIR = FAKE_ROOT / "archive/missing"
-SOLUTIONS_DIR = FAKE_ROOT / "archive/solutions"
-RHS_DIR = FAKE_ROOT / "archive/rhs"
+MISSING_DIR = Path("archive/missing")
+SOLUTIONS_DIR = Path("archive/solutions")
+RHS_DIR = Path("archive/rhs")
 
 
 @pytest.fixture

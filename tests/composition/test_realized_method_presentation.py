@@ -6,6 +6,7 @@ import gc
 import weakref
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -57,7 +58,6 @@ from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, Syste
 from neuralls.shared.workflow_failures import ComparisonMatrixFailureContext, ComparisonMatrixPhase
 from tests.measurement_support import NO_REFERENCE
 from tests.observation_support import observations_of_workloads
-from tests.os_paths import FAKE_ROOT
 from tests.presentation_support import PreparedMethodFactory
 from tests.realized_support import completed_workload, levels
 from tests.recipe_support import ALPHA, BETA, GAUSSIAN
@@ -103,7 +103,7 @@ def matrix_bundles() -> tuple[MatrixWorkload, MatrixWorkload]:
                 dataset=DatasetId("ds"),
                 matrix_id=MatrixId(matrix_id),
                 matrix=torch.diag(torch.tensor([2.0, 3.0], dtype=torch.float64)) * matrix_id,
-                matrix_path=(FAKE_ROOT / "workspace") / f"matrix-{matrix_id}",
+                matrix_path=Path("workspace") / f"matrix-{matrix_id}",
                 matrix_index=matrix_id,
                 members=members,
             )

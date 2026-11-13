@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from neuralls.platform.config.models.data_models import DataConfigFile, OutputConfig
 from neuralls.platform.config.resolution import (
     PathContext,
@@ -10,9 +12,8 @@ from neuralls.platform.config.resolution import (
 )
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.constants import DEFAULT_PROJECT_ROOT
-from tests.os_paths import FAKE_ROOT
 
-WORKSPACE = FAKE_ROOT / "workspace"
+WORKSPACE = Path("workspace")
 
 
 def test_path_context_creation() -> None:

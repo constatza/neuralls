@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -10,9 +12,8 @@ from neuralls.platform.config.settings import (
     NeurallsSettings,
     get_settings,
 )
-from tests.os_paths import FAKE_ROOT
 
-WORKSPACE = FAKE_ROOT / "workspace"
+WORKSPACE = Path("workspace")
 
 
 def test_settings_loads_from_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:

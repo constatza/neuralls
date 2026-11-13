@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from dataclasses import dataclass
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from neuralls.application.models import AssignmentSweepResult
 from neuralls.composition.assignments.case_pipeline import ForcePolicy, run_case_pipeline
 from neuralls.composition.comparison.models import ComparisonParams
-from tests.os_paths import FAKE_ROOT
 
-CASE_CONFIG_PATH = FAKE_ROOT / "workspace/case.toml"
+CASE_CONFIG_PATH = Path("workspace/case.toml")
 
 
 @dataclass

@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from neuralls.platform.config.settings import ENV_FILE_ENV_VAR, get_settings
-from tests.os_paths import FAKE_ROOT
 
 
 def test_settings_env_var_overrides_env_file(
@@ -19,14 +18,14 @@ def test_settings_env_var_overrides_env_file(
         monkeypatch.delenv(key, raising=False)
     env_file = tmp_path / "custom.env"
     env_file.write_text(
-        f"NEURALLS_PROCESSED_DIR={FAKE_ROOT / 'custom/processed'}\nNEURALLS_OUTPUT_DIR={FAKE_ROOT / 'custom/output'}\n",
+        f"NEURALLS_PROCESSED_DIR={Path('custom/processed')}\nNEURALLS_OUTPUT_DIR={Path('custom/output')}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("NEURALLS_OUTPUT_DIR", str(tmp_path / "override-output"))
 
     settings = get_settings(env_file)
 
-    assert settings.processed_dir == (FAKE_ROOT / "custom/processed").resolve()
+    assert settings.processed_dir == Path("custom/processed").resolve()
     assert settings.output_dir == (tmp_path / "override-output").resolve()
 
 
@@ -37,14 +36,14 @@ def test_settings_custom_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.delenv(ENV_FILE_ENV_VAR, raising=False)
     env_file = tmp_path / "custom.env"
     env_file.write_text(
-        f"NEURALLS_PROCESSED_DIR={FAKE_ROOT / 'custom/processed'}\nNEURALLS_OUTPUT_DIR={FAKE_ROOT / 'custom/output'}\n",
+        f"NEURALLS_PROCESSED_DIR={Path('custom/processed')}\nNEURALLS_OUTPUT_DIR={Path('custom/output')}\n",
         encoding="utf-8",
     )
 
     settings = get_settings(env_file)
 
-    assert settings.processed_dir == (FAKE_ROOT / "custom/processed").resolve()
-    assert settings.output_dir == (FAKE_ROOT / "custom/output").resolve()
+    assert settings.processed_dir == Path("custom/processed").resolve()
+    assert settings.output_dir == Path("custom/output").resolve()
 
 
 def test_settings_uses_neuralls_env_file_env_var(
@@ -54,7 +53,7 @@ def test_settings_uses_neuralls_env_file_env_var(
     """NEURALLS_ENV_FILE is consulted only when env_file is absent."""
     env_file = tmp_path / "custom.env"
     env_file.write_text(
-        f"NEURALLS_PROCESSED_DIR={FAKE_ROOT / 'custom/processed'}\nNEURALLS_OUTPUT_DIR={FAKE_ROOT / 'custom/output'}\n",
+        f"NEURALLS_PROCESSED_DIR={Path('custom/processed')}\nNEURALLS_OUTPUT_DIR={Path('custom/output')}\n",
         encoding="utf-8",
     )
     for key in ("NEURALLS_PROCESSED_DIR", "NEURALLS_OUTPUT_DIR"):
@@ -63,5 +62,5 @@ def test_settings_uses_neuralls_env_file_env_var(
 
     settings = get_settings()
 
-    assert settings.processed_dir == (FAKE_ROOT / "custom/processed").resolve()
-    assert settings.output_dir == (FAKE_ROOT / "custom/output").resolve()
+    assert settings.processed_dir == Path("custom/processed").resolve()
+    assert settings.output_dir == Path("custom/output").resolve()

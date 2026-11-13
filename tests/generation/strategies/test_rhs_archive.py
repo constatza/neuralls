@@ -13,9 +13,8 @@ from neuralls.domain.generation.runner import ArchiveStrategyRegistration
 from neuralls.domain.generation.strategies.rhs_archive import RhsArchiveStrategy
 from tests.fakes.archive_source import InMemoryArchiveSource
 from tests.generation_support import solved_rows
-from tests.os_paths import FAKE_ROOT
 
-ARCHIVE_DIR = FAKE_ROOT / "archive"
+ARCHIVE_DIR = Path("archive")
 
 
 @pytest.fixture

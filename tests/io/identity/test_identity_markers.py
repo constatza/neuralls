@@ -23,7 +23,6 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.shared.digest import MARKER_TYPES, canonical_digest
 from tests.io.identity.conftest import ComparisonFactory, DataConfigFactory
-from tests.os_paths import FAKE_ROOT
 
 ROOTS: list[object] = [
     pytest.param(ComparisonConfig, id="ComparisonConfig"),
@@ -129,7 +128,7 @@ def test_comparison_digest_changes_on_identity_field(
 def test_comparison_digest_ignores_cosmetic(
     make_comparison: ComparisonFactory,
 ) -> None:
-    other_matrix = FAKE_ROOT / "workspace/other.bin"
+    other_matrix = Path("workspace/other.bin")
     base = canonical_digest(make_comparison())
     assert base == canonical_digest(make_comparison(jacobi_name="renamed"))
     assert base == canonical_digest(make_comparison(matrix_path=other_matrix))
@@ -151,4 +150,4 @@ def test_data_config_digest_ignores_cosmetic(
 ) -> None:
     base = canonical_digest(make_data_config())
     assert base == canonical_digest(make_data_config(dataset_id="renamed"))
-    assert base == canonical_digest(make_data_config(data_dir=(FAKE_ROOT / "workspace/elsewhere")))
+    assert base == canonical_digest(make_data_config(data_dir=Path("workspace/elsewhere")))

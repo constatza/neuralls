@@ -15,7 +15,6 @@ from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAda
 
 from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.platform.config.models.preconditioner import NeuralPreconditionerConfig
-from tests.os_paths import FAKE_ROOT
 
 # ==============================================================================
 # Mock Predictor and Adapter
@@ -65,7 +64,7 @@ def well_conditioned_matrix() -> torch.Tensor:
 @pytest.fixture
 def mock_checkpoint() -> Path:
     """A checkpoint location that only the mock adapter sees, so no file exists there."""
-    return FAKE_ROOT / "virtual/mock_checkpoint.ckpt"
+    return Path("virtual/mock_checkpoint.ckpt")
 
 
 @pytest.fixture

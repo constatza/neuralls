@@ -32,10 +32,9 @@ from neuralls.domain.presentation.run_names import NamedRun, TrainingPresentatio
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.shared.constants import EXIT_FAILURE
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from tests.os_paths import FAKE_ROOT
 
 runner = CliRunner()
-WORKSPACE = FAKE_ROOT / "workspace"
+WORKSPACE = Path("workspace")
 
 
 def test_root_help_lists_only_public_commands() -> None:

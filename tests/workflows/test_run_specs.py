@@ -39,7 +39,6 @@ from neuralls.platform.tracking.run_names import run_name_text
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import MatrixId
-from tests.os_paths import FAKE_ROOT
 from tests.presentation_support import PreparedMethodFactory
 
 PLAIN = NotationPolicy.default()
@@ -230,7 +229,7 @@ def test_method_run_is_named_by_its_presentation_and_tagged_with_its_id(
 def test_session_run_spec_name_and_tags(
     phase: str, dataset_presentation: DatasetPresentation
 ) -> None:
-    case_config_path = FAKE_ROOT / "workspace/cases/ffnn.toml"
+    case_config_path = Path("workspace/cases/ffnn.toml")
     scope = ComparisonScopePresentation(dataset_presentation)
 
     run, tags = build_session_run_spec(

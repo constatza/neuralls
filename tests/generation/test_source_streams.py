@@ -22,9 +22,8 @@ from neuralls.domain.generation.source_streams import (
 from neuralls.platform.storage.archive_source import FsArchiveSource
 from tests.fakes.archive_source import InMemoryArchiveSource
 from tests.generation_support import spd_matrix
-from tests.os_paths import FAKE_ROOT
 
-ARCHIVE_DIR = FAKE_ROOT / "archive"
+ARCHIVE_DIR = Path("archive")
 
 
 _ARBITRARY_PARAMETER_SETS = [(3000, 78000), (5000, 100000), (1000, 50000)]

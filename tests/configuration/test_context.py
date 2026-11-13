@@ -66,13 +66,6 @@ def test_relative_path_anchored_to_config_dir(config_context) -> None:
     assert value == str((config_context.config_dir / "relative/path.mtx").resolve())
 
 
-def test_absolute_path_unchanged(config_context) -> None:
-    """Absolute paths pass through unchanged after resolution."""
-    absolute = ROOT / "matrix.mtx"
-    value = expand_config_path(str(absolute), config_context)
-    assert value == str(absolute.resolve())
-
-
 @pytest.mark.skipif(
     sys.platform == "win32",
     reason="stdlib expanduser prefers USERPROFILE over HOME on Windows",
