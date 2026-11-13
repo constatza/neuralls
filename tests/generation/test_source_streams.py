@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -151,6 +152,9 @@ def test_enumerate_files_assigns_sequential_ids_by_mtime(
     assert result[2].name == "file_b.txt"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows stat results always carry st_birthtime"
+)
 def test_creation_time_rejects_stat_without_birthtime() -> None:
     """A stat result without st_birthtime (as on Linux) names the file and the alternatives."""
     stat_without_birthtime = os.stat_result((0o100644, 1, 1, 1, 0, 0, 0, 1.0, 2.0, 3.0))
