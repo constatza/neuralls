@@ -106,8 +106,8 @@ def test_pure_layers_do_no_file_io() -> None:
     assert offenders == []
 
 
-_LOGGING_MODULES = frozenset({"loguru", "logging", "warnings"})
-_CLOCK_MODULES = frozenset({"time"})
+_BANNED_MODULES = frozenset({"loguru", "logging", "warnings", "time", "timeit"})
+_CLOCK_READS = frozenset({"now", "utcnow", "today"})
 _CACHE_DECORATORS = frozenset({"lru_cache", "cache"})
 _DEVICE_ACTIONS = frozenset({"resolve_device", "release_device_memory"})
 
@@ -116,19 +116,38 @@ def _root(module: str | None) -> str:
     return (module or "").split(".")[0]
 
 
+def _is_cuda_module(module: str | None) -> bool:
+    return (module or "").startswith("torch.cuda")
+
+
+def _unseeded(args: list[ast.expr], keywords: list[ast.keyword]) -> bool:
+    """No seed argument, or a literal ``None`` one: the generator draws OS entropy."""
+    seeds = [*args, *(keyword.value for keyword in keywords)]
+    return all(isinstance(seed, ast.Constant) and seed.value is None for seed in seeds)
+
+
 def _ambient_actions(path: Path) -> list[str]:
-    """Logging, clock reads, process-wide caches, CUDA calls and ambient device picks."""
+    """Logging, clock reads, process-wide caches, CUDA use and ambient device picks.
+
+    ``import time`` is banned outright, not only its clock calls: the one timing the
+    domain does goes through ``shared/device.py``.
+    """
     found = []
     for node in ast.walk(parsed(path)):
         match node:
             case ast.Import(names=names) if any(
-                _root(alias.name) in _LOGGING_MODULES | _CLOCK_MODULES for alias in names
+                _root(alias.name) in _BANNED_MODULES or _is_cuda_module(alias.name)
+                for alias in names
             ):
                 found.append(f"{node.lineno} import")
-            case ast.ImportFrom(module=module) if _root(module) in (
-                _LOGGING_MODULES | _CLOCK_MODULES
+            case ast.ImportFrom(module=module) if _root(module) in _BANNED_MODULES or (
+                _is_cuda_module(module)
             ):
                 found.append(f"{node.lineno} import")
+            case ast.ImportFrom(module="torch", names=names) if any(
+                alias.name == "cuda" for alias in names
+            ):
+                found.append(f"{node.lineno} cuda")
             case ast.ImportFrom(module="functools", names=names) if any(
                 alias.name in _CACHE_DECORATORS for alias in names
             ):
@@ -137,15 +156,22 @@ def _ambient_actions(path: Path) -> list[str]:
                 alias.name in _DEVICE_ACTIONS for alias in names
             ):
                 found.append(f"{node.lineno} device")
-            case ast.Attribute(attr=attr, value=ast.Name(id="functools")) if (
-                attr in _CACHE_DECORATORS
+            case (
+                ast.Attribute(attr="lru_cache")
+                | ast.Attribute(attr="cache", value=ast.Name(id="functools"))
             ):
                 found.append(f"{node.lineno} cache")
-            case ast.Attribute(attr="cuda", value=ast.Name(id="torch")):
+            case ast.Attribute(attr="cuda"):
                 found.append(f"{node.lineno} cuda")
-            case ast.Attribute(attr="now", value=ast.Name(id="datetime")):
+            case ast.Attribute(attr=attr) if attr in _DEVICE_ACTIONS:
+                found.append(f"{node.lineno} device")
+            case ast.Call(func=ast.Attribute(attr=attr)) if attr in _CLOCK_READS:
                 found.append(f"{node.lineno} clock")
-            case ast.Call(func=ast.Attribute(attr="default_rng"), args=[], keywords=[]):
+            case ast.Call(
+                func=ast.Attribute(attr="default_rng") | ast.Name(id="default_rng"),
+                args=args,
+                keywords=keywords,
+            ) if _unseeded(args, keywords):
                 found.append(f"{node.lineno} entropy")
     return found
 

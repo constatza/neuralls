@@ -24,4 +24,7 @@ Application modules do not load configs, resolve workspaces, create MLflow
 runs, or touch filesystem layout concerns directly. Cross-layer DTOs that are
 shared across multiple layers live in `domain/` or `shared/`, not here.
 The same no-ambient-action rule as `domain/` applies (no logging, clock reads, process-wide
-caches, CUDA calls or device choice), enforced by `tests/architecture/test_io_boundary.py`.
+caches, CUDA calls or device choice), checked by `tests/architecture/test_io_boundary.py`. The
+caller passes the device whose memory is measured; composition passes `resolve_device()`. The
+DLKit predictor picks its own device (`device="auto"`), so the two are expected to agree but
+nothing checks it.

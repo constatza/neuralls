@@ -25,8 +25,6 @@ def iterate_feature_batches(
     Args:
         feature_arrays: Feature arrays keyed by name.
         batch_size: Number of samples per batch.
-        device: Device the predictor runs on; its peak memory is measured. The caller
-            chooses it, so this use case reads no ambient device.
 
     Yields:
         Batched feature dictionaries.
@@ -50,6 +48,8 @@ def collect_predictions(
         predictor: Batch predictor port implementation.
         feature_arrays: Feature arrays keyed by name.
         batch_size: Number of samples per batch.
+        device: Device the predictor runs on; its peak memory is measured. The caller
+            chooses it, so this use case reads no ambient device.
 
     Returns:
         Tuple of (predictions_list, duration_seconds) — the real wall-clock

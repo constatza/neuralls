@@ -32,9 +32,13 @@ domain output must be written, it is returned as typed payloads and handled by
 `neuralls.composition` plus `neuralls.platform`.
 
 No ambient actions either: domain code does no file I/O (archive files go through the injected
-`ArchiveSource`), writes no log line, reads no clock outside the shared timing helpers, keeps no
-process-wide cache, calls no `torch.cuda` API and picks no device (`resolve_device`,
-`release_device_memory`); it works on the device of the tensors it is given. An outcome an
-operator must see is returned as data in a closed type (generation notices, `ScaleSummary`
-disagreements, the solver's `Reference` and `EnergyError`) and composition logs it.
-`tests/architecture/test_io_boundary.py` enforces this for `domain/` and `application/`.
+`ArchiveSource`), writes no log line, reads no clock (the timed solve goes through
+`shared/device.py`), keeps no process-wide cache, makes no CUDA call and picks no device; it
+works on the device of the tensors it is given. An outcome an operator must see is returned as
+data in a closed type (generation notices, `ScaleSummary` disagreements, the solver's
+`Reference` and `EnergyError`) and composition logs it. `tests/architecture/test_io_boundary.py`
+checks this syntactically for `domain/` and `application/`: logging, `time` and `timeit`
+imports; `now`, `utcnow` and `today` calls; `functools` caches; any `cuda` attribute or
+`torch.cuda` import; unseeded `default_rng`; and `resolve_device` or `release_device_memory`.
+A module-level dict used as a cache or a `"cuda"` device string passes it and is caught in
+review.
