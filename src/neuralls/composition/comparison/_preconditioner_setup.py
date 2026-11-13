@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -177,56 +176,44 @@ def capture_system_realizations(
     )
 
 
-def _create_scheduled_preconditioners(
-    preconditioner_configs: Sequence[PreconditionerConfig],
-    matrix: torch.Tensor,
-    base_preconditioners: dict[str, Any],
-) -> dict[str, Preconditioner]:
-    """Wrap base preconditioners with scheduling if configured.
+def _schedule_preconditioner(
+    cfg: PreconditionerConfig, matrix: torch.Tensor, primary: Preconditioner
+) -> Preconditioner:
+    """Wrap one built preconditioner with the scheduling its config asks for.
 
     Args:
-        preconditioner_configs: Config objects carrying scheduling parameters.
+        cfg: Config carrying the scheduling parameters.
         matrix: System matrix (needed for fallback creation).
-        base_preconditioners: Already-created preconditioner instances.
+        primary: The already-built preconditioner.
 
     Returns:
-        Dict mapping names to scheduled (or unscheduled) preconditioner instances.
+        The scheduled (or unscheduled) preconditioner.
     """
-    scheduled: dict[str, Preconditioner] = {}
-    for cfg in preconditioner_configs:
-        primary = base_preconditioners[cfg.name]
-        schedule = PreconditionerScheduleConfig(
-            start_iter=cfg.start_iter,
-            limit_iters=cfg.limit_iters,
-            fallback=cfg.fallback,
-        )
-        scheduled[cfg.name] = create_scheduled_preconditioner(
-            primary=primary,
-            schedule=schedule,
-            matrix=matrix,
-        )
-    return scheduled
+    schedule = PreconditionerScheduleConfig(
+        start_iter=cfg.start_iter,
+        limit_iters=cfg.limit_iters,
+        fallback=cfg.fallback,
+    )
+    return create_scheduled_preconditioner(primary=primary, schedule=schedule, matrix=matrix)
 
 
-def _collect_extra_name_positions(
-    preconditioners: dict[str, Preconditioner],
-) -> dict[str, int]:
-    """Map extra-input name → declaration-order index across all bindable preconditioners.
+def _collect_extra_name_positions(preconditioner: Preconditioner) -> dict[str, int]:
+    """Map each extra-input name the preconditioner declares to its declaration index.
 
     Args:
-        preconditioners: Scheduled preconditioner map to inspect.
+        preconditioner: Scheduled preconditioner to inspect.
 
     Returns:
         Dict mapping each extra name to its position in ``extra_input_names``
-        (first occurrence wins, preserving training-config declaration order).
+        (first occurrence wins, preserving training-config declaration order); empty when
+        the preconditioner binds no inputs.
     """
+    if not isinstance(preconditioner, BindableInputs):
+        return {}
     positions: dict[str, int] = {}
-    for p in preconditioners.values():
-        if not isinstance(p, BindableInputs):
-            continue
-        for i, name in enumerate(p.extra_input_names):
-            if name not in _SYSTEM_ARRAYS_ALWAYS_AVAILABLE:
-                positions.setdefault(name, i)
+    for i, name in enumerate(preconditioner.extra_input_names):
+        if name not in _SYSTEM_ARRAYS_ALWAYS_AVAILABLE:
+            positions.setdefault(name, i)
     return positions
 
 
@@ -255,43 +242,42 @@ def _load_extra_inputs(matrix_path: Path, matrix_index: int) -> tuple[np.ndarray
 
 
 def _bind_extra_inputs(
-    scheduled_preconditioners: dict[str, Preconditioner],
+    preconditioner: Preconditioner,
     matrix: torch.Tensor,
     staged_inputs: tuple[np.ndarray, ...],
 ) -> None:
     """Convert staged parameter arrays and bind them inside setup timing.
 
     Args:
-        scheduled_preconditioners: Preconditioners to inspect and bind.
+        preconditioner: Preconditioner to inspect and bind.
         matrix: System matrix — always bound as ``"matrix"``.
         staged_inputs: Parameter arrays read before setup, in manifest order.
     """
-    name_to_position = _collect_extra_name_positions(scheduled_preconditioners)
+    name_to_position = _collect_extra_name_positions(preconditioner)
     extra_data = {
         name: torch.as_tensor(staged_inputs[position], dtype=matrix.dtype, device=matrix.device)
         for name, position in name_to_position.items()
         if position < len(staged_inputs)
     }
-    _bind_system_inputs(scheduled_preconditioners, {"matrix": matrix, **extra_data})
+    _bind_system_inputs(preconditioner, {"matrix": matrix, **extra_data})
 
 
 def _bind_system_inputs(
-    preconditioners: dict[str, Preconditioner],
+    preconditioner: Preconditioner,
     system_data: dict[str, torch.Tensor],
 ) -> None:
-    """Bind dataset-sourced extra inputs to preconditioners that declare them.
+    """Bind dataset-sourced extra inputs to a preconditioner that declares them.
 
-    Reads extra_input_names from each preconditioner. For each name present in
-    system_data, calls bind_inputs() so the preconditioner can forward them to
+    Reads ``extra_input_names`` from the preconditioner. For each name present in
+    ``system_data``, calls ``bind_inputs()`` so the preconditioner can forward them to
     the model without changing the CG-facing apply(residual) interface.
 
     Args:
-        preconditioners: Map of name to preconditioner.
+        preconditioner: The preconditioner to bind.
         system_data: Available named arrays (always includes ``"matrix"``).
     """
-    for precond in preconditioners.values():
-        if not isinstance(precond, BindableInputs):
-            continue
-        needed = {k: v for k, v in system_data.items() if k in precond.extra_input_names}
-        if needed:
-            precond.bind_inputs(**needed)
+    if not isinstance(preconditioner, BindableInputs):
+        return
+    needed = {k: v for k, v in system_data.items() if k in preconditioner.extra_input_names}
+    if needed:
+        preconditioner.bind_inputs(**needed)

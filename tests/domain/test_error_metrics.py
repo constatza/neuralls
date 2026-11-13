@@ -15,12 +15,19 @@ from torchalg.models.result import SolverResult
 
 from neuralls.domain.solver.error_metrics import (
     MIN_SAFE_RELATIVE_RESIDUAL,
-    REFERENCE_PRECISION_MARGIN,
     ReferenceSolver,
+    ReferenceTarget,
     extract_energy_error,
     normalize_error_history,
     reference_solver,
+    reference_target,
     relative_exact_error,
+)
+from neuralls.domain.solver.models.config import REFERENCE_PRECISION_MARGIN
+from neuralls.domain.solver.models.energy_error import (
+    EnergyErrorBound,
+    EnergyErrorUnavailable,
+    ExactEnergyError,
 )
 
 
@@ -70,26 +77,30 @@ def test_extract_energy_error_prefers_exact_history(
     solver_result_with_exact_energy_history: SolverResult,
 ) -> None:
     """When error_history_a_norm is populated, it wins over the GM bound."""
-    error_history, error_bound = extract_energy_error(solver_result_with_exact_energy_history)
-    assert error_history is not None
-    assert error_history[0] == pytest.approx(1.0)
-    assert error_bound is None
+    match extract_energy_error(solver_result_with_exact_energy_history):
+        case ExactEnergyError(history=history):
+            assert history[0] == pytest.approx(1.0)
+        case other:
+            pytest.fail(f"expected the exact energy error, got {other}")
 
 
 def test_extract_energy_error_falls_back_to_gm_bound(
     solver_result_with_decrements_only: SolverResult,
 ) -> None:
     """With no exact history but nonempty energy_decrements, the GM bound fills in."""
-    error_history, error_bound = extract_energy_error(solver_result_with_decrements_only)
-    assert error_history is None
-    assert error_bound is not None
-    assert error_bound[0] == pytest.approx(1.0)
+    match extract_energy_error(solver_result_with_decrements_only):
+        case EnergyErrorBound(bound=bound):
+            assert bound[0] == pytest.approx(1.0)
+        case other:
+            pytest.fail(f"expected the Golub-Meurant bound, got {other}")
 
 
-def test_extract_energy_error_none_when_no_data(
+def test_extract_energy_error_unavailable_when_no_data(
     solver_result_with_no_energy_data: SolverResult,
 ) -> None:
-    assert extract_energy_error(solver_result_with_no_energy_data) == (None, None)
+    assert extract_energy_error(solver_result_with_no_energy_data) == EnergyErrorUnavailable(
+        "the solve recorded no energy history"
+    )
 
 
 def test_reference_precision_margin_is_configurable(
@@ -97,7 +108,8 @@ def test_reference_precision_margin_is_configurable(
 ) -> None:
     """A looser margin still meets its own (looser) precision target."""
     rtol, margin = 1e-6, 1e-2
-    x = reference_solver(spd_matrix).solve(rhs, rtol=rtol, margin=margin)
+    target = reference_target(rtol, margin)
+    x = reference_solver(spd_matrix).solve(rhs, target_rel=target.applied_rel)
     relative_residual = float(
         torch.linalg.vector_norm(rhs - spd_matrix @ x) / torch.linalg.vector_norm(rhs)
     )
@@ -124,7 +136,8 @@ def test_one_sparse_factorization_serves_every_rhs(
 
     with patch("neuralls.domain.solver.error_metrics.splu", wraps=scipy_splu) as factor:
         solver = reference_solver(sparse_matrix)
-        solutions = [solver.solve(b, rtol=1e-6) for b in (rhs, second_rhs)]
+        target_rel = reference_target(1e-6, REFERENCE_PRECISION_MARGIN).applied_rel
+        solutions = [solver.solve(b, target_rel=target_rel) for b in (rhs, second_rhs)]
 
     assert factor.call_count == 1
     for b, x in zip((rhs, second_rhs), solutions, strict=True):
@@ -143,7 +156,7 @@ def test_reference_rejects_direct_solve_with_excess_residual(
     zero_solver = ReferenceSolver(spd_matrix, lambda b: b * 0.0)
 
     with pytest.raises(RuntimeError, match="could not reach relative residual"):
-        zero_solver.solve(rhs, rtol=1e-6)
+        zero_solver.solve(rhs, target_rel=1e-9)
 
 
 def test_reference_precision_margin_clamps_to_machine_epsilon(
@@ -151,15 +164,11 @@ def test_reference_precision_margin_clamps_to_machine_epsilon(
 ) -> None:
     """A margin*rtol below machine precision is clamped, not asked for literally."""
     rtol, margin = 1e-14, 1e-4  # requested target ~1e-18, below float64 precision
-    x = reference_solver(spd_matrix).solve(rhs, rtol=rtol, margin=margin)
+    target = reference_target(rtol, margin)
+    assert target == ReferenceTarget(rtol * margin, MIN_SAFE_RELATIVE_RESIDUAL)
+    assert target.is_clamped
+    x = reference_solver(spd_matrix).solve(rhs, target_rel=target.applied_rel)
     relative_residual = float(
         torch.linalg.vector_norm(rhs - spd_matrix @ x) / torch.linalg.vector_norm(rhs)
     )
     assert relative_residual <= MIN_SAFE_RELATIVE_RESIDUAL * 10
-
-
-def test_reference_precision_margin_rejects_non_tightening_margin(
-    spd_matrix: torch.Tensor, rhs: torch.Tensor
-) -> None:
-    with pytest.raises(ValueError):
-        reference_solver(spd_matrix).solve(rhs, rtol=1e-6, margin=1.0)

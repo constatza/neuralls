@@ -55,7 +55,7 @@ from neuralls.shared.scientific_description.models import (
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SystemId
 from neuralls.shared.workflow_failures import ComparisonMatrixFailureContext, ComparisonMatrixPhase
-from tests.measurement_support import NO_REFERENCE_SOLUTION
+from tests.measurement_support import NO_REFERENCE
 from tests.observation_support import observations_of_workloads
 from tests.os_paths import FAKE_ROOT
 from tests.presentation_support import PreparedMethodFactory
@@ -121,46 +121,41 @@ def counters(monkeypatch: pytest.MonkeyPatch, method: ResolvedMethod) -> _Counte
     """Count setup builds and realized-metadata captures; solving is replaced by a stub."""
     counts = _Counters()
 
-    def build(*args: object, **kwargs: object) -> dict[str, object]:
+    def build(*args: object, **kwargs: object) -> object:
         counts.setups += 1
         built = _Built()
         counts.built.append(weakref.ref(built))
-        return {str(method.name): built}
+        return built
 
     def capture(precond: Preconditioner) -> tuple[ScientificFact, ...]:
         counts.captures += 1
         return levels(2)
 
     def solve(
-        matrix: torch.Tensor, rhs: torch.Tensor, *, preconditioners: dict[str, object], **_: object
-    ) -> dict[str, CGComparisonResult]:
-        name = next(iter(preconditioners))
-        return {
-            name: CGComparisonResult(
-                x=np.ones(2),
-                converged=True,
-                iterations=3,
-                residual=1e-8,
-                residual_abs=1e-8,
-                residual_history_rel=[1.0],
-                residual_history_abs=[1.0],
-                preconditioner=name,
-                initial_guess=np.zeros(2),
-                exact_error=None,
-                rhs_norm=1.0,
-                breakdown=False,
-                solve_time_seconds=1.0,
-                solve_peak_memory_bytes=8,
-                solve_time_samples=(1.0,),
-            )
-        }
+        matrix: torch.Tensor, rhs: torch.Tensor, preconditioner: object, *, name: str, **_: object
+    ) -> CGComparisonResult:
+        return CGComparisonResult(
+            x=np.ones(2),
+            converged=True,
+            iterations=3,
+            residual=1e-8,
+            residual_abs=1e-8,
+            residual_history_rel=[1.0],
+            residual_history_abs=[1.0],
+            preconditioner=name,
+            initial_guess=np.zeros(2),
+            exact_error=None,
+            rhs_norm=1.0,
+            breakdown=False,
+            solve_time_seconds=1.0,
+            solve_peak_memory_bytes=8,
+            solve_time_samples=(1.0,),
+        )
 
     monkeypatch.setattr(comparison_run, "_build_scheduled", build)
     monkeypatch.setattr(_preconditioner_setup, "describe_realized_preconditioner", capture)
-    monkeypatch.setattr(comparison_run, "run_cg_comparison", solve)
-    monkeypatch.setattr(
-        comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE_SOLUTION
-    )
+    monkeypatch.setattr(comparison_run, "solve_system", solve)
+    monkeypatch.setattr(comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE)
     return counts
 
 
@@ -461,7 +456,7 @@ def test_partial_setup_failure_keeps_only_the_successful_matrix_systems(
 
     def fail_first_matrix(
         service: PreconditionerService, matrix: torch.Tensor, cfg: PreconditionerConfig
-    ) -> dict[str, Preconditioner]:
+    ) -> Preconditioner:
         if float(matrix[0, 0]) == 2.0:
             raise RuntimeError("setup broke on matrix 1")
         return succeed(service, matrix, cfg)

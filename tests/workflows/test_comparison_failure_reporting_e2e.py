@@ -224,7 +224,7 @@ def test_recoverable_setup_failure_warns_persists_and_allows_later_method(
         service: PreconditionerService,
         matrix: torch.Tensor,
         config: PreconditionerConfig,
-    ) -> dict[str, Preconditioner]:
+    ) -> Preconditioner:
         if config.name == "identity":
             raise RuntimeError("injected recoverable setup failure")
         return original_build(service, matrix, config)

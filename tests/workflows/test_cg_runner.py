@@ -1,7 +1,7 @@
 """Tests for CG comparison runner orchestration.
 
 This module tests the workflow orchestration functions in cg_runner.py:
-- run_cg_comparison(): Core CG comparison orchestration
+- solve_system(): one system solved with the compatible CG variant
 - format_results_summary(): Result formatting
 
 Follows project testing principles:
@@ -29,7 +29,6 @@ from neuralls.domain.presentation.methods import (
     MissingMethodPresentationError,
     StandaloneMethodPresentation,
 )
-from neuralls.domain.solver.comparison import run_cg_comparison
 from neuralls.domain.solver.comparison_summary import (
     format_results_summary,
 )
@@ -37,6 +36,7 @@ from neuralls.domain.solver.error_metrics import relative_exact_error
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from tests.solver_support import solve_against_reference
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -207,11 +207,11 @@ def mock_comparison_results() -> dict[str, CGComparisonResult]:
 
 
 # ==============================================================================
-# Tests for run_cg_comparison()
+# Tests for solve_system()
 # ==============================================================================
 
 
-def test_run_cg_comparison_dispatches_by_preconditioner_compatibility(
+def test_solve_system_dispatches_by_preconditioner_compatibility(
     monkeypatch: pytest.MonkeyPatch,
     spd_matrix: Tensor,
     rhs_vector: Tensor,
@@ -261,22 +261,14 @@ def test_run_cg_comparison_dispatches_by_preconditioner_compatibility(
     )
     monkeypatch.setattr("neuralls.domain.solver.comparison.pcg", make_fake_solver("pcg"))
 
-    results = run_cg_comparison(
-        spd_matrix,
-        rhs_vector,
-        preconditioners={
-            "nonlinear": DummyNonLinearPreconditioner().setup(spd_matrix),
-            "identity": Identity(),
-        },
-        rtol=1e-8,
-        atol=1e-10,
-        maxiter=100,
-    )
+    results = [
+        solve_against_reference(spd_matrix, rhs_vector, preconditioner)
+        for preconditioner in (DummyNonLinearPreconditioner().setup(spd_matrix), Identity())
+    ]
 
     # Each preconditioner solves twice: once timed, once untimed to track the exact energy error.
     assert calls == ["flexible", "flexible", "pcg", "pcg"]
-    assert results["nonlinear"].converged
-    assert results["identity"].converged
+    assert all(result.converged for result in results)
 
 
 def test_relative_exact_error_preserves_dtype_and_computes_correctly(

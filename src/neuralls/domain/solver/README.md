@@ -14,9 +14,12 @@ implementations are delegated to `torchalg`.
 - peak memory is either measured or explicitly unknown (CUDA: PyTorch allocator peak; CPU: process RSS high-water delta, a lower bound);
 - representative seconds and every repeat sample are retained separately.
 
-`run_cg_comparison` uses the failure-aware repeat timer, so a solver exception
+`comparison.solve_system(A, b, preconditioner, *, name, reference, params)` solves one system
+with one method's built preconditioner on `A`'s device; the caller places the tensors and frees
+device memory between solves. It uses the failure-aware repeat timer, so a solver exception
 still yields a measured failed attempt with its representative duration,
-samples, and peak memory rather than an unmeasured zero-cost row.
+samples, and peak memory rather than an unmeasured zero-cost row. The solver layer never logs:
+every outcome is on the returned `CGComparisonResult`.
 
 Online time is setup plus solve only. Checkpoint and dataset reads, reference
 solves, staging, plotting, persistence, MLflow calls, and historical generation
@@ -27,12 +30,23 @@ the compared solves never see it. `error_metrics.reference_solver` factors a mat
 once on the host (SciPy sparse LU for CSR, Cholesky for dense) into a `ReferenceSolver`
 whose `solve` is reused for every right-hand side of that matrix.
 `comparison.prepare_reference` turns a failed factorization into
-`ExactSolutionUnavailable` for all of the matrix's systems. The comparison run factors
-the stored matrix, not the representation a method solves with, so every method of a
-matrix is compared against the same `x*`. Each solve checks the true relative residual
-against `max(rtol * reference_precision_margin, 10 * eps)`; the default margin is `1e-3`.
-A reference that misses this target is unavailable for exact-error metrics, while the
-comparison solve still runs.
+`ExactSolutionUnavailable` for all of the matrix's systems, and
+`comparison.compute_reference_solution` returns `Reference = ReferenceSolution(x, outcome) |
+ExactSolutionUnavailable` for one right-hand side, which `solve_system` requires. The comparison
+run factors the stored matrix, not the representation a method solves with, so every method of a
+matrix is compared against the same `x*`. Each reference solve checks the true relative residual
+against `error_metrics.reference_target(rtol, margin).applied_rel`, which is
+`max(rtol * reference_precision_margin, 10 * eps)`; the default margin is `1e-3`
+(`models/config.py::REFERENCE_PRECISION_MARGIN`), validated to `(0, 1)` where the comparison
+config is parsed. `ReferenceTarget.is_clamped` says when the float64 floor raised the request;
+the caller computes it once per method and reports the clamp. A reference that misses its
+target is unavailable for exact-error metrics, while the comparison solve still runs.
+
+`CGComparisonResult.energy_error` is `EnergyError = ExactEnergyError(history) |
+EnergyErrorBound(bound) | EnergyErrorUnavailable(reason)` (`models/energy_error.py`): the exact
+curve when a reference solution exists, else the Golub-Meurant lower bound from the timed
+solve's energy decrements, never both. `error_history_a_rel` is a derived view of the exact
+curve for the convergence frame and plots.
 
 `comparison_summary.py::format_results_summary` heads each summary line with the method's description, rendered from the `ConfiguredMethodPresentation` it is given for every result (a result without one raises `MissingMethodPresentationError`).
 
@@ -459,7 +473,7 @@ stopping test and `SolveConverged.final_relative_residual` use its recursive est
 recomputed from the returned solution after the timed region (`true_residual.measure_residual`);
 it never changes how a solve is classified, and it is unmeasured when the solver raised or the
 right-hand side is zero. `measure_residual` returns `NonFiniteResidual` for a non-finite iterate or
-a residual that overflows; `run_cg_comparison` then records the solve as a failed one with an
+a residual that overflows; `solve_system` then records the solve as a failed one with an
 unmeasured residual, no histories and no energy-error second solve, instead of storing a NaN. `SolveAttempt.exact_reference` (`ExactSolutionSolved` with the
 reference solution's achieved residual, or `ExactSolutionUnavailable` with the reason) records
 the direct solve that supplies `x_exact`. An exact energy-error history exists only when

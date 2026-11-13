@@ -55,19 +55,17 @@ def coords() -> torch.Tensor:
     return torch.arange(10.0, dtype=torch.float64).reshape(5, 2)
 
 
-def test_bind_matrix_to_neural_only(matrix: torch.Tensor) -> None:
-    """Only the preconditioner that declares 'matrix' receives the binding."""
+def test_bind_matrix_to_a_declaring_preconditioner(matrix: torch.Tensor) -> None:
+    """A preconditioner that declares 'matrix' receives the binding."""
     neural = _TrackingPreconditioner(("matrix",))
-    jacobi = _TrackingPreconditioner(())
-    _bind_system_inputs({"neural": neural, "jacobi": jacobi}, {"matrix": matrix})
+    _bind_system_inputs(neural, {"matrix": matrix})
     assert torch.equal(neural.bound["matrix"], matrix)
-    assert jacobi.bound == {}
 
 
 def test_bind_multiple_extras(matrix: torch.Tensor, coords: torch.Tensor) -> None:
     """A preconditioner declaring multiple names gets all available extras bound."""
     precond = _TrackingPreconditioner(("matrix", "coordinates"))
-    _bind_system_inputs({"p": precond}, {"matrix": matrix, "coordinates": coords})
+    _bind_system_inputs(precond, {"matrix": matrix, "coordinates": coords})
     assert torch.equal(precond.bound["matrix"], matrix)
     assert torch.equal(precond.bound["coordinates"], coords)
 
@@ -75,7 +73,7 @@ def test_bind_multiple_extras(matrix: torch.Tensor, coords: torch.Tensor) -> Non
 def test_missing_extra_not_bound(matrix: torch.Tensor) -> None:
     """Names declared but absent from system_data are silently omitted."""
     precond = _TrackingPreconditioner(("matrix", "coordinates"))
-    _bind_system_inputs({"p": precond}, {"matrix": matrix})
+    _bind_system_inputs(precond, {"matrix": matrix})
     assert "matrix" in precond.bound
     assert "coordinates" not in precond.bound
 
@@ -83,10 +81,5 @@ def test_missing_extra_not_bound(matrix: torch.Tensor) -> None:
 def test_no_extras_declared_nothing_bound(matrix: torch.Tensor) -> None:
     """Preconditioners that declare no extra names are untouched."""
     precond = _TrackingPreconditioner(())
-    _bind_system_inputs({"p": precond}, {"matrix": matrix})
+    _bind_system_inputs(precond, {"matrix": matrix})
     assert precond.bound == {}
-
-
-def test_empty_preconditioners_dict_no_error() -> None:
-    """An empty preconditioner map is handled without error."""
-    _bind_system_inputs({}, {"matrix": torch.eye(3, dtype=torch.float64)})

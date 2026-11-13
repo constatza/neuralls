@@ -16,8 +16,8 @@ from neuralls.composition.comparison._offline_cost import resolve_offline_cost
 from neuralls.composition.comparison._preconditioner_setup import (
     PreconditionerService,
     _bind_extra_inputs,
-    _create_scheduled_preconditioners,
     _load_extra_inputs,
+    _schedule_preconditioner,
     capture_system_realizations,
 )
 from neuralls.composition.comparison.method_data_origin import MethodDataOrigin, origin_evidence
@@ -39,9 +39,11 @@ from neuralls.domain.solver.comparison import (
     _to_numpy,
     compute_reference_solution,
     prepare_reference,
-    run_cg_comparison,
+    solve_system,
 )
+from neuralls.domain.solver.error_metrics import reference_target
 from neuralls.domain.solver.models.benchmark_events import (
+    ExactSolutionUnavailable,
     MatrixSetupEvent,
     MeasuredPeakMemory,
     SetupCompleted,
@@ -77,7 +79,7 @@ from neuralls.shared.types import DatasetId, PreconditionerName, SetupEventId, S
 def _breakdown_result(name: str, *, rhs: torch.Tensor, error: str) -> CGComparisonResult:
     """Stand-in result for a preconditioner that failed to build (e.g. IC(0) breakdown).
 
-    Mirrors the shape ``run_cg_comparison`` already produces for a solver
+    Mirrors the shape ``solve_system`` already produces for a solver
     failure (``domain/solver/comparison.py``), so downstream reporting and
     MLflow logging — which already branch on ``result.error``/``.breakdown``
     — handle this the same way, with no new special case.
@@ -110,13 +112,9 @@ def _breakdown_result(name: str, *, rhs: torch.Tensor, error: str) -> CGComparis
 
 def _build_scheduled(
     service: PreconditionerService, matrix: torch.Tensor, cfg: PreconditionerConfig
-) -> dict[str, Preconditioner]:
+) -> Preconditioner:
     """Construct, `.setup()` and schedule-wrap one preconditioner — the timed unit of a build."""
-    return _create_scheduled_preconditioners(
-        preconditioner_configs=[cfg],
-        matrix=matrix,
-        base_preconditioners={cfg.name: service.create_preconditioner(matrix, cfg)},
-    )
+    return _schedule_preconditioner(cfg, matrix, service.create_preconditioner(matrix, cfg))
 
 
 def _build_scheduled_and_bind(
@@ -124,7 +122,7 @@ def _build_scheduled_and_bind(
     matrix: torch.Tensor,
     cfg: PreconditionerConfig,
     staged_inputs: tuple[np.ndarray, ...],
-) -> dict[str, Preconditioner]:
+) -> Preconditioner:
     """Build one method and perform required conversion/binding in setup time."""
     scheduled = _build_scheduled(service, matrix, cfg)
     _bind_extra_inputs(scheduled, matrix, staged_inputs)
@@ -143,6 +141,7 @@ class _MethodRun:
         offline_cost: One-off generation and training cost attached to every result.
         observer: Tracks the workload's peak memory across setup and solves.
         method_text: The method as its log lines name it.
+        reference_target_rel: Relative residual every reference solve of the run must reach.
     """
 
     method: ResolvedMethod
@@ -152,6 +151,7 @@ class _MethodRun:
     offline_cost: OfflineStages
     observer: WorkloadMemoryObserver
     method_text: str
+    reference_target_rel: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,41 +238,51 @@ def _solve_bundle(
     run: _MethodRun,
     bundle: MatrixWorkload,
     matrix: torch.Tensor,
-    scheduled: dict[str, Preconditioner],
+    preconditioner: Preconditioner,
     setup_event: MatrixSetupEvent,
     dataset_text: str,
 ) -> MatrixBundleResult:
     """Solve every right-hand side of one matrix with its single built preconditioner."""
     method, params = run.method, run.params
     realizations = tuple(
-        capture_system_realizations(scheduled[method.name], PreconditionerName(method.name), bundle)
+        capture_system_realizations(preconditioner, PreconditionerName(method.name), bundle)
     )
     attempts: list[SolveAttempt] = []
     diagnostics: list[tuple[SystemId, CGComparisonResult]] = []
     # Factored from the stored matrix, not the method's `matrix`, so every method of this
     # matrix compares against the same x* whatever representation it solves with.
-    reference = prepare_reference(bundle.matrix)
+    factored = prepare_reference(bundle.matrix)
+    if isinstance(factored, ExactSolutionUnavailable):
+        logger.warning(
+            "Exact-error metrics skipped for {} on comparison matrix set {}, matrix {}: {}",
+            run.method_text,
+            dataset_text,
+            int(bundle.matrix_id),
+            factored.reason,
+        )
     for member in bundle.members:
         rhs = torch.as_tensor(member.rhs).to(device=run.device, dtype=matrix.dtype)
-        x_exact, exact_reference = compute_reference_solution(
-            reference,
-            rhs,
-            rtol=params.rtol,
-            margin=params.reference_precision_margin,
-        )
-        result = run_cg_comparison(
+        reference = compute_reference_solution(factored, rhs, target_rel=run.reference_target_rel)
+        result = solve_system(
             matrix,
             rhs,
-            preconditioners=scheduled,
-            x_exact=x_exact,
-            exact_reference=exact_reference,
-            rtol=params.rtol,
-            atol=params.atol,
-            maxiter=params.max_iterations,
-            m_max=params.m_max,
-            reference_precision_margin=params.reference_precision_margin,
-            timing=params.timing,
-        )[method.config.name]
+            preconditioner,
+            name=method.config.name,
+            reference=reference,
+            params=params,
+        )
+        release_device_memory()
+        if isinstance(reference, ExactSolutionUnavailable) and reference is not factored:
+            # A failed factorization was reported once above; this is one RHS's own failure.
+            logger.warning(
+                "Exact-error metrics skipped for {} on comparison matrix set {}, matrix {}, "
+                "RHS {}: {}",
+                run.method_text,
+                dataset_text,
+                int(bundle.matrix_id),
+                member.tag.rhs_ordinal,
+                reference.reason,
+            )
         result = replace(result, offline_cost=run.offline_cost)
         diagnostics.append((member.tag.system_id, result))
         solve_peak = result.solve_peak_memory_bytes
@@ -314,7 +324,7 @@ def _solve_bundle(
                 repeats=result.timing_agreement,
             )
         )
-        del rhs, x_exact
+        del rhs, reference
     return MatrixBundleResult(
         setup_event=setup_event,
         attempts=tuple(attempts),
@@ -428,6 +438,16 @@ def execute_method_workload(
     realizations: list[SystemRealization] = []
     offline_cost = resolve_offline_cost(origin, runs=training_runs, run_costs=training_run_costs)
     method_text = render_method_label(prepared.configured, notation)
+    target = reference_target(params.rtol, params.reference_precision_margin)
+    if target.is_clamped:
+        logger.warning(
+            "Reference precision margin {:.1e} would ask below float64 machine precision at "
+            "rtol={:.1e}; the reference solves of {} target {:.1e} relative residual instead.",
+            params.reference_precision_margin,
+            params.rtol,
+            method_text,
+            target.applied_rel,
+        )
 
     with CheckpointStore() as checkpoints:
         run = _MethodRun(
@@ -438,6 +458,7 @@ def execute_method_workload(
             offline_cost=offline_cost,
             observer=observer,
             method_text=method_text,
+            reference_target_rel=target.applied_rel,
         )
         for bundle in bundles:
             planned_list.extend(member.tag for member in bundle.members)

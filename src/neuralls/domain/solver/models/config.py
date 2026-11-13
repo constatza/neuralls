@@ -6,10 +6,12 @@ from typing import Annotated, Any, Literal
 
 from torchalg.monitoring import TraceMode
 
-from neuralls.domain.solver.error_metrics import REFERENCE_PRECISION_MARGIN
 from neuralls.shared.digest import Cosmetic
 from neuralls.shared.timing import TimingRepeatPolicy
 from neuralls.shared.types import ComparisonRhsSourceKind, PreconditionerName
+
+REFERENCE_PRECISION_MARGIN = 1e-3
+"""Default reference residual target is three orders below the comparison rtol."""
 
 
 @dataclass(frozen=True, slots=True)
