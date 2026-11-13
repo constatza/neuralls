@@ -15,7 +15,7 @@ def test_absolute_path_unchanged(nested_config_context: ConfigContext, tmp_path:
     """An absolute path outside the config directory is not re-anchored to it."""
     absolute = tmp_path / "elsewhere" / "matrix.mtx"
     value = expand_config_path(str(absolute), nested_config_context)
-    assert value == str(absolute.resolve())
+    assert value == str(absolute)
 
 
 def test_source_config_matrix_path_plain_still_resolves(
@@ -26,9 +26,7 @@ def test_source_config_matrix_path_plain_still_resolves(
         {"matrix_path": "workspace/A.txt"},
         context=nested_config_context.as_pydantic_context(),
     )
-    assert config.matrix_path == str(
-        (nested_config_context.config_dir / "workspace/A.txt").resolve()
-    )
+    assert config.matrix_path == str(nested_config_context.config_dir / "workspace/A.txt")
 
 
 def test_resolve_local_path_accepts_file_uri(tmp_path: Path) -> None:

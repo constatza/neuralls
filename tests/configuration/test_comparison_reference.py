@@ -41,7 +41,7 @@ def test_comparison_general_and_baseline_carry_explicit_reference() -> None:
 def test_method_override_reference_is_explicit_and_can_clear_baseline() -> None:
     override = parse_comparison_method_override(
         {"general": {"reference_preconditioner": None}},
-        ConfigContext(config_path=Path("override.toml"), settings=None),
+        ConfigContext(config_path=Path("override.toml"), settings=None, home_dir=Path("home")),
     )
 
     assert "reference_preconditioner" in override.general.model_fields_set

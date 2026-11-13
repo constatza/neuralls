@@ -63,5 +63,7 @@ def sweep_case_config(tmp_path: Path, generated_path: Path) -> Path:
 def nested_config_context(tmp_path: Path, neuralls_settings: NeurallsSettings) -> ConfigContext:
     """Context whose config_dir is ``tmp_path/configs``, a sibling of any ``tmp_path/elsewhere``."""
     return ConfigContext(
-        config_path=tmp_path / "configs" / "config.toml", settings=neuralls_settings
+        config_path=tmp_path / "configs" / "config.toml",
+        settings=neuralls_settings,
+        home_dir=tmp_path / "home",
     )

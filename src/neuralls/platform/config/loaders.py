@@ -57,14 +57,14 @@ def parse_data_config(raw: Mapping[str, Any], ctx: ConfigContext) -> DataConfigF
 
 def load_data_config(path: Path, settings: NeurallsSettings) -> DataConfigFile:
     """Read a data config TOML and validate it."""
-    ctx = ConfigContext(config_path=path.resolve(), settings=settings)
+    ctx = ConfigContext(config_path=path.resolve(), settings=settings, home_dir=Path.home())
     return parse_data_config(load_raw_toml(path), ctx)
 
 
 def load_comparison_config(path: Path, settings: NeurallsSettings) -> ComparisonConfig:
     """Load and validate a comparison TOML using context-aware path expansion."""
     raw = load_raw_toml(path)
-    ctx = ConfigContext(config_path=path.resolve(), settings=settings)
+    ctx = ConfigContext(config_path=path.resolve(), settings=settings, home_dir=Path.home())
     return parse_comparison_config(raw, context=ctx)
 
 
@@ -386,7 +386,7 @@ def load_case_config(
     Sweep-generated dataset configs the case references are created when missing;
     `force_expand` recreates them even when present.
     """
-    ctx = ConfigContext(config_path=path.resolve(), settings=settings)
+    ctx = ConfigContext(config_path=path.resolve(), settings=settings, home_dir=Path.home())
 
     def materialize(raw: dict[str, Any], ctx: ConfigContext) -> None:
         _ensure_generated_dataset_configs(raw, ctx, force=force_expand)

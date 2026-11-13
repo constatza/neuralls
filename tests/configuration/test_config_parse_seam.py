@@ -15,6 +15,7 @@ from neuralls.platform.config.loaders import parse_case_config, parse_data_confi
 from neuralls.shared.types import MatrixId
 from tests.workflows.comparison_support import (
     VIRTUAL_CASE_PATH,
+    VIRTUAL_HOME,
     in_memory_case,
     virtual_settings,
 )
@@ -24,7 +25,9 @@ DATASET_CONFIG_PATH = VIRTUAL_CASE_PATH.parent / "datasets" / "solutions.toml"
 
 @pytest.fixture
 def ctx() -> ConfigContext:
-    return ConfigContext(config_path=VIRTUAL_CASE_PATH, settings=virtual_settings())
+    return ConfigContext(
+        config_path=VIRTUAL_CASE_PATH, settings=virtual_settings(), home_dir=VIRTUAL_HOME
+    )
 
 
 def test_a_dataset_entry_without_an_id_takes_the_id_of_its_dataset_config(
@@ -40,7 +43,7 @@ def test_a_dataset_entry_without_an_id_takes_the_id_of_its_dataset_config(
     case = parse_case_config(raw, ctx, read_dataset_config)
 
     assert [entry.id for entry in case.datasets] == ["from-the-dataset-config"]
-    assert read == [DATASET_CONFIG_PATH.resolve()]
+    assert read == [DATASET_CONFIG_PATH]
 
 
 def test_generated_dataset_configs_are_materialized_once_sweeps_are_expanded(

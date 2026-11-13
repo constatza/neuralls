@@ -45,13 +45,13 @@ class MlflowPaths:
     artifact_uri: str | None
 
 
-def _is_windows_absolute_path(value: Path | str) -> bool:
+def is_windows_absolute_path(value: Path | str) -> bool:
     """Return True for Windows drive-letter and UNC absolute paths."""
     text = str(value).strip()
     return bool(_WINDOWS_DRIVE_RE.match(text) or _WINDOWS_UNC_RE.match(text))
 
 
-def _normalize_windows_absolute_path(value: Path | str) -> Path:
+def normalize_windows_absolute_path(value: Path | str) -> Path:
     """Normalize a Windows absolute path or reject it on non-Windows hosts."""
     normalized = PureWindowsPath(str(value))
     if os.name == "nt":
@@ -68,8 +68,8 @@ def resolve_local_path(
     base_dir: Path,
 ) -> Path:
     """Resolve a local path or local URI against a base directory."""
-    if _is_windows_absolute_path(value):
-        return _normalize_windows_absolute_path(value)
+    if is_windows_absolute_path(value):
+        return normalize_windows_absolute_path(value)
     return url_resolver.resolve_local_uri(str(value), base_dir.resolve())
 
 
@@ -107,8 +107,8 @@ def expand_user_path(value: Path | str) -> Path:
 def resolve_user_path(value: Path | str) -> Path:
     """Expand ``~`` and resolve to an absolute local path."""
     expanded = expand_user_path(value)
-    if _is_windows_absolute_path(expanded):
-        return _normalize_windows_absolute_path(expanded)
+    if is_windows_absolute_path(expanded):
+        return normalize_windows_absolute_path(expanded)
     return expanded.resolve()
 
 

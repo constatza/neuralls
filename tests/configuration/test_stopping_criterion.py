@@ -18,7 +18,7 @@ def test_baseline_rejects_fixed_iterations() -> None:
 
 
 def test_method_override_rejects_fixed_iterations() -> None:
-    context = ConfigContext(config_path=Path("override.toml"), settings=None)
+    context = ConfigContext(config_path=Path("override.toml"), settings=None, home_dir=Path("home"))
 
     with pytest.raises(ValidationError):
         parse_comparison_method_override(

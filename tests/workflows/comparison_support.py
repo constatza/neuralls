@@ -104,6 +104,9 @@ def write_experiments_config(
 VIRTUAL_CASE_PATH = Path("virtual/case/experiments.toml")
 """Where an in-memory case config pretends to live; nothing is ever read or written there."""
 
+VIRTUAL_HOME = Path("virtual/home")
+"""The home directory an in-memory context expands ``~`` from."""
+
 
 def virtual_settings() -> NeurallsSettings:
     """Settings whose roots are never touched."""
@@ -121,7 +124,11 @@ def in_memory_case(
     settings: NeurallsSettings | None = None,
 ) -> CaseConfig:
     """The case config of `write_experiments_config`, parsed without touching disk."""
-    ctx = ConfigContext(config_path=VIRTUAL_CASE_PATH, settings=settings or virtual_settings())
+    ctx = ConfigContext(
+        config_path=VIRTUAL_CASE_PATH,
+        settings=settings or virtual_settings(),
+        home_dir=VIRTUAL_HOME,
+    )
     raw = experiments_payload(
         VIRTUAL_CASE_PATH, with_comparisons=with_comparisons, comparison_name=comparison_name
     )
