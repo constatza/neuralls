@@ -19,7 +19,7 @@ from .bindings import SystemBinding, bind_sources
 from .counts import resolve_strategy_counts
 from .file_sources import MatrixReaders
 from .matrix_cache import _cached_matrix_loader, _CachedMatrix
-from .notices import GenerationNotice
+from .notices import RowsCapped
 from .ports import ArchiveSource
 from .scalar_aggregate import BindingScale, ScalarAggregator
 from .seeds import derive_seed
@@ -432,7 +432,7 @@ class BatchStream:
     batches: Iterator[SampleBatch]
     matrix_for: Callable[[int], SystemMatrix]
     scale: ScalarAggregator
-    notices: tuple[GenerationNotice, ...]
+    notices: tuple[RowsCapped, ...]
 
 
 def open_batch_stream(

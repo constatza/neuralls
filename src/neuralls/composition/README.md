@@ -126,8 +126,9 @@ the supported generation formats (`npy` datasets stay readable).
   stream opens (`log_planned_notices`), one progress line per batch plus the batch's solve and
   invalid-pair notices as the batch is written (`logged_batches`), one warning per field the
   bindings disagreed on (`logged_scale_summary`), and each strategy's realized description
-  once after the commit (`log_strategy_rows`). `render_notice` matches every `GenerationNotice`
-  variant exhaustively.
+  once after the commit (`log_strategy_rows`). `render_row_cap` states the cap in its unit (a
+  run total for archive pairs, per binding for a solution file); `render_solve_notice` matches
+  every `SolveNotice` variant exhaustively.
 
 Both writers return the per-strategy row counts that `SampleWriter` recorded from the batches it
 actually wrote; `build_dataset` turns them into the dataset's provenance, so nothing is recomputed

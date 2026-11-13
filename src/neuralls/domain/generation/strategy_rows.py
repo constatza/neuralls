@@ -17,7 +17,7 @@ from .interfaces import (
     ResidualTraceRows,
     SolvedRows,
 )
-from .notices import GenerationNotice
+from .notices import SolveNotice
 from .ports import ArchiveSource
 from .runner import run_generation
 from .seeds import derive_strategy_seed
@@ -39,7 +39,7 @@ class _StrategyRows:
     rhs: np.ndarray
     solutions: np.ndarray
     row_kind_codes: np.ndarray
-    notices: tuple[GenerationNotice, ...] = ()
+    notices: tuple[SolveNotice, ...] = ()
 
 
 def _row_kind_codes(

@@ -1,6 +1,6 @@
 """Operator log of a generation run, from the values the domain returns.
 
-The domain reports outcomes as data (``GenerationNotice``, ``ScaleSummary.disagreements``,
+The domain reports outcomes as data (``RowsCapped``, ``SolveNotice``, ``ScaleSummary.disagreements``,
 ``StrategyRowCount``); this module is the one place that turns them into log lines.
 """
 
@@ -14,10 +14,11 @@ from loguru import logger
 from neuralls.domain.generation.batch import SampleBatch
 from neuralls.domain.generation.descriptions import describe_generation_result
 from neuralls.domain.generation.notices import (
-    GenerationNotice,
     InvalidPairs,
+    RowCapSource,
     RowsCapped,
     SolveNotConverged,
+    SolveNotice,
 )
 from neuralls.domain.generation.orchestration import BatchStream
 from neuralls.domain.generation.sample_writer import StrategyRowCount
@@ -41,14 +42,27 @@ _SCALE_DISAGREEMENT_TEXT: Final[dict[ScaleField, str]] = {
 }
 
 
-def render_notice(strategy: str, binding_index: int | None, notice: GenerationNotice) -> str:
-    """The log line of one notice, naming the strategy and, when known, its binding."""
-    where = f"Strategy '{strategy}'" + (
-        f" (binding {binding_index})" if binding_index is not None else ""
-    )
+def render_row_cap(notice: RowsCapped) -> str:
+    """The log line of a strategy whose request its source could not fill."""
+    match notice.source:
+        case RowCapSource.ARCHIVE_PAIRS:
+            return (
+                f"Strategy '{notice.strategy}' requested {notice.requested_rows} rows but its "
+                f"{notice.source} supply {notice.emitted_rows} rows: emitting "
+                f"{notice.emitted_rows} rows."
+            )
+        case RowCapSource.SOLUTION_FILE:
+            return (
+                f"Strategy '{notice.strategy}' requested {notice.requested_rows} rows per "
+                f"binding but its {notice.source} has {notice.emitted_rows} rows: emitting "
+                f"{notice.emitted_rows} rows per binding."
+            )
+
+
+def render_solve_notice(strategy: str, binding_index: int, notice: SolveNotice) -> str:
+    """The log line of an outcome found while one strategy produced one binding's rows."""
+    where = f"Strategy '{strategy}' (binding {binding_index})"
     match notice:
-        case RowsCapped(requested_rows=requested, emitted_rows=emitted, source=source):
-            return f"{where} requested {requested} rows but its {source} hold {emitted}: emitting {emitted} rows."
         case SolveNotConverged(row=row, exit_code=exit_code, residual=residual):
             return (
                 f"{where}: CG did not converge on row {row} "
@@ -64,11 +78,7 @@ def render_notice(strategy: str, binding_index: int | None, notice: GenerationNo
 def log_planned_notices(stream: BatchStream) -> None:
     """Log the notices known when the run was planned (rows capped by their source)."""
     for notice in stream.notices:
-        match notice:
-            case RowsCapped(strategy=strategy):
-                logger.warning(render_notice(strategy, None, notice))
-            case SolveNotConverged() | InvalidPairs():
-                raise TypeError(f"{type(notice).__name__} cannot be known before generation")
+        logger.warning(render_row_cap(notice))
 
 
 def logged_batches(stream: BatchStream) -> Iterator[SampleBatch]:
@@ -79,7 +89,7 @@ def logged_batches(stream: BatchStream) -> Iterator[SampleBatch]:
             f"{len(batch)} rows generated."
         )
         for notice in batch.notices:
-            logger.warning(render_notice(batch.strategy_name, batch.binding_index, notice))
+            logger.warning(render_solve_notice(batch.strategy_name, batch.binding_index, notice))
         yield batch
 
 
@@ -104,5 +114,6 @@ __all__ = [
     "log_strategy_rows",
     "logged_batches",
     "logged_scale_summary",
-    "render_notice",
+    "render_row_cap",
+    "render_solve_notice",
 ]

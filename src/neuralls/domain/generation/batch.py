@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .notices import GenerationNotice
+from .notices import SolveNotice
 
 
 @dataclass(frozen=True, eq=False, slots=True)
@@ -36,7 +36,7 @@ class SampleBatch:
     row_kind_codes: np.ndarray
     matrix_sample_index: np.ndarray
     parameter_vectors: tuple[np.ndarray | None, ...]
-    notices: tuple[GenerationNotice, ...] = ()
+    notices: tuple[SolveNotice, ...] = ()
 
     def __post_init__(self) -> None:
         """Reject arrays whose row counts disagree, so every batch is internally consistent."""

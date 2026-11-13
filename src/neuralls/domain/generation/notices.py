@@ -2,7 +2,7 @@
 
 The domain never logs. A strategy, the allocation or the scale aggregation that finds
 something worth reporting returns it as a notice beside its result; composition renders
-every notice with one exhaustive ``match`` and logs it.
+every notice with an exhaustive ``match`` and logs it.
 """
 
 from __future__ import annotations
@@ -15,7 +15,9 @@ class RowCapSource(StrEnum):
     """What limited a strategy's rows below its request."""
 
     ARCHIVE_PAIRS = "archive (matrix, file) pairs"
-    SOLUTION_FILE = "solution file rows"
+    """The request is a run total; the archive supplies M*K pairs times rows per pair."""
+    SOLUTION_FILE = "solution file"
+    """The request is per binding; the explicit solution source supplies K rows."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,8 +26,9 @@ class RowsCapped:
 
     Attributes:
         strategy: Strategy name as the mixture spelled it.
-        requested_rows: Rows the strategy asked for.
-        emitted_rows: Rows it will emit after the cap.
+        requested_rows: Rows the strategy asked for, in the unit its source implies
+            (a run total for archive pairs, per binding for a solution file).
+        emitted_rows: Rows it will emit after the cap, in the same unit.
         source: What the cap came from.
     """
 
@@ -67,14 +70,14 @@ class InvalidPairs:
     tolerance: float
 
 
-type GenerationNotice = RowsCapped | SolveNotConverged | InvalidPairs
-"""Every outcome generation reports; composition renders each variant."""
+type SolveNotice = SolveNotConverged | InvalidPairs
+"""Outcomes found while a strategy produced its rows; they travel with those rows."""
 
 
 __all__ = [
-    "GenerationNotice",
     "InvalidPairs",
     "RowCapSource",
     "RowsCapped",
     "SolveNotConverged",
+    "SolveNotice",
 ]

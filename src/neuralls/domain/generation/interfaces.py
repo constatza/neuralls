@@ -12,7 +12,7 @@ from numpy.typing import NDArray
 from neuralls.domain.normalization import ErrorTraceSamples, ResidualTraceSamples
 from neuralls.shared.types import SystemMatrix
 
-from .notices import GenerationNotice
+from .notices import SolveNotice
 from .ports import ArchiveSource
 
 
@@ -48,7 +48,7 @@ class SolvedRows:
     matrix: SystemMatrix
     rhs: np.ndarray
     solutions: np.ndarray
-    notices: tuple[GenerationNotice, ...] = ()
+    notices: tuple[SolveNotice, ...] = ()
 
     @property
     def row_count(self) -> int:

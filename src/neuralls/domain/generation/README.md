@@ -421,9 +421,10 @@ above the file's `K` rows is capped at `K` per binding and reported as one `Rows
   scale and scale payload, plus the set of `ScaleField`s some binding disagreed on, so its
   state is constant in the number of bindings. `ScaleSummary.disagreements` carries that set
   to composition, which logs one warning per field
-- `notices.py`: `GenerationNotice`, the closed union of outcomes generation reports instead of
-  logging: `RowsCapped` (a request its source could not fill), `SolveNotConverged` (a CG row
-  that stopped early) and `InvalidPairs` (archive pairs above the verification tolerance, kept).
+- `notices.py`: the outcomes generation reports instead of logging: `RowsCapped` (a request its
+  source could not fill, known at planning time) and `SolveNotice`, the closed union of what a
+  strategy finds while producing rows: `SolveNotConverged` (a CG row that stopped early) and
+  `InvalidPairs` (archive pairs above the verification tolerance, kept).
   Allocation caps travel on `BatchStream.notices`; solve and pair notices on the `SolvedRows`
   result and then on its `SampleBatch`. The domain never logs:
   `composition/generation/generation_log.py` renders and logs every notice
