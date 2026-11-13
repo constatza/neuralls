@@ -74,9 +74,7 @@ def resolve_comparison_config(
     method_override = None
     if entry.method is not None:
         method_path = resolve_registry_path(config_dir, entry.method)
-        ctx = ConfigContext(
-            config_path=method_path.resolve(), settings=settings, home_dir=Path.home()
-        )
+        ctx = ConfigContext.for_file(method_path, settings)
         method_override = parse_comparison_method_override(load_raw_toml(method_path), ctx)
     matrix_path = resolve_dataset_dir(case_cfg, config_dir, entry.matrix_dataset, settings)
     return bind_comparison_config(

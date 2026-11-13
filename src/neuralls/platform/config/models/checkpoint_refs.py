@@ -301,7 +301,7 @@ class NeuralCheckpointRef(BaseModel):
             info: Pydantic validation info carrying context.
 
         Returns:
-            Resolved absolute path string, or original value if not a string.
+            Anchored path string, or original value if not a string.
         """
         if v is None or info.context is None or not isinstance(v, str):
             return v

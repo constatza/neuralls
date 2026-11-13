@@ -183,7 +183,7 @@ class SourceConfig(BaseModel):
             info: Pydantic validation info carrying context.
 
         Returns:
-            Resolved absolute path string, or None if v is None.
+            Anchored path string, or None if v is None.
         """
         if v is None or info.context is None:
             return v
@@ -203,7 +203,7 @@ class SourceConfig(BaseModel):
             info: Pydantic validation info carrying context.
 
         Returns:
-            Resolved path or glob expression, or None if v is None.
+            Anchored path or glob expression, or None if v is None.
         """
         if v is None or info.context is None:
             return v
@@ -435,7 +435,7 @@ class OutputConfig(BaseModel):
             info: Pydantic validation info carrying context.
 
         Returns:
-            Resolved absolute path string, or original value if not a string.
+            Anchored path string, or original value if not a string.
         """
         if v is None or info.context is None:
             return v

@@ -9,7 +9,11 @@ from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
-from neuralls.platform.config.context import ConfigContext, expand_config_path
+from neuralls.platform.config.context import (
+    ConfigContext,
+    expand_config_path,
+    substitute_placeholders,
+)
 from neuralls.platform.config.models.comparison import ComparisonRhsSourceModel
 from neuralls.platform.config.models.figure_style import FigureStyleConfig
 from neuralls.platform.config.models.id_generation import (
@@ -35,21 +39,20 @@ class MlflowTopologyConfig(BaseModel):
     artifacts_destination: str | None = None
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    @field_validator("tracking_uri", "artifacts_destination", mode="before")
+    @field_validator("tracking_uri", mode="before")
     @classmethod
-    def _expand_if_placeholder(cls, v: str | None, info: ValidationInfo) -> str | None:
-        """Expand ${NEURALLS_*} placeholders only; plain URIs pass through unchanged.
-
-        Args:
-            v: Raw string value from config field.
-            info: Pydantic validation info carrying context.
-
-        Returns:
-            Expanded path string if v contains a placeholder, otherwise v unchanged.
-        """
+    def _substitute_tracking_uri(cls, v: str | None, info: ValidationInfo) -> str | None:
+        """Substitute ${NEURALLS_*} placeholders only: a URI is never anchored as a path."""
         if v is None or info.context is None or "${" not in v:
             return v
+        return substitute_placeholders(v, ConfigContext.from_pydantic_context(info.context))
 
+    @field_validator("artifacts_destination", mode="before")
+    @classmethod
+    def _anchor_artifacts_destination(cls, v: str | None, info: ValidationInfo) -> str | None:
+        """Anchor the artifacts root when it contains a ${NEURALLS_*} placeholder."""
+        if v is None or info.context is None or "${" not in v:
+            return v
         return expand_config_path(v, ConfigContext.from_pydantic_context(info.context))
 
     @model_validator(mode="after")
@@ -116,7 +119,7 @@ class RegistryEntry(BaseModel):
             info: Pydantic validation info carrying context.
 
         Returns:
-            Resolved absolute path string, or original value if not a string.
+            Anchored path string, or original value if not a string.
         """
         if info.context is None or not isinstance(v, str):
             return v
@@ -184,7 +187,7 @@ class AssignmentEntry(BaseModel):
             info: Pydantic validation info carrying context.
 
         Returns:
-            Resolved absolute path string, or original value if not a string.
+            Anchored path string, or original value if not a string.
         """
         if v is None or info.context is None or not isinstance(v, str):
             return v
@@ -284,7 +287,7 @@ class ComparisonDataBinding(BaseModel):
             info: Pydantic validation info carrying context.
 
         Returns:
-            Resolved absolute path string, or original value if not a string.
+            Anchored path string, or original value if not a string.
         """
         if v is None or not isinstance(v, str) or info.context is None:
             return v

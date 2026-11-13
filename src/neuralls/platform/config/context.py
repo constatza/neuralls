@@ -22,6 +22,8 @@ _NEURALLS_RE = re.compile(r"\$\{NEURALLS_([^}]+)\}")
 _GLOB_CHARS = frozenset("*?[]")
 # Two or more scheme characters, so a Windows drive letter (`C:\`) is never a scheme.
 _URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]+:")
+# `C:x` and `a:b/c` name a drive's working directory, which a pure anchor cannot know.
+_DRIVE_RELATIVE_RE = re.compile(r"^[A-Za-z]:(?![\\/])")
 _LOCAL_FILE_HOSTS = frozenset({"", "localhost"})
 _HOME_PREFIXES = ("~/", "~\\") if os.name == "nt" else ("~/",)
 
@@ -49,6 +51,16 @@ class ConfigContext:
     settings: NeurallsSettings
     home_dir: Path
 
+    @classmethod
+    def for_file(cls, path: Path, settings: NeurallsSettings) -> ConfigContext:
+        """Context for loading the config file at ``path``: the disk edge.
+
+        Reads the filesystem and the process environment, which `anchor` never does:
+        ``path.resolve()`` makes the config path absolute and ``Path.home()`` names the
+        home directory a leading ``~`` stands for.
+        """
+        return cls(config_path=path.resolve(), settings=settings, home_dir=Path.home())
+
     @property
     def config_dir(self) -> Path:
         """Parent directory of config_path — used to anchor relative paths."""
@@ -73,7 +85,7 @@ class ConfigContext:
         )
 
 
-def _substitute_placeholders(value: str, ctx: ConfigContext) -> str:
+def substitute_placeholders(value: str, ctx: ConfigContext) -> str:
     """Replace ${NEURALLS_*} placeholders from settings; reject stale ${GRAPH_CG_*} ones."""
     if m := _GRAPH_CG_RE.search(value):
         raise ValueError(
@@ -148,22 +160,47 @@ def _expand_home(value: str, ctx: ConfigContext) -> Path | None:
     return None
 
 
+def _reject_drive_relative(text: str) -> None:
+    """Reject `C:x`: it names the working directory of a drive, which a pure anchor cannot know."""
+    if _DRIVE_RELATIVE_RE.match(text):
+        raise ValueError(
+            f"Drive-relative path '{text}' is not supported: it depends on the current "
+            "directory of that drive. Use 'C:/dir/file' or a path relative to the config file."
+        )
+
+
+def _reject_posix_absolute_on_windows(text: str) -> None:
+    """Reject a drive-less path starting with a separator when the host is Windows."""
+    if os.name == "nt" and text.startswith(("/", "\\")):
+        raise ValueError(
+            f"Unix absolute path '{text}' cannot be used on Windows. "
+            "Use a drive path such as 'C:/dir/file', a UNC path, or a path relative "
+            "to the config file."
+        )
+
+
 def anchor(value: str, ctx: ConfigContext) -> Path:
     """Anchor a config path: substitute placeholders, expand ``~``, join onto the config dir.
 
     Pure: the filesystem, the working directory and the process environment are never
-    read, so symlinks are kept and `a/../b` collapses lexically. Accepts plain paths and
-    ``file:`` / ``sqlite:`` URIs; a Windows absolute path is rejected on a posix host.
+    read, so symlinks are kept and `a/../b` collapses lexically. ``..`` collapses
+    lexically also in absolute paths, so `link/../x` does not follow the symlink `link`.
+    Accepts plain paths and ``file:`` / ``sqlite:`` URIs. A Windows absolute path is
+    rejected on a posix host, a posix-absolute path on Windows, and a drive-relative
+    path (`C:x`) everywhere.
     """
-    text = _substitute_placeholders(value, ctx)
+    text = substitute_placeholders(value, ctx)
     if is_windows_absolute_path(text):
         return Path(os.path.normpath(normalize_windows_absolute_path(text)))
+    _reject_drive_relative(text)
     if _URI_SCHEME_RE.match(text):
         text = _uri_path(text)
         if is_windows_absolute_path(text.lstrip("/")):
             return Path(os.path.normpath(normalize_windows_absolute_path(text.lstrip("/"))))
     elif (home_path := _expand_home(text, ctx)) is not None:
         return Path(os.path.normpath(home_path))
+    _reject_drive_relative(text)
+    _reject_posix_absolute_on_windows(text)
     return Path(os.path.normpath(ctx.config_dir / text))
 
 
@@ -195,23 +232,27 @@ def _join_glob_suffix(prefix: str, suffix: str) -> str:
     cleaned_prefix = prefix.rstrip("/\\")
     cleaned_suffix = suffix.lstrip("/\\")
     if not cleaned_prefix:
-        return cleaned_suffix
+        # An empty prefix stays relative; a bare root ("/") keeps its root.
+        return prefix + cleaned_suffix
     separator = "\\" if "\\" in cleaned_prefix and "/" not in cleaned_prefix else "/"
     return f"{cleaned_prefix}{separator}{cleaned_suffix}"
 
 
 def expand_config_glob(value: str, ctx: ConfigContext) -> str:
-    """Like expand_config_path but preserves glob wildcards in the filename."""
+    """Like expand_config_path but preserves glob wildcards in the filename.
+
+    Only the prefix up to its last separator is anchored; the rest of the prefix and the
+    glob suffix stay verbatim, because anchoring would collapse a trailing `.` or `..`
+    (`data/.*` must not become `data*`). Without a separator the prefix is verbatim too
+    and joins the config directory. Placeholders are substituted first, so a separator
+    inside `${NEURALLS_*}` counts.
+    """
+    value = substitute_placeholders(value, ctx)
     for i, ch in enumerate(value):
         if ch in _GLOB_CHARS:
-            prefix = value[:i]
-            suffix = value[i:]
-            if not prefix:
-                return _join_glob_suffix(str(ctx.config_dir), suffix)
-            resolved_prefix = (
-                expand_config_path(prefix, ctx) if prefix.strip() else str(ctx.config_dir)
-            )
-            if prefix.endswith(("/", "\\")):
-                return _join_glob_suffix(resolved_prefix, suffix)
-            return f"{resolved_prefix}{suffix}"
+            prefix, suffix = value[:i], value[i:]
+            split = max(prefix.rfind("/"), prefix.rfind("\\")) + 1
+            directory, name = prefix[:split], prefix[split:]
+            anchored = expand_config_path(directory, ctx) if directory else str(ctx.config_dir)
+            return _join_glob_suffix(anchored, name + suffix)
     return expand_config_path(value, ctx)

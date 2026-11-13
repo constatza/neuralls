@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.models.comparison import parse_comparison_method_override
 from neuralls.platform.config.models.experiments import ComparisonBaseline
+from tests.workflows.comparison_support import virtual_settings
 
 
 def test_baseline_rejects_fixed_iterations() -> None:
@@ -18,7 +19,9 @@ def test_baseline_rejects_fixed_iterations() -> None:
 
 
 def test_method_override_rejects_fixed_iterations() -> None:
-    context = ConfigContext(config_path=Path("override.toml"), settings=None, home_dir=Path("home"))
+    context = ConfigContext(
+        config_path=Path("override.toml"), settings=virtual_settings(), home_dir=Path("home")
+    )
 
     with pytest.raises(ValidationError):
         parse_comparison_method_override(

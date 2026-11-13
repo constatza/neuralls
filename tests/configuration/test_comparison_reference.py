@@ -11,6 +11,7 @@ from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.models.comparison import parse_comparison_method_override
 from neuralls.platform.config.models.experiments import ComparisonBaseline
 from neuralls.shared.types import PreconditionerName
+from tests.workflows.comparison_support import virtual_settings
 
 
 def _general() -> ComparisonGeneral:
@@ -41,7 +42,9 @@ def test_comparison_general_and_baseline_carry_explicit_reference() -> None:
 def test_method_override_reference_is_explicit_and_can_clear_baseline() -> None:
     override = parse_comparison_method_override(
         {"general": {"reference_preconditioner": None}},
-        ConfigContext(config_path=Path("override.toml"), settings=None, home_dir=Path("home")),
+        ConfigContext(
+            config_path=Path("override.toml"), settings=virtual_settings(), home_dir=Path("home")
+        ),
     )
 
     assert "reference_preconditioner" in override.general.model_fields_set

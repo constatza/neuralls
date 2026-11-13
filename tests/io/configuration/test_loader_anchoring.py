@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from neuralls.platform.config.loaders import load_case_config, load_data_config
-from neuralls.platform.config.settings import NeurallsSettings
-
-pytestmark = pytest.mark.skipif(
-    not hasattr(Path, "symlink_to"), reason="symlinks are not available"
+from neuralls.platform.config.loaders import (
+    load_case_config,
+    load_comparison_config,
+    load_data_config,
 )
+from neuralls.platform.config.settings import NeurallsSettings
 
 DATA_CONFIG = """\
 id = "anchored"
@@ -38,7 +38,10 @@ def linked_dir(tmp_path: Path, configs_dir: Path) -> Path:
     target = tmp_path / "real-target"
     target.mkdir()
     link = configs_dir / "linked"
-    link.symlink_to(target, target_is_directory=True)
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"symlinks are not available: {error}")
     return link
 
 
@@ -97,3 +100,30 @@ def test_case_config_expands_tilde_from_the_real_home(
     case = load_case_config(config_path, neuralls_settings)
 
     assert [entry.path for entry in case.datasets] == [home_dir / "dataset.toml"]
+
+
+COMPARISON_CONFIG = """\
+[general]
+
+[general.params]
+rtol = 1e-6
+
+[general.data]
+matrix_path = "~/matrix.npy"
+rhs_path = "~/rhs.npy"
+
+[[preconditioners]]
+name = "jacobi"
+type = "jacobi"
+"""
+
+
+def test_comparison_config_expands_tilde_from_the_real_home(
+    configs_dir: Path, home_dir: Path, neuralls_settings: NeurallsSettings
+) -> None:
+    config_path = configs_dir / "comparison.toml"
+    config_path.write_text(COMPARISON_CONFIG, encoding="utf-8")
+
+    config = load_comparison_config(config_path, neuralls_settings)
+
+    assert config.general.data.matrix_path == home_dir / "matrix.npy"
