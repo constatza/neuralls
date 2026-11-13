@@ -36,12 +36,14 @@ from neuralls.domain.presentation.methods import (
 )
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.comparison import (
+    PreparedReference,
+    Reference,
     _to_numpy,
     compute_reference_solution,
     prepare_reference,
     solve_system,
 )
-from neuralls.domain.solver.error_metrics import reference_target
+from neuralls.domain.solver.error_metrics import ReferenceSolver, reference_target
 from neuralls.domain.solver.models.benchmark_events import (
     ExactSolutionUnavailable,
     MatrixSetupEvent,
@@ -57,6 +59,7 @@ from neuralls.domain.solver.models.benchmark_events import (
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.cost import Known, OfflineStages, Unavailable
+from neuralls.domain.solver.models.energy_error import EnergyErrorFailed, EnergyErrorUnavailable
 from neuralls.domain.solver.models.plot_style import PreconditionerPlotStyle
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig, PreconditionerType
 from neuralls.platform.config.models.preconditioner_family import (
@@ -107,6 +110,7 @@ def _breakdown_result(name: str, *, rhs: torch.Tensor, error: str) -> CGComparis
         rhs_norm=float(torch.linalg.vector_norm(rhs)),
         breakdown=True,
         error=f"Preconditioner failed: {error}",
+        energy_error=EnergyErrorUnavailable("the preconditioner failed to build"),
     )
 
 
@@ -234,6 +238,22 @@ def _setup_failed(
     )
 
 
+def _reference_for(
+    factored: PreparedReference, rhs: torch.Tensor, run: _MethodRun, where: str
+) -> Reference:
+    """One system's reference; a failed factorization was already reported for its matrix."""
+    match factored:
+        case ExactSolutionUnavailable():
+            return factored
+        case ReferenceSolver():
+            reference = compute_reference_solution(
+                factored, rhs, target_rel=run.reference_target_rel
+            )
+            if isinstance(reference, ExactSolutionUnavailable):
+                logger.warning("Exact-error metrics skipped for {}: {}", where, reference.reason)
+            return reference
+
+
 def _solve_bundle(
     run: _MethodRun,
     bundle: MatrixWorkload,
@@ -252,17 +272,14 @@ def _solve_bundle(
     # Factored from the stored matrix, not the method's `matrix`, so every method of this
     # matrix compares against the same x* whatever representation it solves with.
     factored = prepare_reference(bundle.matrix)
+    where = (
+        f"{run.method_text} on comparison matrix set {dataset_text}, matrix {int(bundle.matrix_id)}"
+    )
     if isinstance(factored, ExactSolutionUnavailable):
-        logger.warning(
-            "Exact-error metrics skipped for {} on comparison matrix set {}, matrix {}: {}",
-            run.method_text,
-            dataset_text,
-            int(bundle.matrix_id),
-            factored.reason,
-        )
+        logger.warning("Exact-error metrics skipped for {}: {}", where, factored.reason)
     for member in bundle.members:
         rhs = torch.as_tensor(member.rhs).to(device=run.device, dtype=matrix.dtype)
-        reference = compute_reference_solution(factored, rhs, target_rel=run.reference_target_rel)
+        reference = _reference_for(factored, rhs, run, f"{where}, RHS {member.tag.rhs_ordinal}")
         result = solve_system(
             matrix,
             rhs,
@@ -272,16 +289,12 @@ def _solve_bundle(
             params=params,
         )
         release_device_memory()
-        if isinstance(reference, ExactSolutionUnavailable) and reference is not factored:
-            # A failed factorization was reported once above; this is one RHS's own failure.
+        if isinstance(result.energy_error, EnergyErrorFailed):
             logger.warning(
-                "Exact-error metrics skipped for {} on comparison matrix set {}, matrix {}, "
-                "RHS {}: {}",
-                run.method_text,
-                dataset_text,
-                int(bundle.matrix_id),
+                "Energy-norm error metrics skipped for {}, RHS {}: {}",
+                where,
                 member.tag.rhs_ordinal,
-                reference.reason,
+                result.energy_error.reason,
             )
         result = replace(result, offline_cost=run.offline_cost)
         diagnostics.append((member.tag.system_id, result))

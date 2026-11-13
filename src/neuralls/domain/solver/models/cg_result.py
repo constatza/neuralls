@@ -21,6 +21,7 @@ from neuralls.domain.solver.models.cost import (
 from neuralls.domain.solver.models.energy_error import (
     EnergyError,
     EnergyErrorBound,
+    EnergyErrorFailed,
     EnergyErrorUnavailable,
     ExactEnergyError,
 )
@@ -176,7 +177,7 @@ class CGComparisonResult:
         match self.energy_error:
             case ExactEnergyError(history=history):
                 return history
-            case EnergyErrorBound() | EnergyErrorUnavailable():
+            case EnergyErrorBound() | EnergyErrorUnavailable() | EnergyErrorFailed():
                 return None
 
     @property

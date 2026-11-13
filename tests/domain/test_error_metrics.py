@@ -6,6 +6,7 @@ math directly against fixture tensors/results.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
@@ -172,3 +173,14 @@ def test_reference_precision_margin_clamps_to_machine_epsilon(
         torch.linalg.vector_norm(rhs - spd_matrix @ x) / torch.linalg.vector_norm(rhs)
     )
     assert relative_residual <= MIN_SAFE_RELATIVE_RESIDUAL * 10
+
+
+def test_extract_energy_error_rejects_a_zero_initial_error(
+    solver_result_with_exact_energy_history: SolverResult,
+) -> None:
+    """A curve cannot be normalized by a zero first entry, so none is reported."""
+    zero_start = replace(solver_result_with_exact_energy_history, error_history_a_norm=(0.0, 1.0))
+
+    assert extract_energy_error(zero_start) == EnergyErrorUnavailable(
+        "the initial energy error is zero"
+    )

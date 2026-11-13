@@ -24,13 +24,26 @@ class EnergyErrorBound:
 
 @dataclass(frozen=True, slots=True)
 class EnergyErrorUnavailable:
-    """No energy curve: neither the exact error nor its bound could be computed."""
+    """No energy curve, for an expected reason (no usable iterate, no energy history)."""
 
     reason: str
 
 
-type EnergyError = ExactEnergyError | EnergyErrorBound | EnergyErrorUnavailable
+@dataclass(frozen=True, slots=True)
+class EnergyErrorFailed:
+    """The energy-norm metric raised; the solve itself is kept. Operators are told."""
+
+    reason: str
+
+
+type EnergyError = ExactEnergyError | EnergyErrorBound | EnergyErrorUnavailable | EnergyErrorFailed
 """The energy-norm error of one solve."""
 
 
-__all__ = ["EnergyError", "EnergyErrorBound", "EnergyErrorUnavailable", "ExactEnergyError"]
+__all__ = [
+    "EnergyError",
+    "EnergyErrorBound",
+    "EnergyErrorFailed",
+    "EnergyErrorUnavailable",
+    "ExactEnergyError",
+]

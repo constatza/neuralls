@@ -43,9 +43,11 @@ the caller computes it once per method and reports the clamp. A reference that m
 target is unavailable for exact-error metrics, while the comparison solve still runs.
 
 `CGComparisonResult.energy_error` is `EnergyError = ExactEnergyError(history) |
-EnergyErrorBound(bound) | EnergyErrorUnavailable(reason)` (`models/energy_error.py`): the exact
-curve when a reference solution exists, else the Golub-Meurant lower bound from the timed
-solve's energy decrements, never both. `error_history_a_rel` is a derived view of the exact
+EnergyErrorBound(bound) | EnergyErrorUnavailable(reason) | EnergyErrorFailed(reason)`
+(`models/energy_error.py`): the exact curve when a reference solution exists, else the
+Golub-Meurant lower bound from the timed solve's energy decrements, never both. `Unavailable` is
+an expected absence (no usable iterate, no energy history); `Failed` is a metric that raised,
+which the comparison run reports to the operator while keeping the solve. `error_history_a_rel` is a derived view of the exact
 curve for the convergence frame and plots.
 
 `comparison_summary.py::format_results_summary` heads each summary line with the method's description, rendered from the `ConfiguredMethodPresentation` it is given for every result (a result without one raises `MissingMethodPresentationError`).

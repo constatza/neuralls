@@ -14,6 +14,7 @@ from neuralls.domain.solver import comparison
 from neuralls.domain.solver.models.benchmark_events import UnmeasuredResidual
 from neuralls.domain.solver.models.energy_error import (
     EnergyErrorBound,
+    EnergyErrorFailed,
     EnergyErrorUnavailable,
     ExactEnergyError,
 )
@@ -91,3 +92,16 @@ def test_a_non_finite_iterate_is_recorded_as_a_failed_solve_not_raised(
     assert result.exact_error is None
     assert np.array_equal(result.x, result.initial_guess)
     assert result.solve_time_seconds is not None
+
+
+def test_a_failing_energy_metric_keeps_the_solve(
+    spd_matrix: torch.Tensor,
+    rhs: torch.Tensor,
+    preconditioners: dict[str, Preconditioner],
+) -> None:
+    """A metric that raises is a typed failure on the result, not a lost solve."""
+    with patch.object(comparison, "extract_energy_error", side_effect=ValueError("bad trace")):
+        result = solve_against_reference(spd_matrix, rhs, preconditioners["jacobi"])
+
+    assert result.converged
+    assert result.energy_error == EnergyErrorFailed("bad trace")

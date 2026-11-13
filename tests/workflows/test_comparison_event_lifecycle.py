@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 
 import numpy as np
 import pytest
@@ -35,6 +35,7 @@ from neuralls.domain.solver.models.benchmark_events import (
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.cost import NO_OFFLINE_COST
+from neuralls.domain.solver.models.energy_error import EnergyErrorFailed
 from neuralls.domain.solver.models.workload import (
     CompleteWorkloadSummary,
     IncompleteWorkloadSummary,
@@ -539,6 +540,120 @@ def test_a_failed_factorization_is_reported_once_per_matrix(
 
     assert len(workload.solve_attempts) == 4
     assert len(messages) == len(two_matrix_bundles)
+
+
+def _run_identity_workload(
+    bundles: tuple[MatrixWorkload, ...],
+    params: SolverParams,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
+) -> CompletedMethodWorkload:
+    from neuralls.composition.comparison import comparison_run
+
+    method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
+    return comparison_run.execute_method_workload(
+        method,
+        bundles,
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+        params=params,
+        settings=neuralls_settings,
+        prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
+        training_runs=training_runs,
+    )
+
+
+def test_a_failed_reference_solve_is_reported_per_rhs(
+    monkeypatch: pytest.MonkeyPatch,
+    two_matrix_bundles: tuple[MatrixWorkload, MatrixWorkload],
+    solver_params: SolverParams,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    captured_log: CapturedLog,
+    training_runs: MlflowClient,
+) -> None:
+    """The factorization succeeded, so each RHS whose reference solve failed is its own warning."""
+    from neuralls.composition.comparison import comparison_run
+
+    monkeypatch.setattr(comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE)
+    monkeypatch.setattr(comparison_run, "solve_system", lambda *a, name, **k: _solved_result(name))
+
+    messages = captured_log("WARNING")
+    _run_identity_workload(
+        two_matrix_bundles,
+        solver_params,
+        neuralls_settings,
+        prepared_method,
+        group_datasets,
+        training_runs,
+    )
+
+    assert len(messages) == sum(len(bundle.members) for bundle in two_matrix_bundles)
+
+
+def test_a_clamped_reference_target_is_reported_once_per_method(
+    monkeypatch: pytest.MonkeyPatch,
+    two_matrix_bundles: tuple[MatrixWorkload, MatrixWorkload],
+    solver_params: SolverParams,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    captured_log: CapturedLog,
+    training_runs: MlflowClient,
+) -> None:
+    """rtol * margin below the float64 floor is clamped; one warning for the whole method."""
+    from neuralls.composition.comparison import comparison_run
+
+    monkeypatch.setattr(comparison_run, "solve_system", lambda *a, name, **k: _solved_result(name))
+
+    messages = captured_log("WARNING")
+    _run_identity_workload(
+        two_matrix_bundles,
+        replace(solver_params, rtol=1e-14, reference_precision_margin=1e-4),
+        neuralls_settings,
+        prepared_method,
+        group_datasets,
+        training_runs,
+    )
+
+    assert len(messages) == 1
+
+
+def test_a_failed_energy_metric_is_reported_per_rhs(
+    monkeypatch: pytest.MonkeyPatch,
+    one_system_bundle: MatrixWorkload,
+    solver_params: SolverParams,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    captured_log: CapturedLog,
+    training_runs: MlflowClient,
+) -> None:
+    from neuralls.composition.comparison import comparison_run
+
+    monkeypatch.setattr(
+        comparison_run,
+        "solve_system",
+        lambda *a, name, **k: replace(
+            _solved_result(name), energy_error=EnergyErrorFailed("bad trace")
+        ),
+    )
+
+    messages = captured_log("WARNING")
+    _run_identity_workload(
+        (one_system_bundle,),
+        solver_params,
+        neuralls_settings,
+        prepared_method,
+        group_datasets,
+        training_runs,
+    )
+
+    assert len(messages) == 1
 
 
 @pytest.fixture

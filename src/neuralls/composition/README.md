@@ -546,8 +546,9 @@ missing setup event.
 `comparison_run._solve_bundle` computes the reference once per right-hand side and passes it to
 `solve_system`, which measures the true residual after the timed solve; both are copied onto the
 `SolveAttempt` and stored as extra columns only. The run logs what the solver layer returns: a
-failed factorization once per matrix, a failed reference solve once per right-hand side, a clamped
-reference target once per method, and each failed solve.
+failed factorization once per matrix, a failed reference solve once per right-hand side (only when
+the factorization succeeded), a clamped reference target once per method, a failed energy-norm
+metric (`EnergyErrorFailed`) once per right-hand side, and each failed solve.
 
 Completed method workloads are persisted by
 `platform.reporting.benchmark_events.write_method_benchmark_artifacts` as the

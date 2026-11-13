@@ -29,7 +29,11 @@ from neuralls.domain.solver.models.benchmark_events import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
-from neuralls.domain.solver.models.energy_error import EnergyError, EnergyErrorUnavailable
+from neuralls.domain.solver.models.energy_error import (
+    EnergyError,
+    EnergyErrorFailed,
+    EnergyErrorUnavailable,
+)
 from neuralls.domain.solver.true_residual import NonFiniteResidual, measure_residual
 from neuralls.shared.device import (
     FailedTimedRuns,
@@ -109,7 +113,7 @@ def solve_system(
         case NonFiniteResidual():
             return _unsolved_result(
                 name,
-                x0,
+                x0_base,
                 b,
                 exact_reference,
                 error=f"non-finite iterate after {info.iterations} iterations",
@@ -275,7 +279,7 @@ def _guarded_energy_error(solved: Callable[[], SolverResult]) -> EnergyError:
     try:
         return extract_energy_error(solved())
     except (RuntimeError, ValueError) as exc:
-        return EnergyErrorUnavailable(f"energy-norm error metrics failed: {exc}")
+        return EnergyErrorFailed(str(exc))
 
 
 def _untimed_energy_error(

@@ -63,7 +63,8 @@ class ReferenceTarget:
 def reference_target(rtol: float, margin: float) -> ReferenceTarget:
     """Relative residual a reference solution must reach for a comparison at ``rtol``.
 
-    ``margin`` is validated ``< 1`` where it is configured (``SolverParams``).
+    ``margin`` is validated to ``(0, 1)`` where the comparison config is parsed
+    (``platform/config/models/comparison.py``).
     """
     requested_rel = rtol * margin
     return ReferenceTarget(requested_rel, max(requested_rel, MIN_SAFE_RELATIVE_RESIDUAL))
