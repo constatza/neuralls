@@ -16,6 +16,7 @@ from neuralls.platform.config.models.data_models import (
     SourceConfig,
     StrategyConfig,
 )
+from tests.os_paths import FAKE_ROOT
 
 
 def test_source_config_matrix_path_glob_preserves_wildcard(
@@ -36,7 +37,7 @@ def test_source_config_matrix_path_plain_still_resolves(
     config_context: ConfigContext,
 ) -> None:
     """matrix_path without wildcards resolves to an absolute path as before."""
-    plain = str(Path("/workspace") / "A.txt")
+    plain = str((FAKE_ROOT / "workspace") / "A.txt")
     config = SourceConfig.model_validate(
         {"matrix_path": plain},
         context=config_context.as_pydantic_context(),

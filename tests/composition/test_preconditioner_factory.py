@@ -59,6 +59,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.dlkit.predictor_adapter import OwningDLKitNeuralPreconditioner
 from tests.fakes.fit_data import FakeFitData
+from tests.os_paths import FAKE_ROOT
 
 # ==============================================================================
 # Mock Predictor and Adapter for Neural Preconditioner Testing
@@ -203,7 +204,7 @@ def residual_vector() -> torch.Tensor:
 @pytest.fixture
 def mock_checkpoint() -> Path:
     """A checkpoint location that only the mock adapters see, so no file exists there."""
-    return Path("/virtual/mock_checkpoint.ckpt")
+    return FAKE_ROOT / "virtual/mock_checkpoint.ckpt"
 
 
 FIT_DIR = Path("pod-fit")
@@ -311,7 +312,7 @@ def test_neural_preconditioner_checkpoint_not_found(
 ) -> None:
     """NeuralPreconditioner surfaces a missing checkpoint as FileNotFoundError."""
     mock_adapter = MissingCheckpointAdapter()
-    missing_checkpoint = Path("/virtual/missing/checkpoint.ckpt")
+    missing_checkpoint = FAKE_ROOT / "virtual/missing/checkpoint.ckpt"
 
     config = NeuralPreconditionerConfig(
         type=PreconditionerType.NEURAL,

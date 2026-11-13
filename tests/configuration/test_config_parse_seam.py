@@ -13,6 +13,7 @@ from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.loaders import parse_case_config, parse_data_config
 from neuralls.shared.types import MatrixId
+from tests.os_paths import FAKE_ROOT
 from tests.workflows.comparison_support import (
     VIRTUAL_CASE_PATH,
     in_memory_case,
@@ -73,7 +74,7 @@ def test_binding_uses_the_given_matrix_path_and_the_case_baseline() -> None:
         rhs_ordinal=1,
         provenance=SharedSingleMatrix(raw_matrix_index=5),
     )
-    matrix_path = Path("/virtual/processed/solutions")
+    matrix_path = FAKE_ROOT / "virtual/processed/solutions"
 
     bound = bind_comparison_config(case, planned, method_override=None, matrix_path=matrix_path)
 
@@ -94,4 +95,6 @@ def test_binding_without_a_baseline_is_refused() -> None:
     )
 
     with pytest.raises(ValueError, match="comparison_baseline"):
-        bind_comparison_config(case, planned, method_override=None, matrix_path=Path("/virtual"))
+        bind_comparison_config(
+            case, planned, method_override=None, matrix_path=(FAKE_ROOT / "virtual")
+        )

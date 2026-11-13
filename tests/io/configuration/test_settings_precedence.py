@@ -10,6 +10,7 @@ from pydantic import ValidationError
 import neuralls.platform.config.profile as profile_module
 from neuralls.platform.config.profile import ProfileConfig, save_profile
 from neuralls.platform.config.settings import get_settings, load_case_settings
+from tests.os_paths import FAKE_ROOT
 
 
 def _write_case_config(path: Path) -> None:
@@ -43,14 +44,14 @@ def test_precedence_env_var_over_env_file_over_profile(
     )
     env_file = tmp_path / "case.env"
     env_file.write_text(
-        "NEURALLS_PROCESSED_DIR=/env-file/processed\nNEURALLS_OUTPUT_DIR=/env-file/output\n",
+        f"NEURALLS_PROCESSED_DIR={FAKE_ROOT / 'env-file/processed'}\nNEURALLS_OUTPUT_DIR={FAKE_ROOT / 'env-file/output'}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("NEURALLS_OUTPUT_DIR", str(tmp_path / "env-output"))
 
     settings = load_case_settings(case_config, env_file)
 
-    assert settings.processed_dir == Path("/env-file/processed").resolve()
+    assert settings.processed_dir == (FAKE_ROOT / "env-file/processed").resolve()
     assert settings.output_dir == (tmp_path / "env-output").resolve()
 
 
@@ -76,14 +77,14 @@ def test_precedence_env_file_over_profile(
     )
     env_file = tmp_path / "case.env"
     env_file.write_text(
-        "NEURALLS_PROCESSED_DIR=/env-file/processed\nNEURALLS_OUTPUT_DIR=/env-file/output\n",
+        f"NEURALLS_PROCESSED_DIR={FAKE_ROOT / 'env-file/processed'}\nNEURALLS_OUTPUT_DIR={FAKE_ROOT / 'env-file/output'}\n",
         encoding="utf-8",
     )
 
     settings = load_case_settings(case_config, env_file)
 
-    assert settings.processed_dir == Path("/env-file/processed").resolve()
-    assert settings.output_dir == Path("/env-file/output").resolve()
+    assert settings.processed_dir == (FAKE_ROOT / "env-file/processed").resolve()
+    assert settings.output_dir == (FAKE_ROOT / "env-file/output").resolve()
 
 
 def test_no_env_files_required_env_vars_only(
@@ -115,7 +116,7 @@ def test_get_settings_does_not_scan_cwd_env_files(
     project = tmp_path / "project"
     project.mkdir()
     (project / ".env").write_text(
-        "NEURALLS_PROCESSED_DIR=/cwd/processed\nNEURALLS_OUTPUT_DIR=/cwd/output\n",
+        f"NEURALLS_PROCESSED_DIR={FAKE_ROOT / 'cwd/processed'}\nNEURALLS_OUTPUT_DIR={FAKE_ROOT / 'cwd/output'}\n",
         encoding="utf-8",
     )
     monkeypatch.chdir(project)

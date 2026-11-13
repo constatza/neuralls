@@ -9,11 +9,12 @@ import pytest
 from dlkit.infrastructure.io import url_resolver
 
 from neuralls.platform.config.resolution import resolve_local_path
+from tests.os_paths import FAKE_ROOT
 
 
 def test_resolve_local_path_accepts_file_uri() -> None:
     """file:// URIs round-trip through the shared local resolver."""
-    expected = (Path("/virtual/mlartifacts/run-1/artifacts")).resolve()
+    expected = (FAKE_ROOT / "virtual/mlartifacts/run-1/artifacts").resolve()
     uri = url_resolver.build_uri(expected, scheme="file")
 
     resolved = resolve_local_path(uri, base_dir=Path.cwd())

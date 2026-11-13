@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from neuralls.composition.comparison.models import MatrixRef, PlannedSystem
@@ -27,6 +25,7 @@ from neuralls.shared.rhs_recipe import (
     recipe_key,
 )
 from neuralls.shared.types import DatasetId, MatrixId, RowKind
+from tests.os_paths import FAKE_ROOT
 
 
 def test_different_omegas_are_different_recipes() -> None:
@@ -92,7 +91,7 @@ def test_raw_sources_differing_in_any_identity_field_are_different_recipes(
 
 
 def test_the_same_raw_source_twice_is_one_recipe() -> None:
-    path = Path("/virtual/vector.npy")
+    path = FAKE_ROOT / "virtual/vector.npy"
     assert rhs_recipe(RawLhsSourceModel(path=path)) == rhs_recipe(RawLhsSourceModel(path=path))
 
 

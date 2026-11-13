@@ -13,6 +13,7 @@ from neuralls.domain.generation.source_streams import open_matrix_stream
 from neuralls.domain.normalization import matrix_norm
 from neuralls.shared.types import MatrixFormat, MatrixNormType
 from tests.fakes.archive_source import InMemoryArchiveSource
+from tests.os_paths import FAKE_ROOT
 
 _SEED = 20260610
 _SIZE = 40
@@ -57,13 +58,13 @@ def archive_source() -> InMemoryArchiveSource:
 @pytest.fixture
 def mtx_source(archive_source: InMemoryArchiveSource, spd_csr: csr_array) -> Path:
     """The sparse system registered under a ``.mtx`` path."""
-    return archive_source.add(Path("/archive/system.mtx"), spd_csr)
+    return archive_source.add((FAKE_ROOT / "archive/system.mtx"), spd_csr)
 
 
 @pytest.fixture
 def npy_source(archive_source: InMemoryArchiveSource, spd_dense: np.ndarray) -> Path:
     """The dense system registered under a ``.npy`` path."""
-    return archive_source.add(Path("/archive/system.npy"), spd_dense)
+    return archive_source.add((FAKE_ROOT / "archive/system.npy"), spd_dense)
 
 
 @pytest.mark.parametrize("normalize_type", ["matrix", "none"])

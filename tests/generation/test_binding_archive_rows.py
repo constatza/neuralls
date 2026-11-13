@@ -7,7 +7,6 @@ A generated strategy never receives archive rows, whatever its count.
 from __future__ import annotations
 
 from collections.abc import Callable
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -18,11 +17,12 @@ from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpe
 from neuralls.shared.types import MatrixFormat
 from tests import generation_support
 from tests.fakes.archive_source import InMemoryArchiveSource
+from tests.os_paths import FAKE_ROOT
 
 CYCLIC_COUNT = 2
 OVER_CAP_COUNT = 6
-MATRIX_DIR = Path("/archive/matrices")
-SOLUTION_PATH = Path("/archive/solutions.npy")
+MATRIX_DIR = FAKE_ROOT / "archive/matrices"
+SOLUTION_PATH = FAKE_ROOT / "archive/solutions.npy"
 
 
 @pytest.fixture

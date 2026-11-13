@@ -10,7 +10,6 @@ specs — ``needs_model_resolution``, ``referenced_assignment_ids`` and
 from __future__ import annotations
 
 from collections.abc import Callable
-from pathlib import Path
 
 import pytest
 
@@ -35,12 +34,13 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
+from tests.os_paths import FAKE_ROOT
 
 type NeuralSpecFactory = Callable[..., NeuralPreconditionerConfig]
 type AmgSpecFactory = Callable[..., AMGPreconditionerConfig]
 
 
-WORKSPACE = Path("/workspace")
+WORKSPACE = FAKE_ROOT / "workspace"
 
 
 @pytest.fixture

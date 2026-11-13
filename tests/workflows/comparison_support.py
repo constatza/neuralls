@@ -15,6 +15,7 @@ from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
+from tests.os_paths import FAKE_ROOT
 
 MLFLOW_MODULE = "neuralls.composition.assignments.comparison_batch.mlflow"
 EXECUTE_MLFLOW_MODULE = "neuralls.composition.assignments.comparison_execute.mlflow"
@@ -101,7 +102,7 @@ def write_experiments_config(
         tomli_w.dump(payload, fh)
 
 
-VIRTUAL_CASE_PATH = Path("/virtual/case/experiments.toml")
+VIRTUAL_CASE_PATH = FAKE_ROOT / "virtual/case/experiments.toml"
 """Where an in-memory case config pretends to live; nothing is ever read or written there."""
 
 

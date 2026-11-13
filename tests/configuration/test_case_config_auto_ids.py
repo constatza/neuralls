@@ -11,12 +11,11 @@ ComparisonRegistryEntry.id are required but missing.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from pydantic import ValidationError
 
 from neuralls.platform.config.models.experiments import CaseConfig
+from tests.os_paths import FAKE_ROOT
 
 
 @pytest.fixture
@@ -24,7 +23,7 @@ def dataset_entry_gaussian() -> dict[str, object]:
     """Registry entry for Gaussian CG-1 45x15 dataset."""
     return {
         "id": "gaussian-cg0-45x15",
-        "path": Path("/fake/gaussian.toml"),
+        "path": (FAKE_ROOT / "fake/gaussian.toml"),
         "display_name": "Gaussian CG-1 45x15",
     }
 
@@ -34,7 +33,7 @@ def dataset_entry_solutions() -> dict[str, object]:
     """Registry entry for Solutions 45x15 dataset."""
     return {
         "id": "solutions-45x15",
-        "path": Path("/fake/solutions.toml"),
+        "path": (FAKE_ROOT / "fake/solutions.toml"),
         "display_name": "Solutions 45x15",
     }
 
@@ -44,7 +43,7 @@ def job_entry_ffnn() -> dict[str, object]:
     """Registry entry for FFNN Standard job."""
     return {
         "id": "ffnn-standard",
-        "path": Path("/fake/ffnn.toml"),
+        "path": (FAKE_ROOT / "fake/ffnn.toml"),
         "display_name": "FFNN Standard",
     }
 
@@ -276,7 +275,7 @@ def test_comparison_display_name_ignores_assignment_filter_for_parent_name(
         *list(raw["jobs"]),  # type: ignore[arg-type]
         {
             "id": "ffnn-large",
-            "path": Path("/fake/ffnn-large.toml"),
+            "path": (FAKE_ROOT / "fake/ffnn-large.toml"),
             "display_name": "FFNN Large",
         },
     ]

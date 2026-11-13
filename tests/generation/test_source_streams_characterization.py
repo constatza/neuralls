@@ -29,8 +29,9 @@ from neuralls.domain.generation.source_streams import (
 )
 from neuralls.platform.storage.matrix_readers import read_matrix
 from tests.fakes.archive_source import InMemoryArchiveSource
+from tests.os_paths import FAKE_ROOT
 
-ARCHIVE_DIR = Path("/archive")
+ARCHIVE_DIR = FAKE_ROOT / "archive"
 
 
 def _marker_matrix(value: float) -> np.ndarray:

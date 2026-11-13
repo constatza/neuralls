@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterator, Sequence
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -26,8 +25,9 @@ from neuralls.domain.generation.orchestration import (
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.shared.types import MatrixFormat
 from tests.fakes.archive_source import InMemoryArchiveSource
+from tests.os_paths import FAKE_ROOT
 
-MATRIX_DIR = Path("/archive/matrices")
+MATRIX_DIR = FAKE_ROOT / "archive/matrices"
 
 _FLOAT_DIGEST_DECIMALS = 12
 _NUM_MATRICES = 3

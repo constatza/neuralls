@@ -11,9 +11,9 @@ import pytest
 import neuralls.platform.config.context as context_module
 from neuralls.platform.config.context import ConfigContext, expand_config_glob, expand_config_path
 from neuralls.platform.config.settings import NeurallsSettings
+from tests.os_paths import FAKE_ROOT
 
-# Absolute on the running OS: dlkit rejects POSIX-rooted paths on Windows.
-ROOT = Path(Path.cwd().anchor, "virtual")
+ROOT = FAKE_ROOT / "virtual"
 
 
 def test_expand_neuralls_raw_dir_raises_when_not_configured(config_context) -> None:

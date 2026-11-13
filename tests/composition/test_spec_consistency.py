@@ -6,8 +6,6 @@ dataset directory or case file is involved.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from neuralls.composition.comparison.models import MatrixRef, PlannedSystem
@@ -24,6 +22,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.shared.digest import Digest
 from neuralls.shared.types import MatrixFormat, MatrixId
+from tests.os_paths import FAKE_ROOT
 
 
 def _entry(entry_id: str, *, matrix_dataset: str, rhs_kind: str) -> ComparisonRegistryEntry:
@@ -110,10 +109,10 @@ def test_same_neural_model_resolved_to_different_local_paths_is_accepted() -> No
     """Same bytes at two temp paths is one preconditioner — no false conflict."""
     planned = _two_entries()
     at_a = NeuralPreconditionerConfig(
-        assignment="pod-run", resolved_checkpoint_path=Path("/tmp/a/model.ckpt")
+        assignment="pod-run", resolved_checkpoint_path=(FAKE_ROOT / "tmp/a/model.ckpt")
     )
     at_b = NeuralPreconditionerConfig(
-        assignment="pod-run", resolved_checkpoint_path=Path("/tmp/b/model.ckpt")
+        assignment="pod-run", resolved_checkpoint_path=(FAKE_ROOT / "tmp/b/model.ckpt")
     )
     assert at_a != at_b  # why `==` was the wrong comparison
 

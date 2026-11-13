@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
+from tests.os_paths import FAKE_ROOT
 
 from neuralls.platform.storage.errors import _raise_storage_error
 
 _OPERATION = "Writing rhs"
-_TARGET = Path("/data/dataset.zarr/rhs")
-_MISSING_SOURCE = "/data/source.npy"
+_TARGET = FAKE_ROOT / "data/dataset.zarr/rhs"
+_MISSING_SOURCE = str(FAKE_ROOT / "data/source.npy")
 
 
 @pytest.fixture

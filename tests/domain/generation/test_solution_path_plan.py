@@ -18,6 +18,7 @@ from neuralls.domain.generation.binding_allocation import _resolve_binding_strat
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from tests.fakes.archive_source import InMemoryArchiveSource
+from tests.os_paths import FAKE_ROOT
 
 _SOLUTION_STRATEGY = "solution_archive"
 _NUM_BINDINGS = 2
@@ -41,14 +42,14 @@ def archive_source() -> InMemoryArchiveSource:
 
 @pytest.fixture
 def solution_npy(archive_source: InMemoryArchiveSource, solution_rows: np.ndarray) -> Path:
-    return archive_source.add(Path("/archive/solutions.npy"), solution_rows)
+    return archive_source.add((FAKE_ROOT / "archive/solutions.npy"), solution_rows)
 
 
 @pytest.fixture
 def solution_txt(archive_source: InMemoryArchiveSource) -> Path:
     """A .txt solution file holding one vector: the vector reader loads it as one sample."""
     return archive_source.add(
-        Path("/archive/solutions.txt"), np.arange(_ROW_LENGTH, dtype=np.float64)
+        (FAKE_ROOT / "archive/solutions.txt"), np.arange(_ROW_LENGTH, dtype=np.float64)
     )
 
 

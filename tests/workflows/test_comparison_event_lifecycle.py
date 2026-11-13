@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -55,6 +54,7 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, NoFitDataEvidence, SystemId
 from tests.measurement_support import NO_REFERENCE, NO_REFERENCE_SOLUTION
+from tests.os_paths import FAKE_ROOT
 from tests.presentation_support import PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 
@@ -79,7 +79,7 @@ def one_system_bundle() -> MatrixWorkload:
         dataset=DatasetId("ds"),
         matrix_id=MatrixId(1),
         matrix=torch.diag(torch.tensor([2.0, 3.0], dtype=torch.float64)),
-        matrix_path=Path("/workspace/not-a-dataset"),
+        matrix_path=(FAKE_ROOT / "workspace/not-a-dataset"),
         matrix_index=0,
         members=(MatrixWorkloadMember(tag=tag, rhs=np.ones(2)),),
     )
@@ -107,7 +107,7 @@ def two_matrix_bundles() -> tuple[MatrixWorkload, MatrixWorkload]:
                 dataset=DatasetId("ds"),
                 matrix_id=MatrixId(matrix_id),
                 matrix=torch.diag(torch.tensor([2.0, 3.0], dtype=torch.float64)) * matrix_id,
-                matrix_path=Path("/workspace") / f"matrix-{matrix_id}",
+                matrix_path=(FAKE_ROOT / "workspace") / f"matrix-{matrix_id}",
                 matrix_index=matrix_id,
                 members=members,
             )

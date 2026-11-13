@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Callable
 from dataclasses import replace
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -51,6 +50,7 @@ from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import MatrixId, NoFitDataEvidence, PreconditionerName
+from tests.os_paths import FAKE_ROOT
 
 type PlannedFactory = Callable[[str], PlannedSystem]
 type ExecutionFactory = Callable[[PlannedSystem], PreparedComparisonExecution]
@@ -188,7 +188,7 @@ def test_method_schedule_rejects_conflicting_origins_for_one_method(
     first = execution(planned_system("a"))
     second = replace(
         execution(planned_system("b")),
-        origins_by_method={"jacobi": InlineFit(Path("/virtual/fit"))},
+        origins_by_method={"jacobi": InlineFit(FAKE_ROOT / "virtual/fit")},
     )
 
     with pytest.raises(ValueError, match="different data origins"):

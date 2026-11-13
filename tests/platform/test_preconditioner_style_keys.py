@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from tests.os_paths import FAKE_ROOT
 
 from neuralls.composition.comparison.models import canonical_method_config
 from neuralls.platform.config.models.coarsening import (
@@ -35,7 +36,7 @@ from neuralls.platform.config.models.weighting import PowerNormWeightingConfig
 @pytest.fixture
 def pod2g_dataset_dir() -> Path:
     """A stand-in POD-2G fit-dataset directory (no validator requires it exist yet)."""
-    return Path("/workspace") / "gaussian-cg0-rectangular-high-condition"
+    return (FAKE_ROOT / "workspace") / "gaussian-cg0-rectangular-high-condition"
 
 
 @pytest.fixture

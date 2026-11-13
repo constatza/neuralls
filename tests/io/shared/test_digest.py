@@ -23,6 +23,7 @@ from tests.io.shared.conftest import (
     Unknown,
     UnmarkedPathModel,
 )
+from tests.os_paths import FAKE_ROOT
 
 
 def test_digest_format() -> None:
@@ -55,9 +56,9 @@ def test_unknown_type_raises() -> None:
 
 def test_unmarked_path_raises() -> None:
     with pytest.raises(TypeError):
-        canonical_digest(UnmarkedPathModel(path=Path("/workspace")))
+        canonical_digest(UnmarkedPathModel(path=(FAKE_ROOT / "workspace")))
     with pytest.raises(TypeError):
-        canonical_digest({"p": Path("/workspace")})
+        canonical_digest({"p": (FAKE_ROOT / "workspace")})
 
 
 def test_content_digest_file_path_independent(tmp_path: Path) -> None:

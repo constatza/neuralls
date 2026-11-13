@@ -7,15 +7,14 @@ union resolution, and the shared rank validator.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from neuralls.platform.config.models.coarsening import CoarseningConfig, NeuralPODCoarseningConfig
 from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
+from tests.os_paths import FAKE_ROOT
 
-WORKSPACE = Path("/workspace")
+WORKSPACE = FAKE_ROOT / "workspace"
 
 
 def test_neural_pod_coarsening_config_parses_with_checkpoint_path() -> None:

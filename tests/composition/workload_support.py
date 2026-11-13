@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 import torch
 
 from neuralls.composition.comparison.models import MatrixWorkload, MatrixWorkloadMember
 from neuralls.domain.solver.models import SystemTag
 from neuralls.shared.types import DatasetId, MatrixId, SystemId
+from tests.os_paths import FAKE_ROOT
 from tests.recipe_support import GAUSSIAN
 
 DATASET = DatasetId("ds")
 """The matrix dataset every built bundle belongs to."""
-MATRIX_PATH = Path("/workspace/not-a-dataset")
+MATRIX_PATH = FAKE_ROOT / "workspace/not-a-dataset"
 """A path no test reads: extra inputs are only loaded for neural methods."""
 DIAGONAL = (2.0, 3.0)
 """Diagonal of the matrix of matrix 1; matrix ``k`` is ``k`` times it."""

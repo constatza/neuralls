@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -14,14 +13,15 @@ from neuralls.domain.generation.source_streams import _MatrixStream
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.shared.types import MatrixFormat, SystemMatrix
 from tests.fakes.archive_source import InMemoryArchiveSource
+from tests.os_paths import FAKE_ROOT
 
 SEED = 7
 N_UNKNOWNS = 4
 NUM_MATRICES = 3
 PARAMETER_LENGTH = 4
 SOURCE_REGEX = r"(\d+)(?!.*\d)"
-MATRIX_DIR = Path("/archive/matrices")
-PARAMETER_DIR = Path("/archive/parameters")
+MATRIX_DIR = FAKE_ROOT / "archive/matrices"
+PARAMETER_DIR = FAKE_ROOT / "archive/parameters"
 
 
 @pytest.fixture

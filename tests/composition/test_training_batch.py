@@ -18,7 +18,6 @@ having measured its own duration):
 from __future__ import annotations
 
 from contextlib import ExitStack
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from dlkit.common import ChildFailure, ChildPlannedEvent, ChildSuccess, LifecycleHooks
@@ -41,6 +40,7 @@ from neuralls.shared.constants import (
     TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY,
 )
 from neuralls.shared.device import ResourceUsage, ResourceUsageToken
+from tests.os_paths import FAKE_ROOT
 
 
 def _patch_sweep_collaborators(
@@ -65,7 +65,7 @@ def _patch_sweep_collaborators(
     stack.enter_context(
         patch(
             "neuralls.composition.assignments.training_batch.load_assignment_batch",
-            return_value=MagicMock(assignments=(assignment,), output_root=Path("/out")),
+            return_value=MagicMock(assignments=(assignment,), output_root=(FAKE_ROOT / "out")),
         )
     )
     stack.enter_context(
@@ -147,7 +147,7 @@ def test_sweep_registers_child_timing_tracker_as_lifecycle_hooks(
         run_multirun_spec = _patch_sweep_collaborators(
             stack, child_outcome=child_failure, presentation=training_presentation
         )
-        run_assignment_sweep(Path("/workspace/case.toml"))
+        run_assignment_sweep(FAKE_ROOT / "workspace/case.toml")
 
     hooks = run_multirun_spec.call_args.kwargs["hooks"]
     assert isinstance(hooks, LifecycleHooks)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -18,9 +17,10 @@ from neuralls.platform.config.resolution import (
     normalize_tracking_uri,
 )
 from neuralls.platform.tracking.environment import scoped_mlflow_environment
+from tests.os_paths import FAKE_ROOT
 from tests.path_assertions import assert_local_path_eq
 
-WORKSPACE = Path("/workspace")
+WORKSPACE = FAKE_ROOT / "workspace"
 
 
 def test_normalize_model_mlflow_rejects_tracking_uri_in_model_config() -> None:

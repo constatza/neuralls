@@ -47,9 +47,10 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.timing import TimingRepeatPolicy
 from neuralls.shared.types import DatasetId
 from tests.composition.workload_support import matrix_bundle
+from tests.os_paths import FAKE_ROOT
 from tests.presentation_support import PreparedMethodFactory
 
-CHECKPOINT_DIR = Path("/virtual/checkpoints")
+CHECKPOINT_DIR = FAKE_ROOT / "virtual/checkpoints"
 
 
 POD_RANK = 2

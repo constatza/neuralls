@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -16,8 +15,9 @@ from neuralls.domain.generation.ports import ArchiveSource
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.domain.generation.strategy_rows import _generate_strategy_rows, _StrategyRows
 from tests.fakes.archive_source import InMemoryArchiveSource
+from tests.os_paths import FAKE_ROOT
 
-ARCHIVE_DIR = Path("/archive")
+ARCHIVE_DIR = FAKE_ROOT / "archive"
 
 
 def _stack_strategies(
