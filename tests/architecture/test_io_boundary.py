@@ -5,6 +5,10 @@ A test file outside the boundary that creates files, a dataset, or an MLflow sto
 remove that IO: ``mlflow-run-tracking`` (MLflow runs behind ports), ``dataset-fixture-io`` (a test
 that needs a dataset directory on disk as its input fixture) or ``digest-hashing`` (file hashing behind a port). A file
 that no longer does IO must drop the marker, so the set only shrinks.
+
+``domain/`` and ``application/`` also take no ambient actions: no file I/O, no log output, no
+clock read, no process-wide cache, no CUDA call and no ambient device choice. Their outcomes are
+returned as data and composition logs them.
 """
 
 from __future__ import annotations
@@ -98,5 +102,59 @@ def test_pure_layers_do_no_file_io() -> None:
         for layer in _PURE_LAYERS
         for path in sorted((_SRC / layer).rglob("*.py"))
         for line in _filesystem_calls(path)
+    ]
+    assert offenders == []
+
+
+_LOGGING_MODULES = frozenset({"loguru", "logging", "warnings"})
+_CLOCK_MODULES = frozenset({"time"})
+_CACHE_DECORATORS = frozenset({"lru_cache", "cache"})
+_DEVICE_ACTIONS = frozenset({"resolve_device", "release_device_memory"})
+
+
+def _root(module: str | None) -> str:
+    return (module or "").split(".")[0]
+
+
+def _ambient_actions(path: Path) -> list[str]:
+    """Logging, clock reads, process-wide caches, CUDA calls and ambient device picks."""
+    found = []
+    for node in ast.walk(parsed(path)):
+        match node:
+            case ast.Import(names=names) if any(
+                _root(alias.name) in _LOGGING_MODULES | _CLOCK_MODULES for alias in names
+            ):
+                found.append(f"{node.lineno} import")
+            case ast.ImportFrom(module=module) if _root(module) in (
+                _LOGGING_MODULES | _CLOCK_MODULES
+            ):
+                found.append(f"{node.lineno} import")
+            case ast.ImportFrom(module="functools", names=names) if any(
+                alias.name in _CACHE_DECORATORS for alias in names
+            ):
+                found.append(f"{node.lineno} cache")
+            case ast.ImportFrom(names=names) if any(
+                alias.name in _DEVICE_ACTIONS for alias in names
+            ):
+                found.append(f"{node.lineno} device")
+            case ast.Attribute(attr=attr, value=ast.Name(id="functools")) if (
+                attr in _CACHE_DECORATORS
+            ):
+                found.append(f"{node.lineno} cache")
+            case ast.Attribute(attr="cuda", value=ast.Name(id="torch")):
+                found.append(f"{node.lineno} cuda")
+            case ast.Attribute(attr="now", value=ast.Name(id="datetime")):
+                found.append(f"{node.lineno} clock")
+            case ast.Call(func=ast.Attribute(attr="default_rng"), args=[], keywords=[]):
+                found.append(f"{node.lineno} entropy")
+    return found
+
+
+def test_pure_layers_take_no_ambient_actions() -> None:
+    offenders = [
+        f"{path.relative_to(_SRC).as_posix()}:{finding}"
+        for layer in _PURE_LAYERS
+        for path in sorted((_SRC / layer).rglob("*.py"))
+        for finding in _ambient_actions(path)
     ]
     assert offenders == []

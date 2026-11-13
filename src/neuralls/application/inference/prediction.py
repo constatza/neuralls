@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import numpy as np
-from torchalg.utils.device import resolve_device
+import torch
 
 from neuralls.application.inference.models import InferenceData, InferencePredictions
 from neuralls.domain.inference_ports import InferencePredictorPort
@@ -25,6 +25,8 @@ def iterate_feature_batches(
     Args:
         feature_arrays: Feature arrays keyed by name.
         batch_size: Number of samples per batch.
+        device: Device the predictor runs on; its peak memory is measured. The caller
+            chooses it, so this use case reads no ambient device.
 
     Yields:
         Batched feature dictionaries.
@@ -39,6 +41,8 @@ def collect_predictions(
     predictor: InferencePredictorPort,
     feature_arrays: dict[str, np.ndarray],
     batch_size: int,
+    *,
+    device: torch.device,
 ) -> tuple[list[np.ndarray], float]:
     """Run inference for every feature batch.
 
@@ -55,7 +59,7 @@ def collect_predictions(
         ValueError: If predictor returns no predictions.
     """
     predictions: list[np.ndarray] = []
-    with track_resource_usage(resolve_device()) as usage:
+    with track_resource_usage(device) as usage:
         for batch in iterate_feature_batches(feature_arrays, batch_size):
             predictions.append(np.asarray(predictor.predict_batch(batch), dtype=np.float64))
     if not predictions:
@@ -120,6 +124,8 @@ def run_prediction(
     predictor: InferencePredictorPort,
     data: InferenceData,
     batch_size: int = 256,
+    *,
+    device: torch.device,
 ) -> InferencePredictions:
     """Execute prediction on inference data.
 
@@ -130,13 +136,14 @@ def run_prediction(
         predictor: Batch predictor port implementation.
         data: Inference data with features and targets.
         batch_size: Batch size for inference (defaults to 256).
+        device: Device the predictor runs on.
 
     Returns:
         InferencePredictions with results and metadata.
     """
     feature_arrays = data.features
 
-    raw_preds, duration = collect_predictions(predictor, feature_arrays, batch_size)
+    raw_preds, duration = collect_predictions(predictor, feature_arrays, batch_size, device=device)
 
     predictions = process_predictions(raw_preds)
 

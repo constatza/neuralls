@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
+from torchalg.utils.device import resolve_device
 
 from neuralls.application.inference.models import DataSource, InferenceConfig
 from neuralls.application.inference.prediction import run_prediction
@@ -128,7 +129,9 @@ def _execute_inference_pipeline(
     # Run prediction (transforms applied automatically from checkpoint)
     logger.info(f"Running inference on {data.source} data...")
     with create_inference_predictor(checkpoint_path) as predictor:
-        predictions = run_prediction(predictor, data, batch_size=resolve_batch_size(settings))
+        predictions = run_prediction(
+            predictor, data, batch_size=resolve_batch_size(settings), device=resolve_device()
+        )
 
     # Save synthetic results separately (if applicable)
     if config.synthetic_benchmark and data.source is DataSource.SYNTHETIC:
