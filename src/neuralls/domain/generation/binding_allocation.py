@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
-
-from loguru import logger
 
 from .allocation import archive_units, split_remainder
 from .archive_files import select_archive_files
 from .batch_plan import ALL_SAMPLES, BindingAllocation
 from .bindings import SystemBinding
 from .counts import resolve_strategy_counts
+from .notices import RowCapSource, RowsCapped
 from .ports import ArchiveSource
 from .runner import rows_per_base_system
 from .seeds import derive_seed
@@ -138,7 +138,6 @@ def _split_generated_rows(
 def _allocate_archive_rows(
     *,
     archive_source: ArchiveSource,
-    strategy_name: str,
     glob_pattern: str,
     skip: int,
     rows: int,
@@ -148,8 +147,9 @@ def _allocate_archive_rows(
 ) -> tuple[list[int], list[tuple[int, ...]]]:
     """Assign archive (matrix, file) base-system units to bindings so no pair repeats.
 
-    The row request becomes base systems, capped at M*K. The cap is reported once,
-    in rows and base systems. Overshoot rows are trimmed from the last-unit owner.
+    The row request becomes base systems, capped at M*K; the caller reports a cap by
+    comparing the request with the rows returned. Overshoot rows are trimmed from the
+    last-unit owner.
     Requires one binding per matrix (checked by the caller).
 
     Returns:
@@ -161,12 +161,6 @@ def _allocate_archive_rows(
     requested_rows = capacity * rows_per_system if rows == ALL_SAMPLES else rows
     requested_base = math.ceil(requested_rows / rows_per_system)
     emitted_base = min(requested_base, capacity)
-    if requested_base > capacity:
-        logger.warning(
-            f"Strategy '{strategy_name}' requested {requested_rows} rows "
-            f"({requested_base} base systems) but the archive has {capacity} (matrix, file) "
-            f"pairs: emitting {emitted_base * rows_per_system} rows ({emitted_base} base systems)."
-        )
     units = archive_units(num_matrices, num_files, emitted_base)
 
     files_by_matrix: list[list[int]] = [[] for _ in groups]
@@ -243,21 +237,33 @@ def _reject_repeated_archive_bindings(
             )
 
 
-def _solution_file_count(strategy_name: str, count: int, file_rows: int) -> int:
+def _solution_file_count(count: int, file_rows: int) -> int:
     """Rows one binding draws from an explicit solution file of ``file_rows`` rows.
 
     ``samples=-1`` takes every row. An explicit count is capped at the file's row count,
-    since one binding cannot draw the same row twice; the cap is reported once.
+    since one binding cannot draw the same row twice; the caller reports the cap.
     """
     if count == ALL_SAMPLES:
         return file_rows
-    if count <= file_rows:
-        return count
-    logger.warning(
-        f"Strategy '{strategy_name}' requested {count} rows from a solution file with "
-        f"{file_rows} rows: emitting {file_rows} rows per binding."
-    )
-    return file_rows
+    return min(count, file_rows)
+
+
+def _row_cap(
+    strategy_name: str, requested: int, emitted: int, source: RowCapSource
+) -> tuple[RowsCapped, ...]:
+    """The cap notice when a concrete request emits fewer rows than asked, else nothing."""
+    if requested == ALL_SAMPLES or emitted >= requested:
+        return ()
+    return (RowsCapped(strategy_name, requested, emitted, source),)
+
+
+@dataclass(frozen=True, slots=True)
+class _StrategyAllocation:
+    """One strategy's per-binding counts and archive files, with the cap it hit if any."""
+
+    counts: dict[int, int]
+    files: dict[int, tuple[int, ...]]
+    notices: tuple[RowsCapped, ...] = ()
 
 
 def _single_matrix_allocation(
@@ -277,20 +283,18 @@ def _single_matrix_allocation(
     solution-archive strategy is capped at that row count. Other counts pass through.
     """
     counts: dict[str, int] = dict(strategy_counts)
+    notices: tuple[RowsCapped, ...] = ()
     if solution_rows_total is not None:
-        counts = {
-            name: _solution_file_count(name, count, solution_rows_total)
-            if count == ALL_SAMPLES or name in cyclic_solution_strategies
-            else count
-            for name, count in counts.items()
-        }
+        for name, count in strategy_counts.items():
+            if count == ALL_SAMPLES or name in cyclic_solution_strategies:
+                counts[name] = _solution_file_count(count, solution_rows_total)
+                notices += _row_cap(name, count, counts[name], RowCapSource.SOLUTION_FILE)
     files: dict[str, tuple[int, ...]] = {}
     for strategy_name, glob_pattern in archive_globs.items():
         if strategy_counts[strategy_name] != ALL_SAMPLES:
             continue
         sized_counts, sized_files = _allocate_archive_rows(
             archive_source=archive_source,
-            strategy_name=strategy_name,
             glob_pattern=glob_pattern,
             skip=_archive_skip(strategy_overrides, strategy_name),
             rows=ALL_SAMPLES,
@@ -303,6 +307,7 @@ def _single_matrix_allocation(
     return BindingAllocation(
         counts=tuple(dict(counts) for _ in bindings),
         file_indices=tuple(dict(files) for _ in bindings),
+        notices=notices,
     )
 
 
@@ -367,10 +372,11 @@ def _resolve_binding_strategy_counts(
     groups = list(_binding_indices_by_matrix(bindings).values())
     counts_by_binding: list[dict[str, int]] = [{} for _ in bindings]
     files_by_binding: list[dict[str, tuple[int, ...]]] = [{} for _ in bindings]
+    notices: tuple[RowsCapped, ...] = ()
     for strategy_name, count in strategy_counts.items():
         if count == 0:
             continue
-        per_binding_counts, per_binding_files = _binding_counts_for_strategy(
+        allocated = _binding_counts_for_strategy(
             strategy_name,
             count,
             archive_source=archive_source,
@@ -382,13 +388,15 @@ def _resolve_binding_strategy_counts(
             solution_rows_total=solution_rows_total,
             seed=mixture.seed,
         )
-        for binding_idx, binding_count in per_binding_counts.items():
+        for binding_idx, binding_count in allocated.counts.items():
             counts_by_binding[binding_idx][strategy_name] = binding_count
-        for binding_idx, file_indices in per_binding_files.items():
+        for binding_idx, file_indices in allocated.files.items():
             files_by_binding[binding_idx][strategy_name] = file_indices
+        notices += allocated.notices
     return BindingAllocation(
         counts=tuple(counts_by_binding),
         file_indices=tuple(files_by_binding),
+        notices=notices,
     )
 
 
@@ -404,7 +412,7 @@ def _binding_counts_for_strategy(
     cyclic_solution_strategies: frozenset[str],
     solution_rows_total: int | None,
     seed: int,
-) -> tuple[dict[int, int], dict[int, tuple[int, ...]]]:
+) -> _StrategyAllocation:
     """Resolve one strategy's global count into its per-binding counts and archive files.
 
     TODO: this dispatches on a closed, 5-case ``match``; a registry of per-kind rule
@@ -434,13 +442,16 @@ def _binding_counts_for_strategy(
     match (solution_rows_total, is_cyclic, is_archive, is_all_samples):
         case (int() as rows_total, True, _, _):
             # Binding b draws rows (b + p) mod K, so each binding takes the same count.
-            capped = _solution_file_count(strategy_name, count, rows_total)
-            return dict.fromkeys(range(num_bindings), capped), {}
+            capped = _solution_file_count(count, rows_total)
+            return _StrategyAllocation(
+                dict.fromkeys(range(num_bindings), capped),
+                {},
+                _row_cap(strategy_name, count, capped, RowCapSource.SOLUTION_FILE),
+            )
         case (_, _, True, _):
             rows_per_system = _rows_per_system_for(strategy_name, strategy_overrides, count)
             counts, files = _allocate_archive_rows(
                 archive_source=archive_source,
-                strategy_name=strategy_name,
                 glob_pattern=archive_globs[strategy_name],
                 skip=_archive_skip(strategy_overrides, strategy_name),
                 rows=count,
@@ -456,7 +467,11 @@ def _binding_counts_for_strategy(
             per_binding_files = {
                 binding_idx: files[binding_idx] for binding_idx in per_binding_counts
             }
-            return per_binding_counts, per_binding_files
+            return _StrategyAllocation(
+                per_binding_counts,
+                per_binding_files,
+                _row_cap(strategy_name, count, sum(counts), RowCapSource.ARCHIVE_PAIRS),
+            )
         case (None, _, _, True):
             raise ValueError(
                 f"Strategy '{strategy_name}' requested samples=-1 (\"all\") across "
@@ -468,7 +483,7 @@ def _binding_counts_for_strategy(
             )
         case (int() as rows_total, _, _, True):
             # Every binding receives all rows of the solution source, so no split applies.
-            return dict.fromkeys(range(num_bindings), rows_total), {}
+            return _StrategyAllocation(dict.fromkeys(range(num_bindings), rows_total), {})
         case _:
             rows_per_system = _rows_per_system_for(strategy_name, strategy_overrides, count)
             allocations = _split_generated_rows(count, rows_per_system, groups, num_bindings, seed)
@@ -477,4 +492,4 @@ def _binding_counts_for_strategy(
                 for binding_idx, binding_count in enumerate(allocations)
                 if binding_count > 0
             }
-            return per_binding_counts, {}
+            return _StrategyAllocation(per_binding_counts, {})

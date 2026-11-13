@@ -14,7 +14,7 @@ from typing import Any
 
 import numpy as np
 
-from ..interfaces import ArchiveData, GeneratedSamples
+from ..interfaces import ArchiveData, SolvedRows
 from ..runner import register_strategy
 from ..strategy_configs import KrylovConfig
 from ..transforms import ComputeRhsTransform, KrylovBasisTransform
@@ -44,7 +44,7 @@ class KrylovStrategy:
         *,
         cfg: dict[str, Any],
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> SolvedRows:
         """Generate samples using Krylov subspace methods.
 
         Args:
@@ -70,4 +70,4 @@ class KrylovStrategy:
         rhs_transform = ComputeRhsTransform(matrix)
         rhs = rhs_transform.transform(solutions)
 
-        return GeneratedSamples(matrix=matrix, rhs=rhs, solutions=solutions)
+        return SolvedRows(matrix=matrix, rhs=rhs, solutions=solutions)

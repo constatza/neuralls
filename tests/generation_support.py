@@ -16,7 +16,13 @@ import pytest
 from loguru import logger
 
 from neuralls.domain.generation.file_sources import MatrixReaders
-from neuralls.domain.generation.interfaces import TracingSolverCallable
+from neuralls.domain.generation.interfaces import (
+    ErrorTraceRows,
+    GeneratedSamples,
+    ResidualTraceRows,
+    SolvedRows,
+    TracingSolverCallable,
+)
 from neuralls.domain.generation.orchestration import BatchStream, open_batch_stream
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.archive_source import FsArchiveSource
@@ -142,3 +148,30 @@ def open_binding_stream() -> Callable[..., BatchStream]:
         )
 
     return _open
+
+
+def solved_rows(result: GeneratedSamples) -> SolvedRows:
+    """The result of a strategy that emits (rhs, solution) pairs; any other shape fails."""
+    match result:
+        case SolvedRows():
+            return result
+        case ResidualTraceRows() | ErrorTraceRows():
+            raise TypeError(f"Expected SolvedRows, got {type(result).__name__}")
+
+
+def error_trace_rows(result: GeneratedSamples) -> ErrorTraceRows:
+    """The result of a CG trajectory strategy; any other shape fails."""
+    match result:
+        case ErrorTraceRows():
+            return result
+        case SolvedRows() | ResidualTraceRows():
+            raise TypeError(f"Expected ErrorTraceRows, got {type(result).__name__}")
+
+
+def residual_trace_rows(result: GeneratedSamples) -> ResidualTraceRows:
+    """The result of a smoother-probe strategy; any other shape fails."""
+    match result:
+        case ResidualTraceRows():
+            return result
+        case SolvedRows() | ErrorTraceRows():
+            raise TypeError(f"Expected ResidualTraceRows, got {type(result).__name__}")

@@ -14,6 +14,7 @@ from loguru import logger
 from neuralls.composition.generation.csr_streaming import write_csr_streamed
 from neuralls.composition.generation.default_services import make_solver
 from neuralls.composition.generation.dense_streaming import write_dense_streamed
+from neuralls.composition.generation.generation_log import log_strategy_rows
 from neuralls.domain.generation.provenance import describe_dataset_generation
 from neuralls.domain.generation.sample_writer import StrategyRowCount
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
@@ -237,6 +238,7 @@ def build_dataset(
         realized = streamed_writer(
             source, _with_default_solvers(spec), dataset_path, dataset_format
         )
+    log_strategy_rows(realized)
     # Stamped only after the commit rename: an interrupted run never gets an identity.
     _stamp_dataset_identity(
         dataset_path,

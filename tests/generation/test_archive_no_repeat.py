@@ -10,6 +10,7 @@ from neuralls.domain.generation import binding_allocation
 from neuralls.domain.generation.batch_plan import BindingAllocation
 from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.bindings import SystemBinding
+from neuralls.domain.generation.notices import RowCapSource, RowsCapped
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.platform.storage.archive_source import FsArchiveSource
 
@@ -106,10 +107,9 @@ def test_rhs_archive_all_samples_emits_every_pair_once(
     assert len(set(pairs)) == 15
 
 
-def test_rhs_archive_request_above_m_times_k_is_capped_with_one_warning(
+def test_rhs_archive_request_above_m_times_k_is_capped_with_one_notice(
     write_rhs_files: Callable[[int], str],
     matrix_bindings: list[SystemBinding],
-    warning_messages: list[str],
 ) -> None:
     """A count above M*K is capped at M*K and reported once, naming rhs_archive."""
     allocation = _resolve_binding_strategy_counts(
@@ -121,7 +121,7 @@ def test_rhs_archive_request_above_m_times_k_is_capped_with_one_warning(
 
     assert _counts(allocation, RHS_ARCHIVE) == [5, 5, 5]
     assert len(set(_pairs(allocation, RHS_ARCHIVE))) == 15
-    assert len(warning_messages) == 1
+    assert allocation.notices == (RowsCapped(RHS_ARCHIVE, 20, 15, RowCapSource.ARCHIVE_PAIRS),)
 
 
 def test_rhs_archive_single_matrix_several_bindings_rejected_before_glob_read(

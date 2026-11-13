@@ -121,6 +121,13 @@ the supported generation formats (`npy` datasets stay readable).
   building the manifest facts common to both formats except `layout` (`manifest_facts`), and
   committing the staged directory while returning the rows each strategy wrote
   (`commit_with_rows`).
+- `generation/generation_log.py` is the operator log of a run. The domain returns its outcomes
+  as data and never logs; this module renders them: the planned `RowsCapped` notices when the
+  stream opens (`log_planned_notices`), one progress line per batch plus the batch's solve and
+  invalid-pair notices as the batch is written (`logged_batches`), one warning per field the
+  bindings disagreed on (`logged_scale_summary`), and each strategy's realized description
+  once after the commit (`log_strategy_rows`). `render_notice` matches every `GenerationNotice`
+  variant exhaustively.
 
 Both writers return the per-strategy row counts that `SampleWriter` recorded from the batches it
 actually wrote; `build_dataset` turns them into the dataset's provenance, so nothing is recomputed

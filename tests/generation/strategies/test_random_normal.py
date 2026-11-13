@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from neuralls.domain.generation import run_generation
+from tests.generation_support import solved_rows
 
 
 def test_random_normal_shapes(spd_matrix: np.ndarray) -> None:
@@ -12,7 +13,7 @@ def test_random_normal_shapes(spd_matrix: np.ndarray) -> None:
     n = spd_matrix.shape[0]
     cfg = {"samples": 4, "seed": 0}
 
-    result = run_generation("random", spd_matrix, cfg=cfg)
+    result = solved_rows(run_generation("random", spd_matrix, cfg=cfg))
     assert result.solutions is not None
     assert result.rhs is not None
 
@@ -24,7 +25,7 @@ def test_random_normal_sample_count(spd_matrix: np.ndarray) -> None:
     """Different sample counts produce correct output sizes."""
     for count in (1, 5, 10):
         cfg = {"samples": count, "seed": 0}
-        result = run_generation("random", spd_matrix, cfg=cfg)
+        result = solved_rows(run_generation("random", spd_matrix, cfg=cfg))
         assert result.rhs is not None
         assert result.rhs.shape[0] == count
 
@@ -32,7 +33,7 @@ def test_random_normal_sample_count(spd_matrix: np.ndarray) -> None:
 def test_random_normal_computes_rhs(spd_matrix: np.ndarray) -> None:
     """RHS = A @ x for all generated samples."""
     cfg = {"samples": 5, "seed": 42}
-    result = run_generation("random", spd_matrix, cfg=cfg)
+    result = solved_rows(run_generation("random", spd_matrix, cfg=cfg))
     assert result.solutions is not None
 
     for i in range(result.solutions.shape[0]):
@@ -46,10 +47,10 @@ def test_random_normal_deterministic(spd_matrix: np.ndarray) -> None:
     """Same seed produces identical output across two calls."""
     cfg = {"samples": 4, "seed": 7}
 
-    result1 = run_generation("random", spd_matrix, cfg=cfg)
+    result1 = solved_rows(run_generation("random", spd_matrix, cfg=cfg))
     assert result1.solutions is not None
     assert result1.rhs is not None
-    result2 = run_generation("random", spd_matrix, cfg=cfg)
+    result2 = solved_rows(run_generation("random", spd_matrix, cfg=cfg))
     assert result2.solutions is not None
     assert result2.rhs is not None
 
@@ -61,9 +62,9 @@ def test_random_normal_deterministic(spd_matrix: np.ndarray) -> None:
 
 def test_random_normal_different_seeds(spd_matrix: np.ndarray) -> None:
     """Different seeds produce different output."""
-    result1 = run_generation("random", spd_matrix, cfg={"samples": 4, "seed": 1})
+    result1 = solved_rows(run_generation("random", spd_matrix, cfg={"samples": 4, "seed": 1}))
     assert result1.rhs is not None
-    result2 = run_generation("random", spd_matrix, cfg={"samples": 4, "seed": 2})
+    result2 = solved_rows(run_generation("random", spd_matrix, cfg={"samples": 4, "seed": 2}))
     assert result2.rhs is not None
 
     assert result1.rhs.ndim == 2 and result2.rhs.ndim == 2

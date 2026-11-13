@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from ..interfaces import ArchiveData, GeneratedSamples
+from ..interfaces import ArchiveData, SolvedRows
 from ..providers import ConstantInputProvider
 from ..runner import register_strategy
 from ..strategy_configs import ConstantForwardConfig, ConstantInverseConfig
@@ -43,7 +43,7 @@ class ConstantForwardStrategy:
         *,
         cfg: dict[str, Any],
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> SolvedRows:
         """Generate constant solutions and compute RHS.
 
         Args:
@@ -55,7 +55,7 @@ class ConstantForwardStrategy:
             GeneratedSamples with constant solutions x = ones * c and b = A @ x.
         """
         config = ConstantForwardConfig(**cfg)
-        rng = np.random.default_rng()  # Unused; required for protocol compliance
+        rng = np.random.default_rng(config.seed)
 
         # Layer 1: Input provision (constant solutions)
         provider = ConstantInputProvider(value=config.c)
@@ -64,7 +64,7 @@ class ConstantForwardStrategy:
         # Layer 2: Transformation (compute RHS from solutions)
         rhs = ComputeRhsTransform(matrix).transform(solutions)
 
-        return GeneratedSamples(matrix=matrix, rhs=rhs, solutions=solutions)
+        return SolvedRows(matrix=matrix, rhs=rhs, solutions=solutions)
 
 
 @register_strategy
@@ -87,7 +87,7 @@ class ConstantInverseStrategy:
         *,
         cfg: dict[str, Any],
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> SolvedRows:
         """Generate constant RHS vectors and solve for solutions.
 
         Args:
@@ -99,13 +99,15 @@ class ConstantInverseStrategy:
             GeneratedSamples with constant RHS b = ones * c and solved solutions.
         """
         config = ConstantInverseConfig(**cfg)
-        rng = np.random.default_rng()  # Unused; required for protocol compliance
+        rng = np.random.default_rng(config.seed)
 
         # Layer 1: Input provision (constant RHS)
         provider = ConstantInputProvider(value=config.c)
         rhs = provider.provide(matrix, count=config.samples, rng=rng)
 
         # Layer 2: Transformation (solve for solutions)
-        solutions = SolveTransform(matrix, **config.solve_config.model_dump()).transform(rhs)
+        solved = SolveTransform(matrix, config.solve_config).transform(rhs)
 
-        return GeneratedSamples(matrix=matrix, rhs=rhs, solutions=solutions)
+        return SolvedRows(
+            matrix=matrix, rhs=rhs, solutions=solved.solutions, notices=solved.unconverged
+        )

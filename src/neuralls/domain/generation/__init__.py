@@ -8,7 +8,7 @@ according to user-specified proportions.
 Public API:
     open_batch_stream: Streamed mixed-strategy generation (plan, then batches)
     run_generation: Registry-based strategy dispatcher
-    Data types: StrategyOutput, ArchiveData, GeneratedSamples
+    Data types: ArchiveData, GeneratedSamples
     Helpers: rng_from_seed, rounded_counts
 
 Architecture:
@@ -33,12 +33,12 @@ from neuralls.shared.types import NormalizeType
 from . import providers, strategies, transforms
 from .archive_files import select_archive_files
 from .counts import rounded_counts
+from .interfaces import ArchiveData, GeneratedSamples
 from .orchestration import open_batch_stream
 from .plan import GenerationPlan, StrategySpec, parse_generation_plan
 from .runner import run_generation
 from .seeds import rng_from_seed
 from .specs import DatasetSpec, MixtureSpec, SourceSpec
-from .types import ArchiveData, GeneratedSamples, StrategyOutput
 
 __all__ = [
     "ArchiveData",
@@ -48,8 +48,6 @@ __all__ = [
     "MixtureSpec",
     "NormalizeType",
     "SourceSpec",
-    # Data types
-    "StrategyOutput",
     "StrategySpec",
     # Main API
     "open_batch_stream",

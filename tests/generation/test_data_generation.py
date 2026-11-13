@@ -10,8 +10,14 @@ from neuralls.domain.generation import run_generation
 from neuralls.domain.generation.helpers import (
     _generate_eigenvector_combinations,
 )
-from neuralls.domain.generation.interfaces import ArchiveData, TracingSolverCallable
-from neuralls.domain.generation.runner import GeneratedSamples
+from neuralls.domain.generation.interfaces import (
+    ArchiveData,
+    ErrorTraceRows,
+    GeneratedSamples,
+    ResidualTraceRows,
+    SolvedRows,
+    TracingSolverCallable,
+)
 from neuralls.domain.generation.strategy_configs import KrylovConfig
 from neuralls.platform.storage.archive_source import FsArchiveSource
 
@@ -20,13 +26,13 @@ ARCHIVE_SOURCE = FsArchiveSource()
 
 def _pairs(generated: GeneratedSamples) -> tuple[np.ndarray, np.ndarray]:
     """The (rhs, solutions) training pairs one strategy emits, trace rows included."""
-    if generated.error_traces is not None:
-        return generated.error_traces.residuals, generated.error_traces.errors
-    if generated.residual_traces is not None:
-        return generated.residual_traces.residuals, generated.residual_traces.solutions
-    assert generated.rhs is not None and generated.solutions is not None
-    assert generated.rhs.ndim == 2 and generated.solutions.ndim == 2
-    return generated.rhs, generated.solutions
+    match generated:
+        case ErrorTraceRows(error_traces=traces):
+            return traces.residuals, traces.errors
+        case ResidualTraceRows(residual_traces=traces):
+            return traces.residuals, traces.solutions
+        case SolvedRows(rhs=rhs, solutions=solutions):
+            return rhs, solutions
 
 
 def _generate(

@@ -15,6 +15,7 @@ import pytest
 from scipy.sparse import csr_array
 
 from neuralls.domain.generation import run_generation
+from tests.generation_support import residual_trace_rows
 
 SPD_DIM = 12
 SPD_SEED = 3
@@ -75,8 +76,8 @@ def test_csr_output_matches_dense(
     """CSR and dense inputs with identical values produce the same traces."""
     cfg = _cfg(omega, distribution)
 
-    dense = run_generation(STRATEGY, dense_spd, cfg=cfg).residual_traces
-    sparse = run_generation(STRATEGY, csr_spd, cfg=cfg).residual_traces
+    dense = residual_trace_rows(run_generation(STRATEGY, dense_spd, cfg=cfg)).residual_traces
+    sparse = residual_trace_rows(run_generation(STRATEGY, csr_spd, cfg=cfg)).residual_traces
 
     assert dense is not None and sparse is not None
     assert dense.solutions.shape == sparse.solutions.shape
@@ -88,6 +89,6 @@ def test_csr_output_matches_dense(
 
 def test_csr_path_never_densifies(csr_spd: csr_array, toarray_calls: list[int]) -> None:
     """Running on a CSR matrix must not call ``toarray`` on it."""
-    run_generation(STRATEGY, csr_spd, cfg=_cfg(omega=0.67))
+    residual_trace_rows(run_generation(STRATEGY, csr_spd, cfg=_cfg(omega=0.67)))
 
     assert toarray_calls == []

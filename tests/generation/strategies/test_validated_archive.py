@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
 import numpy as np
 import pytest
 
+from neuralls.domain.generation.notices import InvalidPairs
 from neuralls.domain.generation.strategies.validated_archive import ValidatedArchiveStrategy
 from neuralls.domain.generation.strategy_configs import ValidatedArchiveConfig
 from tests.fakes.archive_source import InMemoryArchiveSource
@@ -132,7 +132,7 @@ def test_validated_archive_generate_invalid_warn(
     invalid_pairs: tuple[Path, Path],
     archive_source: InMemoryArchiveSource,
 ) -> None:
-    """Invalid pairs warn and still return loaded samples when configured to continue."""
+    """Invalid pairs are reported and the loaded samples kept when configured to continue."""
     solutions_dir, rhs_dir = invalid_pairs
 
     cfg = {
@@ -140,18 +140,20 @@ def test_validated_archive_generate_invalid_warn(
         "solutions_glob": str(solutions_dir / "sol_*.txt"),
         "rhs_glob": str(rhs_dir / "rhs_*.txt"),
         "verification_tolerance": 1e-10,
-        "fail_on_invalid": False,  # Just warn
+        "fail_on_invalid": False,
         "seed": 42,
     }
 
-    strategy = ValidatedArchiveStrategy()
-    with patch(
-        "neuralls.domain.generation.strategies.validated_archive.logger.warning"
-    ) as mock_warning:
-        samples = strategy.generate(sample_matrix, cfg=cfg, archive_source=archive_source)
+    samples = ValidatedArchiveStrategy().generate(
+        sample_matrix, cfg=cfg, archive_source=archive_source
+    )
 
-    assert samples.solutions is not None
-    mock_warning.assert_called_once()
+    assert samples.solutions.shape[0] == 5
+    match samples.notices:
+        case (InvalidPairs(total=5, tolerance=1e-10),):
+            pass
+        case other:
+            pytest.fail(f"Expected one InvalidPairs notice over 5 pairs, got {other}")
 
 
 def test_validated_archive_shuffle(

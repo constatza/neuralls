@@ -14,8 +14,8 @@ Examples:
     >>> rhs = transform.transform(solutions)
 
     >>> # Inverse: x = A^-1 @ b
-    >>> transform = SolveTransform(matrix, method="cg")
-    >>> solutions = transform.transform(rhs)
+    >>> transform = SolveTransform(matrix, SolveConfig(method="cg"))
+    >>> solutions = transform.transform(rhs).solutions
 
     >>> # Chaining transforms
     >>> eigen_transform = EigenvectorCombinationTransform(config, rng)
@@ -41,10 +41,12 @@ from .eigen_strategies import (
 )
 from .krylov import _generate_krylov_combinations, _lanczos_iteration
 from .linear_solve import (
+    SolvedSystems,
     _solve_linear_systems,
     _verify_solution_accuracy,
 )
 from .matrix_operator import MatrixOperator, require_eigen_count
+from .strategy_configs import SolveConfig
 
 TIn_contra = TypeVar("TIn_contra", contravariant=True)
 TOut_co = TypeVar("TOut_co", covariant=True)
@@ -109,89 +111,55 @@ class SolveTransform:
 
     Examples:
         >>> A = np.eye(10) * 2
-        >>> transform = SolveTransform(A, method="direct")
-        >>> b = np.ones((5, 10)) * 2
-        >>> x = transform.transform(b)
-        >>> x.shape
-        (5, 10)
-        >>> np.allclose(x, np.ones((5, 10)))
+        >>> transform = SolveTransform(A, SolveConfig(method="direct"))
+        >>> solved = transform.transform(np.ones((5, 10)) * 2)
+        >>> np.allclose(solved.solutions, np.ones((5, 10)))
         True
     """
 
-    def __init__(
-        self,
-        matrix: SystemMatrix,
-        method: Literal["direct", "cg"] = "cg",
-        rtol: float = 1e-12,
-        atol: float = 0.0,
-        max_iters: int = 500,
-        assume_pos_def: bool = True,
-    ) -> None:
+    def __init__(self, matrix: SystemMatrix, config: SolveConfig) -> None:
         """Initialize solve transform.
 
         Args:
             matrix: System matrix A
-            method: Solving method ("direct" or "cg")
-            rtol: Relative tolerance for CG
-            atol: Absolute tolerance for CG
-            max_iters: Maximum CG iterations
-            assume_pos_def: Assume positive-definite for direct solve
+            config: Validated solve settings (method, CG tolerances, positive-definiteness)
         """
         self.operator = MatrixOperator(matrix)
-        self.method: Literal["direct", "cg"] = method
-        self.rtol = rtol
-        self.atol = atol
-        self.max_iters = max_iters
-        self.assume_pos_def = assume_pos_def
+        self.config = config
 
-    def transform(self, rhs: np.ndarray) -> np.ndarray:
+    def transform(self, rhs: np.ndarray) -> SolvedSystems:
         """Solve systems: x = A^-1 @ b.
 
         Args:
             rhs: RHS vectors, shape (N, n)
 
         Returns:
-            Solution vectors, shape (N, n)
+            The solutions, shape (N, n), and the rows CG did not converge on
         """
-        return _solve_linear_systems(
-            self.operator,
-            rhs,
-            self.method,
-            self.rtol,
-            self.atol,
-            self.max_iters,
-            self.assume_pos_def,
-        )
+        return _solve_linear_systems(self.operator, rhs, self.config)
 
 
 class VerifyTransform:
-    """Verification transformation: check ||A @ x - b|| < tolerance.
+    """Verification transformation: relative residual of each (solution, RHS) pair.
 
     Examples:
         >>> A = np.eye(10)
-        >>> transform = VerifyTransform(A, tolerance=1e-10)
         >>> x = np.ones((5, 10))
-        >>> b = A @ x[0]  # Use first solution
-        >>> b_full = np.array([b] * 5)
-        >>> residuals = transform.transform((x, b_full))
+        >>> residuals = VerifyTransform(A).transform((x, x))
         >>> residuals.shape
         (5,)
-        >>> np.all(residuals < 1e-10)
-        True
     """
 
-    def __init__(self, matrix: np.ndarray, tolerance: float = 1e-10) -> None:
+    def __init__(self, matrix: np.ndarray) -> None:
         """Initialize verification transform.
 
         Args:
             matrix: System matrix A
-            tolerance: Relative residual tolerance
         """
         self.matrix = matrix
-        self.tolerance = tolerance
 
     def transform(self, data: tuple[np.ndarray, np.ndarray]) -> np.ndarray:
-        """Verify solution accuracy.
+        """Measure solution accuracy.
 
         Args:
             data: Tuple of (solutions, rhs), both shape (N, n)
@@ -200,12 +168,7 @@ class VerifyTransform:
             Relative residuals, shape (N,)
         """
         solutions, rhs = data
-        return _verify_solution_accuracy(
-            self.matrix,
-            rhs,
-            solutions,
-            self.tolerance,
-        )
+        return _verify_solution_accuracy(self.matrix, rhs, solutions)
 
 
 class EigenvectorCombinationTransform:

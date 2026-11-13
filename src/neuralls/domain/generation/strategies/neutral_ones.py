@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..interfaces import ArchiveData, GeneratedSamples
+from ..interfaces import ArchiveData, SolvedRows
 from ..providers import ConstantInputProvider
 from ..runner import register_strategy
 from ..strategy_configs import NeutralOnesConfig
@@ -45,7 +45,7 @@ class NeutralOnesStrategy:
         *,
         cfg: dict,
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> SolvedRows:
         """Generate x=ones and compute b=A@x.
 
         Args:
@@ -59,7 +59,7 @@ class NeutralOnesStrategy:
         # Validate and convert to typed config
         config = NeutralOnesConfig(**cfg)
 
-        rng = np.random.default_rng()  # Unused, for protocol compliance
+        rng = np.random.default_rng(config.seed)
 
         # Layer 1: Input provision (constant ones)
         provider = ConstantInputProvider(value=1.0)
@@ -69,4 +69,4 @@ class NeutralOnesStrategy:
         transform = ComputeRhsTransform(matrix)
         rhs = transform.transform(solutions)
 
-        return GeneratedSamples(matrix=matrix, rhs=rhs, solutions=solutions)
+        return SolvedRows(matrix=matrix, rhs=rhs, solutions=solutions)

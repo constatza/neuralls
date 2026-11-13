@@ -15,8 +15,9 @@ import numpy as np
 import pytest
 from tests.dataset_support import build_test_dataset
 
-from neuralls.domain.generation.batch_plan import plan_batches
+from neuralls.domain.generation.batch_plan import BindingAllocation, plan_batches
 from neuralls.domain.generation.file_sources import MatrixReaders
+from neuralls.domain.generation.notices import RowCapSource, RowsCapped
 from neuralls.domain.generation.orchestration import _prepare_generation_context
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.platform.storage.archive_source import FsArchiveSource
@@ -73,11 +74,14 @@ def _spec(count: int) -> DatasetSpec:
     return DatasetSpec(mixture=MixtureSpec(counts={"solution_archive": count}))
 
 
-def _planned_total(source: SourceSpec, spec: DatasetSpec) -> int:
-    context = _prepare_generation_context(
+def _allocation(source: SourceSpec, spec: DatasetSpec) -> BindingAllocation:
+    return _prepare_generation_context(
         source, spec, readers=_READERS, archive_source=ARCHIVE_SOURCE
-    )
-    plan = plan_batches(context.allocation)
+    ).allocation
+
+
+def _planned_total(source: SourceSpec, spec: DatasetSpec) -> int:
+    plan = plan_batches(_allocation(source, spec))
     assert plan.is_exact
     return plan.total_rows
 
@@ -114,18 +118,19 @@ def test_glob_solution_path_explicit_count_matches_the_written_rows(
     assert _written_rows(source, spec, tmp_path / "dataset") == _NUM_MATRICES
 
 
-def test_glob_solution_path_count_above_pool_is_capped_with_one_warning(
+def test_glob_solution_path_count_above_pool_is_capped_with_one_notice(
     matrix_dir: Path,
     solution_dir_factory: Callable[[int], Path],
     tmp_path: Path,
-    warning_messages: list[str],
 ) -> None:
-    """An explicit count above K=2 is capped at the pool, warned once, and sized to match."""
+    """An explicit count above K=2 is capped at the pool, reported once, and sized to match."""
     num_files = 2
     solution_dir = solution_dir_factory(num_files)
     source = _source(matrix_dir, str(solution_dir / "x_*.txt"))
     spec = _spec(5)
 
     assert _planned_total(source, spec) == _NUM_MATRICES * num_files
-    assert len(warning_messages) == 1
+    assert _allocation(source, spec).notices == (
+        RowsCapped("solution_archive", 5, num_files, RowCapSource.SOLUTION_FILE),
+    )
     assert _written_rows(source, spec, tmp_path / "dataset") == _NUM_MATRICES * num_files

@@ -13,7 +13,10 @@ from neuralls.domain.generation.helpers import (
     _solve_linear_systems,
 )
 from neuralls.domain.generation.matrix_operator import EigenWhich, MatrixOperator, _FactorKind
-from neuralls.domain.generation.strategy_configs import require_which_supported_by_format
+from neuralls.domain.generation.strategy_configs import (
+    SolveConfig,
+    require_which_supported_by_format,
+)
 from neuralls.platform.config.models.data_models import DataConfigFile
 from neuralls.shared.types import EigenvectorSelection, MatrixFormat
 
@@ -158,8 +161,9 @@ def test_registry_solvers_agree_across_formats(
     tolerance = DIRECT_TOLERANCE if method == "direct" else CG_TOLERANCE
     expected = np.array([np.linalg.solve(spd_dense, rhs) for rhs in rhs_rows])
 
-    dense_solutions = _solve_linear_systems(MatrixOperator(spd_dense), rhs_rows, method)  # type: ignore[arg-type]
-    csr_solutions = _solve_linear_systems(MatrixOperator(spd_csr), rhs_rows, method)  # type: ignore[arg-type]
+    config = SolveConfig(method=method)  # type: ignore[arg-type]
+    dense_solutions = _solve_linear_systems(MatrixOperator(spd_dense), rhs_rows, config).solutions
+    csr_solutions = _solve_linear_systems(MatrixOperator(spd_csr), rhs_rows, config).solutions
 
     np.testing.assert_allclose(dense_solutions, expected, atol=tolerance)
     np.testing.assert_allclose(csr_solutions, expected, atol=tolerance)

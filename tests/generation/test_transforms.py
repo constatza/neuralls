@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from neuralls.domain.generation.strategy_configs import SolveConfig
 from neuralls.domain.generation.transforms import (
     ComputeRhsTransform,
     EigenvectorCombinationTransform,
@@ -41,10 +42,10 @@ def test_compute_rhs_transform_forward(diagonal_matrix: np.ndarray) -> None:
 
 def test_solve_transform_inverse_direct(diagonal_matrix: np.ndarray) -> None:
     """Test inverse transform with direct solve."""
-    transform = SolveTransform(diagonal_matrix, method="direct")
+    transform = SolveTransform(diagonal_matrix, SolveConfig(method="direct"))
     b = np.ones((5, 10)) * 2.0
 
-    x = transform.transform(b)
+    x = transform.transform(b).solutions
 
     assert x.shape == (5, 10)
     assert x.dtype == np.float64
@@ -55,18 +56,17 @@ def test_solve_transform_inverse_direct(diagonal_matrix: np.ndarray) -> None:
 def test_solve_transform_inverse_cg(sample_spd_matrix: np.ndarray) -> None:
     """Test inverse transform with CG solve."""
     transform = SolveTransform(
-        sample_spd_matrix,
-        method="cg",
-        rtol=1e-12,
-        max_iters=500,
+        sample_spd_matrix, SolveConfig(method="cg", rtol=1e-12, max_iters=500)
     )
 
     # Create RHS from known solution
     x_true = np.random.randn(5, 10)
     b = np.array([sample_spd_matrix @ x for x in x_true])
 
-    x_solved = transform.transform(b)
+    solved = transform.transform(b)
+    x_solved = solved.solutions
 
+    assert solved.unconverged == ()
     assert x_solved.shape == (5, 10)
     # Check that solved x is close to true x
     for i in range(5):
@@ -78,19 +78,32 @@ def test_solve_transform_inverse_cg(sample_spd_matrix: np.ndarray) -> None:
 def test_solve_transform_round_trip(sample_spd_matrix: np.ndarray) -> None:
     """Test round-trip: x -> b -> x."""
     forward = ComputeRhsTransform(sample_spd_matrix)
-    inverse = SolveTransform(sample_spd_matrix, method="cg", rtol=1e-12)
+    inverse = SolveTransform(sample_spd_matrix, SolveConfig(method="cg", rtol=1e-12))
 
     x_original = np.random.randn(5, 10)
     b = forward.transform(x_original)
-    x_recovered = inverse.transform(b)
+    x_recovered = inverse.transform(b).solutions
 
     # Check round-trip accuracy
     assert np.allclose(x_original, x_recovered, rtol=1e-8, atol=1e-10)
 
 
+def test_solve_transform_reports_rows_cg_did_not_converge_on(
+    sample_spd_matrix: np.ndarray,
+) -> None:
+    """One CG iteration cannot solve a dense 10x10 system, so every row is reported."""
+    transform = SolveTransform(sample_spd_matrix, SolveConfig(method="cg", max_iters=1))
+    b = np.ones((3, 10))
+
+    solved = transform.transform(b)
+
+    assert [notice.row for notice in solved.unconverged] == [0, 1, 2]
+    assert all(notice.exit_code == 1 for notice in solved.unconverged)
+
+
 def test_verify_transform_accurate_solutions(sample_spd_matrix: np.ndarray) -> None:
     """Test verification transform with accurate solutions."""
-    transform = VerifyTransform(sample_spd_matrix, tolerance=1e-10)
+    transform = VerifyTransform(sample_spd_matrix)
 
     x = np.random.randn(5, 10)
     b = np.array([sample_spd_matrix @ xi for xi in x])
@@ -102,15 +115,13 @@ def test_verify_transform_accurate_solutions(sample_spd_matrix: np.ndarray) -> N
 
 
 def test_verify_transform_inaccurate_solutions(sample_spd_matrix: np.ndarray) -> None:
-    """Test verification transform detects inaccurate solutions."""
-    transform = VerifyTransform(sample_spd_matrix, tolerance=1e-10)
+    """Test verification transform measures inaccurate solutions."""
+    transform = VerifyTransform(sample_spd_matrix)
 
     x = np.random.randn(5, 10)
     b_wrong = np.random.randn(5, 10)  # Random RHS, not A @ x
 
-    # Should warn about inaccurate solutions
-    with pytest.warns(RuntimeWarning):
-        residuals = transform.transform((x, b_wrong))
+    residuals = transform.transform((x, b_wrong))
 
     assert residuals.shape == (5,)
     # Residuals should be large
@@ -182,13 +193,13 @@ def test_transforms_are_composable(sample_spd_matrix: np.ndarray) -> None:
         rng=rng,
     )
     forward_transform = ComputeRhsTransform(sample_spd_matrix)
-    inverse_transform = SolveTransform(sample_spd_matrix, method="cg", rtol=1e-12)
-    verify_transform = VerifyTransform(sample_spd_matrix, tolerance=1e-10)
+    inverse_transform = SolveTransform(sample_spd_matrix, SolveConfig(method="cg", rtol=1e-12))
+    verify_transform = VerifyTransform(sample_spd_matrix)
 
     # Execute pipeline
     x_original = eigen_transform.transform(sample_spd_matrix)
     b = forward_transform.transform(x_original)
-    x_recovered = inverse_transform.transform(b)
+    x_recovered = inverse_transform.transform(b).solutions
     residuals = verify_transform.transform((x_recovered, b))
 
     # Verify pipeline correctness

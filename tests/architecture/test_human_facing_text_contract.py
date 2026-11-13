@@ -184,20 +184,6 @@ SCOPES: dict[str, SinkScope] = {
                 "checkpoint resolution runs before presentation and a method that fails to "
                 "resolve has no resolved spec to describe, so it is named by its result key",
             ),
-            Allowed(
-                LOG_ID_TEXT,
-                "domain/generation/strategies/rhs_archive.py",
-                "generate",
-                "names the configured linear-solver algorithm, a closed vocabulary that is "
-                "not a method presentation",
-            ),
-            Allowed(
-                LOG_ID_TEXT,
-                "domain/generation/strategies/sparse_rhs.py",
-                "generate",
-                "names the configured linear-solver algorithm, a closed vocabulary that is "
-                "not a method presentation",
-            ),
         ),
     ),
     "config-and-registry": SinkScope(

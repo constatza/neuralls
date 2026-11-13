@@ -13,6 +13,7 @@ from pathlib import Path
 
 from scipy.sparse import csr_array
 
+from neuralls.composition.generation.generation_log import logged_batches, logged_scale_summary
 from neuralls.composition.generation.streamed_write import (
     commit_with_rows,
     manifest_facts,
@@ -114,7 +115,7 @@ def _write_into(
         staging_dir,
         dataset_format,
         artifacts,
-        manifest_facts(spec, stream.scale.result(), summary.layout),
+        manifest_facts(spec, logged_scale_summary(stream), summary.layout),
         summary,
     )
     return artifacts.strategy_rows
@@ -131,7 +132,7 @@ def _write_batches(
     samples are one per row, in generation order, which is what the buffered path stores.
     """
     matrix_written = False
-    for batch in stream.batches:
+    for batch in logged_batches(stream):
         if not len(batch):
             continue
         writer.write_batch(batch)

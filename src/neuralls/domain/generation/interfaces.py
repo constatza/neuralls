@@ -12,6 +12,7 @@ from numpy.typing import NDArray
 from neuralls.domain.normalization import ErrorTraceSamples, ResidualTraceSamples
 from neuralls.shared.types import SystemMatrix
 
+from .notices import GenerationNotice
 from .ports import ArchiveSource
 
 
@@ -34,14 +35,69 @@ class TracingSolverCallable(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class GeneratedSamples:
-    """Container for generated data."""
+class SolvedRows:
+    """(RHS, solution) pairs, one training row each.
+
+    Attributes:
+        matrix: System matrix the rows belong to.
+        rhs: Feature rows, shape (rows, n).
+        solutions: Target rows, shape (rows, n).
+        notices: Outcomes of producing the rows (solve non-convergence, kept invalid pairs).
+    """
 
     matrix: SystemMatrix
-    rhs: np.ndarray | None
-    solutions: np.ndarray | None
-    residual_traces: ResidualTraceSamples | None = None
-    error_traces: ErrorTraceSamples | None = None
+    rhs: np.ndarray
+    solutions: np.ndarray
+    notices: tuple[GenerationNotice, ...] = ()
+
+    @property
+    def row_count(self) -> int:
+        """Training rows emitted."""
+        return int(self.rhs.shape[0])
+
+
+@dataclass(frozen=True, slots=True)
+class ResidualTraceRows:
+    """Smoother-probe traces: the training rows are (A @ p_k, p_k).
+
+    Attributes:
+        matrix: System matrix the traces belong to.
+        residual_traces: The traced residuals and probe vectors.
+    """
+
+    matrix: SystemMatrix
+    residual_traces: ResidualTraceSamples
+
+    @property
+    def row_count(self) -> int:
+        """Training rows emitted."""
+        return int(self.residual_traces.residuals.shape[0])
+
+
+@dataclass(frozen=True, slots=True)
+class ErrorTraceRows:
+    """CG trajectory traces: the training rows are (r_k, e_k).
+
+    Attributes:
+        matrix: System matrix the traces belong to.
+        rhs: Base-system right-hand sides the traces start from, shape (systems, n).
+        solutions: Base-system true solutions, shape (systems, n).
+        error_traces: The traced residuals and errors.
+    """
+
+    matrix: SystemMatrix
+    rhs: np.ndarray
+    solutions: np.ndarray
+    error_traces: ErrorTraceSamples
+
+    @property
+    def row_count(self) -> int:
+        """Training rows emitted."""
+        return int(self.error_traces.errors.shape[0])
+
+
+type GeneratedSamples = SolvedRows | ResidualTraceRows | ErrorTraceRows
+"""What one strategy run emits; each variant is one training-row shape."""
 
 
 class ArchiveField(StrEnum):

@@ -13,6 +13,7 @@ from functools import partial
 from pathlib import Path
 
 from neuralls.composition.generation.default_services import FS_ARCHIVE_SOURCE
+from neuralls.composition.generation.generation_log import log_planned_notices
 from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.orchestration import BatchStream, open_batch_stream
 from neuralls.domain.generation.ports import ArrayStore
@@ -46,6 +47,7 @@ def open_prepared_stream(
         archive_source=FS_ARCHIVE_SOURCE,
     )
     stream.plan.require_exact()
+    log_planned_notices(stream)
     return stream
 
 

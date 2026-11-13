@@ -43,7 +43,7 @@ from ..counts import (
     resolve_trace_generation_counts,
     trace_rows_per_base_system,
 )
-from ..interfaces import ArchiveData, GeneratedSamples
+from ..interfaces import ArchiveData, ResidualTraceRows
 from ..runner import register_strategy
 from ..strategy_configs import SmootherFilteredProbesConfig
 from ..trace_utils import _trim_residual_traces, require_full_trajectory
@@ -156,7 +156,7 @@ class SmootherFilteredProbesStrategy:
         *,
         cfg: dict[str, Any],
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> ResidualTraceRows:
         """Generate smoother-filtered probe snapshots and their RHS.
 
         Args:
@@ -168,7 +168,7 @@ class SmootherFilteredProbesStrategy:
                 so ``samples=-1`` is not supported).
 
         Returns:
-            GeneratedSamples: ``residual_traces`` holds the damped probe
+            ResidualTraceRows: ``residual_traces`` holds the damped probe
                 vectors (``solutions``) and their RHS (``residuals``,
                 ``rhs = matrix @ solutions``), one row per kept sweep per
                 probe.
@@ -214,9 +214,4 @@ class SmootherFilteredProbesStrategy:
         )
         residual_traces = _trim_residual_traces(residual_traces, final_rows)
 
-        return GeneratedSamples(
-            matrix=matrix,
-            rhs=None,
-            solutions=None,
-            residual_traces=residual_traces,
-        )
+        return ResidualTraceRows(matrix=matrix, residual_traces=residual_traces)

@@ -99,8 +99,9 @@ at least one row.
 Archive strategies (`solution_archive`, `rhs_archive`, `scaled_solutions`, `validated_archive`)
 draw from a grid of `M` matrices by `K` files and emit (matrix, file) pairs through
 `allocation.archive_units`. Unit `t` goes to matrix `t % M`, file
-`(matrix + t // M) % K`, so no pair repeats. A request is capped at `M*K` base systems with
-one warning naming the strategy, the rows and the base systems. `samples = -1` means all `M*K` pairs, each once.
+`(matrix + t // M) % K`, so no pair repeats. A request is capped at `M*K` base systems and the
+cap is returned as one `RowsCapped` notice naming the strategy and the requested and emitted rows.
+`samples = -1` means all `M*K` pairs, each once.
 The orchestrator writes each binding's files into `file_indices`, and the provider loads
 exactly those files. A single matrix with several bindings is rejected for archive
 strategies before any glob read, because every binding would draw the same files.
@@ -349,7 +350,7 @@ matrix ids. Only solution-archive strategies receive these rows; a generated str
 does, whatever its count. With `samples = -1`, each binding's archive is that full block. With
 an explicit positive count `N` on `solution_archive`, binding `b` draws rows `(b + p) mod K` for
 `p` in `range(N)`, the same cyclic map as the glob archives, so bindings get different rows. `N`
-above the file's `K` rows is capped at `K` per binding with one warning.
+above the file's `K` rows is capped at `K` per binding and reported as one `RowsCapped` notice.
 
 ## Package Map
 
@@ -398,13 +399,14 @@ above the file's `K` rows is capped at `K` per binding with one warning.
   in `archive_files.py` (a .npy header read, no values; a .txt file is one sample). A glob
   `solution_path` is sized by its matched file count K, from the stream's sample ids (a listing,
   no content read). Its rows feed each binding by position: `samples = -1` takes all K rows on
-  every binding, and an explicit count N draws the cyclic rows `(b + p) mod K`, capped at K with
-  one warning. Archive strategies with an archive glob map `samples = -1` to M×K (matrix, file)
+  every binding, and an explicit count N draws the cyclic rows `(b + p) mod K`, capped at K and
+  reported as one `RowsCapped` notice on `BatchStream.notices`. Archive strategies with an archive glob map `samples = -1` to M×K (matrix, file)
   units, or K rows for a single matrix. `require_exact` only refuses a generated strategy with
   `samples = -1` that has no file list to size it.
 - `batch.py`: `SampleBatch`, one strategy's rows for one binding (rhs, solutions, row kinds,
-  matrix sample ids, the binding's parameter vectors). Its constructor rejects inconsistent
-  row counts, and `slice()` cuts a bounded chunk
+  matrix sample ids, the binding's parameter vectors) and the notices the strategy reported
+  for them. Its constructor rejects inconsistent row counts, and `slice()` cuts a bounded
+  chunk; only the first slice keeps the notices, so each is reported once
 - `batch_generator.py`: `generate_batches(plan, run_strategy, batch_size=)` yields batches in
   binding order, then plan strategy order, each at most `batch_size` rows. Strategy outputs
   are still produced whole, so the bound applies to what is yielded, not to generation
@@ -416,8 +418,15 @@ above the file's `K` rows is capped at `K` per binding with one warning.
   Arrays are created lazily at the first batch, at the plan's full row count. It has no
   read methods.
 - `scalar_aggregate.py`: `ScalarAggregator` keeps the first binding's matrix norm, value
-  scale and scale payload, plus one disagreement flag per field, so its state is constant
-  in the number of bindings. Tolerances and warning text are the same as before
+  scale and scale payload, plus the set of `ScaleField`s some binding disagreed on, so its
+  state is constant in the number of bindings. `ScaleSummary.disagreements` carries that set
+  to composition, which logs one warning per field
+- `notices.py`: `GenerationNotice`, the closed union of outcomes generation reports instead of
+  logging: `RowsCapped` (a request its source could not fill), `SolveNotConverged` (a CG row
+  that stopped early) and `InvalidPairs` (archive pairs above the verification tolerance, kept).
+  Allocation caps travel on `BatchStream.notices`; solve and pair notices on the `SolvedRows`
+  result and then on its `SampleBatch`. The domain never logs:
+  `composition/generation/generation_log.py` renders and logs every notice
 - `specs.py`: frozen input DTOs mirroring the config's own `[source]`/`[generation]`
   sections — `SourceSpec` (where samples come from), `MixtureSpec` (strategy mixing + RNG),
   `DatasetSpec` (assembly: mixture + replacement/normalize/norm-type). `open_batch_stream()`
@@ -492,8 +501,13 @@ above the file's `K` rows is capped at `K` per binding with one warning.
   factor, and "largest" uses `which="LA"`. CSR never densifies and cannot return the full
   spectrum, so `random` eigenvector selection is dense-only. `ensure_symmetric` holds the
   symmetry check shared by both formats.
-- `transforms.py`: pure transforms such as `A @ x`. `SolveTransform` and
-  `EigenvectorCombinationTransform` accept a `SystemMatrix` and wrap it in a `MatrixOperator`
+- `transforms.py`: pure transforms such as `A @ x`. `SolveTransform(matrix, SolveConfig)`
+  returns `SolvedSystems` (the solutions and one `SolveNotConverged` per CG row that stopped
+  early); it and `EigenvectorCombinationTransform` wrap the `SystemMatrix` in a `MatrixOperator`
+- `interfaces.py`: the strategy protocols and `GeneratedSamples`, the closed union of what one
+  strategy run emits: `SolvedRows` (rhs/solution pairs and their notices), `ResidualTraceRows`
+  (smoother-probe traces) or `ErrorTraceRows` (CG trajectory traces). Each variant knows its
+  `row_count`, and `strategy_rows.py` turns any of them into training pairs with one `match`
 - `trace_utils.py`: trace trimming, offsets, and indexing helpers;
   `TrajectoryShortfallError` and `require_full_trajectory` reject base systems that
   converged before `window.stop`
@@ -507,7 +521,7 @@ above the file's `K` rows is capped at `K` per binding with one warning.
   `derive_strategy_seed`, `rng_from_seed`) — every random stream that must not repeat
   another one takes its own label path under the mixture seed, hashed with CRC32 so string
   labels are stable across processes.
-- `descriptions.py`: describes strategies as scientific facts. `describe_strategy` turns one validated strategy config into its facts: every algorithmic parameter (a Krylov dataset states its subspace dimension `m`, a probe dataset its sweeps `ν`, count `N`, and distribution `p`, an inverse-mode strategy its solver and tolerances) plus the strategy's realized row count and a closed seed value (`ExplicitSeed`, `DerivedSeed` or `NoSeed`) that `StrategyProvenance` keeps as typed fields, deriving the `N` and `s` facts from them instead of storing them; archive globs, file selection, and row-storage flags are provenance or operational and are never facts. Names come from the shared strategy-name table (`Krylov Subspace Solutions`, `Jacobi-Filtered Probes`, ...), so a name states what the data is and an unknown strategy raises rather than echoing its identifier. `describe_residual_trace()`/`describe_generation_result()` are the log-time forms (`k`+`N`, or `N`). Every field of a strategy config (and of `SolveConfig`) is annotated `Fact(KEY)`, `Nested()` or `Omitted(role)` in `strategy_configs.py`, and `describe_strategy` walks them with `shared/fact_binding.describe_model`; a field with no binding raises `UnboundFieldError`, and a registry-wide test enforces that every registered config binds all its fields. A parameterless config is simply one whose fields are all omitted (`NeutralOnesConfig`, `SolutionArchiveConfig`).
+- `descriptions.py`: describes strategies as scientific facts. `describe_strategy` turns one validated strategy config into its facts: every algorithmic parameter (a Krylov dataset states its subspace dimension `m`, a probe dataset its sweeps `ν`, count `N`, and distribution `p`, an inverse-mode strategy its solver and tolerances) plus the strategy's realized row count and a closed seed value (`ExplicitSeed`, `DerivedSeed` or `NoSeed`) that `StrategyProvenance` keeps as typed fields, deriving the `N` and `s` facts from them instead of storing them; archive globs, file selection, and row-storage flags are provenance or operational and are never facts. Names come from the shared strategy-name table (`Krylov Subspace Solutions`, `Jacobi-Filtered Probes`, ...), so a name states what the data is and an unknown strategy raises rather than echoing its identifier. `describe_generation_result()` is the realized form (`N`) that composition logs once per strategy after the run. Every field of a strategy config (and of `SolveConfig`) is annotated `Fact(KEY)`, `Nested()` or `Omitted(role)` in `strategy_configs.py`, and `describe_strategy` walks them with `shared/fact_binding.describe_model`; a field with no binding raises `UnboundFieldError`, and a registry-wide test enforces that every registered config binds all its fields. A parameterless config is simply one whose fields are all omitted (`NeutralOnesConfig`, `SolutionArchiveConfig`).
 - `provenance.py`: `describe_dataset_generation(spec, realized)` describes each strategy the `SampleWriter` recorded rows for, validates its options with its registered config class, and returns the `DatasetGenerationProvenance` that `build_dataset` stamps into the manifest. Row counts come only from `realized` (`DatasetArtifacts.strategy_rows`, counted from the batches actually written), never from the spec: a trace strategy's mixture count is already a row budget, an archive count may be `-1`, and a mixture splits one total across strategies. A strategy whose options carry a `seed` stamps it (`None` means unseeded); otherwise generation derives each binding's stream from the mixture seed (`derive_seed(seed, "binding", i)`, then the strategy label), so the provenance stamps the mixture seed once as `root_seed` and no per-stream value that no stream used. Strategies that wrote no rows are absent.
 - `counts.py`: strategy sample counts (`rounded_counts`, `resolve_strategy_counts`) and
   trace-row counts for trajectory-harvesting strategies (`trace_rows_per_system`,
@@ -515,11 +529,12 @@ above the file's `K` rows is capped at `K` per binding with one warning.
   `_build_trace_indices`).
 - `scaling.py`: matrix normalization for synthetic generation (`normalize_matrix_for_generation`)
   and scale-metadata serialization for the manifest (`serialize_scale_metadata`).
-- `linear_solve.py`: `_solve_linear_systems` dispatches through the `_SOLVERS` registry, keyed by
-  method alone (`"direct"`, `"cg"`). `"direct"` calls `MatrixOperator.solve_direct` (cached
-  factor), and `"cg"` calls `scipy.sparse.linalg.cg` on the wrapped matrix. The format is
-  read by the operator, not the dispatch. A missing key raises `ValueError`.
-  `_verify_solution_accuracy` computes relative residuals and warns above tolerance.
+- `linear_solve.py`: `_solve_linear_systems(operator, rhs, SolveConfig)` dispatches through the
+  `_SOLVERS` registry, keyed by `SolveConfig.method` (`"direct"`, `"cg"`), a closed set the
+  config validates once. `"direct"` calls `MatrixOperator.solve_direct` (cached factor), and
+  `"cg"` calls `scipy.sparse.linalg.cg` on the wrapped matrix and reports each row that did not
+  converge. The format is read by the operator, not the dispatch. `_verify_solution_accuracy`
+  computes relative residuals; the caller decides what a residual above tolerance means.
 - `eigen_strategies.py`: `_compute_eigendecomposition` requests only the `count` eigenpairs
   for "smallest"/"largest" and the full dense spectrum for "random"; `_select_eigenvectors`
   and `_generate_eigenvector_combinations` pick and linearly combine the result.

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .notices import GenerationNotice
+
 
 @dataclass(frozen=True, eq=False, slots=True)
 class SampleBatch:
@@ -23,6 +25,8 @@ class SampleBatch:
         row_kind_codes: Per-row ``RowKind`` codes, shape (rows,).
         matrix_sample_index: Matrix sample id of each row, shape (rows,).
         parameter_vectors: Per parameter stream, the binding's vector of shape (p,), or None.
+        notices: Outcomes the strategy reported for these rows. A sliced output keeps them on
+            its first slice only, so each is reported once.
     """
 
     binding_index: int
@@ -32,6 +36,7 @@ class SampleBatch:
     row_kind_codes: np.ndarray
     matrix_sample_index: np.ndarray
     parameter_vectors: tuple[np.ndarray | None, ...]
+    notices: tuple[GenerationNotice, ...] = ()
 
     def __post_init__(self) -> None:
         """Reject arrays whose row counts disagree, so every batch is internally consistent."""
@@ -62,6 +67,7 @@ class SampleBatch:
             row_kind_codes=self.row_kind_codes[start:stop],
             matrix_sample_index=self.matrix_sample_index[start:stop],
             parameter_vectors=self.parameter_vectors,
+            notices=self.notices if start == 0 else (),
         )
 
 

@@ -11,14 +11,17 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from loguru import logger
 
-from ..interfaces import ArchiveData, GeneratedSamples
+from ..interfaces import ArchiveData, SolvedRows
+from ..notices import InvalidPairs
 from ..ports import ArchiveSource
 from ..providers import PairedFileInputProvider
 from ..runner import register_archive_strategy
 from ..strategy_configs import ValidatedArchiveConfig
 from ..transforms import VerifyTransform
+
+_SHOWN_INVALID_INDICES = 10
+"""Invalid pair indices quoted in the error before it is truncated."""
 
 
 @register_archive_strategy
@@ -86,7 +89,7 @@ class ValidatedArchiveStrategy:
         cfg: dict[str, Any],
         archive_source: ArchiveSource,
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> SolvedRows:
         """Load and verify pre-computed (x, b) pairs.
 
         Args:
@@ -116,12 +119,6 @@ class ValidatedArchiveStrategy:
         verification_tolerance = config.verification_tolerance
         fail_on_invalid = config.fail_on_invalid
 
-        logger.info(
-            f"Loading (solution, RHS) pairs from archive:\n"
-            f"  Solutions: {solutions_glob}\n"
-            f"  RHS: {rhs_glob}"
-        )
-
         # Layer 1: Input provision (load paired vectors from files)
         provider = PairedFileInputProvider(
             archive_source,
@@ -135,41 +132,32 @@ class ValidatedArchiveStrategy:
         rng = np.random.default_rng(seed)
         solutions, rhs = provider.provide(matrix, count=samples, rng=rng)
 
-        logger.info(f"Loaded {len(solutions)} (solution, RHS) pairs")
-
         # Layer 2: Transformation (verify consistency)
-        logger.info(f"Verifying consistency (tolerance: {verification_tolerance:.2e})...")
-        transform = VerifyTransform(matrix, tolerance=verification_tolerance)
-        residuals = transform.transform((solutions, rhs))
-
-        # Report results
-        max_error = float(np.max(residuals))
-        logger.info(f"Verification complete: max relative error = {max_error:.2e}")
-
-        # Check for invalid pairs
-        invalid_indices = np.where(residuals > verification_tolerance)[0].tolist()
-        all_valid = len(invalid_indices) == 0
-
-        if not all_valid:
-            num_invalid = len(invalid_indices)
-            msg = (
-                f"Found {num_invalid}/{len(solutions)} invalid pairs "
-                f"(max error: {max_error:.2e} > tolerance: {verification_tolerance:.2e})"
+        residuals = VerifyTransform(matrix).transform((solutions, rhs))
+        invalid_indices = np.flatnonzero(residuals > verification_tolerance).tolist()
+        notices: tuple[InvalidPairs, ...] = ()
+        if invalid_indices:
+            max_error = float(np.max(residuals))
+            if fail_on_invalid:
+                shown = invalid_indices[:_SHOWN_INVALID_INDICES]
+                raise ValueError(
+                    f"Found {len(invalid_indices)}/{len(solutions)} invalid pairs "
+                    f"(max error: {max_error:.2e} > tolerance: {verification_tolerance:.2e})\n"
+                    f"Invalid indices: {shown}"
+                    + ("..." if len(invalid_indices) > _SHOWN_INVALID_INDICES else "")
+                )
+            notices = (
+                InvalidPairs(
+                    count=len(invalid_indices),
+                    total=len(solutions),
+                    max_error=max_error,
+                    tolerance=verification_tolerance,
+                ),
             )
 
-            if fail_on_invalid:
-                raise ValueError(
-                    f"{msg}\nInvalid indices: {invalid_indices[:10]}..."
-                    if len(invalid_indices) > 10
-                    else f"{msg}\nInvalid indices: {invalid_indices}"
-                )
-            else:
-                logger.warning(f"{msg}")
-
-        return GeneratedSamples(
+        return SolvedRows(
             matrix=matrix,
             rhs=rhs,
             solutions=solutions,
-            residual_traces=None,
-            error_traces=None,
+            notices=notices,
         )

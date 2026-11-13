@@ -11,9 +11,8 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from loguru import logger
 
-from ..interfaces import ArchiveData, GeneratedSamples
+from ..interfaces import ArchiveData, SolvedRows
 from ..ports import ArchiveSource
 from ..providers import FileInputProvider
 from ..runner import register_archive_strategy
@@ -59,7 +58,7 @@ class ScaledSolutionsStrategy:
         cfg: dict[str, Any],
         archive_source: ArchiveSource,
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> SolvedRows:
         """Load solutions, compute RHS, and return scale * (b, x) pairs.
 
         Args:
@@ -83,22 +82,17 @@ class ScaledSolutionsStrategy:
         # When archive is provided (per-binding pre-loaded solution), skip glob loading
         if archive is not None and archive.lhs is not None:
             solutions = archive.lhs
-            logger.info(f"Using pre-loaded solution archive ({len(solutions)} vector(s))")
             rhs = ComputeRhsTransform(matrix).transform(solutions)
             scale = cfg.get("scale", 5.0)
             scaled_rhs = float(scale) * rhs
             scaled_solutions = float(scale) * solutions
-            return GeneratedSamples(
+            return SolvedRows(
                 matrix=matrix,
                 rhs=scaled_rhs,
                 solutions=scaled_solutions,
-                residual_traces=None,
-                error_traces=None,
             )
 
         config = ScaledSolutionsConfig(**cfg)
-
-        logger.info(f"Loading solution vectors from: {config.solutions_glob}")
 
         # Layer 1: load solutions from disk
         provider = FileInputProvider(
@@ -112,21 +106,15 @@ class ScaledSolutionsStrategy:
         rng = np.random.default_rng(config.seed)
         solutions = provider.provide(matrix, count=config.samples, rng=rng)
 
-        logger.info(f"Loaded {len(solutions)} solution vectors")
-
         # Layer 2: compute RHS = A @ x
-        logger.info(f"Computing RHS for {len(solutions)} solutions...")
         rhs = ComputeRhsTransform(matrix).transform(solutions)
 
         # Layer 3: apply scale factor (A @ (scale*x) = scale*b)
-        logger.info(f"Applying scale factor {config.scale}...")
         scaled_rhs = config.scale * rhs
         scaled_solutions = config.scale * solutions
 
-        return GeneratedSamples(
+        return SolvedRows(
             matrix=matrix,
             rhs=scaled_rhs,
             solutions=scaled_solutions,
-            residual_traces=None,
-            error_traces=None,
         )

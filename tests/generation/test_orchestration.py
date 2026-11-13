@@ -11,6 +11,7 @@ from neuralls.domain.generation import binding_allocation
 from neuralls.domain.generation.batch_plan import BindingAllocation
 from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.bindings import SystemBinding
+from neuralls.domain.generation.notices import RowCapSource, RowsCapped
 from neuralls.domain.generation.ports import ArchiveSource
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.domain.generation.strategy_rows import _generate_strategy_rows, _StrategyRows
@@ -414,10 +415,9 @@ def test_archive_all_samples_emits_every_pair_once(
     assert [binding for binding, _ in pairs] == [0] * 5 + [1] * 5 + [2] * 5
 
 
-def test_archive_request_above_m_times_k_is_capped_with_one_warning(
+def test_archive_request_above_m_times_k_is_capped_with_one_notice(
     write_solution_files: Callable[[int], str],
     three_bindings: list[SystemBinding],
-    warning_messages: list[str],
     archive_source: InMemoryArchiveSource,
 ) -> None:
     """A count above M*K is capped at M*K and reported once, naming both counts."""
@@ -432,18 +432,19 @@ def test_archive_request_above_m_times_k_is_capped_with_one_warning(
 
     assert [counts["solution_archive"] for counts in allocation.counts] == [5, 5, 5]
     assert len(set(_archive_pairs(allocation))) == 15
-    assert len(warning_messages) == 1
+    assert allocation.notices == (
+        RowsCapped("solution_archive", 20, 15, RowCapSource.ARCHIVE_PAIRS),
+    )
 
 
 @pytest.mark.parametrize("requested", [15, 14])
-def test_archive_request_at_or_below_m_times_k_has_no_warning(
+def test_archive_request_at_or_below_m_times_k_has_no_notice(
     write_solution_files: Callable[[int], str],
     three_bindings: list[SystemBinding],
-    warning_messages: list[str],
     requested: int,
     archive_source: InMemoryArchiveSource,
 ) -> None:
-    """A count at or below M*K is emitted in full with no warning."""
+    """A count at or below M*K is emitted in full with no notice."""
     glob_pattern = write_solution_files(5)
 
     allocation = _resolve_binding_strategy_counts(
@@ -455,7 +456,7 @@ def test_archive_request_at_or_below_m_times_k_has_no_warning(
 
     total = sum(counts["solution_archive"] for counts in allocation.counts)
     assert total == requested
-    assert warning_messages == []
+    assert allocation.notices == ()
 
 
 def test_archive_single_matrix_several_bindings_is_rejected_before_draw(

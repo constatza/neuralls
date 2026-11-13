@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 
 from neuralls.domain.generation import strategy_rows
-from neuralls.domain.generation.interfaces import GeneratedSamples
+from neuralls.domain.generation.interfaces import GeneratedSamples, SolvedRows
 from neuralls.domain.generation.orchestration import BatchStream
 from neuralls.domain.generation.scalar_aggregate import BindingScale, ScalarAggregator
 from neuralls.domain.generation.specs import SourceSpec
@@ -53,7 +53,7 @@ def second_run_emits_no_rows(monkeypatch: pytest.MonkeyPatch) -> None:
         calls[0] += 1
         if calls[0] == EMPTY_CALL_INDEX:
             n = A.shape[0]
-            return GeneratedSamples(
+            return SolvedRows(
                 matrix=A,
                 rhs=np.empty((0, n), dtype=np.float64),
                 solutions=np.empty((0, n), dtype=np.float64),

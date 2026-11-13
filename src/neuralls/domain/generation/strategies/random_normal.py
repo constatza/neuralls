@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..interfaces import ArchiveData, GeneratedSamples
+from ..interfaces import ArchiveData, SolvedRows
 from ..providers import RandomInputProvider
 from ..runner import register_strategy
 from ..strategy_configs import RandomNormalConfig
@@ -41,7 +41,7 @@ class RandomNormalStrategy:
         *,
         cfg: dict,
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> SolvedRows:
         """Generate random normal solutions and compute RHS.
 
         Args:
@@ -64,7 +64,7 @@ class RandomNormalStrategy:
         transform = ComputeRhsTransform(matrix)
         rhs = transform.transform(solutions)
 
-        return GeneratedSamples(matrix=matrix, rhs=rhs, solutions=solutions)
+        return SolvedRows(matrix=matrix, rhs=rhs, solutions=solutions)
 
 
 # Alias for "normal"

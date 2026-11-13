@@ -8,6 +8,8 @@ from __future__ import annotations
 import numpy as np
 
 from neuralls.domain.generation import run_generation
+from neuralls.domain.generation.interfaces import SolvedRows
+from tests.generation_support import solved_rows
 
 
 def test_eigenvector_forward_shapes(spd_matrix: np.ndarray) -> None:
@@ -15,7 +17,7 @@ def test_eigenvector_forward_shapes(spd_matrix: np.ndarray) -> None:
     n = spd_matrix.shape[0]
     cfg = {"samples": 4, "seed": 0}
 
-    result = run_generation("eigenvector_forward", spd_matrix, cfg=cfg)
+    result = solved_rows(run_generation("eigenvector_forward", spd_matrix, cfg=cfg))
     assert result.rhs is not None
     assert result.solutions is not None
 
@@ -26,8 +28,8 @@ def test_eigenvector_forward_shapes(spd_matrix: np.ndarray) -> None:
 def test_eigenvector_forward_sample_count(spd_matrix: np.ndarray) -> None:
     """Different sample counts produce correct output sizes."""
     for count in (1, 3, 6):
-        result = run_generation(
-            "eigenvector_forward", spd_matrix, cfg={"samples": count, "seed": 0}
+        result = solved_rows(
+            run_generation("eigenvector_forward", spd_matrix, cfg={"samples": count, "seed": 0})
         )
         assert result.rhs is not None
         assert result.rhs.shape[0] == count
@@ -35,7 +37,9 @@ def test_eigenvector_forward_sample_count(spd_matrix: np.ndarray) -> None:
 
 def test_eigenvector_forward_rhs_equals_ax(spd_matrix: np.ndarray) -> None:
     """RHS = A @ x for every generated sample."""
-    result = run_generation("eigenvector_forward", spd_matrix, cfg={"samples": 5, "seed": 42})
+    result = solved_rows(
+        run_generation("eigenvector_forward", spd_matrix, cfg={"samples": 5, "seed": 42})
+    )
     assert result.solutions is not None
     assert result.rhs is not None
 
@@ -50,9 +54,9 @@ def test_eigenvector_forward_deterministic(spd_matrix: np.ndarray) -> None:
     """Same seed yields identical output on repeated calls."""
     cfg = {"samples": 4, "seed": 7}
 
-    r1 = run_generation("eigenvector_forward", spd_matrix, cfg=cfg)
+    r1 = solved_rows(run_generation("eigenvector_forward", spd_matrix, cfg=cfg))
     assert r1.solutions is not None
-    r2 = run_generation("eigenvector_forward", spd_matrix, cfg=cfg)
+    r2 = solved_rows(run_generation("eigenvector_forward", spd_matrix, cfg=cfg))
     assert r2.solutions is not None
 
     assert r1.solutions.ndim == 2 and r2.solutions.ndim == 2
@@ -62,9 +66,13 @@ def test_eigenvector_forward_deterministic(spd_matrix: np.ndarray) -> None:
 
 def test_eigenvector_forward_different_seeds(spd_matrix: np.ndarray) -> None:
     """Different seeds produce different output."""
-    r1 = run_generation("eigenvector_forward", spd_matrix, cfg={"samples": 4, "seed": 1})
+    r1 = solved_rows(
+        run_generation("eigenvector_forward", spd_matrix, cfg={"samples": 4, "seed": 1})
+    )
     assert r1.solutions is not None
-    r2 = run_generation("eigenvector_forward", spd_matrix, cfg={"samples": 4, "seed": 2})
+    r2 = solved_rows(
+        run_generation("eigenvector_forward", spd_matrix, cfg={"samples": 4, "seed": 2})
+    )
     assert r2.solutions is not None
 
     assert r1.solutions.ndim == 2 and r2.solutions.ndim == 2
@@ -74,8 +82,10 @@ def test_eigenvector_forward_different_seeds(spd_matrix: np.ndarray) -> None:
 def test_eigenvector_forward_which_smallest(spd_matrix: np.ndarray) -> None:
     """which='smallest' runs without error and produces correct shapes."""
     n = spd_matrix.shape[0]
-    result = run_generation(
-        "eigenvector_forward", spd_matrix, cfg={"samples": 3, "seed": 0, "which": "smallest"}
+    result = solved_rows(
+        run_generation(
+            "eigenvector_forward", spd_matrix, cfg={"samples": 3, "seed": 0, "which": "smallest"}
+        )
     )
     assert result.rhs is not None
     assert result.rhs.shape == (3, n)
@@ -84,8 +94,10 @@ def test_eigenvector_forward_which_smallest(spd_matrix: np.ndarray) -> None:
 def test_eigenvector_forward_which_largest(spd_matrix: np.ndarray) -> None:
     """which='largest' runs without error and produces correct shapes."""
     n = spd_matrix.shape[0]
-    result = run_generation(
-        "eigenvector_forward", spd_matrix, cfg={"samples": 3, "seed": 0, "which": "largest"}
+    result = solved_rows(
+        run_generation(
+            "eigenvector_forward", spd_matrix, cfg={"samples": 3, "seed": 0, "which": "largest"}
+        )
     )
     assert result.rhs is not None
     assert result.rhs.shape == (3, n)
@@ -93,7 +105,8 @@ def test_eigenvector_forward_which_largest(spd_matrix: np.ndarray) -> None:
 
 def test_eigenvector_forward_no_traces(spd_matrix: np.ndarray) -> None:
     """Forward strategy produces no residual or error traces."""
-    result = run_generation("eigenvector_forward", spd_matrix, cfg={"samples": 2, "seed": 0})
+    result = solved_rows(
+        run_generation("eigenvector_forward", spd_matrix, cfg={"samples": 2, "seed": 0})
+    )
 
-    assert result.residual_traces is None
-    assert result.error_traces is None
+    assert isinstance(result, SolvedRows)

@@ -14,6 +14,7 @@ from neuralls.domain.generation.batch_plan import BindingAllocation
 from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.helpers import required_trace_systems
+from neuralls.domain.generation.notices import RowCapSource, RowsCapped
 from neuralls.domain.generation.runner import rows_per_base_system
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.domain.generation.step_window import StepWindow
@@ -125,7 +126,6 @@ def test_trajectory_archive_units_are_distinct_base_systems(
 def test_archive_cap_cuts_base_systems_not_expansion(
     make_bindings: Callable[[int, int], list[SystemBinding]],
     make_archive_glob: Callable[[int], str],
-    warning_messages: list[str],
 ) -> None:
     """M = 3, K = 2 files: R = 40 asks for B = 10, only M*K = 6 base systems exist: 24 rows."""
     glob = make_archive_glob(2)
@@ -133,4 +133,4 @@ def test_archive_cap_cuts_base_systems_not_expansion(
 
     assert sum(_rows(allocation, "residuals")) == 24
     assert required_trace_systems(24, window=TRACE_WINDOW) == 6
-    assert len(warning_messages) == 1
+    assert allocation.notices == (RowsCapped("residuals", 40, 24, RowCapSource.ARCHIVE_PAIRS),)

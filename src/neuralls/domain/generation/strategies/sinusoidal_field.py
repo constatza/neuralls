@@ -25,7 +25,7 @@ from typing import Any
 
 import numpy as np
 
-from ..interfaces import ArchiveData, GeneratedSamples
+from ..interfaces import ArchiveData, SolvedRows
 from ..runner import register_strategy
 from ..strategy_configs import SinusoidalFieldConfig
 from ..transforms import SolveTransform
@@ -89,7 +89,7 @@ class SinusoidalFieldStrategy:
         *,
         cfg: dict[str, Any],
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> SolvedRows:
         """Generate sinusoidal RHS vectors and solve for solutions.
 
         Args:
@@ -108,6 +108,8 @@ class SinusoidalFieldStrategy:
         rhs = provider.provide(matrix.shape[0], count=config.samples, rng=rng)
 
         # Layer 2: Transformation (solve for solutions)
-        solutions = SolveTransform(matrix, **config.solve_config.model_dump()).transform(rhs)
+        solved = SolveTransform(matrix, config.solve_config).transform(rhs)
 
-        return GeneratedSamples(matrix=matrix, rhs=rhs, solutions=solutions)
+        return SolvedRows(
+            matrix=matrix, rhs=rhs, solutions=solved.solutions, notices=solved.unconverged
+        )
