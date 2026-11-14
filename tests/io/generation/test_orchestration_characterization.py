@@ -7,14 +7,13 @@ _generate_strategy_rows``
 chain for fixed seeds, so parameter-threading refactors of those functions can
 be proven behavior-preserving rather than merely test-passing.
 
-Each expected digest was captured from the pre-refactor implementation. A digest
-change means the generated dataset changed — that is a regression, not a test
-that needs updating.
+Values without a closed-form oracle were captured from the pre-refactor
+implementation and are compared within a relative tolerance, so a BLAS or LAPACK
+build that rounds the last bits differently passes while a changed dataset fails.
 """
 
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -37,24 +36,22 @@ from neuralls.platform.storage.datasets import (
 )
 from neuralls.shared.types import MatrixFormat, RowKind
 
-_FLOAT_DIGEST_DECIMALS = 12
-"""Rounding applied before hashing floating arrays, so BLAS/LAPACK builds that
-round the last bit or two differently across platforms don't flip the digest.
-Absolute noise from that source is ~1e-15; rounding to 1e-12 stays three
-orders of magnitude above it while still catching real precision regressions.
-"""
+_FLOAT_RTOL = 1e-12
+"""Relative tolerance on captured floats: three orders of magnitude above the ~1e-15
+noise of differing BLAS/LAPACK builds, far below any real change to generation."""
 
+_FIRST_MATRIX_SCALE = 0.023875774080666406
+"""The factor matrix normalization applies to the first source matrix of the mixture."""
 
-def _digest(array: np.ndarray) -> str:
-    """Stable content digest of an array's dtype, shape and (rounded) bytes."""
-    contiguous = np.ascontiguousarray(array)
-    if np.issubdtype(contiguous.dtype, np.floating):
-        contiguous = np.round(contiguous, decimals=_FLOAT_DIGEST_DECIMALS)
-    hasher = hashlib.sha256()
-    hasher.update(str(contiguous.dtype).encode())
-    hasher.update(str(contiguous.shape).encode())
-    hasher.update(contiguous.tobytes())
-    return hasher.hexdigest()[:16]
+_PARAMETER_STREAM_SOLUTIONS = np.array(
+    [
+        [-0.02174590838667538, 1.0734927706488362, 0.20736797974515833, 0.39464236119727764],
+        [0.26191272032165236, -0.5683315920495239, -0.9376507476494853, 2.8683384255509785],
+        [-0.6424801850253867, 1.7106427800191226, -0.24234017656792628, 1.3686335475248517],
+        [0.10366924493256029, 0.24405349086217779, -0.13076780745034106, -0.19037822707839763],
+    ]
+)
+"""The seeded solution draws of the single-binding parameter-stream dataset, in generation order."""
 
 
 @pytest.fixture
@@ -190,8 +187,13 @@ def test_multi_matrix_mixture_matrix_index_is_stable(multi_matrix_mixture_datase
     assert set(matrix_index.tolist()) == {0, 1, 2}
 
 
-def test_multi_matrix_mixture_matrix_sample_is_stable(multi_matrix_mixture_dataset: Path) -> None:
-    assert _digest(load_matrix_dense_sample(multi_matrix_mixture_dataset, 0)) == "7be3815c7c6a4fb5"
+def test_multi_matrix_mixture_matrix_sample_is_stable(
+    multi_matrix_mixture_dataset: Path, spd_matrix_dir: Path
+) -> None:
+    """The stored first matrix is its source matrix times the scale its normalization chose."""
+    raw = np.loadtxt(spd_matrix_dir / "A_000.txt")
+    stored = load_matrix_dense_sample(multi_matrix_mixture_dataset, 0)
+    np.testing.assert_allclose(stored, raw * _FIRST_MATRIX_SCALE, rtol=_FLOAT_RTOL)
 
 
 def test_multi_matrix_mixture_manifest_is_stable(multi_matrix_mixture_dataset: Path) -> None:
@@ -322,14 +324,13 @@ def test_single_matrix_parameter_stream_solutions_are_stable(
 ) -> None:
     """Regression pin on the seeded solution stream of the single binding.
 
-    Solutions are raw draws with no closed-form oracle, so the content digest guards
+    Solutions are raw draws with no closed-form oracle, so the pinned values guard
     the seed derivation: any change to how the binding seed is derived changes it.
-    The fixture passes shuffle=True, which no longer permutes rows, so this digest
-    moved from the old shuffled order to generation order when the write-time
-    shuffle was dropped. Rows are not permuted in storage at all now.
+    The fixture passes shuffle=True, which no longer permutes rows: rows are stored in
+    generation order.
     """
     _, solutions = load_dense_training_arrays(single_matrix_parameter_stream_dataset)
-    assert _digest(solutions) == "d050262cfc35696d"
+    np.testing.assert_allclose(solutions, _PARAMETER_STREAM_SOLUTIONS, rtol=_FLOAT_RTOL)
 
 
 def test_single_matrix_parameter_stream_parameters_are_stable(
@@ -337,8 +338,7 @@ def test_single_matrix_parameter_stream_parameters_are_stable(
 ) -> None:
     parameters = load_parameter_arrays(single_matrix_parameter_stream_dataset)
     assert len(parameters) == 1
-    assert parameters[0].shape == (4, 3)
-    assert _digest(parameters[0]) == "d035f298199f613c"
+    np.testing.assert_array_equal(parameters[0], np.tile([0.25, 0.5, 0.75], (4, 1)))
 
 
 def test_single_matrix_parameter_stream_manifest_is_stable(
