@@ -88,7 +88,7 @@ def compare_case(
     params = ComparisonParams(force=force)
 
     try:
-        settings = load_case_settings(config, env_file, profile=profile)
+        settings = load_case_settings(env_file, profile=profile)
         outcomes = run_comparison_batch(config, params, settings, tracking=MLFLOW_TRACKING)
     except Exception as exc:  # noqa: BLE001
         fail_workflow("Comparison workflow", exc)

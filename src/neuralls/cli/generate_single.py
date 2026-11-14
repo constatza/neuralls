@@ -35,7 +35,7 @@ def generate_single(
                 "NEURALLS_CASE_CONFIG."
             )
 
-        settings = load_case_settings(resolved_case_config, env_file, profile=profile)
+        settings = load_case_settings(env_file, profile=profile)
         typer.echo(f"Loading data config: {config}")
         output_path = process_data_from_config(config, settings, force=force)
 

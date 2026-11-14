@@ -19,7 +19,7 @@ from neuralls.platform.config.settings import NeurallsSettings, load_case_settin
 from neuralls.platform.config.sweep_expansion import ensure_generated_dataset_config
 from neuralls.shared.constants import DEFAULT_PROJECT_ROOT, SWEEP_GENERATED_SUBDIR_NAME
 
-_DEFAULT_TRACKING_TOML = DEFAULT_PROJECT_ROOT / "configs" / "tracking.toml"
+DEFAULT_TRACKING_TOML = DEFAULT_PROJECT_ROOT / "configs" / "tracking.toml"
 
 
 def load_raw_toml(path: Path) -> dict[str, Any]:
@@ -396,7 +396,7 @@ def load_case_config(
 
 def load_case(path: Path, env_file: Path | None = None) -> tuple[CaseConfig, NeurallsSettings]:
     """Load one case config together with its resolved runtime settings."""
-    settings = load_case_settings(path, env_file)
+    settings = load_case_settings(env_file)
     return load_case_config(path, settings), settings
 
 
@@ -410,7 +410,7 @@ def load_tracking_config(path: Path | None = None) -> SharedTrackingSettings | N
         Validated ``SharedTrackingSettings`` when the file exists and has a [tracking] section,
         ``None`` if the file is missing or has no [tracking] section.
     """
-    resolved = path or _DEFAULT_TRACKING_TOML
+    resolved = path or DEFAULT_TRACKING_TOML
     if not resolved.exists():
         return None
     raw = load_raw_toml(resolved)

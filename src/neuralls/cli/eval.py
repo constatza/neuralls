@@ -42,7 +42,7 @@ def eval_case_batch(
 ) -> None:
     """Evaluate trained assignment checkpoints on their logged test splits."""
     try:
-        settings = load_case_settings(config, env_file, profile=profile)
+        settings = load_case_settings(env_file, profile=profile)
         cfg, _ = load_validated_case_config(config, settings)
         batch = eval_batch(
             cfg=cfg,

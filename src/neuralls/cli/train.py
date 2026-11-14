@@ -27,7 +27,7 @@ def train_case_batch(
 ) -> None:
     """Train the registry-defined assignment batch and emit aggregate reporting."""
     try:
-        settings = load_case_settings(config, env_file, profile=profile)
+        settings = load_case_settings(env_file, profile=profile)
         sweep_result = run_assignment_sweep(
             case_config_path=config.resolve(),
             settings=settings,

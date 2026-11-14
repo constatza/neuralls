@@ -10,6 +10,7 @@ from neuralls.platform.config.profile import (
     delete_profile as delete_profile,
     list_profiles as list_profiles,
     load_profile as load_profile,
+    resolve_typed_profile as resolve_typed_profile,
     save_profile as save_profile,
 )
 from neuralls.platform.config.settings import (

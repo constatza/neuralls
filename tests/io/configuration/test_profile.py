@@ -17,7 +17,7 @@ from neuralls.platform.config.profile import (
     load_profile,
     save_profile,
 )
-from neuralls.platform.config.settings import NeurallsSettings, load_case_settings
+from neuralls.platform.config.settings import NeurallsSettings, get_settings, load_case_settings
 
 
 def _configure_profile_path(monkeypatch: pytest.MonkeyPatch, config_file: Path) -> None:
@@ -148,88 +148,147 @@ def test_save_profile_with_overwrite_replaces_existing(tmp_path: Path) -> None:
     assert load_profile(_config_file=config_file) == replacement
 
 
+@pytest.fixture
+def home_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    return home
+
+
+def _saved_profile(config_file: Path, raw: str, processed: str, output: str) -> None:
+    save_profile(
+        "default",
+        ProfileConfig(raw_dir=raw, processed_dir=processed, output_dir=output),
+        _config_file=config_file,
+    )
+
+
+def _clear_root_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("NEURALLS_RAW_DIR", "NEURALLS_PROCESSED_DIR", "NEURALLS_OUTPUT_DIR"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def _set_root_env(monkeypatch: pytest.MonkeyPatch, raw: str, processed: str, output: str) -> None:
+    monkeypatch.setenv("NEURALLS_RAW_DIR", raw)
+    monkeypatch.setenv("NEURALLS_PROCESSED_DIR", processed)
+    monkeypatch.setenv("NEURALLS_OUTPUT_DIR", output)
+
+
+def test_profile_config_keeps_paths_as_given() -> None:
+    config = ProfileConfig(raw_dir="raw", processed_dir="~/processed", output_dir="output")
+
+    assert (config.raw_dir, config.processed_dir, config.output_dir) == (
+        Path("raw"),
+        Path("~/processed"),
+        Path("output"),
+    )
+
+
 @pytest.mark.skipif(
     sys.platform == "win32",
     reason="stdlib expanduser prefers USERPROFILE over HOME on Windows",
 )
-def test_profile_config_expands_tilde_and_resolves_absolute(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
+def test_load_profile_expands_tilde(tmp_path: Path, home_dir: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    _saved_profile(config_file, "~/raw", "~/processed", "~/output")
 
-    config = ProfileConfig(
-        raw_dir="~/raw",
-        processed_dir="~/processed",
-        output_dir="~/output",
+    loaded = load_profile(_config_file=config_file)
+
+    assert loaded == ProfileConfig(
+        raw_dir=home_dir / "raw",
+        processed_dir=home_dir / "processed",
+        output_dir=home_dir / "output",
     )
 
-    assert config.raw_dir == (home / "raw").resolve()
-    assert config.processed_dir == (home / "processed").resolve()
-    assert config.output_dir == (home / "output").resolve()
+
+def test_load_profile_rejects_relative_root(tmp_path: Path) -> None:
+    config_file = tmp_path / "config.toml"
+    _saved_profile(config_file, str(tmp_path / "raw"), "processed", str(tmp_path / "output"))
+
+    with pytest.raises(ValueError, match="processed_dir"):
+        load_profile(_config_file=config_file)
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only path semantics")
-def test_profile_config_preserves_windows_mapped_drive_paths() -> None:
+def test_load_profile_preserves_windows_mapped_drive_paths(tmp_path: Path) -> None:
     """Mapped-drive roots should stay drive-letter-based on Windows."""
-    config = ProfileConfig(
-        raw_dir=r"M:\shared\neuralls\raw",
-        processed_dir=r"M:\shared\neuralls\processed",
-        output_dir=r"M:\shared\neuralls\output",
+    config_file = tmp_path / "config.toml"
+    _saved_profile(
+        config_file,
+        r"M:\shared\neuralls\raw",
+        r"M:\shared\neuralls\processed",
+        r"M:\shared\neuralls\output",
     )
 
-    assert str(config.raw_dir) == r"M:\shared\neuralls\raw"
-    assert str(config.processed_dir) == r"M:\shared\neuralls\processed"
-    assert str(config.output_dir) == r"M:\shared\neuralls\output"
+    loaded = load_profile(_config_file=config_file)
+
+    assert loaded is not None
+    assert str(loaded.raw_dir) == r"M:\shared\neuralls\raw"
+    assert str(loaded.processed_dir) == r"M:\shared\neuralls\processed"
+    assert str(loaded.output_dir) == r"M:\shared\neuralls\output"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only path semantics")
-def test_profile_config_rejects_windows_mapped_drive_paths_on_posix() -> None:
+def test_load_profile_rejects_windows_mapped_drive_paths_on_posix(tmp_path: Path) -> None:
     """Mapped-drive roots remain invalid on POSIX hosts."""
+    config_file = tmp_path / "config.toml"
+    _saved_profile(
+        config_file,
+        r"M:\shared\neuralls\raw",
+        r"M:\shared\neuralls\processed",
+        r"M:\shared\neuralls\output",
+    )
+
     with pytest.raises(ValueError):
-        ProfileConfig(
-            raw_dir=r"M:\shared\neuralls\raw",
-            processed_dir=r"M:\shared\neuralls\processed",
-            output_dir=r"M:\shared\neuralls\output",
-        )
+        load_profile(_config_file=config_file)
+
+
+def test_neuralls_settings_keeps_paths_as_given() -> None:
+    settings = NeurallsSettings(_env_file=[], processed_dir="processed", output_dir="output")
+
+    assert (settings.processed_dir, settings.output_dir) == (Path("processed"), Path("output"))
 
 
 @pytest.mark.skipif(
     sys.platform == "win32",
     reason="stdlib expanduser prefers USERPROFILE over HOME on Windows",
 )
-def test_neuralls_settings_expands_tilde_with_home_precedence(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_get_settings_expands_tilde(monkeypatch: pytest.MonkeyPatch, home_dir: Path) -> None:
+    _set_root_env(monkeypatch, "~/raw", "~/processed", "~/output")
+
+    settings = get_settings()
+
+    assert settings.raw_dir == home_dir / "raw"
+    assert settings.processed_dir == home_dir / "processed"
+    assert settings.output_dir == home_dir / "output"
+
+
+def test_get_settings_rejects_relative_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("USERPROFILE", str(tmp_path / "windows-home"))
+    _clear_root_env(monkeypatch)
+    monkeypatch.setenv("NEURALLS_PROCESSED_DIR", str(tmp_path / "processed"))
+    monkeypatch.setenv("NEURALLS_OUTPUT_DIR", "output")
 
-    settings = NeurallsSettings(
-        _env_file=[],
-        raw_dir="~/raw",
-        processed_dir="~/processed",
-        output_dir="~/output",
-    )
-
-    assert settings.raw_dir == (home / "raw").resolve()
-    assert settings.processed_dir == (home / "processed").resolve()
-    assert settings.output_dir == (home / "output").resolve()
+    with pytest.raises(ValueError, match="NEURALLS_OUTPUT_DIR"):
+        get_settings()
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only path semantics")
-def test_neuralls_settings_preserve_windows_mapped_drive_paths() -> None:
+def test_get_settings_preserves_windows_mapped_drive_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Runtime settings should not collapse mapped drives into UNC paths on Windows."""
-    settings = NeurallsSettings(
-        _env_file=[],
-        raw_dir=r"M:\shared\neuralls\raw",
-        processed_dir=r"M:\shared\neuralls\processed",
-        output_dir=r"M:\shared\neuralls\output",
+    _set_root_env(
+        monkeypatch,
+        r"M:\shared\neuralls\raw",
+        r"M:\shared\neuralls\processed",
+        r"M:\shared\neuralls\output",
     )
+
+    settings = get_settings()
 
     assert str(settings.raw_dir) == r"M:\shared\neuralls\raw"
     assert str(settings.processed_dir) == r"M:\shared\neuralls\processed"
@@ -237,15 +296,19 @@ def test_neuralls_settings_preserve_windows_mapped_drive_paths() -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only path semantics")
-def test_neuralls_settings_reject_windows_mapped_drive_paths_on_posix() -> None:
+def test_get_settings_rejects_windows_mapped_drive_paths_on_posix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Runtime settings should reject Windows-only roots on POSIX hosts."""
+    _set_root_env(
+        monkeypatch,
+        r"M:\shared\neuralls\raw",
+        r"M:\shared\neuralls\processed",
+        r"M:\shared\neuralls\output",
+    )
+
     with pytest.raises(ValueError):
-        NeurallsSettings(
-            _env_file=[],
-            raw_dir=r"M:\shared\neuralls\raw",
-            processed_dir=r"M:\shared\neuralls\processed",
-            output_dir=r"M:\shared\neuralls\output",
-        )
+        get_settings()
 
 
 def test_profile_config_rejects_missing_required_fields(tmp_path: Path) -> None:
@@ -301,7 +364,7 @@ def test_profile_precedence_profile_then_env_file_then_process_env(
     )
     monkeypatch.setenv("NEURALLS_OUTPUT_DIR", str(tmp_path / "env-process-output"))
 
-    settings = load_case_settings(case_config, env_file)
+    settings = load_case_settings(env_file)
 
     assert settings.processed_dir == (tmp_path / "env-processed").resolve()
     assert settings.output_dir == (tmp_path / "env-process-output").resolve()

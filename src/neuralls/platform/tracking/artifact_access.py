@@ -15,12 +15,16 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import TracebackType
 from typing import Literal, Protocol, Self
+from urllib.parse import unquote, urlsplit
 
 from dlkit.infrastructure.io import url_resolver
 from loguru import logger
 from mlflow.tracking import MlflowClient
 
-from neuralls.platform.config.resolution import resolve_local_path
+from neuralls.platform.config.resolution import (
+    is_windows_absolute_path,
+    normalize_windows_absolute_path,
+)
 
 type ArtifactKind = Literal["file", "dir"]
 type DownloadArtifact = Callable[..., str]
@@ -297,8 +301,26 @@ def _is_local_artifact_uri(uri: str) -> bool:
     return scheme in LOCAL_ARTIFACT_SCHEMES
 
 
+def _local_artifact_root(source_uri: str) -> Path:
+    """Return the absolute root a local artifact URI names.
+
+    MLflow stores absolute local artifact URIs for every run neuralls creates; a relative
+    one would name a different directory for every working directory, so it is rejected.
+    """
+    parts = urlsplit(source_uri.strip())
+    if parts.scheme == "file" and parts.netloc not in {"", "localhost"}:
+        raise ValueError(f"Local artifact URI has a non-local host: {source_uri!r}")
+    text = unquote(parts.path) if parts.scheme == "file" else source_uri.strip()
+    if is_windows_absolute_path(text.lstrip("/")):
+        return normalize_windows_absolute_path(text.lstrip("/"))
+    root = Path(text)
+    if not root.is_absolute():
+        raise ValueError(f"Local artifact URI must be absolute: {source_uri!r}")
+    return root
+
+
 def _local_artifact_path(*, source_uri: str, artifact_path: str) -> Path:
-    root = resolve_local_path(source_uri, base_dir=Path.cwd())
+    root = _local_artifact_root(source_uri)
     artifact_parts = PurePosixPath(artifact_path).parts
     return root.joinpath(*artifact_parts).resolve()
 

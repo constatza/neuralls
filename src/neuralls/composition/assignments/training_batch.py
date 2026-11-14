@@ -431,6 +431,7 @@ def run_assignment_sweep(
         tracking_uri=cfg.mlflow.tracking_uri,
         artifact_location=cfg.mlflow.artifacts_destination,
         default_output_root=batch.output_root,
+        config_dir=config_dir,
     )
     mlflow_experiment_name = cfg.names.training
 

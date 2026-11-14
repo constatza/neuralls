@@ -507,12 +507,13 @@ def _resolve_base_output(
     cfg: CaseConfig,
     settings: NeurallsSettings,
     output_root: Path | None,
+    configs_dir: Path,
 ) -> Path:
     if output_root is not None:
         return output_root
     tracking_uri = cfg.mlflow.tracking_uri
     if tracking_uri is not None and is_sqlite_tracking_uri(tracking_uri):
-        derived = derive_output_root_from_tracking_uri(tracking_uri)
+        derived = derive_output_root_from_tracking_uri(tracking_uri, base_dir=configs_dir)
         if derived is None:
             raise ValueError("MLflow tracking_uri must resolve to a local sqlite database path.")
         return derived
@@ -651,11 +652,12 @@ def eval_batch(
         assignment_ids=[assignment.id for assignment in assignments],
         load_dataset=load_dataset_presentation,
     )
-    base_output = _resolve_base_output(cfg, settings, output_root)
+    base_output = _resolve_base_output(cfg, settings, output_root, configs_dir)
     eval_mlflow_env = build_workflow_environment(
         tracking_uri=cfg.mlflow.tracking_uri,
         artifact_location=cfg.mlflow.artifacts_destination,
         default_output_root=base_output,
+        config_dir=configs_dir,
     )
     resolved_case_config_path = (
         case_config_path.resolve() if case_config_path is not None else (configs_dir / "case.toml")

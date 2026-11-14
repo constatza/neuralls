@@ -14,6 +14,7 @@ from neuralls.composition.config import (
     delete_profile,
     list_profiles,
     load_profile,
+    resolve_typed_profile,
     save_profile,
 )
 
@@ -181,12 +182,14 @@ def create(
         Profile 'laptop' written to /home/archer/.config/neuralls/config.toml
     """
     try:
-        profile = ProfileConfig.model_validate(
-            {
-                "raw_dir": raw_dir,
-                "processed_dir": processed_dir,
-                "output_dir": output_dir,
-            }
+        profile = resolve_typed_profile(
+            ProfileConfig.model_validate(
+                {
+                    "raw_dir": raw_dir,
+                    "processed_dir": processed_dir,
+                    "output_dir": output_dir,
+                }
+            )
         )
         save_profile(name, profile, overwrite=force)
     except ValidationError as exc:
@@ -239,7 +242,7 @@ def set_cmd(
     updated_data = existing.model_dump()
     updated_data[attr] = value
     try:
-        updated = ProfileConfig.model_validate(updated_data)
+        updated = resolve_typed_profile(ProfileConfig.model_validate(updated_data))
     except ValidationError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc

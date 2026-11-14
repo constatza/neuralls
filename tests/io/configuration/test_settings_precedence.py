@@ -48,7 +48,7 @@ def test_precedence_env_var_over_env_file_over_profile(
     )
     monkeypatch.setenv("NEURALLS_OUTPUT_DIR", str(tmp_path / "env-output"))
 
-    settings = load_case_settings(case_config, env_file)
+    settings = load_case_settings(env_file)
 
     assert settings.processed_dir == (tmp_path / "env-file/processed").resolve()
     assert settings.output_dir == (tmp_path / "env-output").resolve()
@@ -80,7 +80,7 @@ def test_precedence_env_file_over_profile(
         encoding="utf-8",
     )
 
-    settings = load_case_settings(case_config, env_file)
+    settings = load_case_settings(env_file)
 
     assert settings.processed_dir == (tmp_path / "env-file/processed").resolve()
     assert settings.output_dir == (tmp_path / "env-file/output").resolve()

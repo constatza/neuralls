@@ -26,8 +26,8 @@ def test_settings_loads_from_env_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     }.items():
         monkeypatch.setenv(key, str(value))
     settings = NeurallsSettings(_env_file=[])
-    assert settings.processed_dir == processed.resolve()
-    assert settings.output_dir == output.resolve()
+    assert settings.processed_dir == processed
+    assert settings.output_dir == output
 
 
 def test_settings_missing_required_raises(monkeypatch: pytest.MonkeyPatch) -> None:

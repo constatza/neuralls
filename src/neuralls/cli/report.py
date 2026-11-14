@@ -33,7 +33,7 @@ def report_case(
 ) -> None:
     """Draw and log the report of the newest finished comparison session of one case config."""
     try:
-        settings = load_case_settings(config, env_file, profile=profile)
+        settings = load_case_settings(env_file, profile=profile)
         outcome = run_comparison_report(
             config,
             force=force,

@@ -17,11 +17,13 @@ from mlflow import ActiveRun
 from mlflow.tracking import MlflowClient
 
 from neuralls.domain.presentation.run_names import NamedRun
-from neuralls.platform.config.loaders import load_tracking_config
+from neuralls.platform.config.loaders import DEFAULT_TRACKING_TOML, load_tracking_config
 from neuralls.platform.config.resolution import (
     MlflowPaths,
     build_mlflow_environment,
     build_sqlite_tracking_uri,
+    normalize_artifacts_destination,
+    require_absolute_user_path,
     to_mlflow_artifact_location,
 )
 from neuralls.platform.tracking.run_names import run_name_text
@@ -117,6 +119,8 @@ def build_runtime_environment(
     existing_uri = os.environ.get("MLFLOW_TRACKING_URI")
     if existing_uri:
         existing_artifact_uri = os.environ.get("MLFLOW_ARTIFACT_URI")
+        if existing_artifact_uri and not url_resolver.scheme(existing_artifact_uri.strip()):
+            require_absolute_user_path(existing_artifact_uri, name="MLFLOW_ARTIFACT_URI")
         env = {"MLFLOW_TRACKING_URI": existing_uri}
         if existing_artifact_uri:
             env["MLFLOW_ARTIFACT_URI"] = existing_artifact_uri
@@ -132,6 +136,7 @@ def build_runtime_environment(
         env = build_mlflow_environment(
             tracking_uri=shared.uri,
             artifacts_destination=shared.artifacts_destination,
+            base_dir=DEFAULT_TRACKING_TOML.parent,
         )
         return MlflowRuntimeEnvironment(
             env=env,
@@ -144,6 +149,7 @@ def build_runtime_environment(
     env = build_mlflow_environment(
         tracking_uri=build_sqlite_tracking_uri(permanent_root / "mlruns" / "mlflow.db"),
         artifacts_destination=str((permanent_root / "mlartifacts").resolve()),
+        base_dir=permanent_root,
     )
     return MlflowRuntimeEnvironment(
         env=env,
@@ -158,33 +164,47 @@ def build_workflow_environment(
     tracking_uri: str | None,
     artifact_location: str | None,
     default_output_root: Path,
-    config_path: Path | None = None,
+    config_dir: Path,
 ) -> MlflowRuntimeEnvironment:
     """Build the MLflow environment for a case-driven workflow.
+
+    Relative local values anchor at the directory of the file that wrote them:
+    *tracking_uri* and *artifact_location* at *config_dir* (the case config's directory),
+    the shared values at ``configs/tracking.toml``'s directory.
 
     Precedence when *tracking_uri* is ``None``:
     1. ``configs/tracking.toml`` (shared project-level source of truth)
     2. Local sqlite fallback under *default_output_root*
     """
-    resolved_uri = tracking_uri
-    resolved_artifacts = artifact_location
-    if resolved_uri is None:
-        shared = load_tracking_config()
-        if shared is not None:
-            resolved_uri = shared.uri
-            resolved_artifacts = resolved_artifacts or shared.artifacts_destination
-    is_explicit = resolved_uri is not None
-    if resolved_uri is None:
+    case_artifacts = (
+        normalize_artifacts_destination(artifact_location, base_dir=config_dir)
+        if artifact_location is not None
+        else None
+    )
+    if tracking_uri is not None:
         env = build_mlflow_environment(
-            tracking_uri=build_sqlite_tracking_uri(default_output_root / "mlruns" / "mlflow.db"),
-            artifacts_destination=str((default_output_root / "mlartifacts").resolve()),
+            tracking_uri=tracking_uri,
+            artifacts_destination=case_artifacts,
+            base_dir=config_dir,
         )
-    else:
+        return _workflow_environment(env, is_explicit=True)
+    shared = load_tracking_config()
+    if shared is not None and shared.uri is not None:
         env = build_mlflow_environment(
-            tracking_uri=resolved_uri,
-            artifacts_destination=resolved_artifacts,
-            config_path=config_path,
+            tracking_uri=shared.uri,
+            artifacts_destination=case_artifacts or shared.artifacts_destination,
+            base_dir=DEFAULT_TRACKING_TOML.parent,
         )
+        return _workflow_environment(env, is_explicit=True)
+    env = build_mlflow_environment(
+        tracking_uri=build_sqlite_tracking_uri(default_output_root / "mlruns" / "mlflow.db"),
+        artifacts_destination=str((default_output_root / "mlartifacts").resolve()),
+        base_dir=default_output_root,
+    )
+    return _workflow_environment(env, is_explicit=False)
+
+
+def _workflow_environment(env: dict[str, str], *, is_explicit: bool) -> MlflowRuntimeEnvironment:
     return MlflowRuntimeEnvironment(
         env=env,
         tracking_uri=env["MLFLOW_TRACKING_URI"],

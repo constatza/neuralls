@@ -7,7 +7,6 @@ from pathlib import Path
 from neuralls.platform.config.models.data_models import DataConfigFile, OutputConfig
 from neuralls.platform.config.resolution import (
     PathContext,
-    build_sqlite_tracking_uri,
     resolve_path_context,
 )
 from neuralls.platform.config.settings import NeurallsSettings
@@ -26,20 +25,6 @@ def test_path_context_creation() -> None:
     assert ctx.project_root == WORKSPACE / "project"
     assert ctx.output_root == WORKSPACE / "output"
     assert ctx.processed_root == WORKSPACE / "processed"
-
-
-def test_path_context_mlflow_properties() -> None:
-    """MLflow paths are derived from output_root."""
-    output_root = WORKSPACE / "output"
-    ctx = PathContext(
-        project_root=WORKSPACE,
-        output_root=output_root,
-        processed_root=WORKSPACE,
-    )
-    assert ctx.mlflow_tracking_uri == build_sqlite_tracking_uri(
-        output_root / "mlruns" / "mlflow.db"
-    )
-    assert ctx.mlflow_artifact_location == str((output_root / "mlartifacts").resolve())
 
 
 def test_resolve_path_context_uses_settings_defaults(

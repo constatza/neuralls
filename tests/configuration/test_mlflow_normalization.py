@@ -49,7 +49,7 @@ def test_normalize_tracking_uri_resolves_relative_sqlite_path() -> None:
 
     normalized = normalize_tracking_uri(
         "sqlite:///../output/mlruns/mlflow.db",
-        config_path=config_path,
+        base_dir=config_path.parent,
     )
 
     expected_db = (config_path.parent / "output/mlruns/mlflow.db").resolve()
@@ -58,7 +58,7 @@ def test_normalize_tracking_uri_resolves_relative_sqlite_path() -> None:
 
 def test_normalize_tracking_uri_rejects_invalid_scheme() -> None:
     with pytest.raises(ValueError):
-        normalize_tracking_uri("file:///tests/fixtures/mlflow.db")
+        normalize_tracking_uri("file:///tests/fixtures/mlflow.db", base_dir=WORKSPACE)
 
 
 def test_normalize_artifacts_destination_resolves_relative_path() -> None:
@@ -66,7 +66,7 @@ def test_normalize_artifacts_destination_resolves_relative_path() -> None:
 
     normalized = normalize_artifacts_destination(
         "../output/mlartifacts",
-        config_path=config_path,
+        base_dir=config_path.parent,
     )
 
     expected = (config_path.parent / "../output/mlartifacts").resolve()
@@ -76,16 +76,18 @@ def test_normalize_artifacts_destination_resolves_relative_path() -> None:
 def test_build_mlflow_environment_derives_sqlite_artifact_uri() -> None:
     tracking_uri = build_sqlite_tracking_uri(WORKSPACE / "mlruns" / "mlflow.db")
 
-    env = build_mlflow_environment(tracking_uri=tracking_uri)
+    env = build_mlflow_environment(tracking_uri=tracking_uri, base_dir=WORKSPACE)
 
     assert env["MLFLOW_TRACKING_URI"] == tracking_uri
     assert_local_path_eq(env["MLFLOW_ARTIFACT_URI"], (WORKSPACE / "mlartifacts").resolve())
-    assert env["MLFLOW_ARTIFACT_URI"] == derive_sqlite_artifacts_destination(tracking_uri)
+    assert env["MLFLOW_ARTIFACT_URI"] == derive_sqlite_artifacts_destination(
+        tracking_uri, base_dir=WORKSPACE
+    )
 
 
 def test_build_mlflow_environment_keeps_remote_tracking_without_artifact_uri() -> None:
     tracking_uri = "https://tests.invalid/mlflow"
-    env = build_mlflow_environment(tracking_uri=tracking_uri)
+    env = build_mlflow_environment(tracking_uri=tracking_uri, base_dir=WORKSPACE)
 
     assert env == {"MLFLOW_TRACKING_URI": tracking_uri}
 
@@ -93,7 +95,7 @@ def test_build_mlflow_environment_keeps_remote_tracking_without_artifact_uri() -
 def test_derive_output_root_from_tracking_uri_uses_repo_output_root() -> None:
     tracking_uri = build_sqlite_tracking_uri(WORKSPACE / "output" / "mlruns" / "mlflow.db")
 
-    output_root = derive_output_root_from_tracking_uri(tracking_uri)
+    output_root = derive_output_root_from_tracking_uri(tracking_uri, base_dir=WORKSPACE)
 
     assert output_root == (WORKSPACE / "output").resolve()
 
@@ -104,7 +106,7 @@ def test_normalize_tracking_uri_accepts_windows_drive_letter_path() -> None:
 
     normalized = normalize_tracking_uri(
         "sqlite:///C:/neuralls/output/mlruns/mlflow.db",
-        config_path=config_path,
+        base_dir=config_path.parent,
     )
 
     assert normalized == "sqlite:///C:/neuralls/output/mlruns/mlflow.db"

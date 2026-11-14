@@ -55,7 +55,7 @@ def run_case_pipeline_command(
     require_existing_config(config)
 
     try:
-        settings = load_case_settings(config, env_file, profile=profile)
+        settings = load_case_settings(env_file, profile=profile)
         typer.echo(f"Running case pipeline from: {config}")
         policy = ForcePolicy.resolve(
             everything=force,

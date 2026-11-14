@@ -150,7 +150,7 @@ def _resolve_output_override(
     tracking_uri = case_cfg.mlflow.tracking_uri
     if tracking_uri is None:
         return neuralls_settings.output_dir
-    return derive_output_root_from_tracking_uri(tracking_uri, config_path=case_config_path)
+    return derive_output_root_from_tracking_uri(tracking_uri, base_dir=case_config_path.parent)
 
 
 def _build_default_mlflow_topology(path_ctx_output_root: Path) -> MlflowTopology:
@@ -159,6 +159,8 @@ def _build_default_mlflow_topology(path_ctx_output_root: Path) -> MlflowTopology
         tracking_uri=None,
         artifact_location=None,
         default_output_root=path_ctx_output_root,
+        # No case config: no case-written value exists to anchor.
+        config_dir=path_ctx_output_root,
     )
     return MlflowTopology(env=runtime.env)
 
@@ -173,7 +175,7 @@ def _build_case_mlflow_topology(
         tracking_uri=case_cfg.mlflow.tracking_uri,
         artifact_location=case_cfg.mlflow.artifacts_destination,
         default_output_root=neuralls_settings.output_dir,
-        config_path=case_config_path,
+        config_dir=case_config_path.parent,
     )
     return MlflowTopology(
         env=runtime.env,
