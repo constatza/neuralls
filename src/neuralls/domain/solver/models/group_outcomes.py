@@ -74,7 +74,11 @@ class RecipeProfileReport(GroupAggregated):
 
 @dataclass(frozen=True, slots=True, eq=False)
 class WorkloadMixtureReport(GroupAggregated):
-    """Matrix-set or all-matrix-sets report whose recipes are explicitly named as a mixture."""
+    """Matrix-set or all-matrix-sets report, whose workload pools every recipe it names.
+
+    It is drawn as a mixture only when it names two or more recipes
+    (``platform/reporting/cohort_variants.py::cohort_level``).
+    """
 
     label: MatrixSetLabel | AllMatrixSetsLabel
 

@@ -68,7 +68,10 @@ def cohort_level(label: GroupLabel) -> CohortLevel:
     """The cohort level of the report group named by ``label``.
 
     The one decision of whether a group is drawn as a mixture: the cohort figures it gets and the
-    cohort rows its tables hold (``figure_summaries``) both follow it.
+    cohort rows its tables hold (``figure_summaries``) both follow it. It reads the label of the
+    whole report group; a recipe cohort's ``cohort_report`` keeps the group's label while narrowing
+    its rows, so it is never asked of one. Which figure kinds a group gets still follows its report
+    type (``GroupFigureRecipe.applies_to``).
     """
     match label:
         case MatrixSetRhsTypeLabel():

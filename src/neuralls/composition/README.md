@@ -734,8 +734,10 @@ cohort (the pooled `__mixture` figure at the matrix-set level, whose recipe coho
 matrix-set-and-RHS-type reports; one figure per recipe plus the pooled one at the all-matrix-sets
 level), and the ECDFs, performance profiles, paired scatter and speed-ratio CDF as one
 `__mixture` figure pooled over all the group's systems, labelled a mixture of recipes. A
-matrix-set or all-matrix-sets group of one recipe is no mixture: each of those kinds is one
-unsuffixed figure of that recipe (`platform/reporting/cohort_variants.py::cohort_level`). The
+matrix-set or all-matrix-sets group of one recipe is no mixture: each of the per-cohort and pooled
+kinds above is one unsuffixed figure of that recipe
+(`platform/reporting/cohort_variants.py::cohort_level`); the kinds it gets are still those of its
+level. The
 break-even curve and the heatmap are recipe-level only.
 Every level also emits a total-cost figure (`cost_breakdown`): each method's offline generation and
 training, read from the offline block of its stored `summary.toml` and paid once per artifact, stacked on

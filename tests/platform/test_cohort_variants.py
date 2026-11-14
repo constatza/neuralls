@@ -6,7 +6,9 @@ import pytest
 from tests.figure_support import no_offline_cost
 from tests.recipe_support import GAUSSIAN, SINE
 
+from neuralls.domain.benchmarking.paired import reference_among_methods
 from neuralls.domain.solver.models.group_outcomes import WorkloadMixtureReport
+from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.models.labels import (
     AllMatrixSetsLabel,
     MatrixSetLabel,
@@ -32,7 +34,12 @@ from neuralls.platform.reporting.cohort_variants import (
     recipe_variant,
 )
 from neuralls.platform.reporting.figure_metadata import TableKind
-from neuralls.platform.reporting.figure_recipes import compares_to_reference, group_recipes
+from neuralls.platform.reporting.figure_planning import figure_plans
+from neuralls.platform.reporting.figure_recipes import (
+    compares_to_reference,
+    drawn_variants,
+    group_recipes,
+)
 from neuralls.platform.reporting.figure_summaries import figure_summaries
 from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.types import DatasetId
@@ -186,4 +193,19 @@ def test_the_cohort_table_of_a_two_recipe_mixture_ends_with_its_pooled_rows(
         recipe_key(GAUSSIAN),
         recipe_key(SINE),
         MIXTURE_COHORT,
+    ]
+
+
+def test_planning_a_one_recipe_mixture_gives_no_suffixed_figure(
+    mixture_report: WorkloadMixtureReport, repeated_timing_presentation: GroupPresentation
+) -> None:
+    reference = reference_among_methods(
+        mixture_report.observations, mixture_report.reference_selection
+    )
+
+    plans = figure_plans(mixture_report, repeated_timing_presentation, "key", {})
+
+    assert [(plan.stem, plan.metadata.cohort) for plan in plans] == [
+        (variant.figure_stem("key"), WholeGroup())
+        for _, variant in drawn_variants(mixture_report, reference)
     ]
