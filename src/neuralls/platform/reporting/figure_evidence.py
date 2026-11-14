@@ -8,14 +8,14 @@ measured in seconds.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import assert_never
 
 import polars as pl
 
-from neuralls.domain.benchmarking.paired import paired_systems, speed_ratios
+from neuralls.domain.benchmarking.paired import compared_methods, paired_systems, speed_ratios
 from neuralls.domain.benchmarking.uncertainty import (
     MatrixClusterBootstrap,
     TooFewMatrices,
@@ -45,8 +45,32 @@ class NotDrawnByKind:
     """The figure's statistic never draws an interval."""
 
 
-type FigureInterval = NotDrawnByKind | TooFewMatrices | MatrixClusterBootstrap
-"""The interval a figure draws, or the reason it draws none."""
+@dataclass(frozen=True, slots=True)
+class MethodInterval:
+    """The interval of one method's mark over that method's own matrices, or why it has none."""
+
+    method: PreconditionerName
+    interval: TooFewMatrices | MatrixClusterBootstrap
+
+
+@dataclass(frozen=True, slots=True)
+class PerMethodIntervals:
+    """The figure draws an interval per method, each resampling only the matrices of its method.
+
+    ``methods`` is ordered by method name and names each method once.
+    """
+
+    methods: tuple[MethodInterval, ...]
+
+    def __post_init__(self) -> None:
+        """Require each method once, in name order."""
+        names = [entry.method for entry in self.methods]
+        if names != sorted(set(names)):
+            raise ValueError("per-method intervals must name each method once, in name order")
+
+
+type FigureInterval = NotDrawnByKind | PerMethodIntervals
+"""The intervals a figure draws, or that its statistic never draws one."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,26 +151,43 @@ def outcome_counts_of(observations: pl.DataFrame) -> tuple[MethodOutcomeCounts, 
     )
 
 
-def bootstrap_of_speed_ratios(
+def intervals_of_speed_ratios(
     observations: pl.DataFrame, reference: PreconditionerName, metric: MetricId
-) -> TooFewMatrices | MatrixClusterBootstrap:
-    """The bootstrap behind the speed-ratio intervals of every method against ``reference``.
+) -> PerMethodIntervals:
+    """The bootstrap behind each method's speed-ratio interval against ``reference``.
 
-    It counts the distinct matrices that give any method a ratio.
+    A method's count is the distinct matrices that give it a ratio, the clusters
+    ``speed_ratio_summary`` resamples for that method.
     """
     ratios = speed_ratios(paired_systems(observations, reference, metric))
-    return cluster_bootstrap(ratios.select("dataset", "matrix_id").unique().height)
+    return _per_method(ratios, compared_methods(observations, reference))
 
 
-def bootstrap_of_means(
+def intervals_of_means(
     observations: pl.DataFrame, metric: MetricId, population: Population
-) -> TooFewMatrices | MatrixClusterBootstrap:
-    """The bootstrap behind the whiskers of every method's mean of ``metric`` over ``population``.
+) -> PerMethodIntervals:
+    """The bootstrap behind each method's whisker of its mean of ``metric`` over ``population``.
 
-    It counts the distinct matrices that give any method a defined value.
+    A method's count is the distinct matrices that give it a defined value, the clusters
+    ``summarize`` resamples for that method.
     """
-    defined = select(observations, metric, population)
-    return cluster_bootstrap(defined.select("dataset", "matrix_id").unique().height)
+    methods = sorted(observations["method"].unique().to_list())
+    return _per_method(select(observations, metric, population), methods)
+
+
+def _per_method(rows: pl.DataFrame, methods: Sequence[str]) -> PerMethodIntervals:
+    """The interval of each of ``methods`` over the distinct matrices its ``rows`` cover."""
+    counts = dict(
+        rows.group_by("method")
+        .agg(pl.struct("dataset", "matrix_id").n_unique().alias("matrices"))
+        .iter_rows()
+    )
+    return PerMethodIntervals(
+        tuple(
+            MethodInterval(PreconditionerName(method), cluster_bootstrap(counts.get(method, 0)))
+            for method in methods
+        )
+    )
 
 
 def setup_sharing_of(metric: MetricId, observations: pl.DataFrame) -> SetupSharing:

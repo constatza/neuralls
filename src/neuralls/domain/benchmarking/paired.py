@@ -101,7 +101,8 @@ def _require_reference(obs: pl.DataFrame, reference: PreconditionerName) -> None
         raise ValueError(f"reference {reference!r} is not among the methods of the observations")
 
 
-def _compared_methods(obs: pl.DataFrame, reference: PreconditionerName) -> list[str]:
+def compared_methods(obs: pl.DataFrame, reference: PreconditionerName) -> list[str]:
+    """The methods of ``obs`` compared against ``reference``, by name."""
     return sorted(set(obs["method"]) - {reference})
 
 
@@ -177,7 +178,7 @@ def speed_ratio_summary(
     paired = paired_systems(obs, reference, metric)
     rows = [
         _speed_ratio_row(method, paired.filter(pl.col("method") == method), seed)
-        for method in _compared_methods(obs, reference)
+        for method in compared_methods(obs, reference)
     ]
     return pl.DataFrame(rows, schema=SPEED_RATIO_SCHEMA)
 
@@ -254,7 +255,7 @@ def break_even(obs: pl.DataFrame, reference: PreconditionerName) -> pl.DataFrame
         ValueError: The reference is not among the methods.
     """
     _require_reference(obs, reference)
-    rows = [_common_means(obs, reference, method) for method in _compared_methods(obs, reference)]
+    rows = [_common_means(obs, reference, method) for method in compared_methods(obs, reference)]
     saving_per_rhs = pl.col("reference_solve_s_mean") - pl.col("solve_s_mean")
     extra_setup = pl.col("setup_s_mean") - pl.col("reference_setup_s_mean")
     return (

@@ -18,7 +18,7 @@ from neuralls.domain.benchmarking.paired import paired_systems, speed_ratio_summ
 from neuralls.domain.benchmarking.profiles import ecdf_series, performance_series
 from neuralls.domain.solver.models.group_outcomes import WorkloadMixtureReport
 from neuralls.domain.solver.reporting.metrics import MetricId
-from neuralls.platform.reporting.figure_evidence import bootstrap_of_speed_ratios
+from neuralls.platform.reporting.figure_evidence import intervals_of_speed_ratios
 from neuralls.shared.rhs_recipe import recipe_key
 
 _PROFILE_METRICS = (MetricId.ITERATIONS, MetricId.SOLVE_S, MetricId.ONLINE_S)
@@ -147,7 +147,7 @@ def test_the_speed_ratio_interval_clusters_by_matrix_across_the_recipes_that_sha
     assert max(per_recipe.group_by("method").agg(pl.col("n_matrices").sum())["n_matrices"]) > (
         pooled_matrices
     )
-    assert (
-        bootstrap_of_speed_ratios(shared_matrices, JACOBI, MetricId.ONLINE_S).matrices
-        == pooled_matrices
-    )
+    assert [
+        entry.interval.matrices
+        for entry in intervals_of_speed_ratios(shared_matrices, JACOBI, MetricId.ONLINE_S).methods
+    ] == interleaved["n_matrices"].to_list()

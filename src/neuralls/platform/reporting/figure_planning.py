@@ -33,8 +33,8 @@ from neuralls.platform.reporting.cohort_variants import (
 from neuralls.platform.reporting.figure_evidence import (
     FigureInterval,
     NotDrawnByKind,
-    bootstrap_of_means,
-    bootstrap_of_speed_ratios,
+    intervals_of_means,
+    intervals_of_speed_ratios,
     outcome_counts_of,
     setup_sharing_of,
     timing_evidence_of,
@@ -215,11 +215,11 @@ def _interval(
     observations = outcome.observations
     match variant.statistic:
         case Statistic.SPEED_RATIO_CDF:
-            return bootstrap_of_speed_ratios(
+            return intervals_of_speed_ratios(
                 observations, drawn_reference(variant, compared_to), variant.metric
             )
         case Statistic.MEAN_OVER_SYSTEMS | Statistic.MEAN_OVER_MATRICES | Statistic.MEAN_AND_MEDIAN:
-            return bootstrap_of_means(observations, variant.metric, variant.population)
+            return intervals_of_means(observations, variant.metric, variant.population)
         case (
             Statistic.WORKLOAD_TOTAL
             | Statistic.OFFLINE_ONLINE_TOTAL
