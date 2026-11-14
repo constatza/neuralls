@@ -13,7 +13,6 @@ from neuralls.composition.preconditioners.checkpoint_store import (
     NO_PRELOADED,
     CheckpointLoaders,
     CheckpointStore,
-    require_loaders,
 )
 from neuralls.composition.preconditioners.descriptions import describe_realized_preconditioner
 from neuralls.composition.preconditioners.factory import create_preconditioner
@@ -90,7 +89,7 @@ class PreconditionerService:
                 config,
                 matrix,
                 self._checkpoints,
-                require_loaders(self._loaders, f"preloading {config.name}"),
+                self._loaders,
             )
         if isinstance(config, AMGPreconditionerConfig):
             coarsening = config.coarsening

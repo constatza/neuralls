@@ -168,6 +168,8 @@ def _neural_pod_coarsening(
         raise ValueError(
             "NeuralPODCoarseningConfig requires checkpoint_path or resolved_checkpoint_path"
         )
+    # Loaders are needed even when the predictor was preloaded: their device is the one the
+    # prediction's memory is measured on.
     loaders = require_loaders(loaders, "neural POD-2G coarsening")
     factory = preloaded_inference_factory(loaders.inference_predictor_factory, preloaded)
 

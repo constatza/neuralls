@@ -498,7 +498,11 @@ solver or comparison orchestration.
 Both DLKit entry points take the device from their caller: `DLKitAdapter(device)` and
 `create_inference_predictor(checkpoint_path, device)` pass it to `load_model` and record it on
 the predictor. DLKit never chooses a device (no `device="auto"`) and the adapters do not read
-it back from the loaded parameters, so there is one decider, in composition.
+it back from the loaded parameters, so there is one decider, in composition. That decider is torchalg's
+`resolve_device` (CUDA when available, else CPU), so an Apple MPS host runs the models on CPU,
+where DLKit's own choice would have picked MPS; the predictors run in float64
+(`PrecisionStrategy.FULL_64`), which MPS does not support, and the matrices, residuals and memory
+observer were already on the composition device.
 
 The same adapter boundary owns lifecycle translation: solver-facing predictors
 implement torchalg's idempotent `cleanup()` port by delegating to DLKit's
