@@ -17,8 +17,6 @@ from neuralls.domain.benchmarking.profiles import ecdf_series, performance_serie
 from neuralls.domain.solver.models.cost import OfflineStages
 from neuralls.domain.solver.models.group_outcomes import (
     GroupReport,
-    RecipeProfileReport,
-    WorkloadMixtureReport,
 )
 from neuralls.domain.solver.reporting.cohorts import CohortRows, by_cohort
 from neuralls.domain.solver.reporting.matrix_breakdown import matrix_breakdown
@@ -28,6 +26,7 @@ from neuralls.domain.solver.reporting.summary import (
     summarize,
     time_per_iteration_summary,
 )
+from neuralls.platform.reporting.cohort_variants import CohortLevel, cohort_level
 from neuralls.platform.reporting.figure_metadata import (
     Statistic,
 )
@@ -109,11 +108,11 @@ def _summary(
 
 
 def _cohort_rows(outcome: GroupReport) -> CohortRows:
-    """A mixture level keeps its pooled rows beside its recipes'; a recipe level has only one."""
-    match outcome:
-        case RecipeProfileReport():
+    """A mixture keeps its pooled rows beside its recipes'; a group of one recipe has only it."""
+    match cohort_level(outcome.label):
+        case CohortLevel.RECIPE:
             return CohortRows.RECIPES
-        case WorkloadMixtureReport():
+        case CohortLevel.MATRIX_SET | CohortLevel.ALL_MATRIX_SETS:
             return CohortRows.RECIPES_AND_MIXTURE
         case unreachable:
             assert_never(unreachable)

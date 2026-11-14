@@ -250,20 +250,24 @@ that method has no whisker, its entry is `too_few_matrices`. `time_per_iteration
 distributions and convergence-factor figures are cohort tables (`TableKind.COHORT_SUMMARY`,
 `TableKind.COHORT_RATIO_OF_SUMS`): the statistic's own schema behind one leading `cohort` column
 (`domain/solver/reporting/cohorts.py::by_cohort`), one block of rows per recipe (the recipe's
-lossless key) and, only at a mixture level, a last block over all recipes labelled `mixture`.
+lossless key) and, only for a group that pools two or more recipes, a last block over all
+recipes labelled `mixture`.
 `figure_summaries` computes the whole cohort table once per variant. Each cohort is then its own
 figure (`cohort_variants.py`, pure): which cohorts get a figure is decided by the report's
-`CohortLevel`, matched exhaustively.
+`CohortLevel`, matched exhaustively. `cohort_level` is the one decision of whether a group is a
+mixture: a matrix-set or all-matrix-sets group of fewer than `MIN_MIXTURE_RECIPES` (2) recipes is
+`CohortLevel.RECIPE`, and `figure_summaries` takes the cohort rows of its tables from the same
+level, so a table never holds a pooled block its figures do not draw.
 
 | Report level | Figures of a cohort kind | Stem |
 |---|---|---|
-| matrix set and RHS type | one, the report's only recipe | `<stem>_<slug>` (unchanged) |
-| matrix set | the pooled one only: a recipe cohort would repeat the matrix-set-and-RHS-type report of that recipe row for row, since both take the statistic over that recipe's systems of that matrix set | `<stem>_<slug>__mixture` |
-| all matrix sets | one per recipe, then the pooled one | `<stem>_<slug>__<recipe key slug>`, `<stem>_<slug>__mixture` |
+| matrix set and RHS type, or any level pooling one recipe | one, the group's only recipe | `<stem>_<slug>` (unchanged) |
+| matrix set of two or more recipes | the pooled one only: a recipe cohort would repeat the matrix-set-and-RHS-type report of that recipe row for row, since both take the statistic over that recipe's systems of that matrix set | `<stem>_<slug>__mixture` |
+| all matrix sets of two or more recipes | one per recipe, then the pooled one | `<stem>_<slug>__<recipe key slug>`, `<stem>_<slug>__mixture` |
 
 The ECDFs, performance profiles, paired scatter and speed-ratio CDF (`CohortSplit.POOLED_AT_MIXTURE`:
 tables `series`, `paired`, `speed_ratio`) have no per-recipe row blocks. At recipe level they are the
-one unsuffixed figure; at matrix-set and all-matrix-sets levels each variant is one figure pooled
+one unsuffixed figure, as at a level pooling one recipe; at matrix-set and all-matrix-sets levels of two or more recipes each variant is one figure pooled
 over all of the group's systems and all RHS types, stem suffix `__mixture`, card cohort `mixture`,
 a subtitle line (drawn when `show_titles` is on) stating that it is a mixture of recipes, and a table that is that figure's own
 series, pairs or ratio frame (never `cohort_rows` of anything). A recipe's pairs and curves are

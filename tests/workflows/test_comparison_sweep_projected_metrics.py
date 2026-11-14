@@ -154,9 +154,9 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
         }
 
     def pooled_figures(stem: str) -> set[str]:
-        """The profile figures pooled over a mixture; the case has no reference to pair against."""
+        """The profile figures of the group; the case has no reference to pair against."""
         return {
-            f"{kind}_{stem}__mixture.png"
+            f"{kind}_{stem}.png"
             for kind in (
                 "performance_profile_solve",
                 "performance_profile_online",
@@ -188,7 +188,8 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"solve_time_bars_{dataset_stem}.png",
             f"online_time_bars_{dataset_stem}.png",
             f"cost_breakdown_{dataset_stem}.png",
-            *cohort_figures(dataset_stem, "__mixture"),
+            # One recipe is no mixture: each cohort kind is one unsuffixed figure at every level.
+            *cohort_figures(dataset_stem, ""),
             *pooled_figures(dataset_stem),
         }
     )
@@ -197,7 +198,7 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
             f"solve_time_bars_{all_stem}.png",
             f"online_time_bars_{all_stem}.png",
             f"cost_breakdown_{all_stem}.png",
-            *cohort_figures(all_stem, "__dataset", "__mixture"),
+            *cohort_figures(all_stem, ""),
             *pooled_figures(all_stem),
         }
     )

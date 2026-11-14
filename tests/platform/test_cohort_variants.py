@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from tests.figure_support import no_offline_cost
 from tests.recipe_support import GAUSSIAN, SINE
 
 from neuralls.domain.solver.models.group_outcomes import WorkloadMixtureReport
@@ -12,6 +13,8 @@ from neuralls.domain.solver.models.labels import (
     MatrixSetRhsTypeLabel,
 )
 from neuralls.domain.solver.reporting.cohorts import (
+    COHORT_COLUMN,
+    MIXTURE_COHORT,
     MixtureCohort,
     RecipeCohort,
     WholeGroup,
@@ -30,6 +33,8 @@ from neuralls.platform.reporting.cohort_variants import (
 )
 from neuralls.platform.reporting.figure_metadata import TableKind
 from neuralls.platform.reporting.figure_recipes import compares_to_reference, group_recipes
+from neuralls.platform.reporting.figure_summaries import figure_summaries
+from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.types import DatasetId
 
 _RECIPES = (GAUSSIAN, SINE)
@@ -141,3 +146,44 @@ def test_no_figure_compared_against_the_reference_is_split_by_recipe() -> None:
     }
 
     assert [table for table in compared_tables if is_cohort_table(table)] == []
+
+
+_ONE_RECIPE_MIXTURES = [
+    pytest.param(MatrixSetLabel(DatasetId("ds"), (GAUSSIAN,)), id="matrix set"),
+    pytest.param(AllMatrixSetsLabel((GAUSSIAN,)), id="all matrix sets"),
+]
+
+
+@pytest.mark.parametrize("label", _ONE_RECIPE_MIXTURES)
+def test_a_mixture_level_of_one_recipe_is_drawn_as_that_recipe(
+    label: MatrixSetLabel | AllMatrixSetsLabel,
+) -> None:
+    assert {
+        table: [
+            variant.stem_suffix
+            for variant in cohort_variants(table, cohort_level(label), (GAUSSIAN,))
+        ]
+        for table in TableKind
+    } == {table: [""] for table in TableKind}
+
+
+def test_the_cohort_table_of_a_one_recipe_mixture_has_no_pooled_rows(
+    mixture_report: WorkloadMixtureReport,
+) -> None:
+    table = figure_summaries(mixture_report, no_offline_cost(mixture_report))["iteration_means"]
+
+    assert table[COHORT_COLUMN].unique().to_list() == [recipe_key(GAUSSIAN)]
+
+
+def test_the_cohort_table_of_a_two_recipe_mixture_ends_with_its_pooled_rows(
+    two_recipe_mixture_report: WorkloadMixtureReport,
+) -> None:
+    table = figure_summaries(two_recipe_mixture_report, no_offline_cost(two_recipe_mixture_report))[
+        "iteration_means"
+    ]
+
+    assert table[COHORT_COLUMN].unique(maintain_order=True).to_list() == [
+        recipe_key(GAUSSIAN),
+        recipe_key(SINE),
+        MIXTURE_COHORT,
+    ]
