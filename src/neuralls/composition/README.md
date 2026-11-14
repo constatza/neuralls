@@ -295,6 +295,8 @@ it must not absorb low-level IO mechanics, config normalization policy, or
 tensor-level runtime behavior.
 
 For MLflow naming, composition only propagates the resolved case-config names.
+
+The case config path is resolved once, at the disk edges that read the case from disk (`run_case_pipeline`, `run_comparison_batch`, `run_assignment_sweep`, `eval_batch`, `run_comparison_report`, and `load_validated_case_config` for its `config_dir`); everything below, `run_loaded_comparison_batch` and the planning, preparation and identity code included, takes the path as given. The session tag `case_config_path` therefore always carries the absolute path `report` looks sessions up by, and an in-memory caller gets back exactly the path it passed. Dataset input digests memoize on the path as given; the digest itself is path-independent.
 Training uses `names.training` and comparison uses `names.comparison`, with the
 defaults owned by the case-config Pydantic models rather than composition-layer
 constants.

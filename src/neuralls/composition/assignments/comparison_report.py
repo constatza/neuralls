@@ -90,6 +90,7 @@ def run_comparison_report(
     tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> ComparisonReportOutcome:
     """Render the newest (or the named) comparison session of a case config into a report run."""
+    case_config_path = case_config_path.resolve()
     settings = require_settings(settings, case_config_path=case_config_path)
     master_cfg, _ = load_validated_case_config(case_config_path, settings)
     topology = resolve_comparison_topology(master_cfg, case_config_path, settings)
@@ -97,7 +98,7 @@ def run_comparison_report(
     figure_style = case_figure_style(master_cfg)
     client = tracking.client(topology.tracking_uri)
     session = session_run_id or latest_session_run_id(
-        client, topology.experiment_name, case_config_path.resolve().as_posix()
+        client, topology.experiment_name, case_config_path.as_posix()
     )
     notation_digest = canonical_digest(notation).split(":", 1)[1][:NOTATION_DIGEST_LENGTH]
     source_tags = {
@@ -146,7 +147,7 @@ def run_comparison_report(
                 failure_sink,
                 ComparisonBatchFailureContext(
                     phase=ComparisonBatchPhase.REPORTING,
-                    case_config_path=case_config_path.resolve(),
+                    case_config_path=case_config_path,
                 ),
             ):
                 sink.register_method_figures(datasets=inputs.datasets)
@@ -164,7 +165,7 @@ def run_comparison_report(
                 failure_sink,
                 ComparisonBatchFailureContext(
                     phase=ComparisonBatchPhase.FINALIZATION,
-                    case_config_path=case_config_path.resolve(),
+                    case_config_path=case_config_path,
                 ),
             ):
                 sink.finalize()

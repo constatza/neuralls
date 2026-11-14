@@ -89,6 +89,8 @@ def run_case_pipeline(
         empty when the case config declares no `[[assignments]]` /
         `[[comparisons]]` respectively.
     """
+    # The disk edge: resolved once, so the comparison session tag matches what `report` looks up.
+    case_config_path = case_config_path.resolve()
     settings = require_settings(settings, case_config_path=case_config_path)
     cfg, config_dir = load_validated_case_config(
         case_config_path, settings, force_expand=force.expand

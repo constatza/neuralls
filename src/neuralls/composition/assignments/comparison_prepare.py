@@ -105,7 +105,7 @@ def matrix_scope(
     )
     dataset_dir = resolve_dataset_dir(
         case_cfg,
-        context.case_config_path.resolve().parent,
+        context.case_config_path.parent,
         planned.entry.matrix_dataset,
         context.settings,
     )
@@ -303,7 +303,7 @@ def prepare_comparison_batch(
     Returns:
         The prepared batch: one outcome-or-prepared-execution per planned system, in plan order.
     """
-    config_dir = case_config_path.resolve().parent
+    config_dir = case_config_path.parent
     split_records = require_current_inputs(
         master_cfg,
         config_dir,

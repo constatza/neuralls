@@ -250,3 +250,14 @@ def test_releases_device_memory_between_sweep_and_comparison() -> None:
         run_case_pipeline(case_config_path, settings)
 
     assert call_order == ["sweep", "release", "compare"]
+
+
+def test_hands_the_comparison_stage_an_absolute_case_path() -> None:
+    """The comparison session tag must match the absolute path `report` looks sessions up by."""
+    with ExitStack() as stack:
+        mocks = _patch_pipeline(stack, has_comparisons=True)
+        run_case_pipeline(CASE_CONFIG_PATH, MagicMock(), force=ForcePolicy())
+
+    case_path = mocks.compare.call_args.args[1]
+    assert case_path.is_absolute()
+    assert case_path.parts[-2:] == CASE_CONFIG_PATH.parts

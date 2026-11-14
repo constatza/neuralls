@@ -78,7 +78,7 @@ def _batch_phase(
     """The failure boundary recording a blocking error of one batch phase."""
     return failure_boundary(
         sink,
-        ComparisonBatchFailureContext(phase=phase, case_config_path=case_config_path.resolve()),
+        ComparisonBatchFailureContext(phase=phase, case_config_path=case_config_path),
     )
 
 
@@ -97,7 +97,7 @@ def _run_session(
             session_counts([item.planned for item in executions]),
         ),
         notation=batch_notation_policy(executions),
-        case_config_path=case_config_path.resolve(),
+        case_config_path=case_config_path,
         experiment_name=topology.experiment_name,
         phase=SESSION_PHASE,
     )
@@ -132,8 +132,10 @@ def run_comparison_batch(
 ) -> list[ComparisonOutcome]:
     """Load the case config from disk and run its comparison entries.
 
-    The disk edge of `run_loaded_comparison_batch`.
+    The disk edge of `run_loaded_comparison_batch`: the case path is resolved once here,
+    and every session tag and failure record downstream carries it as given.
     """
+    case_config_path = case_config_path.resolve()
     settings = require_settings(settings, case_config_path=case_config_path)
     master_cfg, _ = load_validated_case_config(case_config_path, settings)
     return run_loaded_comparison_batch(

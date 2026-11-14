@@ -408,6 +408,8 @@ def run_assignment_sweep(
         >>> success_count = sum(1 for r in sweep.results if r.status == "Success")
         >>> print(f"{success_count}/{len(sweep.results)} assignments succeeded")
     """
+    # The disk edge: resolved once, so the session tag carries an absolute case path.
+    case_config_path = case_config_path.resolve()
     settings = require_settings(settings, case_config_path=case_config_path)
 
     # Load all assignment definitions from the case config
@@ -449,7 +451,7 @@ def run_assignment_sweep(
                 ]
             ),
             notation=case_notation(cfg),
-            case_config_path=case_config_path.resolve(),
+            case_config_path=case_config_path,
             experiment_name=mlflow_experiment_name,
             phase="session_training",
         )

@@ -143,7 +143,7 @@ def _resolve_output_override(
 ) -> Path | None:
     """Resolve output root from explicit override or case config."""
     if output_root is not None:
-        return output_root.resolve()
+        return output_root
     if case_cfg is None or case_config_path is None:
         return neuralls_settings.output_dir
 

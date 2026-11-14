@@ -26,7 +26,7 @@ def input_digest(path: Path) -> Digest:
         Digest: Path-independent digest of what the input contains.
     """
     if path.is_dir() and (path / DATASET_MANIFEST_FILENAME).exists():
-        return memoized(("dataset", path.resolve()), lambda: _dataset_input_digest(path))
+        return memoized(("dataset", path), lambda: _dataset_input_digest(path))
     return content_digest(path)
 
 

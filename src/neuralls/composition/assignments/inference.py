@@ -218,7 +218,7 @@ def run_inference(
         data_config_path=Path(data_config_path) if data_config_path else None,
         features_path=Path(features_path) if features_path else None,
         targets_path=Path(targets_path) if targets_path else None,
-        output_root=Path(output_root) if output_root else None,
+        output_root=Path(output_root).resolve() if output_root else None,
         synthetic_benchmark=synthetic_benchmark,
         comparison_config_path=Path(comparison_config_path) if comparison_config_path else None,
     )

@@ -248,5 +248,5 @@ def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
     context = failure_sink.record.call_args.args[0]
     assert context == ComparisonBatchFailureContext(
         phase=ComparisonBatchPhase.METHOD_WORKLOADS,
-        case_config_path=VIRTUAL_CASE_PATH.resolve(),
+        case_config_path=VIRTUAL_CASE_PATH,
     )
