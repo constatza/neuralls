@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 import tomli_w
 from dlkit.common import ChildSuccess
+from dlkit.common.results import TrainingResult as DlkitTrainingResult
 
 from neuralls.composition.assignments._training_artifacts import MlflowCoordinates
 from neuralls.composition.assignments.training import PreparedTraining
@@ -237,7 +238,12 @@ def test_run_assignments_full_flow(
         parent_run_id="parent-run-1",
         tracking_uri=tracking_uri,
         children=(
-            ChildSuccess(child_id=exp_name, label=exp_name, run_id="test-run-id", result=object()),
+            ChildSuccess(
+                child_id=exp_name,
+                label=exp_name,
+                run_id="test-run-id",
+                result=MagicMock(spec=DlkitTrainingResult),
+            ),
         ),
     )
 
@@ -376,7 +382,10 @@ def test_run_assignment_sweep_with_mlflow(
         tracking_uri=tracking_uri,
         children=(
             ChildSuccess(
-                child_id=exp_name, label=exp_name, run_id="mlflow-test-run-id", result=object()
+                child_id=exp_name,
+                label=exp_name,
+                run_id="mlflow-test-run-id",
+                result=MagicMock(spec=DlkitTrainingResult),
             ),
         ),
     )

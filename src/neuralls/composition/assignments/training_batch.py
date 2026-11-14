@@ -33,10 +33,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import assert_never
 
-from dlkit.common import ChildFailure, ChildPlannedEvent, ChildSuccess, LifecycleHooks
-from dlkit.common.results import OptimizationResult
+from dlkit.common import ChildFailure, ChildOutcome, ChildPlannedEvent, ChildSuccess, LifecycleHooks
+from dlkit.common.results import MultiRunResult, OptimizationResult, WorkflowResult
 from dlkit.common.results import TrainingResult as DlkitTrainingResult
-from dlkit.engine.workflows.multi_run import MultiRunSpec, RunSpec
+from dlkit.engine.workflows.multi_run import MultiRunSpec
 from dlkit.interfaces.api import run_multirun_spec
 from loguru import logger
 from torchalg.utils.device import resolve_device
@@ -73,7 +73,7 @@ from neuralls.domain.presentation.titles import ComparisonScopePresentation, ses
 from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
-from neuralls.platform.config.models.workspace import AssignmentSpec
+from neuralls.platform.config.models.workspace import AssignmentSpec, RunnableAssignment
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.figure_formats import FigureTarget, figure_files
 from neuralls.platform.reporting.figure_text import Legend, training_legend
@@ -438,11 +438,6 @@ def run_assignment_sweep(
     )
     mlflow_experiment_name = cfg.names.training
 
-    results_by_id: dict[str, AssignmentResult] = {}
-    prepared_by_child_id: dict[str, PreparedTraining] = {}
-    run_specs: list[RunSpec] = []
-    any_failed = False
-
     with scoped_mlflow_environment(training_mlflow_env.env):
         session_run, session_tags = build_session_run_spec(
             title=session_title(
@@ -457,100 +452,154 @@ def run_assignment_sweep(
             phase="session_training",
         )
 
-        # Phase 1: Generate/cache each assignment's dataset and run its MLflow
-        # reuse check. Cache hits resolve immediately; everything else is
-        # prepared as one child of the sweep below.
-        for assignment in assignments:
-            spec = assignment.spec
-            logger.info(f"\n{'=' * 60}")
-            logger.info("Training: {}", render_training_label(presentations[spec.assignment_id]))
-            logger.info(f"{'=' * 60}")
-
-            outcome = run_assignment(
-                settings=settings,
-                spec=spec,
-                output_root=batch.output_root,
-                force=force,
-                presentation=presentations[spec.assignment_id],
-                mlflow_experiment_name=mlflow_experiment_name,
-                tracking_uri=training_mlflow_env.tracking_uri,
-                tracking=tracking,
+        resolved, pending = _prepare_assignments(
+            assignments,
+            presentations=presentations,
+            settings=settings,
+            output_root=batch.output_root,
+            force=force,
+            mlflow_experiment_name=mlflow_experiment_name,
+            tracking_uri=training_mlflow_env.tracking_uri,
+            tracking=tracking,
+        )
+        if not pending:
+            return AssignmentSweepResult(
+                results=[resolved[a.spec.assignment_id] for a in assignments],
+                tracking_uri=None,
+                parent_run_id=None,
             )
-            match outcome:
-                case PreparedTraining():
-                    prepared_by_child_id[spec.assignment_id] = outcome
-                    run_specs.append(to_run_spec(outcome))
-                case AssignmentSucceeded():
-                    results_by_id[spec.assignment_id] = outcome
-                case AssignmentFailed():
-                    results_by_id[spec.assignment_id] = outcome
-                    any_failed = True
-                case _ as unreachable:
-                    assert_never(unreachable)
-
-        # Phase 2: Dispatch every assignment that needs training as one sweep.
-        sweep_result = None
-        if run_specs:
-            child_timing = _ChildTimingTracker(training_mlflow_env.tracking_uri)
-            sweep_result = run_multirun_spec(
-                MultiRunSpec(
-                    experiment_name=mlflow_experiment_name,
-                    parent_run_name=run_name_text(session_run),
-                    parent_tags=dict(session_tags.as_mlflow_tags()),
-                    failure_policy="continue",
-                    children=tuple(run_specs),
-                ),
-                hooks=LifecycleHooks(
-                    on_child_planned=child_timing.on_planned,
-                    on_child_completed=child_timing.on_finished,
-                    on_child_failed=child_timing.on_finished,
-                ),
+        sweep_result = _run_training_sweep(
+            pending,
+            experiment_name=mlflow_experiment_name,
+            parent_run_name=run_name_text(session_run),
+            parent_tags=dict(session_tags.as_mlflow_tags()),
+            tracking_uri=training_mlflow_env.tracking_uri,
+        )
+        results_by_id = resolved | {
+            child.child_id: _child_result(
+                child, pending[child.child_id], settings=settings, tracking=tracking
             )
-            for child_outcome in sweep_result.children:
-                prepared = prepared_by_child_id[child_outcome.child_id]
-                try:
-                    match child_outcome:
-                        case ChildSuccess():
-                            result = _finalize_assignment_child(
-                                prepared=prepared,
-                                execution_result=child_outcome.result,
-                                settings=settings,
-                                tracking=tracking,
-                            )
-                            results_by_id[child_outcome.child_id] = result
-                            if not result.is_success:
-                                any_failed = True
-                        case ChildFailure():
-                            any_failed = True
-                            logger.error(
-                                "{} failed: {}",
-                                render_training_label(prepared.presentation),
-                                child_outcome.message,
-                            )
-                            results_by_id[child_outcome.child_id] = AssignmentFailed(
-                                assignment_id=child_outcome.child_id,
-                                presentation=prepared.presentation,
-                                error=child_outcome.message,
-                            )
-                finally:
-                    cleanup_prepared_training(prepared)
-
-        if sweep_result is not None:
-            finalize_session_parent_run(
-                tracking_uri=sweep_result.tracking_uri or training_mlflow_env.tracking_uri,
-                run_id=sweep_result.parent_run_id,
-                status="FAILED" if any_failed else "FINISHED",
-            )
+            for child in sweep_result.children
+        }
+        sweep_tracking_uri = sweep_result.tracking_uri or training_mlflow_env.tracking_uri
+        finalize_session_parent_run(
+            tracking_uri=sweep_tracking_uri,
+            run_id=sweep_result.parent_run_id,
+            status="FINISHED" if all(r.is_success for r in results_by_id.values()) else "FAILED",
+        )
 
     return AssignmentSweepResult(
         results=[results_by_id[assignment.spec.assignment_id] for assignment in assignments],
-        tracking_uri=(
-            (sweep_result.tracking_uri or training_mlflow_env.tracking_uri)
-            if sweep_result is not None
-            else None
-        ),
-        parent_run_id=sweep_result.parent_run_id if sweep_result is not None else None,
+        tracking_uri=sweep_tracking_uri,
+        parent_run_id=sweep_result.parent_run_id,
     )
+
+
+def _prepare_assignments(
+    assignments: Sequence[RunnableAssignment],
+    *,
+    presentations: Mapping[str, TrainingPresentation],
+    settings: NeurallsSettings,
+    output_root: Path,
+    force: bool,
+    mlflow_experiment_name: str,
+    tracking_uri: str,
+    tracking: TrackingServices,
+) -> tuple[dict[str, AssignmentResult], dict[str, PreparedTraining]]:
+    """Resolve reused or failed assignments at once; prepare the rest as sweep children.
+
+    Returns the resolved results and the prepared children, both keyed by assignment id.
+    """
+    resolved: dict[str, AssignmentResult] = {}
+    pending: dict[str, PreparedTraining] = {}
+    for assignment in assignments:
+        spec = assignment.spec
+        presentation = presentations[spec.assignment_id]
+        logger.info(f"\n{'=' * 60}")
+        logger.info("Training: {}", render_training_label(presentation))
+        logger.info(f"{'=' * 60}")
+        outcome = run_assignment(
+            settings=settings,
+            spec=spec,
+            output_root=output_root,
+            force=force,
+            presentation=presentation,
+            mlflow_experiment_name=mlflow_experiment_name,
+            tracking_uri=tracking_uri,
+            tracking=tracking,
+        )
+        match outcome:
+            case PreparedTraining():
+                pending[spec.assignment_id] = outcome
+            case AssignmentSucceeded() | AssignmentFailed():
+                resolved[spec.assignment_id] = outcome
+            case _ as unreachable:
+                assert_never(unreachable)
+    return resolved, pending
+
+
+def _run_training_sweep(
+    pending: Mapping[str, PreparedTraining],
+    *,
+    experiment_name: str,
+    parent_run_name: str,
+    parent_tags: dict[str, str],
+    tracking_uri: str,
+) -> MultiRunResult[ChildOutcome[WorkflowResult]]:
+    """Dispatch every prepared assignment as one dlkit multirun sweep."""
+    child_timing = _ChildTimingTracker(tracking_uri)
+    return run_multirun_spec(
+        MultiRunSpec(
+            experiment_name=experiment_name,
+            parent_run_name=parent_run_name,
+            parent_tags=parent_tags,
+            failure_policy="continue",
+            children=tuple(to_run_spec(prepared) for prepared in pending.values()),
+        ),
+        hooks=LifecycleHooks(
+            on_child_planned=child_timing.on_planned,
+            on_child_completed=child_timing.on_finished,
+            on_child_failed=child_timing.on_finished,
+        ),
+    )
+
+
+def _child_result(
+    child: ChildOutcome[WorkflowResult],
+    prepared: PreparedTraining,
+    *,
+    settings: NeurallsSettings,
+    tracking: TrackingServices,
+) -> AssignmentResult:
+    """Finalize one sweep child into its assignment result, then release its temp files."""
+    try:
+        match child:
+            case ChildSuccess(result=DlkitTrainingResult() | OptimizationResult() as result):
+                return _finalize_assignment_child(
+                    prepared=prepared,
+                    execution_result=result,
+                    settings=settings,
+                    tracking=tracking,
+                )
+            case ChildSuccess(result=other):
+                return AssignmentFailed(
+                    assignment_id=child.child_id,
+                    presentation=prepared.presentation,
+                    error=f"training sweep child returned a {type(other).__name__}",
+                )
+            case ChildFailure():
+                logger.error(
+                    "{} failed: {}", render_training_label(prepared.presentation), child.message
+                )
+                return AssignmentFailed(
+                    assignment_id=child.child_id,
+                    presentation=prepared.presentation,
+                    error=child.message,
+                )
+            case _ as unreachable:
+                assert_never(unreachable)
+    finally:
+        cleanup_prepared_training(prepared)
 
 
 def _build_label_map(results: Sequence[AssignmentResult]) -> dict[str, dict[str, str | None]]:

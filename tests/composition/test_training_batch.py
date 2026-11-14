@@ -22,9 +22,12 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from dlkit.common import ChildFailure, ChildPlannedEvent, ChildSuccess, LifecycleHooks
+from dlkit.common.results import EvaluationResult
 
+from neuralls.application.models import AssignmentFailed
 from neuralls.composition.assignments.training import PreparedTraining
 from neuralls.composition.assignments.training_batch import (
+    _child_result,
     _ChildTimingTracker,
     run_assignment_sweep,
 )
@@ -263,3 +266,23 @@ class TestChildTimingTracker:
             tracker.on_finished(outcome)  # must not raise
 
         mocks["release"].assert_called_once()
+
+
+def test_a_sweep_child_with_a_non_training_result_fails_its_assignment() -> None:
+    prepared = MagicMock()
+    evaluation = EvaluationResult(
+        predictions=None, targets=None, metrics={}, figures={}, duration_seconds=0.0
+    )
+    child = ChildSuccess(child_id="a1", label="a1", run_id="run", result=evaluation)
+
+    with patch(
+        "neuralls.composition.assignments.training_batch.cleanup_prepared_training"
+    ) as cleanup:
+        result = _child_result(child, prepared, settings=MagicMock(), tracking=MagicMock())
+
+    assert result == AssignmentFailed(
+        assignment_id="a1",
+        presentation=prepared.presentation,
+        error="training sweep child returned a EvaluationResult",
+    )
+    cleanup.assert_called_once_with(prepared)
