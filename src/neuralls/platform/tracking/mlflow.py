@@ -120,7 +120,9 @@ def build_runtime_environment(
     if existing_uri:
         existing_artifact_uri = os.environ.get("MLFLOW_ARTIFACT_URI")
         if existing_artifact_uri and not url_resolver.scheme(existing_artifact_uri.strip()):
-            require_absolute_user_path(existing_artifact_uri, name="MLFLOW_ARTIFACT_URI")
+            existing_artifact_uri = str(
+                require_absolute_user_path(existing_artifact_uri, name="MLFLOW_ARTIFACT_URI")
+            )
         env = {"MLFLOW_TRACKING_URI": existing_uri}
         if existing_artifact_uri:
             env["MLFLOW_ARTIFACT_URI"] = existing_artifact_uri

@@ -116,7 +116,10 @@ def list_cmd() -> None:
         "  name         raw_dir                      processed_dir                output_dir"
     )
     for name in names:
-        profile = load_profile(name)
+        try:
+            profile = load_profile(name)
+        except ValueError:
+            profile = None
         marker = "*" if name == active else " "
         if profile is not None:
             typer.echo(
@@ -192,7 +195,7 @@ def create(
             )
         )
         save_profile(name, profile, overwrite=force)
-    except ValidationError as exc:
+    except (ValidationError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     except FileExistsError as exc:
@@ -243,7 +246,7 @@ def set_cmd(
     updated_data[attr] = value
     try:
         updated = resolve_typed_profile(ProfileConfig.model_validate(updated_data))
-    except ValidationError as exc:
+    except (ValidationError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     save_profile(resolved_name, updated, overwrite=True)
