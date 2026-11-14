@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import assert_never
 
@@ -27,6 +27,7 @@ from neuralls.platform.reporting.figure_metadata import (
 )
 from neuralls.platform.reporting.group_drawers import GroupDrawer
 from neuralls.platform.reporting.seaborn_means import BarStatistic, bar_statistic_text
+from neuralls.shared.types import PreconditionerName
 
 
 def variant_stem(stem: str, slug: str) -> str:
@@ -533,3 +534,57 @@ def group_recipes() -> tuple[GroupFigureRecipe, ...]:
     return tuple(
         recipe for recipe in FIGURE_RECIPES.values() if isinstance(recipe, GroupFigureRecipe)
     )
+
+
+def compares_to_reference(statistic: Statistic) -> bool:
+    """Whether a figure drawing ``statistic`` compares every method against the reference."""
+    match statistic:
+        case Statistic.PAIRED_VALUES | Statistic.SPEED_RATIO_CDF | Statistic.CUMULATIVE_COST:
+            return True
+        case (
+            Statistic.WORKLOAD_TOTAL
+            | Statistic.ECDF
+            | Statistic.PERFORMANCE_PROFILE
+            | Statistic.MEAN_AND_MEDIAN
+            | Statistic.MEAN_OVER_SYSTEMS
+            | Statistic.MEAN_OVER_MATRICES
+            | Statistic.RATIO_OF_SUMS
+            | Statistic.QUANTILES
+            | Statistic.MEAN_PER_MATRIX
+            | Statistic.OFFLINE_ONLINE_TOTAL
+        ):
+            return False
+        case unreachable:
+            assert_never(unreachable)
+
+
+def drawn_variants(
+    report: GroupReport, reference: PreconditionerName | None
+) -> Iterator[tuple[GroupFigureRecipe, FigureVariant]]:
+    """Every group figure ``report`` gets, in registry order, with the recipe it belongs to.
+
+    ``reference`` is the group's reference among its methods (``reference_among_methods``); with
+    none, a figure that compares against it is not drawn, so it is neither planned nor summarized.
+    """
+    for recipe in group_recipes():
+        if not isinstance(report, recipe.applies_to):
+            continue
+        for variant in recipe.variants:
+            if reference is None and compares_to_reference(variant.statistic):
+                continue
+            yield recipe, variant
+
+
+def drawn_reference(
+    variant: FigureVariant, reference: PreconditionerName | None
+) -> PreconditionerName:
+    """The reference a figure of ``drawn_variants`` compares against, which it has by construction.
+
+    Raises:
+        ValueError: ``variant`` was not given by ``drawn_variants`` for this ``reference``.
+    """
+    match reference:
+        case None:
+            raise ValueError(f"{variant.stem} compares against a reference the group lacks")
+        case name:
+            return name

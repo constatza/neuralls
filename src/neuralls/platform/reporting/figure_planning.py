@@ -60,7 +60,8 @@ from neuralls.platform.reporting.figure_recipes import (
     GroupFigureRecipe,
     HistoryFigureRecipe,
     HistoryVariant,
-    group_recipes,
+    drawn_reference,
+    drawn_variants,
 )
 from neuralls.platform.reporting.stored_benchmark import StoredMethod
 from neuralls.shared.types import PreconditionerName
@@ -100,17 +101,18 @@ def figure_plans(
     each with its own stem, card and table.
     """
     level = cohort_level(outcome.label)
+    reference = reference_among_methods(outcome.observations, outcome.reference_selection)
     return tuple(
         plan_figure(
             variant,
-            _figure_metadata(recipe, variant, cohort_variant.cohort, outcome, presentation, stored),
+            _figure_metadata(
+                recipe, variant, cohort_variant.cohort, outcome, reference, presentation, stored
+            ),
             slug=file_key,
             stem_suffix=cohort_variant.stem_suffix,
         )
-        for recipe in group_recipes()
-        if isinstance(outcome, recipe.applies_to)
+        for recipe, variant in drawn_variants(outcome, reference)
         for cohort_variant in cohort_variants(recipe.table, level, outcome.recipe_membership)
-        for variant in recipe.variants
     )
 
 
@@ -119,6 +121,7 @@ def _figure_metadata(
     variant: FigureVariant,
     cohort: Cohort,
     group: GroupReport,
+    compared_to: PreconditionerName | None,
     presentation: GroupPresentation,
     stored: Mapping[PreconditionerName, StoredMethod],
 ) -> GroupFigureMetadata:
@@ -165,7 +168,7 @@ def _figure_metadata(
         solver_contexts=presentation.solver_contexts,
         methods=methods,
         sources=sources,
-        interval=_interval(variant, outcome),
+        interval=_interval(variant, outcome, compared_to),
         setup_sharing=setup_sharing_of(variant.metric, outcome.observations),
         outcome_counts=outcome_counts_of(outcome.observations),
         timing=timing_evidence_of(
@@ -205,16 +208,16 @@ def _source_artifacts(metric: MetricId, artifacts: MethodBenchmarkArtifacts) -> 
             assert_never(unreachable)
 
 
-def _interval(variant: FigureVariant, outcome: GroupReport) -> FigureInterval:
-    """The interval a variant draws; a figure that compares to a missing reference is not drawn."""
+def _interval(
+    variant: FigureVariant, outcome: GroupReport, compared_to: PreconditionerName | None
+) -> FigureInterval:
+    """The interval a variant draws, from the systems of the cohort ``outcome`` reports."""
     observations = outcome.observations
     match variant.statistic:
         case Statistic.SPEED_RATIO_CDF:
-            match reference_among_methods(observations, outcome.reference_selection):
-                case None:
-                    return NoInterval()
-                case reference:
-                    return bootstrap_of_speed_ratios(observations, reference, variant.metric)
+            return bootstrap_of_speed_ratios(
+                observations, drawn_reference(variant, compared_to), variant.metric
+            )
         case Statistic.MEAN_OVER_SYSTEMS | Statistic.MEAN_OVER_MATRICES | Statistic.MEAN_AND_MEDIAN:
             return bootstrap_of_means(observations, variant.metric, variant.population)
         case (

@@ -31,7 +31,11 @@ from neuralls.domain.solver.reporting.summary import (
 from neuralls.platform.reporting.figure_metadata import (
     Statistic,
 )
-from neuralls.platform.reporting.figure_recipes import FigureVariant, group_recipes
+from neuralls.platform.reporting.figure_recipes import (
+    FigureVariant,
+    drawn_reference,
+    drawn_variants,
+)
 from neuralls.platform.reporting.figure_table import build_cost_breakdown_table, build_group_table
 from neuralls.shared.types import PreconditionerName
 
@@ -42,18 +46,15 @@ def figure_summaries(
     """The frame each figure planned for ``outcome`` draws and stores, by variant stem.
 
     Each frame is computed once, here, and is both what the drawer draws and the table written
-    beside the figure. A figure that compares against the reference has no frame, and so is not
-    drawn, when the group has no configured reference among its methods. ``offline`` holds the
-    offline cost of every method of the group, which only the cost breakdown draws.
+    beside the figure. The figures are those ``drawn_variants`` gives, the same ones planning
+    plans. ``offline`` holds the offline cost of every method of the group, which only the cost
+    breakdown draws.
     """
     reference = reference_among_methods(outcome.observations, outcome.reference_selection)
-    frames = (
-        (variant.stem, _summary(variant, outcome, reference, offline))
-        for recipe in group_recipes()
-        if isinstance(outcome, recipe.applies_to)
-        for variant in recipe.variants
-    )
-    return {stem: frame for stem, frame in frames if frame is not None}
+    return {
+        variant.stem: _summary(variant, outcome, reference, offline)
+        for _, variant in drawn_variants(outcome, reference)
+    }
 
 
 def _summary(
@@ -61,7 +62,7 @@ def _summary(
     outcome: GroupReport,
     reference: PreconditionerName | None,
     offline: Mapping[PreconditionerName, OfflineStages],
-) -> pl.DataFrame | None:
+) -> pl.DataFrame:
     observations = outcome.observations
     match variant.statistic:
         case Statistic.WORKLOAD_TOTAL:
@@ -73,19 +74,13 @@ def _summary(
         case Statistic.PERFORMANCE_PROFILE:
             return performance_series(observations, variant.metric).frame
         case Statistic.PAIRED_VALUES:
-            return (
-                None
-                if reference is None
-                else paired_systems(observations, reference, variant.metric)
-            )
+            return paired_systems(observations, drawn_reference(variant, reference), variant.metric)
         case Statistic.SPEED_RATIO_CDF:
-            return (
-                None
-                if reference is None
-                else speed_ratio_summary(observations, reference, variant.metric)
+            return speed_ratio_summary(
+                observations, drawn_reference(variant, reference), variant.metric
             )
         case Statistic.CUMULATIVE_COST:
-            return None if reference is None else break_even_curves(observations, reference)
+            return break_even_curves(observations, drawn_reference(variant, reference))
         case (
             Statistic.MEAN_OVER_SYSTEMS
             | Statistic.MEAN_OVER_MATRICES

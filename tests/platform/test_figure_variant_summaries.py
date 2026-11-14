@@ -254,6 +254,20 @@ def test_a_report_without_a_reference_plans_no_figure_that_compares_against_one(
     }
 
 
+def test_planning_without_a_reference_plans_no_figure_that_compares_against_one(
+    profile_report: RecipeProfileReport, repeated_timing_presentation: GroupPresentation
+) -> None:
+    unreferenced = replace(profile_report, reference_selection=NoReferenceConfigured())
+
+    plans = figure_planning.figure_plans(unreferenced, repeated_timing_presentation, "key", {})
+
+    assert [plan.stem for plan in plans] == [
+        variant.figure_stem("key")
+        for _, variant in _PROFILE_VARIANTS
+        if variant.stem not in {"paired_time_scatter", "speed_ratio_cdf", "breakeven"}
+    ]
+
+
 def test_workload_bars_write_the_workload_totals_table() -> None:
     recipes = (group_recipe(kind) for kind in (FigureKind.SOLVE_TIME, FigureKind.ONLINE_TIME))
 

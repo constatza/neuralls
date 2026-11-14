@@ -5,6 +5,9 @@ time ECDF, the performance profile) needs a single drawer. The ``summary`` of th
 frame stored beside the figure; a drawer draws that frame and reads nothing else of the report
 except the observations that place what the frame cannot (the denominators of methods that solved
 nothing, the systems paired against the reference).
+
+Planning alone decides that a figure compared against the reference exists
+(``figure_recipes.drawn_variants``); a drawer of one resolves the reference only to name it.
 """
 
 from __future__ import annotations
