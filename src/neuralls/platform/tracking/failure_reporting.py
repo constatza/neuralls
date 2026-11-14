@@ -23,7 +23,18 @@ class MLflowWorkflowFailureSink:
     """Persist exact failure context and traceback into the active MLflow run."""
 
     def record(self, context: WorkflowFailureContext, exc: Exception) -> None:
-        """Best-effort recording that never replaces the workflow exception."""
+        """Best-effort recording that never replaces the workflow exception.
+
+        With no active run the failure is only logged: the fluent API would otherwise start a
+        run on MLflow's ambient default store (``./mlflow.db``), outside every configured one.
+        """
+        if mlflow.active_run() is None:
+            logger.warning(
+                "No active MLflow run to record blocking workflow failure '{}' into: {}",
+                type(exc).__name__,
+                exc,
+            )
+            return
         try:
             record, tags = _failure_record(context, exc)
             mlflow.log_dict(record, FAILURE_CONTEXT_ARTIFACT)
