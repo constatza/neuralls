@@ -613,16 +613,7 @@ Dataset storage is split by responsibility:
   The manifest carries `content_digest`, `stat_digest`, `identity_key`, `identity_components`
   (all optional; legacy manifests load them as None).
 
-`storage/manifest_io.py::load_dataset_manifest` and
-`storage/dataset_readers.py::load_matrix_dense_sample` are `functools.lru_cache`-memoized
-(keyed on `dataset_dir`, and `(dataset_dir, sample_index)` respectively). Comparison
-reads CSR matrices through `load_matrix_sparse_sample`, which does not use the dense
-matrix cache. `save_dataset_manifest` clears the manifest cache as
-it writes, so a read after a write in the same process sees the manifest just written —
-which is what lets the generate stage stamp its identity and digests into the manifest it
-has only just saved. Caveat: the dense matrix cache is keyed only on the path,
-so mutating dataset array files mid-process is not picked up by dense readers
-without a process restart. Comparison's CSR reader does not share that cache.
+`storage/manifest_io.py::load_dataset_manifest` and `storage/dataset_readers.py::load_matrix_dense_sample` read from disk on every call: no process-wide cache, so a read after a write or a regeneration in the same process always sees the files as they are now (a manifest is small JSON, and a dense sample is read once per caller).
 
 Safe comparison selection relies on manifest-declared metadata artifacts stored
 in the dataset's native format. Mature datasets may expose:

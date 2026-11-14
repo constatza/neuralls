@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 
 import h5py
@@ -440,7 +439,6 @@ def load_matrix_sparse_sample(dataset_dir: str | Path, sample_index: int) -> csr
     return csr_array(_load_sample(artifact, sample_index))
 
 
-@lru_cache(maxsize=128)
 def load_matrix_dense_sample(dataset_dir: str | Path, sample_index: int = 0) -> np.ndarray:
     """Load one dense matrix sample from a manifest-driven dataset directory.
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -86,10 +85,8 @@ def save_dataset_manifest(dataset_dir: str | Path, manifest: DatasetManifest) ->
         json.dumps(manifest_to_dict(manifest), indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    load_dataset_manifest.cache_clear()
 
 
-@lru_cache(maxsize=128)
 def load_dataset_manifest(dataset_dir: str | Path) -> dict[str, Any]:
     """Load the raw manifest dictionary.
 

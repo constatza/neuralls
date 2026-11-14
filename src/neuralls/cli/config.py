@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 
 import typer
-from pydantic import ValidationError
 
 from neuralls.composition.config import (
     PROFILE_ENV_VAR,
@@ -195,7 +194,7 @@ def create(
             )
         )
         save_profile(name, profile, overwrite=force)
-    except (ValidationError, ValueError) as exc:
+    except ValueError as exc:  # pydantic's ValidationError is a ValueError
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     except FileExistsError as exc:
@@ -246,7 +245,7 @@ def set_cmd(
     updated_data[attr] = value
     try:
         updated = resolve_typed_profile(ProfileConfig.model_validate(updated_data))
-    except (ValidationError, ValueError) as exc:
+    except ValueError as exc:  # pydantic's ValidationError is a ValueError
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     save_profile(resolved_name, updated, overwrite=True)

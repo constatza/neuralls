@@ -9,7 +9,6 @@ from pathlib import Path
 from neuralls.composition.generation.dataset_builder import build_dataset
 from neuralls.domain.presentation.provenance import DatasetSourceProvenance
 from neuralls.platform.storage.manifest_io import (
-    load_dataset_manifest,
     read_dataset_manifest,
     save_dataset_manifest,
 )
@@ -26,4 +25,3 @@ def strip_provenance(dataset_dir: str | Path) -> None:
     """Rewrite a dataset's manifest without provenance, as a dataset generated earlier has none."""
     manifest = read_dataset_manifest(dataset_dir)
     save_dataset_manifest(dataset_dir, replace(manifest, provenance=None))
-    load_dataset_manifest.cache_clear()
