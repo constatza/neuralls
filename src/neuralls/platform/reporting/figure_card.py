@@ -26,6 +26,7 @@ from neuralls.domain.benchmarking.uncertainty import (
     MIN_INTERVAL_MATRICES,
     MatrixClusterBootstrap,
     TooFewMatrices,
+    cluster_bootstrap,
 )
 from neuralls.domain.solver.models.figure_scope import render_figure_scope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
@@ -248,6 +249,14 @@ def _encode_interval(interval: FigureInterval) -> dict[str, Any]:
             assert_never(unreachable)
 
 
+_INTERVAL_FIELDS: Mapping[IntervalKind, frozenset[str]] = {
+    IntervalKind.NOT_DRAWN_BY_KIND: frozenset({"kind"}),
+    IntervalKind.TOO_FEW_MATRICES: frozenset({"kind", "matrices", "minimum"}),
+    IntervalKind.MATRIX_CLUSTER_BOOTSTRAP: frozenset({"kind", "matrices", "level", "resamples"}),
+}
+"""The exact keys of each kind of ``[interval]`` table."""
+
+
 def _decode_interval(payload: object) -> FigureInterval:
     interval = _require(payload, frozenset({"kind"}), "interval")
     try:
@@ -256,21 +265,50 @@ def _decode_interval(payload: object) -> FigureInterval:
         raise InvalidFigureCardError(
             f"figure card interval kind is unknown: {interval['kind']}"
         ) from error
+    if set(interval) != _INTERVAL_FIELDS[kind]:
+        raise InvalidFigureCardError(
+            f"figure card interval of kind {kind.value} must have exactly the fields "
+            f"{', '.join(sorted(_INTERVAL_FIELDS[kind]))}"
+        )
     match kind:
         case IntervalKind.NOT_DRAWN_BY_KIND:
             return NotDrawnByKind()
         case IntervalKind.TOO_FEW_MATRICES:
-            fields = _require(interval, frozenset({"matrices", "minimum"}), "interval")
-            return TooFewMatrices(int(fields["matrices"]))
+            if _typed(interval, "minimum", int) != MIN_INTERVAL_MATRICES:
+                raise InvalidFigureCardError(
+                    f"figure card interval minimum is not {MIN_INTERVAL_MATRICES}"
+                )
+            match cluster_bootstrap(_typed(interval, "matrices", int)):
+                case TooFewMatrices() as too_few:
+                    return too_few
+                case MatrixClusterBootstrap():
+                    raise _disagreeing(kind)
         case IntervalKind.MATRIX_CLUSTER_BOOTSTRAP:
-            fields = _require(interval, frozenset({"level", "resamples", "matrices"}), "interval")
-            return MatrixClusterBootstrap(
-                matrices=int(fields["matrices"]),
-                level=float(fields["level"]),
-                resamples=int(fields["resamples"]),
-            )
+            match cluster_bootstrap(_typed(interval, "matrices", int)):
+                case MatrixClusterBootstrap() as bootstrap:
+                    return replace(
+                        bootstrap,
+                        level=_typed(interval, "level", float),
+                        resamples=_typed(interval, "resamples", int),
+                    )
+                case TooFewMatrices():
+                    raise _disagreeing(kind)
         case unreachable:
             assert_never(unreachable)
+
+
+def _typed[T: (int, float)](table: Mapping[str, Any], key: str, kind: type[T]) -> T:
+    """``table[key]``, which TOML must have parsed as exactly ``kind`` (a bool is no int)."""
+    value = table[key]
+    if type(value) is not kind:
+        raise InvalidFigureCardError(f"figure card interval {key} is not a {kind.__name__}")
+    return value
+
+
+def _disagreeing(kind: IntervalKind) -> InvalidFigureCardError:
+    return InvalidFigureCardError(
+        f"figure card interval of kind {kind.value} disagrees with its matrix count"
+    )
 
 
 def _encode_cohort(cohort: Cohort) -> dict[str, Any]:

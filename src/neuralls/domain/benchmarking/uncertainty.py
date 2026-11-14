@@ -70,7 +70,7 @@ def matrix_cluster_interval(
     Raises:
         ValueError: A matrix has no values.
     """
-    if len(values_by_matrix) < MIN_INTERVAL_MATRICES:
+    if isinstance(cluster_bootstrap(len(values_by_matrix)), TooFewMatrices):
         return None
     clusters = tuple(np.asarray(values, dtype=np.float64) for values in values_by_matrix.values())
     if any(cluster.size == 0 for cluster in clusters):

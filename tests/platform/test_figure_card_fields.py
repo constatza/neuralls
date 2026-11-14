@@ -4,8 +4,9 @@ A card is built the way the report sink builds it: the figure plan of a group re
 through ``build_figure_card`` and ``card_payload``. ``metric``, ``population`` and ``statistic`` name
 what is summarized. The payload is read by key:
 
-- ``interval`` is a table with ``method``, ``level``, ``resamples`` and ``matrices``, present only
-  on a figure that draws one;
+- ``interval`` is a table on every card whose ``kind`` is ``matrix_cluster_bootstrap`` (with
+  ``level``, ``resamples`` and ``matrices``), ``too_few_matrices`` (``matrices``, ``minimum``) or
+  ``not_drawn_by_kind``;
 - ``r_m`` lists the distinct planned RHS counts per matrix, present only on online metrics;
 - ``outcome_counts`` holds, per method, the number of systems with each outcome;
 - ``timing_spread`` holds, per method, the median relative spread of its timing repeats, and
@@ -56,7 +57,7 @@ type Payload = Mapping[str, Json]
 
 FILE_KEY = "key"
 SESSION_RUN_ID = "session-run"
-INTERVAL_METHOD = "matrix_cluster_bootstrap"
+BOOTSTRAP_KIND = "matrix_cluster_bootstrap"
 
 _GROUP_RECIPES = [
     recipe for recipe in FIGURE_RECIPES.values() if isinstance(recipe, GroupFigureRecipe)
@@ -234,7 +235,7 @@ def test_the_speed_ratio_card_states_its_interval(
     interval = _table(payloads["speed_ratio_cdf"], "interval")
 
     assert interval == {
-        "kind": INTERVAL_METHOD,
+        "kind": BOOTSTRAP_KIND,
         "level": CONFIDENCE_LEVEL,
         "resamples": BOOTSTRAP_RESAMPLES,
         "matrices": matrices,
@@ -302,7 +303,7 @@ def test_a_mean_card_states_the_matrix_cluster_bootstrap_of_its_whiskers(
     matrices = selected.select(pl.struct("dataset", "matrix_id").n_unique()).item()
 
     assert _table(payloads[stem], "interval") == {
-        "kind": INTERVAL_METHOD,
+        "kind": BOOTSTRAP_KIND,
         "level": CONFIDENCE_LEVEL,
         "resamples": BOOTSTRAP_RESAMPLES,
         "matrices": matrices,
@@ -451,8 +452,28 @@ def test_means_over_one_matrix_have_too_few_matrices_for_an_interval(
 
 @pytest.mark.parametrize(
     "interval",
-    [{"kind": "normal_approximation"}, {"kind": "too_few_matrices", "matrices": 1}, "none"],
-    ids=["unknown kind", "missing minimum", "not a table"],
+    [
+        {"kind": "normal_approximation"},
+        {"kind": "too_few_matrices", "matrices": 1},
+        {"kind": "not_drawn_by_kind", "matrices": 5},
+        {"kind": "too_few_matrices", "matrices": 5, "minimum": MIN_INTERVAL_MATRICES},
+        {"kind": "matrix_cluster_bootstrap", "matrices": 1, "level": 0.95, "resamples": 10},
+        {"kind": "matrix_cluster_bootstrap", "matrices": "4", "level": 0.95, "resamples": 10},
+        {"kind": "matrix_cluster_bootstrap", "matrices": True, "level": 0.95, "resamples": 10},
+        {"kind": "too_few_matrices", "matrices": 1, "minimum": 3},
+        "none",
+    ],
+    ids=[
+        "unknown kind",
+        "missing minimum",
+        "extra field",
+        "too few with enough matrices",
+        "bootstrap over one matrix",
+        "matrices as text",
+        "matrices as bool",
+        "another minimum",
+        "not a table",
+    ],
 )
 def test_a_card_with_a_malformed_interval_is_rejected(
     payloads: dict[str, Payload], interval: object
