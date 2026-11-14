@@ -5,6 +5,7 @@ from __future__ import annotations
 import weakref
 from collections.abc import Iterable, Sequence
 from inspect import isgeneratorfunction
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -72,7 +73,6 @@ from neuralls.shared.workflow_failures import (
     ComparisonMatrixPhase,
     ComparisonMethodFailureContext,
 )
-from tests.os_paths import FAKE_ROOT
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 
 
@@ -162,12 +162,12 @@ def test_method_schedule_ignores_checkpoint_lease_paths_but_checks_training_runs
     second = _system("ds", 0, "r1")
     at_a = NeuralPreconditionerConfig(
         assignment="pod-run",
-        resolved_checkpoint_path=(FAKE_ROOT / "tmp/a/model.ckpt"),
+        resolved_checkpoint_path=Path("tmp/a/model.ckpt"),
         resolved_run_id="run-one",
     )
     at_b = NeuralPreconditionerConfig(
         assignment="pod-run",
-        resolved_checkpoint_path=(FAKE_ROOT / "tmp/b/model.ckpt"),
+        resolved_checkpoint_path=Path("tmp/b/model.ckpt"),
         resolved_run_id="run-one",
     )
     for system, config in ((first, at_a), (second, at_b)):
@@ -235,7 +235,7 @@ def test_matrix_loader_releases_prepared_system_before_next_matrix_load(
     first = _system("ds", 0, "r0")
     second = _system("ds", 1, "r1")
     for system, matrix_id in ((first, 0), (second, 1)):
-        system.cfg.general.data.matrix_path = (FAKE_ROOT / "workspace") / f"matrix-{matrix_id}"
+        system.cfg.general.data.matrix_path = Path("workspace") / f"matrix-{matrix_id}"
         system.cfg.general.data.matrix_index = 0
         system.cfg.general.data.require_non_residual_rhs = True
         system.cfg.general.data.selection_seed = None

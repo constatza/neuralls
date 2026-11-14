@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -74,9 +73,6 @@ def manifest_to_dict(manifest: DatasetManifest) -> dict[str, Any]:
 def save_dataset_manifest(dataset_dir: str | Path, manifest: DatasetManifest) -> None:
     """Write a typed dataset manifest to disk.
 
-    Invalidates `load_dataset_manifest`'s cache so a read after this write sees
-    the manifest just written rather than the one it replaced.
-
     Args:
         dataset_dir: Directory in which to write the manifest file.
         manifest: The typed dataset manifest to persist.
@@ -86,10 +82,8 @@ def save_dataset_manifest(dataset_dir: str | Path, manifest: DatasetManifest) ->
         json.dumps(manifest_to_dict(manifest), indent=2, sort_keys=True),
         encoding="utf-8",
     )
-    load_dataset_manifest.cache_clear()
 
 
-@lru_cache(maxsize=128)
 def load_dataset_manifest(dataset_dir: str | Path) -> dict[str, Any]:
     """Load the raw manifest dictionary.
 

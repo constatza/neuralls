@@ -8,6 +8,7 @@ from pathlib import Path
 from numpy.typing import NDArray
 from scipy.sparse import csr_array
 
+from neuralls.composition.generation.generation_log import logged_batches, logged_scale_summary
 from neuralls.composition.generation.streamed_write import (
     commit_with_rows,
     manifest_facts,
@@ -71,7 +72,7 @@ def _write_into(
             matrix_for=_dense_lookup(stream.matrix_for),
             single_matrix=stream.single_matrix,
         )
-        for batch in stream.batches:
+        for batch in logged_batches(stream):
             writer.write_batch(batch)
         artifacts = writer.finalize()
     except BaseException:
@@ -82,7 +83,7 @@ def _write_into(
         staging_dir,
         dataset_format,
         artifacts,
-        manifest_facts(spec, stream.scale.result(), layout),
+        manifest_facts(spec, logged_scale_summary(stream), layout),
     )
     return artifacts.strategy_rows
 

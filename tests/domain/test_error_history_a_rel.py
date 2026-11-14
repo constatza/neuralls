@@ -6,19 +6,21 @@ import itertools
 
 import pytest
 import torch
+from torchalg.preconditioners.base import Preconditioner
 
 from neuralls.domain.solver import comparison
-from neuralls.domain.solver.comparison import run_cg_comparison
-from neuralls.domain.solver.error_metrics import REFERENCE_PRECISION_MARGIN, reference_solver
+from neuralls.domain.solver.error_metrics import reference_solver, reference_target
+from neuralls.domain.solver.models.config import REFERENCE_PRECISION_MARGIN
+from tests.solver_support import solve_against_reference
 
 
 def test_history_starts_at_one_and_is_monotone_for_pcg(
     spd_matrix: torch.Tensor,
     rhs: torch.Tensor,
-    preconditioners: dict[str, object],
+    preconditioners: dict[str, Preconditioner],
 ) -> None:
-    results = run_cg_comparison(spd_matrix, rhs, preconditioners=preconditioners, rtol=1e-10)
-    for result in results.values():
+    for preconditioner in preconditioners.values():
+        result = solve_against_reference(spd_matrix, rhs, preconditioner, rtol=1e-10)
         history = result.error_history_a_rel
         assert history is not None
         assert history[0] == pytest.approx(1.0)
@@ -30,7 +32,7 @@ def test_timed_solve_never_receives_the_exact_solution(
     monkeypatch: pytest.MonkeyPatch,
     spd_matrix: torch.Tensor,
     rhs: torch.Tensor,
-    preconditioners: dict[str, object],
+    preconditioners: dict[str, Preconditioner],
 ) -> None:
     """The error history needs ``x_exact``; tracking it per iteration must not be billed to the solve."""
     real_pcg = comparison.pcg
@@ -42,18 +44,17 @@ def test_timed_solve_never_receives_the_exact_solution(
 
     monkeypatch.setattr(comparison, "pcg", recording_pcg)
 
-    results = run_cg_comparison(
-        spd_matrix, rhs, preconditioners={"only": preconditioners["jacobi"]}, rtol=1e-10
-    )
+    result = solve_against_reference(spd_matrix, rhs, preconditioners["jacobi"], rtol=1e-10)
 
     assert exact_given == [False, True]
-    assert results["only"].error_history_a_rel is not None
+    assert result.error_history_a_rel is not None
 
 
 def test_reference_solution_beats_rtol_by_margin(
     spd_matrix: torch.Tensor, rhs: torch.Tensor, known_solution: torch.Tensor
 ) -> None:
-    x = reference_solver(spd_matrix).solve(rhs, rtol=1e-6)
+    target_rel = reference_target(1e-6, REFERENCE_PRECISION_MARGIN).applied_rel
+    x = reference_solver(spd_matrix).solve(rhs, target_rel=target_rel)
     relative_residual = torch.linalg.vector_norm(rhs - spd_matrix @ x) / torch.linalg.vector_norm(
         rhs
     )

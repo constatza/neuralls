@@ -11,9 +11,8 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from loguru import logger
 
-from ..interfaces import ArchiveData, GeneratedSamples
+from ..interfaces import ArchiveData, SolvedRows
 from ..ports import ArchiveSource
 from ..providers import FileInputProvider
 from ..runner import register_archive_strategy
@@ -69,7 +68,7 @@ class SolutionArchiveStrategy:
         cfg: dict[str, Any],
         archive_source: ArchiveSource,
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> SolvedRows:
         """Load solution vectors from archive and compute RHS = A @ x.
 
         Args:
@@ -92,14 +91,11 @@ class SolutionArchiveStrategy:
         # When archive is provided (per-binding pre-loaded solution), skip glob loading
         if archive is not None and archive.lhs is not None:
             solutions = archive.lhs  # shape (1, n) for single-binding case
-            logger.info(f"Using pre-loaded solution archive ({len(solutions)} vector(s))")
             rhs = ComputeRhsTransform(matrix).transform(solutions)
-            return GeneratedSamples(
+            return SolvedRows(
                 matrix=matrix,
                 rhs=rhs,
                 solutions=solutions,
-                residual_traces=None,
-                error_traces=None,
             )
 
         # Validate and convert to typed config
@@ -111,8 +107,6 @@ class SolutionArchiveStrategy:
         shuffle = config.shuffle
         seed = config.seed
         skip = config.skip
-
-        logger.info(f"Loading solution vectors from archive: {solutions_glob}")
 
         # Layer 1: Input provision (load from files)
         provider = FileInputProvider(
@@ -126,17 +120,12 @@ class SolutionArchiveStrategy:
         rng = np.random.default_rng(seed)
         solutions = provider.provide(matrix, count=samples, rng=rng)
 
-        logger.info(f"Loaded {len(solutions)} solution vectors")
-
         # Layer 2: Transformation (compute RHS from solutions)
-        logger.info(f"Computing RHS for {len(solutions)} solutions...")
         transform = ComputeRhsTransform(matrix)
         rhs = transform.transform(solutions)
 
-        return GeneratedSamples(
+        return SolvedRows(
             matrix=matrix,
             rhs=rhs,
             solutions=solutions,
-            residual_traces=None,
-            error_traces=None,
         )

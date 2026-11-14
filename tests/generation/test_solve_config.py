@@ -5,8 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from neuralls.domain.generation.helpers import _solve_linear_systems
-from neuralls.domain.generation.matrix_operator import MatrixOperator
 from neuralls.domain.generation.strategy_configs import SolveConfig
 
 
@@ -33,18 +31,10 @@ def sample_rhs(sample_spd_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return rhs_vectors, solutions
 
 
-def test_solve_linear_systems_invalid_method(
-    sample_spd_matrix: np.ndarray, sample_rhs: tuple[np.ndarray, np.ndarray]
-) -> None:
-    """Test that invalid method raises error."""
-    rhs_vectors, _ = sample_rhs
-
+def test_solve_config_rejects_an_unknown_method() -> None:
+    """The method is a closed set checked once, when the config is parsed."""
     with pytest.raises(ValueError):
-        _solve_linear_systems(
-            MatrixOperator(sample_spd_matrix),
-            rhs_vectors,
-            method="invalid",  # type: ignore[arg-type]
-        )
+        SolveConfig(method="invalid")  # type: ignore[arg-type]
 
 
 def test_eigenvector_inverse_with_solve_config() -> None:

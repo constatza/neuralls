@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from torchalg.monitoring import TraceMode
 
-from neuralls.domain.solver.comparison import run_cg_comparison
+from neuralls.domain.solver.comparison import solve_system
 from neuralls.domain.solver.comparison_summary import (
     format_results_summary,
 )
@@ -25,7 +25,7 @@ __all__ = [
     "SolverParams",
     "TraceMode",
     "format_results_summary",
-    "run_cg_comparison",
+    "solve_system",
 ]
 
 __version__ = "2.0.0"

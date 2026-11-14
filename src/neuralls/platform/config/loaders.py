@@ -19,7 +19,7 @@ from neuralls.platform.config.settings import NeurallsSettings, load_case_settin
 from neuralls.platform.config.sweep_expansion import ensure_generated_dataset_config
 from neuralls.shared.constants import DEFAULT_PROJECT_ROOT, SWEEP_GENERATED_SUBDIR_NAME
 
-_DEFAULT_TRACKING_TOML = DEFAULT_PROJECT_ROOT / "configs" / "tracking.toml"
+DEFAULT_TRACKING_TOML = DEFAULT_PROJECT_ROOT / "configs" / "tracking.toml"
 
 
 def load_raw_toml(path: Path) -> dict[str, Any]:
@@ -57,14 +57,14 @@ def parse_data_config(raw: Mapping[str, Any], ctx: ConfigContext) -> DataConfigF
 
 def load_data_config(path: Path, settings: NeurallsSettings) -> DataConfigFile:
     """Read a data config TOML and validate it."""
-    ctx = ConfigContext(config_path=path.resolve(), settings=settings)
+    ctx = ConfigContext.for_file(path, settings)
     return parse_data_config(load_raw_toml(path), ctx)
 
 
 def load_comparison_config(path: Path, settings: NeurallsSettings) -> ComparisonConfig:
     """Load and validate a comparison TOML using context-aware path expansion."""
     raw = load_raw_toml(path)
-    ctx = ConfigContext(config_path=path.resolve(), settings=settings)
+    ctx = ConfigContext.for_file(path, settings)
     return parse_comparison_config(raw, context=ctx)
 
 
@@ -342,15 +342,22 @@ def _expand_assignment_sweeps(
                 f"[[assignment_sweeps]] entry references unknown dataset_sweeps label "
                 f"'{dataset_sweep}'."
             )
-        for job_id in job_ids:
-            for entry in entries:
-                dataset_id = entry.get("id")
-                if not isinstance(dataset_id, str) or not dataset_id.strip():
-                    raise ValueError(
-                        f"Dataset sweep '{dataset_sweep}' entry has no resolved id (internal "
-                        "ordering bug: assignment sweeps must expand after dataset ids are filled)."
-                    )
-                assignments.append({"dataset": dataset_id, "job": job_id})
+        dataset_ids = [_resolved_sweep_dataset_id(entry, dataset_sweep) for entry in entries]
+        assignments.extend(
+            {"dataset": dataset_id, "job": job_id}
+            for job_id, dataset_id in itertools.product(job_ids, dataset_ids)
+        )
+
+
+def _resolved_sweep_dataset_id(entry: dict[str, Any], dataset_sweep: str) -> str:
+    """The id `_fill_missing_dataset_ids` wrote into one dataset sweep entry."""
+    dataset_id = entry.get("id")
+    if not isinstance(dataset_id, str) or not dataset_id.strip():
+        raise ValueError(
+            f"Dataset sweep '{dataset_sweep}' entry has no resolved id (internal "
+            "ordering bug: assignment sweeps must expand after dataset ids are filled)."
+        )
+    return dataset_id
 
 
 def _no_generated_files(_raw: dict[str, Any], _ctx: ConfigContext) -> None:
@@ -386,7 +393,7 @@ def load_case_config(
     Sweep-generated dataset configs the case references are created when missing;
     `force_expand` recreates them even when present.
     """
-    ctx = ConfigContext(config_path=path.resolve(), settings=settings)
+    ctx = ConfigContext.for_file(path, settings)
 
     def materialize(raw: dict[str, Any], ctx: ConfigContext) -> None:
         _ensure_generated_dataset_configs(raw, ctx, force=force_expand)
@@ -396,7 +403,7 @@ def load_case_config(
 
 def load_case(path: Path, env_file: Path | None = None) -> tuple[CaseConfig, NeurallsSettings]:
     """Load one case config together with its resolved runtime settings."""
-    settings = load_case_settings(path, env_file)
+    settings = load_case_settings(env_file)
     return load_case_config(path, settings), settings
 
 
@@ -410,7 +417,7 @@ def load_tracking_config(path: Path | None = None) -> SharedTrackingSettings | N
         Validated ``SharedTrackingSettings`` when the file exists and has a [tracking] section,
         ``None`` if the file is missing or has no [tracking] section.
     """
-    resolved = path or _DEFAULT_TRACKING_TOML
+    resolved = path or DEFAULT_TRACKING_TOML
     if not resolved.exists():
         return None
     raw = load_raw_toml(resolved)

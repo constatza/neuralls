@@ -11,9 +11,8 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from loguru import logger
 
-from ..interfaces import ArchiveData, GeneratedSamples
+from ..interfaces import ArchiveData, SolvedRows
 from ..runner import register_strategy
 from ..strategy_configs import SparseRhsConfig
 from ..transforms import SolveTransform
@@ -57,7 +56,7 @@ class SparseRhsStrategy:
         *,
         cfg: dict[str, Any],
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> SolvedRows:
         """Build sparse RHS vectors and solve A x = b for each.
 
         Args:
@@ -78,32 +77,19 @@ class SparseRhsStrategy:
         config = SparseRhsConfig(**cfg)
 
         n = matrix.shape[0]
-        logger.info(
-            f"Building {config.samples} sparse RHS vectors (n={n}, {len(config.indices)} nonzeros)"
-        )
 
         # Layer 1: broadcast sparse template to (N, n)
         rhs = _build_sparse_rhs(n, config.samples, config.indices, config.values)
 
         # Layer 2: solve x = A^-1 @ b for each sparse RHS
         solve_cfg = config.solve_config
-        logger.info(f"Solving {config.samples} linear systems using {solve_cfg.method}...")
-        transform = SolveTransform(
-            matrix,
-            method=solve_cfg.method,
-            rtol=solve_cfg.rtol,
-            atol=solve_cfg.atol,
-            max_iters=solve_cfg.max_iters,
-            assume_pos_def=solve_cfg.assume_pos_def,
-        )
-        solutions = transform.transform(rhs)
+        solved = SolveTransform(matrix, solve_cfg).transform(rhs)
 
-        return GeneratedSamples(
+        return SolvedRows(
             matrix=matrix,
             rhs=rhs,
-            solutions=solutions,
-            residual_traces=None,
-            error_traces=None,
+            solutions=solved.solutions,
+            notices=solved.unconverged,
         )
 
 

@@ -19,11 +19,11 @@ from neuralls.application.models import (
     AssignmentSucceeded,
     AssignmentSweepResult,
 )
-from neuralls.composition.assignments.training_batch import write_metric_report
+from neuralls.composition.assignments.training_metric_report import write_metric_report
 from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.tracking.run_names import render_training_label
 
-TRAINING = "neuralls.composition.assignments.training_batch"
+TRAINING = "neuralls.composition.assignments.training_metric_report"
 
 type CapturedLog = Callable[[str], list[str]]
 

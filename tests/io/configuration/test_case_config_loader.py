@@ -9,6 +9,7 @@ import pytest
 
 from neuralls.composition.assignments.assembler import load_assignment_batch
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
+from neuralls.platform.config.settings import NeurallsSettings
 
 # Skip all tests if dlkit has circular import issue
 pytestmark = pytest.mark.skipif(
@@ -130,12 +131,17 @@ def temp_config_structure(tmp_path: Path) -> Path:
     return project_root
 
 
-def test_load_assignments_success(temp_config_structure: Path, monkeypatch: pytest.MonkeyPatch):
+def test_load_assignments_success(
+    temp_config_structure: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    neuralls_settings: NeurallsSettings,
+):
     """Test that load_assignment_batch correctly loads assignments with NEW format."""
     monkeypatch.chdir(temp_config_structure)
 
     batch = load_assignment_batch(
         case_config_path=temp_config_structure / "configs" / "experiments.toml",
+        neuralls_settings=neuralls_settings,
     )
 
     assert len(batch.assignments) == 2
@@ -171,7 +177,9 @@ def test_load_assignments_success(temp_config_structure: Path, monkeypatch: pyte
 
 
 def test_load_assignments_missing_registry_id(
-    temp_config_structure: Path, monkeypatch: pytest.MonkeyPatch
+    temp_config_structure: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    neuralls_settings: NeurallsSettings,
 ):
     """Missing registry ids fail before any guessed-path lookup."""
     monkeypatch.chdir(temp_config_structure)
@@ -189,12 +197,14 @@ def test_load_assignments_missing_registry_id(
     with pytest.raises(ValueError):
         load_assignment_batch(
             case_config_path=temp_config_structure / "configs" / "experiments.toml",
+            neuralls_settings=neuralls_settings,
         )
 
 
 def test_load_assignments_rejects_unknown_comparison_assignment_filter(
     temp_config_structure: Path,
     monkeypatch: pytest.MonkeyPatch,
+    neuralls_settings: NeurallsSettings,
 ) -> None:
     """Comparison assignments filter cannot reference ids missing from [[assignments]]."""
     monkeypatch.chdir(temp_config_structure)
@@ -214,11 +224,14 @@ def test_load_assignments_rejects_unknown_comparison_assignment_filter(
     with pytest.raises(ValueError):
         load_assignment_batch(
             case_config_path=temp_config_structure / "configs" / "experiments.toml",
+            neuralls_settings=neuralls_settings,
         )
 
 
 def test_load_assignments_no_assignments(
-    temp_config_structure: Path, monkeypatch: pytest.MonkeyPatch
+    temp_config_structure: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    neuralls_settings: NeurallsSettings,
 ):
     """Test that ValueError is raised when no assignments defined."""
     monkeypatch.chdir(temp_config_structure)
@@ -230,4 +243,5 @@ def test_load_assignments_no_assignments(
     with pytest.raises(ValueError):
         load_assignment_batch(
             case_config_path=temp_config_structure / "configs" / "experiments.toml",
+            neuralls_settings=neuralls_settings,
         )

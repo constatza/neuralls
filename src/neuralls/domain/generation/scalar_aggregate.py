@@ -2,7 +2,7 @@
 
 Each binding contributes one matrix norm, one matrix value scale and one scale payload.
 The manifest exposes a single value per field, so the first binding's value is kept and
-a flag records whether any later binding disagreed. Only the flags and the first
+the set of disagreeing fields records whether any later binding disagreed. Only that set and the first
 observation are stored, so the state does not grow with the number of bindings.
 """
 
@@ -10,28 +10,25 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Final
 
 import numpy as np
-from loguru import logger
 
 from neuralls.shared.types import ScaleMetadata
 
 NORM_AGREEMENT_RTOL: Final[float] = 1e-10
 NORM_AGREEMENT_ATOL: Final[float] = 1e-12
 
-_NORM_DISAGREEMENT_WARNING: Final[str] = (
-    "Bindings produced different normalized matrix norms; "
-    "the dataset manifest keeps a representative matrix_norm only."
-)
-_SCALE_DISAGREEMENT_WARNING: Final[str] = (
-    "Bindings produced different matrix value scales; "
-    "the dataset manifest omits a shared reversible matrix scale."
-)
-_METADATA_DISAGREEMENT_WARNING: Final[str] = (
-    "Bindings produced different scale metadata payloads; "
-    "the dataset manifest intentionally stores no shared scale metadata."
-)
+
+class ScaleField(StrEnum):
+    """Dataset-level scalar on which bindings can disagree."""
+
+    MATRIX_NORM = "matrix_norm"
+    MATRIX_VALUE_SCALE = "matrix_value_scale"
+    SCALE_METADATA = "scale_metadata"
+
+
 _NULL_PAYLOAD_KEY: Final[str] = "null"
 
 
@@ -58,11 +55,13 @@ class ScaleSummary:
         matrix_norm: Representative matrix norm (the first binding's value).
         matrix_value_scale: Shared value scale, or 1.0 when bindings disagree.
         scale_metadata: Shared scale payload, or ``None`` when bindings disagree.
+        disagreements: Fields on which some binding disagreed with the first.
     """
 
     matrix_norm: float
     matrix_value_scale: float
     scale_metadata: ScaleMetadata | None
+    disagreements: frozenset[ScaleField] = frozenset()
 
 
 def _agrees(value: float, reference: float) -> bool:
@@ -77,15 +76,13 @@ def _payload_key(payload: ScaleMetadata | None) -> str:
 class ScalarAggregator:
     """Accumulate per-binding scalars in O(1) state and resolve one summary.
 
-    Warnings are emitted once each by ``result``, in the order norm, scale, metadata.
+    ``result`` reports every disagreeing field in the summary; it logs nothing.
     """
 
     def __init__(self) -> None:
         self._first: BindingScale | None = None
         self._first_key: str = _NULL_PAYLOAD_KEY
-        self._norm_disagrees = False
-        self._scale_disagrees = False
-        self._metadata_disagrees = False
+        self._disagreements: set[ScaleField] = set()
 
     def observe(self, binding: BindingScale) -> None:
         """Fold one binding's scalars into the agreement state."""
@@ -95,14 +92,14 @@ class ScalarAggregator:
             self._first_key = _payload_key(binding.scale_params)
             return
         if not _agrees(binding.matrix_norm_value, first.matrix_norm_value):
-            self._norm_disagrees = True
+            self._disagreements.add(ScaleField.MATRIX_NORM)
         if not _agrees(binding.matrix_value_scale, first.matrix_value_scale):
-            self._scale_disagrees = True
+            self._disagreements.add(ScaleField.MATRIX_VALUE_SCALE)
         if _payload_key(binding.scale_params) != self._first_key:
-            self._metadata_disagrees = True
+            self._disagreements.add(ScaleField.SCALE_METADATA)
 
     def result(self) -> ScaleSummary:
-        """Resolve the summary and log one warning per disagreeing field.
+        """Resolve the summary; a disagreeing field falls back to its neutral value.
 
         Raises:
             ValueError: If no binding was observed.
@@ -110,27 +107,24 @@ class ScalarAggregator:
         first = self._first
         if first is None:
             raise ValueError("No norm or scale values to resolve")
-
-        if self._norm_disagrees:
-            logger.warning(_NORM_DISAGREEMENT_WARNING)
-        matrix_value_scale = float(first.matrix_value_scale)
-        if self._scale_disagrees:
-            logger.warning(_SCALE_DISAGREEMENT_WARNING)
-            matrix_value_scale = 1.0
-        scale_metadata = first.scale_params
-        if self._metadata_disagrees:
-            logger.warning(_METADATA_DISAGREEMENT_WARNING)
-            scale_metadata = None
-
+        disagreements = frozenset(self._disagreements)
         return ScaleSummary(
             matrix_norm=float(first.matrix_norm_value),
-            matrix_value_scale=matrix_value_scale,
-            scale_metadata=scale_metadata,
+            matrix_value_scale=(
+                1.0
+                if ScaleField.MATRIX_VALUE_SCALE in disagreements
+                else float(first.matrix_value_scale)
+            ),
+            scale_metadata=(
+                None if ScaleField.SCALE_METADATA in disagreements else first.scale_params
+            ),
+            disagreements=disagreements,
         )
 
 
 __all__ = [
     "BindingScale",
     "ScalarAggregator",
+    "ScaleField",
     "ScaleSummary",
 ]

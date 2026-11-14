@@ -7,11 +7,9 @@ from typing import Annotated
 import typer
 
 from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ForceOption, ProfileOption
-from neuralls.composition.assignments.training_batch import (
-    run_assignment_sweep,
-    write_metric_report,
-)
-from neuralls.composition.config import load_case_settings
+from neuralls.composition.assignments.training_batch import run_assignment_sweep
+from neuralls.composition.assignments.training_metric_report import write_metric_report
+from neuralls.composition.config import CaseConfigPath, load_case_settings
 from neuralls.composition.tracking.services import MLFLOW_TRACKING
 from neuralls.shared.constants import EXIT_FAILURE
 
@@ -27,9 +25,9 @@ def train_case_batch(
 ) -> None:
     """Train the registry-defined assignment batch and emit aggregate reporting."""
     try:
-        settings = load_case_settings(config, env_file, profile=profile)
+        settings = load_case_settings(env_file, profile=profile)
         sweep_result = run_assignment_sweep(
-            case_config_path=config.resolve(),
+            case_config_path=CaseConfigPath.resolve(config),
             settings=settings,
             force=force,
             tracking=MLFLOW_TRACKING,

@@ -33,6 +33,7 @@ from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import DuplicateMethodPresentationError
 from neuralls.domain.presentation.provenance import DatasetSourceProvenance
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.models.checkpoint_refs import TrainedAssignmentRefConfig
 from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.experiments import CaseConfig
@@ -41,6 +42,7 @@ from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     PreconditionerConfig,
 )
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.manifest import MissingDatasetProvenanceError
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.shared.digest import canonical_digest
@@ -93,7 +95,9 @@ def resolved_specs(monkeypatch: pytest.MonkeyPatch) -> ResolvedSpecs:
     return install
 
 
-def _run_expecting_abort(tmp_path: Path, error: type[Exception]) -> MagicMock:
+def _run_expecting_abort(
+    tmp_path: Path, settings: NeurallsSettings, error: type[Exception]
+) -> MagicMock:
     experiments_config = tmp_path / "experiments.toml"
     write_experiments_config(experiments_config, with_comparisons=True)
     with (
@@ -104,14 +108,16 @@ def _run_expecting_abort(tmp_path: Path, error: type[Exception]) -> MagicMock:
         patch(MLFLOW_MODULE) as mock_mlflow,
         pytest.raises(error),
     ):
-        run_comparison_batch(experiments_config, ComparisonParams())
+        run_comparison_batch(
+            CaseConfigPath.resolve(experiments_config), ComparisonParams(), settings
+        )
     return mock_mlflow
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning", "stub_matrix_scope")
 class TestPresentationFailureAbortsTheBatch:
     def test_a_neural_method_without_an_architecture(
-        self, tmp_path: Path, resolved_specs: ResolvedSpecs
+        self, tmp_path: Path, neuralls_settings: NeurallsSettings, resolved_specs: ResolvedSpecs
     ) -> None:
         calls = resolved_specs(
             [
@@ -121,13 +127,19 @@ class TestPresentationFailureAbortsTheBatch:
             ]
         )
 
-        mock_mlflow = _run_expecting_abort(tmp_path, MissingArchitectureNameError)
+        mock_mlflow = _run_expecting_abort(
+            tmp_path, neuralls_settings, MissingArchitectureNameError
+        )
 
         assert calls, "resolution ran, so the failure came from presentation"
         mock_mlflow.start_run.assert_not_called()
 
     def test_unverified_checkpoint_pod_does_not_read_nearby_stale_dataset(
-        self, tmp_path: Path, resolved_specs: ResolvedSpecs, stale_dataset_dir: Path
+        self,
+        tmp_path: Path,
+        neuralls_settings: NeurallsSettings,
+        resolved_specs: ResolvedSpecs,
+        stale_dataset_dir: Path,
     ) -> None:
         spec = AMGPreconditionerConfig(
             coarsening=PODCoarseningConfig(
@@ -163,21 +175,29 @@ class TestPresentationFailureAbortsTheBatch:
             patch.object(comparison_batch, "has_complete_reusable_session", return_value=True),
             patch(MLFLOW_MODULE) as mock_mlflow,
         ):
-            outcomes = run_comparison_batch(experiments_config, ComparisonParams())
+            outcomes = run_comparison_batch(
+                CaseConfigPath.resolve(experiments_config), ComparisonParams(), neuralls_settings
+            )
         assert calls
         assert len(outcomes) == 2
         assert all(isinstance(outcome, ComparisonReused) for outcome in outcomes)
         mock_mlflow.start_run.assert_not_called()
 
     def test_inline_pod_over_a_dataset_without_provenance_aborts(
-        self, tmp_path: Path, resolved_specs: ResolvedSpecs, stale_dataset_dir: Path
+        self,
+        tmp_path: Path,
+        neuralls_settings: NeurallsSettings,
+        resolved_specs: ResolvedSpecs,
+        stale_dataset_dir: Path,
     ) -> None:
         spec = AMGPreconditionerConfig(
             coarsening=PODCoarseningConfig(dataset_dir=stale_dataset_dir, rank=10)
         )
         calls = resolved_specs([spec])
 
-        mock_mlflow = _run_expecting_abort(tmp_path, MissingDatasetProvenanceError)
+        mock_mlflow = _run_expecting_abort(
+            tmp_path, neuralls_settings, MissingDatasetProvenanceError
+        )
 
         assert calls
         mock_mlflow.start_run.assert_not_called()
@@ -185,6 +205,7 @@ class TestPresentationFailureAbortsTheBatch:
     def test_two_pod_methods_with_distinct_assignments_over_identical_datasets(
         self,
         tmp_path: Path,
+        neuralls_settings: NeurallsSettings,
         resolved_specs: ResolvedSpecs,
         twin_pod_dataset_dirs: tuple[Path, Path],
     ) -> None:
@@ -193,7 +214,9 @@ class TestPresentationFailureAbortsTheBatch:
             [pod_spec(first, 10, assignment="fit-a"), pod_spec(second, 10, assignment="fit-b")]
         )
 
-        mock_mlflow = _run_expecting_abort(tmp_path, DuplicateMethodPresentationError)
+        mock_mlflow = _run_expecting_abort(
+            tmp_path, neuralls_settings, DuplicateMethodPresentationError
+        )
 
         assert calls
         mock_mlflow.start_run.assert_not_called()

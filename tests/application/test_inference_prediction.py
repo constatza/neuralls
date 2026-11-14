@@ -7,11 +7,14 @@ from dataclasses import dataclass
 
 import numpy as np
 import pytest
+import torch
 from numpy.testing import assert_array_equal
 
 from neuralls.application.inference.models import DataSource, InferenceData
 from neuralls.application.inference.prediction import process_predictions, run_prediction
 from neuralls.domain.inference_ports import InferencePredictorPort
+
+_CPU = torch.device("cpu")
 
 
 class FakeInferencePredictor(InferencePredictorPort):
@@ -101,6 +104,7 @@ def test_run_prediction_preserves_batch_order(
         predictor,
         multi_feature_inference_fixtures.data,
         batch_size=2,
+        device=_CPU,
     )
 
     assert_array_equal(
@@ -143,6 +147,7 @@ def test_run_prediction_measures_a_real_duration(
         predictor,
         multi_feature_inference_fixtures.data,
         batch_size=2,
+        device=_CPU,
     )
 
     assert result.metadata["duration_seconds"] > 0.0
@@ -169,4 +174,4 @@ def test_run_prediction_rejects_empty_prediction_stream(
     predictor = FakeInferencePredictor(outputs=[])
 
     with pytest.raises(ValueError):
-        run_prediction(predictor, empty_inference_data, batch_size=2)
+        run_prediction(predictor, empty_inference_data, batch_size=2, device=_CPU)

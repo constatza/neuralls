@@ -37,12 +37,11 @@ from neuralls.platform.config.registry import ResolvedAssignmentBinding
 from neuralls.platform.tracking.run_names import render_run_name
 from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from tests.os_paths import FAKE_ROOT
 from tests.presentation_support import datasets_by_dir
 
 PLAIN = NotationPolicy.default()
 FIT_DIR = Path("pod-fit")
-WORKSPACE = FAKE_ROOT / "workspace"
+WORKSPACE = Path("workspace")
 
 
 def _binding(architecture: ValidatedLabel | None) -> ResolvedAssignmentBinding:

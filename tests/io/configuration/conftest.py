@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from neuralls.platform.config.context import ConfigContext
+from neuralls.platform.config.settings import NeurallsSettings
+
 _SWEEP_SPEC = """\
 id = "sweep-ds"
 
@@ -54,3 +57,13 @@ def sweep_case_config(tmp_path: Path, generated_path: Path) -> Path:
     config = tmp_path / "case.toml"
     config.write_text(f'[[datasets]]\npath = "{generated_path.as_posix()}"\n', encoding="utf-8")
     return config
+
+
+@pytest.fixture
+def nested_config_context(tmp_path: Path, neuralls_settings: NeurallsSettings) -> ConfigContext:
+    """Context whose config_dir is ``tmp_path/configs``, a sibling of any ``tmp_path/elsewhere``."""
+    return ConfigContext(
+        config_path=tmp_path / "configs" / "config.toml",
+        settings=neuralls_settings,
+        home_dir=tmp_path / "home",
+    )

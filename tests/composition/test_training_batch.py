@@ -18,12 +18,16 @@ having measured its own duration):
 from __future__ import annotations
 
 from contextlib import ExitStack
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from dlkit.common import ChildFailure, ChildPlannedEvent, ChildSuccess, LifecycleHooks
+from dlkit.common.results import EvaluationResult
 
+from neuralls.application.models import AssignmentFailed
 from neuralls.composition.assignments.training import PreparedTraining
 from neuralls.composition.assignments.training_batch import (
+    _child_result,
     _ChildTimingTracker,
     run_assignment_sweep,
 )
@@ -35,12 +39,13 @@ from neuralls.domain.presentation.run_names import (
     training_dataset,
 )
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
+from neuralls.platform.config.case_path import CaseConfigPath
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.constants import (
     TRAINING_CHILD_DURATION_METRIC_KEY,
     TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY,
 )
 from neuralls.shared.device import ResourceUsage, ResourceUsageToken
-from tests.os_paths import FAKE_ROOT
 
 
 def _patch_sweep_collaborators(
@@ -58,14 +63,8 @@ def _patch_sweep_collaborators(
 
     stack.enter_context(
         patch(
-            "neuralls.composition.assignments.training_batch.require_settings",
-            side_effect=lambda settings, **_: settings,
-        )
-    )
-    stack.enter_context(
-        patch(
             "neuralls.composition.assignments.training_batch.load_assignment_batch",
-            return_value=MagicMock(assignments=(assignment,), output_root=(FAKE_ROOT / "out")),
+            return_value=MagicMock(assignments=(assignment,), output_root=Path("out")),
         )
     )
     stack.enter_context(
@@ -136,6 +135,7 @@ def _patch_sweep_collaborators(
 
 def test_sweep_registers_child_timing_tracker_as_lifecycle_hooks(
     training_presentation: TrainingPresentation,
+    neuralls_settings: NeurallsSettings,
 ) -> None:
     """`run_multirun_spec` must receive planned/completed/failed hooks bound to
     one `_ChildTimingTracker` instance — otherwise device memory is never
@@ -147,7 +147,7 @@ def test_sweep_registers_child_timing_tracker_as_lifecycle_hooks(
         run_multirun_spec = _patch_sweep_collaborators(
             stack, child_outcome=child_failure, presentation=training_presentation
         )
-        run_assignment_sweep(FAKE_ROOT / "workspace/case.toml")
+        run_assignment_sweep(CaseConfigPath.resolve(Path("workspace/case.toml")), neuralls_settings)
 
     hooks = run_multirun_spec.call_args.kwargs["hooks"]
     assert isinstance(hooks, LifecycleHooks)
@@ -266,3 +266,23 @@ class TestChildTimingTracker:
             tracker.on_finished(outcome)  # must not raise
 
         mocks["release"].assert_called_once()
+
+
+def test_a_sweep_child_with_a_non_training_result_fails_its_assignment() -> None:
+    prepared = MagicMock()
+    evaluation = EvaluationResult(
+        predictions=None, targets=None, metrics={}, figures={}, duration_seconds=0.0
+    )
+    child = ChildSuccess(child_id="a1", label="a1", run_id="run", result=evaluation)
+
+    with patch(
+        "neuralls.composition.assignments.training_batch.cleanup_prepared_training"
+    ) as cleanup:
+        result = _child_result(child, prepared, settings=MagicMock(), tracking=MagicMock())
+
+    assert result == AssignmentFailed(
+        assignment_id="a1",
+        presentation=prepared.presentation,
+        error="training sweep child returned a EvaluationResult",
+    )
+    cleanup.assert_called_once_with(prepared)

@@ -8,12 +8,13 @@ import numpy as np
 import pytest
 
 from neuralls.domain.generation import run_generation
+from neuralls.domain.generation.interfaces import SolvedRows
 from neuralls.domain.generation.runner import ArchiveStrategyRegistration
 from neuralls.domain.generation.strategies.rhs_archive import RhsArchiveStrategy
 from tests.fakes.archive_source import InMemoryArchiveSource
-from tests.os_paths import FAKE_ROOT
+from tests.generation_support import solved_rows
 
-ARCHIVE_DIR = FAKE_ROOT / "archive"
+ARCHIVE_DIR = Path("archive")
 
 
 @pytest.fixture
@@ -53,19 +54,20 @@ def test_rhs_archive_shapes(
     n = spd_matrix.shape[0]
     _files, glob_pattern = rhs_files
 
-    result = run_generation(
-        "rhs_archive",
-        spd_matrix,
-        cfg={"rhs_glob": glob_pattern, "samples": 3},
-        archive_source=archive_source,
+    result = solved_rows(
+        run_generation(
+            "rhs_archive",
+            spd_matrix,
+            cfg={"rhs_glob": glob_pattern, "samples": 3},
+            archive_source=archive_source,
+        )
     )
     assert result.solutions is not None
     assert result.rhs is not None
 
     assert result.rhs.shape == (3, n)
     assert result.solutions.shape == (3, n)
-    assert result.residual_traces is None
-    assert result.error_traces is None
+    assert isinstance(result, SolvedRows)
 
 
 def test_rhs_archive_solves_ax_equals_b(
@@ -83,7 +85,9 @@ def test_rhs_archive_solves_ax_equals_b(
         },
     }
 
-    result = run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=archive_source)
+    result = solved_rows(
+        run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=archive_source)
+    )
     assert result.solutions is not None
     assert result.rhs is not None
 
@@ -102,11 +106,13 @@ def test_rhs_archive_all_files(
     """samples=-1 loads every available file."""
     files, glob_pattern = rhs_files
 
-    result = run_generation(
-        "rhs_archive",
-        spd_matrix,
-        cfg={"rhs_glob": glob_pattern, "samples": -1},
-        archive_source=archive_source,
+    result = solved_rows(
+        run_generation(
+            "rhs_archive",
+            spd_matrix,
+            cfg={"rhs_glob": glob_pattern, "samples": -1},
+            archive_source=archive_source,
+        )
     )
     assert result.rhs is not None
 
@@ -120,9 +126,13 @@ def test_rhs_archive_deterministic_shuffle(
     _files, glob_pattern = rhs_files
     cfg = {"rhs_glob": glob_pattern, "samples": 3, "shuffle": True, "seed": 42}
 
-    r1 = run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=archive_source)
+    r1 = solved_rows(
+        run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=archive_source)
+    )
     assert r1.rhs is not None
-    r2 = run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=archive_source)
+    r2 = solved_rows(
+        run_generation("rhs_archive", spd_matrix, cfg=cfg, archive_source=archive_source)
+    )
     assert r2.rhs is not None
 
     assert r1.rhs.ndim == 2 and r2.rhs.ndim == 2
@@ -132,7 +142,11 @@ def test_rhs_archive_deterministic_shuffle(
 def test_rhs_archive_missing_glob_raises(archive_source: InMemoryArchiveSource) -> None:
     """Missing rhs_glob raises ValidationError (pydantic extra=forbid)."""
     with pytest.raises(ValueError):
-        run_generation("rhs_archive", np.eye(5), cfg={"samples": 1}, archive_source=archive_source)
+        solved_rows(
+            run_generation(
+                "rhs_archive", np.eye(5), cfg={"samples": 1}, archive_source=archive_source
+            )
+        )
 
 
 def test_rhs_archive_insufficient_files_raises(
@@ -141,9 +155,11 @@ def test_rhs_archive_insufficient_files_raises(
     """Requesting more files than available raises ValueError."""
     _files, glob_pattern = rhs_files
     with pytest.raises(ValueError):
-        run_generation(
-            "rhs_archive",
-            spd_matrix,
-            cfg={"rhs_glob": glob_pattern, "samples": 100},
-            archive_source=archive_source,
+        solved_rows(
+            run_generation(
+                "rhs_archive",
+                spd_matrix,
+                cfg={"rhs_glob": glob_pattern, "samples": 100},
+                archive_source=archive_source,
+            )
         )

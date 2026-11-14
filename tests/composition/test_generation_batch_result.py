@@ -11,9 +11,8 @@ from neuralls.composition.generation import multi_generation
 from neuralls.composition.generation.multi_generation import generate_batch
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.platform.config.models.experiments import CaseConfig, RegistryEntry
-from tests.os_paths import FAKE_ROOT
 
-GENERATED_DIR = FAKE_ROOT / "generated"
+GENERATED_DIR = Path("generated")
 
 
 type CapturedLog = Callable[[str], list[str]]

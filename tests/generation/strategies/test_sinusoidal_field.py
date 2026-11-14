@@ -7,6 +7,7 @@ import numpy as np
 from neuralls.domain.generation import run_generation
 from neuralls.domain.generation.semantics import classify_strategy_row_kind
 from neuralls.shared.types import GenerationStrategyKind, RowKind
+from tests.generation_support import solved_rows
 
 
 def test_sinusoidal_field_shapes(spd_matrix: np.ndarray) -> None:
@@ -14,7 +15,7 @@ def test_sinusoidal_field_shapes(spd_matrix: np.ndarray) -> None:
     n = spd_matrix.shape[0]
     cfg = {"samples": 4, "seed": 0, "omega": 1.0}
 
-    result = run_generation("sinusoidal_field", spd_matrix, cfg=cfg)
+    result = solved_rows(run_generation("sinusoidal_field", spd_matrix, cfg=cfg))
     assert result.rhs is not None
     assert result.solutions is not None
     assert result.rhs.shape == (4, n)
@@ -27,7 +28,7 @@ def test_sinusoidal_field_matches_closed_form(spd_matrix: np.ndarray) -> None:
     omega = 4.0
     cfg = {"samples": 3, "seed": 0, "omega": omega}
 
-    result = run_generation("sinusoidal_field", spd_matrix, cfg=cfg)
+    result = solved_rows(run_generation("sinusoidal_field", spd_matrix, cfg=cfg))
     assert result.rhs is not None
     i = np.arange(n)
     for row in result.rhs:
@@ -43,8 +44,8 @@ def test_sinusoidal_field_deterministic(spd_matrix: np.ndarray) -> None:
     """Same seed produces identical output across two calls."""
     cfg = {"samples": 4, "seed": 7, "omega": 1.0}
 
-    result1 = run_generation("sinusoidal_field", spd_matrix, cfg=cfg)
-    result2 = run_generation("sinusoidal_field", spd_matrix, cfg=cfg)
+    result1 = solved_rows(run_generation("sinusoidal_field", spd_matrix, cfg=cfg))
+    result2 = solved_rows(run_generation("sinusoidal_field", spd_matrix, cfg=cfg))
     assert result1.rhs is not None
     assert result2.rhs is not None
     np.testing.assert_array_equal(result1.rhs, result2.rhs)
@@ -55,8 +56,8 @@ def test_sinusoidal_field_different_seeds(spd_matrix: np.ndarray) -> None:
     cfg_a = {"samples": 4, "seed": 1, "omega": 1.0}
     cfg_b = {"samples": 4, "seed": 2, "omega": 1.0}
 
-    result1 = run_generation("sinusoidal_field", spd_matrix, cfg=cfg_a)
-    result2 = run_generation("sinusoidal_field", spd_matrix, cfg=cfg_b)
+    result1 = solved_rows(run_generation("sinusoidal_field", spd_matrix, cfg=cfg_a))
+    result2 = solved_rows(run_generation("sinusoidal_field", spd_matrix, cfg=cfg_b))
     assert result1.rhs is not None
     assert result2.rhs is not None
     assert not np.array_equal(result1.rhs, result2.rhs)

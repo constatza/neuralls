@@ -29,13 +29,13 @@ from neuralls.composition.generation.multi_generation import GenerationResult
 from neuralls.composition.tracking.services import MLFLOW_TRACKING
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.presentation.run_names import NamedRun, TrainingPresentation
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.shared.constants import EXIT_FAILURE
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from tests.os_paths import FAKE_ROOT
 
 runner = CliRunner()
-WORKSPACE = FAKE_ROOT / "workspace"
+WORKSPACE = Path("workspace")
 
 
 def test_root_help_lists_only_public_commands() -> None:
@@ -120,7 +120,7 @@ def test_generate_invokes_batch_workflow(
     result = runner.invoke(app, ["generate", str(config)])
 
     assert result.exit_code == 0
-    mock_load_settings.assert_called_once_with(config, None, profile=None)
+    mock_load_settings.assert_called_once_with(None, profile=None)
     mock_load_case_config.assert_called_once_with(config, settings, force_expand=False)
     mock_generate_batch.assert_called_once_with(
         cfg=cfg,
@@ -149,7 +149,7 @@ def test_generate_fails_for_case_config_without_datasets(
     result = runner.invoke(app, ["generate", str(config)])
 
     assert result.exit_code == EXIT_FAILURE
-    mock_load_settings.assert_called_once_with(config, None, profile=None)
+    mock_load_settings.assert_called_once_with(None, profile=None)
     mock_load_case_config.assert_called_once_with(config, settings, force_expand=False)
     mock_generate_batch.assert_not_called()
 
@@ -219,7 +219,7 @@ def test_generate_single_invokes_single_dataset_workflow(
     )
 
     assert result.exit_code == 0
-    mock_load_settings.assert_called_once_with(case_config, None, profile=None)
+    mock_load_settings.assert_called_once_with(None, profile=None)
     mock_process_data.assert_called_once_with(dataset_config, settings, force=False)
 
 
@@ -274,9 +274,9 @@ def test_train_invokes_batch_workflow(
     result = runner.invoke(app, ["train", str(config)])
 
     assert result.exit_code == 0
-    mock_load_settings.assert_called_once_with(config, None, profile=None)
+    mock_load_settings.assert_called_once_with(None, profile=None)
     mock_run_assignment_sweep.assert_called_once_with(
-        case_config_path=config.resolve(),
+        case_config_path=CaseConfigPath.resolve(config),
         settings=settings,
         force=False,
         tracking=MLFLOW_TRACKING,
@@ -309,14 +309,13 @@ def test_eval_invokes_batch_workflow(
     )
 
     assert result.exit_code == 0
-    mock_load_settings.assert_called_once_with(config, None, profile=None)
-    mock_load_case_config.assert_called_once_with(config, settings)
+    mock_load_settings.assert_called_once_with(None, profile=None)
+    mock_load_case_config.assert_called_once_with(config.resolve(), settings)
     mock_eval_batch.assert_called_once_with(
         cfg=cfg,
-        configs_dir=config.resolve().parent,
+        case_config_path=CaseConfigPath.resolve(config),
         settings=settings,
         output_root=None,
-        case_config_path=config.resolve(),
         assignment_ids=["a1", "a2"],
         tracking=MLFLOW_TRACKING,
     )
@@ -354,10 +353,10 @@ def test_run_invokes_batch_workflow(
     result = runner.invoke(app, ["run", str(config)])
 
     assert result.exit_code == 0
-    mock_load_settings.assert_called_once_with(config, None, profile=None)
+    mock_load_settings.assert_called_once_with(None, profile=None)
     mock_run_case_pipeline.assert_called_once()
     call_kwargs = mock_run_case_pipeline.call_args.kwargs
-    assert call_kwargs["case_config_path"] == config
+    assert call_kwargs["case_config_path"] == CaseConfigPath.resolve(config)
     assert call_kwargs["settings"] == settings
     assert call_kwargs["force"] == ForcePolicy()
     assert call_kwargs["tracking"] is MLFLOW_TRACKING
@@ -437,8 +436,8 @@ def test_compare_invokes_batch_workflow(
     result = runner.invoke(app, ["compare", str(config)])
 
     assert result.exit_code == 0
-    mock_load_settings.assert_called_once_with(config, None, profile=None)
+    mock_load_settings.assert_called_once_with(None, profile=None)
     mock_run_comparison_batch.assert_called_once()
-    assert mock_run_comparison_batch.call_args.args[0] == config
+    assert mock_run_comparison_batch.call_args.args[0] == CaseConfigPath.resolve(config)
     assert isinstance(mock_run_comparison_batch.call_args.args[1], ComparisonParams)
     assert mock_run_comparison_batch.call_args.args[2] == settings

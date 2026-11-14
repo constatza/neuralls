@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 
 import typer
-from pydantic import ValidationError
 
 from neuralls.composition.config import (
     PROFILE_ENV_VAR,
@@ -14,6 +13,7 @@ from neuralls.composition.config import (
     delete_profile,
     list_profiles,
     load_profile,
+    resolve_typed_profile,
     save_profile,
 )
 
@@ -115,7 +115,10 @@ def list_cmd() -> None:
         "  name         raw_dir                      processed_dir                output_dir"
     )
     for name in names:
-        profile = load_profile(name)
+        try:
+            profile = load_profile(name)
+        except ValueError:
+            profile = None
         marker = "*" if name == active else " "
         if profile is not None:
             typer.echo(
@@ -181,15 +184,17 @@ def create(
         Profile 'laptop' written to /home/archer/.config/neuralls/config.toml
     """
     try:
-        profile = ProfileConfig.model_validate(
-            {
-                "raw_dir": raw_dir,
-                "processed_dir": processed_dir,
-                "output_dir": output_dir,
-            }
+        profile = resolve_typed_profile(
+            ProfileConfig.model_validate(
+                {
+                    "raw_dir": raw_dir,
+                    "processed_dir": processed_dir,
+                    "output_dir": output_dir,
+                }
+            )
         )
         save_profile(name, profile, overwrite=force)
-    except ValidationError as exc:
+    except ValueError as exc:  # pydantic's ValidationError is a ValueError
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     except FileExistsError as exc:
@@ -239,8 +244,8 @@ def set_cmd(
     updated_data = existing.model_dump()
     updated_data[attr] = value
     try:
-        updated = ProfileConfig.model_validate(updated_data)
-    except ValidationError as exc:
+        updated = resolve_typed_profile(ProfileConfig.model_validate(updated_data))
+    except ValueError as exc:  # pydantic's ValidationError is a ValueError
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     save_profile(resolved_name, updated, overwrite=True)

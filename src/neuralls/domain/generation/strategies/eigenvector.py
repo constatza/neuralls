@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 
-from ..interfaces import ArchiveData, GeneratedSamples
+from ..interfaces import ArchiveData, SolvedRows
 from ..runner import register_strategy
 from ..strategy_configs import EigenvectorForwardConfig, EigenvectorInverseConfig
 from ..transforms import (
@@ -52,7 +52,7 @@ class EigenvectorForwardStrategy:
         *,
         cfg: dict[str, Any],
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> SolvedRows:
         """Generate samples: eigenvector combinations → compute RHS.
 
         Args:
@@ -80,7 +80,7 @@ class EigenvectorForwardStrategy:
         rhs_transform = ComputeRhsTransform(matrix)
         rhs = rhs_transform.transform(solutions)
 
-        return GeneratedSamples(
+        return SolvedRows(
             matrix=matrix,
             rhs=rhs,
             solutions=solutions,
@@ -119,7 +119,7 @@ class EigenvectorInverseStrategy:
         *,
         cfg: dict[str, Any],
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> SolvedRows:
         """Generate samples: eigenvector combinations → solve for solutions.
 
         Args:
@@ -144,18 +144,11 @@ class EigenvectorInverseStrategy:
         rhs = eigen_transform.transform(matrix)
 
         # Layer 2: Solve for solutions x = A^-1 @ b
-        solve_transform = SolveTransform(
-            matrix,
-            method=config.solve_config.method,
-            rtol=config.solve_config.rtol,
-            atol=config.solve_config.atol,
-            max_iters=config.solve_config.max_iters,
-            assume_pos_def=config.solve_config.assume_pos_def,
-        )
-        solutions = solve_transform.transform(rhs)
+        solved = SolveTransform(matrix, config.solve_config).transform(rhs)
 
-        return GeneratedSamples(
+        return SolvedRows(
             matrix=matrix,
             rhs=rhs,
-            solutions=solutions,
+            solutions=solved.solutions,
+            notices=solved.unconverged,
         )

@@ -13,12 +13,14 @@ from functools import partial
 from pathlib import Path
 
 from neuralls.composition.generation.default_services import FS_ARCHIVE_SOURCE
+from neuralls.composition.generation.generation_log import log_planned_notices
 from neuralls.domain.generation.file_sources import MatrixReaders
 from neuralls.domain.generation.orchestration import BatchStream, open_batch_stream
 from neuralls.domain.generation.ports import ArrayStore
 from neuralls.domain.generation.sample_writer import StrategyRowCount
 from neuralls.domain.generation.scalar_aggregate import ScaleSummary
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
+from neuralls.platform.storage.archive_source import CachingArchiveSource
 from neuralls.platform.storage.dense_stream import StreamedManifestFacts
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
 from neuralls.platform.storage.staged_commit import commit_staged_directory
@@ -36,16 +38,21 @@ def open_prepared_stream(
     *,
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
 ) -> BatchStream:
-    """Plan the run and reject an inexact row count before any store is opened."""
+    """Plan the run and reject an inexact row count before any store is opened.
+
+    The run gets its own caching archive source, so files the bindings share load once
+    and nothing loaded outlives the stream.
+    """
     stream = open_batch_stream(
         source,
         spec,
         batch_size=spec.write_batch_size,
         matrix_format=matrix_format,
         readers=_READERS,
-        archive_source=FS_ARCHIVE_SOURCE,
+        archive_source=CachingArchiveSource(FS_ARCHIVE_SOURCE),
     )
     stream.plan.require_exact()
+    log_planned_notices(stream)
     return stream
 
 

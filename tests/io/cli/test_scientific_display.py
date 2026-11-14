@@ -44,10 +44,9 @@ from neuralls.domain.presentation.titles import (
 from neuralls.shared.constants import SYMBOL_CHECKMARK
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import MatrixId
-from tests.os_paths import FAKE_ROOT
 
 runner = CliRunner()
-WORKSPACE = FAKE_ROOT / "workspace"
+WORKSPACE = Path("workspace")
 
 DATASET_TEXT = "Test problem | Gaussian CG Residuals (k=20, N=100)"
 REGISTRY_ID = "cmp-secret-17"

@@ -80,6 +80,7 @@ from neuralls.domain.solver.models.provenance import (
     MatrixProvenance,
     SharedSingleMatrix,
 )
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.models.checkpoint_refs import (
     ByAlias,
     ByRunId,
@@ -117,7 +118,6 @@ from neuralls.shared.types import (
     SystemId,
 )
 from tests.environment_support import SESSION_ENVIRONMENT
-from tests.os_paths import FAKE_ROOT
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 from tests.workflows.comparison_support import (
@@ -576,7 +576,7 @@ def test_validate_neural_preconditioner_requires_model_ref() -> None:
 def test_validate_neural_preconditioner_rejects_checkpoint_path() -> None:
     spec = NeuralPreconditionerConfig(
         type=PreconditionerType.NEURAL,
-        checkpoint_path=(FAKE_ROOT / "workspace/model.ckpt"),
+        checkpoint_path=Path("workspace/model.ckpt"),
         model_ref=_logged_ref("run-1"),
     )
     with pytest.raises(ValueError):
@@ -1224,7 +1224,10 @@ def test_prepare_fails_when_a_known_dataset_is_missing(
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
 def test_run_comparison_batch_preserves_declared_order(
-    tmp_path: Path, fake_mlflow: MagicMock, comparison_run: NamedRun
+    tmp_path: Path,
+    fake_mlflow: MagicMock,
+    comparison_run: NamedRun,
+    neuralls_settings: NeurallsSettings,
 ) -> None:
     """Cache-hit outcomes come back in declared config order.
 
@@ -1254,7 +1257,9 @@ def test_run_comparison_batch_preserves_declared_order(
             return_value=mock_cfg(),
         ),
     ):
-        outcomes = run_comparison_batch(experiments_config, ComparisonParams())
+        outcomes = run_comparison_batch(
+            CaseConfigPath.resolve(experiments_config), ComparisonParams(), neuralls_settings
+        )
 
     assert [outcome.comparison_id for outcome in outcomes] == ["a", "b"]
     assert [call.args[1].entry.id for call in mock_prepare.call_args_list] == ["a", "b"]
@@ -1420,7 +1425,9 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
             side_effect=capture_workload,
         ),
     ):
-        outcomes = run_comparison_batch(experiments_config, ComparisonParams(), settings)
+        outcomes = run_comparison_batch(
+            CaseConfigPath.resolve(experiments_config), ComparisonParams(), settings
+        )
 
     assert all(isinstance(outcome, ComparisonCompleted) and outcome.summary for outcome in outcomes)
     assert [outcome.comparison_id for outcome in outcomes] == [
@@ -1492,7 +1499,9 @@ def test_an_external_rhs_of_the_wrong_length_fails_only_its_own_system(
     with experiments_config.open("wb") as fh:
         tomli_w.dump(payload, fh)
 
-    outcomes = run_comparison_batch(experiments_config, ComparisonParams(), settings)
+    outcomes = run_comparison_batch(
+        CaseConfigPath.resolve(experiments_config), ComparisonParams(), settings
+    )
 
     by_id = {outcome.comparison_id: outcome for outcome in outcomes}
     assert isinstance(by_id["fits"], ComparisonCompleted)
@@ -1519,7 +1528,7 @@ def test_the_session_run_logs_the_runtime_environment_once(
     experiments_config = tmp_path / "experiments.toml"
     write_experiments_config(experiments_config, with_comparisons=True)
 
-    run_comparison_batch(experiments_config, ComparisonParams(), settings)
+    run_comparison_batch(CaseConfigPath.resolve(experiments_config), ComparisonParams(), settings)
 
     environment_logs = [
         call

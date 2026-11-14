@@ -10,7 +10,7 @@ from dlkit.infrastructure.io import url_resolver
 import neuralls.platform.tracking.mlflow as tracking_mlflow
 from neuralls.domain.presentation.methods import StandaloneMethodPresentation
 from neuralls.domain.presentation.run_names import MethodRunName, NamedRun
-from neuralls.platform.config.resolution import MlflowPaths, resolve_mlflow_paths
+from neuralls.platform.config.resolution import MlflowPaths, build_sqlite_tracking_uri
 from neuralls.platform.tracking.mlflow import (
     DEFAULT_ARTIFACT_SUBDIRS,
     MlflowRunConfig,
@@ -101,23 +101,6 @@ def dummy_mlflow(monkeypatch: pytest.MonkeyPatch) -> DummyMlflow:
     return stub
 
 
-def test_resolve_mlflow_paths_normalizes_relative_uris(tmp_path: Path) -> None:
-    project_root = tmp_path / "proj"
-    workspace = tmp_path / "workspace"
-    project_root.mkdir()
-    workspace.mkdir()
-
-    paths = resolve_mlflow_paths(
-        tracking_uri=f"sqlite:///{(tmp_path / 'mlruns.db').as_posix()}",
-        artifact_uri="mlartifacts",
-        project_root=project_root,
-        workspace_root=workspace,
-    )
-
-    assert paths.tracking_uri.endswith("/mlruns.db")
-    assert paths.artifact_uri == str((workspace / "mlartifacts").resolve())
-
-
 def test_collect_artifacts_filters_missing(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -149,6 +132,7 @@ def test_build_workflow_environment_uses_default_output_root(
         tracking_uri=None,
         artifact_location=None,
         default_output_root=tmp_path,
+        config_dir=tmp_path,
     )
 
     assert runtime.tracking_uri.endswith("/mlruns/mlflow.db")
@@ -167,6 +151,7 @@ def test_build_workflow_environment_uses_tracking_toml_when_no_case_uri(
         tracking_uri=None,
         artifact_location=None,
         default_output_root=tmp_path,
+        config_dir=tmp_path,
     )
 
     assert runtime.tracking_uri == "http://tracking.test:5000"
@@ -184,10 +169,63 @@ def test_build_workflow_environment_case_uri_overrides_tracking_toml(
         tracking_uri="http://case-override:5000",
         artifact_location=None,
         default_output_root=tmp_path,
+        config_dir=tmp_path,
     )
 
     assert runtime.tracking_uri == "http://case-override:5000"
     assert runtime.is_explicit is True
+
+
+def test_build_workflow_environment_anchors_relative_case_sqlite_at_config_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(tracking_mlflow, "load_tracking_config", lambda: None)
+    case_dir = tmp_path / "case"
+
+    runtime = build_workflow_environment(
+        tracking_uri="sqlite:///out/mlruns/mlflow.db",
+        artifact_location=None,
+        default_output_root=tmp_path / "unused",
+        config_dir=case_dir,
+    )
+
+    assert runtime.tracking_uri == build_sqlite_tracking_uri(case_dir / "out/mlruns/mlflow.db")
+    assert runtime.artifact_uri == str(case_dir / "out" / "mlartifacts")
+
+
+def test_build_workflow_environment_anchors_case_artifacts_at_config_dir_under_shared_uri(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from neuralls.platform.config.models.experiments import SharedTrackingSettings
+
+    shared = SharedTrackingSettings(uri="sqlite:///shared/mlflow.db")
+    monkeypatch.setattr(tracking_mlflow, "load_tracking_config", lambda: shared)
+    monkeypatch.setattr(
+        tracking_mlflow, "DEFAULT_TRACKING_TOML", tmp_path / "shared-dir" / "t.toml"
+    )
+    case_dir = tmp_path / "case"
+
+    runtime = build_workflow_environment(
+        tracking_uri=None,
+        artifact_location="arts",
+        default_output_root=tmp_path / "unused",
+        config_dir=case_dir,
+    )
+
+    assert runtime.tracking_uri == build_sqlite_tracking_uri(
+        tmp_path / "shared-dir" / "shared" / "mlflow.db"
+    )
+    assert runtime.artifact_uri == str(case_dir / "arts")
+
+
+def test_build_runtime_environment_rejects_relative_artifact_uri(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://tracking.test:5000")
+    monkeypatch.setenv("MLFLOW_ARTIFACT_URI", "relative/artifacts")
+
+    with pytest.raises(ValueError, match="MLFLOW_ARTIFACT_URI"):
+        build_runtime_environment(tmp_path / "unused", default_output_root=tmp_path)
 
 
 def test_runtime_paths_from_env_reads_tracking_values(tmp_path: Path) -> None:
@@ -367,13 +405,9 @@ def test_finalize_run_ends_started_run(
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()
     (workspace_root / "figures").mkdir()
-    paths = resolve_mlflow_paths(
-        tracking_uri=None,
-        artifact_uri=None,
-        project_root=tmp_path,
-        workspace_root=workspace_root,
-        default_tracking_uri=neuralls_settings.mlflow_tracking_uri,
-        default_artifact_location=neuralls_settings.mlflow_artifact_location,
+    paths = MlflowPaths(
+        tracking_uri=neuralls_settings.mlflow_tracking_uri,
+        artifact_uri=neuralls_settings.mlflow_artifact_location,
     )
     config = MlflowRunConfig(
         experiment_name="exp",
@@ -395,28 +429,6 @@ def test_finalize_run_ends_started_run(
     assert dummy_mlflow.logged_artifacts
     assert dummy_mlflow.logged_metrics
     assert getattr(dummy_mlflow, "ended_status", None) == "FINISHED"
-
-
-def test_resolve_mlflow_paths_requires_tracking_or_default(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-
-    with pytest.raises(ValueError):
-        resolve_mlflow_paths(
-            tracking_uri=None,
-            artifact_uri=None,
-            workspace_root=workspace,
-        )
-
-
-def test_resolve_mlflow_paths_requires_workspace_for_local_artifacts(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(ValueError):
-        resolve_mlflow_paths(
-            tracking_uri=f"sqlite:///{(tmp_path / 'mlruns.db').as_posix()}",
-            artifact_uri="mlartifacts",
-        )
 
 
 def test_log_artifacts_to_mlflow_excludes_checkpoints(tmp_path: Path) -> None:

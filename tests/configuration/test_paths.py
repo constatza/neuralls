@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from neuralls.platform.config.models.data_models import DataConfigFile, OutputConfig
 from neuralls.platform.config.resolution import (
     PathContext,
-    build_sqlite_tracking_uri,
     resolve_path_context,
 )
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.constants import DEFAULT_PROJECT_ROOT
-from tests.os_paths import FAKE_ROOT
 
-WORKSPACE = FAKE_ROOT / "workspace"
+WORKSPACE = Path("workspace")
 
 
 def test_path_context_creation() -> None:
@@ -25,20 +25,6 @@ def test_path_context_creation() -> None:
     assert ctx.project_root == WORKSPACE / "project"
     assert ctx.output_root == WORKSPACE / "output"
     assert ctx.processed_root == WORKSPACE / "processed"
-
-
-def test_path_context_mlflow_properties() -> None:
-    """MLflow paths are derived from output_root."""
-    output_root = WORKSPACE / "output"
-    ctx = PathContext(
-        project_root=WORKSPACE,
-        output_root=output_root,
-        processed_root=WORKSPACE,
-    )
-    assert ctx.mlflow_tracking_uri == build_sqlite_tracking_uri(
-        output_root / "mlruns" / "mlflow.db"
-    )
-    assert ctx.mlflow_artifact_location == str((output_root / "mlartifacts").resolve())
 
 
 def test_resolve_path_context_uses_settings_defaults(
@@ -68,7 +54,7 @@ def test_resolve_path_context_honours_output_override(
         data_dir_override=data_cfg.output.data_dir,
         output_override=custom_output,
     )
-    assert ctx.output_root == custom_output.resolve()
+    assert ctx.output_root == custom_output
 
 
 def test_resolve_path_context_honours_data_dir_override(
@@ -82,4 +68,4 @@ def test_resolve_path_context_honours_data_dir_override(
         output_root=neuralls_settings.output_dir,
         data_dir_override=data_cfg.output.data_dir,
     )
-    assert ctx.processed_root == processed_dir.resolve()
+    assert ctx.processed_root == processed_dir

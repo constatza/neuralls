@@ -11,9 +11,8 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from loguru import logger
 
-from ..interfaces import ArchiveData, GeneratedSamples
+from ..interfaces import ArchiveData, SolvedRows
 from ..ports import ArchiveSource
 from ..providers import FileInputProvider
 from ..runner import register_archive_strategy
@@ -75,7 +74,7 @@ class RhsArchiveStrategy:
         cfg: dict[str, Any],
         archive_source: ArchiveSource,
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> SolvedRows:
         """Load RHS vectors from archive and solve systems.
 
         Args:
@@ -106,8 +105,6 @@ class RhsArchiveStrategy:
         seed = config.seed
         solve_cfg = config.solve_config
 
-        logger.info(f"Loading RHS vectors from archive: {rhs_glob}")
-
         # Layer 1: Input provision (load from files)
         provider = FileInputProvider(
             archive_source,
@@ -119,24 +116,12 @@ class RhsArchiveStrategy:
         rng = np.random.default_rng(seed)
         rhs = provider.provide(matrix, count=samples, rng=rng)
 
-        logger.info(f"Loaded {len(rhs)} RHS vectors")
-
         # Layer 2: Transformation (solve systems)
-        logger.info(f"Solving {len(rhs)} linear systems using {solve_cfg.method}...")
-        transform = SolveTransform(
-            matrix,
-            method=solve_cfg.method,
-            rtol=solve_cfg.rtol,
-            atol=solve_cfg.atol,
-            max_iters=solve_cfg.max_iters,
-            assume_pos_def=solve_cfg.assume_pos_def,
-        )
-        solutions = transform.transform(rhs)
+        solved = SolveTransform(matrix, solve_cfg).transform(rhs)
 
-        return GeneratedSamples(
+        return SolvedRows(
             matrix=matrix,
             rhs=rhs,
-            solutions=solutions,
-            residual_traces=None,
-            error_traces=None,
+            solutions=solved.solutions,
+            notices=solved.unconverged,
         )

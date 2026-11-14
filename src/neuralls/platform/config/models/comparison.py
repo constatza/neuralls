@@ -9,8 +9,8 @@ from typing import Annotated, ClassVar, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
-from neuralls.domain.solver.error_metrics import REFERENCE_PRECISION_MARGIN
 from neuralls.domain.solver.models.config import (
+    REFERENCE_PRECISION_MARGIN,
     ComparisonData,
     ComparisonGeneral,
     SolverParams,

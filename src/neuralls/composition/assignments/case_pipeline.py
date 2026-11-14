@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 from neuralls.application.models import AssignmentResult
 from neuralls.composition.assignments.assembler import load_validated_case_config
@@ -18,7 +17,8 @@ from neuralls.composition.comparison.models import (
 )
 from neuralls.composition.generation.multi_generation import generate_batch
 from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
-from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.config.case_path import CaseConfigPath
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.device import release_device_memory
 
 
@@ -55,8 +55,8 @@ NO_FORCE = ForcePolicy()
 
 
 def run_case_pipeline(
-    case_config_path: Path,
-    settings: NeurallsSettings | None = None,
+    case_config_path: CaseConfigPath,
+    settings: NeurallsSettings,
     *,
     force: ForcePolicy = NO_FORCE,
     tracking: TrackingServices = MLFLOW_TRACKING,
@@ -78,9 +78,9 @@ def run_case_pipeline(
     matrix at fit time, which a checkpoint-backed `fit` job can't provide).
 
     Args:
-        case_config_path: Path to a case config defining datasets, assignments,
+        case_config_path: Absolute path of a case config defining datasets, assignments,
             and (optionally) comparisons.
-        settings: Optional pre-loaded runtime settings.
+        settings: Runtime settings resolved by the caller.
         force: Which stages ignore an existing matching result and rerun.
         tracking: Source of the MLflow clients, lease managers and reuse lookups.
 
@@ -89,9 +89,8 @@ def run_case_pipeline(
         empty when the case config declares no `[[assignments]]` /
         `[[comparisons]]` respectively.
     """
-    settings = require_settings(settings, case_config_path=case_config_path)
     cfg, config_dir = load_validated_case_config(
-        case_config_path, settings, force_expand=force.expand
+        case_config_path.path, settings, force_expand=force.expand
     )
 
     generate_batch(cfg, config_dir, settings, force=force.generate)

@@ -1,4 +1,4 @@
-"""The filesystem archive source and its in-memory fake answer every query alike."""
+"""The filesystem archive source, its in-memory fake and the caching wrapper answer every query alike."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import pytest
 from tests.fakes.archive_source import InMemoryArchiveSource
 
 from neuralls.domain.generation.ports import ArchiveSource
-from neuralls.platform.storage.archive_source import FsArchiveSource
+from neuralls.platform.storage.archive_source import CachingArchiveSource, FsArchiveSource
 
 _VECTOR = np.array([1.0, 2.0, 3.0])
 _STACK = np.arange(8.0).reshape(4, 2)
@@ -39,7 +39,13 @@ def _in_memory(root: Path) -> ArchiveSource:
     return source
 
 
-@pytest.fixture(params=[_filesystem, _in_memory], ids=["filesystem", "in_memory"])
+def _caching(root: Path) -> ArchiveSource:
+    return CachingArchiveSource(_filesystem(root))
+
+
+@pytest.fixture(
+    params=[_filesystem, _in_memory, _caching], ids=["filesystem", "in_memory", "caching"]
+)
 def source(request: pytest.FixtureRequest, tmp_path: Path) -> ArchiveSource:
     build: Callable[[Path], ArchiveSource] = request.param
     return build(tmp_path)
@@ -78,3 +84,26 @@ def test_row_count_rejects_unsupported_files(source: ArchiveSource, tmp_path: Pa
 
 def test_load_vector_returns_the_stored_values(source: ArchiveSource, tmp_path: Path):
     np.testing.assert_array_equal(source.load_vector(tmp_path / "vec.txt"), _VECTOR)
+
+
+@pytest.fixture
+def cached_inner(tmp_path: Path) -> InMemoryArchiveSource:
+    inner = InMemoryArchiveSource()
+    inner.add(tmp_path / "vec.txt", _VECTOR)
+    return inner
+
+
+def test_caching_source_loads_each_path_once(cached_inner: InMemoryArchiveSource, tmp_path: Path):
+    source = CachingArchiveSource(cached_inner)
+    first = source.load_vector(tmp_path / "vec.txt")
+    cached_inner.add(tmp_path / "vec.txt", _VECTOR * 2)  # a reload would see the new values
+
+    np.testing.assert_array_equal(source.load_vector(tmp_path / "vec.txt"), first)
+
+
+def test_caching_source_hands_out_read_only_arrays(
+    cached_inner: InMemoryArchiveSource, tmp_path: Path
+):
+    vector = CachingArchiveSource(cached_inner).load_vector(tmp_path / "vec.txt")
+    with pytest.raises(ValueError):
+        vector[0] = 0.0

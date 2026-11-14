@@ -18,7 +18,7 @@ from neuralls.composition.comparison.models import (
     ComparisonParams,
     ComparisonReused,
 )
-from neuralls.composition.config import load_case_settings
+from neuralls.composition.config import CaseConfigPath, load_case_settings
 from neuralls.composition.display import comparison_label
 from neuralls.composition.tracking.services import MLFLOW_TRACKING
 from neuralls.shared.constants import EXIT_FAILURE, SYMBOL_CHECKMARK
@@ -88,8 +88,10 @@ def compare_case(
     params = ComparisonParams(force=force)
 
     try:
-        settings = load_case_settings(config, env_file, profile=profile)
-        outcomes = run_comparison_batch(config, params, settings, tracking=MLFLOW_TRACKING)
+        settings = load_case_settings(env_file, profile=profile)
+        outcomes = run_comparison_batch(
+            CaseConfigPath.resolve(config), params, settings, tracking=MLFLOW_TRACKING
+        )
     except Exception as exc:  # noqa: BLE001
         fail_workflow("Comparison workflow", exc)
 

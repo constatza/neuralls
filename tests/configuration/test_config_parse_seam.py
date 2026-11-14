@@ -13,9 +13,9 @@ from neuralls.domain.solver.models.provenance import SharedSingleMatrix
 from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.loaders import parse_case_config, parse_data_config
 from neuralls.shared.types import MatrixId
-from tests.os_paths import FAKE_ROOT
 from tests.workflows.comparison_support import (
     VIRTUAL_CASE_PATH,
+    VIRTUAL_HOME,
     in_memory_case,
     virtual_settings,
 )
@@ -25,7 +25,9 @@ DATASET_CONFIG_PATH = VIRTUAL_CASE_PATH.parent / "datasets" / "solutions.toml"
 
 @pytest.fixture
 def ctx() -> ConfigContext:
-    return ConfigContext(config_path=VIRTUAL_CASE_PATH, settings=virtual_settings())
+    return ConfigContext(
+        config_path=VIRTUAL_CASE_PATH, settings=virtual_settings(), home_dir=VIRTUAL_HOME
+    )
 
 
 def test_a_dataset_entry_without_an_id_takes_the_id_of_its_dataset_config(
@@ -41,7 +43,7 @@ def test_a_dataset_entry_without_an_id_takes_the_id_of_its_dataset_config(
     case = parse_case_config(raw, ctx, read_dataset_config)
 
     assert [entry.id for entry in case.datasets] == ["from-the-dataset-config"]
-    assert read == [DATASET_CONFIG_PATH.resolve()]
+    assert read == [DATASET_CONFIG_PATH]
 
 
 def test_generated_dataset_configs_are_materialized_once_sweeps_are_expanded(
@@ -74,7 +76,7 @@ def test_binding_uses_the_given_matrix_path_and_the_case_baseline() -> None:
         rhs_ordinal=1,
         provenance=SharedSingleMatrix(raw_matrix_index=5),
     )
-    matrix_path = FAKE_ROOT / "virtual/processed/solutions"
+    matrix_path = Path("virtual/processed/solutions")
 
     bound = bind_comparison_config(case, planned, method_override=None, matrix_path=matrix_path)
 
@@ -95,6 +97,4 @@ def test_binding_without_a_baseline_is_refused() -> None:
     )
 
     with pytest.raises(ValueError, match="comparison_baseline"):
-        bind_comparison_config(
-            case, planned, method_override=None, matrix_path=(FAKE_ROOT / "virtual")
-        )
+        bind_comparison_config(case, planned, method_override=None, matrix_path=Path("virtual"))

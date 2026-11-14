@@ -9,6 +9,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from .notices import RowsCapped
+
 ALL_SAMPLES: int = -1
 """Sentinel strategy count: emit all available samples for this binding.
 
@@ -26,10 +28,12 @@ class BindingAllocation:
             Only archive strategies with a glob carry entries. Indices are positions in
             the archive pool after the strategy's configured skip. Bindings of different
             matrices never share a (matrix, file) pair.
+        notices: Strategies whose request their source could not fill, one notice each.
     """
 
     counts: tuple[dict[str, int], ...]
     file_indices: tuple[dict[str, tuple[int, ...]], ...]
+    notices: tuple[RowsCapped, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

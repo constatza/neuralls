@@ -8,6 +8,7 @@ without reading any file contents.
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -20,7 +21,6 @@ from neuralls.domain.generation.binding_allocation import (
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from tests.fakes.archive_source import InMemoryArchiveSource
-from tests.os_paths import FAKE_ROOT
 
 _NUM_MATRICES = 3
 _NUM_FILES = 5
@@ -30,7 +30,7 @@ _FILE_SEED = 7
 _FILE_LENGTH = 4
 
 
-_ARCHIVE_DIR = FAKE_ROOT / "archive"
+_ARCHIVE_DIR = Path("archive")
 
 
 @pytest.fixture

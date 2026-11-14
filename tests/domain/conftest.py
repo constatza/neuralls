@@ -10,6 +10,7 @@ import polars as pl
 import pytest
 import torch
 from torchalg.models.result import SolverResult
+from torchalg.preconditioners.base import Preconditioner
 from torchalg.preconditioners.implementations import Identity, JacobiPreconditioner
 
 from neuralls.domain.solver.models.benchmark_events import SolveConverged
@@ -43,13 +44,8 @@ def rhs(spd_matrix: torch.Tensor, known_solution: torch.Tensor) -> torch.Tensor:
 
 
 @pytest.fixture
-def preconditioners(spd_matrix: torch.Tensor) -> dict[str, object]:
-    """Identity and Jacobi preconditioners for the SPD fixture.
-
-    Keyed "identity", matching `run_cg_comparison`'s own auto-injected
-    baseline key — providing it explicitly here means no second, redundant
-    baseline solve gets silently added on top of these two.
-    """
+def preconditioners(spd_matrix: torch.Tensor) -> dict[str, Preconditioner]:
+    """Identity and Jacobi preconditioners for the SPD fixture."""
     return {"identity": Identity(), "jacobi": JacobiPreconditioner().setup(spd_matrix)}
 
 

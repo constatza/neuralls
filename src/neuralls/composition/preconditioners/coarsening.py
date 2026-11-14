@@ -21,6 +21,7 @@ from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 from torchalg.sparse.preconditioners.pod.coarsening import (
     PODCoarseningStrategy as SparsePODCoarseningStrategy,
 )
+from torchalg.utils.device import resolve_device
 
 from neuralls.application.inference.prediction import collect_predictions, stack_predictions
 from neuralls.composition.preconditioners._weighting import resolve_row_scales
@@ -188,7 +189,7 @@ def _neural_pod_coarsening(
     feature_batch = dict(zip(input_names, param_arrays))
     with factory(ckpt) as predictor:
         raw_predictions, _ = collect_predictions(
-            predictor, feature_batch, batch_size=PREDICTION_BATCH_SIZE
+            predictor, feature_batch, batch_size=PREDICTION_BATCH_SIZE, device=resolve_device()
         )
     predicted = stack_predictions(raw_predictions)
     if cfg.n_snapshots != -1:

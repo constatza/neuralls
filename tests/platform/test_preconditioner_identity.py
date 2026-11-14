@@ -8,7 +8,6 @@ fields (each config's ``slug()``).
 from __future__ import annotations
 
 import pytest
-from tests.os_paths import FAKE_ROOT
 
 from neuralls.platform.config.models.checkpoint_refs import (
     ByAlias,
@@ -97,7 +96,7 @@ def test_amg_pod_slug_includes_rank_and_weighting() -> None:
     """POD-2G coarsening's slug reflects rank and snapshot weighting."""
     cfg = AMGPreconditionerConfig(
         coarsening=PODCoarseningConfig(
-            dataset_dir=str(FAKE_ROOT / "data/solutions"),
+            dataset_dir="data/solutions",
             rank=8,
             weighting=PowerNormWeightingConfig(metric="l2", beta=1.0),
         )
@@ -109,7 +108,7 @@ def test_amg_pod_slug_includes_checkpoint_identity_when_fitted() -> None:
     """A checkpoint-backed POD basis's slug carries its checkpoint identity, not just rank."""
     cfg = AMGPreconditionerConfig(
         coarsening=PODCoarseningConfig(
-            dataset_dir=str(FAKE_ROOT / "data/solutions"),
+            dataset_dir="data/solutions",
             rank=8,
             assignment="pod2g_run1",
         )
@@ -121,7 +120,7 @@ def test_neural_pod_slug_always_includes_checkpoint_identity() -> None:
     """Neural POD is always checkpoint-backed, so its slug always carries a checkpoint ref."""
     cfg = AMGPreconditionerConfig(
         coarsening=NeuralPODCoarseningConfig(
-            dataset_dir=str(FAKE_ROOT / "data/params"),
+            dataset_dir="data/params",
             input_names=("param",),
             rank=4,
             model_ref=RegisteredModelRefConfig(name="PodNet", selector=ByAlias(alias="best")),
@@ -211,9 +210,7 @@ def test_neural_slug_prefers_logical_ref_over_resolved_local_path() -> None:
     before = NeuralPreconditionerConfig(
         model_ref=LoggedModelRefConfig(selector=ByRunId(run_id="abc123")),
     )
-    after = before.model_copy(
-        update={"checkpoint_path": str(FAKE_ROOT / "tmp/some/resolved/path.ckpt")}
-    )
+    after = before.model_copy(update={"checkpoint_path": "tmp/some/resolved/path.ckpt"})
     assert before.name == after.name
 
 

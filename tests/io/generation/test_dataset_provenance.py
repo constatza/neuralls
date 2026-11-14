@@ -17,7 +17,6 @@ from neuralls.platform.config.models.data_models import (
 )
 from neuralls.platform.storage.manifest import MissingDatasetProvenanceError, manifest_path_for
 from neuralls.platform.storage.manifest_io import (
-    load_dataset_manifest,
     load_dataset_presentation,
 )
 from neuralls.shared.scientific_description.models import ScientificDescription
@@ -101,7 +100,6 @@ def test_tampered_provenance_is_rejected_on_load(
         {"key": "not_a_registered_fact", "kind": "integer", "value": 1}
     )
     path.write_text(json.dumps(raw), encoding="utf-8")
-    load_dataset_manifest.cache_clear()
 
     with pytest.raises(KeyError):
         load_dataset_presentation(dataset_dir)

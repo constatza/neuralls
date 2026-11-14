@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Hashable
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -44,13 +43,13 @@ class ArrayStore(Protocol):
         ...
 
 
-class ArchiveSource(Hashable, Protocol):
+class ArchiveSource(Protocol):
     """Read-only view of the files archive-backed generation draws from.
 
     Defined in the domain so file selection, sample-id derivation and vector loading never
     touch the filesystem; ``platform/storage/archive_source.py`` satisfies it with the real
-    one and tests satisfy it with an in-memory fake. Hashable because loaded vectors are
-    cached per source.
+    one and tests satisfy it with an in-memory fake. Caching repeated loads is the
+    source's own concern (``CachingArchiveSource``), never the domain's.
     """
 
     def exists(self, path: Path) -> bool:

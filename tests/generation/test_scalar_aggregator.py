@@ -1,4 +1,4 @@
-"""Cross-binding scalar agreement: first value kept, disagreement flagged, warnings unchanged."""
+"""Cross-binding scalar agreement: first value kept, every disagreeing field reported."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 import pytest
 
-from neuralls.domain.generation.scalar_aggregate import BindingScale, ScalarAggregator
+from neuralls.domain.generation.scalar_aggregate import BindingScale, ScalarAggregator, ScaleField
 from neuralls.shared.types import ScaleMetadata
 
 _SHARED_METADATA: ScaleMetadata = {"spectral_radius_bound": 1.5, "dimension_scale": 2.0}
@@ -30,9 +30,8 @@ def make_binding_scale() -> Callable[..., BindingScale]:
     return _build
 
 
-def test_scalar_aggregator_matches_current_warnings(
+def test_scalar_aggregator_reports_every_disagreeing_field(
     make_binding_scale: Callable[..., BindingScale],
-    warning_messages: list[str],
 ) -> None:
     aggregator = ScalarAggregator()
     aggregator.observe(make_binding_scale(matrix_norm_value=1.0, matrix_value_scale=3.0))
@@ -48,12 +47,11 @@ def test_scalar_aggregator_matches_current_warnings(
     assert summary.matrix_norm == 1.0
     assert summary.matrix_value_scale == 1.0
     assert summary.scale_metadata is None
-    assert len(warning_messages) == 3
+    assert summary.disagreements == frozenset(ScaleField)
 
 
-def test_scalar_aggregator_agreement_emits_no_warning(
+def test_scalar_aggregator_agreement_reports_nothing(
     make_binding_scale: Callable[..., BindingScale],
-    warning_messages: list[str],
 ) -> None:
     aggregator = ScalarAggregator()
     for _ in range(3):
@@ -63,7 +61,7 @@ def test_scalar_aggregator_agreement_emits_no_warning(
     assert summary.matrix_norm == 1.0
     assert summary.matrix_value_scale == 3.0
     assert summary.scale_metadata == _SHARED_METADATA
-    assert warning_messages == []
+    assert summary.disagreements == frozenset()
 
 
 @pytest.mark.parametrize(
@@ -75,16 +73,15 @@ def test_scalar_aggregator_agreement_emits_no_warning(
 )
 def test_scalar_aggregator_applies_isclose_tolerance(
     make_binding_scale: Callable[..., BindingScale],
-    warning_messages: list[str],
     second_norm: float,
     expect_disagreement: bool,
 ) -> None:
     aggregator = ScalarAggregator()
     aggregator.observe(make_binding_scale(matrix_norm_value=1.0))
     aggregator.observe(make_binding_scale(matrix_norm_value=second_norm))
-    aggregator.result()
+    disagreements = aggregator.result().disagreements
 
-    assert bool(warning_messages) is expect_disagreement
+    assert (ScaleField.MATRIX_NORM in disagreements) is expect_disagreement
 
 
 def test_scalar_aggregator_keeps_only_first_value(

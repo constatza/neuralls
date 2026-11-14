@@ -19,6 +19,7 @@ from neuralls.domain.generation.interfaces import TracingSolverCallable
 from neuralls.domain.generation.runner import run_generation
 from neuralls.domain.generation.trace_utils import TrajectoryShortfallError
 from neuralls.platform.storage.archive_source import FsArchiveSource
+from tests.generation_support import error_trace_rows
 
 ARCHIVE_SOURCE = FsArchiveSource()
 
@@ -45,13 +46,15 @@ def test_trajectory_expansion_drops_no_rows_per_base_system(
     """
     solver = make_trace_solver(lambda _call: FULL_TRAJECTORY_LENGTH)
 
-    generated = run_generation(
-        "residuals",
-        small_spd_matrix,
-        cfg=_residuals_cfg(10),
-        solver=solver,
-        single_rhs=small_rhs,
-        archive_source=ARCHIVE_SOURCE,
+    generated = error_trace_rows(
+        run_generation(
+            "residuals",
+            small_spd_matrix,
+            cfg=_residuals_cfg(10),
+            solver=solver,
+            single_rhs=small_rhs,
+            archive_source=ARCHIVE_SOURCE,
+        )
     )
     assert generated.error_traces is not None
     assert generated.error_traces.residuals is not None
@@ -71,13 +74,15 @@ def test_early_converging_base_system_raises_trajectory_shortfall(
     solver = make_trace_solver(lambda _call: 2)
 
     with pytest.raises(TrajectoryShortfallError):
-        run_generation(
-            "residuals",
-            small_spd_matrix,
-            cfg=_residuals_cfg(4),
-            solver=solver,
-            single_rhs=small_rhs,
-            archive_source=ARCHIVE_SOURCE,
+        error_trace_rows(
+            run_generation(
+                "residuals",
+                small_spd_matrix,
+                cfg=_residuals_cfg(4),
+                solver=solver,
+                single_rhs=small_rhs,
+                archive_source=ARCHIVE_SOURCE,
+            )
         )
 
 
@@ -94,11 +99,13 @@ def test_real_solver_converging_early_raises_shortfall_naming_the_system() -> No
     solver = make_solver()
 
     with pytest.raises(TrajectoryShortfallError):
-        run_generation(
-            "residuals",
-            matrix,
-            cfg=cfg,
-            solver=solver,
-            single_rhs=rhs,
-            archive_source=ARCHIVE_SOURCE,
+        error_trace_rows(
+            run_generation(
+                "residuals",
+                matrix,
+                cfg=cfg,
+                solver=solver,
+                single_rhs=rhs,
+                archive_source=ARCHIVE_SOURCE,
+            )
         )

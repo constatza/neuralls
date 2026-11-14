@@ -7,7 +7,6 @@ The domain package contains the pure computational core of `neuralls`.
 - `solver/`: solver/comparison config and reporting DTOs, cost metrics, and comparison orchestration over `torchalg` — CG/PCG/FCG algorithms, monitoring primitives, and preconditioners live in `torchalg`, not here (see `domain/solver/README.md`)
 - `generation/`: strategy-driven dataset payload generation
 - `presentation/`: typed scientific presentation of datasets, methods, and comparison cohorts: provenance, presentation states and their planner, titles, and their rendering (see `domain/presentation/README.md`)
-- `analysis/`: pure numerical diagnostics used by higher layers
 - `linalg.py`: pure linear algebra utilities (matrix norms, normalization scale)
 - `normalization.py`: data scaling helpers and normalization ABC; scales preserve the input format (dense or `csr_array`), and `matrix_norm` dispatches to `np.linalg.norm` or `scipy.sparse.linalg.norm`
 - `inference.py`: cross-boundary inference DTOs (`InferencePredictions`, `InferenceOutputs`)
@@ -31,3 +30,15 @@ Domain code depends only on `neuralls.shared`. It does not load configs,
 resolve filesystem layout, start MLflow runs, or persist artifacts. When
 domain output must be written, it is returned as typed payloads and handled by
 `neuralls.composition` plus `neuralls.platform`.
+
+No ambient actions either: domain code does no file I/O (archive files go through the injected
+`ArchiveSource`), writes no log line, reads no clock (the timed solve goes through
+`shared/device.py`), keeps no process-wide cache, makes no CUDA call and picks no device; it
+works on the device of the tensors it is given. An outcome an operator must see is returned as
+data in a closed type (generation notices, `ScaleSummary` disagreements, the solver's
+`Reference` and `EnergyError`) and composition logs it. `tests/architecture/test_io_boundary.py`
+checks this syntactically for `domain/` and `application/`: logging, `time` and `timeit`
+imports; `now`, `utcnow` and `today` calls; `functools` caches; any `cuda` attribute or
+`torch.cuda` import; unseeded `default_rng`; and `resolve_device` or `release_device_memory`.
+A module-level dict used as a cache or a `"cuda"` device string passes it and is caught in
+review.

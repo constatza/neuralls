@@ -7,6 +7,7 @@ import numpy as np
 from neuralls.domain.generation import run_generation
 from neuralls.domain.generation.runner import _registry
 from neuralls.platform.storage.archive_source import FsArchiveSource
+from tests.generation_support import solved_rows
 
 ARCHIVE_SOURCE = FsArchiveSource()
 
@@ -45,11 +46,13 @@ def test_gaussian_inverse_runs_after_package_import(
 ) -> None:
     """Gaussian inverse is reachable through the public dispatcher."""
     sample_count = 3
-    result = run_generation(
-        "gaussian_inverse",
-        spd_matrix,
-        cfg={"samples": sample_count, "seed": 0, "mu": 0.0, "sigma": 1.0},
-        archive_source=ARCHIVE_SOURCE,
+    result = solved_rows(
+        run_generation(
+            "gaussian_inverse",
+            spd_matrix,
+            cfg={"samples": sample_count, "seed": 0, "mu": 0.0, "sigma": 1.0},
+            archive_source=ARCHIVE_SOURCE,
+        )
     )
     assert result.solutions is not None
     assert result.rhs is not None

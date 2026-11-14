@@ -140,17 +140,17 @@ def _write_npy_dataset_with_params(
 
 
 @pytest.fixture
-def two_extras_non_alpha() -> dict[str, Preconditioner]:
-    return {"model": _StubBindable(("zebra", "apple"))}
+def two_extras_non_alpha() -> Preconditioner:
+    return _StubBindable(("zebra", "apple"))
 
 
 @pytest.fixture
-def two_extras_alpha() -> dict[str, Preconditioner]:
-    return {"model": _StubBindable(("apple", "zebra"))}
+def two_extras_alpha() -> Preconditioner:
+    return _StubBindable(("apple", "zebra"))
 
 
 def test_collect_extra_name_positions_preserves_declaration_order(
-    two_extras_non_alpha: dict[str, Preconditioner],
+    two_extras_non_alpha: Preconditioner,
 ) -> None:
     positions = _collect_extra_name_positions(two_extras_non_alpha)
     assert positions["zebra"] == 0
@@ -158,7 +158,7 @@ def test_collect_extra_name_positions_preserves_declaration_order(
 
 
 def test_collect_extra_name_positions_not_alphabetical(
-    two_extras_non_alpha: dict[str, Preconditioner],
+    two_extras_non_alpha: Preconditioner,
 ) -> None:
     positions = _collect_extra_name_positions(two_extras_non_alpha)
     # alphabetical sort would give apple=0, zebra=1 — that must NOT happen
@@ -166,27 +166,15 @@ def test_collect_extra_name_positions_not_alphabetical(
 
 
 def test_collect_extra_name_positions_alpha_declaration_also_correct(
-    two_extras_alpha: dict[str, Preconditioner],
+    two_extras_alpha: Preconditioner,
 ) -> None:
     positions = _collect_extra_name_positions(two_extras_alpha)
     assert positions["apple"] == 0
     assert positions["zebra"] == 1
 
 
-def test_collect_extra_name_positions_deduplicates_across_preconditioners() -> None:
-    preconditioners: dict[str, Preconditioner] = {
-        "a": _StubBindable(("beta", "alpha")),
-        "b": _StubBindable(("beta", "gamma")),
-    }
-    positions = _collect_extra_name_positions(preconditioners)
-    assert positions["beta"] == 0  # first occurrence wins
-    assert positions["alpha"] == 1
-    assert positions["gamma"] == 1  # position from second preconditioner
-
-
 def test_collect_extra_name_positions_excludes_matrix() -> None:
-    preconditioners: dict[str, Preconditioner] = {"a": _StubBindable(("matrix", "extra"))}
-    positions = _collect_extra_name_positions(preconditioners)
+    positions = _collect_extra_name_positions(_StubBindable(("matrix", "extra")))
     assert "matrix" not in positions
     assert positions["extra"] == 1
 
@@ -240,11 +228,10 @@ def test_load_and_bind_binds_zebra_from_position_0(
     apple→position 0 (wrong) and zebra→position 1 (wrong).
     """
     matrix = torch.as_tensor(_MATRIX, dtype=torch.float64)
-    preconditioners: dict[str, Preconditioner] = {"model": stub_bindable_non_alpha}
 
     staged = _load_extra_inputs(dataset_with_two_params, _SAMPLE_INDEX)
     assert all(isinstance(value, np.ndarray) for value in staged)
-    _bind_extra_inputs(preconditioners, matrix, staged)
+    _bind_extra_inputs(stub_bindable_non_alpha, matrix, staged)
 
     assert "zebra" in stub_bindable_non_alpha.bound_inputs, (
         "'zebra' was not bound at all — positions were not resolved."
@@ -265,10 +252,9 @@ def test_load_and_bind_binds_apple_from_position_1(
 ) -> None:
     """_load_and_bind_extra_inputs must bind position-1 data to "apple"."""
     matrix = torch.as_tensor(_MATRIX, dtype=torch.float64)
-    preconditioners: dict[str, Preconditioner] = {"model": stub_bindable_non_alpha}
 
     staged = _load_extra_inputs(dataset_with_two_params, _SAMPLE_INDEX)
-    _bind_extra_inputs(preconditioners, matrix, staged)
+    _bind_extra_inputs(stub_bindable_non_alpha, matrix, staged)
 
     assert "apple" in stub_bindable_non_alpha.bound_inputs, "'apple' was not bound at all."
     np.testing.assert_allclose(
@@ -292,10 +278,9 @@ def test_load_and_bind_does_not_swap_arrays_for_non_alpha_names(
     positional indices.
     """
     matrix = torch.as_tensor(_MATRIX, dtype=torch.float64)
-    preconditioners: dict[str, Preconditioner] = {"model": stub_bindable_non_alpha}
 
     staged = _load_extra_inputs(dataset_with_two_params, _SAMPLE_INDEX)
-    _bind_extra_inputs(preconditioners, matrix, staged)
+    _bind_extra_inputs(stub_bindable_non_alpha, matrix, staged)
 
     bound = stub_bindable_non_alpha.bound_inputs
     zebra_val = float(bound["zebra"][0])

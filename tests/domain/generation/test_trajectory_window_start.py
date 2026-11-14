@@ -28,6 +28,7 @@ from neuralls.domain.generation.trace_utils import (
     require_full_trajectory,
 )
 from neuralls.platform.storage.archive_source import FsArchiveSource
+from tests.generation_support import error_trace_rows
 
 ARCHIVE_SOURCE = FsArchiveSource()
 
@@ -207,13 +208,15 @@ def test_residuals_start_one_emits_k_rows_per_base_system(
     may equal b and no error row may equal x*.
     """
     cfg = {"samples": ROWS_PER_BASE_SYSTEM * BASE_SYSTEMS, "stop": STOP, "start": START, "seed": 0}
-    result = run_generation(
-        "residuals",
-        seeded_spd_matrix,
-        cfg=cfg,
-        solver=make_solver(),
-        single_rhs=seeded_rhs,
-        archive_source=ARCHIVE_SOURCE,
+    result = error_trace_rows(
+        run_generation(
+            "residuals",
+            seeded_spd_matrix,
+            cfg=cfg,
+            solver=make_solver(),
+            single_rhs=seeded_rhs,
+            archive_source=ARCHIVE_SOURCE,
+        )
     )
     traces = result.error_traces
     assert traces is not None

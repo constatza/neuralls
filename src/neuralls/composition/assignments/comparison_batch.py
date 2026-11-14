@@ -49,8 +49,9 @@ from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServ
 from neuralls.domain.presentation.titles import (
     summarized_session_title,
 )
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.models.experiments import CaseConfig
-from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.failure_reporting import MLflowWorkflowFailureSink
 from neuralls.platform.tracking.method_sink import MLflowBenchmarkMethodSink
 from neuralls.platform.tracking.metrics_logging import (
@@ -78,7 +79,7 @@ def _batch_phase(
     """The failure boundary recording a blocking error of one batch phase."""
     return failure_boundary(
         sink,
-        ComparisonBatchFailureContext(phase=phase, case_config_path=case_config_path.resolve()),
+        ComparisonBatchFailureContext(phase=phase, case_config_path=case_config_path),
     )
 
 
@@ -97,7 +98,7 @@ def _run_session(
             session_counts([item.planned for item in executions]),
         ),
         notation=batch_notation_policy(executions),
-        case_config_path=case_config_path.resolve(),
+        case_config_path=case_config_path,
         experiment_name=topology.experiment_name,
         phase=SESSION_PHASE,
     )
@@ -124,9 +125,9 @@ def _run_session(
 
 
 def run_comparison_batch(
-    case_config_path: Path,
+    case_config_path: CaseConfigPath,
     params: ComparisonParams,
-    settings: NeurallsSettings | None = None,
+    settings: NeurallsSettings,
     *,
     tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> list[ComparisonOutcome]:
@@ -134,8 +135,7 @@ def run_comparison_batch(
 
     The disk edge of `run_loaded_comparison_batch`.
     """
-    settings = require_settings(settings, case_config_path=case_config_path)
-    master_cfg, _ = load_validated_case_config(case_config_path, settings)
+    master_cfg, _ = load_validated_case_config(case_config_path.path, settings)
     return run_loaded_comparison_batch(
         master_cfg, case_config_path, params, settings, tracking=tracking
     )
@@ -143,7 +143,7 @@ def run_comparison_batch(
 
 def run_loaded_comparison_batch(
     master_cfg: CaseConfig,
-    case_config_path: Path,
+    case_config_path: CaseConfigPath,
     params: ComparisonParams,
     settings: NeurallsSettings,
     *,
@@ -175,7 +175,8 @@ def run_loaded_comparison_batch(
             "Case config must define at least one [[comparisons]] or [[comparison_sweeps]] entry."
         )
 
-    topology = resolve_comparison_topology(master_cfg, case_config_path, settings)
+    case_path = case_config_path.path
+    topology = resolve_comparison_topology(master_cfg, case_path, settings)
     setup_comparison_tracking(
         tracking_uri=topology.tracking_uri,
         artifact_location=topology.artifact_location,
@@ -187,7 +188,7 @@ def run_loaded_comparison_batch(
         batch = prepare_comparison_batch(
             master_cfg,
             topology,
-            case_config_path,
+            case_path,
             settings,
             tracking,
             stack,
@@ -202,4 +203,4 @@ def run_loaded_comparison_batch(
                 else ComparisonReused(comparison_id=item.entry.id, run=item.run_name)
                 for item in batch.items
             ]
-        return _run_session(batch, partition.executions, topology, case_config_path, tracking)
+        return _run_session(batch, partition.executions, topology, case_path, tracking)

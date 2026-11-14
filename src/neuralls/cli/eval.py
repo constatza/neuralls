@@ -9,8 +9,9 @@ import typer
 
 from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ProfileOption
 from neuralls.composition.assignments.assembler import load_validated_case_config
-from neuralls.composition.assignments.evaluation import eval_batch, write_eval_metric_report
-from neuralls.composition.config import load_case_settings
+from neuralls.composition.assignments.evaluation import eval_batch
+from neuralls.composition.assignments.evaluation_metric_report import write_eval_metric_report
+from neuralls.composition.config import CaseConfigPath, load_case_settings
 from neuralls.composition.tracking.services import MLFLOW_TRACKING
 from neuralls.shared.constants import EXIT_FAILURE
 
@@ -42,14 +43,14 @@ def eval_case_batch(
 ) -> None:
     """Evaluate trained assignment checkpoints on their logged test splits."""
     try:
-        settings = load_case_settings(config, env_file, profile=profile)
-        cfg, _ = load_validated_case_config(config, settings)
+        settings = load_case_settings(env_file, profile=profile)
+        case = CaseConfigPath.resolve(config)
+        cfg, _ = load_validated_case_config(case.path, settings)
         batch = eval_batch(
             cfg=cfg,
-            configs_dir=config.resolve().parent,
+            case_config_path=case,
             settings=settings,
-            output_root=output_dir,
-            case_config_path=config.resolve(),
+            output_root=output_dir.resolve() if output_dir is not None else None,
             assignment_ids=assignment,
             tracking=MLFLOW_TRACKING,
         )

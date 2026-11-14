@@ -18,6 +18,13 @@ from neuralls.domain.solver.models.cost import (
     Unavailable,
     recorded_seconds,
 )
+from neuralls.domain.solver.models.energy_error import (
+    EnergyError,
+    EnergyErrorBound,
+    EnergyErrorFailed,
+    EnergyErrorUnavailable,
+    ExactEnergyError,
+)
 from neuralls.shared.device import RepeatAgreement, SingleRun
 
 
@@ -43,9 +50,8 @@ class CGComparisonResult:
         exact_error: Error ||x - x_exact|| if exact solution known.
         rhs_norm: Right-hand side norm ||b||.
         breakdown: Whether numerical breakdown occurred.
-        error_history_a_rel: Relative energy-norm errors across iterations.
-        error_bound_a_rel: Golub-Meurant lower bound on the relative energy-norm
-            error, used when the exact value is unavailable.
+        energy_error: Exact relative energy-norm error curve, its Golub-Meurant bound, or
+            why neither exists.
         helper_iterations: Iterations where step helper was invoked.
         helper_norms: Residual norms after step helper application.
         error: Error message if solver failed.
@@ -117,12 +123,10 @@ class CGComparisonResult:
     error: str | None = None
     """Error message if solver failed."""
 
-    error_history_a_rel: list[float] | None = None
-    """Energy-norm errors ||e_k||_A / ||e_0||_A across iterations (None if unavailable)."""
-
-    error_bound_a_rel: list[float] | None = None
-    """Golub-Meurant lower bound on ||e_k||_A / ||e_0||_A, used when the exact
-    energy error is unavailable (no reference solution). None if neither is available."""
+    energy_error: EnergyError = field(
+        default_factory=lambda: EnergyErrorUnavailable("not computed")
+    )
+    """The exact energy-norm error curve, its Golub-Meurant bound, or why neither exists."""
 
     true_residual: ResidualMeasurement = field(default_factory=UnmeasuredResidual)
     """True relative residual ``||b - A x|| / ||b||`` of the returned solution."""
@@ -163,6 +167,18 @@ class CGComparisonResult:
     solve_time_samples: tuple[float, ...] = ()
     """Every timed solve execution behind `solve_time_seconds` (its statistic), in run
     order. Empty when the solve was not measured."""
+
+    @property
+    def error_history_a_rel(self) -> list[float] | None:
+        """The exact energy-error curve; a bound or an unavailable curve has none.
+
+        Read by the convergence frame and the energy-history plots.
+        """
+        match self.energy_error:
+            case ExactEnergyError(history=history):
+                return history
+            case EnergyErrorBound() | EnergyErrorUnavailable() | EnergyErrorFailed():
+                return None
 
     @property
     def offline_time_seconds(self) -> float | None:

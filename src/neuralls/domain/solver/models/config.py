@@ -6,10 +6,12 @@ from typing import Annotated, Any, Literal
 
 from torchalg.monitoring import TraceMode
 
-from neuralls.domain.solver.error_metrics import REFERENCE_PRECISION_MARGIN
 from neuralls.shared.digest import Cosmetic
 from neuralls.shared.timing import TimingRepeatPolicy
 from neuralls.shared.types import ComparisonRhsSourceKind, PreconditionerName
+
+REFERENCE_PRECISION_MARGIN = 1e-3
+"""Default reference residual target is three orders below the comparison rtol."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +62,8 @@ class SolverParams:
         m_max: FCG orthogonalization restart parameter.
         reference_precision_margin: How many orders of magnitude tighter than
             ``rtol`` the host reference solution must be (see
-            ``error_metrics.ReferenceSolver.solve``).
+            ``error_metrics.reference_target``). The comparison config validates it to
+            ``(0, 1)``; a ``SolverParams`` built directly is trusted.
         timing: How often each setup and solve is timed.
     """
 

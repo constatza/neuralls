@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from loguru import logger
 
 from neuralls.shared.types import MatrixFormat, SystemMatrix
 
@@ -20,6 +19,7 @@ from .bindings import SystemBinding, bind_sources
 from .counts import resolve_strategy_counts
 from .file_sources import MatrixReaders
 from .matrix_cache import _cached_matrix_loader, _CachedMatrix
+from .notices import RowsCapped
 from .ports import ArchiveSource
 from .scalar_aggregate import BindingScale, ScalarAggregator
 from .seeds import derive_seed
@@ -32,7 +32,7 @@ from .source_streams import (
 )
 from .specs import DatasetSpec, MixtureSpec, SourceSpec
 from .strategy_properties import _explicit_solution_strategies, _is_solution_archive
-from .strategy_rows import _generate_strategy_rows, _StrategyRows
+from .strategy_rows import _generate_strategy_rows
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,7 +376,6 @@ def _make_strategy_runner(
     slot = SingleSlot[int, _BindingInputs]()
 
     def _load(binding_index: int) -> _BindingInputs:
-        logger.info(f"Generating/loading samples for binding index={binding_index}...")
         inputs = _load_binding_inputs(binding_index, context, get_matrix, mixture)
         on_inputs_loaded(binding_index, inputs.matrix)
         return inputs
@@ -386,7 +385,6 @@ def _make_strategy_runner(
 
     def run_strategy(binding_index: int, strategy_name: str) -> SampleBatch:
         inputs = _inputs_for(binding_index)
-        n_features = inputs.matrix.matrix_norm.shape[0]
         count = context.allocation.counts[binding_index][strategy_name]
         strategy_rows = _generate_strategy_rows(
             inputs.matrix.matrix_norm,
@@ -398,12 +396,6 @@ def _make_strategy_runner(
             single_solution=inputs.single_solution,
             archive_source=context.archive_source,
         )
-        if strategy_rows is None:
-            strategy_rows = _StrategyRows(
-                rhs=np.empty((0, n_features), dtype=np.float64),
-                solutions=np.empty((0, n_features), dtype=np.float64),
-                row_kind_codes=np.empty((0,), dtype=np.uint8),
-            )
         row_count = strategy_rows.rhs.shape[0]
         return SampleBatch(
             binding_index=binding_index,
@@ -413,6 +405,7 @@ def _make_strategy_runner(
             row_kind_codes=np.asarray(strategy_rows.row_kind_codes, dtype=np.uint8),
             matrix_sample_index=np.full(row_count, inputs.binding.matrix_sample_id, dtype=np.int64),
             parameter_vectors=inputs.parameter_vectors,
+            notices=strategy_rows.notices,
         )
 
     return run_strategy
@@ -431,6 +424,7 @@ class BatchStream:
             once the iterator is exhausted.
         matrix_for: Dense normalized matrix for a matrix sample id.
         scale: Cross-binding scalar aggregator fed by ``batches``.
+        notices: Outcomes known before any batch runs (rows capped by their source).
     """
 
     plan: BatchPlan
@@ -438,6 +432,7 @@ class BatchStream:
     batches: Iterator[SampleBatch]
     matrix_for: Callable[[int], SystemMatrix]
     scale: ScalarAggregator
+    notices: tuple[RowsCapped, ...]
 
 
 def open_batch_stream(
@@ -526,6 +521,7 @@ def open_batch_stream(
         batches=observed_batches(),
         matrix_for=matrix_for,
         scale=scale,
+        notices=context.allocation.notices,
     )
 
 

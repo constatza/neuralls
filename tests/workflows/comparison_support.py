@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import tomli_w
 
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.loaders import parse_case_config
 from neuralls.platform.config.models.experiments import CaseConfig
@@ -15,7 +16,6 @@ from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
-from tests.os_paths import FAKE_ROOT
 
 MLFLOW_MODULE = "neuralls.composition.assignments.comparison_batch.mlflow"
 EXECUTE_MLFLOW_MODULE = "neuralls.composition.assignments.comparison_execute.mlflow"
@@ -102,8 +102,14 @@ def write_experiments_config(
         tomli_w.dump(payload, fh)
 
 
-VIRTUAL_CASE_PATH = FAKE_ROOT / "virtual/case/experiments.toml"
+VIRTUAL_CASE_PATH = Path("virtual/case/experiments.toml")
 """Where an in-memory case config pretends to live; nothing is ever read or written there."""
+
+VIRTUAL_CASE = CaseConfigPath.resolve(VIRTUAL_CASE_PATH)
+"""`VIRTUAL_CASE_PATH` as the absolute path the batch entry points take."""
+
+VIRTUAL_HOME = Path("virtual/home")
+"""The home directory an in-memory context expands ``~`` from."""
 
 
 def virtual_settings() -> NeurallsSettings:
@@ -122,7 +128,11 @@ def in_memory_case(
     settings: NeurallsSettings | None = None,
 ) -> CaseConfig:
     """The case config of `write_experiments_config`, parsed without touching disk."""
-    ctx = ConfigContext(config_path=VIRTUAL_CASE_PATH, settings=settings or virtual_settings())
+    ctx = ConfigContext(
+        config_path=VIRTUAL_CASE_PATH,
+        settings=settings or virtual_settings(),
+        home_dir=VIRTUAL_HOME,
+    )
     raw = experiments_payload(
         VIRTUAL_CASE_PATH, with_comparisons=with_comparisons, comparison_name=comparison_name
     )

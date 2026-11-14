@@ -432,7 +432,7 @@ def _resolve_specs(
             assignment_ids,
             context.settings,
             master_cfg=resolved_master_cfg,
-            config_dir=context.case_config_path.resolve().parent,
+            config_dir=context.case_config_path.parent,
         )
     resolution = resolve_preconditioner_models_with_warnings(
         specs=specs,

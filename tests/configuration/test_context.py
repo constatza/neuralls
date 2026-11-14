@@ -1,186 +1,271 @@
-"""Tests for ConfigContext path expansion helpers."""
+"""Pure tests of `anchor` and the path-expansion helpers: no disk, no ambient cwd or HOME."""
 
 from __future__ import annotations
 
-import sys
+import os
+import re
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
+from dlkit.infrastructure.io import url_resolver
+from yarl import URL
 
-import neuralls.platform.config.context as context_module
-from neuralls.platform.config.context import ConfigContext, expand_config_glob, expand_config_path
-from neuralls.platform.config.settings import NeurallsSettings
-from tests.os_paths import FAKE_ROOT
-
-ROOT = FAKE_ROOT / "virtual"
-
-
-def test_expand_neuralls_raw_dir_raises_when_not_configured(config_context) -> None:
-    """`${NEURALLS_RAW_DIR}` raises when raw_dir is not set in settings."""
-    with pytest.raises(ValueError):
-        expand_config_path("${NEURALLS_RAW_DIR}/matrix.mtx", config_context)
-
-
-def test_expand_neuralls_raw_dir_resolves_when_configured() -> None:
-    """`${NEURALLS_RAW_DIR}` expands to the settings raw root when set."""
-    raw = ROOT / "raw"
-    settings = NeurallsSettings(
-        _env_file=[],
-        raw_dir=raw,
-        processed_dir=ROOT / "processed",
-        output_dir=ROOT / "output",
-    )
-    config_path = ROOT / "cfg.toml"
-    from neuralls.platform.config.context import ConfigContext
-
-    ctx = ConfigContext(config_path=config_path, settings=settings)
-    result = expand_config_path("${NEURALLS_RAW_DIR}/matrix.mtx", ctx)
-    assert result == str((raw / "matrix.mtx").resolve())
-
-
-def test_expand_neuralls_output_dir(
-    config_context,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    """`${NEURALLS_OUTPUT_DIR}` expands to the settings output root."""
-    value = expand_config_path("${NEURALLS_OUTPUT_DIR}/reports", config_context)
-    assert value == str((neuralls_settings.output_dir / "reports").resolve())
-
-
-def test_expand_graph_cg_rejects_stale_placeholder(config_context) -> None:
-    """Stale placeholders are rejected."""
-    with pytest.raises(ValueError):
-        expand_config_path("${GRAPH_CG_RAW_DIR}/matrix.mtx", config_context)
-
-
-def test_expand_unknown_neuralls_raises(config_context) -> None:
-    """Unknown placeholders are rejected."""
-    with pytest.raises(ValueError):
-        expand_config_path("${NEURALLS_UNKNOWN}/matrix.mtx", config_context)
-
-
-def test_relative_path_anchored_to_config_dir(config_context) -> None:
-    """Relative paths are anchored to the config directory."""
-    value = expand_config_path("relative/path.mtx", config_context)
-    assert value == str((config_context.config_dir / "relative/path.mtx").resolve())
-
-
-def test_absolute_path_unchanged(config_context) -> None:
-    """Absolute paths pass through unchanged after resolution."""
-    absolute = ROOT / "matrix.mtx"
-    value = expand_config_path(str(absolute), config_context)
-    assert value == str(absolute.resolve())
-
-
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="stdlib expanduser prefers USERPROFILE over HOME on Windows",
+from neuralls.platform.config.context import (
+    ConfigContext,
+    _uri_path,
+    anchor,
+    expand_config_glob,
+    expand_config_path,
 )
-def test_tilde_expansion(config_context, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Tilde expansion follows stdlib expanduser precedence (HOME on POSIX)."""
-    home = ROOT / "home"
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("USERPROFILE", str(ROOT / "windows-home"))
-    value = expand_config_path("~/matrix.mtx", config_context)
-    assert value == str((home / "matrix.mtx").resolve())
+from neuralls.platform.config.models.data_models import SourceConfig
+from neuralls.platform.config.models.experiments import MlflowTopologyConfig
+from neuralls.platform.config.settings import NeurallsSettings
+
+CONFIG_DIR = Path("cfg")
+HOME_DIR = Path("home")
+POSIX_ONLY = pytest.mark.skipif(os.name == "nt", reason="posix path semantics")
+WINDOWS_ONLY = pytest.mark.skipif(os.name != "nt", reason="Windows path semantics")
 
 
-def test_glob_wildcard_preserved(
-    config_context,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    """Glob suffixes are preserved after prefix resolution."""
-    value = expand_config_glob("${NEURALLS_OUTPUT_DIR}/*.mtx", config_context)
-    assert value == str(neuralls_settings.output_dir / "*.mtx")
-
-
-def test_expand_raw_dir_forward_slash_separator_produces_valid_path() -> None:
-    """Forward slash in template after ${NEURALLS_RAW_DIR} (Windows convention) yields an absolute path.
-
-    On Windows the raw_dir string has backslashes; pathlib normalises the mixed separators.
-    This test guards the cross-platform invariant: the result is always a non-empty absolute path
-    with no double-slash prefix that would break UNC paths.
-    """
-    from neuralls.platform.config.context import ConfigContext
-
-    raw = ROOT / "raw"
-    settings = NeurallsSettings(
-        _env_file=[],
-        raw_dir=raw,
-        processed_dir=ROOT / "processed",
-        output_dir=ROOT / "output",
+def make_context(*, raw_dir: str | Path | None = Path("raw")) -> ConfigContext:
+    """A context whose directories are all relative, so every result is a pure value."""
+    # model_construct skips the after-validator that resolves roots against the process
+    # working directory, so the relative roots stay exactly as written.
+    settings = NeurallsSettings.model_construct(
+        raw_dir=raw_dir,
+        processed_dir=Path("processed"),
+        output_dir=Path("output"),
     )
-    config_path = ROOT / "cfg.toml"
-    ctx = ConfigContext(config_path=config_path, settings=settings)
-
-    result = expand_config_path("${NEURALLS_RAW_DIR}/SpectralData/matrix.txt", ctx)
-
-    assert Path(result).is_absolute()
-    assert not result.startswith("//")
-    assert "SpectralData" in result
-    assert "matrix.txt" in result
-
-
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only path semantics")
-def test_expand_neuralls_raw_dir_preserves_windows_mapped_drive_prefix() -> None:
-    """Placeholder expansion should keep mapped-drive roots in drive-letter form."""
-    settings = NeurallsSettings(
-        _env_file=[],
-        raw_dir=r"M:\shared\neuralls\raw",
-        processed_dir=ROOT / "processed",
-        output_dir=ROOT / "output",
+    return ConfigContext(
+        config_path=CONFIG_DIR / "config.toml",
+        settings=settings,
+        home_dir=HOME_DIR,
     )
-    config_path = ROOT / "cfg.toml"
-    ctx = ConfigContext(config_path=config_path, settings=settings)
-
-    result = expand_config_path("${NEURALLS_RAW_DIR}/SpectralData/matrix.txt", ctx)
-
-    assert result == r"M:\shared\neuralls\raw\SpectralData\matrix.txt"
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only path semantics")
-def test_expand_neuralls_raw_dir_rejects_windows_mapped_drive_prefix_on_posix() -> None:
-    """Placeholder expansion should reject mapped-drive roots on POSIX."""
-    ctx = ConfigContext(
-        config_path=ROOT / "cfg.toml",
-        settings=SimpleNamespace(
-            raw_dir=r"M:\shared\neuralls\raw",
-            processed_dir=ROOT / "processed",
-            output_dir=ROOT / "output",
+@pytest.fixture
+def ctx() -> ConfigContext:
+    return make_context()
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("matrix.mtx", Path("cfg/matrix.mtx")),
+        ("relative/path.mtx", Path("cfg/relative/path.mtx")),
+        ("a/../b", Path("cfg/b")),
+        ("./a//b/", Path("cfg/a/b")),
+        ("../up/x", Path("up/x")),
+        ("~", Path("home")),
+        ("~/matrix.mtx", Path("home/matrix.mtx")),
+        ("~/a/../b", Path("home/b")),
+        ("${NEURALLS_RAW_DIR}/matrix.mtx", Path("cfg/raw/matrix.mtx")),
+        ("${NEURALLS_OUTPUT_DIR}/reports", Path("cfg/output/reports")),
+        ("sqlite:///rel.db", Path("cfg/rel.db")),
+        ("file:x", Path("cfg/x")),
+        ("file:../x", Path("cfg/x")),
+        ("file:///a%20b/x", Path("/a b/x")),
+    ],
+)
+@POSIX_ONLY
+def test_anchor_gives_the_pure_path(ctx: ConfigContext, value: str, expected: Path) -> None:
+    assert anchor(value, ctx) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("/abs/x", Path("/abs/x")),
+        ("/abs/a/../x", Path("/abs/x")),
+        ("file:///abs/x", Path("/abs/x")),
+        ("file://localhost/abs/x", Path("/abs/x")),
+        ("file:////abs/x", Path("/abs/x")),
+        ("sqlite:////abs/mlflow.db", Path("/abs/mlflow.db")),
+    ],
+)
+@POSIX_ONLY
+def test_anchor_keeps_an_absolute_path(ctx: ConfigContext, value: str, expected: Path) -> None:
+    assert anchor(value, ctx) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("~user/x", "Cannot expand '~user/x': only '~' and '~/...' are supported, not '~user'."),
+        (
+            "file://host/x",
+            (
+                "File URL has non-empty host 'host': 'file://host/x'. "
+                "Use file:///path (3 slashes) for a local file."
+            ),
         ),
-    )
-
-    with pytest.raises(ValueError):
-        expand_config_path("${NEURALLS_RAW_DIR}/SpectralData/matrix.txt", ctx)
-
-
-def test_expand_config_path_delegates_windows_unc_to_shared_resolver(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Windows UNC inputs should route through the shared DLKit-backed resolver."""
-    captured: dict[str, object] = {}
-
-    def _fake_resolve_local_path(value: Path | str, *, base_dir: Path) -> Path:
-        captured["value"] = value
-        captured["base_dir"] = base_dir
-        return ROOT / "resolved" / "matrix.txt"
-
-    ctx = ConfigContext(
-        config_path=ROOT / "configs" / "dataset.toml",
-        settings=SimpleNamespace(
-            raw_dir=None,
-            processed_dir=ROOT / "processed",
-            output_dir=ROOT / "output",
+        ("ftp://host/x", "Unsupported scheme for local resolution: ftp"),
+        (
+            "${GRAPH_CG_RAW_DIR}/matrix.mtx",
+            (
+                "Stale placeholder '${GRAPH_CG_RAW_DIR}' in config. "
+                "Rename GRAPH_CG_* → NEURALLS_* (see docs/env-reference.md)."
+            ),
         ),
-    )
-    monkeypatch.setattr(context_module, "resolve_local_path", _fake_resolve_local_path)
+        (
+            "${NEURALLS_UNKNOWN}/matrix.mtx",
+            "Unknown placeholder '${NEURALLS_UNKNOWN}'. Available: RAW_DIR, PROCESSED_DIR, OUTPUT_DIR.",
+        ),
+    ],
+)
+def test_anchor_rejects(ctx: ConfigContext, value: str, message: str) -> None:
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
+        anchor(value, ctx)
 
-    result = expand_config_path(
-        r"\\192.168.1.51\MGroup\shared\neuralls\raw\SpectralData\matrix.txt",
-        ctx,
+
+@pytest.mark.parametrize("value", ["C:x", "a:b/c"])
+def test_anchor_rejects_a_drive_relative_path(ctx: ConfigContext, value: str) -> None:
+    message = (
+        f"Drive-relative path '{value}' is not supported: it depends on the current "
+        "directory of that drive. Use 'C:/dir/file' or a path relative to the config file."
+    )
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
+        anchor(value, ctx)
+
+
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [("/abs/x", "/abs/x"), ("file:///abs/x", "/abs/x"), ("sqlite:////abs.db", "/abs.db")],
+)
+@WINDOWS_ONLY
+def test_anchor_rejects_a_posix_absolute_path_on_windows(
+    ctx: ConfigContext, value: str, text: str
+) -> None:
+    message = (
+        f"Unix absolute path '{text}' cannot be used on Windows. "
+        "Use a drive path such as 'C:/dir/file', a UNC path, or a path relative "
+        "to the config file."
+    )
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
+        anchor(value, ctx)
+
+
+@WINDOWS_ONLY
+def test_anchor_expands_a_backslash_home_on_windows(ctx: ConfigContext) -> None:
+    assert anchor(r"~\x", ctx) == Path("home/x")
+
+
+# `file://localhost/abs` is left out: dlkit rejects every file URL host, we accept localhost.
+URI_PARITY_CASES = [
+    "file:///abs/x",
+    "file:////abs/x",
+    "file:///a%20b/x",
+    "file:x",
+    "file:./x",
+    "file:../x",
+    "file:///C:/x",
+    "sqlite:///rel.db",
+    "sqlite:////abs/mlflow.db",
+    "sqlite:///./rel.db",
+    "sqlite:///../rel.db",
+    "sqlite:///a%20b.db",
+    "sqlite:////a%20b.db",
+]
+
+
+@pytest.mark.parametrize("uri", URI_PARITY_CASES)
+def test_uri_path_matches_the_path_dlkit_extracts(uri: str) -> None:
+    url = URL(uri)
+    extract = (
+        url_resolver._file_path_from_url
+        if url.scheme == "file"
+        else url_resolver._sqlite_path_from_url
     )
 
-    assert result == str((ROOT / "resolved" / "matrix.txt").resolve())
-    assert captured["value"] == r"\\192.168.1.51\MGroup\shared\neuralls\raw\SpectralData\matrix.txt"
-    assert captured["base_dir"] == ctx.config_dir
+    assert _uri_path(uri) == extract(url)
+
+
+def test_the_tracking_uri_only_substitutes_placeholders(ctx: ConfigContext) -> None:
+    config = MlflowTopologyConfig.model_validate(
+        {"tracking_uri": "sqlite:///${NEURALLS_OUTPUT_DIR}/mlflow.db"},
+        context=ctx.as_pydantic_context(),
+    )
+
+    assert config.tracking_uri == f"sqlite:///{ctx.settings.output_dir}/mlflow.db"
+
+
+def test_an_unset_raw_dir_is_an_unknown_placeholder() -> None:
+    message = (
+        "Unknown placeholder '${NEURALLS_RAW_DIR}'. Available: RAW_DIR, PROCESSED_DIR, OUTPUT_DIR."
+    )
+    with pytest.raises(ValueError, match=f"^{re.escape(message)}$"):
+        anchor("${NEURALLS_RAW_DIR}/matrix.mtx", make_context(raw_dir=None))
+
+
+@pytest.mark.parametrize(
+    "value",
+    [r"C:\x", r"\\server\share\x", "file:///C:/x"],
+)
+@POSIX_ONLY
+def test_anchor_rejects_a_windows_absolute_path_on_posix(ctx: ConfigContext, value: str) -> None:
+    with pytest.raises(ValueError, match=r"^Windows absolute path '.*' cannot be used on posix"):
+        anchor(value, ctx)
+
+
+@pytest.mark.parametrize(
+    ("raw_dir", "value", "expected"),
+    [
+        (
+            r"M:\shared\raw",
+            "${NEURALLS_RAW_DIR}/SpectralData/matrix.txt",
+            r"M:\shared\raw\SpectralData\matrix.txt",
+        ),
+        (Path("raw"), r"\\192.168.1.51\MGroup\matrix.txt", r"\\192.168.1.51\MGroup\matrix.txt"),
+        (Path("raw"), "C:/data/../x", r"C:\x"),
+    ],
+)
+@WINDOWS_ONLY
+def test_anchor_keeps_a_windows_absolute_path_on_windows(
+    raw_dir: str | Path, value: str, expected: str
+) -> None:
+    assert str(anchor(value, make_context(raw_dir=raw_dir))) == expected
+
+
+def test_expand_config_path_is_the_anchor_as_a_string(ctx: ConfigContext) -> None:
+    assert expand_config_path("a/../b", ctx) == str(Path("cfg/b"))
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("*.mtx", Path("cfg/*.mtx")),
+        ("data/*.mtx", Path("cfg/data/*.mtx")),
+        ("data/part*", Path("cfg/data/part*")),
+        ("a/../data/**/x?.mtx", Path("cfg/data/**/x?.mtx")),
+        ("${NEURALLS_OUTPUT_DIR}/*.mtx", Path("cfg/output/*.mtx")),
+        ("~/runs/*/K[0-9].mtx", Path("home/runs/*/K[0-9].mtx")),
+        ("plain.mtx", Path("cfg/plain.mtx")),
+        ("data/.*", Path("cfg/data/.*")),
+        ("data/..*", Path("cfg/data/..*")),
+        (".*", Path("cfg/.*")),
+        ("file:///data/*.npz", Path("/data/*.npz")),
+        ("/*.npz", Path("/*.npz")),
+        ("${NEURALLS_OUTPUT_DIR}*.mtx", Path("cfg/output*.mtx")),
+    ],
+)
+@POSIX_ONLY
+def test_glob_anchors_only_the_prefix(ctx: ConfigContext, value: str, expected: Path) -> None:
+    assert Path(expand_config_glob(value, ctx)) == expected
+
+
+def test_a_validator_anchors_when_a_context_is_given(ctx: ConfigContext) -> None:
+    config = SourceConfig.model_validate(
+        {"matrix_path": "workspace/../A.txt"}, context=ctx.as_pydantic_context()
+    )
+
+    assert config.matrix_path == str(Path("cfg/A.txt"))
+
+
+def test_a_model_built_without_a_context_keeps_its_paths() -> None:
+    config = SourceConfig.model_validate({"matrix_path": "workspace/../A.txt"})
+
+    assert config.matrix_path == "workspace/../A.txt"
+
+
+def test_the_pydantic_context_round_trips(ctx: ConfigContext) -> None:
+    assert ConfigContext.from_pydantic_context(ctx.as_pydantic_context()) == ctx

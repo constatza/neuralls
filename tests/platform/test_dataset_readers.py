@@ -96,28 +96,26 @@ def test_resolve_canonical_training_triplet_allows_explicit_legacy_matrix_index(
     assert triplet.matrix_binding_enforced is False
 
 
-def test_load_dataset_manifest_caches_repeated_calls(tmp_path: Path) -> None:
-    """Two reads of the same dataset dir hit disk only once (shared across comparisons)."""
-    load_dataset_manifest.cache_clear()
+def test_load_matrix_dense_sample_hands_each_caller_its_own_array(tmp_path: Path) -> None:
+    """No process-wide cache: mutating one result cannot change the next read."""
     dataset_dir = _build_dataset(tmp_path)
-
-    first = load_dataset_manifest(dataset_dir)
-    second = load_dataset_manifest(dataset_dir)
-
-    assert first == second
-    assert load_dataset_manifest.cache_info().hits == 1
-
-
-def test_load_matrix_dense_sample_caches_repeated_calls(tmp_path: Path) -> None:
-    """Two reads of the same (dataset_dir, sample_index) hit disk only once."""
-    load_matrix_dense_sample.cache_clear()
-    dataset_dir = _build_dataset(tmp_path)
-
     first = load_matrix_dense_sample(dataset_dir, sample_index=0)
-    second = load_matrix_dense_sample(dataset_dir, sample_index=0)
+    expected = first.copy()
 
-    assert np.array_equal(first, second)
-    assert load_matrix_dense_sample.cache_info().hits == 1
+    first[:] = 0.0
+
+    np.testing.assert_array_equal(load_matrix_dense_sample(dataset_dir, sample_index=0), expected)
+
+
+def test_load_dataset_manifest_sees_a_manifest_rewritten_in_process(tmp_path: Path) -> None:
+    """A manifest edited after a read is read back as edited, with no cache to clear."""
+    dataset_dir = _build_dataset(tmp_path)
+    manifest_path = dataset_dir / DATASET_MANIFEST_FILENAME
+    raw = load_dataset_manifest(dataset_dir)
+    raw["marker"] = "rewritten"
+    manifest_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    assert load_dataset_manifest(dataset_dir)["marker"] == "rewritten"
 
 
 def test_triplet_loads_the_matrix_bound_to_the_row_when_ids_differ_from_rows(

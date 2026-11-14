@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import os
 import tomllib
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
 import tomli_w
 from platformdirs import user_config_dir
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
-from neuralls.platform.config.resolution import resolve_user_path
+from neuralls.platform.config.resolution import require_absolute_user_path, resolve_user_path
 
 PROFILE_ENV_VAR = "NEURALLS_PROFILE"
 USER_CONFIG_DIR = Path(user_config_dir("neuralls"))
@@ -46,15 +47,6 @@ class ProfileConfig(BaseModel):
         if not stripped:
             raise ValueError("Profile paths must not be blank.")
         return stripped
-
-    @model_validator(mode="after")
-    def _expand(self) -> ProfileConfig:
-        """Expand ~ and resolve all paths to absolute."""
-        if self.raw_dir is not None:
-            object.__setattr__(self, "raw_dir", resolve_user_path(self.raw_dir))
-        object.__setattr__(self, "processed_dir", resolve_user_path(self.processed_dir))
-        object.__setattr__(self, "output_dir", resolve_user_path(self.output_dir))
-        return self
 
     def to_root_mapping(self) -> dict[str, str]:
         """Return a plain string mapping of the settings-relevant root fields.
@@ -125,7 +117,37 @@ def load_profile(
                 f"Profile '{name}' not found in {config_file}. Run: uv run config create {name}"
             )
 
-    return ProfileConfig.model_validate(section)
+    return _absolute_profile(ProfileConfig.model_validate(section), name=name)
+
+
+def map_roots[M: BaseModel](
+    model: M, fields: Iterable[str], to_root: Callable[[str, Path], Path]
+) -> M:
+    """Return *model* with every set root field replaced by ``to_root(field, value)``."""
+    return model.model_copy(
+        update={
+            field: to_root(field, value)
+            for field in fields
+            if (value := getattr(model, field)) is not None
+        }
+    )
+
+
+def resolve_typed_profile(profile: ProfileConfig) -> ProfileConfig:
+    """Anchor roots typed on the command line at the working directory, like any CLI path.
+
+    Saved profiles therefore always hold absolute roots, which `load_profile` requires.
+    """
+    return map_roots(profile, _PROFILE_FIELDS, lambda _field, value: resolve_user_path(value))
+
+
+def _absolute_profile(profile: ProfileConfig, *, name: str) -> ProfileConfig:
+    """Expand ``~`` in every stored root and reject a relative one."""
+    return map_roots(
+        profile,
+        _PROFILE_FIELDS,
+        lambda field, value: require_absolute_user_path(value, name=f"profile '{name}' {field}"),
+    )
 
 
 def save_profile(

@@ -11,12 +11,12 @@ def rng_from_seed(seed: int | None) -> np.random.Generator:
     """Create random number generator from seed.
 
     Args:
-        seed: Random seed (None for random)
+        seed: Random seed; None draws OS entropy, the deliberate unseeded state
 
     Returns:
         Random number generator
     """
-    return np.random.default_rng(seed) if seed is not None else np.random.default_rng()
+    return np.random.default_rng(seed)
 
 
 def derive_seed(mixture_seed: int, *labels: str | int) -> int:

@@ -12,23 +12,17 @@ targets dx_k = x_true - x_k at each iteration.
 
 from __future__ import annotations
 
-import time
-
 import numpy as np
 import torch
-from loguru import logger
 
 from neuralls.domain.normalization import ErrorTraceSamples
-from neuralls.shared.scientific_description.policy import LOG_PROFILE, NotationPolicy
-from neuralls.shared.scientific_description.render import render
 
 from ..counts import (
     _build_trace_indices,
     resolve_trace_generation_counts,
     trace_rows_per_base_system,
 )
-from ..descriptions import describe_residual_trace
-from ..interfaces import ArchiveData, ArchiveField, GeneratedSamples, TracingSolverCallable
+from ..interfaces import ArchiveData, ArchiveField, ErrorTraceRows, TracingSolverCallable
 from ..matrix_operator import MatrixOperator
 from ..ports import ArchiveSource
 from ..providers import HybridInputProvider, RandomInputProvider, provide_solutions
@@ -115,7 +109,7 @@ class _BaseResidualsStrategy:
         archive_source: ArchiveSource,
         single_rhs: np.ndarray | None = None,
         archive: ArchiveData | None = None,
-    ) -> GeneratedSamples:
+    ) -> ErrorTraceRows:
         """Generate samples with full residual error traces.
 
         Supports two modes:
@@ -195,15 +189,7 @@ class _BaseResidualsStrategy:
         sample_indices: list[np.ndarray] = []
         iteration_indices: list[np.ndarray] = []
 
-        log_every = max(1, num_base_systems // 10)
-        loop_start = time.monotonic()
         for sample_idx, (rhs_vec, true_sol) in enumerate(zip(rhs_samples, sols)):
-            if sample_idx > 0 and sample_idx % log_every == 0:
-                elapsed = time.monotonic() - loop_start
-                logger.info(
-                    f"{self.name}: {sample_idx}/{num_base_systems} samples "
-                    f"({sample_idx / elapsed:.1f} samples/s, {elapsed:.1f}s elapsed)"
-                )
             _, info = solver(
                 matrix,
                 rhs_vec,
@@ -245,17 +231,8 @@ class _BaseResidualsStrategy:
         )
         error_traces = _trim_error_traces(error_traces, final_rows)
         referenced_samples = _referenced_sample_count(error_traces.sample_indices)
-        logger.info(
-            render(
-                describe_residual_trace(
-                    self.name, iteration_count=window.stop, sample_count=referenced_samples
-                ),
-                LOG_PROFILE,
-                NotationPolicy.default(),
-            ).text
-        )
 
-        return GeneratedSamples(
+        return ErrorTraceRows(
             matrix=matrix,
             rhs=rhs_samples[:referenced_samples],
             solutions=sols[:referenced_samples],

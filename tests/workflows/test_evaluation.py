@@ -15,24 +15,27 @@ from dlkit.common import ChildSuccess
 from dlkit.infrastructure.config.job_config import InferenceJobConfig, TrainingJobConfig
 
 from neuralls.composition.assignments.evaluation import (
-    EvaluationAssignmentContext,
     EvaluationBatchResult,
-    EvaluationConfigPaths,
     EvaluationRunResult,
-    PreparedEvaluation,
-    _as_inference_job,
     _finalize_eval_child,
     _make_label_map,
+    eval_batch,
+)
+from neuralls.composition.assignments.evaluation_metric_report import write_eval_metric_report
+from neuralls.composition.assignments.evaluation_prepare import (
+    EvaluationAssignmentContext,
+    EvaluationConfigPaths,
+    PreparedEvaluation,
+    _as_inference_job,
     _materialize_inference_settings,
     _with_eval_runtime_dataset,
-    eval_batch,
     to_eval_run_spec,
-    write_eval_metric_report,
 )
 from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
 )
 from neuralls.domain.presentation.run_names import TrainingPresentation
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.dataset_entries import entry_from_path
 from neuralls.platform.config.loaders import load_case_config
 from neuralls.platform.config.models.experiments import AssignmentEntry, CaseConfig
@@ -175,11 +178,11 @@ def test_materialize_inference_settings_uses_staged_config_paths(
         return_value=SimpleNamespace(workspace=SimpleNamespace(data_dir=tmp_path))
     )
     monkeypatch.setattr(
-        "neuralls.composition.assignments.evaluation.load_assignment",
+        "neuralls.composition.assignments.evaluation_prepare.load_assignment",
         load_assignment,
     )
     monkeypatch.setattr(
-        "neuralls.composition.assignments.evaluation.load_experiment_job",
+        "neuralls.composition.assignments.evaluation_prepare.load_experiment_job",
         lambda path, settings: job,
     )
     np.save(tmp_path / "rhs.npy", np.zeros((4, 3)))
@@ -202,7 +205,7 @@ def test_materialize_inference_settings_uses_staged_config_paths(
         )
     ]
     monkeypatch.setattr(
-        "neuralls.composition.assignments.evaluation._load_and_prepare_data",
+        "neuralls.composition.assignments.evaluation_prepare._load_and_prepare_data",
         lambda settings, workspace, contract: (
             SimpleNamespace(rhs_source=SimpleNamespace(path=Path("rhs.npy"))),
             features,
@@ -342,7 +345,7 @@ def test_eval_batch_continues_after_one_assignment_fails(
             },
         ),
         patch(
-            "neuralls.composition.assignments.evaluation.prepare_evaluation_settings",
+            "neuralls.composition.assignments.evaluation_prepare.prepare_evaluation_settings",
             side_effect=_fake_prepare,
         ) as mock_prepare,
         patch(
@@ -353,9 +356,8 @@ def test_eval_batch_continues_after_one_assignment_fails(
     ):
         batch = eval_batch(
             cfg=cfg,
-            configs_dir=two_assignment_case_config.parent,
             settings=neuralls_settings,
-            case_config_path=two_assignment_case_config,
+            case_config_path=CaseConfigPath.resolve(two_assignment_case_config),
         )
 
     assert mock_prepare.call_count == 2
@@ -393,7 +395,7 @@ def test_eval_batch_falls_back_to_own_parent_run_when_every_assignment_fails(
             },
         ),
         patch(
-            "neuralls.composition.assignments.evaluation.prepare_evaluation_settings",
+            "neuralls.composition.assignments.evaluation_prepare.prepare_evaluation_settings",
             side_effect=RuntimeError("checkpoint missing"),
         ),
         patch("neuralls.composition.assignments.evaluation.run_multirun_spec") as mock_sweep,
@@ -407,9 +409,8 @@ def test_eval_batch_falls_back_to_own_parent_run_when_every_assignment_fails(
     ):
         batch = eval_batch(
             cfg=cfg,
-            configs_dir=two_assignment_case_config.parent,
             settings=neuralls_settings,
-            case_config_path=two_assignment_case_config,
+            case_config_path=CaseConfigPath.resolve(two_assignment_case_config),
         )
 
     assert not mock_sweep.called
@@ -488,8 +489,12 @@ def test_eval_report_labels_bars_and_label_map_by_training_presentation(
     )
 
     with (
-        patch("neuralls.composition.assignments.evaluation.plot_method_bars") as plot_fn,
-        patch("neuralls.composition.assignments.evaluation.log_batch_artifacts_to_mlflow"),
+        patch(
+            "neuralls.composition.assignments.evaluation_metric_report.plot_method_bars"
+        ) as plot_fn,
+        patch(
+            "neuralls.composition.assignments.evaluation_metric_report.log_batch_artifacts_to_mlflow"
+        ),
     ):
         write_eval_metric_report(batch, metric="mae")
 

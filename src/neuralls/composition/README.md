@@ -4,9 +4,9 @@ The composition package owns wiring and config-driven assembly.
 
 ## Package Map
 
-- `assignments/`: registry loading, assignment wiring, training, eval, comparison, inference. Comparison is a pipeline of modules: `comparison_topology.py` (`ComparisonTopology`, `resolve_comparison_topology`, which takes the loaded `CaseConfig` and so never reads the case file itself, `failure_boundary`, shared with the report workflow), `comparison_resolution.py` (assignment-derived specs, checkpoint resolution and digests), `comparison_prepared.py` (`PreparedComparisonExecution`, `PreparedComparisonBatch`, `partition_pending`), `comparison_prepare.py` (per-entry validation, resolution and presentation), `comparison_schedule.py` (method -> matrix -> RHS schedule, input loading, session reuse check), `comparison_execute.py` (method runs, outcome projection, batch-level sink inputs), and `comparison_batch.py`, whose `run_comparison_batch(path, ...)` loads the case config from disk and delegates to `run_loaded_comparison_batch(case_cfg, path, ...)`, the thin orchestrator that opens the session run; `case_pipeline` and tests that hold an in-memory `CaseConfig` call the loaded variant directly, so the case file is read once per command
+- `assignments/`: registry loading, assignment wiring, training, eval, comparison, inference. Training is `training_batch.py` (reuse check and the dlkit multirun sweep) plus `training_metric_report.py` (`write_metric_report`, the sweep's aggregate bar chart and label map uploaded to MLflow). Evaluation is three modules: `evaluation_prepare.py` (`prepare_eval_run_specs` and the `PreparedEvaluation` family: case and assignments to dlkit run specs), `evaluation.py` (`EvaluationRunResult`, `EvaluationBatchResult`, the sweep, child finalization and `eval_batch`) and `evaluation_metric_report.py` (`write_eval_metric_report`). Comparison is a pipeline of modules: `comparison_topology.py` (`ComparisonTopology`, `resolve_comparison_topology`, which takes the loaded `CaseConfig` and so never reads the case file itself, `failure_boundary`, shared with the report workflow), `comparison_resolution.py` (assignment-derived specs, checkpoint resolution and digests), `comparison_prepared.py` (`PreparedComparisonExecution`, `PreparedComparisonBatch`, `partition_pending`), `comparison_prepare.py` (per-entry validation, resolution and presentation), `comparison_schedule.py` (method -> matrix -> RHS schedule, input loading, session reuse check), `comparison_execute.py` (method runs, outcome projection, batch-level sink inputs), and `comparison_batch.py`, whose `run_comparison_batch(path, ...)` loads the case config from disk and delegates to `run_loaded_comparison_batch(case_cfg, path, ...)`, the thin orchestrator that opens the session run; `case_pipeline` and tests that hold an in-memory `CaseConfig` call the loaded variant directly, so the case file is read once per command
 - `comparison/`: single-run comparison assembly around application/domain logic
-- `generation/`: config-driven dataset orchestration, dataset persistence wiring, and default services (`default_services.py` holds the tracing services and `FS_ARCHIVE_SOURCE`, the production `ArchiveSource` that `domain/generation` reads archive files through)
+- `generation/`: config-driven dataset orchestration, dataset persistence wiring, and default services (`default_services.py` holds the tracing services and `FS_ARCHIVE_SOURCE`, the production `ArchiveSource` that `domain/generation` reads archive files through; each streamed generation run wraps it in its own `CachingArchiveSource`)
 - `inference/`: inference data-loading composition helpers
 - `preconditioners/`: config-to-`torchalg` preconditioner factory wiring; one `(PreconditionerType, MatrixFormat)` table selects the dense or sparse CSR builder (Identity, Jacobi, ILU, IC0, AMG, ADAPTIVE_SA_AMG, BOOTSTRAP_AMG, NeuralAMG, Neural)
 - `solvers/`: config/workflow-to-`torchalg` solver runner adapters; `run_traced_pcg` accepts a dense ndarray or a `csr_array` and converts CSR once into a sparse CSR tensor
@@ -121,6 +121,14 @@ the supported generation formats (`npy` datasets stay readable).
   building the manifest facts common to both formats except `layout` (`manifest_facts`), and
   committing the staged directory while returning the rows each strategy wrote
   (`commit_with_rows`).
+- `generation/generation_log.py` is the operator log of a run. The domain returns its outcomes
+  as data and never logs; this module renders them: the planned `RowsCapped` notices when the
+  stream opens (`log_planned_notices`), one progress line per batch plus the batch's solve and
+  invalid-pair notices as the batch is written (`logged_batches`), one warning per field the
+  bindings disagreed on (`logged_scale_summary`), and each strategy's realized description
+  once after the commit (`log_strategy_rows`). `render_row_cap` states the cap in its unit (a
+  run total for archive pairs, per binding for a solution file); `render_solve_notice` matches
+  every `SolveNotice` variant exhaustively.
 
 Both writers return the per-strategy row counts that `SampleWriter` recorded from the batches it
 actually wrote; `build_dataset` turns them into the dataset's provenance, so nothing is recomputed
@@ -287,6 +295,8 @@ it must not absorb low-level IO mechanics, config normalization policy, or
 tensor-level runtime behavior.
 
 For MLflow naming, composition only propagates the resolved case-config names.
+
+Every entry point takes `NeurallsSettings` as a required argument: only the CLI loads settings, and composition never reads `NEURALLS_CASE_CONFIG` to find the case config or builds settings of its own. The case config path is a `CaseConfigPath` (`platform/config/case_path.py`, re-exported by `composition/config.py`): its constructor rejects a relative path, and the CLI builds it once with `CaseConfigPath.resolve(config)`. `run_case_pipeline`, `run_comparison_batch`, `run_loaded_comparison_batch`, `run_assignment_sweep`, `run_comparison_report` and `eval_batch` take it instead of a `Path`, unwrap `.path` (or `.config_dir`) for the planning, preparation and identity code below them, and never resolve anything themselves. The session tag `case_config_path` therefore always carries the absolute spelling `report` looks sessions up by, and no new entry point can forget to resolve it. Dataset input digests memoize on the path as given; the digest itself is path-independent.
 Training uses `names.training` and comparison uses `names.comparison`, with the
 defaults owned by the case-config Pydantic models rather than composition-layer
 constants.
@@ -535,9 +545,12 @@ but never across matrices. This makes every matrix setup visible instead of
 copying it onto RHS rows or treating a cross-matrix static-state reuse as a
 missing setup event.
 
-`comparison_run._solve_bundle` computes the exact-reference outcome once per right-hand side and
-passes it to `run_cg_comparison`, which measures the true residual after the timed solve; both are
-copied onto the `SolveAttempt` and stored as extra columns only.
+`comparison_run._solve_bundle` computes the reference once per right-hand side and passes it to
+`solve_system`, which measures the true residual after the timed solve; both are copied onto the
+`SolveAttempt` and stored as extra columns only. The run logs what the solver layer returns: a
+failed factorization once per matrix, a failed reference solve once per right-hand side (only when
+the factorization succeeded), a clamped reference target once per method, a failed energy-norm
+metric (`EnergyErrorFailed`) once per right-hand side, and each failed solve.
 
 Completed method workloads are persisted by
 `platform.reporting.benchmark_events.write_method_benchmark_artifacts` as the

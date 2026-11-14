@@ -230,7 +230,7 @@ class PODCoarseningConfig(NeuralCheckpointRef):
             info: Pydantic validation context.
 
         Returns:
-            Resolved path string, or original value if not a string.
+            Anchored path string, or original value if not a string.
         """
         return expand_path_field(v, info)
 
@@ -334,7 +334,7 @@ class NeuralPODCoarseningConfig(NeuralCheckpointRef):
             info: Pydantic validation context.
 
         Returns:
-            Resolved path string, or original value if not a string.
+            Anchored path string, or original value if not a string.
         """
         return expand_path_field(v, info)
 

@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from dataclasses import dataclass
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from neuralls.application.models import AssignmentSweepResult
 from neuralls.composition.assignments.case_pipeline import ForcePolicy, run_case_pipeline
 from neuralls.composition.comparison.models import ComparisonParams
-from tests.os_paths import FAKE_ROOT
+from neuralls.platform.config.case_path import CaseConfigPath
 
-CASE_CONFIG_PATH = FAKE_ROOT / "workspace/case.toml"
+CASE_CONFIG = CaseConfigPath.resolve(Path("workspace/case.toml"))
 
 
 @dataclass
@@ -33,12 +34,6 @@ def _patch_pipeline(
         comparisons=(MagicMock(),) if has_comparisons else (),
         comparison_sweeps=(MagicMock(),) if has_sweeps else (),
         assignments=(MagicMock(),) if has_assignments else (),
-    )
-    stack.enter_context(
-        patch(
-            "neuralls.composition.assignments.case_pipeline.require_settings",
-            side_effect=lambda settings, **_: settings,
-        )
     )
     generate = stack.enter_context(
         patch("neuralls.composition.assignments.case_pipeline.generate_batch")
@@ -67,7 +62,7 @@ def _patch_pipeline(
 
 
 def test_skips_comparison_batch_when_case_config_declares_none() -> None:
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=False)
@@ -82,7 +77,7 @@ def test_skips_comparison_batch_when_case_config_declares_none() -> None:
 
 
 def test_runs_comparison_batch_when_case_config_declares_only_sweeps() -> None:
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=False, has_sweeps=True)
@@ -97,7 +92,7 @@ def test_skips_assignment_sweep_when_case_config_declares_none() -> None:
     comparison_baseline, e.g. POD-2G weighting variants) must not hit
     load_assignment_batch's "no assignments" error.
     """
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=True, has_assignments=False)
@@ -111,7 +106,7 @@ def test_skips_assignment_sweep_when_case_config_declares_none() -> None:
 
 
 def test_runs_comparison_batch_when_case_config_declares_comparisons() -> None:
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=True)
@@ -124,7 +119,7 @@ def test_runs_comparison_batch_when_case_config_declares_comparisons() -> None:
 
 
 def test_threads_force_flags_to_each_stage() -> None:
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=True)
@@ -151,17 +146,13 @@ def test_run_case_pipeline_calls_generate_batch_as_an_explicit_stage() -> None:
     reuses the same generate-stage function `neuralls generate` uses, instead of
     a second, independent generation trigger buried inside the training step.
     """
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     call_order: list[str] = []
     with (
         patch(
-            "neuralls.composition.assignments.case_pipeline.require_settings",
-            side_effect=lambda settings, **_: settings,
-        ),
-        patch(
             "neuralls.composition.assignments.case_pipeline.load_validated_case_config",
-            return_value=(MagicMock(comparisons=(), comparison_sweeps=()), CASE_CONFIG_PATH.parent),
+            return_value=(MagicMock(comparisons=(), comparison_sweeps=()), CASE_CONFIG.config_dir),
         ),
         patch(
             "neuralls.composition.assignments.case_pipeline.generate_batch",
@@ -183,14 +174,10 @@ def test_run_case_pipeline_calls_generate_batch_as_an_explicit_stage() -> None:
 
 def test_sweep_runs_before_comparison_batch() -> None:
     """Comparisons must resolve checkpoints from a sweep that already ran."""
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     call_order: list[str] = []
     with (
-        patch(
-            "neuralls.composition.assignments.case_pipeline.require_settings",
-            side_effect=lambda settings, **_: settings,
-        ),
         patch("neuralls.composition.assignments.case_pipeline.generate_batch"),
         patch(
             "neuralls.composition.assignments.case_pipeline.run_assignment_sweep",
@@ -218,14 +205,10 @@ def test_releases_device_memory_between_sweep_and_comparison() -> None:
     their own — a CUDA-heavy sweep otherwise leaves the caching allocator
     holding blocks that starve the comparison stage that runs right after it.
     """
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     call_order: list[str] = []
     with (
-        patch(
-            "neuralls.composition.assignments.case_pipeline.require_settings",
-            side_effect=lambda settings, **_: settings,
-        ),
         patch("neuralls.composition.assignments.case_pipeline.generate_batch"),
         patch(
             "neuralls.composition.assignments.case_pipeline.run_assignment_sweep",
@@ -250,3 +233,12 @@ def test_releases_device_memory_between_sweep_and_comparison() -> None:
         run_case_pipeline(case_config_path, settings)
 
     assert call_order == ["sweep", "release", "compare"]
+
+
+def test_hands_the_comparison_stage_the_case_path_it_was_given() -> None:
+    """The comparison session tag must carry the very path `report` looks sessions up by."""
+    with ExitStack() as stack:
+        mocks = _patch_pipeline(stack, has_comparisons=True)
+        run_case_pipeline(CASE_CONFIG, MagicMock(), force=ForcePolicy())
+
+    assert mocks.compare.call_args.args[1] is CASE_CONFIG

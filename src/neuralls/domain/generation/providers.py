@@ -26,7 +26,6 @@ Examples:
 from __future__ import annotations
 
 from abc import abstractmethod
-from functools import lru_cache
 from typing import Protocol, TypeVar
 
 import numpy as np
@@ -185,44 +184,6 @@ class UniformInputProvider:
         return rng.uniform(self.a, self.b, size=(count, n)).astype(np.float64, copy=False)
 
 
-@lru_cache(maxsize=128)
-def _load_archive_files_cached(
-    source: ArchiveSource,
-    glob_pattern: str,
-    count: int,
-    shuffle: bool,
-    seed: int | None,
-    skip: int,
-    file_indices: tuple[int, ...] | None,
-) -> tuple[np.ndarray, ...]:
-    """Load and cache solution files for a given glob/selection key.
-
-    Args:
-        source: Lists and loads the archive files. Part of the cache key, so two sources
-            never share an entry.
-        glob_pattern: Pattern like "/data/sols_*.npy".
-        count: Number of vectors (-1 for all available).
-        shuffle: Whether to shuffle files before selection.
-        seed: Random seed for shuffling.
-        skip: Number of files to skip after ordering/shuffling.
-        file_indices: Explicit pool positions to load, or None for the contiguous selection.
-            Part of the cache key, so two bindings with different slices never share an entry.
-
-    Returns:
-        Loaded vectors as a tuple (hashable/immutable for caching).
-    """
-    files = select_archive_files(
-        source,
-        glob_pattern,
-        count=count,
-        shuffle=shuffle,
-        seed=seed,
-        skip=skip,
-        file_indices=file_indices,
-    )
-    return tuple(source.load_vector(f) for f in files)
-
-
 class FileInputProvider:
     """Load vectors from files matching glob pattern.
 
@@ -280,16 +241,16 @@ class FileInputProvider:
             FileNotFoundError: If no files match pattern
             ValueError: If insufficient files available
         """
-        vectors = _load_archive_files_cached(
+        files = select_archive_files(
             self.source,
             self.glob_pattern,
-            count,
-            self.shuffle,
-            self.seed,
-            self.skip,
-            self.file_indices,
+            count=count,
+            shuffle=self.shuffle,
+            seed=self.seed,
+            skip=self.skip,
+            file_indices=self.file_indices,
         )
-        return np.array(vectors, dtype=np.float64)
+        return np.array([self.source.load_vector(f) for f in files], dtype=np.float64)
 
 
 class HybridInputProvider:

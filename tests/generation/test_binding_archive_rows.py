@@ -7,22 +7,23 @@ A generated strategy never receives archive rows, whatever its count.
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 from neuralls.domain.generation.batch_plan import ALL_SAMPLES
+from neuralls.domain.generation.notices import RowCapSource, RowsCapped
 from neuralls.domain.generation.orchestration import BatchStream, open_batch_stream
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.shared.types import MatrixFormat
 from tests import generation_support
 from tests.fakes.archive_source import InMemoryArchiveSource
-from tests.os_paths import FAKE_ROOT
 
 CYCLIC_COUNT = 2
 OVER_CAP_COUNT = 6
-MATRIX_DIR = FAKE_ROOT / "archive/matrices"
-SOLUTION_PATH = FAKE_ROOT / "archive/solutions.npy"
+MATRIX_DIR = Path("archive/matrices")
+SOLUTION_PATH = Path("archive/solutions.npy")
 
 
 @pytest.fixture
@@ -92,15 +93,22 @@ def test_cyclic_count_draws_rows_mod_k_per_binding(
         np.testing.assert_allclose(solutions, expected)
 
 
-def test_cyclic_count_above_file_rows_warns_once(
+def test_cyclic_count_above_file_rows_is_reported_once(
     explicit_solution_source: SourceSpec,
     open_binding_stream: Callable[[SourceSpec, dict[str, int]], BatchStream],
-    warning_messages: list[str],
+    solution_block: np.ndarray,
 ) -> None:
-    """N > K: the cap is reported in exactly one warning, however many bindings there are."""
-    open_binding_stream(explicit_solution_source, {"solution_archive": OVER_CAP_COUNT})
+    """N > K: the cap is reported in exactly one notice, however many bindings there are."""
+    stream = open_binding_stream(explicit_solution_source, {"solution_archive": OVER_CAP_COUNT})
 
-    assert len(warning_messages) == 1
+    assert stream.notices == (
+        RowsCapped(
+            "solution_archive",
+            OVER_CAP_COUNT,
+            solution_block.shape[0],
+            RowCapSource.SOLUTION_FILE,
+        ),
+    )
 
 
 def test_generated_strategy_with_all_samples_never_receives_archive_rows(

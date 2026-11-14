@@ -11,6 +11,7 @@ import numpy as np
 
 from neuralls.composition.generation._context_builder import DataGenerationContext
 from neuralls.composition.generation.default_services import FS_ARCHIVE_SOURCE
+from neuralls.domain.generation.interfaces import ErrorTraceRows, ResidualTraceRows, SolvedRows
 from neuralls.domain.generation.plan import StrategySpec
 from neuralls.domain.generation.runner import run_generation
 from neuralls.platform.config.models.data_models import GenerationConfig
@@ -140,10 +141,11 @@ def compute_rhs_from_solution(
         archive=None,
     )
 
-    if samples.rhs is None or len(samples.rhs) == 0:
-        raise ValueError(f"Failed to load solution from {representative}")
-
-    return samples.rhs[0]
+    match samples:
+        case SolvedRows(rhs=rhs) if len(rhs) > 0:
+            return rhs[0]
+        case SolvedRows() | ResidualTraceRows() | ErrorTraceRows():
+            raise ValueError(f"Failed to load solution from {representative}")
 
 
 def persist_derived_rhs(rhs_vector: np.ndarray, *, dataset_dir: Path) -> Path:

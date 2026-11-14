@@ -20,9 +20,8 @@ from scipy.sparse import csr_array
 from neuralls.domain.generation.source_streams import GlobMatrixStream
 from neuralls.shared.types import MatrixFormat
 from tests.fakes.archive_source import InMemoryArchiveSource
-from tests.os_paths import FAKE_ROOT
 
-RAW_ROOT = FAKE_ROOT / "archive/raw"
+RAW_ROOT = Path("archive/raw")
 
 
 def _marker_matrix(value: float) -> csr_array:

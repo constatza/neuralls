@@ -34,12 +34,11 @@ from neuralls.domain.presentation.titles import (
 )
 from neuralls.domain.solver.models.provenance import HeldOutMatrix, SharedSingleMatrix
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
-from neuralls.platform.config.resolution import MlflowPaths, build_sqlite_tracking_uri
+from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.tracking.run_names import run_name_text
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import MatrixId
-from tests.os_paths import FAKE_ROOT
 from tests.presentation_support import PreparedMethodFactory
 
 PLAIN = NotationPolicy.default()
@@ -109,8 +108,8 @@ def test_training_run_spec_is_named_by_what_it_trains(trained: TrainingPresentat
         job_id="job-1",
         presentation=trained,
         experiment_name="Train",
-        paths=MlflowPaths(build_sqlite_tracking_uri(Path.cwd() / "mlflow.db"), None),
-        workspace_root=Path.cwd() / "workspace",
+        paths=MlflowPaths("sqlite:///mlflow.db", None),
+        workspace_root=Path("workspace"),
         timestamp=STAMP,
     )
 
@@ -126,8 +125,8 @@ def test_batched_training_run_name_has_no_timestamp(trained: TrainingPresentatio
         job_id="j",
         presentation=trained,
         experiment_name="Train",
-        paths=MlflowPaths(build_sqlite_tracking_uri(Path.cwd() / "mlflow.db"), None),
-        workspace_root=Path.cwd(),
+        paths=MlflowPaths("sqlite:///mlflow.db", None),
+        workspace_root=Path("workspace"),
         include_timestamp=False,
     )
     assert run_name_text(spec.name) == "POD-2G | Gaussian CG Residuals (k=20, N=100)"
@@ -230,7 +229,7 @@ def test_method_run_is_named_by_its_presentation_and_tagged_with_its_id(
 def test_session_run_spec_name_and_tags(
     phase: str, dataset_presentation: DatasetPresentation
 ) -> None:
-    case_config_path = FAKE_ROOT / "workspace/cases/ffnn.toml"
+    case_config_path = Path("workspace/cases/ffnn.toml")
     scope = ComparisonScopePresentation(dataset_presentation)
 
     run, tags = build_session_run_spec(

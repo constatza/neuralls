@@ -261,7 +261,11 @@ def fake_tracking(tmp_path: Path) -> MlflowTrackingServices:
 @pytest.fixture
 def config_context(neuralls_settings: NeurallsSettings, tmp_path: Path) -> ConfigContext:
     """Config context fixture anchored to a temporary config path."""
-    return ConfigContext(config_path=tmp_path / "config.toml", settings=neuralls_settings)
+    return ConfigContext(
+        config_path=tmp_path / "config.toml",
+        settings=neuralls_settings,
+        home_dir=tmp_path / "home",
+    )
 
 
 @pytest.fixture

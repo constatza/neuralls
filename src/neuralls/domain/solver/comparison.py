@@ -2,20 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
+from functools import partial
 
 import numpy as np
 import torch
-from loguru import logger
 from torchalg import flexible_cg, pcg
 from torchalg.models.result import SolverResult
 from torchalg.monitoring import TraceMode
 from torchalg.preconditioners.base import Preconditioner
-from torchalg.utils.device import resolve_device
 
 from neuralls.domain.solver.error_metrics import (
-    REFERENCE_PRECISION_MARGIN,
     ReferenceSolver,
     extract_energy_error,
     reference_solver,
@@ -29,16 +28,19 @@ from neuralls.domain.solver.models.benchmark_events import (
     UnmeasuredResidual,
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.config import SolverParams
+from neuralls.domain.solver.models.energy_error import (
+    EnergyError,
+    EnergyErrorFailed,
+    EnergyErrorUnavailable,
+)
 from neuralls.domain.solver.true_residual import NonFiniteResidual, measure_residual
-from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
 from neuralls.shared.device import (
     FailedTimedRuns,
     RepeatAgreement,
     Unchecked,
-    release_device_memory,
     repeat_timed_outcome,
 )
-from neuralls.shared.timing import TimingRepeatPolicy
 
 
 class CGAlgorithm(StrEnum):
@@ -48,223 +50,185 @@ class CGAlgorithm(StrEnum):
     FCG = "fcg"
 
 
-def run_cg_comparison(
+def solve_system(
     A: torch.Tensor,
     b: torch.Tensor,
+    preconditioner: Preconditioner,
     *,
-    preconditioners: Mapping[str, Preconditioner],
-    x0: torch.Tensor | None = None,
-    x_exact: torch.Tensor | None = None,
-    exact_reference: ExactReference | None = None,
-    rtol: float = DEFAULT_RTOL,
-    atol: float = DEFAULT_ATOL,
-    maxiter: int = 100,
-    m_max: int = DEFAULT_M_MAX,
-    reference_precision_margin: float = REFERENCE_PRECISION_MARGIN,
-    timing: TimingRepeatPolicy = TimingRepeatPolicy(),  # noqa: B008 -- frozen, so safely shared
-) -> dict[str, CGComparisonResult]:
-    """Run CG with multiple preconditioners for comparison.
+    name: str,
+    reference: Reference,
+    params: SolverParams,
+) -> CGComparisonResult:
+    """Solve one system with one preconditioner, timed, and measure the result.
 
-    Each preconditioner is routed to the CG variant it is mathematically
-    compatible with: standard PCG's two-term recurrence for preconditioners
-    that are deterministic and exactly SPD for the whole solve
-    (``Preconditioner.requires_flexible_cg`` is ``False``), or Flexible CG's
-    explicit Gram-Schmidt orthogonalization for preconditioners that vary per
-    iteration or are not exactly SPD (neural preconditioners, non-linear AMG,
-    ``ScheduledPreconditioner``). This keeps the comparison fair by giving
-    every preconditioner the correct — and cheapest — algorithm for its own
-    mathematical properties, rather than forcing a single algorithm on all of
-    them; every preconditioner still sees the same initial guess and system.
-    The function executes exactly the supplied mapping. Selection of baselines
-    or other comparison participants belongs to the caller's typed
-    configuration, not to solver execution.
+    The preconditioner is routed to the CG variant it is mathematically compatible with:
+    standard PCG's two-term recurrence when it is deterministic and exactly SPD for the
+    whole solve (``Preconditioner.requires_flexible_cg`` is ``False``), or Flexible CG's
+    explicit Gram-Schmidt orthogonalization when it varies per iteration or is not exactly
+    SPD (neural preconditioners, non-linear AMG, ``ScheduledPreconditioner``). Every method
+    gets the correct and cheapest algorithm for its own properties, from the same zero
+    initial guess.
+
+    The solve runs on ``A``'s device: the caller places ``A``, ``b`` and the preconditioner.
 
     Args:
         A: System matrix tensor.
-        b: Right-hand side vector tensor.
-        preconditioners: Exact mapping of result identifiers to preconditioner
-            instances to execute; no entries are injected or removed.
-        x0: Initial guess (defaults to zero).
-        x_exact: Precomputed reference solution (any device/dtype; matched to
-            ``A``'s before use), from a prior ``compute_reference_solution()``
-            call — pass this when comparing multiple preconditioners against
-            the same ``A``/``b`` so the reference solve runs once
-            instead of once per call; the caller then also chooses which
-            representation of ``A`` is factored. ``None`` (default) computes it here.
-        exact_reference: Outcome of the reference solve that produced ``x_exact``; recorded
-            on every result. Ignored when ``x_exact`` is computed here.
-        rtol: Relative tolerance.
-        atol: Absolute tolerance.
-        maxiter: Maximum iterations.
-        m_max: FCG orthogonalization window, used only for preconditioners
-            routed to ``flexible_cg``; ignored for preconditioners routed to
-            ``pcg``.
-        reference_precision_margin: How many orders of magnitude tighter than
-            ``rtol`` the host reference solution must be. Ignored when
-            ``x_exact`` is given.
-        timing: How often each solve is timed. The default is one timed run.
+        b: Right-hand side vector tensor, on ``A``'s device.
+        preconditioner: The method's built preconditioner.
+        name: Result identifier recorded on the result.
+        reference: The reference solution of this system, or why there is none; from
+            ``compute_reference_solution``.
+        params: Tolerances, iteration cap, FCG window and timing policy.
 
     Returns:
-        Dict mapping preconditioner names to CGComparisonResult.
-
-    Example:
-        >>> from torchalg.preconditioners.implementations import Identity, JacobiPreconditioner
-        >>> preconditioners = {
-        ...     "identity": Identity(),
-        ...     "jacobi": JacobiPreconditioner(A),
-        ... }
-        >>> results = run_cg_comparison(A, b, preconditioners=preconditioners)
+        The solve's result; a failed or non-finite solve is a result with ``error`` set.
     """
-    device = resolve_device()
-    A = A.to(device)
-    b = b.to(device)
-    x0 = torch.zeros_like(b, dtype=A.dtype, device=A.device) if x0 is None else x0.to(device)
-    x0_base = x0.detach().clone()
-
-    if x_exact is None:
-        x_exact, exact_reference = compute_reference_solution(
-            prepare_reference(A), b, rtol=rtol, margin=reference_precision_margin
+    x0 = torch.zeros_like(b, dtype=A.dtype, device=A.device)
+    x0_base = x0.clone()  # the solvers may update x0 in place
+    solve = partial(
+        _solve_one, A, b, x0, preconditioner,
+        rtol=params.rtol, atol=params.atol, maxiter=params.max_iterations, m_max=params.m_max,
+    )  # fmt: skip
+    timed = repeat_timed_outcome(
+        lambda: solve(x_exact=None),
+        params.timing,
+        device=A.device,
+        fingerprint=lambda solved: solved[1].iterations,
+    )
+    exact_reference = _outcome_of(reference)
+    if isinstance(timed, FailedTimedRuns):
+        return _unsolved_result(
+            name,
+            x0_base,
+            b,
+            exact_reference,
+            error=f"CG solver failed: {timed.error}",
+            seconds=timed.seconds,
+            peak_memory_bytes=timed.peak_memory_bytes,
+            samples_seconds=timed.samples_seconds,
+            timing_agreement=Unchecked(),
         )
-    elif exact_reference is None:
-        exact_reference = ExactSolutionUnavailable("reference supplied without its outcome")
-    if x_exact is not None:
-        x_exact = x_exact.to(device=A.device, dtype=A.dtype)
-
-    results: dict[str, CGComparisonResult] = {}
-
-    for precond_name, precond in preconditioners.items():
-        timed = repeat_timed_outcome(
-            lambda precond=precond: _solve_one(
-                A, b, x0, precond, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
-                x_exact=None,
-            ),
-            timing,
-            device=A.device,
-            fingerprint=lambda solved: solved[1].iterations,
-        )  # fmt: skip
-        if isinstance(timed, FailedTimedRuns):
-            result = _unsolved_result(
-                precond_name,
+    x_sol, info = timed.value
+    match measure_residual(A, b, x_sol):
+        case NonFiniteResidual():
+            return _unsolved_result(
+                name,
                 x0_base,
                 b,
                 exact_reference,
-                error=f"CG solver failed: {timed.error}",
+                error=f"non-finite iterate after {info.iterations} iterations",
                 seconds=timed.seconds,
                 peak_memory_bytes=timed.peak_memory_bytes,
                 samples_seconds=timed.samples_seconds,
-                timing_agreement=Unchecked(),
+                timing_agreement=timed.agreement,
+                breakdown=info.breakdown,
             )
-        else:
-            x_sol, info = timed.value
-            match measure_residual(A, b, x_sol):
-                case NonFiniteResidual():
-                    result = _unsolved_result(
-                        precond_name,
-                        x0_base,
-                        b,
-                        exact_reference,
-                        error=f"non-finite iterate after {info.iterations} iterations",
-                        seconds=timed.seconds,
-                        peak_memory_bytes=timed.peak_memory_bytes,
-                        samples_seconds=timed.samples_seconds,
-                        timing_agreement=timed.agreement,
-                        breakdown=info.breakdown,
-                    )
-                case MeasuredResidual() | UnmeasuredResidual() as true_residual:
-                    exact_error = (
-                        relative_exact_error(x_sol, x_exact) if x_exact is not None else None
-                    )
-                    error_history, error_bound = (
-                        _safe_extract_energy_error(info)
-                        if x_exact is None
-                        else _untimed_energy_error(
-                            A, b, x0, precond, x_exact,
-                            rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
-                        )
-                    )  # fmt: skip
+        case MeasuredResidual() | UnmeasuredResidual() as true_residual:
+            pass
+    match reference:
+        case ReferenceSolution(x=x_exact):
+            x_ref = x_exact.to(device=A.device, dtype=A.dtype)
+            exact_error: float | None = relative_exact_error(x_sol, x_ref)
+            energy_error = _untimed_energy_error(lambda: solve(x_exact=x_ref))
+        case ExactSolutionUnavailable():
+            exact_error = None
+            energy_error = _guarded_energy_error(lambda: info)
 
-                    rhs_norm = info.rhs_norm
-                    residual: list[float] = list(info.residual_history_abs or (info.residual_abs,))
-                    residual_rel: list[float] = (
-                        [r / rhs_norm for r in residual] if rhs_norm > 0 else list(residual)
-                    )
-
-                    result = CGComparisonResult(
-                        x=_to_numpy(x_sol),
-                        converged=info.converged,
-                        iterations=info.iterations,
-                        residual=info.residual,
-                        residual_abs=info.residual_abs,
-                        residual_history_rel=residual_rel,
-                        residual_history_abs=residual,
-                        preconditioner=precond_name,
-                        initial_guess=_to_numpy(x0_base),
-                        exact_error=exact_error,
-                        rhs_norm=info.rhs_norm,
-                        breakdown=info.breakdown,
-                        error_history_a_rel=error_history,
-                        error_bound_a_rel=error_bound,
-                        true_residual=true_residual,
-                        exact_reference=exact_reference,
-                        solve_time_seconds=timed.seconds,
-                        solve_peak_memory_bytes=timed.peak_memory_bytes,
-                        solve_time_samples=timed.samples_seconds,
-                        timing_agreement=timed.agreement,
-                    )
-
-        results[precond_name] = result
-        release_device_memory()
-
-    return results
+    rhs_norm = info.rhs_norm
+    residual: list[float] = list(info.residual_history_abs or (info.residual_abs,))
+    residual_rel = [r / rhs_norm for r in residual] if rhs_norm > 0 else list(residual)
+    return CGComparisonResult(
+        x=_to_numpy(x_sol),
+        converged=info.converged,
+        iterations=info.iterations,
+        residual=info.residual,
+        residual_abs=info.residual_abs,
+        residual_history_rel=residual_rel,
+        residual_history_abs=residual,
+        preconditioner=name,
+        initial_guess=_to_numpy(x0_base),
+        exact_error=exact_error,
+        rhs_norm=info.rhs_norm,
+        breakdown=info.breakdown,
+        energy_error=energy_error,
+        true_residual=true_residual,
+        exact_reference=exact_reference,
+        solve_time_seconds=timed.seconds,
+        solve_peak_memory_bytes=timed.peak_memory_bytes,
+        solve_time_samples=timed.samples_seconds,
+        timing_agreement=timed.agreement,
+    )
 
 
 type PreparedReference = ReferenceSolver | ExactSolutionUnavailable
 """A matrix's reference factorization, or why it could not be built."""
 
 
+@dataclass(frozen=True, slots=True)
+class ReferenceSolution:
+    """A right-hand side's reference solution ``x*`` and the residual it achieved."""
+
+    x: torch.Tensor
+    outcome: ExactSolutionSolved
+
+
+type Reference = ReferenceSolution | ExactSolutionUnavailable
+"""One system's reference solution, or why there is none."""
+
+
+def _outcome_of(reference: Reference) -> ExactReference:
+    """The stored outcome of a reference, without the solution vector."""
+    match reference:
+        case ReferenceSolution(outcome=outcome):
+            return outcome
+        case ExactSolutionUnavailable():
+            return reference
+
+
 def prepare_reference(A: torch.Tensor) -> PreparedReference:
     """Factor ``A`` once for the reference solves of all its right-hand sides.
 
     A failed factorization is a domain outcome, not an error: every system of the matrix
-    then runs without exact-error metrics (reason logged) instead of failing.
+    then runs without exact-error metrics, and the reason is returned for the caller.
     """
     try:
         return reference_solver(A)
     except (RuntimeError, ValueError) as exc:
-        logger.warning("Reference factorization unavailable; exact-error metrics skipped: {}", exc)
-        return ExactSolutionUnavailable(str(exc))
+        return ExactSolutionUnavailable(f"reference factorization failed: {exc}")
 
 
 def compute_reference_solution(
-    reference: PreparedReference, b: torch.Tensor, *, rtol: float, margin: float
-) -> tuple[torch.Tensor | None, ExactReference]:
+    reference: PreparedReference, b: torch.Tensor, *, target_rel: float
+) -> Reference:
     """Reference solution for one right-hand side, on the factored matrix's device.
 
-    A single ``A``/``b`` pair has one true solution, so callers comparing
-    multiple preconditioners against the same system should call this once
-    and pass the solution to every ``run_cg_comparison(..., x_exact=...)`` call;
-    callers solving several right-hand sides of one matrix should share one
-    ``prepare_reference`` result between them.
+    One ``A``/``b`` pair has one true solution, so the caller computes it once per system;
+    callers solving several right-hand sides of one matrix share one ``prepare_reference``
+    result between them.
+
+    Args:
+        reference: The matrix's factorization, or why it failed.
+        b: Right-hand side.
+        target_rel: Relative residual the reference must reach
+            (``reference_target(rtol, margin).applied_rel``).
 
     Returns:
-        The reference solution with ``ExactSolutionSolved`` (its achieved true residual), or
-        ``None`` with ``ExactSolutionUnavailable`` (reason logged) if it cannot be computed —
-        the comparison then runs without exact-error metrics instead of failing.
+        The solution with its achieved true residual, or why it could not be computed; the
+        comparison then runs without exact-error metrics instead of failing.
     """
     if isinstance(reference, ExactSolutionUnavailable):
-        return None, reference
+        return reference
     try:
-        x = reference.solve(b, rtol=rtol, margin=margin)
+        x = reference.solve(b, target_rel=target_rel)
     except (RuntimeError, ValueError) as exc:
-        logger.warning("Reference solution unavailable; exact-error metrics skipped: {}", exc)
-        return None, ExactSolutionUnavailable(str(exc))
+        return ExactSolutionUnavailable(f"reference solve failed: {exc}")
     match measure_residual(reference.matrix, b.double().to(reference.matrix.device), x):
         case MeasuredResidual(true_residual_rel=residual):
-            return x, ExactSolutionSolved(residual)
+            return ReferenceSolution(x, ExactSolutionSolved(residual))
         case UnmeasuredResidual():
-            return x, ExactSolutionUnavailable("zero right-hand side")
+            return ExactSolutionUnavailable("zero right-hand side")
         case NonFiniteResidual():
-            return None, ExactSolutionUnavailable("reference solution is not finite")
+            return ExactSolutionUnavailable("reference solution is not finite")
 
 
 def _unsolved_result(
@@ -300,6 +264,7 @@ def _unsolved_result(
         rhs_norm=float(torch.linalg.vector_norm(b)),
         breakdown=breakdown,
         error=error,
+        energy_error=EnergyErrorUnavailable("the solve produced no usable iterate"),
         true_residual=UnmeasuredResidual(),
         exact_reference=exact_reference,
         solve_time_seconds=seconds,
@@ -309,56 +274,25 @@ def _unsolved_result(
     )
 
 
-def _safe_extract_energy_error(
-    info: SolverResult,
-) -> tuple[list[float] | None, list[float] | None]:
-    """Resilience wrapper around ``extract_energy_error``.
-
-    Returns:
-        ``(error_history_a_rel, error_bound_a_rel)``, or ``(None, None)`` if
-        extraction fails — a metrics failure must never discard an otherwise
-        valid solve.
-    """
+def _guarded_energy_error(solved: Callable[[], SolverResult]) -> EnergyError:
+    """The energy error of a solve; a metrics failure never discards a valid solve."""
     try:
-        return extract_energy_error(info)
+        return extract_energy_error(solved())
     except (RuntimeError, ValueError) as exc:
-        logger.warning("Energy-norm error metrics skipped: {}", exc)
-        return None, None
+        return EnergyErrorFailed(str(exc))
 
 
 def _untimed_energy_error(
-    A: torch.Tensor,
-    b: torch.Tensor,
-    x0: torch.Tensor,
-    preconditioner: Preconditioner,
-    x_exact: torch.Tensor,
-    *,
-    rtol: float,
-    atol: float,
-    maxiter: int,
-    m_max: int,
-) -> tuple[list[float] | None, list[float] | None]:
+    solve_tracking_reference: Callable[[], tuple[torch.Tensor, SolverResult]],
+) -> EnergyError:
     """Energy-norm error history from a second, untimed solve that tracks ``x_exact``.
 
     ``torchalg`` computes the exact A-norm error at every iteration when given
     ``x_exact``, which would be billed to the timed solve. The solve is
     deterministic, so repeating it here yields the same iterates without
     touching any timer.
-
-    Returns:
-        ``(error_history_a_rel, error_bound_a_rel)``, or ``(None, None)`` if the
-        metric fails — a metrics failure must never discard an otherwise valid
-        solve.
     """
-    try:
-        _, info = _solve_one(
-            A, b, x0, preconditioner, rtol=rtol, atol=atol, maxiter=maxiter, m_max=m_max,
-            x_exact=x_exact,
-        )  # fmt: skip
-        return extract_energy_error(info)
-    except (RuntimeError, ValueError) as exc:
-        logger.warning("Energy-norm error metrics skipped: {}", exc)
-        return None, None
+    return _guarded_energy_error(lambda: solve_tracking_reference()[1])
 
 
 def _to_numpy(value: torch.Tensor) -> np.ndarray:

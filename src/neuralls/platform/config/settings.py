@@ -5,15 +5,14 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from pydantic import Field, computed_field, model_validator
+from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from neuralls.platform.config import resolution
-from neuralls.platform.config.profile import load_profile
+from neuralls.platform.config.profile import load_profile, map_roots
 from neuralls.platform.config.resolution import (
-    resolve_case_config_path,
+    require_absolute_user_path,
     resolve_env_file_path,
-    resolve_user_path,
 )
 
 CASE_CONFIG_ENV_VAR = resolution.CASE_CONFIG_ENV_VAR
@@ -26,7 +25,14 @@ _ENV_TO_FIELD = {
 
 
 class NeurallsSettings(BaseSettings):
-    """Resolved runtime roots for processed and output filesystem state."""
+    """Runtime roots for processed and output filesystem state.
+
+    Construction is pure: the loaders (`get_settings`, `load_case_settings`) expand ``~``
+    and require absolute roots; a model built in memory keeps its paths as given. Code
+    that writes under these roots (`resolve_path_context`, `WorkspaceFactory`) trusts them
+    to be absolute, so production settings come from a loader; in-memory relative roots
+    are for tests that write nothing.
+    """
 
     model_config = SettingsConfigDict(
         env_prefix="NEURALLS_",
@@ -37,15 +43,6 @@ class NeurallsSettings(BaseSettings):
     raw_dir: Path | None = Field(default=None, description="Raw matrices and archives root")
     processed_dir: Path = Field(..., description="Generated datasets root")
     output_dir: Path = Field(..., description="MLflow artifacts, checkpoints, figures root")
-
-    @model_validator(mode="after")
-    def _resolve_absolute(self) -> NeurallsSettings:
-        """Expand ~ and resolve all root dirs to absolute paths."""
-        if self.raw_dir is not None:
-            object.__setattr__(self, "raw_dir", resolve_user_path(self.raw_dir))
-        object.__setattr__(self, "processed_dir", resolve_user_path(self.processed_dir))
-        object.__setattr__(self, "output_dir", resolve_user_path(self.output_dir))
-        return self
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -130,20 +127,28 @@ def _build_case_root_mapping(
     return {**profile_values, **env_file_values, **process_env_values}
 
 
+def _absolute_roots(settings: NeurallsSettings) -> NeurallsSettings:
+    """Expand ``~`` in every root and reject a relative one, naming its variable."""
+    env_of = {field: env for env, field in _ENV_TO_FIELD.items()}
+    return map_roots(
+        settings,
+        env_of,
+        lambda field, value: require_absolute_user_path(value, name=env_of[field]),
+    )
+
+
 def get_settings(env_file: Path | None = None) -> NeurallsSettings:
     """Load settings from one explicit env file or from process env only."""
-    return NeurallsSettings(_env_file=resolve_env_file_path(env_file))
+    return _absolute_roots(NeurallsSettings(_env_file=resolve_env_file_path(env_file)))
 
 
 def load_case_settings(
-    case_config_path: Path,
     env_file: Path | None = None,
     profile: str | None = None,
 ) -> NeurallsSettings:
-    """Resolve settings for one case config using strict case/env/profile precedence.
+    """Resolve settings using strict profile < env file < process env precedence.
 
     Args:
-        case_config_path: Path to the case TOML file.
         env_file: Optional path to an explicit .env file with root overrides.
         profile: Optional profile name to load from the user config. Falls back
             to the ``NEURALLS_PROFILE`` env var, then ``"default"``.
@@ -158,22 +163,4 @@ def load_case_settings(
         env_file=env_file_path,
         profile_values=profile_values,
     )
-    return NeurallsSettings.model_validate(root_mapping)
-
-
-def require_settings(
-    settings: NeurallsSettings | None,
-    *,
-    case_config_path: Path | None = None,
-    env_file: Path | None = None,
-    profile: str | None = None,
-) -> NeurallsSettings:
-    """Return explicit settings or resolve them from one explicit case config."""
-    if settings is not None:
-        return settings
-    resolved_case = resolve_case_config_path(case_config_path)
-    if resolved_case is None:
-        raise ValueError(
-            "This workflow requires a case config. Pass --case-config or set NEURALLS_CASE_CONFIG."
-        )
-    return load_case_settings(resolved_case, env_file=env_file, profile=profile)
+    return _absolute_roots(NeurallsSettings.model_validate(root_mapping))

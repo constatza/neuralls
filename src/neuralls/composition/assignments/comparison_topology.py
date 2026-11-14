@@ -36,7 +36,7 @@ def resolve_comparison_topology(
         tracking_uri=master_cfg.mlflow.tracking_uri,
         artifact_location=master_cfg.mlflow.artifacts_destination,
         default_output_root=settings.output_dir,
-        config_path=case_config_path,
+        config_dir=case_config_path.parent,
     )
     return ComparisonTopology(
         tracking_uri=runtime.tracking_uri,

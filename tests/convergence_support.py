@@ -7,6 +7,7 @@ from collections.abc import Sequence
 import numpy as np
 
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
+from neuralls.domain.solver.models.energy_error import EnergyErrorUnavailable, ExactEnergyError
 
 
 def cg_result(
@@ -29,5 +30,9 @@ def cg_result(
         exact_error=None,
         rhs_norm=1.0,
         breakdown=False,
-        error_history_a_rel=list(energy) if energy is not None else None,
+        energy_error=(
+            ExactEnergyError(list(energy))
+            if energy is not None
+            else EnergyErrorUnavailable("no reference")
+        ),
     )

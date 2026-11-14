@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -35,6 +36,7 @@ from neuralls.domain.solver.models.benchmark_events import (
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.domain.solver.models.cost import NO_OFFLINE_COST
+from neuralls.domain.solver.models.energy_error import EnergyErrorFailed
 from neuralls.domain.solver.models.workload import (
     CompleteWorkloadSummary,
     IncompleteWorkloadSummary,
@@ -53,8 +55,7 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, NoFitDataEvidence, SystemId
-from tests.measurement_support import NO_REFERENCE, NO_REFERENCE_SOLUTION
-from tests.os_paths import FAKE_ROOT
+from tests.measurement_support import NO_REFERENCE
 from tests.presentation_support import PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 
@@ -79,7 +80,7 @@ def one_system_bundle() -> MatrixWorkload:
         dataset=DatasetId("ds"),
         matrix_id=MatrixId(1),
         matrix=torch.diag(torch.tensor([2.0, 3.0], dtype=torch.float64)),
-        matrix_path=(FAKE_ROOT / "workspace/not-a-dataset"),
+        matrix_path=Path("workspace/not-a-dataset"),
         matrix_index=0,
         members=(MatrixWorkloadMember(tag=tag, rhs=np.ones(2)),),
     )
@@ -107,7 +108,7 @@ def two_matrix_bundles() -> tuple[MatrixWorkload, MatrixWorkload]:
                 dataset=DatasetId("ds"),
                 matrix_id=MatrixId(matrix_id),
                 matrix=torch.diag(torch.tensor([2.0, 3.0], dtype=torch.float64)) * matrix_id,
-                matrix_path=(FAKE_ROOT / "workspace") / f"matrix-{matrix_id}",
+                matrix_path=Path("workspace") / f"matrix-{matrix_id}",
                 matrix_index=matrix_id,
                 members=members,
             )
@@ -245,19 +246,17 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
     def solve(
         matrix: torch.Tensor,
         rhs: torch.Tensor,
+        preconditioner: object,
         *,
-        preconditioners: dict[str, object],
+        name: str,
         **kwargs: object,
-    ) -> dict[str, CGComparisonResult]:
+    ) -> CGComparisonResult:
         del matrix, rhs, kwargs
-        name, state = next(iter(preconditioners.items()))
-        states.append(state)
-        return {name: _solved_result(name)}
+        states.append(preconditioner)
+        return _solved_result(name)
 
-    monkeypatch.setattr(comparison_run, "run_cg_comparison", solve)
-    monkeypatch.setattr(
-        comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE_SOLUTION
-    )
+    monkeypatch.setattr(comparison_run, "solve_system", solve)
+    monkeypatch.setattr(comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE)
     method = ResolvedMethod(StandardPreconditionerConfig(type=preconditioner_type))
 
     workload = comparison_run.execute_method_workload(
@@ -302,10 +301,8 @@ def test_reference_is_factored_once_per_matrix_from_the_stored_matrix(
     monkeypatch.setattr(comparison_run, "prepare_reference", record)
     monkeypatch.setattr(
         comparison_run,
-        "run_cg_comparison",
-        lambda *a, preconditioners, **k: {
-            next(iter(preconditioners)): _solved_result(next(iter(preconditioners)))
-        },
+        "solve_system",
+        lambda *a, name, **k: _solved_result(name),
     )
     method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
 
@@ -340,14 +337,10 @@ def test_repeat_samples_are_retained_but_totals_use_one_representative(
 
     monkeypatch.setattr(
         comparison_run,
-        "run_cg_comparison",
-        lambda *a, preconditioners, **k: {
-            next(iter(preconditioners)): _solved_result(next(iter(preconditioners)))
-        },
+        "solve_system",
+        lambda *a, name, **k: _solved_result(name),
     )
-    monkeypatch.setattr(
-        comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE_SOLUTION
-    )
+    monkeypatch.setattr(comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE)
     method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
     workload = comparison_run.execute_method_workload(
         method,
@@ -436,16 +429,15 @@ def test_io_reference_and_reporting_stay_outside_online_timers(
     monkeypatch.setattr(
         comparison_run,
         "compute_reference_solution",
-        lambda *a, **k: trace.append("reference") or NO_REFERENCE_SOLUTION,
+        lambda *a, **k: trace.append("reference") or NO_REFERENCE,
     )
 
-    def solve(*args: object, preconditioners: dict[str, object], **kwargs: object) -> object:
+    def solve(*args: object, name: str, **kwargs: object) -> object:
         del args, kwargs
         trace.extend(("solve-timer:start", "solver", "solve-timer:end"))
-        name = next(iter(preconditioners))
-        return {name: _solved_result(name)}
+        return _solved_result(name)
 
-    monkeypatch.setattr(comparison_run, "run_cg_comparison", solve)
+    monkeypatch.setattr(comparison_run, "solve_system", solve)
     method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
 
     comparison_run.execute_method_workload(
@@ -486,9 +478,7 @@ def test_solver_failure_retains_measured_attempt(
     from neuralls.composition.comparison import comparison_run
     from neuralls.domain.solver import comparison as solver_comparison
 
-    monkeypatch.setattr(
-        comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE_SOLUTION
-    )
+    monkeypatch.setattr(comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE)
 
     def fail_solve(*args: object, **kwargs: object) -> object:
         raise RuntimeError("solver broke")
@@ -514,6 +504,155 @@ def test_solver_failure_retains_measured_attempt(
     assert isinstance(attempt.outcome, SolveFailed)
     assert isinstance(attempt.peak_memory, MeasuredPeakMemory)
     assert attempt.samples_s
+    # The stubbed reference is unavailable (one warning), then the solve fails (one warning).
+    assert len(messages) == 2
+
+
+def test_a_failed_factorization_is_reported_once_per_matrix(
+    monkeypatch: pytest.MonkeyPatch,
+    two_matrix_bundles: tuple[MatrixWorkload, MatrixWorkload],
+    solver_params: SolverParams,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    captured_log: CapturedLog,
+    training_runs: MlflowClient,
+) -> None:
+    """Every RHS of a matrix whose factorization failed skips exact metrics; one warning says so."""
+    from neuralls.composition.comparison import comparison_run
+
+    monkeypatch.setattr(comparison_run, "prepare_reference", lambda matrix: NO_REFERENCE)
+    monkeypatch.setattr(comparison_run, "solve_system", lambda *a, name, **k: _solved_result(name))
+    method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
+
+    messages = captured_log("WARNING")
+    workload = comparison_run.execute_method_workload(
+        method,
+        two_matrix_bundles,
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+        params=solver_params,
+        settings=neuralls_settings,
+        prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
+        training_runs=training_runs,
+    )
+
+    assert len(workload.solve_attempts) == 4
+    assert len(messages) == len(two_matrix_bundles)
+
+
+def _run_identity_workload(
+    bundles: tuple[MatrixWorkload, ...],
+    params: SolverParams,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    training_runs: MlflowClient,
+) -> CompletedMethodWorkload:
+    from neuralls.composition.comparison import comparison_run
+
+    method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
+    return comparison_run.execute_method_workload(
+        method,
+        bundles,
+        datasets=group_datasets,
+        notation=NotationPolicy.default(),
+        params=params,
+        settings=neuralls_settings,
+        prepared=prepared_method(str(method.name)),
+        origin=NoFitData(),
+        training_runs=training_runs,
+    )
+
+
+def test_a_failed_reference_solve_is_reported_per_rhs(
+    monkeypatch: pytest.MonkeyPatch,
+    two_matrix_bundles: tuple[MatrixWorkload, MatrixWorkload],
+    solver_params: SolverParams,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    captured_log: CapturedLog,
+    training_runs: MlflowClient,
+) -> None:
+    """The factorization succeeded, so each RHS whose reference solve failed is its own warning."""
+    from neuralls.composition.comparison import comparison_run
+
+    monkeypatch.setattr(comparison_run, "compute_reference_solution", lambda *a, **k: NO_REFERENCE)
+    monkeypatch.setattr(comparison_run, "solve_system", lambda *a, name, **k: _solved_result(name))
+
+    messages = captured_log("WARNING")
+    _run_identity_workload(
+        two_matrix_bundles,
+        solver_params,
+        neuralls_settings,
+        prepared_method,
+        group_datasets,
+        training_runs,
+    )
+
+    assert len(messages) == sum(len(bundle.members) for bundle in two_matrix_bundles)
+
+
+def test_a_clamped_reference_target_is_reported_once_per_method(
+    monkeypatch: pytest.MonkeyPatch,
+    two_matrix_bundles: tuple[MatrixWorkload, MatrixWorkload],
+    solver_params: SolverParams,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    captured_log: CapturedLog,
+    training_runs: MlflowClient,
+) -> None:
+    """rtol * margin below the float64 floor is clamped; one warning for the whole method."""
+    from neuralls.composition.comparison import comparison_run
+
+    monkeypatch.setattr(comparison_run, "solve_system", lambda *a, name, **k: _solved_result(name))
+
+    messages = captured_log("WARNING")
+    _run_identity_workload(
+        two_matrix_bundles,
+        replace(solver_params, rtol=1e-14, reference_precision_margin=1e-4),
+        neuralls_settings,
+        prepared_method,
+        group_datasets,
+        training_runs,
+    )
+
+    assert len(messages) == 1
+
+
+def test_a_failed_energy_metric_is_reported_per_rhs(
+    monkeypatch: pytest.MonkeyPatch,
+    one_system_bundle: MatrixWorkload,
+    solver_params: SolverParams,
+    neuralls_settings: NeurallsSettings,
+    prepared_method: PreparedMethodFactory,
+    group_datasets: dict[DatasetId, DatasetPresentation],
+    captured_log: CapturedLog,
+    training_runs: MlflowClient,
+) -> None:
+    from neuralls.composition.comparison import comparison_run
+
+    monkeypatch.setattr(
+        comparison_run,
+        "solve_system",
+        lambda *a, name, **k: replace(
+            _solved_result(name), energy_error=EnergyErrorFailed("bad trace")
+        ),
+    )
+
+    messages = captured_log("WARNING")
+    _run_identity_workload(
+        (one_system_bundle,),
+        solver_params,
+        neuralls_settings,
+        prepared_method,
+        group_datasets,
+        training_runs,
+    )
+
     assert len(messages) == 1
 
 

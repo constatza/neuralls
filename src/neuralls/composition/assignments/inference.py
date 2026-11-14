@@ -7,12 +7,14 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from loguru import logger
+from torchalg.utils.device import resolve_device
 
 from neuralls.application.inference.models import DataSource, InferenceConfig
 from neuralls.application.inference.prediction import run_prediction
 from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 from neuralls.composition.inference.data_loading import load_inference_data
-from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.dlkit.inference_adapter import (
     create_inference_predictor,
     resolve_batch_size,
@@ -125,8 +127,11 @@ def _execute_inference_pipeline(
     )
 
     # Run prediction (transforms applied automatically from checkpoint)
+    logger.info(f"Running inference on {data.source} data...")
     with create_inference_predictor(checkpoint_path) as predictor:
-        predictions = run_prediction(predictor, data, batch_size=resolve_batch_size(settings))
+        predictions = run_prediction(
+            predictor, data, batch_size=resolve_batch_size(settings), device=resolve_device()
+        )
 
     # Save synthetic results separately (if applicable)
     if config.synthetic_benchmark and data.source is DataSource.SYNTHETIC:
@@ -172,7 +177,7 @@ def _build_inference_result(
 def run_inference(
     *,
     config_path: str | Path,
-    settings: NeurallsSettings | None = None,
+    settings: NeurallsSettings,
     case_config_path: str | Path | None = None,
     data_config_path: str | Path | None = None,
     checkpoint_path: str | Path | None = None,
@@ -205,7 +210,6 @@ def run_inference(
         FileNotFoundError: If required files don't exist
     """
     resolved_case_config_path = Path(case_config_path) if case_config_path else None
-    settings = require_settings(settings, case_config_path=resolved_case_config_path)
     # Build config object to replace 11 parameters
     config = InferenceConfig(
         config_path=Path(config_path),
@@ -213,7 +217,7 @@ def run_inference(
         data_config_path=Path(data_config_path) if data_config_path else None,
         features_path=Path(features_path) if features_path else None,
         targets_path=Path(targets_path) if targets_path else None,
-        output_root=Path(output_root) if output_root else None,
+        output_root=Path(output_root).resolve() if output_root else None,
         synthetic_benchmark=synthetic_benchmark,
         comparison_config_path=Path(comparison_config_path) if comparison_config_path else None,
     )
