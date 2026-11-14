@@ -20,7 +20,7 @@ from neuralls.platform.config.models.data_models import DataConfigFile, SplitCon
 from neuralls.platform.storage.dataset_readers import load_matrix_sample_index
 from neuralls.shared.constants import REGENERATE_DATASETS_COMMAND, SPLIT_FILENAME
 from neuralls.shared.digest import content_digest
-from neuralls.shared.errors import StageInputsStale
+from neuralls.shared.errors import StageInputsStale, StageInputsStaleReason
 
 type ConfigFactory = Callable[..., DataConfigFile]
 
@@ -117,8 +117,9 @@ def test_a_dataset_generated_before_provenance_existed_is_stale_and_names_the_co
     strip_provenance(dataset_dir)
 
     # Identity is unchanged, so generation alone would skip it: only --force regenerates.
-    with pytest.raises(StageInputsStale, match="no scientific provenance") as raised:
+    with pytest.raises(StageInputsStale) as raised:
         _gate(data_config)
+    assert raised.value.reason is StageInputsStaleReason.NO_PROVENANCE
     assert str(raised.value) == (
         f"Dataset 'ds' at '{dataset_dir}' has no scientific provenance (it was generated before "
         f"provenance was recorded): run `{REGENERATE_DATASETS_COMMAND}` to rewrite it."

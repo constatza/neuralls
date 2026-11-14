@@ -44,5 +44,6 @@ def test_a_strategy_field_without_a_binding_fails() -> None:
     class UnheardOfConfig(BaseStrategyConfig):
         sharpness: float = 1.0
 
-    with pytest.raises(UnboundFieldError, match="sharpness"):
+    with pytest.raises(UnboundFieldError) as error:
         describe_model(UnheardOfConfig(samples=1))
+    assert error.value.names == ("sharpness",)

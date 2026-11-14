@@ -8,7 +8,7 @@ from pathlib import Path
 from dlkit.infrastructure.types.split import IndexSplit
 
 from neuralls.shared.constants import SPLIT_FILENAME
-from neuralls.shared.errors import StageInputsStale
+from neuralls.shared.errors import StageInputsStale, StageInputsStaleReason
 
 
 @dataclass(slots=True)
@@ -26,5 +26,7 @@ class InMemorySplitStore:
 
     def require(self, dataset_dir: Path) -> Path:
         if dataset_dir not in self.splits:
-            raise StageInputsStale(f"Dataset '{dataset_dir}' has no pinned split")
+            raise StageInputsStale(
+                StageInputsStaleReason.SPLIT_MISSING, f"Dataset '{dataset_dir}' has no pinned split"
+            )
         return dataset_dir / SPLIT_FILENAME

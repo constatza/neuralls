@@ -22,6 +22,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import assert_never
 
+from neuralls.shared.errors import ReasonedError
 from neuralls.shared.scientific_description.models import (
     DecimalFact,
     DisplayTextFact,
@@ -116,11 +117,21 @@ class FactValueKindError(ValueError):
     ) -> None:
         self.key = key
         self.got = got
+        self.allowed = allowed
         names = ", ".join(sorted(kind.value for kind in allowed))
         super().__init__(f"Fact {key.value!r} takes a {names} value, not {got.value}")
 
 
-class CatalogError(ValueError):
+class CatalogErrorReason(StrEnum):
+    """How the catalog's definitions are inconsistent."""
+
+    DUPLICATE_KEY = "duplicate_key"
+    SHARED_ORDER = "shared_order"
+    UNDECLARED_SHARED_SYMBOL = "undeclared_shared_symbol"
+    STALE_SHARED_SYMBOL = "stale_shared_symbol"
+
+
+class CatalogError(ReasonedError[CatalogErrorReason], ValueError):
     """The catalog's own definitions are inconsistent."""
 
 
@@ -712,11 +723,14 @@ def validate_catalog(
     by_symbol: dict[str, set[FieldKey]] = {}
     for definition in definitions:
         if definition.key in by_key:
-            raise CatalogError(f"duplicate fact key {definition.key.value!r}")
+            raise CatalogError(
+                CatalogErrorReason.DUPLICATE_KEY, f"duplicate fact key {definition.key.value!r}"
+            )
         if definition.order in by_order:
             raise CatalogError(
+                CatalogErrorReason.SHARED_ORDER,
                 f"fact keys {by_order[definition.order].value!r} and {definition.key.value!r} "
-                f"share order {definition.order}"
+                f"share order {definition.order}",
             )
         by_key[definition.key] = definition
         by_order[definition.order] = definition.key
@@ -725,11 +739,17 @@ def validate_catalog(
     undeclared = colliding - shared_symbols
     if undeclared:
         names = sorted(sorted(key.value for key in group) for group in undeclared)
-        raise CatalogError(f"plain symbol shared without being declared: {names}")
+        raise CatalogError(
+            CatalogErrorReason.UNDECLARED_SHARED_SYMBOL,
+            f"plain symbol shared without being declared: {names}",
+        )
     stale = shared_symbols - colliding
     if stale:
         names = sorted(sorted(key.value for key in group) for group in stale)
-        raise CatalogError(f"declared shared symbol that no longer collides: {names}")
+        raise CatalogError(
+            CatalogErrorReason.STALE_SHARED_SYMBOL,
+            f"declared shared symbol that no longer collides: {names}",
+        )
     return MappingProxyType(by_key)
 
 

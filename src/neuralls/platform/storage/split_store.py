@@ -9,7 +9,7 @@ from dlkit.infrastructure.io.index import load_split_indices, save_split_indices
 from dlkit.infrastructure.types.split import IndexSplit
 
 from neuralls.shared.constants import SPLIT_FILENAME
-from neuralls.shared.errors import StageInputsStale
+from neuralls.shared.errors import StageInputsStale, StageInputsStaleReason
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +29,8 @@ class FsSplitStore:
         split_path = dataset_dir / SPLIT_FILENAME
         if not split_path.exists():
             raise StageInputsStale(
+                StageInputsStaleReason.SPLIT_MISSING,
                 f"Dataset '{dataset_dir}' has no pinned split ({SPLIT_FILENAME}): "
-                "run `neuralls generate` (or `neuralls run`) first."
+                "run `neuralls generate` (or `neuralls run`) first.",
             )
         return split_path

@@ -9,6 +9,7 @@ from __future__ import annotations
 import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any, assert_never
 
@@ -23,6 +24,7 @@ from neuralls.platform.reporting.figure_metadata import (
     NoTable,
     SiblingTable,
 )
+from neuralls.shared.errors import ReasonedError
 
 FIGURE_INDEX_FILE = "figure_index.toml"
 
@@ -31,11 +33,33 @@ _REQUIRED_ENTRY_FIELDS: frozenset[str] = frozenset(
 )
 
 
-class InvalidFigureIndexError(ValueError):
+class InvalidFigureIndexReason(StrEnum):
+    """How a payload fails to be a complete figure index."""
+
+    NO_SPLIT_CITATION = "no_split_citation"
+    NO_FIGURES_ARRAY = "no_figures_array"
+    ENTRY_NOT_A_TABLE = "entry_not_a_table"
+    ENTRY_MISSING_FIELDS = "entry_missing_fields"
+
+
+class InvalidFigureIndexError(ReasonedError[InvalidFigureIndexReason], ValueError):
     """A payload is not a complete figure index."""
 
 
-class IncompleteFigureRecordsError(RuntimeError):
+class IncompleteFigureRecordsReason(StrEnum):
+    """Which pair of uploaded figures, cards, tables and index entries disagrees."""
+
+    MISSING_TABLE = "missing_table"
+    MISSING_CARD = "missing_card"
+    CARD_DESCRIBES_OTHER_FIGURE = "card_describes_other_figure"
+    MISSING_FILES = "missing_files"
+    TABLES_MISMATCH = "tables_mismatch"
+    CARD_WITHOUT_FIGURE = "card_without_figure"
+    INDEX_FIGURES_MISMATCH = "index_figures_mismatch"
+    INDEX_ENTRY_CARD_MISMATCH = "index_entry_card_mismatch"
+
+
+class IncompleteFigureRecordsError(ReasonedError[IncompleteFigureRecordsReason], RuntimeError):
     """Uploaded figures, their cards and the index do not describe the same set of figures."""
 
 
@@ -92,7 +116,10 @@ def _verify_table(
     match card.table:
         case SiblingTable(name=name):
             if figure.sibling(name) not in uploaded:
-                raise IncompleteFigureRecordsError(f"figure {figure.artifact_path} has no table")
+                raise IncompleteFigureRecordsError(
+                    IncompleteFigureRecordsReason.MISSING_TABLE,
+                    f"figure {figure.artifact_path} has no table",
+                )
         case NoTable():
             pass
         case unreachable:
@@ -122,15 +149,21 @@ def verify_figure_records(
         card_location = figure.sibling(card_name(figure.name))
         card = cards.get(card_location)
         if card is None or card_location not in uploaded_set:
-            raise IncompleteFigureRecordsError(f"figure {figure.artifact_path} has no card")
+            raise IncompleteFigureRecordsError(
+                IncompleteFigureRecordsReason.MISSING_CARD,
+                f"figure {figure.artifact_path} has no card",
+            )
         if card.stem != figure.name:
             raise IncompleteFigureRecordsError(
-                f"card {card_location.artifact_path} describes {card.stem}, not {figure.name}"
+                IncompleteFigureRecordsReason.CARD_DESCRIBES_OTHER_FIGURE,
+                f"card {card_location.artifact_path} describes {card.stem}, not {figure.name}",
             )
         missing = [name for name in card.files if figure.sibling(name) not in files]
         if missing:
             raise IncompleteFigureRecordsError(
-                f"figure {figure.artifact_path} is missing files: {', '.join(missing)}"
+                IncompleteFigureRecordsReason.MISSING_FILES,
+                f"figure {figure.artifact_path} is missing files: {', '.join(missing)}",
+                tuple(missing),
             )
         _verify_table(figure, card, uploaded_set)
     tables = {location for location in uploaded if location.name.endswith(TABLE_SUFFIX)}
@@ -140,17 +173,24 @@ def verify_figure_records(
         if isinstance(table := card.table, SiblingTable)
     }
     if tables != expected_tables:
-        raise IncompleteFigureRecordsError("the uploaded tables are not exactly the group figures'")
+        raise IncompleteFigureRecordsError(
+            IncompleteFigureRecordsReason.TABLES_MISMATCH,
+            "the uploaded tables are not exactly the group figures'",
+        )
     for card_location, card in cards.items():
         if card_location.sibling(card.stem) not in figures:
             raise IncompleteFigureRecordsError(
-                f"card {card_location.artifact_path} has no uploaded figure {card.stem}"
+                IncompleteFigureRecordsReason.CARD_WITHOUT_FIGURE,
+                f"card {card_location.artifact_path} has no uploaded figure {card.stem}",
             )
     indexed = [
         ArtifactLocation(entry.run_id, path) for entry in index for path in entry.artifact_paths
     ]
     if len(set(indexed)) != len(indexed) or set(indexed) != files:
-        raise IncompleteFigureRecordsError("the figure index does not list exactly the figures")
+        raise IncompleteFigureRecordsError(
+            IncompleteFigureRecordsReason.INDEX_FIGURES_MISMATCH,
+            "the figure index does not list exactly the figures",
+        )
     for entry in index:
         card_location = ArtifactLocation(entry.run_id, entry.card)
         card = cards.get(card_location)
@@ -158,8 +198,9 @@ def verify_figure_records(
             card_location.sibling(name).artifact_path for name in card.files
         ):
             raise IncompleteFigureRecordsError(
+                IncompleteFigureRecordsReason.INDEX_ENTRY_CARD_MISMATCH,
                 f"index entry names card {entry.card}, which does not describe its files "
-                f"{', '.join(entry.artifact_paths)}"
+                f"{', '.join(entry.artifact_paths)}",
             )
 
 
@@ -184,17 +225,27 @@ def index_payload(entries: Sequence[FigureIndexEntry], splits_artifact: str) -> 
 def validate_figure_index(payload: Mapping[str, Any]) -> None:
     """Raise unless ``payload`` cites its split records and has a ``figures`` array of complete entries."""
     if not isinstance(payload.get("splits"), str):
-        raise InvalidFigureIndexError("figure index does not cite its split records")
+        raise InvalidFigureIndexError(
+            InvalidFigureIndexReason.NO_SPLIT_CITATION,
+            "figure index does not cite its split records",
+        )
     figures = payload.get("figures")
     if not isinstance(figures, list):
-        raise InvalidFigureIndexError("figure index has no 'figures' array")
+        raise InvalidFigureIndexError(
+            InvalidFigureIndexReason.NO_FIGURES_ARRAY, "figure index has no 'figures' array"
+        )
     for position, entry in enumerate(figures):
         if not isinstance(entry, Mapping):
-            raise InvalidFigureIndexError(f"figure index entry {position} is not a table")
+            raise InvalidFigureIndexError(
+                InvalidFigureIndexReason.ENTRY_NOT_A_TABLE,
+                f"figure index entry {position} is not a table",
+            )
         missing = sorted(_REQUIRED_ENTRY_FIELDS - entry.keys())
         if missing:
             raise InvalidFigureIndexError(
-                f"figure index entry {position} is missing fields: {', '.join(missing)}"
+                InvalidFigureIndexReason.ENTRY_MISSING_FIELDS,
+                f"figure index entry {position} is missing fields: {', '.join(missing)}",
+                tuple(missing),
             )
 
 

@@ -100,15 +100,17 @@ class _UnknownCoarsening:
 
 
 def test_an_unknown_preconditioner_class_fails_instead_of_describing_nothing() -> None:
-    with pytest.raises(UnsupportedRealizedPreconditionerError, match="_UnknownPreconditioner"):
+    with pytest.raises(UnsupportedRealizedPreconditionerError) as error:
         describe_realized_preconditioner(_UnknownPreconditioner())
+    assert error.value.kind is _UnknownPreconditioner
 
 
 def test_an_unknown_coarsening_class_fails_instead_of_describing_nothing(
     built_aggregation_amg: AMGPreconditioner,
 ) -> None:
-    with pytest.raises(UnsupportedRealizedPreconditionerError, match="_UnknownCoarsening"):
+    with pytest.raises(UnsupportedRealizedPreconditionerError) as error:
         _coarsening_facts(_UnknownCoarsening(), built_aggregation_amg)  # type: ignore[arg-type]
+    assert error.value.kind is _UnknownCoarsening
 
 
 def _classes_defined_outside_neuralls(*modules: ModuleType) -> set[type]:

@@ -50,8 +50,9 @@ def test_facts_follow_declaration_order_and_hide_what_is_not_shown() -> None:
 
 def test_a_field_without_a_binding_is_refused() -> None:
     assert unbound_fields(Unbound) == ("sharpness",)
-    with pytest.raises(UnboundFieldError, match="sharpness"):
+    with pytest.raises(UnboundFieldError) as error:
         describe_model(Unbound())
+    assert error.value.names == ("sharpness",)
 
 
 def test_bindings_do_not_enter_the_identity_digest() -> None:

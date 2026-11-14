@@ -176,10 +176,11 @@ def test_assignments_that_render_alike_are_rejected_before_any_run_opens(
 ) -> None:
     same = training_presentation_of("POD-2G")
 
-    with pytest.raises(IndistinguishableTrainingError, match="POD-2G"):
+    with pytest.raises(IndistinguishableTrainingError) as error:
         require_distinct_training_labels(
             {"first": same, "second": training_presentation_of("POD-2G")}
         )
+    assert error.value.assignment_ids == ("first", "second")
 
 
 def test_assignments_with_different_models_are_distinct(

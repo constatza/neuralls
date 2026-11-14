@@ -18,6 +18,7 @@ from neuralls.shared.scientific_description.catalog import (
     THRESHOLD,
     WEIGHTING,
     CatalogError,
+    CatalogErrorReason,
     FactDefinition,
     FactValueKindError,
     UnknownCategoricalValueError,
@@ -86,13 +87,23 @@ def test_factory_rejects_a_bogus_category() -> None:
 
 
 def test_factory_rejects_text_for_a_numeric_key() -> None:
-    with pytest.raises(FactValueKindError, match="integer"):
+    with pytest.raises(FactValueKindError) as error:
         make_fact(ITERATION_COUNT, "15")
+    assert (error.value.key, error.value.got, error.value.allowed) == (
+        ITERATION_COUNT,
+        FactValueKind.TEXT,
+        frozenset({FactValueKind.INTEGER}),
+    )
 
 
 def test_factory_rejects_an_integer_for_a_decimal_only_key() -> None:
-    with pytest.raises(FactValueKindError, match="decimal"):
+    with pytest.raises(FactValueKindError) as error:
         make_fact(THRESHOLD, 1)
+    assert (error.value.key, error.value.got, error.value.allowed) == (
+        THRESHOLD,
+        FactValueKind.INTEGER,
+        frozenset({FactValueKind.DECIMAL}),
+    )
 
 
 def test_factory_rejects_a_label_for_a_non_label_key() -> None:
@@ -133,8 +144,9 @@ def test_rank_takes_a_count_or_an_energy_fraction() -> None:
 
 def test_require_unique_keys_names_the_repeated_key_and_owner() -> None:
     facts = (make_fact(ITERATION_COUNT, 1), make_fact(ITERATION_COUNT, 2))
-    with pytest.raises(DuplicateFactKeyError, match="iteration_count") as error:
+    with pytest.raises(DuplicateFactKeyError) as error:
         require_unique_keys(facts, "SomeCarrier")
+    assert (error.value.key, error.value.owner) == (ITERATION_COUNT, "SomeCarrier")
     assert str(error.value) == "SomeCarrier holds fact 'iteration_count' more than once"
 
 
@@ -205,22 +217,25 @@ def test_the_shipped_catalog_validates() -> None:
 
 def test_catalog_rejects_a_duplicate_key() -> None:
     first = FACT_DEFINITIONS[0]
-    with pytest.raises(CatalogError, match="duplicate fact key"):
+    with pytest.raises(CatalogError) as error:
         validate_catalog((first, first), frozenset())
+    assert error.value.reason is CatalogErrorReason.DUPLICATE_KEY
 
 
 def test_catalog_rejects_a_duplicate_order() -> None:
     first, second = FACT_DEFINITIONS[0], FACT_DEFINITIONS[1]
     clash = _clone(second, order=first.order)
-    with pytest.raises(CatalogError, match="share order"):
+    with pytest.raises(CatalogError) as error:
         validate_catalog((first, clash), frozenset())
+    assert error.value.reason is CatalogErrorReason.SHARED_ORDER
 
 
 def test_catalog_rejects_an_undeclared_shared_symbol() -> None:
     first, second = FACT_DEFINITIONS[0], FACT_DEFINITIONS[1]
     clash = _clone(second, plain_symbol=first.plain_symbol)
-    with pytest.raises(CatalogError, match="without being declared"):
+    with pytest.raises(CatalogError) as error:
         validate_catalog((first, clash), frozenset())
+    assert error.value.reason is CatalogErrorReason.UNDECLARED_SHARED_SYMBOL
 
 
 def test_catalog_accepts_a_declared_shared_symbol() -> None:
@@ -233,8 +248,9 @@ def test_catalog_accepts_a_declared_shared_symbol() -> None:
 def test_catalog_rejects_a_declared_shared_symbol_that_no_longer_collides() -> None:
     first, second = FACT_DEFINITIONS[0], FACT_DEFINITIONS[1]
     declared = frozenset({frozenset({first.key, second.key})})
-    with pytest.raises(CatalogError, match="no longer collides"):
+    with pytest.raises(CatalogError) as error:
         validate_catalog((first, second), declared)
+    assert error.value.reason is CatalogErrorReason.STALE_SHARED_SYMBOL
 
 
 def test_definition_rejects_categories_without_a_text_kind() -> None:

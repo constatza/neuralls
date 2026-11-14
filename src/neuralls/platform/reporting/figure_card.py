@@ -86,6 +86,7 @@ from neuralls.platform.storage.facts_codec import (
     encode_method_presentation,
     encode_recipe,
 )
+from neuralls.shared.errors import ReasonedError
 from neuralls.shared.rhs_recipe import parse_recipe_key, recipe_key
 from neuralls.shared.runtime_environment import (
     RuntimeEnvironment,
@@ -124,7 +125,29 @@ _REQUIRED_SOURCE_FIELDS: frozenset[str] = frozenset({"session_run_id", "environm
 _REQUIRED_SOURCE_METHOD_FIELDS: frozenset[str] = frozenset({"run_id", "artifact_paths"})
 
 
-class InvalidFigureCardError(ValueError):
+class InvalidFigureCardReason(StrEnum):
+    """How a payload fails to be a complete figure card."""
+
+    INTERVAL_INVALID = "interval_invalid"
+    INTERVAL_METHOD_NOT_A_STRING = "interval_method_not_a_string"
+    INTERVAL_MINIMUM_WRONG = "interval_minimum_wrong"
+    INTERVAL_CONTRADICTS_MATRIX_COUNT = "interval_contradicts_matrix_count"
+    INTERVAL_KIND_UNKNOWN = "interval_kind_unknown"
+    INTERVAL_FIELDS_NOT_EXACT = "interval_fields_not_exact"
+    INTERVAL_FIELD_WRONG_TYPE = "interval_field_wrong_type"
+    COHORT_NOT_A_NAME = "cohort_not_a_name"
+    TIMING_WARNING_WITHOUT_SPREADS = "timing_warning_without_spreads"
+    NOT_A_TABLE = "not_a_table"
+    MISSING_FIELDS = "missing_fields"
+    NOT_AN_ARRAY_OF_TABLES = "not_an_array_of_tables"
+    PARAMETERS_NOT_AN_ARRAY = "parameters_not_an_array"
+    FILES_MISMATCH = "files_mismatch"
+    TABLE_NAME_MISMATCH = "table_name_mismatch"
+    TABLE_KIND_MISMATCH = "table_kind_mismatch"
+    UNEXPECTED_TABLE = "unexpected_table"
+
+
+class InvalidFigureCardError(ReasonedError[InvalidFigureCardReason], ValueError):
     """A payload is not a complete figure card."""
 
 
@@ -291,7 +314,9 @@ def _decode_interval(payload: object) -> FigureInterval:
             try:
                 return PerMethodIntervals(tuple(_decode_method_interval(e) for e in entries))
             except ValueError as error:
-                raise InvalidFigureCardError(f"figure card interval: {error}") from error
+                raise InvalidFigureCardError(
+                    InvalidFigureCardReason.INTERVAL_INVALID, f"figure card interval: {error}"
+                ) from error
         case unreachable:
             assert_never(unreachable)
 
@@ -301,13 +326,17 @@ def _decode_method_interval(entry: Mapping[str, Any]) -> MethodInterval:
     _exact(entry, _METHOD_INTERVAL_FIELDS[kind])
     method = entry["method"]
     if not isinstance(method, str):
-        raise InvalidFigureCardError("figure card interval method is not a string")
+        raise InvalidFigureCardError(
+            InvalidFigureCardReason.INTERVAL_METHOD_NOT_A_STRING,
+            "figure card interval method is not a string",
+        )
     bootstrap = cluster_bootstrap(_typed(entry, "matrices", int))
     match kind, bootstrap:
         case MethodIntervalKind.TOO_FEW_MATRICES, TooFewMatrices():
             if _typed(entry, "minimum", int) != MIN_INTERVAL_MATRICES:
                 raise InvalidFigureCardError(
-                    f"figure card interval minimum is not {MIN_INTERVAL_MATRICES}"
+                    InvalidFigureCardReason.INTERVAL_MINIMUM_WRONG,
+                    f"figure card interval minimum is not {MIN_INTERVAL_MATRICES}",
                 )
             return MethodInterval(PreconditionerName(method), bootstrap)
         case MethodIntervalKind.MATRIX_CLUSTER_BOOTSTRAP, MatrixClusterBootstrap():
@@ -319,8 +348,9 @@ def _decode_method_interval(entry: Mapping[str, Any]) -> MethodInterval:
             return MethodInterval(PreconditionerName(method), drawn)
         case _:
             raise InvalidFigureCardError(
+                InvalidFigureCardReason.INTERVAL_CONTRADICTS_MATRIX_COUNT,
                 f"figure card interval of {method} is {kind.value}, which its matrix count "
-                "contradicts"
+                "contradicts",
             )
 
 
@@ -331,14 +361,16 @@ def _kind[K: (FigureIntervalKind, MethodIntervalKind)](
         return enum(table["kind"])
     except ValueError as error:
         raise InvalidFigureCardError(
-            f"figure card interval kind is unknown: {table['kind']}"
+            InvalidFigureCardReason.INTERVAL_KIND_UNKNOWN,
+            f"figure card interval kind is unknown: {table['kind']}",
         ) from error
 
 
 def _exact(table: Mapping[str, Any], fields: frozenset[str]) -> None:
     if set(table) != fields:
         raise InvalidFigureCardError(
-            f"figure card interval must have exactly the fields {', '.join(sorted(fields))}"
+            InvalidFigureCardReason.INTERVAL_FIELDS_NOT_EXACT,
+            f"figure card interval must have exactly the fields {', '.join(sorted(fields))}",
         )
 
 
@@ -346,7 +378,10 @@ def _typed[T: (int, float)](table: Mapping[str, Any], key: str, kind: type[T]) -
     """``table[key]``, which TOML must have parsed as exactly ``kind`` (a bool is no int)."""
     value = table[key]
     if type(value) is not kind:
-        raise InvalidFigureCardError(f"figure card interval {key} is not a {kind.__name__}")
+        raise InvalidFigureCardError(
+            InvalidFigureCardReason.INTERVAL_FIELD_WRONG_TYPE,
+            f"figure card interval {key} is not a {kind.__name__}",
+        )
     return value
 
 
@@ -372,7 +407,10 @@ def _decode_cohort(payload: Mapping[str, Any]) -> Cohort:
         case str(key):
             return RecipeCohort(parse_recipe_key(key))
         case other:
-            raise InvalidFigureCardError(f"figure card cohort is not a name: {other!r}")
+            raise InvalidFigureCardError(
+                InvalidFigureCardReason.COHORT_NOT_A_NAME,
+                f"figure card cohort is not a name: {other!r}",
+            )
 
 
 def _encode_setup_sharing(sharing: SetupSharing) -> dict[str, Any]:
@@ -411,7 +449,10 @@ def _encode_timing(timing: FigureTimingEvidence) -> dict[str, Any]:
 def _decode_timing(payload: Mapping[str, Any]) -> FigureTimingEvidence:
     if "timing_spread" not in payload:
         if "timing_warning" in payload:
-            raise InvalidFigureCardError("figure card has a timing warning without timing spreads")
+            raise InvalidFigureCardError(
+                InvalidFigureCardReason.TIMING_WARNING_WITHOUT_SPREADS,
+                "figure card has a timing warning without timing spreads",
+            )
         return NoTimingEvidence()
     spreads = tuple(
         MethodTimingSpread(PreconditionerName(method), float(spread))
@@ -500,16 +541,25 @@ def card_payload(card: FigureCard) -> dict[str, Any]:
 
 def _require(table: object, fields: frozenset[str], what: str) -> Mapping[str, Any]:
     if not isinstance(table, Mapping):
-        raise InvalidFigureCardError(f"figure card {what} is not a table")
+        raise InvalidFigureCardError(
+            InvalidFigureCardReason.NOT_A_TABLE, f"figure card {what} is not a table"
+        )
     missing = sorted(fields - table.keys())
     if missing:
-        raise InvalidFigureCardError(f"figure card {what} is missing fields: {', '.join(missing)}")
+        raise InvalidFigureCardError(
+            InvalidFigureCardReason.MISSING_FIELDS,
+            f"figure card {what} is missing fields: {', '.join(missing)}",
+            tuple(missing),
+        )
     return table
 
 
 def _require_tables(entries: object, fields: frozenset[str], what: str) -> list[Mapping[str, Any]]:
     if not isinstance(entries, list):
-        raise InvalidFigureCardError(f"figure card {what} is not an array of tables")
+        raise InvalidFigureCardError(
+            InvalidFigureCardReason.NOT_AN_ARRAY_OF_TABLES,
+            f"figure card {what} is not an array of tables",
+        )
     return [_require(entry, fields, what) for entry in entries]
 
 
@@ -521,7 +571,10 @@ def validate_figure_card(payload: Mapping[str, Any]) -> None:
     _require(card["counts"], _REQUIRED_COUNTS, "counts")
     _require(card["reference"], frozenset({"selection"}), "reference")
     if not isinstance(card["parameters"], list):
-        raise InvalidFigureCardError("figure card parameters is not an array of tables")
+        raise InvalidFigureCardError(
+            InvalidFigureCardReason.PARAMETERS_NOT_AN_ARRAY,
+            "figure card parameters is not an array of tables",
+        )
     source = _require(card["source"], _REQUIRED_SOURCE_FIELDS, "source")
     _require_tables(source["methods"], _REQUIRED_SOURCE_METHOD_FIELDS, "source method")
 
@@ -629,7 +682,8 @@ def decode_figure_card(payload: Mapping[str, Any]) -> FigureCard:
     )
     if tuple(payload["files"]) != card.files:
         raise InvalidFigureCardError(
-            f"figure card files must be {list(card.files)}, not {payload['files']!r}"
+            InvalidFigureCardReason.FILES_MISMATCH,
+            f"figure card files must be {list(card.files)}, not {payload['files']!r}",
         )
     _check_table(card, payload)
     return card
@@ -641,16 +695,21 @@ def _check_table(card: FigureCard, payload: Mapping[str, Any]) -> None:
         case SiblingTable(name=name, kind=kind):
             if payload.get("table") != name:
                 raise InvalidFigureCardError(
-                    f"figure card table must be {name}, not {payload.get('table')!r}"
+                    InvalidFigureCardReason.TABLE_NAME_MISMATCH,
+                    f"figure card table must be {name}, not {payload.get('table')!r}",
                 )
             if payload.get("table_kind") != kind.value:
                 raise InvalidFigureCardError(
+                    InvalidFigureCardReason.TABLE_KIND_MISMATCH,
                     f"figure card table kind must be {kind.value}, "
-                    f"not {payload.get('table_kind')!r}"
+                    f"not {payload.get('table_kind')!r}",
                 )
         case NoTable():
             if "table" in payload or "table_kind" in payload:
-                raise InvalidFigureCardError(f"figure card of {card.metadata.kind} has no table")
+                raise InvalidFigureCardError(
+                    InvalidFigureCardReason.UNEXPECTED_TABLE,
+                    f"figure card of {card.metadata.kind} has no table",
+                )
         case unreachable:
             assert_never(unreachable)
 

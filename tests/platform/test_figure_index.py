@@ -16,7 +16,9 @@ from neuralls.platform.reporting.figure_formats import FIGURE_FORMATS, FigureFor
 from neuralls.platform.reporting.figure_index import (
     ArtifactLocation,
     IncompleteFigureRecordsError,
+    IncompleteFigureRecordsReason,
     InvalidFigureIndexError,
+    InvalidFigureIndexReason,
     index_of,
     index_payload,
     read_figure_index,
@@ -123,8 +125,9 @@ def test_a_figure_without_a_card_is_rejected(
     uploaded, cards = complete
     uploaded.extend(_figure("root", "orphan"))
 
-    with pytest.raises(IncompleteFigureRecordsError, match="orphan has no card"):
+    with pytest.raises(IncompleteFigureRecordsError) as error:
         verify_figure_records(uploaded, cards, index_of(cards))
+    assert error.value.reason is IncompleteFigureRecordsReason.MISSING_CARD
 
 
 def test_a_group_figure_without_its_table_is_rejected(
@@ -133,8 +136,9 @@ def test_a_group_figure_without_its_table_is_rejected(
     uploaded, cards = complete
     uploaded.remove(_table("child", "residual"))
 
-    with pytest.raises(IncompleteFigureRecordsError, match="has no table"):
+    with pytest.raises(IncompleteFigureRecordsError) as error:
         verify_figure_records(uploaded, cards, index_of(cards))
+    assert error.value.reason is IncompleteFigureRecordsReason.MISSING_TABLE
 
 
 def test_a_table_beside_a_history_figure_is_rejected(
@@ -153,8 +157,9 @@ def test_a_table_beside_a_history_figure_is_rejected(
         notation=notation,
     )
 
-    with pytest.raises(IncompleteFigureRecordsError, match="tables"):
+    with pytest.raises(IncompleteFigureRecordsError) as error:
         verify_figure_records(uploaded, cards, index_of(cards))
+    assert error.value.reason is IncompleteFigureRecordsReason.TABLES_MISMATCH
 
 
 def test_a_card_naming_another_file_is_rejected(
@@ -164,8 +169,9 @@ def test_a_card_naming_another_file_is_rejected(
     uploaded, cards = complete
     cards[_card("root", "residual")] = card_of("energy")
 
-    with pytest.raises(IncompleteFigureRecordsError, match="describes energy"):
+    with pytest.raises(IncompleteFigureRecordsError) as error:
         verify_figure_records(uploaded, cards, index_of(cards))
+    assert error.value.reason is IncompleteFigureRecordsReason.CARD_DESCRIBES_OTHER_FIGURE
 
 
 def test_a_card_without_its_figure_is_rejected(
@@ -175,8 +181,9 @@ def test_a_card_without_its_figure_is_rejected(
     for location in _figure("child", "residual"):
         uploaded.remove(location)
 
-    with pytest.raises(IncompleteFigureRecordsError, match="no uploaded figure"):
+    with pytest.raises(IncompleteFigureRecordsError) as error:
         verify_figure_records(uploaded, cards, index_of(cards))
+    assert error.value.reason is IncompleteFigureRecordsReason.CARD_WITHOUT_FIGURE
 
 
 def test_an_index_entry_without_a_figure_is_rejected(
@@ -188,8 +195,9 @@ def test_an_index_entry_without_a_figure_is_rejected(
         artifact_paths=(f"{DIRECTORY}/ghost.png",),
     )
 
-    with pytest.raises(IncompleteFigureRecordsError, match="exactly the figures"):
+    with pytest.raises(IncompleteFigureRecordsError) as error:
         verify_figure_records(uploaded, cards, [*index_of(cards), ghost])
+    assert error.value.reason is IncompleteFigureRecordsReason.INDEX_FIGURES_MISMATCH
 
 
 def test_a_figure_missing_from_the_index_is_rejected(
@@ -197,8 +205,9 @@ def test_a_figure_missing_from_the_index_is_rejected(
 ) -> None:
     uploaded, cards = complete
 
-    with pytest.raises(IncompleteFigureRecordsError, match="exactly the figures"):
+    with pytest.raises(IncompleteFigureRecordsError) as error:
         verify_figure_records(uploaded, cards, index_of(cards)[:1])
+    assert error.value.reason is IncompleteFigureRecordsReason.INDEX_FIGURES_MISMATCH
 
 
 def test_an_index_entry_naming_a_different_card_is_rejected(
@@ -207,8 +216,9 @@ def test_an_index_entry_naming_a_different_card_is_rejected(
     uploaded, cards = complete
     entries = [replace(entry, card=f"{DIRECTORY}/other.toml") for entry in index_of(cards)]
 
-    with pytest.raises(IncompleteFigureRecordsError, match="names card"):
+    with pytest.raises(IncompleteFigureRecordsError) as error:
         verify_figure_records(uploaded, cards, entries)
+    assert error.value.reason is IncompleteFigureRecordsReason.INDEX_ENTRY_CARD_MISMATCH
 
 
 def test_index_round_trips_through_toml_without_card_parameters(
@@ -229,9 +239,10 @@ def test_index_round_trips_through_toml_without_card_parameters(
 
 
 def test_index_entry_missing_a_field_is_rejected() -> None:
-    with pytest.raises(InvalidFigureIndexError, match="figures"):
+    with pytest.raises(InvalidFigureIndexError) as no_figures:
         validate_figure_index({"splits": SPLITS})
-    with pytest.raises(InvalidFigureIndexError, match="card"):
+    assert no_figures.value.reason is InvalidFigureIndexReason.NO_FIGURES_ARRAY
+    with pytest.raises(InvalidFigureIndexError) as no_card:
         validate_figure_index(
             {
                 "splits": SPLITS,
@@ -246,8 +257,11 @@ def test_index_entry_missing_a_field_is_rejected() -> None:
                 ],
             }
         )
+    assert no_card.value.reason is InvalidFigureIndexReason.ENTRY_MISSING_FIELDS
+    assert no_card.value.missing == ("card",)
 
 
 def test_an_index_that_cites_no_split_records_is_rejected() -> None:
-    with pytest.raises(InvalidFigureIndexError, match="split records"):
+    with pytest.raises(InvalidFigureIndexError) as error:
         validate_figure_index({"figures": []})
+    assert error.value.reason is InvalidFigureIndexReason.NO_SPLIT_CITATION

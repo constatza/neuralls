@@ -193,13 +193,17 @@ class TestStampRefusesInconsistentProvenance:
                 ),
             ),
         )
-        with pytest.raises(DatasetProvenanceMismatchError, match="persisted 100"):
+        with pytest.raises(DatasetProvenanceMismatchError) as error:
             _stamp_dataset_identity(
                 complete_npy_dataset_dir,
                 None,
                 generation_usage=None,
                 presentation=replace(dataset_presentation, generation=generation),
             )
+        assert (error.value.recorded_rows, error.value.persisted_rows) == (
+            dataset_presentation.generation.generated_rows + 1,
+            dataset_presentation.generation.generated_rows,
+        )
 
     def test_a_manifest_without_a_sample_count_raises(
         self, tmp_path: Path, dataset_presentation: DatasetPresentation
@@ -215,7 +219,11 @@ class TestStampRefusesInconsistentProvenance:
             ),
         )
         save_dataset_manifest(tmp_path, manifest)
-        with pytest.raises(DatasetProvenanceMismatchError, match="unknown number"):
+        with pytest.raises(DatasetProvenanceMismatchError) as error:
             _stamp_dataset_identity(
                 tmp_path, None, generation_usage=None, presentation=dataset_presentation
             )
+        assert (error.value.recorded_rows, error.value.persisted_rows) == (
+            dataset_presentation.generation.generated_rows,
+            None,
+        )

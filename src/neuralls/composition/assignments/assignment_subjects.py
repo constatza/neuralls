@@ -243,6 +243,8 @@ class IndistinguishableTrainingError(ValueError):
     """Two assignments of one batch describe the same trained model on the same dataset."""
 
     def __init__(self, text: str, assignment_ids: tuple[str, ...]) -> None:
+        self.text = text
+        self.assignment_ids = assignment_ids
         super().__init__(
             f"assignments {', '.join(assignment_ids)} are both described as {text!r}; give "
             "each a distinct architecture name or an explicit display_name"

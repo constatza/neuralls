@@ -26,7 +26,7 @@ from neuralls.platform.storage.dataset_readers import load_matrix_sample_index
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
 from neuralls.shared.constants import REGENERATE_DATASETS_COMMAND
 from neuralls.shared.digest import content_digest
-from neuralls.shared.errors import StageInputsStale
+from neuralls.shared.errors import StageInputsStale, StageInputsStaleReason
 from neuralls.shared.types import DatasetId
 
 
@@ -60,21 +60,24 @@ def require_current_inputs(
         dataset_dir = resolve_dataset_dir(case_cfg, config_dir, dataset_id, settings)
         if not is_dataset_reusable(dataset_dir, generation_identity(data_cfg)):
             raise StageInputsStale(
+                StageInputsStaleReason.DATASET_STALE,
                 f"Dataset '{dataset_id}' at '{dataset_dir}' is missing or no longer matches "
-                "its config and sources: run `neuralls generate` (or `neuralls run`) first."
+                "its config and sources: run `neuralls generate` (or `neuralls run`) first.",
             )
         if read_dataset_manifest(dataset_dir).provenance is None:
             raise StageInputsStale(
+                StageInputsStaleReason.NO_PROVENANCE,
                 f"Dataset '{dataset_id}' at '{dataset_dir}' has no scientific provenance (it "
                 f"was generated before provenance was recorded): run "
-                f"`{REGENERATE_DATASETS_COMMAND}` to rewrite it."
+                f"`{REGENERATE_DATASETS_COMMAND}` to rewrite it.",
             )
         matrix_sample_index = load_matrix_sample_index(dataset_dir)
         planned = plan_split(matrix_sample_index, data_cfg.split)
         if not split_is_current(dataset_dir, planned, FS_SPLIT_STORE):
             raise StageInputsStale(
+                StageInputsStaleReason.SPLIT_NOT_CURRENT,
                 f"Dataset '{dataset_id}' has no pinned split matching its [split] config: "
-                "run `neuralls generate` (or `neuralls run`) first."
+                "run `neuralls generate` (or `neuralls run`) first.",
             )
         records.append(
             build_split_record(

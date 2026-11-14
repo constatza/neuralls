@@ -142,8 +142,9 @@ def test_a_dataset_that_cannot_be_described_is_rejected() -> None:
     def unprovenanced(directory: Path) -> DatasetPresentation:
         raise MissingDatasetProvenanceError(directory)
 
-    with pytest.raises(MissingDatasetProvenanceError, match="Regenerate"):
+    with pytest.raises(MissingDatasetProvenanceError) as error:
         describe_method(pod_spec(FIT_DIR, 10), InlineFit(FIT_DIR), unprovenanced)
+    assert error.value.dataset_dir == FIT_DIR
 
 
 def test_indistinguishable_methods_are_rejected_before_execution(

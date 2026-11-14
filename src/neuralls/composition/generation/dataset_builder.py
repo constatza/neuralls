@@ -77,6 +77,8 @@ class DatasetProvenanceMismatchError(ValueError):
 
     def __init__(self, dataset_dir: Path, recorded_rows: int, persisted_rows: int | None) -> None:
         self.dataset_dir = dataset_dir
+        self.recorded_rows = recorded_rows
+        self.persisted_rows = persisted_rows
         super().__init__(
             f"Dataset at '{dataset_dir}' persisted "
             f"{'an unknown number of' if persisted_rows is None else persisted_rows} samples "

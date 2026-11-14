@@ -81,8 +81,9 @@ def test_dataset_without_provenance_is_refused_with_a_regeneration_message(
     dataset_dir = build_test_dataset(source_spec, dataset_spec, str(tmp_path / "ds"))
     strip_provenance(dataset_dir)
 
-    with pytest.raises(MissingDatasetProvenanceError, match="Regenerate"):
+    with pytest.raises(MissingDatasetProvenanceError) as error:
         load_dataset_presentation(dataset_dir)
+    assert error.value.dataset_dir == Path(dataset_dir)
 
 
 def test_tampered_provenance_is_rejected_on_load(

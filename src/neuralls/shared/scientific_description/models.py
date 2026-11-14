@@ -145,6 +145,7 @@ class DuplicateFactKeyError(ValueError):
 
     def __init__(self, key: FieldKey, owner: str) -> None:
         self.key = key
+        self.owner = owner
         super().__init__(f"{owner} holds fact {key.value!r} more than once")
 
 

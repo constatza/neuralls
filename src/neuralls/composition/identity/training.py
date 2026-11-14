@@ -15,7 +15,7 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.dataset_digest import current_dataset_digest
 from neuralls.shared.constants import SPLIT_FILENAME
 from neuralls.shared.digest import canonical_digest, content_digest
-from neuralls.shared.errors import StageInputsStale
+from neuralls.shared.errors import StageInputsStale, StageInputsStaleReason
 
 # DLKit job sections that only say where/how results are reported, not what is trained.
 # Every other section — including ones added by future DLKit versions — is hashed.
@@ -84,8 +84,9 @@ def training_identity(
     split_path = dataset_dir / SPLIT_FILENAME
     if not split_path.exists():
         raise StageInputsStale(
+            StageInputsStaleReason.SPLIT_MISSING,
             f"Dataset '{dataset_dir}' has no pinned split ({SPLIT_FILENAME}): "
-            "run `neuralls generate` (or `neuralls run`) first."
+            "run `neuralls generate` (or `neuralls run`) first.",
         )
     return StageIdentity.build(
         "training",

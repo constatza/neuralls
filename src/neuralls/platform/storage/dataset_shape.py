@@ -14,7 +14,7 @@ from neuralls.platform.storage.dataset_readers import (
     resolve_dataset_artifacts,
 )
 from neuralls.shared.constants import SPLIT_FILENAME
-from neuralls.shared.errors import StageInputsStale
+from neuralls.shared.errors import StageInputsStale, StageInputsStaleReason
 from neuralls.shared.types import MatrixId
 
 
@@ -38,8 +38,9 @@ def load_held_out_fold(dataset_dir: Path) -> HeldOutFold:
     split_path = dataset_dir / SPLIT_FILENAME
     if not split_path.exists():
         raise StageInputsStale(
+            StageInputsStaleReason.SPLIT_MISSING,
             f"Dataset '{dataset_dir}' has no pinned split ({SPLIT_FILENAME}): "
-            "run `neuralls generate` (or `neuralls run`) first."
+            "run `neuralls generate` (or `neuralls run`) first.",
         )
     bindings = load_matrix_sample_index(dataset_dir)
     rows_by_matrix: defaultdict[MatrixId, list[int]] = defaultdict(list)

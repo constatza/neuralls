@@ -26,6 +26,7 @@ from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.reporting.figure_card import (
     FigureCard,
     InvalidFigureCardError,
+    InvalidFigureCardReason,
     build_figure_card,
     card_name,
     card_payload,
@@ -289,8 +290,10 @@ def test_card_missing_a_required_field_is_rejected(
     payload = card_payload(_card(metadata_of(scope), notation))
     del payload[missing]
 
-    with pytest.raises(InvalidFigureCardError, match=missing):
+    with pytest.raises(InvalidFigureCardError) as error:
         validate_figure_card(payload)
+    assert error.value.reason is InvalidFigureCardReason.MISSING_FIELDS
+    assert error.value.missing == (missing,)
 
 
 def test_card_scope_without_display_text_is_rejected(
@@ -301,8 +304,10 @@ def test_card_scope_without_display_text_is_rejected(
     payload = card_payload(_card(metadata_of(scope), notation))
     del payload["scope"]["display"]
 
-    with pytest.raises(InvalidFigureCardError, match="display"):
+    with pytest.raises(InvalidFigureCardError) as error:
         validate_figure_card(payload)
+    assert error.value.reason is InvalidFigureCardReason.MISSING_FIELDS
+    assert error.value.missing == ("display",)
 
 
 def test_card_source_without_run_id_is_rejected(
@@ -313,8 +318,10 @@ def test_card_source_without_run_id_is_rejected(
     payload = card_payload(_card(metadata_of(scope), notation))
     del payload["source"]["methods"][0]["run_id"]
 
-    with pytest.raises(InvalidFigureCardError, match="run_id"):
+    with pytest.raises(InvalidFigureCardError) as error:
         validate_figure_card(payload)
+    assert error.value.reason is InvalidFigureCardReason.MISSING_FIELDS
+    assert error.value.missing == ("run_id",)
 
 
 def test_a_card_names_the_raster_and_the_vector_file_of_its_figure(
@@ -338,8 +345,9 @@ def test_a_card_listing_other_files_than_its_stems_formats_is_rejected(
     payload = card_payload(_card(metadata_of(scope), notation))
     payload["files"] = ["other.png"]
 
-    with pytest.raises(InvalidFigureCardError, match="files must be"):
+    with pytest.raises(InvalidFigureCardError) as error:
         decode_figure_card(payload)
+    assert error.value.reason is InvalidFigureCardReason.FILES_MISMATCH
 
 
 def test_a_group_card_names_the_kind_of_table_beside_its_figure(
@@ -363,8 +371,9 @@ def test_a_card_naming_another_kind_of_table_than_its_recipes_is_rejected(
     payload = card_payload(_card(metadata_of(scope), notation))
     payload["table_kind"] = "summary"
 
-    with pytest.raises(InvalidFigureCardError, match="table kind"):
+    with pytest.raises(InvalidFigureCardError) as error:
         decode_figure_card(payload)
+    assert error.value.reason is InvalidFigureCardReason.TABLE_KIND_MISMATCH
 
 
 @pytest.mark.parametrize("stem", ["", "nested/figure"])
