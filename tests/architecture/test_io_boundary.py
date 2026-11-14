@@ -19,9 +19,9 @@ from pathlib import Path
 
 import pytest
 from tests.architecture_support import parsed
+from tests.io_guard import BOUNDARY_DIRS
 
 _TESTS = Path(__file__).resolve().parents[1]
-_BOUNDARY_DIRS = ("io", "integration", "platform", "architecture", "manual")
 _REASONS = frozenset({"mlflow-run-tracking", "dataset-fixture-io", "digest-hashing"})
 _PURE_LAYERS = ("domain", "application")
 _SRC = _TESTS.parent / "src" / "neuralls"
@@ -43,7 +43,7 @@ def _test_files_outside_the_boundary() -> list[Path]:
     return [
         path
         for path in sorted(_TESTS.rglob("test_*.py"))
-        if path.relative_to(_TESTS).parts[0] not in _BOUNDARY_DIRS
+        if path.relative_to(_TESTS).parts[0] not in BOUNDARY_DIRS
     ]
 
 

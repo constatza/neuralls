@@ -75,6 +75,8 @@ from tests.workflows.comparison_support import SETUP_TRACKING
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+pytest_plugins = ("tests.io_guard",)
+
 # Tests that draw figures directly (without a report entry point) must not open a GUI window.
 matplotlib.use("Agg", force=True)
 
