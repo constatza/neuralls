@@ -3,30 +3,29 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Self
 
 
 class ReasonedError[Reason: StrEnum](Exception):
     """An error whose cause is a member of a closed enum, so callers match on it, not on text.
 
-    ``detail`` is the human message, ``missing`` the field names a missing-fields reason
-    names (empty for every other reason). ``__reduce__`` keeps the error picklable although
-    ``__init__`` takes more than the message.
+    ``detail`` is the human message. A cause that names absent items is its own subclass with
+    a required ``missing`` field, so no error carries a field its reason leaves empty.
+    ``__reduce__`` keeps the error picklable although ``__init__`` takes more than the message.
 
     Attributes:
         reason: The cause, one member of the subclass's reason enum.
         detail: The human-readable message.
-        missing: Names of the absent fields; empty unless the reason is a missing-fields one.
     """
 
-    def __init__(self, reason: Reason, detail: str, missing: tuple[str, ...] = ()) -> None:
+    def __init__(self, reason: Reason, detail: str) -> None:
         super().__init__(detail)
         self.reason = reason
         self.detail = detail
-        self.missing = missing
 
-    def __reduce__(self) -> tuple[type[ReasonedError[Reason]], tuple[Reason, str, tuple[str, ...]]]:
+    def __reduce__(self) -> tuple[type[Self], tuple[object, ...]]:
         """Rebuild from the constructor arguments, not the message alone."""
-        return type(self), (self.reason, self.detail, self.missing)
+        return type(self), (self.reason, self.detail)
 
 
 class StageInputsStaleReason(StrEnum):

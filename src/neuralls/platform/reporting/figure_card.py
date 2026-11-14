@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, assert_never
+from typing import Any, Self, assert_never
 
 import tomli_w
 
@@ -149,6 +149,22 @@ class InvalidFigureCardReason(StrEnum):
 
 class InvalidFigureCardError(ReasonedError[InvalidFigureCardReason], ValueError):
     """A payload is not a complete figure card."""
+
+
+class FigureCardFieldsMissingError(InvalidFigureCardError):
+    """A figure card table lacks required fields.
+
+    Attributes:
+        missing: The names that are absent, in the order the message lists them.
+    """
+
+    def __init__(self, detail: str, missing: tuple[str, ...]) -> None:
+        super().__init__(InvalidFigureCardReason.MISSING_FIELDS, detail)
+        self.missing = missing
+
+    def __reduce__(self) -> tuple[type[Self], tuple[object, ...]]:
+        """Rebuild from the constructor arguments, not the message alone."""
+        return type(self), (self.detail, self.missing)
 
 
 @dataclass(frozen=True, slots=True)
@@ -546,10 +562,8 @@ def _require(table: object, fields: frozenset[str], what: str) -> Mapping[str, A
         )
     missing = sorted(fields - table.keys())
     if missing:
-        raise InvalidFigureCardError(
-            InvalidFigureCardReason.MISSING_FIELDS,
-            f"figure card {what} is missing fields: {', '.join(missing)}",
-            tuple(missing),
+        raise FigureCardFieldsMissingError(
+            f"figure card {what} is missing fields: {', '.join(missing)}", tuple(missing)
         )
     return table
 

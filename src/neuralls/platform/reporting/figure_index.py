@@ -11,7 +11,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
-from typing import Any, assert_never
+from typing import Any, Self, assert_never
 
 import tomli_w
 
@@ -46,6 +46,22 @@ class InvalidFigureIndexError(ReasonedError[InvalidFigureIndexReason], ValueErro
     """A payload is not a complete figure index."""
 
 
+class FigureIndexEntryFieldsMissingError(InvalidFigureIndexError):
+    """A figure index entry lacks required fields.
+
+    Attributes:
+        missing: The names that are absent, in the order the message lists them.
+    """
+
+    def __init__(self, detail: str, missing: tuple[str, ...]) -> None:
+        super().__init__(InvalidFigureIndexReason.ENTRY_MISSING_FIELDS, detail)
+        self.missing = missing
+
+    def __reduce__(self) -> tuple[type[Self], tuple[object, ...]]:
+        """Rebuild from the constructor arguments, not the message alone."""
+        return type(self), (self.detail, self.missing)
+
+
 class IncompleteFigureRecordsReason(StrEnum):
     """Which pair of uploaded figures, cards, tables and index entries disagrees."""
 
@@ -61,6 +77,22 @@ class IncompleteFigureRecordsReason(StrEnum):
 
 class IncompleteFigureRecordsError(ReasonedError[IncompleteFigureRecordsReason], RuntimeError):
     """Uploaded figures, their cards and the index do not describe the same set of figures."""
+
+
+class FigureFilesMissingError(IncompleteFigureRecordsError):
+    """A figure card lists sibling files that were not uploaded.
+
+    Attributes:
+        missing: The names that are absent, in the order the message lists them.
+    """
+
+    def __init__(self, detail: str, missing: tuple[str, ...]) -> None:
+        super().__init__(IncompleteFigureRecordsReason.MISSING_FILES, detail)
+        self.missing = missing
+
+    def __reduce__(self) -> tuple[type[Self], tuple[object, ...]]:
+        """Rebuild from the constructor arguments, not the message alone."""
+        return type(self), (self.detail, self.missing)
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,8 +192,7 @@ def verify_figure_records(
             )
         missing = [name for name in card.files if figure.sibling(name) not in files]
         if missing:
-            raise IncompleteFigureRecordsError(
-                IncompleteFigureRecordsReason.MISSING_FILES,
+            raise FigureFilesMissingError(
                 f"figure {figure.artifact_path} is missing files: {', '.join(missing)}",
                 tuple(missing),
             )
@@ -242,8 +273,7 @@ def validate_figure_index(payload: Mapping[str, Any]) -> None:
             )
         missing = sorted(_REQUIRED_ENTRY_FIELDS - entry.keys())
         if missing:
-            raise InvalidFigureIndexError(
-                InvalidFigureIndexReason.ENTRY_MISSING_FIELDS,
+            raise FigureIndexEntryFieldsMissingError(
                 f"figure index entry {position} is missing fields: {', '.join(missing)}",
                 tuple(missing),
             )

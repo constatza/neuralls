@@ -15,6 +15,7 @@ from neuralls.platform.reporting.figure_card import FigureCard, build_figure_car
 from neuralls.platform.reporting.figure_formats import FIGURE_FORMATS, FigureFormat, figure_file
 from neuralls.platform.reporting.figure_index import (
     ArtifactLocation,
+    FigureIndexEntryFieldsMissingError,
     IncompleteFigureRecordsError,
     IncompleteFigureRecordsReason,
     InvalidFigureIndexError,
@@ -242,7 +243,7 @@ def test_index_entry_missing_a_field_is_rejected() -> None:
     with pytest.raises(InvalidFigureIndexError) as no_figures:
         validate_figure_index({"splits": SPLITS})
     assert no_figures.value.reason is InvalidFigureIndexReason.NO_FIGURES_ARRAY
-    with pytest.raises(InvalidFigureIndexError) as no_card:
+    with pytest.raises(FigureIndexEntryFieldsMissingError) as no_card:
         validate_figure_index(
             {
                 "splits": SPLITS,

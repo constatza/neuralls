@@ -25,6 +25,7 @@ from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
 from neuralls.platform.reporting.figure_card import (
     FigureCard,
+    FigureCardFieldsMissingError,
     InvalidFigureCardError,
     InvalidFigureCardReason,
     build_figure_card,
@@ -290,7 +291,7 @@ def test_card_missing_a_required_field_is_rejected(
     payload = card_payload(_card(metadata_of(scope), notation))
     del payload[missing]
 
-    with pytest.raises(InvalidFigureCardError) as error:
+    with pytest.raises(FigureCardFieldsMissingError) as error:
         validate_figure_card(payload)
     assert error.value.reason is InvalidFigureCardReason.MISSING_FIELDS
     assert error.value.missing == (missing,)
@@ -304,7 +305,7 @@ def test_card_scope_without_display_text_is_rejected(
     payload = card_payload(_card(metadata_of(scope), notation))
     del payload["scope"]["display"]
 
-    with pytest.raises(InvalidFigureCardError) as error:
+    with pytest.raises(FigureCardFieldsMissingError) as error:
         validate_figure_card(payload)
     assert error.value.reason is InvalidFigureCardReason.MISSING_FIELDS
     assert error.value.missing == ("display",)
@@ -318,7 +319,7 @@ def test_card_source_without_run_id_is_rejected(
     payload = card_payload(_card(metadata_of(scope), notation))
     del payload["source"]["methods"][0]["run_id"]
 
-    with pytest.raises(InvalidFigureCardError) as error:
+    with pytest.raises(FigureCardFieldsMissingError) as error:
         validate_figure_card(payload)
     assert error.value.reason is InvalidFigureCardReason.MISSING_FIELDS
     assert error.value.missing == ("run_id",)
