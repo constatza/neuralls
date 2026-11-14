@@ -53,6 +53,10 @@ from neuralls.platform.tracking.report_sink import (
 from neuralls.platform.tracking.session_artifacts import REPORT_PHASE
 
 
+class _ReportFailure(Exception):
+    """Raised by the patched report workflow to fail the report run."""
+
+
 def _artifact_files(client: MlflowClient, run_id: str, path: str | None = None) -> list[str]:
     """Every file artifact path of a run, recursing through directories."""
     files: list[str] = []
@@ -551,10 +555,10 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
 
     # A failure while a report is written leaves its root run FAILED, so it is never reused.
     def fail_report(*_args: object, **_kwargs: object) -> None:
-        raise RuntimeError("report boom")
+        raise _ReportFailure
 
     monkeypatch.setattr(comparison_report, "report_all_levels", fail_report)
-    with pytest.raises(RuntimeError, match="report boom"):
+    with pytest.raises(_ReportFailure):
         run_comparison_report(
             CaseConfigPath.resolve(experiments_config), settings=neuralls_settings
         )

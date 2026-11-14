@@ -74,6 +74,10 @@ STAMP = "2026-01-02T03:04:05"
 DATASET_TEXT = "Test problem | Gaussian CG Residuals (k=20, N=100)"
 
 
+class _StopAfterProvenance(Exception):
+    """Raised by the patched presentation step to stop the batch once provenance was checked."""
+
+
 @pytest.fixture
 def mismatched_pod_spec() -> AMGPreconditionerConfig:
     return AMGPreconditionerConfig(
@@ -156,9 +160,9 @@ def test_unavailable_checkpoint_provenance_emits_exact_warning(
             patch.object(
                 comparison_prepare,
                 "prepare_comparison_presentation",
-                side_effect=RuntimeError("stop after provenance"),
+                side_effect=_StopAfterProvenance,
             ),
-            pytest.raises(RuntimeError, match="stop after provenance"),
+            pytest.raises(_StopAfterProvenance),
         ):
             run_loaded_comparison_batch(
                 case,
