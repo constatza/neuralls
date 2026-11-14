@@ -23,6 +23,7 @@ from neuralls.composition.assignments.comparison_batch import (
 )
 from neuralls.composition.assignments.comparison_report import run_comparison_report
 from neuralls.composition.comparison.models import ComparisonCompleted, ComparisonParams
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.tracking.report_sink import GROUP_REPORT_ARTIFACT_DIR
 from tests.workflows.comparison_support import (
@@ -82,12 +83,14 @@ def test_real_sweep_execution_logs_group_metrics_and_reports(
     experiments_config = tmp_path / "experiments.toml"
     _write_sweep_config(experiments_config, tmp_path)
 
-    outcomes = run_comparison_batch(experiments_config, ComparisonParams(), settings)
+    outcomes = run_comparison_batch(
+        CaseConfigPath.resolve(experiments_config), ComparisonParams(), settings
+    )
 
     # Two held-out matrices with two held-out rows each: 2 x rhs_count=2 RHS.
     assert len(outcomes) == 4
     assert all(isinstance(outcome, ComparisonCompleted) for outcome in outcomes)
-    report = run_comparison_report(experiments_config, settings=settings)
+    report = run_comparison_report(CaseConfigPath.resolve(experiments_config), settings=settings)
     client = MlflowClient(tracking_uri=build_sqlite_tracking_uri(tmp_path / "mlruns" / "mlflow.db"))
     experiment_id = client.get_run(report.report_run_id).info.experiment_id
 

@@ -15,7 +15,7 @@ from neuralls.composition.assignments.comparison_report import (
     ReportReused,
     run_comparison_report,
 )
-from neuralls.composition.config import load_case_settings
+from neuralls.composition.config import CaseConfigPath, load_case_settings
 from neuralls.composition.tracking.services import MLFLOW_TRACKING
 from neuralls.shared.types import SessionRunId
 
@@ -35,7 +35,7 @@ def report_case(
     try:
         settings = load_case_settings(env_file, profile=profile)
         outcome = run_comparison_report(
-            config,
+            CaseConfigPath.resolve(config),
             force=force,
             session_run_id=None if session_run_id is None else SessionRunId(session_run_id),
             settings=settings,

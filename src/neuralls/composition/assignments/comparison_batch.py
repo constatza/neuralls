@@ -49,6 +49,7 @@ from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServ
 from neuralls.domain.presentation.titles import (
     summarized_session_title,
 )
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.models.experiments import CaseConfig
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.failure_reporting import MLflowWorkflowFailureSink
@@ -124,7 +125,7 @@ def _run_session(
 
 
 def run_comparison_batch(
-    case_config_path: Path,
+    case_config_path: CaseConfigPath,
     params: ComparisonParams,
     settings: NeurallsSettings,
     *,
@@ -132,11 +133,9 @@ def run_comparison_batch(
 ) -> list[ComparisonOutcome]:
     """Load the case config from disk and run its comparison entries.
 
-    The disk edge of `run_loaded_comparison_batch`: the case path is resolved once here,
-    and every session tag and failure record downstream carries it as given.
+    The disk edge of `run_loaded_comparison_batch`.
     """
-    case_config_path = case_config_path.resolve()
-    master_cfg, _ = load_validated_case_config(case_config_path, settings)
+    master_cfg, _ = load_validated_case_config(case_config_path.path, settings)
     return run_loaded_comparison_batch(
         master_cfg, case_config_path, params, settings, tracking=tracking
     )
@@ -144,7 +143,7 @@ def run_comparison_batch(
 
 def run_loaded_comparison_batch(
     master_cfg: CaseConfig,
-    case_config_path: Path,
+    case_config_path: CaseConfigPath,
     params: ComparisonParams,
     settings: NeurallsSettings,
     *,
@@ -176,7 +175,8 @@ def run_loaded_comparison_batch(
             "Case config must define at least one [[comparisons]] or [[comparison_sweeps]] entry."
         )
 
-    topology = resolve_comparison_topology(master_cfg, case_config_path, settings)
+    case_path = case_config_path.path
+    topology = resolve_comparison_topology(master_cfg, case_path, settings)
     setup_comparison_tracking(
         tracking_uri=topology.tracking_uri,
         artifact_location=topology.artifact_location,
@@ -188,7 +188,7 @@ def run_loaded_comparison_batch(
         batch = prepare_comparison_batch(
             master_cfg,
             topology,
-            case_config_path,
+            case_path,
             settings,
             tracking,
             stack,
@@ -203,4 +203,4 @@ def run_loaded_comparison_batch(
                 else ComparisonReused(comparison_id=item.entry.id, run=item.run_name)
                 for item in batch.items
             ]
-        return _run_session(batch, partition.executions, topology, case_config_path, tracking)
+        return _run_session(batch, partition.executions, topology, case_path, tracking)

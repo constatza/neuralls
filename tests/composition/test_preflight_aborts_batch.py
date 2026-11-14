@@ -33,6 +33,7 @@ from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.methods import DuplicateMethodPresentationError
 from neuralls.domain.presentation.provenance import DatasetSourceProvenance
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.models.checkpoint_refs import TrainedAssignmentRefConfig
 from neuralls.platform.config.models.coarsening import PODCoarseningConfig
 from neuralls.platform.config.models.experiments import CaseConfig
@@ -107,7 +108,9 @@ def _run_expecting_abort(
         patch(MLFLOW_MODULE) as mock_mlflow,
         pytest.raises(error),
     ):
-        run_comparison_batch(experiments_config, ComparisonParams(), settings)
+        run_comparison_batch(
+            CaseConfigPath.resolve(experiments_config), ComparisonParams(), settings
+        )
     return mock_mlflow
 
 
@@ -173,7 +176,7 @@ class TestPresentationFailureAbortsTheBatch:
             patch(MLFLOW_MODULE) as mock_mlflow,
         ):
             outcomes = run_comparison_batch(
-                experiments_config, ComparisonParams(), neuralls_settings
+                CaseConfigPath.resolve(experiments_config), ComparisonParams(), neuralls_settings
             )
         assert calls
         assert len(outcomes) == 2

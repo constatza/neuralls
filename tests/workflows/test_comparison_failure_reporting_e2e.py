@@ -22,6 +22,7 @@ from neuralls.composition.comparison.models import (
     ComparisonParams,
     ComparisonReused,
 )
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.tracking.report_sink import (
     GROUP_REPORT_ARTIFACT_DIR,
@@ -110,11 +111,11 @@ def test_failed_report_finalization_is_retried_on_the_next_call(
 
     monkeypatch.setattr(MLflowReportSink, "finalize", fail_once)
 
-    computed = run_comparison_batch(case_path, ComparisonParams(), settings)
+    computed = run_comparison_batch(CaseConfigPath.resolve(case_path), ComparisonParams(), settings)
     with pytest.raises(RuntimeError):
-        run_comparison_report(case_path, settings=settings)
-    recovered = run_comparison_report(case_path, settings=settings)
-    reused = run_comparison_batch(case_path, ComparisonParams(), settings)
+        run_comparison_report(CaseConfigPath.resolve(case_path), settings=settings)
+    recovered = run_comparison_report(CaseConfigPath.resolve(case_path), settings=settings)
+    reused = run_comparison_batch(CaseConfigPath.resolve(case_path), ComparisonParams(), settings)
 
     assert all(isinstance(outcome, ComparisonCompleted) for outcome in computed)
     assert all(isinstance(outcome, ComparisonReused) for outcome in reused)
@@ -167,7 +168,7 @@ def test_blocking_matrix_load_failure_marks_child_and_parent_with_exact_diagnost
     monkeypatch.setattr(comparison_schedule, "_load_one_matrix_workload", fail_matrix_load)
 
     with pytest.raises(RuntimeError) as raised:
-        run_comparison_batch(case_path, ComparisonParams(), settings)
+        run_comparison_batch(CaseConfigPath.resolve(case_path), ComparisonParams(), settings)
 
     assert raised.value is original
     client = MlflowClient(tracking_uri=mlflow_tracking_uri)
@@ -230,7 +231,7 @@ def test_recoverable_setup_failure_warns_persists_and_allows_later_method(
         return original_build(service, matrix, config)
 
     monkeypatch.setattr(comparison_run, "_build_scheduled", fail_identity)
-    outcomes = run_comparison_batch(case_path, ComparisonParams(), settings)
+    outcomes = run_comparison_batch(CaseConfigPath.resolve(case_path), ComparisonParams(), settings)
 
     assert outcomes and all(isinstance(outcome, ComparisonCompleted) for outcome in outcomes)
     client = MlflowClient(tracking_uri=mlflow_tracking_uri)

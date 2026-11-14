@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from neuralls.platform.config.case_path import CaseConfigPath as CaseConfigPath
 from neuralls.platform.config.loaders import load_raw_toml as load_raw_toml
 from neuralls.platform.config.profile import (
     PROFILE_ENV_VAR as PROFILE_ENV_VAR,

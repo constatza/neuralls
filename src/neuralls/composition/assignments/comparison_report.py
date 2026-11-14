@@ -30,6 +30,7 @@ from neuralls.composition.comparison.postprocessing.system_figures import write_
 from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
 from neuralls.domain.solver.models.benchmark_events import SolveConverged
 from neuralls.domain.solver.models.report_scope import System
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.models.figure_style import FigureStyleConfig
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.figure_index import FIGURE_INDEX_FILE, read_figure_index
@@ -82,7 +83,7 @@ type ComparisonReportOutcome = ReportReused | ReportCreated
 
 
 def run_comparison_report(
-    case_config_path: Path,
+    case_config_path: CaseConfigPath,
     *,
     force: bool = False,
     session_run_id: SessionRunId | None = None,
@@ -90,14 +91,14 @@ def run_comparison_report(
     tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> ComparisonReportOutcome:
     """Render the newest (or the named) comparison session of a case config into a report run."""
-    case_config_path = case_config_path.resolve()
-    master_cfg, _ = load_validated_case_config(case_config_path, settings)
-    topology = resolve_comparison_topology(master_cfg, case_config_path, settings)
+    case_path = case_config_path.path
+    master_cfg, _ = load_validated_case_config(case_path, settings)
+    topology = resolve_comparison_topology(master_cfg, case_path, settings)
     notation = case_notation(master_cfg)
     figure_style = case_figure_style(master_cfg)
     client = tracking.client(topology.tracking_uri)
     session = session_run_id or latest_session_run_id(
-        client, topology.experiment_name, case_config_path.as_posix()
+        client, topology.experiment_name, case_path.as_posix()
     )
     notation_digest = canonical_digest(notation).split(":", 1)[1][:NOTATION_DIGEST_LENGTH]
     source_tags = {
@@ -146,7 +147,7 @@ def run_comparison_report(
                 failure_sink,
                 ComparisonBatchFailureContext(
                     phase=ComparisonBatchPhase.REPORTING,
-                    case_config_path=case_config_path,
+                    case_config_path=case_path,
                 ),
             ):
                 sink.register_method_figures(datasets=inputs.datasets)
@@ -164,7 +165,7 @@ def run_comparison_report(
                 failure_sink,
                 ComparisonBatchFailureContext(
                     phase=ComparisonBatchPhase.FINALIZATION,
-                    case_config_path=case_config_path,
+                    case_config_path=case_path,
                 ),
             ):
                 sink.finalize()

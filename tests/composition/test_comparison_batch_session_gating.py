@@ -46,7 +46,7 @@ from neuralls.shared.workflow_failures import (
 )
 from tests.workflows.comparison_support import (
     MLFLOW_MODULE,
-    VIRTUAL_CASE_PATH,
+    VIRTUAL_CASE,
     in_memory_case,
     mock_cfg,
     virtual_settings,
@@ -85,7 +85,7 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
     ):
         outcomes = run_loaded_comparison_batch(
             case,
-            VIRTUAL_CASE_PATH,
+            VIRTUAL_CASE,
             ComparisonParams(),
             virtual_settings(),
             tracking=fake_tracking,
@@ -163,7 +163,7 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
     ):
         outcomes = run_loaded_comparison_batch(
             case,
-            VIRTUAL_CASE_PATH,
+            VIRTUAL_CASE,
             ComparisonParams(),
             virtual_settings(),
             tracking=fake_tracking,
@@ -238,7 +238,7 @@ def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
         mock_mlflow.start_run.return_value.__exit__.return_value = False
         run_loaded_comparison_batch(
             case,
-            VIRTUAL_CASE_PATH,
+            VIRTUAL_CASE,
             ComparisonParams(),
             virtual_settings(),
             tracking=fake_tracking,
@@ -248,5 +248,5 @@ def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
     context = failure_sink.record.call_args.args[0]
     assert context == ComparisonBatchFailureContext(
         phase=ComparisonBatchPhase.METHOD_WORKLOADS,
-        case_config_path=VIRTUAL_CASE_PATH,
+        case_config_path=VIRTUAL_CASE.path,
     )

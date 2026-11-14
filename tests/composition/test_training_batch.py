@@ -36,6 +36,7 @@ from neuralls.domain.presentation.run_names import (
     training_dataset,
 )
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.constants import (
     TRAINING_CHILD_DURATION_METRIC_KEY,
@@ -143,7 +144,7 @@ def test_sweep_registers_child_timing_tracker_as_lifecycle_hooks(
         run_multirun_spec = _patch_sweep_collaborators(
             stack, child_outcome=child_failure, presentation=training_presentation
         )
-        run_assignment_sweep(Path("workspace/case.toml"), neuralls_settings)
+        run_assignment_sweep(CaseConfigPath.resolve(Path("workspace/case.toml")), neuralls_settings)
 
     hooks = run_multirun_spec.call_args.kwargs["hooks"]
     assert isinstance(hooks, LifecycleHooks)

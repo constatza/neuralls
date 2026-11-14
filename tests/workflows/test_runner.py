@@ -20,6 +20,7 @@ from neuralls.composition.assignments.training_batch import run_assignment_sweep
 from neuralls.composition.generation.process_data import process_data_from_config
 from neuralls.composition.tracking.run_specs import training_run_name
 from neuralls.domain.presentation.run_names import TrainingPresentation
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 
 pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
@@ -265,7 +266,7 @@ def test_run_assignments_full_flow(
     ):
         # 6. Run the flow
         sweep = run_assignment_sweep(
-            case_config_path=master_config_path,
+            case_config_path=CaseConfigPath.resolve(master_config_path),
             settings=neuralls_settings,
             force=True,
         )
@@ -405,7 +406,7 @@ def test_run_assignment_sweep_with_mlflow(
     ):
         # 5. Run the flow with MLflow enabled
         sweep = run_assignment_sweep(
-            case_config_path=master_config_path,
+            case_config_path=CaseConfigPath.resolve(master_config_path),
             settings=neuralls_settings,
             force=True,
         )

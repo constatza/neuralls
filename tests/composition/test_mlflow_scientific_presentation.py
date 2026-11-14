@@ -63,7 +63,7 @@ from tests.fakes.mlflow_client import FakeMlflowClient
 from tests.presentation_support import datasets_by_dir, pod_spec
 from tests.workflows.comparison_support import (
     MLFLOW_MODULE,
-    VIRTUAL_CASE_PATH,
+    VIRTUAL_CASE,
     in_memory_case,
     mock_cfg,
     virtual_settings,
@@ -117,7 +117,7 @@ def test_recorded_pod_digest_mismatch_blocks_before_presentation_reuse_or_run(
         pytest.raises(ValueError, match="training dataset digest mismatch"),
     ):
         run_loaded_comparison_batch(
-            case, VIRTUAL_CASE_PATH, ComparisonParams(), virtual_settings(), tracking=fake_tracking
+            case, VIRTUAL_CASE, ComparisonParams(), virtual_settings(), tracking=fake_tracking
         )
     preflight.assert_not_called()
     mlflow.start_run.assert_not_called()
@@ -164,7 +164,7 @@ def test_unavailable_checkpoint_provenance_emits_exact_warning(
         ):
             run_loaded_comparison_batch(
                 case,
-                VIRTUAL_CASE_PATH,
+                VIRTUAL_CASE,
                 ComparisonParams(),
                 virtual_settings(),
                 tracking=fake_tracking,
@@ -230,7 +230,7 @@ def _session_run_names(
         mock_mlflow.start_run.return_value.__exit__.return_value = False
         run_loaded_comparison_batch(
             case,
-            VIRTUAL_CASE_PATH,
+            VIRTUAL_CASE,
             ComparisonParams(),
             virtual_settings(),
             tracking=fake_tracking,

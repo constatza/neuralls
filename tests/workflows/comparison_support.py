@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import tomli_w
 
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.context import ConfigContext
 from neuralls.platform.config.loaders import parse_case_config
 from neuralls.platform.config.models.experiments import CaseConfig
@@ -103,6 +104,9 @@ def write_experiments_config(
 
 VIRTUAL_CASE_PATH = Path("virtual/case/experiments.toml")
 """Where an in-memory case config pretends to live; nothing is ever read or written there."""
+
+VIRTUAL_CASE = CaseConfigPath.resolve(VIRTUAL_CASE_PATH)
+"""`VIRTUAL_CASE_PATH` as the absolute path the batch entry points take."""
 
 VIRTUAL_HOME = Path("virtual/home")
 """The home directory an in-memory context expands ``~`` from."""

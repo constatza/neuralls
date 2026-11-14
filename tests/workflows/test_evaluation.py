@@ -33,6 +33,7 @@ from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
 )
 from neuralls.domain.presentation.run_names import TrainingPresentation
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.dataset_entries import entry_from_path
 from neuralls.platform.config.loaders import load_case_config
 from neuralls.platform.config.models.experiments import AssignmentEntry, CaseConfig
@@ -354,7 +355,7 @@ def test_eval_batch_continues_after_one_assignment_fails(
         batch = eval_batch(
             cfg=cfg,
             settings=neuralls_settings,
-            case_config_path=two_assignment_case_config,
+            case_config_path=CaseConfigPath.resolve(two_assignment_case_config),
         )
 
     assert mock_prepare.call_count == 2
@@ -407,7 +408,7 @@ def test_eval_batch_falls_back_to_own_parent_run_when_every_assignment_fails(
         batch = eval_batch(
             cfg=cfg,
             settings=neuralls_settings,
-            case_config_path=two_assignment_case_config,
+            case_config_path=CaseConfigPath.resolve(two_assignment_case_config),
         )
 
     assert not mock_sweep.called

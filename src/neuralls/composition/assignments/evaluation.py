@@ -46,6 +46,7 @@ from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServ
 from neuralls.domain.identity import StageIdentity
 from neuralls.domain.presentation.run_names import NamedRun, TrainingPresentation, training_dataset
 from neuralls.domain.presentation.titles import ComparisonScopePresentation, session_title
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.models.experiments import (
     AssignmentEntry,
     CaseConfig,
@@ -624,14 +625,14 @@ def _resolve_eval_parent_run(
 
 def eval_batch(
     cfg: CaseConfig,
-    case_config_path: Path,
+    case_config_path: CaseConfigPath,
     settings: NeurallsSettings,
     output_root: Path | None = None,
     assignment_ids: Sequence[str] | None = None,
     tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> EvaluationBatchResult:
     """Evaluate selected assignments from one case config as one dlkit multirun sweep."""
-    configs_dir = case_config_path.parent
+    configs_dir = case_config_path.config_dir
     selected_ids = set(assignment_ids or ())
     assignments = [
         assignment
@@ -669,7 +670,7 @@ def eval_batch(
                 ]
             ),
             notation=case_notation(cfg),
-            case_config_path=case_config_path,
+            case_config_path=case_config_path.path,
             experiment_name=mlflow_experiment_name,
             phase="session_evaluation",
         )
@@ -683,7 +684,7 @@ def eval_batch(
                 configs_dir=configs_dir,
                 settings=settings,
                 output_root=base_output,
-                case_config_path=case_config_path,
+                case_config_path=case_config_path.path,
                 tracking=tracking,
                 tracking_uri=eval_mlflow_env.tracking_uri,
                 artifact_leases=artifact_leases,

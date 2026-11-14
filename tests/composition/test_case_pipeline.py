@@ -10,8 +10,9 @@ from unittest.mock import MagicMock, patch
 from neuralls.application.models import AssignmentSweepResult
 from neuralls.composition.assignments.case_pipeline import ForcePolicy, run_case_pipeline
 from neuralls.composition.comparison.models import ComparisonParams
+from neuralls.platform.config.case_path import CaseConfigPath
 
-CASE_CONFIG_PATH = Path("workspace/case.toml")
+CASE_CONFIG = CaseConfigPath.resolve(Path("workspace/case.toml"))
 
 
 @dataclass
@@ -61,7 +62,7 @@ def _patch_pipeline(
 
 
 def test_skips_comparison_batch_when_case_config_declares_none() -> None:
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=False)
@@ -76,7 +77,7 @@ def test_skips_comparison_batch_when_case_config_declares_none() -> None:
 
 
 def test_runs_comparison_batch_when_case_config_declares_only_sweeps() -> None:
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=False, has_sweeps=True)
@@ -91,7 +92,7 @@ def test_skips_assignment_sweep_when_case_config_declares_none() -> None:
     comparison_baseline, e.g. POD-2G weighting variants) must not hit
     load_assignment_batch's "no assignments" error.
     """
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=True, has_assignments=False)
@@ -105,7 +106,7 @@ def test_skips_assignment_sweep_when_case_config_declares_none() -> None:
 
 
 def test_runs_comparison_batch_when_case_config_declares_comparisons() -> None:
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=True)
@@ -118,7 +119,7 @@ def test_runs_comparison_batch_when_case_config_declares_comparisons() -> None:
 
 
 def test_threads_force_flags_to_each_stage() -> None:
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=True)
@@ -145,13 +146,13 @@ def test_run_case_pipeline_calls_generate_batch_as_an_explicit_stage() -> None:
     reuses the same generate-stage function `neuralls generate` uses, instead of
     a second, independent generation trigger buried inside the training step.
     """
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     call_order: list[str] = []
     with (
         patch(
             "neuralls.composition.assignments.case_pipeline.load_validated_case_config",
-            return_value=(MagicMock(comparisons=(), comparison_sweeps=()), CASE_CONFIG_PATH.parent),
+            return_value=(MagicMock(comparisons=(), comparison_sweeps=()), CASE_CONFIG.config_dir),
         ),
         patch(
             "neuralls.composition.assignments.case_pipeline.generate_batch",
@@ -173,7 +174,7 @@ def test_run_case_pipeline_calls_generate_batch_as_an_explicit_stage() -> None:
 
 def test_sweep_runs_before_comparison_batch() -> None:
     """Comparisons must resolve checkpoints from a sweep that already ran."""
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     call_order: list[str] = []
     with (
@@ -204,7 +205,7 @@ def test_releases_device_memory_between_sweep_and_comparison() -> None:
     their own — a CUDA-heavy sweep otherwise leaves the caching allocator
     holding blocks that starve the comparison stage that runs right after it.
     """
-    case_config_path = CASE_CONFIG_PATH
+    case_config_path = CASE_CONFIG
     settings = MagicMock()
     call_order: list[str] = []
     with (
@@ -234,12 +235,10 @@ def test_releases_device_memory_between_sweep_and_comparison() -> None:
     assert call_order == ["sweep", "release", "compare"]
 
 
-def test_hands_the_comparison_stage_an_absolute_case_path() -> None:
-    """The comparison session tag must match the absolute path `report` looks sessions up by."""
+def test_hands_the_comparison_stage_the_case_path_it_was_given() -> None:
+    """The comparison session tag must carry the very path `report` looks sessions up by."""
     with ExitStack() as stack:
         mocks = _patch_pipeline(stack, has_comparisons=True)
-        run_case_pipeline(CASE_CONFIG_PATH, MagicMock(), force=ForcePolicy())
+        run_case_pipeline(CASE_CONFIG, MagicMock(), force=ForcePolicy())
 
-    case_path = mocks.compare.call_args.args[1]
-    assert case_path.is_absolute()
-    assert case_path.parts[-2:] == CASE_CONFIG_PATH.parts
+    assert mocks.compare.call_args.args[1] is CASE_CONFIG

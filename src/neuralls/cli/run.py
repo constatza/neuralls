@@ -13,7 +13,7 @@ from neuralls.cli.options import (
 )
 from neuralls.composition.assignments.case_pipeline import ForcePolicy, run_case_pipeline
 from neuralls.composition.comparison.models import ComparisonEntryFailed
-from neuralls.composition.config import load_case_settings
+from neuralls.composition.config import CaseConfigPath, load_case_settings
 from neuralls.composition.display import assignment_label, comparison_label
 from neuralls.composition.tracking.services import MLFLOW_TRACKING
 from neuralls.shared.constants import EXIT_FAILURE
@@ -68,7 +68,7 @@ def run_case_pipeline_command(
             typer.echo("Force mode enabled: generation, training, and comparison will all rerun.")
 
         results, comparison_outcomes = run_case_pipeline(
-            case_config_path=config,
+            case_config_path=CaseConfigPath.resolve(config),
             settings=settings,
             force=policy,
             tracking=MLFLOW_TRACKING,

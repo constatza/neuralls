@@ -37,6 +37,7 @@ from neuralls.composition.comparison.models import (
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpec
 from neuralls.domain.solver.models.figure_scope import SystemScope
 from neuralls.domain.solver.reporting.report_levels import ReportLevelName
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.benchmark_events import MethodBenchmarkArtifacts
@@ -374,7 +375,7 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
     client.set_terminated(legacy.info.run_id, status="FINISHED")
 
     outcomes = run_comparison_batch(
-        case_config_path=experiments_config,
+        case_config_path=CaseConfigPath.resolve(experiments_config),
         params=ComparisonParams(),
         settings=neuralls_settings,
     )
@@ -409,7 +410,9 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
         if item.path != "method_workload"
     ]
 
-    report = run_comparison_report(experiments_config, settings=neuralls_settings)
+    report = run_comparison_report(
+        CaseConfigPath.resolve(experiments_config), settings=neuralls_settings
+    )
     assert report.session_run_id == session_id
     assert isinstance(report, ReportCreated)
     reports = MlflowClient(tracking_uri=tracking_uri)
@@ -513,7 +516,9 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
         )
     )
     reused = run_comparison_batch(
-        case_config_path=experiments_config, params=ComparisonParams(), settings=neuralls_settings
+        case_config_path=CaseConfigPath.resolve(experiments_config),
+        params=ComparisonParams(),
+        settings=neuralls_settings,
     )
     assert reused and isinstance(reused[0], ComparisonReused)
     assert (
@@ -526,11 +531,14 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
     )
 
     assert isinstance(
-        run_comparison_report(experiments_config, settings=neuralls_settings), ReportReused
+        run_comparison_report(
+            CaseConfigPath.resolve(experiments_config), settings=neuralls_settings
+        ),
+        ReportReused,
     )
 
     forced = run_comparison_batch(
-        case_config_path=experiments_config,
+        case_config_path=CaseConfigPath.resolve(experiments_config),
         params=ComparisonParams(force=True),
         settings=neuralls_settings,
     )
@@ -550,7 +558,9 @@ def test_comparison_logs_artifacts_to_mlflow_with_sqlite(
 
     monkeypatch.setattr(comparison_report, "report_all_levels", fail_report)
     with pytest.raises(RuntimeError, match="report boom"):
-        run_comparison_report(experiments_config, settings=neuralls_settings)
+        run_comparison_report(
+            CaseConfigPath.resolve(experiments_config), settings=neuralls_settings
+        )
     failed = client.search_runs(
         experiment_ids=[reports_experiment_id],
         filter_string=f"tags.phase = '{REPORT_PHASE}' and attributes.status = 'FAILED'",

@@ -70,6 +70,7 @@ from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServ
 from neuralls.domain.identity import Reused
 from neuralls.domain.presentation.run_names import TrainingPresentation, training_dataset
 from neuralls.domain.presentation.titles import ComparisonScopePresentation, session_title
+from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
 from neuralls.platform.config.models.workspace import AssignmentSpec
@@ -364,7 +365,7 @@ class _ChildTimingTracker:
 
 
 def run_assignment_sweep(
-    case_config_path: Path,
+    case_config_path: CaseConfigPath,
     settings: NeurallsSettings,
     *,
     force: bool = False,
@@ -403,26 +404,25 @@ def run_assignment_sweep(
 
     Example:
         >>> sweep = run_assignment_sweep(
-        ...     Path("/tmp/case.toml"),
+        ...     CaseConfigPath.resolve(Path("case.toml")),
         ...     settings,
         ...     force=False,
         ... )
         >>> success_count = sum(1 for r in sweep.results if r.status == "Success")
         >>> print(f"{success_count}/{len(sweep.results)} assignments succeeded")
     """
-    # The disk edge: resolved once, so the session tag carries an absolute case path.
-    case_config_path = case_config_path.resolve()
+    case_path = case_config_path.path
 
     # Load all assignment definitions from the case config
-    batch = load_assignment_batch(case_config_path, settings)
+    batch = load_assignment_batch(case_path, settings)
     assignments = batch.assignments
 
-    logger.info(f"Training {len(assignments)} assignments from {case_config_path}")
+    logger.info(f"Training {len(assignments)} assignments from {case_path}")
 
     # Resolve the case-level MLflow topology once. Every assignment needing
     # training joins one dlkit multirun sweep below — dlkit owns that sweep's
     # parent run's lifecycle and per-child failure isolation natively.
-    cfg, config_dir = load_validated_case_config(case_config_path, settings)
+    cfg, config_dir = load_validated_case_config(case_path, settings)
     presentations = training_presentations(
         cfg,
         config_dir=config_dir,
@@ -452,7 +452,7 @@ def run_assignment_sweep(
                 ]
             ),
             notation=case_notation(cfg),
-            case_config_path=case_config_path,
+            case_config_path=case_path,
             experiment_name=mlflow_experiment_name,
             phase="session_training",
         )
