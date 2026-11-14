@@ -76,9 +76,9 @@ def write_outcome_plots(
     directory: Path,
     plans: Sequence[FigurePlan[GroupFigureMetadata]],
 ) -> tuple[StagedTabledFigure, ...]:
-    """Draw every planned figure that has a summary and whose data supports it, in plan order.
+    """Draw every planned figure whose data supports it, in plan order.
 
-    ``summaries`` holds the frame of each variant by stem; a figure of one cohort draws that
+    ``summaries`` holds the frame of each planned variant by stem (``figure_summaries``); a figure of one cohort draws that
     cohort's rows of it and the observations of its systems (a table that is not split by cohort
     is drawn whole), and is staged with the rows it drew
     as its table.
@@ -88,9 +88,7 @@ def write_outcome_plots(
     for plan in plans:
         metadata = plan.metadata
         recipe = group_recipe(metadata.kind)
-        summary = summaries.get(recipe.variant(metadata.metric, metadata.population).stem)
-        if summary is None:
-            continue
+        summary = summaries[recipe.variant(metadata.metric, metadata.population).stem]
         if is_cohort_table(recipe.table):
             summary = cohort_rows(summary, metadata.cohort)
         data = FigureData(

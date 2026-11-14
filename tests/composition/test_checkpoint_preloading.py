@@ -23,12 +23,13 @@ from neuralls.composition.comparison.models import (
 from neuralls.composition.preconditioners import preloading
 from neuralls.composition.preconditioners.builders import _BuildDeps, _create_predictor
 from neuralls.composition.preconditioners.checkpoint_store import (
+    CheckpointLoaders,
     CheckpointStore,
     PodBasisKey,
     PredictorKey,
 )
 from neuralls.composition.preconditioners.factory import create_preconditioner
-from neuralls.composition.preconditioners.preloading import CheckpointLoaders, preload_checkpoints
+from neuralls.composition.preconditioners.preloading import preload_checkpoints
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models.config import SolverParams
 from neuralls.platform.config.models.checkpoint_refs import NeuralCheckpointRef
@@ -47,6 +48,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.timing import TimingRepeatPolicy
 from neuralls.shared.types import DatasetId
 from tests.composition.workload_support import matrix_bundle
+from tests.loaders_support import CPU, cpu_loaders
 from tests.presentation_support import PreparedMethodFactory
 
 CHECKPOINT_DIR = Path("virtual/checkpoints")
@@ -97,10 +99,7 @@ def adapter() -> RecordingAdapter:
 
 @pytest.fixture
 def loaders(adapter: RecordingAdapter) -> CheckpointLoaders:
-    def no_inference_predictor(path: Path) -> None:
-        raise AssertionError(f"unexpected inference predictor for {path}")
-
-    return CheckpointLoaders(adapter, no_inference_predictor)  # type: ignore[arg-type]
+    return cpu_loaders(adapter)
 
 
 @pytest.fixture
@@ -135,7 +134,7 @@ def test_a_built_preconditioner_gc_does_not_unload_the_shared_predictor(
     store = CheckpointStore()
     adapter = RecordingAdapter()
     cfg = NeuralPreconditionerConfig(checkpoint_path=checkpoint)
-    preload_checkpoints(cfg, matrix, store, CheckpointLoaders(adapter, lambda path: None))  # type: ignore[arg-type,return-value]
+    preload_checkpoints(cfg, matrix, store, cpu_loaders(adapter))
 
     discarded = create_preconditioner(matrix, cfg, preloaded=store)
     kept = create_preconditioner(matrix, cfg, preloaded=store)
@@ -159,9 +158,9 @@ def test_neural_amg_transfer_predictors_are_borrowed_from_the_store(
     cfg = NeuralAMGPreconditionerConfig(prolongation=prolongation, restriction=restriction)
     store = CheckpointStore()
     loading = RecordingAdapter()
-    preload_checkpoints(cfg, matrix, store, CheckpointLoaders(loading, lambda path: None))  # type: ignore[arg-type,return-value]
+    preload_checkpoints(cfg, matrix, store, cpu_loaders(loading))
     failing_adapter = RecordingAdapter()
-    deps = _BuildDeps(adapter=failing_adapter, inference_predictor_factory=None, preloaded=store)
+    deps = _BuildDeps(loaders=cpu_loaders(failing_adapter), preloaded=store)
 
     borrowed_p = _create_predictor(prolongation, CHECKPOINT_DIR / "p.ckpt", deps)
     borrowed_r = _create_predictor(restriction, CHECKPOINT_DIR / "r.ckpt", deps)
@@ -178,7 +177,7 @@ def test_without_a_preload_the_built_preconditioner_owns_and_releases_its_predic
     adapter = RecordingAdapter()
     cfg = NeuralPreconditionerConfig(checkpoint_path=checkpoint)
 
-    precond = create_preconditioner(matrix, cfg, adapter=adapter)
+    precond = create_preconditioner(matrix, cfg, loaders=cpu_loaders(adapter))
     assert isinstance(precond, OwningDLKitNeuralPreconditioner)
     precond.cleanup()
     precond.cleanup()
@@ -312,6 +311,7 @@ def _run(
         params=_solver_params(repeats),
         settings=settings,
         training_runs=training_runs,
+        device=CPU,
     )
 
 

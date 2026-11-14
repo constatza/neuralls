@@ -21,16 +21,16 @@ from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 from torchalg.sparse.preconditioners.pod.coarsening import (
     PODCoarseningStrategy as SparsePODCoarseningStrategy,
 )
-from torchalg.utils.device import resolve_device
 
 from neuralls.application.inference.prediction import collect_predictions, stack_predictions
 from neuralls.composition.preconditioners._weighting import resolve_row_scales
 from neuralls.composition.preconditioners.checkpoint_store import (
     NO_PRELOADED,
+    CheckpointLoaders,
     PodBasisKey,
-    PredictorFactory,
     PreloadedCheckpoints,
     preloaded_inference_factory,
+    require_loaders,
 )
 from neuralls.platform.config.models.coarsening import (
     AggregationCoarseningConfig,
@@ -39,7 +39,6 @@ from neuralls.platform.config.models.coarsening import (
     TargetDimCoarseningConfig,
 )
 from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
-from neuralls.platform.dlkit.inference_adapter import create_inference_predictor
 
 if TYPE_CHECKING:
     from torchalg.preconditioners.implementations.amg.protocols import CoarseningStrategy
@@ -158,7 +157,7 @@ def _pod_coarsening(
 def _neural_pod_coarsening(
     cfg: NeuralPODCoarseningConfig,
     matrix: torch.Tensor,
-    inference_predictor_factory: PredictorFactory | None,
+    loaders: CheckpointLoaders | None,
     pod_cls: type[PODStrategy],
     preloaded: PreloadedCheckpoints,
     staged_fit_data: tuple[np.ndarray, ...] | None = None,
@@ -169,9 +168,10 @@ def _neural_pod_coarsening(
         raise ValueError(
             "NeuralPODCoarseningConfig requires checkpoint_path or resolved_checkpoint_path"
         )
-    factory = preloaded_inference_factory(
-        inference_predictor_factory or create_inference_predictor, preloaded
-    )
+    # Loaders are needed even when the predictor was preloaded: their device is the one the
+    # prediction's memory is measured on.
+    loaders = require_loaders(loaders, "neural POD-2G coarsening")
+    factory = preloaded_inference_factory(loaders.inference_predictor_factory, preloaded)
 
     if staged_fit_data is None:
         raise ValueError(
@@ -189,7 +189,7 @@ def _neural_pod_coarsening(
     feature_batch = dict(zip(input_names, param_arrays))
     with factory(ckpt) as predictor:
         raw_predictions, _ = collect_predictions(
-            predictor, feature_batch, batch_size=PREDICTION_BATCH_SIZE, device=resolve_device()
+            predictor, feature_batch, batch_size=PREDICTION_BATCH_SIZE, device=loaders.device
         )
     predicted = stack_predictions(raw_predictions)
     if cfg.n_snapshots != -1:
@@ -202,7 +202,7 @@ def _neural_pod_coarsening(
 def _build_amg_coarsening(
     matrix: torch.Tensor,
     config: AMGPreconditionerConfig,
-    inference_predictor_factory: PredictorFactory | None = None,
+    loaders: CheckpointLoaders | None = None,
     *,
     sparse: bool = False,
     preloaded: PreloadedCheckpoints = NO_PRELOADED,
@@ -213,9 +213,8 @@ def _build_amg_coarsening(
     Args:
         matrix: System matrix A; used to match dtype/device of fitted snapshots.
         config: AMG preconditioner configuration.
-        inference_predictor_factory: Optional batch-inference predictor factory for
-            neural POD-2G coarsening (DI for testing); defaults to
-            `create_inference_predictor`.
+        loaders: Checkpoint loaders and their device, needed only by neural POD-2G
+            coarsening.
         sparse: True when A is CSR. POD-2G then uses torchalg's sparse strategy, so
             the transfer operator is built from A without densifying it.
         preloaded: Checkpoints loaded ahead of the build (see `checkpoint_store`);
@@ -240,7 +239,7 @@ def _build_amg_coarsening(
             return _neural_pod_coarsening(
                 neural_pod,
                 matrix,
-                inference_predictor_factory,
+                loaders,
                 pod_cls,
                 preloaded,
                 staged_fit_data,

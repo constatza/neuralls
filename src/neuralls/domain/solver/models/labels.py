@@ -32,8 +32,9 @@ class AllMatrixSetsLabel:
 
 
 type GroupLabel = MatrixSetRhsTypeLabel | MatrixSetLabel | AllMatrixSetsLabel
-"""Identifies the keys of one report group. Matrix-set and all-matrix-sets
-groups are mixtures: their spread mostly reflects RHS types differing, so titles must say so."""
+"""Identifies the keys of one report group. A matrix-set or all-matrix-sets group pooling two or
+more RHS types is a mixture: its spread mostly reflects RHS types differing, so titles must say
+so; one pooling a single RHS type is drawn as that type."""
 
 
 def render_group_id(label: GroupLabel) -> GroupId:

@@ -34,6 +34,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.dlkit.predictor_adapter import _prepare_model_input
 from neuralls.shared.types import MatrixFormat
+from tests.loaders_support import cpu_loaders
 
 RELATIVE_REMAINING_BOUND = 0.5
 POD_RANK = 8
@@ -187,7 +188,7 @@ def test_neural_csr_request_reaches_dense_neural_builder(
     precond = create_preconditioner(
         _to_torch_operator(laplacian_csr),
         config,
-        adapter=stub_adapter,
+        loaders=cpu_loaders(adapter=stub_adapter),
         matrix_format=MatrixFormat.CSR,
     )
 

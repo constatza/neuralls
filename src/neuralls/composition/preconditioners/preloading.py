@@ -10,18 +10,17 @@ to the runner.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 
 import torch
-from torchalg.preconditioners.ports import PredictorAdapter
 
 from neuralls.composition.preconditioners.checkpoint_store import (
+    CheckpointLoaders,
     CheckpointStore,
     PodBasisKey,
-    PredictorFactory,
     PredictorKey,
+    require_loaders,
 )
 from neuralls.composition.preconditioners.coarsening import load_fitted_pod_model
 from neuralls.platform.config.models.checkpoint_refs import (
@@ -37,25 +36,9 @@ from neuralls.platform.config.models.preconditioner import (
     NeuralTransferConfig,
     PreconditionerConfig,
 )
-from neuralls.platform.dlkit.inference_adapter import create_inference_predictor
-from neuralls.platform.dlkit.predictor_adapter import DLKitAdapter
-
-
-@dataclass(frozen=True, slots=True)
-class CheckpointLoaders:
-    """The injected collaborators that turn a checkpoint path into a loaded object."""
-
-    adapter: PredictorAdapter
-    inference_predictor_factory: PredictorFactory
-
-    @classmethod
-    def default(cls, adapter: PredictorAdapter | None = None) -> CheckpointLoaders:
-        """DLKit-backed loaders, with ``adapter`` replacing the DLKit adapter when given."""
-        return cls(adapter or DLKitAdapter(), create_inference_predictor)
-
 
 type RefPreloader = Callable[
-    [NeuralCheckpointRef, Path, torch.Tensor, CheckpointStore, CheckpointLoaders], None
+    [NeuralCheckpointRef, Path, torch.Tensor, CheckpointStore, CheckpointLoaders | None], None
 ]
 
 
@@ -64,7 +47,7 @@ def _preload_pod_basis(
     path: Path,
     matrix: torch.Tensor,
     store: CheckpointStore,
-    loaders: CheckpointLoaders,
+    loaders: CheckpointLoaders | None,
 ) -> None:
     del ref, loaders
     key = PodBasisKey(path, matrix.dtype, matrix.device)
@@ -78,12 +61,14 @@ def _preload_predictor(
     path: Path,
     matrix: torch.Tensor,
     store: CheckpointStore,
-    loaders: CheckpointLoaders,
+    loaders: CheckpointLoaders | None,
 ) -> None:
     del matrix
     store.load_predictor(
         PredictorKey(path),
-        lambda: loaders.adapter.create_predictor(path, ref.config_path, ref.data_config_path),
+        lambda: require_loaders(loaders, f"preloading {path}").adapter.create_predictor(
+            path, ref.config_path, ref.data_config_path
+        ),
     )
 
 
@@ -92,11 +77,12 @@ def _preload_inference_predictor(
     path: Path,
     matrix: torch.Tensor,
     store: CheckpointStore,
-    loaders: CheckpointLoaders,
+    loaders: CheckpointLoaders | None,
 ) -> None:
     del ref, matrix
     store.load_inference_predictor(
-        PredictorKey(path), lambda: loaders.inference_predictor_factory(path)
+        PredictorKey(path),
+        lambda: require_loaders(loaders, f"preloading {path}").inference_predictor_factory(path),
     )
 
 
@@ -115,12 +101,13 @@ def preload_checkpoints(
     config: PreconditionerConfig,
     matrix: torch.Tensor,
     store: CheckpointStore,
-    loaders: CheckpointLoaders,
+    loaders: CheckpointLoaders | None,
 ) -> None:
     """Load every checkpoint ``config`` depends on into ``store`` (a no-op for other configs).
 
     Idempotent per checkpoint, so a later matrix of the same dataset (or a timing
-    repeat) finds everything already loaded.
+    repeat) finds everything already loaded. ``loaders`` is needed only to load a predictor; a
+    config without one, or a fitted POD-2G basis, loads without them.
 
     Raises:
         TypeError: If the config exposes a checkpoint ref of a kind with no preloader.

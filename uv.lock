@@ -1426,7 +1426,7 @@ requires-dist = [
     { name = "dlkit", extras = ["cuda"], git = "https://github.com/constatza/dlkit.git?branch=develop" },
     { name = "h5py", specifier = ">=3.0" },
     { name = "loguru", specifier = ">=0.7.3" },
-    { name = "matplotlib", specifier = ">=3.11" },
+    { name = "matplotlib", specifier = ">=3.11,<3.13" },
     { name = "numba", specifier = ">=0.63.1" },
     { name = "numpy", specifier = ">=2.3" },
     { name = "pandas", specifier = ">=3.0" },

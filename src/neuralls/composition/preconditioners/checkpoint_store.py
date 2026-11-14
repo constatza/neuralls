@@ -13,19 +13,61 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from types import TracebackType
 from typing import Protocol, Self
 
 import torch
 from loguru import logger
-from torchalg.preconditioners.ports import ExtraInputPredictorPort
+from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAdapter
 
 from neuralls.domain.inference_ports import InferencePredictorPort
-from neuralls.platform.dlkit.inference_adapter import NonOwningInferencePredictor
+from neuralls.platform.dlkit.inference_adapter import (
+    NonOwningInferencePredictor,
+    create_inference_predictor,
+)
+from neuralls.platform.dlkit.predictor_adapter import DLKitAdapter
 
 type PredictorFactory = Callable[[Path], InferencePredictorPort]
-"""Opens an inference predictor for a checkpoint; the default is `create_inference_predictor`."""
+"""Opens an inference predictor for a checkpoint on the device its loaders were built for."""
+
+
+@dataclass(frozen=True, slots=True)
+class CheckpointLoaders:
+    """The injected collaborators that turn a checkpoint path into a loaded object on ``device``.
+
+    ``device`` is the one device the caller decided; both loaders put their models on it and the
+    memory of predictions made with them is measured on it.
+    """
+
+    adapter: PredictorAdapter
+    inference_predictor_factory: PredictorFactory
+    device: torch.device
+
+    @classmethod
+    def dlkit(cls, device: torch.device) -> CheckpointLoaders:
+        """The DLKit loaders on ``device``: the only place composition builds DLKit loaders."""
+        return cls(DLKitAdapter(device), partial(create_inference_predictor, device=device), device)
+
+
+class MissingCheckpointLoadersError(ValueError):
+    """A checkpoint-backed preconditioner was built without checkpoint loaders."""
+
+
+def require_loaders(loaders: CheckpointLoaders | None, what: str) -> CheckpointLoaders:
+    """``loaders``, which building ``what`` needs because it loads a checkpoint.
+
+    A build of a preconditioner with no checkpoint needs no loaders, so callers that build only
+    those pass none; there is no default that would pick a device behind the caller's back.
+    """
+    match loaders:
+        case None:
+            raise MissingCheckpointLoadersError(
+                f"{what} loads a checkpoint; inject CheckpointLoaders"
+            )
+        case given:
+            return given
 
 
 @dataclass(frozen=True, slots=True)

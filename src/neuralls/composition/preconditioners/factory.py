@@ -16,7 +16,7 @@ Design:
     - The two functions here are the single construction path; the actual
       per-(type, format) construction logic lives in `builders.py`'s dispatch
       table, and coarsening-strategy construction lives in `coarsening.py`.
-    - Supports dependency injection for neural preconditioners (testing)
+    - Checkpoint-backed preconditioners load through injected `CheckpointLoaders`
 """
 
 from __future__ import annotations
@@ -30,11 +30,10 @@ from torchalg.preconditioners.base import Preconditioner
 from neuralls.shared.types import MatrixFormat
 
 from .builders import _BuildDeps, _lookup_builder, _resolve_format_input
-from .checkpoint_store import NO_PRELOADED, PredictorFactory, PreloadedCheckpoints
+from .checkpoint_store import NO_PRELOADED, CheckpointLoaders, PreloadedCheckpoints
 
 if TYPE_CHECKING:
     from torchalg.preconditioners.implementations.amg.protocols import CoarseningStrategy
-    from torchalg.preconditioners.ports import PredictorAdapter
 
     from neuralls.platform.config.models.preconditioner import ConcretePreconditionerConfig
 
@@ -42,8 +41,7 @@ if TYPE_CHECKING:
 def create_preconditioner(
     matrix: torch.Tensor,
     config: ConcretePreconditionerConfig,
-    adapter: PredictorAdapter | None = None,
-    inference_predictor_factory: PredictorFactory | None = None,
+    loaders: CheckpointLoaders | None = None,
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
     preloaded: PreloadedCheckpoints = NO_PRELOADED,
     staged_fit_data: tuple[np.ndarray, ...] | None = None,
@@ -54,10 +52,10 @@ def create_preconditioner(
         matrix: System matrix A: a dense tensor for `MatrixFormat.DENSE`, a
             sparse CSR tensor for `MatrixFormat.CSR`.
         config: Preconditioner configuration from TOML
-        adapter: Optional adapter for neural preconditioner (DI for testing)
-        inference_predictor_factory: Optional batch-inference predictor
-            factory for neural POD-2G coarsening (DI for testing); defaults
-            to `create_inference_predictor` from `platform.dlkit.inference_adapter`.
+        loaders: Checkpoint loaders and the device they load on
+            (`CheckpointLoaders.dlkit(device)` in production). Needed only by
+            checkpoint-backed preconditioners, which raise
+            `MissingCheckpointLoadersError` without them; nothing picks a default.
         matrix_format: Storage format of `matrix`. Defaults to dense.
         preloaded: Checkpoints loaded ahead of the build (see `checkpoint_store`),
             so the build does not pay for reading them. The default loads every
@@ -72,8 +70,7 @@ def create_preconditioner(
     preconditioner, _ = create_preconditioner_with_coarsening(
         matrix,
         config,
-        adapter,
-        inference_predictor_factory,
+        loaders,
         matrix_format,
         preloaded,
         staged_fit_data,
@@ -84,8 +81,7 @@ def create_preconditioner(
 def create_preconditioner_with_coarsening(
     matrix: torch.Tensor,
     config: ConcretePreconditionerConfig,
-    adapter: PredictorAdapter | None = None,
-    inference_predictor_factory: PredictorFactory | None = None,
+    loaders: CheckpointLoaders | None = None,
     matrix_format: MatrixFormat = MatrixFormat.DENSE,
     preloaded: PreloadedCheckpoints = NO_PRELOADED,
     staged_fit_data: tuple[np.ndarray, ...] | None = None,
@@ -105,9 +101,7 @@ def create_preconditioner_with_coarsening(
     Args:
         matrix: System matrix A, in the format named by `matrix_format`.
         config: Preconditioner configuration from TOML.
-        adapter: Optional adapter for neural preconditioner (DI for testing).
-        inference_predictor_factory: Optional batch-inference predictor
-            factory for neural POD-2G coarsening (DI for testing).
+        loaders: Checkpoint loaders; see `create_preconditioner`.
         matrix_format: Storage format of `matrix`. Defaults to dense.
         preloaded: Checkpoints loaded ahead of the build; see `create_preconditioner`.
 
@@ -120,8 +114,7 @@ def create_preconditioner_with_coarsening(
         TypeError: If the config variant does not match its preconditioner type.
     """
     deps = _BuildDeps(
-        adapter=adapter,
-        inference_predictor_factory=inference_predictor_factory,
+        loaders=loaders,
         preloaded=preloaded,
         staged_fit_data=staged_fit_data,
     )

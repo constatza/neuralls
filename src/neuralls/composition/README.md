@@ -37,7 +37,7 @@ the timing quantity and unit of analysis (for example `Amortized Online Time per
 and `Solve-only Workload Total`),
 while each figure's card (`<stem>.toml`, uploaded beside the figure's PNG file into the run of the figure's
 scope) carries report scope, counts, actual dataset/recipe membership and weights, solver
-tolerances, iteration and normalization settings, repeat policy, reference/failure semantics, the metric, population and statistic drawn, the evidence under the numbers (the bootstrap interval where one is drawn, the RHS counts that share a matrix's setup on online metrics, per-method outcome counts, and timing spread with a warning when each solve was timed once),
+tolerances, iteration and normalization settings, repeat policy, reference/failure semantics, the metric, population and statistic drawn, the evidence under the numbers (the bootstrap interval where one is drawn, else why none is (too few matrices, or a statistic that never draws one), the RHS counts that share a matrix's setup on online metrics, per-method outcome counts, and timing spread with a warning when each solve was timed once),
 the methods drawn and the stored method runs and artifacts the figure came from; group figures also get a same-stem `.parquet` of the frame the figure draws, of the kind its recipe names (a per-method summary, a curve's points, per-system pairs, speed-ratio statistics or workload totals). Method-child
 residual and energy figures use unique method-qualified names; system figures keep short stems
 because a stem only needs to be unique within one run directory. One `MLflowReportSink`
@@ -614,7 +614,14 @@ config depends on into the method's `CheckpointStore`
 loaded object. Which checkpoints a config needs comes from the
 `CheckpointRefBearing` protocol, and how each kind loads is the mapping in
 `preconditioners/preloading.py` (fitted POD-2G basis, neural and neural-AMG
-predictors, neural POD-2G's inference predictor). A fitted POD-2G basis does not
+predictors, neural POD-2G's inference predictor) through the method's
+`CheckpointLoaders` (`checkpoint_store.py`: the predictor adapter, the batch-inference factory
+and the device both load on). `CheckpointLoaders.dlkit(device)` is the only place composition
+builds DLKit loaders; the comparison session resolves the device once (`comparison_batch.py`),
+passes it through `execute_all` to `execute_method_workload`, and every method's loaders, memory
+observer and neural POD-2G prediction use it. A builder never builds a default loader: a
+checkpoint-backed preconditioner built without loaders raises `MissingCheckpointLoadersError`,
+and a build that loads no checkpoint needs none. A fitted POD-2G basis does not
 depend on the matrix (only the coarse operator `Phi^T A Phi` does), so it is read
 once and shared by every matrix of the dataset. A checkpoint-backed basis is therefore
 loaded outside the measured setup, whereas an inline POD fit (no checkpoint identity on
@@ -733,7 +740,11 @@ cost bars, the means, time per iteration, distributions and convergence factors 
 cohort (the pooled `__mixture` figure at the matrix-set level, whose recipe cohorts would repeat the
 matrix-set-and-RHS-type reports; one figure per recipe plus the pooled one at the all-matrix-sets
 level), and the ECDFs, performance profiles, paired scatter and speed-ratio CDF as one
-`__mixture` figure pooled over all the group's systems, labelled a mixture of recipes. The
+`__mixture` figure pooled over all the group's systems, labelled a mixture of recipes. A
+matrix-set or all-matrix-sets group of one recipe is no mixture: each of the per-cohort and pooled
+kinds above is one unsuffixed figure of that recipe
+(`platform/reporting/cohort_variants.py::cohort_level`); the kinds it gets are still those of its
+level. The
 break-even curve and the heatmap are recipe-level only.
 Every level also emits a total-cost figure (`cost_breakdown`): each method's offline generation and
 training, read from the offline block of its stored `summary.toml` and paid once per artifact, stacked on

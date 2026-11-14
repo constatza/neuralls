@@ -59,20 +59,25 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
 )
 from neuralls.platform.dlkit.predictor_adapter import (
-    DLKitAdapter,
     DLKitNeuralPreconditioner,
     OwningDLKitNeuralPreconditioner,
 )
 from neuralls.shared.types import MatrixFormat
 
-from .checkpoint_store import NO_PRELOADED, PredictorKey, PreloadedCheckpoints
-from .coarsening import PredictorFactory, _build_amg_coarsening
+from .checkpoint_store import (
+    NO_PRELOADED,
+    CheckpointLoaders,
+    PredictorKey,
+    PreloadedCheckpoints,
+    require_loaders,
+)
+from .coarsening import _build_amg_coarsening
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from torchalg.preconditioners.implementations.amg.protocols import CoarseningStrategy
-    from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAdapter
+    from torchalg.preconditioners.ports import ExtraInputPredictorPort
 
     from neuralls.platform.config.models.checkpoint_refs import NeuralCheckpointRef
     from neuralls.platform.config.models.preconditioner import ConcretePreconditionerConfig
@@ -82,8 +87,7 @@ if TYPE_CHECKING:
 class _BuildDeps:
     """Injected collaborators shared by every preconditioner builder."""
 
-    adapter: PredictorAdapter | None
-    inference_predictor_factory: PredictorFactory | None
+    loaders: CheckpointLoaders | None
     preloaded: PreloadedCheckpoints = NO_PRELOADED
     staged_fit_data: tuple[np.ndarray, ...] | None = None
 
@@ -185,7 +189,7 @@ def _build_sparse_amg(
     coarsening = _build_amg_coarsening(
         matrix,
         config,
-        deps.inference_predictor_factory,
+        deps.loaders,
         sparse=True,
         preloaded=deps.preloaded,
         staged_fit_data=deps.staged_fit_data,
@@ -205,7 +209,7 @@ def _build_sparse_amg(
 def _build_amg(
     matrix: torch.Tensor,
     config: AMGPreconditionerConfig,
-    inference_predictor_factory: PredictorFactory | None = None,
+    loaders: CheckpointLoaders | None = None,
     preloaded: PreloadedCheckpoints = NO_PRELOADED,
     staged_fit_data: tuple[np.ndarray, ...] | None = None,
 ) -> tuple[Preconditioner, CoarseningStrategy]:
@@ -223,8 +227,7 @@ def _build_amg(
     Args:
         matrix: System matrix A.
         config: AMG preconditioner configuration.
-        inference_predictor_factory: Optional batch-inference predictor factory
-            for neural POD-2G coarsening (DI for testing).
+        loaders: Checkpoint loaders, needed only by neural POD-2G coarsening.
         preloaded: Checkpoints loaded ahead of the build; the default loads inside it.
 
     Returns:
@@ -233,7 +236,7 @@ def _build_amg(
     coarsening = _build_amg_coarsening(
         matrix,
         config,
-        inference_predictor_factory,
+        loaders,
         preloaded=preloaded,
         staged_fit_data=staged_fit_data,
     )
@@ -258,7 +261,7 @@ def _build_dense_amg(
     return _build_amg(
         matrix,
         config,
-        deps.inference_predictor_factory,
+        deps.loaders,
         deps.preloaded,
         deps.staged_fit_data,
     )
@@ -423,7 +426,7 @@ def _build_neural(
     preloaded = deps.preloaded.predictor(PredictorKey(ckpt))
     if preloaded is not None:
         return DLKitNeuralPreconditioner(preloaded, extra_input_names), None
-    predictor = _resolve_adapter(deps).create_predictor(
+    predictor = require_loaders(deps.loaders, "a neural preconditioner").adapter.create_predictor(
         ckpt, config.config_path, config.data_config_path
     )
     return OwningDLKitNeuralPreconditioner(predictor, extra_input_names), None
@@ -436,7 +439,8 @@ def _create_predictor(
     preloaded = deps.preloaded.predictor(PredictorKey(ckpt))
     if preloaded is not None:
         return preloaded
-    return _resolve_adapter(deps).create_predictor(ckpt, ref.config_path, ref.data_config_path)
+    adapter = require_loaders(deps.loaders, "a neural transfer").adapter
+    return adapter.create_predictor(ckpt, ref.config_path, ref.data_config_path)
 
 
 def _build_neural_amg(
@@ -469,11 +473,6 @@ def _build_neural_amg(
         matrix, coarsening=coarsening, cycle=cycle, n_levels=config.n_levels, linear=False
     ).setup(matrix)
     return preconditioner, None
-
-
-def _resolve_adapter(deps: _BuildDeps) -> PredictorAdapter:
-    """Return the injected predictor adapter, or the DLKit default when none was injected."""
-    return deps.adapter if deps.adapter is not None else DLKitAdapter()
 
 
 _BUILDERS: Mapping[tuple[PreconditionerType, MatrixFormat], PreconditionerBuilder] = (

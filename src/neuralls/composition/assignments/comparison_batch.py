@@ -119,6 +119,7 @@ def _run_session(
                 ),
                 failure_sink=failure_sink,
                 training_runs=tracking.client(topology.model_store_tracking_uri),
+                device=device,
             )
         with _batch_phase(failure_sink, case_config_path, ComparisonBatchPhase.RESULT_PROJECTION):
             return outcomes_from_workloads(pending, workloads)

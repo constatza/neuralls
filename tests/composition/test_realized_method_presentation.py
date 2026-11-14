@@ -56,6 +56,7 @@ from neuralls.shared.scientific_description.models import (
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, PreconditionerName, SystemId
 from neuralls.shared.workflow_failures import ComparisonMatrixFailureContext, ComparisonMatrixPhase
+from tests.loaders_support import CPU
 from tests.measurement_support import NO_REFERENCE
 from tests.observation_support import observations_of_workloads
 from tests.presentation_support import PreparedMethodFactory
@@ -194,6 +195,7 @@ def execute(
             params=params,
             settings=settings,
             training_runs=training_runs,
+            device=CPU,
         )
 
     return run
