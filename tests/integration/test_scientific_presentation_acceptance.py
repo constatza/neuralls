@@ -14,6 +14,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 from mlflow.tracking import MlflowClient
+from tests.dataset_support import build_test_dataset
+from tests.presentation_support import fixture_origins, pod_spec
 
 from neuralls.composition.assignments.presentation_preflight import prepare_comparison_presentation
 from neuralls.composition.tracking.run_specs import build_benchmark_method_run_spec
@@ -39,10 +41,6 @@ from neuralls.platform.tracking.run_writer import MlflowRunWriter, open_run
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
-from tests.dataset_support import build_test_dataset
-from tests.presentation_support import fixture_origins, pod_spec
-
-pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
 
 PLAIN = NotationPolicy.default(RenderTarget.PLAIN)
 

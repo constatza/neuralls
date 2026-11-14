@@ -2,9 +2,8 @@
 
 A test file outside the boundary that creates files, a dataset, or an MLflow store must carry
 ``pytestmark = pytest.mark.deferred_io("<reason>")`` naming the future refactor that will
-remove that IO: ``mlflow-run-tracking`` (MLflow runs behind ports), ``dataset-fixture-io`` (a test
-that needs a dataset directory on disk as its input fixture) or ``digest-hashing`` (file hashing behind a port). A file
-that no longer does IO must drop the marker, so the set only shrinks.
+remove that IO: ``dataset-fixture-io`` (a test that needs a dataset directory on disk as its input
+fixture). A file that no longer does IO must drop the marker, so the set only shrinks.
 
 ``domain/`` and ``application/`` also take no ambient actions: no file I/O, no log output, no
 clock read, no process-wide cache, no CUDA call and no ambient device choice. Their outcomes are
@@ -22,7 +21,7 @@ from tests.architecture_support import parsed
 from tests.io_guard import BOUNDARY_DIRS
 
 _TESTS = Path(__file__).resolve().parents[1]
-_REASONS = frozenset({"mlflow-run-tracking", "dataset-fixture-io", "digest-hashing"})
+_REASONS = frozenset({"dataset-fixture-io"})
 _PURE_LAYERS = ("domain", "application")
 _SRC = _TESTS.parent / "src" / "neuralls"
 _FILESYSTEM_METHODS = frozenset(

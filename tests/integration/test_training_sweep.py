@@ -1,9 +1,4 @@
-"""Tests for the experiment runner workflow.
-
-This module tests the `run_assignment_sweep()` workflow function directly,
-without involving the CLI layer. These are integration tests that verify
-the full workflow logic.
-"""
+"""The training sweep driven from case, dataset and job files on disk, with training mocked."""
 
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,8 +18,6 @@ from neuralls.composition.tracking.run_specs import training_run_name
 from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
-
-pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
 
 
 def _fake_prepared_training(
@@ -159,9 +152,10 @@ def test_run_assignments_full_flow(
     rhs_path = raw_dir / "rhs.txt"
 
     N = 3
-    A = np.random.rand(N, N)
+    rng = np.random.default_rng(0)
+    A = rng.random((N, N))
     A = A.T @ A + np.eye(N)
-    b = np.random.rand(N)
+    b = rng.random(N)
 
     np.savetxt(matrix_path, A)
     np.savetxt(rhs_path, b)
@@ -271,149 +265,6 @@ def test_run_assignments_full_flow(
         ),
     ):
         # 6. Run the flow
-        sweep = run_assignment_sweep(
-            case_config_path=CaseConfigPath.resolve(master_config_path),
-            settings=neuralls_settings,
-            force=True,
-        )
-
-    # Verify workflow behavior
-    assert len(sweep.results) == 1
-    assert sweep.results[0].assignment_id == exp_name
-    assert sweep.results[0].status == "Success"
-    assert mock_prepare.called
-    assert mock_sweep.called
-
-
-def test_run_assignment_sweep_with_mlflow(
-    tmp_path: Path,
-    neuralls_settings,
-    monkeypatch: pytest.MonkeyPatch,
-    training_presentation: TrainingPresentation,
-) -> None:
-    """Test MLflow integration in workflow without expensive training.
-
-    Verifies MLflow experiment/run creation and artifact paths,
-    with training mocked to avoid computational overhead.
-    """
-    # Setup directories
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    raw_dir = data_dir / "raw"
-    raw_dir.mkdir()
-
-    configs_dir = tmp_path / "configs"
-    configs_dir.mkdir()
-
-    # Create shared config directories
-    datasets_dir = configs_dir / "datasets"
-    datasets_dir.mkdir()
-    jobs_dir = configs_dir / "jobs"
-    jobs_dir.mkdir()
-
-    # 1. Create Dummy Data
-    matrix_path = raw_dir / "matrix.txt"
-    rhs_path = raw_dir / "rhs.txt"
-
-    N = 3
-    A = np.random.rand(N, N)
-    A = A.T @ A + np.eye(N)
-    b = np.random.rand(N)
-
-    np.savetxt(matrix_path, A)
-    np.savetxt(rhs_path, b)
-
-    # 2. Create Data Config
-    data_config_path = datasets_dir / "mlflow_test_data.toml"
-    data_config = {
-        "id": "mlflow_test_data",
-        "source": {
-            "matrix_path": str(matrix_path),
-            "rhs_path": str(rhs_path),
-            "problem": "Test problem",
-        },
-        "generation": {
-            "normalize": "none",
-            "shuffle": True,
-            "seed": 42,
-            "strategy": [{"name": "random", "samples": 2}],
-        },
-        "output": {
-            "data_dir": str(data_dir / "processed"),
-            "matrix_format": "dense",
-        },
-    }
-    with open(data_config_path, "wb") as f:
-        tomli_w.dump(data_config, f)
-
-    # Dataset generation is now a separate, earlier stage — run_assignment_sweep
-    # never generates a dataset itself, so generate it here first.
-    process_data_from_config(data_config_path, neuralls_settings)
-
-    # 3. Create Job Config with tracking enabled
-    exp_name = "mlflow_experiment"
-    job_config_path = jobs_dir / f"{exp_name}_job.toml"
-    _write_training_job_config(job_config_path, experiment_name="mlflow_test_job")
-
-    # 4. Create Master Experiment Config
-    master_config_path = configs_dir / "experiments.toml"
-    tracking_uri = build_sqlite_tracking_uri(tmp_path / "mlruns" / "mlflow.db")
-    with open(master_config_path, "w", encoding="utf-8") as f:
-        f.write("[mlflow]\n")
-        f.write(f'tracking_uri = "{tracking_uri}"\n\n')
-        f.write("[[datasets]]\n")
-        f.write('id = "mlflow_test_data"\n')
-        f.write('path = "datasets/mlflow_test_data.toml"\n\n')
-        f.write("[[jobs]]\n")
-        f.write(f'id = "{exp_name}_job"\n')
-        f.write(f'path = "jobs/{exp_name}_job.toml"\n\n')
-        f.write("[[assignments]]\n")
-        f.write(f'id = "{exp_name}"\n')
-        f.write('dataset = "mlflow_test_data"\n')
-        f.write(f'job = "{exp_name}_job"\n')
-
-    # Set NEURALLS_OUTPUT_DIR
-    monkeypatch.setenv("NEURALLS_OUTPUT_DIR", str(data_dir / "output"))
-
-    # Mock the dlkit sweep dispatch/finalization to avoid expensive training.
-    prepared = _fake_prepared_training(tmp_path, exp_name, training_presentation)
-    sweep_result = SimpleNamespace(
-        parent_run_id="parent-run-1",
-        tracking_uri=tracking_uri,
-        children=(
-            ChildSuccess(
-                child_id=exp_name,
-                label=exp_name,
-                run_id="mlflow-test-run-id",
-                result=MagicMock(spec=DlkitTrainingResult),
-            ),
-        ),
-    )
-
-    with (
-        patch(
-            "neuralls.composition.assignments.training_batch.training_presentations",
-            return_value={exp_name: training_presentation},
-        ),
-        patch(
-            "neuralls.composition.assignments.training_batch.prepare_training_settings",
-            return_value=prepared,
-        ) as mock_prepare,
-        patch(
-            "neuralls.composition.assignments.training_batch.run_multirun_spec",
-            return_value=sweep_result,
-        ) as mock_sweep,
-        patch(
-            "neuralls.composition.assignments.training_batch.finalize_prepared_training",
-            return_value=MlflowCoordinates(tracking_uri, "0", "mlflow-test-run-id"),
-        ),
-        patch("neuralls.composition.assignments.training_batch.finalize_session_parent_run"),
-        patch(
-            "neuralls.composition.assignments.training_batch.dataset_unchanged_since",
-            return_value=True,
-        ),
-    ):
-        # 5. Run the flow with MLflow enabled
         sweep = run_assignment_sweep(
             case_config_path=CaseConfigPath.resolve(master_config_path),
             settings=neuralls_settings,

@@ -288,7 +288,7 @@ def _fake_prepared_evaluation(
 ) -> PreparedEvaluation:
     """Minimal ``PreparedEvaluation`` stand-in for these integration tests.
 
-    Mirrors ``test_runner.py``'s ``_fake_prepared_training``: a real
+    Mirrors ``tests/integration/test_training_sweep.py``'s ``_fake_prepared_training``: a real
     ``PreparedEvaluation`` (needed so ``_finalize_eval_child`` can read its
     fields) with a duck-typed ``AssignmentEntry`` and a mocked MLflow client —
     the real settings-resolution pipeline is skipped by mocking

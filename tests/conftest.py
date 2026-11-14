@@ -76,7 +76,7 @@ from tests.workflows.comparison_support import SETUP_TRACKING
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-pytest_plugins = ("tests.io_guard",)
+pytest_plugins = ("tests.io_guard", "tests.mlflow_store_fixtures")
 
 # Tests that draw figures directly (without a report entry point) must not open a GUI window.
 matplotlib.use("Agg", force=True)

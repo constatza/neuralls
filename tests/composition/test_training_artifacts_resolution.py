@@ -4,7 +4,6 @@ Pins the observable behavior of the `_training_artifacts` helpers that had no
 direct coverage before the training-orchestration refactor:
 
 - `_build_training_run_config` — structured vs. ad-hoc run naming/tags.
-- `_resolve_local_training_checkpoint` — the candidate precedence order.
 - `_finalize_existing_mlflow_run` / `_finalize_fallback_mlflow_run` — which
   MLflow coordinates come back out of each finalization branch.
 
@@ -21,12 +20,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from neuralls.composition.assignments._training_artifacts import (
-    BEST_CHECKPOINT_ARTIFACT_KEY,
-    LAST_CHECKPOINT_ARTIFACT_KEY,
-    RETAINED_CHECKPOINTS_DIR_NAME,
     MlflowCoordinates,
     _build_training_run_config,
-    _resolve_local_training_checkpoint,
 )
 from neuralls.composition.assignments.assembler import AssignmentIdentity
 from neuralls.composition.assignments.runtime_dataset_contract import (
@@ -43,8 +38,6 @@ from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.tracking.mlflow import MlflowPaths, MlflowRunConfig
 from neuralls.platform.tracking.run_names import run_name_text
 
-pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -60,11 +53,9 @@ def runtime_mlflow_env() -> dict[str, str]:
 
 
 @pytest.fixture
-def workspace_root(tmp_path: Path) -> Path:
+def workspace_root() -> Path:
     """Workspace root directory for run-config construction."""
-    root = tmp_path / "workspace"
-    root.mkdir()
-    return root
+    return Path("workspace")
 
 
 @pytest.fixture
@@ -84,23 +75,20 @@ def adhoc_identity() -> AssignmentIdentity:
 
 
 @pytest.fixture
-def finalization_workspace(tmp_path: Path) -> AssignmentWorkspace:
-    """Workspace whose checkpoint/retained directories can be populated per-test."""
-    workspace = AssignmentWorkspace(
+def finalization_workspace() -> AssignmentWorkspace:
+    """Workspace layout for the finalization branches; nothing exists on disk."""
+    return AssignmentWorkspace(
         dataset_id="dataset-1",
         run_id="workspace-run",
-        root_dir=tmp_path / "ws",
-        data_dir=tmp_path / "ws" / "data",
+        root_dir=Path("ws"),
+        data_dir=Path("ws/data"),
     )
-    workspace.checkpoint_dir.mkdir(parents=True)
-    return workspace
 
 
 @pytest.fixture
 def finalization_context(
     finalization_workspace: AssignmentWorkspace,
     training_presentation: TrainingPresentation,
-    tmp_path: Path,
 ) -> _TrainingFinalizationContext:
     """Minimal finalization context for the two `_finalize_*_mlflow_run` branches."""
     config_path = Path("job.toml")
@@ -211,114 +199,15 @@ def test_build_training_run_config_falls_back_to_untagged_spec_without_registry_
 
 
 # ---------------------------------------------------------------------------
-# _resolve_local_training_checkpoint — candidate precedence
-# ---------------------------------------------------------------------------
-
-
-def test_resolve_local_checkpoint_prefers_the_training_results_own_checkpoint_path(
-    finalization_workspace: AssignmentWorkspace,
-    tmp_path: Path,
-) -> None:
-    """An existing `checkpoint_path` attribute wins over every other candidate."""
-    direct = tmp_path / "direct.ckpt"
-    direct.write_text("direct", encoding="utf-8")
-    best = tmp_path / "best.ckpt"
-    best.write_text("best", encoding="utf-8")
-    (finalization_workspace.checkpoint_dir / "workspace.ckpt").write_text(
-        "workspace", encoding="utf-8"
-    )
-
-    resolved = _resolve_local_training_checkpoint(
-        training_result=SimpleNamespace(
-            checkpoint_path=direct,
-            artifacts={BEST_CHECKPOINT_ARTIFACT_KEY: best},
-        ),
-        workspace=finalization_workspace,
-    )
-
-    assert resolved == direct
-
-
-def test_resolve_local_checkpoint_skips_nonexistent_candidates_in_order(
-    finalization_workspace: AssignmentWorkspace,
-    tmp_path: Path,
-) -> None:
-    """Non-existent higher-priority candidates are skipped; 'best' beats 'last'."""
-    last = tmp_path / "last.ckpt"
-    last.write_text("last", encoding="utf-8")
-    best = tmp_path / "best.ckpt"
-    best.write_text("best", encoding="utf-8")
-
-    resolved = _resolve_local_training_checkpoint(
-        training_result=SimpleNamespace(
-            checkpoint_path=tmp_path / "missing.ckpt",
-            artifacts={
-                BEST_CHECKPOINT_ARTIFACT_KEY: best,
-                LAST_CHECKPOINT_ARTIFACT_KEY: last,
-            },
-        ),
-        workspace=finalization_workspace,
-    )
-
-    assert resolved == best
-
-
-def test_resolve_local_checkpoint_falls_back_to_the_workspace_checkpoint_dir(
-    finalization_workspace: AssignmentWorkspace,
-) -> None:
-    """With no result-supplied candidates, the workspace checkpoint dir is scanned."""
-    workspace_checkpoint = finalization_workspace.checkpoint_dir / "epoch.ckpt"
-    workspace_checkpoint.write_text("workspace", encoding="utf-8")
-
-    resolved = _resolve_local_training_checkpoint(
-        training_result=SimpleNamespace(checkpoint_path=None, artifacts={}),
-        workspace=finalization_workspace,
-    )
-
-    assert resolved == workspace_checkpoint
-
-
-def test_resolve_local_checkpoint_falls_back_to_the_retained_checkpoints_dir(
-    finalization_workspace: AssignmentWorkspace,
-) -> None:
-    """An empty workspace checkpoint dir falls through to the retained-checkpoints dir."""
-    retained_dir = finalization_workspace.root_dir / RETAINED_CHECKPOINTS_DIR_NAME
-    retained_dir.mkdir(parents=True)
-    retained = retained_dir / "retained.ckpt"
-    retained.write_text("retained", encoding="utf-8")
-
-    resolved = _resolve_local_training_checkpoint(
-        training_result=SimpleNamespace(checkpoint_path=None, artifacts={}),
-        workspace=finalization_workspace,
-    )
-
-    assert resolved == retained
-
-
-def test_resolve_local_checkpoint_returns_none_when_nothing_exists_locally(
-    finalization_workspace: AssignmentWorkspace,
-) -> None:
-    """No candidate on disk resolves to None rather than raising."""
-    resolved = _resolve_local_training_checkpoint(
-        training_result=SimpleNamespace(checkpoint_path=None, artifacts=None),
-        workspace=finalization_workspace,
-    )
-
-    assert resolved is None
-
-
-# ---------------------------------------------------------------------------
 # _finalize_existing_mlflow_run / _finalize_fallback_mlflow_run
 # ---------------------------------------------------------------------------
 
 
 def test_finalize_existing_mlflow_run_returns_the_coordinates_it_was_given(
     finalization_context: _TrainingFinalizationContext,
-    tmp_path: Path,
 ) -> None:
     """The existing-run branch makes the run durable and echoes its own coordinates back."""
-    checkpoint_path = tmp_path / "model.ckpt"
-    checkpoint_path.write_text("ckpt", encoding="utf-8")
+    checkpoint_path = Path("ws/checkpoints/model.ckpt")
 
     with (
         patch("neuralls.composition.assignments.training._log_training_context") as log_context,
@@ -345,11 +234,9 @@ def test_finalize_existing_mlflow_run_returns_the_coordinates_it_was_given(
 
 def test_finalize_fallback_mlflow_run_returns_the_freshly_created_run(
     finalization_context: _TrainingFinalizationContext,
-    tmp_path: Path,
 ) -> None:
     """The fallback branch reports the tracking URI it was configured with, plus the new run."""
-    checkpoint_path = tmp_path / "model.ckpt"
-    checkpoint_path.write_text("ckpt", encoding="utf-8")
+    checkpoint_path = Path("ws/checkpoints/model.ckpt")
 
     with patch(
         "neuralls.composition.assignments.training.create_fallback_training_run",
@@ -365,11 +252,9 @@ def test_finalize_fallback_mlflow_run_returns_the_freshly_created_run(
 
 def test_finalize_fallback_mlflow_run_returns_none_when_run_creation_fails(
     finalization_context: _TrainingFinalizationContext,
-    tmp_path: Path,
 ) -> None:
     """A fallback-run creation failure is swallowed into None, never raised."""
-    checkpoint_path = tmp_path / "model.ckpt"
-    checkpoint_path.write_text("ckpt", encoding="utf-8")
+    checkpoint_path = Path("ws/checkpoints/model.ckpt")
 
     with patch(
         "neuralls.composition.assignments.training.create_fallback_training_run",

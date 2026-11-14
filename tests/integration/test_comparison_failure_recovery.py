@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import torch
 from mlflow.tracking import MlflowClient
+from tests.workflows.comparison_support import make_settings, write_dataset_config
 from torchalg.preconditioners.base import Preconditioner
 
 from neuralls.composition.assignments import comparison_schedule
@@ -28,9 +29,6 @@ from neuralls.platform.tracking.report_sink import (
     GROUP_REPORT_ARTIFACT_DIR,
     MLflowReportSink,
 )
-from tests.workflows.comparison_support import make_settings, write_dataset_config
-
-pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
 
 
 def _artifact_names(client: MlflowClient, run_id: str, path: str | None) -> set[str]:

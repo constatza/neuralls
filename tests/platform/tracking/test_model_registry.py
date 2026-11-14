@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from mlflow.tracking import MlflowClient
+from tests.mlflow_store_fixtures import LoggedNamedCheckpointsRunFactory, LoggedRunFactory
 
 from neuralls.platform.tracking.model_registry import (
     CHECKPOINT_ARTIFACT_PATH_TAG,
@@ -15,9 +16,6 @@ from neuralls.platform.tracking.model_registry import (
     build_registered_model_name,
     register_logged_model,
 )
-from tests.workflows.conftest import LoggedNamedCheckpointsRunFactory, LoggedRunFactory
-
-pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
 
 
 def test_build_registered_model_name_uses_architecture_only() -> None:

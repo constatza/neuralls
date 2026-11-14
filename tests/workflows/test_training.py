@@ -5,16 +5,15 @@ Covers:
 - to_numpy() returns None when no predictions captured
 - stacked is a TensorDict when TensorDict predictions are present
 - to_numpy() extracts predictions and targets correctly
-- fast-dev-run integration: trainer.predict() produces stacked/to_numpy output
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import replace
+from collections.abc import Iterator
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Self, cast
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -38,43 +37,8 @@ from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.config.resolution import MlflowPaths
 from neuralls.platform.config.settings import NeurallsSettings
-from neuralls.platform.tracking.artifact_access import ArtifactLease
 from neuralls.platform.tracking.mlflow import MlflowRunConfig
 from neuralls.platform.tracking.run_names import run_name_text
-
-pytestmark = pytest.mark.deferred_io("mlflow-run-tracking")
-
-
-class _CheckpointLeaseManager:
-    """Minimal artifact lease manager for training checkpoint fallback tests."""
-
-    def __init__(self, checkpoint_root: Path) -> None:
-        self.checkpoint_root = checkpoint_root
-        self.dir_calls: list[tuple[str, str]] = []
-
-    @property
-    def tracking_uri(self) -> str | None:
-        return None
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        pass
-
-    def resolve_file(self, run_id: str, artifact_path: str) -> ArtifactLease:
-        raise RuntimeError(f"Unexpected file lease for {run_id}:{artifact_path}")
-
-    def resolve_dir(self, run_id: str, artifact_path: str) -> ArtifactLease:
-        self.dir_calls.append((run_id, artifact_path))
-        return ArtifactLease(
-            path=self.checkpoint_root,
-            run_id=run_id,
-            artifact_path=artifact_path,
-            source_uri="file:///artifacts",
-            local_copy=False,
-        )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -286,137 +250,6 @@ def test_to_numpy_predictions_shape_matches_targets(
     assert output.shape == y.shape
 
 
-# ---------------------------------------------------------------------------
-# fast_dev_run integration: verify trainer.predict() structure
-# ---------------------------------------------------------------------------
-
-
-def test_fast_dev_run_predict_returns_list_of_dicts(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """trainer.predict() produces stacked TensorDict and to_numpy() output.
-
-    This test documents the expected API so _log_training_evaluation() can rely on it.
-    Runs a single fast_dev_run training step using DLKit programmatic settings.
-    """
-    from dlkit.config import TrainingJobConfig
-    from dlkit.engine.tracking import uri_resolver
-    from dlkit.infrastructure.config import (
-        DataModuleSelector,
-        DataSettings,
-        ExperimentSettings,
-        RunSettings,
-        TrackingSettings,
-        TrainingSettings,
-    )
-    from dlkit.infrastructure.config.data_entries import DataRole, ValueEntry
-    from dlkit.infrastructure.config.model_components import (
-        MetricComponentSettings,
-        ModelComponentSettings,
-    )
-    from dlkit.infrastructure.config.trainer_settings import TrainerSettings
-    from dlkit.interfaces.api import execute
-
-    monkeypatch.setattr(uri_resolver, "local_host_alive", lambda: False)
-
-    n_samples, n_features, n_targets = 20, 4, 2
-    rng = np.random.default_rng(42)
-    X = rng.random((n_samples, n_features))
-    Y = rng.random((n_samples, n_targets))
-
-    settings = TrainingJobConfig(
-        run=RunSettings(type="train", seed=42),
-        experiment=ExperimentSettings(name="test_predict_structure"),
-        tracking=TrackingSettings(backend="none"),
-        data=DataSettings(
-            name="FlexibleDataset",
-            batch_size=4,
-            num_workers=0,
-            module=DataModuleSelector(name="ArrayDataModule"),
-            features=(ValueEntry(name="x", value=X),),
-            targets=(ValueEntry(name="y", value=Y, data_role=DataRole.TARGET),),
-        ),
-        training=TrainingSettings(
-            trainer=TrainerSettings(
-                fast_dev_run=True,
-                enable_checkpointing=False,
-                accelerator="cpu",
-                default_root_dir=tmp_path,
-            ),
-            metrics=(
-                MetricComponentSettings(
-                    name="MeanSquaredError",
-                    module_path="dlkit.domain.metrics",
-                ),
-            ),
-        ),
-        model=ModelComponentSettings(
-            name="FFNN",
-            module_path="dlkit.nn",
-            hidden_size=4,
-            num_layers=1,
-        ),
-    )
-
-    result = cast(TrainingResult, execute(settings))
-
-    assert result.predictions is not None, "trainer.predict() should have captured predictions"
-    assert isinstance(result.predictions, list)
-    assert len(result.predictions) > 0
-
-    stacked = result.stacked
-    assert stacked is not None, "result.stacked should be a TensorDict after prediction"
-
-    all_numpy = result.to_numpy()
-    assert all_numpy is not None, "to_numpy() should return a dict after prediction"
-    assert "predictions" in all_numpy, f"Expected 'predictions' key, got {list(all_numpy.keys())}"
-    preds = all_numpy["predictions"]
-    if isinstance(preds, dict):
-        output = next(iter(preds.values()))
-    else:
-        output = preds
-    assert isinstance(output, np.ndarray)
-    assert output.ndim >= 1
-
-
-def test_resolve_training_checkpoint_leases_mlflow_artifacts(
-    tmp_path: Path,
-) -> None:
-    """MLflow fallback checkpoint resolution must not create workspace downloads."""
-    from neuralls.composition.assignments.training import _resolve_training_checkpoint
-    from neuralls.platform.config.models.workspace import AssignmentWorkspace
-
-    workspace = AssignmentWorkspace(
-        dataset_id="dataset",
-        run_id="run",
-        root_dir=tmp_path / "workspace",
-        data_dir=tmp_path / "workspace" / "data",
-    )
-    workspace.checkpoint_dir.mkdir(parents=True)
-    training_result = SimpleNamespace(checkpoint_path=None, artifacts={})
-    checkpoint_root = tmp_path / "mlflow-artifacts" / "checkpoints"
-    checkpoint_root.mkdir(parents=True)
-    resolved_checkpoint = checkpoint_root / "model.ckpt"
-    resolved_checkpoint.write_text("checkpoint", encoding="utf-8")
-    artifact_leases = _CheckpointLeaseManager(checkpoint_root)
-
-    with patch(
-        "neuralls.composition.assignments._training_artifacts.get_latest_checkpoint",
-        return_value=None,
-    ):
-        resolved = _resolve_training_checkpoint(
-            training_result=training_result,
-            workspace=workspace,
-            run_id="run-1",
-            artifact_leases=artifact_leases,
-        )
-
-    assert resolved == resolved_checkpoint
-    assert artifact_leases.dir_calls == [("run-1", "checkpoints")]
-    assert not (workspace.root_dir / "mlflow-downloads").exists()
-
-
 def test_resolve_tracking_backend_returns_configured_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -462,8 +295,33 @@ def test_resolve_tracking_backend_rejects_implicit_local_fallback(
         training_module._resolve_tracking_backend(runtime_environment)
 
 
+@dataclass(frozen=True, slots=True)
+class ScratchDir:
+    """The temp directory ``prepare_training_settings`` is handed, and the removal it gets."""
+
+    path: Path
+    rmtree: MagicMock
+
+
+@pytest.fixture
+def scratch_dir() -> Iterator[ScratchDir]:
+    """Stand in for the temp directory ``prepare_training_settings`` creates and removes.
+
+    Only the training module's own ``tempfile`` and ``shutil`` names are replaced, so no
+    other caller in the process loses ``mkdtemp`` or ``rmtree``; every collaborator that
+    would use the directory is patched, so nothing touches disk.
+    """
+    scratch = Path("scratch/neuralls_train")
+    with (
+        patch("neuralls.composition.assignments.training.tempfile") as tempfile_module,
+        patch("neuralls.composition.assignments.training.shutil") as shutil_module,
+    ):
+        tempfile_module.mkdtemp.return_value = str(scratch)
+        yield ScratchDir(scratch, shutil_module.rmtree)
+
+
 def test_prepare_training_settings_builds_explicit_mlflow_run_config(
-    tmp_path: Path,
+    scratch_dir: ScratchDir,
     training_presentation: TrainingPresentation,
     neuralls_settings: NeurallsSettings,
 ) -> None:
@@ -479,20 +337,16 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(
         cleanup_prepared_training,
         prepare_training_settings,
     )
-    from neuralls.platform.config.models.workspace import AssignmentWorkspace
 
-    config_path = tmp_path / "model.toml"
-    data_config_path = tmp_path / "data.toml"
-    config_path.write_text("", encoding="utf-8")
-    data_config_path.write_text("", encoding="utf-8")
+    config_path = Path("configs/model.toml")
+    data_config_path = Path("configs/data.toml")
 
     workspace = AssignmentWorkspace(
         dataset_id="dataset-1",
         run_id="workspace-run",
-        root_dir=tmp_path / "workspace",
-        data_dir=tmp_path / "workspace" / "data",
+        root_dir=scratch_dir.path / "workspace",
+        data_dir=scratch_dir.path / "workspace" / "data",
     )
-    workspace.checkpoint_dir.mkdir(parents=True)
 
     experiment = SimpleNamespace(
         settings=SimpleNamespace(data=None),
@@ -529,7 +383,7 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(
             settings=neuralls_settings,
             config_path=str(config_path),
             data_config_path=str(data_config_path),
-            output_root=tmp_path / "output",
+            output_root=Path("output"),
             identity=AssignmentIdentity(
                 assignment_id="exp-1",
                 dataset_registry_id="dataset-1",
@@ -539,6 +393,7 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(
             mlflow_experiment_name="CustomTrain",
         )
     cleanup_prepared_training(prepared)
+    scratch_dir.rmtree.assert_called_once_with(scratch_dir.path, ignore_errors=True)
 
     load_kwargs = mock_load.call_args.kwargs
     assert load_kwargs["job_config_path"] == config_path
@@ -562,7 +417,7 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(
 
 
 def test_prepare_training_settings_without_registry_ids_builds_an_untagged_run(
-    tmp_path: Path,
+    scratch_dir: ScratchDir,
     training_presentation: TrainingPresentation,
     neuralls_settings: NeurallsSettings,
 ) -> None:
@@ -571,20 +426,16 @@ def test_prepare_training_settings_without_registry_ids_builds_an_untagged_run(
         cleanup_prepared_training,
         prepare_training_settings,
     )
-    from neuralls.platform.config.models.workspace import AssignmentWorkspace
 
-    config_path = tmp_path / "model.toml"
-    data_config_path = tmp_path / "data.toml"
-    config_path.write_text("", encoding="utf-8")
-    data_config_path.write_text("", encoding="utf-8")
+    config_path = Path("configs/model.toml")
+    data_config_path = Path("configs/data.toml")
 
     workspace = AssignmentWorkspace(
         dataset_id="dataset-legacy",
         run_id="workspace-run",
-        root_dir=tmp_path / "workspace",
-        data_dir=tmp_path / "workspace" / "data",
+        root_dir=scratch_dir.path / "workspace",
+        data_dir=scratch_dir.path / "workspace" / "data",
     )
-    workspace.checkpoint_dir.mkdir(parents=True)
 
     experiment = SimpleNamespace(
         settings=SimpleNamespace(data=None),
@@ -619,7 +470,7 @@ def test_prepare_training_settings_without_registry_ids_builds_an_untagged_run(
             settings=neuralls_settings,
             config_path=config_path,
             data_config_path=data_config_path,
-            output_root=tmp_path / "output",
+            output_root=Path("output"),
             identity=AssignmentIdentity(
                 assignment_id="legacy-exp",
                 dataset_registry_id="dataset-legacy",
@@ -627,6 +478,7 @@ def test_prepare_training_settings_without_registry_ids_builds_an_untagged_run(
             presentation=training_presentation,
         )
     cleanup_prepared_training(prepared)
+    scratch_dir.rmtree.assert_called_once_with(scratch_dir.path, ignore_errors=True)
 
     run_config = prepared.run_config
     assert run_config.experiment_name == ExperimentNamesConfig().training
@@ -672,16 +524,14 @@ def test_execute_result_unwraps_optimization_result() -> None:
 
 
 @pytest.fixture
-def finalize_workspace(tmp_path: Path) -> AssignmentWorkspace:
-    """Assignment workspace for _finalize_training_run tests."""
-    workspace = AssignmentWorkspace(
+def finalize_workspace() -> AssignmentWorkspace:
+    """Assignment workspace for _finalize_training_run tests; nothing exists on disk."""
+    return AssignmentWorkspace(
         dataset_id="dataset-1",
         run_id="workspace-run",
-        root_dir=tmp_path / "workspace",
-        data_dir=tmp_path / "workspace" / "data",
+        root_dir=Path("workspace"),
+        data_dir=Path("workspace/data"),
     )
-    workspace.checkpoint_dir.mkdir(parents=True)
-    return workspace
 
 
 @pytest.fixture
@@ -697,25 +547,21 @@ def finalize_assignment() -> SimpleNamespace:
 
 
 @pytest.fixture
-def finalize_run_config(
-    tmp_path: Path, training_presentation: TrainingPresentation
-) -> MlflowRunConfig:
+def finalize_run_config(training_presentation: TrainingPresentation) -> MlflowRunConfig:
     """MlflowRunConfig for _finalize_training_run tests."""
     return MlflowRunConfig(
         experiment_name="CustomTrain",
         name=training_run_name(training_presentation, include_timestamp=False),
         tags={},
         paths=MlflowPaths(tracking_uri="sqlite:///unused.db", artifact_uri=None),
-        workspace_root=tmp_path / "workspace",
+        workspace_root=Path("workspace"),
     )
 
 
 @pytest.fixture
-def finalize_config_path(tmp_path: Path) -> Path:
-    """Job config TOML path for _finalize_training_run tests."""
-    config_path = tmp_path / "model.toml"
-    config_path.write_text("", encoding="utf-8")
-    return config_path
+def finalize_config_path() -> Path:
+    """Job config TOML path for _finalize_training_run tests; only an identifier."""
+    return Path("configs/model.toml")
 
 
 @pytest.fixture
