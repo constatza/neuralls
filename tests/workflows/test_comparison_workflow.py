@@ -7,7 +7,7 @@ import json
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -104,7 +104,6 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.config.resolution import build_sqlite_tracking_uri
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.mlflow import sanitize_metric_key_segment
-from neuralls.platform.tracking.runtime_environment import environment_params
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import (
@@ -118,6 +117,7 @@ from neuralls.shared.types import (
     SystemId,
 )
 from tests.environment_support import SESSION_ENVIRONMENT
+from tests.fakes.comparison_runs import RecordingTrackingServices
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
 from tests.workflows.comparison_support import (
@@ -1189,7 +1189,6 @@ job = "valid-job"
 def test_prepare_fails_when_matrix_input_is_missing(
     tmp_path: Path,
     system_inputs: tuple[Path, Path],
-    fake_mlflow: MagicMock,
     prepare_entry: Callable[[ComparisonConfig, PlannedSystem], PendingComparison],
 ) -> None:
     _, rhs_path = system_inputs
@@ -1202,7 +1201,6 @@ def test_prepare_fails_when_matrix_input_is_missing(
     pending = prepare_entry(cfg, _planned(_make_entry()))
 
     assert isinstance(pending, ComparisonEntryFailed)
-    fake_mlflow.start_run.assert_not_called()
 
 
 def test_prepare_fails_when_a_known_dataset_is_missing(
@@ -1225,15 +1223,14 @@ def test_prepare_fails_when_a_known_dataset_is_missing(
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
 def test_run_comparison_batch_preserves_declared_order(
     tmp_path: Path,
-    fake_mlflow: MagicMock,
+    fake_tracking: RecordingTrackingServices,
     comparison_run: NamedRun,
     neuralls_settings: NeurallsSettings,
 ) -> None:
     """Cache-hit outcomes come back in declared config order.
 
-    Also proves no MLflow run is needed for this: run_comparison_batch never
-    calls mlflow.start_run when prepare_comparison_entry reports every entry
-    as a cache hit.
+    Also proves no MLflow run is needed for this: run_comparison_batch opens
+    no session when prepare_comparison_entry reports every entry as a cache hit.
     """
     experiments_config = tmp_path / "experiments.toml"
     write_experiments_config(experiments_config, with_comparisons=True)
@@ -1258,12 +1255,15 @@ def test_run_comparison_batch_preserves_declared_order(
         ),
     ):
         outcomes = run_comparison_batch(
-            CaseConfigPath.resolve(experiments_config), ComparisonParams(), neuralls_settings
+            CaseConfigPath.resolve(experiments_config),
+            ComparisonParams(),
+            neuralls_settings,
+            tracking=fake_tracking,
         )
 
     assert [outcome.comparison_id for outcome in outcomes] == ["a", "b"]
     assert [call.args[1].entry.id for call in mock_prepare.call_args_list] == ["a", "b"]
-    fake_mlflow.start_run.assert_not_called()
+    assert fake_tracking.runs.sessions == []
 
 
 def test_compatibility_projection_carries_canonical_setup_measurement(
@@ -1313,11 +1313,12 @@ def test_compatibility_projection_carries_canonical_setup_measurement(
     assert projected.setup_peak_memory_bytes == 128
 
 
-@pytest.mark.usefixtures("stub_input_gate", "stub_setup_tracking", "fake_mlflow")
+@pytest.mark.usefixtures("stub_input_gate", "stub_setup_tracking")
 def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
     tmp_path: Path,
     sparse_id_dataset: Path,
     pin_test_fold: Callable[[Path, tuple[int, ...]], None],
+    fake_tracking: RecordingTrackingServices,
 ) -> None:
     """A `first_n` sweep over a multi-matrix dataset solves each selected matrix `rhs_count` times.
 
@@ -1428,7 +1429,10 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
         ),
     ):
         outcomes = run_comparison_batch(
-            CaseConfigPath.resolve(experiments_config), ComparisonParams(), settings
+            CaseConfigPath.resolve(experiments_config),
+            ComparisonParams(),
+            settings,
+            tracking=fake_tracking,
         )
 
     assert all(isinstance(outcome, ComparisonCompleted) and outcome.summary for outcome in outcomes)
@@ -1455,11 +1459,12 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
     assert len({tuple(i.rhs) for i in inputs}) == 4
 
 
-@pytest.mark.usefixtures("stub_input_gate", "stub_setup_tracking", "fake_mlflow")
+@pytest.mark.usefixtures("stub_input_gate", "stub_setup_tracking")
 def test_an_external_rhs_of_the_wrong_length_fails_only_its_own_system(
     tmp_path: Path,
     single_matrix_dataset: Path,
     pin_test_fold: Callable[[Path, tuple[int, ...]], None],
+    fake_tracking: RecordingTrackingServices,
 ) -> None:
     """A raw RHS that does not fit the native 2x2 matrix fails its system; the batch goes on."""
     settings = make_settings(tmp_path)
@@ -1502,7 +1507,10 @@ def test_an_external_rhs_of_the_wrong_length_fails_only_its_own_system(
         tomli_w.dump(payload, fh)
 
     outcomes = run_comparison_batch(
-        CaseConfigPath.resolve(experiments_config), ComparisonParams(), settings
+        CaseConfigPath.resolve(experiments_config),
+        ComparisonParams(),
+        settings,
+        tracking=fake_tracking,
     )
 
     by_id = {outcome.comparison_id: outcome for outcome in outcomes}
@@ -1515,7 +1523,7 @@ def test_the_session_run_logs_the_runtime_environment_once(
     tmp_path: Path,
     single_matrix_dataset: Path,
     pin_test_fold: Callable[[Path, tuple[int, ...]], None],
-    fake_mlflow: MagicMock,
+    fake_tracking: RecordingTrackingServices,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Every timing of a session shares one environment, so it is a param of the session run."""
@@ -1530,11 +1538,12 @@ def test_the_session_run_logs_the_runtime_environment_once(
     experiments_config = tmp_path / "experiments.toml"
     write_experiments_config(experiments_config, with_comparisons=True)
 
-    run_comparison_batch(CaseConfigPath.resolve(experiments_config), ComparisonParams(), settings)
+    run_comparison_batch(
+        CaseConfigPath.resolve(experiments_config),
+        ComparisonParams(),
+        settings,
+        tracking=fake_tracking,
+    )
 
-    environment_logs = [
-        call
-        for call in fake_mlflow.log_params.call_args_list
-        if any(key.startswith("env.") for key in call.args[0])
-    ]
-    assert environment_logs == [call(environment_params(SESSION_ENVIRONMENT))]
+    [session] = fake_tracking.runs.sessions
+    assert session.environments == [SESSION_ENVIRONMENT]

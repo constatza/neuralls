@@ -1,4 +1,4 @@
-"""Persistence of one reduced method workload into its already-active MLflow run."""
+"""Persistence of one reduced method workload into its method run."""
 
 from __future__ import annotations
 
@@ -6,8 +6,6 @@ import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-
-import mlflow
 
 from neuralls.domain.benchmarking.selection import (
     ReferenceSelection,
@@ -26,23 +24,22 @@ from neuralls.platform.reporting.benchmark_events import (
     METHOD_ARTIFACT_DIR,
     write_method_benchmark_artifacts,
 )
+from neuralls.platform.tracking.run_writer import RunWriter
 from neuralls.shared.types import DatasetId, SystemId
 
 
 @dataclass(frozen=True, slots=True)
 class MLflowBenchmarkMethodSink:
-    """Write one reduced method workload into the already-active child run.
+    """Write one reduced method workload into its method run, ``run_id``.
 
     ``datasets`` presents each dataset a workload ran on. ``solver_contexts`` and
     ``references`` give the settings and reference state each planned system was timed
-    under; they are persisted with the raw events.
-
-    Run ownership deliberately stays in ``comparison_batch``.  Calling this
-    sink while no run is active is a caller error, just like calling
-    ``mlflow.log_metric`` directly; the sink never silently creates a nested
-    system or preconditioner run.
+    under; they are persisted with the raw events. The sink writes into the run it is given
+    and never creates one: run ownership stays with the comparison session.
     """
 
+    writer: RunWriter
+    run_id: str
     datasets: Mapping[DatasetId, DatasetPresentation]
     solver_contexts: Mapping[SystemId, SolverTimingContext]
     references: Mapping[SystemId, ReferenceSelection]
@@ -71,16 +68,22 @@ class MLflowBenchmarkMethodSink:
             )
             self._log_method_metadata(workload, summary)
             for relative in artifacts.paths():
-                mlflow.log_artifact(str(root / relative), artifact_path=METHOD_ARTIFACT_DIR)
+                self.writer.log_artifact(self.run_id, root / relative, METHOD_ARTIFACT_DIR)
         finally:
             if temporary is not None:
                 temporary.cleanup()
 
-    @staticmethod
-    def _log_method_metadata(workload: MethodWorkload, summary: MethodWorkloadSummary) -> None:
+    def _log_method_metadata(
+        self, workload: MethodWorkload, summary: MethodWorkloadSummary
+    ) -> None:
         """Log only reducer-owned searchable scalars, never event-loop aggregates."""
-        mlflow.log_param("method_id", str(workload.method))
-        mlflow.log_param("method_config_digest", str(workload.config_digest))
+        self.writer.log_params(
+            self.run_id,
+            {
+                "method_id": str(workload.method),
+                "method_config_digest": str(workload.config_digest),
+            },
+        )
         n_setup_failed = sum(
             isinstance(event.outcome, SetupFailed) for event in workload.setup_events
         )
@@ -103,10 +106,8 @@ class MLflowBenchmarkMethodSink:
                 sum(attempt.outcome.iterations for attempt in workload.solve_attempts)
             ),
         }
-        mlflow.set_tag(
-            "workload_outcome",
-            "completed_with_failures" if n_setup_failed or n_solve_failed else "completed",
-        )
+        outcome = "completed_with_failures" if n_setup_failed or n_solve_failed else "completed"
+        self.writer.set_tags(self.run_id, {"workload_outcome": outcome})
         if isinstance(summary.workload_peak_memory, MeasuredPeakMemory):
             metrics["workload_peak_memory_bytes"] = float(summary.workload_peak_memory.bytes)
         offline = workload.offline_cost
@@ -118,5 +119,4 @@ class MLflowBenchmarkMethodSink:
             seconds = recorded_seconds(stage)
             if seconds is not None:
                 metrics[key] = seconds
-        for key, value in metrics.items():
-            mlflow.log_metric(key, value)
+        self.writer.log_metrics(self.run_id, metrics)

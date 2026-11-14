@@ -4,16 +4,11 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
-type SessionRunStatus = Literal["FINISHED", "FAILED"]
-
-import mlflow
 from dlkit.infrastructure.io import url_resolver
-from mlflow import ActiveRun
 from mlflow.tracking import MlflowClient
 
 from neuralls.domain.presentation.run_names import NamedRun
@@ -27,6 +22,7 @@ from neuralls.platform.config.resolution import (
     to_mlflow_artifact_location,
 )
 from neuralls.platform.tracking.run_names import run_name_text
+from neuralls.platform.tracking.run_writer import RunStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,14 +34,6 @@ class MlflowRunConfig:
     tags: Mapping[str, str]
     paths: MlflowPaths
     workspace_root: Path
-
-
-@dataclass(frozen=True, slots=True)
-class MlflowRunState:
-    """Active MLflow run handle."""
-
-    run: ActiveRun
-    started: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,13 +56,6 @@ class MlflowRuntimeEnvironment:
     is_explicit: bool
 
 
-DEFAULT_ARTIFACT_SUBDIRS: tuple[str, ...] = (
-    "checkpoints",
-    "figures",
-    "predictions",
-    "reports",
-    "metrics",
-)
 _MLFLOW_METRIC_SEGMENT_PATTERN = re.compile(r"[^A-Za-z0-9_.-]+")
 _REMOTE_TRACKING_SCHEMES = frozenset({"http", "https"})
 _LOCAL_ARTIFACT_SCHEME = "file"
@@ -243,8 +224,8 @@ def ensure_experiment(name: str, paths: MlflowPaths) -> str:
     ``artifact_location`` entirely rather than defaulting it to the client's
     CWD — the tracking server picks its own default artifact root instead.
     """
-    mlflow.set_tracking_uri(paths.tracking_uri)
-    existing = mlflow.get_experiment_by_name(name)
+    client = MlflowClient(tracking_uri=paths.tracking_uri)
+    existing = client.get_experiment_by_name(name)
     if existing:
         _assert_remote_artifact_location(
             tracking_uri=paths.tracking_uri,
@@ -252,11 +233,11 @@ def ensure_experiment(name: str, paths: MlflowPaths) -> str:
             artifact_location=existing.artifact_location,
         )
         return existing.experiment_id
-    experiment_id = mlflow.create_experiment(
+    experiment_id = client.create_experiment(
         name=name,
         artifact_location=_optional_artifact_location(paths.artifact_uri),
     )
-    created = mlflow.get_experiment(experiment_id)
+    created = client.get_experiment(experiment_id)
     _assert_remote_artifact_location(
         tracking_uri=paths.tracking_uri,
         experiment_name=name,
@@ -302,68 +283,6 @@ def create_session_parent_run(
     return parent_run.info.run_id
 
 
-def finalize_session_parent_run(
-    *, tracking_uri: str, run_id: str, status: SessionRunStatus
-) -> None:
+def finalize_session_parent_run(*, tracking_uri: str, run_id: str, status: RunStatus) -> None:
     """Terminate a session parent run created via ``create_session_parent_run``."""
     MlflowClient(tracking_uri=tracking_uri).set_terminated(run_id, status=status)
-
-
-def start_run_if_needed(
-    exp_id: str,
-    run_name: str,
-    tags: Mapping[str, str] | None = None,
-) -> tuple[ActiveRun, bool]:
-    """Reuse active run or start a new one with tags."""
-    active = mlflow.active_run()
-    if active:
-        return active, False
-    run = mlflow.start_run(experiment_id=exp_id, run_name=run_name, tags=dict(tags or {}))
-    return run, True
-
-
-def open_run(config: MlflowRunConfig) -> MlflowRunState:
-    """Start or reuse a run and return its state."""
-    exp_id = ensure_experiment(config.experiment_name, config.paths)
-    run, started = start_run_if_needed(exp_id, run_name_text(config.name), config.tags)
-    return MlflowRunState(run=run, started=started)
-
-
-def collect_artifacts(workspace: Path, allowlist: Sequence[str]) -> list[Path]:
-    """Return existing artifact paths under workspace using an allowlist."""
-    root = Path(workspace)
-    return [path for name in allowlist if (path := root / name).exists()]
-
-
-def log_artifacts(run: ActiveRun, artifacts: Sequence[Path]) -> None:
-    """Log directories/files to MLflow for the given run."""
-    if not artifacts:
-        return
-    for path in artifacts:
-        mlflow.log_artifacts(str(path), run_id=run.info.run_id)
-
-
-def log_metrics(run: ActiveRun, metrics: Mapping[str, float], step: int | None = None) -> None:
-    """Log metrics to MLflow for the given run."""
-    if not metrics:
-        return
-    mlflow.log_metrics(dict(metrics), step=step, run_id=run.info.run_id)
-
-
-def finalize_run(
-    state: MlflowRunState | None,
-    *,
-    metrics: Mapping[str, float] | None = None,
-    workspace_root: Path,
-    allowlist: Sequence[str] = DEFAULT_ARTIFACT_SUBDIRS,
-    failed: bool = False,
-) -> None:
-    """Upload artifacts/metrics and end run if we started it."""
-    if state is None:
-        return
-    artifacts = collect_artifacts(workspace_root, allowlist)
-    log_artifacts(state.run, artifacts)
-    if metrics:
-        log_metrics(state.run, metrics)
-    if state.started:
-        mlflow.end_run(status="FAILED" if failed else "FINISHED")

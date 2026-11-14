@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Generator, Mapping, Sequence
-from contextlib import contextmanager
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import assert_never
-
-import mlflow
 
 from neuralls.domain.benchmarking.paired import (
     REFERENCE_METRIC,
@@ -60,15 +57,9 @@ from neuralls.platform.reporting.figure_text import scope_label
 from neuralls.platform.reporting.group_plots import GroupStyler, write_outcome_plots
 from neuralls.platform.reporting.method_figures import METHOD_PLOTS, draw_method_figure
 from neuralls.platform.reporting.stored_benchmark import StoredMethod
-from neuralls.platform.tracking.figure_uploader import (
-    ArtifactSink,
-    FigureUploader,
-    MlflowArtifactSink,
-)
-from neuralls.platform.tracking.metrics_logging import (
-    log_comparison_metrics,
-    log_convergence_metrics,
-)
+from neuralls.platform.tracking.figure_uploader import FigureUploader
+from neuralls.platform.tracking.metrics_logging import comparison_metrics, convergence_metrics
+from neuralls.platform.tracking.run_writer import RunWriter
 from neuralls.platform.tracking.scope_run_tree import RunTree, ScopeRunTree
 from neuralls.shared.runtime_environment import RuntimeEnvironment
 from neuralls.shared.scientific_description.policy import NotationPolicy
@@ -124,8 +115,8 @@ class FinalizedReport:
 class OpenReport:
     """A report still accepting scopes: the run tree, the uploader and what they draw from.
 
-    The run active at the first scope is the root (all matrix sets); every other scope gets
-    a child run of its parent scope, created on first use. Every figure is uploaded with its
+    ``root_run_id`` is the run of all matrix sets; every other scope gets a child run of
+    its parent scope, created on first use. Every figure is uploaded with its
     card into the run of its own scope; the root run also holds the method figures and,
     once finalized, the index of all figures.
     """
@@ -136,24 +127,13 @@ class OpenReport:
     runs: ScopeRunTree
     uploader: FigureUploader
     split_records: Sequence[DatasetSplitRecord]
+    writer: RunWriter
+    root_run_id: str
     slugs: FigureSlugs = field(default_factory=FigureSlugs)
 
-    def _root_run_id(self) -> str:
-        active = mlflow.active_run()
-        if active is None:
-            raise RuntimeError("a report needs its root run active")
-        return active.info.run_id
-
-    @contextmanager
-    def _in_scope(self, scope: ReportScope) -> Generator[str]:
-        """Log into the run of ``scope`` and yield its id; the root run is already active."""
-        root_id = self._root_run_id()
-        if isinstance(scope, AllMatrixSets):
-            yield root_id
-            return
-        run_id = self.runs.run_id(scope, root_id)
-        with mlflow.start_run(run_id=run_id, nested=True):
-            yield run_id
+    def _run_of(self, scope: ReportScope) -> str:
+        """The id of the run of ``scope``, created on first use."""
+        return self.runs.run_id(scope, self.root_run_id)
 
     def _stored(self, name: PreconditionerName) -> StoredMethod:
         found = next((method for method in self.methods if method.name == name), None)
@@ -163,9 +143,8 @@ class OpenReport:
 
     def register_method_figures(self, *, datasets: Mapping[DatasetId, DatasetPresentation]) -> None:
         """Draw each method's convergence histories from its stored table and upload them."""
-        with self._in_scope(AllMatrixSets()) as root_id:
-            for method in self.methods:
-                self._register_method(root_id, method, datasets)
+        for method in self.methods:
+            self._register_method(self.root_run_id, method, datasets)
 
     def _register_method(
         self, root_id: str, method: StoredMethod, datasets: Mapping[DatasetId, DatasetPresentation]
@@ -227,16 +206,18 @@ class OpenReport:
         """Log explicit counts and the supported failure-aware plots into the group's run."""
         group_id = outcome.group_id
         scope = scope_of_label(outcome.label)
-        with self._in_scope(scope) as run_id, tempfile.TemporaryDirectory() as tmp:
-            log_convergence_metrics(outcome.convergence)
+        run_id = self._run_of(scope)
+        with tempfile.TemporaryDirectory() as tmp:
+            metrics = convergence_metrics(outcome.convergence)
             if isinstance(outcome, RecipeProfileReport):
                 reference = reference_among_methods(
                     outcome.observations, outcome.reference_selection
                 )
                 if reference is not None:
-                    log_comparison_metrics(
+                    metrics |= comparison_metrics(
                         speed_ratio_summary(outcome.observations, reference, REFERENCE_METRIC)
                     )
+            self.writer.log_metrics(run_id, metrics)
             file_key = self.slugs.slug(
                 f"group:{group_id}", scope_label(presentation.scope, self.notation)
             )
@@ -267,11 +248,11 @@ class OpenReport:
         self, scope: System, metrics: Mapping[str, float], figures: Sequence[StagedFigure]
     ) -> None:
         """Log one system's per-method metrics and figures, with their cards, into its own run."""
-        with self._in_scope(scope) as run_id:
-            mlflow.log_metrics(dict(metrics))
-            self.uploader.check_free(run_id, None, [staged.plan.stem for staged in figures])
-            for staged in figures:
-                self.uploader.upload(run_id, None, staged)
+        run_id = self._run_of(scope)
+        self.writer.log_metrics(run_id, metrics)
+        self.uploader.check_free(run_id, None, [staged.plan.stem for staged in figures])
+        for staged in figures:
+            self.uploader.upload(run_id, None, staged)
 
     def finalize(self) -> FinalizedReport:
         """Check every figure has its card, then upload the figure index to the root run."""
@@ -287,7 +268,8 @@ class MLflowReportSink:
     the compare session and the stored method runs every figure is computed from;
     ``split_records`` are the session's held-out records, copied beside the index; ``environment`` is the
     session run's recorded device, CPU, versions and revisions, cited in every figure card. ``runs``
-    creates the nested scope runs and ``artifacts`` uploads into the active run.
+    creates the nested scope runs under ``root_run_id``, the report's root run, and ``writer``
+    logs every artifact and metric into the run of its scope.
     """
 
     notation: NotationPolicy
@@ -295,26 +277,30 @@ class MLflowReportSink:
     runs: RunTree
     split_records: Sequence[DatasetSplitRecord]
     environment: RuntimeEnvironment
+    writer: RunWriter
+    root_run_id: str
     methods: Sequence[StoredMethod] = ()
     datasets: Mapping[DatasetId, DatasetPresentation] = field(default_factory=dict)
     figure_style: FigureStyleConfig = field(default_factory=FigureStyleConfig)
-    artifacts: ArtifactSink = field(default_factory=MlflowArtifactSink)
     _state: OpenReport | FinalizedReport = field(init=False)
 
     def __post_init__(self) -> None:
         """Open the report: its scope run tree and figure uploader start empty."""
         uploader = FigureUploader(
-            self.session_run_id, self.notation, self.environment, self.artifacts
+            self.session_run_id, self.notation, self.environment, self.writer, self.root_run_id
         )
+        # The namer captures values, not `self`: a cycle back to the sink would keep the
+        # uploader's staging directory alive until an arbitrary later garbage collection.
+        notation, datasets = self.notation, self.datasets
         self._state = OpenReport(
             self.notation,
             self.figure_style,
             self.methods,
-            ScopeRunTree(
-                self.runs, lambda scope: scope_run_name(scope, self.notation, self.datasets)
-            ),
+            ScopeRunTree(self.runs, lambda scope: scope_run_name(scope, notation, datasets)),
             uploader,
             self.split_records,
+            self.writer,
+            self.root_run_id,
         )
 
     def _open(self) -> OpenReport:

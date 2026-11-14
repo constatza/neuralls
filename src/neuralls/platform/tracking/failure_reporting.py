@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import traceback
+from dataclasses import dataclass
 from typing import assert_never
 
-import mlflow
 from loguru import logger
 
+from neuralls.platform.tracking.run_writer import RunWriter
 from neuralls.shared.workflow_failures import (
     ComparisonBatchFailureContext,
     ComparisonMatrixFailureContext,
@@ -19,27 +20,24 @@ FAILURE_CONTEXT_ARTIFACT = "failure/context.json"
 FAILURE_TRACEBACK_ARTIFACT = "failure/traceback.txt"
 
 
+@dataclass(frozen=True, slots=True)
 class MLflowWorkflowFailureSink:
-    """Persist exact failure context and traceback into the active MLflow run."""
+    """Persist exact failure context and traceback into the run of the scope that failed."""
+
+    writer: RunWriter
+    run_id: str
 
     def record(self, context: WorkflowFailureContext, exc: Exception) -> None:
-        """Best-effort recording that never replaces the workflow exception.
-
-        With no active run the failure is only logged: the fluent API would otherwise start a
-        run on MLflow's ambient default store (``./mlflow.db``), outside every configured one.
-        """
-        if mlflow.active_run() is None:
-            logger.warning(
-                "No active MLflow run to record blocking workflow failure '{}' into: {}",
-                type(exc).__name__,
-                exc,
-            )
-            return
+        """Best-effort recording that never replaces the workflow exception."""
         try:
             record, tags = _failure_record(context, exc)
-            mlflow.log_dict(record, FAILURE_CONTEXT_ARTIFACT)
-            mlflow.log_text("".join(traceback.format_exception(exc)), FAILURE_TRACEBACK_ARTIFACT)
-            mlflow.set_tags(tags)
+            self.writer.log_dict(self.run_id, record, FAILURE_CONTEXT_ARTIFACT)
+            self.writer.log_text(
+                self.run_id,
+                "".join(traceback.format_exception(exc)),
+                FAILURE_TRACEBACK_ARTIFACT,
+            )
+            self.writer.set_tags(self.run_id, tags)
         except Exception as diagnostic_exc:  # noqa: BLE001
             logger.warning(
                 "Failed to record blocking workflow failure '{}': {}. Original failure: {}",

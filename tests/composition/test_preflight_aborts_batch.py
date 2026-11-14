@@ -48,9 +48,9 @@ from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.models import ScientificDescription
 from tests.dataset_support import build_test_dataset, strip_provenance
+from tests.fakes.comparison_runs import RecordingTrackingServices
 from tests.presentation_support import pod_spec
 from tests.workflows.comparison_support import (
-    MLFLOW_MODULE,
     make_settings,
     mock_cfg,
     write_experiments_config,
@@ -96,8 +96,11 @@ def resolved_specs(monkeypatch: pytest.MonkeyPatch) -> ResolvedSpecs:
 
 
 def _run_expecting_abort(
-    tmp_path: Path, settings: NeurallsSettings, error: type[Exception]
-) -> MagicMock:
+    tmp_path: Path,
+    settings: NeurallsSettings,
+    tracking: RecordingTrackingServices,
+    error: type[Exception],
+) -> None:
     experiments_config = tmp_path / "experiments.toml"
     write_experiments_config(experiments_config, with_comparisons=True)
     with (
@@ -105,19 +108,26 @@ def _run_expecting_abort(
             "neuralls.composition.assignments.comparison_prepare.resolve_comparison_config",
             return_value=MagicMock(),
         ),
-        patch(MLFLOW_MODULE) as mock_mlflow,
         pytest.raises(error),
     ):
         run_comparison_batch(
-            CaseConfigPath.resolve(experiments_config), ComparisonParams(), settings
+            CaseConfigPath.resolve(experiments_config),
+            ComparisonParams(),
+            settings,
+            tracking=tracking,
         )
-    return mock_mlflow
 
 
-@pytest.mark.usefixtures("stub_input_gate", "stub_planning", "stub_matrix_scope")
+@pytest.mark.usefixtures(
+    "stub_input_gate", "stub_planning", "stub_matrix_scope", "stub_setup_tracking"
+)
 class TestPresentationFailureAbortsTheBatch:
     def test_a_neural_method_without_an_architecture(
-        self, tmp_path: Path, neuralls_settings: NeurallsSettings, resolved_specs: ResolvedSpecs
+        self,
+        tmp_path: Path,
+        neuralls_settings: NeurallsSettings,
+        resolved_specs: ResolvedSpecs,
+        fake_tracking: RecordingTrackingServices,
     ) -> None:
         calls = resolved_specs(
             [
@@ -127,18 +137,19 @@ class TestPresentationFailureAbortsTheBatch:
             ]
         )
 
-        mock_mlflow = _run_expecting_abort(
-            tmp_path, neuralls_settings, MissingArchitectureNameError
+        _run_expecting_abort(
+            tmp_path, neuralls_settings, fake_tracking, MissingArchitectureNameError
         )
 
         assert calls, "resolution ran, so the failure came from presentation"
-        mock_mlflow.start_run.assert_not_called()
+        assert fake_tracking.runs.sessions == []
 
     def test_unverified_checkpoint_pod_does_not_read_nearby_stale_dataset(
         self,
         tmp_path: Path,
         neuralls_settings: NeurallsSettings,
         resolved_specs: ResolvedSpecs,
+        fake_tracking: RecordingTrackingServices,
         stale_dataset_dir: Path,
     ) -> None:
         spec = AMGPreconditionerConfig(
@@ -173,21 +184,24 @@ class TestPresentationFailureAbortsTheBatch:
                 return_value={spec.name: canonical_digest("checkpoint-pod")},
             ),
             patch.object(comparison_batch, "has_complete_reusable_session", return_value=True),
-            patch(MLFLOW_MODULE) as mock_mlflow,
         ):
             outcomes = run_comparison_batch(
-                CaseConfigPath.resolve(experiments_config), ComparisonParams(), neuralls_settings
+                CaseConfigPath.resolve(experiments_config),
+                ComparisonParams(),
+                neuralls_settings,
+                tracking=fake_tracking,
             )
         assert calls
         assert len(outcomes) == 2
         assert all(isinstance(outcome, ComparisonReused) for outcome in outcomes)
-        mock_mlflow.start_run.assert_not_called()
+        assert fake_tracking.runs.sessions == []
 
     def test_inline_pod_over_a_dataset_without_provenance_aborts(
         self,
         tmp_path: Path,
         neuralls_settings: NeurallsSettings,
         resolved_specs: ResolvedSpecs,
+        fake_tracking: RecordingTrackingServices,
         stale_dataset_dir: Path,
     ) -> None:
         spec = AMGPreconditionerConfig(
@@ -195,18 +209,19 @@ class TestPresentationFailureAbortsTheBatch:
         )
         calls = resolved_specs([spec])
 
-        mock_mlflow = _run_expecting_abort(
-            tmp_path, neuralls_settings, MissingDatasetProvenanceError
+        _run_expecting_abort(
+            tmp_path, neuralls_settings, fake_tracking, MissingDatasetProvenanceError
         )
 
         assert calls
-        mock_mlflow.start_run.assert_not_called()
+        assert fake_tracking.runs.sessions == []
 
     def test_two_pod_methods_with_distinct_assignments_over_identical_datasets(
         self,
         tmp_path: Path,
         neuralls_settings: NeurallsSettings,
         resolved_specs: ResolvedSpecs,
+        fake_tracking: RecordingTrackingServices,
         twin_pod_dataset_dirs: tuple[Path, Path],
     ) -> None:
         first, second = twin_pod_dataset_dirs
@@ -214,12 +229,12 @@ class TestPresentationFailureAbortsTheBatch:
             [pod_spec(first, 10, assignment="fit-a"), pod_spec(second, 10, assignment="fit-b")]
         )
 
-        mock_mlflow = _run_expecting_abort(
-            tmp_path, neuralls_settings, DuplicateMethodPresentationError
+        _run_expecting_abort(
+            tmp_path, neuralls_settings, fake_tracking, DuplicateMethodPresentationError
         )
 
         assert calls
-        mock_mlflow.start_run.assert_not_called()
+        assert fake_tracking.runs.sessions == []
 
 
 @pytest.fixture

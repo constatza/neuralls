@@ -280,3 +280,77 @@ def test_the_ambient_path_lint_catches(tmp_path: Path, source: str) -> None:
     module.write_text(source + "\n", encoding="utf-8")
 
     assert _ambient_path_reads(module) != []
+
+
+_ALLOWED_MLFLOW_IMPORTS: dict[str, frozenset[str] | None] = {
+    "mlflow.tracking": frozenset({"MlflowClient"}),
+    "mlflow.tracking.context.registry": frozenset({"resolve_tags"}),
+    "mlflow.entities": None,
+    "mlflow.exceptions": None,
+    "mlflow.protos.databricks_pb2": None,
+}
+"""The MLflow imports that cannot reach process-wide state; ``None`` allows every name."""
+
+
+def _allowed_mlflow_import(module: str, names: list[ast.alias]) -> bool:
+    if module not in _ALLOWED_MLFLOW_IMPORTS:
+        return False
+    allowed = _ALLOWED_MLFLOW_IMPORTS[module]
+    return allowed is None or all(alias.name in allowed for alias in names)
+
+
+def _ambient_tracking(path: Path) -> list[int]:
+    """An MLflow import that can reach its fluent API.
+
+    ``mlflow.log_*``, ``mlflow.start_run`` and their kin write into the process-wide active run
+    on the process-wide tracking URI; with neither set they start a run on ``./mlflow.db``.
+    Tracking writes go through ``platform/tracking/run_writer.py`` on an explicit client and
+    run id, so only the client, entities, exceptions, error codes and tag resolver may be imported.
+    """
+    found = []
+    for node in ast.walk(parsed(path)):
+        match node:
+            case ast.Import(names=names) if any(
+                alias.name.split(".")[0] == "mlflow" for alias in names
+            ):
+                found.append(node.lineno)
+            case ast.ImportFrom(module=str(module), names=names) if module.split(".")[
+                0
+            ] == "mlflow" and not _allowed_mlflow_import(module, names):
+                found.append(node.lineno)
+    return found
+
+
+def test_code_reaches_mlflow_only_through_explicit_clients() -> None:
+    offenders = [
+        f"{path.relative_to(root.parent).as_posix()}:{line}"
+        for root in (_SRC, _TESTS)
+        for path in sorted(root.rglob("*.py"))
+        if "__pycache__" not in path.parts
+        for line in _ambient_tracking(path)
+    ]
+    assert offenders == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import mlflow",
+        "import mlflow.tracking",
+        "from mlflow import log_metric",
+        "from mlflow.tracking.fluent import start_run",
+        "from mlflow.tracking import set_tracking_uri",
+    ],
+)
+def test_the_ambient_tracking_lint_catches(tmp_path: Path, source: str) -> None:
+    module = tmp_path / "module.py"
+    module.write_text(source + "\n", encoding="utf-8")
+
+    assert _ambient_tracking(module) != []
+
+
+def test_the_ambient_tracking_lint_allows_client_imports(tmp_path: Path) -> None:
+    module = tmp_path / "module.py"
+    module.write_text("from mlflow.tracking import MlflowClient\n", encoding="utf-8")
+
+    assert _ambient_tracking(module) == []

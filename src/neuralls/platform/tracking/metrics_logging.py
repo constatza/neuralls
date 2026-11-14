@@ -1,20 +1,15 @@
-"""MLflow tracking setup and per-method metric logging for comparison workflows."""
+"""MLflow experiment setup and the per-method metrics of comparison report runs."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 
-import mlflow
 import polars as pl
 
-from neuralls.domain.presentation.methods import (
-    PreparedMethodPresentation,
-)
 from neuralls.domain.solver.models.convergence import ConvergenceSummary
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.resolution import MlflowPaths
-from neuralls.platform.storage.facts_codec import encode_method_parameters
 from neuralls.platform.tracking.mlflow import ensure_experiment, sanitize_metric_key_segment
 from neuralls.shared.types import PreconditionerName
 
@@ -23,14 +18,12 @@ def setup_comparison_tracking(
     tracking_uri: str,
     artifact_location: str | None = None,
     experiment_name: str | None = None,
-) -> None:
-    """Configure MLflow tracking for comparison runs."""
-    resolved_experiment_name = experiment_name or ExperimentNamesConfig().comparison
-    ensure_experiment(
-        resolved_experiment_name,
+) -> str:
+    """Create or reuse the experiment comparison runs are written to and return its id."""
+    return ensure_experiment(
+        experiment_name or ExperimentNamesConfig().comparison,
         MlflowPaths(tracking_uri=tracking_uri, artifact_uri=artifact_location),
     )
-    mlflow.set_experiment(resolved_experiment_name)
 
 
 def parent_run_metric_key(metric: str, preconditioner_name: str) -> str:
@@ -71,26 +64,27 @@ def count_key(metric: MetricId, field: str) -> str:
     return f"{metric}_{field}"
 
 
-def log_convergence_metrics(convergence: Mapping[PreconditionerName, ConvergenceSummary]) -> None:
-    """Log explicit planned, attempted, and converged counts and the iteration statistics.
+def convergence_metrics(
+    convergence: Mapping[PreconditionerName, ConvergenceSummary],
+) -> dict[str, float]:
+    """Explicit planned, attempted, and converged counts and the iteration statistics.
 
     ``iterations_n_defined`` counts the systems the iteration statistics are taken over and
     ``iterations_n_planned`` the systems planned, so a statistic over few systems is visible.
     """
+    metrics: dict[str, float] = {}
     for name, summary in convergence.items():
-        mlflow.log_metric(parent_run_metric_key("n_planned_rhs", name), summary.n_planned_rhs)
-        mlflow.log_metric(parent_run_metric_key("n_attempted_rhs", name), summary.n_attempted_rhs)
-        mlflow.log_metric(parent_run_metric_key("n_converged", name), summary.n_converged)
-        mlflow.log_metric(parent_run_metric_key("success_rate", name), summary.success_rate)
-        _log_optional_metrics(
-            name,
-            {
-                count_key(MetricId.ITERATIONS, "n_defined"): summary.n_converged,
-                count_key(MetricId.ITERATIONS, "n_planned"): summary.n_planned_rhs,
-            },
-        )
+        counts: dict[str, float | None] = {
+            "n_planned_rhs": summary.n_planned_rhs,
+            "n_attempted_rhs": summary.n_attempted_rhs,
+            "n_converged": summary.n_converged,
+            "success_rate": summary.success_rate,
+            count_key(MetricId.ITERATIONS, "n_defined"): summary.n_converged,
+            count_key(MetricId.ITERATIONS, "n_planned"): summary.n_planned_rhs,
+        }
+        metrics |= _namespaced(name, counts)
         if summary.iterations is not None:
-            _log_optional_metrics(
+            metrics |= _namespaced(
                 name,
                 {
                     metric_key(MetricId.ITERATIONS, "mean"): summary.iterations.mean,
@@ -98,13 +92,16 @@ def log_convergence_metrics(convergence: Mapping[PreconditionerName, Convergence
                     metric_key(MetricId.ITERATIONS, "std"): summary.iterations.std,
                 },
             )
+    return metrics
 
 
-def _log_optional_metrics(preconditioner_name: str, metrics: Mapping[str, float | None]) -> None:
-    """Log each defined (non-`None`) metric under the method-namespaced key."""
-    for metric, value in metrics.items():
-        if value is not None:
-            mlflow.log_metric(parent_run_metric_key(metric, preconditioner_name), value)
+def _namespaced(preconditioner_name: str, metrics: Mapping[str, float | None]) -> dict[str, float]:
+    """Each defined (non-`None`) metric under its method-namespaced key."""
+    return {
+        parent_run_metric_key(metric, preconditioner_name): float(value)
+        for metric, value in metrics.items()
+        if value is not None
+    }
 
 
 _SPEED_RATIO_METRIC_COLUMNS = {
@@ -120,18 +117,15 @@ _SPEED_RATIO_METRIC_COLUMNS = {
 """MLflow metric name -> ``SPEED_RATIO_SCHEMA`` column it is logged from."""
 
 
-def log_comparison_metrics(speed_ratios: pl.DataFrame) -> None:
-    """Log each method's failure-aware reference/method speed ratios.
+def comparison_metrics(speed_ratios: pl.DataFrame) -> dict[str, float]:
+    """Each method's failure-aware reference/method speed ratios.
 
     ``speed_ratios`` holds ``SPEED_RATIO_SCHEMA`` rows, one per non-reference method.
     """
+    metrics: dict[str, float] = {}
     for row in speed_ratios.iter_rows(named=True):
-        _log_optional_metrics(
+        metrics |= _namespaced(
             row["method"],
             {metric: row[column] for metric, column in _SPEED_RATIO_METRIC_COLUMNS.items()},
         )
-
-
-def log_configured_method_facts(prepared: PreparedMethodPresentation) -> None:
-    """Log every configured fact of a method as stable parameters, before it executes."""
-    mlflow.log_params(encode_method_parameters(prepared))
+    return metrics

@@ -6,13 +6,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Protocol
 
-import mlflow
-from mlflow.tracking import MlflowClient
-
 from neuralls.domain.solver.models.report_scope import ReportScope, parent_scope
 from neuralls.domain.solver.reporting.report_levels import level_of_scope
+from neuralls.platform.tracking.run_writer import RunWriter
 from neuralls.platform.tracking.scope_params import scope_params
-from neuralls.platform.tracking.session_artifacts import PARENT_RUN_TAG
 
 REPORT_SCOPE_PHASE = "report_scope"
 """Phase tag of every non-root run of a report tree; the root carries ``report``."""
@@ -30,26 +27,18 @@ class RunTree(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class MlflowRunTree:
-    """Creates child runs in the experiment of the active run through one shared client."""
+    """Creates the child runs of a report in its experiment, ``experiment_id``."""
 
-    client: MlflowClient
+    writer: RunWriter
+    experiment_id: str
 
     def child_run(
         self, parent_run_id: str, name: str, tags: Mapping[str, str], params: Mapping[str, str]
     ) -> str:
         """Create, parameterize and finish a run named ``name`` under ``parent_run_id``."""
-        active = mlflow.active_run()
-        if active is None:
-            raise RuntimeError("a report needs its root run active")
-        run = self.client.create_run(
-            active.info.experiment_id,
-            tags={PARENT_RUN_TAG: parent_run_id, **tags},
-            run_name=name,
-        )
-        run_id = run.info.run_id
-        for key, value in params.items():
-            self.client.log_param(run_id, key, value)
-        self.client.set_terminated(run_id, status="FINISHED")
+        run_id = self.writer.create_run(self.experiment_id, name, tags, parent_run_id=parent_run_id)
+        self.writer.log_params(run_id, params)
+        self.writer.finish(run_id, "FINISHED")
         return run_id
 
 

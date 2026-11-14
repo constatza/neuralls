@@ -1,4 +1,4 @@
-"""Shared helpers for tests that drive the comparison batch against a mocked MLflow."""
+"""Shared helpers for tests that drive the comparison batch against recorded tracking."""
 
 from __future__ import annotations
 
@@ -17,23 +17,7 @@ from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import ComparisonRhsSourceKind, RowKind
 
-MLFLOW_MODULE = "neuralls.composition.assignments.comparison_batch.mlflow"
-EXECUTE_MLFLOW_MODULE = "neuralls.composition.assignments.comparison_execute.mlflow"
-TRACKING_MLFLOW_MODULES = (
-    "neuralls.platform.tracking.report_sink.mlflow",
-    "neuralls.platform.tracking.method_sink.mlflow",
-    "neuralls.platform.tracking.metrics_logging.mlflow",
-)
 SETUP_TRACKING = "neuralls.composition.assignments.comparison_batch.setup_comparison_tracking"
-
-
-def configure_mock_mlflow(mock_mlflow: MagicMock, run_id: str = "comp-run-id") -> None:
-    """Make `start_run` a context manager yielding a run with `run_id`."""
-    mock_run = MagicMock()
-    mock_run.info.run_id = run_id
-    mock_mlflow.start_run.return_value.__enter__.return_value = mock_run
-    mock_mlflow.start_run.return_value.__exit__.return_value = False
-    mock_mlflow.get_artifact_uri.return_value = f"mlartifacts/0/{run_id}/artifacts"
 
 
 def make_settings(tmp_path: Path) -> NeurallsSettings:

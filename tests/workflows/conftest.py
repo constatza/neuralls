@@ -5,9 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol
-from unittest.mock import MagicMock
 
-import mlflow
 import pytest
 from dlkit.infrastructure.config.factories import load_job
 from dlkit.infrastructure.config.job_config import TrainingJobConfig
@@ -18,12 +16,6 @@ from neuralls.platform.config.models.preconditioner import (
     NeuralPreconditionerConfig,
     PreconditionerType,
     StandardPreconditionerConfig,
-)
-from tests.workflows.comparison_support import (
-    EXECUTE_MLFLOW_MODULE,
-    MLFLOW_MODULE,
-    TRACKING_MLFLOW_MODULES,
-    configure_mock_mlflow,
 )
 
 _MINIMAL_TRAINING_JOB_TOML = """
@@ -169,7 +161,6 @@ def mlflow_experiment(tmp_path: Path, mlflow_tracking_uri: str) -> str:
     """
     artifacts_dir = (tmp_path / "mlartifacts").resolve()
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    mlflow.set_tracking_uri(mlflow_tracking_uri)
     experiment_name = f"workflow-test-{tmp_path.name}"
     client = MlflowClient(tracking_uri=mlflow_tracking_uri)
     if client.get_experiment_by_name(experiment_name) is None:
@@ -177,7 +168,6 @@ def mlflow_experiment(tmp_path: Path, mlflow_tracking_uri: str) -> str:
             experiment_name,
             artifact_location=_artifact_location(artifacts_dir),
         )
-    mlflow.set_experiment(experiment_name)
     return experiment_name
 
 
@@ -220,20 +210,15 @@ def log_run_with_checkpoint(
     ) -> str:
         checkpoint_file = tmp_path / f"{marker}.ckpt"
         checkpoint_file.write_text(marker, encoding="utf-8")
-        if start_time_ms is not None:
-            created = client.create_run(
-                experiment_id=experiment.experiment_id,
-                run_name=run_name or marker,
-                start_time=start_time_ms,
-            )
-            run_context = mlflow.start_run(run_id=created.info.run_id)
-        else:
-            run_context = mlflow.start_run(run_name=run_name or marker)
-
-        with run_context as run:
-            mlflow.log_artifact(str(checkpoint_file), artifact_path="model")
-            mlflow.log_artifact(str(checkpoint_file), artifact_path="checkpoints")
-            return run.info.run_id
+        run_id = client.create_run(
+            experiment_id=experiment.experiment_id,
+            run_name=run_name or marker,
+            start_time=start_time_ms,
+        ).info.run_id
+        client.log_artifact(run_id, str(checkpoint_file), artifact_path="model")
+        client.log_artifact(run_id, str(checkpoint_file), artifact_path="checkpoints")
+        client.set_terminated(run_id)
+        return run_id
 
     return _log_run
 
@@ -267,35 +252,20 @@ def log_run_with_named_checkpoints(
         A callable ``(checkpoints: Mapping[str, str]) -> run_id``.
     """
 
+    client = MlflowClient(tracking_uri=mlflow_tracking_uri)
+    experiment = client.get_experiment_by_name(mlflow_experiment)
+    if experiment is None:
+        raise RuntimeError(f"Experiment '{mlflow_experiment}' was not found after creation.")
+
     def _log_run(checkpoints: Mapping[str, str]) -> str:
-        with mlflow.start_run() as run:
-            run_dir = tmp_path / run.info.run_id
-            run_dir.mkdir(parents=True, exist_ok=True)
-            for name, content in checkpoints.items():
-                checkpoint_file = run_dir / name
-                checkpoint_file.write_text(content, encoding="utf-8")
-                mlflow.log_artifact(str(checkpoint_file), artifact_path="checkpoints")
-            return run.info.run_id
+        run_id = client.create_run(experiment_id=experiment.experiment_id).info.run_id
+        run_dir = tmp_path / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        for name, content in checkpoints.items():
+            checkpoint_file = run_dir / name
+            checkpoint_file.write_text(content, encoding="utf-8")
+            client.log_artifact(run_id, str(checkpoint_file), artifact_path="checkpoints")
+        client.set_terminated(run_id)
+        return run_id
 
     return _log_run
-
-
-# ---------------------------------------------------------------------------
-# Mocked MLflow for comparison-batch tests (no store, no artifact upload)
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def fake_mlflow(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """One `mlflow` double shared by the comparison batch, its method runs and its tracking sinks.
-
-    Both modules must see the same object so a test can assert on the metrics, params and
-    artifacts logged from either of them.
-    """
-    mock = MagicMock()
-    configure_mock_mlflow(mock)
-    monkeypatch.setattr(MLFLOW_MODULE, mock)
-    monkeypatch.setattr(EXECUTE_MLFLOW_MODULE, mock)
-    for module in TRACKING_MLFLOW_MODULES:
-        monkeypatch.setattr(module, mock)
-    return mock

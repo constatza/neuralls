@@ -1,6 +1,6 @@
 """The ``splits.toml`` session artifact: what each dataset's pinned split held out.
 
-Written once on the comparison session run (``mlflow.log_text`` of ``encode_split_records``), because a split is a property of the dataset and
+Written once on the comparison session run (``MlflowSessionRun.record_splits``), because a split is a property of the dataset and
 shared by every method child. It lets train/test separation be checked without the dataset
 directory.
 """

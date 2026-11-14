@@ -10,7 +10,7 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 from tests.environment_support import SESSION_ENVIRONMENT
-from tests.fakes.artifact_sink import InMemoryArtifactSink
+from tests.fakes.run_writer import RecordingRunWriter
 from tests.figure_support import no_offline_cost
 
 from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport
@@ -33,6 +33,8 @@ from neuralls.platform.tracking.split_records import SPLITS_ARTIFACT, encode_spl
 from neuralls.shared.scientific_description.policy import NotationPolicy
 
 GROUP_DIRECTORY = "group_report"
+GROUP_RUN = "group-run"
+ROOT_RUN = "root-run"
 
 
 def _written_target(directory: Path, stem: str) -> FigureTarget:
@@ -56,29 +58,34 @@ def test_the_table_beside_a_figure_is_the_one_its_card_names(
     )
     table = figure_summaries(profile_report, no_offline_cost(profile_report))["ecdf_time_online"]
     target = _written_target(tmp_path, plan.stem)
-    sink = InMemoryArtifactSink()
-    uploader = FigureUploader("session-run", notation, SESSION_ENVIRONMENT, sink)
+    writer = RecordingRunWriter()
+    uploader = FigureUploader("session-run", notation, SESSION_ENVIRONMENT, writer, ROOT_RUN)
 
     uploader.upload(
-        GROUP_DIRECTORY, GROUP_DIRECTORY, StagedTabledFigure(StagedFigure(plan, target), table)
+        GROUP_RUN, GROUP_DIRECTORY, StagedTabledFigure(StagedFigure(plan, target), table)
     )
     uploader.write_index(())
 
+    group = writer.runs[GROUP_RUN].artifacts
     card = decode_figure_card(
-        tomllib.loads(sink.files[GROUP_DIRECTORY, card_name(plan.stem)].decode("utf-8"))
+        tomllib.loads(group[GROUP_DIRECTORY, card_name(plan.stem)].decode("utf-8"))
     )
     match card.table:
         case SiblingTable(name=name):
-            stored = pl.read_parquet(io.BytesIO(sink.files[GROUP_DIRECTORY, name]))
+            stored = pl.read_parquet(io.BytesIO(group[GROUP_DIRECTORY, name]))
         case unreachable:
             raise AssertionError(
                 f"a group figure card must name a sibling table, not {unreachable}"
             )
     assert_frame_equal(stored, table)
     assert card.files == figure_files(plan.stem)
-    assert sorted(file for _, file in sink.files) == sorted(
-        [*card.files, card_name(plan.stem), name, "figure_index.toml", "splits.toml"]
+    assert sorted(group) == sorted(
+        (GROUP_DIRECTORY, file) for file in [*card.files, card_name(plan.stem), name]
     )
+    assert sorted(writer.runs[ROOT_RUN].artifacts) == [
+        (None, "figure_index.toml"),
+        (None, "splits.toml"),
+    ]
 
 
 def test_a_table_of_another_kind_than_the_cards_is_not_uploaded(
@@ -93,15 +100,16 @@ def test_a_table_of_another_kind_than_the_cards_is_not_uploaded(
         if plan.metadata.kind is FigureKind.ECDF_ITERATIONS
     )
     target = _written_target(tmp_path, plan.stem)
-    sink = InMemoryArtifactSink()
-    uploader = FigureUploader("session-run", notation, SESSION_ENVIRONMENT, sink)
+    uploader = FigureUploader(
+        "session-run", notation, SESSION_ENVIRONMENT, RecordingRunWriter(), ROOT_RUN
+    )
     other_kind = figure_summaries(profile_report, no_offline_cost(profile_report))[
         "solve_time_bars"
     ]
 
     with pytest.raises(InvalidFigureTableError):
         uploader.upload(
-            GROUP_DIRECTORY,
+            GROUP_RUN,
             GROUP_DIRECTORY,
             StagedTabledFigure(StagedFigure(plan, target), other_kind),
         )
@@ -110,12 +118,13 @@ def test_a_table_of_another_kind_than_the_cards_is_not_uploaded(
 def test_the_index_cites_the_split_records_copied_to_the_report_root(
     notation: NotationPolicy, split_records: tuple[DatasetSplitRecord, ...]
 ) -> None:
-    sink = InMemoryArtifactSink()
-    uploader = FigureUploader("session-run", notation, SESSION_ENVIRONMENT, sink)
+    writer = RecordingRunWriter()
+    uploader = FigureUploader("session-run", notation, SESSION_ENVIRONMENT, writer, ROOT_RUN)
 
     uploader.write_index(split_records)
 
-    assert sink.files[None, SPLITS_ARTIFACT] == encode_split_records(split_records)
-    assert tomllib.loads(sink.files[None, "figure_index.toml"].decode("utf-8"))["splits"] == (
+    root = writer.runs[ROOT_RUN].artifacts
+    assert root[None, SPLITS_ARTIFACT] == encode_split_records(split_records)
+    assert tomllib.loads(root[None, "figure_index.toml"].decode("utf-8"))["splits"] == (
         SPLITS_ARTIFACT
     )

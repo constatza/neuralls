@@ -10,7 +10,7 @@ The composition package owns wiring and config-driven assembly.
 - `inference/`: inference data-loading composition helpers
 - `preconditioners/`: config-to-`torchalg` preconditioner factory wiring; one `(PreconditionerType, MatrixFormat)` table selects the dense or sparse CSR builder (Identity, Jacobi, ILU, IC0, AMG, ADAPTIVE_SA_AMG, BOOTSTRAP_AMG, NeuralAMG, Neural)
 - `solvers/`: config/workflow-to-`torchalg` solver runner adapters; `run_traced_pcg` accepts a dense ndarray or a `csr_array` and converts CSR once into a sparse CSR tensor
-- `tracking/`: tracking tag and run-spec assembly; `tracking/services.py` holds the `TrackingServices` port (clients, identity stores, artifact lease managers) and the `MLFLOW_TRACKING` default
+- `tracking/`: tracking tag and run-spec assembly; `tracking/services.py` holds the `TrackingServices` port (clients, identity stores, artifact lease managers, comparison runs) and the `MLFLOW_TRACKING` default; `tracking/comparison_runs.py` holds the `ComparisonRuns` port (`session` yields a `SessionRun`, whose `method_run` yields a `MethodRun`; each run carries its own `failures` sink)
 
 ## Semantic Difference
 
@@ -311,8 +311,8 @@ Comparison parent-run summary metrics sanitize each preconditioner label into an
 MLflow-safe metric-key segment before appending it under namespaced keys such as
 `iterations/<preconditioner>`. Composition does not implement that MLflow policy
 itself: it delegates metric-key sanitization, comparison-run metric logging, and
-nested child-run writes to `platform.tracking`, while only assembling child tag
-payloads and deciding when the logging happens.
+child-run writes to `platform.tracking` through the `ComparisonRuns` port, while
+only assembling child tag payloads and deciding when the logging happens.
 
 **Realized facts through execution.** `_execute_method_run` passes the method's `PreparedMethodPresentation` (looked up in the first execution's `PreparedComparisonPresentation` by method id) to `execute_method_workload`. Facts only the built object knows are read once per matrix right after its single setup and kept as plain `SystemRealization`s on the returned `CompletedMethodWorkload`, so no preconditioner outlives its matrix for the sake of labeling. Group reporting asks `reduce_realized_facts` for the facts invariant over each group; the `CompletedMethodWorkload` carries an `ExecutedMethod` (prepared method plus its realizations, empty when no setup succeeded) and refuses one that belongs to another method or that realizes a system it did not plan.
 
@@ -586,7 +586,11 @@ persistence happen inside that child, so a blocking method exception leaves a
 failed child with typed context and a traceback instead of only an unexplained
 failed parent. Lazy input-loading failures identify the exact method, dataset,
 and matrix in that child; the method boundary does not overwrite the more
-specific context. The batch, not the platform sink, owns those MLflow contexts.
+specific context. The batch, not the platform sink, owns those runs: it opens the
+session through `TrackingServices.comparison_runs` and hands the open `SessionRun`
+to `execute_all`, which opens each `MethodRun` from it. Every failure boundary
+records into the run it belongs to (`session.failures` for a batch phase,
+`method_run.failures` for a method or matrix), never into a process-wide active run.
 A method child owns its
 required configuration, the two canonical Parquet event files, `summary.toml`,
 method histories, and method diagnostic figures; the session parent owns shared
@@ -696,7 +700,8 @@ artifact lease manager comes from one injected `TrackingServices`
 The CLI passes `MLFLOW_TRACKING` explicitly to each batch entry point
 (`run_assignment_sweep`, `eval_batch`, `run_comparison_batch`,
 `run_comparison_report`, `run_case_pipeline`); tests substitute a services object
-built over a fake client factory. Every MLflow lookup in
+built over a fake client factory, and `tests/fakes/comparison_runs.py::RecordingTrackingServices`
+records the comparison runs instead of writing them. Every MLflow lookup in
 `assignments/model_resolution.py` (registered models, versions, aliases, logged-run
 search, the identity store) goes through the `tracking` taken by `resolve_model_ref`
 and `resolve_preconditioner_models*`. `identity/gate.py::reuse_lookup` is the one

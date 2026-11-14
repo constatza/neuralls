@@ -15,8 +15,8 @@ from neuralls.domain.solver.models.workload import MethodWorkload, MethodWorkloa
 class BenchmarkMethodSink(Protocol):
     """Persist one completed method workload after it has been reduced.
 
-    The batch owns MLflow run lifetimes.  Implementations write to the active
-    method child but never create a run themselves; this keeps raw event
+    The batch owns run lifetimes.  Implementations write into the method run
+    they are bound to but never create a run themselves; this keeps raw event
     emission free of aggregate metric side effects and makes the method the
     smallest reusable benchmark unit.
     """

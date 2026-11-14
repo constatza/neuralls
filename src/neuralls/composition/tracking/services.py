@@ -7,8 +7,10 @@ from typing import Protocol
 
 from mlflow.tracking import MlflowClient
 
+from neuralls.composition.tracking.comparison_runs import ComparisonRuns
 from neuralls.domain.identity_ports import IdentityStore
 from neuralls.platform.tracking.artifact_access import ArtifactLeaseManager
+from neuralls.platform.tracking.comparison_runs import MethodRecordContext
 from neuralls.platform.tracking.services import MlflowTrackingServices
 
 
@@ -31,6 +33,12 @@ class TrackingServices(Protocol):
 
     def lease_manager(self, tracking_uri: str) -> AbstractContextManager[ArtifactLeaseManager]:
         """Return a lease manager that resolves artifacts of ``tracking_uri``."""
+        ...
+
+    def comparison_runs(
+        self, tracking_uri: str, experiment_id: str, methods: MethodRecordContext
+    ) -> ComparisonRuns:
+        """Return the session and method runs of comparisons in one experiment of ``tracking_uri``."""
         ...
 
 

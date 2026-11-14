@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import mlflow
 import numpy as np
 import pytest
 import tomli_w
@@ -181,7 +180,6 @@ def test_training_logs_diagnostics_artifact_to_mlflow_with_sqlite(tmp_path: Path
         artifact_root=artifact_root,
     )
 
-    mlflow.set_tracking_uri(tracking_uri)
     predictions = np.array([[1.0], [2.0], [3.0]], dtype=np.float64)
     targets = np.array([[1.1], [1.9], [3.2]], dtype=np.float64)
     contract = default_training_dataset_contract()
@@ -193,8 +191,8 @@ def test_training_logs_diagnostics_artifact_to_mlflow_with_sqlite(tmp_path: Path
         contract,
     )
 
-    with mlflow.start_run(experiment_id=experiment_id, run_name="diag-train") as run:
-        run_id = run.info.run_id
+    run_id = client.create_run(experiment_id, run_name="diag-train").info.run_id
+    client.set_terminated(run_id)
 
     _log_training_evaluation(
         tracking_uri=tracking_uri,
@@ -226,9 +224,8 @@ def test_log_diagnostics_to_mlflow_reopens_sqlite_run_without_active_context(
         artifact_root=artifact_root,
     )
 
-    mlflow.set_tracking_uri(tracking_uri)
-    with mlflow.start_run(experiment_id=experiment_id, run_name="diag-direct") as run:
-        run_id = run.info.run_id
+    run_id = client.create_run(experiment_id, run_name="diag-direct").info.run_id
+    client.set_terminated(run_id)
 
     diagnostics = compute_diagnostics(
         np.array([[1.0], [2.0]], dtype=np.float64),

@@ -8,8 +8,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, assert_never
 
-import mlflow
-
 from neuralls.domain.solver.models.split_record import DatasetSplitRecord
 from neuralls.platform.reporting.figure_card import (
     FigureCard,
@@ -45,20 +43,14 @@ class DuplicateFigureNameError(ValueError):
 
 
 class ArtifactSink(Protocol):
-    """Logs a local file into the run that is currently active; the only MLflow call needed."""
+    """Logs a local file into a run's artifacts; the only tracking call the uploader needs.
 
-    def log(self, local_path: Path, directory: str | None) -> None:
-        """Upload ``local_path`` into ``directory`` of the active run's artifacts."""
+    ``MlflowRunWriter`` is the MLflow implementation.
+    """
+
+    def log_artifact(self, run_id: str, local_path: Path, directory: str | None) -> None:
+        """Upload ``local_path`` into ``directory`` of run ``run_id``'s artifacts."""
         ...
-
-
-@dataclass(frozen=True, slots=True)
-class MlflowArtifactSink:
-    """Logs artifacts through the active MLflow run."""
-
-    def log(self, local_path: Path, directory: str | None) -> None:
-        """Upload ``local_path`` into ``directory`` of the active run's artifacts."""
-        mlflow.log_artifact(str(local_path), artifact_path=directory)
 
 
 @dataclass(slots=True)
@@ -68,13 +60,14 @@ class FigureUploader:
     Figures are staged in a private temporary directory. File stems only need to be unique
     inside one run directory; the uploader rejects a name that collides with another one in
     the same ``(run, directory)``. ``write_index`` checks that every figure has its card and
-    uploads the index of all figures into the active (root) run.
+    uploads the index of all figures into the report's root run, ``root_run_id``.
     """
 
     session_run_id: SessionRunId
     notation: NotationPolicy
     environment: RuntimeEnvironment
-    artifacts: ArtifactSink = field(default_factory=MlflowArtifactSink)
+    artifacts: ArtifactSink
+    root_run_id: str
     _staging: tempfile.TemporaryDirectory[str] = field(
         default_factory=lambda: tempfile.TemporaryDirectory(prefix="neuralls-figures-")
     )
@@ -119,7 +112,7 @@ class FigureUploader:
                     case SiblingTable(name=name, kind=kind):
                         table_path = staged.target.directory / name
                         write_group_table(table_path, check_table_kind(table, kind))
-                        self.artifacts.log(table_path, directory)
+                        self.artifacts.log_artifact(run_id, table_path, directory)
                         self._uploaded.append(ArtifactLocation(run_id, _in(directory, name)))
                     case NoTable():
                         raise ValueError(f"figure {staged.plan.stem} has no plotted table")
@@ -144,8 +137,8 @@ class FigureUploader:
         card_path = staged.target.directory / card_name(stem)
         write_figure_card(card_path, card)
         for path in staged.target.paths:
-            self.artifacts.log(path, directory)
-        self.artifacts.log(card_path, directory)
+            self.artifacts.log_artifact(run_id, path, directory)
+        self.artifacts.log_artifact(run_id, card_path, directory)
         self._taken.setdefault((run_id, directory), set()).add(collision_key(stem))
         card_location = ArtifactLocation(run_id, _in(directory, card_path.name))
         self._uploaded.extend(ArtifactLocation(run_id, _in(directory, name)) for name in card.files)
@@ -158,7 +151,7 @@ class FigureUploader:
     ) -> tuple[FigureIndexEntry, ...]:
         """Check every figure has its card, upload the split records and the index that cites them.
 
-        Both land in the active (root) run, so the report carries what its session held out.
+        Both land in the root run, so the report carries what its session held out.
         """
         index = index_of(self._cards)
         verify_figure_records(self._uploaded, self._cards, index)
@@ -167,8 +160,8 @@ class FigureUploader:
         splits_path.write_bytes(encode_split_records(split_records))
         index_path = staging / FIGURE_INDEX_FILE
         write_figure_index(index_path, index, SPLITS_ARTIFACT)
-        self.artifacts.log(splits_path, None)
-        self.artifacts.log(index_path, None)
+        self.artifacts.log_artifact(self.root_run_id, splits_path, None)
+        self.artifacts.log_artifact(self.root_run_id, index_path, None)
         self._staging.cleanup()
         return index
 

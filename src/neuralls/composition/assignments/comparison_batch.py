@@ -7,7 +7,6 @@ from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from pathlib import Path
 
-import mlflow
 from torchalg.utils.device import resolve_device
 
 from neuralls.composition.assignments.assembler import load_validated_case_config
@@ -52,18 +51,12 @@ from neuralls.domain.presentation.titles import (
 from neuralls.platform.config.case_path import CaseConfigPath
 from neuralls.platform.config.models.experiments import CaseConfig
 from neuralls.platform.config.settings import NeurallsSettings
-from neuralls.platform.tracking.failure_reporting import MLflowWorkflowFailureSink
-from neuralls.platform.tracking.method_sink import MLflowBenchmarkMethodSink
+from neuralls.platform.tracking.comparison_runs import MethodRecordContext
 from neuralls.platform.tracking.metrics_logging import (
     setup_comparison_tracking,
 )
-from neuralls.platform.tracking.run_names import run_name_text
-from neuralls.platform.tracking.runtime_environment import (
-    collect_runtime_environment,
-    environment_params,
-)
+from neuralls.platform.tracking.runtime_environment import collect_runtime_environment
 from neuralls.platform.tracking.session_artifacts import SESSION_PHASE
-from neuralls.platform.tracking.split_records import SPLITS_ARTIFACT, encode_split_records
 from neuralls.shared.device import warm_up_device
 from neuralls.shared.digest import digest_memo
 from neuralls.shared.workflow_failures import (
@@ -87,6 +80,7 @@ def _run_session(
     batch: PreparedComparisonBatch,
     executions: Sequence[PreparedComparisonExecution],
     topology: ComparisonTopology,
+    experiment_id: str,
     case_config_path: Path,
     tracking: TrackingServices,
 ) -> list[ComparisonOutcome]:
@@ -102,26 +96,33 @@ def _run_session(
         experiment_name=topology.experiment_name,
         phase=SESSION_PHASE,
     )
-    failure_sink = MLflowWorkflowFailureSink()
-    with mlflow.start_run(run_name=run_name_text(session_run), tags=session_tags.as_mlflow_tags()):
-        mlflow.log_text(encode_split_records(batch.split_records).decode("utf-8"), SPLITS_ARTIFACT)
+    runs = tracking.comparison_runs(
+        topology.tracking_uri,
+        experiment_id,
+        MethodRecordContext(
+            batch_dataset_presentations(executions),
+            batch_solver_timing_contexts(executions),
+            batch_reference_selections(executions),
+        ),
+    )
+    with runs.session(session_run, session_tags.as_mlflow_tags()) as session:
+        session.record_splits(batch.split_records)
         device = resolve_device()
-        mlflow.log_params(environment_params(collect_runtime_environment(device)))
-        with _batch_phase(failure_sink, case_config_path, ComparisonBatchPhase.WARMUP):
+        session.record_environment(collect_runtime_environment(device))
+        with _batch_phase(session.failures, case_config_path, ComparisonBatchPhase.WARMUP):
             warm_up_device(device)
-        with _batch_phase(failure_sink, case_config_path, ComparisonBatchPhase.METHOD_WORKLOADS):
+        with _batch_phase(
+            session.failures, case_config_path, ComparisonBatchPhase.METHOD_WORKLOADS
+        ):
             workloads = execute_all(
                 batch,
-                method_sink=MLflowBenchmarkMethodSink(
-                    batch_dataset_presentations(executions),
-                    batch_solver_timing_contexts(executions),
-                    batch_reference_selections(executions),
-                ),
-                failure_sink=failure_sink,
+                session=session,
                 training_runs=tracking.client(topology.model_store_tracking_uri),
                 device=device,
             )
-        with _batch_phase(failure_sink, case_config_path, ComparisonBatchPhase.RESULT_PROJECTION):
+        with _batch_phase(
+            session.failures, case_config_path, ComparisonBatchPhase.RESULT_PROJECTION
+        ):
             return outcomes_from_workloads(pending, workloads)
 
 
@@ -178,7 +179,7 @@ def run_loaded_comparison_batch(
 
     case_path = case_config_path.path
     topology = resolve_comparison_topology(master_cfg, case_path, settings)
-    setup_comparison_tracking(
+    experiment_id = setup_comparison_tracking(
         tracking_uri=topology.tracking_uri,
         artifact_location=topology.artifact_location,
         experiment_name=topology.experiment_name,
@@ -204,4 +205,6 @@ def run_loaded_comparison_batch(
                 else ComparisonReused(comparison_id=item.entry.id, run=item.run_name)
                 for item in batch.items
             ]
-        return _run_session(batch, partition.executions, topology, case_path, tracking)
+        return _run_session(
+            batch, partition.executions, topology, experiment_id, case_path, tracking
+        )

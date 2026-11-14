@@ -5,15 +5,16 @@ from __future__ import annotations
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 
-import mlflow
-
 from neuralls.domain.solver.models.report_scope import AllMatrixSets
+from neuralls.platform.tracking.run_writer import RunWriter, open_run
 from neuralls.platform.tracking.scope_params import scope_params
 
 
 @contextmanager
-def root_report_run(run_name: str, tags: Mapping[str, str]) -> Generator[str]:
+def root_report_run(
+    writer: RunWriter, experiment_id: str, run_name: str, tags: Mapping[str, str]
+) -> Generator[str]:
     """Open the report's root run, log its scope params, and yield its run id."""
-    with mlflow.start_run(run_name=run_name, tags=dict(tags)) as run:
-        mlflow.log_params(scope_params(AllMatrixSets()))
-        yield run.info.run_id
+    with open_run(writer, experiment_id, run_name, tags) as run_id:
+        writer.log_params(run_id, scope_params(AllMatrixSets()))
+        yield run_id

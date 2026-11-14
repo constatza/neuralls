@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import tomllib
-from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
@@ -12,6 +11,7 @@ import polars as pl
 import pytest
 from tests.environment_support import SESSION_ENVIRONMENT
 from tests.fakes.run_tree import FakeRunTree
+from tests.fakes.run_writer import RecordedRun, RecordingRunWriter
 from tests.observation_support import solved_row, synthetic_observations, unconverged_row
 from tests.presentation_support import PreparedMethodFactory
 from tests.recipe_support import ALPHA, BETA, GAUSSIAN, SINE
@@ -95,9 +95,9 @@ from neuralls.platform.tracking.report_sink import (
     GROUP_REPORT_ARTIFACT_DIR,
     METHOD_FIGURE_ARTIFACT_DIR,
     MLflowReportSink,
-    OpenReport,
     UnknownStoredMethodError,
 )
+from neuralls.platform.tracking.split_records import SPLITS_ARTIFACT
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import (
     DatasetId,
@@ -107,8 +107,6 @@ from neuralls.shared.types import (
     PreconditionerName,
     SystemId,
 )
-
-type LoggedMetrics = dict[str, float]
 
 _CONTEXT = SolverTimingContext(
     rtol=1e-6,
@@ -124,40 +122,52 @@ _CONTEXT = SolverTimingContext(
 )
 
 
-@pytest.fixture
-def logged_metrics(monkeypatch: pytest.MonkeyPatch) -> LoggedMetrics:
-    metrics: LoggedMetrics = {}
-    monkeypatch.setattr(report_sink.mlflow, "log_metric", metrics.__setitem__)
-    return metrics
+ROOT_RUN = "root-run"
 
 
 @pytest.fixture
-def logged_artifacts(monkeypatch: pytest.MonkeyPatch) -> dict[str, tuple[str, bool]]:
-    """Logged artifact file name -> (artifact directory, file existed when logged)."""
-    artifacts: dict[str, tuple[str, bool]] = {}
-
-    def log_artifact(local_path: str, artifact_path: str | None = None) -> None:
-        artifacts[Path(local_path).name] = (str(artifact_path), Path(local_path).exists())
-
-    monkeypatch.setattr(report_sink.mlflow, "log_artifact", log_artifact)
-    return artifacts
+def writer() -> RecordingRunWriter:
+    return RecordingRunWriter()
 
 
 @pytest.fixture
-def logged_text(
-    logged_artifacts: dict[str, tuple[str, bool]], monkeypatch: pytest.MonkeyPatch
-) -> dict[str, str]:
-    """Logged TOML artifact file name -> its text when logged (cards and the figure index)."""
-    texts: dict[str, str] = {}
-    inner = report_sink.mlflow.log_artifact
+def runs() -> FakeRunTree:
+    return FakeRunTree()
 
-    def log_artifact(local_path: str, artifact_path: str | None = None) -> None:
-        inner(local_path, artifact_path)
-        if local_path.endswith(".toml"):
-            texts[Path(local_path).name] = Path(local_path).read_text(encoding="utf-8")
 
-    monkeypatch.setattr(report_sink.mlflow, "log_artifact", log_artifact)
-    return texts
+def _scope_run_id(runs: FakeRunTree, level: ReportLevelName) -> str:
+    """The id of the one run created for a scope of ``level``."""
+    (run_id,) = [
+        created.run_id for created in runs.created if created.tags["report_level"] == level.value
+    ]
+    return run_id
+
+
+def _scope_run(
+    runs: FakeRunTree, writer: RecordingRunWriter, level: ReportLevelName
+) -> RecordedRun:
+    return writer.runs[_scope_run_id(runs, level)]
+
+
+def _artifacts(run: RecordedRun) -> dict[str, str | None]:
+    """Logged artifact file name -> its artifact directory, in one run."""
+    return {name: directory for directory, name in run.artifacts}
+
+
+def _texts(run: RecordedRun) -> dict[str, str]:
+    """Logged TOML artifact file name -> its text (cards and the figure index), in one run."""
+    return {
+        name: content.decode("utf-8")
+        for (_, name), content in run.artifacts.items()
+        if name.endswith(".toml")
+    }
+
+
+def _touch(target: FigureTarget) -> FigureTarget:
+    """Leave an empty file for each format, as the writer reads what it logs."""
+    for path in target.paths:
+        path.touch()
+    return target
 
 
 def _cards(logged_text: dict[str, str]) -> dict[str, FigureCard]:
@@ -168,7 +178,7 @@ def _cards(logged_text: dict[str, str]) -> dict[str, FigureCard]:
     }
 
 
-def _figures(logged_artifacts: dict[str, tuple[str, bool]]) -> set[str]:
+def _figures(logged_artifacts: dict[str, str | None]) -> set[str]:
     return {name for name in logged_artifacts if name.endswith(".png")}
 
 
@@ -300,14 +310,20 @@ def sink(
     notation: NotationPolicy,
     stored_methods: tuple[StoredMethod, ...],
     split_records: tuple[DatasetSplitRecord, ...],
+    writer: RecordingRunWriter,
+    runs: FakeRunTree,
+    dataset_presentation: DatasetPresentation,
 ) -> MLflowReportSink:
     return MLflowReportSink(
         notation,
         "session-run",
-        FakeRunTree(),
+        runs,
         split_records,
         SESSION_ENVIRONMENT,
+        writer,
+        ROOT_RUN,
         methods=stored_methods,
+        datasets={DatasetId("ds"): dataset_presentation},
     )
 
 
@@ -333,33 +349,16 @@ def method_workload(prepared_method: PreparedMethodFactory) -> CompletedMethodWo
 
 
 @pytest.fixture(autouse=True)
-def _no_system_metrics_logging(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Per-system metrics are covered by the integration tree; none may start a real run here."""
-    monkeypatch.setattr(report_sink.mlflow, "log_metrics", lambda metrics: None)
-
-
-@pytest.fixture(autouse=True)
 def _no_group_figure_drawing(monkeypatch: pytest.MonkeyPatch) -> None:
     """Drawing is covered by the figure tests; here only what the sink logs about a figure matters."""
 
     def stubbed_recipe(kind: FigureKind):
         def draw(data: FigureData, target: FigureTarget) -> FigureTarget:
-            return target
+            return _touch(target)
 
         return replace(group_recipe(kind), draw=draw)
 
     monkeypatch.setattr(group_plots, "group_recipe", stubbed_recipe)
-
-
-@pytest.fixture(autouse=True)
-def _log_into_the_active_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Scope-to-run nesting is covered by the integration tests; here a scope logs in place."""
-
-    @contextmanager
-    def in_place(report: OpenReport, scope: object) -> Generator[str]:
-        yield f"run-of-{scope!r}"
-
-    monkeypatch.setattr(OpenReport, "_in_scope", in_place)
 
 
 def _key(metric: str, group: GroupAggregated, name: str) -> str:
@@ -425,15 +424,16 @@ _POOLED_STEMS = (
 def test_mixture_sink_pools_the_profiles_and_omits_the_recipe_level_figures(
     group: GroupAggregated,
     presentation: GroupPresentation,
-    logged_metrics: LoggedMetrics,
-    logged_artifacts: dict[str, tuple[str, bool]],
     sink: MLflowReportSink,
+    writer: RecordingRunWriter,
+    runs: FakeRunTree,
 ) -> None:
     mixture = _report_variant(group, WorkloadMixtureReport)
     sink.report(mixture, presentation=presentation)
 
     key = _GROUP_FILE_STEM
-    assert _figures(logged_artifacts) == {
+    run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET)
+    assert _figures(_artifacts(run)) == {
         f"solve_time_bars_{key}.png",
         f"online_time_bars_{key}.png",
         f"cost_breakdown_{key}.png",
@@ -532,15 +532,15 @@ def test_method_figures_are_drawn_with_the_configured_title_switch(
     stored_methods: tuple[StoredMethod, ...],
     split_records: tuple[DatasetSplitRecord, ...],
     notation: NotationPolicy,
-    logged_artifacts: dict[str, tuple[str, bool]],
     monkeypatch: pytest.MonkeyPatch,
     show_titles: bool,
+    writer: RecordingRunWriter,
 ) -> None:
     flags: list[bool] = []
     monkeypatch.setattr(
         report_sink,
         "draw_method_figure",
-        lambda *_, show_titles: flags.append(show_titles),
+        lambda target, *_, show_titles: flags.append(show_titles) or _touch(target),
     )
     configured = MLflowReportSink(
         notation,
@@ -548,6 +548,8 @@ def test_method_figures_are_drawn_with_the_configured_title_switch(
         FakeRunTree(),
         split_records,
         SESSION_ENVIRONMENT,
+        writer,
+        ROOT_RUN,
         methods=stored_methods,
         figure_style=FigureStyleConfig(show_titles=show_titles),
     )
@@ -560,27 +562,28 @@ def test_method_figures_are_drawn_with_the_configured_title_switch(
 
 def test_method_figures_are_uploaded_with_cards_naming_their_method_run(
     stored_methods: tuple[StoredMethod, ...],
-    logged_artifacts: dict[str, tuple[str, bool]],
-    logged_text: dict[str, str],
     sink: MLflowReportSink,
     monkeypatch: pytest.MonkeyPatch,
+    writer: RecordingRunWriter,
 ) -> None:
     drawn: list[FigureTarget] = []
     monkeypatch.setattr(
-        report_sink, "draw_method_figure", lambda target, *_, **__: drawn.append(target)
+        report_sink, "draw_method_figure", lambda target, *_, **__: drawn.append(_touch(target))
     )
     jacobi = next(method for method in stored_methods if str(method.name) == "jacobi")
 
     sink.register_method_figures(datasets={})
 
+    root = writer.runs[ROOT_RUN]
+    assert set(writer.runs) == {ROOT_RUN}
     assert {figure_file(target.stem, FigureFormat.PNG) for target in drawn} == _figures(
-        logged_artifacts
+        _artifacts(root)
     )
-    assert {directory for directory, _ in logged_artifacts.values()} == {METHOD_FIGURE_ARTIFACT_DIR}
-    assert {name for name in logged_artifacts if name.endswith(".toml")} == {
-        name.replace(".png", ".toml") for name in _figures(logged_artifacts)
+    assert set(_artifacts(root).values()) == {METHOD_FIGURE_ARTIFACT_DIR}
+    assert {name for name in _artifacts(root) if name.endswith(".toml")} == {
+        name.replace(".png", ".toml") for name in _figures(_artifacts(root))
     }
-    card = _cards(logged_text)["residual_history_Method_Method_jacobi.toml"]
+    card = _cards(_texts(root))["residual_history_Method_Method_jacobi.toml"]
     metadata = card.metadata
     assert card.stem == "residual_history_Method_Method_jacobi"
     assert card.session_run_id == "session-run"
@@ -605,9 +608,9 @@ def test_method_figures_are_uploaded_with_cards_naming_their_method_run(
 def test_recipe_profile_sink_keeps_profiles_and_ecdf(
     group: GroupAggregated,
     presentation: GroupPresentation,
-    logged_metrics: LoggedMetrics,
-    logged_artifacts: dict[str, tuple[str, bool]],
     sink: MLflowReportSink,
+    writer: RecordingRunWriter,
+    runs: FakeRunTree,
 ) -> None:
     profile = _report_variant(group, RecipeProfileReport)
     sink.report(profile, presentation=presentation)
@@ -616,61 +619,64 @@ def test_recipe_profile_sink_keeps_profiles_and_ecdf(
     assert {
         f"performance_profile_solve_{key}.png",
         f"performance_profile_online_{key}.png",
-    } <= _figures(logged_artifacts)
+    } <= _figures(_artifacts(_scope_run(runs, writer, ReportLevelName.MATRIX_SET_RHS_TYPE)))
 
 
 def test_sink_logs_explicit_counts_and_ratio_metrics(
     group: GroupAggregated,
     presentation: GroupPresentation,
-    logged_metrics: LoggedMetrics,
-    logged_artifacts: dict[str, tuple[str, bool]],
     sink: MLflowReportSink,
+    writer: RecordingRunWriter,
+    runs: FakeRunTree,
 ) -> None:
     sink.report(group, presentation=presentation)
 
-    assert logged_metrics[_key("n_planned_rhs", group, "amg")] == 4
-    assert logged_metrics[_key("n_attempted_rhs", group, "amg")] == 4
-    assert logged_metrics[_key("n_converged", group, "amg")] == 3
-    assert logged_metrics[_key("success_rate", group, "amg")] == pytest.approx(0.75)
-    assert logged_metrics[_key("iterations_converged_median", group, "amg")] == 6.0
-    assert logged_metrics[_key("iterations_n_defined", group, "amg")] == 3
-    assert logged_metrics[_key("iterations_n_planned", group, "amg")] == 4
+    metrics = _scope_run(runs, writer, ReportLevelName.MATRIX_SET_RHS_TYPE).metrics
+    assert metrics[_key("n_planned_rhs", group, "amg")] == 4
+    assert metrics[_key("n_attempted_rhs", group, "amg")] == 4
+    assert metrics[_key("n_converged", group, "amg")] == 3
+    assert metrics[_key("success_rate", group, "amg")] == pytest.approx(0.75)
+    assert metrics[_key("iterations_converged_median", group, "amg")] == 6.0
+    assert metrics[_key("iterations_n_defined", group, "amg")] == 3
+    assert metrics[_key("iterations_n_planned", group, "amg")] == 4
     # amg over jacobi online time: 1.5/2.5 and 2.5/3.0 on matrix 7, 4.5/9.5 on matrix 8
-    assert logged_metrics[_key("n_both_solved", group, "jacobi")] == 3
-    assert logged_metrics[_key("n_ratio", group, "jacobi")] == 3
-    assert logged_metrics[_key("n_matrices", group, "jacobi")] == 2
-    assert logged_metrics[_key("speed_ratio_median", group, "jacobi")] == pytest.approx(0.6)
-    assert logged_metrics[_key("speed_ratio_ci_low", group, "jacobi")] == pytest.approx(4.5 / 9.5)
-    assert logged_metrics[_key("speed_ratio_ci_high", group, "jacobi")] == pytest.approx(
+    assert metrics[_key("n_both_solved", group, "jacobi")] == 3
+    assert metrics[_key("n_ratio", group, "jacobi")] == 3
+    assert metrics[_key("n_matrices", group, "jacobi")] == 2
+    assert metrics[_key("speed_ratio_median", group, "jacobi")] == pytest.approx(0.6)
+    assert metrics[_key("speed_ratio_ci_low", group, "jacobi")] == pytest.approx(4.5 / 9.5)
+    assert metrics[_key("speed_ratio_ci_high", group, "jacobi")] == pytest.approx(
         (1.5 / 2.5 + 2.5 / 3.0) / 2
     )
-    assert logged_metrics[_key("n_reference_only", group, "never")] == 3
+    assert metrics[_key("n_reference_only", group, "never")] == 3
 
 
 def test_never_converged_method_logs_counts_and_no_iteration_statistics(
     group: GroupAggregated,
     presentation: GroupPresentation,
-    logged_metrics: LoggedMetrics,
-    logged_artifacts: dict[str, tuple[str, bool]],
     sink: MLflowReportSink,
+    writer: RecordingRunWriter,
+    runs: FakeRunTree,
 ) -> None:
     sink.report(group, presentation=presentation)
 
-    assert logged_metrics[_key("success_rate", group, "never")] == 0.0
-    assert {key for key in logged_metrics if key.endswith("/never") and "iterations" in key} == {
+    metrics = _scope_run(runs, writer, ReportLevelName.MATRIX_SET_RHS_TYPE).metrics
+    assert metrics[_key("success_rate", group, "never")] == 0.0
+    assert {key for key in metrics if key.endswith("/never") and "iterations" in key} == {
         _key("iterations_n_defined", group, "never"),
         _key("iterations_n_planned", group, "never"),
     }
-    assert logged_metrics[_key("iterations_n_defined", group, "never")] == 0
+    assert metrics[_key("iterations_n_defined", group, "never")] == 0
 
 
+@pytest.mark.figure_placeholders
 def test_sink_uploads_only_failure_aware_group_artifacts(
     group: GroupAggregated,
     presentation: GroupPresentation,
-    logged_metrics: LoggedMetrics,
-    logged_artifacts: dict[str, tuple[str, bool]],
     sink: MLflowReportSink,
     monkeypatch: pytest.MonkeyPatch,
+    writer: RecordingRunWriter,
+    runs: FakeRunTree,
 ) -> None:
     # Whether a drawer declines (the break-even without a reference among the methods) is
     # drawer behaviour, which the drawing stub would hide.
@@ -696,46 +702,49 @@ def test_sink_uploads_only_failure_aware_group_artifacts(
             *_COHORT_STEMS,
         )
     }
-    assert _figures(logged_artifacts) == expected
-    assert set(logged_artifacts) == (
+    run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET_RHS_TYPE)
+    assert _figures(_artifacts(run)) == expected
+    assert set(_artifacts(run)) == (
         expected
         | {name.replace(".png", ".toml") for name in expected}
         | {name.replace(".png", ".parquet") for name in expected}
     )
-    assert all(directory == GROUP_REPORT_ARTIFACT_DIR for directory, _ in logged_artifacts.values())
+    assert set(_artifacts(run).values()) == {GROUP_REPORT_ARTIFACT_DIR}
 
 
 def test_sink_skips_the_reference_figures_without_a_configured_reference(
     group: GroupAggregated,
     presentation: GroupPresentation,
-    logged_metrics: LoggedMetrics,
-    logged_artifacts: dict[str, tuple[str, bool]],
     sink: MLflowReportSink,
+    writer: RecordingRunWriter,
+    runs: FakeRunTree,
 ) -> None:
     sink.report(
         replace(group, reference_selection=NoReferenceConfigured()), presentation=presentation
     )
 
+    run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET_RHS_TYPE)
     assert not [
         name
-        for name in logged_artifacts
+        for name in _artifacts(run)
         if name.startswith(("speed_ratio_cdf", "paired_time_scatter", "breakeven"))
     ]
-    assert not [key for key in logged_metrics if key.startswith("speed_ratio")]
+    assert not [key for key in run.metrics if key.startswith("speed_ratio")]
 
 
 def test_group_figures_carry_cards_with_methods_parameters_and_sources(
     group: GroupAggregated,
     presentation: GroupPresentation,
-    logged_metrics: LoggedMetrics,
-    logged_text: dict[str, str],
     sink: MLflowReportSink,
+    writer: RecordingRunWriter,
+    runs: FakeRunTree,
 ) -> None:
     sink.report(
         replace(group, reference_selection=NoReferenceConfigured()), presentation=presentation
     )
 
-    card = _cards(logged_text)[f"solve_time_bars_{_GROUP_FILE_STEM}.toml"]
+    run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET_RHS_TYPE)
+    card = _cards(_texts(run))[f"solve_time_bars_{_GROUP_FILE_STEM}.toml"]
 
     assert card.metadata.report_level.value == "matrix_set_rhs_type"
     assert [method.method_id for method in card.metadata.methods] == ["amg", "jacobi", "never"]
@@ -753,13 +762,14 @@ def test_group_figures_carry_cards_with_methods_parameters_and_sources(
 def test_the_convergence_factor_card_cites_the_stored_residual_histories(
     group: GroupAggregated,
     presentation: GroupPresentation,
-    logged_metrics: LoggedMetrics,
-    logged_text: dict[str, str],
     sink: MLflowReportSink,
+    writer: RecordingRunWriter,
+    runs: FakeRunTree,
 ) -> None:
     sink.report(group, presentation=presentation)
 
-    card = _cards(logged_text)[f"convergence_factor_{_GROUP_FILE_STEM}.toml"]
+    run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET_RHS_TYPE)
+    card = _cards(_texts(run))[f"convergence_factor_{_GROUP_FILE_STEM}.toml"]
 
     assert {source.artifact_paths for source in card.metadata.sources} == {
         (
@@ -771,26 +781,32 @@ def test_the_convergence_factor_card_cites_the_stored_residual_histories(
     }
 
 
-@pytest.mark.usefixtures("logged_metrics", "logged_artifacts")
 def test_group_naming_a_method_without_a_stored_run_is_rejected(
     group: GroupAggregated,
     presentation: GroupPresentation,
     notation: NotationPolicy,
     split_records: tuple[DatasetSplitRecord, ...],
+    dataset_presentation: DatasetPresentation,
 ) -> None:
     with pytest.raises(UnknownStoredMethodError):
         MLflowReportSink(
-            notation, "session-run", FakeRunTree(), split_records, SESSION_ENVIRONMENT
+            notation,
+            "session-run",
+            FakeRunTree(),
+            split_records,
+            SESSION_ENVIRONMENT,
+            RecordingRunWriter(),
+            ROOT_RUN,
+            datasets={DatasetId("ds"): dataset_presentation},
         ).report(group, presentation=presentation)
 
 
 def test_sink_finalizes_one_index_listing_exactly_the_logged_figures(
     group: GroupAggregated,
     presentation: GroupPresentation,
-    logged_metrics: LoggedMetrics,
-    logged_artifacts: dict[str, tuple[str, bool]],
-    logged_text: dict[str, str],
     sink: MLflowReportSink,
+    writer: RecordingRunWriter,
+    runs: FakeRunTree,
 ) -> None:
     sink.report(group, presentation=presentation)
     sink.report(
@@ -799,11 +815,16 @@ def test_sink_finalizes_one_index_listing_exactly_the_logged_figures(
     )
     sink.finalize()
 
-    index = tomllib.loads(logged_text[FIGURE_INDEX_FILE])["figures"]
-    assert logged_artifacts[FIGURE_INDEX_FILE] == ("None", True)
+    root = writer.runs[ROOT_RUN]
+    run = _scope_run(runs, writer, ReportLevelName.MATRIX_SET_RHS_TYPE)
+    assert set(root.artifacts) == {(None, FIGURE_INDEX_FILE), (None, SPLITS_ARTIFACT)}
+    index = tomllib.loads(_texts(root)[FIGURE_INDEX_FILE])["figures"]
+    assert {entry["run_id"] for entry in index} == {
+        _scope_run_id(runs, ReportLevelName.MATRIX_SET_RHS_TYPE)
+    }
     assert {path for entry in index for path in entry["artifact_paths"]} == {
         f"{GROUP_REPORT_ARTIFACT_DIR}/{file}"
-        for name in _figures(logged_artifacts)
+        for name in _figures(_artifacts(run))
         for file in figure_files(name.removesuffix(".png"))
     }
     assert all(
@@ -830,24 +851,29 @@ def system_figure(
         SystemScope(dataset_presentation, system.recipe, system.matrix_id, 0)
     )
     plan = FigurePlan("residual_history", "Residual History", metadata)
-    return StagedFigure(plan, FigureTarget(tmp_path, plan.stem))
+    return StagedFigure(plan, _touch(FigureTarget(tmp_path, plan.stem)))
 
 
 def test_system_figures_are_uploaded_with_cards_into_the_run_root(
     system: System,
     system_figure: StagedFigure,
-    logged_artifacts: dict[str, tuple[str, bool]],
-    logged_text: dict[str, str],
     sink: MLflowReportSink,
     dataset_presentation: DatasetPresentation,
+    writer: RecordingRunWriter,
+    runs: FakeRunTree,
 ) -> None:
     sink.report_system(system, {}, [system_figure])
 
-    assert logged_artifacts == {
-        "residual_history.png": ("None", False),
-        "residual_history.toml": ("None", True),
+    system_id = _scope_run_id(runs, ReportLevelName.SYSTEM)
+    parent_of = {created.run_id: created.parent_run_id for created in runs.created}
+    assert parent_of[system_id] == _scope_run_id(runs, ReportLevelName.MATRIX_SET_RHS_TYPE)
+    run = writer.runs[system_id]
+    assert set(run.artifacts) == {
+        (None, "residual_history.png"),
+        (None, "residual_history.toml"),
     }
-    card = _cards(logged_text)["residual_history.toml"]
+    assert ROOT_RUN not in writer.runs
+    card = _cards(_texts(run))["residual_history.toml"]
     assert card.metadata.scope == SystemScope(dataset_presentation, GAUSSIAN, MatrixId(7), 0)
     assert card.metadata.report_level is ReportLevelName.SYSTEM
 
@@ -855,8 +881,8 @@ def test_system_figures_are_uploaded_with_cards_into_the_run_root(
 def test_one_stem_may_repeat_across_runs_but_not_within_one(
     system: System,
     system_figure: StagedFigure,
-    logged_artifacts: dict[str, tuple[str, bool]],
     sink: MLflowReportSink,
+    writer: RecordingRunWriter,
 ) -> None:
     other = replace(system, matrix_id=MatrixId(8))
     sink.report_system(system, {}, [system_figure])
@@ -869,8 +895,8 @@ def test_one_stem_may_repeat_across_runs_but_not_within_one(
 def test_finalizing_with_a_figure_missing_its_card_raises(
     system: System,
     system_figure: StagedFigure,
-    logged_artifacts: dict[str, tuple[str, bool]],
     sink: MLflowReportSink,
+    writer: RecordingRunWriter,
 ) -> None:
     sink.report_system(system, {}, [system_figure])
     sink._open().uploader._cards.clear()  # a recorded card lost: the invariant must catch it

@@ -6,7 +6,6 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import mlflow
 import pytest
 from mlflow.tracking import MlflowClient
 
@@ -80,9 +79,12 @@ def test_register_logged_model_raises_when_run_has_no_checkpoints(
     mlflow_experiment: str,
 ) -> None:
     """Registration fails loudly when the run has no checkpoints/ artifacts at all."""
-    with mlflow.start_run() as run:
-        mlflow.log_param("x", 1)
-        run_id = run.info.run_id
+    client = MlflowClient(tracking_uri=mlflow_tracking_uri)
+    experiment = client.get_experiment_by_name(mlflow_experiment)
+    assert experiment is not None
+    run_id = client.create_run(experiment.experiment_id).info.run_id
+    client.log_param(run_id, "x", 1)
+    client.set_terminated(run_id)
 
     with pytest.raises(FileNotFoundError):
         register_logged_model(

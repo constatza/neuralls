@@ -3,14 +3,14 @@ least one [[comparisons]] entry genuinely needs execution.
 
 Complements test_comparison_workflow.py's
 test_run_comparison_batch_preserves_declared_order (which also asserts the
-all-cache-hit case never calls mlflow.start_run) with the mixed case: one
+all-cache-hit case never opens a session) with the mixed case: one
 cache hit alongside one entry that needs real execution.
 """
 
 from __future__ import annotations
 
 import contextlib
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -38,14 +38,13 @@ from neuralls.platform.config.models.preconditioner import (
     PreconditionerType,
     StandardPreconditionerConfig,
 )
-from neuralls.platform.tracking.services import MlflowTrackingServices
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.workflow_failures import (
     ComparisonBatchFailureContext,
     ComparisonBatchPhase,
 )
+from tests.fakes.comparison_runs import RecordingTrackingServices
 from tests.workflows.comparison_support import (
-    MLFLOW_MODULE,
     VIRTUAL_CASE,
     in_memory_case,
     mock_cfg,
@@ -56,7 +55,7 @@ from tests.workflows.comparison_support import (
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning", "stub_setup_tracking")
 def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
     comparison_run: NamedRun,
-    fake_tracking: MlflowTrackingServices,
+    fake_tracking: RecordingTrackingServices,
 ) -> None:
     case = in_memory_case(with_comparisons=True)
 
@@ -81,7 +80,6 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
             "neuralls.composition.assignments.comparison_prepare.resolve_comparison_config",
             return_value=mock_cfg(),
         ),
-        patch(MLFLOW_MODULE) as mock_mlflow,
     ):
         outcomes = run_loaded_comparison_batch(
             case,
@@ -92,14 +90,14 @@ def test_run_comparison_batch_opens_no_run_when_every_entry_is_a_cache_hit(
         )
 
     assert all(isinstance(outcome, ComparisonReused) for outcome in outcomes)
-    mock_mlflow.start_run.assert_not_called()
+    assert fake_tracking.runs.sessions == []
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning", "stub_setup_tracking")
 def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
     prepared_presentation: PreparedComparisonPresentation,
     comparison_run: NamedRun,
-    fake_tracking: MlflowTrackingServices,
+    fake_tracking: RecordingTrackingServices,
 ) -> None:
     case = in_memory_case(with_comparisons=True)
 
@@ -159,7 +157,6 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
                 ComparisonReused(comparison_id="b", run=comparison_run),
             ],
         ),
-        patch(MLFLOW_MODULE) as mock_mlflow,
     ):
         outcomes = run_loaded_comparison_batch(
             case,
@@ -170,17 +167,16 @@ def test_run_comparison_batch_opens_a_run_when_one_entry_needs_execution(
         )
 
     assert [outcome.comparison_id for outcome in outcomes] == ["a", "b"]
-    mock_mlflow.start_run.assert_called_once()
+    assert len(fake_tracking.runs.sessions) == 1
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning", "stub_setup_tracking")
 def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
     prepared_presentation: PreparedComparisonPresentation,
-    fake_tracking: MlflowTrackingServices,
+    fake_tracking: RecordingTrackingServices,
 ) -> None:
     case = in_memory_case(with_comparisons=True)
     original = RuntimeError("injected method failure")
-    failure_sink = MagicMock()
 
     def prepare(
         cfg: object,
@@ -227,15 +223,8 @@ def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
             "neuralls.composition.assignments.comparison_batch.execute_all",
             side_effect=original,
         ),
-        patch(
-            "neuralls.composition.assignments.comparison_batch.MLflowWorkflowFailureSink",
-            return_value=failure_sink,
-        ),
-        patch(MLFLOW_MODULE) as mock_mlflow,
         pytest.raises(RuntimeError) as raised,
     ):
-        mock_mlflow.start_run.return_value.__enter__.return_value = MagicMock()
-        mock_mlflow.start_run.return_value.__exit__.return_value = False
         run_loaded_comparison_batch(
             case,
             VIRTUAL_CASE,
@@ -245,8 +234,13 @@ def test_run_comparison_batch_records_and_reraises_blocking_execution_failure(
         )
 
     assert raised.value is original
-    context = failure_sink.record.call_args.args[0]
-    assert context == ComparisonBatchFailureContext(
-        phase=ComparisonBatchPhase.METHOD_WORKLOADS,
-        case_config_path=VIRTUAL_CASE.path,
-    )
+    [session] = fake_tracking.runs.sessions
+    assert session.failures.recorded == [
+        (
+            ComparisonBatchFailureContext(
+                phase=ComparisonBatchPhase.METHOD_WORKLOADS,
+                case_config_path=VIRTUAL_CASE.path,
+            ),
+            original,
+        )
+    ]

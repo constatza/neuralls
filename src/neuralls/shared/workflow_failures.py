@@ -72,5 +72,5 @@ class WorkflowFailureSink(Protocol):
     """Records a blocking failure without owning exception transport."""
 
     def record(self, context: WorkflowFailureContext, exc: Exception) -> None:
-        """Record the failure in the current infrastructure context."""
+        """Record the failure into the run of the scope this sink is bound to."""
         ...

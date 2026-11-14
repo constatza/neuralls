@@ -43,6 +43,7 @@ from neuralls.platform.tracking.metrics_logging import (
 from neuralls.platform.tracking.mlflow import quote_filter_value
 from neuralls.platform.tracking.report_run import root_report_run
 from neuralls.platform.tracking.report_sink import MLflowReportSink
+from neuralls.platform.tracking.run_writer import MlflowRunWriter
 from neuralls.platform.tracking.runtime_environment import read_environment_params
 from neuralls.platform.tracking.scope_run_tree import MlflowRunTree
 from neuralls.platform.tracking.session_artifacts import (
@@ -108,7 +109,7 @@ def run_comparison_report(
     }
 
     report_experiment = topology.report_experiment_name
-    setup_comparison_tracking(
+    report_experiment_id = setup_comparison_tracking(
         tracking_uri=topology.tracking_uri,
         artifact_location=topology.artifact_location,
         experiment_name=report_experiment,
@@ -123,8 +124,10 @@ def run_comparison_report(
         inputs = report_inputs(read_stored_benchmark(directories))
         split_records = download_session_splits(client, session, Path(tmp) / "splits")
         session_name = client.get_run(session).data.tags.get("mlflow.runName", session)
-        failure_sink = MLflowWorkflowFailureSink()
+        writer = MlflowRunWriter(client)
         with root_report_run(
+            writer,
+            report_experiment_id,
             session_name,
             {
                 "phase": REPORT_PHASE,
@@ -133,12 +136,15 @@ def run_comparison_report(
                 **source_tags,
             },
         ) as report_run_id:
+            failure_sink = MLflowWorkflowFailureSink(writer, report_run_id)
             sink = MLflowReportSink(
                 notation,
                 session,
-                MlflowRunTree(client),
+                MlflowRunTree(writer, report_experiment_id),
                 split_records,
                 read_environment_params(client.get_run(session).data.params),
+                writer,
+                report_run_id,
                 methods=inputs.stored.methods,
                 datasets=inputs.datasets,
                 figure_style=figure_style,

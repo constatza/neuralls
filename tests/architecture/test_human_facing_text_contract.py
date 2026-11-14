@@ -102,6 +102,11 @@ _IMAGE_SUFFIXES = (".png", ".svg", ".pdf", ".jpg")
 _FILE_ID = re.compile(r"_id$|^(dataset|method|group|assignment|system)s?$|_(dataset|method)$")
 _SLUGGERS = frozenset({"sanitize_metric_key_segment", "sanitize_filename", "text_slug"})
 _TAG_SETTERS = frozenset({"set_tag", "log_param"})
+_TAG_MAP_SETTERS = frozenset({"set_tags", "log_params"})
+_RUN_NAME_POSITIONS = {"open_run": 2, "create_run": 1}
+"""Run creators of ``platform/tracking/run_writer.py`` and the position of their name argument."""
+_ARTIFACT_DIRECTORY_POSITION = 2
+"""``log_artifact(run_id, local_path, directory)``: the artifact directory argument."""
 _DELETED_FALLBACKS = frozenset({"effective_display_name", "resolve_display_name"})
 _LABELLED = re.compile(r"(display|label)")
 
@@ -116,10 +121,17 @@ SCOPES: dict[str, SinkScope] = {
         allowed=(
             Allowed(
                 RUN_NAME_TEXT,
-                "platform/tracking/mlflow.py",
-                "start_run_if_needed",
-                "the low-level starter receives text that open_run already rendered "
-                "from a typed run name",
+                "platform/tracking/run_writer.py",
+                "open_run",
+                "forwards the name its caller passed to create_run; callers render it with "
+                "run_name_text, or are root_report_run and child_run below",
+            ),
+            Allowed(
+                RUN_NAME_TEXT,
+                "platform/tracking/report_run.py",
+                "root_report_run",
+                "the report run carries the name its comparison session already rendered "
+                "from a typed run name, so both runs read the same in their experiments",
             ),
             Allowed(
                 RUN_NAME_TEXT,
@@ -130,10 +142,11 @@ SCOPES: dict[str, SinkScope] = {
             ),
             Allowed(
                 RUN_NAME_TEXT,
-                "platform/tracking/report_run.py",
-                "root_report_run",
-                "the report run carries the name its comparison session already rendered "
-                "from a typed run name, so both runs read the same in their experiments",
+                "platform/tracking/run_writer.py",
+                "create_run",
+                "every caller passes rendered scientific text: run_name_text of a typed run name "
+                "for session and method runs, the session's stored name for its report root run, "
+                "scope_run_name for report scope runs",
             ),
             Allowed(
                 RUN_NAME_TEXT,
@@ -356,9 +369,17 @@ def _is_rendered_run_name(value: ast.AST) -> bool:
 def _is_unrendered_run_name(node: ast.AST) -> bool:
     """A run opened under a name that is not ``run_name_text(<typed run>)``.
 
-    Covers a ``run_name=`` keyword and the ``"mlflow.runName"`` tag, the two ways a name
-    reaches MLflow, so a string assembled from an id cannot name a run.
+    Covers a ``run_name=`` keyword, the ``"mlflow.runName"`` tag and the name argument of the
+    run writer's ``open_run`` and ``create_run``, the ways a name reaches MLflow, so a string
+    assembled from an id cannot name a run.
     """
+    if isinstance(node, ast.Call):
+        position = _RUN_NAME_POSITIONS.get(_identifier_of(node.func) or "")
+        return (
+            position is not None
+            and len(node.args) > position
+            and not _is_rendered_run_name(node.args[position])
+        )
     if isinstance(node, ast.keyword):
         return node.arg == "run_name" and not _is_rendered_run_name(node.value)
     if isinstance(node, ast.Dict):
@@ -397,6 +418,13 @@ def _is_file_name_id(node: ast.AST) -> bool:
         return _is_image_name(node) and _interpolates_file_id(node)
     if isinstance(node, ast.keyword) and node.arg == "artifact_path":
         return isinstance(node.value, ast.JoinedStr) and _interpolates_file_id(node.value)
+    if (
+        isinstance(node, ast.Call)
+        and _identifier_of(node.func) == "log_artifact"
+        and len(node.args) > _ARTIFACT_DIRECTORY_POSITION
+    ):
+        directory = node.args[_ARTIFACT_DIRECTORY_POSITION]
+        return isinstance(directory, ast.JoinedStr) and _interpolates_file_id(directory)
     if isinstance(node, ast.Call) and _identifier_of(node.func) in _SLUGGERS and node.args:
         identifier = _identifier_of(node.args[0])
         return identifier is not None and bool(_FILE_ID.search(identifier))
@@ -404,10 +432,18 @@ def _is_file_name_id(node: ast.AST) -> bool:
 
 
 def _is_tag_value_id(call: ast.Call) -> bool:
-    """``set_tag``/``log_param`` whose value is an f-string interpolating an id."""
-    if _identifier_of(call.func) not in _TAG_SETTERS:
+    """A tag or param whose value is an f-string interpolating an id.
+
+    ``set_tag``/``log_param`` take the value as an argument; ``set_tags``/``log_params`` take a
+    mapping of values.
+    """
+    setter = _identifier_of(call.func)
+    if setter in _TAG_MAP_SETTERS:
+        values = [value for arg in call.args if isinstance(arg, ast.Dict) for value in arg.values]
+    elif setter in _TAG_SETTERS:
+        values = [*call.args[1:], *(kw.value for kw in call.keywords if kw.arg == "value")]
+    else:
         return False
-    values = [*call.args[1:], *(kw.value for kw in call.keywords if kw.arg == "value")]
     return any(isinstance(v, ast.JoinedStr) and _interpolates_file_id(v) for v in values)
 
 
@@ -557,6 +593,8 @@ def test_every_allowance_states_its_reason(name: str) -> None:
         ('def f(ax, method_id):\n    ax.set_title(f"{method_id} results")\n', ID_INTERPOLATION),
         ('def f(ax, dataset):\n    ax.plot(label=f"{dataset} run")\n', ID_INTERPOLATION),
         ("def f(mlflow, run_name):\n    mlflow.start_run(run_name=run_name)\n", RUN_NAME_TEXT),
+        ("def f(w, e, entry):\n    open_run(w, e, entry.id, {})\n", RUN_NAME_TEXT),
+        ('def f(w, entry):\n    w.create_run("1", f"{entry.id} run", {})\n', RUN_NAME_TEXT),
         (
             'def f(mlflow, entry):\n    mlflow.start_run(run_name=f"{entry.id} | now")\n',
             RUN_NAME_TEXT,
@@ -581,6 +619,14 @@ def test_every_allowance_states_its_reason(name: str) -> None:
             TAG_VALUE_ID,
         ),
         (
+            'def f(w, run_id, dataset_id):\n    w.set_tags(run_id, {"d": f"x-{dataset_id}"})\n',
+            TAG_VALUE_ID,
+        ),
+        (
+            'def f(w, run_id, p, method_id):\n    w.log_artifact(run_id, p, f"m/{method_id}")\n',
+            FILE_NAME_ID,
+        ),
+        (
             'def f(c, run_id, dataset_id):\n    c.log_param(run_id, "d", f"x-{dataset_id}")\n',
             TAG_VALUE_ID,
         ),
@@ -601,6 +647,8 @@ def test_the_checker_detects_each_rule(source: str, rule: str) -> None:
         "def f(ax, n):\n    ax.set_title(f'N={n}')\n",
         "def f(d):\n    return d.name\n",
         "def f(mlflow, run):\n    mlflow.start_run(run_name=run_name_text(run))\n",
+        "def f(w, e, run):\n    open_run(w, e, run_name_text(run), {})\n",
+        'def f(w, run_id, label):\n    w.set_tags(run_id, {"dataset": f"{label}"})\n',
         'def f(result):\n    logger.info("{}", render_training_label(result.presentation))\n',
         'def f(run_id):\n    logger.info("Logged to MLflow run {}", run_id)\n',
         'def f(bundle):\n    logger.info("matrix {}", int(bundle.matrix_id))\n',

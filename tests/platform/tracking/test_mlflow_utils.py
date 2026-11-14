@@ -8,49 +8,27 @@ import pytest
 from dlkit.infrastructure.io import url_resolver
 
 import neuralls.platform.tracking.mlflow as tracking_mlflow
-from neuralls.domain.presentation.methods import StandaloneMethodPresentation
-from neuralls.domain.presentation.run_names import MethodRunName, NamedRun
 from neuralls.platform.config.resolution import MlflowPaths, build_sqlite_tracking_uri
 from neuralls.platform.tracking.mlflow import (
-    DEFAULT_ARTIFACT_SUBDIRS,
-    MlflowRunConfig,
     build_runtime_environment,
     build_workflow_environment,
-    collect_artifacts,
     ensure_experiment,
-    finalize_run,
-    log_artifacts,
-    log_metrics,
-    open_run,
     quote_filter_value,
     resolve_runtime_tracking_config,
     runtime_paths_from_env,
     sanitize_metric_key_segment,
-    start_run_if_needed,
 )
 from neuralls.platform.tracking.mlflow_client import (
     log_artifacts_to_mlflow,
     log_batch_artifacts_to_mlflow,
 )
-from neuralls.shared.scientific_description.models import ScientificDescription
-from neuralls.shared.scientific_description.policy import NotationPolicy
 
 
-class DummyRun:
-    def __init__(self, run_id: str) -> None:
-        self.info = SimpleNamespace(run_id=run_id)
+class DummyExperimentClient:
+    """The experiment calls ``ensure_experiment`` makes on its client."""
 
-
-class DummyMlflow:
     def __init__(self) -> None:
         self.experiments: dict[str, SimpleNamespace] = {}
-        self.logged_artifacts: list[tuple[str | None, str]] = []
-        self.logged_metrics: list[tuple[str | None, dict[str, float], int | None]] = []
-        self.tracking_uri: str | None = None
-        self.active: DummyRun | None = None
-
-    def set_tracking_uri(self, uri: str) -> None:
-        self.tracking_uri = uri
 
     def get_experiment_by_name(self, name: str) -> SimpleNamespace | None:
         return self.experiments.get(name)
@@ -66,52 +44,12 @@ class DummyMlflow:
         )
         return exp_id
 
-    def active_run(self) -> DummyRun | None:  # pragma: no cover - trivial
-        return self.active
-
-    def start_run(
-        self,
-        experiment_id: str,
-        run_name: str,
-        tags: dict[str, str],
-    ) -> DummyRun:
-        self.active = DummyRun(f"{experiment_id}:{run_name}")
-        self.last_tags = tags
-        return self.active
-
-    def log_artifacts(self, path: str, run_id: str | None = None) -> None:
-        self.logged_artifacts.append((run_id, Path(path).name))
-
-    def log_metrics(
-        self,
-        metrics: dict[str, float],
-        step: int | None = None,
-        run_id: str | None = None,
-    ) -> None:
-        self.logged_metrics.append((run_id, dict(metrics), step))
-
-    def end_run(self, status: str | None = None) -> None:  # pragma: no cover - passthrough
-        self.ended_status = status
-
 
 @pytest.fixture
-def dummy_mlflow(monkeypatch: pytest.MonkeyPatch) -> DummyMlflow:
-    stub = DummyMlflow()
-    monkeypatch.setattr(tracking_mlflow, "mlflow", stub)
+def dummy_mlflow(monkeypatch: pytest.MonkeyPatch) -> DummyExperimentClient:
+    stub = DummyExperimentClient()
+    monkeypatch.setattr(tracking_mlflow, "MlflowClient", lambda tracking_uri: stub)
     return stub
-
-
-def test_collect_artifacts_filters_missing(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    (workspace / "figures").mkdir()
-    (workspace / "checkpoints").mkdir()
-
-    collected = collect_artifacts(workspace, DEFAULT_ARTIFACT_SUBDIRS)
-
-    names = {path.name for path in collected}
-    assert {"figures", "checkpoints"} <= names
-    assert "reports" not in names
 
 
 def test_sanitize_metric_key_segment_replaces_invalid_characters() -> None:
@@ -324,27 +262,8 @@ def test_build_runtime_environment_falls_back_to_local_sqlite(
     assert runtime.is_explicit is False
 
 
-def test_start_run_and_logging(dummy_mlflow: DummyMlflow, tmp_path: Path) -> None:
-    paths = MlflowPaths(
-        tracking_uri=f"sqlite:///{(tmp_path / 'db.sqlite').as_posix()}",
-        artifact_uri=str(tmp_path / "mlartifacts"),
-    )
-    exp_id = ensure_experiment("demo", paths)
-    run, started = start_run_if_needed(exp_id, "train", {"stage": "demo"})
-    assert started is True
-    assert run.info.run_id == f"{exp_id}:train"
-
-    artifact = tmp_path / "artifact.txt"
-    artifact.write_text("ok", encoding="utf-8")
-    log_artifacts(run, [artifact])
-    log_metrics(run, {"loss": 1.0}, step=2)
-
-    assert dummy_mlflow.logged_artifacts == [(run.info.run_id, "artifact.txt")]
-    assert dummy_mlflow.logged_metrics == [(run.info.run_id, {"loss": 1.0}, 2)]
-
-
 def test_ensure_experiment_uses_file_uri_for_local_artifact_root(
-    dummy_mlflow: DummyMlflow,
+    dummy_mlflow: DummyExperimentClient,
     tmp_path: Path,
 ) -> None:
     paths = MlflowPaths(
@@ -361,7 +280,7 @@ def test_ensure_experiment_uses_file_uri_for_local_artifact_root(
 
 
 def test_ensure_experiment_omits_artifact_location_for_remote_tracking_when_unconfigured(
-    dummy_mlflow: DummyMlflow,
+    dummy_mlflow: DummyExperimentClient,
 ) -> None:
     """Regression: a new experiment on remote tracking must not get a CWD-derived
 
@@ -379,7 +298,7 @@ def test_ensure_experiment_omits_artifact_location_for_remote_tracking_when_unco
 
 
 def test_ensure_experiment_raises_for_preexisting_local_artifact_location_under_remote_tracking(
-    dummy_mlflow: DummyMlflow,
+    dummy_mlflow: DummyExperimentClient,
 ) -> None:
     """Regression: an experiment already poisoned with a local artifact_location
 
@@ -395,40 +314,6 @@ def test_ensure_experiment_raises_for_preexisting_local_artifact_location_under_
 
     with pytest.raises(RuntimeError):
         ensure_experiment("poisoned", paths)
-
-
-def test_finalize_run_ends_started_run(
-    dummy_mlflow: DummyMlflow,
-    tmp_path: Path,
-    neuralls_settings,
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    workspace_root.mkdir()
-    (workspace_root / "figures").mkdir()
-    paths = MlflowPaths(
-        tracking_uri=neuralls_settings.mlflow_tracking_uri,
-        artifact_uri=neuralls_settings.mlflow_artifact_location,
-    )
-    config = MlflowRunConfig(
-        experiment_name="exp",
-        name=NamedRun(
-            MethodRunName(StandaloneMethodPresentation(ScientificDescription("Jacobi"))),
-            NotationPolicy.default(),
-        ),
-        tags={},
-        paths=paths,
-        workspace_root=workspace_root,
-    )
-    state = open_run(config)
-    finalize_run(
-        state,
-        workspace_root=workspace_root,
-        metrics={"m": 1.0},
-        allowlist=("figures",),
-    )
-    assert dummy_mlflow.logged_artifacts
-    assert dummy_mlflow.logged_metrics
-    assert getattr(dummy_mlflow, "ended_status", None) == "FINISHED"
 
 
 def test_log_artifacts_to_mlflow_excludes_checkpoints(tmp_path: Path) -> None:

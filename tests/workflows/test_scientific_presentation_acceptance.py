@@ -11,7 +11,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import mlflow
 import numpy as np
 import pytest
 from mlflow.tracking import MlflowClient
@@ -33,9 +32,10 @@ from neuralls.platform.config.models.preconditioner import (
     StandardPreconditionerConfig,
 )
 from neuralls.platform.reporting.figure_text import method_legend
+from neuralls.platform.storage.facts_codec import encode_method_parameters
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
-from neuralls.platform.tracking.metrics_logging import log_configured_method_facts
 from neuralls.platform.tracking.run_names import run_name_text
+from neuralls.platform.tracking.run_writer import MlflowRunWriter, open_run
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
@@ -179,6 +179,10 @@ def test_mlflow_runs_share_the_legend_presentation_and_keep_ids_in_tags_and_fact
     mlflow_tracking_uri: str,
 ) -> None:
     plain = _plain_label(cohort)
+    client = MlflowClient(tracking_uri=mlflow_tracking_uri)
+    experiment = client.get_experiment_by_name(mlflow_experiment)
+    assert experiment is not None
+    writer = MlflowRunWriter(client)
     for prepared in cohort.methods:
         run, tags = build_benchmark_method_run_spec(
             prepared=prepared,
@@ -186,12 +190,10 @@ def test_mlflow_runs_share_the_legend_presentation_and_keep_ids_in_tags_and_fact
             config_digest=canonical_digest(prepared.method_id),
             system_ids=(SYSTEM_ID,),
         )
-        with mlflow.start_run(run_name=run_name_text(run), tags=tags.as_mlflow_tags()):
-            log_configured_method_facts(prepared)
-
-    client = MlflowClient(tracking_uri=mlflow_tracking_uri)
-    experiment = client.get_experiment_by_name(mlflow_experiment)
-    assert experiment is not None
+        with open_run(
+            writer, experiment.experiment_id, run_name_text(run), tags.as_mlflow_tags()
+        ) as run_id:
+            writer.log_params(run_id, encode_method_parameters(prepared))
     runs = client.search_runs([experiment.experiment_id], order_by=["start_time ASC"])
 
     assert [run.info.run_name for run in runs] == list(plain.values())

@@ -1,6 +1,6 @@
 """Every MLflow run is named from a typed presentation; ids appear only in ``*_id`` tags.
 
-Each test captures the runs a path opens (names and tags) against a mocked MLflow and
+Each test captures the runs a path opens (names and tags) through recorded tracking and
 checks the contract: no ``method |`` prefix, no id, slug, path or class-name fallback, no
 underscore identifier blob, and sibling systems stay distinguishable.
 """
@@ -52,17 +52,16 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.reporting.figure_text import method_legend
 from neuralls.platform.storage.facts_codec import encode_method_parameters
 from neuralls.platform.tracking.run_names import render_run_name, run_name_text
-from neuralls.platform.tracking.services import MlflowTrackingServices
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import (
     LEGEND_PROFILE,
     NotationPolicy,
     RenderTarget,
 )
+from tests.fakes.comparison_runs import RecordingTrackingServices
 from tests.fakes.mlflow_client import FakeMlflowClient
 from tests.presentation_support import datasets_by_dir, pod_spec
 from tests.workflows.comparison_support import (
-    MLFLOW_MODULE,
     VIRTUAL_CASE,
     in_memory_case,
     mock_cfg,
@@ -91,7 +90,7 @@ def mismatched_pod_spec() -> AMGPreconditionerConfig:
 )
 def test_recorded_pod_digest_mismatch_blocks_before_presentation_reuse_or_run(
     mismatched_pod_spec: AMGPreconditionerConfig,
-    fake_tracking: MlflowTrackingServices,
+    fake_tracking: RecordingTrackingServices,
 ) -> None:
     case = in_memory_case(with_comparisons=True)
     config = mock_cfg(preconditioners=[mismatched_pod_spec])
@@ -113,14 +112,13 @@ def test_recorded_pod_digest_mismatch_blocks_before_presentation_reuse_or_run(
             comparison_prepare, "current_dataset_digest", return_value="sha256:" + "b" * 64
         ),
         patch.object(comparison_prepare, "prepare_comparison_presentation") as preflight,
-        patch(MLFLOW_MODULE) as mlflow,
         pytest.raises(ValueError, match="training dataset digest mismatch"),
     ):
         run_loaded_comparison_batch(
             case, VIRTUAL_CASE, ComparisonParams(), virtual_settings(), tracking=fake_tracking
         )
     preflight.assert_not_called()
-    mlflow.start_run.assert_not_called()
+    assert fake_tracking.runs.sessions == []
 
 
 @pytest.mark.usefixtures(
@@ -128,7 +126,7 @@ def test_recorded_pod_digest_mismatch_blocks_before_presentation_reuse_or_run(
 )
 def test_unavailable_checkpoint_provenance_emits_exact_warning(
     mismatched_pod_spec: AMGPreconditionerConfig,
-    fake_tracking: MlflowTrackingServices,
+    fake_tracking: RecordingTrackingServices,
 ) -> None:
     case = in_memory_case(with_comparisons=True)
     config = mock_cfg(preconditioners=[mismatched_pod_spec])
@@ -208,7 +206,7 @@ def _execution(
 def _session_run_names(
     presentation: PreparedComparisonPresentation,
     title: ComparisonTitle,
-    fake_tracking: MlflowTrackingServices,
+    fake_tracking: RecordingTrackingServices,
 ) -> list[str]:
     case = in_memory_case(with_comparisons=True)
 
@@ -223,11 +221,8 @@ def _session_run_names(
         patch.object(comparison_batch, "has_complete_reusable_session", return_value=False),
         patch.object(comparison_batch, "execute_all", return_value=()),
         patch.object(comparison_batch, "outcomes_from_workloads", return_value=[]),
-        patch(MLFLOW_MODULE) as mock_mlflow,
         patch.object(run_specs, "iso_timestamp", return_value=STAMP),
     ):
-        mock_mlflow.start_run.return_value.__enter__.return_value = MagicMock()
-        mock_mlflow.start_run.return_value.__exit__.return_value = False
         run_loaded_comparison_batch(
             case,
             VIRTUAL_CASE,
@@ -235,13 +230,13 @@ def _session_run_names(
             virtual_settings(),
             tracking=fake_tracking,
         )
-    return [call.kwargs["run_name"] for call in mock_mlflow.start_run.call_args_list]
+    return [run_name_text(session.run) for session in fake_tracking.runs.sessions]
 
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning", "stub_setup_tracking")
 def test_session_run_is_named_by_the_dataset_not_the_case_file(
     prepared_presentation: PreparedComparisonPresentation,
-    fake_tracking: MlflowTrackingServices,
+    fake_tracking: RecordingTrackingServices,
 ) -> None:
     (name,) = _session_run_names(prepared_presentation, prepared_presentation.scope, fake_tracking)
 
@@ -253,7 +248,7 @@ def test_session_run_is_named_by_the_dataset_not_the_case_file(
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning", "stub_setup_tracking")
 def test_session_run_is_named_by_the_editorial_title_when_one_is_configured(
     prepared_presentation: PreparedComparisonPresentation,
-    fake_tracking: MlflowTrackingServices,
+    fake_tracking: RecordingTrackingServices,
 ) -> None:
     (name,) = _session_run_names(
         prepared_presentation, EditorialPresentation("Spectral comparison"), fake_tracking

@@ -70,6 +70,7 @@ from neuralls.shared.scientific_description.models import (
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
 from neuralls.shared.types import DatasetId, GenerationStrategyKind, PreconditionerName, RowKind
+from tests.fakes.comparison_runs import RecordingTrackingServices
 from tests.fakes.mlflow_client import FakeMlflowClient
 from tests.workflows.comparison_support import SETUP_TRACKING
 
@@ -253,10 +254,12 @@ def training_runs(tmp_path: Path) -> MlflowClient:
 
 
 @pytest.fixture
-def fake_tracking(tmp_path: Path) -> MlflowTrackingServices:
-    """Tracking services whose every client, lease manager and identity store is the in-memory fake."""
-    return MlflowTrackingServices(
-        client_factory=FakeMlflowClient(artifact_root=tmp_path / "tracking-artifacts")
+def fake_tracking(tmp_path: Path) -> RecordingTrackingServices:
+    """Tracking services over the in-memory store whose comparison runs are only recorded."""
+    return RecordingTrackingServices(
+        MlflowTrackingServices(
+            client_factory=FakeMlflowClient(artifact_root=tmp_path / "tracking-artifacts")
+        )
     )
 
 

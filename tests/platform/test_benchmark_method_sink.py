@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import tomllib
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from tests.fakes.run_writer import RecordingRunWriter
 from tests.measurement_support import NO_REFERENCE, NO_RESIDUAL, SINGLE_RUN
 from tests.presentation_support import PreparedMethodFactory
 from tests.provenance_support import SOLVER_CONTEXT
@@ -64,6 +65,7 @@ from neuralls.shared.types import (
 
 CONVERGED_ITERATIONS = 2
 METHOD_DIR = "method_workload"
+RUN_ID = "method-run"
 EXPECTED_METRIC_KEYS = [
     "n_planned_rhs",
     "n_attempted_rhs",
@@ -77,14 +79,6 @@ EXPECTED_METRIC_KEYS = [
     "iterations_total",
     "workload_peak_memory_bytes",
 ]
-
-
-@dataclass(slots=True)
-class LoggedRun:
-    """Metrics and ``(artifact_path, file)`` pairs captured from the sink."""
-
-    metrics: dict[str, float]
-    artifacts: list[tuple[str | None, Path]]
 
 
 @pytest.fixture
@@ -157,32 +151,15 @@ def method_sink(
     group_datasets: dict[DatasetId, DatasetPresentation],
     solver_contexts: Mapping[SystemId, SolverTimingContext],
     references: Mapping[SystemId, ReferenceSelection],
+    writer: RecordingRunWriter,
 ) -> MLflowBenchmarkMethodSink:
     """Sink wired to the fixture dataset presentations and per-system provenance."""
-    return MLflowBenchmarkMethodSink(group_datasets, solver_contexts, references)
+    return MLflowBenchmarkMethodSink(writer, RUN_ID, group_datasets, solver_contexts, references)
 
 
 @pytest.fixture
-def logged_run(monkeypatch: pytest.MonkeyPatch) -> LoggedRun:
-    """Capture everything the sink logs without opening an MLflow run."""
-    run = LoggedRun({}, [])
-    prefix = "neuralls.platform.tracking.method_sink.mlflow"
-    monkeypatch.setattr(
-        f"{prefix}.start_run",
-        lambda *args, **kwargs: pytest.fail("method sink must not open MLflow runs"),
-    )
-    monkeypatch.setattr(f"{prefix}.log_param", lambda *args, **kwargs: None)
-    monkeypatch.setattr(f"{prefix}.set_tag", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        f"{prefix}.log_metric", lambda key, value, **kwargs: run.metrics.__setitem__(key, value)
-    )
-    monkeypatch.setattr(
-        f"{prefix}.log_artifact",
-        lambda path, artifact_path=None, **kwargs: run.artifacts.append(
-            (artifact_path, Path(path))
-        ),
-    )
-    return run
+def writer() -> RecordingRunWriter:
+    return RecordingRunWriter()
 
 
 @pytest.fixture
@@ -203,11 +180,11 @@ def test_method_sink_records_aggregates_without_opening_a_run(
     method_sink: MLflowBenchmarkMethodSink,
     method_workload: CompletedMethodWorkload,
     method_summary: CompleteWorkloadSummary,
-    logged_run: LoggedRun,
+    writer: RecordingRunWriter,
 ) -> None:
     method_sink.record_method(method_workload, method_summary, root=tmp_path)
 
-    assert list(logged_run.metrics) == EXPECTED_METRIC_KEYS
+    assert list(writer.runs[RUN_ID].metrics) == EXPECTED_METRIC_KEYS
 
 
 def test_method_sink_logs_the_recorded_offline_seconds_of_each_stage(
@@ -215,7 +192,7 @@ def test_method_sink_logs_the_recorded_offline_seconds_of_each_stage(
     method_sink: MLflowBenchmarkMethodSink,
     method_workload: CompletedMethodWorkload,
     method_summary: CompleteWorkloadSummary,
-    logged_run: LoggedRun,
+    writer: RecordingRunWriter,
 ) -> None:
     offline = OfflineStages(
         generation=Known(8.5, None, CostProvenance.HISTORICAL),
@@ -228,7 +205,7 @@ def test_method_sink_logs_the_recorded_offline_seconds_of_each_stage(
 
     offline_metrics = {
         key: value
-        for key, value in logged_run.metrics.items()
+        for key, value in writer.runs[RUN_ID].metrics.items()
         if key in {"generation_s", "training_s", "offline_s"}
     }
     assert offline_metrics == {"generation_s": 8.5, "training_s": 90.25, "offline_s": 98.75}
@@ -239,7 +216,7 @@ def test_method_sink_logs_no_number_for_an_unavailable_stage(
     method_sink: MLflowBenchmarkMethodSink,
     method_workload: CompletedMethodWorkload,
     method_summary: CompleteWorkloadSummary,
-    logged_run: LoggedRun,
+    writer: RecordingRunWriter,
 ) -> None:
     offline = OfflineStages(
         generation=Known(8.5, None, CostProvenance.HISTORICAL),
@@ -252,7 +229,7 @@ def test_method_sink_logs_no_number_for_an_unavailable_stage(
 
     offline_metrics = {
         key: value
-        for key, value in logged_run.metrics.items()
+        for key, value in writer.runs[RUN_ID].metrics.items()
         if key in {"generation_s", "training_s", "offline_s"}
     }
     assert offline_metrics == {"generation_s": 8.5}
@@ -263,11 +240,11 @@ def test_method_sink_logs_total_iterations_of_every_attempt(
     method_sink: MLflowBenchmarkMethodSink,
     method_workload: CompletedMethodWorkload,
     method_summary: CompleteWorkloadSummary,
-    logged_run: LoggedRun,
+    writer: RecordingRunWriter,
 ) -> None:
     method_sink.record_method(method_workload, method_summary, root=tmp_path)
 
-    assert logged_run.metrics["iterations_total"] == float(
+    assert writer.runs[RUN_ID].metrics["iterations_total"] == float(
         CONVERGED_ITERATIONS * len(method_workload.solve_attempts)
     )
 
@@ -277,13 +254,13 @@ def test_method_sink_logs_exactly_the_artifact_set_and_no_figures(
     method_sink: MLflowBenchmarkMethodSink,
     method_workload: CompletedMethodWorkload,
     method_summary: CompleteWorkloadSummary,
-    logged_run: LoggedRun,
+    writer: RecordingRunWriter,
 ) -> None:
     method_sink.record_method(method_workload, method_summary, root=tmp_path)
 
-    tables = {path.name for where, path in logged_run.artifacts if where == METHOD_DIR}
-    assert tables == set(MethodBenchmarkArtifacts.file_names())
-    assert len(logged_run.artifacts) == len(tables)
+    assert set(writer.runs[RUN_ID].artifacts) == {
+        (METHOD_DIR, name) for name in MethodBenchmarkArtifacts.file_names()
+    }
 
 
 def test_realized_facts_are_a_per_system_table_not_a_run_wide_scalar(
@@ -291,7 +268,7 @@ def test_realized_facts_are_a_per_system_table_not_a_run_wide_scalar(
     method_sink: MLflowBenchmarkMethodSink,
     method_workload: CompletedMethodWorkload,
     method_summary: CompleteWorkloadSummary,
-    logged_run: LoggedRun,
+    writer: RecordingRunWriter,
 ) -> None:
     """A fact that differs between matrices must never be flattened into one parameter."""
     systems = tuple(
@@ -309,14 +286,16 @@ def test_realized_facts_are_a_per_system_table_not_a_run_wide_scalar(
 
     method_sink.record_method(workload, method_summary, root=tmp_path)
 
-    logged = {path.name: path for _, path in logged_run.artifacts}
-    stored = read_presentation(logged["presentation.toml"])
+    logged = tmp_path / "logged_presentation.toml"
+    logged.write_bytes(writer.runs[RUN_ID].artifacts[METHOD_DIR, "presentation.toml"])
+    stored = read_presentation(logged)
     assert stored.method.systems == systems
 
 
 def test_method_sink_marks_recoverable_setup_failures_from_canonical_events(
-    monkeypatch: pytest.MonkeyPatch,
+    method_sink: MLflowBenchmarkMethodSink,
     method_workload: CompletedMethodWorkload,
+    writer: RecordingRunWriter,
 ) -> None:
     failed_setup = replace(method_workload.setup_events[0], outcome=SetupFailed("setup broke"))
     failed_workload = replace(
@@ -332,31 +311,21 @@ def test_method_sink_marks_recoverable_setup_failures_from_canonical_events(
         failed_workload.workload_peak_memory,
     )
     assert isinstance(summary, IncompleteWorkloadSummary)
-    metrics: dict[str, float] = {}
-    tags: dict[str, str] = {}
-    monkeypatch.setattr(
-        "neuralls.platform.tracking.method_sink.mlflow.log_param",
-        lambda *args, **kwargs: None,
-    )
-    monkeypatch.setattr(
-        "neuralls.platform.tracking.method_sink.mlflow.log_metric",
-        lambda key, value, **kwargs: metrics.__setitem__(key, value),
-    )
-    monkeypatch.setattr(
-        "neuralls.platform.tracking.method_sink.mlflow.set_tag",
-        lambda key, value: tags.__setitem__(key, value),
-    )
+    method_sink._log_method_metadata(failed_workload, summary)
+    run = writer.runs[RUN_ID]
 
-    MLflowBenchmarkMethodSink._log_method_metadata(failed_workload, summary)
-
-    assert metrics["n_setup_failed"] == 1.0
-    assert metrics["n_solve_failed"] == 0.0
-    assert tags["workload_outcome"] == "completed_with_failures"
+    assert (run.metrics["n_setup_failed"], run.metrics["n_solve_failed"]) == (1.0, 0.0)
+    assert run.tags == {"workload_outcome": "completed_with_failures"}
+    assert run.params == {
+        "method_id": str(failed_workload.method),
+        "method_config_digest": failed_workload.config_digest,
+    }
 
 
 def test_method_sink_counts_recoverable_solve_failures_from_canonical_events(
-    monkeypatch: pytest.MonkeyPatch,
+    method_sink: MLflowBenchmarkMethodSink,
     method_workload: CompletedMethodWorkload,
+    writer: RecordingRunWriter,
 ) -> None:
     failed_attempt = replace(
         method_workload.solve_attempts[0],
@@ -373,26 +342,15 @@ def test_method_sink_counts_recoverable_solve_failures_from_canonical_events(
         failed_workload.solve_attempts,
         failed_workload.workload_peak_memory,
     )
-    metrics: dict[str, float] = {}
-    tags: dict[str, str] = {}
-    monkeypatch.setattr(
-        "neuralls.platform.tracking.method_sink.mlflow.log_param",
-        lambda *args, **kwargs: None,
-    )
-    monkeypatch.setattr(
-        "neuralls.platform.tracking.method_sink.mlflow.log_metric",
-        lambda key, value, **kwargs: metrics.__setitem__(key, value),
-    )
-    monkeypatch.setattr(
-        "neuralls.platform.tracking.method_sink.mlflow.set_tag",
-        lambda key, value: tags.__setitem__(key, value),
-    )
+    method_sink._log_method_metadata(failed_workload, summary)
+    run = writer.runs[RUN_ID]
 
-    MLflowBenchmarkMethodSink._log_method_metadata(failed_workload, summary)
-
-    assert metrics["n_setup_failed"] == 0.0
-    assert metrics["n_solve_failed"] == 1.0
-    assert tags["workload_outcome"] == "completed_with_failures"
+    assert (run.metrics["n_setup_failed"], run.metrics["n_solve_failed"]) == (0.0, 1.0)
+    assert run.tags == {"workload_outcome": "completed_with_failures"}
+    assert run.params == {
+        "method_id": str(failed_workload.method),
+        "method_config_digest": failed_workload.config_digest,
+    }
 
 
 def test_method_child_tags_include_identity_and_required_raw_artifacts(
@@ -479,7 +437,7 @@ def test_method_config_serialization_is_canonical_and_omits_unset_optionals(
     method_sink: MLflowBenchmarkMethodSink,
     method_workload: CompletedMethodWorkload,
     method_summary: CompleteWorkloadSummary,
-    logged_run: LoggedRun,
+    writer: RecordingRunWriter,
 ) -> None:
     """Supported configs with unset optional values remain TOML serializable."""
     if config_kind == "amg":
@@ -494,5 +452,5 @@ def test_method_config_serialization_is_canonical_and_omits_unset_optionals(
 
     method_sink.record_method(workload, method_summary, root=tmp_path / "out")
 
-    logged = {path.name: path for _, path in logged_run.artifacts}
-    assert tomllib.loads(logged["method_config.toml"].read_text(encoding="utf-8")) == expected
+    logged = writer.runs[RUN_ID].artifacts[METHOD_DIR, "method_config.toml"]
+    assert tomllib.loads(logged.decode("utf-8")) == expected

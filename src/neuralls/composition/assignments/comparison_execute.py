@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterator, Sequence
 from dataclasses import replace
 
-import mlflow
 import torch
 from mlflow.tracking import MlflowClient
 
@@ -33,6 +32,7 @@ from neuralls.composition.comparison.models import (
     is_comparison_outcome,
 )
 from neuralls.composition.comparison.recipes import system_tag
+from neuralls.composition.tracking.comparison_runs import SessionRun
 from neuralls.composition.tracking.run_specs import (
     build_benchmark_method_run_spec,
 )
@@ -47,12 +47,7 @@ from neuralls.domain.solver.comparison_summary import format_results_summary
 from neuralls.domain.solver.models.benchmark_events import MeasuredPeakMemory, SetupCompleted
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
-from neuralls.domain.solver.ports import BenchmarkMethodSink
 from neuralls.domain.solver.reporting.aggregation import summarize_method_workload
-from neuralls.platform.tracking.metrics_logging import (
-    log_configured_method_facts,
-)
-from neuralls.platform.tracking.run_names import run_name_text
 from neuralls.shared.device import release_device_memory
 from neuralls.shared.digest import canonical_digest
 from neuralls.shared.scientific_description.policy import NotationPolicy
@@ -169,12 +164,11 @@ def _execute_method_run(
     method: ResolvedMethod,
     matrices: tuple[MatrixGroup, ...],
     *,
-    method_sink: BenchmarkMethodSink,
-    failure_sink: WorkflowFailureSink,
+    session: SessionRun,
     training_runs: MlflowClient,
     device: torch.device,
 ) -> CompletedMethodWorkload:
-    """Execute and persist one method inside the method's own MLflow child, on ``device``."""
+    """Execute and persist one method inside the method's own child run of ``session``."""
     system_ids = tuple(str(system.entry.id) for _, systems in matrices for system in systems)
     system_identities = tuple(system.identity.key for _, systems in matrices for system in systems)
     config_digest = method.identity_digest or canonical_digest(method.config)
@@ -197,10 +191,10 @@ def _execute_method_run(
         "system_ids": tuple(SystemId(system_id) for system_id in system_ids),
     }
     recorded_exception_ids: set[int] = set()
-    with mlflow.start_run(run_name=run_name_text(run), nested=True, tags=tags.as_mlflow_tags()):
-        log_configured_method_facts(prepared_method)
+    with session.method_run(run, tags.as_mlflow_tags()) as method_run:
+        method_run.record_configured_facts(prepared_method)
         with failure_boundary(
-            failure_sink,
+            method_run.failures,
             ComparisonMethodFailureContext(
                 phase=ComparisonMethodPhase.EXECUTION,
                 **context_fields,
@@ -212,7 +206,7 @@ def _execute_method_run(
                 _load_matrix_workloads_with_failure_context(
                     method,
                     matrices,
-                    failure_sink=failure_sink,
+                    failure_sink=method_run.failures,
                     recorded_exception_ids=recorded_exception_ids,
                 ),
                 prepared=prepared_method,
@@ -231,7 +225,7 @@ def _execute_method_run(
             )
             workload = replace(workload, workload_identities=system_identities)
         with failure_boundary(
-            failure_sink,
+            method_run.failures,
             ComparisonMethodFailureContext(
                 phase=ComparisonMethodPhase.PERSISTENCE,
                 **context_fields,
@@ -245,19 +239,18 @@ def _execute_method_run(
                 workload.solve_attempts,
                 workload.workload_peak_memory,
             )
-            method_sink.record_method(workload, summary)
+            method_run.record_method(workload, summary)
     return workload
 
 
 def execute_all(
     batch: PreparedComparisonBatch,
     *,
-    method_sink: BenchmarkMethodSink,
-    failure_sink: WorkflowFailureSink,
+    session: SessionRun,
     training_runs: MlflowClient,
     device: torch.device,
 ) -> tuple[CompletedMethodWorkload, ...]:
-    """Execute a prepared batch in method order, each method inside its persisted child run.
+    """Execute a prepared batch in method order, each method inside its own child run of ``session``.
 
     ``training_runs`` is the store holding the runs the methods' checkpoints were trained in;
     ``device`` is the session's one compute device, which every method runs and is measured on.
@@ -271,8 +264,7 @@ def execute_all(
                 _execute_method_run(
                     method,
                     matrices,
-                    method_sink=method_sink,
-                    failure_sink=failure_sink,
+                    session=session,
                     training_runs=training_runs,
                     device=device,
                 )

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import mlflow
 import pytest
 from dlkit.infrastructure.io import url_resolver
 from mlflow.tracking import MlflowClient
@@ -57,13 +56,11 @@ def _assert_path_within(path: Path, root: Path) -> None:
         raise AssertionError(f"Path {resolved_path} is not under {resolved_root}")
 
 
-def _write_identity_model(path: Path) -> Path:
-    """Write a minimal models-from-code pyfunc model script."""
-    path.write_text(
-        "import mlflow\nfrom typing import Dict, List\n\nclass _IdentityModel(mlflow.pyfunc.PythonModel):\n    def predict(self, context, model_input: List[Dict[str, str]], params=None) -> List[Dict[str, str]]:\n        _ = context\n        _ = params\n        return model_input\n\nmlflow.models.set_model(_IdentityModel())\n",
-        encoding="utf-8",
-    )
-    return path
+def _log_checkpoint_run(client: MlflowClient, run_id: str, checkpoint_file: Path) -> None:
+    """Log one checkpoint under ``model`` and ``checkpoints`` and end the run."""
+    client.log_artifact(run_id, str(checkpoint_file), artifact_path="model")
+    client.log_artifact(run_id, str(checkpoint_file), artifact_path="checkpoints")
+    client.set_terminated(run_id)
 
 
 def test_registered_alias_resolution_with_local_sqlite_tracking(tmp_path: Path) -> None:
@@ -72,30 +69,21 @@ def test_registered_alias_resolution_with_local_sqlite_tracking(tmp_path: Path) 
     artifacts_dir = (tmp_path / "mlartifacts").resolve()
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    mlflow.set_tracking_uri(tracking_uri)
     experiment_name = f"alias-resolution-integration-{tmp_path.name}"
     client = MlflowClient(tracking_uri=tracking_uri)
-    if client.get_experiment_by_name(experiment_name) is None:
-        client.create_experiment(
-            experiment_name,
-            artifact_location=_artifact_location(artifacts_dir),
-        )
-    mlflow.set_experiment(experiment_name)
+    experiment_id = client.create_experiment(
+        experiment_name,
+        artifact_location=_artifact_location(artifacts_dir),
+    )
 
     checkpoint_file = tmp_path / "dummy.ckpt"
     checkpoint_file.write_text("dummy-checkpoint", encoding="utf-8")
-    model_code = _write_identity_model(tmp_path / "identity_model.py")
 
-    with mlflow.start_run(run_name="tiny-model-run") as run:
-        run_id = run.info.run_id
-        run_artifact_path = _artifact_uri_to_path(run.info.artifact_uri)
-        _assert_path_within(run_artifact_path, artifacts_dir)
-        mlflow.pyfunc.log_model(
-            artifact_path="model",
-            python_model=model_code,
-        )
-        mlflow.log_artifact(str(checkpoint_file), artifact_path="model")
-        mlflow.log_artifact(str(checkpoint_file), artifact_path="checkpoints")
+    run = client.create_run(experiment_id, run_name="tiny-model-run")
+    run_id = run.info.run_id
+    run_artifact_path = _artifact_uri_to_path(run.info.artifact_uri)
+    _assert_path_within(run_artifact_path, artifacts_dir)
+    _log_checkpoint_run(client, run_id, checkpoint_file)
 
     model_name = "TinyAliasIntegrationModel"
     record = register_logged_model(
@@ -136,38 +124,28 @@ def test_experiment_id_registration_resolves_via_latest(tmp_path: Path) -> None:
     artifacts_dir = (tmp_path / "mlartifacts").resolve()
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    mlflow.set_tracking_uri(tracking_uri)
     experiment_name = f"experiment-id-registration-{tmp_path.name}"
     client = MlflowClient(tracking_uri=tracking_uri)
-    if client.get_experiment_by_name(experiment_name) is None:
-        client.create_experiment(
-            experiment_name,
-            artifact_location=_artifact_location(artifacts_dir),
-        )
-    mlflow.set_experiment(experiment_name)
+    experiment_id = client.create_experiment(
+        experiment_name,
+        artifact_location=_artifact_location(artifacts_dir),
+    )
 
     checkpoint_file = tmp_path / "model.ckpt"
     checkpoint_file.write_text("dummy-checkpoint", encoding="utf-8")
-    model_code = _write_identity_model(tmp_path / "identity_model.py")
 
-    with mlflow.start_run(run_name="experiment-id-run") as run:
-        run_id = run.info.run_id
-        mlflow.pyfunc.log_model(
-            artifact_path="model",
-            python_model=model_code,
-        )
-        mlflow.log_artifact(str(checkpoint_file), artifact_path="model")
-        mlflow.log_artifact(str(checkpoint_file), artifact_path="checkpoints")
+    run_id = client.create_run(experiment_id, run_name="experiment-id-run").info.run_id
+    _log_checkpoint_run(client, run_id, checkpoint_file)
 
-    experiment_id = "spectral-energy-integration"
+    registered_name = "spectral-energy-integration"
     record = register_logged_model(
         run_id=run_id,
-        registered_model_name=experiment_id,
+        registered_model_name=registered_name,
         tracking_uri=tracking_uri,
         aliases=("candidate",),
         tags={"model_class": "NormScaledLinearFFNN"},
     )
-    assert record.name == experiment_id
+    assert record.name == registered_name
     assert record.version == 1
 
     spec = NeuralPreconditionerConfig(
@@ -180,7 +158,7 @@ def test_experiment_id_registration_resolves_via_latest(tmp_path: Path) -> None:
             spec=spec,
             tracking_uri=tracking_uri,
             artifact_leases=artifact_leases,
-            model_name=experiment_id,
+            model_name=registered_name,
         )
     assert resolution.run_id == run_id
     assert resolution.checkpoint_path.exists()
@@ -194,27 +172,21 @@ def test_two_experiments_same_dataset_no_alias_collision(tmp_path: Path) -> None
     artifacts_dir = (tmp_path / "mlartifacts").resolve()
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    mlflow.set_tracking_uri(tracking_uri)
     experiment_name = f"no-collision-{tmp_path.name}"
     client = MlflowClient(tracking_uri=tracking_uri)
-    if client.get_experiment_by_name(experiment_name) is None:
-        client.create_experiment(
-            experiment_name,
-            artifact_location=_artifact_location(artifacts_dir),
-        )
-    mlflow.set_experiment(experiment_name)
+    experiment_id = client.create_experiment(
+        experiment_name,
+        artifact_location=_artifact_location(artifacts_dir),
+    )
 
-    model_code = _write_identity_model(tmp_path / "identity_model.py")
     checkpoint_file = tmp_path / "model.ckpt"
     checkpoint_file.write_text("dummy-checkpoint", encoding="utf-8")
 
     run_ids: list[str] = []
     for run_name in ("run-linear", "run-linear-normalized"):
-        with mlflow.start_run(run_name=run_name) as run:
-            run_ids.append(run.info.run_id)
-            mlflow.pyfunc.log_model(artifact_path="model", python_model=model_code)
-            mlflow.log_artifact(str(checkpoint_file), artifact_path="model")
-            mlflow.log_artifact(str(checkpoint_file), artifact_path="checkpoints")
+        run_id = client.create_run(experiment_id, run_name=run_name).info.run_id
+        _log_checkpoint_run(client, run_id, checkpoint_file)
+        run_ids.append(run_id)
 
     record_a = register_logged_model(
         run_id=run_ids[0],

@@ -18,11 +18,11 @@ from neuralls.platform.reporting.benchmark_events import (
 )
 from neuralls.platform.reporting.stored_benchmark import MethodDirectory
 from neuralls.platform.tracking.mlflow import quote_filter_value
+from neuralls.platform.tracking.run_writer import PARENT_RUN_TAG
 from neuralls.shared.types import RunId, SessionRunId
 
 METHOD_PHASE: Final = "comparison_method"
 REPORT_PHASE: Final = "report"
-PARENT_RUN_TAG = "mlflow.parentRunId"
 REQUIRED_METHOD_ARTIFACTS = frozenset(MethodBenchmarkArtifacts.file_names())
 _NEWEST_FIRST = ["attributes.start_time DESC", "attributes.run_id ASC"]
 

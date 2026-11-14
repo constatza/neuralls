@@ -7,8 +7,10 @@ from dataclasses import dataclass
 from mlflow.tracking import MlflowClient
 
 from neuralls.platform.tracking.artifact_access import MlflowArtifactLeaseManager
+from neuralls.platform.tracking.comparison_runs import MethodRecordContext, MlflowComparisonRuns
 from neuralls.platform.tracking.mlflow_client import MlflowClientFactory
 from neuralls.platform.tracking.mlflow_store import MlflowIdentityStore
+from neuralls.platform.tracking.run_writer import MlflowRunWriter
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,3 +43,11 @@ class MlflowTrackingServices:
     def lease_manager(self, tracking_uri: str) -> MlflowArtifactLeaseManager:
         """Return a lease manager that resolves artifacts of ``tracking_uri``."""
         return MlflowArtifactLeaseManager(client=self.client(tracking_uri))
+
+    def comparison_runs(
+        self, tracking_uri: str, experiment_id: str, methods: MethodRecordContext
+    ) -> MlflowComparisonRuns:
+        """Return the session and method runs of comparisons in one experiment of ``tracking_uri``."""
+        return MlflowComparisonRuns(
+            MlflowRunWriter(self.client(tracking_uri)), experiment_id, methods
+        )
