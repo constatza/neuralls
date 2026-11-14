@@ -29,6 +29,7 @@ from neuralls.platform.reporting.cohort_variants import (
     recipe_variant,
 )
 from neuralls.platform.reporting.figure_metadata import TableKind
+from neuralls.platform.reporting.figure_recipes import compares_to_reference, group_recipes
 from neuralls.shared.types import DatasetId
 
 _RECIPES = (GAUSSIAN, SINE)
@@ -129,3 +130,14 @@ def test_the_whole_and_pooled_cohorts_are_the_report_itself(
     two_recipe_mixture_report: WorkloadMixtureReport, cohort: WholeGroup | MixtureCohort
 ) -> None:
     assert cohort_report(two_recipe_mixture_report, cohort) is two_recipe_mixture_report
+
+
+def test_no_figure_compared_against_the_reference_is_split_by_recipe() -> None:
+    """Planning resolves the reference on the whole group, so such a figure must draw it whole."""
+    compared_tables = {
+        recipe.table
+        for recipe in group_recipes()
+        if any(compares_to_reference(variant.statistic) for variant in recipe.variants)
+    }
+
+    assert [table for table in compared_tables if is_cohort_table(table)] == []

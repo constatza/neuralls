@@ -6,8 +6,11 @@ frame stored beside the figure; a drawer draws that frame and reads nothing else
 except the observations that place what the frame cannot (the denominators of methods that solved
 nothing, the systems paired against the reference).
 
-Planning alone decides that a figure compared against the reference exists
-(``figure_recipes.drawn_variants``); a drawer of one resolves the reference only to name it.
+Planning decides that a figure compared against the reference exists
+(``figure_recipes.drawn_variants``), on the whole group's observations; such a figure is never
+split by recipe, so a drawer sees the same observations and its ``None`` arm is not reached for a
+planned figure. The drawer resolves the reference again because ``FigureData`` carries the
+selection, not the resolved name.
 """
 
 from __future__ import annotations
