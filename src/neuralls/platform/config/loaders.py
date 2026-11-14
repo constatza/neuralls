@@ -342,15 +342,22 @@ def _expand_assignment_sweeps(
                 f"[[assignment_sweeps]] entry references unknown dataset_sweeps label "
                 f"'{dataset_sweep}'."
             )
-        for job_id in job_ids:
-            for entry in entries:
-                dataset_id = entry.get("id")
-                if not isinstance(dataset_id, str) or not dataset_id.strip():
-                    raise ValueError(
-                        f"Dataset sweep '{dataset_sweep}' entry has no resolved id (internal "
-                        "ordering bug: assignment sweeps must expand after dataset ids are filled)."
-                    )
-                assignments.append({"dataset": dataset_id, "job": job_id})
+        dataset_ids = [_resolved_sweep_dataset_id(entry, dataset_sweep) for entry in entries]
+        assignments.extend(
+            {"dataset": dataset_id, "job": job_id}
+            for job_id, dataset_id in itertools.product(job_ids, dataset_ids)
+        )
+
+
+def _resolved_sweep_dataset_id(entry: dict[str, Any], dataset_sweep: str) -> str:
+    """The id `_fill_missing_dataset_ids` wrote into one dataset sweep entry."""
+    dataset_id = entry.get("id")
+    if not isinstance(dataset_id, str) or not dataset_id.strip():
+        raise ValueError(
+            f"Dataset sweep '{dataset_sweep}' entry has no resolved id (internal "
+            "ordering bug: assignment sweeps must expand after dataset ids are filled)."
+        )
+    return dataset_id
 
 
 def _no_generated_files(_raw: dict[str, Any], _ctx: ConfigContext) -> None:

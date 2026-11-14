@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 
 from loguru import logger
+from mlflow.entities import Run
 from mlflow.exceptions import MlflowException
+from mlflow.tracking import MlflowClient
 
 from neuralls.composition.assignments.assembler import load_validated_case_config
 from neuralls.composition.assignments.comparison_prepared import (
@@ -37,6 +39,7 @@ from neuralls.composition.comparison.config_assembler import (
 from neuralls.composition.comparison.input_gate import require_current_inputs
 from neuralls.composition.comparison.method_data_origin import (
     CheckpointBased,
+    MethodDataOrigin,
     TrainingDataUnavailable,
     resolve_method_data_origin,
 )
@@ -112,6 +115,49 @@ def matrix_scope(
     return ComparisonScopePresentation(context.load_dataset(dataset_dir))
 
 
+def _cached_run_tags(
+    run_records: dict[str, Run | MlflowException | OSError], client: MlflowClient
+) -> Callable[[str], Mapping[str, str]]:
+    """Tags of a training run, fetched once per run id; a failed read is kept and re-raised."""
+
+    def run_tags(run_id: str) -> Mapping[str, str]:
+        if run_id not in run_records:
+            try:
+                run_records[run_id] = client.get_run(run_id)
+            except (MlflowException, OSError) as error:
+                run_records[run_id] = error
+        match run_records[run_id]:
+            case MlflowException() | OSError() as error:
+                raise error
+            case record:
+                return record.data.tags
+
+    return run_tags
+
+
+def _training_run_cost(run_id: str, record: Run | MlflowException | OSError) -> Known | Unavailable:
+    """The wall time of one training run, or why it cannot be read."""
+    match record:
+        case MlflowException():
+            return Unavailable(f"run {run_id} cannot be read: {record.message}")
+        case OSError():
+            return Unavailable(f"run {run_id} cannot be read: {record}")
+        case _:
+            return run_wall_seconds_from_run(record, run_id)
+
+
+def _warn_unavailable_training_data(origins_by_method: Mapping[str, MethodDataOrigin]) -> None:
+    """Log each checkpoint method whose training data provenance could not be checked."""
+    for name, origin in origins_by_method.items():
+        match origin:
+            case CheckpointBased(training_data=TrainingDataUnavailable(reason=reason)):
+                logger.warning(
+                    "Method '{}': training data provenance unavailable: {}", name, reason
+                )
+            case _:
+                pass
+
+
 def prepare_comparison_entry(
     cfg: ComparisonConfig,
     planned: PlannedSystem,
@@ -160,20 +206,10 @@ def prepare_comparison_entry(
             len(resolved.specs),
             len(resolved.warnings),
         )
-        training_client = context.tracking.client(context.topology.model_store_tracking_uri)
         run_records = context.training_run_records
-
-        def run_tags(run_id: str) -> dict[str, str]:
-            if run_id not in run_records:
-                try:
-                    run_records[run_id] = training_client.get_run(run_id)
-                except (MlflowException, OSError) as error:
-                    run_records[run_id] = error
-            record = run_records[run_id]
-            if isinstance(record, MlflowException | OSError):
-                raise record
-            return record.data.tags
-
+        run_tags = _cached_run_tags(
+            run_records, context.tracking.client(context.topology.model_store_tracking_uri)
+        )
         origins_by_method = {
             spec.name: resolve_method_data_origin(
                 spec,
@@ -185,26 +221,10 @@ def prepare_comparison_entry(
         }
         if len(origins_by_method) != len(resolved.specs):
             raise ValueError("resolved method names must be unique")
-        training_run_costs: dict[str, Known | Unavailable] = {}
-        for run_id, record in run_records.items():
-            if isinstance(record, MlflowException):
-                training_run_costs[run_id] = Unavailable(
-                    f"run {run_id} cannot be read: {record.message}"
-                )
-            elif isinstance(record, OSError):
-                training_run_costs[run_id] = Unavailable(f"run {run_id} cannot be read: {record}")
-            else:
-                training_run_costs[run_id] = run_wall_seconds_from_run(record, run_id)
-        for spec in resolved.specs:
-            origin = origins_by_method[spec.name]
-            if isinstance(origin, CheckpointBased) and isinstance(
-                origin.training_data, TrainingDataUnavailable
-            ):
-                logger.warning(
-                    "Method '{}': training data provenance unavailable: {}",
-                    spec.name,
-                    origin.training_data.reason,
-                )
+        training_run_costs = {
+            run_id: _training_run_cost(run_id, record) for run_id, record in run_records.items()
+        }
+        _warn_unavailable_training_data(origins_by_method)
         reference_selection = _reference_selection(configured_reference, resolved)
 
         scope = matrix_scope(planned, context)

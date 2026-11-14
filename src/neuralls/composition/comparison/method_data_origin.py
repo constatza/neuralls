@@ -137,41 +137,19 @@ def resolve_method_data_origin(
     if not refs:
         return InlineFit(Path(pod.dataset_dir)) if pod is not None else NoFitData()
 
-    verified: list[VerifiedTrainingDataset] = []
-    unavailable: list[str] = []
-    for ref in refs:
-        if ref.resolved_run_id is None:
-            unavailable.append("checkpoint has no recorded training run")
-            continue
-        try:
-            recorded = _recorded_digest(run_tags(ref.resolved_run_id))
-        except MlflowException, OSError:
-            unavailable.append("training run cannot be read")
-            continue
-        if recorded is None:
-            unavailable.append("training run has no dataset identity")
-            continue
-        if pod is not None:
-            directory = Path(pod.dataset_dir)
-        elif ref.data_config_path is not None:
-            try:
-                directory = training_dataset_dir(ref.data_config_path)
-            except OSError, ValueError:
-                unavailable.append("training dataset config is unavailable or invalid")
-                continue
-        else:
-            unavailable.append("training dataset path is unavailable")
-            continue
-        try:
-            current = dataset_digest(directory)
-        except FileNotFoundError:
-            unavailable.append("training dataset is unavailable")
-            continue
-        if not current.startswith(recorded):
-            raise ValueError(
-                f"training dataset digest mismatch for checkpoint run {ref.resolved_run_id!r}"
-            )
-        verified.append(VerifiedTrainingDataset(directory, current))
+    pod_dir = Path(pod.dataset_dir) if pod is not None else None
+    checks = [
+        _verify_checkpoint_data(
+            ref,
+            pod_dir=pod_dir,
+            run_tags=run_tags,
+            training_dataset_dir=training_dataset_dir,
+            dataset_digest=dataset_digest,
+        )
+        for ref in refs
+    ]
+    verified = [check for check in checks if isinstance(check, VerifiedTrainingDataset)]
+    unavailable = [check.reason for check in checks if isinstance(check, _Unverified)]
     if unavailable:
         return CheckpointBased(refs, TrainingDataUnavailable("; ".join(dict.fromkeys(unavailable))))
     if len({item.digest for item in verified}) != 1:
@@ -179,3 +157,61 @@ def resolve_method_data_origin(
             refs, TrainingDataUnavailable("checkpoints use different training datasets")
         )
     return CheckpointBased(refs, verified[0])
+
+
+@dataclass(frozen=True, slots=True)
+class _Unverified:
+    """Why one checkpoint's training data could not be checked."""
+
+    reason: str
+
+
+def _verify_checkpoint_data(
+    ref: NeuralCheckpointRef,
+    *,
+    pod_dir: Path | None,
+    run_tags: Callable[[str], Mapping[str, str]],
+    training_dataset_dir: Callable[[Path], Path],
+    dataset_digest: Callable[[Path], Digest],
+) -> VerifiedTrainingDataset | _Unverified:
+    """Check one checkpoint's training dataset against the digest its run recorded.
+
+    Raises:
+        ValueError: The dataset exists but its digest differs from the recorded one.
+    """
+    if ref.resolved_run_id is None:
+        return _Unverified("checkpoint has no recorded training run")
+    try:
+        recorded = _recorded_digest(run_tags(ref.resolved_run_id))
+    except MlflowException, OSError:
+        return _Unverified("training run cannot be read")
+    if recorded is None:
+        return _Unverified("training run has no dataset identity")
+    directory = _training_directory(ref, pod_dir, training_dataset_dir)
+    if isinstance(directory, _Unverified):
+        return directory
+    try:
+        current = dataset_digest(directory)
+    except FileNotFoundError:
+        return _Unverified("training dataset is unavailable")
+    if not current.startswith(recorded):
+        raise ValueError(
+            f"training dataset digest mismatch for checkpoint run {ref.resolved_run_id!r}"
+        )
+    return VerifiedTrainingDataset(directory, current)
+
+
+def _training_directory(
+    ref: NeuralCheckpointRef,
+    pod_dir: Path | None,
+    training_dataset_dir: Callable[[Path], Path],
+) -> Path | _Unverified:
+    """The POD snapshot directory, else the dataset the training data config names."""
+    if pod_dir is not None:
+        return pod_dir
+    if ref.data_config_path is None:
+        return _Unverified("training dataset path is unavailable")
+    try:
+        return training_dataset_dir(ref.data_config_path)
+    except OSError, ValueError:
+        return _Unverified("training dataset config is unavailable or invalid")
