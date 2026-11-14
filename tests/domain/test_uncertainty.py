@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 
@@ -142,3 +144,19 @@ def test_the_minimum_number_of_matrices_gets_a_cluster_bootstrap() -> None:
     assert cluster_bootstrap(MIN_INTERVAL_MATRICES) == MatrixClusterBootstrap(
         matrices=MIN_INTERVAL_MATRICES
     )
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: TooFewMatrices(-1),
+        lambda: TooFewMatrices(MIN_INTERVAL_MATRICES),
+        lambda: MatrixClusterBootstrap(matrices=1),
+        lambda: MatrixClusterBootstrap(matrices=MIN_INTERVAL_MATRICES, level=1.0),
+        lambda: MatrixClusterBootstrap(matrices=MIN_INTERVAL_MATRICES, resamples=0),
+    ],
+    ids=["negative", "enough", "bootstrap of one", "level of one", "no resamples"],
+)
+def test_an_interval_record_outside_its_range_is_rejected(build: Callable[[], object]) -> None:
+    with pytest.raises(ValueError):
+        build()

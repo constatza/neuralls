@@ -63,7 +63,7 @@ class PerMethodIntervals:
     methods: tuple[MethodInterval, ...]
 
     def __post_init__(self) -> None:
-        """Require each method once, in name order."""
+        """Require each method once, in name order; a cohort with no systems has none."""
         names = [entry.method for entry in self.methods]
         if names != sorted(set(names)):
             raise ValueError("per-method intervals must name each method once, in name order")

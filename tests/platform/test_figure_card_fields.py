@@ -472,6 +472,9 @@ _BOOT = {"method": "amg", "kind": "matrix_cluster_bootstrap", "level": 0.95, "re
         _per_method({"method": "amg", "kind": "too_few_matrices", "matrices": 1, "minimum": 3}),
         _per_method({**_BOOT, "matrices": 4}, {**_BOOT, "matrices": 4}),
         _per_method({**_BOOT, "method": 7, "matrices": 4}),
+        _per_method({"method": "amg", "kind": "too_few_matrices", "matrices": -1, "minimum": 2}),
+        _per_method({**_BOOT, "matrices": 4, "level": 5.0}),
+        _per_method({**_BOOT, "matrices": 4, "resamples": 0}),
         "none",
     ],
     ids=[
@@ -486,6 +489,9 @@ _BOOT = {"method": "amg", "kind": "matrix_cluster_bootstrap", "level": 0.95, "re
         "another minimum",
         "a method twice",
         "method not a string",
+        "negative matrices",
+        "level above one",
+        "no resamples",
         "not a table",
     ],
 )

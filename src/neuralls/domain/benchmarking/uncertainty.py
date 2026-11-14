@@ -42,12 +42,26 @@ class MatrixClusterBootstrap:
     level: float = CONFIDENCE_LEVEL
     resamples: int = BOOTSTRAP_RESAMPLES
 
+    def __post_init__(self) -> None:
+        """Require enough matrices to resample, a level in (0, 1) and at least one resample."""
+        if self.matrices < MIN_INTERVAL_MATRICES:
+            raise ValueError(f"a matrix-cluster bootstrap needs {MIN_INTERVAL_MATRICES} matrices")
+        if not 0.0 < self.level < 1.0:
+            raise ValueError("a bootstrap confidence level lies strictly between 0 and 1")
+        if self.resamples < 1:
+            raise ValueError("a bootstrap draws at least one resample")
+
 
 @dataclass(frozen=True, slots=True)
 class TooFewMatrices:
     """Fewer than ``MIN_INTERVAL_MATRICES`` matrices gave a value, so no interval is drawn."""
 
     matrices: int
+
+    def __post_init__(self) -> None:
+        """Require a matrix count from 0 up to, not including, ``MIN_INTERVAL_MATRICES``."""
+        if not 0 <= self.matrices < MIN_INTERVAL_MATRICES:
+            raise ValueError(f"too few matrices means 0 to {MIN_INTERVAL_MATRICES - 1}")
 
 
 def cluster_bootstrap(matrices: int) -> TooFewMatrices | MatrixClusterBootstrap:
