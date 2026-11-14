@@ -10,6 +10,7 @@ from __future__ import annotations
 import tomllib
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, assert_never
 
@@ -21,7 +22,11 @@ from neuralls.domain.benchmarking.selection import (
     ReferenceSelection,
     ReferenceUnavailable,
 )
-from neuralls.domain.benchmarking.uncertainty import MatrixClusterBootstrap
+from neuralls.domain.benchmarking.uncertainty import (
+    MIN_INTERVAL_MATRICES,
+    MatrixClusterBootstrap,
+    TooFewMatrices,
+)
 from neuralls.domain.solver.models.figure_scope import render_figure_scope
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.reporting.cohorts import (
@@ -41,8 +46,8 @@ from neuralls.platform.reporting.figure_evidence import (
     FigureTimingEvidence,
     MethodOutcomeCounts,
     MethodTimingSpread,
-    NoInterval,
     NoSharedSetup,
+    NotDrawnByKind,
     NoTimingEvidence,
     SetupSharedOverRhs,
     SetupSharing,
@@ -214,38 +219,58 @@ def _decode_reference(payload: Mapping[str, Any]) -> ReferenceSelection:
             )
 
 
+class IntervalKind(StrEnum):
+    """The card's name for the interval a figure draws, or the reason it draws none."""
+
+    MATRIX_CLUSTER_BOOTSTRAP = MatrixClusterBootstrap.NAME
+    NOT_DRAWN_BY_KIND = "not_drawn_by_kind"
+    TOO_FEW_MATRICES = "too_few_matrices"
+
+
 def _encode_interval(interval: FigureInterval) -> dict[str, Any]:
     match interval:
-        case NoInterval():
-            return {}
+        case NotDrawnByKind():
+            return {"kind": IntervalKind.NOT_DRAWN_BY_KIND.value}
+        case TooFewMatrices(matrices=matrices):
+            return {
+                "kind": IntervalKind.TOO_FEW_MATRICES.value,
+                "matrices": matrices,
+                "minimum": MIN_INTERVAL_MATRICES,
+            }
         case MatrixClusterBootstrap(matrices=matrices, level=level, resamples=resamples):
             return {
-                "interval": {
-                    "method": MatrixClusterBootstrap.NAME,
-                    "level": level,
-                    "resamples": resamples,
-                    "matrices": matrices,
-                }
+                "kind": IntervalKind.MATRIX_CLUSTER_BOOTSTRAP.value,
+                "level": level,
+                "resamples": resamples,
+                "matrices": matrices,
             }
         case unreachable:
             assert_never(unreachable)
 
 
-def _decode_interval(payload: Mapping[str, Any]) -> FigureInterval:
-    if "interval" not in payload:
-        return NoInterval()
-    interval = _require(
-        payload["interval"], frozenset({"method", "level", "resamples", "matrices"}), "interval"
-    )
-    if interval["method"] != MatrixClusterBootstrap.NAME:
+def _decode_interval(payload: object) -> FigureInterval:
+    interval = _require(payload, frozenset({"kind"}), "interval")
+    try:
+        kind = IntervalKind(interval["kind"])
+    except ValueError as error:
         raise InvalidFigureCardError(
-            f"figure card interval method is unknown: {interval['method']}"
-        )
-    return MatrixClusterBootstrap(
-        matrices=int(interval["matrices"]),
-        level=float(interval["level"]),
-        resamples=int(interval["resamples"]),
-    )
+            f"figure card interval kind is unknown: {interval['kind']}"
+        ) from error
+    match kind:
+        case IntervalKind.NOT_DRAWN_BY_KIND:
+            return NotDrawnByKind()
+        case IntervalKind.TOO_FEW_MATRICES:
+            fields = _require(interval, frozenset({"matrices", "minimum"}), "interval")
+            return TooFewMatrices(int(fields["matrices"]))
+        case IntervalKind.MATRIX_CLUSTER_BOOTSTRAP:
+            fields = _require(interval, frozenset({"level", "resamples", "matrices"}), "interval")
+            return MatrixClusterBootstrap(
+                matrices=int(fields["matrices"]),
+                level=float(fields["level"]),
+                resamples=int(fields["resamples"]),
+            )
+        case unreachable:
+            assert_never(unreachable)
 
 
 def _encode_cohort(cohort: Cohort) -> dict[str, Any]:
@@ -331,7 +356,7 @@ def _group_payload(metadata: GroupFigureMetadata) -> dict[str, Any]:
             str(counts.method): {outcome.value: n for outcome, n in counts.counts.items()}
             for counts in metadata.outcome_counts
         },
-        **_encode_interval(metadata.interval),
+        "interval": _encode_interval(metadata.interval),
         **_encode_setup_sharing(metadata.setup_sharing),
         **_encode_timing(metadata.timing),
         "excluded_zero_best": metadata.excluded_zero_best,
@@ -435,6 +460,7 @@ def _decode_group_metadata(kind: FigureKind, payload: Mapping[str, Any]) -> Grou
                 "statistic",
                 "outcome_counts",
                 "excluded_zero_best",
+                "interval",
             }
         ),
         "group document",
@@ -442,7 +468,7 @@ def _decode_group_metadata(kind: FigureKind, payload: Mapping[str, Any]) -> Grou
     return GroupFigureMetadata(
         **_common_fields(kind, payload),
         cohort=_decode_cohort(payload),
-        interval=_decode_interval(payload),
+        interval=_decode_interval(payload["interval"]),
         setup_sharing=_decode_setup_sharing(payload),
         outcome_counts=tuple(
             MethodOutcomeCounts(

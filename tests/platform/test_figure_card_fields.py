@@ -28,15 +28,21 @@ from neuralls.domain.benchmarking.paired import (
     speed_ratios,
 )
 from neuralls.domain.benchmarking.profiles import performance_series
+from neuralls.domain.benchmarking.uncertainty import MIN_INTERVAL_MATRICES, TooFewMatrices
 from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId, Unit
 from neuralls.domain.solver.reporting.observations import Outcome
 from neuralls.domain.solver.reporting.summary import Population, select, timing_noise
 from neuralls.platform.reporting.figure_card import (
+    InvalidFigureCardError,
     build_figure_card,
     card_payload,
     decode_figure_card,
+)
+from neuralls.platform.reporting.figure_evidence import (
+    bootstrap_of_means,
+    bootstrap_of_speed_ratios,
 )
 from neuralls.platform.reporting.figure_metadata import GroupFigureMetadata, Statistic
 from neuralls.platform.reporting.figure_planning import figure_plans
@@ -161,8 +167,10 @@ def test_a_card_records_the_failure_treatment_of_its_recipe_as_a_typed_value(
 
 
 @pytest.mark.parametrize("stem", _NO_INTERVAL_STEMS)
-def test_a_figure_without_an_interval_records_none(payloads: dict[str, Payload], stem: str) -> None:
-    assert "interval" not in payloads[stem]
+def test_a_figure_whose_kind_draws_no_interval_says_so(
+    payloads: dict[str, Payload], stem: str
+) -> None:
+    assert _table(payloads[stem], "interval") == {"kind": "not_drawn_by_kind"}
 
 
 @pytest.mark.parametrize("stem", _NOT_ONLINE_STEMS)
@@ -226,13 +234,13 @@ def test_the_speed_ratio_card_states_its_interval(
     interval = _table(payloads["speed_ratio_cdf"], "interval")
 
     assert interval == {
-        "method": INTERVAL_METHOD,
+        "kind": INTERVAL_METHOD,
         "level": CONFIDENCE_LEVEL,
         "resamples": BOOTSTRAP_RESAMPLES,
         "matrices": matrices,
     }
     assert {key: type(value) for key, value in interval.items()} == {
-        "method": str,
+        "kind": str,
         "level": float,
         "resamples": int,
         "matrices": int,
@@ -271,9 +279,9 @@ def test_mean_figures_exist_for_every_mean_kind() -> None:
 def test_a_distribution_card_states_its_whiskers_are_no_confidence_interval(
     payloads: dict[str, Payload], stem: str, definition: str
 ) -> None:
-    assert (payloads[stem]["metric_definition"], "interval" in payloads[stem]) == (
+    assert (payloads[stem]["metric_definition"], _table(payloads[stem], "interval")) == (
         definition,
-        False,
+        {"kind": "not_drawn_by_kind"},
     )
 
 
@@ -294,7 +302,7 @@ def test_a_mean_card_states_the_matrix_cluster_bootstrap_of_its_whiskers(
     matrices = selected.select(pl.struct("dataset", "matrix_id").n_unique()).item()
 
     assert _table(payloads[stem], "interval") == {
-        "method": INTERVAL_METHOD,
+        "kind": INTERVAL_METHOD,
         "level": CONFIDENCE_LEVEL,
         "resamples": BOOTSTRAP_RESAMPLES,
         "matrices": matrices,
@@ -302,11 +310,15 @@ def test_a_mean_card_states_the_matrix_cluster_bootstrap_of_its_whiskers(
 
 
 @pytest.mark.parametrize("stem", _COMMON_MEAN_STEMS)
-def test_a_mean_card_over_an_empty_common_population_records_no_interval(
+def test_a_mean_card_over_an_empty_common_population_states_too_few_matrices(
     payloads: dict[str, Payload], stem: str
 ) -> None:
     # ``broken`` defines nothing, so no system is common to every method and no whisker exists.
-    assert "interval" not in payloads[stem]
+    assert _table(payloads[stem], "interval") == {
+        "kind": "too_few_matrices",
+        "matrices": 0,
+        "minimum": MIN_INTERVAL_MATRICES,
+    }
 
 
 @pytest.mark.parametrize("stem", _ONLINE_STEMS)
@@ -412,3 +424,40 @@ def test_a_card_resting_on_a_single_timing_repeat_carries_a_warning(
     single_repeat_payloads: dict[str, Payload], stem: str
 ) -> None:
     assert isinstance(single_repeat_payloads[stem].get("timing_warning"), str)
+
+
+@pytest.fixture
+def one_matrix_observations(profile_report: RecipeProfileReport) -> pl.DataFrame:
+    """The systems of the first matrix of ``profile_report`` only."""
+    first = profile_report.observations["matrix_id"].min()
+    return profile_report.observations.filter(pl.col("matrix_id") == first)
+
+
+def test_a_speed_ratio_over_one_matrix_has_too_few_matrices_for_an_interval(
+    one_matrix_observations: pl.DataFrame,
+) -> None:
+    assert bootstrap_of_speed_ratios(
+        one_matrix_observations, PreconditionerName("jacobi"), REFERENCE_METRIC
+    ) == TooFewMatrices(1)
+
+
+def test_means_over_one_matrix_have_too_few_matrices_for_an_interval(
+    one_matrix_observations: pl.DataFrame,
+) -> None:
+    assert bootstrap_of_means(
+        one_matrix_observations, MetricId.ITERATIONS, Population.OWN
+    ) == TooFewMatrices(1)
+
+
+@pytest.mark.parametrize(
+    "interval",
+    [{"kind": "normal_approximation"}, {"kind": "too_few_matrices", "matrices": 1}, "none"],
+    ids=["unknown kind", "missing minimum", "not a table"],
+)
+def test_a_card_with_a_malformed_interval_is_rejected(
+    payloads: dict[str, Payload], interval: object
+) -> None:
+    payload = {**payloads["speed_ratio_cdf"], "interval": interval}
+
+    with pytest.raises(InvalidFigureCardError):
+        decode_figure_card(payload)

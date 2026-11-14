@@ -17,8 +17,9 @@ import polars as pl
 
 from neuralls.domain.benchmarking.paired import paired_systems, speed_ratios
 from neuralls.domain.benchmarking.uncertainty import (
-    MIN_INTERVAL_MATRICES,
     MatrixClusterBootstrap,
+    TooFewMatrices,
+    cluster_bootstrap,
 )
 from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.reporting.metrics import METRICS, MetricId, Unit
@@ -40,11 +41,12 @@ _SINGLE_REPEAT = 1
 
 
 @dataclass(frozen=True, slots=True)
-class NoInterval:
-    """The figure draws no interval."""
+class NotDrawnByKind:
+    """The figure's statistic never draws an interval."""
 
 
-type FigureInterval = NoInterval | MatrixClusterBootstrap
+type FigureInterval = NotDrawnByKind | TooFewMatrices | MatrixClusterBootstrap
+"""The interval a figure draws, or the reason it draws none."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,28 +129,24 @@ def outcome_counts_of(observations: pl.DataFrame) -> tuple[MethodOutcomeCounts, 
 
 def bootstrap_of_speed_ratios(
     observations: pl.DataFrame, reference: PreconditionerName, metric: MetricId
-) -> MatrixClusterBootstrap:
+) -> TooFewMatrices | MatrixClusterBootstrap:
     """The bootstrap behind the speed-ratio intervals of every method against ``reference``.
 
-    ``matrices`` counts the distinct matrices that give any method a ratio.
+    It counts the distinct matrices that give any method a ratio.
     """
     ratios = speed_ratios(paired_systems(observations, reference, metric))
-    return MatrixClusterBootstrap(matrices=ratios.select("dataset", "matrix_id").unique().height)
+    return cluster_bootstrap(ratios.select("dataset", "matrix_id").unique().height)
 
 
 def bootstrap_of_means(
     observations: pl.DataFrame, metric: MetricId, population: Population
-) -> FigureInterval:
+) -> TooFewMatrices | MatrixClusterBootstrap:
     """The bootstrap behind the whiskers of every method's mean of ``metric`` over ``population``.
 
-    ``matrices`` counts the distinct matrices that give any method a defined value; below
-    ``MIN_INTERVAL_MATRICES`` no method has an interval, so the figure draws none.
+    It counts the distinct matrices that give any method a defined value.
     """
     defined = select(observations, metric, population)
-    matrices = defined.select("dataset", "matrix_id").unique().height
-    if matrices < MIN_INTERVAL_MATRICES:
-        return NoInterval()
-    return MatrixClusterBootstrap(matrices=matrices)
+    return cluster_bootstrap(defined.select("dataset", "matrix_id").unique().height)
 
 
 def setup_sharing_of(metric: MetricId, observations: pl.DataFrame) -> SetupSharing:

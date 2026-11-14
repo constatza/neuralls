@@ -32,7 +32,7 @@ from neuralls.platform.reporting.cohort_variants import (
 )
 from neuralls.platform.reporting.figure_evidence import (
     FigureInterval,
-    NoInterval,
+    NotDrawnByKind,
     bootstrap_of_means,
     bootstrap_of_speed_ratios,
     outcome_counts_of,
@@ -231,6 +231,6 @@ def _interval(
             | Statistic.QUANTILES
             | Statistic.MEAN_PER_MATRIX
         ):
-            return NoInterval()
+            return NotDrawnByKind()
         case unreachable:
             assert_never(unreachable)

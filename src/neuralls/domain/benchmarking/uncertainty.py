@@ -43,6 +43,20 @@ class MatrixClusterBootstrap:
     resamples: int = BOOTSTRAP_RESAMPLES
 
 
+@dataclass(frozen=True, slots=True)
+class TooFewMatrices:
+    """Fewer than ``MIN_INTERVAL_MATRICES`` matrices gave a value, so no interval is drawn."""
+
+    matrices: int
+
+
+def cluster_bootstrap(matrices: int) -> TooFewMatrices | MatrixClusterBootstrap:
+    """The bootstrap over ``matrices`` whole matrices, or why there is none."""
+    if matrices < MIN_INTERVAL_MATRICES:
+        return TooFewMatrices(matrices)
+    return MatrixClusterBootstrap(matrices=matrices)
+
+
 def matrix_cluster_interval(
     values_by_matrix: Mapping[MatrixCluster, Sequence[float]],
     statistic: ClusterStatistic,

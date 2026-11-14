@@ -37,7 +37,7 @@ the timing quantity and unit of analysis (for example `Amortized Online Time per
 and `Solve-only Workload Total`),
 while each figure's card (`<stem>.toml`, uploaded beside the figure's PNG file into the run of the figure's
 scope) carries report scope, counts, actual dataset/recipe membership and weights, solver
-tolerances, iteration and normalization settings, repeat policy, reference/failure semantics, the metric, population and statistic drawn, the evidence under the numbers (the bootstrap interval where one is drawn, the RHS counts that share a matrix's setup on online metrics, per-method outcome counts, and timing spread with a warning when each solve was timed once),
+tolerances, iteration and normalization settings, repeat policy, reference/failure semantics, the metric, population and statistic drawn, the evidence under the numbers (the bootstrap interval where one is drawn, else why none is (too few matrices, or a statistic that never draws one), the RHS counts that share a matrix's setup on online metrics, per-method outcome counts, and timing spread with a warning when each solve was timed once),
 the methods drawn and the stored method runs and artifacts the figure came from; group figures also get a same-stem `.parquet` of the frame the figure draws, of the kind its recipe names (a per-method summary, a curve's points, per-system pairs, speed-ratio statistics or workload totals). Method-child
 residual and energy figures use unique method-qualified names; system figures keep short stems
 because a stem only needs to be unique within one run directory. One `MLflowReportSink`

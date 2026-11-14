@@ -66,7 +66,7 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.reporting.benchmark_events import write_method_benchmark_artifacts
 from neuralls.platform.reporting.figure_evidence import (
     MethodOutcomeCounts,
-    NoInterval,
+    NotDrawnByKind,
     SetupSharedOverRhs,
     TimingEvidence,
     TimingRepeats,
@@ -222,7 +222,7 @@ def metadata_of(
             aggregation_rule=GroupAggregationRule.PER_PLANNED_SYSTEM,
             recipe_weights=(1.0,),
             solver_contexts=(CONTEXT,),
-            interval=NoInterval(),
+            interval=NotDrawnByKind(),
             setup_sharing=SetupSharedOverRhs((4,)),
             outcome_counts=(
                 MethodOutcomeCounts(
