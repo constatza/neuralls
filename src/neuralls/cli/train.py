@@ -7,10 +7,8 @@ from typing import Annotated
 import typer
 
 from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ForceOption, ProfileOption
-from neuralls.composition.assignments.training_batch import (
-    run_assignment_sweep,
-    write_metric_report,
-)
+from neuralls.composition.assignments.training_batch import run_assignment_sweep
+from neuralls.composition.assignments.training_metric_report import write_metric_report
 from neuralls.composition.config import CaseConfigPath, load_case_settings
 from neuralls.composition.tracking.services import MLFLOW_TRACKING
 from neuralls.shared.constants import EXIT_FAILURE

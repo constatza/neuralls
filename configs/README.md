@@ -349,7 +349,7 @@ changing what a dataset config or case config *is*:
   hand-written — isn't only read once at load time. `composition/assignments/
   _training_artifacts.py` copies the file verbatim into a training run's
   staged reproducibility artifacts (later uploaded to MLflow), and
-  `composition/assignments/evaluation.py` re-locates that staged copy *by
+  `composition/assignments/evaluation_prepare.py` re-locates that staged copy *by
   filename* at eval time to reproduce the exact run. Both depend on the
   dataset config existing as a real, stably-named file on disk; an
   in-memory-only alternative would still need to materialize one somewhere

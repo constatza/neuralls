@@ -9,7 +9,8 @@ import typer
 
 from neuralls.cli.options import CaseConfigArgument, EnvFileOption, ProfileOption
 from neuralls.composition.assignments.assembler import load_validated_case_config
-from neuralls.composition.assignments.evaluation import eval_batch, write_eval_metric_report
+from neuralls.composition.assignments.evaluation import eval_batch
+from neuralls.composition.assignments.evaluation_metric_report import write_eval_metric_report
 from neuralls.composition.config import CaseConfigPath, load_case_settings
 from neuralls.composition.tracking.services import MLFLOW_TRACKING
 from neuralls.shared.constants import EXIT_FAILURE
