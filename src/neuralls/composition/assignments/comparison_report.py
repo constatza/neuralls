@@ -31,7 +31,7 @@ from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServ
 from neuralls.domain.solver.models.benchmark_events import SolveConverged
 from neuralls.domain.solver.models.report_scope import System
 from neuralls.platform.config.models.figure_style import FigureStyleConfig
-from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.figure_index import FIGURE_INDEX_FILE, read_figure_index
 from neuralls.platform.reporting.stored_benchmark import read_stored_benchmark
 from neuralls.platform.tracking.failure_reporting import MLflowWorkflowFailureSink
@@ -86,12 +86,11 @@ def run_comparison_report(
     *,
     force: bool = False,
     session_run_id: SessionRunId | None = None,
-    settings: NeurallsSettings | None = None,
+    settings: NeurallsSettings,
     tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> ComparisonReportOutcome:
     """Render the newest (or the named) comparison session of a case config into a report run."""
     case_config_path = case_config_path.resolve()
-    settings = require_settings(settings, case_config_path=case_config_path)
     master_cfg, _ = load_validated_case_config(case_config_path, settings)
     topology = resolve_comparison_topology(master_cfg, case_config_path, settings)
     notation = case_notation(master_cfg)

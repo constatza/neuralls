@@ -54,7 +54,7 @@ from neuralls.platform.config.resolution import (
     derive_output_root_from_tracking_uri,
     is_sqlite_tracking_uri,
 )
-from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.figure_formats import FigureTarget, figure_files
 from neuralls.platform.reporting.figure_text import training_legend
 from neuralls.platform.reporting.metric_bars import plot_method_bars
@@ -624,15 +624,14 @@ def _resolve_eval_parent_run(
 
 def eval_batch(
     cfg: CaseConfig,
-    configs_dir: Path,
-    settings: NeurallsSettings | None = None,
+    case_config_path: Path,
+    settings: NeurallsSettings,
     output_root: Path | None = None,
-    case_config_path: Path | None = None,
     assignment_ids: Sequence[str] | None = None,
     tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> EvaluationBatchResult:
     """Evaluate selected assignments from one case config as one dlkit multirun sweep."""
-    settings = require_settings(settings, case_config_path=case_config_path)
+    configs_dir = case_config_path.parent
     selected_ids = set(assignment_ids or ())
     assignments = [
         assignment
@@ -659,9 +658,6 @@ def eval_batch(
         default_output_root=base_output,
         config_dir=configs_dir,
     )
-    resolved_case_config_path = (
-        case_config_path.resolve() if case_config_path is not None else (configs_dir / "case.toml")
-    )
     mlflow_experiment_name = cfg.names.training
 
     with scoped_mlflow_environment(eval_mlflow_env.env):
@@ -673,7 +669,7 @@ def eval_batch(
                 ]
             ),
             notation=case_notation(cfg),
-            case_config_path=resolved_case_config_path,
+            case_config_path=case_config_path,
             experiment_name=mlflow_experiment_name,
             phase="session_evaluation",
         )
@@ -687,7 +683,7 @@ def eval_batch(
                 configs_dir=configs_dir,
                 settings=settings,
                 output_root=base_output,
-                case_config_path=resolved_case_config_path,
+                case_config_path=case_config_path,
                 tracking=tracking,
                 tracking_uri=eval_mlflow_env.tracking_uri,
                 artifact_leases=artifact_leases,

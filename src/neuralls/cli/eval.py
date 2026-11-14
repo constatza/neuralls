@@ -46,10 +46,9 @@ def eval_case_batch(
         cfg, _ = load_validated_case_config(config, settings)
         batch = eval_batch(
             cfg=cfg,
-            configs_dir=config.resolve().parent,
+            case_config_path=config.resolve(),
             settings=settings,
             output_root=output_dir.resolve() if output_dir is not None else None,
-            case_config_path=config.resolve(),
             assignment_ids=assignment,
             tracking=MLFLOW_TRACKING,
         )

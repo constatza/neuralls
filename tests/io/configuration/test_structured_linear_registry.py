@@ -145,6 +145,7 @@ def test_structured_linear_model_configs_load(
 
 def test_default_structured_linear_registry_has_expected_models_and_experiments(
     tmp_path: Path,
+    neuralls_settings: NeurallsSettings,
 ) -> None:
     """A structured-linear registry resolves the intended 3 x 3 experiment matrix."""
     config_path = _write_master_registry(
@@ -172,7 +173,7 @@ def test_default_structured_linear_registry_has_expected_models_and_experiments(
         ],
     )
 
-    cfg, config_dir = load_validated_case_config(config_path)
+    cfg, config_dir = load_validated_case_config(config_path, neuralls_settings)
     bindings = list_assignment_bindings(cfg, config_dir)
 
     assert [entry.id for entry in cfg.jobs] == ["symmetric", "spd", "factorized"]
@@ -194,7 +195,9 @@ def test_default_structured_linear_registry_has_expected_models_and_experiments(
     ]
 
 
-def test_linear_registry_uses_single_normalized_model(tmp_path: Path) -> None:
+def test_linear_registry_uses_single_normalized_model(
+    tmp_path: Path, neuralls_settings: NeurallsSettings
+) -> None:
     """A linear-focused registry can use one normalized-loss model across cases."""
     config_path = _write_master_registry(
         tmp_path / "case-linear.toml",
@@ -219,7 +222,7 @@ def test_linear_registry_uses_single_normalized_model(tmp_path: Path) -> None:
         ],
     )
 
-    cfg, config_dir = load_validated_case_config(config_path)
+    cfg, config_dir = load_validated_case_config(config_path, neuralls_settings)
     bindings = list_assignment_bindings(cfg, config_dir)
 
     assert [entry.id for entry in cfg.jobs] == ["linear"]

@@ -37,6 +37,7 @@ from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.config.models.experiments import ExperimentNamesConfig
 from neuralls.platform.config.models.workspace import AssignmentWorkspace
 from neuralls.platform.config.resolution import MlflowPaths
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.artifact_access import ArtifactLease
 from neuralls.platform.tracking.mlflow import MlflowRunConfig
 from neuralls.platform.tracking.run_names import run_name_text
@@ -462,7 +463,9 @@ def test_resolve_tracking_backend_rejects_implicit_local_fallback(
 
 
 def test_prepare_training_settings_builds_explicit_mlflow_run_config(
-    tmp_path: Path, training_presentation: TrainingPresentation
+    tmp_path: Path,
+    training_presentation: TrainingPresentation,
+    neuralls_settings: NeurallsSettings,
 ) -> None:
     """Registry-backed preparation builds explicit experiment/run names and structured tags.
 
@@ -523,6 +526,7 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(
         ),
     ):
         prepared = prepare_training_settings(
+            settings=neuralls_settings,
             config_path=str(config_path),
             data_config_path=str(data_config_path),
             output_root=tmp_path / "output",
@@ -558,7 +562,9 @@ def test_prepare_training_settings_builds_explicit_mlflow_run_config(
 
 
 def test_prepare_training_settings_without_registry_ids_builds_an_untagged_run(
-    tmp_path: Path, training_presentation: TrainingPresentation
+    tmp_path: Path,
+    training_presentation: TrainingPresentation,
+    neuralls_settings: NeurallsSettings,
 ) -> None:
     """Legacy callers use the config-model default experiment name and no tags."""
     from neuralls.composition.assignments.training import (
@@ -610,6 +616,7 @@ def test_prepare_training_settings_without_registry_ids_builds_an_untagged_run(
         ),
     ):
         prepared = prepare_training_settings(
+            settings=neuralls_settings,
             config_path=config_path,
             data_config_path=data_config_path,
             output_root=tmp_path / "output",

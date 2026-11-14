@@ -18,7 +18,7 @@ from neuralls.composition.comparison.models import (
 )
 from neuralls.composition.generation.multi_generation import generate_batch
 from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServices
-from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.device import release_device_memory
 
 
@@ -56,7 +56,7 @@ NO_FORCE = ForcePolicy()
 
 def run_case_pipeline(
     case_config_path: Path,
-    settings: NeurallsSettings | None = None,
+    settings: NeurallsSettings,
     *,
     force: ForcePolicy = NO_FORCE,
     tracking: TrackingServices = MLFLOW_TRACKING,
@@ -80,7 +80,7 @@ def run_case_pipeline(
     Args:
         case_config_path: Path to a case config defining datasets, assignments,
             and (optionally) comparisons.
-        settings: Optional pre-loaded runtime settings.
+        settings: Runtime settings resolved by the caller.
         force: Which stages ignore an existing matching result and rerun.
         tracking: Source of the MLflow clients, lease managers and reuse lookups.
 
@@ -91,7 +91,6 @@ def run_case_pipeline(
     """
     # The disk edge: resolved once, so the comparison session tag matches what `report` looks up.
     case_config_path = case_config_path.resolve()
-    settings = require_settings(settings, case_config_path=case_config_path)
     cfg, config_dir = load_validated_case_config(
         case_config_path, settings, force_expand=force.expand
     )

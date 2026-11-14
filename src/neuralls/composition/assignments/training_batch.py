@@ -73,7 +73,7 @@ from neuralls.domain.presentation.titles import ComparisonScopePresentation, ses
 from neuralls.platform.config.loaders import load_data_config
 from neuralls.platform.config.models.dataset_identity import resolve_dataset_identity
 from neuralls.platform.config.models.workspace import AssignmentSpec
-from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.reporting.figure_formats import FigureTarget, figure_files
 from neuralls.platform.reporting.figure_text import Legend, training_legend
 from neuralls.platform.reporting.metric_bars import plot_method_bars
@@ -365,7 +365,7 @@ class _ChildTimingTracker:
 
 def run_assignment_sweep(
     case_config_path: Path,
-    settings: NeurallsSettings | None = None,
+    settings: NeurallsSettings,
     *,
     force: bool = False,
     tracking: TrackingServices = MLFLOW_TRACKING,
@@ -384,6 +384,7 @@ def run_assignment_sweep(
 
     Args:
         case_config_path: Path to a case config defining all assignments
+        settings: Runtime settings resolved by the caller.
         force: If True, retrain all models even if a completed run already exists
         tracking: Source of the reuse lookups, clients and lease managers.
 
@@ -403,6 +404,7 @@ def run_assignment_sweep(
     Example:
         >>> sweep = run_assignment_sweep(
         ...     Path("/tmp/case.toml"),
+        ...     settings,
         ...     force=False,
         ... )
         >>> success_count = sum(1 for r in sweep.results if r.status == "Success")
@@ -410,7 +412,6 @@ def run_assignment_sweep(
     """
     # The disk edge: resolved once, so the session tag carries an absolute case path.
     case_config_path = case_config_path.resolve()
-    settings = require_settings(settings, case_config_path=case_config_path)
 
     # Load all assignment definitions from the case config
     batch = load_assignment_batch(case_config_path, settings)

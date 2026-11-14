@@ -44,7 +44,7 @@ from neuralls.composition.tracking.services import MLFLOW_TRACKING, TrackingServ
 from neuralls.domain.presentation.run_names import TrainingPresentation
 from neuralls.platform.config.loaders import load_tracking_config
 from neuralls.platform.config.models.workspace import AssignmentWorkspace, RunnableAssignment
-from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.artifact_access import (
     ArtifactLeaseManager,
     NoopArtifactLeaseManager,
@@ -324,7 +324,7 @@ def prepare_training_settings(
     *,
     config_path: str | Path,
     data_config_path: str | Path,
-    settings: NeurallsSettings | None = None,
+    settings: NeurallsSettings,
     case_config_path: str | Path | None = None,
     output_root: Path | str | None = None,
     identity: AssignmentIdentity,
@@ -364,7 +364,6 @@ def prepare_training_settings(
         ``finalize_prepared_training()``.
     """
     resolved_case_config_path = Path(case_config_path) if case_config_path else None
-    settings = require_settings(settings, case_config_path=resolved_case_config_path)
     runtime_environment = build_runtime_environment(
         output_root,
         default_output_root=settings.output_dir,

@@ -50,7 +50,7 @@ from neuralls.domain.presentation.titles import (
     summarized_session_title,
 )
 from neuralls.platform.config.models.experiments import CaseConfig
-from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.tracking.failure_reporting import MLflowWorkflowFailureSink
 from neuralls.platform.tracking.method_sink import MLflowBenchmarkMethodSink
 from neuralls.platform.tracking.metrics_logging import (
@@ -126,7 +126,7 @@ def _run_session(
 def run_comparison_batch(
     case_config_path: Path,
     params: ComparisonParams,
-    settings: NeurallsSettings | None = None,
+    settings: NeurallsSettings,
     *,
     tracking: TrackingServices = MLFLOW_TRACKING,
 ) -> list[ComparisonOutcome]:
@@ -136,7 +136,6 @@ def run_comparison_batch(
     and every session tag and failure record downstream carries it as given.
     """
     case_config_path = case_config_path.resolve()
-    settings = require_settings(settings, case_config_path=case_config_path)
     master_cfg, _ = load_validated_case_config(case_config_path, settings)
     return run_loaded_comparison_batch(
         master_cfg, case_config_path, params, settings, tracking=tracking

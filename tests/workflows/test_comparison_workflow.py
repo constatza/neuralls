@@ -1223,7 +1223,10 @@ def test_prepare_fails_when_a_known_dataset_is_missing(
 
 @pytest.mark.usefixtures("stub_input_gate", "stub_planning")
 def test_run_comparison_batch_preserves_declared_order(
-    tmp_path: Path, fake_mlflow: MagicMock, comparison_run: NamedRun
+    tmp_path: Path,
+    fake_mlflow: MagicMock,
+    comparison_run: NamedRun,
+    neuralls_settings: NeurallsSettings,
 ) -> None:
     """Cache-hit outcomes come back in declared config order.
 
@@ -1253,7 +1256,7 @@ def test_run_comparison_batch_preserves_declared_order(
             return_value=mock_cfg(),
         ),
     ):
-        outcomes = run_comparison_batch(experiments_config, ComparisonParams())
+        outcomes = run_comparison_batch(experiments_config, ComparisonParams(), neuralls_settings)
 
     assert [outcome.comparison_id for outcome in outcomes] == ["a", "b"]
     assert [call.args[1].entry.id for call in mock_prepare.call_args_list] == ["a", "b"]

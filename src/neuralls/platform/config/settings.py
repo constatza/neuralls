@@ -12,7 +12,6 @@ from neuralls.platform.config import resolution
 from neuralls.platform.config.profile import load_profile, map_roots
 from neuralls.platform.config.resolution import (
     require_absolute_user_path,
-    resolve_case_config_path,
     resolve_env_file_path,
 )
 
@@ -165,21 +164,3 @@ def load_case_settings(
         profile_values=profile_values,
     )
     return _absolute_roots(NeurallsSettings.model_validate(root_mapping))
-
-
-def require_settings(
-    settings: NeurallsSettings | None,
-    *,
-    case_config_path: Path | None = None,
-    env_file: Path | None = None,
-    profile: str | None = None,
-) -> NeurallsSettings:
-    """Return explicit settings or resolve them from one explicit case config."""
-    if settings is not None:
-        return settings
-    resolved_case = resolve_case_config_path(case_config_path)
-    if resolved_case is None:
-        raise ValueError(
-            "This workflow requires a case config. Pass --case-config or set NEURALLS_CASE_CONFIG."
-        )
-    return load_case_settings(env_file=env_file, profile=profile)

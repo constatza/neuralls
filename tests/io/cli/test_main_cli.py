@@ -312,10 +312,9 @@ def test_eval_invokes_batch_workflow(
     mock_load_case_config.assert_called_once_with(config, settings)
     mock_eval_batch.assert_called_once_with(
         cfg=cfg,
-        configs_dir=config.resolve().parent,
+        case_config_path=config.resolve(),
         settings=settings,
         output_root=None,
-        case_config_path=config.resolve(),
         assignment_ids=["a1", "a2"],
         tracking=MLFLOW_TRACKING,
     )

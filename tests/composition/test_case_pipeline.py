@@ -34,12 +34,6 @@ def _patch_pipeline(
         comparison_sweeps=(MagicMock(),) if has_sweeps else (),
         assignments=(MagicMock(),) if has_assignments else (),
     )
-    stack.enter_context(
-        patch(
-            "neuralls.composition.assignments.case_pipeline.require_settings",
-            side_effect=lambda settings, **_: settings,
-        )
-    )
     generate = stack.enter_context(
         patch("neuralls.composition.assignments.case_pipeline.generate_batch")
     )
@@ -156,10 +150,6 @@ def test_run_case_pipeline_calls_generate_batch_as_an_explicit_stage() -> None:
     call_order: list[str] = []
     with (
         patch(
-            "neuralls.composition.assignments.case_pipeline.require_settings",
-            side_effect=lambda settings, **_: settings,
-        ),
-        patch(
             "neuralls.composition.assignments.case_pipeline.load_validated_case_config",
             return_value=(MagicMock(comparisons=(), comparison_sweeps=()), CASE_CONFIG_PATH.parent),
         ),
@@ -187,10 +177,6 @@ def test_sweep_runs_before_comparison_batch() -> None:
     settings = MagicMock()
     call_order: list[str] = []
     with (
-        patch(
-            "neuralls.composition.assignments.case_pipeline.require_settings",
-            side_effect=lambda settings, **_: settings,
-        ),
         patch("neuralls.composition.assignments.case_pipeline.generate_batch"),
         patch(
             "neuralls.composition.assignments.case_pipeline.run_assignment_sweep",
@@ -222,10 +208,6 @@ def test_releases_device_memory_between_sweep_and_comparison() -> None:
     settings = MagicMock()
     call_order: list[str] = []
     with (
-        patch(
-            "neuralls.composition.assignments.case_pipeline.require_settings",
-            side_effect=lambda settings, **_: settings,
-        ),
         patch("neuralls.composition.assignments.case_pipeline.generate_batch"),
         patch(
             "neuralls.composition.assignments.case_pipeline.run_assignment_sweep",

@@ -78,14 +78,3 @@ def test_load_experiment_success(
     assert (
         Path(experiment.settings.training.trainer.default_root_dir) == experiment.workspace.root_dir
     )
-
-
-def test_load_experiment_missing_data_config(
-    temp_config_structure: Path, monkeypatch: pytest.MonkeyPatch
-):
-    """Test that missing data config raises TypeError (required parameter)."""
-    monkeypatch.chdir(temp_config_structure)
-    model_path = temp_config_structure / "configs" / "jobs" / "exp1_job.toml"
-
-    with pytest.raises(ValueError):
-        load_assignment(job_config_path=model_path)

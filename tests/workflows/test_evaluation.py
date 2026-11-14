@@ -353,7 +353,6 @@ def test_eval_batch_continues_after_one_assignment_fails(
     ):
         batch = eval_batch(
             cfg=cfg,
-            configs_dir=two_assignment_case_config.parent,
             settings=neuralls_settings,
             case_config_path=two_assignment_case_config,
         )
@@ -407,7 +406,6 @@ def test_eval_batch_falls_back_to_own_parent_run_when_every_assignment_fails(
     ):
         batch = eval_batch(
             cfg=cfg,
-            configs_dir=two_assignment_case_config.parent,
             settings=neuralls_settings,
             case_config_path=two_assignment_case_config,
         )

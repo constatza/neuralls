@@ -29,10 +29,9 @@ from neuralls.platform.config.models.workspace import (
 from neuralls.platform.config.registry import list_assignment_bindings
 from neuralls.platform.config.resolution import (
     derive_output_root_from_tracking_uri,
-    resolve_case_config_path,
     resolve_path_context,
 )
-from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.storage.workspaces import WorkspaceFactory
 from neuralls.platform.tracking.environment import scoped_mlflow_environment
 from neuralls.platform.tracking.mlflow import (
@@ -108,7 +107,7 @@ class AssignmentIdentity:
 
 def load_validated_case_config(
     config_path: Path,
-    neuralls_settings: NeurallsSettings | None = None,
+    neuralls_settings: NeurallsSettings,
     *,
     force_expand: bool = False,
 ) -> tuple[CaseConfig, Path]:
@@ -116,10 +115,6 @@ def load_validated_case_config(
 
     `force_expand` recreates sweep-generated dataset configs even if present.
     """
-    neuralls_settings = require_settings(
-        neuralls_settings,
-        case_config_path=config_path,
-    )
     cfg = load_case_config(config_path, neuralls_settings, force_expand=force_expand)
     config_dir = config_path.resolve().parent
     return cfg, config_dir
@@ -127,13 +122,12 @@ def load_validated_case_config(
 
 def _load_case_config(
     case_config_path: Path | None,
-    neuralls_settings: NeurallsSettings | None = None,
+    neuralls_settings: NeurallsSettings,
 ) -> CaseConfig | None:
-    """Load case topology when provided explicitly or via environment."""
-    resolved_case_config = resolve_case_config_path(case_config_path)
-    if resolved_case_config is None:
+    """Load case topology when a case config path is given."""
+    if case_config_path is None:
         return None
-    cfg, _ = load_validated_case_config(resolved_case_config, neuralls_settings)
+    cfg, _ = load_validated_case_config(case_config_path, neuralls_settings)
     return cfg
 
 
@@ -181,9 +175,9 @@ def _build_case_mlflow_topology(
 
 
 def load_assignment(
-    job_config_path: Path | None = None,
-    data_config_path: Path | None = None,
-    neuralls_settings: NeurallsSettings | None = None,
+    job_config_path: Path,
+    data_config_path: Path,
+    neuralls_settings: NeurallsSettings,
     output_root: Path | None = None,
     mode: str = "training",
     case_config_path: Path | None = None,
@@ -194,7 +188,7 @@ def load_assignment(
     Args:
         job_config_path: Path to the job configuration TOML.
         data_config_path: Path to the dataset configuration TOML.
-        neuralls_settings: Resolved project settings, or None to resolve them here.
+        neuralls_settings: Resolved project settings.
         output_root: Output root override for this assignment's workspace.
         mode: Either "training" or "inference".
         case_config_path: Case config that bound this assignment, if any.
@@ -206,24 +200,15 @@ def load_assignment(
         The fully resolved `RunnableAssignment`.
     """
     identity = identity or AssignmentIdentity()
-    if job_config_path is None:
-        raise ValueError("job_config_path is required.")
-    if data_config_path is None:
-        raise ValueError("data_config_path is required.")
-    resolved_case_config_path = resolve_case_config_path(case_config_path)
-    neuralls_settings = require_settings(
-        neuralls_settings,
-        case_config_path=resolved_case_config_path,
-    )
     if mode not in ("training", "inference"):
         raise ValueError(f"Invalid mode: {mode!r}. Expected 'training' or 'inference'.")
-    case_cfg = _load_case_config(resolved_case_config_path, neuralls_settings)
+    case_cfg = _load_case_config(case_config_path, neuralls_settings)
 
     data_cfg = load_data_config(data_config_path, neuralls_settings)
     resolved_output_root = _resolve_output_override(
         output_root=output_root,
         case_cfg=case_cfg,
-        case_config_path=resolved_case_config_path,
+        case_config_path=case_config_path,
         neuralls_settings=neuralls_settings,
     )
     path_ctx = resolve_path_context(
@@ -235,10 +220,10 @@ def load_assignment(
     mlflow_topology = (
         _build_case_mlflow_topology(
             case_cfg,
-            resolved_case_config_path,
+            case_config_path,
             neuralls_settings,
         )
-        if case_cfg is not None and resolved_case_config_path is not None
+        if case_cfg is not None and case_config_path is not None
         else _build_default_mlflow_topology(path_ctx.output_root)
     )
 
@@ -291,13 +276,9 @@ def load_assignment(
 
 def load_assignment_batch(
     case_config_path: Path,
-    neuralls_settings: NeurallsSettings | None = None,
+    neuralls_settings: NeurallsSettings,
 ) -> AssignmentBatch:
     """Load all assignments from one case config file."""
-    neuralls_settings = require_settings(
-        neuralls_settings,
-        case_config_path=case_config_path,
-    )
     if not case_config_path.exists():
         raise FileNotFoundError(f"Case config not found: {case_config_path}")
 

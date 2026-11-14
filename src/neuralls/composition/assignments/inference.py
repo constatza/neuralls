@@ -14,7 +14,7 @@ from neuralls.application.inference.models import DataSource, InferenceConfig
 from neuralls.application.inference.prediction import run_prediction
 from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 from neuralls.composition.inference.data_loading import load_inference_data
-from neuralls.platform.config.settings import NeurallsSettings, require_settings
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.platform.dlkit.inference_adapter import (
     create_inference_predictor,
     resolve_batch_size,
@@ -177,7 +177,7 @@ def _build_inference_result(
 def run_inference(
     *,
     config_path: str | Path,
-    settings: NeurallsSettings | None = None,
+    settings: NeurallsSettings,
     case_config_path: str | Path | None = None,
     data_config_path: str | Path | None = None,
     checkpoint_path: str | Path | None = None,
@@ -210,7 +210,6 @@ def run_inference(
         FileNotFoundError: If required files don't exist
     """
     resolved_case_config_path = Path(case_config_path) if case_config_path else None
-    settings = require_settings(settings, case_config_path=resolved_case_config_path)
     # Build config object to replace 11 parameters
     config = InferenceConfig(
         config_path=Path(config_path),

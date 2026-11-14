@@ -36,6 +36,7 @@ from neuralls.domain.presentation.run_names import (
     training_dataset,
 )
 from neuralls.domain.presentation.titles import ComparisonScopePresentation
+from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.constants import (
     TRAINING_CHILD_DURATION_METRIC_KEY,
     TRAINING_CHILD_PEAK_MEMORY_METRIC_KEY,
@@ -56,12 +57,6 @@ def _patch_sweep_collaborators(
     prepared.presentation = presentation
     child_outcome.child_id = "assignment-1"
 
-    stack.enter_context(
-        patch(
-            "neuralls.composition.assignments.training_batch.require_settings",
-            side_effect=lambda settings, **_: settings,
-        )
-    )
     stack.enter_context(
         patch(
             "neuralls.composition.assignments.training_batch.load_assignment_batch",
@@ -136,6 +131,7 @@ def _patch_sweep_collaborators(
 
 def test_sweep_registers_child_timing_tracker_as_lifecycle_hooks(
     training_presentation: TrainingPresentation,
+    neuralls_settings: NeurallsSettings,
 ) -> None:
     """`run_multirun_spec` must receive planned/completed/failed hooks bound to
     one `_ChildTimingTracker` instance — otherwise device memory is never
@@ -147,7 +143,7 @@ def test_sweep_registers_child_timing_tracker_as_lifecycle_hooks(
         run_multirun_spec = _patch_sweep_collaborators(
             stack, child_outcome=child_failure, presentation=training_presentation
         )
-        run_assignment_sweep(Path("workspace/case.toml"))
+        run_assignment_sweep(Path("workspace/case.toml"), neuralls_settings)
 
     hooks = run_multirun_spec.call_args.kwargs["hooks"]
     assert isinstance(hooks, LifecycleHooks)
