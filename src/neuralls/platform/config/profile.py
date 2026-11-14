@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tomllib
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -119,27 +120,34 @@ def load_profile(
     return _absolute_profile(ProfileConfig.model_validate(section), name=name)
 
 
+def map_roots[M: BaseModel](
+    model: M, fields: Iterable[str], to_root: Callable[[str, Path], Path]
+) -> M:
+    """Return *model* with every set root field replaced by ``to_root(field, value)``."""
+    return model.model_copy(
+        update={
+            field: to_root(field, value)
+            for field in fields
+            if (value := getattr(model, field)) is not None
+        }
+    )
+
+
 def resolve_typed_profile(profile: ProfileConfig) -> ProfileConfig:
     """Anchor roots typed on the command line at the working directory, like any CLI path.
 
     Saved profiles therefore always hold absolute roots, which `load_profile` requires.
     """
-    roots = {
-        field: resolve_user_path(value)
-        for field in _PROFILE_FIELDS
-        if (value := getattr(profile, field)) is not None
-    }
-    return profile.model_copy(update=roots)
+    return map_roots(profile, _PROFILE_FIELDS, lambda _field, value: resolve_user_path(value))
 
 
 def _absolute_profile(profile: ProfileConfig, *, name: str) -> ProfileConfig:
     """Expand ``~`` in every stored root and reject a relative one."""
-    roots = {
-        field: require_absolute_user_path(value, name=f"profile '{name}' {field}")
-        for field in _PROFILE_FIELDS
-        if (value := getattr(profile, field)) is not None
-    }
-    return profile.model_copy(update=roots)
+    return map_roots(
+        profile,
+        _PROFILE_FIELDS,
+        lambda field, value: require_absolute_user_path(value, name=f"profile '{name}' {field}"),
+    )
 
 
 def save_profile(

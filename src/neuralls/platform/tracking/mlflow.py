@@ -126,39 +126,8 @@ def build_runtime_environment(
         env = {"MLFLOW_TRACKING_URI": existing_uri}
         if existing_artifact_uri:
             env["MLFLOW_ARTIFACT_URI"] = existing_artifact_uri
-        return MlflowRuntimeEnvironment(
-            env=env,
-            tracking_uri=existing_uri,
-            artifact_uri=existing_artifact_uri,
-            is_explicit=True,
-        )
-
-    shared = load_tracking_config()
-    if shared is not None and shared.uri is not None:
-        env = build_mlflow_environment(
-            tracking_uri=shared.uri,
-            artifacts_destination=shared.artifacts_destination,
-            base_dir=DEFAULT_TRACKING_TOML.parent,
-        )
-        return MlflowRuntimeEnvironment(
-            env=env,
-            tracking_uri=env["MLFLOW_TRACKING_URI"],
-            artifact_uri=env.get("MLFLOW_ARTIFACT_URI"),
-            is_explicit=True,
-        )
-
-    permanent_root = Path(output_root).resolve() if output_root else default_output_root
-    env = build_mlflow_environment(
-        tracking_uri=build_sqlite_tracking_uri(permanent_root / "mlruns" / "mlflow.db"),
-        artifacts_destination=str((permanent_root / "mlartifacts").resolve()),
-        base_dir=permanent_root,
-    )
-    return MlflowRuntimeEnvironment(
-        env=env,
-        tracking_uri=env["MLFLOW_TRACKING_URI"],
-        artifact_uri=env.get("MLFLOW_ARTIFACT_URI"),
-        is_explicit=False,
-    )
+        return _workflow_environment(env, is_explicit=True)
+    return shared_or_default_environment(Path(output_root) if output_root else default_output_root)
 
 
 def build_workflow_environment(
@@ -183,13 +152,24 @@ def build_workflow_environment(
         if artifact_location is not None
         else None
     )
-    if tracking_uri is not None:
-        env = build_mlflow_environment(
-            tracking_uri=tracking_uri,
-            artifacts_destination=case_artifacts,
-            base_dir=config_dir,
-        )
-        return _workflow_environment(env, is_explicit=True)
+    if tracking_uri is None:
+        return shared_or_default_environment(default_output_root, case_artifacts=case_artifacts)
+    env = build_mlflow_environment(
+        tracking_uri=tracking_uri,
+        artifacts_destination=case_artifacts,
+        base_dir=config_dir,
+    )
+    return _workflow_environment(env, is_explicit=True)
+
+
+def shared_or_default_environment(
+    default_output_root: Path, *, case_artifacts: str | None = None
+) -> MlflowRuntimeEnvironment:
+    """The environment when no case sets a tracking URI: the shared file's, else local sqlite.
+
+    ``configs/tracking.toml`` values anchor at that file's directory; *case_artifacts* is
+    already absolute.
+    """
     shared = load_tracking_config()
     if shared is not None and shared.uri is not None:
         env = build_mlflow_environment(

@@ -9,7 +9,7 @@ from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from neuralls.platform.config import resolution
-from neuralls.platform.config.profile import load_profile
+from neuralls.platform.config.profile import load_profile, map_roots
 from neuralls.platform.config.resolution import (
     require_absolute_user_path,
     resolve_case_config_path,
@@ -29,7 +29,10 @@ class NeurallsSettings(BaseSettings):
     """Runtime roots for processed and output filesystem state.
 
     Construction is pure: the loaders (`get_settings`, `load_case_settings`) expand ``~``
-    and require absolute roots; a model built in memory keeps its paths as given.
+    and require absolute roots; a model built in memory keeps its paths as given. Code
+    that writes under these roots (`resolve_path_context`, `WorkspaceFactory`) trusts them
+    to be absolute, so production settings come from a loader; in-memory relative roots
+    are for tests that write nothing.
     """
 
     model_config = SettingsConfigDict(
@@ -127,12 +130,12 @@ def _build_case_root_mapping(
 
 def _absolute_roots(settings: NeurallsSettings) -> NeurallsSettings:
     """Expand ``~`` in every root and reject a relative one, naming its variable."""
-    roots = {
-        field_name: require_absolute_user_path(value, name=env_name)
-        for env_name, field_name in _ENV_TO_FIELD.items()
-        if (value := getattr(settings, field_name)) is not None
-    }
-    return settings.model_copy(update=roots)
+    env_of = {field: env for env, field in _ENV_TO_FIELD.items()}
+    return map_roots(
+        settings,
+        env_of,
+        lambda field, value: require_absolute_user_path(value, name=env_of[field]),
+    )
 
 
 def get_settings(env_file: Path | None = None) -> NeurallsSettings:

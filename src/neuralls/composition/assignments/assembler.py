@@ -35,7 +35,10 @@ from neuralls.platform.config.resolution import (
 from neuralls.platform.config.settings import NeurallsSettings, require_settings
 from neuralls.platform.storage.workspaces import WorkspaceFactory
 from neuralls.platform.tracking.environment import scoped_mlflow_environment
-from neuralls.platform.tracking.mlflow import build_workflow_environment
+from neuralls.platform.tracking.mlflow import (
+    build_workflow_environment,
+    shared_or_default_environment,
+)
 
 
 def _base_name_from_settings(settings: AnyJobConfig, job_config_path: Path) -> str:
@@ -155,13 +158,7 @@ def _resolve_output_override(
 
 def _build_default_mlflow_topology(path_ctx_output_root: Path) -> MlflowTopology:
     """Build default MLflow env rooted under the output directory."""
-    runtime = build_workflow_environment(
-        tracking_uri=None,
-        artifact_location=None,
-        default_output_root=path_ctx_output_root,
-        # No case config: no case-written value exists to anchor.
-        config_dir=path_ctx_output_root,
-    )
+    runtime = shared_or_default_environment(path_ctx_output_root)
     return MlflowTopology(env=runtime.env)
 
 
