@@ -54,7 +54,7 @@ def test_resolve_path_context_honours_output_override(
         data_dir_override=data_cfg.output.data_dir,
         output_override=custom_output,
     )
-    assert ctx.output_root == custom_output.resolve()
+    assert ctx.output_root == custom_output
 
 
 def test_resolve_path_context_honours_data_dir_override(
@@ -68,4 +68,4 @@ def test_resolve_path_context_honours_data_dir_override(
         output_root=neuralls_settings.output_dir,
         data_dir_override=data_cfg.output.data_dir,
     )
-    assert ctx.processed_root == processed_dir.resolve()
+    assert ctx.processed_root == processed_dir

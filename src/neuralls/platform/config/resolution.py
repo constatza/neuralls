@@ -138,13 +138,15 @@ def resolve_path_context(
     data_dir_override: Path | str | None = None,
     output_override: Path | str | None = None,
 ) -> PathContext:
-    """Resolve experiment roots into a ``PathContext`` value object."""
-    resolved_output_root = resolve_user_path(output_override or output_root)
-    resolved_processed_root = resolve_user_path(data_dir_override or processed_root)
+    """Pick experiment roots into a ``PathContext``: overrides win, paths kept as given.
+
+    Every input is already absolute where it comes from disk: settings roots by their
+    loaders, ``data_dir`` by the config validators, the output override by its caller.
+    """
     return PathContext(
-        project_root=resolve_user_path(project_root),
-        output_root=resolved_output_root,
-        processed_root=resolved_processed_root,
+        project_root=Path(project_root),
+        output_root=Path(output_override or output_root),
+        processed_root=Path(data_dir_override or processed_root),
     )
 
 

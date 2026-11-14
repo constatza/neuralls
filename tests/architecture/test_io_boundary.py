@@ -184,3 +184,40 @@ def test_pure_layers_take_no_ambient_actions() -> None:
         for finding in _ambient_actions(path)
     ]
     assert offenders == []
+
+
+_PATH_READS = frozenset({"resolve", "absolute", "cwd", "home", "expanduser"})
+_PATH_RESOLVERS = frozenset(
+    {"url_resolver", "resolve_local_path", "resolve_user_path", "expand_user_path"}
+)
+_PATH_PURE_SCOPES = (*_PURE_LAYERS, "platform/config/models")
+
+
+def _ambient_path_reads(path: Path) -> list[str]:
+    """Making a path absolute reads the working directory, ``$HOME`` or symlinks.
+
+    Any ``.resolve()``-style method call counts, whatever its receiver: the scopes
+    have no other method of those names, and a new one is better renamed than allowed.
+    """
+    found = []
+    for node in ast.walk(parsed(path)):
+        match node:
+            case ast.Call(func=ast.Attribute(attr=attr)) if attr in _PATH_READS:
+                found.append(f"{node.lineno} {attr}")
+            case ast.ImportFrom(module=module, names=names) if (module or "").endswith(
+                "url_resolver"
+            ) or any(alias.name in _PATH_RESOLVERS for alias in names):
+                found.append(f"{node.lineno} resolver")
+            case ast.Attribute(attr=attr) if attr in _PATH_RESOLVERS:
+                found.append(f"{node.lineno} resolver")
+    return found
+
+
+def test_pure_layers_and_config_models_read_no_ambient_paths() -> None:
+    offenders = [
+        f"{path.relative_to(_SRC).as_posix()}:{finding}"
+        for scope in _PATH_PURE_SCOPES
+        for path in sorted((_SRC / scope).rglob("*.py"))
+        for finding in _ambient_path_reads(path)
+    ]
+    assert offenders == []
