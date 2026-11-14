@@ -128,9 +128,10 @@ def _execute_inference_pipeline(
 
     # Run prediction (transforms applied automatically from checkpoint)
     logger.info(f"Running inference on {data.source} data...")
-    with create_inference_predictor(checkpoint_path) as predictor:
+    device = resolve_device()
+    with create_inference_predictor(checkpoint_path, device) as predictor:
         predictions = run_prediction(
-            predictor, data, batch_size=resolve_batch_size(settings), device=resolve_device()
+            predictor, data, batch_size=resolve_batch_size(settings), device=device
         )
 
     # Save synthetic results separately (if applicable)

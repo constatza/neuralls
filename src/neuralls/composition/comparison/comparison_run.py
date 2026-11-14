@@ -10,7 +10,6 @@ import torch
 from loguru import logger
 from mlflow.tracking import MlflowClient
 from torchalg.preconditioners.base import Preconditioner
-from torchalg.utils.device import resolve_device
 
 from neuralls.composition.comparison._offline_cost import resolve_offline_cost
 from neuralls.composition.comparison._preconditioner_setup import (
@@ -27,7 +26,7 @@ from neuralls.composition.comparison.models import (
     ResolvedMethod,
     canonical_method_config,
 )
-from neuralls.composition.preconditioners.checkpoint_store import CheckpointStore
+from neuralls.composition.preconditioners.checkpoint_store import CheckpointLoaders, CheckpointStore
 from neuralls.composition.preconditioners.default_services import FS_FIT_DATA
 from neuralls.domain.presentation.methods import (
     ExecutedMethod,
@@ -426,8 +425,9 @@ def execute_method_workload(
     params: SolverParams,
     settings: NeurallsSettings,
     training_runs: MlflowClient,
+    device: torch.device,
 ) -> CompletedMethodWorkload:
-    """Execute one method over matrix bundles, keeping matrix state RHS-local.
+    """Execute one method over matrix bundles on ``device``, keeping matrix state RHS-local.
 
     Dataset/checkpoint reads, reference solves, and reporting are outside the
     setup/solve timers.  Each matrix receives one fresh prepared method object;
@@ -442,7 +442,6 @@ def execute_method_workload(
         raise ValueError(
             f"prepared presentation belongs to method {prepared.method_id!r}, not {method.name!r}"
         )
-    device = resolve_device()
     observer = WorkloadMemoryObserver.start(device)
     planned_list: list[SystemTag] = []
     setup_events: list[MatrixSetupEvent] = []
@@ -465,7 +464,9 @@ def execute_method_workload(
     with CheckpointStore() as checkpoints:
         run = _MethodRun(
             method=method,
-            service=PreconditionerService(FS_FIT_DATA, checkpoints=checkpoints),
+            service=PreconditionerService(
+                FS_FIT_DATA, CheckpointLoaders.dlkit(device), checkpoints=checkpoints
+            ),
             params=params,
             device=device,
             offline_cost=offline_cost,

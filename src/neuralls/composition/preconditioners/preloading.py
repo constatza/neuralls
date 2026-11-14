@@ -10,17 +10,15 @@ to the runner.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 
 import torch
-from torchalg.preconditioners.ports import PredictorAdapter
 
 from neuralls.composition.preconditioners.checkpoint_store import (
+    CheckpointLoaders,
     CheckpointStore,
     PodBasisKey,
-    PredictorFactory,
     PredictorKey,
 )
 from neuralls.composition.preconditioners.coarsening import load_fitted_pod_model
@@ -37,22 +35,6 @@ from neuralls.platform.config.models.preconditioner import (
     NeuralTransferConfig,
     PreconditionerConfig,
 )
-from neuralls.platform.dlkit.inference_adapter import create_inference_predictor
-from neuralls.platform.dlkit.predictor_adapter import DLKitAdapter
-
-
-@dataclass(frozen=True, slots=True)
-class CheckpointLoaders:
-    """The injected collaborators that turn a checkpoint path into a loaded object."""
-
-    adapter: PredictorAdapter
-    inference_predictor_factory: PredictorFactory
-
-    @classmethod
-    def default(cls, adapter: PredictorAdapter | None = None) -> CheckpointLoaders:
-        """DLKit-backed loaders, with ``adapter`` replacing the DLKit adapter when given."""
-        return cls(adapter or DLKitAdapter(), create_inference_predictor)
-
 
 type RefPreloader = Callable[
     [NeuralCheckpointRef, Path, torch.Tensor, CheckpointStore, CheckpointLoaders], None

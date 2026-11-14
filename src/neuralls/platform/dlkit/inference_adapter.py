@@ -102,8 +102,14 @@ class NonOwningInferencePredictor(InferencePredictorPort):
         """Do nothing: the owner releases the model."""
 
 
-def create_inference_predictor(checkpoint_path: Path) -> InferencePredictorPort:
-    """Create a DLKit-backed inference predictor with fitted transforms."""
+def create_inference_predictor(
+    checkpoint_path: Path, device: torch.device
+) -> InferencePredictorPort:
+    """Create a DLKit-backed inference predictor with fitted transforms, on ``device``.
+
+    The caller decides ``device``; DLKit is never left to choose one, so the device a run records
+    is the device its model ran on.
+    """
     if not checkpoint_path.exists():
         raise FileNotFoundError(
             f"Checkpoint not found: {checkpoint_path}. "
@@ -114,7 +120,7 @@ def create_inference_predictor(checkpoint_path: Path) -> InferencePredictorPort:
         logger.debug(f"Loading inference checkpoint from: {checkpoint_path}")
         predictor = load_model(
             checkpoint_path,
-            device="auto",
+            device=str(device),
             apply_transforms=True,
             # TODO: float32 unsupported: FULL_64 is hardcoded here and in
             # `_prediction_outputs` (float64 feature and prediction conversion).
@@ -130,13 +136,8 @@ def create_inference_predictor(checkpoint_path: Path) -> InferencePredictorPort:
                 "Checkpoint may be corrupted or incompatible."
             )
 
-        device_param = next(model.parameters(), None)
-        device = str(device_param.device) if device_param is not None else "cpu"
-        if device_param is None:
-            logger.warning("Model has no parameters, defaulting to CPU")
-
         logger.info(f"Loaded inference model from {checkpoint_path} on device {device}")
-        return DLKitInferencePredictor(predictor, device)
+        return DLKitInferencePredictor(predictor, str(device))
 
     except (FileNotFoundError, OSError, ValueError, RuntimeError) as e:
         raise RuntimeError(

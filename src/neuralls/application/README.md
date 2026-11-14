@@ -25,6 +25,6 @@ runs, or touch filesystem layout concerns directly. Cross-layer DTOs that are
 shared across multiple layers live in `domain/` or `shared/`, not here.
 The same no-ambient-action rule as `domain/` applies (no logging, clock reads, process-wide
 caches, CUDA calls or device choice), checked by `tests/architecture/test_io_boundary.py`. The
-caller passes the device whose memory is measured; composition passes `resolve_device()`. The
-DLKit predictor picks its own device (`device="auto"`), so the two are expected to agree but
-nothing checks it.
+caller passes the device whose memory is measured. Composition decides that device once at its
+edge (`resolve_device()` in the comparison session and the eval command) and builds the DLKit
+predictor on the same device, so the device measured is the device the model runs on.

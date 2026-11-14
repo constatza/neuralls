@@ -38,6 +38,7 @@ from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import CostProvenance, DatasetId, MatrixId
 from tests.composition.workload_support import matrix_bundle
 from tests.fakes.fit_data import FakeFitData
+from tests.loaders_support import CPU
 from tests.presentation_support import PreparedMethodFactory
 
 _SOLVER_PARAMS = SolverParams(
@@ -110,6 +111,7 @@ def test_a_method_is_built_once_per_matrix_whatever_its_setup_role(
         params=_SOLVER_PARAMS,
         settings=neuralls_settings,
         training_runs=training_runs,
+        device=CPU,
     )
 
     assert len(build_count) == len(workload.setup_events) == 2
@@ -152,6 +154,7 @@ def test_the_offline_cost_is_resolved_once_per_method_and_shared_by_every_matrix
         params=_SOLVER_PARAMS,
         settings=neuralls_settings,
         training_runs=training_runs,
+        device=CPU,
     )
 
     assert resolved == [training_runs]

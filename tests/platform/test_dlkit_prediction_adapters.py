@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,8 @@ from neuralls.platform.dlkit.predictor_adapter import (
     DLKitNeuralPreconditioner,
     DLKitPredictor,
 )
+
+CPU = torch.device("cpu")
 
 
 @dataclass(frozen=True)
@@ -240,7 +243,7 @@ def test_solver_factory_uses_dlkit_structural_prediction_contract(
         fake_load_model,
     )
 
-    predictor = DLKitAdapter().create_predictor(checkpoint_path)
+    predictor = DLKitAdapter(CPU).create_predictor(checkpoint_path)
 
     result = predictor.apply(residual_vector)
 
@@ -262,7 +265,7 @@ def test_inference_factory_uses_dlkit_structural_prediction_contract(
         lambda *args, **kwargs: loaded_predictor,
     )
 
-    predictor = create_inference_predictor(checkpoint_path)
+    predictor = create_inference_predictor(checkpoint_path, CPU)
     result = predictor.predict_batch(feature_batch)
 
     assert_array_equal(result, np.array([[7.0], [8.0]], dtype=np.float64))
@@ -414,7 +417,7 @@ def test_solver_factory_fails_when_loaded_predictor_has_no_model(
     )
 
     with pytest.raises(RuntimeError):
-        DLKitAdapter().create_predictor(checkpoint_path)
+        DLKitAdapter(CPU).create_predictor(checkpoint_path)
 
 
 def test_inference_factory_fails_when_predictions_field_is_not_tensor(
@@ -433,7 +436,7 @@ def test_inference_factory_fails_when_predictions_field_is_not_tensor(
         lambda *args, **kwargs: loaded_predictor,
     )
 
-    predictor = create_inference_predictor(checkpoint_path)
+    predictor = create_inference_predictor(checkpoint_path, CPU)
     with pytest.raises(RuntimeError):
         predictor.predict_batch(feature_batch)
 
@@ -466,3 +469,43 @@ def test_mismatched_extra_inputs_fail_when_the_preconditioner_is_built(
 ) -> None:
     with pytest.raises(ValueError):
         _neural(feature_names, extra_input_names)
+
+
+_INJECTED = torch.device("meta")
+"""A device no default would pick, so a loader can only pass it on by being given it."""
+
+
+@pytest.mark.parametrize(
+    ("module", "load"),
+    [
+        pytest.param(
+            "predictor_adapter",
+            lambda path: DLKitAdapter(_INJECTED).create_predictor(path),
+            id="solver adapter",
+        ),
+        pytest.param(
+            "inference_adapter",
+            lambda path: create_inference_predictor(path, _INJECTED),
+            id="inference factory",
+        ),
+    ],
+)
+def test_dlkit_loads_on_the_device_its_caller_decided(
+    monkeypatch: pytest.MonkeyPatch,
+    checkpoint_path: Path,
+    prediction_tensor: torch.Tensor,
+    module: str,
+    load: Callable[[Path], object],
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_load_model(*args: Any, **kwargs: Any) -> FakeLoadedPredictor:
+        del args
+        captured.update(kwargs)
+        return FakeLoadedPredictor(FakePredictionOutput(predictions=prediction_tensor))
+
+    monkeypatch.setattr(f"neuralls.platform.dlkit.{module}.load_model", fake_load_model)
+
+    load(checkpoint_path)
+
+    assert captured["device"] == "meta"

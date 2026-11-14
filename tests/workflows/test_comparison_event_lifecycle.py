@@ -55,6 +55,7 @@ from neuralls.platform.config.models.preconditioner import (
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import DatasetId, MatrixId, NoFitDataEvidence, SystemId
+from tests.loaders_support import CPU
 from tests.measurement_support import NO_REFERENCE
 from tests.presentation_support import PreparedMethodFactory
 from tests.recipe_support import GAUSSIAN
@@ -192,6 +193,7 @@ def test_setup_failure_is_an_incomplete_zero_attempt_workload(
         prepared=prepared_method(str(method.name)),
         origin=NoFitData(),
         training_runs=training_runs,
+        device=CPU,
     )
 
     assert len(workload.setup_events) == 1
@@ -269,6 +271,7 @@ def test_one_setup_per_matrix_reuses_exact_state_only_for_sibling_rhs(
         prepared=prepared_method(str(method.name)),
         origin=NoFitData(),
         training_runs=training_runs,
+        device=CPU,
     )
 
     assert len(workload.setup_events) == 2
@@ -316,6 +319,7 @@ def test_reference_is_factored_once_per_matrix_from_the_stored_matrix(
         prepared=prepared_method(str(method.name)),
         origin=NoFitData(),
         training_runs=training_runs,
+        device=CPU,
     )
 
     assert len(factored) == len(two_matrix_bundles)
@@ -352,6 +356,7 @@ def test_repeat_samples_are_retained_but_totals_use_one_representative(
         prepared=prepared_method(str(method.name)),
         origin=NoFitData(),
         training_runs=training_runs,
+        device=CPU,
     )
 
     assert all(attempt.samples_s == (1.0, 2.0, 3.0) for attempt in workload.solve_attempts)
@@ -450,6 +455,7 @@ def test_io_reference_and_reporting_stay_outside_online_timers(
         prepared=prepared_method(str(method.name)),
         origin=NoFitData(),
         training_runs=training_runs,
+        device=CPU,
     )
 
     assert trace == [
@@ -497,6 +503,7 @@ def test_solver_failure_retains_measured_attempt(
         prepared=prepared_method(str(method.name)),
         origin=NoFitData(),
         training_runs=training_runs,
+        device=CPU,
     )
 
     assert len(workload.solve_attempts) == 1
@@ -536,6 +543,7 @@ def test_a_failed_factorization_is_reported_once_per_matrix(
         prepared=prepared_method(str(method.name)),
         origin=NoFitData(),
         training_runs=training_runs,
+        device=CPU,
     )
 
     assert len(workload.solve_attempts) == 4
@@ -563,6 +571,7 @@ def _run_identity_workload(
         prepared=prepared_method(str(method.name)),
         origin=NoFitData(),
         training_runs=training_runs,
+        device=CPU,
     )
 
 
@@ -698,6 +707,7 @@ def test_a_non_finite_iterate_is_stored_as_a_solver_error_beside_a_good_solve(
         prepared=prepared_method(str(method.name)),
         origin=NoFitData(),
         training_runs=training_runs,
+        device=CPU,
     )
 
     good, poisoned = workload.solve_attempts

@@ -614,7 +614,14 @@ config depends on into the method's `CheckpointStore`
 loaded object. Which checkpoints a config needs comes from the
 `CheckpointRefBearing` protocol, and how each kind loads is the mapping in
 `preconditioners/preloading.py` (fitted POD-2G basis, neural and neural-AMG
-predictors, neural POD-2G's inference predictor). A fitted POD-2G basis does not
+predictors, neural POD-2G's inference predictor) through the method's
+`CheckpointLoaders` (`checkpoint_store.py`: the predictor adapter, the batch-inference factory
+and the device both load on). `CheckpointLoaders.dlkit(device)` is the only place composition
+builds DLKit loaders; the comparison session resolves the device once (`comparison_batch.py`),
+passes it through `execute_all` to `execute_method_workload`, and every method's loaders, memory
+observer and neural POD-2G prediction use it. A builder never builds a default loader: a
+checkpoint-backed preconditioner built without loaders raises `MissingCheckpointLoadersError`,
+and a build that loads no checkpoint needs none. A fitted POD-2G basis does not
 depend on the matrix (only the coarse operator `Phi^T A Phi` does), so it is read
 once and shared by every matrix of the dataset. A checkpoint-backed basis is therefore
 loaded outside the measured setup, whereas an inline POD fit (no checkpoint identity on

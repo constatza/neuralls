@@ -73,6 +73,7 @@ from neuralls.shared.workflow_failures import (
     ComparisonMatrixPhase,
     ComparisonMethodFailureContext,
 )
+from tests.loaders_support import CPU
 from tests.presentation_support import NO_DATASET_READS, PreparedMethodFactory
 
 
@@ -353,6 +354,7 @@ def test_device_is_warmed_once_and_each_method_releases_before_the_next(
         method_sink=MagicMock(),
         failure_sink=MagicMock(),
         training_runs=training_runs,
+        device=CPU,
     )
 
     assert events == [
@@ -395,6 +397,7 @@ def test_method_child_wraps_execution_and_persistence(
         method_sink=MethodSink(),
         failure_sink=FailureSink(),
         training_runs=training_runs,
+        device=CPU,
     )
 
     assert events.index("child:enter") < events.index("method:identity")
@@ -433,6 +436,7 @@ def test_method_failure_reraises_original_when_failure_sink_also_fails(
             method_sink=MethodSink(),
             failure_sink=FailingFailureSink(),
             training_runs=training_runs,
+            device=CPU,
         )
 
     assert raised.value is original
@@ -483,6 +487,7 @@ def test_matrix_loading_failure_records_exact_matrix_context_once_in_child(
             method_sink=MethodSink(),
             failure_sink=FailureSink(),
             training_runs=training_runs,
+            device=CPU,
         )
 
     assert raised.value is original
@@ -581,6 +586,7 @@ def test_method_run_forwards_the_cohort_presentation_of_its_own_method(
         method_sink=MagicMock(),
         failure_sink=MagicMock(),
         training_runs=training_runs,
+        device=CPU,
     )
 
     assert forwarded == {
@@ -620,6 +626,7 @@ def test_method_child_is_named_by_its_presentation_and_logs_configured_facts_bef
         method_sink=MethodSink(),
         failure_sink=MagicMock(),
         training_runs=training_runs,
+        device=CPU,
     )
 
     (call,) = started

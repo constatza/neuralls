@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
 from torchalg.preconditioners.base import BindableInputs, Preconditioner
 
 from neuralls.composition.comparison.models import MatrixWorkload, PlannedSystem
-from neuralls.composition.preconditioners.checkpoint_store import NO_PRELOADED, CheckpointStore
+from neuralls.composition.preconditioners.checkpoint_store import (
+    NO_PRELOADED,
+    CheckpointLoaders,
+    CheckpointStore,
+    require_loaders,
+)
 from neuralls.composition.preconditioners.descriptions import describe_realized_preconditioner
 from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.composition.preconditioners.ports import FitDataLoader
-from neuralls.composition.preconditioners.preloading import CheckpointLoaders, preload_checkpoints
+from neuralls.composition.preconditioners.preloading import preload_checkpoints
 from neuralls.composition.preconditioners.schedule import (
     PreconditionerScheduleConfig,
     create_scheduled_preconditioner,
@@ -35,9 +39,6 @@ from neuralls.platform.storage.training_artifacts import (
 from neuralls.shared.types import MatrixFormat, MatrixId, PreconditionerName
 from neuralls.shared.workflow_failures import ComparisonMatrixFailureContext, ComparisonMatrixPhase
 
-if TYPE_CHECKING:
-    from torchalg.preconditioners.ports import PredictorAdapter
-
 # Arrays always available from LinearSystem — never need loading from disk.
 _SYSTEM_ARRAYS_ALWAYS_AVAILABLE: frozenset[str] = frozenset({"matrix"})
 
@@ -53,7 +54,7 @@ class PreconditionerService:
     Args:
         fit_data: Where the arrays of an inline POD fit are read from; `preload` reads them
             once per method so the timed build never touches the dataset.
-        adapter: Optional adapter for neural preconditioners (dependency injection for testing).
+        loaders: How checkpoints are loaded and on which device (`CheckpointLoaders.dlkit`).
         checkpoints: Where checkpoints are loaded ahead of a build (see `preload`).
             ``None`` means nothing is preloaded: every checkpoint is then read
             inside the build, and so inside its timed region.
@@ -62,11 +63,11 @@ class PreconditionerService:
     def __init__(
         self,
         fit_data: FitDataLoader,
-        adapter: PredictorAdapter | None = None,
+        loaders: CheckpointLoaders | None = None,
         checkpoints: CheckpointStore | None = None,
     ) -> None:
         self._fit_data = fit_data
-        self._adapter = adapter
+        self._loaders = loaders
         self._checkpoints = checkpoints
         self._staged_fit_data: dict[str, tuple[np.ndarray, ...]] = {}
 
@@ -86,7 +87,10 @@ class PreconditionerService:
         """
         if self._checkpoints is not None:
             preload_checkpoints(
-                config, matrix, self._checkpoints, CheckpointLoaders.default(self._adapter)
+                config,
+                matrix,
+                self._checkpoints,
+                require_loaders(self._loaders, f"preloading {config.name}"),
             )
         if isinstance(config, AMGPreconditionerConfig):
             coarsening = config.coarsening
@@ -124,7 +128,7 @@ class PreconditionerService:
         return create_preconditioner(
             matrix,
             config,
-            adapter=self._adapter,
+            loaders=self._loaders,
             matrix_format=(
                 MatrixFormat.CSR if matrix.layout is torch.sparse_csr else MatrixFormat.DENSE
             ),

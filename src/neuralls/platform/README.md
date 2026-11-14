@@ -495,6 +495,11 @@ The adapter layer also owns compatibility shims for checkpoint inference when
 DLKit metadata serializes constructor hyperparameters under a nested `params`
 object; that flattening stays local to platform code rather than leaking into
 solver or comparison orchestration.
+Both DLKit entry points take the device from their caller: `DLKitAdapter(device)` and
+`create_inference_predictor(checkpoint_path, device)` pass it to `load_model` and record it on
+the predictor. DLKit never chooses a device (no `device="auto"`) and the adapters do not read
+it back from the loaded parameters, so there is one decider, in composition.
+
 The same adapter boundary owns lifecycle translation: solver-facing predictors
 implement torchalg's idempotent `cleanup()` port by delegating to DLKit's
 `CheckpointPredictor.unload()`/context-manager release path exactly once. This

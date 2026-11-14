@@ -318,11 +318,15 @@ class DLKitAdapter(PredictorAdapter):
     Handles model loading, device management, and resource cleanup.
 
     Example:
-        >>> adapter = DLKitAdapter()
+        >>> adapter = DLKitAdapter(torch.device("cpu"))
         >>> with adapter.create_predictor(Path("model.ckpt")) as pred:
         ...     result = pred.apply(residual)
         ...     # Automatic GPU cleanup on exit
     """
+
+    def __init__(self, device: torch.device) -> None:
+        """Load every checkpoint on ``device``, which the caller decides; DLKit never chooses."""
+        self._device = device
 
     def create_predictor(
         self,
@@ -354,7 +358,7 @@ class DLKitAdapter(PredictorAdapter):
             logger.debug(f"Loading checkpoint from: {checkpoint_path}")
             dlkit_predictor = load_model(
                 checkpoint_path,
-                device="auto",
+                device=str(self._device),
                 # Neural preconditioners must honor fitted checkpoint transforms.
                 # PCA-trained models, for example, expect DLKit to project the
                 # raw residual into the learned feature space before forward().
@@ -370,16 +374,11 @@ class DLKitAdapter(PredictorAdapter):
                     "Checkpoint may be corrupted or incompatible."
                 )
 
-            device_param = next(model.parameters(), None)
-            device = str(device_param.device) if device_param is not None else "cpu"
-            if device_param is None:
-                logger.warning("Model has no parameters, defaulting to CPU")
-
-            logger.info(f"Loaded model from {checkpoint_path} on device {device}")
+            logger.info(f"Loaded model from {checkpoint_path} on device {self._device}")
             # ponytail: parse required_inputs from config_path TOML when DLKit config schema known
             return DLKitPredictor(
                 dlkit_predictor,
-                device,
+                str(self._device),
                 required_inputs=(),
                 model_class_name=type(model).__name__,
             )

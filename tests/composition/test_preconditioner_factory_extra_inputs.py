@@ -15,6 +15,7 @@ from torchalg.preconditioners.ports import ExtraInputPredictorPort, PredictorAda
 
 from neuralls.composition.preconditioners.factory import create_preconditioner
 from neuralls.platform.config.models.preconditioner import NeuralPreconditionerConfig
+from tests.loaders_support import cpu_loaders
 
 # ==============================================================================
 # Mock Predictor and Adapter
@@ -89,7 +90,9 @@ def test_factory_passes_single_extra_input_name(
         extra_input_names=("matrix",),
     )
 
-    precond = create_preconditioner(well_conditioned_matrix, config, adapter=mock_adapter)
+    precond = create_preconditioner(
+        well_conditioned_matrix, config, loaders=cpu_loaders(adapter=mock_adapter)
+    )
 
     assert isinstance(precond, NeuralPreconditioner)
     assert precond.extra_input_names == ("matrix",)
@@ -106,7 +109,9 @@ def test_factory_passes_multiple_extra_input_names(
         extra_input_names=("matrix", "coordinates", "bc_mask"),
     )
 
-    precond = create_preconditioner(well_conditioned_matrix, config, adapter=mock_adapter)
+    precond = create_preconditioner(
+        well_conditioned_matrix, config, loaders=cpu_loaders(adapter=mock_adapter)
+    )
 
     assert isinstance(precond, NeuralPreconditioner)
     assert precond.extra_input_names == ("matrix", "coordinates", "bc_mask")
@@ -123,7 +128,9 @@ def test_factory_empty_extra_input_names_by_default(
         # extra_input_names not specified - should default to ()
     )
 
-    precond = create_preconditioner(well_conditioned_matrix, config, adapter=mock_adapter)
+    precond = create_preconditioner(
+        well_conditioned_matrix, config, loaders=cpu_loaders(adapter=mock_adapter)
+    )
 
     assert isinstance(precond, NeuralPreconditioner)
     assert precond.extra_input_names == ()
@@ -141,7 +148,9 @@ def test_factory_preserves_extra_input_names_order(
         extra_input_names=names,
     )
 
-    precond = create_preconditioner(well_conditioned_matrix, config, adapter=mock_adapter)
+    precond = create_preconditioner(
+        well_conditioned_matrix, config, loaders=cpu_loaders(adapter=mock_adapter)
+    )
 
     assert isinstance(precond, NeuralPreconditioner)
     assert precond.extra_input_names == names

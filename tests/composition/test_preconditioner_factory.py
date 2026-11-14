@@ -59,6 +59,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.dlkit.predictor_adapter import OwningDLKitNeuralPreconditioner
 from tests.fakes.fit_data import FakeFitData
+from tests.loaders_support import cpu_loaders
 
 # ==============================================================================
 # Mock Predictor and Adapter for Neural Preconditioner Testing
@@ -283,7 +284,9 @@ def test_factory_creates_neural_preconditioner(
         checkpoint_path=mock_checkpoint,
     )
 
-    precond = create_preconditioner(well_conditioned_matrix, config, adapter=mock_adapter)
+    precond = create_preconditioner(
+        well_conditioned_matrix, config, loaders=cpu_loaders(adapter=mock_adapter)
+    )
 
     assert isinstance(precond, NeuralPreconditioner)
 
@@ -299,7 +302,9 @@ def test_neural_preconditioner_with_custom_adapter(
         checkpoint_path=mock_checkpoint,
     )
 
-    precond = create_preconditioner(well_conditioned_matrix, config, adapter=mock_adapter)
+    precond = create_preconditioner(
+        well_conditioned_matrix, config, loaders=cpu_loaders(adapter=mock_adapter)
+    )
     result = precond.apply(residual_vector)
 
     expected = residual_vector * 0.5
@@ -319,7 +324,9 @@ def test_neural_preconditioner_checkpoint_not_found(
     )
 
     with pytest.raises(FileNotFoundError):
-        create_preconditioner(well_conditioned_matrix, config, adapter=mock_adapter)
+        create_preconditioner(
+            well_conditioned_matrix, config, loaders=cpu_loaders(adapter=mock_adapter)
+        )
 
 
 def test_neural_preconditioner_cleanup_on_delete(
@@ -333,7 +340,9 @@ def test_neural_preconditioner_cleanup_on_delete(
         checkpoint_path=mock_checkpoint,
     )
 
-    precond = create_preconditioner(well_conditioned_matrix, config, adapter=mock_adapter)
+    precond = create_preconditioner(
+        well_conditioned_matrix, config, loaders=cpu_loaders(adapter=mock_adapter)
+    )
 
     assert isinstance(precond, OwningDLKitNeuralPreconditioner)
     predictor = mock_adapter.predictor
@@ -464,7 +473,7 @@ def test_factory_creates_amg_preconditioner_with_neural_pod_coarsening(
     precond = create_preconditioner(
         well_conditioned_matrix,
         config,
-        inference_predictor_factory=factory,
+        loaders=cpu_loaders(factory=factory),
         staged_fit_data=parameter_arrays,
     )
 
@@ -496,7 +505,7 @@ def test_factory_neural_pod_coarsening_requires_params_in_dataset(
         create_preconditioner(
             well_conditioned_matrix,
             config,
-            inference_predictor_factory=factory,
+            loaders=cpu_loaders(factory=factory),
             staged_fit_data=(),
         )
 
@@ -525,7 +534,7 @@ def test_factory_neural_pod_coarsening_rejects_input_names_count_mismatch(
         create_preconditioner(
             well_conditioned_matrix,
             config,
-            inference_predictor_factory=factory,
+            loaders=cpu_loaders(factory=factory),
             staged_fit_data=parameter_arrays,
         )
 

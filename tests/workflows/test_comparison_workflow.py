@@ -1399,6 +1399,7 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
         params: SolverParams,
         settings: NeurallsSettings,
         training_runs: MlflowClient,
+        device: torch.device,
     ) -> CompletedMethodWorkload:
         bundle_sequence = tuple(bundles)
         bundles_seen.extend(bundle_sequence)
@@ -1413,6 +1414,7 @@ def test_comparison_sweep_runs_one_system_per_held_out_matrix_and_rhs_draw(
             params=params,
             settings=settings,
             training_runs=training_runs,
+            device=device,
         )
 
     with (
