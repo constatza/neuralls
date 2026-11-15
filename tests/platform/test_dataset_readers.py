@@ -12,6 +12,7 @@ from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec, SourceSpe
 from neuralls.platform.storage.dataset_readers import (
     load_matrix_dense_sample,
     resolve_canonical_training_triplet,
+    resolve_dataset_artifacts,
 )
 from neuralls.platform.storage.manifest_io import load_dataset_manifest
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
@@ -125,3 +126,15 @@ def test_triplet_loads_the_matrix_bound_to_the_row_when_ids_differ_from_rows(
 
     assert triplet.matrix_index == 9
     assert triplet.matrix[0, 0] == 9.0
+
+
+def test_a_directory_without_a_manifest_asks_for_generation(tmp_path: Path) -> None:
+    """A dataset that was never generated fails with the remedy, not a bare missing file."""
+    missing = tmp_path / "never-generated"
+
+    with pytest.raises(FileNotFoundError) as error:
+        resolve_dataset_artifacts(missing)
+    assert str(error.value) == (
+        f"Dataset manifest not found in '{missing}'. "
+        "Re-run the generation pipeline to produce a valid dataset."
+    )

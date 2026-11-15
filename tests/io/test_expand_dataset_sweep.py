@@ -252,3 +252,21 @@ def test_main_rejects_sweep_file_and_all_together(
     )
     with pytest.raises(SystemExit):
         dataset_sweep_module.main()
+
+
+def test_expand_sweep_writes_the_strategy_comment_above_the_strategy_table(
+    dataset_sweep_module: ModuleType, tmp_path: Path
+) -> None:
+    spec = {
+        "id": "commented",
+        "strategy_comment": ["first line", "second line"],
+        "source": {"problem": "P", "matrix_path": "m.txt"},
+        "generation": {"strategy": [{"name": "gaussian_residuals", "samples": [10]}]},
+        "output": {"data_dir": "out"},
+    }
+
+    [written] = dataset_sweep_module.expand_sweep(spec, output_dir=tmp_path, filename_stem="c")
+
+    lines = written.read_text(encoding="utf-8").splitlines()
+    table = lines.index("[[generation.strategy]]")
+    assert lines[table - 2 : table] == ["# first line", "# second line"]
