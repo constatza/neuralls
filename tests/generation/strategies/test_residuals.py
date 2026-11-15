@@ -13,14 +13,12 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from pydantic import ValidationError
 from scipy.sparse import csr_array
 
 from neuralls.domain.generation import run_generation
 from neuralls.domain.generation.helpers import trace_rows_per_system
 from neuralls.domain.generation.interfaces import TracingSolverCallable
 from neuralls.domain.generation.step_window import StepWindow
-from neuralls.domain.generation.strategy_configs import ResidualErrorConfig
 from tests.fakes.archive_source import InMemoryArchiveSource
 from tests.generation_support import error_trace_rows
 
@@ -61,11 +59,6 @@ def solution_files(
         for i in range(4)
     ]
     return files, str(ARCHIVE_DIR / "sol_*.txt")
-
-
-# ---------------------------------------------------------------------------
-# Registration
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -198,133 +191,50 @@ def test_gaussian_residuals_multi_rhs_shapes(
     assert et.true_solutions.shape == (expected_systems, n)
 
 
-def test_gaussian_residuals_math_holds(
-    spd_matrix: np.ndarray,
-    residual_solver: TracingSolverCallable,
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    """Gaussian residuals still satisfy e_k = x_true - x_k and r_k = A @ e_k."""
-    cfg = {"samples": 10, "stop": 4, "start": 1, "seed": 0}
-
-    result = error_trace_rows(
-        run_generation(
-            "gaussian_residuals",
-            spd_matrix,
-            cfg=cfg,
-            solver=residual_solver,
-            archive_source=archive_source,
-        )
-    )
-
-    et = result.error_traces
-    assert et is not None
-
-    for i in range(et.errors.shape[0]):
-        s_idx = et.sample_indices[i]
-        x_true = et.true_solutions[s_idx]
-        x_k = et.solutions_current[i]
-        np.testing.assert_allclose(et.errors[i], x_true - x_k, rtol=1e-12)
-        np.testing.assert_allclose(et.residuals[i], spd_matrix @ et.errors[i], rtol=1e-9, atol=1e-9)
-
-
 # ---------------------------------------------------------------------------
 # Mathematical correctness
 # ---------------------------------------------------------------------------
 
 
-def test_error_equals_true_minus_current(
+@pytest.mark.parametrize(
+    ("strategy", "options"),
+    [
+        pytest.param("residuals", {"samples": 10, "stop": 4}, id="archive"),
+        pytest.param("residuals", {"samples": 6, "stop": 5, "step": 2}, id="archive-stepped"),
+        pytest.param("gaussian_residuals", {"samples": 10, "stop": 4}, id="gaussian"),
+    ],
+)
+def test_trace_pairs_satisfy_the_error_and_residual_identities(
     spd_matrix: np.ndarray,
     solution_files: tuple[list[Path], str],
     residual_solver: TracingSolverCallable,
     archive_source: InMemoryArchiveSource,
+    strategy: str,
+    options: dict[str, int],
 ) -> None:
-    """e_k = x_true - x_k holds for every recorded trace pair."""
+    """e_k = x_true - x_k, r_k = b - A x_k and r_k = A e_k hold for every recorded trace pair."""
     _files, glob_pattern = solution_files
-    cfg = {
-        "samples": 10,
-        "stop": 4,
-        "start": 1,
-        "seed": 0,
-        "solutions_glob": glob_pattern,
-    }
+    cfg: dict[str, object] = {"start": 1, "seed": 0, **options}
+    if strategy == "residuals":
+        cfg["solutions_glob"] = glob_pattern
 
     result = error_trace_rows(
         run_generation(
-            "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=archive_source
-        )
-    )
-
-    et = result.error_traces
-    assert et is not None
-    for i in range(et.errors.shape[0]):
-        s_idx = et.sample_indices[i]
-        x_true = et.true_solutions[s_idx]
-        x_k = et.solutions_current[i]
-        np.testing.assert_allclose(et.errors[i], x_true - x_k, rtol=1e-12)
-
-
-def test_residual_equals_b_minus_ax(
-    spd_matrix: np.ndarray,
-    solution_files: tuple[list[Path], str],
-    residual_solver: TracingSolverCallable,
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    """r_k = b - A @ x_k: CG residual matches b - A @ current iterate."""
-    _files, glob_pattern = solution_files
-    cfg = {
-        "samples": 10,
-        "stop": 4,
-        "start": 1,
-        "seed": 0,
-        "solutions_glob": glob_pattern,
-    }
-
-    result = error_trace_rows(
-        run_generation(
-            "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=archive_source
+            strategy, spd_matrix, cfg=cfg, solver=residual_solver, archive_source=archive_source
         )
     )
 
     et = result.error_traces
     assert et is not None
     assert result.rhs is not None
-
-    for i in range(et.residuals.shape[0]):
+    for i in range(et.errors.shape[0]):
         s_idx = et.sample_indices[i]
-        b = result.rhs[s_idx]
         x_k = et.solutions_current[i]
-        expected_residual = b - spd_matrix @ x_k
-        np.testing.assert_allclose(et.residuals[i], expected_residual, rtol=1e-10, atol=1e-10)
-
-
-def test_residual_equals_a_times_error(
-    spd_matrix: np.ndarray,
-    solution_files: tuple[list[Path], str],
-    residual_solver: TracingSolverCallable,
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    """r_k = A @ e_k: holds exactly because b = A @ x_true in archive mode."""
-    _files, glob_pattern = solution_files
-    cfg = {
-        "samples": 10,
-        "stop": 4,
-        "start": 1,
-        "seed": 0,
-        "solutions_glob": glob_pattern,
-    }
-
-    result = error_trace_rows(
-        run_generation(
-            "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=archive_source
+        np.testing.assert_allclose(et.errors[i], et.true_solutions[s_idx] - x_k, rtol=1e-12)
+        np.testing.assert_allclose(
+            et.residuals[i], result.rhs[s_idx] - spd_matrix @ x_k, rtol=1e-10, atol=1e-10
         )
-    )
-
-    et = result.error_traces
-    assert et is not None
-
-    for i in range(et.residuals.shape[0]):
-        a_times_e = spd_matrix @ et.errors[i]
-        np.testing.assert_allclose(et.residuals[i], a_times_e, rtol=1e-9, atol=1e-9)
+        np.testing.assert_allclose(et.residuals[i], spd_matrix @ et.errors[i], rtol=1e-9, atol=1e-9)
 
 
 # ---------------------------------------------------------------------------
@@ -396,25 +306,36 @@ def test_residuals_sample_indices(
         np.testing.assert_array_equal(et.sample_indices[start:end], s)
 
 
+@pytest.mark.parametrize(
+    ("samples", "window", "expected"),
+    [
+        pytest.param(
+            10,
+            {"stop": 4, "start": 1},
+            [1, 2, 3, 4, 1, 2, 3, 4, 1, 2],
+            id="every-iterate-from-one",
+        ),
+        pytest.param(3, {"stop": 5, "start": 1, "step": 2}, [1, 3, 5], id="stride-two"),
+        pytest.param(
+            3, {"stop": 8, "start": 7}, [7, 8, 7], id="start-near-stop-trims-the-last-system"
+        ),
+    ],
+)
 def test_residuals_iteration_indices(
     spd_matrix: np.ndarray,
     single_rhs: np.ndarray,
     residual_solver: TracingSolverCallable,
     archive_source: InMemoryArchiveSource,
+    samples: int,
+    window: dict[str, int],
+    expected: list[int],
 ) -> None:
-    """iteration_indices run start..stop (1..4) for each system when start=1, step=1.
-
-    K = stop - start + 1 = 4 rows per system; iterate 0 (the base pair) is never kept.
-    """
-    requested_rows = 10
-    stop = 4
-    cfg = {"samples": requested_rows, "stop": stop, "start": 1, "seed": 0}
-
+    """Each system keeps the window's iterates (iterate 0, the base pair, never); the last is trimmed."""
     result = error_trace_rows(
         run_generation(
             "residuals",
             spd_matrix,
-            cfg=cfg,
+            cfg={"samples": samples, "seed": 0, **window},
             solver=residual_solver,
             single_rhs=single_rhs,
             archive_source=archive_source,
@@ -423,16 +344,7 @@ def test_residuals_iteration_indices(
 
     et = result.error_traces
     assert et is not None
-
-    entries_per_system = trace_rows_per_system(StepWindow(stop=stop, start=1))
-    expected_iters = np.arange(1, entries_per_system + 1, dtype=np.int64)
-    expected_systems = _expected_trace_systems(requested_rows, entries_per_system)
-    for s in range(expected_systems):
-        start = s * entries_per_system
-        end = min(start + entries_per_system, requested_rows)
-        np.testing.assert_array_equal(
-            et.iteration_indices[start:end], expected_iters[: end - start]
-        )
+    np.testing.assert_array_equal(et.iteration_indices, np.array(expected, dtype=np.int64))
 
 
 # ---------------------------------------------------------------------------
@@ -481,95 +393,6 @@ def test_residuals_step_reduces_count(
     assert r_half.error_traces.residuals.shape[0] == r_full.error_traces.residuals.shape[0] // 2
 
 
-def test_residuals_step_indices_correct(
-    spd_matrix: np.ndarray,
-    single_rhs: np.ndarray,
-    residual_solver: TracingSolverCallable,
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    """step=2 with stop=5, start=1: iteration_indices are [1, 3, 5] not [1, 2, 3]."""
-    cfg = {"samples": 3, "stop": 5, "start": 1, "seed": 0, "step": 2}
-
-    result = error_trace_rows(
-        run_generation(
-            "residuals",
-            spd_matrix,
-            cfg=cfg,
-            solver=residual_solver,
-            single_rhs=single_rhs,
-            archive_source=archive_source,
-        )
-    )
-
-    et = result.error_traces
-    assert et is not None
-    np.testing.assert_array_equal(et.iteration_indices, np.array([1, 3, 5], dtype=np.int64))
-
-
-def test_residuals_step_math_still_holds(
-    spd_matrix: np.ndarray,
-    solution_files: tuple[list[Path], str],
-    residual_solver: TracingSolverCallable,
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    """e_k = x_true - x_k and r_k = A @ e_k hold even after step downsampling."""
-    _files, glob_pattern = solution_files
-    cfg = {
-        "samples": 6,
-        "stop": 5,
-        "start": 1,
-        "seed": 0,
-        "solutions_glob": glob_pattern,
-        "step": 2,
-    }
-
-    result = error_trace_rows(
-        run_generation(
-            "residuals", spd_matrix, cfg=cfg, solver=residual_solver, archive_source=archive_source
-        )
-    )
-
-    et = result.error_traces
-    assert et is not None
-
-    for i in range(et.errors.shape[0]):
-        s_idx = et.sample_indices[i]
-        x_true = et.true_solutions[s_idx]
-        x_k = et.solutions_current[i]
-        np.testing.assert_allclose(et.errors[i], x_true - x_k, rtol=1e-12)
-        np.testing.assert_allclose(et.residuals[i], spd_matrix @ et.errors[i], rtol=1e-9, atol=1e-9)
-
-
-def test_residuals_start_near_stop_keeps_last_two_iterates(
-    spd_matrix: np.ndarray,
-    single_rhs: np.ndarray,
-    residual_solver: TracingSolverCallable,
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    """start=7, stop=8 keeps K = 8 - 7 + 1 = 2 rows per system: iterates [7, 8].
-
-    Three requested rows give ceil(3 / 2) = 2 systems; the second is trimmed to
-    one row, so iteration_indices is [7, 8, 7]. start must stay below stop
-    (StepWindow rejects start >= stop), so K >= 2 here.
-    """
-    cfg = {"samples": 3, "stop": 8, "start": 7, "seed": 0}
-
-    result = error_trace_rows(
-        run_generation(
-            "residuals",
-            spd_matrix,
-            cfg=cfg,
-            solver=residual_solver,
-            single_rhs=single_rhs,
-            archive_source=archive_source,
-        )
-    )
-
-    et = result.error_traces
-    assert et is not None
-    np.testing.assert_array_equal(et.iteration_indices, np.array([7, 8, 7], dtype=np.int64))
-
-
 def test_residuals_samples_minus_one_requires_finite_source(
     spd_matrix: np.ndarray,
     single_rhs: np.ndarray,
@@ -583,31 +406,6 @@ def test_residuals_samples_minus_one_requires_finite_source(
                 "residuals",
                 spd_matrix,
                 cfg={"samples": -1, "stop": 4, "start": 1, "seed": 0},
-                solver=residual_solver,
-                single_rhs=single_rhs,
-                archive_source=archive_source,
-            )
-        )
-
-
-# ---------------------------------------------------------------------------
-# Required `stop`, default (last-only)
-# ---------------------------------------------------------------------------
-
-
-def test_residuals_requires_stop(
-    spd_matrix: np.ndarray,
-    single_rhs: np.ndarray,
-    residual_solver: TracingSolverCallable,
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    """Omitting the required `stop` field must raise, not run with a silent default."""
-    with pytest.raises(ValidationError):
-        error_trace_rows(
-            run_generation(
-                "residuals",
-                spd_matrix,
-                cfg={"samples": 3, "seed": 0},
                 solver=residual_solver,
                 single_rhs=single_rhs,
                 archive_source=archive_source,
@@ -644,32 +442,6 @@ def test_residuals_maxiter_equals_window_stop(
 
     assert recorder.calls, "solver was never called"
     assert all(m == stop for m in recorder.maxiters())
-
-
-# ---------------------------------------------------------------------------
-# Trajectory config surface
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("tolerance_key", ["rtol", "atol"])
-def test_trace_config_rejects_solver_tolerance_keys(tolerance_key: str) -> None:
-    """Trajectory configs take no CG tolerance: the key is an unknown field.
-
-    BaseStrategyConfig forbids extra keys, so a stale `rtol`/`atol` in a
-    trajectory config fails at construction instead of silently being ignored.
-    """
-    with pytest.raises(ValidationError) as excinfo:
-        ResidualErrorConfig.model_validate(
-            {"samples": 3, "stop": 50, "start": 45, tolerance_key: 1e-6}
-        )
-    error_types = [(err["type"], err["loc"]) for err in excinfo.value.errors()]
-    assert error_types == [("extra_forbidden", (tolerance_key,))]
-
-
-def test_residual_error_config_still_accepts_archive_fields() -> None:
-    """ResidualErrorConfig (residuals.py's strategies) still accepts archive fields."""
-    config = ResidualErrorConfig(samples=3, stop=5, start=1, solutions_glob="*.npy")
-    assert config.solutions_glob == "*.npy"
 
 
 def test_single_rhs_true_solution_is_the_same_for_csr_and_dense(

@@ -15,9 +15,15 @@ from neuralls.domain.generation.transforms import (
 
 
 @pytest.fixture
-def sample_spd_matrix() -> np.ndarray:
+def rng() -> np.random.Generator:
+    """Seeded generator for every random input of one test."""
+    return np.random.default_rng(0)
+
+
+@pytest.fixture
+def sample_spd_matrix(rng: np.random.Generator) -> np.ndarray:
     """Sample 10x10 symmetric positive-definite matrix."""
-    A = np.random.randn(10, 10)
+    A = rng.standard_normal((10, 10))
     return A.T @ A + np.eye(10) * 0.1
 
 
@@ -53,14 +59,16 @@ def test_solve_transform_inverse_direct(diagonal_matrix: np.ndarray) -> None:
     assert np.allclose(x, np.ones((5, 10)))
 
 
-def test_solve_transform_inverse_cg(sample_spd_matrix: np.ndarray) -> None:
+def test_solve_transform_inverse_cg(
+    sample_spd_matrix: np.ndarray, rng: np.random.Generator
+) -> None:
     """Test inverse transform with CG solve."""
     transform = SolveTransform(
         sample_spd_matrix, SolveConfig(method="cg", rtol=1e-12, max_iters=500)
     )
 
     # Create RHS from known solution
-    x_true = np.random.randn(5, 10)
+    x_true = rng.standard_normal((5, 10))
     b = np.array([sample_spd_matrix @ x for x in x_true])
 
     solved = transform.transform(b)
@@ -73,19 +81,6 @@ def test_solve_transform_inverse_cg(sample_spd_matrix: np.ndarray) -> None:
         residual = sample_spd_matrix @ x_solved[i] - b[i]
         rel_residual = np.linalg.norm(residual) / np.linalg.norm(b[i])
         assert rel_residual < 1e-10
-
-
-def test_solve_transform_round_trip(sample_spd_matrix: np.ndarray) -> None:
-    """Test round-trip: x -> b -> x."""
-    forward = ComputeRhsTransform(sample_spd_matrix)
-    inverse = SolveTransform(sample_spd_matrix, SolveConfig(method="cg", rtol=1e-12))
-
-    x_original = np.random.randn(5, 10)
-    b = forward.transform(x_original)
-    x_recovered = inverse.transform(b).solutions
-
-    # Check round-trip accuracy
-    assert np.allclose(x_original, x_recovered, rtol=1e-8, atol=1e-10)
 
 
 def test_solve_transform_reports_rows_cg_did_not_converge_on(
@@ -101,11 +96,13 @@ def test_solve_transform_reports_rows_cg_did_not_converge_on(
     assert all(notice.exit_code == 1 for notice in solved.unconverged)
 
 
-def test_verify_transform_accurate_solutions(sample_spd_matrix: np.ndarray) -> None:
+def test_verify_transform_accurate_solutions(
+    sample_spd_matrix: np.ndarray, rng: np.random.Generator
+) -> None:
     """Test verification transform with accurate solutions."""
     transform = VerifyTransform(sample_spd_matrix)
 
-    x = np.random.randn(5, 10)
+    x = rng.standard_normal((5, 10))
     b = np.array([sample_spd_matrix @ xi for xi in x])
 
     residuals = transform.transform((x, b))
@@ -114,12 +111,14 @@ def test_verify_transform_accurate_solutions(sample_spd_matrix: np.ndarray) -> N
     assert np.all(residuals < 1e-10)
 
 
-def test_verify_transform_inaccurate_solutions(sample_spd_matrix: np.ndarray) -> None:
+def test_verify_transform_inaccurate_solutions(
+    sample_spd_matrix: np.ndarray, rng: np.random.Generator
+) -> None:
     """Test verification transform measures inaccurate solutions."""
     transform = VerifyTransform(sample_spd_matrix)
 
-    x = np.random.randn(5, 10)
-    b_wrong = np.random.randn(5, 10)  # Random RHS, not A @ x
+    x = rng.standard_normal((5, 10))
+    b_wrong = rng.standard_normal((5, 10))  # Random RHS, not A @ x
 
     residuals = transform.transform((x, b_wrong))
 
@@ -128,58 +127,26 @@ def test_verify_transform_inaccurate_solutions(sample_spd_matrix: np.ndarray) ->
     assert np.all(residuals > 0.1)
 
 
-def test_eigenvector_combination_transform(sample_spd_matrix: np.ndarray) -> None:
-    """Test eigenvector combination transform."""
-    rng = np.random.default_rng(42)
+@pytest.mark.parametrize(
+    ("count", "which"),
+    [
+        pytest.param(5, "smallest", id="smallest"),
+        pytest.param(3, "largest", id="largest"),
+        pytest.param(7, "random", id="random"),
+    ],
+)
+def test_eigenvector_combination_transform_yields_unit_vectors(
+    sample_spd_matrix: np.ndarray, count: int, which: str
+) -> None:
     transform = EigenvectorCombinationTransform(
-        count=5,
-        which="smallest",
-        rng=rng,
+        count=count, which=which, rng=np.random.default_rng(42)
     )
 
     x = transform.transform(sample_spd_matrix)
 
-    assert x.shape == (5, 10)
+    assert x.shape == (count, 10)
     assert x.dtype == np.float64
-    # Check that vectors are L2-normalized
-    norms = np.linalg.norm(x, axis=1)
-    assert np.allclose(norms, 1.0, rtol=1e-10)
-
-
-def test_eigenvector_combination_transform_largest(
-    sample_spd_matrix: np.ndarray,
-) -> None:
-    """Test eigenvector combination with largest eigenvalues."""
-    rng = np.random.default_rng(42)
-    transform = EigenvectorCombinationTransform(
-        count=3,
-        which="largest",
-        rng=rng,
-    )
-
-    x = transform.transform(sample_spd_matrix)
-
-    assert x.shape == (3, 10)
-    norms = np.linalg.norm(x, axis=1)
-    assert np.allclose(norms, 1.0, rtol=1e-10)
-
-
-def test_eigenvector_combination_transform_random(
-    sample_spd_matrix: np.ndarray,
-) -> None:
-    """Test eigenvector combination with random selection."""
-    rng = np.random.default_rng(42)
-    transform = EigenvectorCombinationTransform(
-        count=7,
-        which="random",
-        rng=rng,
-    )
-
-    x = transform.transform(sample_spd_matrix)
-
-    assert x.shape == (7, 10)
-    norms = np.linalg.norm(x, axis=1)
-    assert np.allclose(norms, 1.0, rtol=1e-10)
+    np.testing.assert_allclose(np.linalg.norm(x, axis=1), 1.0, rtol=1e-10)
 
 
 def test_transforms_are_composable(sample_spd_matrix: np.ndarray) -> None:

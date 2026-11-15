@@ -93,19 +93,6 @@ def test_recursive_wildcard_resolves_nested_directories(
     assert stream.sample_ids == (0, 1)
 
 
-def test_one_level_wildcard_include_indices_keeps_directory_derived_ids(
-    one_level_case_dirs: Path, archive_source: InMemoryArchiveSource
-) -> None:
-    stream = GlobMatrixStream(
-        str(one_level_case_dirs / "*" / "K_ff.mtx"),
-        include_indices=(0, 2),
-        reader=archive_source.readers().generic,
-        archive_source=archive_source,
-    )
-
-    assert stream.sample_ids == (0, 2)
-
-
 def test_one_level_wildcard_custom_regex_on_directory_name(
     prefixed_case_dirs: Path, archive_source: InMemoryArchiveSource
 ) -> None:

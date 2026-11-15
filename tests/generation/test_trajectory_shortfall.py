@@ -18,10 +18,10 @@ from neuralls.composition.generation.default_services import make_solver
 from neuralls.domain.generation.interfaces import TracingSolverCallable
 from neuralls.domain.generation.runner import run_generation
 from neuralls.domain.generation.trace_utils import TrajectoryShortfallError
-from neuralls.platform.storage.archive_source import FsArchiveSource
+from tests.fakes.archive_source import InMemoryArchiveSource
 from tests.generation_support import error_trace_rows
 
-ARCHIVE_SOURCE = FsArchiveSource()
+ARCHIVE_SOURCE = InMemoryArchiveSource()
 
 WINDOW_START = 1
 WINDOW_STOP = 3
@@ -58,7 +58,6 @@ def test_trajectory_expansion_drops_no_rows_per_base_system(
     )
     assert generated.error_traces is not None
     assert generated.error_traces.residuals is not None
-    assert generated.error_traces is not None
 
     per_system = np.bincount(generated.error_traces.sample_indices)
     np.testing.assert_array_equal(per_system, [K_ROWS, K_ROWS, K_ROWS, 1])

@@ -29,12 +29,7 @@ REPO_ROOT = TESTS_DIR.parent
 BOUNDARY_DIRS = ("io", "integration", "platform", "architecture", "manual")
 """Top-level test directories whose subject is IO; only they may touch files or stores."""
 
-PENDING_FILES = frozenset(
-    {
-        "generation/test_archive_no_repeat.py",
-        "generation/test_zero_row_binding_scale.py",
-    }
-)
+PENDING_FILES: frozenset[str] = frozenset()
 """Test files outside the boundary that still read fixture-written files; the set only shrinks."""
 
 AMBIENT_STORES = ("mlflow.db", "mlruns")

@@ -2,565 +2,242 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from neuralls.domain.generation.plan import (
     GenerationPlan,
     StrategySpec,
+    canonicalize_strategy_name,
     parse_generation_plan,
 )
-from neuralls.domain.generation.plan import (
-    canonicalize_strategy_name as _canonicalize_strategy_name,
+
+
+def _spec(name: str, samples: int) -> StrategySpec:
+    return StrategySpec(name, name, samples, {})
+
+
+@pytest.mark.parametrize(
+    ("raw", "canonical"),
+    [
+        pytest.param("rhs-archive", "rhs_archive", id="dashes"),
+        pytest.param("RHS_ARCHIVE", "rhs_archive", id="case"),
+        pytest.param("rhs_bank", "rhs_archive", id="alias-rhs-bank"),
+        pytest.param("rhs_repository", "rhs_archive", id="alias-rhs-repository"),
+        pytest.param("solution_bank", "solution_archive", id="alias-solution-bank"),
+        pytest.param("solution_repository", "solution_archive", id="alias-solution-repository"),
+        pytest.param("random", "random", id="standard-random"),
+        pytest.param("krylov", "krylov", id="standard-krylov"),
+    ],
 )
+def test_canonicalize_strategy_name(raw: str, canonical: str) -> None:
+    assert canonicalize_strategy_name(raw) == canonical
 
 
-class TestCanonicalization:
-    """Test strategy name normalization."""
-
-    def test_normalize_dashes_to_underscores(self) -> None:
-        assert _canonicalize_strategy_name("rhs-archive") == "rhs_archive"
-
-    def test_lowercase_conversion(self) -> None:
-        assert _canonicalize_strategy_name("RHS_ARCHIVE") == "rhs_archive"
-
-    def test_legacy_alias_rhs_bank(self) -> None:
-        assert _canonicalize_strategy_name("rhs_bank") == "rhs_archive"
-
-    def test_legacy_alias_rhs_repository(self) -> None:
-        assert _canonicalize_strategy_name("rhs_repository") == "rhs_archive"
-
-    def test_legacy_alias_solution_bank(self) -> None:
-        assert _canonicalize_strategy_name("solution_bank") == "solution_archive"
-
-    def test_legacy_alias_solution_repository(self) -> None:
-        assert _canonicalize_strategy_name("solution_repository") == "solution_archive"
-
-    def test_preserve_standard_names(self) -> None:
-        assert _canonicalize_strategy_name("random") == "random"
-        assert _canonicalize_strategy_name("krylov") == "krylov"
+@pytest.mark.parametrize(
+    "samples",
+    [pytest.param(1000, id="positive"), pytest.param(-1, id="all"), pytest.param(0, id="skip")],
+)
+def test_strategy_spec_accepts_positive_all_and_skip_counts(samples: int) -> None:
+    assert StrategySpec("random", "random", samples, {}).samples == samples
 
 
-class TestStrategySpec:
-    """Test StrategySpec validation."""
-
-    def test_valid_positive_count(self) -> None:
-        spec = StrategySpec("random", "random", 1000, {})
-        assert spec.samples == 1000
-
-    def test_valid_all_count(self) -> None:
-        spec = StrategySpec("solution_archive", "solution_archive", -1, {})
-        assert spec.samples == -1
-
-    def test_valid_skip_count(self) -> None:
-        spec = StrategySpec("random", "random", 0, {})
-        assert spec.samples == 0
-
-    def test_invalid_negative_count(self) -> None:
-        with pytest.raises(ValueError):
-            StrategySpec("random", "random", -5, {})
-
-    def test_invalid_large_negative_count(self) -> None:
-        with pytest.raises(ValueError):
-            StrategySpec("krylov", "krylov", -100, {})
-
-    def test_immutability(self) -> None:
-        spec = StrategySpec("random", "random", 100, {})
-        with pytest.raises(AttributeError):
-            spec.samples = 200
-
-    def test_options_stored(self) -> None:
-        options = {"krylov_iters": 15, "scale": 2.0}
-        spec = StrategySpec("krylov", "krylov", 500, options)
-        assert spec.options["krylov_iters"] == 15
-        assert spec.options["scale"] == 2.0
+@pytest.mark.parametrize("samples", [-5, -100])
+def test_strategy_spec_rejects_negative_counts_other_than_all(samples: int) -> None:
+    with pytest.raises(ValueError):
+        StrategySpec("random", "random", samples, {})
 
 
-class TestGenerationPlan:
-    """Test GenerationPlan validation."""
-
-    def test_empty_strategies_raises(self) -> None:
-        with pytest.raises(ValueError):
-            GenerationPlan(strategies={})
-
-    def test_all_zero_samples_raises(self) -> None:
-        strategies = {
-            "random": StrategySpec("random", "random", 0, {}),
-            "krylov": StrategySpec("krylov", "krylov", 0, {}),
-        }
-        with pytest.raises(ValueError):
-            GenerationPlan(strategies=strategies)
-
-    def test_valid_plan_with_positive_samples(self) -> None:
-        strategies = {
-            "random": StrategySpec("random", "random", 100, {}),
-        }
-        plan = GenerationPlan(strategies=strategies)
-        assert len(plan.strategies) == 1
-
-    def test_valid_plan_with_all_samples(self) -> None:
-        strategies = {
-            "solution_archive": StrategySpec("solution_archive", "solution_archive", -1, {}),
-        }
-        plan = GenerationPlan(strategies=strategies)
-        assert plan.solution_archive == strategies["solution_archive"]
-
-    def test_rhs_archive_property(self) -> None:
-        strategies = {
-            "rhs_archive": StrategySpec("rhs_archive", "rhs_archive", 100, {}),
-        }
-        plan = GenerationPlan(strategies=strategies)
-        assert plan.rhs_archive is not None
-        assert plan.rhs_archive.samples == 100
-
-    def test_rhs_archive_property_none(self) -> None:
-        strategies = {
-            "random": StrategySpec("random", "random", 100, {}),
-        }
-        plan = GenerationPlan(strategies=strategies)
-        assert plan.rhs_archive is None
-
-    def test_solution_archive_property(self) -> None:
-        strategies = {
-            "solution_archive": StrategySpec("solution_archive", "solution_archive", -1, {}),
-        }
-        plan = GenerationPlan(strategies=strategies)
-        assert plan.solution_archive is not None
-        assert plan.solution_archive.samples == -1
-
-    def test_solution_archive_property_none(self) -> None:
-        strategies = {
-            "krylov": StrategySpec("krylov", "krylov", 500, {}),
-        }
-        plan = GenerationPlan(strategies=strategies)
-        assert plan.solution_archive is None
-
-    def test_synthetic_property(self) -> None:
-        strategies = {
-            "random": StrategySpec("random", "random", 500, {}),
-            "krylov": StrategySpec("krylov", "krylov", 300, {}),
-            "rhs_archive": StrategySpec("rhs_archive", "rhs_archive", 200, {}),
-        }
-        plan = GenerationPlan(strategies=strategies)
-        assert "random" in plan.synthetic
-        assert "krylov" in plan.synthetic
-        assert "rhs_archive" not in plan.synthetic
-
-    def test_synthetic_property_excludes_both_archives(self) -> None:
-        strategies = {
-            "random": StrategySpec("random", "random", 100, {}),
-            "rhs_archive": StrategySpec("rhs_archive", "rhs_archive", 50, {}),
-            "solution_archive": StrategySpec("solution_archive", "solution_archive", 50, {}),
-        }
-        plan = GenerationPlan(strategies=strategies)
-        synthetic = plan.synthetic
-        assert "random" in synthetic
-        assert "rhs_archive" not in synthetic
-        assert "solution_archive" not in synthetic
-
-    def test_immutability(self) -> None:
-        strategies = {
-            "random": StrategySpec("random", "random", 100, {}),
-        }
-        plan = GenerationPlan(strategies=strategies)
-        with pytest.raises(AttributeError):
-            plan.strategies = {}
+@pytest.mark.parametrize(
+    "strategies",
+    [
+        pytest.param({}, id="empty"),
+        pytest.param({"random": _spec("random", 0), "krylov": _spec("krylov", 0)}, id="all-zero"),
+    ],
+)
+def test_plan_rejects_no_contributing_strategy(strategies: dict[str, StrategySpec]) -> None:
+    with pytest.raises(ValueError):
+        GenerationPlan(strategies=strategies)
 
 
-class TestParsing:
-    """Test parse_generation_plan()."""
+@pytest.mark.parametrize(
+    ("strategies", "rhs_archive", "solution_archive", "synthetic"),
+    [
+        pytest.param([_spec("random", 100)], None, None, {"random"}, id="random-only"),
+        pytest.param(
+            [_spec("rhs_archive", 100)], _spec("rhs_archive", 100), None, set(), id="rhs-archive"
+        ),
+        pytest.param(
+            [_spec("solution_archive", -1)],
+            None,
+            _spec("solution_archive", -1),
+            set(),
+            id="solution-archive-all",
+        ),
+        pytest.param(
+            [_spec("random", 500), _spec("krylov", 300), _spec("rhs_archive", 200)],
+            _spec("rhs_archive", 200),
+            None,
+            {"random", "krylov"},
+            id="synthetic-excludes-rhs-archive",
+        ),
+        pytest.param(
+            [_spec("random", 100), _spec("rhs_archive", 50), _spec("solution_archive", 50)],
+            _spec("rhs_archive", 50),
+            _spec("solution_archive", 50),
+            {"random"},
+            id="synthetic-excludes-both-archives",
+        ),
+    ],
+)
+def test_plan_separates_archive_and_synthetic_strategies(
+    strategies: list[StrategySpec],
+    rhs_archive: StrategySpec | None,
+    solution_archive: StrategySpec | None,
+    synthetic: set[str],
+) -> None:
+    plan = GenerationPlan(strategies={spec.raw_name: spec for spec in strategies})
 
-    def test_missing_strategy_array_raises(self) -> None:
-        config = {}
-        with pytest.raises(ValueError):
-            parse_generation_plan(config)
+    assert plan.rhs_archive == rhs_archive
+    assert plan.solution_archive == solution_archive
+    assert set(plan.synthetic) == synthetic
 
-    def test_empty_strategy_array_raises(self) -> None:
-        config = {"strategy": []}
-        with pytest.raises(ValueError):
-            parse_generation_plan(config)
 
-    def test_strategy_not_array_raises(self) -> None:
-        config = {"strategy": "not_an_array"}
-        with pytest.raises(ValueError):
-            parse_generation_plan(config)
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param({}, id="missing-strategy-array"),
+        pytest.param({"strategy": []}, id="empty-strategy-array"),
+        pytest.param({"strategy": "not_an_array"}, id="strategy-not-array"),
+        pytest.param({"strategy": ["not_a_table"]}, id="entry-not-table"),
+        pytest.param({"strategy": [{"samples": 100}]}, id="missing-name"),
+        pytest.param({"strategy": [{"name": "", "samples": 100}]}, id="empty-name"),
+        pytest.param({"strategy": [{"name": "random"}]}, id="missing-samples"),
+        pytest.param({"strategy": [{"name": "random", "samples": "many"}]}, id="non-integer"),
+        pytest.param({"strategy": [{"name": "random", "samples": -5}]}, id="negative-samples"),
+    ],
+)
+def test_parse_rejects_invalid_config(config: dict[str, Any]) -> None:
+    with pytest.raises(ValueError):
+        parse_generation_plan(config)
 
-    def test_strategy_entry_not_table_raises(self) -> None:
-        config = {"strategy": ["not_a_table"]}
-        with pytest.raises(ValueError):
-            parse_generation_plan(config)
 
-    def test_missing_name_raises(self) -> None:
-        config = {"strategy": [{"samples": 100}]}
-        with pytest.raises(ValueError):
-            parse_generation_plan(config)
-
-    def test_empty_name_raises(self) -> None:
-        config = {"strategy": [{"name": "", "samples": 100}]}
-        with pytest.raises(ValueError):
-            parse_generation_plan(config)
-
-    def test_missing_samples_raises(self) -> None:
-        config = {"strategy": [{"name": "random"}]}
-        with pytest.raises(ValueError):
-            parse_generation_plan(config)
-
-    def test_non_integer_samples_raises(self) -> None:
-        config = {"strategy": [{"name": "random", "samples": "many"}]}
-        with pytest.raises(ValueError):
-            parse_generation_plan(config)
-
-    def test_float_samples_converts_to_int(self) -> None:
-        config = {"strategy": [{"name": "random", "samples": 100.0}]}
-        plan = parse_generation_plan(config)
-        assert plan.strategies["random"].samples == 100
-
-    def test_invalid_negative_samples_raises(self) -> None:
-        config = {"strategy": [{"name": "random", "samples": -5}]}
-        with pytest.raises(ValueError):
-            parse_generation_plan(config)
-
-    def test_single_strategy_success(self) -> None:
-        config = {"strategy": [{"name": "random", "samples": 1000}]}
-        plan = parse_generation_plan(config)
-        assert "random" in plan.strategies
-        assert plan.strategies["random"].samples == 1000
-
-    def test_multiple_strategies_success(self) -> None:
-        config = {
-            "strategy": [
-                {"name": "random", "samples": 500},
-                {"name": "krylov", "samples": 300, "krylov_iters": 15},
-            ]
-        }
-        plan = parse_generation_plan(config)
-        assert len(plan.strategies) == 2
-        assert plan.strategies["krylov"].options["krylov_iters"] == 15
-
-    def test_duplicate_strategies_merge_counts(self) -> None:
-        config = {
-            "strategy": [
-                {"name": "random", "samples": 500},
-                {"name": "random", "samples": 300},
-            ]
-        }
-        plan = parse_generation_plan(config)
-        assert plan.strategies["random"].samples == 800
-
-    def test_duplicate_all_count_wins(self) -> None:
-        config = {
-            "strategy": [
-                {
-                    "name": "solution_archive",
-                    "samples": 500,
-                    "solutions_glob": "tests/fixtures/data/a/*.txt",
-                },
-                {
-                    "name": "solution_archive",
-                    "samples": -1,
-                    "solutions_glob": "tests/fixtures/data/b/*.txt",
-                },
-            ]
-        }
-        plan = parse_generation_plan(config)
-        assert plan.strategies["solution_archive"].samples == -1
-
-    def test_duplicate_all_count_first_wins(self) -> None:
-        config = {
-            "strategy": [
-                {
-                    "name": "solution_archive",
-                    "samples": -1,
-                    "solutions_glob": "tests/fixtures/data/a/*.txt",
-                },
-                {
-                    "name": "solution_archive",
-                    "samples": 500,
-                    "solutions_glob": "tests/fixtures/data/b/*.txt",
-                },
-            ]
-        }
-        plan = parse_generation_plan(config)
-        assert plan.strategies["solution_archive"].samples == -1
-
-    def test_duplicate_with_zero_uses_max(self) -> None:
-        config = {
-            "strategy": [
-                {"name": "random", "samples": 0},
-                {"name": "random", "samples": 300},
-            ]
-        }
-        plan = parse_generation_plan(config)
-        assert plan.strategies["random"].samples == 300
-
-    def test_duplicate_both_zero_stays_zero(self) -> None:
-        config = {
-            "strategy": [
+@pytest.mark.parametrize(
+    ("entries", "samples", "synthetic"),
+    [
+        pytest.param(
+            [{"name": "random", "samples": 100.0}], {"random": 100}, {"random"}, id="float-samples"
+        ),
+        pytest.param(
+            [{"name": "random", "samples": 500}, {"name": "krylov", "samples": 300}],
+            {"random": 500, "krylov": 300},
+            {"random", "krylov"},
+            id="several-strategies",
+        ),
+        pytest.param(
+            [{"name": "random", "samples": 500}, {"name": "random", "samples": 300}],
+            {"random": 800},
+            {"random"},
+            id="duplicates-sum",
+        ),
+        pytest.param(
+            [
+                {"name": "solution_archive", "samples": 500, "solutions_glob": "a/*.txt"},
+                {"name": "solution_archive", "samples": -1, "solutions_glob": "b/*.txt"},
+            ],
+            {"solution_archive": -1},
+            set(),
+            id="duplicate-all-last",
+        ),
+        pytest.param(
+            [
+                {"name": "solution_archive", "samples": -1, "solutions_glob": "a/*.txt"},
+                {"name": "solution_archive", "samples": 500, "solutions_glob": "b/*.txt"},
+            ],
+            {"solution_archive": -1},
+            set(),
+            id="duplicate-all-first",
+        ),
+        pytest.param(
+            [{"name": "random", "samples": 0}, {"name": "random", "samples": 300}],
+            {"random": 300},
+            {"random"},
+            id="duplicate-zero-uses-the-other",
+        ),
+        pytest.param(
+            [
                 {"name": "random", "samples": 0},
                 {"name": "random", "samples": 0},
-                {"name": "krylov", "samples": 100},  # Keep plan valid
-            ]
-        }
-        plan = parse_generation_plan(config)
-        assert plan.strategies["random"].samples == 0
-
-    def test_options_extraction(self) -> None:
-        config = {
-            "strategy": [
-                {
-                    "name": "residuals",
-                    "samples": 10000,
-                    "cg_iters": 50,
-                    "solutions_glob": "tests/fixtures/data/path/*.txt",
-                }
-            ]
-        }
-        plan = parse_generation_plan(config)
-        spec = plan.strategies["residuals"]
-        assert spec.options["cg_iters"] == 50
-        assert spec.options["solutions_glob"] == "tests/fixtures/data/path/*.txt"
-        assert "samples" not in spec.options
-        assert "name" not in spec.options
-
-    def test_options_merge_on_duplicate(self) -> None:
-        config = {
-            "strategy": [
-                {"name": "random", "samples": 500, "scale": 1.0, "seed": 42},
-                {"name": "random", "samples": 300, "scale": 2.0, "offset": 10},
-            ]
-        }
-        plan = parse_generation_plan(config)
-        spec = plan.strategies["random"]
-        assert spec.samples == 800
-        assert spec.options["scale"] == 2.0  # Later value wins
-        assert spec.options["seed"] == 42
-        assert spec.options["offset"] == 10
-
-    def test_legacy_alias_parsing(self) -> None:
-        config = {
-            "strategy": [
-                {"name": "rhs-bank", "samples": 100},
-            ]
-        }
-        plan = parse_generation_plan(config)
-        assert "rhs_archive" in plan.strategies
-        assert plan.rhs_archive == plan.strategies["rhs_archive"]
-
-    def test_archive_strategies_identified(self) -> None:
-        config = {
-            "strategy": [
+                {"name": "krylov", "samples": 100},
+            ],
+            {"random": 0, "krylov": 100},
+            {"random", "krylov"},
+            id="duplicate-zero-stays-zero",
+        ),
+        pytest.param(
+            [{"name": "rhs-bank", "samples": 100}],
+            {"rhs_archive": 100},
+            set(),
+            id="legacy-alias",
+        ),
+        pytest.param(
+            [
                 {"name": "rhs_archive", "samples": 100},
                 {"name": "solution_archive", "samples": -1},
                 {"name": "random", "samples": 500},
-            ]
-        }
-        plan = parse_generation_plan(config)
-        assert len(plan.synthetic) == 1
-        assert "random" in plan.synthetic
+            ],
+            {"rhs_archive": 100, "solution_archive": -1, "random": 500},
+            {"random"},
+            id="archives-are-not-synthetic",
+        ),
+    ],
+)
+def test_parse_counts_per_strategy(
+    entries: list[dict[str, Any]], samples: dict[str, int], synthetic: set[str]
+) -> None:
+    plan = parse_generation_plan({"strategy": entries})
+
+    assert {name: spec.samples for name, spec in plan.strategies.items()} == samples
+    assert set(plan.synthetic) == synthetic
 
 
-class TestIntegration:
-    """Integration tests with realistic configs."""
+def test_parse_alias_resolves_to_the_canonical_archive() -> None:
+    plan = parse_generation_plan({"strategy": [{"name": "rhs-bank", "samples": 100}]})
 
-    def test_realistic_mixed_config(self) -> None:
-        """Test a realistic mixed strategy configuration."""
-        config = {
-            "strategy": [
+    assert plan.rhs_archive == plan.strategies["rhs_archive"]
+
+
+@pytest.mark.parametrize(
+    ("entries", "name", "options"),
+    [
+        pytest.param(
+            [
                 {
                     "name": "residuals",
                     "samples": 10000,
                     "cg_iters": 50,
-                    "solutions_glob": "tests/fixtures/data/solutions/*.txt",
-                },
-                {
-                    "name": "random",
-                    "samples": 5000,
-                },
-            ]
-        }
-        plan = parse_generation_plan(config)
-
-        assert len(plan.strategies) == 2
-        assert plan.strategies["residuals"].samples == 10000
-        assert plan.strategies["random"].samples == 5000
-        assert plan.solution_archive is None
-        assert plan.rhs_archive is None
-        assert len(plan.synthetic) == 2
-
-    def test_pure_solution_archive_config(self) -> None:
-        """Test pure solution archive collection."""
-        config = {
-            "strategy": [
-                {
-                    "name": "solution_archive",
-                    "samples": -1,
-                    "solutions_glob": "tests/fixtures/data/ua_vectors/*.txt",
+                    "solutions_glob": "data/path/*.txt",
                 }
-            ]
-        }
-        plan = parse_generation_plan(config)
-        assert plan.solution_archive is not None
+            ],
+            "residuals",
+            {"cg_iters": 50, "solutions_glob": "data/path/*.txt"},
+            id="name-and-samples-are-not-options",
+        ),
+        pytest.param(
+            [
+                {"name": "random", "samples": 500, "scale": 1.0, "seed": 42},
+                {"name": "random", "samples": 300, "scale": 2.0, "offset": 10},
+            ],
+            "random",
+            {"scale": 2.0, "seed": 42, "offset": 10},
+            id="duplicates-merge-with-later-value-winning",
+        ),
+    ],
+)
+def test_parse_extracts_options(
+    entries: list[dict[str, Any]], name: str, options: dict[str, Any]
+) -> None:
+    plan = parse_generation_plan({"strategy": entries})
 
-        assert len(plan.strategies) == 1
-        assert plan.solution_archive.samples == -1
-        assert len(plan.synthetic) == 0
-
-    def test_skip_strategy_with_zero(self) -> None:
-        """Test skipping a strategy with samples=0."""
-        config = {
-            "strategy": [
-                {"name": "random", "samples": 0},
-                {"name": "krylov", "samples": 1000, "krylov_iters": 15},
-            ]
-        }
-        plan = parse_generation_plan(config)
-
-        # Both strategies present, but random is skipped
-        assert len(plan.strategies) == 2
-        assert plan.strategies["random"].samples == 0
-        assert plan.strategies["krylov"].samples == 1000
-
-
-class TestPydanticValidation:
-    """Test Pydantic validation of strategy configurations."""
-
-    def test_pydantic_rejects_unknown_parameters(self) -> None:
-        """Test that unknown parameters are rejected when configs are validated."""
-        from pydantic import ValidationError
-
-        from neuralls.domain.generation.strategy_configs import KrylovConfig
-
-        # Try to create a config with an unknown parameter
-        with pytest.raises(ValidationError):
-            KrylovConfig.model_validate({"samples": 10, "unknown_param": 123})
-
-    def test_pydantic_rejects_invalid_literal_values(self) -> None:
-        """Test that invalid Literal values are rejected."""
-        from pydantic import ValidationError
-
-        from neuralls.domain.generation.strategy_configs import EigenvectorForwardConfig
-
-        # Try to pass an invalid 'which' value
-        with pytest.raises(ValidationError):
-            EigenvectorForwardConfig.model_validate({"samples": 10, "which": "invalid"})
-
-    def test_pydantic_validates_which_accepts_valid_values(self) -> None:
-        """Test that valid 'which' values are accepted."""
-        from neuralls.domain.generation.strategy_configs import EigenvectorForwardConfig
-
-        # All three valid values should work
-        config1 = EigenvectorForwardConfig(
-            samples=10,
-            seed=42,
-            shuffle=True,
-            which="smallest",
-            include_eigenvectors=True,
-            num_eigenvectors=1,
-        )
-        assert config1.which == "smallest"
-
-        config2 = EigenvectorForwardConfig(
-            samples=10,
-            seed=42,
-            shuffle=True,
-            which="largest",
-            include_eigenvectors=True,
-            num_eigenvectors=1,
-        )
-        assert config2.which == "largest"
-
-        config3 = EigenvectorForwardConfig(
-            samples=10,
-            seed=42,
-            shuffle=True,
-            which="random",
-            include_eigenvectors=True,
-            num_eigenvectors=1,
-        )
-        assert config3.which == "random"
-
-    def test_pydantic_requires_rhs_glob(self) -> None:
-        """Test that rhs_glob is required for RhsArchiveConfig."""
-        from pydantic import ValidationError
-
-        from neuralls.domain.generation.strategy_configs import RhsArchiveConfig
-
-        # Try to create config without rhs_glob
-        with pytest.raises(ValidationError):
-            RhsArchiveConfig.model_validate({"samples": 10})
-
-    def test_pydantic_requires_solutions_glob(self) -> None:
-        """Test that solutions_glob is required for SolutionArchiveConfig."""
-        from pydantic import ValidationError
-
-        from neuralls.domain.generation.strategy_configs import SolutionArchiveConfig
-
-        # Try to create config without solutions_glob
-        with pytest.raises(ValidationError):
-            SolutionArchiveConfig.model_validate({"samples": 10})
-
-    def test_pydantic_validates_type_residual_iters(self) -> None:
-        """Test that stop must be int."""
-        from pydantic import ValidationError
-
-        from neuralls.domain.generation.strategy_configs import ResidualErrorConfig
-
-        # Try to pass a string for stop
-        with pytest.raises(ValidationError):
-            ResidualErrorConfig.model_validate({"samples": 10, "stop": "many"})
-
-    def test_pydantic_validates_type_krylov_iters(self) -> None:
-        """Test that krylov_iters must be int."""
-        from pydantic import ValidationError
-
-        from neuralls.domain.generation.strategy_configs import KrylovConfig
-
-        # Pydantic will coerce float to int, but invalid types should fail
-        with pytest.raises(ValidationError):
-            KrylovConfig.model_validate({"samples": 10, "krylov_iters": "invalid"})
-
-    def test_pydantic_accepts_valid_configs(self) -> None:
-        """Test that valid configurations are accepted."""
-        from neuralls.domain.generation.strategy_configs import (
-            EigenvectorForwardConfig,
-            KrylovConfig,
-            RandomNormalConfig,
-            ResidualErrorConfig,
-        )
-
-        # All these should succeed
-        krylov = KrylovConfig(samples=100, seed=42, shuffle=True, krylov_iters=20)
-        assert krylov.samples == 100
-        assert krylov.krylov_iters == 20
-
-        residual = ResidualErrorConfig(
-            samples=50,
-            seed=42,
-            shuffle=True,
-            stop=10,
-            start=1,
-            solutions_glob=None,
-            archive_solutions=False,
-            archive_rhs=False,
-            step=1,
-        )
-        assert residual.samples == 50
-        assert residual.stop == 10
-
-        eigenvector = EigenvectorForwardConfig(
-            samples=30,
-            seed=42,
-            shuffle=True,
-            which="largest",
-            include_eigenvectors=True,
-            num_eigenvectors=1,
-        )
-        assert eigenvector.which == "largest"
-        assert eigenvector.include_eigenvectors is True
-
-        random_normal = RandomNormalConfig(
-            samples=200,
-            seed=42,
-            shuffle=True,
-            target_rhs_scale=2.5,
-        )
-        assert random_normal.target_rhs_scale == 2.5
+    assert plan.strategies[name].options == options

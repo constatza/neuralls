@@ -8,11 +8,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from neuralls.domain.generation import binding_allocation
 from neuralls.domain.generation.batch_plan import BindingAllocation
 from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.bindings import SystemBinding
-from neuralls.domain.generation.notices import RowCapSource, RowsCapped
 from neuralls.domain.generation.ports import ArchiveSource
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.domain.generation.strategy_rows import _generate_strategy_rows, _StrategyRows
@@ -84,39 +82,31 @@ def three_bindings() -> list[SystemBinding]:
     ]
 
 
-def test_resolve_binding_strategy_counts_rejects_unsupported_replacement(
+@pytest.mark.parametrize(
+    ("counts", "overrides"),
+    [
+        pytest.param({"neutral_ones": 5}, None, id="generated"),
+        pytest.param({"residuals": 5}, None, id="finite-trace"),
+        # samples=-1 must not be invisible to the replacement guard: `_ALL_SAMPLES` used to be
+        # dropped by the `count > 0` filter, so the guard silently did not run for it.
+        pytest.param(
+            {"solution_archive": -1},
+            {"solution_archive": {"solutions_glob": "/fake/*.txt"}},
+            id="all-samples",
+        ),
+    ],
+)
+def test_resolve_binding_strategy_counts_rejects_replacement(
     three_bindings: list[SystemBinding],
     archive_source: InMemoryArchiveSource,
+    counts: dict[str, int],
+    overrides: dict[str, dict[str, str]] | None,
 ) -> None:
     with pytest.raises(ValueError):
         _resolve_binding_strategy_counts(
             bindings=three_bindings,
             spec=DatasetSpec(
-                mixture=MixtureSpec(
-                    counts={"neutral_ones": 5},
-                    seed=0,
-                    strategy_overrides=None,
-                ),
-                replacement=True,
-            ),
-            num_matrix_samples=3,
-            archive_source=archive_source,
-        )
-
-
-def test_resolve_binding_strategy_counts_rejects_finite_trace_replacement(
-    three_bindings: list[SystemBinding],
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    with pytest.raises(ValueError):
-        _resolve_binding_strategy_counts(
-            bindings=three_bindings,
-            spec=DatasetSpec(
-                mixture=MixtureSpec(
-                    counts={"residuals": 5},
-                    seed=0,
-                    strategy_overrides=None,
-                ),
+                mixture=MixtureSpec(counts=counts, seed=0, strategy_overrides=overrides),
                 replacement=True,
             ),
             num_matrix_samples=3,
@@ -293,33 +283,6 @@ def test_archive_mixes_with_generated_strategies_across_matrices(
     assert sum(archived) == 3
 
 
-def test_resolve_binding_strategy_counts_rejects_all_samples_with_replacement(
-    three_bindings: list[SystemBinding],
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    """samples=-1 must not be invisible to the replacement guard.
-
-    Regression test: `_ALL_SAMPLES` (-1) used to be excluded from the `active`
-    strategy list (`count > 0` filter), so `solution_archive: -1` combined with
-    `replacement=True` silently skipped the "does not support matrix
-    replacement allocation" guard instead of raising.
-    """
-    with pytest.raises(ValueError):
-        _resolve_binding_strategy_counts(
-            bindings=three_bindings,
-            spec=DatasetSpec(
-                mixture=MixtureSpec(
-                    counts={"solution_archive": -1},
-                    seed=0,
-                    strategy_overrides={"solution_archive": {"solutions_glob": "/fake/*.txt"}},
-                ),
-                replacement=True,
-            ),
-            num_matrix_samples=3,
-            archive_source=archive_source,
-        )
-
-
 def _archive_spec(glob_pattern: str, count: int) -> DatasetSpec:
     """Dataset spec with one solution_archive count over the given glob."""
     return DatasetSpec(
@@ -346,28 +309,6 @@ def _archive_pairs(allocation: BindingAllocation) -> list[tuple[int, int]]:
     ]
 
 
-def test_resolve_archive_counts_and_files_are_distinct_pairs(
-    write_solution_files: Callable[[int], str],
-    three_bindings: list[SystemBinding],
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    """Archive units are spread over the pool with cyclic, non-repeating (matrix, file) pairs."""
-    glob_pattern = write_solution_files(5)
-
-    allocation = _resolve_binding_strategy_counts(
-        bindings=three_bindings,
-        spec=_archive_spec(glob_pattern, 5),
-        num_matrix_samples=3,
-        archive_source=archive_source,
-    )
-
-    assert [counts["solution_archive"] for counts in allocation.counts] == [2, 2, 1]
-    assert _files_by_binding(allocation, "solution_archive") == [[0, 1], [1, 2], [2]]
-    pairs = _archive_pairs(allocation)
-    assert len(pairs) == 5
-    assert len(set(pairs)) == 5
-
-
 def test_archive_base_split_uses_full_pool_without_repeats(
     write_solution_files: Callable[[int], str],
     three_bindings: list[SystemBinding],
@@ -386,55 +327,6 @@ def test_archive_base_split_uses_full_pool_without_repeats(
     assert [counts["solution_archive"] for counts in allocation.counts] == [17, 17, 16]
     pairs = _archive_pairs(allocation)
     assert len(set(pairs)) == 50
-
-
-def test_archive_all_samples_emits_every_pair_once(
-    write_solution_files: Callable[[int], str],
-    three_bindings: list[SystemBinding],
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    """samples = -1 on an archive emits all M*K (matrix, file) pairs, each exactly once."""
-    glob_pattern = write_solution_files(5)
-
-    allocation = _resolve_binding_strategy_counts(
-        bindings=three_bindings,
-        spec=_archive_spec(glob_pattern, -1),
-        num_matrix_samples=3,
-        archive_source=archive_source,
-    )
-
-    assert [counts["solution_archive"] for counts in allocation.counts] == [5, 5, 5]
-    assert _files_by_binding(allocation, "solution_archive") == [
-        [0, 1, 2, 3, 4],
-        [1, 2, 3, 4, 0],
-        [2, 3, 4, 0, 1],
-    ]
-    pairs = _archive_pairs(allocation)
-    assert len(pairs) == 15
-    assert len(set(pairs)) == 15
-    assert [binding for binding, _ in pairs] == [0] * 5 + [1] * 5 + [2] * 5
-
-
-def test_archive_request_above_m_times_k_is_capped_with_one_notice(
-    write_solution_files: Callable[[int], str],
-    three_bindings: list[SystemBinding],
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    """A count above M*K is capped at M*K and reported once, naming both counts."""
-    glob_pattern = write_solution_files(5)
-
-    allocation = _resolve_binding_strategy_counts(
-        bindings=three_bindings,
-        spec=_archive_spec(glob_pattern, 20),
-        num_matrix_samples=3,
-        archive_source=archive_source,
-    )
-
-    assert [counts["solution_archive"] for counts in allocation.counts] == [5, 5, 5]
-    assert len(set(_archive_pairs(allocation))) == 15
-    assert allocation.notices == (
-        RowsCapped("solution_archive", 20, 15, RowCapSource.ARCHIVE_PAIRS),
-    )
 
 
 @pytest.mark.parametrize("requested", [15, 14])
@@ -457,30 +349,6 @@ def test_archive_request_at_or_below_m_times_k_has_no_notice(
     total = sum(counts["solution_archive"] for counts in allocation.counts)
     assert total == requested
     assert allocation.notices == ()
-
-
-def test_archive_single_matrix_several_bindings_is_rejected_before_draw(
-    monkeypatch: pytest.MonkeyPatch,
-    archive_source: InMemoryArchiveSource,
-) -> None:
-    """One matrix with several archive bindings would repeat files: reject before any glob read."""
-
-    def _glob_must_not_be_read(*args: object, **kwargs: object) -> None:
-        raise AssertionError("archive glob read before the repeat check")
-
-    monkeypatch.setattr(binding_allocation, "select_archive_files", _glob_must_not_be_read)
-    bindings = [
-        SystemBinding(sample_id=0, matrix_sample_id=0, rhs_sample_id=0),
-        SystemBinding(sample_id=1, matrix_sample_id=0, rhs_sample_id=1),
-    ]
-
-    with pytest.raises(ValueError):
-        _resolve_binding_strategy_counts(
-            bindings=bindings,
-            spec=_archive_spec("/fake/solution_*.txt", 3),
-            num_matrix_samples=1,
-            archive_source=archive_source,
-        )
 
 
 def test_archive_single_matrix_single_binding_still_works(

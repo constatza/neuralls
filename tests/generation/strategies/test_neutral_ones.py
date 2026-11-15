@@ -18,56 +18,18 @@ def sample_matrix() -> np.ndarray:
     return np.array([[4.0, 1.0, 0.0], [1.0, 4.0, 1.0], [0.0, 1.0, 4.0]], dtype=np.float64)
 
 
-def test_neutral_ones_strategy_basic(sample_matrix: np.ndarray) -> None:
-    """Test neutral_ones strategy generates x=ones and b=A@x."""
-    strategy = NeutralOnesStrategy()
-    config = {"samples": 1, "seed": 42}
-
-    result = strategy.generate(
-        matrix=sample_matrix,
-        cfg=config,
-        archive=None,
+@pytest.mark.parametrize("samples", [1, 3])
+def test_neutral_ones_solutions_are_ones_and_rhs_is_a_times_ones(
+    sample_matrix: np.ndarray, samples: int
+) -> None:
+    result = NeutralOnesStrategy().generate(
+        matrix=sample_matrix, cfg={"samples": samples, "seed": 42}, archive=None
     )
+
     assert result.solutions is not None
     assert result.rhs is not None
-
-    # Check shapes
-    assert result.rhs.shape == (1, 3)
-    assert result.solutions.shape == (1, 3)
-
-    # Check solution is all ones
-    np.testing.assert_array_equal(result.solutions, np.ones((1, 3)))
-
-    # Check b = A @ x
-    expected_rhs = sample_matrix @ np.ones(3)
-    assert result.rhs is not None
-    np.testing.assert_array_almost_equal(result.rhs[0], expected_rhs)
-
-
-def test_neutral_ones_multiple_samples(sample_matrix: np.ndarray) -> None:
-    """Test neutral_ones strategy with multiple samples."""
-    strategy = NeutralOnesStrategy()
-    config = {"samples": 3, "seed": 42}
-
-    result = strategy.generate(
-        matrix=sample_matrix,
-        cfg=config,
-        archive=None,
-    )
-    assert result.solutions is not None
-    assert result.rhs is not None
-
-    # Check shapes
-    assert result.rhs.shape == (3, 3)
-    assert result.solutions.shape == (3, 3)
-
-    # All solutions should be ones
-    np.testing.assert_array_equal(result.solutions, np.ones((3, 3)))
-
-    # All RHS should be identical (A @ ones)
-    expected_rhs = sample_matrix @ np.ones(3)
-    for i in range(3):
-        np.testing.assert_array_almost_equal(result.rhs[i], expected_rhs)
+    np.testing.assert_array_equal(result.solutions, np.ones((samples, 3)))
+    np.testing.assert_allclose(result.rhs, np.tile(sample_matrix @ np.ones(3), (samples, 1)))
 
 
 def test_neutral_ones_deterministic(sample_matrix: np.ndarray) -> None:
@@ -88,13 +50,6 @@ def test_neutral_ones_deterministic(sample_matrix: np.ndarray) -> None:
     np.testing.assert_array_equal(result1.solutions, result2.solutions)
 
 
-def test_neutral_ones_config_validation() -> None:
-    """Test NeutralOnesConfig validation."""
-    # Valid config
-    config = NeutralOnesConfig(samples=1, seed=42, shuffle=True)
-    assert config.samples == 1
-    assert config.seed == 42
-
-    # Negative samples should raise validation error
+def test_neutral_ones_config_rejects_negative_samples() -> None:
     with pytest.raises(ValidationError):
         NeutralOnesConfig(samples=-2, seed=42, shuffle=True)

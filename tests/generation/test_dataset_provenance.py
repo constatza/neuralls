@@ -23,9 +23,9 @@ DATA_DIR = Path("datasets")
 def test_source_problem_name_must_be_a_plain_label() -> None:
     from pydantic import ValidationError
 
-    from neuralls.platform.config.models.data_models import SourceConfig
-
-    assert SourceConfig(matrix_path="m.mtx", problem="Spectral 3D field").problem
+    assert SourceConfig(matrix_path="m.mtx", problem="Spectral 3D field").problem == (
+        "Spectral 3D field"
+    )
     with pytest.raises(ValidationError):
         SourceConfig(matrix_path="m.mtx", problem="spectral_3d_field")
 

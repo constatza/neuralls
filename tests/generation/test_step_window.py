@@ -19,75 +19,54 @@ from neuralls.domain.generation.step_window import StepWindow
 # ---------------------------------------------------------------------------
 
 
-def test_stop_must_be_positive() -> None:
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param({"stop": 0}, id="stop-must-be-positive"),
+        pytest.param({"stop": 5, "step": 0}, id="step-must-be-positive"),
+        pytest.param({"stop": 5, "start": 5}, id="nonnegative-start-below-stop"),
+        pytest.param({"stop": 5, "start": -7}, id="negative-start-within-trajectory"),
+    ],
+)
+def test_invalid_window_is_rejected(kwargs: dict[str, int]) -> None:
     with pytest.raises(ValueError):
-        StepWindow(stop=0)
+        StepWindow(**kwargs)
 
 
-def test_step_must_be_positive() -> None:
-    with pytest.raises(ValueError):
-        StepWindow(stop=5, step=0)
-
-
-def test_nonnegative_start_must_be_less_than_stop() -> None:
-    with pytest.raises(ValueError):
-        StepWindow(stop=5, start=5)
-
-
-def test_negative_start_cannot_exceed_trajectory_length() -> None:
-    with pytest.raises(ValueError):
-        StepWindow(stop=5, start=-7)
-
-
-def test_boundary_values_are_valid() -> None:
-    """start=stop-1 (last valid absolute index) and start=-(stop+1) (furthest valid negative) both construct."""
-    StepWindow(stop=5, start=4)
-    StepWindow(stop=5, start=-6)
+@pytest.mark.parametrize("start", [4, -6], ids=["last-absolute-index", "furthest-negative"])
+def test_boundary_starts_are_valid(start: int) -> None:
+    StepWindow(stop=5, start=start)
 
 
 # ---------------------------------------------------------------------------
-# Selection semantics: first-n, [m, n) range, last-n, stride
+# Selection semantics: first-n, [m, n) range, last-n, stride, early convergence
 # ---------------------------------------------------------------------------
 
 
-def test_first_n(labeled_trajectory: Callable[[int], np.ndarray]) -> None:
-    """start=0, stop=n keeps indices [0, n]."""
-    window = StepWindow(stop=2, start=0)
-    trajectory = labeled_trajectory(3)  # a fixed-length run: maxiter=stop=2 -> 3 rows
-    selected = window.select(trajectory)
-    np.testing.assert_array_equal(selected.ravel(), [0, 1, 2])
+@pytest.mark.parametrize(
+    ("stop", "start", "step", "length", "expected"),
+    [
+        pytest.param(2, 0, 1, 3, [0, 1, 2], id="first-n"),
+        pytest.param(6, 0, 1, 7, [0, 1, 2, 3, 4, 5, 6], id="fixed-length-keeps-the-whole-slice"),
+        pytest.param(5, 2, 1, 6, [2, 3, 4, 5], id="range-m-to-n"),
+        pytest.param(8, -3, 1, 9, [6, 7, 8], id="last-n-ignores-absolute-stop"),
+        pytest.param(8, None, 1, 9, [8], id="default-keeps-only-the-last-row"),
+        pytest.param(5, 0, 2, 6, [0, 2, 4], id="stride"),
+        pytest.param(50, None, 1, 4, [3], id="last-only-under-early-convergence"),
+        pytest.param(50, -3, 1, 4, [1, 2, 3], id="last-n-under-early-convergence"),
+    ],
+)
+def test_select_keeps_the_expected_rows(
+    labeled_trajectory: Callable[[int], np.ndarray],
+    stop: int,
+    start: int | None,
+    step: int,
+    length: int,
+    expected: list[int],
+) -> None:
+    selected = StepWindow(stop=stop, start=start, step=step).select(labeled_trajectory(length))
 
-
-def test_range_m_to_n(labeled_trajectory: Callable[[int], np.ndarray]) -> None:
-    """start=m, stop=n keeps indices [m, n]."""
-    window = StepWindow(stop=5, start=2)
-    trajectory = labeled_trajectory(6)
-    selected = window.select(trajectory)
-    np.testing.assert_array_equal(selected.ravel(), [2, 3, 4, 5])
-
-
-def test_last_n_via_negative_start(labeled_trajectory: Callable[[int], np.ndarray]) -> None:
-    """start=-n keeps the last n rows, regardless of the absolute stop value."""
-    window = StepWindow(stop=8, start=-3)
-    trajectory = labeled_trajectory(9)
-    selected = window.select(trajectory)
-    np.testing.assert_array_equal(selected.ravel(), [6, 7, 8])
-
-
-def test_default_start_keeps_only_last_row(labeled_trajectory: Callable[[int], np.ndarray]) -> None:
-    """start unset (None) keeps exactly one row: the true last one."""
-    window = StepWindow(stop=8)
-    trajectory = labeled_trajectory(9)
-    selected = window.select(trajectory)
-    np.testing.assert_array_equal(selected.ravel(), [8])
-
-
-def test_stride(labeled_trajectory: Callable[[int], np.ndarray]) -> None:
-    """step > 1 keeps every step-th row within the selected range."""
-    window = StepWindow(stop=5, start=0, step=2)
-    trajectory = labeled_trajectory(6)
-    selected = window.select(trajectory)
-    np.testing.assert_array_equal(selected.ravel(), [0, 2, 4])
+    np.testing.assert_array_equal(selected.ravel(), expected)
 
 
 def test_select_never_squeezes(labeled_trajectory: Callable[[int], np.ndarray]) -> None:
@@ -97,42 +76,6 @@ def test_select_never_squeezes(labeled_trajectory: Callable[[int], np.ndarray]) 
     selected = window.select(trajectory)
     assert selected.ndim == trajectory.ndim
     assert selected.shape == (1, 1)
-
-
-# ---------------------------------------------------------------------------
-# Fixed-length vs variable-length (early-stopped) trajectories
-# ---------------------------------------------------------------------------
-
-
-def test_last_only_resolves_to_true_end_under_early_convergence(
-    labeled_trajectory: Callable[[int], np.ndarray],
-) -> None:
-    """A trajectory shorter than stop+1 (early convergence) still resolves 'last' correctly."""
-    window = StepWindow(stop=50)  # safety cap, not necessarily reached
-    trajectory = labeled_trajectory(4)  # converged after 3 steps: 4 rows (0..3)
-    selected = window.select(trajectory)
-    np.testing.assert_array_equal(selected.ravel(), [3])
-
-
-def test_last_n_resolves_to_true_end_under_early_convergence(
-    labeled_trajectory: Callable[[int], np.ndarray],
-) -> None:
-    window = StepWindow(stop=50, start=-3)
-    trajectory = labeled_trajectory(4)
-    selected = window.select(trajectory)
-    np.testing.assert_array_equal(selected.ravel(), [1, 2, 3])
-
-
-def test_fixed_length_equivalence_first_n(labeled_trajectory: Callable[[int], np.ndarray]) -> None:
-    """When the trajectory is exactly stop+1 long, results match what an absolute
-    slice(start, stop+1, step) over stop+1 rows would give — the design's
-    backward-compatibility claim for the fixed-length (unreachable-tolerance) case."""
-    stop, start = 6, 0
-    window = StepWindow(stop=stop, start=start)
-    trajectory = labeled_trajectory(stop + 1)
-    selected = window.select(trajectory)
-    expected = trajectory[start : stop + 1]
-    np.testing.assert_array_equal(selected, expected)
 
 
 # ---------------------------------------------------------------------------

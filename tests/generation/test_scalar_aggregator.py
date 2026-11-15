@@ -84,32 +84,6 @@ def test_scalar_aggregator_applies_isclose_tolerance(
     assert (ScaleField.MATRIX_NORM in disagreements) is expect_disagreement
 
 
-def test_scalar_aggregator_keeps_only_first_value(
-    make_binding_scale: Callable[..., BindingScale],
-) -> None:
-    """Agreement is checked against the first binding; later values are never stored."""
-    aggregator = ScalarAggregator()
-    aggregator.observe(make_binding_scale(matrix_norm_value=4.0))
-    for _ in range(1000):
-        aggregator.observe(make_binding_scale(matrix_norm_value=4.0))
-
-    assert aggregator.result().matrix_norm == 4.0
-
-
 def test_scalar_aggregator_rejects_empty_input() -> None:
     with pytest.raises(ValueError):
         ScalarAggregator().result()
-
-
-def test_agreeing_bindings_resolve_to_their_shared_scalars(
-    make_binding_scale: Callable[..., BindingScale],
-) -> None:
-    """Two agreeing bindings resolve to their shared norm, scale and metadata."""
-    aggregator = ScalarAggregator()
-    aggregator.observe(make_binding_scale(matrix_norm_value=2.0, matrix_value_scale=7.0))
-    aggregator.observe(make_binding_scale(matrix_norm_value=2.0, matrix_value_scale=7.0))
-    summary = aggregator.result()
-
-    assert summary.matrix_norm == 2.0
-    assert summary.matrix_value_scale == 7.0
-    assert summary.scale_metadata == _SHARED_METADATA

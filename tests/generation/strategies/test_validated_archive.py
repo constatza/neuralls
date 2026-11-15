@@ -9,7 +9,6 @@ import pytest
 
 from neuralls.domain.generation.notices import InvalidPairs
 from neuralls.domain.generation.strategies.validated_archive import ValidatedArchiveStrategy
-from neuralls.domain.generation.strategy_configs import ValidatedArchiveConfig
 from tests.fakes.archive_source import InMemoryArchiveSource
 
 MISSING_DIR = Path("archive/missing")
@@ -54,13 +53,6 @@ def invalid_pairs(
         archive_source.add(RHS_DIR / f"rhs_{i:03d}.txt", rng.standard_normal(n))
 
     return SOLUTIONS_DIR, RHS_DIR
-
-
-def test_validated_archive_strategy_registered() -> None:
-    """Test that strategy is properly registered."""
-    strategy = ValidatedArchiveStrategy()
-    assert strategy.name == "validated_archive"
-    assert strategy.ConfigType == ValidatedArchiveConfig
 
 
 # Note: Tests for _load_paired_vectors and _verify_consistency removed.

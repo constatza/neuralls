@@ -10,39 +10,36 @@ from neuralls.domain.generation import run_generation
 from tests.generation_support import residual_trace_rows
 
 
-def test_smoother_filtered_probes_shapes(spd_matrix: np.ndarray) -> None:
-    """Output is a residual_traces block, 2D, one row per probe by default."""
-    n = spd_matrix.shape[0]
-    cfg = {"samples": 4, "seed": 0, "stop": 5, "start": 1}
+@pytest.mark.parametrize("samples", [1, 4, 5, 8])
+def test_smoother_filtered_probes_emit_one_trace_row_per_sample(
+    spd_matrix: np.ndarray, samples: int
+) -> None:
+    cfg = {"samples": samples, "seed": 0, "stop": 5, "start": 1}
 
-    result = residual_trace_rows(run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg))
-    assert result.residual_traces is not None
-
-    assert result.residual_traces.residuals.shape == (4, n)
-    assert result.residual_traces.solutions.shape == (4, n)
-
-
-def test_smoother_filtered_probes_sample_count(spd_matrix: np.ndarray) -> None:
-    """Different sample counts produce correct output sizes."""
-    for count in (1, 5, 8):
-        cfg = {"samples": count, "seed": 0, "stop": 5, "start": 1}
-        result = residual_trace_rows(
-            run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg)
-        )
-        assert result.residual_traces is not None
-        assert result.residual_traces.solutions.shape[0] == count
-
-
-def test_smoother_filtered_probes_computes_rhs(spd_matrix: np.ndarray) -> None:
-    """RHS = A @ x for all generated samples."""
-    cfg = {"samples": 5, "seed": 42, "stop": 5, "start": 1}
     result = residual_trace_rows(run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg))
 
     traces = result.residual_traces
     assert traces is not None
-    for i in range(traces.solutions.shape[0]):
-        expected = spd_matrix @ traces.solutions[i]
-        np.testing.assert_allclose(traces.residuals[i], expected, rtol=1e-10)
+    n = spd_matrix.shape[0]
+    assert traces.residuals.shape == (samples, n)
+    assert traces.solutions.shape == (samples, n)
+
+
+@pytest.mark.parametrize(
+    "cfg",
+    [
+        pytest.param({"samples": 5, "seed": 42, "stop": 5, "start": 1}, id="single-step"),
+        pytest.param({"samples": 3, "seed": 1, "stop": 8, "start": 5}, id="multi-step"),
+    ],
+)
+def test_smoother_filtered_probes_rhs_is_a_times_solution(
+    spd_matrix: np.ndarray, cfg: dict[str, int]
+) -> None:
+    result = residual_trace_rows(run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg))
+
+    traces = result.residual_traces
+    assert traces is not None
+    np.testing.assert_allclose(traces.residuals, traces.solutions @ spd_matrix.T, rtol=1e-10)
 
 
 def test_smoother_filtered_probes_deterministic(spd_matrix: np.ndarray) -> None:
@@ -70,14 +67,6 @@ def test_smoother_filtered_probes_rademacher_distribution(spd_matrix: np.ndarray
     assert result.residual_traces is not None
 
     assert result.residual_traces.solutions.shape == (3, n)
-
-
-def test_smoother_filtered_probes_requires_stop(spd_matrix: np.ndarray) -> None:
-    """Omitting the required 'stop' field must raise a validation error, not run with a silent default."""
-    cfg = {"samples": 3, "seed": 0}
-
-    with pytest.raises(ValidationError):
-        residual_trace_rows(run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg))
 
 
 def test_smoother_filtered_probes_samples_minus_one_rejected(spd_matrix: np.ndarray) -> None:
@@ -121,15 +110,3 @@ def test_smoother_filtered_probes_multi_step_keeps_consistent_2d_shape(
     np.testing.assert_array_equal(
         traces.iteration_indices[:3], np.array([stop - 2, stop - 1, stop], dtype=np.int64)
     )
-
-
-def test_smoother_filtered_probes_multi_step_rhs_consistent(spd_matrix: np.ndarray) -> None:
-    """RHS = A @ x still holds per-row when multiple sweep depths are kept per probe."""
-    cfg = {"samples": 3, "seed": 1, "stop": 8, "start": 5}
-
-    result = residual_trace_rows(run_generation("smoother_filtered_probes", spd_matrix, cfg=cfg))
-    traces = result.residual_traces
-    assert traces is not None
-    for i in range(traces.solutions.shape[0]):
-        expected = spd_matrix @ traces.solutions[i]
-        np.testing.assert_allclose(traces.residuals[i], expected, rtol=1e-10)

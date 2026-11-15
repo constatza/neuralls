@@ -65,27 +65,16 @@ def test_random_input_provider_is_deterministic() -> None:
     assert np.allclose(solutions1, solutions2)
 
 
-def test_constant_input_provider_generates_ones(
+@pytest.mark.parametrize("value", [1.0, 3.14])
+def test_constant_input_provider_fills_every_entry_with_its_value(
     sample_matrix: np.ndarray,
     sample_rng: np.random.Generator,
+    value: float,
 ) -> None:
-    """Test constant provider generates ones."""
-    provider = ConstantInputProvider(value=1.0)
+    provider = ConstantInputProvider(value=value)
     solutions = provider.provide(matrix=sample_matrix, count=5, rng=sample_rng)
 
-    assert solutions.shape == (5, 10)
-    assert np.all(solutions == 1.0)
-
-
-def test_constant_input_provider_custom_value(
-    sample_matrix: np.ndarray,
-    sample_rng: np.random.Generator,
-) -> None:
-    """Test constant provider with custom value."""
-    provider = ConstantInputProvider(value=3.14)
-    solutions = provider.provide(matrix=sample_matrix, count=5, rng=sample_rng)
-
-    assert np.all(solutions == 3.14)
+    np.testing.assert_array_equal(solutions, np.full((5, 10), value))
 
 
 def test_file_input_provider_loads_from_files(archive_source: InMemoryArchiveSource) -> None:

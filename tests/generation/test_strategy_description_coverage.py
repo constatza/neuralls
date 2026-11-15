@@ -36,10 +36,6 @@ def test_every_registered_strategy_config_is_described(name: str) -> None:
     assert (facts == ()) is (name in _PARAMETERLESS)
 
 
-def test_registry_holds_the_known_strategies() -> None:
-    assert {"neutral_ones", "krylov", "solution_archive"} <= set(registered_strategy_names())
-
-
 def test_a_strategy_field_without_a_binding_fails() -> None:
     class UnheardOfConfig(BaseStrategyConfig):
         sharpness: float = 1.0

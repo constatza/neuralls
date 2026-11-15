@@ -1,8 +1,19 @@
+"""Matrix and vector source streams over an in-memory archive.
+
+Every stream rule is tested once per stream kind (matrix and vector twins share a table).
+The sample ids a stream derives, the files a glob matches, the index filters and the
+per-source shape checks belong to ``source_streams``; ``bind_sources`` pairs the resulting ids.
+"""
+
 from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import numpy as np
@@ -16,17 +27,126 @@ from neuralls.domain.generation.source_streams import (
     EnumerateBy,
     GlobMatrixStream,
     GlobVectorStream,
+    NpyMatrixStream,
+    NpyVectorStream,
+    TxtMatrixStream,
+    TxtVectorStream,
     open_matrix_stream,
     open_vector_stream,
 )
+from neuralls.platform.config.models.data_models import SourceConfig
 from neuralls.platform.storage.archive_source import FsArchiveSource
+from neuralls.platform.storage.matrix_readers import read_matrix
 from tests.fakes.archive_source import InMemoryArchiveSource
-from tests.generation_support import spd_matrix
 
 ARCHIVE_DIR = Path("archive")
 
+# Stems end in non-contiguous, unsorted integer ids; sorted by name they read 007, 10, 2.
+NUMBERED_MARKERS = {"2": 2.0, "10": 10.0, "007": 7.0}
 
-_ARBITRARY_PARAMETER_SETS = [(3000, 78000), (5000, 100000), (1000, 50000)]
+
+def _marker_matrix(value: float) -> np.ndarray:
+    """A 2x2 matrix whose contents identify one source file."""
+    return np.array([[value, 0.0], [0.0, value + 1.0]], dtype=np.float64)
+
+
+def _marker_vector(value: float) -> np.ndarray:
+    """A length-3 vector whose contents identify one source file."""
+    return np.array([value, value + 1.0, value + 2.0], dtype=np.float64)
+
+
+@dataclass(frozen=True, slots=True)
+class StreamKind:
+    """What differs between the matrix and the vector stream family.
+
+    Attributes:
+        name: Subdirectory of the archive holding this kind's files.
+        stem: Filename prefix (``A_2.txt`` or ``b_2.txt``).
+        marker: Array that identifies one source file by ``value``.
+        glob_stream: Glob stream class.
+        npy_stream: Single-``.npy`` stream class.
+        txt_stream: Single-``.txt`` stream class.
+        open: Factory choosing the stream class by path expression.
+        load: Array of one loaded sample.
+        iterations: Sample ids of every iteration method the stream offers.
+        npy_stack: Array of two samples stacked in one ``.npy`` file.
+        npy_too_many_dims: ``.npy`` array whose rank no stream of this kind accepts.
+        txt_wrong_rank: ``.txt`` array whose rank this kind rejects.
+    """
+
+    name: str
+    stem: str
+    marker: Callable[[float], np.ndarray]
+    glob_stream: type
+    npy_stream: type
+    txt_stream: type
+    open: Callable[..., Any]
+    load: Callable[[Any, int], np.ndarray]
+    iterations: Callable[[Any], list[list[int]]]
+    npy_stack: np.ndarray
+    npy_too_many_dims: np.ndarray
+    txt_wrong_rank: np.ndarray
+
+    def single(self, suffix: str, path: Path, readers: MatrixReaders) -> Any:
+        """The single-file stream for ``suffix`` (``npy`` or ``txt``)."""
+        if suffix == "npy":
+            return self.npy_stream(path, reader=readers.dense)
+        return self.txt_stream(path, reader=readers.generic)
+
+    def glob(
+        self, expression: str, archive: InMemoryArchiveSource, readers: MatrixReaders, **kwargs: Any
+    ) -> Any:
+        """A glob stream over ``archive`` with the generic reader."""
+        return self.glob_stream(
+            expression, reader=readers.generic, archive_source=archive, **kwargs
+        )
+
+    def add_files(
+        self, archive: InMemoryArchiveSource, directory: Path, names: dict[str, float]
+    ) -> Path:
+        """Register one marker file per ``name`` under ``directory`` and return it."""
+        for name, value in names.items():
+            archive.add(directory / name, self.marker(value))
+        return directory
+
+
+MATRIX_KIND = StreamKind(
+    name="matrices",
+    stem="A",
+    marker=_marker_matrix,
+    glob_stream=GlobMatrixStream,
+    npy_stream=NpyMatrixStream,
+    txt_stream=TxtMatrixStream,
+    open=open_matrix_stream,
+    load=lambda stream, sample_id: stream.load_dense_sample(sample_id).matrix,
+    iterations=lambda stream: [
+        [s.sample_id for s in stream.iter_dense_samples()],
+        [s.sample_id for s in stream.iter_sparse_samples()],
+    ],
+    npy_stack=np.stack([_marker_matrix(1.0), _marker_matrix(5.0)]),
+    npy_too_many_dims=np.ones((2, 2, 2, 2), dtype=np.float64),
+    txt_wrong_rank=np.array([1.0, 2.0, 3.0]),
+)
+VECTOR_KIND = StreamKind(
+    name="vectors",
+    stem="b",
+    marker=_marker_vector,
+    glob_stream=GlobVectorStream,
+    npy_stream=NpyVectorStream,
+    txt_stream=TxtVectorStream,
+    open=open_vector_stream,
+    load=lambda stream, sample_id: stream.load_sample(sample_id).vector,
+    iterations=lambda stream: [[s.sample_id for s in stream.iter_samples()]],
+    npy_stack=np.stack([_marker_vector(1.0), _marker_vector(5.0)]),
+    npy_too_many_dims=np.ones((2, 2, 2), dtype=np.float64),
+    txt_wrong_rank=np.ones((3, 2), dtype=np.float64),
+)
+
+
+@pytest.fixture(params=[MATRIX_KIND, VECTOR_KIND], ids=["matrix", "vector"])
+def kind(request: pytest.FixtureRequest) -> StreamKind:
+    """Each stream family in turn."""
+    return request.param
 
 
 @pytest.fixture
@@ -41,95 +161,406 @@ def readers(archive: InMemoryArchiveSource) -> MatrixReaders:
     return archive.readers()
 
 
-def test_open_matrix_stream_from_npy_stack(
-    archive: InMemoryArchiveSource, readers: MatrixReaders
-) -> None:
-    matrix_stack = np.array(
-        [
-            [[2.0, 0.0], [0.0, 3.0]],
-            [[4.0, 1.0], [1.0, 5.0]],
-        ],
-        dtype=np.float64,
+@pytest.fixture
+def numbered_dir(kind: StreamKind, archive: InMemoryArchiveSource) -> Path:
+    """Files ``<stem>_2``, ``<stem>_10``, ``<stem>_007`` (``.txt``) with the markers above."""
+    return kind.add_files(
+        archive,
+        ARCHIVE_DIR / f"numbered_{kind.name}",
+        {f"{kind.stem}_{digits}.txt": value for digits, value in NUMBERED_MARKERS.items()},
     )
-    matrix_path = archive.add(ARCHIVE_DIR / "matrices.npy", matrix_stack)
-
-    stream = open_matrix_stream(str(matrix_path), readers=readers, archive_source=archive)
-    assert stream.sample_ids == (0, 1)
-
-    dense_one = stream.load_dense_sample(1)
-    np.testing.assert_allclose(dense_one.matrix, matrix_stack[1])
-
-    sparse_zero = stream.load_sparse_sample(0)
-    reconstructed = np.zeros(sparse_zero.size, dtype=np.float64)
-    reconstructed[sparse_zero.indices[0], sparse_zero.indices[1]] = sparse_zero.values
-    np.testing.assert_allclose(reconstructed, matrix_stack[0])
 
 
-def test_bind_sources_broadcasts_single_matrix_to_many_rhs() -> None:
-    bindings = bind_sources(
-        matrix_ids=(0,),
-        rhs_ids=(0, 1, 2),
-    )
-    assert [item.matrix_sample_id for item in bindings] == [0, 0, 0]
-    assert [item.rhs_sample_id for item in bindings] == [0, 1, 2]
+# --- sample ids and iteration ----------------------------------------------------
 
 
-def test_open_vector_stream_from_npy_stack(
-    archive: InMemoryArchiveSource, readers: MatrixReaders
+def test_glob_derives_ids_from_trailing_digits_and_iterates_in_id_order(
+    kind: StreamKind, archive: InMemoryArchiveSource, readers: MatrixReaders, numbered_dir: Path
 ) -> None:
-    rhs = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)
-    rhs_path = archive.add(ARCHIVE_DIR / "rhs.npy", rhs)
+    stream = kind.glob(str(numbered_dir / f"{kind.stem}_*.txt"), archive, readers)
 
-    stream = open_vector_stream(str(rhs_path), readers=readers, archive_source=archive)
-    assert stream.sample_ids == (0, 1)
-    np.testing.assert_allclose(stream.load_sample(1).vector, rhs[1])
-
-
-@pytest.fixture
-def arbitrary_named_txt_matrices(archive: InMemoryArchiveSource) -> tuple[Path, int]:
-    """Three 5×5 SPD matrices with parameter-encoded filenames (no sequential integer ID)."""
-    rng = np.random.default_rng(99)
-    mat_dir = ARCHIVE_DIR / "arbitrary_matrices"
-    n = 5
-    for e1, e2 in _ARBITRARY_PARAMETER_SETS:
-        archive.add(mat_dir / f"E1_{e1}_E2_{e2}_matrix.txt", spd_matrix(rng, n))
-    return mat_dir, n
+    assert stream.sample_ids == (2, 7, 10)
+    assert {tuple(ids) for ids in kind.iterations(stream)} == {(2, 7, 10)}
+    for sample_id, value in ((2, 2.0), (7, 7.0), (10, 10.0)):
+        np.testing.assert_array_equal(kind.load(stream, sample_id), kind.marker(value))
 
 
-@pytest.fixture
-def arbitrary_named_txt_vectors(archive: InMemoryArchiveSource) -> Path:
-    """Three length-5 vectors with parameter-encoded filenames (no sequential integer ID)."""
-    rng = np.random.default_rng(42)
-    vec_dir = ARCHIVE_DIR / "vecs"
-    for e1, e2 in _ARBITRARY_PARAMETER_SETS:
-        archive.add(vec_dir / f"E1_{e1}_E2_{e2}_rhs.txt", rng.standard_normal(5))
-    return vec_dir
+def test_glob_custom_regex_selects_leading_digits(
+    kind: StreamKind, archive: InMemoryArchiveSource, readers: MatrixReaders
+) -> None:
+    directory = kind.add_files(
+        archive, ARCHIVE_DIR / "prefixed", {"12_case_3.txt": 12.0, "40_case_3.txt": 40.0}
+    )
+
+    stream = kind.glob(str(directory / "*_case_3.txt"), archive, readers, sample_id_regex=r"(\d+)")
+
+    assert stream.sample_ids == (12, 40)
+    np.testing.assert_array_equal(kind.load(stream, 12), kind.marker(12.0))
 
 
-@pytest.fixture
-def in_memory_subdomain_matrices(
-    archive: InMemoryArchiveSource, subdomain_matrices: dict[str, np.ndarray]
-) -> Path:
-    """The subdomain matrices registered in the in-memory archive."""
-    mat_dir = ARCHIVE_DIR / "subdomain_matrices"
-    for name, matrix in subdomain_matrices.items():
-        archive.add(mat_dir / name, matrix)
-    return mat_dir
-
-
-def test_enumerate_files_assigns_sequential_ids_in_name_order(
+@pytest.mark.parametrize(
+    ("names", "pattern"),
+    [
+        pytest.param(("alpha.txt",), "*.txt", id="filename-without-digits"),
+        pytest.param(("a_1.txt", "b_1.txt"), "*_1.txt", id="duplicate-sample-ids"),
+    ],
+)
+def test_glob_rejects_unusable_sample_ids(
+    kind: StreamKind,
     archive: InMemoryArchiveSource,
+    readers: MatrixReaders,
+    names: tuple[str, ...],
+    pattern: str,
 ) -> None:
-    paths = [ARCHIVE_DIR / f"file_z_{suffix}.txt" for suffix in ["c", "a", "b"]]
+    directory = kind.add_files(
+        archive, ARCHIVE_DIR / "bad_ids", {name: float(i) for i, name in enumerate(names)}
+    )
 
-    result = _enumerate_files(paths, EnumerateBy.NAME, archive)
+    with pytest.raises(ValueError):
+        kind.glob(str(directory / pattern), archive, readers)
 
-    assert sorted(result.keys()) == [0, 1, 2]
-    assert [result[i].name for i in range(3)] == [
-        "file_z_a.txt",
-        "file_z_b.txt",
-        "file_z_c.txt",
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        pytest.param("absent/{stem}_*.txt", id="missing-parent-directory"),
+        pytest.param("numbered_{name}/z_*.txt", id="no-match"),
+    ],
+)
+def test_glob_without_files_raises(
+    kind: StreamKind,
+    archive: InMemoryArchiveSource,
+    readers: MatrixReaders,
+    numbered_dir: Path,
+    expression: str,
+) -> None:
+    pattern = ARCHIVE_DIR / expression.format(stem=kind.stem, name=kind.name)
+
+    with pytest.raises(FileNotFoundError):
+        kind.glob(str(pattern), archive, readers)
+
+
+def test_glob_enumerate_by_name_ignores_the_ids_in_filenames(
+    kind: StreamKind, archive: InMemoryArchiveSource, readers: MatrixReaders, numbered_dir: Path
+) -> None:
+    stream = kind.glob(
+        str(numbered_dir / f"{kind.stem}_*.txt"), archive, readers, enumerate_by=EnumerateBy.NAME
+    )
+
+    # Sorted names are 007, 10, 2.
+    assert stream.sample_ids == (0, 1, 2)
+    for sample_id, value in ((0, 7.0), (1, 10.0), (2, 2.0)):
+        np.testing.assert_array_equal(kind.load(stream, sample_id), kind.marker(value))
+
+
+def test_factory_passes_enumerate_by_to_the_glob(
+    kind: StreamKind, archive: InMemoryArchiveSource, readers: MatrixReaders, numbered_dir: Path
+) -> None:
+    stream = kind.open(
+        str(numbered_dir / f"{kind.stem}_*.txt"),
+        enumerate_by=EnumerateBy.NAME,
+        readers=readers,
+        archive_source=archive,
+    )
+
+    assert stream.sample_ids == (0, 1, 2)
+
+
+def test_glob_unknown_sample_id_raises_key_error(
+    kind: StreamKind, archive: InMemoryArchiveSource, readers: MatrixReaders, numbered_dir: Path
+) -> None:
+    stream = kind.glob(str(numbered_dir / f"{kind.stem}_*.txt"), archive, readers)
+
+    with pytest.raises(KeyError):
+        kind.load(stream, 99)
+
+
+# --- index filters ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "loaded_markers"),
+    [
+        pytest.param({"include_indices": (10, 2)}, {2: 2.0, 10: 10.0}, id="include"),
+        pytest.param({"exclude_indices": (7,)}, {2: 2.0, 10: 10.0}, id="exclude"),
+        pytest.param(
+            {"enumerate_by": EnumerateBy.NAME, "include_indices": (0, 2)},
+            {0: 7.0, 2: 2.0},
+            id="include-by-name",
+        ),
+        pytest.param(
+            {"enumerate_by": EnumerateBy.NAME, "exclude_indices": (1,)},
+            {0: 7.0, 2: 2.0},
+            id="exclude-by-name",
+        ),
+    ],
+)
+def test_glob_index_filters_keep_the_ids_of_the_surviving_files(
+    kind: StreamKind,
+    archive: InMemoryArchiveSource,
+    readers: MatrixReaders,
+    numbered_dir: Path,
+    kwargs: dict[str, Any],
+    loaded_markers: dict[int, float],
+) -> None:
+    stream = kind.glob(str(numbered_dir / f"{kind.stem}_*.txt"), archive, readers, **kwargs)
+
+    assert stream.sample_ids == tuple(loaded_markers)
+    for sample_id, value in loaded_markers.items():
+        np.testing.assert_array_equal(kind.load(stream, sample_id), kind.marker(value))
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param({"include_indices": (2,), "exclude_indices": (7,)}, id="include-and-exclude"),
+        pytest.param({"include_indices": (2, 99)}, id="include-unknown-id"),
+        pytest.param({"exclude_indices": (99,)}, id="exclude-unknown-id"),
+        pytest.param({"exclude_indices": (2, 7, 10)}, id="exclude-every-sample"),
+    ],
+)
+def test_glob_rejects_inconsistent_index_filters(
+    kind: StreamKind,
+    archive: InMemoryArchiveSource,
+    readers: MatrixReaders,
+    numbered_dir: Path,
+    kwargs: dict[str, Any],
+) -> None:
+    with pytest.raises(ValueError):
+        kind.glob(str(numbered_dir / f"{kind.stem}_*.txt"), archive, readers, **kwargs)
+
+
+@pytest.mark.parametrize("option", ["include_indices", "exclude_indices"])
+def test_factory_index_filters_require_a_glob_source(
+    kind: StreamKind, archive: InMemoryArchiveSource, readers: MatrixReaders, option: str
+) -> None:
+    path = archive.add(ARCHIVE_DIR / "single.npy", kind.marker(1.0))
+
+    with pytest.raises(ValueError):
+        kind.open(str(path), readers=readers, archive_source=archive, **{option: (0,)})
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param({"sample_id_regex": r"(\d+)", "enumerate_by": EnumerateBy.NAME}, id="regex"),
+        pytest.param({"include_indices": (0, 1), "exclude_indices": (2,)}, id="indices"),
+    ],
+)
+def test_source_config_rejects_conflicting_options(kwargs: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        SourceConfig(**kwargs)
+
+
+# --- glob loading ----------------------------------------------------------------
+
+
+def test_glob_loads_npy_and_txt_from_one_pattern(
+    kind: StreamKind, archive: InMemoryArchiveSource, readers: MatrixReaders
+) -> None:
+    directory = ARCHIVE_DIR / "mixed"
+    archive.add(directory / f"{kind.stem}_1.txt", kind.marker(1.0))
+    archive.add(directory / f"{kind.stem}_2.npy", kind.marker(2.0))
+
+    stream = kind.glob(str(directory / f"{kind.stem}_*"), archive, readers)
+
+    assert stream.sample_ids == (1, 2)
+    np.testing.assert_array_equal(kind.load(stream, 1), kind.marker(1.0))
+    np.testing.assert_array_equal(kind.load(stream, 2), kind.marker(2.0))
+
+
+def test_glob_rejects_unsupported_extension_at_load(
+    kind: StreamKind, archive: InMemoryArchiveSource
+) -> None:
+    """The suffix check is the real reader's; it fails before reading any bytes."""
+    archive.add(ARCHIVE_DIR / "csv" / f"{kind.stem}_1.csv", kind.marker(1.0))
+    stream = kind.glob_stream(
+        str(ARCHIVE_DIR / "csv" / f"{kind.stem}_*"),
+        reader=partial(read_matrix, lazy=True),
+        archive_source=archive,
+    )
+
+    with pytest.raises(ValueError):
+        kind.load(stream, 1)
+
+
+@pytest.mark.parametrize(
+    ("name", "contents"),
+    [
+        pytest.param(
+            "A_1.npy", np.stack([_marker_matrix(1.0), _marker_matrix(2.0)]), id="stacked-npy"
+        ),
+        pytest.param("A_1.txt", np.array([1.0, 2.0, 3.0]), id="flat-txt"),
+    ],
+)
+def test_glob_matrix_rejects_non_2d_file(
+    archive: InMemoryArchiveSource, readers: MatrixReaders, name: str, contents: np.ndarray
+) -> None:
+    archive.add(ARCHIVE_DIR / "bad" / name, contents)
+    stream = MATRIX_KIND.glob(str(ARCHIVE_DIR / "bad" / "A_*"), archive, readers)
+
+    with pytest.raises(ValueError):
+        MATRIX_KIND.load(stream, 1)
+
+
+def test_glob_vector_reshapes_a_column_npy_to_one_vector(
+    archive: InMemoryArchiveSource, readers: MatrixReaders
+) -> None:
+    """A glob-matched (n,1) .npy is one column vector, not a stack of n scalars."""
+    archive.add(ARCHIVE_DIR / "columns" / "b_1.npy", _marker_vector(1.0).reshape(3, 1))
+
+    stream = VECTOR_KIND.glob(str(ARCHIVE_DIR / "columns" / "b_*.npy"), archive, readers)
+
+    assert stream.sample_ids == (1,)
+    np.testing.assert_array_equal(VECTOR_KIND.load(stream, 1), _marker_vector(1.0))
+
+
+def test_glob_vector_rejects_a_genuinely_2d_npy(
+    archive: InMemoryArchiveSource, readers: MatrixReaders
+) -> None:
+    archive.add(ARCHIVE_DIR / "wide" / "b_1.npy", np.ones((3, 2), dtype=np.float64))
+    stream = VECTOR_KIND.glob(str(ARCHIVE_DIR / "wide" / "b_*.npy"), archive, readers)
+
+    with pytest.raises(ValueError):
+        VECTOR_KIND.load(stream, 1)
+
+
+@pytest.mark.parametrize(
+    ("path", "expression", "contents", "sample_id", "dense"),
+    [
+        pytest.param(
+            ARCHIVE_DIR / "stack.npy",
+            str(ARCHIVE_DIR / "stack.npy"),
+            np.stack([_marker_matrix(2.0), _marker_matrix(4.0)]),
+            1,
+            _marker_matrix(4.0),
+            id="npy-stack",
+        ),
+        pytest.param(
+            ARCHIVE_DIR / "sparse_source" / "A_1.txt",
+            str(ARCHIVE_DIR / "sparse_source" / "A_*.txt"),
+            np.array([[0.0, 2.0], [3.0, 0.0]]),
+            1,
+            np.array([[0.0, 2.0], [3.0, 0.0]]),
+            id="glob-txt",
+        ),
+    ],
+)
+def test_sparse_sample_components_reconstruct_the_dense_matrix(
+    archive: InMemoryArchiveSource,
+    readers: MatrixReaders,
+    path: Path,
+    expression: str,
+    contents: np.ndarray,
+    sample_id: int,
+    dense: np.ndarray,
+) -> None:
+    archive.add(path, contents)
+
+    sample = open_matrix_stream(
+        expression, readers=readers, archive_source=archive
+    ).load_sparse_sample(sample_id)
+
+    reconstructed = np.zeros(sample.size, dtype=np.float64)
+    reconstructed[sample.indices[0], sample.indices[1]] = sample.values
+    assert sample.size == dense.shape
+    np.testing.assert_array_equal(reconstructed, dense)
+
+
+# --- single-file streams ---------------------------------------------------------
+
+
+@pytest.mark.parametrize("suffix", ["npy", "txt"])
+def test_single_file_stream_exposes_one_sample(
+    kind: StreamKind, archive: InMemoryArchiveSource, readers: MatrixReaders, suffix: str
+) -> None:
+    path = archive.add(ARCHIVE_DIR / f"single.{suffix}", kind.marker(1.0))
+
+    stream = kind.single(suffix, path, readers)
+
+    assert stream.sample_ids == (0,)
+    assert {tuple(ids) for ids in kind.iterations(stream)} == {(0,)}
+    np.testing.assert_array_equal(kind.load(stream, 0), kind.marker(1.0))
+    with pytest.raises(KeyError):
+        kind.load(stream, 1)
+
+
+@pytest.mark.parametrize("suffix", ["npy", "txt"])
+def test_single_file_stream_rejects_an_array_of_the_wrong_rank(
+    kind: StreamKind, archive: InMemoryArchiveSource, readers: MatrixReaders, suffix: str
+) -> None:
+    bad = kind.npy_too_many_dims if suffix == "npy" else kind.txt_wrong_rank
+    path = archive.add(ARCHIVE_DIR / f"bad.{suffix}", bad)
+
+    with pytest.raises(ValueError):
+        kind.load(kind.single(suffix, path, readers), 0)
+
+
+def test_factory_npy_stack_exposes_every_sample(
+    kind: StreamKind, archive: InMemoryArchiveSource, readers: MatrixReaders
+) -> None:
+    path = archive.add(ARCHIVE_DIR / "stack.npy", kind.npy_stack)
+
+    stream = kind.open(str(path), readers=readers, archive_source=archive)
+
+    assert stream.sample_ids == (0, 1)
+    assert {tuple(ids) for ids in kind.iterations(stream)} == {(0, 1)}
+    np.testing.assert_array_equal(kind.load(stream, 1), kind.npy_stack[1])
+
+
+def test_single_file_vector_npy_treats_a_column_as_a_stack_of_scalars(
+    archive: InMemoryArchiveSource, readers: MatrixReaders
+) -> None:
+    """Unlike the glob variant, a single-file (n,1) .npy is n length-1 vectors."""
+    path = archive.add(ARCHIVE_DIR / "column.npy", _marker_vector(1.0).reshape(3, 1))
+
+    stream = NpyVectorStream(path, reader=readers.dense)
+
+    assert stream.sample_ids == (0, 1, 2)
+    np.testing.assert_array_equal(VECTOR_KIND.load(stream, 0), np.array([1.0]))
+
+
+# --- factory dispatch ------------------------------------------------------------
+
+
+def test_factory_selects_the_stream_type_by_expression(
+    kind: StreamKind, archive: InMemoryArchiveSource, readers: MatrixReaders
+) -> None:
+    npy_path = archive.add(ARCHIVE_DIR / "one.npy", kind.marker(1.0))
+    txt_path = archive.add(ARCHIVE_DIR / "one.txt", kind.marker(1.0))
+    archive.add(ARCHIVE_DIR / "globbed" / f"{kind.stem}_1.txt", kind.marker(1.0))
+    expressions = [
+        str(npy_path),
+        str(txt_path),
+        str(ARCHIVE_DIR / "globbed" / f"{kind.stem}_*.txt"),
     ]
+
+    streams = [kind.open(e, readers=readers, archive_source=archive) for e in expressions]
+
+    assert [type(stream) for stream in streams] == [
+        kind.npy_stream,
+        kind.txt_stream,
+        kind.glob_stream,
+    ]
+
+
+def test_factory_rejects_unknown_suffix(
+    kind: StreamKind, archive: InMemoryArchiveSource, readers: MatrixReaders
+) -> None:
+    path = archive.add(ARCHIVE_DIR / "single.csv", kind.marker(1.0))
+
+    with pytest.raises(ValueError):
+        kind.open(str(path), readers=readers, archive_source=archive)
+
+
+def test_factory_missing_file_raises(
+    kind: StreamKind, archive: InMemoryArchiveSource, readers: MatrixReaders
+) -> None:
+    with pytest.raises(FileNotFoundError):
+        kind.open(str(ARCHIVE_DIR / "absent.npy"), readers=readers, archive_source=archive)
+
+
+# --- enumeration order -----------------------------------------------------------
 
 
 @pytest.fixture
@@ -141,15 +572,51 @@ def staggered_files(archive: InMemoryArchiveSource) -> list[Path]:
     ]
 
 
-def test_enumerate_files_assigns_sequential_ids_by_mtime(
-    archive: InMemoryArchiveSource, staggered_files: list[Path]
-) -> None:
-    result = _enumerate_files(staggered_files, EnumerateBy.MTIME, archive)
+def test_enumerate_by_name_assigns_ids_in_name_order(archive: InMemoryArchiveSource) -> None:
+    paths = [ARCHIVE_DIR / f"file_z_{suffix}.txt" for suffix in ["c", "a", "b"]]
 
-    # Creation order was c, a, b — IDs should follow mtime order
-    assert result[0].name == "file_c.txt"
-    assert result[1].name == "file_a.txt"
-    assert result[2].name == "file_b.txt"
+    result = _enumerate_files(paths, EnumerateBy.NAME, archive)
+
+    assert {i: path.name for i, path in result.items()} == {
+        0: "file_z_a.txt",
+        1: "file_z_b.txt",
+        2: "file_z_c.txt",
+    }
+
+
+@pytest.mark.parametrize("by", [EnumerateBy.MTIME, EnumerateBy.CTIME])
+def test_enumerate_by_time_assigns_ids_in_creation_order(
+    archive: InMemoryArchiveSource, staggered_files: list[Path], by: EnumerateBy
+) -> None:
+    result = _enumerate_files(staggered_files, by, archive)
+
+    assert {i: path.name for i, path in result.items()} == {
+        0: "file_c.txt",
+        1: "file_a.txt",
+        2: "file_b.txt",
+    }
+
+
+def test_enumerate_by_ctime_raises_without_creation_times(archive: InMemoryArchiveSource) -> None:
+    paths = [archive.add(ARCHIVE_DIR / name, np.zeros(1), mtime=0.0) for name in ("a.txt", "b.txt")]
+
+    with pytest.raises(ValueError, match="creation times"):
+        _enumerate_files(paths, EnumerateBy.CTIME, archive)
+
+
+def test_enumerate_breaks_timestamp_ties_by_name(archive: InMemoryArchiveSource) -> None:
+    paths = [
+        archive.add(ARCHIVE_DIR / f"file_{suffix}.txt", np.zeros(1), mtime=1_000_000.0)
+        for suffix in ["c", "b", "a"]
+    ]
+
+    result = _enumerate_files(paths, EnumerateBy.MTIME, archive)
+
+    assert {i: path.name for i, path in result.items()} == {
+        0: "file_a.txt",
+        1: "file_b.txt",
+        2: "file_c.txt",
+    }
 
 
 @pytest.mark.skipif(
@@ -171,300 +638,58 @@ def test_creation_time_rejects_stat_without_birthtime() -> None:
     )
 
 
-def test_enumerate_files_assigns_sequential_ids_by_ctime(
-    archive: InMemoryArchiveSource, staggered_files: list[Path]
+# --- binding ids -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        pytest.param(
+            {"matrix_ids": (0,), "rhs_ids": (0, 1, 2)},
+            [(0, 0, None, ()), (0, 1, None, ()), (0, 2, None, ())],
+            id="single-matrix-broadcasts-to-rhs",
+        ),
+        pytest.param(
+            {"matrix_ids": (0, 1, 2), "solution_ids": (0, 1, 2)},
+            [(0, None, 0, ()), (1, None, 1, ()), (2, None, 2, ())],
+            id="solutions-pair-per-matrix",
+        ),
+        pytest.param(
+            {"matrix_ids": (0,), "solution_ids": (0, 1, 2)},
+            [(0, None, 0, ()), (0, None, 1, ()), (0, None, 2, ())],
+            id="single-matrix-broadcasts-to-solutions",
+        ),
+        pytest.param(
+            {"matrix_ids": (0,), "rhs_ids": (0, 1, 2), "parameters_ids_list": ((0,),)},
+            [(0, 0, None, (0,)), (0, 1, None, (0,)), (0, 2, None, (0,))],
+            id="every-rhs-of-a-matrix-reuses-its-parameter",
+        ),
+    ],
+)
+def test_bind_sources_pairs_ids(
+    kwargs: dict[str, Any], expected: list[tuple[int, int | None, int | None, tuple[int, ...]]]
 ) -> None:
-    result = _enumerate_files(staggered_files, EnumerateBy.CTIME, archive)
+    bindings = bind_sources(**kwargs)
 
-    assert [result[i].name for i in range(3)] == ["file_c.txt", "file_a.txt", "file_b.txt"]
-
-
-def test_enumerate_files_by_ctime_raises_without_creation_times(
-    archive: InMemoryArchiveSource,
-) -> None:
-    paths = [archive.add(ARCHIVE_DIR / name, np.zeros(1), mtime=0.0) for name in ("a.txt", "b.txt")]
-
-    with pytest.raises(ValueError, match="creation times"):
-        _enumerate_files(paths, EnumerateBy.CTIME, archive)
+    assert [
+        (b.matrix_sample_id, b.rhs_sample_id, b.solution_sample_id, b.parameters_sample_ids)
+        for b in bindings
+    ] == expected
 
 
-def test_enumerate_files_breaks_timestamp_ties_by_name(archive: InMemoryArchiveSource) -> None:
-    paths = [
-        archive.add(ARCHIVE_DIR / f"file_{suffix}.txt", np.zeros(1), mtime=1_000_000.0)
-        for suffix in ["c", "b", "a"]
-    ]
-
-    result = _enumerate_files(paths, EnumerateBy.MTIME, archive)
-
-    assert [result[i].name for i in range(3)] == ["file_a.txt", "file_b.txt", "file_c.txt"]
-
-
-def test_glob_matrix_stream_enumerate_by_name_with_arbitrary_filenames(
-    archive: InMemoryArchiveSource,
-    readers: MatrixReaders,
-    arbitrary_named_txt_matrices: tuple[Path, int],
-) -> None:
-    mat_dir, n = arbitrary_named_txt_matrices
-    stream = GlobMatrixStream(
-        str(mat_dir / "E1_*_matrix.txt"),
-        enumerate_by=EnumerateBy.NAME,
-        reader=readers.generic,
-        archive_source=archive,
-    )
-
-    assert stream.sample_ids == (0, 1, 2)
-    sample = stream.load_dense_sample(0)
-    assert sample.matrix.shape == (n, n)
-
-
-def test_glob_vector_stream_enumerate_by_name_with_arbitrary_filenames(
-    archive: InMemoryArchiveSource, readers: MatrixReaders, arbitrary_named_txt_vectors: Path
-) -> None:
-    stream = GlobVectorStream(
-        str(arbitrary_named_txt_vectors / "E1_*_rhs.txt"),
-        enumerate_by=EnumerateBy.NAME,
-        reader=readers.generic,
-        archive_source=archive,
-    )
-
-    assert stream.sample_ids == (0, 1, 2)
-    assert stream.load_sample(0).vector.shape == (5,)
-
-
-def test_open_matrix_stream_glob_with_enumerate_by_name(
-    archive: InMemoryArchiveSource,
-    readers: MatrixReaders,
-    arbitrary_named_txt_matrices: tuple[Path, int],
-) -> None:
-    mat_dir, _ = arbitrary_named_txt_matrices
-    stream = open_matrix_stream(
-        str(mat_dir / "E1_*_matrix.txt"),
-        enumerate_by=EnumerateBy.NAME,
-        readers=readers,
-        archive_source=archive,
-    )
-
-    assert stream.sample_ids == (0, 1, 2)
-
-
-def test_glob_matrix_stream_enumerate_by_name_is_reproducible(
-    archive: InMemoryArchiveSource,
-    readers: MatrixReaders,
-    arbitrary_named_txt_matrices: tuple[Path, int],
-) -> None:
-    mat_dir, _ = arbitrary_named_txt_matrices
-    expr = str(mat_dir / "E1_*_matrix.txt")
-
-    stream1 = GlobMatrixStream(
-        expr, enumerate_by=EnumerateBy.NAME, reader=readers.generic, archive_source=archive
-    )
-    stream2 = GlobMatrixStream(
-        expr, enumerate_by=EnumerateBy.NAME, reader=readers.generic, archive_source=archive
-    )
-
-    assert stream1.sample_ids == stream2.sample_ids
-    for sid in stream1.sample_ids:
-        np.testing.assert_array_equal(
-            stream1.load_dense_sample(sid).matrix,
-            stream2.load_dense_sample(sid).matrix,
-        )
-
-
-def test_source_config_rejects_both_sample_id_regex_and_enumerate_by() -> None:
-    from neuralls.platform.config.models.data_models import SourceConfig
-
-    with pytest.raises(ValidationError):
-        SourceConfig(sample_id_regex=r"(\d+)", enumerate_by=EnumerateBy.NAME)
-
-
-def test_source_config_accepts_enumerate_by_without_regex() -> None:
-    from neuralls.platform.config.models.data_models import SourceConfig
-
-    config = SourceConfig(enumerate_by=EnumerateBy.NAME)
-    assert config.enumerate_by == EnumerateBy.NAME
-
-
-def test_glob_matrix_stream_exclude_indices_drops_sample_without_renumbering(
-    archive: InMemoryArchiveSource,
-    readers: MatrixReaders,
-    in_memory_subdomain_matrices: Path,
-) -> None:
-    stream = GlobMatrixStream(
-        str(in_memory_subdomain_matrices / "*_subdomain_1_Kaa.txt"),
-        enumerate_by=EnumerateBy.NAME,
-        exclude_indices=(1,),
-        reader=readers.generic,
-        archive_source=archive,
-    )
-
-    assert stream.sample_ids == (0, 2)
-
-
-def test_glob_matrix_stream_include_indices_restricts_to_subset(
-    archive: InMemoryArchiveSource,
-    readers: MatrixReaders,
-    in_memory_subdomain_matrices: Path,
-) -> None:
-    stream = GlobMatrixStream(
-        str(in_memory_subdomain_matrices / "*_subdomain_1_Kaa.txt"),
-        enumerate_by=EnumerateBy.NAME,
-        include_indices=(0, 2),
-        reader=readers.generic,
-        archive_source=archive,
-    )
-
-    assert stream.sample_ids == (0, 2)
-
-
-def test_glob_vector_stream_exclude_indices_drops_sample(
-    archive: InMemoryArchiveSource, readers: MatrixReaders, arbitrary_named_txt_vectors: Path
-) -> None:
-    stream = GlobVectorStream(
-        str(arbitrary_named_txt_vectors / "E1_*_rhs.txt"),
-        enumerate_by=EnumerateBy.NAME,
-        exclude_indices=(0,),
-        reader=readers.generic,
-        archive_source=archive,
-    )
-
-    assert stream.sample_ids == (1, 2)
-
-
-def test_glob_matrix_stream_include_and_exclude_indices_are_mutually_exclusive(
-    archive: InMemoryArchiveSource,
-    readers: MatrixReaders,
-    in_memory_subdomain_matrices: Path,
-) -> None:
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        pytest.param({"matrix_ids": (0, 1, 2), "solution_ids": (0, 1)}, id="solution-count"),
+        pytest.param(
+            {"matrix_ids": (0, 1), "parameters_ids_list": ((0, 1, 2),)}, id="parameter-id-no-matrix"
+        ),
+        pytest.param(
+            {"matrix_ids": (0,), "rhs_ids": (0,), "parameters_ids_list": ((0, 1, 2),)},
+            id="single-matrix-extra-parameters",
+        ),
+    ],
+)
+def test_bind_sources_rejects_mismatched_ids(kwargs: dict[str, Any]) -> None:
     with pytest.raises(ValueError):
-        GlobMatrixStream(
-            str(in_memory_subdomain_matrices / "*_subdomain_1_Kaa.txt"),
-            enumerate_by=EnumerateBy.NAME,
-            include_indices=(0,),
-            exclude_indices=(1,),
-            reader=readers.generic,
-            archive_source=archive,
-        )
-
-
-def test_glob_matrix_stream_include_indices_rejects_unknown_id(
-    archive: InMemoryArchiveSource,
-    readers: MatrixReaders,
-    in_memory_subdomain_matrices: Path,
-) -> None:
-    with pytest.raises(ValueError):
-        GlobMatrixStream(
-            str(in_memory_subdomain_matrices / "*_subdomain_1_Kaa.txt"),
-            enumerate_by=EnumerateBy.NAME,
-            include_indices=(0, 99),
-            reader=readers.generic,
-            archive_source=archive,
-        )
-
-
-def test_glob_matrix_stream_exclude_indices_rejects_unknown_id(
-    archive: InMemoryArchiveSource,
-    readers: MatrixReaders,
-    in_memory_subdomain_matrices: Path,
-) -> None:
-    """A typo'd exclude id must fail loudly, not silently leave the leak in place."""
-    with pytest.raises(ValueError):
-        GlobMatrixStream(
-            str(in_memory_subdomain_matrices / "*_subdomain_1_Kaa.txt"),
-            enumerate_by=EnumerateBy.NAME,
-            exclude_indices=(99,),
-            reader=readers.generic,
-            archive_source=archive,
-        )
-
-
-def test_glob_matrix_stream_exclude_indices_rejects_emptying_all_samples(
-    archive: InMemoryArchiveSource,
-    readers: MatrixReaders,
-    in_memory_subdomain_matrices: Path,
-) -> None:
-    with pytest.raises(ValueError):
-        GlobMatrixStream(
-            str(in_memory_subdomain_matrices / "*_subdomain_1_Kaa.txt"),
-            enumerate_by=EnumerateBy.NAME,
-            exclude_indices=(0, 1, 2),
-            reader=readers.generic,
-            archive_source=archive,
-        )
-
-
-def test_open_matrix_stream_exclude_indices_requires_glob_source(
-    archive: InMemoryArchiveSource, readers: MatrixReaders
-) -> None:
-    matrix_path = archive.add(ARCHIVE_DIR / "matrix.npy", np.eye(3))
-
-    with pytest.raises(ValueError):
-        open_matrix_stream(
-            str(matrix_path), exclude_indices=(0,), readers=readers, archive_source=archive
-        )
-
-
-def test_source_config_rejects_both_include_and_exclude_indices() -> None:
-    from neuralls.platform.config.models.data_models import SourceConfig
-
-    with pytest.raises(ValidationError):
-        SourceConfig(include_indices=(0, 1), exclude_indices=(2,))
-
-
-def test_bind_sources_pairs_solution_ids_per_matrix() -> None:
-    """solution_ids are bound per-matrix, mirroring the rhs_ids pattern."""
-    bindings = bind_sources(
-        matrix_ids=(0, 1, 2),
-        solution_ids=(0, 1, 2),
-    )
-    assert [b.matrix_sample_id for b in bindings] == [0, 1, 2]
-    assert [b.solution_sample_id for b in bindings] == [0, 1, 2]
-
-
-def test_bind_sources_solution_mismatch_raises() -> None:
-    """Mismatched solution_ids vs matrix_ids raises ValueError for multi-matrix case."""
-    with pytest.raises(ValueError):
-        bind_sources(
-            matrix_ids=(0, 1, 2),
-            solution_ids=(0, 1),  # missing id 2
-        )
-
-
-def test_bind_sources_single_matrix_broadcasts_to_many_solution_ids() -> None:
-    """Single matrix broadcasts across solution_ids (mirrors rhs_ids broadcast)."""
-    bindings = bind_sources(
-        matrix_ids=(0,),
-        solution_ids=(0, 1, 2),
-    )
-    assert len(bindings) == 3
-    assert all(b.matrix_sample_id == 0 for b in bindings)
-    assert [b.solution_sample_id for b in bindings] == [0, 1, 2]
-    assert all(b.rhs_sample_id is None for b in bindings)
-
-
-def test_bind_sources_parameter_ids_must_match_matrix_ids() -> None:
-    """A parameter stream with an id no matrix has is rejected, not silently unbound."""
-    with pytest.raises(ValueError):
-        bind_sources(
-            matrix_ids=(0, 1),
-            parameters_ids_list=((0, 1, 2),),
-        )
-
-
-def test_bind_sources_single_matrix_rejects_extra_parameter_ids() -> None:
-    """One matrix with several parameter ids is an input error, not a broadcast."""
-    with pytest.raises(ValueError):
-        bind_sources(
-            matrix_ids=(0,),
-            rhs_ids=(0,),
-            parameters_ids_list=((0, 1, 2),),
-        )
-
-
-def test_bind_sources_each_binding_takes_its_matrix_parameter() -> None:
-    """Parameters belong to the matrix, so every rhs of one matrix reuses that matrix's id."""
-    bindings = bind_sources(
-        matrix_ids=(0,),
-        rhs_ids=(0, 1, 2),
-        parameters_ids_list=((0,),),
-    )
-    assert [b.parameters_sample_ids for b in bindings] == [(0,), (0,), (0,)]
+        bind_sources(**kwargs)

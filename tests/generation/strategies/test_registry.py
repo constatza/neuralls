@@ -6,10 +6,10 @@ import numpy as np
 
 from neuralls.domain.generation import run_generation
 from neuralls.domain.generation.runner import _registry
-from neuralls.platform.storage.archive_source import FsArchiveSource
+from tests.fakes.archive_source import InMemoryArchiveSource
 from tests.generation_support import solved_rows
 
-ARCHIVE_SOURCE = FsArchiveSource()
+ARCHIVE_SOURCE = InMemoryArchiveSource()
 
 EXPECTED_STRATEGIES = {
     "random",
