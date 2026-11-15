@@ -115,7 +115,9 @@ def test_symmetric_mtx_written_by_mmwrite_expands_to_full(
 ) -> None:
     path = tmp_path / "symmetric_auto.mtx"
     mmwrite(path, csr_array(symmetric_reference))
-    assert "symmetric" in path.read_text(encoding="utf-8").splitlines()[0]
+    assert path.read_text(encoding="utf-8").splitlines()[0] == (
+        "%%MatrixMarket matrix coordinate real symmetric"
+    )
 
     loaded = read_matrix(path)
 

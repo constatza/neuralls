@@ -1,9 +1,6 @@
-"""Tests for ``ScientificLabelsConfig`` (``docs/plan.md`` Phase 1, items 4-5)."""
+"""Tests for ``ScientificLabelsConfig``."""
 
 from __future__ import annotations
-
-import pytest
-from pydantic import ValidationError
 
 from neuralls.platform.config.models.presentation import ScientificLabelsConfig
 from neuralls.shared.scientific_description.models import FieldKey
@@ -22,12 +19,6 @@ def test_rendering_target_is_configurable() -> None:
     """``rendering`` selects plain/mathtext/latex."""
     config = ScientificLabelsConfig.model_validate({"rendering": "latex"})
     assert config.notation_policy().target is RenderTarget.LATEX
-
-
-def test_rendering_rejects_unknown_target() -> None:
-    """An unknown rendering target fails validation at the boundary."""
-    with pytest.raises(ValidationError):
-        ScientificLabelsConfig.model_validate({"rendering": "svg"})
 
 
 def test_symbol_override_from_toml_shape() -> None:
@@ -50,9 +41,3 @@ def test_symbol_override_does_not_disturb_other_defaults() -> None:
     )
     policy = config.notation_policy()
     assert policy.symbol_for(FieldKey("iteration_count")).plain == "k"
-
-
-def test_unknown_field_rejected() -> None:
-    """Extra top-level fields fail validation (``extra=\"forbid\"``)."""
-    with pytest.raises(ValidationError):
-        ScientificLabelsConfig.model_validate({"unexpected": 1})

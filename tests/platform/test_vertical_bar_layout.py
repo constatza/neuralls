@@ -50,11 +50,12 @@ def test_the_overhang_shrinks_for_labels_further_right() -> None:
 
 def test_plain_labels_are_wrapped_at_spaces_and_mathtext_lines_are_kept() -> None:
     plain = wrap_axis_label("Incomplete Cholesky with level of fill")
-    math = wrap_axis_label("Neural AMG preconditioner ($k=20$, $\\mu=0$)")
+    mathtext = "Neural AMG preconditioner ($k=20$, $\\mu=0$)"
+    math = wrap_axis_label(mathtext)
 
     assert plain == "Incomplete Cholesky with\nlevel of fill"
     assert max(len(line) for line in plain.split("\n")) <= AXIS_LABEL_WRAP
-    assert "\n" not in math
+    assert math == mathtext
 
 
 def test_the_paired_scatter_grows_by_its_legend_only_sideways() -> None:

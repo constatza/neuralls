@@ -78,7 +78,14 @@ def incomplete_datasets(
     [
         (("a", "b"), {"a": "a", "b": "a"}, ("Gaussian",)),
         (("a", "c"), {"a": "a", "c": "c"}, ("Gaussian", "Gaussian (μ=1, σ=1)")),
-        (("a", "d"), {"a": "a", "d": "d"}, ("Test problem", "Other problem")),
+        (
+            ("a", "d"),
+            {"a": "a", "d": "d"},
+            (
+                "Test problem | Gaussian CG Residuals (k=20, N=100)",
+                "Other problem | Gaussian CG Residuals (k=20, N=100)",
+            ),
+        ),
     ],
 )
 def test_history_legend_names_only_varying_group_context(
@@ -93,13 +100,7 @@ def test_history_legend_names_only_varying_group_context(
     result = _history_legend(systems, plotted, notation, datasets)
 
     assert result.group_for_system == expected_groups
-    texts = tuple(entry.text for entry in result.legend.entries.values())
-    assert len(texts) == len(expected_text)
-    for text, expected in zip(texts, expected_text, strict=True):
-        assert expected in text
-        assert "Comparison matrix set:" not in text
-        assert "matrix " not in text
-        assert "RHS " not in text
+    assert tuple(entry.text for entry in result.legend.entries.values()) == expected_text
 
 
 def test_history_legend_combines_dataset_and_recipe_only_when_both_vary(
@@ -111,10 +112,11 @@ def test_history_legend_combines_dataset_and_recipe_only_when_both_vary(
     result = _history_legend(systems, ("a", "c", "d"), notation, datasets)
 
     assert result.group_for_system == {"a": "a", "c": "c", "d": "d"}
-    texts = tuple(entry.text for entry in result.legend.entries.values())
-    assert "Test problem" in texts[0] and "Gaussian" in texts[0]
-    assert "Test problem" in texts[1] and "Gaussian" in texts[1]
-    assert "Other problem" in texts[2] and "Gaussian" in texts[2]
+    assert tuple(entry.text for entry in result.legend.entries.values()) == (
+        "Test problem | Gaussian CG Residuals (k=20, N=100) | Gaussian",
+        "Test problem | Gaussian CG Residuals (k=20, N=100) | Gaussian (μ=1, σ=1)",
+        "Other problem | Gaussian CG Residuals (k=20, N=100) | Gaussian",
+    )
 
 
 def test_history_legend_rejects_missing_dataset(

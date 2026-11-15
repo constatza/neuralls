@@ -61,10 +61,13 @@ def test_ic0_slug_is_ascii_for_large_and_small_exponents() -> None:
 def test_amg_aggregation_slug_includes_theta_and_omega() -> None:
     """AMG aggregation coarsening's slug reflects theta/omega, including the auto-omega case."""
     cfg = AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig(theta=0.25, omega=0.67))
-    assert "aggregation_theta0p25_omega0p67" in cfg.name
+    assert cfg.name == "amg_levels2_pre2_post2_smootheromegaauto_aggregation_theta0p25_omega0p67"
 
     auto_omega = AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig(theta=0.25))
-    assert "aggregation_theta0p25_omegaauto" in auto_omega.name
+    assert (
+        auto_omega.name
+        == "amg_levels2_pre2_post2_smootheromegaauto_aggregation_theta0p25_omegaauto"
+    )
 
 
 def test_amg_slug_includes_levels_and_smoothing_steps() -> None:
@@ -89,7 +92,9 @@ def test_amg_slug_includes_levels_and_smoothing_steps() -> None:
 def test_amg_target_dim_slug_includes_target() -> None:
     """Target-dimension coarsening's slug reflects the requested target, not a realized value."""
     cfg = AMGPreconditionerConfig(coarsening=TargetDimCoarseningConfig(target_coarse_dim=10))
-    assert "targetdim10" in cfg.name
+    assert (
+        cfg.name == "amg_levels2_pre2_post2_smootheromegaauto_targetdim10_range0p01to0p99_step0p01"
+    )
 
 
 def test_amg_pod_slug_includes_rank_and_weighting() -> None:
@@ -101,7 +106,7 @@ def test_amg_pod_slug_includes_rank_and_weighting() -> None:
             weighting=PowerNormWeightingConfig(metric="l2", beta=1.0),
         )
     )
-    assert "pod_rank8_n-1_powernorm_l2_beta1" in cfg.name
+    assert cfg.name == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank8_n-1_powernorm_l2_beta1"
 
 
 def test_amg_pod_slug_includes_checkpoint_identity_when_fitted() -> None:
@@ -113,7 +118,10 @@ def test_amg_pod_slug_includes_checkpoint_identity_when_fitted() -> None:
             assignment="pod2g_run1",
         )
     )
-    assert "assignment_pod2g_run1" in cfg.name
+    assert (
+        cfg.name
+        == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank8_n-1_raw_assignment_pod2g_run1"
+    )
 
 
 def test_neural_pod_slug_always_includes_checkpoint_identity() -> None:
@@ -126,15 +134,16 @@ def test_neural_pod_slug_always_includes_checkpoint_identity() -> None:
             model_ref=RegisteredModelRefConfig(name="PodNet", selector=ByAlias(alias="best")),
         )
     )
-    assert "neuralpod_rank4_n-1_registry_podnet_best" in cfg.name
+    assert (
+        cfg.name
+        == "amg_levels2_pre2_post2_smootheromegaauto_neuralpod_rank4_n-1_registry_podnet_best"
+    )
 
 
 def test_adaptive_sa_slug_includes_num_candidates_theta_max_coarse() -> None:
     """alpha-SA's slug reflects its real coarse-space-size knobs."""
     cfg = AdaptiveSAPreconditionerConfig(num_candidates=3, theta=0.05, max_coarse=10)
-    assert "k3" in cfg.name
-    assert "theta0p05" in cfg.name
-    assert "maxcoarse10" in cfg.name
+    assert cfg.name == "asa_levels2_k3_iters5_maxcoarse10_theta0p05_omega1p33333_seed0"
 
 
 def test_adaptive_sa_slug_includes_previously_omitted_fields() -> None:
@@ -157,9 +166,10 @@ def test_adaptive_sa_slug_includes_previously_omitted_fields() -> None:
 def test_bootstrap_amg_slug_includes_kr_cycles_max_coarse() -> None:
     """Bootstrap AMG's slug reflects its own structural knobs."""
     cfg = BootstrapAMGPreconditionerConfig(k_r=8, n_bootstrap_cycles=2, max_coarse=10)
-    assert "kr8" in cfg.name
-    assert "cycles2" in cfg.name
-    assert "maxcoarse10" in cfg.name
+    assert (
+        cfg.name
+        == "bamg_levels10_kr8_eta4_cycles2_nu5_delta0p7_thetaad0p5_caliber4_gamma1p5_lsrTrue_maxcoarse10_seed0"
+    )
 
 
 def test_bootstrap_amg_slug_includes_previously_omitted_fields() -> None:
@@ -224,8 +234,10 @@ def test_neural_amg_slug_includes_both_transfer_operators() -> None:
             model_ref=RegisteredModelRefConfig(name="RestrictNet", selector=ByAlias(alias="best"))
         ),
     )
-    assert "registry_prolongnet_best" in cfg.name
-    assert "registry_restrictnet_best" in cfg.name
+    assert cfg.name == (
+        "neural_amg_levels2_pre2_post2_smootheromegaauto_aggomegaauto"
+        "_registry_prolongnet_best_registry_restrictnet_best"
+    )
 
 
 def test_neural_amg_slug_omits_restriction_when_unset() -> None:
@@ -235,8 +247,9 @@ def test_neural_amg_slug_omits_restriction_when_unset() -> None:
             model_ref=RegisteredModelRefConfig(name="ProlongNet", selector=ByAlias(alias="best"))
         ),
     )
-    assert cfg.name.endswith("registry_prolongnet_best")
-    assert "restrictnet" not in cfg.name
+    assert cfg.name == (
+        "neural_amg_levels2_pre2_post2_smootheromegaauto_aggomegaauto_registry_prolongnet_best"
+    )
 
 
 def test_neural_amg_slug_includes_previously_omitted_fields() -> None:

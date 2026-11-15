@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 
 from neuralls.domain.presentation.methods import (
@@ -17,6 +19,7 @@ from neuralls.domain.presentation.run_names import (
     HeldOutMatrixPart,
     MethodRunName,
     RhsDrawPart,
+    RunName,
     RunTimestamp,
     SessionRunName,
     SystemQualifier,
@@ -40,50 +43,86 @@ STAMP = RunTimestamp("Mon 26 Oct 2026 - 10:00:00")
 SOLE = SystemQualifier(())
 
 
-def test_session_name_is_the_editorial_title_and_stamp() -> None:
-    name = SessionRunName(EditorialPresentation("Spectral comparison"), STAMP, "session_comparison")
-    assert render_run_name(name, PLAIN) == "Spectral comparison | Mon 26 Oct 2026 - 10:00:00"
+def _comparison_scope(dataset: DatasetPresentation) -> ComparisonScopePresentation:
+    return ComparisonScopePresentation(dataset)
 
 
-def test_comparison_session_name_identifies_its_matrix_set(
+def _pod2g(dataset: DatasetPresentation) -> DatasetQualifiedMethodPresentation:
+    return DatasetQualifiedMethodPresentation(ScientificDescription("POD-2G"), dataset)
+
+
+def _graph_net(dataset: DatasetPresentation) -> EditorialTrainingSubject:
+    return EditorialTrainingSubject(EditorialPresentation("Graph net run"), dataset)
+
+
+@pytest.mark.parametrize(
+    ("build", "expected"),
+    [
+        pytest.param(
+            lambda ds: SessionRunName(
+                EditorialPresentation("Spectral comparison"), STAMP, "session_comparison"
+            ),
+            "Spectral comparison | Mon 26 Oct 2026 - 10:00:00",
+            id="session-editorial",
+        ),
+        pytest.param(
+            lambda ds: SessionRunName(_comparison_scope(ds), STAMP, "session_comparison"),
+            "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100) "
+            "| Mon 26 Oct 2026 - 10:00:00",
+            id="session-comparison-matrix-set",
+        ),
+        pytest.param(
+            lambda ds: SessionRunName(_comparison_scope(ds), STAMP, "session_training"),
+            "Test problem | Gaussian CG Residuals (k=20, N=100) | Mon 26 Oct 2026 - 10:00:00",
+            id="session-training-keeps-role",
+        ),
+        pytest.param(
+            lambda ds: SessionRunName(_comparison_scope(ds), STAMP, "session_evaluation"),
+            "Test problem | Gaussian CG Residuals (k=20, N=100) | Mon 26 Oct 2026 - 10:00:00",
+            id="session-evaluation-keeps-role",
+        ),
+        pytest.param(
+            lambda ds: ComparisonRunName(_comparison_scope(ds), SOLE, Untimed()),
+            "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100)",
+            id="untimed-comparison",
+        ),
+        pytest.param(
+            lambda ds: ComparisonRunName(
+                EditorialComparison(EditorialPresentation("Spectral study"), ds), SOLE, Untimed()
+            ),
+            "Spectral study | Comparison matrix set: Test problem "
+            "| Gaussian CG Residuals (k=20, N=100)",
+            id="editorial-comparison",
+        ),
+        pytest.param(
+            lambda ds: MethodRunName(StandaloneMethodPresentation(ScientificDescription("Jacobi"))),
+            "Jacobi",
+            id="standalone-method",
+        ),
+        pytest.param(
+            lambda ds: MethodRunName(_pod2g(ds)),
+            "POD-2G | Gaussian CG Residuals (k=20, N=100)",
+            id="dataset-trained-method",
+        ),
+        pytest.param(
+            lambda ds: TrainingRunName(_pod2g(ds), Untimed()),
+            "POD-2G | Gaussian CG Residuals (k=20, N=100)",
+            id="training-trained-method",
+        ),
+        pytest.param(
+            lambda ds: TrainingRunName(_graph_net(ds), STAMP),
+            "Graph net run | Test problem | Gaussian CG Residuals (k=20, N=100)"
+            " | Mon 26 Oct 2026 - 10:00:00",
+            id="training-editorial",
+        ),
+    ],
+)
+def test_run_name_renders_its_exact_text(
     dataset_presentation: DatasetPresentation,
+    build: Callable[[DatasetPresentation], RunName],
+    expected: str,
 ) -> None:
-    name = SessionRunName(
-        ComparisonScopePresentation(dataset_presentation), STAMP, "session_comparison"
-    )
-    assert render_run_name(name, PLAIN) == (
-        "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100) "
-        "| Mon 26 Oct 2026 - 10:00:00"
-    )
-
-
-@pytest.mark.parametrize("phase", ["session_training", "session_evaluation"])
-def test_noncomparison_session_dataset_keeps_its_training_role(
-    dataset_presentation: DatasetPresentation,
-    phase: str,
-) -> None:
-    name = SessionRunName(ComparisonScopePresentation(dataset_presentation), STAMP, phase)
-    assert render_run_name(name, PLAIN) == (
-        "Test problem | Gaussian CG Residuals (k=20, N=100) | Mon 26 Oct 2026 - 10:00:00"
-    )
-
-
-def test_untimed_comparison_name_identifies_matrix_set(
-    dataset_presentation: DatasetPresentation,
-) -> None:
-    title = ComparisonScopePresentation(dataset_presentation)
-    text = render_run_name(ComparisonRunName(title, SOLE, Untimed()), PLAIN)
-    assert text == "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100)"
-
-
-def test_editorial_comparison_name_is_followed_by_its_dataset(
-    dataset_presentation: DatasetPresentation,
-) -> None:
-    subject = EditorialComparison(EditorialPresentation("Spectral study"), dataset_presentation)
-    text = render_run_name(ComparisonRunName(subject, SOLE, Untimed()), PLAIN)
-    assert text == (
-        "Spectral study | Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100)"
-    )
+    assert render_run_name(build(dataset_presentation), PLAIN) == expected
 
 
 def test_sibling_systems_get_distinct_names(dataset_presentation: DatasetPresentation) -> None:
@@ -100,43 +139,6 @@ def test_sibling_systems_get_distinct_names(dataset_presentation: DatasetPresent
         for rhs in (0, 1)
     ]
     assert [text.rsplit(" | ", 1)[1] for text in texts] == ["matrix 3, RHS 0", "matrix 3, RHS 1"]
-
-
-def test_method_name_is_the_method_presentation_with_no_prefix() -> None:
-    method = StandaloneMethodPresentation(ScientificDescription("Jacobi"))
-    text = render_run_name(MethodRunName(method), PLAIN)
-    assert text == "Jacobi"
-
-
-def test_dataset_trained_method_names_its_dataset_exactly_once(
-    dataset_presentation: DatasetPresentation,
-) -> None:
-    method = DatasetQualifiedMethodPresentation(
-        ScientificDescription("POD-2G"), dataset_presentation
-    )
-    text = render_run_name(MethodRunName(method), PLAIN)
-    assert text == "POD-2G | Gaussian CG Residuals (k=20, N=100)"
-
-
-def test_training_name_of_a_trained_method_carries_its_dataset(
-    dataset_presentation: DatasetPresentation,
-) -> None:
-    subject = DatasetQualifiedMethodPresentation(
-        ScientificDescription("POD-2G"), dataset_presentation
-    )
-    text = render_run_name(TrainingRunName(subject, Untimed()), PLAIN)
-    assert text == "POD-2G | Gaussian CG Residuals (k=20, N=100)"
-
-
-def test_editorial_training_name_appends_the_dataset(
-    dataset_presentation: DatasetPresentation,
-) -> None:
-    subject = EditorialTrainingSubject(EditorialPresentation("Graph net run"), dataset_presentation)
-    text = render_run_name(TrainingRunName(subject, STAMP), PLAIN)
-    assert text == (
-        "Graph net run | Test problem | Gaussian CG Residuals (k=20, N=100)"
-        " | Mon 26 Oct 2026 - 10:00:00"
-    )
 
 
 def test_evaluation_name_renders_the_same_subject(

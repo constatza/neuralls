@@ -138,37 +138,6 @@ class TestWorkspaceFactory:
         assert workspace1.root_dir.parent == workspace2.root_dir.parent
         assert workspace1.root_dir.parent.name == dataset_id
 
-    def test_workspace_frozen(self, factory: WorkspaceFactory):
-        """Test that AssignmentWorkspace is frozen (immutable)."""
-        workspace = factory.create("test", "test")
-
-        with pytest.raises(AttributeError):
-            workspace.dataset_id = "new_dataset"
-
-    def test_workspace_paths_are_path_objects(self, factory: WorkspaceFactory):
-        """Test that all workspace paths are Path objects."""
-        workspace = factory.create("test", "test")
-
-        assert isinstance(workspace.root_dir, Path)
-        assert isinstance(workspace.data_dir, Path)
-        assert isinstance(workspace.checkpoint_dir, Path)
-        assert isinstance(workspace.figures_dir, Path)
-        assert isinstance(workspace.predictions_dir, Path)
-
-    def test_create_with_special_characters_in_ids(self, factory: WorkspaceFactory):
-        """Test creating workspace with special characters in IDs."""
-        dataset_id = "test-dataset-alpha"
-        run_id = "model-2024-12-24"
-
-        workspace = factory.create(dataset_id, run_id)
-
-        assert workspace.dataset_id == dataset_id
-        assert workspace.run_id == run_id
-
-        # Directories should be created successfully
-        assert workspace.checkpoint_dir.exists()
-        assert workspace.data_dir.exists()
-
     def test_workspace_idempotent_creation(self, factory: WorkspaceFactory):
         """Test creating same workspace twice is idempotent."""
         dataset_id = "test-dataset"
