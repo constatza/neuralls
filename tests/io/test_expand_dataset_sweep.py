@@ -1,11 +1,6 @@
 """Tests for the pure helpers in ``scripts/expand_dataset_sweep.py``.
 
-Expansions themselves are gitignored build artifacts (see
-``_GENERATED_SUBDIR_NAME`` in the script under test) not guaranteed to exist
-on a fresh checkout, so these tests regenerate their own golden copies from
-the real, committed ``configs/datasets/train/rectangular-high-condition/
-*.sweep.toml`` sources into an isolated ``tmp_path`` rather than reading
-``_generated/`` directly — see ``rectangular_high_condition_golden_dir``.
+Every spec is built in the test; no committed config under ``configs/`` is read.
 """
 
 from __future__ import annotations
@@ -20,34 +15,9 @@ import pytest
 if TYPE_CHECKING:
     from types import ModuleType
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_FAMILY_DIR = _REPO_ROOT / "configs" / "datasets" / "train" / "rectangular-high-condition"
-
 
 def _stored_id(path: Path) -> str:
     return tomllib.loads(path.read_text(encoding="utf-8"))["id"]
-
-
-@pytest.fixture(scope="session")
-def rectangular_high_condition_golden_dir(
-    dataset_sweep_module: ModuleType, tmp_path_factory: pytest.TempPathFactory
-) -> Path:
-    """Fresh expansions of the real, committed rectangular-high-condition sweep specs.
-
-    Args:
-        dataset_sweep_module: The loaded ``expand_dataset_sweep`` module.
-        tmp_path_factory: Session-scoped temp directory factory.
-
-    Returns:
-        A directory containing every dataset config expanded from
-        ``gaussian-cg0.sweep.toml`` and ``gaussian-cg50.sweep.toml``.
-    """
-    out_dir = tmp_path_factory.mktemp("rectangular-high-condition-golden")
-    for sweep_name in ("gaussian-cg0.sweep.toml", "gaussian-cg50.sweep.toml"):
-        spec = dataset_sweep_module._load_sweep_spec(_FAMILY_DIR / sweep_name)
-        filename_stem = sweep_name[: -len(dataset_sweep_module._SWEEP_SUFFIX)]
-        dataset_sweep_module.expand_sweep(spec, output_dir=out_dir, filename_stem=filename_stem)
-    return out_dir
 
 
 def test_find_swept_field_rejects_no_list_valued_field(dataset_sweep_module: ModuleType) -> None:
@@ -79,7 +49,6 @@ def test_expand_sweep_rejects_wrong_strategy_count(
 
 def test_expand_sweep_writes_one_file_per_value(
     dataset_sweep_module: ModuleType,
-    rectangular_high_condition_golden_dir: Path,
     tmp_path: Path,
 ) -> None:
     spec = {
@@ -100,12 +69,17 @@ def test_expand_sweep_writes_one_file_per_value(
         spec, output_dir=tmp_path, filename_stem="gaussian-cg50"
     )
     assert [p.name for p in written] == ["gaussian-cg50-1000.toml", "gaussian-cg50-5000.toml"]
-    assert (tmp_path / "gaussian-cg50-1000.toml").read_text(encoding="utf-8") == (
-        rectangular_high_condition_golden_dir / "gaussian-cg50-1000.toml"
-    ).read_text(encoding="utf-8")
-    assert (tmp_path / "gaussian-cg50-5000.toml").read_text(encoding="utf-8") == (
-        rectangular_high_condition_golden_dir / "gaussian-cg50-5000.toml"
-    ).read_text(encoding="utf-8")
+    assert [tomllib.loads(p.read_text(encoding="utf-8")) for p in written] == [
+        {
+            **spec,
+            "id": f"gaussian-cg50-rectangular-high-condition-{samples}",
+            "generation": {
+                **spec["generation"],
+                "strategy": [{"name": "gaussian_residuals", "samples": samples, "stop": 50}],
+            },
+        }
+        for samples in (1000, 5000)
+    ]
 
 
 def test_expand_sweep_id_template_places_value_mid_id(
