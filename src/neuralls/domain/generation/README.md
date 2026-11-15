@@ -454,10 +454,10 @@ above the file's `K` rows is capped at `K` per binding and reported as one `Rows
   cardinality — the two are genuinely different kinds, not alternate formats of the same
   thing), then, for a single file, dispatches on suffix. Both take a `readers: MatrixReaders`
   bundle and hand each constructed stream whichever of `.generic`/`.dense` it needs. Not yet
-  collapsed into a single lookup-by-format dispatch (plan item S4): the single-file variants
-  are directly tested by name and by `isinstance` in `test_source_streams_characterization.py`,
-  so collapsing them means rewriting that test's class-identity assertions to behavioral
-  ones — a separate decision, not folded into this split.
+  collapsed into a single lookup-by-format dispatch: the single-file variants are selected by
+  stream type in `tests/generation/test_source_streams.py::test_factory_selects_the_stream_type_by_expression`,
+  which compares `type(...)`, so collapsing them means rewriting those class-identity
+  assertions to behavioral ones.
 - `sample_ids.py`: sample-id derivation and enumeration rules for glob-matched files —
   `EnumerateBy` (assign sequential ids by name/ctime/mtime instead of parsing filenames),
   `_split_glob_root` (split a glob into its literal root dir and the remaining, possibly

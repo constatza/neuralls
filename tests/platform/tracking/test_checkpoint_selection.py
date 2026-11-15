@@ -43,3 +43,12 @@ def test_find_single_checkpoint_stays_within_provided_root(tmp_path: Path) -> No
 def test_find_single_checkpoint_of_an_empty_root_is_missing(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         find_single_checkpoint(tmp_path)
+
+
+def test_find_single_checkpoint_rejects_distinct_candidates(tmp_path: Path) -> None:
+    """Two checkpoint files with different bytes are two candidates, not one copy."""
+    (tmp_path / "first.ckpt").write_bytes(b"first")
+    (tmp_path / "second.ckpt").write_bytes(b"second")
+
+    with pytest.raises(ValueError):
+        find_single_checkpoint(tmp_path)

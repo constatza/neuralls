@@ -9,7 +9,11 @@ from dlkit.infrastructure.io.index import save_split_indices
 from dlkit.infrastructure.types.split import IndexSplit
 
 from neuralls.domain.dataset_shape import MultiMatrix, SingleMatrix
-from neuralls.platform.storage.dataset_shape import classify_dataset, load_held_out_fold
+from neuralls.platform.storage.dataset_shape import (
+    classify_dataset,
+    load_held_out_fold,
+    system_dimension,
+)
 from neuralls.shared.constants import SPLIT_FILENAME
 from neuralls.shared.errors import StageInputsStale
 from neuralls.shared.types import MatrixId
@@ -50,3 +54,16 @@ def test_one_matrix_classifies_as_single_matrix(
     monkeypatch.setattr(dataset_shape, "load_matrix_sample_index", lambda _dir: np.array([7, 7, 7]))
 
     assert classify_dataset(tmp_path) == SingleMatrix(matrix_id=MatrixId(7))
+
+
+def test_the_system_order_is_read_from_the_stored_rhs(
+    single_matrix_dataset: Path, larger_single_matrix_dataset: Path
+) -> None:
+    """A 2x2 and a 3x3 dataset report orders 2 and 3, whatever their matrix storage layout."""
+    assert (
+        system_dimension(single_matrix_dataset),
+        system_dimension(larger_single_matrix_dataset),
+    ) == (
+        2,
+        3,
+    )

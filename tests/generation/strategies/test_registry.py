@@ -5,40 +5,48 @@ from __future__ import annotations
 import numpy as np
 
 from neuralls.domain.generation import run_generation
-from neuralls.domain.generation.runner import _registry
+from neuralls.domain.generation.runner import (
+    ArchiveStrategyRegistration,
+    MatrixStrategyRegistration,
+    SingleRhsStrategyRegistration,
+    StrategyRegistration,
+    _registry,
+)
 from tests.fakes.archive_source import InMemoryArchiveSource
 from tests.generation_support import solved_rows
 
 ARCHIVE_SOURCE = InMemoryArchiveSource()
 
-EXPECTED_STRATEGIES = {
-    "random",
-    "normal",
-    "krylov",
-    "residuals",
-    "gaussian_residuals",
-    "eigenvector_forward",
-    "eigenvector_inverse",
-    "rhs_archive",
-    "solution_archive",
-    "neutral_ones",
-    "gaussian_forward",
-    "gaussian_inverse",
-    "uniform_forward",
-    "uniform_inverse",
-    "constant_forward",
-    "constant_inverse",
-    "validated_archive",
-    "scaled_solutions",
-    "sparse_rhs",
-    "smoother_filtered_probes",
-    "sinusoidal_field",
+EXPECTED_STRATEGIES: dict[str, type[StrategyRegistration]] = {
+    "constant_forward": MatrixStrategyRegistration,
+    "constant_inverse": MatrixStrategyRegistration,
+    "eigenvector_forward": MatrixStrategyRegistration,
+    "eigenvector_inverse": MatrixStrategyRegistration,
+    "gaussian_forward": MatrixStrategyRegistration,
+    "gaussian_inverse": MatrixStrategyRegistration,
+    "gaussian_residuals": SingleRhsStrategyRegistration,
+    "krylov": MatrixStrategyRegistration,
+    "neutral_ones": MatrixStrategyRegistration,
+    "normal": MatrixStrategyRegistration,
+    "random": MatrixStrategyRegistration,
+    "residuals": SingleRhsStrategyRegistration,
+    "rhs_archive": ArchiveStrategyRegistration,
+    "scaled_solutions": ArchiveStrategyRegistration,
+    "sinusoidal_field": MatrixStrategyRegistration,
+    "smoother_filtered_probes": MatrixStrategyRegistration,
+    "solution_archive": ArchiveStrategyRegistration,
+    "sparse_rhs": MatrixStrategyRegistration,
+    "uniform_forward": MatrixStrategyRegistration,
+    "uniform_inverse": MatrixStrategyRegistration,
+    "validated_archive": ArchiveStrategyRegistration,
 }
 
 
 def test_all_strategy_modules_register_on_package_import() -> None:
-    """All strategy names are available after importing neuralls.domain.generation."""
-    assert set(_registry._strategies) == EXPECTED_STRATEGIES
+    """Every strategy is registered, with the kind of input it consumes, on package import."""
+    assert {
+        name: type(registration) for name, registration in _registry._strategies.items()
+    } == EXPECTED_STRATEGIES
 
 
 def test_gaussian_inverse_runs_after_package_import(

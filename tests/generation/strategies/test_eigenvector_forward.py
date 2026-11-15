@@ -22,4 +22,4 @@ def test_eigenvector_forward_which_selection_gives_consistent_rows(
     assert result.rhs is not None
     assert result.solutions is not None
     assert result.rhs.shape == (3, spd_matrix.shape[0])
-    np.testing.assert_allclose(result.rhs, result.solutions @ spd_matrix.T, rtol=1e-10, atol=1e-10)
+    np.testing.assert_allclose(result.rhs, result.solutions @ spd_matrix.T, rtol=1e-12)

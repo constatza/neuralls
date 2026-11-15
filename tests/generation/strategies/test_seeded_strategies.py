@@ -73,7 +73,7 @@ def test_rhs_is_a_times_solution(strategy: SeededStrategy, spd_matrix: np.ndarra
 
     assert result.rhs is not None
     assert result.solutions is not None
-    np.testing.assert_allclose(result.rhs, result.solutions @ spd_matrix.T, rtol=1e-10, atol=1e-10)
+    np.testing.assert_allclose(result.rhs, result.solutions @ spd_matrix.T, rtol=1e-12)
 
 
 def test_same_seed_gives_identical_output(strategy: SeededStrategy, spd_matrix: np.ndarray) -> None:

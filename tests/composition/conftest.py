@@ -9,8 +9,6 @@ import numpy as np
 import pytest
 
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
-from neuralls.domain.presentation.provenance import DatasetSourceProvenance
-from neuralls.shared.scientific_description.models import ScientificDescription
 from tests import atomic_support
 from tests.dataset_support import build_test_dataset, strip_provenance
 
@@ -85,19 +83,6 @@ def spd_system() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     rhs = np.array([1.0, 2.0])
     initial_guess = np.zeros(2)
     return matrix, rhs, initial_guess
-
-
-@pytest.fixture
-def pod_dataset_dir(tmp_path: Path, atomic_source: SourceSpec, atomic_spec: DatasetSpec) -> Path:
-    """A real generated dataset whose manifest carries scientific provenance."""
-    target = tmp_path / "pod-fit"
-    build_test_dataset(
-        atomic_source,
-        atomic_spec,
-        str(target),
-        source_provenance=DatasetSourceProvenance(ScientificDescription("Atomic test")),
-    )
-    return target
 
 
 @pytest.fixture

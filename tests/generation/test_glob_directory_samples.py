@@ -107,6 +107,21 @@ def test_one_level_wildcard_custom_regex_on_directory_name(
     assert stream.sample_ids == (3, 7)
 
 
+def test_include_indices_select_directory_derived_ids(
+    prefixed_case_dirs: Path, archive_source: InMemoryArchiveSource
+) -> None:
+    """``include_indices`` names the ids parsed from ``case_3``, ``case_7``, not positions."""
+    stream = GlobMatrixStream(
+        str(prefixed_case_dirs / "*" / "K_ff.mtx"),
+        sample_id_regex=r"case_(\d+)",
+        include_indices=(7,),
+        reader=archive_source.readers().generic,
+        archive_source=archive_source,
+    )
+
+    assert stream.sample_ids == (7,)
+
+
 def test_flat_filename_glob_is_unaffected_by_directory_id_support(
     flat_filename_dir: Path, archive_source: InMemoryArchiveSource
 ) -> None:

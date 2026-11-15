@@ -368,7 +368,15 @@ def test_method_child_tags_include_identity_and_required_raw_artifacts(
     assert "benchmark_event_schema_version" not in values
     assert values["method_config_digest"] == "sha256:" + "a" * 64
     assert values["workload_membership_digest"].startswith("sha256:")
-    assert values["required_artifacts"].split(",") == list(MethodBenchmarkArtifacts.file_names())
+    assert values["required_artifacts"].split(",") == [
+        "setup_events.parquet",
+        "solve_attempts.parquet",
+        "convergence.parquet",
+        "planned_systems.parquet",
+        "summary.toml",
+        "method_config.toml",
+        "presentation.toml",
+    ]
     assert json.loads(values["identity_components"]) == {
         "method_config": "sha256:" + "a" * 16,
         "workload_membership": values["workload_membership_digest"][:23],

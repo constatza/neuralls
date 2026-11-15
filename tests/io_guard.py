@@ -29,9 +29,6 @@ REPO_ROOT = TESTS_DIR.parent
 BOUNDARY_DIRS = ("io", "integration", "platform", "architecture", "manual")
 """Top-level test directories whose subject is IO; only they may touch files or stores."""
 
-PENDING_FILES: frozenset[str] = frozenset()
-"""Test files outside the boundary that still read fixture-written files; the set only shrinks."""
-
 AMBIENT_STORES = ("mlflow.db", "mlruns")
 """What MLflow creates in the working directory when it falls back to its default store."""
 
@@ -131,10 +128,6 @@ def is_boundary_test(path: Path) -> bool:
     return path.relative_to(TESTS_DIR).parts[0] in BOUNDARY_DIRS
 
 
-def _relative_test_path(path: Path) -> str | None:
-    return path.relative_to(TESTS_DIR).as_posix() if path.is_relative_to(TESTS_DIR) else None
-
-
 # --- pytest shell -------------------------------------------------------------------------
 
 
@@ -210,15 +203,11 @@ def _ambient_read_roots() -> tuple[Path, ...]:
 
 
 def _guarded(item: pytest.Item) -> bool:
-    match _relative_test_path(item.path):
-        case None:
-            return False
-        case relative:
-            return not (
-                is_boundary_test(item.path)
-                or relative in PENDING_FILES
-                or item.get_closest_marker("deferred_io") is not None
-            )
+    return (
+        item.path.is_relative_to(TESTS_DIR)
+        and not is_boundary_test(item.path)
+        and item.get_closest_marker("deferred_io") is None
+    )
 
 
 def _watch_phase(item: pytest.Item) -> Generator[None, object, object]:
