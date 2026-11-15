@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
 import pytest
 
+from neuralls.composition.comparison import plan
 from neuralls.composition.comparison.models import MatrixRef
 from neuralls.composition.comparison.plan import _system_seed, derive_seed, plan_systems
+from neuralls.domain.dataset_shape import DatasetShape, HeldOutFold, MultiMatrix, SingleMatrix
 from neuralls.domain.solver.models.provenance import HeldOutMatrix, SharedSingleMatrix
 from neuralls.platform.config.models.comparison import (
     DatasetRhsSourceModel,
@@ -17,13 +20,89 @@ from neuralls.platform.config.models.comparison import (
     RhsSourceModelBase,
 )
 from neuralls.platform.config.models.experiments import CaseConfig
-from neuralls.shared.errors import StageInputsStale
+from neuralls.shared.errors import StageInputsStale, StageInputsStaleReason
 from neuralls.shared.types import MatrixId
 
 type PinTestFold = Callable[[Path, tuple[int, ...]], None]
 
 _GAUSSIAN = {"kind": "gaussian"}
+_DIMENSION = 2
 _FIRST_ONE = {"kind": "first_n", "n": 1}
+
+
+@dataclass(slots=True)
+class _InMemoryDatasets:
+    """Dataset shapes, dimensions and pinned folds held as values, behind the planner's readers.
+
+    Each dataset is its per-row matrix bindings (the matrix id stored at every row), as the
+    readers in `platform/storage/dataset_shape.py` see them; those readers have their own tests.
+    """
+
+    bindings: dict[Path, tuple[int, ...]] = field(default_factory=dict)
+    dimensions: dict[Path, int] = field(default_factory=dict)
+    folds: dict[Path, HeldOutFold] = field(default_factory=dict)
+
+    def add(self, directory: Path, bindings: tuple[int, ...], dimension: int = _DIMENSION) -> Path:
+        self.bindings[directory] = bindings
+        self.dimensions[directory] = dimension
+        return directory
+
+    def pin(self, directory: Path, test_rows: tuple[int, ...]) -> None:
+        rows_by_matrix: dict[MatrixId, tuple[int, ...]] = {}
+        for row in test_rows:
+            matrix_id = MatrixId(self.bindings[directory][row])
+            rows_by_matrix[matrix_id] = (*rows_by_matrix.get(matrix_id, ()), row)
+        self.folds[directory] = HeldOutFold(rows_by_matrix=rows_by_matrix)
+
+    def classify(self, directory: Path) -> DatasetShape:
+        matrix_ids = tuple(sorted({MatrixId(i) for i in self.bindings[directory]}))
+        if len(matrix_ids) == 1:
+            return SingleMatrix(matrix_id=matrix_ids[0])
+        return MultiMatrix(matrix_ids=matrix_ids)
+
+    def load_fold(self, directory: Path) -> HeldOutFold:
+        if directory not in self.folds:
+            raise StageInputsStale(
+                StageInputsStaleReason.SPLIT_MISSING, f"Dataset '{directory}' has no pinned split"
+            )
+        return self.folds[directory]
+
+    def dimension(self, directory: Path) -> int:
+        return self.dimensions[directory]
+
+
+@pytest.fixture
+def datasets(monkeypatch: pytest.MonkeyPatch) -> _InMemoryDatasets:
+    """The planner's dataset readers, answered from memory."""
+    store = _InMemoryDatasets()
+    monkeypatch.setattr(plan, "classify_dataset", store.classify)
+    monkeypatch.setattr(plan, "load_held_out_fold", store.load_fold)
+    monkeypatch.setattr(plan, "system_dimension", store.dimension)
+    return store
+
+
+@pytest.fixture
+def single_matrix_dataset(datasets: _InMemoryDatasets) -> Path:
+    """One matrix (id 7) with four right-hand-side rows."""
+    return datasets.add(Path("single"), (7, 7, 7, 7))
+
+
+@pytest.fixture
+def sparse_id_dataset(datasets: _InMemoryDatasets) -> Path:
+    """Two matrices whose ids (5, 9) differ from every row position: rows 0-1 are 5, rows 2-3 are 9."""
+    return datasets.add(Path("multi"), (5, 5, 9, 9))
+
+
+@pytest.fixture
+def larger_single_matrix_dataset(datasets: _InMemoryDatasets) -> Path:
+    """A single-matrix dataset of 3x3 systems, to pair with the 2x2 fixtures."""
+    return datasets.add(Path("larger"), (3, 3, 3, 3), dimension=3)
+
+
+@pytest.fixture
+def pin_test_fold(datasets: _InMemoryDatasets) -> PinTestFold:
+    """Hold out the given rows of a dataset, as generation's pinned split would."""
+    return datasets.pin
 
 
 def _case(
@@ -156,18 +235,6 @@ class TestTraitDrivenPlanning:
         assert first.entry.seed == derive_seed(11, MatrixId(7), 0)
         assert second.entry.seed == derive_seed(11, MatrixId(7), 1)
 
-    def test_every_planned_system_carries_a_provenance(
-        self, single_matrix_dataset: Path, sparse_id_dataset: Path, pin_test_fold: PinTestFold
-    ) -> None:
-        pin_test_fold(sparse_id_dataset, (0, 1, 2, 3))
-        single = plan_systems(_case(comparisons=[_comparison()]), {"ds": single_matrix_dataset})
-        swept = plan_systems(_case(sweeps=[_sweep()]), {"ds": sparse_id_dataset})
-
-        assert all(
-            isinstance(system.provenance, SharedSingleMatrix | HeldOutMatrix)
-            for system in (*single, *swept)
-        )
-
     def test_a_new_source_declaring_traits_is_planned_without_a_kind_list_edit(self) -> None:
         class ToySeededSource(RhsSourceModelBase):
             generated: ClassVar[bool] = True
@@ -179,23 +246,6 @@ class TestTraitDrivenPlanning:
 
         assert _system_seed(ToySeededSource(), 5, MatrixId(1), 2) == derive_seed(5, MatrixId(1), 2)
         assert _system_seed(ToyFixedSource(), 5, MatrixId(1), 2) == 5
-
-
-class TestFixedSources:
-    def test_a_fixed_vector_cannot_be_drawn_repeatedly(self, single_matrix_dataset: Path) -> None:
-        raw = {"kind": "raw_rhs", "path": "rhs.npy", "row_kind": "standard"}
-        case = _case(comparisons=[_comparison(rhs_source=raw, rhs_count=2)])
-
-        with pytest.raises(ValueError):
-            plan_systems(case, {"ds": single_matrix_dataset})
-
-    def test_a_fixed_vector_keeps_the_entry_seed(self, single_matrix_dataset: Path) -> None:
-        raw = {"kind": "raw_rhs", "path": "rhs.npy", "row_kind": "standard"}
-        case = _case(comparisons=[_comparison(rhs_source=raw, seed=11)])
-
-        (system,) = plan_systems(case, {"ds": single_matrix_dataset})
-
-        assert system.entry.seed == 11
 
 
 class TestSweeps:

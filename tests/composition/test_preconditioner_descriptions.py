@@ -66,8 +66,6 @@ from neuralls.shared.scientific_description.policy import (
 )
 from neuralls.shared.scientific_description.render import render
 
-pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
-
 PLAIN = NotationPolicy.default(RenderTarget.PLAIN)
 PROFILE = RenderProfile(name="description", include_context=True)
 
@@ -76,57 +74,119 @@ def _plain(description: ScientificDescription) -> str:
     return render(description, PROFILE, PLAIN).text
 
 
-@pytest.fixture
-def pod_dataset_dir(tmp_path: Path) -> Path:
-    """A stand-in POD fit-dataset directory (the config validator does not require it to exist)."""
-    return tmp_path / "pod-fit-dataset"
-
+POD_DATASET_DIR = Path("pod-fit-dataset")
+"""A stand-in fit-dataset directory: the config validator does not require it to exist."""
 
 # --- exact labels pinned by the display contract ----------------------------------
 
 
-def test_amg_label_lists_every_algorithmic_parameter() -> None:
-    cfg = AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig(theta=0.05))
-    assert _plain(describe_configured_preconditioner(cfg)) == "AMG (L=2, θ=0.05)"
-
-
-def test_asa_label_includes_candidates_levels_and_coarse_limit() -> None:
-    cfg = AdaptiveSAPreconditionerConfig(theta=0.05)
-    assert _plain(describe_configured_preconditioner(cfg)) == "aSA (L=2, k=3, θ=0.05, s=0)"
-
-
-def test_bamg_label_includes_every_numerical_and_categorical_control() -> None:
-    cfg = BootstrapAMGPreconditionerConfig(n_levels=10, theta_ad=0.5)
-    assert _plain(describe_configured_preconditioner(cfg)) == ("BAMG (L=10, s=0)")
-
-
-def test_pod_label_shows_rank_without_dataset_or_identity(pod_dataset_dir: Path) -> None:
-    cfg = AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(dataset_dir=pod_dataset_dir, rank=10, assignment="fit-a")
-    )
-    label = _plain(describe_configured_preconditioner(cfg))
-    assert label == "POD-2G (r=10)"
-
-
 @pytest.mark.parametrize(
-    ("kind", "expected"),
+    ("config", "expected"),
     [
-        (PreconditionerType.IDENTITY, "Identity"),
-        (PreconditionerType.JACOBI, "Jacobi"),
+        pytest.param(
+            AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig(theta=0.05)),
+            "AMG (L=2, θ=0.05)",
+            id="amg-lists-every-algorithmic-parameter",
+        ),
+        pytest.param(
+            AdaptiveSAPreconditionerConfig(theta=0.05),
+            "aSA (L=2, k=3, θ=0.05, s=0)",
+            id="asa-candidates-levels-coarse-limit",
+        ),
+        pytest.param(
+            BootstrapAMGPreconditionerConfig(n_levels=10, theta_ad=0.5),
+            "BAMG (L=10, s=0)",
+            id="bamg-numerical-and-categorical-controls",
+        ),
+        pytest.param(
+            AMGPreconditionerConfig(
+                coarsening=PODCoarseningConfig(
+                    dataset_dir=POD_DATASET_DIR, rank=10, assignment="fit-a"
+                )
+            ),
+            "POD-2G (r=10)",
+            id="pod-rank-without-dataset-or-identity",
+        ),
+        pytest.param(
+            StandardPreconditionerConfig(type=PreconditionerType.IDENTITY),
+            "Identity",
+            id="identity-invents-no-parameters",
+        ),
+        pytest.param(
+            StandardPreconditionerConfig(type=PreconditionerType.JACOBI),
+            "Jacobi",
+            id="jacobi-invents-no-parameters",
+        ),
+        pytest.param(IC0PreconditionerConfig(), "IC0 (τ=0)", id="ic0-drop-tolerance-at-default"),
+        pytest.param(
+            AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig()),
+            "AMG (L=2, θ=0.25)",
+            id="scheduling-controls-hidden-at-default",
+        ),
+        pytest.param(
+            AMGPreconditionerConfig(
+                coarsening=AggregationCoarseningConfig(),
+                start_iter=5,
+                limit_iters=20,
+                fallback=PreconditionerType.JACOBI,
+            ),
+            "AMG (L=2, θ=0.25, k₀=5, kₘₐₓ=20, fb=Jacobi)",
+            id="scheduling-controls-shown-when-non-default",
+        ),
+        pytest.param(
+            AMGPreconditionerConfig(
+                coarsening=PODCoarseningConfig(
+                    dataset_dir=POD_DATASET_DIR,
+                    rank=0.999,
+                    n_snapshots=200,
+                    weighting=PowerNormWeightingConfig(metric="a", beta=1.0),
+                )
+            ),
+            "POD-2G (r=0.999, Nₛ=200, w=PN, p=A, β=1)",
+            id="pod-weighting-and-snapshots",
+        ),
+        pytest.param(
+            AMGPreconditionerConfig(
+                coarsening=PODCoarseningConfig(
+                    dataset_dir=POD_DATASET_DIR,
+                    weighting=SmootherPersistenceWeightingConfig(steps=7),
+                )
+            ),
+            "POD-2G (r=8, w=SP, ν=7)",
+            id="pod-smoother-persistence-sweeps",
+        ),
+        pytest.param(
+            AMGPreconditionerConfig(coarsening=TargetDimCoarseningConfig(target_coarse_dim=12)),
+            "AMG (L=2, cₜ=12)",
+            id="target-dimension-coarsening",
+        ),
+        pytest.param(
+            NeuralPreconditionerConfig(architecture="Graph Net", assignment="job-1"),
+            "Neural (arch=Graph Net)",
+            id="neural-architecture-name-never-a-class-name",
+        ),
+        pytest.param(
+            AMGPreconditionerConfig(
+                coarsening=NeuralPODCoarseningConfig(
+                    dataset_dir=POD_DATASET_DIR, rank=6, input_names=("x",)
+                )
+            ),
+            "POD-2G (r=6)",
+            id="neural-pod-coarsening",
+        ),
+        pytest.param(
+            NeuralAMGPreconditionerConfig(
+                aggregation_omega=0.7, prolongation=NeuralTransferConfig(assignment="p")
+            ),
+            "Neural (L=2, ω=0.7)",
+            id="neural-amg",
+        ),
     ],
 )
-def test_parameterless_methods_invent_no_parameters(
-    kind: PreconditionerType, expected: str
+def test_configured_preconditioner_renders_its_exact_label(
+    config: ConcretePreconditionerConfig, expected: str
 ) -> None:
-    assert (
-        _plain(describe_configured_preconditioner(StandardPreconditionerConfig(type=kind)))
-        == expected
-    )
-
-
-def test_ic0_label_shows_drop_tolerance_even_at_its_default() -> None:
-    label = _plain(describe_configured_preconditioner(IC0PreconditionerConfig()))
-    assert label == "IC0 (τ=0)"
+    assert _plain(describe_configured_preconditioner(config)) == expected
 
 
 # --- explicit-default equals omitted-default; any difference is visible ------------
@@ -165,66 +225,6 @@ def test_any_algorithmic_change_changes_the_description(
     assert describe_configured_preconditioner(variant) != describe_configured_preconditioner(base)
 
 
-# --- scheduling --------------------------------------------------------------------
-
-
-def test_scheduling_controls_appear_only_when_non_default() -> None:
-    default = _plain(
-        describe_configured_preconditioner(
-            AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig())
-        )
-    )
-    scheduled = _plain(
-        describe_configured_preconditioner(
-            AMGPreconditionerConfig(
-                coarsening=AggregationCoarseningConfig(),
-                start_iter=5,
-                limit_iters=20,
-                fallback=PreconditionerType.JACOBI,
-            )
-        )
-    )
-    assert default == "AMG (L=2, θ=0.25)"
-    assert scheduled == "AMG (L=2, θ=0.25, k₀=5, kₘₐₓ=20, fb=Jacobi)"
-
-
-# --- POD, weighting, neural --------------------------------------------------------
-
-
-def test_pod_weighting_and_snapshot_controls_are_visible(pod_dataset_dir: Path) -> None:
-    cfg = AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(
-            dataset_dir=pod_dataset_dir,
-            rank=0.999,
-            n_snapshots=200,
-            weighting=PowerNormWeightingConfig(metric="a", beta=1.0),
-        )
-    )
-    label = _plain(describe_configured_preconditioner(cfg))
-    assert label == "POD-2G (r=0.999, Nₛ=200, w=PN, p=A, β=1)"
-
-
-def test_smoother_persistence_weighting_shows_its_sweeps(pod_dataset_dir: Path) -> None:
-    cfg = AMGPreconditionerConfig(
-        coarsening=PODCoarseningConfig(
-            dataset_dir=pod_dataset_dir,
-            weighting=SmootherPersistenceWeightingConfig(steps=7),
-        )
-    )
-    assert _plain(describe_configured_preconditioner(cfg)) == "POD-2G (r=8, w=SP, ν=7)"
-
-
-def test_target_dimension_coarsening_shows_its_target() -> None:
-    cfg = AMGPreconditionerConfig(coarsening=TargetDimCoarseningConfig(target_coarse_dim=12))
-    assert _plain(describe_configured_preconditioner(cfg)) == "AMG (L=2, cₜ=12)"
-
-
-def test_neural_architecture_comes_from_the_architecture_name_never_a_class_name() -> None:
-    cfg = NeuralPreconditionerConfig(architecture="Graph Net", assignment="job-1")
-    label = _plain(describe_configured_preconditioner(cfg))
-    assert label == "Neural (arch=Graph Net)"
-
-
 def test_neural_without_an_architecture_name_fails_instead_of_guessing() -> None:
     with pytest.raises(MissingArchitectureNameError):
         describe_configured_preconditioner(NeuralPreconditionerConfig())
@@ -233,19 +233,6 @@ def test_neural_without_an_architecture_name_fails_instead_of_guessing() -> None
 def test_neural_architecture_must_be_a_plain_name() -> None:
     with pytest.raises(ValueError):
         describe_configured_preconditioner(NeuralPreconditionerConfig(architecture="graph_net"))
-
-
-def test_neural_pod_and_neural_amg_describe_their_own_parameters(pod_dataset_dir: Path) -> None:
-    pod = AMGPreconditionerConfig(
-        coarsening=NeuralPODCoarseningConfig(
-            dataset_dir=pod_dataset_dir, rank=6, input_names=("x",)
-        )
-    )
-    amg = NeuralAMGPreconditionerConfig(
-        aggregation_omega=0.7, prolongation=NeuralTransferConfig(assignment="p")
-    )
-    assert _plain(describe_configured_preconditioner(pod)) == "POD-2G (r=6)"
-    assert _plain(describe_configured_preconditioner(amg)) == "Neural (L=2, ω=0.7)"
 
 
 # --- every config field is bound ----------------------------------------------------

@@ -1,13 +1,12 @@
-"""Tests for write_metric_report / AssignmentSweepResult — training's aggregate
-batch reporting, extracted from the retired multi_training.py to live directly
-alongside run_assignment_sweep (the one training-stage implementation shared by
-`neuralls train` and `neuralls run`).
+"""write_metric_report stages the label map and plot in a scratch directory and uploads them.
+
+The staged files are the subject: the report writes them before handing them to the upload.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,6 +20,7 @@ from neuralls.application.models import (
 )
 from neuralls.composition.assignments.training_metric_report import write_metric_report
 from neuralls.domain.presentation.run_names import TrainingPresentation
+from neuralls.platform.reporting.figure_formats import figure_files
 from neuralls.platform.tracking.run_names import render_training_label
 
 TRAINING = "neuralls.composition.assignments.training_metric_report"
@@ -155,11 +155,14 @@ def test_label_map_includes_every_result_regardless_of_metric_presence(
         result_of("a", "Alpha", run="run-a"),
         result_of("b", "Beta", run=None, error="boom"),
     )
+    staged_files: list[Sequence[str]] = []
     captured_label_map: dict[str, dict[str, str | None]] = {}
 
-    def _capture_upload(*, tracking_uri: str, run_id: str, work_root: Path, flat_files) -> None:
+    def _capture_upload(
+        *, tracking_uri: str, run_id: str, work_root: Path, flat_files: Sequence[str]
+    ) -> None:
         del tracking_uri, run_id
-        assert "batch_training_labels.json" in flat_files
+        staged_files.append(flat_files)
         captured_label_map.update(
             json.loads((work_root / "batch_training_labels.json").read_text(encoding="utf-8"))
         )
@@ -170,9 +173,16 @@ def test_label_map_includes_every_result_regardless_of_metric_presence(
     ):
         write_metric_report(sweep, metric="eval/mae")
 
-    assert set(captured_label_map) == {"a", "b"}
-    assert captured_label_map["a"]["mlflow_run_id"] == "run-a"
-    assert captured_label_map["b"]["mlflow_run_id"] is None
-    assert captured_label_map["a"]["assignment_label"] == render_training_label(
-        sweep.results[0].presentation
-    )
+    assert staged_files == [(*figure_files("batch_metric_eval_mae"), "batch_training_labels.json")]
+    assert captured_label_map == {
+        "a": {
+            "assignment_id": "a",
+            "assignment_label": render_training_label(sweep.results[0].presentation),
+            "mlflow_run_id": "run-a",
+        },
+        "b": {
+            "assignment_id": "b",
+            "assignment_label": render_training_label(sweep.results[1].presentation),
+            "mlflow_run_id": None,
+        },
+    }

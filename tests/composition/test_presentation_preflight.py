@@ -94,12 +94,20 @@ def neural_checkpoint() -> NeuralPreconditionerConfig:
     )
 
 
-@pytest.mark.parametrize("verified", [True, False])
+@pytest.mark.parametrize(
+    ("verified", "expected_label"),
+    [
+        (True, "Neural (arch=Net) | Gaussian Solutions (μ=0, σ=1, N=8)"),
+        (False, "Neural (arch=Net)"),
+    ],
+    ids=["verified-training-dataset", "unavailable-training-dataset"],
+)
 def test_neural_method_label_follows_checkpoint_provenance(
     neural_checkpoint: NeuralPreconditionerConfig,
     pod_fit_presentation: DatasetPresentation,
     dataset_presentation: DatasetPresentation,
     verified: bool,
+    expected_label: str,
 ) -> None:
     ref = tuple(ref for _, ref in neural_checkpoint.checkpoint_refs())
     training = (
@@ -116,9 +124,11 @@ def test_neural_method_label_follows_checkpoint_provenance(
     method = prepared.methods[0].compact
     label = method_legend({neural_checkpoint.name: method}, PLAIN).label(neural_checkpoint.name)
     assert run_name_text(NamedRun(MethodRunName(method), PLAIN)) == label
-    assert label.count("Gaussian Solutions") == (1 if verified else 0)
-    assert "CG Residuals" not in label
-    assert "CG Residuals" in scope_label(DatasetScope(dataset_presentation), PLAIN)
+    assert label == expected_label
+    assert (
+        scope_label(DatasetScope(dataset_presentation), PLAIN)
+        == "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100)"
+    )
 
 
 def test_pod_ranks_over_one_dataset_are_distinguished_by_rank(

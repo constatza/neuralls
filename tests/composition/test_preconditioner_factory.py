@@ -764,32 +764,30 @@ def test_scheduled_wrapper_does_not_setup_an_already_ready_primary(
     assert calls == 1
 
 
-def test_create_scheduled_preconditioner_default_fallback() -> None:
-    """Identity is used as the default fallback."""
-    primary = Identity()
-    schedule = PreconditionerScheduleConfig(limit_iters=5)
-    matrix = torch.eye(2, dtype=torch.float64)
-    result = create_scheduled_preconditioner(primary, schedule, matrix=matrix)
+@pytest.mark.parametrize(
+    "schedule",
+    [
+        pytest.param(PreconditionerScheduleConfig(limit_iters=5), id="default-fallback"),
+        pytest.param(
+            PreconditionerScheduleConfig(limit_iters=5, fallback=PreconditionerType.IDENTITY),
+            id="explicit-identity-fallback",
+        ),
+    ],
+)
+def test_create_scheduled_preconditioner_falls_back_to_identity_past_the_limit(
+    schedule: PreconditionerScheduleConfig,
+    well_conditioned_matrix: torch.Tensor,
+    residual_vector: torch.Tensor,
+) -> None:
+    """Past the limit the identity fallback replaces a primary that is not the identity."""
+    primary = JacobiPreconditioner().setup(well_conditioned_matrix)
+    result = create_scheduled_preconditioner(primary, schedule, matrix=well_conditioned_matrix)
 
-    ctx = PreconditionerContext(iteration=10, residual_norm=1.0, rhs_norm=1.0)
-    r = torch.tensor([1.0, 2.0], dtype=torch.float64)
-    z = result.apply(r, ctx)
+    within_limit = PreconditionerContext(iteration=3, residual_norm=1.0, rhs_norm=1.0)
+    past_limit = PreconditionerContext(iteration=10, residual_norm=1.0, rhs_norm=1.0)
 
-    assert_close(z, r)
-
-
-def test_create_scheduled_preconditioner_with_identity_fallback() -> None:
-    """Explicit Identity fallback type behaves the same as the default."""
-    primary = Identity()
-    schedule = PreconditionerScheduleConfig(
-        limit_iters=5,
-        fallback=PreconditionerType.IDENTITY,
+    assert_close(
+        result.apply(residual_vector, within_limit),
+        torch.tensor([0.25, 2 / 3, 1.5, 2.0], dtype=torch.float64),
     )
-    matrix = torch.eye(2, dtype=torch.float64)
-    result = create_scheduled_preconditioner(primary, schedule, matrix=matrix)
-
-    ctx = PreconditionerContext(iteration=10, residual_norm=1.0, rhs_norm=1.0)
-    r = torch.tensor([1.0, 2.0], dtype=torch.float64)
-    z = result.apply(r, ctx)
-
-    assert_close(z, r)
+    assert_close(result.apply(residual_vector, past_limit), residual_vector)
