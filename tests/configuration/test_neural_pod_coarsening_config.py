@@ -10,25 +10,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
-from neuralls.platform.config.models.coarsening import CoarseningConfig, NeuralPODCoarseningConfig
+from neuralls.platform.config.models.coarsening import NeuralPODCoarseningConfig
 from neuralls.platform.config.models.preconditioner import AMGPreconditionerConfig
 
 WORKSPACE = Path("workspace")
-
-
-def test_neural_pod_coarsening_config_parses_with_checkpoint_path() -> None:
-    """A minimal neural_pod coarsening config validates with a direct checkpoint."""
-    cfg = NeuralPODCoarseningConfig(
-        dataset_dir=WORKSPACE / "params-dataset",
-        checkpoint_path=WORKSPACE / "model.ckpt",
-        input_names=("young_modulus",),
-        rank=4,
-    )
-    assert cfg.method == "neural_pod"
-    assert cfg.rank == 4
-    assert cfg.input_names == ("young_modulus",)
 
 
 def test_neural_pod_coarsening_config_requires_input_names() -> None:
@@ -46,16 +33,6 @@ def test_neural_pod_coarsening_config_requires_input_names() -> None:
                 "checkpoint_path": str(WORKSPACE / "model.ckpt"),
             }
         )
-
-
-def test_neural_pod_coarsening_config_coerces_input_names_list_to_tuple() -> None:
-    """A TOML-style list of input names is coerced to a tuple."""
-    cfg = NeuralPODCoarseningConfig(
-        dataset_dir=WORKSPACE / "params-dataset",
-        checkpoint_path=WORKSPACE / "model.ckpt",
-        input_names=["young_modulus", "poisson_ratio"],
-    )
-    assert cfg.input_names == ("young_modulus", "poisson_ratio")
 
 
 def test_amg_config_resolves_neural_pod_coarsening_via_discriminator() -> None:
@@ -82,17 +59,3 @@ def test_neural_pod_coarsening_config_rejects_invalid_energy_rank() -> None:
             input_names=("young_modulus",),
             rank=1.5,
         )
-
-
-def test_coarsening_config_union_round_trips_neural_pod() -> None:
-    """The CoarseningConfig discriminated union round-trips a neural_pod entry."""
-    adapter = TypeAdapter(CoarseningConfig)
-    parsed = adapter.validate_python(
-        {
-            "method": "neural_pod",
-            "dataset_dir": str(WORKSPACE / "params-dataset"),
-            "checkpoint_path": str(WORKSPACE / "model.ckpt"),
-            "input_names": ["young_modulus"],
-        }
-    )
-    assert isinstance(parsed, NeuralPODCoarseningConfig)

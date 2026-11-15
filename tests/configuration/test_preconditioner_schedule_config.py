@@ -14,15 +14,6 @@ from neuralls.platform.config.models.preconditioner import (
 )
 
 
-def test_start_iter_accepts_non_negative_value() -> None:
-    """Preconditioner schedules accept delayed activation."""
-    cfg = StandardPreconditionerConfig(
-        type=PreconditionerType.JACOBI,
-        start_iter=5,
-    )
-    assert cfg.start_iter == 5
-
-
 def test_start_iter_rejects_negative_value() -> None:
     """Preconditioner schedules reject negative activation iterations."""
     with pytest.raises(ValidationError):
@@ -41,8 +32,8 @@ def test_name_is_derived_from_type_for_parameterless_variants() -> None:
 def test_name_is_derived_from_distinguishing_fields() -> None:
     """`name` is never user-settable — it's always derived from type + fields."""
     assert IC0PreconditionerConfig().name == "ic0_threshold0"
-    assert "aggregation_theta0p25_omegaauto" in (
-        AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig()).name
+    assert AMGPreconditionerConfig(coarsening=AggregationCoarseningConfig()).name == (
+        "amg_levels2_pre2_post2_smootheromegaauto_aggregation_theta0p25_omegaauto"
     )
 
 

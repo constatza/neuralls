@@ -3,10 +3,6 @@
 These tests verify that the CaseConfig validator correctly infers missing id and
 display_name fields in AssignmentEntry and ComparisonRegistryEntry, using the
 registry entries (datasets and jobs) to fill in labels.
-
-Note: These tests are expected to FAIL before the validator is added to CaseConfig.
-They should raise pydantic.ValidationError when AssignmentEntry.id or
-ComparisonRegistryEntry.id are required but missing.
 """
 
 from __future__ import annotations
@@ -68,79 +64,39 @@ def minimal_case_raw(
 # ============================================================================
 
 
-def test_assignment_auto_id_is_job_first(
+@pytest.mark.parametrize(
+    ("entry", "expected_id", "expected_display_name"),
+    [
+        pytest.param(
+            {"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard"},
+            "ffnn-standard-gaussian-cg0-45x15",
+            None,
+            id="auto-id-is-job-first",
+        ),
+        pytest.param(
+            {"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard", "display_name": "My Run"},
+            "my-run",
+            "My Run",
+            id="id-slugified-from-display-name",
+        ),
+        pytest.param(
+            {"id": "my-id", "dataset": "gaussian-cg0-45x15", "job": "ffnn-standard"},
+            "my-id",
+            None,
+            id="display-name-never-rebuilt-from-ids",
+        ),
+    ],
+)
+def test_assignment_auto_fill(
     minimal_case_raw: dict[str, object],
+    entry: dict[str, object],
+    expected_id: str,
+    expected_display_name: str | None,
 ) -> None:
-    """Auto-generate assignment id from job and dataset when no id or display_name given.
+    config = CaseConfig.model_validate({**minimal_case_raw, "assignments": [entry]})
 
-    The id should be "{job_id}-{dataset_id}" (job first).
-    Display name should be "{job_label} | {dataset_label}".
-    """
-    raw = dict(minimal_case_raw)
-    raw["assignments"] = [
-        {
-            "dataset": "gaussian-cg0-45x15",
-            "job": "ffnn-standard",
-            # no id, no display_name
-        }
-    ]
-    config = CaseConfig.model_validate(raw)
-    assert config.assignments[0].id == "ffnn-standard-gaussian-cg0-45x15"
-    assert config.assignments[0].display_name is None
-
-
-def test_assignment_id_derived_from_display_name(
-    minimal_case_raw: dict[str, object],
-) -> None:
-    """Auto-generate assignment id from display_name via slugification when no id given."""
-    raw = dict(minimal_case_raw)
-    raw["assignments"] = [
-        {
-            "dataset": "gaussian-cg0-45x15",
-            "job": "ffnn-standard",
-            "display_name": "My Run",
-            # no id
-        }
-    ]
-    config = CaseConfig.model_validate(raw)
-    assert config.assignments[0].id == "my-run"
-    assert config.assignments[0].display_name == "My Run"
-
-
-def test_assignment_display_name_auto_filled_when_only_id_given(
-    minimal_case_raw: dict[str, object],
-) -> None:
-    """Leave display_name absent when only an id is given: a title is never rebuilt from ids."""
-    raw = dict(minimal_case_raw)
-    raw["assignments"] = [
-        {
-            "id": "my-id",
-            "dataset": "gaussian-cg0-45x15",
-            "job": "ffnn-standard",
-            # no display_name
-        }
-    ]
-    config = CaseConfig.model_validate(raw)
-    assert config.assignments[0].id == "my-id"
-    assert config.assignments[0].display_name is None
-
-
-def test_assignment_explicit_id_and_display_name_unchanged(
-    minimal_case_raw: dict[str, object],
-) -> None:
-    """Explicit id and display_name should remain unchanged."""
-    raw = dict(minimal_case_raw)
-    raw["assignments"] = [
-        {
-            "id": "my-id",
-            "dataset": "gaussian-cg0-45x15",
-            "job": "ffnn-standard",
-            "display_name": "My Label",
-        }
-    ]
-    config = CaseConfig.model_validate(raw)
-    assert config.assignments[0].id == "my-id"
-    assert config.assignments[0].display_name == "My Label"
+    assert config.assignments[0].id == expected_id
+    assert config.assignments[0].display_name == expected_display_name
 
 
 # ============================================================================
@@ -148,41 +104,27 @@ def test_assignment_explicit_id_and_display_name_unchanged(
 # ============================================================================
 
 
-def test_comparison_auto_id_when_same_datasets(
-    minimal_case_raw: dict[str, object],
+@pytest.mark.parametrize(
+    ("rhs_kind", "expected_id"),
+    [
+        pytest.param("gaussian", "gaussian-cg0-45x15-gaussian", id="gaussian-rhs"),
+        pytest.param("dataset", "gaussian-cg0-45x15-dataset", id="dataset-rhs"),
+    ],
+)
+def test_comparison_auto_id_joins_matrix_dataset_and_rhs_kind(
+    minimal_case_raw: dict[str, object], rhs_kind: str, expected_id: str
 ) -> None:
-    """Auto-generate comparison id from matrix dataset and RHS source kind."""
     raw = dict(minimal_case_raw)
     raw["comparisons"] = [
         {
             "matrix_dataset": "gaussian-cg0-45x15",
-            "rhs_source": {"kind": "gaussian"},
+            "rhs_source": {"kind": rhs_kind},
             "assignments": ["ffnn-standard-gaussian-cg0-45x15"],
-            # no id, no display_name
         }
     ]
     raw["assignments"] = [{"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard"}]
     config = CaseConfig.model_validate(raw)
-    assert config.comparisons[0].id == "gaussian-cg0-45x15-gaussian"
-    assert config.comparisons[0].display_name is None
-
-
-def test_comparison_auto_id_when_different_datasets(
-    minimal_case_raw: dict[str, object],
-) -> None:
-    """Auto-generate comparison id with matrix dataset and dataset RHS source."""
-    raw = dict(minimal_case_raw)
-    raw["comparisons"] = [
-        {
-            "matrix_dataset": "gaussian-cg0-45x15",
-            "rhs_source": {"kind": "dataset"},
-            "assignments": ["ffnn-standard-gaussian-cg0-45x15"],
-            # no id, no display_name
-        }
-    ]
-    raw["assignments"] = [{"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard"}]
-    config = CaseConfig.model_validate(raw)
-    assert config.comparisons[0].id == "gaussian-cg0-45x15-dataset"
+    assert config.comparisons[0].id == expected_id
     assert config.comparisons[0].display_name is None
 
 

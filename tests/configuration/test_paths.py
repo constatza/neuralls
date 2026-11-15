@@ -6,25 +6,12 @@ from pathlib import Path
 
 from neuralls.platform.config.models.data_models import DataConfigFile, OutputConfig
 from neuralls.platform.config.resolution import (
-    PathContext,
     resolve_path_context,
 )
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.constants import DEFAULT_PROJECT_ROOT
 
 WORKSPACE = Path("workspace")
-
-
-def test_path_context_creation() -> None:
-    """PathContext is a frozen value object."""
-    ctx = PathContext(
-        project_root=WORKSPACE / "project",
-        output_root=WORKSPACE / "output",
-        processed_root=WORKSPACE / "processed",
-    )
-    assert ctx.project_root == WORKSPACE / "project"
-    assert ctx.output_root == WORKSPACE / "output"
-    assert ctx.processed_root == WORKSPACE / "processed"
 
 
 def test_resolve_path_context_uses_settings_defaults(

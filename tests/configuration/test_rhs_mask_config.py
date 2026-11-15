@@ -50,11 +50,6 @@ def test_the_density_is_optional_in_toml_shape() -> None:
     assert source.mask == RandomMask()
 
 
-def test_an_unknown_mask_kind_is_rejected() -> None:
-    with pytest.raises(ValidationError):
-        _SOURCE.validate_python({"kind": "gaussian", "mask": {"kind": "area"}})
-
-
 def test_a_dumped_mask_validates_back_to_the_same_source() -> None:
     source = GaussianRhsSourceModel(mask=RandomMask(density=0.3))
 

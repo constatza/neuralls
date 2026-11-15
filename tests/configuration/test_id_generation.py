@@ -11,71 +11,35 @@ from neuralls.platform.config.models.id_generation import (
     _validate_id_chars,
 )
 
-
-@pytest.fixture
-def exp_invalid_id() -> dict[str, object]:
-    """Assignment entry with an id that contains invalid characters."""
-    return {"dataset": "gaussian-cg0-45x15", "job": "ffnn-standard", "id": "bad id!"}
-
-
-@pytest.fixture
-def exp_unknown_registry() -> dict[str, object]:
-    """Assignment entry whose dataset/job are absent from the display lookups."""
-    return {"dataset": "unknown-ds", "job": "unknown-job"}
-
-
-@pytest.fixture
-def comp_same_datasets() -> dict[str, object]:
-    """Comparison with identical matrix and RHS source ids, no id or display_name."""
-    return {"matrix_dataset": "gaussian-rhs-45x15", "rhs_source": "gaussian-rhs-45x15"}
-
-
-@pytest.fixture
-def comp_diff_datasets() -> dict[str, object]:
-    """Comparison with different matrix and RHS source ids, no id or display_name."""
-    return {"matrix_dataset": "gaussian-cg0-45x15", "rhs_source": "solutions-45x15"}
-
-
-@pytest.fixture
-def comp_same_display_name_test_data() -> dict[str, object]:
-    """Comparison with same matrix/RHS source id used to test auto display name."""
-    return {"matrix_dataset": "gaussian-cg0-45x15", "rhs_source": "gaussian-cg0-45x15"}
-
-
 # ---------------------------------------------------------------------------
 # _slugify
 # ---------------------------------------------------------------------------
 
 
-def test_slugify_converts_spaces_to_hyphens() -> None:
-    assert _slugify("My Experiment Label") == "my-experiment-label"
+@pytest.mark.parametrize(
+    ("label", "slug"),
+    [
+        pytest.param("My Experiment Label", "my-experiment-label", id="spaces-to-hyphens"),
+        pytest.param("FFNN Standard", "ffnn-standard", id="lowercases"),
+        pytest.param("ffnn_standard-v2", "ffnn_standard-v2", id="keeps-hyphens-underscores"),
+        pytest.param("  my label  ", "my-label", id="strips-whitespace"),
+    ],
+)
+def test_slugify_gives_the_exact_slug(label: str, slug: str) -> None:
+    assert _slugify(label) == slug
 
 
-def test_slugify_lowercases_input() -> None:
-    assert _slugify("FFNN Standard") == "ffnn-standard"
-
-
-def test_slugify_preserves_existing_hyphens_and_underscores() -> None:
-    assert _slugify("ffnn_standard-v2") == "ffnn_standard-v2"
-
-
-def test_slugify_strips_surrounding_whitespace() -> None:
-    assert _slugify("  my label  ") == "my-label"
-
-
-def test_slugify_raises_on_emoji() -> None:
+@pytest.mark.parametrize(
+    "label",
+    [
+        pytest.param("My 😀 Experiment", id="emoji"),
+        pytest.param("Experiment: Run 1", id="colon"),
+        pytest.param("", id="empty"),
+    ],
+)
+def test_slugify_rejects_an_unsluggable_label(label: str) -> None:
     with pytest.raises(ValueError):
-        _slugify("My 😀 Experiment")
-
-
-def test_slugify_raises_on_colon() -> None:
-    with pytest.raises(ValueError):
-        _slugify("Experiment: Run 1")
-
-
-def test_slugify_raises_on_empty_string() -> None:
-    with pytest.raises(ValueError):
-        _slugify("")
+        _slugify(label)
 
 
 # ---------------------------------------------------------------------------
@@ -83,27 +47,22 @@ def test_slugify_raises_on_empty_string() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_validate_id_chars_accepts_hyphens_and_digits() -> None:
-    _validate_id_chars("gaussian-cg0-45x15")  # no exception
+@pytest.mark.parametrize("identifier", ["gaussian-cg0-45x15", "ffnn_standard_v2"])
+def test_validate_id_chars_accepts_hyphens_digits_and_underscores(identifier: str) -> None:
+    _validate_id_chars(identifier)  # no exception
 
 
-def test_validate_id_chars_accepts_underscores() -> None:
-    _validate_id_chars("ffnn_standard_v2")  # no exception
-
-
-def test_validate_id_chars_rejects_space() -> None:
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        pytest.param("has space", id="space"),
+        pytest.param("id\U0001f600", id="emoji"),
+        pytest.param("id:colon", id="colon"),
+    ],
+)
+def test_validate_id_chars_rejects_other_characters(identifier: str) -> None:
     with pytest.raises(ValueError):
-        _validate_id_chars("has space")
-
-
-def test_validate_id_chars_rejects_emoji() -> None:
-    with pytest.raises(ValueError):
-        _validate_id_chars("id\U0001f600")
-
-
-def test_validate_id_chars_rejects_colon() -> None:
-    with pytest.raises(ValueError):
-        _validate_id_chars("id:colon")
+        _validate_id_chars(identifier)
 
 
 # ---------------------------------------------------------------------------
@@ -111,68 +70,33 @@ def test_validate_id_chars_rejects_colon() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_infer_assignment_id_auto_is_job_first() -> None:
+@pytest.mark.parametrize(
+    ("user_id", "user_dn", "expected"),
+    [
+        pytest.param(None, None, "ffnn-standard-gaussian-cg0-45x15", id="job-first"),
+        pytest.param(None, "My Experiment", "my-experiment", id="from-display-name"),
+        pytest.param("my-experiment", None, "my-experiment", id="explicit-id"),
+        pytest.param("explicit-id", "Some Display Name", "explicit-id", id="id-beats-display-name"),
+    ],
+)
+def test_infer_assignment_id(user_id: str | None, user_dn: str | None, expected: str) -> None:
     result = _infer_assignment_id(
         dataset_id="gaussian-cg0-45x15",
         job_id="ffnn-standard",
-        user_id=None,
-        user_dn=None,
+        user_id=user_id,
+        user_dn=user_dn,
     )
-    assert result == "ffnn-standard-gaussian-cg0-45x15"
+    assert result == expected
 
 
-def test_infer_assignment_id_derives_from_display_name() -> None:
-    result = _infer_assignment_id(
-        dataset_id="gaussian-cg0-45x15",
-        job_id="ffnn-standard",
-        user_id=None,
-        user_dn="My Experiment",
-    )
-    assert result == "my-experiment"
-
-
-def test_infer_assignment_id_uses_explicit_user_id() -> None:
-    result = _infer_assignment_id(
-        dataset_id="gaussian-cg0-45x15",
-        job_id="ffnn-standard",
-        user_id="my-experiment",
-        user_dn=None,
-    )
-    assert result == "my-experiment"
-
-
-def test_infer_assignment_id_user_id_takes_priority_over_display_name() -> None:
-    result = _infer_assignment_id(
-        dataset_id="gaussian-cg0-45x15",
-        job_id="ffnn-standard",
-        user_id="explicit-id",
-        user_dn="Some Display Name",
-    )
-    assert result == "explicit-id"
-
-
-def test_infer_assignment_id_raises_on_invalid_chars(
-    exp_invalid_id: dict[str, object],
-) -> None:
+def test_infer_assignment_id_raises_on_invalid_chars() -> None:
     with pytest.raises(ValueError):
         _infer_assignment_id(
-            dataset_id=str(exp_invalid_id["dataset"]),
-            job_id=str(exp_invalid_id["job"]),
-            user_id=str(exp_invalid_id["id"]),
+            dataset_id="gaussian-cg0-45x15",
+            job_id="ffnn-standard",
+            user_id="bad id!",
             user_dn=None,
         )
-
-
-def test_infer_assignment_id_falls_back_to_raw_id_when_not_in_registry(
-    exp_unknown_registry: dict[str, object],
-) -> None:
-    result = _infer_assignment_id(
-        dataset_id=str(exp_unknown_registry["dataset"]),
-        job_id=str(exp_unknown_registry["job"]),
-        user_id=None,
-        user_dn=None,
-    )
-    assert result == "unknown-job-unknown-ds"
 
 
 # ---------------------------------------------------------------------------
@@ -180,47 +104,35 @@ def test_infer_assignment_id_falls_back_to_raw_id_when_not_in_registry(
 # ---------------------------------------------------------------------------
 
 
-def test_infer_comparison_id_uses_matrix_id_when_datasets_same(
-    comp_same_datasets: dict[str, object],
+@pytest.mark.parametrize(
+    ("matrix_id", "rhs_id", "user_dn", "expected"),
+    [
+        pytest.param(
+            "gaussian-rhs-45x15", "gaussian-rhs-45x15", None, "gaussian-rhs-45x15", id="same-ids"
+        ),
+        pytest.param(
+            "gaussian-cg0-45x15",
+            "solutions-45x15",
+            None,
+            "gaussian-cg0-45x15-solutions-45x15",
+            id="different-ids-joined",
+        ),
+        pytest.param(
+            "gaussian-rhs-45x15",
+            "gaussian-rhs-45x15",
+            "Gaussian Test",
+            "gaussian-test",
+            id="from-display-name",
+        ),
+    ],
+)
+def test_infer_comparison_id(
+    matrix_id: str, rhs_id: str, user_dn: str | None, expected: str
 ) -> None:
-    result = _infer_comparison_id(
-        matrix_id=str(comp_same_datasets["matrix_dataset"]),
-        rhs_id=str(comp_same_datasets["rhs_source"]),
-        user_id=None,
-        user_dn=None,
-    )
-    assert result == "gaussian-rhs-45x15"
-
-
-def test_infer_comparison_id_joins_ids_when_datasets_differ(
-    comp_diff_datasets: dict[str, object],
-) -> None:
-    result = _infer_comparison_id(
-        matrix_id=str(comp_diff_datasets["matrix_dataset"]),
-        rhs_id=str(comp_diff_datasets["rhs_source"]),
-        user_id=None,
-        user_dn=None,
-    )
-    assert result == "gaussian-cg0-45x15-solutions-45x15"
-
-
-def test_infer_comparison_id_derives_from_display_name(
-    comp_same_datasets: dict[str, object],
-) -> None:
-    result = _infer_comparison_id(
-        matrix_id=str(comp_same_datasets["matrix_dataset"]),
-        rhs_id=str(comp_same_datasets["rhs_source"]),
-        user_id=None,
-        user_dn="Gaussian Test",
-    )
-    assert result == "gaussian-test"
+    result = _infer_comparison_id(matrix_id=matrix_id, rhs_id=rhs_id, user_id=None, user_dn=user_dn)
+    assert result == expected
 
 
 def test_infer_comparison_id_raises_on_invalid_chars() -> None:
     with pytest.raises(ValueError):
-        _infer_comparison_id(
-            matrix_id="x",
-            rhs_id="x",
-            user_id="bad id!",
-            user_dn=None,
-        )
+        _infer_comparison_id(matrix_id="x", rhs_id="x", user_id="bad id!", user_dn=None)

@@ -46,10 +46,13 @@ def test_settings_derived_paths(neuralls_settings: NeurallsSettings) -> None:
     assert neuralls_settings.mlartifacts_dir == neuralls_settings.output_dir / "mlartifacts"
 
 
-def test_settings_mlflow_uri_uses_posix(neuralls_settings: NeurallsSettings) -> None:
+def test_settings_mlflow_uri_is_the_posix_sqlite_path_under_mlruns(
+    neuralls_settings: NeurallsSettings,
+) -> None:
     """The sqlite tracking URI uses forward slashes."""
-    assert "\\" not in neuralls_settings.mlflow_tracking_uri
-    assert neuralls_settings.mlflow_tracking_uri.startswith("sqlite:///")
+    assert neuralls_settings.mlflow_tracking_uri == (
+        f"sqlite:///{(neuralls_settings.mlruns_dir / 'mlflow.db').as_posix()}"
+    )
 
 
 def test_settings_paths_resolved_absolute(neuralls_settings: NeurallsSettings) -> None:
