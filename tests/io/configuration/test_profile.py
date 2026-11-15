@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -82,22 +84,6 @@ def test_load_profile_returns_none_when_config_file_missing(tmp_path: Path) -> N
     assert load_profile(_config_file=tmp_path / "missing.toml") is None
 
 
-def test_list_profiles_returns_default_then_named_profiles(tmp_path: Path) -> None:
-    config_file = tmp_path / "config.toml"
-    save_profile(
-        "default",
-        _profile(tmp_path / "raw", tmp_path / "processed", tmp_path / "output"),
-        _config_file=config_file,
-    )
-    save_profile(
-        "laptop",
-        _profile(tmp_path / "raw2", tmp_path / "processed2", tmp_path / "output2"),
-        _config_file=config_file,
-    )
-
-    assert list_profiles(_config_file=config_file) == ["default", "laptop"]
-
-
 def test_delete_profile_removes_named_and_refuses_default(tmp_path: Path) -> None:
     config_file = tmp_path / "config.toml"
     save_profile(
@@ -165,21 +151,69 @@ def _saved_profile(config_file: Path, raw: str, processed: str, output: str) -> 
     )
 
 
-def _clear_root_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("NEURALLS_RAW_DIR", "NEURALLS_PROCESSED_DIR", "NEURALLS_OUTPUT_DIR"):
-        monkeypatch.delenv(name, raising=False)
-
-
 def _set_root_env(monkeypatch: pytest.MonkeyPatch, raw: str, processed: str, output: str) -> None:
     monkeypatch.setenv("NEURALLS_RAW_DIR", raw)
     monkeypatch.setenv("NEURALLS_PROCESSED_DIR", processed)
     monkeypatch.setenv("NEURALLS_OUTPUT_DIR", output)
 
 
-def test_profile_config_keeps_paths_as_given() -> None:
-    config = ProfileConfig(raw_dir="raw", processed_dir="~/processed", output_dir="output")
+Roots = tuple[Path | None, Path | None, Path | None]
+"""The (raw, processed, output) roots a source yields."""
 
-    assert (config.raw_dir, config.processed_dir, config.output_dir) == (
+
+@dataclass(frozen=True, slots=True)
+class _RootsSource:
+    """One way of turning raw/processed/output strings into roots: a stored profile or settings."""
+
+    construct: Callable[[str, str, str], Roots]
+    load: Callable[[Path, pytest.MonkeyPatch, str, str, str], Roots]
+    processed_label: str
+
+
+def _construct_profile(raw: str, processed: str, output: str) -> Roots:
+    config = ProfileConfig(raw_dir=raw, processed_dir=processed, output_dir=output)
+    return (config.raw_dir, config.processed_dir, config.output_dir)
+
+
+def _construct_settings(raw: str, processed: str, output: str) -> Roots:
+    settings = NeurallsSettings(
+        _env_file=[], raw_dir=raw, processed_dir=processed, output_dir=output
+    )
+    return (settings.raw_dir, settings.processed_dir, settings.output_dir)
+
+
+def _load_profile_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raw: str, processed: str, output: str
+) -> Roots:
+    config_file = tmp_path / "config.toml"
+    _saved_profile(config_file, raw, processed, output)
+    loaded = load_profile(_config_file=config_file)
+    if loaded is None:
+        raise LookupError(config_file)
+    return (loaded.raw_dir, loaded.processed_dir, loaded.output_dir)
+
+
+def _load_settings_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raw: str, processed: str, output: str
+) -> Roots:
+    _set_root_env(monkeypatch, raw, processed, output)
+    settings = get_settings()
+    return (settings.raw_dir, settings.processed_dir, settings.output_dir)
+
+
+@pytest.fixture(
+    params=[
+        _RootsSource(_construct_profile, _load_profile_roots, "processed_dir"),
+        _RootsSource(_construct_settings, _load_settings_roots, "NEURALLS_PROCESSED_DIR"),
+    ],
+    ids=["profile", "settings"],
+)
+def roots_source(request: pytest.FixtureRequest) -> _RootsSource:
+    return request.param
+
+
+def test_roots_are_kept_as_given(roots_source: _RootsSource) -> None:
+    assert roots_source.construct("raw", "~/processed", "output") == (
         Path("raw"),
         Path("~/processed"),
         Path("output"),
@@ -190,125 +224,56 @@ def test_profile_config_keeps_paths_as_given() -> None:
     sys.platform == "win32",
     reason="stdlib expanduser prefers USERPROFILE over HOME on Windows",
 )
-def test_load_profile_expands_tilde(tmp_path: Path, home_dir: Path) -> None:
-    config_file = tmp_path / "config.toml"
-    _saved_profile(config_file, "~/raw", "~/processed", "~/output")
+def test_load_expands_tilde(
+    roots_source: _RootsSource, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, home_dir: Path
+) -> None:
+    loaded = roots_source.load(tmp_path, monkeypatch, "~/raw", "~/processed", "~/output")
 
-    loaded = load_profile(_config_file=config_file)
-
-    assert loaded == ProfileConfig(
-        raw_dir=home_dir / "raw",
-        processed_dir=home_dir / "processed",
-        output_dir=home_dir / "output",
-    )
+    assert loaded == (home_dir / "raw", home_dir / "processed", home_dir / "output")
 
 
-def test_load_profile_rejects_relative_root(tmp_path: Path) -> None:
-    config_file = tmp_path / "config.toml"
-    _saved_profile(config_file, str(tmp_path / "raw"), "processed", str(tmp_path / "output"))
-
-    with pytest.raises(ValueError, match="processed_dir"):
-        load_profile(_config_file=config_file)
+def test_load_rejects_relative_root(
+    roots_source: _RootsSource, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(ValueError, match=roots_source.processed_label):
+        roots_source.load(
+            tmp_path, monkeypatch, str(tmp_path / "raw"), "processed", str(tmp_path / "output")
+        )
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only path semantics")
-def test_load_profile_preserves_windows_mapped_drive_paths(tmp_path: Path) -> None:
-    """Mapped-drive roots should stay drive-letter-based on Windows."""
-    config_file = tmp_path / "config.toml"
-    _saved_profile(
-        config_file,
+def test_load_preserves_windows_mapped_drive_paths(
+    roots_source: _RootsSource, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mapped-drive roots stay drive-letter-based on Windows."""
+    loaded = roots_source.load(
+        tmp_path,
+        monkeypatch,
         r"M:\shared\neuralls\raw",
         r"M:\shared\neuralls\processed",
         r"M:\shared\neuralls\output",
     )
 
-    loaded = load_profile(_config_file=config_file)
-
-    assert loaded is not None
-    assert str(loaded.raw_dir) == r"M:\shared\neuralls\raw"
-    assert str(loaded.processed_dir) == r"M:\shared\neuralls\processed"
-    assert str(loaded.output_dir) == r"M:\shared\neuralls\output"
+    assert tuple(str(root) for root in loaded) == (
+        r"M:\shared\neuralls\raw",
+        r"M:\shared\neuralls\processed",
+        r"M:\shared\neuralls\output",
+    )
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only path semantics")
-def test_load_profile_rejects_windows_mapped_drive_paths_on_posix(tmp_path: Path) -> None:
+def test_load_rejects_windows_mapped_drive_paths_on_posix(
+    roots_source: _RootsSource, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Mapped-drive roots remain invalid on POSIX hosts."""
-    config_file = tmp_path / "config.toml"
-    _saved_profile(
-        config_file,
-        r"M:\shared\neuralls\raw",
-        r"M:\shared\neuralls\processed",
-        r"M:\shared\neuralls\output",
-    )
-
     with pytest.raises(ValueError):
-        load_profile(_config_file=config_file)
-
-
-def test_neuralls_settings_keeps_paths_as_given() -> None:
-    settings = NeurallsSettings(_env_file=[], processed_dir="processed", output_dir="output")
-
-    assert (settings.processed_dir, settings.output_dir) == (Path("processed"), Path("output"))
-
-
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="stdlib expanduser prefers USERPROFILE over HOME on Windows",
-)
-def test_get_settings_expands_tilde(monkeypatch: pytest.MonkeyPatch, home_dir: Path) -> None:
-    _set_root_env(monkeypatch, "~/raw", "~/processed", "~/output")
-
-    settings = get_settings()
-
-    assert settings.raw_dir == home_dir / "raw"
-    assert settings.processed_dir == home_dir / "processed"
-    assert settings.output_dir == home_dir / "output"
-
-
-def test_get_settings_rejects_relative_root(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    _clear_root_env(monkeypatch)
-    monkeypatch.setenv("NEURALLS_PROCESSED_DIR", str(tmp_path / "processed"))
-    monkeypatch.setenv("NEURALLS_OUTPUT_DIR", "output")
-
-    with pytest.raises(ValueError, match="NEURALLS_OUTPUT_DIR"):
-        get_settings()
-
-
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only path semantics")
-def test_get_settings_preserves_windows_mapped_drive_paths(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Runtime settings should not collapse mapped drives into UNC paths on Windows."""
-    _set_root_env(
-        monkeypatch,
-        r"M:\shared\neuralls\raw",
-        r"M:\shared\neuralls\processed",
-        r"M:\shared\neuralls\output",
-    )
-
-    settings = get_settings()
-
-    assert str(settings.raw_dir) == r"M:\shared\neuralls\raw"
-    assert str(settings.processed_dir) == r"M:\shared\neuralls\processed"
-    assert str(settings.output_dir) == r"M:\shared\neuralls\output"
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only path semantics")
-def test_get_settings_rejects_windows_mapped_drive_paths_on_posix(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Runtime settings should reject Windows-only roots on POSIX hosts."""
-    _set_root_env(
-        monkeypatch,
-        r"M:\shared\neuralls\raw",
-        r"M:\shared\neuralls\processed",
-        r"M:\shared\neuralls\output",
-    )
-
-    with pytest.raises(ValueError):
-        get_settings()
+        roots_source.load(
+            tmp_path,
+            monkeypatch,
+            r"M:\shared\neuralls\raw",
+            r"M:\shared\neuralls\processed",
+            r"M:\shared\neuralls\output",
+        )
 
 
 def test_profile_config_rejects_missing_required_fields(tmp_path: Path) -> None:

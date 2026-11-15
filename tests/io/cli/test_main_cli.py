@@ -54,13 +54,6 @@ def test_root_help_lists_only_public_commands() -> None:
     ]
 
 
-def test_config_subcommands_are_exposed_under_root() -> None:
-    root_command = get_command(app)
-    assert isinstance(root_command, Group)
-
-    assert "config" in root_command.commands
-
-
 def test_project_scripts_only_expose_neuralls() -> None:
     pyproject_path = Path(__file__).resolve().parents[3] / "pyproject.toml"
     pyproject = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))

@@ -60,10 +60,8 @@ def test_scale_metadata_saved_with_matrix_normalization(temp_matrix_file: Path, 
     _rhs, _ = load_dense_training_arrays(output_dir)
 
     # Check that metadata fields are present
-    assert "normalization" in manifest
     scale_metadata = manifest["normalization"]["scale"]
-    assert "spectral_radius_bound" in scale_metadata
-    assert "dimension_scale" in scale_metadata
+    assert set(scale_metadata) == {"spectral_radius_bound", "dimension_scale"}
 
     # Check metadata values
     assert str(manifest["normalization"]["type"]) == "matrix"
@@ -115,11 +113,7 @@ def test_scale_metadata_not_saved_with_none_normalization(temp_matrix_file: Path
 
     manifest = load_dataset_manifest(output_dir)
 
-    # Check that normalize_type is present
-    assert "normalization" in manifest
     assert str(manifest["normalization"]["type"]) == "none"
 
     # Scale parameters should not be present for "none" normalization
-    scale_metadata = manifest["normalization"]["scale"]
-    assert "spectral_radius_bound" not in scale_metadata
-    assert "dimension_scale" not in scale_metadata
+    assert manifest["normalization"]["scale"] == {}

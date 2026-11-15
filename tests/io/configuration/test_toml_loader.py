@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import tomllib
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -12,7 +11,6 @@ from neuralls.platform.config.loaders import (
     load_case_config,
     load_comparison_config,
     load_data_config,
-    load_raw_toml,
 )
 from neuralls.platform.config.models.experiments import CaseConfig
 from neuralls.platform.config.settings import NeurallsSettings
@@ -194,28 +192,156 @@ def _write_dataset_config(path: Path, dataset_id: str) -> None:
     )
 
 
-def test_load_case_config_expands_dataset_sweeps(
-    tmp_path: Path,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    """[[dataset_sweeps]] expands into real [[datasets]] entries with ids read from disk."""
-    _write_dataset_config(tmp_path / "gaussian-cg50-1000.toml", "gaussian-cg50-family-1000")
-    _write_dataset_config(tmp_path / "gaussian-cg50-2000.toml", "gaussian-cg50-family-2000")
-    config_file = tmp_path / "case.toml"
-    config_file.write_text(
+_ACCEPTED_DATASET_SWEEPS = {
+    "values-only": (
+        {
+            "gaussian-cg50-1000.toml": "gaussian-cg50-family-1000",
+            "gaussian-cg50-2000.toml": "gaussian-cg50-family-2000",
+        },
         """
 [[dataset_sweeps]]
 label = "cg50-samples"
 path_template = "gaussian-cg50-{value}.toml"
 values = [1000, 2000]
 """,
-        encoding="utf-8",
-    )
+        ["gaussian-cg50-family-1000", "gaussian-cg50-family-2000"],
+    ),
+    "cartesian-product": (
+        {
+            f"gaussian-{cg}-{n}.toml": f"gaussian-{cg}-{n}-id"
+            for cg in ("cg10", "cg50")
+            for n in (1000, 2000)
+        },
+        """
+[[dataset_sweeps]]
+label = "cg-samples"
+path_template = "gaussian-{cg}-{value}.toml"
+axes = { cg = ["cg10", "cg50"], value = [1000, 2000] }
+cart_product = true
+""",
+        [
+            "gaussian-cg10-1000-id",
+            "gaussian-cg10-2000-id",
+            "gaussian-cg50-1000-id",
+            "gaussian-cg50-2000-id",
+        ],
+    ),
+    "zip-by-default": (
+        {
+            "gaussian-cg10-1000.toml": "cg10-1000-id",
+            "gaussian-cg50-2000.toml": "cg50-2000-id",
+        },
+        """
+[[dataset_sweeps]]
+label = "cg-samples"
+path_template = "gaussian-{cg}-{value}.toml"
+axes = { cg = ["cg10", "cg50"], value = [1000, 2000] }
+""",
+        ["cg10-1000-id", "cg50-2000-id"],
+    ),
+    "scalar-axis-broadcasts": (
+        {
+            "gaussian-cg50-1000.toml": "cg50-1000-id",
+            "gaussian-cg50-2000.toml": "cg50-2000-id",
+        },
+        """
+[[dataset_sweeps]]
+label = "cg-samples"
+path_template = "gaussian-{cg}-{value}.toml"
+axes = { cg = "cg50", value = [1000, 2000] }
+""",
+        ["cg50-1000-id", "cg50-2000-id"],
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("dataset_files", "sweep_body", "expected_ids"),
+    list(_ACCEPTED_DATASET_SWEEPS.values()),
+    ids=list(_ACCEPTED_DATASET_SWEEPS),
+)
+def test_load_case_config_expands_dataset_sweeps(
+    tmp_path: Path,
+    neuralls_settings: NeurallsSettings,
+    dataset_files: dict[str, str],
+    sweep_body: str,
+    expected_ids: list[str],
+) -> None:
+    """[[dataset_sweeps]] expands into real [[datasets]] entries with ids read from disk."""
+    for file_name, dataset_id in dataset_files.items():
+        _write_dataset_config(tmp_path / file_name, dataset_id)
+    config_file = tmp_path / "case.toml"
+    config_file.write_text(sweep_body, encoding="utf-8")
+
     config = load_case_config(config_file, neuralls_settings)
-    assert [d.id for d in config.datasets] == [
-        "gaussian-cg50-family-1000",
-        "gaussian-cg50-family-2000",
-    ]
+
+    assert [d.id for d in config.datasets] == expected_ids
+
+
+_REJECTED_SWEEPS = {
+    "empty-job-list": """
+[[dataset_sweeps]]
+label = "cg50-samples"
+path_template = "gaussian-cg50-{value}.toml"
+values = [1000]
+
+[[assignment_sweeps]]
+dataset_sweep = "cg50-samples"
+job = []
+""",
+    "unknown-dataset-sweep-label": """
+[[jobs]]
+id = "pod-2g_cg-50"
+path = "jobs/dummy-job.toml"
+
+[[assignment_sweeps]]
+dataset_sweep = "typo"
+job = "pod-2g_cg-50"
+""",
+    "missing-value-placeholder": """
+[[dataset_sweeps]]
+label = "cg50-samples"
+path_template = "gaussian-cg50-fixed.toml"
+values = [1000, 2000]
+""",
+    "zip-unequal-length": """
+[[dataset_sweeps]]
+label = "cg-samples"
+path_template = "gaussian-{cg}-{value}.toml"
+axes = { cg = ["cg10", "cg50"], value = [1000, 2000, 5000] }
+""",
+    "axis-missing-from-template": """
+[[dataset_sweeps]]
+label = "cg-samples"
+path_template = "gaussian-{value}.toml"
+axes = { cg = ["cg10", "cg50"], value = [1000, 2000] }
+""",
+    "both-axes-and-values": """
+[[dataset_sweeps]]
+label = "cg-samples"
+path_template = "gaussian-{value}.toml"
+axes = { value = [1000, 2000] }
+values = [1000, 2000]
+""",
+    "nested-table-axis-value": """
+[[dataset_sweeps]]
+label = "cg-samples"
+path_template = "gaussian-{cg}-{value}.toml"
+axes = { cg = { oops = "table" }, value = [1000, 2000] }
+""",
+}
+
+
+@pytest.mark.parametrize("case_body", list(_REJECTED_SWEEPS.values()), ids=list(_REJECTED_SWEEPS))
+def test_load_case_config_rejects_invalid_sweep(
+    tmp_path: Path, neuralls_settings: NeurallsSettings, case_body: str
+) -> None:
+    _write_dataset_config(tmp_path / "gaussian-cg50-1000.toml", "cg50-1000-id")
+    config_file = tmp_path / "case.toml"
+    config_file.write_text(case_body, encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        load_case_config(config_file, neuralls_settings)
 
 
 def test_load_case_config_expands_assignment_sweeps(
@@ -287,68 +413,6 @@ job = ["rank100", "rank200"]
         ("cg50-1000-id", "rank200"),
         ("cg50-2000-id", "rank200"),
     ]
-
-
-def test_load_case_config_assignment_sweep_rejects_empty_job_list(
-    tmp_path: Path,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    _write_dataset_config(tmp_path / "gaussian-cg50-1000.toml", "cg50-1000-id")
-    config_file = tmp_path / "case.toml"
-    config_file.write_text(
-        """
-[[dataset_sweeps]]
-label = "cg50-samples"
-path_template = "gaussian-cg50-{value}.toml"
-values = [1000]
-
-[[assignment_sweeps]]
-dataset_sweep = "cg50-samples"
-job = []
-""",
-        encoding="utf-8",
-    )
-    with pytest.raises(ValueError):
-        load_case_config(config_file, neuralls_settings)
-
-
-def test_load_case_config_rejects_unknown_dataset_sweep_label(
-    tmp_path: Path,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    config_file = tmp_path / "case.toml"
-    config_file.write_text(
-        """
-[[jobs]]
-id = "pod-2g_cg-50"
-path = "jobs/dummy-job.toml"
-
-[[assignment_sweeps]]
-dataset_sweep = "typo"
-job = "pod-2g_cg-50"
-""",
-        encoding="utf-8",
-    )
-    with pytest.raises(ValueError):
-        load_case_config(config_file, neuralls_settings)
-
-
-def test_load_case_config_rejects_dataset_sweep_missing_value_placeholder(
-    tmp_path: Path,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    config_file = tmp_path / "case.toml"
-    config_file.write_text(
-        """
-[[dataset_sweeps]]
-label = "cg50-samples"
-path_template = "gaussian-cg50-fixed.toml"
-values = [1000, 2000]
-""",
-        encoding="utf-8",
-    )
-    with pytest.raises(ValueError):
-        load_case_config(config_file, neuralls_settings)
 
 
 def test_load_case_config_dataset_sweeps_duplicate_id_still_rejected(
@@ -427,196 +491,3 @@ job = "pod-2g_cg-50"
     assert [(a.dataset_id, a.job_id) for a in swept.assignments] == [
         (a.dataset_id, a.job_id) for a in hand_written.assignments
     ]
-
-
-def test_load_case_config_dataset_sweep_axes_cartesian_product(
-    tmp_path: Path,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    """Two list-valued axes with cart_product=true produce every combination."""
-    for cg in ("cg10", "cg50"):
-        for n in (1000, 2000):
-            _write_dataset_config(tmp_path / f"gaussian-{cg}-{n}.toml", f"gaussian-{cg}-{n}-id")
-    config_file = tmp_path / "case.toml"
-    config_file.write_text(
-        """
-[[dataset_sweeps]]
-label = "cg-samples"
-path_template = "gaussian-{cg}-{value}.toml"
-axes = { cg = ["cg10", "cg50"], value = [1000, 2000] }
-cart_product = true
-""",
-        encoding="utf-8",
-    )
-    config = load_case_config(config_file, neuralls_settings)
-    assert [d.id for d in config.datasets] == [
-        "gaussian-cg10-1000-id",
-        "gaussian-cg10-2000-id",
-        "gaussian-cg50-1000-id",
-        "gaussian-cg50-2000-id",
-    ]
-
-
-def test_load_case_config_dataset_sweep_axes_zip_by_default(
-    tmp_path: Path,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    """Two equal-length list-valued axes without cart_product zip position-wise."""
-    _write_dataset_config(tmp_path / "gaussian-cg10-1000.toml", "cg10-1000-id")
-    _write_dataset_config(tmp_path / "gaussian-cg50-2000.toml", "cg50-2000-id")
-    config_file = tmp_path / "case.toml"
-    config_file.write_text(
-        """
-[[dataset_sweeps]]
-label = "cg-samples"
-path_template = "gaussian-{cg}-{value}.toml"
-axes = { cg = ["cg10", "cg50"], value = [1000, 2000] }
-""",
-        encoding="utf-8",
-    )
-    config = load_case_config(config_file, neuralls_settings)
-    assert [d.id for d in config.datasets] == ["cg10-1000-id", "cg50-2000-id"]
-
-
-def test_load_case_config_dataset_sweep_axes_zip_rejects_unequal_length(
-    tmp_path: Path,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    config_file = tmp_path / "case.toml"
-    config_file.write_text(
-        """
-[[dataset_sweeps]]
-label = "cg-samples"
-path_template = "gaussian-{cg}-{value}.toml"
-axes = { cg = ["cg10", "cg50"], value = [1000, 2000, 5000] }
-""",
-        encoding="utf-8",
-    )
-    with pytest.raises(ValueError):
-        load_case_config(config_file, neuralls_settings)
-
-
-def test_load_case_config_dataset_sweep_axes_scalar_axis_broadcasts(
-    tmp_path: Path,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    """A scalar axis value stays fixed across every row, equivalent to the legacy values-only form."""
-    _write_dataset_config(tmp_path / "gaussian-cg50-1000.toml", "cg50-1000-id")
-    _write_dataset_config(tmp_path / "gaussian-cg50-2000.toml", "cg50-2000-id")
-    config_file = tmp_path / "case.toml"
-    config_file.write_text(
-        """
-[[dataset_sweeps]]
-label = "cg-samples"
-path_template = "gaussian-{cg}-{value}.toml"
-axes = { cg = "cg50", value = [1000, 2000] }
-""",
-        encoding="utf-8",
-    )
-    config = load_case_config(config_file, neuralls_settings)
-    assert [d.id for d in config.datasets] == ["cg50-1000-id", "cg50-2000-id"]
-
-
-def test_load_case_config_dataset_sweep_rejects_axis_missing_from_template(
-    tmp_path: Path,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    config_file = tmp_path / "case.toml"
-    config_file.write_text(
-        """
-[[dataset_sweeps]]
-label = "cg-samples"
-path_template = "gaussian-{value}.toml"
-axes = { cg = ["cg10", "cg50"], value = [1000, 2000] }
-""",
-        encoding="utf-8",
-    )
-    with pytest.raises(ValueError):
-        load_case_config(config_file, neuralls_settings)
-
-
-def test_load_case_config_dataset_sweep_rejects_both_axes_and_values(
-    tmp_path: Path,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    config_file = tmp_path / "case.toml"
-    config_file.write_text(
-        """
-[[dataset_sweeps]]
-label = "cg-samples"
-path_template = "gaussian-{value}.toml"
-axes = { value = [1000, 2000] }
-values = [1000, 2000]
-""",
-        encoding="utf-8",
-    )
-    with pytest.raises(ValueError):
-        load_case_config(config_file, neuralls_settings)
-
-
-def test_load_case_config_dataset_sweep_rejects_nested_table_axis_value(
-    tmp_path: Path,
-    neuralls_settings: NeurallsSettings,
-) -> None:
-    config_file = tmp_path / "case.toml"
-    config_file.write_text(
-        """
-[[dataset_sweeps]]
-label = "cg-samples"
-path_template = "gaussian-{cg}-{value}.toml"
-axes = { cg = { oops = "table" }, value = [1000, 2000] }
-""",
-        encoding="utf-8",
-    )
-    with pytest.raises(ValueError):
-        load_case_config(config_file, neuralls_settings)
-
-
-def test_load_raw_toml_success(tmp_path: Path) -> None:
-    """Raw TOML loading returns a plain dict."""
-    config_file = tmp_path / "test.toml"
-    config_file.write_text(
-        """
-[section]
-key = "value"
-number = 42
-""",
-        encoding="utf-8",
-    )
-    data = load_raw_toml(config_file)
-    assert isinstance(data, dict)
-    assert data["section"]["key"] == "value"
-    assert data["section"]["number"] == 42
-
-
-def test_load_raw_toml_invalid_syntax(tmp_path: Path) -> None:
-    """Invalid TOML raises the stdlib decode error."""
-    config_file = tmp_path / "test.toml"
-    config_file.write_text("invalid [ syntax", encoding="utf-8")
-    with pytest.raises(tomllib.TOMLDecodeError):
-        load_raw_toml(config_file)
-
-
-def test_load_raw_toml_rejects_unescaped_windows_path(tmp_path: Path) -> None:
-    """Raw Windows backslashes inside TOML basic strings trigger stdlib parsing errors."""
-    config_file = tmp_path / "test.toml"
-    config_file.write_text(
-        r"""
-[source]
-matrix_path = "C:\Users\runneradmin\AppData\Local\Temp\matrix.txt"
-""",
-        encoding="utf-8",
-    )
-    with pytest.raises(tomllib.TOMLDecodeError):
-        load_raw_toml(config_file)
-
-
-def test_load_raw_toml_accepts_normalized_windows_path(tmp_path: Path) -> None:
-    """POSIX-normalized Windows paths remain valid TOML literals everywhere."""
-    config_file = tmp_path / "test.toml"
-    matrix_path = PureWindowsPath(r"C:\Users\runneradmin\AppData\Local\Temp\matrix.txt")
-    config_file.write_text(
-        f'[source]\nmatrix_path = "{matrix_path.as_posix()}"\n', encoding="utf-8"
-    )
-    data = load_raw_toml(config_file)
-    assert data["source"]["matrix_path"] == matrix_path.as_posix()

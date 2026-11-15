@@ -19,6 +19,7 @@ from tests.dataset_support import build_test_dataset
 
 _SAMPLE_COUNT = 5
 _DATASET_FILE = "dataset.h5"
+_EXPECTED_H5_KEYS = {"matrix", "rhs", "solutions", "matrix_sample_index", "row_kind"}
 
 
 @pytest.fixture
@@ -50,34 +51,20 @@ def streamed_hdf5_dir(tmp_path: Path, matrix_file: Path) -> Path:
     return dataset_dir
 
 
-def test_streamed_build_creates_single_h5_file(streamed_hdf5_dir: Path) -> None:
+def test_streamed_build_layout_and_manifest(streamed_hdf5_dir: Path) -> None:
+    """One dataset.h5 holds the arrays; the manifest names each by format, path and key."""
     assert (streamed_hdf5_dir / _DATASET_FILE).is_file()
-
-
-def test_streamed_build_h5_contains_expected_datasets(streamed_hdf5_dir: Path) -> None:
     with h5py.File(str(streamed_hdf5_dir / _DATASET_FILE), "r") as f:
-        assert "matrix" in f
-        assert "rhs" in f
-        assert "solutions" in f
+        assert set(f.keys()) == _EXPECTED_H5_KEYS
 
-
-def test_streamed_manifest_schema_and_format(streamed_hdf5_dir: Path) -> None:
-    """manifest.json has the dataset schema and every artifact format set to 'hdf5'."""
     manifest = load_dataset_manifest(streamed_hdf5_dir)
-    assert manifest["matrix"]["format"] == "hdf5"
-    assert manifest["rhs"]["format"] == "hdf5"
-    assert manifest["solutions"]["format"] == "hdf5"
-
-
-def test_streamed_manifest_artifact_paths_and_keys(streamed_hdf5_dir: Path) -> None:
-    """Manifest stores path='dataset.h5' and key='<dataset>' as separate fields."""
-    manifest = load_dataset_manifest(streamed_hdf5_dir)
-    assert manifest["matrix"]["path"] == _DATASET_FILE
-    assert manifest["matrix"]["key"] == "matrix"
-    assert manifest["rhs"]["path"] == _DATASET_FILE
-    assert manifest["rhs"]["key"] == "rhs"
-    assert manifest["solutions"]["path"] == _DATASET_FILE
-    assert manifest["solutions"]["key"] == "solutions"
+    assert {
+        name: {field: manifest[name][field] for field in ("format", "path", "key")}
+        for name in ("matrix", "rhs", "solutions")
+    } == {
+        name: {"format": "hdf5", "path": _DATASET_FILE, "key": name}
+        for name in ("matrix", "rhs", "solutions")
+    }
 
 
 def test_streamed_roundtrip_shapes_and_each_row_solves(

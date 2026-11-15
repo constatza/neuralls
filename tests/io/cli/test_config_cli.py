@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -23,8 +24,6 @@ def test_create_writes_profile_when_all_root_flags_are_provided(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    import tomllib
-
     config_file = tmp_path / "config.toml"
     _configure_config_path(config_file)
     monkeypatch.delenv("NEURALLS_PROFILE", raising=False)
@@ -82,7 +81,7 @@ def test_init_writes_template_config(tmp_path: Path) -> None:
     result = runner.invoke(app, ["init"])
 
     assert result.exit_code == 0
-    assert "[default]" in (tmp_path / "config.toml").read_text(encoding="utf-8")
+    assert (tmp_path / "config.toml").read_text(encoding="utf-8") == config_cli._TEMPLATE
 
 
 def test_init_force_overwrites_existing_config(tmp_path: Path) -> None:
@@ -93,15 +92,13 @@ def test_init_force_overwrites_existing_config(tmp_path: Path) -> None:
     result = runner.invoke(app, ["init", "--force"])
 
     assert result.exit_code == 0
-    assert 'raw_dir = "/path/to/raw"' in config_file.read_text(encoding="utf-8")
+    assert config_file.read_text(encoding="utf-8") == config_cli._TEMPLATE
 
 
 def test_set_updates_existing_default_profile(
     tmp_path: Path,
     profile_dirs: dict[str, Path],
 ) -> None:
-    import tomllib
-
     config_file = tmp_path / "config.toml"
     _configure_config_path(config_file)
     config_file.write_text(
@@ -128,8 +125,6 @@ def test_set_updates_existing_named_profile(
     tmp_path: Path,
     profile_dirs: dict[str, Path],
 ) -> None:
-    import tomllib
-
     config_file = tmp_path / "config.toml"
     _configure_config_path(config_file)
     config_file.write_text(
@@ -204,9 +199,13 @@ def test_delete_removes_existing_named_profile(
     result = runner.invoke(app, ["delete", "laptop"])
 
     assert result.exit_code == 0
-    config_text = config_file.read_text(encoding="utf-8")
-    assert "[default]" in config_text
-    assert "[profiles.laptop]" not in config_text
+    assert tomllib.loads(config_file.read_text(encoding="utf-8")) == {
+        "default": {
+            "raw_dir": profile_dirs["raw"].as_posix(),
+            "processed_dir": profile_dirs["processed"].as_posix(),
+            "output_dir": profile_dirs["output"].as_posix(),
+        }
+    }
 
 
 def test_delete_fails_for_default_profile(
@@ -230,7 +229,13 @@ def test_delete_fails_for_default_profile(
     result = runner.invoke(app, ["delete", "default"])
 
     assert result.exit_code != 0
-    assert "[default]" in config_file.read_text(encoding="utf-8")
+    assert tomllib.loads(config_file.read_text(encoding="utf-8")) == {
+        "default": {
+            "raw_dir": profile_dirs["raw"].as_posix(),
+            "processed_dir": profile_dirs["processed"].as_posix(),
+            "output_dir": profile_dirs["output"].as_posix(),
+        }
+    }
 
 
 def test_delete_fails_for_missing_named_profile(

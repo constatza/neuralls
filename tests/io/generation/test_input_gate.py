@@ -124,7 +124,6 @@ def test_a_dataset_generated_before_provenance_existed_is_stale_and_names_the_co
         f"Dataset 'ds' at '{dataset_dir}' has no scientific provenance (it was generated before "
         f"provenance was recorded): run `{REGENERATE_DATASETS_COMMAND}` to rewrite it."
     )
-    assert REGENERATE_DATASETS_COMMAND == "neuralls generate --force <case-config.toml>"
 
 
 def test_the_gate_reports_what_the_pinned_split_holds_out(

@@ -24,13 +24,12 @@ def test_existing_generated_dataset_is_not_rewritten_without_force(
 ) -> None:
     """Without force an existing generated file is left untouched."""
     load_case_config(sweep_case_config, neuralls_settings)
-    generated_path.write_text(
-        generated_path.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8"
-    )
+    original = generated_path.read_text(encoding="utf-8")
+    generated_path.write_text(original + "# edited\n", encoding="utf-8")
 
     load_case_config(sweep_case_config, neuralls_settings)
 
-    assert generated_path.read_text(encoding="utf-8").endswith("# edited\n")
+    assert generated_path.read_text(encoding="utf-8") == original + "# edited\n"
 
 
 def test_force_expand_recreates_generated_dataset(
@@ -38,13 +37,12 @@ def test_force_expand_recreates_generated_dataset(
 ) -> None:
     """`force_expand` overwrites an existing generated file from its sweep."""
     load_case_config(sweep_case_config, neuralls_settings)
-    generated_path.write_text(
-        generated_path.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8"
-    )
+    original = generated_path.read_text(encoding="utf-8")
+    generated_path.write_text(original + "# edited\n", encoding="utf-8")
 
     load_case_config(sweep_case_config, neuralls_settings, force_expand=True)
 
-    assert "# edited" not in generated_path.read_text(encoding="utf-8")
+    assert generated_path.read_text(encoding="utf-8") == original
 
 
 def test_generated_path_without_sweep_source_is_left_missing(tmp_path: Path) -> None:

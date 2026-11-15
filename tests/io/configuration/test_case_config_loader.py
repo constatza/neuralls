@@ -148,6 +148,7 @@ def test_load_assignments_success(
 
     exp1 = batch.assignments[0]
     exp2 = batch.assignments[1]
+    configs = temp_config_structure / "configs"
 
     # --- Check Assignment 1 (with checkpoint) ---
     # spec.assignment_id preserves the master registry assignment id.
@@ -155,22 +156,18 @@ def test_load_assignments_success(
     assert isinstance(exp1.workspace, AssignmentWorkspace)
 
     # Check paths resolve to shared directories
-    assert exp1.spec.job_config_path.name == "exp1_job.toml"
-    assert "jobs" in str(exp1.spec.job_config_path)
-    assert exp1.spec.data_config_path.name == "exp1_data.toml"
-    assert "datasets" in str(exp1.spec.data_config_path)
+    assert exp1.spec.job_config_path == configs / "jobs" / "exp1_job.toml"
+    assert exp1.spec.data_config_path == configs / "datasets" / "exp1_data.toml"
 
     # Check checkpoint path
-    assert "exp1.ckpt" in str(exp1.spec.checkpoint_path)
+    assert exp1.spec.checkpoint_path == temp_config_structure / "checkpoints" / "exp1.ckpt"
 
     # --- Check Assignment 2 (without checkpoint) ---
     assert exp2.spec.assignment_id == "exp2"
 
     # Check paths resolve to shared directories
-    assert exp2.spec.job_config_path.name == "exp2_job.toml"
-    assert "jobs" in str(exp2.spec.job_config_path)
-    assert exp2.spec.data_config_path.name == "exp2_data.toml"
-    assert "datasets" in str(exp2.spec.data_config_path)
+    assert exp2.spec.job_config_path == configs / "jobs" / "exp2_job.toml"
+    assert exp2.spec.data_config_path == configs / "datasets" / "exp2_data.toml"
 
     # No checkpoint for exp2
     assert exp2.spec.checkpoint_path is None

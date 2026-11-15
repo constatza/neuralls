@@ -11,6 +11,7 @@ the real, committed ``configs/datasets/train/rectangular-high-condition/
 from __future__ import annotations
 
 import sys
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,6 +22,10 @@ if TYPE_CHECKING:
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FAMILY_DIR = _REPO_ROOT / "configs" / "datasets" / "train" / "rectangular-high-condition"
+
+
+def _stored_id(path: Path) -> str:
+    return tomllib.loads(path.read_text(encoding="utf-8"))["id"]
 
 
 @pytest.fixture(scope="session")
@@ -127,12 +132,8 @@ def test_expand_sweep_id_template_places_value_mid_id(
     written = dataset_sweep_module.expand_sweep(spec, output_dir=tmp_path, filename_stem="unused")
 
     assert [p.name for p in written] == ["gaussian-cg10.toml", "gaussian-cg50.toml"]
-    assert 'id = "gaussian-cg10-45x15"' in (tmp_path / "gaussian-cg10.toml").read_text(
-        encoding="utf-8"
-    )
-    assert 'id = "gaussian-cg50-45x15"' in (tmp_path / "gaussian-cg50.toml").read_text(
-        encoding="utf-8"
-    )
+    assert _stored_id(tmp_path / "gaussian-cg10.toml") == "gaussian-cg10-45x15"
+    assert _stored_id(tmp_path / "gaussian-cg50.toml") == "gaussian-cg50-45x15"
 
 
 def test_expand_sweep_is_generic_across_an_unknown_strategy_and_extra_source_fields(
@@ -160,12 +161,15 @@ def test_expand_sweep_is_generic_across_an_unknown_strategy_and_extra_source_fie
         "output": {"data_dir": "${NEURALLS_PROCESSED_DIR}"},
     }
     written = dataset_sweep_module.expand_sweep(spec, output_dir=tmp_path, filename_stem="made-up")
-    first = (tmp_path / "made-up-5.toml").read_text(encoding="utf-8")
-    assert 'id = "made-up-dataset-5"' in first
-    assert 'rhs_path = "${NEURALLS_RAW_DIR}/rhs/made-up.txt"' in first
-    assert 'name = "totally_new_strategy"' in first
-    assert "every_n = 5" in first
-    assert "shuffle = false" in first
+    first = tomllib.loads((tmp_path / "made-up-5.toml").read_text(encoding="utf-8"))
+    assert first == {
+        **spec,
+        "id": "made-up-dataset-5",
+        "generation": {
+            **spec["generation"],
+            "strategy": [{"name": "totally_new_strategy", "every_n": 5}],
+        },
+    }
     assert len(written) == 2
 
 
@@ -231,12 +235,8 @@ def test_expand_all_writes_each_sweep_files_outputs_under_its_own_generated_dir(
     assert (case_a_generated / "gaussian-cg-50.toml").exists()
     assert (case_b_generated / "gaussian-cg-10.toml").exists()
     assert (case_b_generated / "gaussian-cg-50.toml").exists()
-    assert 'id = "case-a-gaussian-10"' in (case_a_generated / "gaussian-cg-10.toml").read_text(
-        encoding="utf-8"
-    )
-    assert 'id = "case-b-gaussian-50"' in (case_b_generated / "gaussian-cg-50.toml").read_text(
-        encoding="utf-8"
-    )
+    assert _stored_id(case_a_generated / "gaussian-cg-10.toml") == "case-a-gaussian-10"
+    assert _stored_id(case_b_generated / "gaussian-cg-50.toml") == "case-b-gaussian-50"
 
 
 def test_expand_all_honors_custom_generated_subdir_name(

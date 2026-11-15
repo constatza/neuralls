@@ -1,4 +1,4 @@
-"""Characterization tests for deriving a mother RHS from a solution archive.
+"""Tests for deriving a mother RHS from a solution archive.
 
 ``provide_rhs = true`` with no explicit ``rhs_path`` makes the generate
 workflow synthesize one: it picks the lexicographically first solution file
@@ -81,38 +81,28 @@ def test_computation_writes_nothing(
     assert not (tmp_path / "mother-rhs.txt").exists()
 
 
-def test_missing_solutions_directory_raises(tmp_path: Path, matrix: np.ndarray) -> None:
+@pytest.mark.parametrize(
+    "glob_relative_to_tmp",
+    ["absent/sol_*.txt", "solutions/none_*.txt"],
+    ids=["missing-directory", "no-matching-files"],
+)
+def test_unresolvable_solutions_glob_raises(
+    tmp_path: Path, matrix: np.ndarray, solutions_dir: Path, glob_relative_to_tmp: str
+) -> None:
     with pytest.raises(FileNotFoundError):
         compute_rhs_from_solution(
-            matrix=matrix, solutions_glob=str(tmp_path / "absent" / "sol_*.txt")
+            matrix=matrix, solutions_glob=str(tmp_path / glob_relative_to_tmp)
         )
 
 
-def test_directory_without_matching_files_raises(
-    tmp_path: Path, matrix: np.ndarray, solutions_dir: Path
-) -> None:
-    with pytest.raises(FileNotFoundError):
-        compute_rhs_from_solution(matrix=matrix, solutions_glob=str(solutions_dir / "none_*.txt"))
-
-
-def test_persists_to_mother_rhs_txt_in_the_dataset_dir(tmp_path: Path) -> None:
+def test_persists_to_mother_rhs_txt_in_a_created_dataset_dir(tmp_path: Path) -> None:
     rhs = np.array([4.0, 9.0, 13.0], dtype=np.float64)
-    dataset_dir = tmp_path / "dataset"
+    dataset_dir = tmp_path / "deeply" / "nested" / "dataset"
 
     written = persist_derived_rhs(rhs, dataset_dir=dataset_dir)
 
     assert written == dataset_dir / "mother-rhs.txt"
     np.testing.assert_allclose(np.loadtxt(written), rhs)
-
-
-def test_persistence_creates_missing_parent_directories(tmp_path: Path) -> None:
-    rhs = np.array([1.0, 2.0], dtype=np.float64)
-    dataset_dir = tmp_path / "deeply" / "nested" / "dataset"
-
-    written = persist_derived_rhs(rhs, dataset_dir=dataset_dir)
-
-    assert written.exists()
-    assert dataset_dir.is_dir()
 
 
 def test_persisted_encoding_is_full_precision_scientific(tmp_path: Path) -> None:

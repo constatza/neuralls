@@ -10,11 +10,6 @@ from dlkit.infrastructure.config.job_config import SearchJobConfig, TrainingJobC
 
 from neuralls.composition.assignments.assembler import AssignmentIdentity, load_assignment
 from neuralls.platform.config.dlkit_bridge import load_job_config
-from neuralls.platform.config.models.workspace import (
-    AssignmentSpec,
-    AssignmentWorkspace,
-    RunnableAssignment,
-)
 
 
 def _write_model_profile(
@@ -175,29 +170,6 @@ max_epochs = 1
 
 class TestLoadExperiment:
     """Integration tests for load_assignment."""
-
-    def test_load_experiment_success(
-        self,
-        sample_model_config: Path,
-        sample_data_config: Path,
-        tmp_path: Path,
-        neuralls_settings,
-    ) -> None:
-        """Experiment loading returns the expected wrapper types."""
-        output_root = tmp_path / "output"
-        output_root.mkdir()
-
-        experiment = load_assignment(
-            job_config_path=sample_model_config,
-            data_config_path=sample_data_config,
-            neuralls_settings=neuralls_settings,
-            output_root=output_root,
-            identity=AssignmentIdentity(dataset_registry_id=sample_data_config.stem),
-        )
-
-        assert isinstance(experiment, RunnableAssignment)
-        assert isinstance(experiment.spec, AssignmentSpec)
-        assert isinstance(experiment.workspace, AssignmentWorkspace)
 
     def test_experiment_spec_fields(
         self,

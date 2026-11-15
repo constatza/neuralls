@@ -6,6 +6,7 @@ stamp function in ``dataset_builder``. Fixtures live in ``tests/composition/conf
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -66,9 +67,9 @@ def test_identity_stamped_after_rename(
         identity=stage_identity,
     )
     assert event_log == [_RENAME, _STAMP]
-    manifest = (final / DATASET_MANIFEST_FILENAME).read_text(encoding="utf-8")
-    assert stage_identity.key in manifest
-    assert '"content_digest"' in manifest
+    manifest = json.loads((final / DATASET_MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    assert manifest["identity_key"] == stage_identity.key
+    assert manifest["content_digest"]
 
 
 def test_interrupted_run_has_no_identity(
@@ -93,4 +94,5 @@ def test_interrupted_run_has_no_identity(
     assert event_log == []
     assert not final.exists()
     for manifest in tmp_path.rglob(DATASET_MANIFEST_FILENAME):
-        assert stage_identity.key not in manifest.read_text(encoding="utf-8")
+        stored = json.loads(manifest.read_text(encoding="utf-8"))
+        assert stored.get("identity_key") is None

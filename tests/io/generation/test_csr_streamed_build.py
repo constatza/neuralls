@@ -7,6 +7,7 @@ streamed spec live in ``tests/composition/conftest.py``.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -211,8 +212,8 @@ def test_csr_build_identity_stamped_after_commit(
         matrix_format=MatrixFormat.CSR,
     )
     assert event_log == [_RENAME, _STAMP]
-    manifest = (final / DATASET_MANIFEST_FILENAME).read_text(encoding="utf-8")
-    assert stage_identity.key in manifest
+    manifest = json.loads((final / DATASET_MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    assert manifest["identity_key"] == stage_identity.key
 
 
 def test_csr_one_and_several_matrices_use_ragged_layout_by_default(

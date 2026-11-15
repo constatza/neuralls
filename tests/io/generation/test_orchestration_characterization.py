@@ -125,78 +125,51 @@ def multi_matrix_mixture_dataset(
     return out_dir
 
 
-def test_multi_matrix_mixture_shapes_are_stable(multi_matrix_mixture_dataset: Path) -> None:
-    rhs, solutions = load_dense_training_arrays(multi_matrix_mixture_dataset)
-    assert (rhs.shape, solutions.shape) == ((12, 5), (12, 5))
+def test_multi_matrix_mixture_allocation(multi_matrix_mixture_dataset: Path) -> None:
+    """Row count, per-matrix allocation and row kinds of the multi-binding mixture.
 
+    An rhs = A_m @ x oracle is not used for the RHS rows. The stored matrix samples for
+    matrices 1 and 2 do not reproduce the rows they own, so checking against them would
+    test the storage layout rather than the allocation; rows are only required to be
+    finite and nonzero, so none is a zero-filled placeholder.
 
-def test_multi_matrix_mixture_rhs_rows_are_finite_and_nonzero(
-    multi_matrix_mixture_dataset: Path,
-) -> None:
-    """Every RHS row is finite and nonzero: no row is a zero-filled placeholder.
+    Hand derivation, 3 matrices, gaussian_forward 6 rows, gaussian_residuals 6 rows:
 
-    An rhs = A_m @ x oracle is not used here. The stored matrix samples for matrices 1
-    and 2 do not reproduce the rows they own, so checking against them would test the
-    storage layout rather than the allocation.
-    """
-    rhs, _ = load_dense_training_arrays(multi_matrix_mixture_dataset)
-    assert np.all(np.isfinite(rhs))
-    assert np.all(np.linalg.norm(rhs, axis=1) > 0.0)
-
-
-def test_multi_matrix_mixture_base_systems_per_matrix(multi_matrix_mixture_dataset: Path) -> None:
-    """Hand derivation, 3 matrices, gaussian_forward 6 rows, gaussian_residuals 6 rows.
-
-    - gaussian_forward: 6 // 3 = 2 rows per matrix, remainder 0.
+    - gaussian_forward: 6 // 3 = 2 STANDARD rows per matrix, remainder 0.
     - gaussian_residuals: window 1..3 gives K_rows = 3 - 1 + 1 = 3, so B = ceil(6 / 3) = 2
       base systems. Two of the three matrices get one base system (3 rows each) and one
-      gets none, which matrix is chosen by the seed. Overshoot is 0.
-    - Per matrix totals are therefore {2, 5, 5} in some order.
+      gets none, which matrix is chosen by the seed. Overshoot is 0. Iteration 0, the base
+      pair, is never emitted, so every residual row is CG_INTERNAL.
+    - Per matrix totals are therefore {2, 5, 5} in some order; rows are grouped by matrix
+      in matrix order.
     """
+    rhs, solutions = load_dense_training_arrays(multi_matrix_mixture_dataset)
     matrix_index = load_matrix_sample_index(multi_matrix_mixture_dataset)
-    per_matrix_total = np.bincount(matrix_index, minlength=3)
-    assert sorted(per_matrix_total.tolist()) == [2, 5, 5]
-
-
-def test_multi_matrix_mixture_row_kinds_are_stable(multi_matrix_mixture_dataset: Path) -> None:
-    """Hand derivation of row kinds, from the rule that iteration 0 is STANDARD.
-
-    - 6 gaussian_forward rows are STANDARD.
-    - Each of the 2 residual base systems yields iterations 1, 2, 3, all CG_INTERNAL
-      (iterate 0, the base pair, is never emitted) — 6 CG_INTERNAL, 0 extra STANDARD.
-    - Totals: STANDARD 6, CG_INTERNAL 6.
-    - Per matrix: forward gives 2 STANDARD rows each, unaffected by residuals. The two
-      matrices with a residual base system get 3 CG_INTERNAL rows, the third gets 0.
-    """
     kinds = load_row_kind_codes(multi_matrix_mixture_dataset)
-    matrix_index = load_matrix_sample_index(multi_matrix_mixture_dataset)
-    assert np.bincount(kinds, minlength=2).tolist() == [6, 6]
     standard = int(RowKind.STANDARD)
     internal = int(RowKind.CG_INTERNAL)
+
+    assert (rhs.shape, solutions.shape) == ((12, 5), (12, 5))
+    assert np.all(np.isfinite(rhs))
+    assert np.all(np.linalg.norm(rhs, axis=1) > 0.0)
+    assert matrix_index.shape == (12,)
+    assert np.all(np.diff(matrix_index) >= 0)
+    assert sorted(np.bincount(matrix_index, minlength=3).tolist()) == [2, 5, 5]
+    assert np.bincount(kinds, minlength=2).tolist() == [6, 6]
     standard_per_matrix = np.bincount(matrix_index[kinds == standard], minlength=3)
     internal_per_matrix = np.bincount(matrix_index[kinds == internal], minlength=3)
     assert sorted(standard_per_matrix.tolist()) == [2, 2, 2]
     assert sorted(internal_per_matrix.tolist()) == [0, 3, 3]
 
 
-def test_multi_matrix_mixture_matrix_index_is_stable(multi_matrix_mixture_dataset: Path) -> None:
-    """Rows are grouped by matrix in matrix order, and every index names one of 3 matrices."""
-    matrix_index = load_matrix_sample_index(multi_matrix_mixture_dataset)
-    assert matrix_index.shape == (12,)
-    assert np.all(np.diff(matrix_index) >= 0)
-    assert set(matrix_index.tolist()) == {0, 1, 2}
-
-
-def test_multi_matrix_mixture_matrix_sample_is_stable(
+def test_multi_matrix_mixture_stored_matrix_and_manifest(
     multi_matrix_mixture_dataset: Path, spd_matrix_dir: Path
 ) -> None:
-    """The stored first matrix is its source matrix times the scale its normalization chose."""
+    """The stored first matrix is its source times the chosen scale; the manifest records it."""
     raw = np.loadtxt(spd_matrix_dir / "A_000.txt")
     stored = load_matrix_dense_sample(multi_matrix_mixture_dataset, 0)
     np.testing.assert_allclose(stored, raw * _FIRST_MATRIX_SCALE, rtol=_FLOAT_RTOL)
 
-
-def test_multi_matrix_mixture_manifest_is_stable(multi_matrix_mixture_dataset: Path) -> None:
     manifest = load_dataset_manifest(multi_matrix_mixture_dataset)
     assert manifest["matrix"]["shape"] == [12, 5, 5]
     assert manifest["normalization"]["type"] == "matrix"
@@ -238,37 +211,24 @@ def multi_matrix_archive_dataset(
     return out_dir
 
 
-def test_multi_matrix_archive_shapes_are_stable(multi_matrix_archive_dataset: Path) -> None:
-    """samples=-1 emits every (matrix, file) pair: 3 matrices x 5 files = 15 rows."""
-    rhs, solutions = load_dense_training_arrays(multi_matrix_archive_dataset)
-    assert (rhs.shape, solutions.shape) == ((15, 5), (15, 5))
-
-
-def test_multi_matrix_archive_matrix_index_is_stable(multi_matrix_archive_dataset: Path) -> None:
-    """Rows are grouped by matrix: five rows per matrix, in matrix order."""
-    assert load_matrix_sample_index(multi_matrix_archive_dataset).tolist() == (
-        [0] * 5 + [1] * 5 + [2] * 5
-    )
-
-
-def test_multi_matrix_archive_solutions_match_expected_vectors(
-    multi_matrix_archive_dataset: Path,
+def test_multi_matrix_archive_rows_and_products(
+    multi_matrix_archive_dataset: Path, spd_matrix_dir: Path
 ) -> None:
-    """File k is the constant vector k + 1. Matrix i takes files (i + p) mod 5 for p = 0..4."""
-    _, solutions = load_dense_training_arrays(multi_matrix_archive_dataset)
+    """samples=-1 emits every (matrix, file) pair: 3 matrices x 5 files = 15 rows.
+
+    Rows are grouped by matrix, five per matrix, in matrix order. File k is the constant
+    vector k + 1 and matrix i takes files (i + p) mod 5 for p = 0..4. Each RHS row is
+    A_m @ x for the matrix m that owns the row.
+    """
+    rhs, solutions = load_dense_training_arrays(multi_matrix_archive_dataset)
+    matrix_index = load_matrix_sample_index(multi_matrix_archive_dataset)
+
+    assert (rhs.shape, solutions.shape) == ((15, 5), (15, 5))
+    assert matrix_index.tolist() == [0] * 5 + [1] * 5 + [2] * 5
     expected = np.array(
         [[float((i + p) % 5 + 1)] * 5 for i in range(3) for p in range(5)],
     )
     np.testing.assert_array_equal(solutions, expected)
-
-
-def test_multi_matrix_archive_rhs_is_the_matrix_product(
-    multi_matrix_archive_dataset: Path,
-    spd_matrix_dir: Path,
-) -> None:
-    """Each RHS row is A_m @ x for the matrix m that owns the row."""
-    rhs, solutions = load_dense_training_arrays(multi_matrix_archive_dataset)
-    matrix_index = load_matrix_sample_index(multi_matrix_archive_dataset)
     for row, (matrix_id, solution) in enumerate(zip(matrix_index, solutions, strict=True)):
         A = np.loadtxt(spd_matrix_dir / f"A_{int(matrix_id):03d}.txt")
         np.testing.assert_allclose(rhs[row], A @ solution, rtol=1e-10)
@@ -303,47 +263,26 @@ def single_matrix_parameter_stream_dataset(
     return out_dir
 
 
-def test_single_matrix_parameter_stream_shapes_are_stable(
+def test_single_matrix_parameter_stream_dataset(
     single_matrix_parameter_stream_dataset: Path,
 ) -> None:
-    rhs, solutions = load_dense_training_arrays(single_matrix_parameter_stream_dataset)
-    assert (rhs.shape, solutions.shape) == ((4, 4), (4, 4))
+    """Shapes, RHS oracle, seeded solution stream, parameters and manifest of the dataset.
 
-
-def test_single_matrix_parameter_stream_rhs_is_the_matrix_product(
-    single_matrix_parameter_stream_dataset: Path,
-) -> None:
-    """Each stored RHS row is the stored matrix times its solution row (exact oracle)."""
-    rhs, solutions = load_dense_training_arrays(single_matrix_parameter_stream_dataset)
-    matrix = load_matrix_dense_sample(single_matrix_parameter_stream_dataset, 0)
-    np.testing.assert_allclose(rhs, solutions @ matrix.T, rtol=1e-10, atol=1e-12)
-
-
-def test_single_matrix_parameter_stream_solutions_are_stable(
-    single_matrix_parameter_stream_dataset: Path,
-) -> None:
-    """Regression pin on the seeded solution stream of the single binding.
-
-    Solutions are raw draws with no closed-form oracle, so the pinned values guard
-    the seed derivation: any change to how the binding seed is derived changes it.
-    The fixture passes shuffle=True, which no longer permutes rows: rows are stored in
+    Each stored RHS row is the stored matrix times its solution row (exact oracle).
+    Solutions are raw draws with no closed-form oracle, so the pinned values guard the
+    seed derivation: any change to how the binding seed is derived changes them. The
+    fixture passes shuffle=True, which no longer permutes rows: rows are stored in
     generation order.
     """
-    _, solutions = load_dense_training_arrays(single_matrix_parameter_stream_dataset)
-    np.testing.assert_allclose(solutions, _PARAMETER_STREAM_SOLUTIONS, rtol=_FLOAT_RTOL)
-
-
-def test_single_matrix_parameter_stream_parameters_are_stable(
-    single_matrix_parameter_stream_dataset: Path,
-) -> None:
+    rhs, solutions = load_dense_training_arrays(single_matrix_parameter_stream_dataset)
+    matrix = load_matrix_dense_sample(single_matrix_parameter_stream_dataset, 0)
     parameters = load_parameter_arrays(single_matrix_parameter_stream_dataset)
+
+    assert (rhs.shape, solutions.shape) == ((4, 4), (4, 4))
+    np.testing.assert_allclose(rhs, solutions @ matrix.T, rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(solutions, _PARAMETER_STREAM_SOLUTIONS, rtol=_FLOAT_RTOL)
     assert len(parameters) == 1
     np.testing.assert_array_equal(parameters[0], np.tile([0.25, 0.5, 0.75], (4, 1)))
-
-
-def test_single_matrix_parameter_stream_manifest_is_stable(
-    single_matrix_parameter_stream_dataset: Path,
-) -> None:
     manifest = load_dataset_manifest(single_matrix_parameter_stream_dataset)
     assert manifest["matrix"]["shape"] == [1, 4, 4]
 

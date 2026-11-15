@@ -201,7 +201,7 @@ class TestRunNaming:
         run_id = experiment.workspace.run_id
         expected_root = output_root / "test-data" / run_id
         assert experiment.workspace.root_dir == expected_root
-        assert str(run_id) in str(experiment.workspace.checkpoint_dir)
+        assert experiment.workspace.checkpoint_dir == expected_root / "checkpoints"
 
 
 class TestRunNamingEdgeCases:
