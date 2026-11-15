@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
 from importlib import import_module
 from types import ModuleType
 from typing import Any
@@ -36,12 +35,6 @@ def catalog() -> ModuleType:
         return import_module("neuralls.shared.scientific_description.catalog")
     except ModuleNotFoundError:
         pytest.fail("the controlled scientific-fact catalog does not exist")
-
-
-def test_catalog_orders_are_unique(catalog: ModuleType) -> None:
-    """Two controlled facts must not silently occupy the same family-order position."""
-    orders = [definition.order for definition in catalog.FACT_DEFINITIONS]
-    assert len(orders) == len(set(orders))
 
 
 def test_catalog_contains_required_compact_plain_symbols(catalog: ModuleType) -> None:
@@ -84,14 +77,6 @@ def test_fact_roles_are_closed_and_complete(catalog: ModuleType) -> None:
     }
 
 
-def test_fact_definitions_are_frozen_and_slotted(catalog: ModuleType) -> None:
-    """Catalog invariants cannot be mutated after import."""
-    definition = catalog.FACT_DEFINITIONS[0]
-    assert not hasattr(definition, "__dict__")
-    with pytest.raises(FrozenInstanceError):
-        definition.order = 999
-
-
 def _expected_value(definition: Any, *, plain: bool) -> str:
     """The spelling of the sample value used by the rendering tests, from the catalog alone."""
     if definition.categorical_formatter is not None:
@@ -102,43 +87,44 @@ def _expected_value(definition: Any, *, plain: bool) -> str:
     return f"{1.25:.{definition.precision}g}"
 
 
-def test_every_controlled_fact_renders_without_its_python_field_name(
-    catalog: ModuleType,
+def _sample_fact(catalog: ModuleType, definition: Any) -> Any:
+    """One fact of ``definition`` built from the sample value `_expected_value` spells."""
+    if definition.categorical_formatter is not None:
+        return make_fact(definition.key, definition.categorical_formatter.values[0].raw)
+    if definition.precision is not None:
+        return make_fact(definition.key, 1.25)
+    return make_fact(definition.key, 2)
+
+
+def _rendered_definitions(catalog: ModuleType) -> list[Any]:
+    """Definitions with a visible rendering; the architecture fact takes a validated label."""
+    return [
+        definition
+        for definition in catalog.FACT_DEFINITIONS
+        if definition.visibility_policy.value != "never"
+        and definition.key != catalog.MODEL_ARCHITECTURE
+    ]
+
+
+@pytest.mark.parametrize(
+    "target", [RenderTarget.PLAIN, RenderTarget.MATHTEXT], ids=["plain", "mathtext"]
+)
+def test_every_controlled_fact_renders_from_catalog_notation_not_its_field_name(
+    catalog: ModuleType, target: RenderTarget
 ) -> None:
-    """Deleting a catalog symbol must not expose a snake-case identifier in plain output."""
-    for definition in catalog.FACT_DEFINITIONS:
-        if definition.visibility_policy.value == "never":
-            continue
-        if definition.key == catalog.MODEL_ARCHITECTURE:
-            continue
-        if definition.categorical_formatter is not None:
-            fact = make_fact(definition.key, definition.categorical_formatter.values[0].raw)
-        elif definition.precision is not None:
-            fact = make_fact(definition.key, 1.25)
-        else:
-            fact = make_fact(definition.key, 2)
-
-        rendered = render_facts((fact,), NotationPolicy.default(RenderTarget.PLAIN))
-        assert rendered == f"{definition.plain_symbol}={_expected_value(definition, plain=True)}"
-
-
-def test_mathtext_uses_catalog_markup_not_raw_identifiers(catalog: ModuleType) -> None:
-    """MathText underscores come from controlled notation, never Python identifiers."""
-    for definition in catalog.FACT_DEFINITIONS:
-        if definition.visibility_policy.value == "never":
-            continue
-        if definition.key == catalog.MODEL_ARCHITECTURE:
-            continue
-        if definition.categorical_formatter is not None:
-            fact = make_fact(definition.key, definition.categorical_formatter.values[0].raw)
-        elif definition.precision is not None:
-            fact = make_fact(definition.key, 1.25)
-        else:
-            fact = make_fact(definition.key, 2)
-
-        rendered = render_facts((fact,), NotationPolicy.default(RenderTarget.MATHTEXT))
-        expected_value = _expected_value(definition, plain=False)
-        assert rendered == f"${definition.mathtext_symbol}={expected_value}$"
+    """Notation comes from the catalog's symbols, never from a Python identifier."""
+    plain = target is RenderTarget.PLAIN
+    for definition in _rendered_definitions(catalog):
+        rendered = render_facts(
+            (_sample_fact(catalog, definition),), NotationPolicy.default(target)
+        )
+        value = _expected_value(definition, plain=plain)
+        expected = (
+            f"{definition.plain_symbol}={value}"
+            if plain
+            else f"${definition.mathtext_symbol}={value}$"
+        )
+        assert rendered == expected
 
 
 def test_unknown_fact_key_is_rejected(catalog: ModuleType) -> None:

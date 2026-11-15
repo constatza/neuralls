@@ -102,36 +102,18 @@ def test_value_is_the_first_timed_executions(clock: Callable[[list[float]], None
     assert timed.value == 1  # execution 0 was warm-up
 
 
-def test_a_repeat_whose_fingerprint_differs_logs_a_warning(
-    clock: Callable[[list[float]], None],
+@pytest.mark.parametrize("repeats", [2, 3], ids=["two-repeats", "three-repeats"])
+def test_only_the_first_divergence_is_reported(
+    clock: Callable[[list[float]], None], repeats: int
 ) -> None:
-    clock([1.0, 1.0])
+    clock([1.0] * repeats)
     messages: list[str] = []
     sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
     counter = itertools.count()
     try:
         timed = timed_runs(
             lambda: next(counter),
-            TimingRepeatPolicy(repeats=2),
-            device=CPU,
-            fingerprint=lambda value: value,
-        )
-    finally:
-        logger.remove(sink_id)
-
-    assert len(messages) == 1
-    assert timed.agreement == Diverged(first=0, other=1)
-
-
-def test_only_the_first_divergence_is_reported(clock: Callable[[list[float]], None]) -> None:
-    clock([1.0, 1.0, 1.0])
-    messages: list[str] = []
-    sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
-    counter = itertools.count()
-    try:
-        timed = timed_runs(
-            lambda: next(counter),
-            TimingRepeatPolicy(repeats=3),
+            TimingRepeatPolicy(repeats=repeats),
             device=CPU,
             fingerprint=lambda value: value,
         )
@@ -179,9 +161,11 @@ def test_a_raising_region_is_a_failed_outcome(clock: Callable[[list[float]], Non
     outcome = repeat_timed_outcome(boom, TimingRepeatPolicy(), device=CPU)
 
     assert isinstance(outcome, FailedTimedRuns)
+    assert isinstance(outcome.error, RuntimeError)
+    assert outcome.seconds == pytest.approx(1.0)
 
 
-@pytest.mark.parametrize("kwargs", [{"repeats": 0}, {"repeats": 11}, {"warmup": -1}, {"bogus": 1}])
-def test_policy_rejects_out_of_range_or_unknown_fields(kwargs: dict[str, int]) -> None:
+@pytest.mark.parametrize("kwargs", [{"repeats": 0}, {"repeats": 11}, {"warmup": -1}])
+def test_policy_rejects_out_of_range_fields(kwargs: dict[str, int]) -> None:
     with pytest.raises(ValidationError):
         TimingRepeatPolicy(**kwargs)

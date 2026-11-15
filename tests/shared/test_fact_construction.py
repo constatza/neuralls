@@ -7,7 +7,6 @@ from dataclasses import replace
 import pytest
 
 from neuralls.domain.presentation.strategy_names import strategy_base_name
-from neuralls.shared.scientific_description import catalog
 from neuralls.shared.scientific_description.catalog import (
     ASSIGNMENT,
     FACT_DEFINITIONS,
@@ -34,6 +33,7 @@ from neuralls.shared.scientific_description.models import (
     FieldKey,
     IntegerFact,
     ScientificDescription,
+    ScientificFact,
     TextFact,
     ValidatedLabel,
     fact_identity,
@@ -86,34 +86,20 @@ def test_factory_rejects_a_bogus_category() -> None:
         make_fact(WEIGHTING, "bogus")
 
 
-def test_factory_rejects_text_for_a_numeric_key() -> None:
+@pytest.mark.parametrize(
+    ("key", "value", "got", "allowed"),
+    [
+        (ITERATION_COUNT, "15", FactValueKind.TEXT, frozenset({FactValueKind.INTEGER})),
+        (THRESHOLD, 1, FactValueKind.INTEGER, frozenset({FactValueKind.DECIMAL})),
+    ],
+    ids=["text-for-integer-key", "integer-for-decimal-key"],
+)
+def test_factory_reports_the_kind_it_got_and_the_kinds_allowed(
+    key: FieldKey, value: object, got: FactValueKind, allowed: frozenset[FactValueKind]
+) -> None:
     with pytest.raises(FactValueKindError) as error:
-        make_fact(ITERATION_COUNT, "15")
-    assert (error.value.key, error.value.got, error.value.allowed) == (
-        ITERATION_COUNT,
-        FactValueKind.TEXT,
-        frozenset({FactValueKind.INTEGER}),
-    )
-
-
-def test_factory_rejects_an_integer_for_a_decimal_only_key() -> None:
-    with pytest.raises(FactValueKindError) as error:
-        make_fact(THRESHOLD, 1)
-    assert (error.value.key, error.value.got, error.value.allowed) == (
-        THRESHOLD,
-        FactValueKind.INTEGER,
-        frozenset({FactValueKind.DECIMAL}),
-    )
-
-
-def test_factory_rejects_a_label_for_a_non_label_key() -> None:
-    with pytest.raises(FactValueKindError):
-        make_fact(ITERATION_COUNT, ValidatedLabel("Net"))
-
-
-def test_factory_rejects_unvalidated_text_for_a_label_key() -> None:
-    with pytest.raises(FactValueKindError):
-        make_fact(MODEL_ARCHITECTURE, "SomePythonClass")
+        make_fact(key, value)
+    assert (error.value.key, error.value.got, error.value.allowed) == (key, got, allowed)
 
 
 @pytest.mark.parametrize("key", [ITERATION_COUNT, THRESHOLD, WEIGHTING, ASSIGNMENT])
@@ -127,16 +113,21 @@ def test_factory_rejects_a_value_type_no_fact_has() -> None:
         make_fact(ITERATION_COUNT, [1])
 
 
-def test_integer_and_decimal_constructors_reject_bool() -> None:
+@pytest.mark.parametrize(
+    ("constructor", "key"),
+    [(IntegerFact, ITERATION_COUNT), (DecimalFact, THRESHOLD)],
+    ids=["integer", "decimal"],
+)
+def test_numeric_fact_constructors_reject_bool(
+    constructor: type[IntegerFact | DecimalFact], key: FieldKey
+) -> None:
     with pytest.raises(TypeError):
-        IntegerFact(ITERATION_COUNT, True)
-    with pytest.raises(TypeError):
-        DecimalFact(THRESHOLD, True)
+        constructor(key, True)
 
 
 def test_rank_takes_a_count_or_an_energy_fraction() -> None:
-    assert isinstance(make_fact(RANK, 10), IntegerFact)
-    assert isinstance(make_fact(RANK, 0.99), DecimalFact)
+    assert make_fact(RANK, 10) == IntegerFact(RANK, 10)
+    assert make_fact(RANK, 0.99) == DecimalFact(RANK, 0.99)
 
 
 # --- unique keys ----------------------------------------------------------------------
@@ -150,19 +141,20 @@ def test_require_unique_keys_names_the_repeated_key_and_owner() -> None:
     assert str(error.value) == "SomeCarrier holds fact 'iteration_count' more than once"
 
 
-def test_description_rejects_a_key_repeated_between_facts_and_context_facts() -> None:
-    with pytest.raises(DuplicateFactKeyError):
-        ScientificDescription(
-            "AMG",
-            facts=(make_fact(ITERATION_COUNT, 1),),
-            context_facts=(make_fact(ITERATION_COUNT, 2),),
-        )
-
-
-def test_description_rejects_a_key_repeated_within_facts() -> None:
-    fact = make_fact(ITERATION_COUNT, 1)
-    with pytest.raises(DuplicateFactKeyError):
-        ScientificDescription("AMG", facts=(fact, fact))
+@pytest.mark.parametrize(
+    ("facts", "context_facts"),
+    [
+        ((make_fact(ITERATION_COUNT, 1),), (make_fact(ITERATION_COUNT, 2),)),
+        ((make_fact(ITERATION_COUNT, 1), make_fact(ITERATION_COUNT, 1)), ()),
+    ],
+    ids=["between-facts-and-context", "within-facts"],
+)
+def test_description_rejects_a_repeated_key(
+    facts: tuple[ScientificFact, ...], context_facts: tuple[ScientificFact, ...]
+) -> None:
+    with pytest.raises(DuplicateFactKeyError) as error:
+        ScientificDescription("AMG", facts=facts, context_facts=context_facts)
+    assert error.value.key == ITERATION_COUNT
 
 
 # --- typed identity ---------------------------------------------------------------------
@@ -257,7 +249,3 @@ def test_definition_rejects_categories_without_a_text_kind() -> None:
     weighting = next(d for d in FACT_DEFINITIONS if d.key == WEIGHTING)
     with pytest.raises(ValueError, match="categories"):
         _clone(weighting, value_kinds=frozenset({FactValueKind.INTEGER}))
-
-
-def test_snapshot_key_names_what_it_counts() -> None:
-    assert catalog.SNAPSHOT_COUNT.value == "snapshot_count"

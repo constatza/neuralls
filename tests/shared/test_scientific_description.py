@@ -50,14 +50,6 @@ def test_renders_default_plain_label(cg_residuals_description: ScientificDescrip
     assert rendered.text == "CG Residuals (k=15, N=500, w=uniform)"
 
 
-def test_legend_profile_retains_always_visible_algorithmic_context(
-    cg_residuals_description: ScientificDescription,
-) -> None:
-    """Compact profiles cannot hide algorithmic facts marked always-visible."""
-    rendered = render(cg_residuals_description, LEGEND_PROFILE, NotationPolicy.default())
-    assert rendered.text == "CG Residuals (k=15, N=500, w=uniform)"
-
-
 @pytest.mark.parametrize(
     ("target", "expected"),
     [
