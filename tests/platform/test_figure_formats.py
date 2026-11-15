@@ -8,17 +8,12 @@ import matplotlib.figure
 import pytest
 
 from neuralls.platform.reporting.figure_formats import (
-    FIGURE_FORMATS,
     FigureFormat,
     FigureTarget,
     figure_files,
     split_figure_file,
 )
 from neuralls.platform.reporting.figure_writer import finish_group_figure
-
-
-def test_a_figure_is_written_as_a_raster_file() -> None:
-    assert FIGURE_FORMATS == (FigureFormat.PNG,)
 
 
 def test_a_stem_names_one_file_per_format() -> None:

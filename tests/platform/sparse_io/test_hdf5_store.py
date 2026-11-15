@@ -24,7 +24,7 @@ from neuralls.platform.sparse_io.layout import (
     pack_per_sample,
     pack_shared_pattern,
 )
-from neuralls.platform.sparse_io.protocol import SparseLocation
+from neuralls.platform.sparse_io.protocol import SparseLocation, SparseSummary
 from neuralls.shared.types import LayoutType
 
 
@@ -120,48 +120,28 @@ def test_writer_rejects_empty_sample_list(hdf5_location: SparseLocation) -> None
 # --- Step 4: reader -------------------------------------------------------
 
 
-def test_reader_round_trips_per_sample_layout(
-    hdf5_location: SparseLocation, per_sample_matrices: list[csr_array]
+@pytest.mark.parametrize(
+    ("matrices_fixture", "sample_count", "layout"),
+    [
+        ("per_sample_matrices", 3, LayoutType.MANY_MATRICES),
+        ("shared_pattern_matrices", 4, LayoutType.SHARED_PATTERN),
+    ],
+    ids=["per_sample", "shared_pattern"],
+)
+def test_reader_round_trips_each_layout(
+    request: pytest.FixtureRequest,
+    hdf5_location: SparseLocation,
+    matrices_fixture: str,
+    sample_count: int,
+    layout: LayoutType,
 ) -> None:
-    samples = _components(per_sample_matrices)
+    samples = _components(request.getfixturevalue(matrices_fixture))
     Hdf5SparseWriter().write(hdf5_location, samples)
     reader = Hdf5SparseReader()
 
     for index, expected in enumerate(samples):
         _assert_components_equal(reader.read_sample(hdf5_location, index), expected)
-
-
-def test_reader_round_trips_shared_pattern_layout(
-    hdf5_location: SparseLocation, shared_pattern_matrices: list[csr_array]
-) -> None:
-    samples = _components(shared_pattern_matrices)
-    Hdf5SparseWriter().write(hdf5_location, samples)
-    reader = Hdf5SparseReader()
-
-    for index, expected in enumerate(samples):
-        _assert_components_equal(reader.read_sample(hdf5_location, index), expected)
-
-
-def test_reader_summary_per_sample(
-    hdf5_location: SparseLocation, per_sample_matrices: list[csr_array]
-) -> None:
-    Hdf5SparseWriter().write(hdf5_location, _components(per_sample_matrices))
-
-    summary = Hdf5SparseReader().summary(hdf5_location)
-
-    assert summary.sample_count == 3
-    assert summary.layout is LayoutType.MANY_MATRICES
-
-
-def test_reader_summary_shared_pattern(
-    hdf5_location: SparseLocation, shared_pattern_matrices: list[csr_array]
-) -> None:
-    Hdf5SparseWriter().write(hdf5_location, _components(shared_pattern_matrices))
-
-    summary = Hdf5SparseReader().summary(hdf5_location)
-
-    assert summary.sample_count == 4
-    assert summary.layout is LayoutType.SHARED_PATTERN
+    assert reader.summary(hdf5_location) == SparseSummary(sample_count=sample_count, layout=layout)
 
 
 @pytest.mark.parametrize("bad_index", [-1, 3])

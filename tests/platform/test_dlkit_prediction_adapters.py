@@ -147,13 +147,15 @@ def test_dlkit_inference_predictor_accepts_supported_result_shapes(
     assert all(value.dtype == torch.float64 for value in kwargs.values())
 
 
-def test_dlkit_predictor_cleanup_unloads_checkpoint_once(
-    solver_prediction_tensor: torch.Tensor,
+@pytest.mark.parametrize("predictor_type", [DLKitPredictor, DLKitInferencePredictor])
+def test_cleanup_unloads_the_checkpoint_once(
+    predictor_type: type[DLKitPredictor | DLKitInferencePredictor],
+    prediction_tensor: torch.Tensor,
 ) -> None:
     checkpoint_predictor = FakeUnloadCheckpointPredictor(
-        FakePredictionOutput(predictions=solver_prediction_tensor)
+        FakePredictionOutput(predictions=prediction_tensor)
     )
-    predictor = DLKitPredictor(checkpoint_predictor, device="cpu")
+    predictor = predictor_type(checkpoint_predictor, device="cpu")
 
     # Exercise idempotency: owner cleanup and context/GC cleanup can both run.
     predictor.cleanup()
@@ -178,41 +180,6 @@ def test_dlkit_predictor_cleanup_falls_back_to_context_exit(
 
     assert checkpoint_predictor.closed is True
     assert checkpoint_predictor.close_count == 1
-
-
-def test_dlkit_inference_predictor_cleanup_unloads_checkpoint_once(
-    prediction_tensor: torch.Tensor,
-) -> None:
-    checkpoint_predictor = FakeUnloadCheckpointPredictor(
-        FakePredictionOutput(predictions=prediction_tensor)
-    )
-    predictor = DLKitInferencePredictor(checkpoint_predictor, device="cpu")
-
-    # Exercise idempotency: owner cleanup and context/GC cleanup can both run.
-    predictor.cleanup()
-    predictor.cleanup()
-    predictor.__exit__(None, None, None)
-
-    assert checkpoint_predictor.closed is True
-    assert checkpoint_predictor.close_count == 1
-
-
-def test_dlkit_predictor_reports_unsupported_result_type(
-    residual_vector: torch.Tensor,
-) -> None:
-    predictor = DLKitPredictor(FakeCheckpointPredictor(object()), device="cpu")
-
-    with pytest.raises(RuntimeError):
-        predictor.apply(residual_vector)
-
-
-def test_dlkit_inference_predictor_reports_unsupported_result_type(
-    feature_batch: dict[str, np.ndarray],
-) -> None:
-    predictor = DLKitInferencePredictor(FakeCheckpointPredictor(object()), device="cpu")
-
-    with pytest.raises(RuntimeError):
-        predictor.predict_batch(feature_batch)
 
 
 @pytest.fixture
@@ -311,8 +278,7 @@ def test_apply_with_extras_uses_keyword_call(
 
     args, kwargs = checkpoint_predictor.calls[0]
     assert len(args) == 0
-    assert "x" in kwargs
-    assert "matrix" in kwargs
+    assert set(kwargs) == {"x", "matrix"}
 
 
 @pytest.mark.parametrize("variant", ["prediction_output"])
@@ -351,9 +317,7 @@ def test_apply_with_deeponet_feature_names_uses_checkpoint_primary_name(
 
     args, kwargs = checkpoint_predictor.calls[0]
     assert len(args) == 0
-    assert "branch" in kwargs
-    assert "trunk" in kwargs
-    assert "x" not in kwargs
+    assert set(kwargs) == {"branch", "trunk"}
 
 
 def test_apply_with_mismatched_feature_names_raises_clear_runtime_error(
@@ -382,22 +346,34 @@ class RaisingCheckpointPredictor(FakeCheckpointPredictor):
         raise FakeForwardContractError("predict() received unexpected keyword argument(s)")
 
 
-def test_apply_translates_dlkit_forward_contract_error_to_runtime_error(
+@pytest.mark.parametrize(
+    "checkpoint_predictor", [FakeCheckpointPredictor(object()), RaisingCheckpointPredictor(None)]
+)
+@pytest.mark.parametrize(
+    "run",
+    [
+        pytest.param(
+            lambda checkpoint_predictor, residual_vector, feature_batch: DLKitPredictor(
+                checkpoint_predictor, device="cpu"
+            ).apply(residual_vector),
+            id="solver_apply",
+        ),
+        pytest.param(
+            lambda checkpoint_predictor, residual_vector, feature_batch: DLKitInferencePredictor(
+                checkpoint_predictor, device="cpu"
+            ).predict_batch(feature_batch),
+            id="inference_predict_batch",
+        ),
+    ],
+)
+def test_a_predictor_turns_an_unusable_result_or_a_forward_error_into_a_runtime_error(
+    run: Callable[[Any, torch.Tensor, dict[str, np.ndarray]], object],
+    checkpoint_predictor: Any,
     residual_vector: torch.Tensor,
-) -> None:
-    predictor = DLKitPredictor(RaisingCheckpointPredictor(None), device="cpu")
-
-    with pytest.raises(RuntimeError):
-        predictor.apply(residual_vector)
-
-
-def test_predict_batch_translates_dlkit_forward_contract_error_to_runtime_error(
     feature_batch: dict[str, np.ndarray],
 ) -> None:
-    predictor = DLKitInferencePredictor(RaisingCheckpointPredictor(None), device="cpu")
-
     with pytest.raises(RuntimeError):
-        predictor.predict_batch(feature_batch)
+        run(checkpoint_predictor, residual_vector, feature_batch)
 
 
 def test_solver_factory_fails_when_loaded_predictor_has_no_model(

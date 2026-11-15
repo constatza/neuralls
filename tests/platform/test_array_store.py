@@ -24,36 +24,31 @@ def _write_in_two_batches(
     store.write_rows(name, fixture.first_batch_rows, data[fixture.first_batch_rows :])
 
 
-def test_zarr_array_store_offset_roundtrip(
-    zarr_store_root: Path, dense_rows_fixture: DenseRowsFixture
+def _read_back(backend: str, path: Path, name: str) -> np.ndarray:
+    if backend == "zarr":
+        return np.asarray(zarr.open_group(str(path), mode="r")[name][:])
+    with h5py.File(path, "r") as handle:
+        return np.asarray(handle[name][:])
+
+
+@pytest.mark.parametrize("backend", ["zarr", "hdf5"])
+def test_offset_roundtrip(
+    backend: str,
+    zarr_store_root: Path,
+    hdf5_store_path: Path,
+    dense_rows_fixture: DenseRowsFixture,
 ) -> None:
     fx = dense_rows_fixture
-    store = ZarrArrayStore(zarr_store_root)
+    path = zarr_store_root if backend == "zarr" else hdf5_store_path
+    store = ZarrArrayStore(path) if backend == "zarr" else Hdf5ArrayStore(path)
     store.create(MATRIX_NAME, (fx.total_rows, *fx.matrices.shape[1:]), FLOAT64)
     store.create(VECTOR_NAME, (fx.total_rows, *fx.vectors.shape[1:]), FLOAT64)
     _write_in_two_batches(store, fx, MATRIX_NAME, fx.matrices)
     _write_in_two_batches(store, fx, VECTOR_NAME, fx.vectors)
     store.close()
 
-    group = zarr.open_group(str(zarr_store_root), mode="r")
-    np.testing.assert_array_equal(group[MATRIX_NAME][:], fx.matrices)
-    np.testing.assert_array_equal(group[VECTOR_NAME][:], fx.vectors)
-
-
-def test_hdf5_array_store_offset_roundtrip(
-    hdf5_store_path: Path, dense_rows_fixture: DenseRowsFixture
-) -> None:
-    fx = dense_rows_fixture
-    store = Hdf5ArrayStore(hdf5_store_path)
-    store.create(MATRIX_NAME, (fx.total_rows, *fx.matrices.shape[1:]), FLOAT64)
-    store.create(VECTOR_NAME, (fx.total_rows, *fx.vectors.shape[1:]), FLOAT64)
-    _write_in_two_batches(store, fx, MATRIX_NAME, fx.matrices)
-    _write_in_two_batches(store, fx, VECTOR_NAME, fx.vectors)
-    store.close()
-
-    with h5py.File(hdf5_store_path, "r") as handle:
-        np.testing.assert_array_equal(handle[MATRIX_NAME][:], fx.matrices)
-        np.testing.assert_array_equal(handle[VECTOR_NAME][:], fx.vectors)
+    np.testing.assert_array_equal(_read_back(backend, path, MATRIX_NAME), fx.matrices)
+    np.testing.assert_array_equal(_read_back(backend, path, VECTOR_NAME), fx.vectors)
 
 
 @pytest.mark.parametrize("backend", ["zarr", "hdf5"])

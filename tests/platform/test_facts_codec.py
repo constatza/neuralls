@@ -152,11 +152,16 @@ def test_recipe_round_trips_exactly_through_json(recipe: RhsRecipe) -> None:
     assert decode_recipe(json.loads(json.dumps(encode_recipe(recipe)))) == recipe
 
 
-def test_unknown_recipe_kind_is_rejected_on_decode() -> None:
-    with pytest.raises(ValueError, match="Unknown recipe kind 'uniform'"):
-        decode_recipe({"kind": "uniform", "mask": {"kind": "none"}})
-
-
-def test_unknown_recipe_mask_is_rejected_on_decode() -> None:
-    with pytest.raises(ValueError, match="Unknown recipe mask kind 'banded'"):
-        decode_recipe({"kind": "dataset", "mask": {"kind": "banded"}})
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({"kind": "uniform", "mask": {"kind": "none"}}, "Unknown recipe kind 'uniform'"),
+        ({"kind": "dataset", "mask": {"kind": "banded"}}, "Unknown recipe mask kind 'banded'"),
+    ],
+    ids=["kind", "mask"],
+)
+def test_an_unknown_recipe_kind_or_mask_is_rejected_on_decode(
+    payload: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        decode_recipe(payload)

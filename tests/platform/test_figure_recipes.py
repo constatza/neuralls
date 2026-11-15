@@ -95,14 +95,19 @@ def test_the_cost_breakdown_is_one_figure_of_offline_plus_online_totals() -> Non
     assert recipe.failure_treatment is FailureTreatment.NONE
 
 
-def test_variant_lookup_rejects_a_metric_the_kind_lacks() -> None:
+@pytest.mark.parametrize(
+    ("kind", "metric", "population"),
+    [
+        (FigureKind.SPEED_RATIO, MetricId.ITERATIONS, Population.OWN),
+        (FigureKind.ITERATION_MEANS, MetricId.ITERATIONS, Population.COMMON),
+    ],
+    ids=["metric_the_kind_lacks", "population_the_kind_lacks"],
+)
+def test_variant_lookup_rejects_a_variant_the_kind_lacks(
+    kind: FigureKind, metric: MetricId, population: Population
+) -> None:
     with pytest.raises(UnknownFigureVariantError):
-        group_recipe(FigureKind.SPEED_RATIO).variant(MetricId.ITERATIONS, Population.OWN)
-
-
-def test_variant_lookup_rejects_a_population_the_kind_lacks() -> None:
-    with pytest.raises(UnknownFigureVariantError):
-        group_recipe(FigureKind.ITERATION_MEANS).variant(MetricId.ITERATIONS, Population.COMMON)
+        group_recipe(kind).variant(metric, population)
 
 
 def test_a_variant_is_found_by_the_metric_it_summarizes() -> None:

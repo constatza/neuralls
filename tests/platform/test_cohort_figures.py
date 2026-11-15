@@ -318,27 +318,34 @@ def test_a_cohort_figure_names_its_recipe_and_the_pooled_figure_the_mixture(
     write_all()
 
     subtitles = {call.stem: call.data.style.subtitle for call in drawn}
-    assert (
-        subtitles[f"iteration_means_{KEY}__{_SINE_SLUG}"]
-        .splitlines()[-1]
-        .startswith("RHS recipe: ")
+    assert subtitles[f"iteration_means_{KEY}__{_SINE_SLUG}"] == (
+        "All comparison matrix sets\nRHS recipe: Sinusoidal ($\\omega=6.28319$)"
     )
-    assert (
-        subtitles[f"iteration_means_{KEY}__mixture"]
-        .splitlines()[-1]
-        .startswith("Mixture of recipes")
+    assert subtitles[f"iteration_means_{KEY}__mixture"] == (
+        f"All comparison matrix sets\n{MIXTURE_NOTE}"
     )
     assert len(subtitles[f"solve_time_bars_{KEY}"].splitlines()) == 1
 
 
+_SETUP_SHARING_LINE = (
+    "each matrix's setup is shared by its r_m planned RHS, r_m = 1, 2 or 3 (varies by matrix)"
+)
+
+
 @pytest.mark.parametrize(
-    "stem", ["ecdf_iterations", "performance_profile_solve", "speed_ratio_cdf"]
+    ("stem", "extra_lines"),
+    [
+        ("ecdf_iterations", []),
+        ("performance_profile_solve", []),
+        ("speed_ratio_cdf", [_SETUP_SHARING_LINE]),
+    ],
 )
 def test_a_pooled_profile_figure_is_a_mixture_figure_drawn_whole(
     all_sets_report: WorkloadMixtureReport,
     drawn: list[Drawn],
     write_all: Callable[[], tuple[dict[str, GroupFigureMetadata], dict[str, pl.DataFrame]]],
     stem: str,
+    extra_lines: list[str],
 ) -> None:
     metadata, tables = write_all()
     full = figure_summaries(all_sets_report, no_offline_cost(all_sets_report))
@@ -349,7 +356,11 @@ def test_a_pooled_profile_figure_is_a_mixture_figure_drawn_whole(
     assert metadata[pooled].cohort == MixtureCohort()
     assert_frame_equal(tables[pooled], full[stem])
     assert_frame_equal(call.data.observations, all_sets_report.observations)
-    assert MIXTURE_NOTE in call.data.style.subtitle.splitlines()
+    assert call.data.style.subtitle.splitlines() == [
+        "All comparison matrix sets",
+        MIXTURE_NOTE,
+        *extra_lines,
+    ]
 
 
 def test_the_kinds_of_the_per_cohort_figures_are_exactly_the_cohort_table_kinds() -> None:

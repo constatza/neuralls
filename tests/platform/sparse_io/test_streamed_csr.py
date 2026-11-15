@@ -93,38 +93,46 @@ def _assert_streamed_equals_buffered(
         _assert_components_equal(got, want)
 
 
-# --- Ragged layout ----------------------------------------------------------
+LAYOUTS = (
+    pytest.param("per_sample_matrices", LayoutType.MANY_MATRICES, id="ragged"),
+    pytest.param("shared_pattern_matrices", LayoutType.SHARED_PATTERN, id="shared_pattern"),
+)
 
 
-def test_streamed_ragged_equals_buffered_zarr(
-    tmp_path: Path, per_sample_matrices: list[csr_array]
+@pytest.mark.parametrize("format_name", FORMATS)
+@pytest.mark.parametrize(("matrices_fixture", "layout"), LAYOUTS)
+def test_streamed_equals_buffered(
+    request: pytest.FixtureRequest,
+    format_name: str,
+    tmp_path: Path,
+    matrices_fixture: str,
+    layout: LayoutType,
 ) -> None:
-    buffered_dir = _buffered_zarr(tmp_path, per_sample_matrices)
+    _assert_streamed_equals_buffered(
+        format_name,
+        tmp_path,
+        request.getfixturevalue(matrices_fixture),
+        TWO_SAMPLES_PER_BATCH,
+        layout,
+    )
+
+
+@pytest.mark.parametrize(("matrices_fixture", "layout"), LAYOUTS)
+def test_streamed_zarr_group_describes_like_the_buffered_group(
+    request: pytest.FixtureRequest, tmp_path: Path, matrices_fixture: str, layout: LayoutType
+) -> None:
+    matrices: list[csr_array] = request.getfixturevalue(matrices_fixture)
+    buffered_dir = _buffered_zarr(tmp_path, matrices)
     streamed_dir = tmp_path / "streamed"
     stream = open_csr_matrix_stream(
-        "zarr",
-        streamed_dir,
-        planned_samples=len(per_sample_matrices),
-        layout=LayoutType.MANY_MATRICES,
+        "zarr", streamed_dir, planned_samples=len(matrices), layout=layout
     )
-    for batch in _batched(per_sample_matrices, ONE_SAMPLE_PER_BATCH):
+    for batch in _batched(matrices, TWO_SAMPLES_PER_BATCH):
         stream.write_batch(batch)
     stream.close()
 
     assert describe_csr_matrix_group(streamed_dir, member_path=MEMBER_PATH) == (
         describe_csr_matrix_group(buffered_dir, member_path=MEMBER_PATH)
-    )
-    expected = _read_all("zarr", SparseLocation(path=buffered_dir), len(per_sample_matrices))
-    actual = _read_all("zarr", SparseLocation(path=streamed_dir), len(per_sample_matrices))
-    for got, want in zip(actual, expected, strict=True):
-        _assert_components_equal(got, want)
-
-
-def test_streamed_ragged_equals_buffered_hdf5(
-    tmp_path: Path, per_sample_matrices: list[csr_array]
-) -> None:
-    _assert_streamed_equals_buffered(
-        "hdf5", tmp_path, per_sample_matrices, TWO_SAMPLES_PER_BATCH, LayoutType.MANY_MATRICES
     )
 
 
@@ -147,41 +155,6 @@ def test_streamed_ragged_batches_of_one_equal_batches_of_two(
         strict=True,
     ):
         _assert_components_equal(got, want)
-
-
-# --- Shared-pattern layout --------------------------------------------------
-
-
-def test_streamed_shared_pattern_equals_buffered_zarr(
-    tmp_path: Path, shared_pattern_matrices: list[csr_array]
-) -> None:
-    buffered_dir = _buffered_zarr(tmp_path, shared_pattern_matrices)
-    streamed_dir = tmp_path / "streamed"
-    stream = open_csr_matrix_stream(
-        "zarr",
-        streamed_dir,
-        planned_samples=len(shared_pattern_matrices),
-        layout=LayoutType.SHARED_PATTERN,
-    )
-    for batch in _batched(shared_pattern_matrices, TWO_SAMPLES_PER_BATCH):
-        stream.write_batch(batch)
-    stream.close()
-
-    assert describe_csr_matrix_group(streamed_dir, member_path=MEMBER_PATH) == (
-        describe_csr_matrix_group(buffered_dir, member_path=MEMBER_PATH)
-    )
-    expected = _read_all("zarr", SparseLocation(path=buffered_dir), len(shared_pattern_matrices))
-    actual = _read_all("zarr", SparseLocation(path=streamed_dir), len(shared_pattern_matrices))
-    for got, want in zip(actual, expected, strict=True):
-        _assert_components_equal(got, want)
-
-
-def test_streamed_shared_pattern_equals_buffered_hdf5(
-    tmp_path: Path, shared_pattern_matrices: list[csr_array]
-) -> None:
-    _assert_streamed_equals_buffered(
-        "hdf5", tmp_path, shared_pattern_matrices, TWO_SAMPLES_PER_BATCH, LayoutType.SHARED_PATTERN
-    )
 
 
 @pytest.mark.parametrize("format_name", FORMATS)

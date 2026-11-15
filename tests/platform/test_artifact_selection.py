@@ -69,19 +69,20 @@ def test_select_split_artifact_path_returns_single_json() -> None:
     assert result == SPLIT_FILE_A
 
 
-def test_select_split_artifact_path_rejects_missing_json() -> None:
-    client = FakeMlflowClient({SPLIT_ARTIFACT_DIR: (FakeArtifact(NON_JSON_SPLIT_FILE),)})
+@pytest.mark.parametrize(
+    ("artifacts", "error"),
+    [
+        ((FakeArtifact(NON_JSON_SPLIT_FILE),), FileNotFoundError),
+        ((FakeArtifact(SPLIT_FILE_B), FakeArtifact(SPLIT_FILE_A)), ValueError),
+    ],
+    ids=["missing_json", "multiple_json_files"],
+)
+def test_select_split_artifact_path_rejects_anything_but_one_json(
+    artifacts: tuple[FakeArtifact, ...], error: type[Exception]
+) -> None:
+    client = FakeMlflowClient({SPLIT_ARTIFACT_DIR: artifacts})
 
-    with pytest.raises(FileNotFoundError):
-        select_split_artifact_path(client, run_id=RUN_ID)
-
-
-def test_select_split_artifact_path_rejects_multiple_json_files() -> None:
-    client = FakeMlflowClient(
-        {SPLIT_ARTIFACT_DIR: (FakeArtifact(SPLIT_FILE_B), FakeArtifact(SPLIT_FILE_A))}
-    )
-
-    with pytest.raises(ValueError):
+    with pytest.raises(error):
         select_split_artifact_path(client, run_id=RUN_ID)
 
 

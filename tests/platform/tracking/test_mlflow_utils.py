@@ -73,44 +73,34 @@ def test_build_workflow_environment_uses_default_output_root(
         config_dir=tmp_path,
     )
 
-    assert runtime.tracking_uri.endswith("/mlruns/mlflow.db")
+    assert runtime.tracking_uri == f"sqlite:///{(tmp_path / 'mlruns' / 'mlflow.db').as_posix()}"
     assert runtime.artifact_uri == str((tmp_path / "mlartifacts").resolve())
     assert runtime.is_explicit is False
 
 
-def test_build_workflow_environment_uses_tracking_toml_when_no_case_uri(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize(
+    ("case_uri", "expected_uri"),
+    [
+        (None, "http://tracking.test:5000"),
+        ("http://case-override:5000", "http://case-override:5000"),
+    ],
+    ids=["tracking_toml", "case_uri_overrides"],
+)
+def test_build_workflow_environment_resolves_the_case_uri_over_tracking_toml(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, case_uri: str | None, expected_uri: str
 ) -> None:
     from neuralls.platform.config.models.experiments import SharedTrackingSettings
 
     shared = SharedTrackingSettings(uri="http://tracking.test:5000")
     monkeypatch.setattr(tracking_mlflow, "load_tracking_config", lambda: shared)
     runtime = build_workflow_environment(
-        tracking_uri=None,
+        tracking_uri=case_uri,
         artifact_location=None,
         default_output_root=tmp_path,
         config_dir=tmp_path,
     )
 
-    assert runtime.tracking_uri == "http://tracking.test:5000"
-    assert runtime.is_explicit is True
-
-
-def test_build_workflow_environment_case_uri_overrides_tracking_toml(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    from neuralls.platform.config.models.experiments import SharedTrackingSettings
-
-    shared = SharedTrackingSettings(uri="http://tracking.test:5000")
-    monkeypatch.setattr(tracking_mlflow, "load_tracking_config", lambda: shared)
-    runtime = build_workflow_environment(
-        tracking_uri="http://case-override:5000",
-        artifact_location=None,
-        default_output_root=tmp_path,
-        config_dir=tmp_path,
-    )
-
-    assert runtime.tracking_uri == "http://case-override:5000"
+    assert runtime.tracking_uri == expected_uri
     assert runtime.is_explicit is True
 
 
@@ -258,7 +248,10 @@ def test_build_runtime_environment_falls_back_to_local_sqlite(
 
     runtime = build_runtime_environment(tmp_path / "fallback", default_output_root=tmp_path)
 
-    assert runtime.tracking_uri.endswith("/mlruns/mlflow.db")
+    assert (
+        runtime.tracking_uri
+        == f"sqlite:///{(tmp_path / 'fallback' / 'mlruns' / 'mlflow.db').as_posix()}"
+    )
     assert runtime.is_explicit is False
 
 
@@ -333,7 +326,6 @@ def test_log_artifacts_to_mlflow_excludes_checkpoints(tmp_path: Path) -> None:
         )
 
     logged_paths = [Path(call.args[1]).name for call in client.log_artifacts.call_args_list]
-    assert "checkpoints" not in logged_paths
     assert set(logged_paths) == {"figures", "metrics", "predictions", "config"}
 
 

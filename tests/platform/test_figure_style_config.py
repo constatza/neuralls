@@ -79,46 +79,30 @@ def test_baseline_section_is_optional_and_parsed_from_a_dict() -> None:
     assert parsed.figure_style.label_rotation_deg == 60.0
 
 
-def test_styler_carries_the_configured_rotation_into_every_figure_style(
+@pytest.mark.parametrize(
+    ("config", "attribute", "expected"),
+    [
+        (FigureStyleConfig(label_rotation_deg=55.0), "label_rotation_deg", 55.0),
+        (
+            FigureStyleConfig(min_box_samples=3, min_violin_samples=12),
+            "row_limits",
+            RowLimits(3, 12),
+        ),
+        (FigureStyleConfig(show_titles=True), "show_titles", True),
+        (FigureStyleConfig(show_titles=False), "show_titles", False),
+    ],
+    ids=["rotation", "sample_limits", "titles_on", "titles_off"],
+)
+def test_styler_carries_the_configured_value_into_every_figure_style(
     profile_report: RecipeProfileReport,
     repeated_timing_presentation: GroupPresentation,
     notation: NotationPolicy,
+    config: FigureStyleConfig,
+    attribute: str,
+    expected: object,
 ) -> None:
-    styler = GroupStyler(
-        repeated_timing_presentation, notation, FigureStyleConfig(label_rotation_deg=55.0)
-    )
+    styler = GroupStyler(repeated_timing_presentation, notation, config)
     plans = figure_plans(profile_report, repeated_timing_presentation, "key", {})
 
-    assert {styler.style(plan).label_rotation_deg for plan in plans} == {55.0}
     assert plans
-
-
-def test_styler_carries_the_configured_sample_limits_into_every_figure_style(
-    profile_report: RecipeProfileReport,
-    repeated_timing_presentation: GroupPresentation,
-    notation: NotationPolicy,
-) -> None:
-    styler = GroupStyler(
-        repeated_timing_presentation,
-        notation,
-        FigureStyleConfig(min_box_samples=3, min_violin_samples=12),
-    )
-    plans = figure_plans(profile_report, repeated_timing_presentation, "key", {})
-
-    assert {styler.style(plan).row_limits for plan in plans} == {RowLimits(3, 12)}
-
-
-@pytest.mark.parametrize("show_titles", [True, False])
-def test_styler_carries_the_configured_title_switch_into_every_figure_style(
-    profile_report: RecipeProfileReport,
-    repeated_timing_presentation: GroupPresentation,
-    notation: NotationPolicy,
-    show_titles: bool,
-) -> None:
-    styler = GroupStyler(
-        repeated_timing_presentation, notation, FigureStyleConfig(show_titles=show_titles)
-    )
-    plans = figure_plans(profile_report, repeated_timing_presentation, "key", {})
-
-    assert {styler.style(plan).show_titles for plan in plans} == {show_titles}
-    assert plans
+    assert {getattr(styler.style(plan), attribute) for plan in plans} == {expected}

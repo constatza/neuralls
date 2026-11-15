@@ -37,19 +37,20 @@ def test_the_single_best_checkpoint_beats_the_others() -> None:
     assert choose_checkpoint(ROOT, [best, _candidate("last.ckpt", "l")]) == best.path
 
 
-def test_two_distinct_best_checkpoints_are_ambiguous() -> None:
-    candidates = [
-        _candidate("a/best.ckpt", "a"),
-        _candidate("b/best.ckpt", "b"),
-        _candidate("last.ckpt", "l"),
-    ]
-
-    with pytest.raises(ValueError, match="Multiple distinct checkpoints"):
-        choose_checkpoint(ROOT, candidates)
-
-
-def test_distinct_files_without_a_best_are_ambiguous() -> None:
-    candidates = [_candidate("epoch=12.ckpt", "e"), _candidate("last.ckpt", "l")]
-
+@pytest.mark.parametrize(
+    "candidates",
+    [
+        [
+            _candidate("a/best.ckpt", "a"),
+            _candidate("b/best.ckpt", "b"),
+            _candidate("last.ckpt", "l"),
+        ],
+        [_candidate("epoch=12.ckpt", "e"), _candidate("last.ckpt", "l")],
+    ],
+    ids=["two_distinct_best", "distinct_without_a_best"],
+)
+def test_distinct_checkpoints_without_one_best_are_ambiguous(
+    candidates: list[CheckpointCandidate],
+) -> None:
     with pytest.raises(ValueError, match="Multiple distinct checkpoints"):
         choose_checkpoint(ROOT, candidates)

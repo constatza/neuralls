@@ -103,16 +103,17 @@ def test_figure_scopes_name_matrix_sets_separately_from_methods(
     every_scope: dict[str, FigureScope], notation: NotationPolicy
 ) -> None:
     plain = replace(notation, target=RenderTarget.PLAIN)
-    for kind in ("recipe", "dataset", "system"):
-        assert render_figure_scope(every_scope[kind], CARD_PROFILE, plain).text.startswith(
-            "Comparison matrix set: "
-        )
-    assert render_figure_scope(every_scope["all_datasets"], CARD_PROFILE, plain).text == (
-        "All comparison matrix sets"
-    )
-    assert not render_figure_scope(every_scope["method"], CARD_PROFILE, plain).text.startswith(
-        "Comparison matrix set: "
-    )
+    dataset = "Comparison matrix set: Test problem | Gaussian CG Residuals (k=20, N=100)"
+    assert {
+        kind: render_figure_scope(scope, CARD_PROFILE, plain).text
+        for kind, scope in every_scope.items()
+    } == {
+        "recipe": f"{dataset} - Sinusoidal (ω=6.28319)",
+        "dataset": dataset,
+        "all_datasets": "All comparison matrix sets",
+        "method": "Method Jacobi",
+        "system": f"{dataset} - Sinusoidal (ω=6.28319), matrix 3, RHS 7",
+    }
 
 
 @pytest.fixture
@@ -297,32 +298,33 @@ def test_card_missing_a_required_field_is_rejected(
     assert error.value.missing == (missing,)
 
 
-def test_card_scope_without_display_text_is_rejected(
+@pytest.mark.parametrize(
+    ("delete", "missing"),
+    [
+        pytest.param(
+            lambda payload: payload["scope"].pop("display"), "display", id="scope_display"
+        ),
+        pytest.param(
+            lambda payload: payload["source"]["methods"][0].pop("run_id"),
+            "run_id",
+            id="source_run_id",
+        ),
+    ],
+)
+def test_card_with_a_nested_field_missing_is_rejected(
+    delete: Callable[[dict[str, Any]], object],
+    missing: str,
     scope: RecipeScope,
     metadata_of: Callable[[FigureScope], GroupFigureMetadata],
     notation: NotationPolicy,
 ) -> None:
     payload = card_payload(_card(metadata_of(scope), notation))
-    del payload["scope"]["display"]
+    delete(payload)
 
     with pytest.raises(FigureCardFieldsMissingError) as error:
         validate_figure_card(payload)
     assert error.value.reason is InvalidFigureCardReason.MISSING_FIELDS
-    assert error.value.missing == ("display",)
-
-
-def test_card_source_without_run_id_is_rejected(
-    scope: RecipeScope,
-    metadata_of: Callable[[FigureScope], GroupFigureMetadata],
-    notation: NotationPolicy,
-) -> None:
-    payload = card_payload(_card(metadata_of(scope), notation))
-    del payload["source"]["methods"][0]["run_id"]
-
-    with pytest.raises(FigureCardFieldsMissingError) as error:
-        validate_figure_card(payload)
-    assert error.value.reason is InvalidFigureCardReason.MISSING_FIELDS
-    assert error.value.missing == ("run_id",)
+    assert error.value.missing == (missing,)
 
 
 def test_a_card_names_the_raster_and_the_vector_file_of_its_figure(
