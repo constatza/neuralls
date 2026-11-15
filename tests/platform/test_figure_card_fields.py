@@ -36,6 +36,7 @@ from neuralls.domain.solver.reporting.observations import Outcome
 from neuralls.domain.solver.reporting.summary import Population, summarize, timing_noise
 from neuralls.platform.reporting.figure_card import (
     InvalidFigureCardError,
+    InvalidFigureCardReason,
     build_figure_card,
     card_payload,
     decode_figure_card,
@@ -459,49 +460,91 @@ _BOOT = {"method": "amg", "kind": "matrix_cluster_bootstrap", "level": 0.95, "re
 
 
 @pytest.mark.parametrize(
-    "interval",
+    ("interval", "reason"),
     [
-        {"kind": "normal_approximation"},
-        {"kind": "not_drawn_by_kind", "matrices": 5},
-        {"kind": "per_method"},
-        _per_method({"method": "amg", "kind": "too_few_matrices", "matrices": 1}),
-        _per_method({"method": "amg", "kind": "too_few_matrices", "matrices": 5, "minimum": 2}),
-        _per_method({**_BOOT, "matrices": 1}),
-        _per_method({**_BOOT, "matrices": "4"}),
-        _per_method({**_BOOT, "matrices": True}),
-        _per_method({"method": "amg", "kind": "too_few_matrices", "matrices": 1, "minimum": 3}),
-        _per_method({**_BOOT, "matrices": 4}, {**_BOOT, "matrices": 4}),
-        _per_method({**_BOOT, "method": 7, "matrices": 4}),
-        _per_method({"method": "amg", "kind": "too_few_matrices", "matrices": -1, "minimum": 2}),
-        _per_method({**_BOOT, "matrices": 4, "level": 5.0}),
-        _per_method({**_BOOT, "matrices": 4, "resamples": 0}),
-        "none",
-    ],
-    ids=[
-        "unknown kind",
-        "extra field",
-        "no methods",
-        "missing minimum",
-        "too few with enough matrices",
-        "bootstrap over one matrix",
-        "matrices as text",
-        "matrices as bool",
-        "another minimum",
-        "a method twice",
-        "method not a string",
-        "negative matrices",
-        "level above one",
-        "no resamples",
-        "not a table",
+        pytest.param(
+            {"kind": "normal_approximation"},
+            InvalidFigureCardReason.INTERVAL_KIND_UNKNOWN,
+            id="unknown kind",
+        ),
+        pytest.param(
+            {"kind": "not_drawn_by_kind", "matrices": 5},
+            InvalidFigureCardReason.INTERVAL_FIELDS_NOT_EXACT,
+            id="extra field",
+        ),
+        pytest.param(
+            {"kind": "per_method"},
+            InvalidFigureCardReason.INTERVAL_FIELDS_NOT_EXACT,
+            id="no methods",
+        ),
+        pytest.param(
+            _per_method({"method": "amg", "kind": "too_few_matrices", "matrices": 1}),
+            InvalidFigureCardReason.INTERVAL_FIELDS_NOT_EXACT,
+            id="missing minimum",
+        ),
+        pytest.param(
+            _per_method({"method": "amg", "kind": "too_few_matrices", "matrices": 5, "minimum": 2}),
+            InvalidFigureCardReason.INTERVAL_CONTRADICTS_MATRIX_COUNT,
+            id="too few with enough matrices",
+        ),
+        pytest.param(
+            _per_method({**_BOOT, "matrices": 1}),
+            InvalidFigureCardReason.INTERVAL_CONTRADICTS_MATRIX_COUNT,
+            id="bootstrap over one matrix",
+        ),
+        pytest.param(
+            _per_method({**_BOOT, "matrices": "4"}),
+            InvalidFigureCardReason.INTERVAL_FIELD_WRONG_TYPE,
+            id="matrices as text",
+        ),
+        pytest.param(
+            _per_method({**_BOOT, "matrices": True}),
+            InvalidFigureCardReason.INTERVAL_FIELD_WRONG_TYPE,
+            id="matrices as bool",
+        ),
+        pytest.param(
+            _per_method({"method": "amg", "kind": "too_few_matrices", "matrices": 1, "minimum": 3}),
+            InvalidFigureCardReason.INTERVAL_MINIMUM_WRONG,
+            id="another minimum",
+        ),
+        pytest.param(
+            _per_method({**_BOOT, "matrices": 4}, {**_BOOT, "matrices": 4}),
+            InvalidFigureCardReason.INTERVAL_INVALID,
+            id="a method twice",
+        ),
+        pytest.param(
+            _per_method({**_BOOT, "method": 7, "matrices": 4}),
+            InvalidFigureCardReason.INTERVAL_METHOD_NOT_A_STRING,
+            id="method not a string",
+        ),
+        pytest.param(
+            _per_method(
+                {"method": "amg", "kind": "too_few_matrices", "matrices": -1, "minimum": 2}
+            ),
+            InvalidFigureCardReason.INTERVAL_INVALID,
+            id="negative matrices",
+        ),
+        pytest.param(
+            _per_method({**_BOOT, "matrices": 4, "level": 5.0}),
+            InvalidFigureCardReason.INTERVAL_INVALID,
+            id="level above one",
+        ),
+        pytest.param(
+            _per_method({**_BOOT, "matrices": 4, "resamples": 0}),
+            InvalidFigureCardReason.INTERVAL_INVALID,
+            id="no resamples",
+        ),
+        pytest.param("none", InvalidFigureCardReason.NOT_A_TABLE, id="not a table"),
     ],
 )
 def test_a_card_with_a_malformed_interval_is_rejected(
-    payloads: dict[str, Payload], interval: object
+    payloads: dict[str, Payload], interval: object, reason: InvalidFigureCardReason
 ) -> None:
     payload = {**payloads["speed_ratio_cdf"], "interval": interval}
 
-    with pytest.raises(InvalidFigureCardError):
+    with pytest.raises(InvalidFigureCardError) as error:
         decode_figure_card(payload)
+    assert error.value.reason is reason
 
 
 def _method_entries(payload: Payload) -> list[Mapping[str, object]]:

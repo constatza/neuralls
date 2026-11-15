@@ -11,7 +11,7 @@ class ReasonedError[Reason: StrEnum](Exception):
 
     ``detail`` is the human message. A cause that names absent items is its own subclass with
     a required ``missing`` field, so no error carries a field its reason leaves empty.
-    ``__reduce__`` keeps the error picklable although ``__init__`` takes more than the message.
+    ``__reduce__`` keeps every subclass picklable although ``__init__`` takes more than the message.
 
     Attributes:
         reason: The cause, one member of the subclass's reason enum.
@@ -23,9 +23,13 @@ class ReasonedError[Reason: StrEnum](Exception):
         self.reason = reason
         self.detail = detail
 
-    def __reduce__(self) -> tuple[type[Self], tuple[object, ...]]:
-        """Rebuild from the constructor arguments, not the message alone."""
-        return type(self), (self.reason, self.detail)
+    def __reduce__(self) -> tuple[type[Self], tuple[object, ...], dict[str, object]]:
+        """Rebuild from the constructor arguments and keep instance state such as notes."""
+        return type(self), self._constructor_args(), self.__dict__
+
+    def _constructor_args(self) -> tuple[object, ...]:
+        """What ``__init__`` takes; a subclass with another signature returns its own."""
+        return (self.reason, self.detail)
 
 
 class StageInputsStaleReason(StrEnum):

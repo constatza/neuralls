@@ -11,7 +11,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
-from typing import Any, Self, assert_never
+from typing import Any, assert_never
 
 import tomli_w
 
@@ -57,9 +57,8 @@ class FigureIndexEntryFieldsMissingError(InvalidFigureIndexError):
         super().__init__(InvalidFigureIndexReason.ENTRY_MISSING_FIELDS, detail)
         self.missing = missing
 
-    def __reduce__(self) -> tuple[type[Self], tuple[object, ...]]:
-        """Rebuild from the constructor arguments, not the message alone."""
-        return type(self), (self.detail, self.missing)
+    def _constructor_args(self) -> tuple[object, ...]:
+        return (self.detail, self.missing)
 
 
 class IncompleteFigureRecordsReason(StrEnum):
@@ -90,9 +89,47 @@ class FigureFilesMissingError(IncompleteFigureRecordsError):
         super().__init__(IncompleteFigureRecordsReason.MISSING_FILES, detail)
         self.missing = missing
 
-    def __reduce__(self) -> tuple[type[Self], tuple[object, ...]]:
-        """Rebuild from the constructor arguments, not the message alone."""
-        return type(self), (self.detail, self.missing)
+    def _constructor_args(self) -> tuple[object, ...]:
+        return (self.detail, self.missing)
+
+
+class FigureCardMissingError(IncompleteFigureRecordsError):
+    """An uploaded figure has no uploaded card beside it.
+
+    Attributes:
+        figure: The figure without a card.
+    """
+
+    def __init__(self, figure: ArtifactLocation) -> None:
+        super().__init__(
+            IncompleteFigureRecordsReason.MISSING_CARD, f"figure {figure.artifact_path} has no card"
+        )
+        self.figure = figure
+
+    def _constructor_args(self) -> tuple[object, ...]:
+        return (self.figure,)
+
+
+class CardDescribesOtherFigureError(IncompleteFigureRecordsError):
+    """The card beside a figure describes a figure of another name.
+
+    Attributes:
+        card: The card at fault.
+        described: The figure stem the card names.
+        figure: The figure name the card sits beside.
+    """
+
+    def __init__(self, card: ArtifactLocation, described: str, figure: str) -> None:
+        super().__init__(
+            IncompleteFigureRecordsReason.CARD_DESCRIBES_OTHER_FIGURE,
+            f"card {card.artifact_path} describes {described}, not {figure}",
+        )
+        self.card = card
+        self.described = described
+        self.figure = figure
+
+    def _constructor_args(self) -> tuple[object, ...]:
+        return (self.card, self.described, self.figure)
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,15 +218,9 @@ def verify_figure_records(
         card_location = figure.sibling(card_name(figure.name))
         card = cards.get(card_location)
         if card is None or card_location not in uploaded_set:
-            raise IncompleteFigureRecordsError(
-                IncompleteFigureRecordsReason.MISSING_CARD,
-                f"figure {figure.artifact_path} has no card",
-            )
+            raise FigureCardMissingError(figure)
         if card.stem != figure.name:
-            raise IncompleteFigureRecordsError(
-                IncompleteFigureRecordsReason.CARD_DESCRIBES_OTHER_FIGURE,
-                f"card {card_location.artifact_path} describes {card.stem}, not {figure.name}",
-            )
+            raise CardDescribesOtherFigureError(card_location, card.stem, figure.name)
         missing = [name for name in card.files if figure.sibling(name) not in files]
         if missing:
             raise FigureFilesMissingError(

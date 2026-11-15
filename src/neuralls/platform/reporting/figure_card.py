@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Self, assert_never
+from typing import Any, assert_never
 
 import tomli_w
 
@@ -162,9 +162,8 @@ class FigureCardFieldsMissingError(InvalidFigureCardError):
         super().__init__(InvalidFigureCardReason.MISSING_FIELDS, detail)
         self.missing = missing
 
-    def __reduce__(self) -> tuple[type[Self], tuple[object, ...]]:
-        """Rebuild from the constructor arguments, not the message alone."""
-        return type(self), (self.detail, self.missing)
+    def _constructor_args(self) -> tuple[object, ...]:
+        return (self.detail, self.missing)
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,7 +328,11 @@ def _decode_interval(payload: object) -> FigureInterval:
             entries = _require_tables(interval["methods"], frozenset({"kind"}), "interval method")
             try:
                 return PerMethodIntervals(tuple(_decode_method_interval(e) for e in entries))
-            except ValueError as error:
+            except InvalidFigureCardError:
+                raise
+            except (
+                ValueError
+            ) as error:  # the interval types' own invariants, e.g. a level above one
                 raise InvalidFigureCardError(
                     InvalidFigureCardReason.INTERVAL_INVALID, f"figure card interval: {error}"
                 ) from error

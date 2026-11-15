@@ -15,6 +15,8 @@ from neuralls.platform.reporting.figure_card import FigureCard, build_figure_car
 from neuralls.platform.reporting.figure_formats import FIGURE_FORMATS, FigureFormat, figure_file
 from neuralls.platform.reporting.figure_index import (
     ArtifactLocation,
+    CardDescribesOtherFigureError,
+    FigureCardMissingError,
     FigureIndexEntryFieldsMissingError,
     IncompleteFigureRecordsError,
     IncompleteFigureRecordsReason,
@@ -126,9 +128,9 @@ def test_a_figure_without_a_card_is_rejected(
     uploaded, cards = complete
     uploaded.extend(_figure("root", "orphan"))
 
-    with pytest.raises(IncompleteFigureRecordsError) as error:
+    with pytest.raises(FigureCardMissingError) as error:
         verify_figure_records(uploaded, cards, index_of(cards))
-    assert error.value.reason is IncompleteFigureRecordsReason.MISSING_CARD
+    assert error.value.figure == ArtifactLocation("root", f"{DIRECTORY}/orphan")
 
 
 def test_a_group_figure_without_its_table_is_rejected(
@@ -170,9 +172,13 @@ def test_a_card_naming_another_file_is_rejected(
     uploaded, cards = complete
     cards[_card("root", "residual")] = card_of("energy")
 
-    with pytest.raises(IncompleteFigureRecordsError) as error:
+    with pytest.raises(CardDescribesOtherFigureError) as error:
         verify_figure_records(uploaded, cards, index_of(cards))
-    assert error.value.reason is IncompleteFigureRecordsReason.CARD_DESCRIBES_OTHER_FIGURE
+    assert (error.value.card, error.value.described, error.value.figure) == (
+        _card("root", "residual"),
+        "energy",
+        "residual",
+    )
 
 
 def test_a_card_without_its_figure_is_rejected(

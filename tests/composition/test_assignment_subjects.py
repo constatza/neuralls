@@ -34,7 +34,7 @@ from neuralls.platform.config.models.experiments import (
     RegistryEntry,
 )
 from neuralls.platform.config.registry import ResolvedAssignmentBinding
-from neuralls.platform.tracking.run_names import render_run_name
+from neuralls.platform.tracking.run_names import render_run_name, render_training_label
 from neuralls.shared.scientific_description.models import ValidatedLabel
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from tests.presentation_support import datasets_by_dir
@@ -180,7 +180,10 @@ def test_assignments_that_render_alike_are_rejected_before_any_run_opens(
         require_distinct_training_labels(
             {"first": same, "second": training_presentation_of("POD-2G")}
         )
-    assert error.value.assignment_ids == ("first", "second")
+    assert (error.value.text, error.value.assignment_ids) == (
+        render_training_label(same),
+        ("first", "second"),
+    )
 
 
 def test_assignments_with_different_models_are_distinct(
