@@ -5,10 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import MixtureSpec
+from tests.fakes.archive_source import InMemoryArchiveSource
 
 
 @pytest.fixture
@@ -41,18 +43,22 @@ def make_mixture() -> Callable[..., MixtureSpec]:
 
 
 @pytest.fixture
-def make_archive_glob(tmp_path: Path) -> Callable[[int], str]:
-    """Create ``num_files`` archive files under ``tmp_path`` and return their glob.
+def archive_source() -> InMemoryArchiveSource:
+    """Empty in-memory archive; ``make_archive_glob`` registers files in it."""
+    return InMemoryArchiveSource()
 
-    Only the file names matter to the allocator, which lists the pool before any read, so the
-    files are empty. Listing needs a real directory until the archive pool is a port.
+
+@pytest.fixture
+def make_archive_glob(archive_source: InMemoryArchiveSource) -> Callable[[int], str]:
+    """Register ``num_files`` archive files in ``archive_source`` and return their glob.
+
+    Only the file names matter to the allocator, which lists the pool before any read.
     """
 
     def _build(num_files: int) -> str:
-        directory = tmp_path / "archive"
-        directory.mkdir(exist_ok=True)
+        directory = Path("archive")
         for k in range(num_files):
-            (directory / f"solution_{k:03d}.txt").touch()
+            archive_source.add(directory / f"solution_{k:03d}.txt", np.zeros(1))
         return str(directory / "solution_*.txt")
 
     return _build

@@ -64,30 +64,29 @@ def test_no_stage_applying_totals_to_not_applicable() -> None:
 
 
 @pytest.mark.parametrize(
-    "stages",
+    ("stages", "reason"),
     [
-        OfflineStages(GENERATION, Unavailable("no run id")),
-        OfflineStages(Unavailable("no manifest"), TRAINING),
-        OfflineStages(Unavailable("no manifest"), NotApplicable()),
-        OfflineStages(NotApplicable(), Unavailable("no run id")),
+        (OfflineStages(GENERATION, Unavailable("no run id")), "training: no run id"),
+        (OfflineStages(Unavailable("no manifest"), TRAINING), "generation: no manifest"),
+        (OfflineStages(Unavailable("no manifest"), NotApplicable()), "generation: no manifest"),
+        (OfflineStages(NotApplicable(), Unavailable("no run id")), "training: no run id"),
+        (
+            OfflineStages(Unavailable("no manifest"), Unavailable("no run id")),
+            "generation: no manifest; training: no run id",
+        ),
+    ],
+    ids=[
+        "training_unavailable",
+        "generation_unavailable",
+        "generation_unavailable_training_not_applicable",
+        "training_unavailable_generation_not_applicable",
+        "both_unavailable",
     ],
 )
-def test_total_is_unavailable_when_any_stage_is(stages: OfflineStages) -> None:
-    total = stages.total()
-
-    assert isinstance(total, Unavailable)
-
-
-def test_total_names_every_unavailable_stage_in_its_reason() -> None:
-    stages = OfflineStages(Unavailable("no manifest"), Unavailable("no run id"))
-
-    assert stages.total() == Unavailable("generation: no manifest; training: no run id")
-
-
-def test_total_of_a_single_unavailable_stage_names_it() -> None:
-    stages: StageCost = Unavailable("no run id")
-
-    assert OfflineStages(GENERATION, stages).total() == Unavailable("training: no run id")
+def test_total_is_unavailable_and_names_every_unavailable_stage(
+    stages: OfflineStages, reason: str
+) -> None:
+    assert stages.total() == Unavailable(reason)
 
 
 UNAVAILABLE = Unavailable("not recorded")

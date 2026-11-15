@@ -27,10 +27,8 @@ from neuralls.domain.generation.trace_utils import (
     TrajectoryShortfallError,
     require_full_trajectory,
 )
-from neuralls.platform.storage.archive_source import FsArchiveSource
+from tests.fakes.archive_source import InMemoryArchiveSource
 from tests.generation_support import error_trace_rows
-
-ARCHIVE_SOURCE = FsArchiveSource()
 
 TRAJECTORY_CONFIG_TYPES = (
     ResidualErrorConfig,
@@ -152,23 +150,6 @@ def test_full_length_passes_index_check() -> None:
     require_full_trajectory(window.resolve_indices(WINDOW_STOP + 1), expected, 0, WINDOW_STOP)
 
 
-@pytest.mark.parametrize("config_type", TRAJECTORY_CONFIG_TYPES)
-def test_start_one_is_accepted(
-    config_type: type, make_trajectory_config: Callable[..., Any]
-) -> None:
-    config = make_trajectory_config(config_type, start=1)
-    assert config.start == 1
-
-
-@pytest.mark.parametrize("config_type", TRAJECTORY_CONFIG_TYPES)
-def test_negative_start_reaching_step_zero_is_rejected(
-    config_type: type, make_trajectory_config: Callable[..., Any]
-) -> None:
-    """start = -(stop + 1) resolves to index 0 on a full trajectory; it must not pass."""
-    with pytest.raises(ValidationError):
-        make_trajectory_config(config_type, start=-(WINDOW_STOP + 1))
-
-
 SPD_SIZE = 6
 BASE_SYSTEMS = 2
 STOP = 3
@@ -198,7 +179,9 @@ def _rows_close_to(rows: np.ndarray, target: np.ndarray) -> np.ndarray:
 
 
 def test_residuals_start_one_emits_k_rows_per_base_system(
-    seeded_spd_matrix: np.ndarray, seeded_rhs: np.ndarray
+    seeded_spd_matrix: np.ndarray,
+    seeded_rhs: np.ndarray,
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """Each base system emits K rows, and none is the base pair (b, x*).
 
@@ -215,7 +198,7 @@ def test_residuals_start_one_emits_k_rows_per_base_system(
             cfg=cfg,
             solver=make_solver(),
             single_rhs=seeded_rhs,
-            archive_source=ARCHIVE_SOURCE,
+            archive_source=archive_source,
         )
     )
     traces = result.error_traces

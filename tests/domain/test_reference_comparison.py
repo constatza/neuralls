@@ -55,12 +55,6 @@ def test_paired_part_uses_reference_over_method_ratio(observations: pl.DataFrame
     assert ratios.filter(pl.col("method") == JACOBI)["ratio"].to_list() == [2.0, 2.0]
 
 
-def test_a_configured_reference_among_the_methods_is_the_one_compared_to(
-    observations: pl.DataFrame,
-) -> None:
-    assert reference_among_methods(observations, ConfiguredReference(AMG)) == AMG
-
-
 def test_a_configured_reference_with_no_system_in_the_group_gives_no_comparison(
     observations: pl.DataFrame,
 ) -> None:

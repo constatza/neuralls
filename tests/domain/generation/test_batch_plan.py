@@ -11,9 +11,7 @@ from neuralls.domain.generation.binding_allocation import _resolve_binding_strat
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.helpers import resolve_strategy_counts
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
-from neuralls.platform.storage.archive_source import FsArchiveSource
-
-ARCHIVE_SOURCE = FsArchiveSource()
+from tests.fakes.archive_source import InMemoryArchiveSource
 
 _NUM_MATRICES = 3
 
@@ -35,13 +33,14 @@ def multi_matrix_spec() -> DatasetSpec:
 def test_plan_totals_match_strategy_counts(
     multi_matrix_spec: DatasetSpec,
     make_bindings: Callable[[int, int], list[SystemBinding]],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     bindings = make_bindings(_NUM_MATRICES, 1)
     allocation = _resolve_binding_strategy_counts(
         bindings=bindings,
         spec=multi_matrix_spec,
         num_matrix_samples=_NUM_MATRICES,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
     plan = plan_batches(allocation)
 

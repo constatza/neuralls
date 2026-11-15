@@ -9,9 +9,7 @@ import pytest
 from neuralls.domain.generation.binding_allocation import _resolve_binding_strategy_counts
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
-from neuralls.platform.storage.archive_source import FsArchiveSource
-
-ARCHIVE_SOURCE = FsArchiveSource()
+from tests.fakes.archive_source import InMemoryArchiveSource
 
 
 @pytest.mark.parametrize(
@@ -20,6 +18,7 @@ ARCHIVE_SOURCE = FsArchiveSource()
 )
 def test_samples_all_without_glob_is_rejected(
     make_bindings: Callable[[int, int], list[SystemBinding]],
+    archive_source: InMemoryArchiveSource,
     strategy: str,
 ) -> None:
     """samples = -1 across several matrices requires a finite archive glob."""
@@ -30,5 +29,5 @@ def test_samples_all_without_glob_is_rejected(
             bindings=make_bindings(2, 1),
             spec=spec,
             num_matrix_samples=2,
-            archive_source=ARCHIVE_SOURCE,
+            archive_source=archive_source,
         )

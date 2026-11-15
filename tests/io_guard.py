@@ -31,7 +31,6 @@ BOUNDARY_DIRS = ("io", "integration", "platform", "architecture", "manual")
 
 PENDING_FILES = frozenset(
     {
-        "domain/generation/test_trajectory_allocation.py",
         "generation/test_archive_no_repeat.py",
         "generation/test_zero_row_binding_scale.py",
     }

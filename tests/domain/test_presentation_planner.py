@@ -187,7 +187,7 @@ def test_seed_is_compact_only_when_it_distinguishes_variants(
             assert {"multigrid_levels", "candidate_count", "threshold"} <= set(
                 _compact_keys(method)
             )
-            assert "seed" in [fact.key.value for fact in method.detailed_facts]
+            assert {"seed"} <= {fact.key.value for fact in method.detailed_facts}
 
 
 def test_non_default_scheduling_facts_are_compact_and_defaults_are_absent(
@@ -199,8 +199,8 @@ def test_non_default_scheduling_facts_are_compact_and_defaults_are_absent(
     )
     by_id = {m.method_id: m for m in prepared.methods}
 
-    assert "start_iteration" in _compact_keys(by_id[PreconditionerName("late")])
-    assert "start_iteration" not in _compact_keys(by_id[PreconditionerName("plain")])
+    assert {"start_iteration"} <= set(_compact_keys(by_id[PreconditionerName("late")]))
+    assert set(_compact_keys(by_id[PreconditionerName("plain")])) & {"start_iteration"} == set()
 
 
 def test_detailed_only_and_never_facts_are_not_compact(scope: ComparisonScopePresentation) -> None:

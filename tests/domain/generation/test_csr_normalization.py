@@ -49,12 +49,6 @@ def toarray_calls(monkeypatch: pytest.MonkeyPatch) -> list[int]:
 
 
 @pytest.fixture
-def archive_source() -> InMemoryArchiveSource:
-    """An empty in-memory archive."""
-    return InMemoryArchiveSource()
-
-
-@pytest.fixture
 def mtx_source(archive_source: InMemoryArchiveSource, spd_csr: csr_array) -> Path:
     """The sparse system registered under a ``.mtx`` path."""
     return archive_source.add(Path("archive/system.mtx"), spd_csr)

@@ -91,7 +91,14 @@ def test_write_batch_then_finalize_places_rows_at_running_offset(
     np.testing.assert_array_equal(
         store.arrays["parameters_0"], np.tile(np.array([0.5, 1.5]), (5, 1))
     )
-    assert "parameters_1" not in store.arrays
+    assert set(store.arrays) == {
+        "rhs",
+        "solutions",
+        "row_kind",
+        "matrix_sample_index",
+        "matrix",
+        "parameters_0",
+    }
     np.testing.assert_array_equal(
         store.arrays["matrix"], np.repeat(np.eye(_N)[np.newaxis] * (_MATRIX_ID + 1), 5, axis=0)
     )

@@ -140,23 +140,31 @@ def test_non_positive_time_is_not_turned_into_infinite_ratio() -> None:
     assert ratios == [2.0]
 
 
-def test_zero_time_both_solved_counts_both_without_ratio() -> None:
-    summary = _summary([solved_row(REFERENCE, "s0", 1, 1.0), solved_row(METHOD, "s0", 1, 0.0)])
+@pytest.mark.parametrize(
+    ("rows", "counts"),
+    [
+        (
+            [solved_row(REFERENCE, "s0", 1, 1.0), solved_row(METHOD, "s0", 1, 0.0)],
+            (1, 0, 0),
+        ),
+        (
+            [solved_row(REFERENCE, "s0", 1, 0.0), unconverged_row(METHOD, "s0", 1)],
+            (0, 1, 0),
+        ),
+        (
+            [unconverged_row(REFERENCE, "s0", 1), solved_row(METHOD, "s0", 1, 0.0)],
+            (0, 0, 1),
+        ),
+    ],
+    ids=["both_solved", "reference_only", "method_only"],
+)
+def test_a_zero_time_counts_its_success_without_a_ratio(
+    rows: list[SyntheticRow], counts: tuple[int, int, int]
+) -> None:
+    summary = _summary(rows)
 
-    assert _counts(summary) == (1, 0, 0)
+    assert _counts(summary) == counts
     assert summary["n_ratio"] == 0
-
-
-def test_zero_time_reference_only_counts_reference_success() -> None:
-    summary = _summary([solved_row(REFERENCE, "s0", 1, 0.0), unconverged_row(METHOD, "s0", 1)])
-
-    assert _counts(summary) == (0, 1, 0)
-
-
-def test_zero_time_method_only_counts_method_success() -> None:
-    summary = _summary([unconverged_row(REFERENCE, "s0", 1), solved_row(METHOD, "s0", 1, 0.0)])
-
-    assert _counts(summary) == (0, 0, 1)
 
 
 def test_speed_ratios_keep_the_identity_of_the_system_each_ratio_belongs_to(

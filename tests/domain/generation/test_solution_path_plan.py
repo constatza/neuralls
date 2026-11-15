@@ -33,22 +33,16 @@ def solution_rows() -> np.ndarray:
     return rng.standard_normal((_NUM_ROWS, _ROW_LENGTH))
 
 
-@pytest.fixture
-def archive_source() -> InMemoryArchiveSource:
-    """An empty in-memory archive."""
-    return InMemoryArchiveSource()
-
-
-@pytest.fixture
-def solution_npy(archive_source: InMemoryArchiveSource, solution_rows: np.ndarray) -> Path:
-    return archive_source.add(Path("archive/solutions.npy"), solution_rows)
-
-
-@pytest.fixture
-def solution_txt(archive_source: InMemoryArchiveSource) -> Path:
-    """A .txt solution file holding one vector: the vector reader loads it as one sample."""
-    return archive_source.add(
-        Path("archive/solutions.txt"), np.arange(_ROW_LENGTH, dtype=np.float64)
+@pytest.fixture(params=["npy", "txt"])
+def solution_file(
+    request: pytest.FixtureRequest, archive_source: InMemoryArchiveSource, solution_rows: np.ndarray
+) -> tuple[Path, int]:
+    """A solution file and its row count: a ``.npy`` block, or a ``.txt`` holding one vector."""
+    if request.param == "npy":
+        return archive_source.add(Path("archive/solutions.npy"), solution_rows), _NUM_ROWS
+    return (
+        archive_source.add(Path("archive/solutions.txt"), np.arange(_ROW_LENGTH, dtype=np.float64)),
+        1,
     )
 
 
@@ -60,44 +54,20 @@ def _open_ended_solution_spec() -> DatasetSpec:
 
 
 def test_solution_path_total_is_known_before_generation(
-    solution_npy: Path,
+    solution_file: tuple[Path, int],
     archive_source: InMemoryArchiveSource,
     make_bindings: Callable[[int, int], list[SystemBinding]],
 ) -> None:
-    spec = _open_ended_solution_spec()
-    bindings = make_bindings(_NUM_BINDINGS, 1)
-
+    path, rows = solution_file
     allocation = _resolve_binding_strategy_counts(
-        bindings=bindings,
-        spec=spec,
+        bindings=make_bindings(_NUM_BINDINGS, 1),
+        spec=_open_ended_solution_spec(),
         num_matrix_samples=_NUM_BINDINGS,
         has_solution_source=True,
-        solution_rows_total=archive_source.row_count(solution_npy),
+        solution_rows_total=archive_source.row_count(path),
         archive_source=archive_source,
     )
     plan = plan_batches(allocation)
 
     assert plan.is_exact
-    assert plan.total_rows == _NUM_BINDINGS * _NUM_ROWS
-
-
-def test_solution_path_text_file_row_count(
-    solution_txt: Path,
-    archive_source: InMemoryArchiveSource,
-    make_bindings: Callable[[int, int], list[SystemBinding]],
-) -> None:
-    spec = _open_ended_solution_spec()
-    bindings = make_bindings(_NUM_BINDINGS, 1)
-
-    allocation = _resolve_binding_strategy_counts(
-        bindings=bindings,
-        spec=spec,
-        num_matrix_samples=_NUM_BINDINGS,
-        has_solution_source=True,
-        solution_rows_total=archive_source.row_count(solution_txt),
-        archive_source=archive_source,
-    )
-    plan = plan_batches(allocation)
-
-    assert plan.is_exact
-    assert plan.total_rows == _NUM_BINDINGS * 1
+    assert plan.total_rows == _NUM_BINDINGS * rows

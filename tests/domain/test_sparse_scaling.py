@@ -7,6 +7,8 @@ pattern (``indices``/``indptr``) of its input.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 from scipy.sparse import csr_array
@@ -44,13 +46,8 @@ def scalar_scale() -> MatrixScale:
 
 
 @pytest.fixture
-def row_scale() -> np.ndarray:
+def axis_scale() -> np.ndarray:
     return np.random.default_rng(SEED + 1).uniform(0.5, 2.0, size=SIZE)
-
-
-@pytest.fixture
-def col_scale() -> np.ndarray:
-    return np.random.default_rng(SEED + 2).uniform(0.5, 2.0, size=SIZE)
 
 
 def test_scalar_scale_matches_dense_and_keeps_pattern(
@@ -66,22 +63,20 @@ def test_scalar_scale_matches_dense_and_keeps_pattern(
     np.testing.assert_array_equal(scaled.indptr, csr_matrix.indptr)
 
 
-def test_row_scale_matches_dense_and_keeps_pattern(
-    dense_matrix: np.ndarray, csr_matrix: csr_array, row_scale: np.ndarray
+@pytest.mark.parametrize(
+    ("axis", "broadcast"),
+    [("row", lambda scale: scale[:, None]), ("col", lambda scale: scale[None, :])],
+    ids=["row", "col"],
+)
+def test_axis_scale_matches_dense_and_keeps_pattern(
+    dense_matrix: np.ndarray,
+    csr_matrix: csr_array,
+    axis_scale: np.ndarray,
+    axis: str,
+    broadcast: Callable[[np.ndarray], np.ndarray],
 ) -> None:
-    scaled = scale_csr_values(csr_matrix, row_scale, "row")
-    expected = dense_matrix / row_scale[:, None]
-
-    np.testing.assert_allclose(scaled.toarray(), expected, rtol=NORM_TOLERANCE)
-    np.testing.assert_array_equal(scaled.indices, csr_matrix.indices)
-    np.testing.assert_array_equal(scaled.indptr, csr_matrix.indptr)
-
-
-def test_col_scale_matches_dense_and_keeps_pattern(
-    dense_matrix: np.ndarray, csr_matrix: csr_array, col_scale: np.ndarray
-) -> None:
-    scaled = scale_csr_values(csr_matrix, col_scale, "col")
-    expected = dense_matrix / col_scale[None, :]
+    scaled = scale_csr_values(csr_matrix, axis_scale, axis)
+    expected = dense_matrix / broadcast(axis_scale)
 
     np.testing.assert_allclose(scaled.toarray(), expected, rtol=NORM_TOLERANCE)
     np.testing.assert_array_equal(scaled.indices, csr_matrix.indices)

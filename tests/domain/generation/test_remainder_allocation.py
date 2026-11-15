@@ -14,9 +14,7 @@ from neuralls.domain.generation.binding_allocation import _resolve_binding_strat
 from neuralls.domain.generation.bindings import SystemBinding
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.platform.config.models.data_models import GenerationConfig
-from neuralls.platform.storage.archive_source import FsArchiveSource
-
-ARCHIVE_SOURCE = FsArchiveSource()
+from tests.fakes.archive_source import InMemoryArchiveSource
 
 GENERATED_STRATEGY = "gaussian_forward"
 ARCHIVE_STRATEGY = "solution_archive"
@@ -31,44 +29,24 @@ def _multiset(counts: np.ndarray) -> dict[int, int]:
 
 
 @pytest.mark.parametrize(
-    ("total", "num_matrices"),
-    [(1999, 1000), (7, 3), (1000, 60)],
+    ("total", "num_matrices", "expected"),
+    [
+        (1999, 1000, {2: 999, 1: 1}),
+        (7, 3, {3: 1, 2: 2}),
+        (3, 5, {1: 3, 0: 2}),
+        (1000, 60, {17: 40, 16: 20}),
+    ],
+    ids=["1999_over_1000", "7_over_3", "3_over_5", "1000_over_60"],
 )
-def test_split_is_at_most_one_unit_apart_and_sums_to_total(total: int, num_matrices: int) -> None:
-    """No matrix gets more than one remainder unit: max - min <= 1, sum == total."""
+def test_split_gives_every_matrix_the_floor_and_r_matrices_one_more(
+    total: int, num_matrices: int, expected: dict[int, int]
+) -> None:
+    """total // n for every matrix, plus one extra unit for each of the total % n matrices."""
     counts = split_remainder(total, num_matrices, seed=SEED_FOR_REPRODUCIBILITY)
 
     assert counts.shape == (num_matrices,)
-    assert int(counts.max()) - int(counts.min()) <= 1
+    assert _multiset(counts) == expected
     assert int(counts.sum()) == total
-
-
-def test_split_1999_over_1000_gives_999_twos_and_one_one() -> None:
-    """1999 // 1000 = 1, r = 999: 999 matrices at 2, one at 1."""
-    counts = split_remainder(1999, 1000, seed=SEED_FOR_REPRODUCIBILITY)
-
-    assert _multiset(counts) == {2: 999, 1: 1}
-
-
-def test_split_7_over_3_is_3_2_2() -> None:
-    """7 // 3 = 2, r = 1: one matrix at 3, two at 2."""
-    counts = split_remainder(7, 3, seed=SEED_FOR_REPRODUCIBILITY)
-
-    assert _multiset(counts) == {3: 1, 2: 2}
-
-
-def test_split_3_over_5_gives_three_ones_and_two_zeros() -> None:
-    """3 // 5 = 0, r = 3: three matrices at 1, two at 0."""
-    counts = split_remainder(3, 5, seed=SEED_FOR_REPRODUCIBILITY)
-
-    assert _multiset(counts) == {1: 3, 0: 2}
-
-
-def test_split_1000_over_60_gives_40_at_17_and_20_at_16() -> None:
-    """1000 // 60 = 16, r = 40: forty matrices at 17, twenty at 16."""
-    counts = split_remainder(1000, 60, seed=SEED_FOR_REPRODUCIBILITY)
-
-    assert _multiset(counts) == {17: 40, 16: 20}
 
 
 def test_split_is_seeded_reproducible() -> None:
@@ -189,6 +167,7 @@ def test_replacement_true_is_rejected_by_config_validation() -> None:
 def test_replacement_true_is_rejected_by_domain_spec(
     make_bindings: Callable[[int, int], list[SystemBinding]],
     make_mixture: Callable[..., MixtureSpec],
+    archive_source: InMemoryArchiveSource,
     strategy: str,
     glob: str | None,
 ) -> None:
@@ -200,5 +179,5 @@ def test_replacement_true_is_rejected_by_domain_spec(
             bindings=bindings,
             spec=DatasetSpec(mixture=make_mixture(strategy, 6, glob=glob), replacement=True),
             num_matrix_samples=3,
-            archive_source=ARCHIVE_SOURCE,
+            archive_source=archive_source,
         )

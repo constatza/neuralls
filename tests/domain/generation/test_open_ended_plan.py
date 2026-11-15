@@ -61,7 +61,7 @@ def _open_ended_spec(strategy: str, glob: str) -> DatasetSpec:
     )
 
 
-def test_all_samples_archive_total_is_known_before_generation(
+def test_all_samples_total_and_per_strategy_counts_match_the_cyclic_map(
     archive_glob: str,
     archive_source: InMemoryArchiveSource,
     make_bindings: Callable[[int, int], list[SystemBinding]],
@@ -79,23 +79,6 @@ def test_all_samples_archive_total_is_known_before_generation(
 
     assert plan.is_exact
     assert plan.total_rows == _NUM_MATRICES * _NUM_FILES
-
-
-def test_all_samples_per_strategy_counts_match_the_cyclic_map(
-    archive_glob: str,
-    archive_source: InMemoryArchiveSource,
-    make_bindings: Callable[[int, int], list[SystemBinding]],
-) -> None:
-    spec = _open_ended_spec(_ARCHIVE_STRATEGY, archive_glob)
-    bindings = make_bindings(_NUM_MATRICES, 1)
-
-    allocation = _resolve_binding_strategy_counts(
-        bindings=bindings,
-        spec=spec,
-        num_matrix_samples=_NUM_MATRICES,
-        archive_source=archive_source,
-    )
-
     # Unit t maps to matrix t % M and file (matrix + t // M) % K, so matrix m walks the
     # pool starting at file m. Every matrix ends up with all K files, each once.
     assert _archive_pool_size(archive_source, archive_glob, skip=0) == _NUM_FILES

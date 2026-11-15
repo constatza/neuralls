@@ -18,11 +18,9 @@ from neuralls.domain.generation.notices import RowCapSource, RowsCapped
 from neuralls.domain.generation.runner import rows_per_base_system
 from neuralls.domain.generation.specs import DatasetSpec, MixtureSpec
 from neuralls.domain.generation.step_window import StepWindow
-from neuralls.platform.storage.archive_source import FsArchiveSource
+from tests.fakes.archive_source import InMemoryArchiveSource
 
 from .conftest import TRACE_WINDOW_OVERRIDES
-
-ARCHIVE_SOURCE = FsArchiveSource()
 
 TRACE_WINDOW = StepWindow(start=1, stop=4, step=1)
 TRACE_ROWS_PER_SYSTEM = 4
@@ -41,13 +39,16 @@ def _trace_mixture(strategy: str, rows: int, *, glob: str | None = None) -> Mixt
 
 
 def _allocate(
-    bindings: list[SystemBinding], mixture: MixtureSpec, num_matrices: int
+    bindings: list[SystemBinding],
+    mixture: MixtureSpec,
+    num_matrices: int,
+    archive_source: InMemoryArchiveSource,
 ) -> BindingAllocation:
     return _resolve_binding_strategy_counts(
         bindings=bindings,
         spec=DatasetSpec(mixture=mixture),
         num_matrix_samples=num_matrices,
-        archive_source=ARCHIVE_SOURCE,
+        archive_source=archive_source,
     )
 
 
@@ -69,9 +70,12 @@ def test_rows_to_base_systems_uses_ceil_per_strategy_window() -> None:
 
 def test_residuals_split_is_on_base_systems(
     make_bindings: Callable[[int, int], list[SystemBinding]],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """60 matrices, 1000 rows: 250 base systems, 10 matrices get 5 (20 rows), 50 get 4."""
-    allocation = _allocate(make_bindings(60, 1), _trace_mixture("residuals", 1000), 60)
+    allocation = _allocate(
+        make_bindings(60, 1), _trace_mixture("residuals", 1000), 60, archive_source
+    )
 
     rows = _rows(allocation, "residuals")
     assert Counter(rows) == {20: 10, 16: 50}
@@ -81,6 +85,7 @@ def test_residuals_split_is_on_base_systems(
 
 def test_residuals_overshoot_is_trimmed_from_last_unit_owner(
     make_bindings: Callable[[int, int], list[SystemBinding]],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """R = 1002: B = 251 = 60 * 4 + 11, so 2 rows overshoot and are trimmed from one owner.
 
@@ -89,7 +94,9 @@ def test_residuals_overshoot_is_trimmed_from_last_unit_owner(
     keeps the base systems it was allocated, and exactly one matrix is short by the
     overshoot.
     """
-    allocation = _allocate(make_bindings(60, 1), _trace_mixture("residuals", 1002), 60)
+    allocation = _allocate(
+        make_bindings(60, 1), _trace_mixture("residuals", 1002), 60, archive_source
+    )
 
     rows = _rows(allocation, "residuals")
     assert sum(rows) == 1002
@@ -101,9 +108,10 @@ def test_residuals_overshoot_is_trimmed_from_last_unit_owner(
 
 def test_non_multiple_request_small_example(
     make_bindings: Callable[[int, int], list[SystemBinding]],
+    archive_source: InMemoryArchiveSource,
 ) -> None:
     """R = 10 over 3 matrices: B = 3, one unit each, overshoot O = 12 - 10 = 2."""
-    allocation = _allocate(make_bindings(3, 1), _trace_mixture("residuals", 10), 3)
+    allocation = _allocate(make_bindings(3, 1), _trace_mixture("residuals", 10), 3, archive_source)
 
     rows = _rows(allocation, "residuals")
     assert Counter(rows) == {4: 2, 2: 1}
@@ -112,11 +120,14 @@ def test_non_multiple_request_small_example(
 
 def test_trajectory_archive_units_are_distinct_base_systems(
     make_bindings: Callable[[int, int], list[SystemBinding]],
+    archive_source: InMemoryArchiveSource,
     make_archive_glob: Callable[[int], str],
 ) -> None:
     """3 matrices, 5 files, R = 8: B = 2 base systems at (matrix, file) (0, 0) and (1, 1)."""
     glob = make_archive_glob(5)
-    allocation = _allocate(make_bindings(3, 1), _trace_mixture("residuals", 8, glob=glob), 3)
+    allocation = _allocate(
+        make_bindings(3, 1), _trace_mixture("residuals", 8, glob=glob), 3, archive_source
+    )
 
     assert allocation.file_indices[0]["residuals"] == (0,)
     assert allocation.file_indices[1]["residuals"] == (1,)
@@ -125,11 +136,14 @@ def test_trajectory_archive_units_are_distinct_base_systems(
 
 def test_archive_cap_cuts_base_systems_not_expansion(
     make_bindings: Callable[[int, int], list[SystemBinding]],
+    archive_source: InMemoryArchiveSource,
     make_archive_glob: Callable[[int], str],
 ) -> None:
     """M = 3, K = 2 files: R = 40 asks for B = 10, only M*K = 6 base systems exist: 24 rows."""
     glob = make_archive_glob(2)
-    allocation = _allocate(make_bindings(3, 1), _trace_mixture("residuals", 40, glob=glob), 3)
+    allocation = _allocate(
+        make_bindings(3, 1), _trace_mixture("residuals", 40, glob=glob), 3, archive_source
+    )
 
     assert sum(_rows(allocation, "residuals")) == 24
     assert required_trace_systems(24, window=TRACE_WINDOW) == 6

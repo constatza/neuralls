@@ -53,14 +53,6 @@ def test_krylov_label_states_the_subspace_dimension_and_seed() -> None:
     )
 
 
-def test_krylov_variants_with_different_dimensions_render_differently() -> None:
-    low = KrylovConfig(samples=100, krylov_iters=5, seed=7)
-    high = KrylovConfig(samples=100, krylov_iters=9, seed=7)
-    assert _plain(GenerationStrategyKind.KRYLOV, low, 100) != _plain(
-        GenerationStrategyKind.KRYLOV, high, 100
-    )
-
-
 def test_smoother_probe_label_orders_sweeps_count_then_distribution() -> None:
     cfg = SmootherFilteredProbesConfig(samples=5000, stop=10, probe_distribution="gaussian", seed=1)
     assert _plain(GenerationStrategyKind.SMOOTHER_FILTERED_PROBES, cfg, 5000) == (
@@ -76,10 +68,14 @@ def test_seed_is_provenance_but_not_part_of_the_dataset_qualifier() -> None:
     )
     generation = describe_dataset_generation(spec, (StrategyRowCount("krylov", 10),))
     assert generation.strategies[0].seed == ExplicitSeed(9)
-    assert "seed" in [fact.key.value for fact in generation.strategies[0].facts]
+    assert [fact.key.value for fact in generation.strategies[0].facts] == [
+        "krylov_dimension",
+        "sample_count",
+        "seed",
+    ]
 
     qualifier_keys = [fact.key.value for fact in dataset_qualifier(_dataset(generation))[0].facts]
-    assert "seed" not in qualifier_keys
+    assert qualifier_keys == ["krylov_dimension", "sample_count"]
 
 
 def test_unseeded_strategies_derive_from_the_mixture_seed() -> None:
@@ -87,7 +83,10 @@ def test_unseeded_strategies_derive_from_the_mixture_seed() -> None:
     generation = describe_dataset_generation(spec, (StrategyRowCount("krylov", 10),))
     assert generation.root_seed == 3
     assert generation.strategies[0].seed == DerivedSeed()
-    assert "seed" not in [fact.key.value for fact in generation.strategies[0].facts]
+    assert [fact.key.value for fact in generation.strategies[0].facts] == [
+        "krylov_dimension",
+        "sample_count",
+    ]
 
 
 def test_a_strategy_explicitly_unseeded_is_recorded_as_such() -> None:
