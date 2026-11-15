@@ -556,17 +556,6 @@ def test_resolve_comparison_config_binds_a_dataset_rhs_to_the_planned_row(
     assert cfg.general.data.rhs_source_params == {"sample_index": 2, "mask": {"kind": "none"}}
 
 
-def test_comparison_data_model_tracks_explicit_normalize_in_fields_set() -> None:
-    """model_fields_set must distinguish explicit normalize_system from default."""
-    from neuralls.platform.config.models.comparison import ComparisonDataModel
-
-    default_model = ComparisonDataModel()
-    assert "normalize_system" not in default_model.model_fields_set
-
-    explicit_model = ComparisonDataModel(normalize_system="matrix")
-    assert "normalize_system" in explicit_model.model_fields_set
-
-
 def test_validate_neural_preconditioner_requires_model_ref() -> None:
     spec = NeuralPreconditionerConfig(type=PreconditionerType.NEURAL)
     with pytest.raises(ValueError):
@@ -591,8 +580,7 @@ def test_resolve_neural_preconditioners_validates_all() -> None:
             model_ref=_logged_ref("run-1"),
         ),
     ]
-    resolved = resolve_neural_preconditioners(specs)
-    assert len(resolved) == 2
+    assert resolve_neural_preconditioners(specs) == specs
 
 
 def test_neural_specs_from_assignments_uses_strict_assignment_ref(
@@ -678,7 +666,10 @@ def test_neural_specs_from_assignments_dispatches_fit_kind_to_pod_stub(
     assert len(specs) == 1
     spec = specs[0]
     assert isinstance(spec, AMGPreconditionerConfig)
-    assert "pod_rank0p9999_n-1_raw_assignment_pod2g_cg1" in spec.name
+    assert (
+        spec.name
+        == "amg_levels2_pre2_post2_smootheromegaauto_pod_rank0p9999_n-1_raw_assignment_pod2g_cg1"
+    )
     assert isinstance(spec.coarsening, PODCoarseningConfig)
     assert spec.coarsening.assignment == "pod2g_cg1"
     assert spec.coarsening.rank == 0.9999

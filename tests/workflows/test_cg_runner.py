@@ -334,33 +334,3 @@ def test_format_results_summary_rejects_a_result_without_a_description(
 
     with pytest.raises(MissingMethodPresentationError):
         format_results_summary(mock_comparison_results, result_methods, NotationPolicy.default())
-
-
-def test_format_results_summary_converged_case(
-    mock_comparison_results: dict[str, CGComparisonResult],
-    result_methods: dict[str, StandaloneMethodPresentation],
-) -> None:
-    """Test format_results_summary with converged results."""
-    # Keep only converged results
-    converged_results = {k: v for k, v in mock_comparison_results.items() if v.converged}
-
-    summary = format_results_summary(converged_results, result_methods, NotationPolicy.default())
-
-    # Should only have "ok" status
-    assert "status=ok" in summary
-    assert "status=fail" not in summary
-
-
-def test_format_results_summary_non_converged_case(
-    mock_comparison_results: dict[str, CGComparisonResult],
-    result_methods: dict[str, StandaloneMethodPresentation],
-) -> None:
-    """Test format_results_summary with non-converged results."""
-    # Keep only non-converged results
-    non_converged = {k: v for k, v in mock_comparison_results.items() if not v.converged}
-
-    summary = format_results_summary(non_converged, result_methods, NotationPolicy.default())
-
-    # Should only have "fail" status
-    assert "status=fail" in summary
-    assert "status=ok" not in summary

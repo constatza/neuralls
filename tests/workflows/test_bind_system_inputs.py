@@ -74,8 +74,7 @@ def test_missing_extra_not_bound(matrix: torch.Tensor) -> None:
     """Names declared but absent from system_data are silently omitted."""
     precond = _TrackingPreconditioner(("matrix", "coordinates"))
     _bind_system_inputs(precond, {"matrix": matrix})
-    assert "matrix" in precond.bound
-    assert "coordinates" not in precond.bound
+    assert set(precond.bound) == {"matrix"}
 
 
 def test_no_extras_declared_nothing_bound(matrix: torch.Tensor) -> None:

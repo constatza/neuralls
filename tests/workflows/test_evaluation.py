@@ -154,7 +154,7 @@ def test_write_eval_metric_report_accepts_plain_and_prefixed_metric(
 
     assert plotted is True
     logged_paths = {Path(call.args[1]).name for call in client.log_artifact.call_args_list}
-    assert "batch_eval_labels.json" in logged_paths
+    assert logged_paths == {"batch_eval_labels.json"}
     assert all(call.args[0] == "parent-run-1" for call in client.log_artifact.call_args_list)
 
 
@@ -370,7 +370,7 @@ def test_eval_batch_continues_after_one_assignment_fails(
 
     assert plotted is True
     logged_paths = {Path(call.args[1]).name for call in client.log_artifact.call_args_list}
-    assert "batch_eval_labels.json" in logged_paths
+    assert logged_paths == {"batch_eval_labels.json"}
 
 
 def test_eval_batch_falls_back_to_own_parent_run_when_every_assignment_fails(

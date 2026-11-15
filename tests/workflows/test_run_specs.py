@@ -132,33 +132,23 @@ def test_batched_training_run_name_has_no_timestamp(trained: TrainingPresentatio
     assert run_name_text(spec.name) == "POD-2G | Gaussian CG Residuals (k=20, N=100)"
 
 
-def test_timed_comparison_run_name_ends_with_the_timestamp(
-    dataset_presentation: DatasetPresentation,
-) -> None:
-    entry = _entry(method=Path("configs/compare.toml"))
-
-    run = comparison_run(
-        _planned(entry),
-        ComparisonScopePresentation(dataset_presentation),
-        dataset_presentation,
-        PLAIN,
-        RunTimestamp(ISO),
-    )
-
-    assert run_name_text(run) == f"Comparison matrix set: {DATASET_TEXT} | {ISO}"
-
-
-def test_untimed_comparison_run_identifies_matrix_set(
-    dataset_presentation: DatasetPresentation,
+@pytest.mark.parametrize(
+    ("timing", "suffix"),
+    [(RunTimestamp(ISO), f" | {ISO}"), (Untimed(), "")],
+    ids=["timed", "untimed"],
+)
+def test_comparison_run_name_identifies_matrix_set_and_ends_with_the_timestamp_when_timed(
+    dataset_presentation: DatasetPresentation, timing: RunTimestamp | Untimed, suffix: str
 ) -> None:
     run = comparison_run(
         _planned(_entry()),
         ComparisonScopePresentation(dataset_presentation),
         dataset_presentation,
         PLAIN,
-        Untimed(),
+        timing,
     )
-    assert run_name_text(run) == f"Comparison matrix set: {DATASET_TEXT}"
+
+    assert run_name_text(run) == f"Comparison matrix set: {DATASET_TEXT}{suffix}"
 
 
 def test_editorial_comparison_run_names_its_dataset_after_the_title(

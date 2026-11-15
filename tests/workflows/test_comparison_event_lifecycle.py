@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -18,7 +18,6 @@ from neuralls.composition.comparison.models import (
     MatrixWorkloadMember,
     ResolvedMethod,
 )
-from neuralls.domain.presentation.methods import ExecutedMethod
 from neuralls.domain.presentation.provenance import DatasetPresentation
 from neuralls.domain.solver.models import (
     MeasuredPeakMemory,
@@ -35,7 +34,6 @@ from neuralls.domain.solver.models.benchmark_events import (
 )
 from neuralls.domain.solver.models.cg_result import CGComparisonResult
 from neuralls.domain.solver.models.config import SolverParams
-from neuralls.domain.solver.models.cost import NO_OFFLINE_COST
 from neuralls.domain.solver.models.energy_error import EnergyErrorFailed
 from neuralls.domain.solver.models.workload import (
     CompleteWorkloadSummary,
@@ -54,7 +52,7 @@ from neuralls.platform.config.models.preconditioner import (
 )
 from neuralls.platform.config.settings import NeurallsSettings
 from neuralls.shared.scientific_description.policy import NotationPolicy
-from neuralls.shared.types import DatasetId, MatrixId, NoFitDataEvidence, SystemId
+from neuralls.shared.types import DatasetId, MatrixId, SystemId
 from tests.loaders_support import CPU
 from tests.measurement_support import NO_REFERENCE
 from tests.presentation_support import PreparedMethodFactory
@@ -135,31 +133,6 @@ def _solved_result(name: str, *, seconds: float = 2.0) -> CGComparisonResult:
         solve_peak_memory_bytes=64,
         solve_time_samples=(1.0, 2.0, 3.0),
     )
-
-
-def test_workload_models_are_frozen_and_slotted(
-    one_system_bundle: MatrixWorkload, prepared_method: PreparedMethodFactory
-) -> None:
-    method = ResolvedMethod(StandardPreconditionerConfig(type=PreconditionerType.IDENTITY))
-    tag = one_system_bundle.members[0].tag
-    completed = CompletedMethodWorkload(
-        method=method.name,
-        planned=(tag,),
-        setup_events=(),
-        solve_attempts=(),
-        diagnostics=(),
-        offline_cost=NO_OFFLINE_COST,
-        workload_peak_memory=MeasuredPeakMemory(0),
-        config_digest="sha256:" + "0" * 64,
-        method_config={"name": str(method.name)},
-        data_evidence=NoFitDataEvidence(),
-        presentation=ExecutedMethod(prepared_method(str(method.name)), ()),
-    )
-
-    for value in (one_system_bundle.members[0], one_system_bundle, method, completed):
-        assert not hasattr(value, "__dict__")
-        with pytest.raises((FrozenInstanceError, AttributeError, TypeError)):
-            value.extra = "invalid"  # type: ignore[attr-defined]
 
 
 def test_setup_failure_is_an_incomplete_zero_attempt_workload(

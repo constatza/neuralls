@@ -224,7 +224,7 @@ def test_to_numpy_extracts_targets_when_present(
     result = training_result_with_targets.to_numpy()
 
     targets = result.get("targets", {})
-    assert "y" in targets
+    assert set(targets) == {"y"}
     y = targets["y"]
     assert isinstance(y, np.ndarray)
     assert y.shape == (3,)
