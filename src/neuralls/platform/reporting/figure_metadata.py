@@ -13,6 +13,7 @@ import polars as pl
 from neuralls.domain.benchmarking.cost_curves import COST_CURVE_SCHEMA
 from neuralls.domain.benchmarking.paired import PAIRED_SCHEMA, SPEED_RATIO_SCHEMA
 from neuralls.domain.benchmarking.profiles import PROFILE_SERIES_SCHEMA
+from neuralls.domain.benchmarking.response import COHORT_RESPONSE_SCHEMA
 from neuralls.domain.benchmarking.selection import ReferenceSelection
 from neuralls.domain.presentation.methods import ConfiguredMethodPresentation
 from neuralls.domain.solver.models.figure_scope import FigureScope
@@ -60,6 +61,7 @@ class FigureKind(StrEnum):
     TIME_DISTRIBUTION = "time_distribution"
     MATRIX_HEATMAP = "matrix_heatmap"
     COST_BREAKDOWN = "cost_breakdown"
+    RESPONSE = "response"
     RESIDUAL_HISTORY = "residual_history"
     ENERGY_HISTORY = "energy_history"
 
@@ -85,6 +87,8 @@ class TableKind(StrEnum):
     per recipe, and at a mixture level the pooled block too (``domain/solver/reporting/cohorts.py``).
     ``MATRIX_BREAKDOWN`` holds one row per method and matrix, exactly the cells of a heatmap.
     ``COST_BREAKDOWN`` holds one row per method: its offline stages beside its online totals.
+    ``RESPONSE`` holds, per cohort, one row per method of a response series: its family, swept
+    fact and x beside its quantiles and outcome counts.
     """
 
     SUMMARY = "summary"
@@ -97,6 +101,7 @@ class TableKind(StrEnum):
     COHORT_RATIO_OF_SUMS = "cohort_ratio_of_sums"
     MATRIX_BREAKDOWN = "matrix_breakdown"
     COST_BREAKDOWN = "cost_breakdown"
+    RESPONSE = "response"
 
 
 type TableSchema = Mapping[str, pl.DataType | type[pl.DataType]]
@@ -152,6 +157,7 @@ TABLE_SCHEMAS: Mapping[TableKind, TableSchema] = {
     TableKind.COHORT_RATIO_OF_SUMS: COHORT_RATIO_OF_SUMS_SCHEMA,
     TableKind.MATRIX_BREAKDOWN: MATRIX_BREAKDOWN_SCHEMA,
     TableKind.COST_BREAKDOWN: COST_BREAKDOWN_SCHEMA,
+    TableKind.RESPONSE: COHORT_RESPONSE_SCHEMA,
 }
 """The columns and dtypes, in order, of the table each kind stores; the frames come from the
 domain statistics, so a schema change there reaches the stored tables through this mapping."""
@@ -180,7 +186,8 @@ class Statistic(StrEnum):
     ``QUANTILES`` draws a distribution whose box and whiskers are the summary's ``q05`` to ``q95``;
     ``MEAN_PER_MATRIX`` draws one mean per method and matrix; ``OFFLINE_ONLINE_TOTAL`` stacks a
     method's offline generation and training, paid once per artifact, on its setup and solve
-    totals over the report's workload.
+    totals over the report's workload. ``RESPONSE`` draws q25, q50 and q75 of each method of a
+    response series against the fact its family sweeps.
     """
 
     WORKLOAD_TOTAL = "workload_total"
@@ -196,6 +203,7 @@ class Statistic(StrEnum):
     QUANTILES = "quantiles"
     MEAN_PER_MATRIX = "mean_per_matrix"
     OFFLINE_ONLINE_TOTAL = "offline_online_total"
+    RESPONSE = "response"
 
 
 class FailureTreatment(StrEnum):

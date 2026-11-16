@@ -13,6 +13,7 @@ from tests.environment_support import SESSION_ENVIRONMENT
 from tests.figure_support import no_offline_cost
 from tests.recipe_support import GAUSSIAN, SINE
 
+from neuralls.domain.benchmarking.response import ResponsePoint
 from neuralls.domain.solver.models.figure_scope import AllDatasetsScope
 from neuralls.domain.solver.models.group_outcomes import (
     GroupReport,
@@ -54,6 +55,7 @@ from neuralls.platform.reporting.group_drawers import FigureData
 from neuralls.platform.reporting.group_plots import GroupStyler, write_outcome_plots
 from neuralls.shared.rhs_recipe import recipe_key
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.types import PreconditionerName
 
 KEY = "key"
 
@@ -153,6 +155,25 @@ def test_an_all_matrix_sets_report_has_a_figure_per_recipe_and_the_pooled_one(
         | _stems(*_COHORT_FIGURES, suffix=f"__{_SINE_SLUG}")
         | _stems(*_COHORT_FIGURES, suffix="__mixture")
     )
+
+
+def test_response_figures_are_planned_once_per_cohort_only_when_the_group_has_response_points(
+    all_sets_report: WorkloadMixtureReport,
+    presentation: GroupPresentation,
+    report_response_points: dict[PreconditionerName, ResponsePoint],
+) -> None:
+    without = _stems_of(_planned(all_sets_report, presentation))
+    with_points = _stems_of(
+        list(figure_plans(all_sets_report, presentation, KEY, {}, points=report_response_points))
+    )
+
+    assert without.isdisjoint(_stems("response_iterations", "response_online"))
+    assert with_points - without == (
+        _stems("response_iterations", "response_online", suffix=f"__{_GAUSSIAN_SLUG}")
+        | _stems("response_iterations", "response_online", suffix=f"__{_SINE_SLUG}")
+        | _stems("response_iterations", "response_online", suffix="__mixture")
+    )
+    assert without <= with_points
 
 
 def test_a_cohort_figure_records_its_cohort_and_the_evidence_of_its_systems(
@@ -373,10 +394,12 @@ def test_the_kinds_of_the_per_cohort_figures_are_exactly_the_cohort_table_kinds(
         "time_per_iteration",
         "iteration_distribution",
         "time_distribution",
+        "response",
     }
     assert {recipe.table for recipe in group_recipes() if recipe.kind.value in per_cohort} == {
         TableKind.COHORT_SUMMARY,
         TableKind.COHORT_RATIO_OF_SUMS,
+        TableKind.RESPONSE,
     }
 
 

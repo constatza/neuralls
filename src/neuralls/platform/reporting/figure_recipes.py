@@ -9,6 +9,7 @@ from typing import assert_never
 from neuralls.domain.benchmarking.paired import (
     REFERENCE_METRIC,
 )
+from neuralls.domain.benchmarking.response import ResponsePoint
 from neuralls.domain.solver.models.group_outcomes import (
     GroupReport,
     RecipeProfileReport,
@@ -175,6 +176,28 @@ def _distribution_variant(stem: str, title: str, metric: MetricId) -> FigureVari
         metric,
         population,
         Statistic.QUANTILES,
+    )
+
+
+_RESPONSE_METRICS: tuple[tuple[str, str, MetricId], ...] = (
+    ("iterations", "Iteration Response", MetricId.ITERATIONS),
+    ("online", "Amortized Online Time Response", MetricId.ONLINE_S),
+)
+"""File-stem word, title and metric of each response figure."""
+
+
+def _response_variant(word: str, title: str, metric: MetricId) -> FigureVariant:
+    """q25, q50 and q75 of ``metric`` over each method's own systems against its swept fact."""
+    population = Population.OWN
+    return FigureVariant(
+        f"response_{word}",
+        title,
+        f"median (marker) and q25 to q75 (bar) of {METRICS[metric].label} over each method's "
+        f"converged systems, {population} population, against the one numeric fact its method "
+        "family sweeps; a method with no converged system draws no marker",
+        metric,
+        population,
+        Statistic.RESPONSE,
     )
 
 
@@ -489,6 +512,14 @@ FIGURE_RECIPES: Mapping[FigureKind, FigureRecipe] = {
             group_drawers.cost_breakdown,
             TableKind.COST_BREAKDOWN,
         ),
+        GroupFigureRecipe(
+            FigureKind.RESPONSE,
+            tuple(_response_variant(*entry) for entry in _RESPONSE_METRICS),
+            FailureTreatment.OMITTED,
+            _BOTH,
+            group_drawers.response,
+            TableKind.RESPONSE,
+        ),
         HistoryFigureRecipe(
             FigureKind.RESIDUAL_HISTORY,
             HistoryVariant(
@@ -552,6 +583,7 @@ def compares_to_reference(statistic: Statistic) -> bool:
             | Statistic.QUANTILES
             | Statistic.MEAN_PER_MATRIX
             | Statistic.OFFLINE_ONLINE_TOTAL
+            | Statistic.RESPONSE
         ):
             return False
         case unreachable:
@@ -559,18 +591,24 @@ def compares_to_reference(statistic: Statistic) -> bool:
 
 
 def drawn_variants(
-    report: GroupReport, reference: PreconditionerName | None
+    report: GroupReport,
+    reference: PreconditionerName | None,
+    points: Mapping[PreconditionerName, ResponsePoint],
 ) -> Iterator[tuple[GroupFigureRecipe, FigureVariant]]:
     """Every group figure ``report`` gets, in registry order, with the recipe it belongs to.
 
     ``reference`` is the group's reference among its methods (``reference_among_methods``); with
     none, a figure that compares against it is not drawn, so it is neither planned nor summarized.
+    ``points`` are the group's response points (``response_points``); with none, no response
+    figure is drawn.
     """
     for recipe in group_recipes():
         if not isinstance(report, recipe.applies_to):
             continue
         for variant in recipe.variants:
             if reference is None and compares_to_reference(variant.statistic):
+                continue
+            if not points and variant.statistic is Statistic.RESPONSE:
                 continue
             yield recipe, variant
 

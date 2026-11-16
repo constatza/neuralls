@@ -14,6 +14,12 @@ from neuralls.domain.benchmarking.paired import (
     speed_ratio_summary,
 )
 from neuralls.domain.benchmarking.profiles import ecdf_series, performance_series
+from neuralls.domain.benchmarking.response import (
+    NO_RESPONSE_POINTS,
+    RESPONSE_SCHEMA,
+    ResponsePoint,
+    response_table,
+)
 from neuralls.domain.solver.models.cost import OfflineStages
 from neuralls.domain.solver.models.group_outcomes import (
     GroupReport,
@@ -40,19 +46,23 @@ from neuralls.shared.types import PreconditionerName
 
 
 def figure_summaries(
-    outcome: GroupReport, offline: Mapping[PreconditionerName, OfflineStages]
+    outcome: GroupReport,
+    offline: Mapping[PreconditionerName, OfflineStages],
+    *,
+    points: Mapping[PreconditionerName, ResponsePoint] = NO_RESPONSE_POINTS,
 ) -> Mapping[str, pl.DataFrame]:
     """The frame each figure planned for ``outcome`` draws and stores, by variant stem.
 
     Each frame is computed once, here, and is both what the drawer draws and the table written
     beside the figure. The figures are those ``drawn_variants`` gives, the same ones planning
     plans. ``offline`` holds the offline cost of every method of the group, which only the cost
-    breakdown draws.
+    breakdown draws. ``points`` are the group's response points, which only the response
+    figures draw.
     """
     reference = reference_among_methods(outcome.observations, outcome.reference_selection)
     return {
-        variant.stem: _summary(variant, outcome, reference, offline)
-        for _, variant in drawn_variants(outcome, reference)
+        variant.stem: _summary(variant, outcome, reference, offline, points)
+        for _, variant in drawn_variants(outcome, reference, points)
     }
 
 
@@ -61,6 +71,7 @@ def _summary(
     outcome: GroupReport,
     reference: PreconditionerName | None,
     offline: Mapping[PreconditionerName, OfflineStages],
+    points: Mapping[PreconditionerName, ResponsePoint],
 ) -> pl.DataFrame:
     observations = outcome.observations
     match variant.statistic:
@@ -100,6 +111,14 @@ def _summary(
                 lambda frame: time_per_iteration_summary(frame, population),
                 _cohort_rows(outcome),
                 schema=RATIO_OF_SUMS_SCHEMA,
+            )
+        case Statistic.RESPONSE:
+            metric, population = variant.metric, variant.population
+            return by_cohort(
+                observations,
+                lambda frame: response_table(summarize(frame, metric, population), points),
+                _cohort_rows(outcome),
+                schema=RESPONSE_SCHEMA,
             )
         case Statistic.MEAN_PER_MATRIX:
             return matrix_breakdown(observations, variant.metric)

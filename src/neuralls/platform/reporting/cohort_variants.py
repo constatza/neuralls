@@ -121,7 +121,7 @@ class CohortSplit(StrEnum):
 def cohort_split(table: TableKind) -> CohortSplit:
     """How figures with a ``table`` are split by cohort."""
     match table:
-        case TableKind.COHORT_SUMMARY | TableKind.COHORT_RATIO_OF_SUMS:
+        case TableKind.COHORT_SUMMARY | TableKind.COHORT_RATIO_OF_SUMS | TableKind.RESPONSE:
             return CohortSplit.PER_COHORT
         case TableKind.SERIES | TableKind.PAIRED | TableKind.SPEED_RATIO:
             return CohortSplit.POOLED_AT_MIXTURE

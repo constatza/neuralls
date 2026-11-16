@@ -118,14 +118,22 @@ def _compose(
     return f"{prefix}{', '.join(formatted)})", tuple(boundaries)
 
 
+def render_symbol(key: FieldKey, policy: NotationPolicy) -> str:
+    """Render the symbol of ``key`` alone, e.g. an axis label naming the fact plotted along it."""
+    symbol = policy.symbol_for(key)
+    if policy.target is RenderTarget.PLAIN:
+        return symbol.plain
+    return f"${symbol.math}$"
+
+
 def _format_fact(fact: ScientificFact, profile: RenderProfile, policy: NotationPolicy) -> str:
     definition = fact_definition(fact.key)
-    symbol = policy.symbol_for(fact.key)
     precision = profile.precision.get(fact.key, definition.precision)
     value_str = _format_value(fact, precision, policy.target)
     if policy.target is RenderTarget.PLAIN:
-        return f"{symbol.plain}={value_str}"
-    return f"${symbol.math}={value_str}$"
+        return f"{render_symbol(fact.key, policy)}={value_str}"
+    # Symbol and value share one math span, so the symbol is read unrendered here.
+    return f"${policy.symbol_for(fact.key).math}={value_str}$"
 
 
 def _format_value(

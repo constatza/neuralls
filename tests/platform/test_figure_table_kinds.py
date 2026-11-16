@@ -19,6 +19,12 @@ from neuralls.domain.benchmarking.paired import (
     speed_ratio_summary,
 )
 from neuralls.domain.benchmarking.profiles import PROFILE_SERIES_SCHEMA, ecdf_series
+from neuralls.domain.benchmarking.response import (
+    COHORT_RESPONSE_SCHEMA,
+    RESPONSE_SCHEMA,
+    ResponsePoint,
+    response_table,
+)
 from neuralls.domain.solver.models.group_outcomes import RecipeProfileReport
 from neuralls.domain.solver.reporting.cohorts import (
     COHORT_RATIO_OF_SUMS_SCHEMA,
@@ -60,7 +66,10 @@ TABLE_KINDS = tuple(kind.name for kind in TableKind)
 
 
 @pytest.fixture(scope="module")
-def table_frames(profile_report: RecipeProfileReport) -> dict[str, pl.DataFrame]:
+def table_frames(
+    profile_report: RecipeProfileReport,
+    report_response_points: dict[PreconditionerName, ResponsePoint],
+) -> dict[str, pl.DataFrame]:
     """One conforming frame of each table kind, from the domain statistics of one report."""
     observations = profile_report.observations
     return {
@@ -86,6 +95,14 @@ def table_frames(profile_report: RecipeProfileReport) -> dict[str, pl.DataFrame]
         "COST_BREAKDOWN": build_cost_breakdown_table(
             profile_report.summaries, no_offline_cost(profile_report)
         ),
+        "RESPONSE": by_cohort(
+            observations,
+            lambda frame: response_table(
+                summarize(frame, MetricId.ITERATIONS, Population.OWN), report_response_points
+            ),
+            CohortRows.RECIPES,
+            schema=RESPONSE_SCHEMA,
+        ),
     }
 
 
@@ -108,6 +125,7 @@ def test_each_table_kind_has_the_schema_of_the_frame_it_stores() -> None:
     assert schemas[kind.COHORT_RATIO_OF_SUMS] == COHORT_RATIO_OF_SUMS_SCHEMA
     assert schemas[kind.MATRIX_BREAKDOWN] == MATRIX_BREAKDOWN_SCHEMA
     assert schemas[kind.COST_BREAKDOWN] == dict(build_cost_breakdown_table((), {}).schema)
+    assert schemas[kind.RESPONSE] == COHORT_RESPONSE_SCHEMA
 
 
 @pytest.mark.parametrize("name", TABLE_KINDS)
@@ -162,10 +180,13 @@ def test_a_table_with_the_right_columns_but_other_types_is_rejected(
 def test_the_table_planned_for_a_recipe_is_read_back_only_as_that_recipes_kind(
     tmp_path: Path,
     profile_report: RecipeProfileReport,
+    report_response_points: dict[PreconditionerName, ResponsePoint],
     kind: FigureKind,
     stem: str,
 ) -> None:
-    summary = figure_summaries(profile_report, no_offline_cost(profile_report))[stem]
+    summary = figure_summaries(
+        profile_report, no_offline_cost(profile_report), points=report_response_points
+    )[stem]
     path = tmp_path / f"{stem}.parquet"
     write_group_table(path, summary)
     own = group_recipe(kind).table

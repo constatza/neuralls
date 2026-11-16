@@ -15,6 +15,7 @@ from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from types import MappingProxyType
 from typing import assert_never
 
 import polars as pl
@@ -26,6 +27,7 @@ from neuralls.domain.presentation.methods import (
     description_facts,
 )
 from neuralls.domain.presentation.provenance import DatasetSourceProvenance
+from neuralls.domain.solver.reporting.cohorts import cohort_schema
 from neuralls.shared.scientific_description.catalog import FactRole, fact_definition
 from neuralls.shared.scientific_description.models import (
     DecimalFact,
@@ -38,6 +40,9 @@ from neuralls.shared.types import GenerationStrategyKind, PreconditionerName
 
 MIN_RESPONSE_POINTS = 3
 """Fewest methods a family needs before its swept fact is drawn as a response curve."""
+
+LOG_X_SPAN = 10.0
+"""Ratio of the largest to the smallest swept value from which a response axis is logarithmic."""
 
 RESPONSE_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "family": pl.String,
@@ -58,6 +63,10 @@ RESPONSE_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
 }
 """One row per method of a response series, sorted by family and x. The quantiles are null
 for a method with no defined system, which keeps its row and its outcome counts."""
+
+
+COHORT_RESPONSE_SCHEMA = cohort_schema(RESPONSE_SCHEMA)
+"""The response table of a report level: one ``RESPONSE_SCHEMA`` block per cohort."""
 
 
 class FactSide(StrEnum):
@@ -99,6 +108,10 @@ class _Profile:
     family: str
     context: _DataContext
     facts: Mapping[SweptFact, ScientificFact]
+
+
+NO_RESPONSE_POINTS: Mapping[PreconditionerName, ResponsePoint] = MappingProxyType({})
+"""A group with no response series."""
 
 
 def response_points(

@@ -34,6 +34,7 @@ from neuralls.platform.reporting.figure_metadata import Statistic
 from neuralls.platform.reporting.group_style import GroupStyle
 from neuralls.platform.reporting.paired_plots import plot_paired_time_scatter, plot_speed_ratio_cdf
 from neuralls.platform.reporting.profile_plots import plot_ecdf_profile, plot_performance_profile
+from neuralls.platform.reporting.response_plots import plot_response
 from neuralls.platform.reporting.seaborn_cost_curves import (
     plot_break_even_curves,
     plot_convergence_factors,
@@ -213,6 +214,10 @@ def distribution(data: FigureData, target: FigureTarget) -> FigureTarget | None:
     return plot_distribution(
         data.summary, data.observations, metric=data.metric, style=data.style, target=target
     )
+
+
+def response(data: FigureData, target: FigureTarget) -> FigureTarget | None:
+    return plot_response(data.summary, metric=data.metric, style=data.style, target=target)
 
 
 def matrix_heatmap(data: FigureData, target: FigureTarget) -> FigureTarget | None:

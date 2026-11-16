@@ -7,6 +7,7 @@ from tests.figure_support import no_offline_cost
 from tests.recipe_support import GAUSSIAN, SINE
 
 from neuralls.domain.benchmarking.paired import reference_among_methods
+from neuralls.domain.benchmarking.response import NO_RESPONSE_POINTS
 from neuralls.domain.solver.models.group_outcomes import WorkloadMixtureReport
 from neuralls.domain.solver.models.group_presentation import GroupPresentation
 from neuralls.domain.solver.models.labels import (
@@ -113,10 +114,11 @@ def test_a_profile_table_is_one_figure_at_recipe_level_and_one_pooled_figure_at_
     }
 
 
-def test_only_the_two_cohort_tables_are_drawn_per_cohort() -> None:
+def test_only_the_cohort_tables_are_drawn_per_cohort() -> None:
     assert {table for table in TableKind if is_cohort_table(table)} == {
         TableKind.COHORT_SUMMARY,
         TableKind.COHORT_RATIO_OF_SUMS,
+        TableKind.RESPONSE,
     }
 
 
@@ -207,5 +209,5 @@ def test_planning_a_one_recipe_mixture_gives_no_suffixed_figure(
 
     assert [(plan.stem, plan.metadata.cohort) for plan in plans] == [
         (variant.figure_stem("key"), WholeGroup())
-        for _, variant in drawn_variants(mixture_report, reference)
+        for _, variant in drawn_variants(mixture_report, reference, NO_RESPONSE_POINTS)
     ]

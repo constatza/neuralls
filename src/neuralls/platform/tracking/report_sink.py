@@ -13,6 +13,7 @@ from neuralls.domain.benchmarking.paired import (
     reference_among_methods,
     speed_ratio_summary,
 )
+from neuralls.domain.benchmarking.response import response_points
 from neuralls.domain.benchmarking.selection import NoReferenceConfigured
 from neuralls.domain.presentation.methods import MissingMethodPresentationError
 from neuralls.domain.presentation.provenance import DatasetPresentation
@@ -222,14 +223,19 @@ class OpenReport:
                 f"group:{group_id}", scope_label(presentation.scope, self.notation)
             )
             stored = self._group_methods(presentation)
-            plans = figure_plans(outcome, presentation, file_key, stored)
+            points = response_points(
+                {name: method.prepared.configured for name, method in presentation.methods.items()}
+            )
+            plans = figure_plans(outcome, presentation, file_key, stored, points=points)
             self.uploader.check_free(
                 run_id, GROUP_REPORT_ARTIFACT_DIR, [plan.stem for plan in plans]
             )
             figures = write_outcome_plots(
                 outcome,
                 figure_summaries(
-                    outcome, {name: method.offline for name, method in stored.items()}
+                    outcome,
+                    {name: method.offline for name, method in stored.items()},
+                    points=points,
                 ),
                 GroupStyler(presentation, self.notation, self.figure_style),
                 Path(tmp),

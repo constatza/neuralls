@@ -541,7 +541,10 @@ Both variants carry distinct matrix, planned-RHS, attempted-RHS, and
 converged counts for each method, and both carry `observations`, the group's rows of the
 observation view. Workload-total bars are emitted for
 all levels, while mixture reports never imply that heterogeneous recipes form
-one profile population.
+one profile population. For each group, `MLflowReportSink.report` computes the group's response
+points once from the group presentation (`response_points` over each method's configured
+presentation) and passes the same points to figure planning and to the figure summaries, so a
+group whose methods form no numeric response series gets no response figure.
 
 `classify_level(planned, setup_events, solve_attempts, level, selection, observations=...)`
 returns `GroupAggregated` when at least one method has a setup event and

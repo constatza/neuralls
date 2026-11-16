@@ -68,6 +68,7 @@ def test_mixture_reports_plan_every_kind_but_the_recipe_level_ones() -> None:
         FigureKind.TIME_DISTRIBUTION,
         FigureKind.CONVERGENCE_FACTOR,
         FigureKind.COST_BREAKDOWN,
+        FigureKind.RESPONSE,
         FigureKind.ECDF_ITERATIONS,
         FigureKind.ECDF_TIME,
         FigureKind.PERFORMANCE_PROFILE,
