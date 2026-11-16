@@ -13,7 +13,7 @@ parameters_paths = [
 include_indices = [85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99]
 
 [generation]
-normalize = "matrix"
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
 shuffle = false
 seed = 42
 

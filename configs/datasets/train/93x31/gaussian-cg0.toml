@@ -5,7 +5,7 @@ problem = "93x31"
 matrix_path = "${NEURALLS_RAW_DIR}/SpectralData/93x31-displacements/stiffness/subdomain_1_Kaa.txt"
 
 [generation]
-normalize = "matrix"
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
 shuffle = true
 seed = 42
 

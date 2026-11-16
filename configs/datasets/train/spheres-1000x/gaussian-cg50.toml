@@ -5,7 +5,7 @@ problem = "Spheres 1000x"
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/spheres-1000x.txt"
 
 [generation]
-normalize = "matrix"
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
 shuffle = true
 seed = 42
 

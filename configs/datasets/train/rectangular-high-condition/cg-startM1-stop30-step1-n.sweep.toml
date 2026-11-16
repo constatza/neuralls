@@ -7,7 +7,7 @@ problem = "Rectangular high condition"
 matrix_path = "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt"
 
 [generation]
-normalize = "matrix"
+scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }
 shuffle = true
 seed = 42
 
