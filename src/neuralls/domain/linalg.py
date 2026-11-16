@@ -10,59 +10,6 @@ from scipy.linalg import norm
 from neuralls.shared.types import MatrixNormType
 
 
-def calculate_normalization_scale(A: np.ndarray) -> tuple[float, float]:
-    """Calculate normalization scale from matrix A.
-
-    Uses per-dimension matrix 1-norm: scale = ||A||_1 / dimension.
-    The matrix 1-norm grows proportionally with the number of rows when the
-    magnitude of entries stays constant. Dividing by the system dimension keeps
-    the effective scale of the normalized matrix comparable across differently
-    sized systems.
-
-    Normalization is applied at data generation time only. All subsequent stages
-    (training, inference, comparison) use pre-normalized artifacts.
-
-    Args:
-        A: System matrix
-
-    Returns:
-        Tuple of (scale, matrix_norm)
-    """
-    dimension = int(A.shape[0]) if A.ndim > 0 else 0
-    matrix_norm = float(np.linalg.norm(A, ord=1))
-    scale = matrix_norm / max(1, dimension)
-    return scale, matrix_norm
-
-
-def calculate_spectral_radius_bound(A: np.ndarray) -> float:
-    """Calculate upper bound on spectral radius using Gershgorin theorem.
-
-    The Gershgorin circle theorem provides an upper bound on the spectral radius
-    (largest absolute eigenvalue) by taking the maximum of:
-    - Maximum row sum of absolute values
-    - Maximum column sum of absolute values
-
-    This bound is used for matrix normalization to ensure the normalized matrix
-    has spectral radius <= 1.
-
-    Args:
-        A: System matrix
-
-    Returns:
-        Upper bound on spectral radius
-    """
-    # Calculate maximum row sum of absolute values
-    row_sums = np.sum(np.abs(A), axis=1)
-    max_row_sum = float(np.max(row_sums))
-
-    # Calculate maximum column sum of absolute values
-    col_sums = np.sum(np.abs(A), axis=0)
-    max_col_sum = float(np.max(col_sums))
-
-    # Return the maximum of the two
-    return max(max_row_sum, max_col_sum)
-
-
 def calculate_spectral_norm(A: np.ndarray) -> float:
     """Calculate spectral norm (largest singular value) of matrix A.
 
@@ -199,7 +146,8 @@ def calculate_matrix_norm(
 def compute_dim_scale(dimension: int) -> float:
     """Calculate dimension-based scaling factor, sqrt(dimension).
 
-    This scaling ensures consistent normalization across different matrix sizes.
+    ``GershgorinScaling(dimension_factor=SQRT_N)`` multiplies the Gershgorin bound by it,
+    so scaled matrices of different sizes have comparable magnitudes.
 
     Args:
         dimension: Matrix dimension.
@@ -208,132 +156,6 @@ def compute_dim_scale(dimension: int) -> float:
         sqrt(dimension).
     """
     return float(np.sqrt(dimension))
-
-
-def apply_dimension_scaling(
-    A: np.ndarray, b: np.ndarray, dimension_scale: float
-) -> tuple[np.ndarray, np.ndarray]:
-    """Apply dimension scaling to matrix and RHS.
-
-    Args:
-        A: System matrix
-        b: RHS vector
-        dimension_scale: Scaling factor (typically sqrt(d))
-
-    Returns:
-        Tuple of (scaled_A, scaled_b)
-    """
-    return A / dimension_scale, b / dimension_scale
-
-
-def normalize_by_matrix(
-    A: np.ndarray, b: np.ndarray, scale: float
-) -> tuple[np.ndarray, np.ndarray]:
-    """Normalize system (A, b) by matrix-based scale with dimension scaling.
-
-    Both matrix and RHS are divided by scale factor and sqrt(d),
-    preserving the solution: (A/s) x = (b/s) has same solution as Ax = b.
-
-    This ensures consistent scaling across different matrix sizes.
-
-    Args:
-        A: System matrix
-        b: RHS vector
-        scale: Normalization scale (e.g., spectral radius bound)
-
-    Returns:
-        Tuple of (normalized_A, normalized_b)
-    """
-    if scale <= 0:
-        raise ValueError(f"Scale must be positive, got {scale}")
-
-    dimension_scale = compute_dim_scale(A.shape[0])
-    A_scaled = A / scale
-    b_scaled = b / scale
-    return apply_dimension_scaling(A_scaled, b_scaled, dimension_scale)
-
-
-def normalize_by_rhs(A: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
-    """Normalize system (A, b) by RHS norm with dimension scaling.
-
-    Both matrix and RHS are divided by ||b|| and sqrt(d), which preserves
-    the solution and results in a normalized RHS.
-
-    Args:
-        A: System matrix
-        b: RHS vector
-
-    Returns:
-        Tuple of (normalized_A, normalized_b, rhs_norm)
-    """
-    rhs_norm = float(norm(b))
-    if rhs_norm < 1e-15:
-        raise ValueError(f"RHS norm too small for normalization: {rhs_norm}")
-
-    dimension_scale = compute_dim_scale(A.shape[0])
-    A_scaled = A / rhs_norm
-    b_scaled = b / rhs_norm
-    A_norm, b_norm = apply_dimension_scaling(A_scaled, b_scaled, dimension_scale)
-    return A_norm, b_norm, rhs_norm
-
-
-def normalize_by_spectral(
-    A: np.ndarray, b: np.ndarray, x: np.ndarray, spectral_norm: float
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Normalize system by factoring out spectral norm and RHS norm into solution.
-
-    Transforms the system Ax = b into A_norm @ x_norm = b_norm where:
-    - A_norm = A / (spectral_norm * sqrt(d))
-    - b_norm = b / (||b|| * sqrt(d))
-    - x_norm = x * spectral_norm / ||b||
-
-    This normalization ensures:
-    - All matrices have spectral norm bound ≈ 1/sqrt(d)
-    - All RHS vectors have unit norm / sqrt(d)
-    - Solution magnitude = spectral_norm / ||rhs||
-
-    Args:
-        A: System matrix
-        b: RHS vector
-        x: Solution vector
-        spectral_norm: Spectral norm of A (from calculate_spectral_radius_bound)
-
-    Returns:
-        Tuple of (normalized_A, normalized_b, normalized_x)
-    """
-    if spectral_norm <= 0:
-        raise ValueError(f"Spectral norm must be positive, got {spectral_norm}")
-
-    rhs_norm = float(np.linalg.norm(b, ord=2))
-    if rhs_norm < 1e-15:
-        raise ValueError(f"RHS norm too small for normalization: {rhs_norm}")
-
-    dimension_scale = compute_dim_scale(b.shape[0])
-
-    # Normalize matrix by spectral norm and dimension
-    A_scaled = A / spectral_norm
-    A_norm, _ = apply_dimension_scaling(A_scaled, b, dimension_scale)
-
-    # Normalize RHS by its norm and dimension
-    b_scaled = b / rhs_norm
-    _, b_norm = apply_dimension_scaling(A_scaled, b_scaled, dimension_scale)
-
-    # Solution scaled by spectral_norm / rhs_norm
-    x_norm = x * spectral_norm / rhs_norm
-
-    return A_norm, b_norm, x_norm
-
-
-def compute_condition_number(A: np.ndarray) -> float:
-    """Compute condition number of matrix A.
-
-    Args:
-        A: Input matrix
-
-    Returns:
-        Condition number
-    """
-    return np.linalg.cond(A)
 
 
 def vector_stats(v: np.ndarray) -> dict[str, float]:
@@ -376,43 +198,3 @@ def compute_rhs_norms(rhs_samples: np.ndarray) -> np.ndarray:
         Array of L2 norms, shape (N,)
     """
     return np.array([compute_rhs_norm(rhs) for rhs in rhs_samples])
-
-
-def extract_diagonal(matrix: np.ndarray) -> np.ndarray:
-    """Extract diagonal from matrix.
-
-    Args:
-        matrix: Square matrix
-
-    Returns:
-        Diagonal as 1D array
-    """
-    return np.diag(matrix).astype(np.float64, copy=False)
-
-
-def validate_diagonal(diagonal: np.ndarray, threshold: float = 1e-15) -> None:
-    """Validate diagonal has no near-zero entries.
-
-    Args:
-        diagonal: Diagonal array
-        threshold: Minimum absolute value threshold
-
-    Raises:
-        ValueError: If any diagonal entry is below threshold
-    """
-    if np.any(np.abs(diagonal) < threshold):
-        raise ValueError(
-            "Matrix contains near-zero diagonal entries; cannot apply diagonal normalization."
-        )
-
-
-def compute_spectral_bound(matrix: np.ndarray) -> float:
-    """Compute spectral radius bound using Gershgorin theorem.
-
-    Args:
-        matrix: System matrix
-
-    Returns:
-        Upper bound on spectral radius
-    """
-    return calculate_spectral_radius_bound(matrix)
