@@ -95,7 +95,7 @@ def test_only_a_source_named_pod_folds_its_strategy_facts_into_its_parenthesis(
     assert rendered.text == expected
 
 
-def test_pod_jp_label_states_the_sweeps_as_p(dataset_presentation: DatasetPresentation) -> None:
+def test_pod_jp_label_states_the_sweeps_as_k(dataset_presentation: DatasetPresentation) -> None:
     template = dataset_presentation.generation.strategies[0]
     probes = replace(
         template, kind=GenerationStrategyKind.JACOBI_PROBES, parameters=(make_fact(STEPS, 10),)
@@ -110,4 +110,4 @@ def test_pod_jp_label_states_the_sweeps_as_p(dataset_presentation: DatasetPresen
         qualify_method(method, dataset), LEGEND_PROFILE, NotationPolicy.default()
     )
 
-    assert rendered.text == "POD-JP (c=100, p=10, N=100)"
+    assert rendered.text == "POD-JP (c=100, k=10, N=100)"

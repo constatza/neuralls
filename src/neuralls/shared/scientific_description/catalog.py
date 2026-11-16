@@ -362,7 +362,7 @@ FACT_DEFINITIONS: tuple[FactDefinition, ...] = (
         frozenset({FactValueKind.TEXT, FactValueKind.DECIMAL}),
         categories=_categories(("auto", "auto", "\\mathrm{auto}")),
     ),
-    _definition(STEPS, _A, _C, 350, None, "p", "p", frozenset({FactValueKind.INTEGER})),
+    _definition(STEPS, _A, _C, 350, None, "k", "k", frozenset({FactValueKind.INTEGER})),
     # --- Generation-strategy facts ---
     _definition(KRYLOV_DIMENSION, _A, _C, 40, None, "m", "m", frozenset({FactValueKind.INTEGER})),
     _definition(MEAN, _A, _C, 110, 3, "μ", "\\mu", frozenset({FactValueKind.DECIMAL})),
@@ -699,11 +699,13 @@ SHARED_SYMBOL_GROUPS: frozenset[frozenset[FieldKey]] = frozenset(
         frozenset({RANK, COARSE_DIMENSION}),
         frozenset({KRYLOV_DIMENSION, CANDIDATE_COUNT}),
         frozenset({DAMPING, FREQUENCY}),
+        frozenset({ITERATION_COUNT, STEPS}),
     }
 )
 """Keys that deliberately share one plain symbol because they never describe the same object
 (for example a POD method's configured coarse dimension, its rank, and the realized coarse
-dimension of an aggregation hierarchy). Any other repeated symbol is a catalog error. The
+dimension of an aggregation hierarchy). CG iterations and Jacobi sweeps are both iteration counts, written k;
+a snapshot dataset has one strategy, so the two never describe the same object. Any other repeated symbol is a catalog error. The
 candidate count shares only its plain symbol with the Krylov dimension; its MathText is
 ``m_c``."""
 
