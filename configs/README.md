@@ -227,8 +227,8 @@ Three compact cases isolate POD dataset construction and rank effects. Their
 comparison defaults contain no classical preconditioners; the only compared
 preconditioners are the POD artifacts generated from their fit assignments.
 The job entries intentionally omit `display_name`: a POD label is built from the
-fitted rank and its fit dataset's recorded provenance, so a static name would
-duplicate them. (A neural job needs a short `display_name` for its architecture;
+fitted rank, an energy fit's inner product and its fit dataset's recorded
+provenance, so a static name would duplicate them. (A neural job needs a short `display_name` for its architecture;
 without one it cannot be described and the comparison is rejected before it runs.)
 
 - `rectangular-high-condition/win.toml` compares final-state CG snapshots at
@@ -485,9 +485,13 @@ artifacts are not evaluable until the training run is rerun or repaired.
   — a POD fit job's `rank` is a hyperparameter independent of any matrix
   family) lives once under its own shared directory, referenced by every
   case that needs it, rather than duplicated per family
+- a POD fit job's `[model] rank` is a positive integer mode count (the coarse
+  dimension `c`); the fit warns when the basis captures under 95% of the
+  snapshot energy
 - a POD fit job's `[model] inner_product` is `"euclidean"` (default) or
   `"energy"`; the energy weight is the mean of the fit dataset's train-fold
-  matrices, wired in at run time, so the job names only the kind
+  matrices, wired in at run time, so the job names only the kind. An energy
+  fit's comparison label carries `W=Ā`
 - only special model families should define custom `data.features` / `data.targets`
 - keep case configs as registries and bindings, not payload containers
 
