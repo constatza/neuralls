@@ -13,7 +13,7 @@ seed = 42
 
 # Final 7-sweep probe; sample count is the sole swept axis.
 [[generation.strategy]]
-name = "smoother_filtered_probes"
+name = "jacobi_probes"
 samples = [840, 1000, 2500, 5000]
 start = -1
 stop = 7

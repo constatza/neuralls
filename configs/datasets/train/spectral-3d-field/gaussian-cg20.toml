@@ -12,7 +12,7 @@ seed = 42
 # `start` left unset (default -1): keeps only the last CG iterate's
 # residual/error pair per trajectory.
 [[generation.strategy]]
-name = "gaussian_residuals"
+name = "cg_errors"
 samples = 5000
 stop = 20
 

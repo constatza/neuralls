@@ -11,7 +11,7 @@ seed = 42
 
 # Keep damping sweeps 6 and 7: the last two rows of the trajectory.
 [[generation.strategy]]
-name = "smoother_filtered_probes"
+name = "jacobi_probes"
 samples = 10000
 start = -2
 stop = 7

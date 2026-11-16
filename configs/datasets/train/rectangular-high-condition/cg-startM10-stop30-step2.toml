@@ -11,7 +11,7 @@ seed = 42
 
 # Keep iterations 21, 23, 25, 27, and 29.
 [[generation.strategy]]
-name = "gaussian_residuals"
+name = "cg_errors"
 samples = 10000
 start = -10
 stop = 30

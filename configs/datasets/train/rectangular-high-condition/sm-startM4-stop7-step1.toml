@@ -11,7 +11,7 @@ seed = 42
 
 # Keep sweeps 4..7: the last four rows of the trajectory.
 [[generation.strategy]]
-name = "smoother_filtered_probes"
+name = "jacobi_probes"
 samples = 10000
 start = -4
 stop = 7

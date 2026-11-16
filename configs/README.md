@@ -28,6 +28,20 @@ There should be as many dataset configs as there are real dataset variants.
 Datasets stay dataset-only; they do not own model architecture or training
 policy.
 
+POD snapshot datasets use one of two strategies, which name the snapshot source
+and so the fitted method (POD-CG or POD-JP):
+
+- `cg_errors`: Gaussian probes `z`, `b = A z`, exactly `stop` CG iterations from
+  `x_0 = 0`; rows `(r_k, e_k = z - x_k)` of the kept iterations.
+- `jacobi_probes`: Gaussian or Rademacher probes (`probe_distribution`) damped by
+  `stop` weighted-Jacobi sweeps (`omega`, default auto); rows `(A e_k, e_k)`.
+
+Both keep the steps `start`/`stop`/`step` select and accept an optional
+`snapshot_scaling` (default `{ kind = "none" }`). `{ kind = "norm", norm = "l2" }`
+or `norm = "energy"` scales each row pair by `||e_k||^-power` (`power`, default 1),
+with the energy norm taken in the scaled matrix the rows were generated with. Both
+`r_k` and `e_k` get the same factor, so every stored pair still satisfies `A e = r`.
+
 ### `configs/profiles/model/**/*.toml`
 
 Model profiles are reusable lower-case DLKit model fragments.
@@ -150,7 +164,8 @@ Comparison solver budgets in these cases allow up to 5000 iterations.
 
 Every family's `default.toml` is a short showcase of each algorithm, not a
 search: identity/Jacobi/IC0, AMG at coarse dim 10 and 100, and POD at rank 10
-and 100, fitted from `gaussian-cg10` and `smoother-filtered-probes` snapshots.
+and 100, fitted from `gaussian-cg10` (`cg_errors`) and `smoother-filtered-probes`
+(`jacobi_probes`) snapshots.
 Default cases reference only plain, tracked dataset configs — never sweep output.
 Neural network jobs are kept in explicit training/search variants. Parametric
 searches live in sibling case files, one searched axis per file:
@@ -193,7 +208,7 @@ declares one `[[comparison_sweeps]]` entry per RHS recipe; each selects the
 dataset's first few held-out matrices with `selector = { kind = "first_n", n = ... }`
 and solves one system per matrix (`rhs_count` raises the number of RHS draws per
 matrix). `gaussian-eval.toml` uses the cheap `gaussian_forward` strategy rather than
-`gaussian_residuals`/CG trajectories because comparisons only read the *matrix*
+`cg_errors`/CG trajectories because comparisons only read the *matrix*
 from this dataset (RHS is synthesized fresh per system) — unlike
 the training datasets, nothing ever reads this dataset's own RHS/solution rows,
 so there's no reason to pay for CG solves here. The sweeps mirror the 45x15
@@ -369,7 +384,7 @@ changing what a dataset config or case config *is*:
   swept axis, `id_template`/`filename_template` place the value mid-id:
   `gaussian-cg{value}-<family>`, not the default trailing-value shape). But
   `gaussian-cg0.toml` stays a separate, plain, hand-written dataset config
-  in every family — it uses `gaussian_forward`, not `gaussian_residuals`,
+  in every family — it uses `gaussian_forward`, not `cg_errors`,
   so it has no `stop` field to sweep at all; folding it into the same sweep
   file isn't possible (one strategy per `*.sweep.toml`), and inventing a
   one-value sweep just for naming symmetry would only add indirection.

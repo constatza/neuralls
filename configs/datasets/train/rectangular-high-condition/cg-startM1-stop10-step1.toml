@@ -10,7 +10,7 @@ shuffle = true
 seed = 42
 
 [[generation.strategy]]
-name = "gaussian_residuals"
+name = "cg_errors"
 samples = 10000
 start = -1
 stop = 10

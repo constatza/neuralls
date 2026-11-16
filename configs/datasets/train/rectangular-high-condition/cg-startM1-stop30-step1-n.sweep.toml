@@ -13,7 +13,7 @@ seed = 42
 
 # Final CG-30 snapshot; sample count is the sole swept axis.
 [[generation.strategy]]
-name = "gaussian_residuals"
+name = "cg_errors"
 samples = [840, 1000, 2500, 5000]
 start = -1
 stop = 30

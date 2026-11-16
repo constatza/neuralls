@@ -11,7 +11,7 @@ seed = 42
 
 # Five round checkpoints span the solution-calibrated 500-iteration trace.
 [[generation.strategy]]
-name = "gaussian_residuals"
+name = "cg_errors"
 samples = 10000
 start = 100
 stop = 500

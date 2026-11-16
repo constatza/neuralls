@@ -10,10 +10,10 @@ shuffle = true
 seed = 42
 
 # `start` left unset (default -1): keeps only the final, fully-damped sweep
-# per probe. See domain/generation/README.md's "Smoother-Filtered Probes"
+# per probe. See domain/generation/README.md's "Jacobi-Filtered Probes"
 # section for why `stop` here isn't comparable to CG's `stop`.
 [[generation.strategy]]
-name = "smoother_filtered_probes"
+name = "jacobi_probes"
 samples = 5000
 stop = 10
 probe_distribution = "gaussian"
