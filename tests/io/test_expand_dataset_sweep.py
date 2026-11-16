@@ -40,7 +40,12 @@ def test_expand_sweep_rejects_wrong_strategy_count(
     spec = {
         "id": "base-id",
         "source": {"matrix_path": "m.txt"},
-        "generation": {"normalize": "matrix", "shuffle": True, "seed": 1, "strategy": []},
+        "generation": {
+            "scaling": {"kind": "gershgorin", "dimension_factor": "sqrt_n"},
+            "shuffle": True,
+            "seed": 1,
+            "strategy": [],
+        },
         "output": {"data_dir": "out"},
     }
     with pytest.raises(ValueError):
@@ -58,7 +63,7 @@ def test_expand_sweep_writes_one_file_per_value(
             "matrix_path": "${NEURALLS_RAW_DIR}/matrices/rectangular-high-condition.txt",
         },
         "generation": {
-            "normalize": "matrix",
+            "scaling": {"kind": "gershgorin", "dimension_factor": "sqrt_n"},
             "shuffle": True,
             "seed": 42,
             "strategy": [{"name": "gaussian_residuals", "samples": [1000, 5000], "stop": 50}],
@@ -96,7 +101,7 @@ def test_expand_sweep_id_template_places_value_mid_id(
         "filename_template": "gaussian-cg{value}.toml",
         "source": {"matrix_path": "${NEURALLS_RAW_DIR}/matrices/45x15.txt"},
         "generation": {
-            "normalize": "matrix",
+            "scaling": {"kind": "gershgorin", "dimension_factor": "sqrt_n"},
             "shuffle": True,
             "seed": 42,
             "strategy": [{"name": "gaussian_residuals", "samples": 5000, "stop": [10, 50]}],
@@ -127,7 +132,7 @@ def test_expand_sweep_is_generic_across_an_unknown_strategy_and_extra_source_fie
             "rhs_path": "${NEURALLS_RAW_DIR}/rhs/made-up.txt",
         },
         "generation": {
-            "normalize": "rhs",
+            "scaling": {"kind": "none"},
             "shuffle": False,
             "seed": 7,
             "strategy": [{"name": "totally_new_strategy", "every_n": [5, 10]}],
@@ -157,7 +162,7 @@ def sweep_spec_toml_lines() -> list[str]:
         'matrix_path = "${NEURALLS_RAW_DIR}/matrices/case-a.txt"',
         "",
         "[generation]",
-        'normalize = "matrix"',
+        'scaling = { kind = "gershgorin", dimension_factor = "sqrt_n" }',
         "shuffle = true",
         "seed = 42",
         "",
