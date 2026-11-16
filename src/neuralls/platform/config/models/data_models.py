@@ -33,6 +33,7 @@ from neuralls.shared.constants import (
 )
 from neuralls.shared.digest import Cosmetic
 from neuralls.shared.scientific_description.models import ValidatedLabel
+from neuralls.shared.system_scaling import GershgorinScaling, SystemScaling
 from neuralls.shared.types import DatasetFormat, EigenvectorSelection, MatrixFormat, SparsityPattern
 
 
@@ -297,12 +298,12 @@ class StrategyConfig(BaseModel):
 class GenerationConfig(BaseModel):
     """Validates [generation] section from data config.
 
-    Controls data generation/collection behavior and normalization.
+    Controls data generation/collection behavior and system scaling.
     """
 
-    normalize: str | bool = Field(
-        default="matrix",
-        description="Normalization strategy (matrix, rhs, or none)",
+    scaling: SystemScaling = Field(
+        default_factory=GershgorinScaling,
+        description="How each matrix and its archived RHS are scaled before generation.",
     )
     shuffle: bool = Field(
         default=True,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Collection, Sequence
 from math import isfinite
 from typing import assert_never
@@ -39,6 +40,7 @@ from neuralls.domain.solver.models.group_presentation import SolverTimingContext
 from neuralls.domain.solver.models.system_provenance import SystemProvenance
 from neuralls.shared.device import Agreed, Diverged, RepeatAgreement, SingleRun, Unchecked
 from neuralls.shared.rhs_recipe import parse_recipe_key, recipe_key
+from neuralls.shared.system_scaling import RhsScaling, parse_system_scaling
 from neuralls.shared.types import (
     DatasetId,
     MatrixId,
@@ -110,7 +112,8 @@ PLANNED_SYSTEM_SCHEMA: dict[str, pl.DataType | type[pl.DataType]] = {
     "timing_repeats": pl.Int64,
     "timing_warmup": pl.Int64,
     "timing_statistic": pl.String,
-    "normalization": pl.String,
+    "system_scaling": pl.String,
+    "rhs_scaling": pl.String,
     "reference_kind": pl.String,
     "reference_method": pl.String,
     "reference_reason": pl.String,
@@ -335,7 +338,10 @@ def build_planned_systems_frame(systems: Collection[SystemProvenance]) -> pl.Dat
                 "timing_repeats": solver.timing_repeats,
                 "timing_warmup": solver.timing_warmup,
                 "timing_statistic": solver.timing_statistic,
-                "normalization": solver.normalization,
+                "system_scaling": json.dumps(
+                    solver.system_scaling.model_dump(mode="json"), sort_keys=True
+                ),
+                "rhs_scaling": solver.rhs_scaling.value,
                 "reference_kind": reference_kind,
                 "reference_method": reference_method,
                 "reference_reason": reference_reason,
@@ -375,7 +381,10 @@ def decode_planned_systems_frame(frame: pl.DataFrame) -> tuple[SystemProvenance,
             timing_repeats=_required_int(row["timing_repeats"], "timing repeats"),
             timing_warmup=_required_int(row["timing_warmup"], "timing warmup"),
             timing_statistic=_required_text(row["timing_statistic"], "timing statistic"),
-            normalization=_required_text(row["normalization"], "normalization"),
+            system_scaling=parse_system_scaling(
+                json.loads(_required_text(row["system_scaling"], "system scaling"))
+            ),
+            rhs_scaling=RhsScaling(_required_text(row["rhs_scaling"], "RHS scaling")),
         )
         systems.append(SystemProvenance(tag, solver, _decode_reference(row)))
     return tuple(systems)

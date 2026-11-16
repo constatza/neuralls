@@ -69,6 +69,7 @@ from neuralls.shared.scientific_description.models import (
     ScientificDescription,
 )
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
+from neuralls.shared.system_scaling import GershgorinScaling, NoScaling
 from neuralls.shared.types import DatasetId, GenerationStrategyKind, PreconditionerName, RowKind
 from tests.fakes.comparison_runs import RecordingTrackingServices
 from tests.fakes.mlflow_client import FakeMlflowClient
@@ -475,7 +476,7 @@ def _build_diag_matrix_dataset(
         SourceSpec(matrix_path=str(raw / "*" / "K_ff.mtx")),
         DatasetSpec(
             mixture=MixtureSpec(counts={"neutral_ones": rows}, seed=42, shuffle=False),
-            normalize="none",
+            scaling=NoScaling(),
         ),
         str(dataset_dir),
         dataset_format="hdf5",
@@ -564,7 +565,7 @@ def dataset_presentation() -> DatasetPresentation:
                 ),
             ),
             generated_rows=100,
-            normalization="matrix",
+            scaling=GershgorinScaling(),
             root_seed=42,
         ),
     )
@@ -585,7 +586,7 @@ def pod_fit_presentation() -> DatasetPresentation:
                 ),
             ),
             generated_rows=8,
-            normalization="matrix",
+            scaling=GershgorinScaling(),
             root_seed=2024,
         ),
     )

@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 
-from neuralls.shared.types import MatrixFormat, SystemMatrix
+from neuralls.shared.types import MatrixFormat, MatrixSampleId, SystemMatrix
 
 from .batch import SampleBatch
 from .batch_generator import StrategyRunner, generate_batches
@@ -287,7 +287,7 @@ class _BindingInputs:
     Attributes:
         binding: The binding's matrix, RHS, solution and parameter sample ids.
         mixture: The global mixture narrowed to this binding (seed, counts, archive files).
-        matrix: The binding's cached matrix and its normalization scale.
+        matrix: The binding's cached scaled matrix and its scale factor.
         single_rhs: The binding's explicit RHS sample, scaled to the matrix, or None.
         single_solution: The binding's explicit solution sample, or None.
         parameter_vectors: One vector per parameter stream (None when the binding has no sample).
@@ -337,8 +337,7 @@ def _load_binding_inputs(
                 f"RHS sample {binding.rhs_sample_id} length {single_rhs.shape[0]} "
                 f"doesn't match matrix size {cached.matrix_norm.shape[0]}"
             )
-        if cached.scale is not None:
-            single_rhs = cached.scale.scale_rhs(single_rhs)
+        single_rhs = single_rhs / cached.alpha
 
     single_solution: np.ndarray | None = None
     if streams.solution is not None and binding.solution_sample_id is not None:
@@ -365,19 +364,19 @@ def _make_strategy_runner(
     context: _GenerationRunContext,
     get_matrix: Callable[[int], _CachedMatrix],
     mixture: MixtureSpec,
-    on_inputs_loaded: Callable[[int, _CachedMatrix], None],
+    on_inputs_loaded: Callable[[int, _BindingInputs], None],
 ) -> StrategyRunner:
     """Build the runner that generates one strategy's output for one binding.
 
     Bindings are visited one at a time, so only the most recent binding's inputs are kept.
-    ``on_inputs_loaded`` receives each binding's matrix as it loads, so its scalars are
+    ``on_inputs_loaded`` receives each binding's inputs as they load, so its scalars are
     available without loading the matrix again.
     """
     slot = SingleSlot[int, _BindingInputs]()
 
     def _load(binding_index: int) -> _BindingInputs:
         inputs = _load_binding_inputs(binding_index, context, get_matrix, mixture)
-        on_inputs_loaded(binding_index, inputs.matrix)
+        on_inputs_loaded(binding_index, inputs)
         return inputs
 
     def _inputs_for(binding_index: int) -> _BindingInputs:
@@ -422,7 +421,7 @@ class BatchStream:
         batches: Batches in binding order, then strategy order. Consuming them also
             observes each binding's scalars into ``scale``, so ``scale`` is complete
             once the iterator is exhausted.
-        matrix_for: Dense normalized matrix for a matrix sample id.
+        matrix_for: Scaled matrix for a matrix sample id.
         scale: Cross-binding scalar aggregator fed by ``batches``.
         notices: Outcomes known before any batch runs (rows capped by their source).
     """
@@ -447,16 +446,16 @@ def open_batch_stream(
     """Plan a generation run and expose its batches without buffering them.
 
     The stream does not persist anything; the caller writes the batches and reads
-    ``scale`` afterwards. ``matrix_for`` returns the normalized matrix in ``matrix_format``.
+    ``scale`` afterwards. ``matrix_for`` returns the scaled matrix in ``matrix_format``.
 
     Args:
         source: Where the run reads its matrix/RHS/solution/parameter samples from.
-        spec: Strategy budgets, RNG controls, replacement policy and normalization.
+        spec: Strategy budgets, RNG controls, replacement policy and scaling.
         batch_size: Maximum rows per yielded batch.
         readers: Reads raw arrays/matrices at a path; injected so this domain
             module never depends on platform's I/O directly.
         archive_source: Lists and loads the archive files; injected for the same reason.
-        matrix_format: Storage format of the normalized matrices handed to ``matrix_for``.
+        matrix_format: Storage format of the scaled matrices handed to ``matrix_for``.
 
     Returns:
         BatchStream with an unconsumed batch iterator. Its plan is exact only when every
@@ -482,11 +481,11 @@ def open_batch_stream(
     planned_indices = tuple(binding.binding_index for binding in plan.bindings)
     pending_scales: dict[int, BindingScale] = {}
 
-    def record_scale(binding_index: int, cached: _CachedMatrix) -> None:
+    def record_scale(binding_index: int, inputs: _BindingInputs) -> None:
         pending_scales[binding_index] = BindingScale(
-            matrix_norm_value=cached.matrix_norm_value,
-            matrix_value_scale=cached.matrix_value_scale,
-            scale_params=cached.scale_params,
+            matrix_sample_id=MatrixSampleId(inputs.binding.matrix_sample_id),
+            matrix_norm_value=inputs.matrix.matrix_norm_value,
+            alpha=inputs.matrix.alpha,
         )
 
     def observe_binding(binding_index: int) -> None:

@@ -15,11 +15,16 @@ from neuralls.platform.config.models.data_models import (
     DataConfigFile,
     StrategyConfig,
 )
-from neuralls.platform.storage.manifest import MissingDatasetProvenanceError, manifest_path_for
+from neuralls.platform.storage.manifest import (
+    InvalidDatasetManifestError,
+    MissingDatasetProvenanceError,
+    manifest_path_for,
+)
 from neuralls.platform.storage.manifest_io import (
     load_dataset_presentation,
 )
 from neuralls.shared.scientific_description.models import ScientificDescription
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import GenerationStrategyKind
 
 
@@ -46,7 +51,7 @@ def test_build_records_source_and_every_strategy(
         GenerationStrategyKind.NEUTRAL_ONES
     ]
     assert presentation.generation.generated_rows == 1
-    assert presentation.generation.normalization == "none"
+    assert presentation.generation.scaling == NoScaling()
 
 
 def test_manifest_stores_keys_and_values_not_notation_or_a_version(
@@ -66,7 +71,7 @@ def test_manifest_stores_keys_and_values_not_notation_or_a_version(
         "source": {"base_name": "Spectral 3D field", "facts": [], "context_facts": []},
         "generation": {
             "generated_rows": 1,
-            "normalization": "none",
+            "scaling": {"kind": "none"},
             "root_seed": 42,
             "strategies": [
                 {"kind": "neutral_ones", "rows": 1, "seed": {"kind": "derived"}, "parameters": []}
@@ -102,8 +107,9 @@ def test_tampered_provenance_is_rejected_on_load(
     )
     path.write_text(json.dumps(raw), encoding="utf-8")
 
-    with pytest.raises(KeyError):
+    with pytest.raises(InvalidDatasetManifestError) as error:
         load_dataset_presentation(dataset_dir)
+    assert error.value.field == "provenance"
 
 
 def test_aliases_of_one_strategy_in_a_config_merge_into_one_recorded_strategy(

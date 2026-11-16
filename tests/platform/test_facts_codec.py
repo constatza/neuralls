@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from pydantic import ValidationError
 
 from neuralls.domain.presentation.provenance import (
     DatasetGenerationProvenance,
@@ -43,6 +44,7 @@ from neuralls.shared.scientific_description.models import (
     ScientificDescription,
     ValidatedLabel,
 )
+from neuralls.shared.system_scaling import DimensionFactor, GershgorinScaling
 from neuralls.shared.types import GenerationStrategyKind
 
 
@@ -75,7 +77,7 @@ def dataset() -> DatasetPresentation:
                 ),
             ),
             generated_rows=5013,
-            normalization="rhs",
+            scaling=GershgorinScaling(dimension_factor=DimensionFactor.ONE),
             root_seed=99,
         ),
     )
@@ -97,10 +99,10 @@ def test_label_values_are_revalidated_on_decode() -> None:
         decode_facts(payload)
 
 
-def test_unknown_normalization_is_rejected_on_decode(dataset: DatasetPresentation) -> None:
+def test_unknown_scaling_kind_is_rejected_on_decode(dataset: DatasetPresentation) -> None:
     payload = encode_dataset_presentation(dataset)
-    payload["generation"]["normalization"] = "l2"
-    with pytest.raises(ValueError, match="normalization"):
+    payload["generation"]["scaling"] = {"kind": "l2"}
+    with pytest.raises(ValidationError):
         decode_dataset_presentation(payload)
 
 

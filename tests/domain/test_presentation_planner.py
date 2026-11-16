@@ -50,6 +50,7 @@ from neuralls.shared.scientific_description.models import (
     ScientificFact,
 )
 from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
+from neuralls.shared.system_scaling import GershgorinScaling, NoScaling
 from neuralls.shared.types import (
     GenerationStrategyKind,
     MatrixId,
@@ -98,7 +99,7 @@ def dataset() -> DatasetPresentation:
                 ),
             ),
             generated_rows=5000,
-            normalization="matrix",
+            scaling=GershgorinScaling(),
             root_seed=42,
         ),
     )
@@ -130,7 +131,7 @@ def test_standalone_presentation_has_no_dataset_field() -> None:
 def test_dataset_generation_requires_a_strategy() -> None:
     with pytest.raises(ValueError, match="at least one strategy"):
         DatasetGenerationProvenance(
-            strategies=(), generated_rows=1, normalization="none", root_seed=0
+            strategies=(), generated_rows=1, scaling=NoScaling(), root_seed=0
         )
 
 
@@ -271,7 +272,7 @@ def test_same_method_on_different_datasets_is_not_a_duplicate(
                 ),
             ),
             generated_rows=10,
-            normalization="matrix",
+            scaling=GershgorinScaling(),
             root_seed=42,
         ),
     )

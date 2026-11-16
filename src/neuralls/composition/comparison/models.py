@@ -34,7 +34,7 @@ from neuralls.platform.config.models.comparison import RHS_SOURCE_MODEL_BY_KIND
 from neuralls.platform.config.models.experiments import ComparisonRegistryEntry
 from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.models.preconditioner_family import PreconditionerFamilyKey
-from neuralls.platform.storage.manifest import DatasetNormalization
+from neuralls.platform.storage.manifest import PersistedMatrixScaling
 from neuralls.shared.digest import Digest, Json, canonical
 from neuralls.shared.scientific_description.policy import NotationPolicy
 from neuralls.shared.types import (
@@ -255,11 +255,11 @@ class ResolvedComparisonInput:
     row_kind: RowKind | None = None
     rhs_source_kind: ComparisonRhsSourceKind | None = None
     rhs_source_params: dict[str, object] | None = None
-    matrix_normalization: DatasetNormalization | None = None
-    """Persisted normalization metadata for the dataset the matrix was loaded
-    from, or None when the matrix came from a raw/external file with no
-    manifest. Drives whether comparison-time code treats the matrix as
-    already-normalized (skip/derive) or genuinely raw (compute fresh)."""
+    matrix_scaling: PersistedMatrixScaling | None = None
+    """The stored scaling of this matrix (the dataset's scaling and this matrix's
+    ``alpha``), or None when the matrix came from a raw/external file with no
+    manifest. Drives whether comparison-time code treats the matrix as already
+    scaled (never rescale) or genuinely raw (compute ``alpha`` fresh)."""
 
     @property
     def rhs_source_type(self) -> str:

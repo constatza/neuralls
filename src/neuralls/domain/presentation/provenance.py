@@ -11,7 +11,8 @@ from neuralls.shared.scientific_description.models import (
     ScientificFact,
     require_unique_keys,
 )
-from neuralls.shared.types import GenerationStrategyKind, NormalizeType
+from neuralls.shared.system_scaling import SystemScaling
+from neuralls.shared.types import GenerationStrategyKind
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +99,7 @@ class DatasetGenerationProvenance:
 
     strategies: tuple[StrategyProvenance, ...]
     generated_rows: int
-    normalization: NormalizeType
+    scaling: SystemScaling
     root_seed: int
 
     def __post_init__(self) -> None:

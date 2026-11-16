@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from neuralls.shared.constants import DEFAULT_WRITE_BATCH_SIZE
-from neuralls.shared.types import NormalizeType
+from neuralls.shared.system_scaling import GershgorinScaling, SystemScaling
 
 from .interfaces import TracingSolverCallable
 from .source_streams import EnumerateBy
@@ -86,14 +86,14 @@ class DatasetSpec:
         mixture: Strategy mixing and RNG controls applied per binding.
         replacement: Must be False. Multi-matrix allocation is uniform and archive
             files are never reused, so ``True`` is rejected during generation.
-        normalize: Normalization strategy applied to each matrix sample.
+        scaling: How each matrix sample (and its archived RHS) is scaled.
         matrix_norm_type: Norm used to report the dataset-level matrix norm.
         write_batch_size: Rows generated and written per batch. Affects memory only.
     """
 
     mixture: MixtureSpec = field(default_factory=MixtureSpec)
     replacement: bool = False
-    normalize: NormalizeType = "matrix"
+    scaling: SystemScaling = field(default_factory=GershgorinScaling)
     matrix_norm_type: str = "spectral"
     write_batch_size: int = DEFAULT_WRITE_BATCH_SIZE
 

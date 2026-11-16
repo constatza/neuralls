@@ -11,9 +11,10 @@ from neuralls.domain.solver.models.cost import Known, Unavailable
 from neuralls.platform.storage.manifest import (
     DatasetArtifact,
     DatasetManifest,
-    DatasetNormalization,
+    DatasetScaling,
 )
 from neuralls.platform.storage.manifest_io import make_dataset_manifest
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import CostProvenance
 
 type ManifestFactory = Callable[[float | None, int | None], DatasetManifest]
@@ -24,8 +25,8 @@ def manifest_with_cost() -> ManifestFactory:
     """Build a manifest whose only varying fields are the recorded generation costs."""
     matrix = DatasetArtifact(path="matrix.npy", format="npy", dtype="float64", shape=(2, 2))
     vector = DatasetArtifact(path="rhs.npy", format="npy", dtype="float64", shape=(2,))
-    normalization = DatasetNormalization(
-        type="none", matrix_norm=1.0, matrix_norm_type="spectral", scale={}
+    scaling = DatasetScaling(
+        scaling=NoScaling(), matrix_norm=1.0, matrix_norm_type="spectral", matrix_scales={0: 1.0}
     )
 
     def build(seconds: float | None, memory: int | None = None) -> DatasetManifest:
@@ -33,7 +34,7 @@ def manifest_with_cost() -> ManifestFactory:
             matrix=matrix,
             rhs=vector,
             solutions=vector,
-            normalization=normalization,
+            scaling=scaling,
             generation_duration_seconds=seconds,
             generation_peak_memory_bytes=memory,
         )

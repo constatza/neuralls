@@ -20,9 +20,10 @@ from neuralls.composition.comparison._preconditioner_setup import (
     _collect_extra_name_positions,
     _load_extra_inputs,
 )
-from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
+from neuralls.platform.storage.manifest import DatasetArtifact, DatasetScaling
 from neuralls.platform.storage.manifest_io import make_dataset_manifest, save_dataset_manifest
 from neuralls.shared.constants import PARAMETERS_ZARR_PREFIX
+from neuralls.shared.system_scaling import NoScaling
 
 pytestmark = pytest.mark.deferred_io("dataset-fixture-io")
 
@@ -128,11 +129,11 @@ def _write_npy_dataset_with_params(
                 dtype="float64",
                 shape=(n_samples, vec_dim),
             ),
-            normalization=DatasetNormalization(
-                type="none",
+            scaling=DatasetScaling(
+                scaling=NoScaling(),
                 matrix_norm=1.0,
                 matrix_norm_type="spectral",
-                scale={},
+                matrix_scales={0: 1.0},
             ),
             params=tuple(params_artifacts),
         ),

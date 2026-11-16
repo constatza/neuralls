@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 from torchalg.monitoring import TraceMode
 
 from neuralls.shared.digest import Cosmetic
+from neuralls.shared.system_scaling import GershgorinScaling, RhsScaling, SystemScaling
 from neuralls.shared.timing import TimingRepeatPolicy
 from neuralls.shared.types import ComparisonRhsSourceKind, PreconditionerName
 
@@ -47,9 +48,6 @@ class SolverConfig:
     """Additional algorithm-specific parameters."""
 
 
-type NormalizeSystem = Literal["none", "matrix", "rhs", "both", "diagonal", "spectral"]
-
-
 @dataclass(frozen=True, slots=True)
 class SolverParams:
     """Numerical solver parameters for comparison runs.
@@ -81,21 +79,23 @@ class SolverParams:
 
 @dataclass(frozen=True, slots=True)
 class ComparisonData:
-    """Input data and normalization context for a comparison run.
+    """Input data and scaling context for a comparison run.
 
     Args:
         matrix_path: Path to system matrix file.
         matrix_index: Physical storage row of the matrix to solve on (0 for a
             single-matrix dataset, whose one matrix is stored once).
         dataset_alias: Optional dataset label.
-        normalize_system: Normalization strategy to apply.
+        system_scaling: How the matrix and RHS are scaled; must equal a stored dataset's.
+        rhs_scaling: Per-system RHS scaling applied after ``system_scaling``.
     """
 
     matrix_path: Annotated[Path, Cosmetic()]
     rhs_path: Annotated[Path | None, Cosmetic()]
     matrix_index: int = 0
     dataset_alias: str | None = None
-    normalize_system: NormalizeSystem = "matrix"
+    system_scaling: SystemScaling = field(default_factory=GershgorinScaling)
+    rhs_scaling: RhsScaling = RhsScaling.NONE
     require_non_residual_rhs: bool = True
     selection_seed: int | None = None
     rhs_source_kind: ComparisonRhsSourceKind | None = None
@@ -108,7 +108,7 @@ class ComparisonGeneral:
 
     Args:
         params: Solver configuration.
-        data: Input data and normalization spec.
+        data: Input data and scaling spec.
     """
 
     params: SolverParams

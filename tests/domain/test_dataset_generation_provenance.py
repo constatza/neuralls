@@ -25,6 +25,7 @@ from neuralls.shared.scientific_description.models import (
     ScientificDescription,
 )
 from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
+from neuralls.shared.system_scaling import GershgorinScaling
 from neuralls.shared.types import GenerationStrategyKind
 
 POLICY = NotationPolicy.default()
@@ -39,7 +40,7 @@ def _generation(
 ) -> DatasetGenerationProvenance:
     total = sum(strategy.rows for strategy in strategies) if rows is None else rows
     return DatasetGenerationProvenance(
-        strategies=strategies, generated_rows=total, normalization="matrix", root_seed=1
+        strategies=strategies, generated_rows=total, scaling=GershgorinScaling(), root_seed=1
     )
 
 

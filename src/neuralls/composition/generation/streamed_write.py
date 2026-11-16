@@ -22,6 +22,7 @@ from neuralls.domain.generation.scalar_aggregate import ScaleSummary
 from neuralls.domain.generation.specs import DatasetSpec, SourceSpec
 from neuralls.platform.storage.archive_source import CachingArchiveSource
 from neuralls.platform.storage.dense_stream import StreamedManifestFacts
+from neuralls.platform.storage.manifest import DatasetScaling
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
 from neuralls.platform.storage.staged_commit import commit_staged_directory
 from neuralls.shared.types import LayoutType, MatrixFormat
@@ -92,9 +93,11 @@ def manifest_facts(
 ) -> StreamedManifestFacts:
     """Run-level manifest facts common to both streaming paths; only ``layout`` differs."""
     return StreamedManifestFacts(
-        normalization_type=str(spec.normalize),
-        matrix_norm=scale_summary.matrix_norm,
-        matrix_norm_type=spec.matrix_norm_type,
-        scale_metadata=scale_summary.scale_metadata,
+        scaling=DatasetScaling(
+            scaling=spec.scaling,
+            matrix_norm=scale_summary.matrix_norm,
+            matrix_norm_type=spec.matrix_norm_type,
+            matrix_scales=scale_summary.matrix_scales,
+        ),
         layout=layout,
     )

@@ -24,6 +24,7 @@ from neuralls.platform.config.models.preconditioner import PreconditionerConfig
 from neuralls.platform.config.models.presentation import ScientificLabelsConfig
 from neuralls.shared.constants import DEFAULT_ATOL, DEFAULT_M_MAX, DEFAULT_RTOL
 from neuralls.shared.scientific_description.models import ValidatedLabel
+from neuralls.shared.system_scaling import GershgorinScaling, RhsScaling, SystemScaling
 from neuralls.shared.timing import TimingRepeatPolicy
 
 
@@ -213,7 +214,10 @@ class ComparisonBaseline(BaseModel):
         stopping_criterion: Convergence check strategy; only ``residual_norm`` (the
             solver's tolerance test) exists, so any other value is rejected at load.
         m_max: FCG orthogonalization window.
-        normalize_system: Normalization applied to the test system.
+        system_scaling: How each test system is scaled; must equal the scaling a stored
+            matrix dataset was generated with.
+        rhs_scaling: Per-system RHS scaling applied after ``system_scaling``
+            (``unit`` divides the RHS by its 2-norm).
         preconditioners: Classical preconditioner list (neural preconditioners are
             auto-generated from case assignments at runtime).
         reference_preconditioner: Optional explicit method used as the paired
@@ -222,7 +226,7 @@ class ComparisonBaseline(BaseModel):
             comparison plots (target: plain/mathtext/latex, symbol overrides).
             Complete defaults, so no case needs a ``[comparison_baseline.presentation]``
             table at all. A per-entry ``method`` file may override it the same
-            way it overrides ``preconditioners``/``normalize_system``.
+            way it overrides ``preconditioners``/``system_scaling``.
         figure_style: Report figure layout (``label_rotation_deg`` of x-axis method
             labels; ``min_box_samples`` and ``min_violin_samples``, the sample sizes
             from which a distribution column gains a box and a violin). Complete defaults, so no case needs a
@@ -238,7 +242,8 @@ class ComparisonBaseline(BaseModel):
     max_iterations: int = Field(default=100, ge=1)
     stopping_criterion: Literal["residual_norm"] = "residual_norm"
     m_max: int = Field(default=DEFAULT_M_MAX, ge=-1)
-    normalize_system: Literal["none", "matrix", "rhs", "both"] = "matrix"
+    system_scaling: SystemScaling = Field(default_factory=GershgorinScaling)
+    rhs_scaling: RhsScaling = RhsScaling.NONE
     preconditioners: list[PreconditionerConfig] = Field(default_factory=list)
     reference_preconditioner: str | None = None
     presentation: ScientificLabelsConfig = Field(default_factory=ScientificLabelsConfig)

@@ -99,6 +99,7 @@ from neuralls.platform.tracking.report_sink import (
 )
 from neuralls.platform.tracking.split_records import SPLITS_ARTIFACT
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.system_scaling import NoScaling, RhsScaling
 from neuralls.shared.types import (
     DatasetId,
     GroupId,
@@ -118,7 +119,8 @@ _CONTEXT = SolverTimingContext(
     timing_repeats=1,
     timing_warmup=0,
     timing_statistic="median",
-    normalization="none",
+    system_scaling=NoScaling(),
+    rhs_scaling=RhsScaling.NONE,
 )
 
 

@@ -1,16 +1,17 @@
-"""Normalization utilities for the domain layer.
+"""System scaling arithmetic and sparse-aware norms for the domain layer.
 
-Canonicalized on matrix-based (Gershgorin-bound) normalization only. Provides
-a small, composable API: an ABC interface for the scale strategy, a frozen
-dataclass implementation, and pure factory functions.
+A system is scaled by one positive scalar per matrix, ``alpha``: ``A' = A / alpha`` and
+``b' = b / alpha``. For ``GershgorinScaling`` ``alpha = max(||A||_1, ||A||_inf) * f(n)``
+with ``f(n)`` equal to 1 or ``sqrt(n)``. ``max(||A||_1, ||A||_inf)`` is a Gershgorin bound
+on the spectral radius, not the spectral radius itself. A scalar scaling leaves the
+solution, the CG iterates and weighted-Jacobi sweeps with ``omega = 1 / rho(D^-1 A)``
+unchanged; it fixes only the magnitude of ``A``, ``b`` and the residuals.
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Final, Literal
+from typing import Final, Literal
 
 import numpy as np
 from scipy.sparse import csr_array
@@ -18,6 +19,12 @@ from scipy.sparse.linalg import norm as sparse_norm
 from scipy.sparse.linalg import svds
 
 from neuralls.domain.linalg import calculate_matrix_norm, compute_dim_scale
+from neuralls.shared.system_scaling import (
+    DimensionFactor,
+    GershgorinScaling,
+    NoScaling,
+    SystemScaling,
+)
 from neuralls.shared.types import MatrixNormType, SystemMatrix
 
 # Sparse norm orders passed to scipy.sparse.linalg.norm. Nuclear is absent
@@ -27,77 +34,6 @@ _SPARSE_NORM_ORDER: Final[dict[MatrixNormType, Literal["fro"] | float]] = {
     MatrixNormType.ONE: 1,
     MatrixNormType.INF: np.inf,
 }
-
-# =============================================================================
-# ABC Interfaces
-# =============================================================================
-
-
-class IScale(ABC):
-    """Interface for scaling strategies.
-
-    Encapsulates all scaling logic for a normalization strategy.
-    """
-
-    @abstractmethod
-    def scale_matrix(self, matrix: SystemMatrix) -> SystemMatrix:
-        """Scale the system matrix A, preserving its storage format."""
-        ...
-
-    @abstractmethod
-    def scale_rhs(self, rhs: np.ndarray) -> np.ndarray:
-        """Scale a right-hand side vector b."""
-        ...
-
-    @abstractmethod
-    def to_dict(self) -> Mapping[str, float | list[float]]:
-        """Serialize scale parameters to dictionary.
-
-        Returns:
-            Mapping of scale parameters suitable for saving to dataset manifests.
-        """
-        ...
-
-
-# =============================================================================
-# Frozen Dataclasses: Scaling Strategy
-# =============================================================================
-
-
-@dataclass(frozen=True, slots=True)
-class MatrixScale(IScale):
-    """Matrix normalization: scale by spectral radius bound * sqrt(d).
-
-    Transformation summary:
-        A' = A / (spectral_radius_bound * sqrt(d))
-        b' = b / (spectral_radius_bound * sqrt(d))
-
-    The normalized system A' @ x = b' has the same solution as A @ x = b.
-    """
-
-    spectral_radius_bound: float
-    dimension_scale: float
-
-    @property
-    def composite_scale(self) -> float:
-        """Combined scale factor."""
-        return self.spectral_radius_bound * self.dimension_scale
-
-    def scale_matrix(self, matrix: SystemMatrix) -> SystemMatrix:
-        if isinstance(matrix, csr_array):
-            return scale_csr_values(matrix, self.composite_scale, None)
-        return matrix / self.composite_scale
-
-    def scale_rhs(self, rhs: np.ndarray) -> np.ndarray:
-        return rhs / self.composite_scale
-
-    def to_dict(self) -> dict[str, float]:
-        """Serialize scale parameters to dictionary."""
-        return {
-            "spectral_radius_bound": self.spectral_radius_bound,
-            "dimension_scale": self.dimension_scale,
-        }
-
 
 # =============================================================================
 # Frozen Dataclasses: Trace Samples
@@ -219,7 +155,7 @@ def _sparse_spectral_norm(matrix: csr_array) -> float:
 
 
 def _gershgorin_bound(matrix: SystemMatrix) -> float:
-    """Gershgorin spectral radius bound: max(max row |.| sum, max col |.| sum).
+    """Gershgorin bound on the spectral radius: max(max row |.| sum, max col |.| sum).
 
     Equal to the larger of the 1-norm and inf-norm of the matrix, so it is
     computed through ``matrix_norm`` for both storage formats.
@@ -227,122 +163,39 @@ def _gershgorin_bound(matrix: SystemMatrix) -> float:
     return max(matrix_norm(matrix, MatrixNormType.ONE), matrix_norm(matrix, MatrixNormType.INF))
 
 
-# =============================================================================
-# Pure Functions: Scale Factories
-# =============================================================================
+def scale_factor(matrix: SystemMatrix, scaling: SystemScaling) -> float:
+    """The scalar ``alpha`` a system with this matrix is divided by.
 
-
-def _create_matrix_scale(
-    matrix: SystemMatrix,
-    spectral_radius_bound: float | None = None,
-    **_kwargs: Any,
-) -> MatrixScale:
-    """Create matrix normalization scale.
-
-    Args:
-        matrix: System matrix A
-        spectral_radius_bound: Optional spectral radius bound (computed if None)
-
-    Returns:
-        MatrixScale object
+    ``NoScaling`` gives 1. ``GershgorinScaling`` gives the Gershgorin bound
+    ``max(||A||_1, ||A||_inf)``, times ``sqrt(n)`` for ``DimensionFactor.SQRT_N``.
     """
-    dimension = matrix.shape[0]
-    if spectral_radius_bound is None:
-        spectral_radius_bound = _gershgorin_bound(matrix)
-    dimension_scale = compute_dim_scale(dimension)
-    return MatrixScale(
-        spectral_radius_bound=spectral_radius_bound,
-        dimension_scale=dimension_scale,
-    )
+    match scaling:
+        case NoScaling():
+            return 1.0
+        case GershgorinScaling(dimension_factor=factor):
+            return _gershgorin_bound(matrix) * _dimension_factor(factor, matrix.shape[0])
 
 
-def load_scale_from_metadata(
-    normalize_type: str,
-    metadata: dict,
-) -> IScale | None:
-    """Reconstruct scale object from saved metadata.
-
-    Args:
-        normalize_type: Type of normalization ("none" or "matrix")
-        metadata: Dictionary containing scale parameters
-
-    Returns:
-        Reconstructed scale object, or None if normalize_type is "none"
-
-    Raises:
-        ValueError: If normalize_type is invalid or required parameters are missing
-    """
-    if normalize_type == "none":
-        return None
-
-    if normalize_type == "matrix":
-        if "spectral_radius_bound" not in metadata or "dimension_scale" not in metadata:
-            raise ValueError(
-                "Matrix normalization requires 'spectral_radius_bound' and 'dimension_scale' in metadata"
-            )
-        return MatrixScale(
-            spectral_radius_bound=metadata["spectral_radius_bound"],
-            dimension_scale=metadata["dimension_scale"],
-        )
-
-    raise ValueError(f"Invalid normalize_type: {normalize_type}. Must be one of: none, matrix")
+def _dimension_factor(factor: DimensionFactor, dimension: int) -> float:
+    match factor:
+        case DimensionFactor.ONE:
+            return 1.0
+        case DimensionFactor.SQRT_N:
+            return compute_dim_scale(dimension)
 
 
-# =============================================================================
-# Pure Functions: Config-based Scale Creation
-# =============================================================================
-
-
-_SCALE_CREATORS = {
-    "matrix": _create_matrix_scale,
-}
-
-
-def create_scale_from_config(
-    normalize_type: Literal["none", "matrix"],
-    matrix: SystemMatrix,
-    *,
-    spectral_radius_bound: float | None = None,
-) -> IScale | None:
-    """Create normalization scale object from configuration.
-
-    Args:
-        normalize_type: Type of normalization ("none" or "matrix")
-        matrix: System matrix A
-        spectral_radius_bound: For matrix normalization. If None, computed from matrix.
-
-    Returns:
-        Scale object, or None (for "none" type).
-
-    Raises:
-        ValueError: If normalize_type is invalid.
-
-    Examples:
-        >>> scale = create_scale_from_config("matrix", A)
-        >>> isinstance(scale, MatrixScale)
-        True
-    """
-    if normalize_type == "none":
-        return None
-
-    creator = _SCALE_CREATORS.get(normalize_type)
-    if creator is None:
-        raise ValueError(f"Invalid normalize_type: {normalize_type}. Must be one of: none, matrix")
-
-    return creator(matrix=matrix, spectral_radius_bound=spectral_radius_bound)
+def scale_matrix(matrix: SystemMatrix, alpha: float) -> SystemMatrix:
+    """``matrix / alpha`` in the matrix's own format; a CSR matrix keeps its pattern."""
+    if isinstance(matrix, csr_array):
+        return scale_csr_values(matrix, alpha, None)
+    return matrix / alpha
 
 
 __all__ = [
     "ErrorTraceSamples",
-    # Interfaces
-    "IScale",
-    # Scale
-    "MatrixScale",
-    # Traces
     "ResidualTraceSamples",
-    # Public API
-    "create_scale_from_config",
-    "load_scale_from_metadata",
     "matrix_norm",
     "scale_csr_values",
+    "scale_factor",
+    "scale_matrix",
 ]

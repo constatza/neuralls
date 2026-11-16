@@ -28,6 +28,7 @@ from neuralls.platform.storage.archive_source import FsArchiveSource
 from neuralls.platform.storage.datasets import load_dense_training_arrays
 from neuralls.platform.storage.manifest_io import load_dataset_presentation
 from neuralls.platform.storage.matrix_readers import read_dense_npy, read_matrix
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import GenerationStrategyKind
 
 ARCHIVE_SOURCE = FsArchiveSource()
@@ -104,7 +105,7 @@ def _spec(case: Case, *, seed: int = 11) -> DatasetSpec:
         mixture=MixtureSpec(
             counts=dict(case.counts), seed=seed, strategy_overrides=dict(case.overrides)
         ),
-        normalize="none",
+        scaling=NoScaling(),
     )
 
 
@@ -121,7 +122,7 @@ def _produced_rows(source: SourceSpec, spec: DatasetSpec) -> Counter[str]:
             strategy_overrides=mixture.strategy_overrides,
             solver_overrides={"residuals": solver, "gaussian_residuals": solver},
         ),
-        normalize=spec.normalize,
+        scaling=spec.scaling,
     )
     stream = open_batch_stream(
         source, with_solvers, batch_size=2, readers=_READERS, archive_source=ARCHIVE_SOURCE
@@ -199,7 +200,7 @@ def test_mixture_of_mix_and_total_records_each_strategy(
             seed=5,
             strategy_overrides={"krylov": {"krylov_iters": 2}},
         ),
-        normalize="none",
+        scaling=NoScaling(),
     )
     dataset_dir = build_test_dataset(source_spec, spec, str(tmp_path / "ds"))
 

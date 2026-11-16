@@ -16,12 +16,16 @@ from neuralls.domain.solver.utils.validation import validate_ax_equals_b
 from neuralls.platform.sparse_io.components import to_scipy
 from neuralls.platform.sparse_io.protocol import SparseLocation
 from neuralls.platform.sparse_io.registry import backend_for
-from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
+from neuralls.platform.storage.manifest import (
+    DatasetArtifact,
+    DatasetScaling,
+    PersistedMatrixScaling,
+)
 from neuralls.platform.storage.manifest_io import read_dataset_manifest
-from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
+from neuralls.shared.constants import DATASET_MANIFEST_FILENAME, REGENERATE_DATASETS_COMMAND
 from neuralls.shared.digest import RowSliceable
 from neuralls.shared.enum_codecs import decode_row_kind_array
-from neuralls.shared.types import LayoutType, MatrixFormat, RowKind
+from neuralls.shared.types import LayoutType, MatrixFormat, MatrixSampleId, RowKind
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +54,7 @@ class DatasetArtifacts:
     matrix: ResolvedDatasetArtifact
     rhs: ResolvedDatasetArtifact
     solutions: ResolvedDatasetArtifact
-    normalization: DatasetNormalization
+    scaling: DatasetScaling
     params: tuple[ResolvedDatasetArtifact, ...] = ()
     row_kind: ResolvedDatasetArtifact | None = None
     matrix_sample_index: ResolvedDatasetArtifact | None = None
@@ -76,10 +80,9 @@ class CanonicalTrainingTriplet:
     rhs: np.ndarray
     lhs: np.ndarray
     sample_index: int
-    matrix_index: int
+    matrix_index: MatrixSampleId
     row_kind: RowKind | None
-    matrix_binding_enforced: bool
-    normalization: DatasetNormalization
+    matrix_scaling: PersistedMatrixScaling
 
 
 def _resolve_artifact(root: Path, artifact: DatasetArtifact) -> ResolvedDatasetArtifact:
@@ -114,7 +117,7 @@ def resolve_dataset_artifacts(dataset_dir: str | Path) -> DatasetArtifacts:
         matrix=_resolve_artifact(root, manifest.matrix),
         rhs=_resolve_artifact(root, manifest.rhs),
         solutions=_resolve_artifact(root, manifest.solutions),
-        normalization=manifest.normalization,
+        scaling=manifest.scaling,
         params=tuple(_resolve_artifact(root, artifact) for artifact in manifest.params),
         row_kind=_resolve_artifact(root, manifest.row_kind)
         if manifest.row_kind is not None
@@ -225,29 +228,39 @@ def matrix_row(matrix: ResolvedDatasetArtifact, *, row_index: int, matrix_id: in
     return row_index
 
 
-def _resolve_triplet_matrix_index(
-    *,
-    artifacts: DatasetArtifacts,
-    row_index: int,
-    matrix_index: int | None,
-    dataset_dir: str | Path,
-) -> tuple[int, bool]:
-    """Resolve the physical matrix index for a logical dataset row."""
-    if artifacts.matrix_sample_index is None:
-        if matrix_index is None:
-            raise ValueError(
-                f"Dataset '{dataset_dir}' does not expose matrix_sample_index metadata; "
-                "provide an explicit matrix_index only for single-matrix datasets."
-            )
-        return matrix_index, False
+class MissingMatrixSampleIndexError(ValueError):
+    """A dataset has no ``matrix_sample_index``, so a stored row cannot be mapped to its matrix id.
 
+    Without the mapping a row index would have to be read as a matrix sample id, which picks
+    the wrong per-matrix scale factor whenever ids and rows differ.
+    """
+
+    def __init__(self, dataset_dir: str | Path) -> None:
+        self.dataset_dir = Path(dataset_dir)
+        super().__init__(
+            f"Dataset '{dataset_dir}' has no matrix_sample_index, so its stored rows cannot be "
+            f"mapped to matrix sample ids. Regenerate it with `{REGENERATE_DATASETS_COMMAND}`."
+        )
+
+
+def _matrix_sample_id(
+    artifacts: DatasetArtifacts, row_index: int, dataset_dir: str | Path
+) -> MatrixSampleId:
+    """The matrix sample id generation bound a dataset row to.
+
+    Raises:
+        MissingMatrixSampleIndexError: If the dataset stores no ``matrix_sample_index``.
+        IndexError: If the row has no binding.
+    """
+    if artifacts.matrix_sample_index is None:
+        raise MissingMatrixSampleIndexError(dataset_dir)
     bindings = _load_resolved_native(artifacts.matrix_sample_index).astype(np.int64, copy=False)
     bindings = bindings.reshape(-1)
     if row_index >= bindings.shape[0]:
         raise IndexError(
             f"sample_index={row_index} has no matrix_sample_index binding in '{dataset_dir}'."
         )
-    return int(bindings[row_index]), True
+    return MatrixSampleId(int(bindings[row_index]))
 
 
 def resolve_canonical_training_triplet(
@@ -255,13 +268,15 @@ def resolve_canonical_training_triplet(
     sample_index: int | None,
     *,
     require_standard: bool = True,
-    matrix_index: int | None = None,
 ) -> CanonicalTrainingTriplet:
     """Load one canonical manifest-backed `(matrix, rhs, lhs)` dataset row.
 
-    When `sample_index` is omitted, the first STANDARD row is selected. Matrix
-    selection follows persisted `matrix_sample_index` bindings; explicit
-    `matrix_index` is only a fallback for datasets that do not expose bindings.
+    When `sample_index` is omitted, the first STANDARD row is selected. The matrix and its
+    scale factor follow the row's persisted `matrix_sample_index` binding.
+
+    Raises:
+        MissingMatrixSampleIndexError: If the dataset has no `matrix_sample_index`, so the
+            row's matrix and its scale factor (keyed by matrix sample id) cannot be found.
     """
     artifacts = resolve_dataset_artifacts(dataset_dir)
     sample_count = read_training_sample_count(artifacts)
@@ -274,17 +289,9 @@ def resolve_canonical_training_triplet(
         require_standard=require_standard,
         dataset_dir=dataset_dir,
     )
-    resolved_matrix_index, matrix_binding_enforced = _resolve_triplet_matrix_index(
-        artifacts=artifacts,
-        row_index=row_index,
-        matrix_index=matrix_index,
-        dataset_dir=dataset_dir,
-    )
+    matrix_id = _matrix_sample_id(artifacts, row_index, dataset_dir)
     matrix = load_matrix_sparse_sample(
-        dataset_dir,
-        matrix_row(artifacts.matrix, row_index=row_index, matrix_id=resolved_matrix_index)
-        if matrix_binding_enforced
-        else resolved_matrix_index,
+        dataset_dir, matrix_row(artifacts.matrix, row_index=row_index, matrix_id=matrix_id)
     )
     rhs = _load_sample(artifacts.rhs, row_index).reshape(-1)
     lhs = _load_sample(artifacts.solutions, row_index).reshape(-1)
@@ -299,27 +306,32 @@ def resolve_canonical_training_triplet(
         rhs=rhs,
         lhs=lhs,
         sample_index=row_index,
-        matrix_index=resolved_matrix_index,
+        matrix_index=matrix_id,
         row_kind=row_kind,
-        matrix_binding_enforced=matrix_binding_enforced,
-        normalization=artifacts.normalization,
+        matrix_scaling=artifacts.scaling.for_matrix(matrix_id),
     )
 
 
-def try_read_dataset_normalization(path: str | Path) -> DatasetNormalization | None:
-    """Return persisted normalization metadata iff `path` is a manifest-backed dataset dir.
+def try_read_matrix_scaling(path: str | Path, matrix_row: int) -> PersistedMatrixScaling | None:
+    """Return the persisted scaling of one stored matrix iff `path` is a dataset dir.
 
     Args:
         path: Candidate dataset directory or raw file path.
+        matrix_row: Physical storage row of the matrix; its matrix id is read from the
+            dataset's `matrix_sample_index`.
 
     Returns:
-        The dataset's persisted `DatasetNormalization`, or `None` when `path`
-        is not a directory (i.e. a raw/external file with no manifest).
+        The dataset's scaling with that matrix's scale factor, or `None` when `path`
+        is not a directory (a raw/external file with no manifest).
+
+    Raises:
+        MissingMatrixSampleIndexError: If the dataset has no `matrix_sample_index`.
     """
     candidate = Path(path)
     if not candidate.is_dir():
         return None
-    return resolve_dataset_artifacts(candidate).normalization
+    artifacts = resolve_dataset_artifacts(candidate)
+    return artifacts.scaling.for_matrix(_matrix_sample_id(artifacts, matrix_row, candidate))
 
 
 def _load_resolved(artifact: ResolvedDatasetArtifact) -> np.ndarray:

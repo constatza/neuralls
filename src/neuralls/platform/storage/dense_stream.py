@@ -35,12 +35,11 @@ from neuralls.platform.storage.generation_formats import (
     _zarr_manifest_locations,
     _zarr_member_location,
     build_dense_manifest,
-    dense_normalization,
 )
-from neuralls.platform.storage.manifest import DatasetArtifact
+from neuralls.platform.storage.manifest import DatasetArtifact, DatasetScaling
 from neuralls.platform.storage.manifest_io import save_dataset_manifest
 from neuralls.shared.constants import PARAMETERS_ZARR_PREFIX
-from neuralls.shared.types import DatasetFormat, LayoutType, MatrixFormat, ScaleMetadata
+from neuralls.shared.types import DatasetFormat, LayoutType, MatrixFormat
 
 STREAMED_DENSE_FORMATS: frozenset[DatasetFormat] = frozenset({"zarr", "hdf5"})
 """Dataset formats whose dense arrays can be written batch by batch."""
@@ -54,17 +53,11 @@ class StreamedManifestFacts:
     """Run-level values the manifest records that the arrays themselves do not carry.
 
     Attributes:
-        normalization_type: Normalization strategy name.
-        matrix_norm: Representative matrix norm of the run.
-        matrix_norm_type: Norm type used for ``matrix_norm``.
-        scale_metadata: Shared scale payload, or None when bindings disagree.
+        scaling: How the run scaled its systems, with each matrix's scale factor.
         layout: Matrix layout the writer chose.
     """
 
-    normalization_type: str
-    matrix_norm: float
-    matrix_norm_type: str
-    scale_metadata: ScaleMetadata | None
+    scaling: DatasetScaling
     layout: LayoutType
 
 
@@ -118,12 +111,7 @@ def save_csr_stream_manifest(
         matrix_shape=matrix_shape,
         rhs_shape=rhs.shape,
         solutions_shape=solutions.shape,
-        normalization=dense_normalization(
-            normalization_type=facts.normalization_type,
-            matrix_norm=facts.matrix_norm,
-            matrix_norm_type=facts.matrix_norm_type,
-            scale_metadata=facts.scale_metadata,
-        ),
+        scaling=facts.scaling,
         layout=layout,
         params=_parameter_artifacts(artifacts, dataset_format, member),
         row_kind_shape=_shape_or_none(artifacts, ROW_KIND_NAME),
@@ -204,12 +192,7 @@ def save_dense_stream_manifest(
         matrix_shape=matrix.shape,
         rhs_shape=rhs.shape,
         solutions_shape=solutions.shape,
-        normalization=dense_normalization(
-            normalization_type=facts.normalization_type,
-            matrix_norm=facts.matrix_norm,
-            matrix_norm_type=facts.matrix_norm_type,
-            scale_metadata=facts.scale_metadata,
-        ),
+        scaling=facts.scaling,
         layout=facts.layout,
         params=_parameter_artifacts(artifacts, dataset_format, member),
         row_kind_shape=_shape_or_none(artifacts, ROW_KIND_NAME),

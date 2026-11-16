@@ -31,10 +31,9 @@ from neuralls.shared.constants import (
 )
 from neuralls.shared.digest import Cosmetic, InputData
 from neuralls.shared.scientific_description.policy import NotationPolicy
+from neuralls.shared.system_scaling import GershgorinScaling, RhsScaling, SystemScaling
 from neuralls.shared.timing import TimingRepeatPolicy
 from neuralls.shared.types import ComparisonRhsSourceKind, PreconditionerName, RowKind
-
-type NormalizeSystem = Literal["none", "matrix", "rhs", "both"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +70,8 @@ class ComparisonDataModel(BaseModel):
     matrix_path: Annotated[Path | None, Cosmetic()] = None
     rhs_path: Annotated[Path | None, Cosmetic()] = None
     dataset_alias: str | None = None
-    normalize_system: NormalizeSystem = "matrix"
+    system_scaling: SystemScaling = Field(default_factory=GershgorinScaling)
+    rhs_scaling: RhsScaling = RhsScaling.NONE
     require_non_residual_rhs: bool = True
     selection_seed: int | None = None
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -128,14 +128,14 @@ class RhsSourceModelBase(BaseModel):
     """Common shape of every comparison RHS source.
 
     The three class-level traits are the single place a kind's behaviour is
-    declared, so the planner, the normalization step and the report tables read
+    declared, so the planner, the scaling step and the report tables read
     them instead of keeping their own lists of kinds. A new source needs one
     model (declaring its traits) and one handler.
     """
 
     generated: ClassVar[bool]
     """The vector is synthesized from the source's parameters, so it is never
-    rescaled by a matrix-derived normalization scale."""
+    rescaled by a matrix-derived scale factor."""
     seeded: ClassVar[bool]
     """The vector consumes the per-system derived seed, so each of the
     ``rhs_count`` draws needs its own."""

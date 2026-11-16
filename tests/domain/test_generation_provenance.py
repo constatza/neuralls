@@ -29,6 +29,7 @@ from neuralls.shared.fact_binding import Fact, unbound_fields
 from neuralls.shared.scientific_description.models import ScientificDescription
 from neuralls.shared.scientific_description.policy import LEGEND_PROFILE, NotationPolicy
 from neuralls.shared.scientific_description.render import render
+from neuralls.shared.system_scaling import GershgorinScaling
 from neuralls.shared.types import GenerationStrategyKind
 
 STRATEGY_NAMES = [kind.value for kind in GenerationStrategyKind]
@@ -109,7 +110,7 @@ def test_counts_come_from_the_realized_rows_not_the_spec_budgets() -> None:
     ]
     assert [s.rows for s in generation.strategies] == [7, 13]
     assert generation.generated_rows == 20
-    assert generation.normalization == "matrix"
+    assert generation.scaling == GershgorinScaling()
 
 
 def test_open_ended_single_strategy_reports_realized_rows() -> None:

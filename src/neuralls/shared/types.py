@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, StrEnum
 from pathlib import Path
-from typing import Literal, NewType, TypedDict
+from typing import Literal, NewType
 
 import numpy as np
 from scipy.sparse import csr_array
@@ -23,11 +23,15 @@ from neuralls.shared.digest import Digest
 DatasetFormat = Literal["zarr", "npy", "hdf5"]
 """Supported dataset storage families for generated datasets."""
 
-NormalizeType = Literal["none", "matrix", "rhs"]
-"""Normalization applied to generated systems; shared because dataset provenance records it."""
-
 MatrixId = NewType("MatrixId", int)
 """A raw physical matrix index within a comparison dataset directory."""
+
+MatrixSampleId = NewType("MatrixSampleId", int)
+"""The id generation bound a matrix sample to (a dataset's ``matrix_sample_index`` value).
+
+It names a matrix, not a storage position: a multi-matrix dataset stores one matrix copy per
+row, so the same id occupies several stored rows. Used as the key of per-matrix scale factors.
+"""
 
 DatasetId = NewType("DatasetId", str)
 """A `[[datasets]]` registry id — a dataset reference, never a free-form label."""
@@ -240,10 +244,3 @@ class EigenvectorSelection(StrEnum):
     SMALLEST = "smallest"
     LARGEST = "largest"
     RANDOM = "random"
-
-
-class ScaleMetadata(TypedDict, total=False):
-    """Type-safe schema for scale metadata dictionary."""
-
-    spectral_radius_bound: float
-    dimension_scale: float

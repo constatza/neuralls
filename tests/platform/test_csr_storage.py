@@ -16,13 +16,14 @@ from neuralls.platform.storage.dataset_readers import (
     load_matrix_dense_sample,
     load_matrix_sparse_sample,
 )
-from neuralls.platform.storage.manifest import DatasetArtifact, DatasetNormalization
+from neuralls.platform.storage.manifest import DatasetArtifact, DatasetScaling
 from neuralls.platform.storage.manifest_io import (
     load_dataset_manifest,
     make_dataset_manifest,
     save_dataset_manifest,
 )
 from neuralls.shared.constants import DATASET_MANIFEST_FILENAME
+from neuralls.shared.system_scaling import NoScaling
 from neuralls.shared.types import DatasetFormat, LayoutType
 
 SEED = 0
@@ -96,8 +97,11 @@ def _save_manifest(
             solutions=DatasetArtifact(
                 path=SOLUTIONS_MEMBER, format="zarr", dtype="float64", shape=solutions.shape
             ),
-            normalization=DatasetNormalization(
-                type="none", matrix_norm=1.0, matrix_norm_type="frobenius", scale={}
+            scaling=DatasetScaling(
+                scaling=NoScaling(),
+                matrix_norm=1.0,
+                matrix_norm_type="frobenius",
+                matrix_scales={0: 1.0},
             ),
         ),
     )

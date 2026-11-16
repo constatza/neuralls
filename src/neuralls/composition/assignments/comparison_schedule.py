@@ -63,7 +63,7 @@ def method_major_schedule(pending: Sequence[PendingComparison]) -> MethodSchedul
     methods: dict[tuple[str, Digest], ResolvedMethod] = {}
     identities_by_name: dict[str, Digest] = {}
     origins_by_name: dict[str, MethodDataOrigin] = {}
-    semantics_by_name: dict[str, tuple[object, object]] = {}
+    semantics_by_name: dict[str, tuple[object, ...]] = {}
     expected_method_names: frozenset[str] | None = None
     grouped: dict[
         tuple[str, Digest],
@@ -102,7 +102,8 @@ def method_major_schedule(pending: Sequence[PendingComparison]) -> MethodSchedul
                     f"method {config.name!r} has different configuration identities "
                     "within one comparison workload"
                 )
-            semantics = (item.cfg.general.data.normalize_system, item.cfg.general.params)
+            data = item.cfg.general.data
+            semantics = (data.system_scaling, data.rhs_scaling, item.cfg.general.params)
             previous_semantics = semantics_by_name.setdefault(config.name, semantics)
             if previous_semantics != semantics:
                 raise ValueError(
@@ -134,7 +135,7 @@ def _load_linear_system(prepared: PreparedComparisonExecution) -> LinearSystem:
         rhs_source_kind=require_rhs_source_kind(prepared.cfg),
         rhs_source_params=data.rhs_source_params,
     )
-    return prepare_resolved_linear_system(resolved, data.normalize_system)
+    return prepare_resolved_linear_system(resolved, data.system_scaling, data.rhs_scaling)
 
 
 def _load_one_matrix_workload(

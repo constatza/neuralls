@@ -53,6 +53,7 @@ from neuralls.platform.reporting.figure_metadata import (
 from neuralls.platform.storage.facts_codec import decode_figure_scope, encode_figure_scope
 from neuralls.shared.rhs_recipe import SinusoidalRecipe
 from neuralls.shared.scientific_description.policy import NotationPolicy, RenderTarget
+from neuralls.shared.system_scaling import GershgorinScaling, RhsScaling
 from neuralls.shared.types import MatrixId, PreconditionerName
 
 SESSION_RUN_ID = "session-run"
@@ -67,7 +68,8 @@ CONTEXT = SolverTimingContext(
     timing_repeats=3,
     timing_warmup=1,
     timing_statistic="median",
-    normalization="matrix",
+    system_scaling=GershgorinScaling(),
+    rhs_scaling=RhsScaling.NONE,
 )
 
 
@@ -155,7 +157,8 @@ def test_card_of_each_scope_kind_round_trips_through_toml(
             "timing_repeats": 3,
             "timing_warmup": 1,
             "timing_statistic": "median",
-            "normalization": "matrix",
+            "system_scaling": {"kind": "gershgorin", "dimension_factor": "sqrt_n"},
+            "rhs_scaling": "none",
         }
     ]
     assert payload["source"] == {

@@ -116,7 +116,8 @@ def bind_comparison_config(
 
     preconditioners: list[PreconditionerConfig] = list(baseline.preconditioners)
     reference_preconditioner = baseline.reference_preconditioner
-    normalize_system = baseline.normalize_system
+    system_scaling = baseline.system_scaling
+    rhs_scaling = baseline.rhs_scaling
     presentation = baseline.presentation
     params_override: dict[str, Any] | None = None
 
@@ -125,8 +126,11 @@ def bind_comparison_config(
             preconditioners = list(method_override.preconditioners)
         if "reference_preconditioner" in method_override.general.model_fields_set:
             reference_preconditioner = method_override.general.reference_preconditioner
-        if "normalize_system" in method_override.general.data.model_fields_set:
-            normalize_system = method_override.general.data.normalize_system
+        data_override = method_override.general.data
+        if "system_scaling" in data_override.model_fields_set:
+            system_scaling = data_override.system_scaling
+        if "rhs_scaling" in data_override.model_fields_set:
+            rhs_scaling = data_override.rhs_scaling
         if method_override.general.params is not None:
             params_override = dict(method_override.general.params)
         if method_override.presentation is not None:
@@ -150,7 +154,8 @@ def bind_comparison_config(
                 matrix_path=matrix_path,
                 rhs_path=None,
                 matrix_index=planned.matrix.row,
-                normalize_system=normalize_system,
+                system_scaling=system_scaling,
+                rhs_scaling=rhs_scaling,
                 require_non_residual_rhs=entry.require_non_residual_rhs,
                 selection_seed=entry.seed,
                 rhs_source_kind=ComparisonRhsSourceKind(entry.rhs_source.kind),

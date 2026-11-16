@@ -28,16 +28,8 @@ from neuralls.shared.scientific_description.render import render
 
 _SCALE_DISAGREEMENT_TEXT: Final[dict[ScaleField, str]] = {
     ScaleField.MATRIX_NORM: (
-        "Bindings produced different normalized matrix norms; "
+        "Bindings produced different scaled matrix norms; "
         "the dataset manifest keeps a representative matrix_norm only."
-    ),
-    ScaleField.MATRIX_VALUE_SCALE: (
-        "Bindings produced different matrix value scales; "
-        "the dataset manifest omits a shared reversible matrix scale."
-    ),
-    ScaleField.SCALE_METADATA: (
-        "Bindings produced different scale metadata payloads; "
-        "the dataset manifest intentionally stores no shared scale metadata."
     ),
 }
 

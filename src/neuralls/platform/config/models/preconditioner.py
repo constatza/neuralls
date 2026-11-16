@@ -224,7 +224,7 @@ class IC0PreconditionerConfig(BasePreconditionerConfig):
         description=(
             "Drop tolerance - entries with |value| <= threshold are treated as zeros. "
             "An absolute constant is unsafe here: comparisons run against a "
-            "normalize_system-scaled matrix, so a fixed absolute threshold's "
+            "system_scaling-scaled matrix, so a fixed absolute threshold's "
             "effective strictness shifts with each matrix's own scale and can "
             "silently drop structurally-real entries, corrupting the IC(0) "
             "sparsity pattern. Default 0.0 only drops exact zeros."

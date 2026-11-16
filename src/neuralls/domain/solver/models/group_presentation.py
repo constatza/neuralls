@@ -17,12 +17,17 @@ from neuralls.shared.scientific_description.models import (
     ScientificFact,
     require_unique_keys,
 )
+from neuralls.shared.system_scaling import RhsScaling, SystemScaling
 from neuralls.shared.types import PreconditionerName
 
 
 @dataclass(frozen=True, slots=True)
 class SolverTimingContext:
-    """Solver, normalization, and repeat settings needed to interpret a figure."""
+    """Solver, scaling, and repeat settings needed to interpret a figure.
+
+    The scalings stay typed here; only the event-frame encoder and the figure-card writer
+    flatten them, and their readers decode them back.
+    """
 
     rtol: float
     atol: float
@@ -33,7 +38,8 @@ class SolverTimingContext:
     timing_repeats: int
     timing_warmup: int
     timing_statistic: str
-    normalization: str
+    system_scaling: SystemScaling
+    rhs_scaling: RhsScaling
 
 
 @dataclass(frozen=True, slots=True)
