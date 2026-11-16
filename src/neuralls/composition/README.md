@@ -213,7 +213,11 @@ fold. `assignments/runtime_split_patcher.py::patch_split_settings` points
 `TrainableJobConfig` kind and raises `StageInputsStale` (naming
 `neuralls generate`) when none exists; the job's own `data.splits` ratios are
 not consulted. `job_materializer.py::materialize_training_job` runs this stage
-right after dataset entries are injected.
+right after dataset entries are injected, then
+`assignments/runtime_model_patcher.py::patch_energy_inner_product`: a fit job whose
+`[model]` sets `inner_product = "energy"` gets the job's dataset directory, because the
+energy weight is the mean of that dataset's train-fold matrices and only the runtime knows
+which dataset a job fits from.
 
 Comparison consumes hashes: `comparison/input_gate.py::require_current_inputs`
 runs before any planning and checks that each `matrix_dataset` is reusable

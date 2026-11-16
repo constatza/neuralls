@@ -29,18 +29,59 @@ dataloader's batches, then delegate to the tensor-based `fit()`.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import Any
+from collections.abc import Iterable, Mapping
+from pathlib import Path
+from typing import Annotated, Any, Literal, assert_never
 
 import torch
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 from torchalg.utils.device import resolve_device
 
 from neuralls.composition.assignments.runtime_dataset_contract import (
     default_training_dataset_contract,
 )
+from neuralls.composition.generation.default_services import FS_SPLIT_STORE
+from neuralls.composition.preconditioners.reference_matrix import mean_train_matrix
 
 _DEFAULT_TARGET_NAME = default_training_dataset_contract().target_name
+
+EUCLIDEAN_INNER_PRODUCT = "euclidean"
+ENERGY_INNER_PRODUCT = "energy"
+
+
+class EuclideanInnerProduct(BaseModel):
+    """Fit the POD basis in the Euclidean inner product."""
+
+    kind: Literal["euclidean"] = EUCLIDEAN_INNER_PRODUCT
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class EnergyInnerProduct(BaseModel):
+    """Fit the POD basis in the energy inner product of the train-fold mean matrix.
+
+    A job's TOML names only ``inner_product = "energy"``; the runtime patcher adds the
+    dataset the job fits from, whose train-fold matrices define the weight.
+    """
+
+    kind: Literal["energy"] = ENERGY_INNER_PRODUCT
+    dataset_dir: Path
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+type InnerProduct = Annotated[
+    EuclideanInnerProduct | EnergyInnerProduct, Field(discriminator="kind")
+]
+_INNER_PRODUCT = TypeAdapter[EuclideanInnerProduct | EnergyInnerProduct](InnerProduct)
+
+
+def parse_inner_product(
+    value: str | Mapping[str, Any],
+) -> EuclideanInnerProduct | EnergyInnerProduct:
+    """Validate a `[model] inner_product` value: a kind name or a patched table."""
+    if isinstance(value, str):
+        return _INNER_PRODUCT.validate_python({"kind": value})
+    return _INNER_PRODUCT.validate_python(value)
 
 
 class PODCoarseningFittable(PODCoarseningStrategy):
@@ -64,8 +105,16 @@ class PODCoarseningFittable(PODCoarseningStrategy):
     dataloader concatenation described in `fit()`'s own docstring.
     """
 
-    def __init__(self, rank: float, target_name: str = _DEFAULT_TARGET_NAME) -> None:
-        """Store the target rank and dataloader batch key; unfitted until `fit()`.
+    def __init__(
+        self,
+        rank: float,
+        target_name: str = _DEFAULT_TARGET_NAME,
+        inner_product: str | Mapping[str, Any] = EUCLIDEAN_INNER_PRODUCT,
+    ) -> None:
+        """Store the target rank, dataloader batch key and inner product; unfitted until `fit()`.
+
+        Nothing is read here: a checkpoint rebuild calls this with the job's `[model]`
+        table, so the dataset named by an energy inner product need not exist then.
 
         Args:
             rank: Fixed mode count (int) or minimum cumulative captured
@@ -77,9 +126,12 @@ class PODCoarseningFittable(PODCoarseningStrategy):
                 (`composition/assignments/runtime_dataset_contract.py`) —
                 the same target key every other assignment in this repo binds
                 its supervised target array to.
+            inner_product: `"euclidean"` (default), or the energy inner product as
+                patched by the runtime job patcher (`{kind = "energy", dataset_dir}`).
         """
         super().__init__(rank=rank)
         self._target_name = target_name
+        self._inner_product = parse_inner_product(inner_product)
 
     @property
     def hparams(self) -> dict[str, Any]:
@@ -95,7 +147,7 @@ class PODCoarseningFittable(PODCoarseningStrategy):
         POD-specific, but a gap in any `Fittable` model used through
         `FitJobConfig` today.
         """
-        return {"rank": self._rank}
+        return {"rank": self._rank, "inner_product": self._inner_product.kind}
 
     def fit(
         self,
@@ -125,13 +177,15 @@ class PODCoarseningFittable(PODCoarseningStrategy):
                 to `PODCoarseningStrategy.fit` on both paths.
             inner_product: Dense SPD weight `W` of the POD inner product,
                 forwarded straight to `PODCoarseningStrategy.fit` on both paths;
-                `None` fits the Euclidean basis.
+                `None` uses the configured inner product (Euclidean, or the
+                train-fold mean matrix of the configured dataset).
 
         Raises:
             ValueError: If `snapshots` is a dataloader that yields no batches.
         """
         if isinstance(snapshots, torch.Tensor):
-            super().fit(snapshots, row_scales=row_scales, inner_product=inner_product)
+            weight = self._weight(inner_product, snapshots)
+            super().fit(snapshots, row_scales=row_scales, inner_product=weight)
             return
         # Single pass over the dataloader — never list(snapshots). Each batch is a
         # pin_memory'd TensorDict; materializing the whole dataloader up front would
@@ -151,4 +205,24 @@ class PODCoarseningFittable(PODCoarseningStrategy):
         # `concatenated` lives, and resolve_device() is the same GPU-if-available
         # convention comparison_run.py/domain/solver/comparison.py already use.
         concatenated = torch.cat(chunks, dim=0).to(resolve_device())
-        super().fit(concatenated, row_scales=row_scales, inner_product=inner_product)
+        weight = self._weight(inner_product, concatenated)
+        super().fit(concatenated, row_scales=row_scales, inner_product=weight)
+
+    def _weight(
+        self, explicit: torch.Tensor | None, snapshots: torch.Tensor
+    ) -> torch.Tensor | None:
+        """The POD weight `W`: an explicit one, else the configured inner product's.
+
+        The configured energy weight is placed like `snapshots`; `None` is the
+        Euclidean inner product.
+        """
+        if explicit is not None:
+            return explicit
+        match self._inner_product:
+            case EuclideanInnerProduct():
+                return None
+            case EnergyInnerProduct(dataset_dir=dataset_dir):
+                mean = mean_train_matrix(dataset_dir, FS_SPLIT_STORE)
+                return torch.as_tensor(mean, dtype=snapshots.dtype, device=snapshots.device)
+            case unreachable:
+                assert_never(unreachable)

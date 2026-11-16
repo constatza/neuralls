@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import numpy as np
 import pytest
 import torch
+from pydantic import ValidationError
 from torchalg.preconditioners.implementations.pod import PODCoarseningStrategy
 
-from neuralls.composition.preconditioners.pod_fittable import PODCoarseningFittable
+from neuralls.composition.preconditioners.pod_fittable import (
+    EnergyInnerProduct,
+    EuclideanInnerProduct,
+    PODCoarseningFittable,
+    parse_inner_product,
+)
 
 
 @pytest.fixture
@@ -100,7 +107,7 @@ def test_hparams_exposes_configured_rank_before_fit() -> None:
     """`.hparams` is readable before fit() — dlkit's tracking logger reads it first."""
     model = PODCoarseningFittable(rank=0.99)
 
-    assert dict(model.hparams) == {"rank": 0.99}
+    assert dict(model.hparams) == {"rank": 0.99, "inner_product": "euclidean"}
 
 
 def test_dataloader_fit_forwards_row_scales_like_the_parent_tensor_fit(
@@ -132,3 +139,46 @@ def test_dataloader_fit_forwards_the_inner_product_like_the_parent_tensor_fit(
     model.fit(snapshot_batches, inner_product=weight)
 
     torch.testing.assert_close(model._basis.cpu(), reference._basis, rtol=0.0, atol=0.0)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("euclidean", EuclideanInnerProduct()),
+        (
+            {"kind": "energy", "dataset_dir": "processed/pod"},
+            EnergyInnerProduct(dataset_dir=Path("processed/pod")),
+        ),
+    ],
+)
+def test_inner_product_parses_a_kind_name_or_a_patched_table(
+    value: str | dict[str, str], expected: EuclideanInnerProduct | EnergyInnerProduct
+) -> None:
+    assert parse_inner_product(value) == expected
+
+
+def test_energy_without_the_patched_dataset_is_rejected() -> None:
+    """A bare `"energy"` never reached the runtime patcher, so its weight is undefined."""
+    with pytest.raises(ValidationError):
+        PODCoarseningFittable(rank=2, inner_product="energy")
+
+
+def test_explicit_weight_wins_and_construction_reads_nothing(
+    snapshot_batches: list[dict[str, dict[str, torch.Tensor]]],
+) -> None:
+    """A configured energy dataset that does not exist is never read when a weight is given.
+
+    A checkpoint rebuild calls the constructor with the job's patched table on any machine,
+    so neither construction nor an explicitly weighted fit may touch the dataset.
+    """
+    snapshots = torch.cat([batch["targets"]["y"] for batch in snapshot_batches])
+    weight = torch.diag(torch.linspace(1.0, 4.0, snapshots.shape[1], dtype=torch.float64))
+    reference = PODCoarseningStrategy(rank=2)
+    reference.fit(snapshots, inner_product=weight)
+    model = PODCoarseningFittable(
+        rank=2, inner_product={"kind": "energy", "dataset_dir": "missing/pod-dataset"}
+    )
+
+    model.fit(snapshots, inner_product=weight)
+
+    torch.testing.assert_close(model._basis, reference._basis, rtol=0.0, atol=0.0)

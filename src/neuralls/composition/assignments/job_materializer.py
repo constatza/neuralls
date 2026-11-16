@@ -7,6 +7,7 @@ from dlkit.infrastructure.config.data_entries import DataEntry
 from neuralls.composition.assignments._job_types import AnyJobConfig, TrainableJobConfig
 from neuralls.composition.assignments.runtime_dataset_contract import RuntimeDatasetContract
 from neuralls.composition.assignments.runtime_dataset_patcher import patch_runtime_dataset
+from neuralls.composition.assignments.runtime_model_patcher import patch_energy_inner_product
 from neuralls.composition.assignments.runtime_split_patcher import patch_split_settings
 from neuralls.composition.assignments.runtime_tracking_patcher import ensure_runtime_tracking
 from neuralls.composition.assignments.runtime_workspace_patcher import (
@@ -44,6 +45,7 @@ def materialize_training_job[T: TrainableJobConfig](
         contract=contract,
     )
     settings = patch_split_settings(settings, split_file=split_store.require(workspace.data_dir))
+    settings = patch_energy_inner_product(settings, dataset_dir=workspace.data_dir)
     settings = patch_dataloader_runtime(settings, dataset_format=dataset_format)
     settings = patch_runtime_workspace_for_job(
         settings,
